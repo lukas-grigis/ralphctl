@@ -6,7 +6,7 @@ framework that lives under `src/application/chain/`.
 > Visual: [diagrams/00-chain-framework.md](./diagrams/00-chain-framework.md)
 
 > The filename is preserved from the v1 docs ("KERNEL-DESIGN.md") so existing cross-references don't break.
-> v0.7.0 has no `kernel/` module — the chain primitives live inside `application/` because they are application
+> The chain primitives live inside `application/` (there is no `kernel/` module) because they are application
 > orchestration, not business logic. The contract below describes what they do today.
 
 ## Goal
@@ -94,10 +94,8 @@ elements.
 
 ```ts
 sequential('refine', [
-  loadSprintLeaf,
-  assertDraftLeaf,
-  refinePerTicket, // ← itself a sequential; composite is just "an Element"
-  exportRequirementsLeaf,
+  loadAndAssertSprint(['draft']), // load-sprint + assert-sprint-status sub-chain
+  refineTickets, // ← itself a sequential; composite is just "an Element"
 ]);
 ```
 
@@ -111,7 +109,7 @@ Semantics:
 - Emits one trace entry per child element. Composites never report a self-entry.
 
 The implement chain uses a `sequential` of bridge leaves to iterate per-task subchains in topological order;
-there is no concurrent fan-out primitive in v0.7.0.
+there is no concurrent fan-out primitive (concurrent fan-out within a dependency level is deferred).
 
 ## loop — generator-evaluator primitive
 
@@ -135,9 +133,11 @@ Semantics:
 - Aborts on `signal.aborted` mid-iteration with a final `aborted` entry.
 - Body failure (`Result.isErr`) ends the loop with the failure wrapped.
 
-`loop` is the implement flow's generator-evaluator primitive. The body is itself a `sequential` of
-`generator-leaf → evaluator-leaf → settle-attempt-leaf`; the loop continues until the evaluator passes or the
-attempt cap fires.
+`loop` is used twice in the implement flow. The inner `loop('gen-eval-<id>')` body is a `sequential` of
+`generator-leaf → guarded evaluator-leaf`; it continues until the generator/evaluator sets a terminal exit on
+ctx (`ctx.lastExit`) or the `maxTurns` budget is reached. An outer `loop('task-attempts-<id>')` re-runs the
+whole attempt segment (`start-attempt → … → settle-attempt → progress-journal`) until the task settles
+`done`/`blocked` or `task.maxAttempts` fires.
 
 ## guard — predicate-skipped body
 
@@ -186,7 +186,7 @@ interface TraceEntry {
 type Trace = readonly TraceEntry[];
 ```
 
-This is the architectural fence: every chain definition has an integration test asserting
+This is the architectural fence: every chain definition has an e2e flow test asserting
 `trace.map(s => s.elementName)` for happy + failure paths. Step-order regressions break the build.
 
 `label` in a `TraceEntry` is copied verbatim from the source `Element.label` at the moment the entry is
@@ -219,10 +219,9 @@ The final returned `Trace` is the union of those emissions. Live UIs subscribe v
   - Aborted mid-run: `started → step* → aborted`
 - **Late-subscriber replay**: a listener added after a terminal state receives every recorded `step` event
   plus the matching terminal event. UI re-attach is lossless.
-- **Trace ring buffer**: `runner.trace` is capped at `MAX_TRACE_ENTRIES = 5_000` (in
-  `src/application/ui/tui/views/execute-view.tsx`, not in the runner itself) to bound the per-component
-  replay snapshot. Live subscribers still see every event; the cap only bounds the snapshot late
-  subscribers replay from.
+- **Trace ring buffer**: `runner.trace` is capped at `MAX_TRACE_ENTRIES = 5_000` (defined and enforced in
+  `src/application/chain/run/runner.ts`) to bound the snapshot late subscribers replay from. Live subscribers
+  still see every event; the cap only bounds the replay snapshot.
 - **Session scope**: the runner enters the `runWithSession(id, …)` scope before calling
   `element.execute(...)`. Deep adapter code can read `currentSessionId()` to tag logs / signals.
 
@@ -232,22 +231,22 @@ The final returned `Trace` is the union of those emissions. Live UIs subscribe v
 
 ```ts
 sequential('refine', [
-  loadSprintLeaf,
-  assertDraftLeaf,
+  loadAndAssertSprint(['draft']), // load-sprint + assert-sprint-status
   sequential(
-    'per-ticket',
+    'refine-tickets',
     tickets.map((t) =>
-      sequential(`ticket-${t.id}`, [
+      sequential(`refine-${t.id}`, [
+        fetchIssueContextLeaf, // pre-fetch the upstream issue body via gh/glab
         buildUnitLeaf(/* refinement/<ticket-slug>/ */),
-        installSkillsLeaf({ name: `install-skills-${t.id}` }),
         renderPromptToFileLeaf,
-        callRefineInteractiveLeaf, // reads <unit-root>/requirements.md, updates ticket
-        saveSprintLeaf,
+        installSkillsLeaf({ name: `install-skills-${t.id}` }),
+        stampSessionMetaLeaf,
+        refineTicketInteractiveLeaf, // reads <unit-root>/signals.json (refine contract), updates ticket
         uninstallSkillsLeaf({ name: `uninstall-skills-${t.id}` }),
+        saveSprintLeaf,
       ])
     )
   ),
-  exportRequirementsLeaf,
 ]);
 ```
 
@@ -255,26 +254,41 @@ sequential('refine', [
 
 ```ts
 const perTask = sequential('task-<id>', [
+  // Once-per-task prologue (skills install is not per-attempt).
   branchPreflightLeaf,
   buildTaskWorkspaceLeaf,
   installSkillsLeaf, // copies bundled skills into <repo>; git-excludes via ralphctl-*
-  startAttemptLeaf,
-  preTaskCheckLeaf, // pre-check before AI runs; result stored for attribution
+  // Outer attempt loop — re-runs the whole attempt segment up to `task.maxAttempts`
+  // times until the task settles `done`/`blocked`. `maxAttempts === 1` runs it once.
   loop(
-    'gen-eval-<id>',
-    sequential('gen-eval-turn-<id>', [
-      generatorLeaf, // writes rounds/<N>/generator/prompt.md before spawn
-      guard('evaluator-guard-<id>', (ctx) => ctx.lastExit === undefined, evaluatorLeaf),
-    ]), // evaluator writes rounds/<N>/evaluator/prompt.md before spawn
+    'task-attempts-<id>',
+    sequential('task-attempt-body-<id>', [
+      startAttemptLeaf,
+      preTaskVerifyLeaf, // baseline before AI runs; result stored for attribution
+      loop(
+        'gen-eval-<id>',
+        sequential('gen-eval-turn-<id>', [
+          generatorLeaf, // writes rounds/<N>/generator/prompt.md before spawn
+          guard('evaluator-guard-<id>', (ctx) => ctx.lastExit === undefined, evaluatorLeaf),
+        ]), // evaluator writes rounds/<N>/evaluator/prompt.md before spawn
+        {
+          shouldContinue: (ctx, i) => i <= settings.harness.maxTurns, // re-read each turn so a mid-run edit applies
+          shouldStop: (ctx) => ctx.lastExit !== undefined,
+        }
+      ),
+      finalizeGenEvalLeaf,
+      postTaskVerifyLeaf, // attributes outcome (clean/regressed/baseline-broken/fixed-baseline)
+      guard('commit-task-guard-<id>', (ctx) => ctx.lastBlockReason === undefined, commitTaskLeaf),
+      settleAttemptLeaf, // writes rounds/<N>/outcome.md (the next leaf appends to the journal)
+      appendLearningsLeaf, // appends <learning> signals to the project ledger
+      progressJournalLeaf, // appends the attempt section to the append-only progress.md journal
+    ]),
     {
-      shouldStop: (ctx) => ctx.lastExit !== undefined,
-      maxIterations: settings.harness.maxTurns,
+      maxIterations: task.maxAttempts,
+      shouldStop: (ctx) => terminalTaskStatus(ctx, taskId), // task settled `done`/`blocked`
     }
   ),
-  finalizeGenEvalLeaf,
-  postTaskCheckLeaf, // post-check; attributes outcome (clean/regressed/baseline-broken/fixed-baseline)
-  guard('commit-task-guard-<id>', (ctx) => ctx.lastBlockReason === undefined, commitTaskLeaf),
-  settleAttemptLeaf, // writes rounds/<N>/outcome.md + triggers progress.md snapshot
+  // Once-per-task epilogue.
   uninstallSkillsLeaf, // removes harness-installed ralphctl-* skills from <repo>
 ]);
 
@@ -284,26 +298,36 @@ const perTask = sequential('task-<id>', [
 // resumed sprint picks up the prior aborted task before any fresh work.
 const orderedTasks = [...tasks].sort((a, b) => (a.status === b.status ? 0 : a.status === 'in_progress' ? -1 : 1));
 
+// The whole run is wrapped in `withRepoLock(...)` keyed on the sprint dir — one implement
+// run at a time per sprint (it owns sprint-scoped state: tasks.json, progress.md, execution.json).
 sequential('implement', [
-  loadSprintLeaf,
-  activateSprintLeaf,
-  loadSprintExecutionLeaf,
-  loadTasksLeaf,
-  appendJournalSeparatorLeaf, // appends the 'activated' separator to the append-only progress.md journal
-  setupScriptRunnerLeaf, // unconditional; appends SetupRun entries to SprintExecution.setupRanAt
-  resolveBranchLeaf,
-  sequential('preflight-tasks', preflightLeaves),
-  sequential(
-    'implement-tasks',
-    orderedTasks.map(() => perTask)
-  ),
-  saveTasksLeaf,
-  guard(
-    'transition-sprint-to-review-when-any-done',
-    (ctx) => ctx.tasks?.some((t) => t.status === 'done'),
-    sequential('transition-to-review-and-snapshot', [
-      transitionSprintToReviewLeaf,
-      writeProgressSnapshotLeaf, // final snapshot after status transition
+  withRepoLock(
+    {
+      /* sprint-dir lock */
+    },
+    sequential('implement-locked', [
+      loadAndAssertSprint(['planned', 'active']), // load-sprint + assert-sprint-status
+      activateSprintLeaf,
+      loadSprintExecutionLeaf,
+      loadTasksLeaf,
+      resolveBranchLeaf, // assign + checkout the sprint branch first
+      sequential('working-tree-clean-checks', cleanLeaves), // hard-abort if any repo is dirty
+      appendJournalSeparatorLeaf, // appends the 'activated' separator to the append-only progress.md journal
+      setupScriptRunnerLeaf, // runs after branch + clean checks pass; appends SetupRun entries to SprintExecution.setupRanAt
+      sequential('preflight-tasks', preflightLeaves),
+      sequential(
+        'implement-tasks',
+        orderedTasks.map(() => perTask)
+      ),
+      saveTasksLeaf,
+      guard(
+        'transition-sprint-to-review-when-any-done',
+        (ctx) => ctx.tasks?.some((t) => t.status === 'done'),
+        sequential('transition-to-review-and-journal', [
+          transitionSprintToReviewLeaf,
+          appendJournalSeparatorLeaf, // appends the 'review' separator to the progress.md journal
+        ])
+      ),
     ])
   ),
 ]);
@@ -315,7 +339,8 @@ sequential('implement', [
   `loop.ts`, `guard.ts`). No barrels.
 - The `Element` interface and the helpers (`flattenLeaves`, `checkAborted`, `abortedEntry`,
   `skippedEntry`) live in the parent folder (`element.ts`, `trace.ts`).
-- Tests in sibling `*.test.ts` files. A failing test must precisely identify which primitive broke.
+- Tests live under `tests/unit/application/chain/` (mirroring the source path). A failing test must precisely
+  identify which primitive broke.
 
 ## What is **not** in the chain framework
 

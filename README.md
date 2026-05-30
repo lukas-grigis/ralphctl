@@ -11,7 +11,7 @@
 [![Built with Donuts](https://img.shields.io/badge/%F0%9F%8D%A9-Built_with_Donuts-ff6f00?style=flat)](https://github.com/lukas-grigis/ralphctl)
 
 <p align="center">
-  <img src="./.github/assets/home.png" alt="ralphctl v0.7.0 home screen — Ralph donut banner with 'The pointy kitty took it!' tagline, demo project tile, WORK / OBSERVE / SYSTEM menus with keybindings, bottom footer" width="900" />
+  <img src="./.github/assets/home.png" alt="ralphctl home screen — Ralph donut banner with 'The pointy kitty took it!' tagline, demo project tile, WORK / OBSERVE / SYSTEM menus with keybindings, bottom footer" width="900" />
 </p>
 
 **Agent harness for long-running AI coding tasks —
@@ -22,8 +22,8 @@ with [GitHub Copilot](https://docs.github.com/en/copilot/github-copilot-in-the-c
 > _"I'm helping!"_ — Ralph Wiggum
 
 > [!NOTE]
-> **Active development.** New features and polish ship regularly. The 0.7.x
-> line landed a burst of structural changes — thanks for sticking with us
+> **Active development.** New features and polish ship regularly. The 0.8.x
+> line continues a burst of structural changes — thanks for sticking with us
 > through it. Upgrades are simple: install the latest version, redo your
 > config, proceed. See [Upgrading](#upgrading) and [CHANGELOG](./CHANGELOG.md).
 
@@ -55,8 +55,9 @@ ralphctl
 ```
 
 That's it. The TUI launches, walks you through registering a project, refining your first ticket, generating a task
-plan, and kicking off implementation. Press `n` from the home screen to start a new sprint, or follow the
-`press r to open Sprints` hint on your project tile. No commands to memorize.
+plan, and kicking off implementation. Press `+` from the home screen to create a new sprint, press `n` to start a
+flow (refine / plan / implement / readiness / …), or open the Sprints submenu and follow its on-screen hint to pick
+or create a sprint. No commands to memorize.
 
 **Requirements:** [Node.js](https://nodejs.org/) ≥ 24, [Git](https://git-scm.com/), and one supported AI CLI in `PATH`
 and authenticated.
@@ -93,15 +94,11 @@ ralphctl export-context --sprint <id> --project <id> --output <path>
 # Settings
 ralphctl settings show
 ralphctl settings apply-preset claude-only     # or mixed / copilot-only / codex-only
-ralphctl settings set ai.implement.provider claude-code
-ralphctl settings set ai.implement.model      <model-id>
-ralphctl settings set ai.implement.effort     high
-
-# Rebuild a sprint's progress.md from disk
-ralphctl sprint regenerate-progress <sprint-id>
-
-# Single-frame text digest of the active sprint
-ralphctl snapshot [--sprint <id>]
+ralphctl settings set ai.implement.generator.provider claude-code
+ralphctl settings set ai.implement.generator.model    <model-id>
+ralphctl settings set ai.implement.generator.effort   high
+ralphctl settings set ai.implement.evaluator.provider openai-codex
+ralphctl settings set ai.implement.evaluator.model    <model-id>
 ```
 
 </details>
@@ -136,7 +133,7 @@ Key properties:
   critique and iterates (up to `harness.maxAttempts` tries before the task is flagged `blocked`)
 - **Context persistence** — sprint state, branch, progress history, and per-task context survive across sessions;
   interrupted runs resume automatically
-- **Multi-repo support** — one sprint can span several repositories with per-repo setup and check scripts
+- **Multi-repo support** — one sprint can span several repositories with per-repo setup and verify scripts
 
 For the full architectural picture see [`.claude/docs/ARCHITECTURE.md`](./.claude/docs/ARCHITECTURE.md) and [
 `.claude/docs/REQUIREMENTS.md`](./.claude/docs/REQUIREMENTS.md).
@@ -200,13 +197,15 @@ ralphctl settings apply-preset codex-only     # every flow on OpenAI Codex
 A preset stamps the entire `ai` section in one shot. None is marked default; on a fresh install the welcome
 view silently auto-seeds a preset based on which provider CLIs it detects on `PATH`.
 
-**Per-flow settings.** Each chain (`refine`, `plan`, `implement`, `ideate`, `readiness`) carries its own
-`{provider, model, effort?}` row. Edit individual keys with:
+**Per-flow settings.** Each flow carries its own `{provider, model, effort?}` row: `refine`, `plan`, `readiness`,
+`ideate`, and `createPr`. The `implement` flow instead splits into a nested `generator` / `evaluator` pair
+(`ai.implement.generator.*` and `ai.implement.evaluator.*`), each its own `{provider, model, effort?}` row. Edit
+individual keys with:
 
 ```bash
-ralphctl settings set ai.implement.provider claude-code
-ralphctl settings set ai.implement.model    <model-id>
-ralphctl settings set ai.implement.effort   high
+ralphctl settings set ai.implement.generator.provider claude-code
+ralphctl settings set ai.implement.generator.model    <model-id>
+ralphctl settings set ai.implement.generator.effort   high
 
 ralphctl settings set ai.plan.provider      github-copilot
 ralphctl settings set ai.plan.model         <model-id>
@@ -218,7 +217,7 @@ row's CLI at launch and exits with a clear error if the binary is missing.
 **Tune the generator-evaluator loop** (under `harness`):
 
 ```bash
-ralphctl settings set harness.maxAttempts 2          # Cap fix attempts per task (1–10, default 1)
+ralphctl settings set harness.maxAttempts 2          # Cap fix attempts per task (1–10, default 3)
 ralphctl settings set harness.maxTurns    8          # Generator-evaluator turns per attempt (1–10)
 ralphctl settings set harness.rateLimitRetries 3     # Adapter-side 429 retries (0–10)
 ```
@@ -234,16 +233,16 @@ export RALPHCTL_HOME="/path/to/custom/dir"
 
 ### Environment variables
 
-| Variable                     | Default        | Purpose                                                               |
-| ---------------------------- | -------------- | --------------------------------------------------------------------- |
-| `RALPHCTL_HOME`              | `~/.ralphctl/` | Override application root (data + config + state)                     |
-| `RALPHCTL_LOCK_TIMEOUT_MS`   | `30000`        | Stale lock threshold for concurrent-access detection (1–3600000 ms)   |
-| `RALPHCTL_SKIP_LEGACY_CHECK` | unset          | Bypass the v0.6.x legacy-layout detector at boot                      |
-| `RALPHCTL_LOG_LEVEL`         | `info`         | Filter structured-log output (`silent`/`debug`/`info`/`warn`/`error`) |
-| `RALPHCTL_NO_TUI`            | unset          | Force the plain-text CLI fallback even on a TTY                       |
-| `RALPHCTL_JSON`              | unset          | Force JSON log output (one object per line) regardless of TTY         |
-| `NO_COLOR`                   | unset          | Suppress ANSI colors                                                  |
-| `CI`                         | auto-detected  | Disables Ink mount and implicit interactive prompts                   |
+| Variable                     | Default        | Purpose                                              |
+| ---------------------------- | -------------- | ---------------------------------------------------- |
+| `RALPHCTL_HOME`              | `~/.ralphctl/` | Override application root (data + config + state)    |
+| `RALPHCTL_SKIP_LEGACY_CHECK` | unset          | Bypass the v0.6.x legacy-layout detector at boot     |
+| `RALPHCTL_NO_TUI`            | unset          | Suppress implicit interactive prompts in `implement` |
+| `NO_COLOR`                   | unset          | Suppress ANSI colors                                 |
+| `CI`                         | auto-detected  | Suppress implicit interactive prompts in `implement` |
+
+Log verbosity is `settings.logging.level` (`silent` / `debug` / `info` / `warn` / `error`, default `info`), set via
+`ralphctl settings set logging.level <level>` or the TUI `Settings` view — not an environment variable.
 
 ---
 
@@ -288,7 +287,6 @@ readiness / create sprint) stay TUI-only by design. The CLI exposes inspection +
 | `ralphctl settings set <key> <value>`   | Set a single settings key                                                               |
 | `ralphctl settings apply-preset <name>` | Stamp the entire `ai` section (`mixed` / `claude-only` / `copilot-only` / `codex-only`) |
 | `ralphctl completion <shell>`           | Print shell tab-completion script                                                       |
-| `ralphctl snapshot [--sprint <id>]`     | Single-frame text digest of sprint state                                                |
 
 ### Project & Sprint Inspection
 
@@ -305,15 +303,15 @@ readiness / create sprint) stay TUI-only by design. The CLI exposes inspection +
 | `ralphctl ticket list / show <id>` | Inspect tickets                           |
 | `ralphctl ticket remove <id>`      | Remove a ticket from a draft sprint       |
 | `ralphctl task list / show <id>`   | Inspect tasks (planning generates them)   |
+| `ralphctl task unblock <id>`       | Reset a blocked task to `todo`            |
 
 ### Sprint Lifecycle
 
-| Command                                    | Description                           |
-| ------------------------------------------ | ------------------------------------- |
-| `ralphctl sprint activate <id>`            | Flip a draft sprint to `active`       |
-| `ralphctl sprint close <id>`               | Transition `review` → `done`          |
-| `ralphctl sprint remove <id>`              | Delete a sprint permanently           |
-| `ralphctl sprint regenerate-progress <id>` | Rebuild `progress.md` from disk state |
+| Command                         | Description                     |
+| ------------------------------- | ------------------------------- |
+| `ralphctl sprint activate <id>` | Flip a draft sprint to `active` |
+| `ralphctl sprint close <id>`    | Transition `review` → `done`    |
+| `ralphctl sprint remove <id>`   | Delete a sprint permanently     |
 
 ### Export & PR
 
@@ -322,6 +320,13 @@ readiness / create sprint) stay TUI-only by design. The CLI exposes inspection +
 | `ralphctl export-requirements --sprint <id> --output <path>`           | Render approved-ticket requirements to markdown                |
 | `ralphctl export-context --sprint <id> --project <id> --output <path>` | Render harness context (sprint + project + tasks) to markdown  |
 | `ralphctl create-pr --sprint <id> [--base <branch>] [--draft]`         | Open a PR/MR via `gh` or `glab`, persist the URL on the sprint |
+
+### Maintenance
+
+| Command                                                                                    | Description                                     |
+| ------------------------------------------------------------------------------------------ | ----------------------------------------------- |
+| `ralphctl runs list [--flow <name>]`                                                       | List per-run forensic artifacts grouped by flow |
+| `ralphctl runs prune [--older-than 7d] [--keep-last <n>] [--flow <name>] [--dry-run] [-y]` | Delete per-run forensic artifacts               |
 
 Run `ralphctl <command> --help` for flag-level detail.
 

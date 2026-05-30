@@ -1,7 +1,7 @@
 # AI session data flow
 
 Every AI-spawning leaf (refine, plan, ideate, implement-generator/evaluator, readiness,
-detect-scripts, detect-skills, apply-feedback) follows the same audit-[09] contract: the AI
+detect-scripts, detect-skills, apply-feedback, create-pr) follows the same audit-[09] contract: the AI
 writes one file (`signals.json`), the harness validates + projects.
 
 ## What moves between the harness and the AI
@@ -11,7 +11,7 @@ sequenceDiagram
     participant Leaf as Chain leaf
     participant Prompt as &lt;leaf&gt;.contract.ts<br/>+ prompt template
     participant Disk as &lt;outputDir&gt;/
-    participant AI as Headless AI provider
+    participant AI as AI provider (headless / interactive)
     participant Bus as EventBus + sink
 
     Leaf->>Prompt: render with placeholders + outputContractSection
@@ -25,7 +25,7 @@ sequenceDiagram
     Leaf->>Disk: read signals.json
     Leaf->>Leaf: validate against signalsSchema (Zod)
     alt validation fails
-        Leaf-->>Bus: error (ParseError · MigrationGapError · signals-missing)
+        Leaf-->>Bus: error (ParseError · MigrationGapError · signals-missing · StorageError)
     else validation ok
         Leaf->>Disk: renderSidecars (commit-message.txt · evaluation.md · …)
         Leaf->>Bus: fan-out each validated signal
@@ -62,4 +62,4 @@ verbatim; the adapter only mirrors raw body for forensic capture.
 | Per-leaf contract    | `src/application/flows/<flow>/leaves/<leaf>.contract.ts`         |
 | Prompt section       | `src/integration/ai/contract/_engine/render-contract-section.ts` |
 
-See `.claude/docs/audit/09-ai-session-contract.md` for the original design.
+The audit-[09] contract is implemented under `src/integration/ai/contract/_engine/` (see the table above).

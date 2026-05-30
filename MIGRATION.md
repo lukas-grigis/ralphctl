@@ -13,6 +13,14 @@ Only the latest version is supported — no backporting, no parallel branches.
 The sections below give per-version context for what changed and why, in case
 you're crossing a big jump and want to know what to expect.
 
+## 0.8.0 → 0.8.6
+
+Nothing to do. The 0.8.x point releases only add silent, best-effort settings
+migrations applied automatically on read — for example, the new `ai.createPr`
+row is seeded from `ai.refine`, and retired model ids (`claude-opus-4-7` →
+`claude-opus-4-8`) are remapped. The canonical shape lands on the next `save()`.
+No manual steps. See [CHANGELOG](./CHANGELOG.md#086---2026-05-29).
+
 ## 0.7.x → 0.8.0
 
 0.8.0 flattens AI settings to per-flow rows, renames `checkScript` →
@@ -60,8 +68,8 @@ See [CHANGELOG](./CHANGELOG.md#080---2026-05-24) for the full list.
 
 - **On-disk schema is incompatible.** Each sprint now spans three files — `sprint.json` (planning),
   `execution.json` (branch / PR / setup audit), `tasks.json` (the task list) — instead of the single
-  0.6.x `sprint.json`. Override the data root with `RALPHCTL_HOME=<absolute-path>` if you need a
-  separate location.
+  0.6.x `sprint.json`. Override the application root (data + config + state) with
+  `RALPHCTL_HOME=<absolute-path>` if you need a separate location.
 - **`settings.json` schema changed.** Per-flow model selection replaces the single global `model`;
   each chain picks its own. 0.6.x settings files are rejected on read — re-run `ralphctl settings`
   to reconfigure.
@@ -69,7 +77,7 @@ See [CHANGELOG](./CHANGELOG.md#080---2026-05-24) for the full list.
   `sprint feedback / edit`, `ticket approve / edit`, `project repo add / remove`, all
   `task add / edit / edit-status / remove`, and `sessions list / attach / detach / kill`. Switch
   to the interactive TUI or to `ralphctl sprint show <id>` / the relevant flow command.
-- **OpenAI Codex provider added** (preview) alongside Claude Code and GitHub Copilot — pick via
+- **OpenAI Codex provider added** alongside Claude Code and GitHub Copilot — pick via
   `ralphctl settings`.
 
 See [CHANGELOG.md](./CHANGELOG.md#070---2026-05-18) for the full list, including non-breaking

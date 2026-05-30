@@ -1,7 +1,8 @@
 # Sprint lifecycle
 
-A sprint moves through four states: `draft → active → review → done`. This page shows the
-sequence of user actions that drive the transitions, not the full state machine.
+A sprint moves through five states: `draft → planned → active → review → done`. This page shows the
+sequence of user actions that drive the transitions, not the full state machine. (`plan` flips
+`draft → planned`; `implement` activates `planned → active`.)
 
 ## A typical sprint, end to end
 
@@ -15,12 +16,15 @@ sequenceDiagram
     User->>CLI: create-sprint
     CLI->>Sprint: write sprint.json (status=draft)
 
-    User->>CLI: add-tickets / refine / plan
-    CLI->>Tools: AI session (refine + plan are read-only)
-    CLI->>Sprint: tickets approved · tasks.json generated
+    User->>CLI: add-tickets / refine
+    CLI->>Tools: AI session (refine is read-only)
+    CLI->>Sprint: tickets approved (status stays draft)
+
+    User->>CLI: plan
+    CLI->>Sprint: tasks.json generated · status=planned
 
     User->>CLI: implement
-    CLI->>Sprint: auto-activate (status=active)
+    CLI->>Sprint: activate (planned → active)
     CLI->>Tools: setup-script (once per repo)
 
     loop one task at a time (topological order)
@@ -28,7 +32,7 @@ sequenceDiagram
         CLI->>Sprint: append attempt · update task status
     end
 
-    CLI->>Sprint: all tasks done → status=review
+    CLI->>Sprint: every task settled (done or blocked) → status=review
 
     opt Optional feedback loop
         User->>CLI: review
@@ -45,24 +49,25 @@ sequenceDiagram
 
 ## Operation matrix
 
-| Operation                  | draft | active | review | done |
-| -------------------------- | :---: | :----: | :----: | :--: |
-| Add / edit / remove ticket |   ✓   |   ✗    |   ✗    |  ✗   |
-| Refine requirements        |   ✓   |   ✗    |   ✗    |  ✗   |
-| Plan tasks                 |   ✓   |   ✗    |   ✗    |  ✗   |
-| Implement                  |  ✓\*  |   ✓    |   ✗    |  ✗   |
-| Review (apply feedback)    |   ✗   |   ✗    |   ✓    |  ✗   |
-| Close (review → done)      |   ✗   |   ✗    |   ✓    |  ✗   |
-| `sprint show / list`       |   ✓   |   ✓    |   ✓    |  ✓   |
+| Operation                  | draft | planned | active | review | done |
+| -------------------------- | :---: | :-----: | :----: | :----: | :--: |
+| Add / edit / remove ticket |   ✓   |    ✗    |   ✗    |   ✗    |  ✗   |
+| Refine requirements        |   ✓   |    ✗    |   ✗    |   ✗    |  ✗   |
+| Plan tasks                 |   ✓   |    ✗    |   ✗    |   ✗    |  ✗   |
+| Implement                  |   ✗   |   ✓\*   |   ✓    |   ✗    |  ✗   |
+| Review (apply feedback)    |   ✗   |    ✗    |   ✗    |   ✓    |  ✗   |
+| Close (review → done)      |   ✗   |    ✗    |   ✗    |   ✓    |  ✗   |
+| `sprint show / list`       |   ✓   |    ✓    |   ✓    |   ✓    |  ✓   |
 
-\*`implement` auto-activates a draft sprint that has tasks.
+\*`implement` activates a `planned` sprint (`planned → active`) on first launch; an already-`active`
+sprint passes through idempotently. A draft sprint must be planned first.
 
 ## On-disk shape
 
 ```
 <dataRoot>/sprints/<sprint-id>/
 ├── sprint.json          ← planning aggregate (tickets, status, project ref)
-├── execution.json       ← runtime audit (branch, PR URL, per-repo setupRunAt)
+├── execution.json       ← runtime audit (branch, PR URL, per-repo setupRanAt)
 ├── tasks.json           ← task list with status + attempts
 ├── events.ndjson            ← EventBus trace (opt-in via RALPHCTL_DEBUG_TRACE)
 ├── progress.md          ← human-readable journal (one section per settled attempt)
@@ -78,5 +83,5 @@ The split keeps planning mutations isolated from execution-time writes — corru
 
 - Entity: `src/domain/entity/sprint.ts` + `sprint-execution.ts`
 - Repositories: `src/domain/repository/sprint/{sprint,sprint-execution}-repository.ts`
-- Mutators: `src/business/sprint/{create,plan,activate,transition-to-review,transition-to-done}.ts`
+- Mutators: `src/business/sprint/{create-sprint,plan-sprint,activate-sprint,transition-sprint-to-review,transition-sprint-to-done}.ts`
 - Schema: `src/integration/persistence/sprint/sprint.schema.ts` (zod, with `schemaVersion`)

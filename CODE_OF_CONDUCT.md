@@ -22,7 +22,7 @@ Unacceptable behavior includes harassment, trolling, deliberate intimidation, an
 ## Enforcement
 
 Instances of unacceptable behavior can be reported
-via [GitHub's private reporting](https://github.com/lukas-grigis/ralphctl/security). Reports will be reviewed and
+via [GitHub's private reporting](https://github.com/lukas-grigis/ralphctl/security/advisories/new). Reports will be reviewed and
 handled appropriately.
 
 ## Attribution

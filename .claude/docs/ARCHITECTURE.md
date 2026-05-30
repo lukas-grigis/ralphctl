@@ -42,7 +42,7 @@ ESLint `no-restricted-imports` (in `eslint.config.ts`) enforces every direction.
 - **No barrel files anywhere under `src/`** — every import names what it pulls in directly. `export *` is banned.
 - **Sibling-isolation in `integration/ai/<concept>/`** — each per-tool / per-variant adapter directory is
   independent. Cross-sibling reach goes through a shared `_engine/` sub-namespace (or `_partials/` for prompts).
-  Applies to `prompts/<flow>/`, `signals/<variant>/`, `providers/<tool>/`, `readiness/<tool>/`, `skills/<source>/`.
+  Applies to `prompts/<flow>/`, `providers/<tool>/`, `readiness/<tool>/`, `skills/<source>/`; per-signal Zod schemas are isolated under `contract/_engine/signals/<kind>/`.
 - **Port-shaped names live in `_engine/`** — interfaces / type aliases named `*Port`, `*Adapter`, `*Provider`,
   `*Sink`, `*Loader`, `*Probe`, `*Reader`, `*Writer`, `*Renderer`, `*Detector` must be declared in a concept's
   `_engine/` sub-namespace. Factory inputs named `*Deps` are exempt.
@@ -76,7 +76,7 @@ on every settlement. The split keeps planning mutations isolated from execution-
 list does not lose the sprint plan.
 
 `Repository` is **nested inside `Project`** as a value object — not its own aggregate. Project carries an array
-of repositories (each with `setupScript`, `verifyScript`, `onboardedAt`); mutating a repo goes through
+of repositories (each with `setupScript`, `verifyScript`, `verifyTimeout`, optional skill/script hints); mutating a repo goes through
 `ProjectRepository.save()`.
 
 `Ticket` is nested inside `Sprint` (status flips `pending → approved` during refine).
@@ -85,7 +85,7 @@ of repositories (each with `setupScript`, `verifyScript`, `onboardedAt`); mutati
 
 > Visual: [diagrams/00-chain-framework.md](./diagrams/00-chain-framework.md)
 
-Five factory functions under `src/application/chain/`:
+The `Element` interface plus four factory functions under `src/application/chain/`:
 
 - `element.ts` — the `Element<TCtx>` interface every primitive implements. Carries `name`, optional `label`
   (human-friendly display string for UI surfaces — see below), optional `children` (for composite walk), and
@@ -108,7 +108,7 @@ The `ChainRunner` (`src/application/chain/run/runner.ts`) wraps one `Element.exe
 machine (`idle → running → completed | failed | aborted`) and an event stream
 (`started | step | completed | failed | aborted`). Late subscribers added after a terminal state receive a
 synthetic replay of every step entry plus the matching terminal event — UI re-attach is lossless. The trace is
-ring-buffered at `MAX_TRACE_ENTRIES = 20_000` to bound the per-runner memory footprint on multi-task runs.
+ring-buffered at `MAX_TRACE_ENTRIES = 5_000` to bound the per-runner memory footprint on multi-task runs.
 
 See [KERNEL-DESIGN.md](./KERNEL-DESIGN.md) for the full contract.
 
@@ -170,7 +170,7 @@ in `domain/repository/<aggregate>/`.
 | `ReadinessProbe`                                      | `integration/ai/readiness/_engine/` | per-tool probes under `readiness/<tool>/`                         |
 | `SkillsAdapter` + `SkillSource`                       | `integration/ai/skills/_engine/`    | per-tool adapter + bundled / project source                       |
 | `GitRunner` / `ShellScriptRunner`                     | `integration/io/`                   | `createGitRunner` / `createShellScriptRunner`                     |
-| `FileLocker` + `WriteFile`                            | `business/io/` + `integration/io/`  | `createFileLocker` / atomic write helper                          |
+| `WriteFile` (port) + `FileLocker` (adapter)           | `business/io/` / `integration/io/`  | atomic write helper / `createFileLocker`                          |
 | `IssueFetcher` / `IssuePusher` / `PullRequestCreator` | `business/scm/`                     | `gh` / `glab` shell wrappers under `integration/scm/`             |
 | `VersionChecker`                                      | `business/version/`                 | `createNpmVersionChecker` (`integration/version/`)                |
 
@@ -204,10 +204,13 @@ application/bootstrap/
 │                            StoragePaths carries appRoot / dataRoot / configRoot / stateRoot /
 │                            locksRoot / runsRoot / memoryRoot
 ├── runtime-sinks.ts       ← AppSinks (HarnessSignalSink, …)
-├── provider-factory.ts    ← createAiProvider({ ai, harnessConfig, eventBus, spawn? })
+├── provider-factory.ts    ← createAiProvider({ harnessConfig, eventBus, spawn? } & ({ flow, ai } | { row }))
 ├── interactive-provider-factory.ts
-└── config.ts              ← default settings + IterationConfig satisfies-check
+└── legacy-layout-detector.ts  ← v0.6.x layout detector (RALPHCTL_SKIP_LEGACY_CHECK bypass)
 ```
+
+(Default settings live in `src/business/settings/defaults.ts`; `IterationConfig` is declared in
+`src/application/chain/run/iteration-config.ts`.)
 
 `wire(opts)` returns the `AppDeps` graph — every concrete adapter, in one pure object. Tests construct one from
 a tmpdir via `storagePathsFromRoot(tmpDir)` so no test ever touches `~/.ralphctl/`. Production resolves real
@@ -238,6 +241,8 @@ ChainStarted |
   MemoryPressureEvent |
   ChainLogDegradedEvent |
   HarnessSignalEvent |
+  AiSignalEvent |
+  ModelEscalatedEvent |
   LogEvent;
 ```
 
@@ -295,12 +300,11 @@ are imported by the launcher (`application/ui/shared/launch/<flow>.ts`) or the C
 | `create-pr`                    | use-case | yes                           | Open PR via `gh` / `glab`, persist URL on execution |
 | `doctor`                       | use-case | yes                           | Environment health check                            |
 | `settings`                     | use-case | yes (`settings show` / `set`) | Per-key read/write                                  |
-| `ticket-add` / `ticket-remove` | use-case | yes                           | Per `docs/api.md`                                   |
+| `ticket-add` / `ticket-remove` | use-case | yes                           | `ticket add` / `ticket remove`                      |
 | —                              | CLI-only | `runs list` / `runs prune`    | Inspect and prune per-run forensic artifacts        |
-| —                              | CLI-only | `snapshot`                    | Render one static text frame of the active sprint   |
 
-CLI surface is deliberately smaller than v0.6.x — the interactive chains stay TUI-only by design. See
-`docs/api.md` (in this repo's docs at the v2 source) for flag-level detail on the CLI commands.
+CLI surface is deliberately smaller than v0.6.x — the interactive chains stay TUI-only by design. Run
+`ralphctl <command> --help` for flag-level detail on the CLI commands.
 
 ## Validation strategy
 
@@ -350,14 +354,13 @@ of the stack — the leaf or use-case wrapping them catches and converts to `Res
 │           ├── refinement/<ticket-slug>/  ← per-ticket sandbox for refine AI session
 │           │   ├── prompt.md
 │           │   └── requirements.md  ← AI writes; harness reads back
-│           ├── planning/<unit-slug>/      ← sandbox for plan AI session
+│           ├── plan/<run-slug>/           ← sandbox for plan AI session
 │           │   ├── prompt.md
-│           │   └── plan.json
-│           ├── ideation/<unit-slug>/      ← sandbox for ideate AI session
-│           ├── implement/<unit-slug>/     ← per-task sandbox
+│           │   └── signals.json
+│           ├── ideate/                    ← sandbox for ideate AI session
+│           ├── implement/<task-id>/       ← per-task sandbox
 │           │   ├── prompt.md
-│           │   ├── done-criteria.md
-│           │   └── rounds/<N>/
+│           │   └── rounds/<N>/                   ← done-criteria.md was removed in audit-[05]; criteria live on Task.verificationCriteria and in each round prompt.md
 │           │       ├── outcome.md              ← settle-attempt verdict (written after settlement)
 │           │       ├── generator/
 │           │       │   ├── prompt.md           ← rendered generator prompt (written before spawn)
@@ -367,10 +370,12 @@ of the stack — the leaf or use-case wrapping them catches and converts to `Res
 │           │           ├── prompt.md           ← rendered evaluator prompt (written before spawn)
 │           │           ├── signals.json
 │           │           └── session-id.txt
-│           └── review/<unit-slug>/        ← apply-feedback sandbox
+│           ├── feedback.md            ← human review feedback input (read by the review flow)
+│           ├── distill/               ← learning-distill AI session sandbox (opt-in at close)
+│           └── review/                ← apply-feedback per-round forensics
 └── state/
     └── locks/
-        └── sprints/<sprint-id>.lock ← cross-process advisory lock
+        └── repo-<worktree-hash>.lock ← cross-process advisory lock (one per working tree, keyed by sha1 of the absolute repo path)
 ```
 
 Path resolution lives in `src/application/bootstrap/storage-paths.ts` (`resolveStoragePaths`,
@@ -390,9 +395,9 @@ smart constructors. Read the source for the field list; this section names each 
 and the non-obvious mutators.
 
 - **`Project`** (`project.ts`) — identified by `ProjectId`; carries an array of `Repository` value objects (each
-  with `setupScript`, `verifyScript`, `verifyTimeout`, `onboardedAt`, and optional `suggestedSkills`
+  with optional `setupScript`, `verifyScript`, `verifyTimeout`, `setupSkill`, `verifySkill`, and `suggestedSkills`
   — names persisted by `offerSkillSuggestionsLeaf` in the readiness flow).
-- **`Sprint`** (`sprint.ts`) — identified by `SprintId`; lifecycle `draft → active → review → done`; carries
+- **`Sprint`** (`sprint.ts`) — identified by `SprintId`; lifecycle `draft → planned → active → review → done`; carries
   `projectId`, nested `Ticket[]`, `affectedRepositories` (absolute paths). Mutators: `addTicket`, `refineTicket`,
   `removeTicket`, `planSprint(draft → planned)`, `activate`, `transitionToReview`, `transitionToDone`.
 - **`SprintExecution`** (`sprint-execution.ts`) — identified by the parent `SprintId`; carries `branch`,
@@ -411,12 +416,14 @@ and the non-obvious mutators.
   Consistency). Optional `maxAttempts` overrides the global cap. Optional `escalatedFromModel` /
   `escalatedToModel` are stamped on first plateau-escalation.
 - **`Settings`** — declared by `SettingsSchema` in `domain/entity/settings.ts`. Top-level fields:
-  `schemaVersion`, `ai: { provider, models }`,
-  `harness: { maxTurns, maxAttempts, rateLimitRetries, plateauThreshold }`, `logging: { level }`,
-  `concurrency: { maxParallelTasks }`, `ui: { notifications: { enabled } }`,
-  `developer: { showEvaluatorFailureUI }`. `ai.provider` is one of
-  `'claude-code' | 'github-copilot' | 'openai-codex'`; `ai.models` is an object keyed by chain
-  (`refine` / `plan` / `implement` / `readiness` / `ideate`).
+  `schemaVersion` (currently `2`), `ai`,
+  `harness: { maxTurns, maxAttempts, rateLimitRetries, plateauThreshold, escalateOnPlateau, escalationMap }`,
+  `logging: { level }`, `concurrency: { maxParallelTasks }`, `ui: { notifications: { enabled } }`,
+  `developer: { showEvaluatorFailureUI }`. `ai` is a flat per-flow record: an optional global
+  `ai.effort` plus one row per flow — `ai.{refine, plan, readiness, ideate, createPr}`, each
+  `{ provider, model, effort? }`, and `ai.implement`, a nested `{ generator, evaluator }` pair
+  where each role is its own `{ provider, model, effort? }` row. `provider` is one of
+  `'claude-code' | 'github-copilot' | 'openai-codex'`.
 
 ## Harness Signals
 
@@ -453,7 +460,8 @@ EventBus events emitted by the chain runner / adapters (not parsed from AI outpu
 `ChainStepStarted`, `ChainStepCompleted`, `ChainStepFailed`, `ChainCompleted`, `ChainFailed`,
 `ChainAborted`, `TaskAttemptStarted`, `TaskAttemptEvaluated`, `TaskRoundStarted`,
 `FeedbackRoundApplied`, `TokenUsageEvent`, `BannerShowEvent`, `BannerClearEvent`,
-`MemoryPressureEvent`, `ChainLogDegradedEvent`, `HarnessSignalEvent`, `LogEvent`.
+`MemoryPressureEvent`, `ChainLogDegradedEvent`, `HarnessSignalEvent`, `AiSignalEvent`,
+`ModelEscalatedEvent`, `LogEvent`.
 
 ## Error Classes
 
@@ -471,16 +479,13 @@ All domain errors extend `DomainError` (`src/domain/value/error/domain-error.ts`
 | `RateLimitError`    | `domain/value/error/` | AI process rate-limited (wraps spawn outcome)                          |
 | `AbortError`        | `domain/value/error/` | User-initiated cancellation; propagates through chains                 |
 | `ProbeError`        | `domain/value/error/` | Readiness probe rejection                                              |
+| `MigrationGapError` | `domain/value/error/` | On-disk schemaVersion older than expected and no migration registered  |
 
 ## Exit Codes
 
-`src/application/ui/cli/exit-codes.ts`:
-
-| Code | Constant           | Meaning                       |
-| ---- | ------------------ | ----------------------------- |
-| 0    | `EXIT_SUCCESS`     | All operations completed      |
-| 1    | `EXIT_ERROR`       | Validation or execution error |
-| 130  | `EXIT_INTERRUPTED` | SIGINT received               |
+The CLI does not centralise exit codes in a constants module. Commands set `0` on success and `1` on any
+validation/execution error via `process.exitCode = 1` (`src/application/ui/cli/cli.ts`) or `process.exit(1)`
+(`src/application/ui/cli/bootstrap.ts` and per-command actions). No SIGINT-specific (130) code is emitted.
 
 ## Terminal UI Layer (`src/application/ui/`)
 

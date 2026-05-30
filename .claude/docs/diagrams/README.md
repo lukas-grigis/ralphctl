@@ -1,6 +1,6 @@
 # Architecture diagrams
 
-Sequence and data-flow diagrams for the v0.7.x architecture. GitHub renders Mermaid natively
+Sequence and data-flow diagrams for the current architecture. GitHub renders Mermaid natively
 in markdown previews — no toolchain required.
 
 | #   | Diagram                                              | What it shows                                                                            |
@@ -33,8 +33,8 @@ in markdown previews — no toolchain required.
 ## When to update
 
 When a flow's element graph changes, a state transition is added or removed, or a new chain
-primitive ships — update the matching diagram in the same commit. Step-order fence tests
-under `tests/integration/flows/<flow>/` lock the code side; these diagrams lock the
+primitive ships — update the matching diagram in the same commit. Per-leaf tests under
+`tests/integration/application/flows/<flow>/` lock the code side; these diagrams lock the
 human-readable understanding.
 
 ## Rendering outside GitHub
