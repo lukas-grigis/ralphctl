@@ -221,6 +221,47 @@ describe('createDistillLearningsSubChain', () => {
     expect(runner.trace.map((t) => t.status)).toContain('skipped');
   });
 
+  it('empty/absent ledger → distill-has-candidates guard skips the fold: no AI spawn, no warn, ledger untouched', async () => {
+    // No ledger seeded at all (beforeEach only mkdir's the dir). load-learnings proposes an empty
+    // candidate set, so the inner `distill-has-candidates` guard must skip the per-provider fold and
+    // the stamp leaf — otherwise distill-propose would render an empty CANDIDATE_LEARNINGS and the
+    // prompt's requireNonEmpty would fail, surfacing a spurious "distill failed" warn.
+    const calls: InteractiveAiProviderInput[] = [];
+    const confirms = scriptedConfirms([]);
+    const warns: string[] = [];
+    const warnLogger = {
+      debug() {},
+      info() {},
+      warn(message: string) {
+        warns.push(message);
+      },
+      error() {},
+      named: () => warnLogger,
+    } as unknown as DistillLearningsDeps['logger'];
+
+    const chain = createDistillLearningsSubChain(
+      buildDeps({
+        interactiveAiFor: () => fakeInteractiveAi({ calls }),
+        interactive: confirms.prompt,
+        logger: warnLogger,
+      }),
+      { projectId: PROJECT_ID, memoryRoot, distillRoot, ai: allClaude }
+    );
+
+    const runner = await run(chain, initialCtx(true));
+
+    expect(runner.status).toBe('completed');
+    // The fold was skipped wholesale — no AI spawn, no confirm consumed, no warn logged.
+    expect(calls).toHaveLength(0);
+    expect(confirms.confirmCount()).toBe(0);
+    expect(warns).toHaveLength(0);
+    // No native context file landed; the ledger file was never created.
+    expect(await fileExists(join(repoPath, 'CLAUDE.md'))).toBe(false);
+    expect(await fileExists(ledgerPath)).toBe(false);
+    // The guard emits a `skipped` trace entry for the fold body (distill-fold).
+    expect(runner.trace.some((t) => t.elementName === 'distill-fold' && t.status === 'skipped')).toBe(true);
+  });
+
   it('accept (single provider) → propose→confirm→write fires once, ledger stamped', async () => {
     await seedLedger([serializeLearningRecord(record({ id: 'a' })), serializeLearningRecord(record({ id: 'b' }))]);
 

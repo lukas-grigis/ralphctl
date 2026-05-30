@@ -14,6 +14,7 @@ import {
   parseLearningLine,
   serializeLearningRecord,
 } from '@src/application/flows/_shared/memory/learning-record.ts';
+import { isAbortedRead } from '@src/application/flows/_shared/memory/abort-guard.ts';
 
 const LEAF_NAME = 'stamp-promoted';
 
@@ -128,17 +129,4 @@ const stamp = async (
 
   log.info(`stamped ${stampedCount} learning(s) promoted`, { path: String(path), stampedCount });
   return Result.ok(stampedCount);
-};
-
-/**
- * True when a thrown read error is the result of an aborted `AbortSignal`. Node surfaces this as
- * an `Error` with `name === 'AbortError'` and `code === 'ABORT_ERR'`.
- */
-const isAbortedRead = (cause: unknown, signal: AbortSignal | undefined): boolean => {
-  if (signal?.aborted === true) return true;
-  if (cause instanceof Error) {
-    if (cause.name === 'AbortError') return true;
-    if ((cause as { code?: unknown }).code === 'ABORT_ERR') return true;
-  }
-  return false;
 };

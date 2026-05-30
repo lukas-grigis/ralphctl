@@ -7,6 +7,7 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { type LearningRecord, parseLearningLine } from '@src/application/flows/_shared/memory/learning-record.ts';
+import { isAbortedRead } from '@src/application/flows/_shared/memory/abort-guard.ts';
 
 const LEAF_NAME = 'load-learnings';
 
@@ -101,18 +102,4 @@ const loadCandidates = async (
 
   log.info(`loaded ${candidates.length} candidate learning(s)`, { path: String(path), count: candidates.length });
   return Result.ok(candidates);
-};
-
-/**
- * True when a thrown read error is the result of an aborted `AbortSignal`. Node surfaces this as
- * an `Error` with `name === 'AbortError'` and `code === 'ABORT_ERR'`; we also treat an already-
- * fired signal as decisive in case the runtime races the throw.
- */
-const isAbortedRead = (cause: unknown, signal: AbortSignal | undefined): boolean => {
-  if (signal?.aborted === true) return true;
-  if (cause instanceof Error) {
-    if (cause.name === 'AbortError') return true;
-    if ((cause as { code?: unknown }).code === 'ABORT_ERR') return true;
-  }
-  return false;
 };

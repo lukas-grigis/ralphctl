@@ -59,6 +59,15 @@ export type TaskGraphIssue =
  *  - no cycles (A → B → ... → A)
  *
  * Returns `Result.ok(undefined)` when sound, otherwise the first issue found.
+ *
+ * NOTE — the error channel is the {@link TaskGraphIssue} discriminated union, NOT a `DomainError`,
+ * which is deliberate (the only domain function that does so). A graph fault isn't a single
+ * error type: each kind carries structured fields the two callers render differently
+ * (`parseTaskList` folds the issue into a `ParseError` message via {@link renderTaskGraphIssue};
+ * `resolveImplementQueue` surfaces it as a `TaskGraphIssue` the launcher renders inline). Picking a
+ * concrete `DomainError` here would force one caller to re-parse a flattened message to recover the
+ * structure — so the structured union stays the contract and each caller maps it onto its own error
+ * envelope. This is not an oversight.
  */
 export const validateTaskGraph = (tasks: readonly Task[]): Result<undefined, TaskGraphIssue> => {
   const byId = new Map<TaskId, Task>();

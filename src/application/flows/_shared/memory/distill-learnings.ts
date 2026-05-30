@@ -3,7 +3,7 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { ValidationError } from '@src/domain/value/error/validation-error.ts';
-import type { AiProvider, AiSettings } from '@src/domain/entity/settings.ts';
+import { uniqueProvidersFromAi, type AiProvider, type AiSettings } from '@src/domain/entity/settings.ts';
 import type { InteractiveAiProvider } from '@src/integration/ai/providers/_engine/interactive-ai-provider.ts';
 import type { RunInTerminal } from '@src/integration/io/run-in-terminal.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
@@ -14,7 +14,6 @@ import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
 import { guard } from '@src/application/chain/build/guard.ts';
-import { uniqueProvidersFromAi } from '@src/application/flows/readiness/flow.ts';
 import { learningsLedgerPath } from '@src/application/flows/_shared/memory/ledger-path.ts';
 import { loadLearningsLeaf } from '@src/application/flows/_shared/memory/load-learnings.ts';
 import { stampPromotedLeaf } from '@src/application/flows/_shared/memory/stamp-promoted.ts';
@@ -170,19 +169,28 @@ export const createDistillLearningsSubChain = (
     buildPerProviderSegment(deps, opts, provider, toolForProvider(provider))
   );
 
+  const stampPromoted = stampPromotedLeaf<DistillLearningsCtx>(
+    { writeFile: deps.writeFile, logger: deps.logger, clock: deps.clock },
+    {
+      path: () => path,
+      acceptedIds: (ctx) => ctx.acceptedIds ?? [],
+      output: (ctx) => ctx,
+    }
+  );
+
   const body = sequential<DistillLearningsCtx>('distill-learnings', [
     loadLearningsLeaf<DistillLearningsCtx>(
       { logger: deps.logger },
       { path: () => path, output: (ctx, candidates) => ({ ...ctx, candidates }) }
     ),
-    ...perProviderSegments,
-    stampPromotedLeaf<DistillLearningsCtx>(
-      { writeFile: deps.writeFile, logger: deps.logger, clock: deps.clock },
-      {
-        path: () => path,
-        acceptedIds: (ctx) => ctx.acceptedIds ?? [],
-        output: (ctx) => ctx,
-      }
+    // An empty / absent ledger leaves `ctx.candidates` empty. Skip the per-provider fold AND the
+    // stamp in that case: the distill prompt's `CANDIDATE_LEARNINGS` placeholder requires a
+    // non-empty value, so spawning the AI on zero candidates would only fail and emit a spurious
+    // "distill failed" warn. The guard emits a clean `skipped` trace instead — no AI spawn.
+    guard<DistillLearningsCtx>(
+      'distill-has-candidates',
+      (ctx) => (ctx.candidates?.length ?? 0) > 0,
+      sequential<DistillLearningsCtx>('distill-fold', [...perProviderSegments, stampPromoted])
     ),
   ]);
 

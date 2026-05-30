@@ -1,6 +1,11 @@
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import { primaryFlowRow, type AiProvider, type AiSettings } from '@src/domain/entity/settings.ts';
+import {
+  primaryFlowRow,
+  uniqueProvidersFromAi,
+  type AiProvider,
+  type AiSettings,
+} from '@src/domain/entity/settings.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
 import { loadProjectLeaf } from '@src/application/flows/_shared/project/load.ts';
@@ -51,32 +56,6 @@ const pickRowForProvider = (ai: AiSettings, provider: AiProvider): FlowId => {
   }
   // Caller derived the provider list from these same rows; unreachable.
   throw new Error(`pickRowForProvider: provider ${provider} not referenced in ai settings`);
-};
-
-/**
- * Compute the unique providers referenced across all five per-flow rows, preserving the order
- * they first appear in `FLOW_IDS`. Used by {@link createReadinessFlow} to decide which native
- * context files to write — one per unique provider. For `implement` both the generator and
- * evaluator role's providers contribute, so a cross-provider implement still produces both
- * context files.
- */
-export const uniqueProvidersFromAi = (ai: AiSettings): readonly AiProvider[] => {
-  const seen = new Set<AiProvider>();
-  const ordered: AiProvider[] = [];
-  const visit = (provider: AiProvider): void => {
-    if (seen.has(provider)) return;
-    seen.add(provider);
-    ordered.push(provider);
-  };
-  for (const flow of FLOW_IDS) {
-    if (flow === 'implement') {
-      visit(ai.implement.generator.provider);
-      visit(ai.implement.evaluator.provider);
-      continue;
-    }
-    visit(ai[flow].provider);
-  }
-  return ordered;
 };
 
 /**

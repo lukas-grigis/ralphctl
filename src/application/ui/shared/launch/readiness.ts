@@ -2,7 +2,7 @@ import type { Element } from '@src/application/chain/element.ts';
 import { createRunner, type Runner } from '@src/application/chain/run/runner.ts';
 import { createReadinessFlow } from '@src/application/flows/readiness/flow.ts';
 import type { ReadinessCtx } from '@src/application/flows/readiness/ctx.ts';
-import { uniqueProvidersFromAi } from '@src/application/flows/readiness/flow.ts';
+import { uniqueProvidersFromAi } from '@src/domain/entity/settings.ts';
 import { toolForProvider } from '@src/integration/ai/readiness/_engine/tool.ts';
 import { createAiProvider } from '@src/application/bootstrap/provider-factory.ts';
 import { createSkillsAdapter } from '@src/integration/ai/skills/adapter-factory.ts';

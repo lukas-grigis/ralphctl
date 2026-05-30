@@ -13,6 +13,7 @@ import type { Repository } from '@src/domain/entity/repository.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { LearningRecord } from '@src/application/flows/_shared/memory/learning-record.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
@@ -87,7 +88,18 @@ const distillProposeUseCase = async (
   if (!prompt.ok) return Result.error(prompt.error);
 
   const toolDir = join(String(deps.distillRoot), tool);
-  await fs.mkdir(toolDir, { recursive: true });
+  try {
+    await fs.mkdir(toolDir, { recursive: true });
+  } catch (cause) {
+    return Result.error(
+      new StorageError({
+        subCode: 'io',
+        message: `distill-propose-${tool}: cannot create sandbox dir ${toolDir}`,
+        path: toolDir,
+        cause,
+      })
+    );
+  }
   const promptFileResult = AbsolutePath.parse(join(toolDir, 'prompt.md'));
   if (!promptFileResult.ok) return Result.error(promptFileResult.error);
   const outputFileResult = AbsolutePath.parse(join(toolDir, 'context-file.out'));
