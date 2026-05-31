@@ -1,4 +1,4 @@
-import { startAttemptUseCase, type StartAttemptProps } from '@src/business/task/start-attempt.ts';
+import { type StartAttemptProps, startAttemptUseCase } from '@src/business/task/start-attempt.ts';
 import type { InProgressTask, Task } from '@src/domain/entity/task.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';

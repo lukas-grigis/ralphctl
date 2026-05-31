@@ -3,6 +3,13 @@ import { Result } from '@src/domain/result.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { createEventBusLogger } from '@src/business/observability/event-bus-logger.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
+import { absolutePath, isoTimestamp } from '@tests/fixtures/domain.ts';
+import { preflightTaskLeaf } from '@src/application/flows/implement/leaves/preflight-task.ts';
+import type { GitRunner, GitRunResult } from '@src/integration/io/git-runner.ts';
+import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
+import { SprintId } from '@src/domain/value/id/sprint-id.ts';
+import type { Choice, InteractivePrompt } from '@src/business/interactive/prompt.ts';
+import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 
 const captureLogEvents = (
   bus: ReturnType<typeof createInMemoryEventBus>
@@ -13,13 +20,6 @@ const captureLogEvents = (
   });
   return captured;
 };
-import { absolutePath, isoTimestamp } from '@tests/fixtures/domain.ts';
-import { preflightTaskLeaf } from '@src/application/flows/implement/leaves/preflight-task.ts';
-import type { GitRunner, GitRunResult } from '@src/integration/io/git-runner.ts';
-import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
-import { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import type { Choice, InteractivePrompt } from '@src/business/interactive/prompt.ts';
-import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 
 const NOW = isoTimestamp('2026-05-09T10:00:00.000Z');
 const CWD = absolutePath('/tmp/repo');

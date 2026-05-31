@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MemoryPressureEvent } from '@src/business/observability/events.ts';
-import { startHeapWatchdog, type HeapReading } from '@src/integration/observability/heap-watchdog.ts';
+import { type HeapReading, startHeapWatchdog } from '@src/integration/observability/heap-watchdog.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { isoTimestamp } from '@tests/fixtures/domain.ts';
 

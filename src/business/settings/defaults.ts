@@ -1,7 +1,7 @@
 import {
-  CURRENT_SCHEMA_VERSION,
   type AiProvider,
   type AiSettings,
+  CURRENT_SCHEMA_VERSION,
   type Settings,
 } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';

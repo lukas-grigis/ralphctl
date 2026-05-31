@@ -19,14 +19,7 @@
  * ANSI sequence comparison.
  */
 
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-
-const sizeRef = vi.hoisted(() => ({ columns: 120, rows: 40 }));
-
-vi.mock('@src/application/ui/tui/runtime/use-terminal-size.ts', () => ({
-  useTerminalSize: (): { columns: number; rows: number } => ({ columns: sizeRef.columns, rows: sizeRef.rows }),
-}));
-
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { SprintDetailView } from '@src/application/ui/tui/views/sprint-detail-view.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
@@ -38,6 +31,12 @@ import type { Task } from '@src/domain/entity/task.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
+
+const sizeRef = vi.hoisted(() => ({ columns: 120, rows: 40 }));
+
+vi.mock('@src/application/ui/tui/runtime/use-terminal-size.ts', () => ({
+  useTerminalSize: (): { columns: number; rows: number } => ({ columns: sizeRef.columns, rows: sizeRef.rows }),
+}));
 
 const FIXED_SPRINT_ID = 'sprint-fixture-id' as unknown as SprintId;
 

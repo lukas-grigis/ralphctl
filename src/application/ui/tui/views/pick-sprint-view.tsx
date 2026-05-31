@@ -46,9 +46,9 @@ import {
   nextCursorableIndex,
 } from '@src/application/ui/tui/views/pick-sprint-internals/group-builder.ts';
 import {
+  computeWindow,
   MIN_VISIBLE_ROWS,
   VERTICAL_CHROME_ROWS,
-  computeWindow,
 } from '@src/application/ui/tui/views/pick-sprint-internals/window.ts';
 import { RowWindowView } from '@src/application/ui/tui/views/pick-sprint-internals/row-views.tsx';
 

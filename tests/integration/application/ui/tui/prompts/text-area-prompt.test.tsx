@@ -23,8 +23,8 @@ import {
   HOME,
   LEFT,
   RIGHT,
-  UP,
   tick,
+  UP,
 } from '@tests/integration/application/ui/tui/_keys.ts';
 
 describe('TextAreaPrompt', () => {

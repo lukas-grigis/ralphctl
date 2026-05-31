@@ -3,6 +3,14 @@ import { Result } from '@src/domain/result.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { createEventBusLogger } from '@src/business/observability/event-bus-logger.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
+import { absolutePath, isoTimestamp, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
+import { SprintId } from '@src/domain/value/id/sprint-id.ts';
+import { commitTaskLeaf } from '@src/application/flows/implement/leaves/commit-task.ts';
+import type { GitRunner, GitRunResult } from '@src/integration/io/git-runner.ts';
+import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
+import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
+import type { StorageError } from '@src/domain/value/error/storage-error.ts';
+import type { Task } from '@src/domain/entity/task.ts';
 
 const captureLogEvents = (
   bus: ReturnType<typeof createInMemoryEventBus>
@@ -13,14 +21,6 @@ const captureLogEvents = (
   });
   return captured;
 };
-import { absolutePath, isoTimestamp, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
-import { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import { commitTaskLeaf } from '@src/application/flows/implement/leaves/commit-task.ts';
-import type { GitRunner, GitRunResult } from '@src/integration/io/git-runner.ts';
-import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
-import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
-import type { StorageError } from '@src/domain/value/error/storage-error.ts';
-import type { Task } from '@src/domain/entity/task.ts';
 
 const NOW = isoTimestamp('2026-05-09T10:00:00.000Z');
 const CWD = absolutePath('/tmp/repo');

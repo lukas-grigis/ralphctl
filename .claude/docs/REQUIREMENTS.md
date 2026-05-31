@@ -39,7 +39,8 @@ it done; when a behaviour regresses, untick it.
       `tasks.json` + `progress.md` + per-flow sandbox folders. `events.ndjson` lands here too when
       `RALPHCTL_DEBUG_TRACE=1` (opt-in debug sink, no-op otherwise).
 - [ ] **Cross-process repo lock** — `<stateRoot>/locks/repo-<hash>.lock` (sha1 of the repo worktree path)
-      blocks two ralphctl processes from racing the same working tree. Stale-takeover fires after the locker's fixed 30s threshold
+      blocks two ralphctl processes from racing the same working tree. Stale-takeover fires after the locker's fixed 30s
+      threshold
       (`DEFAULT_STALE_AFTER_MS`, clamped 1ms..1h) — not env-configurable.
 - [ ] **`@public` JSDoc tag whitelist** — `pnpm deadcode` exits 0 on a clean tree; symbols intentionally kept
       after dead-code cleanup are tagged `@public`.
@@ -113,7 +114,9 @@ Status flow: `draft → planned → active → review → done`.
       the rendered issue. The scheduled levels are flattened into one serial queue — tasks run strictly
       one at a time, each dependency leading the tasks that rely on it. `maxParallelTasks` stays the
       pre-existing setting (default `1`, no concurrent execution).
-- [x] **Per-task generator-evaluator loop** — the attempt body is `start-attempt → pre-task-verify → gen-eval inner loop (generator/evaluator per turn) → finalize → post-task-verify → commit (guarded) → settle-attempt → append-learnings → progress-journal`, wrapped in an outer `loop` over attempts.
+- [x] **Per-task generator-evaluator loop** — the attempt body is
+      `start-attempt → pre-task-verify → gen-eval inner loop (generator/evaluator per turn) → finalize → post-task-verify → commit (guarded) → settle-attempt → append-learnings → progress-journal`,
+      wrapped in an outer `loop` over attempts.
       Exits when the evaluator passes or `maxAttempts` is hit (then transition to `blocked`).
       A single launch runs the outer attempt loop up to `maxAttempts` times per task (`maxAttempts === 1`
       preserves the prior single-attempt-per-launch behaviour).

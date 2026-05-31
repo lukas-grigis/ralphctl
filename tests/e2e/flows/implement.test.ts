@@ -1,4 +1,4 @@
-import { promises as fs, mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, promises as fs, rmSync } from 'node:fs';
 import { realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -13,6 +13,7 @@ import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/h
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
+import { createSprintExecution, setExecutionBranch } from '@src/domain/entity/sprint-execution.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import type { SprintExecutionRepository } from '@src/domain/repository/sprint/sprint-execution-repository.ts';
@@ -24,15 +25,14 @@ import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.t
 import {
   absolutePath,
   FIXED_LATER,
+  FIXED_NOW,
   FIXED_REPOSITORY_ID,
   makeApprovedTicket,
   makePlannedSprint,
   makeTodoTask,
   repositoryId,
 } from '@tests/fixtures/domain.ts';
-import { createSprintExecution, setExecutionBranch } from '@src/domain/entity/sprint-execution.ts';
 import { startNextAttempt } from '@src/domain/entity/task-attempts.ts';
-import { FIXED_NOW } from '@tests/fixtures/domain.ts';
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
 import type { GitRunner, GitRunResult } from '@src/integration/io/git-runner.ts';

@@ -36,8 +36,8 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import {
   ensureStorageRoots,
-  storagePathsFromRoot,
   type StoragePaths,
+  storagePathsFromRoot,
 } from '@src/application/bootstrap/storage-paths.ts';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import { wire } from '@src/application/bootstrap/wire.ts';

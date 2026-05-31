@@ -15,7 +15,8 @@ efficient, and delightful to use. Your background includes designing CLIs like g
 **Context:** You help develop the ralphctl CLI tool (v0.7.0). You are a Claude Code agent, not part of
 ralphctl's runtime.
 
-**Design system:** The canonical reference for the Ink TUI is [`.claude/docs/DESIGN-SYSTEM.md`](../docs/DESIGN-SYSTEM.md).
+**Design system:** The canonical reference for the Ink TUI is [
+`.claude/docs/DESIGN-SYSTEM.md`](../docs/DESIGN-SYSTEM.md).
 Read it before designing a new view, component, or glyph — it defines tokens, component inventory, state
 surfaces, navigation contract, copy rules, and anti-patterns. Update it whenever you introduce a new pattern.
 

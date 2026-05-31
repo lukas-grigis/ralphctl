@@ -1,4 +1,4 @@
-import { promises as fs, mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, promises as fs, rmSync } from 'node:fs';
 import { realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -13,6 +13,7 @@ import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import type { SprintExecutionRepository } from '@src/domain/repository/sprint/sprint-execution-repository.ts';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
+import { createSprintExecution, setExecutionBranch } from '@src/domain/entity/sprint-execution.ts';
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
@@ -25,13 +26,11 @@ import {
   makePlannedSprint,
   makeTodoTask,
 } from '@tests/fixtures/domain.ts';
-import { createSprintExecution, setExecutionBranch } from '@src/domain/entity/sprint-execution.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
 import type { GitRunner, GitRunResult } from '@src/integration/io/git-runner.ts';
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
 import { writeJsonAtomic } from '@src/integration/io/fs.ts';
-import type { Choice, InteractivePrompt } from '@src/business/interactive/prompt.ts';
-import type { AskConfirmInput } from '@src/business/interactive/prompt.ts';
+import type { AskConfirmInput, Choice, InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import { createInMemorySink } from '@tests/fixtures/in-memory-sink.ts';
 import { createFileLocker } from '@src/integration/io/file-locker.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';

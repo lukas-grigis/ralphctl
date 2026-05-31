@@ -5,16 +5,16 @@
  * hatch.
  */
 
+import type { MutableRefObject } from 'react';
 import { useEffect, useMemo, useRef } from 'react';
 import { useApp, useInput } from 'ink';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
-import { createCopyToClipboard, type CopyToClipboard } from '@src/integration/io/clipboard.ts';
+import { type CopyToClipboard, createCopyToClipboard } from '@src/integration/io/clipboard.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
-import type { MutableRefObject } from 'react';
 
 /** Duration of the "Copied to clipboard" toast before the global handler auto-clears it. */
 const CLIPBOARD_TOAST_DURATION_MS = 2000;

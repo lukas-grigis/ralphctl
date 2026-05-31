@@ -1,16 +1,12 @@
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { realpath, mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { setupScriptRunnerLeaf } from '@src/application/flows/implement/leaves/setup-script-runner.ts';
 import { createSprintExecution, type SprintExecution } from '@src/domain/entity/sprint-execution.ts';
-import type { ShellRunOptions, ShellScriptRunner, ShellScriptResult } from '@src/integration/io/shell-script-runner.ts';
-
-/** Local scale constant used to build deliberately large output fixtures (audit-[03]: no
- *  persistence-time cap on the bus emitter; the test asserts the full body lands on disk). */
-const HUGE_OUTPUT_BYTES = 4096;
+import type { ShellRunOptions, ShellScriptResult, ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
@@ -20,6 +16,10 @@ import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
+
+/** Local scale constant used to build deliberately large output fixtures (audit-[03]: no
+ *  persistence-time cap on the bus emitter; the test asserts the full body lands on disk). */
+const HUGE_OUTPUT_BYTES = 4096;
 
 const REPO_PATH = absolutePath('/tmp/repo');
 

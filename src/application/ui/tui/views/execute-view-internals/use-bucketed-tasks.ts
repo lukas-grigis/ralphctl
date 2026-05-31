@@ -21,8 +21,8 @@ import type { AppEvent } from '@src/business/observability/events.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
 import { useTaskRoundTracker } from '@src/application/ui/tui/runtime/use-task-round-tracker.ts';
 import {
-  bucketTaskSignals,
   type BucketedExecution,
+  bucketTaskSignals,
   type TaskBucket,
 } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';

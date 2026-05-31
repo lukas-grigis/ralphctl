@@ -4,13 +4,18 @@ import type { DoneSprint, Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
-import { FIXED_LATER, isoTimestamp, makeReviewSprint, makePlannedSprint } from '@tests/fixtures/domain.ts';
+import {
+  absolutePath,
+  FIXED_LATER,
+  isoTimestamp,
+  makePlannedSprint,
+  makeReviewSprint,
+} from '@tests/fixtures/domain.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { createCloseSprintFlow } from '@src/application/flows/close-sprint/flow.ts';
 import type { CloseSprintCtx } from '@src/application/flows/close-sprint/ctx.ts';
 import { recordingAppendFile } from '@tests/fixtures/recording-append-file.ts';
-import { absolutePath } from '@tests/fixtures/domain.ts';
 
 const NOW = isoTimestamp('2026-05-09T10:00:00.000Z');
 

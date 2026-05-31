@@ -12,7 +12,7 @@ import {
   readFileSafely,
 } from '@src/integration/ai/readiness/_engine/probe-fs.ts';
 import type { ClaudeArtifacts } from '@src/integration/ai/readiness/claude/artifacts.ts';
-import { absentState, type ReadinessState, presentState } from '@src/integration/ai/readiness/_engine/state.ts';
+import { absentState, presentState, type ReadinessState } from '@src/integration/ai/readiness/_engine/state.ts';
 import { hasAnyClaudeArtifact } from '@src/integration/ai/readiness/_engine/predicates.ts';
 import type { ReadinessProbe } from '@src/integration/ai/readiness/_engine/probe.ts';
 

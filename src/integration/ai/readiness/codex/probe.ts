@@ -5,7 +5,7 @@ import type { ProbeError } from '@src/domain/value/error/probe-error.ts';
 import type { Repository } from '@src/domain/entity/repository.ts';
 import type { CodexArtifacts } from '@src/integration/ai/readiness/codex/artifacts.ts';
 import { probeFile, probeNamedDirCollection } from '@src/integration/ai/readiness/_engine/probe-fs.ts';
-import { absentState, type ReadinessState, presentState } from '@src/integration/ai/readiness/_engine/state.ts';
+import { absentState, presentState, type ReadinessState } from '@src/integration/ai/readiness/_engine/state.ts';
 import { hasAnyCodexArtifact } from '@src/integration/ai/readiness/_engine/predicates.ts';
 import type { ReadinessProbe } from '@src/integration/ai/readiness/_engine/probe.ts';
 

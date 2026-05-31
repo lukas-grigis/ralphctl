@@ -2,8 +2,8 @@ import { Result } from '@src/domain/result.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import { type DraftSprint, replaceTicket, type Sprint } from '@src/domain/entity/sprint.ts';
 import {
-  approveTicketRequirements,
   type ApprovedTicket,
+  approveTicketRequirements,
   type PendingTicket,
   type Ticket,
 } from '@src/domain/entity/ticket.ts';

@@ -8,7 +8,7 @@ import type { Project } from '@src/domain/entity/project.ts';
 import type { Ticket } from '@src/domain/entity/ticket.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { ParseError } from '@src/domain/value/error/parse-error.ts';
-import { scheduleIntoWaves, renderTaskGraphIssue } from '@src/domain/entity/task-graph.ts';
+import { renderTaskGraphIssue, scheduleIntoWaves } from '@src/domain/entity/task-graph.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import { TaskImportListSchema, type TaskImportSpec } from '@src/integration/ai/prompts/_engine/task-import-schema.ts';
 import type { z } from 'zod';

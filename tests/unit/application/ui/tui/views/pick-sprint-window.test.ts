@@ -5,7 +5,7 @@
  * helper that picks the visible slice.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { computeWindow } from '@src/application/ui/tui/views/pick-sprint-view.tsx';
 
 describe('computeWindow', () => {

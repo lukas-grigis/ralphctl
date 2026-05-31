@@ -32,8 +32,8 @@ import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
 import {
   type LearningRecord,
-  serializeLearningRecord,
   parseLearningLine,
+  serializeLearningRecord,
 } from '@src/application/flows/_shared/memory/learning-record.ts';
 import {
   createDistillLearningsSubChain,

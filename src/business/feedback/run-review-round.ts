@@ -1,6 +1,6 @@
 import { Result } from '@src/domain/result.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
-import { applyFeedbackUseCase, type ApplyFeedbackProps } from '@src/business/feedback/apply-feedback.ts';
+import { type ApplyFeedbackProps, applyFeedbackUseCase } from '@src/business/feedback/apply-feedback.ts';
 import { type FeedbackRound, isTerminationRound, parseFeedbackMd } from '@src/business/feedback/md-parser.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';

@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  LEGACY_SKIP_ENV,
   detectLegacyLayout,
+  LEGACY_SKIP_ENV,
   renderLegacyLayoutMessage,
 } from '@src/application/bootstrap/legacy-layout-detector.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';

@@ -11,13 +11,13 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
-import { ListView, type ListColumn } from '@src/application/ui/tui/components/list-view.tsx';
+import { type ListColumn, ListView } from '@src/application/ui/tui/components/list-view.tsx';
 import { EmptyState } from '@src/application/ui/tui/components/empty-state.tsx';
-import { StatusChip, runnerStatusKind } from '@src/application/ui/tui/components/status-chip.tsx';
+import { runnerStatusKind, StatusChip } from '@src/application/ui/tui/components/status-chip.tsx';
 import { ConfirmPrompt } from '@src/application/ui/tui/prompts/confirm-prompt.tsx';
-import { spacing, glyphs, inkColors } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
-import { useSessions, useSessionManager } from '@src/application/ui/tui/runtime/sessions-context.tsx';
+import { useSessionManager, useSessions } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';

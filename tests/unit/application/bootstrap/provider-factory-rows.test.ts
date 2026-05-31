@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AiFlowSettings, Settings } from '@src/domain/entity/settings.ts';
+import { createAiProvider } from '@src/application/bootstrap/provider-factory.ts';
+import { createClaudeProvider } from '@src/integration/ai/providers/claude/headless.ts';
+import { createCopilotProvider } from '@src/integration/ai/providers/copilot/headless.ts';
+import { createCodexProvider } from '@src/integration/ai/providers/codex/headless.ts';
+import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 
 /**
  * Spy-driven coverage for the explicit `{ row }` shape of {@link createAiProvider}. The two
@@ -18,12 +23,6 @@ vi.mock('@src/integration/ai/providers/copilot/headless.ts', () => ({
 vi.mock('@src/integration/ai/providers/codex/headless.ts', () => ({
   createCodexProvider: vi.fn(() => ({ generate: vi.fn(), name: 'codex' })),
 }));
-
-import { createAiProvider } from '@src/application/bootstrap/provider-factory.ts';
-import { createClaudeProvider } from '@src/integration/ai/providers/claude/headless.ts';
-import { createCopilotProvider } from '@src/integration/ai/providers/copilot/headless.ts';
-import { createCodexProvider } from '@src/integration/ai/providers/codex/headless.ts';
-import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 
 const harnessConfig: Settings['harness'] = {
   maxTurns: 5,

@@ -10,12 +10,12 @@ import { extractPlaceholders } from '@src/integration/ai/prompts/_engine/extract
 import {
   buildImplementPrompt,
   implementPromptDef,
-  renderVerifyScriptSection,
   renderPriorCritiqueSection,
   renderProjectToolingSection,
   renderTaskDescriptionSection,
   renderTaskStepsSection,
   renderVerificationCriteriaSection,
+  renderVerifyScriptSection,
 } from '@src/integration/ai/prompts/implement/definition.ts';
 
 const deps = createFsTemplateLoader(defaultTemplatesDir());

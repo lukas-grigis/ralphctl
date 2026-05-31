@@ -28,7 +28,7 @@
  */
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Box, measureElement, useInput, useStdin, useStdout, type DOMElement } from 'ink';
+import { Box, type DOMElement, measureElement, useInput, useStdin, useStdout } from 'ink';
 
 export interface ScrollRegionProps {
   readonly children: React.ReactNode;

@@ -70,9 +70,12 @@ path is the manual `task unblock` command, not an automatic launch reset.
 
 ## Backed by
 
-- Entity: `src/domain/entity/task.ts` (`attempts[]`) and `src/domain/entity/attempt.ts` (each attempt's `verification` / `evaluation`)
+- Entity: `src/domain/entity/task.ts` (`attempts[]`) and `src/domain/entity/attempt.ts` (each attempt's `verification` /
+  `evaluation`)
 - Repository: `src/domain/repository/task/`
-- Mutators (use cases): `src/business/task/{start-attempt,settle-attempt,commit-task,unblock-task,cancel-active-task}.ts`
-- Domain transitions: `src/domain/entity/{task-lifecycle.ts (markTaskBlocked / unblockTask / resetTaskToTodo), task-settle.ts (markTaskDone / failCurrentAttempt), task-factory.ts (createTask / updateTask)}`
+- Mutators (use cases):
+  `src/business/task/{start-attempt,settle-attempt,commit-task,unblock-task,cancel-active-task}.ts`
+- Domain transitions:
+  `src/domain/entity/{task-lifecycle.ts (markTaskBlocked / unblockTask / resetTaskToTodo), task-settle.ts (markTaskDone / failCurrentAttempt), task-factory.ts (createTask / updateTask)}`
 - Per-task leaves: `src/application/flows/implement/leaves/`
 - Schema: `src/integration/persistence/task/{task,attempt,evaluation,verification}.schema.ts`

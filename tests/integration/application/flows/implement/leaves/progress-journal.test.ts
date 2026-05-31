@@ -15,9 +15,9 @@
 import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import {
+  absolutePath,
   FIXED_LATER,
   FIXED_NOW,
-  absolutePath,
   makeDoneTask,
   makeInProgressTaskWithRunningAttempt,
 } from '@tests/fixtures/domain.ts';

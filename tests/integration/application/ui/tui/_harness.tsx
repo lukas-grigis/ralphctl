@@ -12,8 +12,6 @@ import React from 'react';
 import { afterEach } from 'vitest';
 import { cleanup, render } from 'ink-testing-library';
 import { tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
-
-type RenderResult = ReturnType<typeof render>;
 import { DepsProvider } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { RouterProvider, type ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 import { UiStateProvider } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
@@ -36,6 +34,8 @@ import type { LogEvent } from '@src/business/observability/events.ts';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { StoragePaths } from '@src/application/bootstrap/storage-paths.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+
+type RenderResult = ReturnType<typeof render>;
 
 export interface HarnessOptions {
   readonly deps: AppDeps;

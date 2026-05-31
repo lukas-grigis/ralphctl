@@ -4,8 +4,8 @@ import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import {
   makeDoneTask,
   makeInProgressTaskWithRunningAttempt,
-  makeTodoTask,
   makePlannedSprint,
+  makeTodoTask,
 } from '@tests/fixtures/domain.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import { terminalTaskStatus } from '@src/application/flows/implement/leaves/per-task-subchain.ts';

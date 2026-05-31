@@ -6,6 +6,7 @@ description: Cross-phase skill — treat AI output as a controlled feedback loop
 # Iterative Review
 
 > Concept
+>
 > from [Martin Fowler — "Iterative Review"](https://martinfowler.com/articles/structured-prompt-driven/iterative-review.html).
 > Adapted for ralphctl's three phases.
 

@@ -11,7 +11,7 @@
  */
 
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
-import { breakpointFor, type Breakpoint } from '@src/application/ui/tui/theme/tokens.ts';
+import { type Breakpoint, breakpointFor } from '@src/application/ui/tui/theme/tokens.ts';
 
 /** @public */
 export interface BreakpointState {

@@ -12,7 +12,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { renderJournalEntry, type JournalEntryInput } from '@src/business/sprint/render-journal-entry.ts';
+import { type JournalEntryInput, renderJournalEntry } from '@src/business/sprint/render-journal-entry.ts';
 import { isoTimestamp } from '@tests/fixtures/domain.ts';
 
 const baseInput = (overrides: Partial<JournalEntryInput> = {}): JournalEntryInput => ({

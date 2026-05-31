@@ -25,13 +25,12 @@ import {
   createInteractiveAiProvider,
   createInteractiveAiProviderFor,
 } from '@src/application/bootstrap/interactive-provider-factory.ts';
-import type { AiProvider } from '@src/domain/entity/settings.ts';
+import type { AiProvider, Settings } from '@src/domain/entity/settings.ts';
 import { createIssueFetcher } from '@src/integration/scm/issue-fetcher.ts';
 import { createIssuePusher } from '@src/integration/scm/issue-pusher.ts';
 import type { PullRequestCreator } from '@src/business/scm/pull-request-creator.ts';
 import { createPullRequestCreator } from '@src/integration/scm/pull-request-creator.ts';
 import type { StoragePaths } from '@src/application/bootstrap/storage-paths.ts';
-import type { Settings } from '@src/domain/entity/settings.ts';
 import type { SettingsRepository } from '@src/domain/repository/settings/settings-repository.ts';
 import { createJsonSettingsRepository } from '@src/integration/persistence/settings/json-settings-repository.ts';
 import type { AppSinks } from '@src/application/bootstrap/runtime-sinks.ts';

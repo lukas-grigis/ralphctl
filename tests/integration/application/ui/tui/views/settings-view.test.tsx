@@ -6,7 +6,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import type * as DetectCliModule from '@src/integration/system/detect-cli.ts';
-import type { AiProvider } from '@src/domain/entity/settings.ts';
+import type { AiProvider, Settings } from '@src/domain/entity/settings.ts';
+import { SettingsView } from '@src/application/ui/tui/views/settings-view.tsx';
+import type { AppDeps } from '@src/application/bootstrap/wire.ts';
+import type { SettingsRepository } from '@src/domain/repository/settings/settings-repository.ts';
+import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
+import { ENTER, RIGHT, tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 // Hoisted state holder — each test mutates this before rendering so the mocked
 // `detectInstalledProviders` returns the desired set. The mock targets the integration
@@ -21,14 +27,6 @@ vi.mock('@src/integration/system/detect-cli.ts', async () => {
       new Set(detectRef.installed) as ReadonlySet<AiProvider>,
   };
 });
-
-import { SettingsView } from '@src/application/ui/tui/views/settings-view.tsx';
-import type { AppDeps } from '@src/application/bootstrap/wire.ts';
-import type { Settings } from '@src/domain/entity/settings.ts';
-import type { SettingsRepository } from '@src/domain/repository/settings/settings-repository.ts';
-import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
-import { ENTER, RIGHT, tick } from '@tests/integration/application/ui/tui/_keys.ts';
-import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 const fakeSettingsRepo: SettingsRepository = {
   path: '/tmp/test-settings.json',

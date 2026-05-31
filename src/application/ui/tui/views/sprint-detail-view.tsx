@@ -49,7 +49,7 @@ import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { createTicketRemoveFlow } from '@src/application/flows/ticket-remove/flow.ts';
 import { unblockTaskUseCase } from '@src/business/task/unblock-task.ts';
-import { SprintHeader, NextPhaseCard } from '@src/application/ui/tui/views/sprint-detail-internals/header-card.tsx';
+import { NextPhaseCard, SprintHeader } from '@src/application/ui/tui/views/sprint-detail-internals/header-card.tsx';
 import { TicketsSection } from '@src/application/ui/tui/views/sprint-detail-internals/ticket-list.tsx';
 import { TasksSection } from '@src/application/ui/tui/views/sprint-detail-internals/task-summary.tsx';
 import { ActionBar } from '@src/application/ui/tui/views/sprint-detail-internals/action-bar.tsx';
@@ -57,8 +57,8 @@ import { useSprintDetailShortcuts } from '@src/application/ui/tui/views/sprint-d
 import { buildFocusList, type FocusItem } from '@src/application/ui/tui/views/sprint-detail-internals/focus-list.ts';
 import { runEdit } from '@src/application/ui/tui/views/sprint-detail-internals/field-editors.ts';
 import {
-  useSprintBundle,
   type SprintBundle,
+  useSprintBundle,
 } from '@src/application/ui/tui/views/sprint-detail-internals/use-sprint-bundle.ts';
 
 interface SprintDetailProps extends Readonly<Record<string, unknown>> {

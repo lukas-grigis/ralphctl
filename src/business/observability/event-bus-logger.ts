@@ -1,5 +1,5 @@
 import type { EventBus } from '@src/business/observability/event-bus.ts';
-import type { LogLevel, Logger, LogMeta } from '@src/business/observability/logger.ts';
+import type { Logger, LogLevel, LogMeta } from '@src/business/observability/logger.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 
 /**

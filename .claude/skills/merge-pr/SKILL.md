@@ -56,7 +56,8 @@ Repo + branch-protection facts that shape this flow (verified via `gh repo view`
    gh pr view <num> --json mergeCommit -q .mergeCommit.oid
    ```
 
-5. **Clean up the trailing branch.** The remote branch is gone (`deleteBranchOnMerge: true` handled it), but the local copy and stale remote-tracking ref still linger. Switch back to `main` and delete them:
+5. **Clean up the trailing branch.** The remote branch is gone (`deleteBranchOnMerge: true` handled it), but the local
+   copy and stale remote-tracking ref still linger. Switch back to `main` and delete them:
 
    ```bash
    BRANCH="$(gh pr view <num> --json headRefName -q .headRefName)"
@@ -66,7 +67,9 @@ Repo + branch-protection facts that shape this flow (verified via `gh repo view`
    git branch -D "$BRANCH" 2>/dev/null || true   # ok if it was never checked out locally
    ```
 
-   If the local checkout has unpushed work that _isn't_ on the merged PR (rare, but possible if the user kept committing after pushing), `git branch -d` would refuse — `-D` is intentional here because the canonical history is now on `main` via the merge commit. Surface a warning if the deleted branch had commits not reachable from `main`.
+   If the local checkout has unpushed work that _isn't_ on the merged PR (rare, but possible if the user kept committing
+   after pushing), `git branch -d` would refuse — `-D` is intentional here because the canonical history is now on
+   `main` via the merge commit. Surface a warning if the deleted branch had commits not reachable from `main`.
 
 ## Why these defaults
 

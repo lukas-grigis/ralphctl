@@ -3,7 +3,7 @@ import type { AiProvider, Settings } from '@src/domain/entity/settings.ts';
 import { SettingsSchema } from '@src/domain/entity/settings.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
 import { FLOW_IDS } from '@src/domain/value/flow-id.ts';
-import { applyPreset, PRESET_NAMES, isPresetName, type PresetName } from '@src/business/settings/presets.ts';
+import { applyPreset, isPresetName, PRESET_NAMES, type PresetName } from '@src/business/settings/presets.ts';
 
 describe('presets', () => {
   it('exposes exactly four equal preset names', () => {

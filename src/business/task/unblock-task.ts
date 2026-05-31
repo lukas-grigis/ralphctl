@@ -3,7 +3,7 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import type { Task, TodoTask } from '@src/domain/entity/task.ts';
-import { unblockTask, resetTaskToTodo } from '@src/domain/entity/task-lifecycle.ts';
+import { resetTaskToTodo, unblockTask } from '@src/domain/entity/task-lifecycle.ts';
 import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';

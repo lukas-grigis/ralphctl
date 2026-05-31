@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeAll, afterAll } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,7 +10,7 @@ import type { SprintExecutionRepository } from '@src/domain/repository/sprint/sp
 import type { SettingsRepository } from '@src/domain/repository/settings/settings-repository.ts';
 import type { RunCommand } from '@src/integration/io/run-command.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
-import { defaultAiSettingsForProvider, DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
+import { DEFAULT_SETTINGS, defaultAiSettingsForProvider } from '@src/business/settings/defaults.ts';
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import { createDoctorFlow } from '@src/application/flows/doctor/flow.ts';
 

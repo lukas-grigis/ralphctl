@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   HIDDEN_BY_DEFAULT_FLOW_IDS,
   PROJECT_SCOPED_FLOW_IDS,
-  SPRINT_SCOPED_FLOW_IDS,
   sectionFor,
+  SPRINT_SCOPED_FLOW_IDS,
   visibleFlowsFor,
 } from '@src/application/ui/tui/views/flows-visibility.ts';
 

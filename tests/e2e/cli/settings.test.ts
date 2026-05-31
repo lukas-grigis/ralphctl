@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type * as DetectCliModule from '@src/integration/system/detect-cli.ts';
 import type { AiProvider } from '@src/domain/entity/settings.ts';
+import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
+import { type CliHome, createCliHome, runCliCaptured } from '@tests/e2e/cli/_harness.ts';
 
 // Hoisted state holder — each test mutates this before running so the mocked
 // `detectInstalledProviders` returns a deterministic set regardless of the host's PATH. The
@@ -17,9 +19,6 @@ vi.mock('@src/integration/system/detect-cli.ts', async () => {
       new Set(detectRef.installed) as ReadonlySet<AiProvider>,
   };
 });
-
-import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
-import { createCliHome, runCliCaptured, type CliHome } from '@tests/e2e/cli/_harness.ts';
 
 describe('ralphctl settings', () => {
   let cli: CliHome;

@@ -418,9 +418,13 @@ remains visible on screen until the user picks a catalog entry to overwrite it.
 
 ### 7.6 Render caps for list data
 
-Every list rendered from chain trace, event-bus, or harness-signal data MUST `.slice(-max)` before `.map()` to JSX, with an elision row above the rendered tail when truncated. Exception: lists with a hard domain bound (legend entries, settings options, fixed phase order) may render in full — comment the bound at the call site.
+Every list rendered from chain trace, event-bus, or harness-signal data MUST `.slice(-max)` before `.map()` to JSX, with
+an elision row above the rendered tail when truncated. Exception: lists with a hard domain bound (legend entries,
+settings options, fixed phase order) may render in full — comment the bound at the call site.
 
-Spinner state lives in the leaf `<Spinner />` component (`src/application/ui/tui/components/spinner.tsx`). Don't call `useSpinnerFrame` from a component that renders a subtree larger than itself — the 90 ms re-render propagates. Use `<Spinner active … />` instead.
+Spinner state lives in the leaf `<Spinner />` component (`src/application/ui/tui/components/spinner.tsx`). Don't call
+`useSpinnerFrame` from a component that renders a subtree larger than itself — the 90 ms re-render propagates. Use
+`<Spinner active … />` instead.
 
 ## 8. Copy & tone
 
@@ -467,7 +471,8 @@ Use one spelling everywhere. `DRAFT`, `PLANNED`, `ACTIVE`, `REVIEW`, `DONE`, `TO
 Before adding anything new, work this ladder top-down:
 
 1. **Does a token cover it?** Add color/glyph/spacing via `tokens.ts`, not ad-hoc.
-2. **Does an existing component render it?** `ResultCard` + `FieldList` + `StatusChip` + `Spinner` handle ~80% of states.
+2. **Does an existing component render it?** `ResultCard` + `FieldList` + `StatusChip` + `Spinner` handle ~80% of
+   states.
 3. **Is it a new state surface?** Add a `ResultCard` `kind`, don't build a parallel card.
 4. **Is it a new view shape?** Describe it here first (add a § 7 subsection), then build it.
 5. **Is it a new prompt kind?** Add a method to the `InteractivePrompt` port + a prompt component under
@@ -486,5 +491,6 @@ Run this before opening a PR on a new TUI surface:
 - [ ] `useViewHints([…])` lists every key the view responds to.
 - [ ] Loading state uses `<Spinner>`; terminal states use a `Card` (or the Execute footer's `<ResultCard>`).
 - [ ] No use-case or adapter imported directly — flow factory or injected port only.
-- [ ] A test asserts the happy path renders the terminal outcome card (a `Card tone="success"`, or a chain-settlement `ResultCard kind="success"`).
+- [ ] A test asserts the happy path renders the terminal outcome card (a `Card tone="success"`, or a chain-settlement
+      `ResultCard kind="success"`).
 - [ ] `pnpm typecheck && pnpm lint && pnpm test` all green.

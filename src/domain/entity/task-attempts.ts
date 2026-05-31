@@ -4,7 +4,6 @@ import {
   type Attempt,
   type AttemptWarning,
   type Attribution,
-  type VerifyRun,
   type Evaluation,
   markBaselineBroken,
   recordAttemptCommit,
@@ -16,6 +15,7 @@ import {
   type RunningAttempt,
   setAttribution,
   startAttempt,
+  type VerifyRun,
 } from '@src/domain/entity/attempt.ts';
 import type { InProgressTask, Task } from '@src/domain/entity/task.ts';
 import type { CommitSha } from '@src/domain/value/commit-sha.ts';

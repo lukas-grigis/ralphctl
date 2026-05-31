@@ -7,7 +7,7 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
 import { refineTicketUseCase } from '@src/business/ticket/refine-ticket.ts';
 import { replaceTicket, type Sprint } from '@src/domain/entity/sprint.ts';
-import { setTicketLink, type ApprovedTicket, type PendingTicket, type Ticket } from '@src/domain/entity/ticket.ts';
+import { type ApprovedTicket, type PendingTicket, setTicketLink, type Ticket } from '@src/domain/entity/ticket.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { RefinedTicketSignal } from '@src/domain/signal.ts';

@@ -11,14 +11,14 @@ import { ConflictError } from '@src/domain/value/error/conflict-error.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import {
   type Repository,
-  setRepositoryVerifyScript,
-  setRepositoryVerifyTimeout,
   setRepositoryName,
   setRepositoryPath,
   setRepositorySetupScript,
   setRepositorySetupSkill,
   setRepositorySlug,
+  setRepositoryVerifyScript,
   setRepositoryVerifySkill,
+  setRepositoryVerifyTimeout,
 } from '@src/domain/entity/repository.ts';
 
 /**

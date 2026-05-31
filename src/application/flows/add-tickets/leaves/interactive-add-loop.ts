@@ -6,7 +6,7 @@ import type { PendingTicket } from '@src/domain/entity/ticket.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { addTicketUseCase } from '@src/business/ticket/add-ticket.ts';
-import type { IssueFetcher, ExternalIssue } from '@src/business/scm/issue-fetcher.ts';
+import type { ExternalIssue, IssueFetcher } from '@src/business/scm/issue-fetcher.ts';
 import { checkAborted, type Element, type ElementResult } from '@src/application/chain/element.ts';
 import { abortedEntry, type TraceEntry } from '@src/application/chain/trace.ts';
 import type { AddTicketsCtx } from '@src/application/flows/add-tickets/ctx.ts';

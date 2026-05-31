@@ -1,4 +1,4 @@
-import { commitTaskUseCase, type CommitTaskProps } from '@src/business/task/commit-task.ts';
+import { type CommitTaskProps, commitTaskUseCase } from '@src/business/task/commit-task.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';

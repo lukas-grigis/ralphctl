@@ -21,7 +21,7 @@ import { PathPickerPrompt } from '@src/application/ui/tui/prompts/path-picker-pr
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useRouter, useViewProps } from '@src/application/ui/tui/runtime/router.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
-import { spacing, inkColors, glyphs } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { addRepository } from '@src/domain/entity/project.ts';
 import { createRepository } from '@src/domain/entity/repository.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';

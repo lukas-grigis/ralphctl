@@ -1,4 +1,4 @@
-import { activateSprintUseCase, type ActivateSprintProps } from '@src/business/sprint/activate-sprint.ts';
+import { type ActivateSprintProps, activateSprintUseCase } from '@src/business/sprint/activate-sprint.ts';
 import { type ActiveSprint, type Sprint } from '@src/domain/entity/sprint.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { Element } from '@src/application/chain/element.ts';

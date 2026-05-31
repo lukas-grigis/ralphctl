@@ -34,11 +34,11 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
-import { StatusChip, runnerStatusKind } from '@src/application/ui/tui/components/status-chip.tsx';
+import { runnerStatusKind, StatusChip } from '@src/application/ui/tui/components/status-chip.tsx';
 import { spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useTokenUsage } from '@src/application/ui/tui/runtime/use-token-usage.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import { useViewProps, useRouter } from '@src/application/ui/tui/runtime/router.tsx';
+import { useRouter, useViewProps } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSession, useSessionManager, useSessions } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useBuses } from '@src/application/ui/tui/runtime/sinks-context.tsx';

@@ -1,6 +1,6 @@
 import type { InteractiveAiProvider } from '@src/integration/ai/providers/_engine/interactive-ai-provider.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
-import { primaryFlowRow, type AiProvider, type Settings } from '@src/domain/entity/settings.ts';
+import { type AiProvider, primaryFlowRow, type Settings } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import { createInteractiveClaudeProvider } from '@src/integration/ai/providers/claude/interactive.ts';
 import { createInteractiveCodexProvider } from '@src/integration/ai/providers/codex/interactive.ts';

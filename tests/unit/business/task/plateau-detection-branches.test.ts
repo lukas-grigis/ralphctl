@@ -16,8 +16,8 @@ import { isoTimestamp } from '@tests/fixtures/domain.ts';
 import {
   computePlateauVerdict,
   failedDimensions,
-  trigramJaccard,
   type PlateauTurnRecord,
+  trigramJaccard,
 } from '@src/business/task/plateau-detection.ts';
 
 const NOW = isoTimestamp('2026-05-26T10:00:00.000Z');

@@ -1,6 +1,6 @@
 import { Result } from '@src/domain/result.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
-import { updateRepository, type Project, type RepositoryUpdate } from '@src/domain/entity/project.ts';
+import { type Project, type RepositoryUpdate, updateRepository } from '@src/domain/entity/project.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import type { Save } from '@src/domain/repository/_base/save.ts';
 import type { ConflictError } from '@src/domain/value/error/conflict-error.ts';

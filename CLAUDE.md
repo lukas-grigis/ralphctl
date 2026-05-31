@@ -13,8 +13,10 @@ Both `commander.version()` and the npm-update poll consume the same constant —
 - `.claude/docs/REQUIREMENTS.md` — acceptance-criteria checklist
 - `.claude/docs/DESIGN-SYSTEM.md` — TUI tokens, components, copy rules
 - `.claude/docs/MANUAL-TEST-PLAYBOOK.md` — manual smoke-test script
-- `.claude/docs/HARNESS-PRINCIPLES.md` — distilled harness research from Anthropic + Fowler, with per-principle ralphctl status tags
-- `.claude/docs/diagrams/` — Mermaid sequence / data-flow diagrams: chain framework, flow lifecycle, sprint lifecycle, task lifecycle, AI-session data flow
+- `.claude/docs/HARNESS-PRINCIPLES.md` — distilled harness research from Anthropic + Fowler, with per-principle ralphctl
+  status tags
+- `.claude/docs/diagrams/` — Mermaid sequence / data-flow diagrams: chain framework, flow lifecycle, sprint lifecycle,
+  task lifecycle, AI-session data flow
 
 ## Build & Run
 
@@ -404,7 +406,15 @@ and the next attempt's append heals the file.
 **Per-round artifacts.** Generator and evaluator prompts land at `rounds/<N>/{generator,evaluator}/prompt.md`
 before each spawn; `settle-attempt-leaf` writes `rounds/<N>/outcome.md` after settlement.
 
-**AI signal routing.** `<change>` / `<decision>` / `<learning>` / `<note>` signals accumulate per-attempt on the implement ctx (`ctx.currentAttempt{Changes,Decisions,Learnings,Notes}`) as the generator / evaluator leaves parse them; `progress-journal` dedupes each list and `renderJournalEntry` writes the per-attempt `### Changes` / `### Decisions` / `### Learnings` / `### Notes` subsections (empty subsections are dropped). The same signals also fan out as `HarnessSignalEvent` on the EventBus for live TUI panels; when `RALPHCTL_DEBUG_TRACE=1` they additionally land in `<sprintDir>/events.ndjson` for debug — never read back by the harness. A `<learning>` carries a required Insight (`text`) plus optional `context` (when/why) and `appliesTo` (where); the `### Learnings` subsection renders each as a **bold Insight** bullet with indented `Context:` / `Applies to:` sub-bullets (omitted when absent) — unlike the flat single-line bullets for changes, decisions, and notes.
+**AI signal routing.** `<change>` / `<decision>` / `<learning>` / `<note>` signals accumulate per-attempt on the
+implement ctx (`ctx.currentAttempt{Changes,Decisions,Learnings,Notes}`) as the generator / evaluator leaves parse them;
+`progress-journal` dedupes each list and `renderJournalEntry` writes the per-attempt `### Changes` / `### Decisions` /
+`### Learnings` / `### Notes` subsections (empty subsections are dropped). The same signals also fan out as
+`HarnessSignalEvent` on the EventBus for live TUI panels; when `RALPHCTL_DEBUG_TRACE=1` they additionally land in
+`<sprintDir>/events.ndjson` for debug — never read back by the harness. A `<learning>` carries a required Insight (
+`text`) plus optional `context` (when/why) and `appliesTo` (where); the `### Learnings` subsection renders each as a \*
+\*bold Insight\*\* bullet with indented `Context:` / `Applies to:` sub-bullets (omitted when absent) — unlike the flat
+single-line bullets for changes, decisions, and notes.
 
 **Procedural memory (learning ledger).** Per-attempt `<learning>` signals are also appended to a
 project-scoped append-only NDJSON ledger at `<dataRoot>/memory/<projectId>/learnings.ndjson` by
@@ -413,7 +423,9 @@ best-effort — a write failure is logged, never fatal). Each `LearningRecord` (
 truth at `src/application/flows/_shared/memory/learning-record.ts`) carries `{ v, id, text, context?, appliesTo?, repo,
 repoName, taskKind, sprintId, taskId, timestamp, promotedAt }`; `id` is a stable
 `sha1(repo|taskKind|normalize(text))[:16]` dedup key and `promotedAt` is `null` on write.
-`text` is the Insight (required); `context` (when/why it arose) and `appliesTo` (where it applies) are optional and render as indented `Context:` / `Applies to:` sub-bullets in `progress.md` and the distilled `## Learnings (ralphctl)` section. At sprint
+`text` is the Insight (required); `context` (when/why it arose) and `appliesTo` (where it applies) are optional and
+render as indented `Context:` / `Applies to:` sub-bullets in `progress.md` and the distilled `## Learnings (ralphctl)`
+section. At sprint
 close — BOTH the explicit `close-sprint` flow and the `review` flow's auto-done path — an opt-in,
 human-gated **distill** step (defaults to No) promotes curated, not-yet-promoted learnings into each
 provider's native context file via the same per-distinct-provider fan-out as `readiness` (one file

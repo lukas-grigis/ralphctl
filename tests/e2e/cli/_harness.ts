@@ -27,9 +27,9 @@ import { vi } from 'vitest';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import {
   ensureStorageRoots,
-  storagePathsFromRoot,
-  type StoragePaths,
   RALPHCTL_HOME_ENV,
+  type StoragePaths,
+  storagePathsFromRoot,
 } from '@src/application/bootstrap/storage-paths.ts';
 import { runCli } from '@src/application/ui/cli/cli.ts';
 

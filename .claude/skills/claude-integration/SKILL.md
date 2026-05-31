@@ -18,7 +18,8 @@ sequential task execution, and check-script gating — see `CLAUDE.md`.
   `node:child_process.spawn` impl), `run-headless-spawn.ts` (the headless wrapper that wires watchdog +
   signals file + sessionId file + rate-limit backoff), `rate-limit-backoff.ts` (exponential retry policy),
   `idle-watchdog.ts` (kills wedged children), `headless-ai-provider.ts` (the cross-tool port).
-- Signal contract: `src/integration/ai/contract/_engine/{validate-signals-file,render-sidecars,render-contract-section}.ts`
+- Signal contract:
+  `src/integration/ai/contract/_engine/{validate-signals-file,render-sidecars,render-contract-section}.ts`
   with per-kind Zod schemas under `src/integration/ai/contract/_engine/signals/<kind>/schema.ts`.
   Each AI-spawning leaf composes `<leaf>.contract.ts` from these primitives; the AI writes
   `signals.json` via its Write tool, the harness Zod-validates post-spawn.

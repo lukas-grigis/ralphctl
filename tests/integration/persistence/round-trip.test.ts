@@ -5,16 +5,16 @@ import { fromJsonProject } from '@src/integration/persistence/project/project.sc
 import { fromJsonSprint } from '@src/integration/persistence/sprint/sprint.schema.ts';
 import { fromJsonTicket } from '@src/integration/persistence/sprint/ticket.schema.ts';
 import { fromJsonSprintExecution } from '@src/integration/persistence/sprint-execution/sprint-execution.schema.ts';
-import { startAttempt, recordAttemptVerification, completeAttempt } from '@src/domain/entity/attempt.ts';
+import { completeAttempt, recordAttemptVerification, startAttempt } from '@src/domain/entity/attempt.ts';
 import {
   FIXED_NOW,
+  FIXED_REPOSITORY_ID,
   isoTimestamp,
   makeApprovedTicket,
   makeDoneTask,
   makeDraftSprintBundle,
   makeInProgressTaskWithRunningAttempt,
   makePendingTicket,
-  FIXED_REPOSITORY_ID,
   makeProject,
   makeTodoTask,
 } from '@tests/fixtures/domain.ts';

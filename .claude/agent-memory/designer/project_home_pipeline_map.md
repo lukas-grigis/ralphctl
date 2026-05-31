@@ -8,7 +8,10 @@ Home screen uses a pipeline-map based layout, not a flat menu.
 
 **Why:** Flat menu was unordered and gave no lifecycle context. Pipeline map makes sprint phase visible.
 
-**How to apply:** When extending home, use the pipeline-map action/drillIn callbacks, not a flat list. Check current imports in `src/application/ui/tui/views/home-view.tsx` for actual file names before assuming helper file locations — several planned helpers (menu-builder.ts, home-submenu-memory.ts, sprint-summary-line.tsx) were not extracted into separate files.
+**How to apply:** When extending home, use the pipeline-map action/drillIn callbacks, not a flat list. Check current
+imports in `src/application/ui/tui/views/home-view.tsx` for actual file names before assuming helper file locations —
+several planned helpers (menu-builder.ts, home-submenu-memory.ts, sprint-summary-line.tsx) were not extracted into
+separate files.
 
 ## Entry value conventions in submenus
 
@@ -18,7 +21,8 @@ Home screen uses a pipeline-map based layout, not a flat menu.
 
 ## useRouterOptional() in browse views
 
-List views and show views use `useRouterOptional()` (not `useRouter()`) so they degrade gracefully when rendered in tests without a RouterProvider. All router pushes use `router?.push(...)`.
+List views and show views use `useRouterOptional()` (not `useRouter()`) so they degrade gracefully when rendered in
+tests without a RouterProvider. All router pushes use `router?.push(...)`.
 
 ## Keyboard shortcuts
 

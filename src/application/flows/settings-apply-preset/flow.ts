@@ -1,5 +1,5 @@
 import { Result } from '@src/domain/result.ts';
-import { primaryFlowRow, type AiProvider, type AiSettings } from '@src/domain/entity/settings.ts';
+import { type AiProvider, type AiSettings, primaryFlowRow } from '@src/domain/entity/settings.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { applyPreset } from '@src/business/settings/presets.ts';

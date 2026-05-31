@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { absolutePath, isoTimestamp } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
-import { preflightTaskUseCase, type DirtyTreeChoice } from '@src/business/task/preflight-task.ts';
+import { type DirtyTreeChoice, preflightTaskUseCase } from '@src/business/task/preflight-task.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';

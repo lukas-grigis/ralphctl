@@ -16,7 +16,7 @@ import { appendJournalSeparatorLeaf } from '@src/application/flows/_shared/progr
 import { createPerTaskSubchain } from '@src/application/flows/implement/leaves/per-task-subchain.ts';
 import { type DirtyTreePolicy } from '@src/application/flows/implement/leaves/preflight-task.ts';
 import { resolveBranchLeaf } from '@src/application/flows/implement/leaves/resolve-branch.ts';
-import { resolveRepoOrThrow, type RepoExecConfig } from '@src/application/flows/implement/leaves/resolve-repo.ts';
+import { type RepoExecConfig, resolveRepoOrThrow } from '@src/application/flows/implement/leaves/resolve-repo.ts';
 import { setupScriptRunnerLeaf } from '@src/application/flows/implement/leaves/setup-script-runner.ts';
 import {
   buildPreflightLeaves,

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { Result } from '@src/domain/result.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
-import type { ReadinessProbeRegistry, ReadinessProbe } from '@src/integration/ai/readiness/_engine/probe.ts';
+import type { ReadinessProbe, ReadinessProbeRegistry } from '@src/integration/ai/readiness/_engine/probe.ts';
 import { absentState, type ReadinessState } from '@src/integration/ai/readiness/_engine/state.ts';
 import type { ToolArtifacts } from '@src/integration/ai/readiness/_engine/tool-artifacts.ts';
 import type { AssistantTool } from '@src/integration/ai/readiness/_engine/tool.ts';

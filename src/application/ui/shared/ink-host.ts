@@ -20,7 +20,7 @@
  * subscription cleanly.
  */
 import type { ReactElement } from 'react';
-import { render, type Instance as InkInstance } from 'ink';
+import { type Instance as InkInstance, render } from 'ink';
 import type { RunInTerminal } from '@src/integration/io/run-in-terminal.ts';
 
 export interface InkHostDeps {

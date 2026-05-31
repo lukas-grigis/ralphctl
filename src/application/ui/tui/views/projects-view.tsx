@@ -15,7 +15,7 @@ import { type Project, setProjectDisplayName } from '@src/domain/entity/project.
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import { useEditField } from '@src/application/ui/tui/runtime/use-edit-field.ts';
 import { Result } from '@src/domain/result.ts';
-import { spacing, glyphs, inkColors } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useAsyncLoad } from '@src/application/ui/tui/runtime/use-async-load.ts';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';

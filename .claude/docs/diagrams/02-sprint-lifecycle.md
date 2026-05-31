@@ -83,5 +83,6 @@ The split keeps planning mutations isolated from execution-time writes — corru
 
 - Entity: `src/domain/entity/sprint.ts` + `sprint-execution.ts`
 - Repositories: `src/domain/repository/sprint/{sprint,sprint-execution}-repository.ts`
-- Mutators: `src/business/sprint/{create-sprint,plan-sprint,activate-sprint,transition-sprint-to-review,transition-sprint-to-done}.ts`
+- Mutators:
+  `src/business/sprint/{create-sprint,plan-sprint,activate-sprint,transition-sprint-to-review,transition-sprint-to-done}.ts`
 - Schema: `src/integration/persistence/sprint/sprint.schema.ts` (zod, with `schemaVersion`)

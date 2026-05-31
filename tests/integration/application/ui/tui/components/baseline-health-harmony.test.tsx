@@ -10,9 +10,9 @@ import { render } from 'ink-testing-library';
 import { describe, expect, it } from 'vitest';
 import { BaselineHealthCard } from '@src/application/ui/tui/components/baseline-health-card.tsx';
 import { BaselineHealthChip } from '@src/application/ui/tui/components/baseline-health-chip.tsx';
-import type { SprintExecution, SetupRun } from '@src/domain/entity/sprint-execution.ts';
-import type { Attempt, VerifyRun, Attribution } from '@src/domain/entity/attempt.ts';
-import type { Task, InProgressTask } from '@src/domain/entity/task.ts';
+import type { SetupRun, SprintExecution } from '@src/domain/entity/sprint-execution.ts';
+import type { Attempt, Attribution, VerifyRun } from '@src/domain/entity/attempt.ts';
+import type { InProgressTask, Task } from '@src/domain/entity/task.ts';
 import {
   FIXED_NOW,
   FIXED_REPOSITORY_ID,

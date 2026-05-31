@@ -1,6 +1,6 @@
 import { Result } from '@src/domain/result.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
-import { renameSprint, type OpenSprint, type Sprint } from '@src/domain/entity/sprint.ts';
+import { type OpenSprint, renameSprint, type Sprint } from '@src/domain/entity/sprint.ts';
 import type { Save } from '@src/domain/repository/_base/save.ts';
 import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';

@@ -55,7 +55,8 @@ its alt-screen behaviour differs.
    session for this ticket?" confirm appears (each ticket asks individually)
 3. Press Enter to accept first ticket
 4. **Expected:** AI CLI takes over with full UI for ticket 1. The TUI is hidden during the session.
-5. Have a conversation; the AI emits its approved requirements as a `refined-ticket` signal into `signals.json` when done, then exit
+5. Have a conversation; the AI emits its approved requirements as a `refined-ticket` signal into `signals.json` when
+   done, then exit
 6. **Expected:** ralphctl re-appears with the parsed requirements shown inline, then
    "Approve these requirements?" prompt
 7. Press Enter to approve
@@ -207,7 +208,8 @@ For every prompt context (an editor, a select, an input):
 3. Type a short feedback message; Ctrl+D to submit
 4. **Expected:** AI CLI takes over; resumes the relevant tasks via session-id resume to apply the feedback
 5. AI exits; verify scripts re-run; evaluator re-runs
-6. **Expected:** progress.md gets the new round's entries; if `RALPHCTL_DEBUG_TRACE=1` is set, events.ndjson captures the trace
+6. **Expected:** progress.md gets the new round's entries; if `RALPHCTL_DEBUG_TRACE=1` is set, events.ndjson captures
+   the trace
 7. From the same flow, submit an EMPTY input (just Ctrl+D)
 8. **Expected:** the loop exits cleanly, sprint stays in `review`
 

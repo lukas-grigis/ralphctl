@@ -1,4 +1,4 @@
-import { finalizeGenEvalUseCase, type FinalizeGenEvalOutput } from '@src/business/task/finalize-gen-eval.ts';
+import { type FinalizeGenEvalOutput, finalizeGenEvalUseCase } from '@src/business/task/finalize-gen-eval.ts';
 import type { GenEvalExit } from '@src/business/task/gen-eval-exit.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';

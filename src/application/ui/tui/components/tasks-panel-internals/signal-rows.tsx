@@ -13,12 +13,12 @@ import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
 import type { CommitMessageSignal, ContextCompactedSignal, HarnessSignal } from '@src/domain/signal.ts';
 import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
-import { glyphFor, glyphs, inkColors, spacing, type SignalKind } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphFor, glyphs, inkColors, type SignalKind, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useNoColor } from '@src/application/ui/tui/runtime/use-no-color.ts';
 import { fmtIsoTime } from '@src/application/ui/tui/theme/duration.ts';
 import {
-  collapseWhitespace,
   COLLAPSED_DISCLOSURE,
+  collapseWhitespace,
   EXPANDED_DISCLOSURE,
   FOCUS_CURSOR,
   formatCompactionDetail,

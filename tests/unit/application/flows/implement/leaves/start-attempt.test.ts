@@ -3,16 +3,6 @@ import { Result } from '@src/domain/result.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { createEventBusLogger } from '@src/business/observability/event-bus-logger.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
-
-const captureLogEvents = (
-  bus: ReturnType<typeof createInMemoryEventBus>
-): Array<{ level: string; message: string }> => {
-  const captured: Array<{ level: string; message: string }> = [];
-  bus.subscribe((e) => {
-    if (e.type === 'log') captured.push({ level: e.level, message: e.message });
-  });
-  return captured;
-};
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import type { FindTaskById } from '@src/domain/repository/task/find-task-by-id.ts';
@@ -28,6 +18,16 @@ import {
 } from '@tests/fixtures/domain.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import { startAttemptLeaf } from '@src/application/flows/implement/leaves/start-attempt.ts';
+
+const captureLogEvents = (
+  bus: ReturnType<typeof createInMemoryEventBus>
+): Array<{ level: string; message: string }> => {
+  const captured: Array<{ level: string; message: string }> = [];
+  bus.subscribe((e) => {
+    if (e.type === 'log') captured.push({ level: e.level, message: e.message });
+  });
+  return captured;
+};
 
 interface RecordedUpdate {
   readonly sprintId: SprintId;

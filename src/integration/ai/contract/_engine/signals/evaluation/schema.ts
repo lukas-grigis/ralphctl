@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { EvaluationSignal, DimensionScore } from '@src/domain/signal.ts';
+import type { DimensionScore, EvaluationSignal } from '@src/domain/signal.ts';
 import { IsoTimestampSchema } from '@src/integration/persistence/shared/value-schemas.ts';
 import type { Compatible } from '@src/integration/persistence/shared/codec-internal.ts';
 

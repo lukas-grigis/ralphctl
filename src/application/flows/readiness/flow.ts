@@ -1,10 +1,10 @@
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import {
-  primaryFlowRow,
-  uniqueProvidersFromAi,
   type AiProvider,
   type AiSettings,
+  primaryFlowRow,
+  uniqueProvidersFromAi,
 } from '@src/domain/entity/settings.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
@@ -23,7 +23,7 @@ import { uninstallSkillsLeaf } from '@src/application/flows/_shared/skills/unins
 import { allocateRunDirLeaf } from '@src/application/flows/_shared/allocate-run-dir.ts';
 import { stampSessionMetaLeaf } from '@src/application/flows/_shared/stamp-session-meta.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
-import { toolForProvider, type AssistantTool } from '@src/integration/ai/readiness/_engine/tool.ts';
+import { type AssistantTool, toolForProvider } from '@src/integration/ai/readiness/_engine/tool.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import { FLOW_IDS } from '@src/domain/value/flow-id.ts';
 

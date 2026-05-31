@@ -6,8 +6,8 @@ import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import {
-  preTaskVerifyLeaf,
   type PreTaskVerifyEnvironment,
+  preTaskVerifyLeaf,
 } from '@src/application/flows/implement/leaves/pre-task-verify.ts';
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';

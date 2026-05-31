@@ -42,7 +42,8 @@ ESLint `no-restricted-imports` (in `eslint.config.ts`) enforces every direction.
 - **No barrel files anywhere under `src/`** — every import names what it pulls in directly. `export *` is banned.
 - **Sibling-isolation in `integration/ai/<concept>/`** — each per-tool / per-variant adapter directory is
   independent. Cross-sibling reach goes through a shared `_engine/` sub-namespace (or `_partials/` for prompts).
-  Applies to `prompts/<flow>/`, `providers/<tool>/`, `readiness/<tool>/`, `skills/<source>/`; per-signal Zod schemas are isolated under `contract/_engine/signals/<kind>/`.
+  Applies to `prompts/<flow>/`, `providers/<tool>/`, `readiness/<tool>/`, `skills/<source>/`; per-signal Zod schemas are
+  isolated under `contract/_engine/signals/<kind>/`.
 - **Port-shaped names live in `_engine/`** — interfaces / type aliases named `*Port`, `*Adapter`, `*Provider`,
   `*Sink`, `*Loader`, `*Probe`, `*Reader`, `*Writer`, `*Renderer`, `*Detector` must be declared in a concept's
   `_engine/` sub-namespace. Factory inputs named `*Deps` are exempt.
@@ -76,7 +77,8 @@ on every settlement. The split keeps planning mutations isolated from execution-
 list does not lose the sprint plan.
 
 `Repository` is **nested inside `Project`** as a value object — not its own aggregate. Project carries an array
-of repositories (each with `setupScript`, `verifyScript`, `verifyTimeout`, optional skill/script hints); mutating a repo goes through
+of repositories (each with `setupScript`, `verifyScript`, `verifyTimeout`, optional skill/script hints); mutating a repo
+goes through
 `ProjectRepository.save()`.
 
 `Ticket` is nested inside `Sprint` (status flips `pending → approved` during refine).
@@ -511,7 +513,8 @@ application/ui/
 ```
 
 The mount path enters the **alt-screen buffer** (`CSI ? 1049 h`) and hides the cursor so ralphctl takes over the
-terminal like vim/htop/less. Restoration is guaranteed via explicit exit + `process.on('exit' | 'SIGINT' | 'SIGTERM' | 'SIGHUP' | 'uncaughtException')` safety nets.
+terminal like vim/htop/less. Restoration is guaranteed via explicit exit +
+`process.on('exit' | 'SIGINT' | 'SIGTERM' | 'SIGHUP' | 'uncaughtException')` safety nets.
 
 Cross-cutting TUI features:
 

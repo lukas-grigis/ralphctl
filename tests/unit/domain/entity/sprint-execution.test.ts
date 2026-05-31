@@ -3,11 +3,11 @@ import {
   appendExecutionSetupRun,
   createSprintExecution,
   recordExecutionPullRequestUrl,
-  type SetupRun,
   setExecutionBaselineBrokenPolicy,
   setExecutionBranch,
+  type SetupRun,
 } from '@src/domain/entity/sprint-execution.ts';
-import { FIXED_NOW, FIXED_LATER, FIXED_REPOSITORY_ID, isoTimestamp } from '@tests/fixtures/domain.ts';
+import { FIXED_LATER, FIXED_NOW, FIXED_REPOSITORY_ID, isoTimestamp } from '@tests/fixtures/domain.ts';
 import { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
 

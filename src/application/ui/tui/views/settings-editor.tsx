@@ -10,7 +10,7 @@ import { SelectPrompt } from '@src/application/ui/tui/prompts/select-prompt.tsx'
 import { TextPrompt } from '@src/application/ui/tui/prompts/text-prompt.tsx';
 import { primaryInstallCommand } from '@src/integration/system/detect-cli.ts';
 import type { AiProvider } from '@src/domain/entity/settings.ts';
-import { isProviderField, type EditableField } from '@src/application/ui/tui/views/settings-view-model.ts';
+import { type EditableField, isProviderField } from '@src/application/ui/tui/views/settings-view-model.ts';
 
 interface ProviderChoice {
   readonly label: string;

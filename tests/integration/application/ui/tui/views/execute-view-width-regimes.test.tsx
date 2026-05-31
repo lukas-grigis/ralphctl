@@ -11,7 +11,14 @@
  * ink-testing-library stdout (which hardcodes `columns = 100`).
  */
 
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ExecuteView } from '@src/application/ui/tui/views/execute-view.tsx';
+import type { AppDeps } from '@src/application/bootstrap/wire.ts';
+import type { EventBus } from '@src/business/observability/event-bus.ts';
+import type { Runner } from '@src/application/chain/run/runner.ts';
+import { createSessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
+import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 // Hoisted controls — the mock factory reads from this state holder so each test can set its
 // own columns/rows before rendering. `vi.hoisted` ensures the variable exists when the mock
@@ -21,14 +28,6 @@ const sizeRef = vi.hoisted(() => ({ columns: 100, rows: 40 }));
 vi.mock('@src/application/ui/tui/runtime/use-terminal-size.ts', () => ({
   useTerminalSize: () => ({ columns: sizeRef.columns, rows: sizeRef.rows }),
 }));
-
-import { ExecuteView } from '@src/application/ui/tui/views/execute-view.tsx';
-import type { AppDeps } from '@src/application/bootstrap/wire.ts';
-import type { EventBus } from '@src/business/observability/event-bus.ts';
-import type { Runner } from '@src/application/chain/run/runner.ts';
-import { createSessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
-import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
-import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 const noopEventBus: EventBus = {
   publish: vi.fn(),

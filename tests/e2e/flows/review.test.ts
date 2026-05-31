@@ -22,8 +22,7 @@ import {
 import { createRunner } from '@src/application/chain/run/runner.ts';
 import type { GitRunner, GitRunResult } from '@src/integration/io/git-runner.ts';
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
-import type { Choice, InteractivePrompt } from '@src/business/interactive/prompt.ts';
-import type { AskConfirmInput } from '@src/business/interactive/prompt.ts';
+import type { AskConfirmInput, Choice, InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { createInMemorySink } from '@tests/fixtures/in-memory-sink.ts';
 import { createFileLocker } from '@src/integration/io/file-locker.ts';

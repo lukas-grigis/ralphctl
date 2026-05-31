@@ -38,7 +38,7 @@ import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts'
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import type { Logger, LogMeta } from '@src/business/observability/logger.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
-import { serializeLearningRecord, type LearningRecord } from '@src/application/flows/_shared/memory/learning-record.ts';
+import { type LearningRecord, serializeLearningRecord } from '@src/application/flows/_shared/memory/learning-record.ts';
 import type { DistillLearningsDeps } from '@src/application/flows/_shared/memory/distill-learnings.ts';
 import type { DistillStepOpts } from '@src/application/flows/_shared/memory/distill-step.ts';
 import { createCloseSprintFlow } from '@src/application/flows/close-sprint/flow.ts';

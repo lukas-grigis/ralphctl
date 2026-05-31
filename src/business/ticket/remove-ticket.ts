@@ -1,6 +1,6 @@
 import { Result } from '@src/domain/result.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
-import { removeTicket, type DraftSprint, type Sprint } from '@src/domain/entity/sprint.ts';
+import { type DraftSprint, removeTicket, type Sprint } from '@src/domain/entity/sprint.ts';
 import type { TicketId } from '@src/domain/value/id/ticket-id.ts';
 import type { Save } from '@src/domain/repository/_base/save.ts';
 import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';

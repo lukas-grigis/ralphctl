@@ -12,8 +12,8 @@ import { Text } from 'ink';
 import { describe, expect, it, vi } from 'vitest';
 import {
   SelectionProvider,
-  useSelection,
   type SelectionSeed,
+  useSelection,
 } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { projectId } from '@tests/fixtures/domain.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';

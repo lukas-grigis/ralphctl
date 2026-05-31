@@ -13,7 +13,7 @@
  */
 
 import React from 'react';
-import { describe, expect, it, vi, afterEach } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup } from 'ink-testing-library';
 import { Result } from '@src/domain/result.ts';
 import { HomeView } from '@src/application/ui/tui/views/home-view.tsx';
@@ -28,7 +28,7 @@ import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
-import { makeProject, makeDraftSprint } from '@tests/fixtures/domain.ts';
+import { makeDraftSprint, makeProject } from '@tests/fixtures/domain.ts';
 import { ENTER, tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
 
