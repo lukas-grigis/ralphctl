@@ -1,1 +1,4 @@
 # Reviewer Agent Memory
+
+- [feedback_review_scope.md](feedback_review_scope.md) — Reviewing full feature branches; check all new/changed files top-to-bottom, run all four checks
+- [project_memory_ledger.md](project_memory_ledger.md) — Theme 6 procedural memory: append-only NDJSON ledger, distill sub-chain, attempt outer loop, task-graph validation
