@@ -15,6 +15,7 @@ import type { SetupReadinessDeps } from '@src/application/flows/readiness/deps.t
 import { confirmReadinessLeaf } from '@src/application/flows/readiness/leaves/confirm.ts';
 import { installReadinessSkillsLeaf } from '@src/application/flows/readiness/leaves/install-readiness-skills.ts';
 import { offerSkillSuggestionsLeaf } from '@src/application/flows/readiness/leaves/offer-skill-suggestions.ts';
+import { persistSuggestedSkillsLeaf } from '@src/application/flows/readiness/leaves/persist-suggested-skills.ts';
 import { probeReadinessLeaf } from '@src/application/flows/readiness/leaves/probe.ts';
 import { proposeReadinessLeaf } from '@src/application/flows/readiness/leaves/propose.ts';
 import { writeReadinessLeaf } from '@src/application/flows/readiness/leaves/write.ts';
@@ -164,6 +165,7 @@ const buildPerToolSubchain = (
  *                                       install-readiness-skills ]),
  *     sequential('tool-copilot',    [ … ]),
  *     sequential('tool-codex',      [ … ]),
+ *     persist-suggested-skills,             // one save: union of every tool's suggestions
  *   ])
  *
  * Each per-tool sub-chain uses provider-specific headless / skills adapters resolved via
@@ -185,5 +187,8 @@ export const createReadinessFlow = (deps: SetupReadinessDeps, opts: CreateReadin
       }
     ),
     ...perToolSubchains,
+    // Runs ONCE after the whole fan-out: union every tool's proposed skill suggestions and
+    // persist them onto the repository's durable record (regardless of accept / decline).
+    persistSuggestedSkillsLeaf({ projectRepo: deps.projectRepo, logger: deps.logger }),
   ]);
 };

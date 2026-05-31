@@ -190,6 +190,23 @@ export const setRepositorySlug = (repo: Repository, slug: Slug): Repository => (
 });
 
 /**
+ * Replace the repository's `suggestedSkills` record. Trims / de-duplicates via the same
+ * {@link suggestedSkillsPart} normalisation the factory uses, so the field round-trips cleanly.
+ * `undefined` or an all-blank list clears the field entirely (a clean repo persists without an
+ * empty array on disk). Never fails — suggestion names are free-form kebab strings the AI
+ * proposes, not validated value objects.
+ */
+export const setRepositorySuggestedSkills = (repo: Repository, names: readonly string[] | undefined): Repository => {
+  const part = suggestedSkillsPart(names);
+  if (part.suggestedSkills === undefined) {
+    const { suggestedSkills: _drop, ...rest } = repo;
+    void _drop;
+    return rest;
+  }
+  return { ...repo, suggestedSkills: part.suggestedSkills };
+};
+
+/**
  * Trim each suggested skill name, drop blanks, de-duplicate. Returns `{ suggestedSkills }` only
  * when at least one name survives so the factory omits the field entirely otherwise (a clean
  * repo round-trips without an empty array on disk).

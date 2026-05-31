@@ -41,11 +41,14 @@ export const launchReview = async (ctx: LaunchContext): Promise<LaunchResult> =>
   }
   // Opt-in, default-NO HITL — symmetric with close-sprint. Review's auto-done path (empty round →
   // transition) runs the SAME distill step, so the user gets the same prompt whether they close
-  // explicitly or let review auto-finish. Any non-true answer keeps `distillRequested` false.
+  // explicitly or let review auto-finish. A non-ok result is a cancellation (Ctrl+C / Esc →
+  // `AbortError`, `.ok === false`) — cancel the whole launch. Only a deliberate `false` proceeds
+  // without distilling (the in-chain `distill-gate` guard then skips the body).
   const distillConfirm = await deps.interactive.askConfirm({
     message: "Distill this sprint's learnings into project context files when review finishes? [y/N]",
   });
-  const distillRequested = distillConfirm.ok && distillConfirm.value === true;
+  if (!distillConfirm.ok) return { ok: false, reason: 'Cancelled.' };
+  const distillRequested = distillConfirm.value === true;
   const sprintDir = AbsolutePath.parse(join(String(deps.storage.dataRoot), 'sprints', String(snapshot.sprint.id)));
   if (!sprintDir.ok) return { ok: false, reason: sprintDir.error.message };
   const feedbackPath = AbsolutePath.parse(join(String(sprintDir.value), 'feedback.md'));

@@ -16,7 +16,6 @@
  * proceed with an empty skill set.
  */
 
-import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
@@ -83,16 +82,18 @@ const parseSimpleYaml = (input: string): Record<string, string> => {
   return result;
 };
 
-const readSkill = async (root: string, name: string): Promise<Result<Skill, StorageError>> => {
-  const path = join(root, name, 'SKILL.md');
-  let raw: string;
-  try {
-    raw = await readFile(path, 'utf-8');
-  } catch (cause) {
-    return Result.error(
-      new StorageError({ subCode: 'io', message: `bundled skill not readable: ${path}`, path, cause })
-    );
-  }
+/** Narrow an unknown caught value to a Node `fs` error code without leaking `any`. */
+const errorCode = (cause: unknown): string | undefined =>
+  typeof cause === 'object' && cause !== null && 'code' in cause && typeof cause.code === 'string'
+    ? cause.code
+    : undefined;
+
+/**
+ * Parse an already-read SKILL.md body into the canonical {@link Skill} record. Split from the
+ * read so both `getForFlow` (file required) and `getByName` (file optional → unknown) can share
+ * the frontmatter-validation tail without duplicating it.
+ */
+const parseSkill = (path: string, name: string, raw: string): Result<Skill, StorageError> => {
   const { frontmatter, body } = splitFrontmatter(raw);
   const fm = parseSimpleYaml(frontmatter);
   const parsed = SkillFrontmatterSchema.safeParse(fm);
@@ -124,6 +125,44 @@ const readSkill = async (root: string, name: string): Promise<Result<Skill, Stor
   });
 };
 
+/**
+ * Read + parse a SKILL.md when the file is REQUIRED — a missing file is a hard `io` error.
+ * Used by `getForFlow` / `loadOne`, where every name in the flow's set must resolve.
+ */
+const readSkill = async (root: string, name: string): Promise<Result<Skill, StorageError>> => {
+  const path = join(root, name, 'SKILL.md');
+  let raw: string;
+  try {
+    raw = await readFile(path, 'utf-8');
+  } catch (cause) {
+    return Result.error(
+      new StorageError({ subCode: 'io', message: `bundled skill not readable: ${path}`, path, cause })
+    );
+  }
+  return parseSkill(path, name, raw);
+};
+
+/**
+ * Read + parse a SKILL.md when the file is OPTIONAL — absence means the name is unknown.
+ * A single async read attempt avoids the TOCTOU window an `existsSync` + read pair opens: a
+ * missing file (`ENOENT`) resolves to `ok(undefined)` (caller scaffolds a stub); ANY other read
+ * failure (`EISDIR` / `EACCES` / …) or a malformed body surfaces as a `StorageError`, exactly as
+ * the file-required path would.
+ */
+const readSkillOptional = async (root: string, name: string): Promise<Result<Skill | undefined, StorageError>> => {
+  const path = join(root, name, 'SKILL.md');
+  let raw: string;
+  try {
+    raw = await readFile(path, 'utf-8');
+  } catch (cause) {
+    if (errorCode(cause) === 'ENOENT') return Result.ok(undefined);
+    return Result.error(
+      new StorageError({ subCode: 'io', message: `bundled skill not readable: ${path}`, path, cause })
+    );
+  }
+  return parseSkill(path, name, raw);
+};
+
 export const createBundledSkillSource = (deps: BundledSkillSourceDeps = {}): SkillSource => {
   const root = deps.bundledRoot ?? defaultBundledRoot;
   const cache = new Map<string, Skill>();
@@ -150,13 +189,16 @@ export const createBundledSkillSource = (deps: BundledSkillSourceDeps = {}): Ski
 
     async getByName(name: string): Promise<Result<Skill | undefined, StorageError>> {
       // Unknown name → not an error. A missing `<root>/<name>/SKILL.md` means the suggestion
-      // doesn't correspond to a bundled skill; the caller scaffolds a stub instead. We test
-      // for the file up front so a genuine read/parse failure (malformed frontmatter) still
-      // surfaces as a `StorageError` via `loadOne`.
+      // doesn't correspond to a bundled skill; the caller scaffolds a stub instead. A single
+      // async read (no `existsSync` pre-check) closes the TOCTOU window: if the file vanishes
+      // between a check and the read it would otherwise surface as a spurious `StorageError`.
+      // A genuine read/parse failure (malformed frontmatter, EACCES, …) still surfaces as a
+      // `StorageError` — only `ENOENT` collapses to the unknown-name case.
       const cached = cache.get(name);
       if (cached !== undefined) return Result.ok(cached);
-      if (!existsSync(join(root, name, 'SKILL.md'))) return Result.ok(undefined);
-      return loadOne(name);
+      const r = await readSkillOptional(root, name);
+      if (r.ok && r.value !== undefined) cache.set(name, r.value);
+      return r;
     },
   };
 };

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ParseError } from '@src/domain/value/error/parse-error.ts';
 import {
   deriveLearningId,
+  learningRecordSchema,
   type LearningRecord,
   parseLearningLine,
   serializeLearningRecord,
@@ -85,6 +86,34 @@ describe('parseLearningLine', () => {
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
     expect(parsed.value).toEqual(record());
+  });
+});
+
+describe('learningRecordSchema text constraint', () => {
+  it('rejects an empty text (the required Insight)', () => {
+    const parsed = learningRecordSchema.safeParse(record({ text: '' }));
+    expect(parsed.success).toBe(false);
+  });
+
+  it('rejects a whitespace-only text', () => {
+    const parsed = learningRecordSchema.safeParse(record({ text: '   \t\n ' }));
+    expect(parsed.success).toBe(false);
+  });
+
+  it('rejects an empty-text record via parseLearningLine (schema-mismatch)', () => {
+    const parsed = parseLearningLine(serializeLearningRecord(record({ text: '   ' })));
+    expect(parsed.ok).toBe(false);
+    if (parsed.ok) return;
+    expect(parsed.error).toBeInstanceOf(ParseError);
+    expect(parsed.error.subCode).toBe('schema-mismatch');
+  });
+
+  it('preserves a padded non-empty text byte-for-byte (refine, not transform)', () => {
+    const padded = record({ text: '  leading and trailing space preserved  ' });
+    const parsed = parseLearningLine(serializeLearningRecord(padded));
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.value?.text).toBe('  leading and trailing space preserved  ');
   });
 });
 

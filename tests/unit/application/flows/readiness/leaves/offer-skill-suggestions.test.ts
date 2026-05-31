@@ -85,13 +85,18 @@ const scriptedPrompt = (answers: ReadonlyArray<Result<boolean, DomainError>>): R
   };
 };
 
-/** Build a ReadinessCtx whose claude-code proposal carries the given skill suggestions. */
-const ctxWith = (suggestions: readonly string[] | undefined): ReadinessCtx => ({
+/**
+ * Build a ReadinessCtx whose claude-code proposal carries the given skill suggestions.
+ * `accepted` defaults to `true` (the operator approved the readiness proposal for this tool);
+ * pass `false` to exercise the declined-proposal no-op.
+ */
+const ctxWith = (suggestions: readonly string[] | undefined, accepted = true): ReadinessCtx => ({
   projectId: FIXED_PROJECT_ID,
   repository: REPO,
   tools: [TOOL],
   entries: {
     [TOOL]: {
+      accepted,
       proposal: {
         proposedContent: '# context',
         targetPath: absolutePath('/tmp/offer-skill-repo/CLAUDE.md'),
@@ -179,6 +184,28 @@ describe('offer-skill-suggestions leaf', () => {
 
     expect(out.ok).toBe(true);
     expect(prompt.confirmMessages).toHaveLength(1);
+    expect(adapter.bareInstalls).toHaveLength(0);
+  });
+
+  it('declined proposal (accepted=false) → no prompt, no install even with suggestions', async () => {
+    const adapter = recordingAdapter();
+    const prompt = scriptedPrompt([]);
+    const leaf = offerSkillSuggestionsLeaf(
+      {
+        interactive: prompt,
+        skillSource: fakeSource({ 'ralphctl-alignment': bundledSkill('ralphctl-alignment') }),
+        skillsAdapter: adapter,
+        logger: noopLogger,
+      },
+      TOOL
+    );
+
+    // Suggestions are present, but the operator declined the overall readiness proposal — the
+    // leaf must no-op without firing a single install prompt (consistent with write / install).
+    const out = await leaf.execute(ctxWith(['ralphctl-alignment'], false));
+
+    expect(out.ok).toBe(true);
+    expect(prompt.confirmMessages).toHaveLength(0);
     expect(adapter.bareInstalls).toHaveLength(0);
   });
 

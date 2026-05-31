@@ -231,6 +231,7 @@ describe('createReadinessFlow', () => {
       'write-claude-code',
       'offer-skill-suggestions-claude-code',
       'install-readiness-skills-claude-code',
+      'persist-suggested-skills',
     ]);
 
     // The recorder captures every WriteFile call: the audit-[09] sidecar render writes

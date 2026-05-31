@@ -15,10 +15,14 @@ import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import {
   absolutePath,
   FIXED_LATER,
+  FIXED_PROJECT_ID,
   isoTimestamp,
   makeApprovedTicket,
+  makeRepository,
   makeReviewSprint,
 } from '@tests/fixtures/domain.ts';
+import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
+import type { ReviewDeps } from '@src/application/flows/review/deps.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
 import type { GitRunner, GitRunResult } from '@src/integration/io/git-runner.ts';
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
@@ -138,6 +142,32 @@ const abortingInteractive = (): InteractivePrompt => ({
   async askConfirm(_input: AskConfirmInput) {
     void _input;
     throw new Error('scriptedInteractive: askConfirm not used in review tests');
+  },
+});
+
+/**
+ * A buildable-but-never-executed distill composition. With `distillRequested: false` the chain's
+ * `distill-gate` guard skips the body, so the inner leaves never run — but the sub-chain is built
+ * eagerly, so the deps must be shaped enough to construct (stub AI / write / template ports the
+ * gate prevents from ever firing). Wiring it makes the `distill-learnings` skipped step appear in
+ * the trace so the step-order fence can lock it immediately before the transition.
+ */
+const stubDistill = (): NonNullable<ReviewDeps['distill']> => ({
+  deps: {
+    interactiveAiFor: () => ({}) as never,
+    runInTerminal: (() => {}) as never,
+    templateLoader: {} as never,
+    interactive: {} as never,
+    writeFile: (() => {}) as never,
+    logger: noopLogger,
+    clock: () => FIXED_LATER,
+  } as never,
+  opts: {
+    projectId: FIXED_PROJECT_ID,
+    memoryRoot: absolutePath('/tmp/memory'),
+    distillRoot: absolutePath('/tmp/distill'),
+    repository: makeRepository(),
+    ai: DEFAULT_SETTINGS.ai,
   },
 });
 
@@ -376,6 +406,7 @@ describe('createReviewFlow', () => {
         locksRoot: absolutePath(dir),
         appendFile: createAppendFile(),
         model: 'claude-opus-4-8',
+        distill: stubDistill(),
       },
       {
         sprintId: sprint.id,
@@ -395,6 +426,17 @@ describe('createReviewFlow', () => {
     await runner.start();
 
     expect(runner.status).toBe('completed');
+    // Step-order fence for the auto-done path (empty round 1 → transition). The distill step
+    // (its `distill-gate` guard's skipped body name, `distill-learnings`) MUST sit immediately
+    // before `transition-sprint-to-done` — the sprint cannot flip to done before distill runs.
+    expect(runner.trace.map((t) => t.elementName)).toEqual([
+      'load-sprint',
+      'assert-sprint-status',
+      'ensure-feedback-file',
+      'review-round',
+      'distill-learnings',
+      'transition-sprint-to-done',
+    ]);
     expect(repo.current().status).toBe('done');
   });
 });

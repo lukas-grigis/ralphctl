@@ -120,4 +120,32 @@ describe('updateRepository', () => {
     if (!r.ok) return;
     expect(r.value.repositories[0]?.path).toBe('/elsewhere/main-repo');
   });
+
+  it('trims and de-duplicates suggestedSkills on update', () => {
+    const r = updateRepository(makeProject(), FIXED_REPOSITORY_ID, {
+      suggestedSkills: ['  react-patterns  ', 'pnpm', 'react-patterns', '   '],
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    // Trimmed, blank-dropped, first-wins de-dupe.
+    expect(r.value.repositories[0]?.suggestedSkills).toEqual(['react-patterns', 'pnpm']);
+  });
+
+  it('clears suggestedSkills when patched with an empty / all-blank list', () => {
+    const seeded = createRepository({
+      id: FIXED_REPOSITORY_ID,
+      path: absolutePath('/tmp/with-suggestions'),
+      suggestedSkills: ['react-patterns'],
+    });
+    if (!seeded.ok) throw new Error('seed');
+    const proj = makeProject({ repositories: [seeded.value] });
+    expect(proj.repositories[0]?.suggestedSkills).toEqual(['react-patterns']);
+
+    const r = updateRepository(proj, FIXED_REPOSITORY_ID, { suggestedSkills: ['   '] });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    // All-blank list collapses to "no suggestions" → field removed entirely.
+    expect(r.value.repositories[0]?.suggestedSkills).toBeUndefined();
+    expect('suggestedSkills' in (r.value.repositories[0] ?? {})).toBe(false);
+  });
 });

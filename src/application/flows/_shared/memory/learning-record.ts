@@ -68,7 +68,11 @@ const taskKindSchema = z.enum(['feature', 'bugfix', 'refactor', 'test', 'docs', 
 export const learningRecordSchema = z.object({
   v: z.number().int(),
   id: z.string().min(1),
-  text: z.string(),
+  // `text` is the required Insight. Reject empty / whitespace-only prose — a degenerate ledger
+  // row carries no signal and only pollutes the distill candidate list. A `.refine` (NOT a
+  // `.transform`) keeps the stored value byte-for-byte: surrounding whitespace round-trips
+  // unchanged, only the presence of at least one non-whitespace character is enforced.
+  text: z.string().refine((t) => t.trim().length > 0, { message: 'learning text must not be empty' }),
   context: z.string().optional(),
   appliesTo: z.string().optional(),
   repo: z.string(),

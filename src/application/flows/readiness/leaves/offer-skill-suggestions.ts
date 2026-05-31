@@ -26,7 +26,13 @@ import type { ReadinessCtx } from '@src/application/flows/readiness/ctx.ts';
  * one name; a prompt error (including `AbortError` on Ctrl-C) propagates verbatim so a
  * cancellation aborts the chain rather than being swallowed.
  *
- * Empty / undefined suggestions, or a missing repository path, make the leaf a logged no-op.
+ * Like its siblings {@link writeReadinessLeaf} and {@link installReadinessSkillsLeaf}, this leaf
+ * is gated on the entry's `accepted` flag: when the operator declined the overall readiness
+ * proposal for this tool, the leaf is a logged no-op — declining the proposal also declines its
+ * suggested skills, so the operator is never prompted to install anything off a rejected round.
+ *
+ * Empty / undefined suggestions, a missing repository path, or a declined proposal make the
+ * leaf a logged no-op.
  *
  * Like {@link installReadinessSkillsLeaf}, installs go through the BARE-name adapter path: the
  * folders are deliberately project-tracked (no `ralphctl-` prefix, no `.git/info/exclude`
@@ -40,6 +46,7 @@ export interface OfferSkillSuggestionsLeafDeps {
 }
 
 interface OfferSkillSuggestionsInput {
+  readonly accepted: boolean;
   readonly suggestions: readonly string[];
   readonly repoPath?: AbsolutePath;
 }
@@ -55,12 +62,51 @@ const stubSkillFor = (name: string): Skill => ({
   content: `# ${name}\n\n> Stub scaffolded by ralphctl from an AI skill suggestion. Replace this body with the skill's guidance.\n`,
 });
 
+/**
+ * Human-gate one suggested skill name: resolve it against the bundled source, ask the operator,
+ * and install the canonical bundled body (known) or a scaffolded stub (unknown) on approval. A
+ * `false` answer is a clean skip; a prompt error (incl. `AbortError`) propagates verbatim.
+ */
+const offerOne = async (
+  deps: OfferSkillSuggestionsLeafDeps,
+  log: ReturnType<Logger['named']>,
+  repoPath: AbsolutePath,
+  name: string
+): Promise<Result<void, DomainError>> => {
+  const found = await deps.skillSource.getByName(name);
+  if (!found.ok) return Result.error(found.error);
+  const bundled = found.value;
+  const known = bundled !== undefined;
+
+  const message = known
+    ? `The AI suggests the bundled skill '${name}'. Install it into ${String(repoPath)}?`
+    : `The AI suggests an unknown skill '${name}'. Scaffold a stub for it in ${String(repoPath)}?`;
+  const answer = await deps.interactive.askConfirm({ message });
+  // Propagate any prompt error verbatim — `AbortError` (Ctrl-C) must abort the chain, not be
+  // treated as a decline.
+  if (!answer.ok) return Result.error(answer.error);
+  if (!answer.value) {
+    log.info(`operator declined skill '${name}' — skipping`);
+    return Result.ok(undefined);
+  }
+
+  const skill = bundled ?? stubSkillFor(name);
+  const installed = await deps.skillsAdapter.installBareSkill(repoPath, skill);
+  if (!installed.ok) return Result.error(installed.error);
+  log.info(known ? `installed bundled skill '${name}'` : `scaffolded stub skill '${name}'`);
+  return Result.ok(undefined);
+};
+
 const offerSkillSuggestionsUseCase = async (
   deps: OfferSkillSuggestionsLeafDeps,
   tool: AssistantTool,
   input: OfferSkillSuggestionsInput
 ): Promise<Result<void, DomainError>> => {
   const log = deps.logger.named(`readiness.offer-skill-suggestions-${tool}`);
+  if (!input.accepted) {
+    log.info('skipping skill suggestions — proposal not accepted');
+    return Result.ok(undefined);
+  }
   if (input.suggestions.length === 0) {
     log.info('no skill suggestions to offer — skipping');
     return Result.ok(undefined);
@@ -72,27 +118,8 @@ const offerSkillSuggestionsUseCase = async (
   }
 
   for (const name of input.suggestions) {
-    const found = await deps.skillSource.getByName(name);
-    if (!found.ok) return Result.error(found.error);
-    const bundled = found.value;
-    const known = bundled !== undefined;
-
-    const message = known
-      ? `The AI suggests the bundled skill '${name}'. Install it into ${String(repoPath)}?`
-      : `The AI suggests an unknown skill '${name}'. Scaffold a stub for it in ${String(repoPath)}?`;
-    const answer = await deps.interactive.askConfirm({ message });
-    // Propagate any prompt error verbatim — `AbortError` (Ctrl-C) must abort the chain, not be
-    // treated as a decline.
-    if (!answer.ok) return Result.error(answer.error);
-    if (!answer.value) {
-      log.info(`operator declined skill '${name}' — skipping`);
-      continue;
-    }
-
-    const skill = bundled ?? stubSkillFor(name);
-    const installed = await deps.skillsAdapter.installBareSkill(repoPath, skill);
-    if (!installed.ok) return Result.error(installed.error);
-    log.info(known ? `installed bundled skill '${name}'` : `scaffolded stub skill '${name}'`);
+    const offered = await offerOne(deps, log, repoPath, name);
+    if (!offered.ok) return Result.error(offered.error);
   }
 
   return Result.ok(undefined);
@@ -107,8 +134,10 @@ export const offerSkillSuggestionsLeaf = (
       execute: async (input) => offerSkillSuggestionsUseCase(deps, tool, input),
     },
     input: (ctx) => {
-      const suggestions = ctx.entries[tool]?.proposal?.proposedSkillSuggestions ?? [];
+      const entry = ctx.entries[tool];
+      const suggestions = entry?.proposal?.proposedSkillSuggestions ?? [];
       return {
+        accepted: entry?.accepted ?? false,
         suggestions,
         ...(ctx.repository?.path !== undefined ? { repoPath: ctx.repository.path } : {}),
       };

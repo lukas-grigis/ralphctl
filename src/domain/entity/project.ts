@@ -16,6 +16,7 @@ import {
   setRepositorySetupScript,
   setRepositorySetupSkill,
   setRepositorySlug,
+  setRepositorySuggestedSkills,
   setRepositoryVerifyScript,
   setRepositoryVerifySkill,
   setRepositoryVerifyTimeout,
@@ -60,7 +61,15 @@ export interface ProjectCreateInput {
 export type RepositoryUpdate = Partial<
   Pick<
     Repository,
-    'name' | 'slug' | 'path' | 'verifyScript' | 'verifyTimeout' | 'setupScript' | 'setupSkill' | 'verifySkill'
+    | 'name'
+    | 'slug'
+    | 'path'
+    | 'verifyScript'
+    | 'verifyTimeout'
+    | 'setupScript'
+    | 'setupSkill'
+    | 'verifySkill'
+    | 'suggestedSkills'
   >
 > & {
   /** Path is an `AbsolutePath` value object — re-typed here for clarity. */
@@ -269,6 +278,9 @@ export const updateRepository = (
     const r = setRepositoryVerifySkill(updated, partial.verifySkill);
     if (!r.ok) return Result.error(r.error);
     updated = r.value;
+  }
+  if ('suggestedSkills' in partial) {
+    updated = setRepositorySuggestedSkills(updated, partial.suggestedSkills);
   }
 
   const next = [...project.repositories];
