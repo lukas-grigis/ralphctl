@@ -1,7 +1,7 @@
 # RalphCTL — Acceptance Criteria
 
-Testable acceptance criteria for v0.7.0. Read on demand — this file is not auto-imported into every Claude
-session. Source of truth for narrative constraints lives elsewhere; pointers below.
+Testable acceptance criteria, current as of v0.8.x. Read on demand — this file is not auto-imported into every
+Claude session. Source of truth for narrative constraints lives elsewhere; pointers below.
 
 | For…                              | Read…                                  |
 | --------------------------------- | -------------------------------------- |
@@ -38,8 +38,10 @@ it done; when a behaviour regresses, untick it.
       `<root>/{config,data,state}/…`. Per-sprint directory contains `sprint.json` + `execution.json` +
       `tasks.json` + `progress.md` + per-flow sandbox folders. `events.ndjson` lands here too when
       `RALPHCTL_DEBUG_TRACE=1` (opt-in debug sink, no-op otherwise).
-- [ ] **Cross-project sprint lock** — `<stateRoot>/locks/sprints/<sprint-id>.lock` blocks two ralphctl
-      processes from racing the same sprint. Stale-takeover via `RALPHCTL_LOCK_TIMEOUT_MS`.
+- [ ] **Cross-process repo lock** — `<stateRoot>/locks/repo-<hash>.lock` (sha1 of the repo worktree path)
+      blocks two ralphctl processes from racing the same working tree. Stale-takeover fires after the locker's fixed 30s
+      threshold
+      (`DEFAULT_STALE_AFTER_MS`, clamped 1ms..1h) — not env-configurable.
 - [ ] **`@public` JSDoc tag whitelist** — `pnpm deadcode` exits 0 on a clean tree; symbols intentionally kept
       after dead-code cleanup are tagged `@public`.
 
@@ -49,9 +51,11 @@ it done; when a behaviour regresses, untick it.
       `ChainStarted`, `ChainStepStarted`, `ChainStepCompleted`, `ChainStepFailed`, `ChainCompleted`,
       `ChainFailed`, `ChainAborted`, `TaskAttemptStarted`, `TaskAttemptEvaluated`, `TaskRoundStarted`,
       `FeedbackRoundApplied`, `TokenUsageEvent`, `BannerShowEvent`, `BannerClearEvent`,
-      `MemoryPressureEvent`, `ChainLogDegradedEvent`, `HarnessSignalEvent`, `LogEvent`.
+      `MemoryPressureEvent`, `ChainLogDegradedEvent`, `HarnessSignalEvent`, `AiSignalEvent`,
+      `ModelEscalatedEvent`, `LogEvent`.
 - [ ] **Logger** — `createEventBusLogger({ eventBus, clock })` is the only `Logger` factory; every
-      `logger.info(...)` publishes a `LogEvent`. `RALPHCTL_LOG_LEVEL` filters output.
+      `logger.info(...)` publishes a `LogEvent`. The log floor is `settings.logging.level` (default `info`),
+      applied by the bus → logger consumer via `createLogLevelGate` / `passesLogLevel` — not an env var.
 - [x] **Optional events.ndjson** — opt-in via `RALPHCTL_DEBUG_TRACE=1`. When enabled, every `Implement` (and
       other long-running) chain run appends its trace to `<sprintDir>/events.ndjson`, bracketed by
       `=== chain-run <id> <flowId> started <iso> ===` / `… completed/failed/aborted …` delimiters.
@@ -71,22 +75,24 @@ it done; when a behaviour regresses, untick it.
 - [ ] **Single registry** — `src/application/registry.ts` lists every user-launchable flow. Adding a flow is
       one append to `flowRegistry`. The CLI command builder, TUI menu, and launch logic all consume from the
       same array.
-- [ ] **`pnpm gen:flow <name>`** — scaffolds the manifest + flow stub + tests so a new chain is added with the
-      same shape as existing ones.
 - [ ] **Trigger predicates** — each `FlowManifest.triggers` declares pre-launch readiness conditions
       (`requiresProject`, `currentSprintStatus`, `minPendingTickets`, `minApprovedTickets`,
       `minResumableTasks`). TUI menu disables and explains unmet triggers.
 
 ## Sprint lifecycle
 
-Status flow: `draft → active → review → done`.
+Status flow: `draft → planned → active → review → done`.
 
-- [ ] **`draft → active`** — `implement` flow auto-activates a draft sprint that has tasks.
-- [ ] **`active → review`** — `implement` transitions the sprint to `review` once every task is `done`.
+- [ ] **`draft → planned`** — the `plan` flow generates `tasks.json` and transitions the sprint to `planned`.
+- [ ] **`planned → active`** — `implement` activates a `planned` sprint on first launch; an already-`active`
+      sprint passes through idempotently.
+- [ ] **`active → review`** — `implement` transitions the sprint to `review` once every task has settled
+      (`done` or `blocked`).
 - [ ] **`review → done`** — `sprint close <id>` (CLI) and the close-sprint flow (TUI) accept only
       `review`-status sprints.
-- [ ] **No `task add / edit / remove`** — task mutation outside the planner is intentional. The CLI surface
-      contains only `task list` and `task show`.
+- [ ] **No `task add / edit / remove`** — bulk task mutation outside the planner is intentional. The CLI
+      task surface is read-only plus the single recovery action `task unblock` (blocked → todo); there is no
+      `task add` / `task edit` / `task remove`.
 - [ ] **`sprint refine` / `plan` / `ideate` are draft-only** — running them on an active or later sprint is a
       precondition failure.
 
@@ -102,11 +108,21 @@ Status flow: `draft → active → review → done`.
 
 ## Implement flow
 
-- [ ] **Sequential execution** — tasks run strictly one at a time in topological order over `Task.blockedBy`.
-- [ ] **Per-task generator-evaluator loop** — `loop` primitive runs `generator → evaluator → settle-attempt`
-      per round. Exits when the evaluator passes or `maxAttempts` is hit (then transition to `blocked`).
-- [ ] **Per-flow model selection** — `settings.ai.models.implement` selects the model used for the generator;
-      `settings.ai.models.implement` (same key, but evaluator may be a different ladder rung internally).
+- [x] **Dependency-ordered execution** — tasks are scheduled by `scheduleIntoWaves` (topological
+      Kahn's-by-level over `Task.dependsOn`, `Task.order` ASC within each level); `validateTaskGraph`
+      runs at BOTH parse time and implement-launch time, so a cyclic or dangling graph fails fast with
+      the rendered issue. The scheduled levels are flattened into one serial queue — tasks run strictly
+      one at a time, each dependency leading the tasks that rely on it. `maxParallelTasks` stays the
+      pre-existing setting (default `1`, no concurrent execution).
+- [x] **Per-task generator-evaluator loop** — the attempt body is
+      `start-attempt → pre-task-verify → gen-eval inner loop (generator/evaluator per turn) → finalize → post-task-verify → commit (guarded) → settle-attempt → append-learnings → progress-journal`,
+      wrapped in an outer `loop` over attempts.
+      Exits when the evaluator passes or `maxAttempts` is hit (then transition to `blocked`).
+      A single launch runs the outer attempt loop up to `maxAttempts` times per task (`maxAttempts === 1`
+      preserves the prior single-attempt-per-launch behaviour).
+- [ ] **Per-flow model selection** — `settings.ai.implement` is a nested `{ generator, evaluator }` pair; each
+      role carries its own `{ provider, model, effort? }` row, so the produce and score sessions can run on
+      different providers / models / effort levels.
 - [x] **`setupScript` runs unconditionally once per affected repo at sprint start** — outcome recorded as a
       structured `SetupRun` on `SprintExecution.setupRanAt`; any failure hard-aborts the chain with the
       failing repo named.
@@ -137,8 +153,6 @@ Status flow: `draft → active → review → done`.
       standalone `decisions.log` sink).
 - [x] **Notifications** — terminal bell + macOS `osascript` fire on attention events when
       `settings.ui.notifications.enabled` is `true` (default).
-- [x] **Snapshot CLI** — `ralphctl snapshot [--sprint <id>]` renders one deterministic text frame of the
-      active sprint's `SprintState` to stdout.
 
 ## Review flow (apply-feedback)
 
@@ -162,16 +176,22 @@ Status flow: `draft → active → review → done`.
       from defaults. Skills are copied into `<repo>/<parentDir>/skills/ralphctl-<name>/` and git-excluded via a
       single `ralphctl-*` wildcard appended to `.git/info/exclude`. Project skills always win over bundled ones.
       Adapter is no-op for Codex / Copilot today.
-- [ ] **Provider-native context file** — `readiness` flow writes `CLAUDE.md` (Claude),
-      `.github/copilot-instructions.md` (Copilot), or `AGENTS.md` (Codex) based on `settings.ai.provider`.
+- [ ] **Provider-native context file** — the `readiness` flow fans out across every uniquely referenced
+      provider in `settings.ai`, writing one native context file per distinct provider: `CLAUDE.md`
+      (claude-code), `.github/copilot-instructions.md` (github-copilot), `AGENTS.md` (openai-codex). A
+      single-provider config produces exactly one file; mixed configs produce one per distinct provider.
 
 ## Per-flow model selection
 
-- [ ] **Settings shape** — `settings.ai.models` is an object keyed by chain (`refine` / `plan` / `implement` /
-      `readiness` / `ideate`). Each flow reads its own model from this map.
-- [ ] **Provider × model validation** — model values must be in the configured provider's catalog
-      (`src/domain/value/settings-models/<provider>.ts`); the persistence schema rejects invalid combos at
-      load time.
+- [ ] **Settings shape** — `settings.ai` is a flat record: an optional global `ai.effort` plus per-flow rows
+      `ai.{refine,plan,readiness,ideate,createPr}` (each `{ provider, model, effort? }`) and a nested
+      `ai.implement.{generator,evaluator}` pair. `detect-scripts`/`detect-skills` reuse the `readiness` row and
+      `review` reuses the `implement` row — there is no `settings.ai.models` sub-object. Each flow reads its own
+      provider/model/effort.
+- [ ] **Provider × model validation** — a row's `model` must be either in the configured provider's catalog
+      (`src/domain/value/settings-models/<provider>.ts`) or any non-empty trimmed custom string; the per-flow
+      `effort` validates against the provider's native vocabulary. Custom (off-catalog) model ids parse at load
+      time and are rejected by the provider CLI at spawn time, not by the persistence schema.
 
 ## Doctor
 
@@ -196,10 +216,10 @@ Status flow: `draft → active → review → done`.
 - [x] **Surface is deliberately smaller than v0.6.x** — interactive flows (refine / plan / ideate / implement /
       readiness / create-sprint) stay TUI-only. The CLI exposes only inspection commands + one-shot operations:
       `doctor`, `completion <shell>`, `export-context`, `export-requirements`, `create-pr`,
-      `settings {show,set}`, `project {list,show,remove}`,
+      `settings {show,set,apply-preset}`, `project {list,show,remove}`,
       `sprint {list,show,set-current,activate,close,remove,progress}`,
-      `ticket {list,show,add,remove}`, `task {list,show}`,
-      `runs {list,prune}`, `snapshot`.
+      `ticket {list,show,add,remove}`, `task {list,show,unblock}`,
+      `runs {list,prune}`.
 - [ ] **Each one-shot command** has a `tests/e2e/cli/<name>.test.ts` pinning the success-path stdout.
 - [ ] **Exit codes** — `0` success, `1` error, `130` interrupted.
 
@@ -209,7 +229,9 @@ See [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) for tokens, components, view patterns
 
 - [ ] **Alt-screen takeover** — bare `ralphctl` enters the alt-screen buffer + hides cursor; restored via
       explicit exit + signal-safe handlers (`exit` / `SIGINT` / `SIGTERM` / `SIGHUP` / `uncaughtException`).
-- [ ] **Non-TTY fallback** — `CI=1` / `RALPHCTL_NO_TUI=1` / piped invocations skip the Ink mount.
+- [ ] **Non-TTY fallback** — `CI=1` / `RALPHCTL_NO_TUI=1` / piped invocations skip the Ink mount. _Not yet
+      wired: the bare-command mount is currently unconditional; `CI` / `RALPHCTL_NO_TUI` only gate implicit
+      interactive prompting inside the `implement` flow (`pre-task-verify.ts`)._
 - [ ] **Persistent banner** — `<Banner />` renders on every view via `<ViewShell />`. Quote stabilises at
       module load.
 - [ ] **Help overlay** — `?` opens `<HelpOverlay />`; rendered from the centralised keyboard map.
@@ -223,7 +245,7 @@ See [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) for tokens, components, view patterns
 - [ ] **Form retry loop** — sprint-create / project-add / ticket-add / project-edit views retry on validation
       errors instead of popping back to home.
 - [x] **Responsive Execute view** — three-column at `xl` (≥180), two-column at `lg` (≥140), compact-rail
-      at `md` (100–139), single-column below `md`. Rail grows fluidly 28→40 cols at `xl`+ via
+      at `md` (100–139), single-column below `md`. Rail grows fluidly 36→56 cols at `xl`+ via
       `resolveRailWidth`. `StepTrace` renders `Element.label` when present; long labels mid-truncated to
       fit the rail column budget.
 - [x] **TUI hotkeys** — `b` banner compact ↔ full toggle; `g` progress overlay (reads `progress.md` on
@@ -252,7 +274,7 @@ See [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) for tokens, components, view patterns
       `import.meta.url`. Dev reads from `src/`; bundled reads from `dist/`.
 - [ ] **Asset verification** — missing or corrupt assets fail fast at load time with a repair hint.
 - [ ] **CI tarball smoke** — `pnpm pack` + `npm install` into a tmp dir + `ralphctl --version` from arbitrary
-      cwd exits 0 with `0.7.0`.
+      cwd exits 0 and prints the version from `package.json`.
 - [ ] **`--provenance`** flag on npm publish.
 
 ## Migration from v0.6.x
@@ -261,14 +283,28 @@ See [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) for tokens, components, view patterns
       old location.
 - [ ] **README upgrade notice** — `README.md` opens with the 0.6.x → 0.7.0 upgrade section listing the
       breaking changes.
-- [ ] **CHANGELOG section** — `## [0.7.0] - 2026-05-17` lists Breaking / Added / Changed / Removed.
+- [ ] **CHANGELOG section** — `## [0.7.0] - 2026-05-18` lists Breaking / Added / Changed / Removed.
 - [ ] **Legacy `settings.json` is rejected on read** — surface a `ParseError`, not a half-decoded record.
 
 ## Things deliberately deferred
 
 - **Concurrent task fan-out** — `settings.concurrency.maxParallelTasks` is wired but only `1` is supported
-  today. Needs a new chain primitive.
-- **User-skill consumption** — `SkillSuggestionsSignal` is parsed but no flow consumes it yet.
+  today; tasks within a dependency level run serially. Concurrent fan-out needs a new chain primitive.
+- **Cross-provider escalation** — escalation today stays within a provider (e.g. Sonnet → Opus); switching
+  providers mid-task carries auth/context/tool hazards and is deferred.
 - **Real-provider e2e tests** — every Claude / Copilot / Codex provider test uses a fake `spawn`.
 - **Bundle-mode detection robustness** — `import.meta.url.endsWith('/cli.mjs')` is a fragile detection; a
   follow-up should switch to `existsSync(<here>/manifest.json)`.
+
+## Procedural memory
+
+- [x] **Learning ledger** — per-attempt `<learning>` signals appended (best-effort) to
+      `<dataRoot>/memory/<projectId>/learnings.ndjson`; records carry `id`, `text`, `repo`, `repoName`,
+      `taskKind`, `sprintId`, `taskId`, `timestamp`, and `promotedAt` (null until distilled).
+- [x] **Distill step (opt-in)** — at sprint close (both `close-sprint` and `review` auto-done paths) a
+      human-gated step (default: No) promotes curated learnings into each provider's native context file
+      via the per-distinct-provider fan-out (one file per provider, no symlinks). Runs while the sprint is
+      still `review` so an abort leaves it re-runnable.
+- [x] **Skill suggestions acted on** — the `readiness` flow offers to install/scaffold each
+      `SkillSuggestionsSignal` entry; human gate mandatory (no auto-install); accepted suggestions
+      persisted on `Repository.suggestedSkills`.

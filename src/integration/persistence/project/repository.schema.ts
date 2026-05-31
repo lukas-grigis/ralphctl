@@ -28,6 +28,7 @@ export const RepositorySchema = z
     setupScript: z.string().optional(),
     setupSkill: z.string().optional(),
     verifySkill: z.string().optional(),
+    suggestedSkills: z.array(z.string()).readonly().optional(),
   })
   .transform(({ checkScript, checkTimeout, verifyScript, verifyTimeout, ...rest }) => {
     // Legacy → new migration: when only the legacy field is present, lift its value onto the

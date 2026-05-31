@@ -5,7 +5,7 @@
 
 import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
-import { StatusChip, sprintStatusKind } from '@src/application/ui/tui/components/status-chip.tsx';
+import { sprintStatusKind, StatusChip } from '@src/application/ui/tui/components/status-chip.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { FlatRow, HeaderRow } from '@src/application/ui/tui/views/pick-sprint-internals/types.ts';

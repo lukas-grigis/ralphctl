@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
+import type { Sprint } from '@src/domain/entity/sprint.ts';
 import { addTicket } from '@src/domain/entity/sprint.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { Save } from '@src/domain/repository/_base/save.ts';
-import type { Sprint } from '@src/domain/entity/sprint.ts';
 import { makeActiveSprint, makeDraftSprint, makePendingTicket } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { removeTicketUseCase } from '@src/business/ticket/remove-ticket.ts';

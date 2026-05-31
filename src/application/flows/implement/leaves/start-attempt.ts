@@ -1,4 +1,4 @@
-import { startAttemptUseCase, type StartAttemptProps } from '@src/business/task/start-attempt.ts';
+import { type StartAttemptProps, startAttemptUseCase } from '@src/business/task/start-attempt.ts';
 import type { InProgressTask, Task } from '@src/domain/entity/task.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
@@ -49,11 +49,23 @@ export const startAttemptLeaf = (deps: StartAttemptLeafDeps, taskId: TaskId): El
         tasks: (ctx.tasks ?? []).map((t) => (t.id === inProgress.id ? inProgress : t)),
         lastVerdict: undefined,
         lastBlockReason: undefined,
-        // Start-attempt is the per-task boundary leaf — clear any generator / evaluator session
-        // ids carried over from the prior task so the new task starts with a fresh pair of
-        // "developers." Cross-task resume would mix two unrelated bodies of work into one
-        // conversational thread and confuse the model. Per-task rounds within THIS attempt are
-        // re-stamped by the generator / evaluator leaves themselves after every spawn.
+        // Start-attempt is the per-ATTEMPT boundary leaf. Under the outer attempt loop the
+        // same ctx flows from one attempt into the next within a single launch, so the gen-eval
+        // turn counter, plateau window, and round pointer MUST reset here — otherwise attempt 2's
+        // inner loop would inherit attempt 1's `plateauHistory` (plateau-on-first-eval) and a
+        // climbing `genEvalTurn`. Resetting realises the per-attempt semantics the ctx docs
+        // already describe ("a fresh currentTask starts with an empty array"). `currentRoundNum`
+        // is recomputed by `resolve-round-num` from max-on-disk so prior rounds are never
+        // overwritten even though the in-memory pointer clears.
+        genEvalTurn: undefined,
+        plateauHistory: undefined,
+        currentRoundNum: undefined,
+        lastEvaluation: undefined,
+        // Clear any generator / evaluator session ids carried over from the prior task/attempt so
+        // the new attempt starts with a fresh pair of "developers." Cross-attempt resume would
+        // mix two unrelated bodies of work into one conversational thread and confuse the model.
+        // Per-round rounds within THIS attempt are re-stamped by the generator / evaluator leaves
+        // themselves after every spawn.
         priorGeneratorSessionId: undefined,
         priorEvaluatorSessionId: undefined,
       }),

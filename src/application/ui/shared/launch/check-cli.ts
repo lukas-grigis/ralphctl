@@ -17,11 +17,11 @@
 
 import {
   detectInstalledProviders,
+  primaryInstallCommand,
   PROVIDER_BINARY,
   PROVIDER_INSTALL_GUIDANCE,
-  primaryInstallCommand,
 } from '@src/integration/system/detect-cli.ts';
-import { primaryFlowRow, type AiProvider, type Settings } from '@src/domain/entity/settings.ts';
+import { type AiProvider, primaryFlowRow, type Settings } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import type { LaunchExtras, LaunchResult } from '@src/application/ui/shared/launcher.ts';
 

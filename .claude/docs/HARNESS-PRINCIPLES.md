@@ -44,7 +44,11 @@ read and respond. Keeps work faithful to spec without over-specification."_
 
 **Where it lives.**
 
-- `signals.json` contract: `src/integration/ai/providers/_engine/run-headless-spawn.ts`
+- `signals.json` contract: the AI writes `signals.json` via its Write tool into `session.signalsFile`; the
+  per-provider headless adapters (`src/integration/ai/providers/{claude,codex,copilot}/headless.ts`) thread
+  that path and consume it post-spawn; per-task path computed in
+  `src/application/flows/implement/leaves/round-artifacts.ts` (`roundSignalsPath`); schema/validation under
+  `src/integration/ai/contract/_engine/`
 - Session-id file: `src/integration/ai/providers/_engine/persist-session-id.ts`
 - Per-spawn layout: `<sprintDir>/<flow>/<unit>/rounds/<N>/{generator,evaluator}/signals.json`
 
@@ -64,9 +68,10 @@ shifts — each new engineer arrives with no memory of what happened on the prev
 **Where it lives.**
 
 - Append-only sprint journal: `src/application/flows/implement/leaves/progress-journal.ts`
-- Separator on new run: `src/application/flows/_shared/progress/append-journal-separator.ts`
-- Prompts that consume it: `progress.md` body inlined via `{{PROGRESS_JOURNAL}}` in
-  `src/integration/ai/prompts/plan/template.md` and `src/integration/ai/prompts/evaluate/template.md`
+- Status-transition separator: `src/application/flows/_shared/progress/append-journal-separator.ts` (records
+  `activated` / `transitioned to review` / `closed` lines between task-attempt sections)
+- Prompts that consume it: `progress.md` body inlined via `{{PRIOR_PROGRESS}}` (wrapped in `<prior_progress>`)
+  in `src/integration/ai/prompts/plan/template.md` and `src/integration/ai/prompts/evaluate/template.md`
 
 ---
 
@@ -83,7 +88,8 @@ revert + recovery. Model reads git logs at session start."_
 **Where it lives.**
 
 - Commit leaf: `src/application/flows/implement/leaves/` (commit-message signal drives per-task commits)
-- Conventional commits enforced: project `commitlint` config; `CLAUDE.md § Git Practices`
+- Conventional-commit shape: applied as a convention by the `/commit` skill (not enforced by a commitlint
+  config or commit-msg hook)
 
 ---
 
@@ -102,6 +108,11 @@ contracts define testable success up-front."_
 - `maxAttempts` setting: `src/application/chain/run/iteration-config.ts`
 - Blocked transition: `src/application/flows/implement/leaves/` (settle-attempt leaf)
 - Task status enum includes `blocked`: `src/domain/entity/task.ts`
+- **Outer attempt loop.** `per-task-subchain.ts` wraps the full per-attempt segment in a
+  `loop('task-attempts-<id>', …, { maxIterations: maxAttempts, shouldStop: terminal })` so a single
+  launch can run up to `maxAttempts` rounds per task. Escalation fires within this outer loop
+  (at most once per task), then a second plateau blocks. `maxAttempts === 1` is byte-for-byte
+  the prior one-attempt-per-launch behaviour.
 
 ---
 
@@ -152,7 +163,8 @@ _"Context resets > compaction for models with context anxiety."_
 **Where it lives.**
 
 - Retry loop: `src/integration/ai/providers/_engine/rate-limit-backoff.ts`
-- Session-id capture and `--resume` pass-through: `src/integration/ai/providers/_engine/run-headless-spawn.ts`
+- Session-id capture: `src/integration/ai/providers/_engine/{persist-session-id,session-id}.ts`
+- `--resume` pass-through: per-adapter in `src/integration/ai/providers/{claude,codex,copilot}/headless.ts`
 - Cap: `settings.harness.rateLimitRetries` (0–10)
 
 ---
@@ -172,7 +184,7 @@ concrete criteria with hard thresholds — any failed criterion triggers rework.
 
 - Pre-task verify + post-task verify: `src/application/flows/implement/leaves/`
 - Attribution algorithm (`clean` / `regressed` / `baseline-broken` / `fixed-baseline`): implement leaves
-- Scripts collected during readiness: `src/application/flows/detect-scripts/`
+- Scripts collected by the `detect-scripts` flow: `src/application/flows/detect-scripts/`
 
 ---
 
@@ -205,7 +217,7 @@ check gate is the deployed form of this loop; the same posture belongs inside ea
 
 **Where it lives.**
 
-- Cross-phase skill: `.claude/skills/ralphctl-iterative-review/SKILL.md` (main repo)
+- Cross-phase skill: `src/integration/ai/skills/bundled/ralphctl-iterative-review/SKILL.md` (bundled skill)
 
 ---
 
@@ -220,7 +232,7 @@ acceptance criteria. "Big blob" output is a failure to align first.
 
 **Where it lives.**
 
-- Cross-phase skill: `.claude/skills/ralphctl-alignment/SKILL.md` (main repo)
+- Cross-phase skill: `src/integration/ai/skills/bundled/ralphctl-alignment/SKILL.md` (bundled skill)
 
 ---
 
@@ -235,7 +247,7 @@ acceptance criteria.
 
 **Where it lives.**
 
-- Cross-phase skill: `.claude/skills/ralphctl-abstraction-first/SKILL.md` (main repo)
+- Cross-phase skill: `src/integration/ai/skills/bundled/ralphctl-abstraction-first/SKILL.md` (bundled skill)
 
 ---
 
@@ -253,11 +265,11 @@ harness when new model releases; strip non-load-bearing pieces."_
 
 **Where it lives.**
 
-- Cross-phase skill in progress: `.claude/skills/ralphctl-minimal-scaffolding/SKILL.md` (this PR)
+- Cross-phase skill: `src/integration/ai/skills/bundled/ralphctl-minimal-scaffolding/SKILL.md` (bundled skill)
 - No audit cadence yet — nothing enforces a per-model-release walk of this doc.
 
 **Next step.** The `ralphctl-minimal-scaffolding` skill captures the principle; what's missing is a ritual.
-Add a checklist block to this doc's "model-bump audit" section (below) and gate it on a team process (e.g.
+Add a checklist block to the "How to use this doc" section (below) and gate it on a team process (e.g.
 open a ticket when a new model version ships).
 
 ---
@@ -273,21 +285,16 @@ issues then talking self into approving anyway; superficial testing. Fix: read l
 divergence from desired outcomes, update prompts iteratively. Requires significant prompt tuning to avoid
 over-praising."_
 
-**ralphctl status.** `gap`
+**ralphctl status.** `applied`
 
 **Where it lives.**
 
 - Evaluator template: `src/integration/ai/prompts/evaluate/template.md`
-- Today's template grades against `{{TASK_ACCEPTANCE_CRITERIA}}` and the verify-script outcome but does not
-  name evaluator failure modes or push toward harsh grading.
-
-**Next step.** The `prompt-template-engineer` agent owns this. Edit `evaluate/template.md` to:
-
-- Name concrete failure modes (superficial testing, talking self into approval, over-praising incomplete
-  work).
-- Weight subjective criteria (design quality, originality, craft) heavier than technical defaults when
-  the task spec includes them.
-- Add few-shot calibration examples that bias the evaluator toward harsh grading.
+- Today's template grades against `{{VERIFICATION_CRITERIA_SECTION}}` and the verify-script outcome, opens
+  with "Skepticism is your default", pins a four-dimension floor rubric (correctness / completeness / safety
+  / consistency — any FAIL forces `status: "failed"`), and carries an explicit "Evaluator failure modes to
+  resist actively" block naming talking-self-into-approval, superficial testing, crediting incomplete work,
+  and rubber-stamping on a green verify script. Status moved `gap` → `applied`.
 
 ---
 
@@ -301,19 +308,16 @@ to compact unnecessarily.
 strong context anxiety; Opus 4.6 largely eliminated it. Automatic compaction can handle context growth in
 continuous sessions with capable models."_
 
-**ralphctl status.** `partial`
+**ralphctl status.** `applied`
 
 **Where it lives.**
 
 - Session scoping: `src/application/session/session.ts` (`AsyncLocalStorage` per runner call)
 - Interactive flows (refine / plan / ideate) hand off a full session to the AI CLI; the AI decides how to
   handle its own context.
-- No explicit convention in the prompt templates for when to assume fresh-slate vs continuity.
-
-**Next step.** The `prompt-template-engineer` agent owns this. Add a phrasing convention to the relevant
-templates (`refine/template.md`, `plan/template.md`, `ideate/template.md`) that either signals fresh-slate
-("no prior context is assumed") or continuity ("read `progress.md` to orient before proceeding"). The
-convention should be documented in `prompt-template-engineer.md` as an owned fence.
+- Prompt templates now state the convention explicitly: `plan` / `ideate` open with "No prior context is
+  assumed — … fresh", and `refine` with "No prior context from any earlier session is assumed; read
+  `<prior_progress>` below to orient yourself on this sprint".
 
 ---
 

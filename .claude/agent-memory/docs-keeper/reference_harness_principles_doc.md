@@ -13,6 +13,8 @@ metadata:
 - `partial`: 2 principles (14 — minimal scaffolding, 16 — context reset)
 - `gap`: 3 principles (15 — evaluator tuning, 17 — cost-benefit framing, 18 — model-bump audit cadence)
 
-**How to apply:** When any structural change lands in `src/application/chain/`, `src/application/flows/`, or `src/integration/ai/providers/_engine/`, audit step 10 in the docs-keeper audit workflow checks whether a row's status changed. Update the status tag, "Where it lives" anchor, and remove "Next step" when a gap closes.
+**How to apply:** When any structural change lands in `src/application/chain/`, `src/application/flows/`, or
+`src/integration/ai/providers/_engine/`, audit step 10 in the docs-keeper audit workflow checks whether a row's status
+changed. Update the status tag, "Where it lives" anchor, and remove "Next step" when a gap closes.
 
 Related: [[reference_agent_files_also_drift]] — agents also reference the principles doc now via their hooks.

@@ -19,4 +19,5 @@ export const noopSkillsAdapter: SkillsAdapter = {
 
 export const emptySkillSource: SkillSource = {
   getForFlow: async () => Result.ok([]),
+  getByName: async () => Result.ok(undefined),
 };

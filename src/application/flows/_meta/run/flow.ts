@@ -63,6 +63,13 @@ export interface CreateRunFlowOpts {
   readonly verifyScript?: string;
   /** When true, skip the review chain. Default false (review runs). */
   readonly noReview?: boolean;
+  /**
+   * `<dataRoot>/memory` — durable, project-scoped learnings root. Forwarded to the
+   * implement sub-flow's `append-learnings` leaf.
+   */
+  readonly memoryRoot: AbsolutePath;
+  /** Owning project's id — selects the per-project learnings ledger subdirectory. */
+  readonly projectId: string;
 }
 
 export interface RunDeps {
@@ -89,6 +96,8 @@ export const createRunFlow = (deps: RunDeps, opts: CreateRunFlowOpts): Element<R
     generatorModel: opts.model,
     evaluatorProviderId: opts.providerId,
     evaluatorModel: opts.model,
+    memoryRoot: opts.memoryRoot,
+    projectId: opts.projectId,
   });
   const reviewFlow = createReviewFlow(deps.review, {
     sprintId: opts.sprintId,
@@ -137,7 +146,10 @@ export const createRunFlow = (deps: RunDeps, opts: CreateRunFlowOpts): Element<R
         });
       }
 
-      const reviewResult = await reviewFlow.execute({ sprintId: ctx.sprintId } satisfies ReviewCtx, signal, onTrace);
+      // `distillRequested: false` — meta-run doesn't wire `deps.review.distill`, so the distill
+      // step is absent from the chain and this flag is inert (set to satisfy the required field).
+      const reviewCtx = { sprintId: ctx.sprintId, distillRequested: false } satisfies ReviewCtx;
+      const reviewResult = await reviewFlow.execute(reviewCtx, signal, onTrace);
       const entry: TraceEntry = {
         elementName: 'run',
         status: reviewResult.ok ? 'completed' : 'failed',

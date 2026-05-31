@@ -7,11 +7,11 @@
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import {
-  UNKNOWN_PROJECT_KEY,
-  UNKNOWN_PROJECT_LABEL,
   type FlatRow,
   type PickerData,
   type SprintGroup,
+  UNKNOWN_PROJECT_KEY,
+  UNKNOWN_PROJECT_LABEL,
 } from '@src/application/ui/tui/views/pick-sprint-internals/types.ts';
 
 /**

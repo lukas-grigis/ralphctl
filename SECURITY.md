@@ -25,17 +25,30 @@ through [GitHub's private vulnerability reporting](https://github.com/lukas-grig
 RalphCTL is a local CLI tool. The main security considerations are:
 
 - **File system access** — ralphctl reads/writes to `~/.ralphctl/` and project directories
-- **Process spawning** — ralphctl spawns AI provider CLIs (`claude`, `gh`, `codex`) with user-provided prompts
-- **No network access** — ralphctl itself makes no network requests; the spawned AI CLIs handle their own connections
+- **Process spawning** — ralphctl spawns AI provider CLIs (`claude`, `copilot`, `codex`) with user-provided prompts,
+  plus SCM CLIs (`gh` / `glab`) and `git` for branch / PR / issue operations
+- **Minimal network access** — ralphctl makes one outbound request of its own: a best-effort poll of the npm registry (
+  `https://registry.npmjs.org/<package>/latest`) to surface available upgrades, cached for 1 hour and skippable by
+  setting `NO_NETWORK`. All other network activity (SCM via `gh` / `glab`, AI inference) is delegated to the spawned
+  CLIs, which handle their own connections
+- **SCM operations** — create-pr and issue sync shell out to `gh` / `glab` / `git`, which act on remote repositories
+  using the credentials already configured on the machine
+- **User-authored scripts** — setup / verify scripts run as shell command strings (`shell: true`); they execute with the
+  invoking user's privileges, so only configure scripts you trust
 
 ### Permission model
 
 The harness uses two orthogonal axes to constrain what a spawned AI session can touch:
 
-- **Capabilities** (`SessionPermissions`) gate per-tool actions: `canModifyRepoFiles`, `canRunShell`, `canAccessNetwork`, `autoApprove`.
-- **Topology** (`cwd` + `additionalRoots` + `outputDir` on the `AiSession`) defines which paths the AI can read or write at all.
+- **Capabilities** (`SessionPermissions`) gate per-tool actions: `canModifyRepoFiles`, `canRunShell`,
+  `canAccessNetwork`, `autoApprove`.
+- **Topology** (`cwd` + `additionalRoots` + `outputDir` on the `AiSession`) defines which paths the AI can read or write
+  at all.
 
-Topology is the primary defense. The `Write` tool is always allowed under every profile because the file-based provider contract requires the AI to land `signals.json` in `outputDir` — to deny writes to a tree, don't mount it. See [CLAUDE.md § Security & Safety](./CLAUDE.md#security--safety) for the per-provider mapping (Claude Code / GitHub Copilot / OpenAI Codex).
+Topology is the primary defense. The `Write` tool is always allowed under every profile because the file-based provider
+contract requires the AI to land `signals.json` in `outputDir` — to deny writes to a tree, don't mount it.
+See [CLAUDE.md § Security & Safety](./CLAUDE.md#security--safety) for the per-provider mapping (Claude Code / GitHub
+Copilot / OpenAI Codex).
 
 ## Supported versions
 

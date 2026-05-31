@@ -14,7 +14,7 @@ import type { ProjectRepository } from '@src/domain/repository/project/project-r
 import { createPromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import { FIXED_PROJECT_ID, makeProject, makeRepository, repositoryId, slug } from '@tests/fixtures/domain.ts';
-import { DOWN, ENTER, UP, tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { DOWN, ENTER, tick, UP, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 const fakeProjectRepo = (project: Project): ProjectRepository =>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CURRENT_SCHEMA_VERSION, SettingsSchema, type Settings } from '@src/domain/entity/settings.ts';
+import { CURRENT_SCHEMA_VERSION, type Settings, SettingsSchema } from '@src/domain/entity/settings.ts';
 import { applyMigrations } from '@src/business/settings/migrations.ts';
 import { resolveEffort } from '@src/business/settings/resolve-effort.ts';
 

@@ -48,6 +48,7 @@ const buildStorage = (dataRoot: string): StoragePaths => ({
   stateRoot: absPath(dataRoot),
   locksRoot: absPath(dataRoot),
   runsRoot: absPath(dataRoot),
+  memoryRoot: absPath(dataRoot),
 });
 
 const writeProgressFile = async (dataRoot: string, body: string): Promise<void> => {

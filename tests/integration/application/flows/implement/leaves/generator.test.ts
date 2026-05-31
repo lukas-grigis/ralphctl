@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
 import { recordRunningAttemptCritique } from '@src/domain/entity/task-attempts.ts';
@@ -12,7 +12,7 @@ import { createFakeAiProvider } from '@tests/fixtures/fake-ai-provider.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import { createEventBusLogger } from '@src/business/observability/event-bus-logger.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
-import { FIXED_NOW, absolutePath, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
+import { absolutePath, FIXED_NOW, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
 import { recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
 import { escalationBannerId } from '@src/business/task/escalation-policy.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';

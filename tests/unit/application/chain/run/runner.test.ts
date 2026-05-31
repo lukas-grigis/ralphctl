@@ -4,7 +4,7 @@ import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
-import { type RunnerEvent, createRunner } from '@src/application/chain/run/runner.ts';
+import { createRunner, type RunnerEvent } from '@src/application/chain/run/runner.ts';
 import type { OnTrace } from '@src/application/chain/trace.ts';
 
 interface Ctx {

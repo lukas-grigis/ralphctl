@@ -1,5 +1,5 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-import { installIdleWatchdog, DEFAULT_IDLE_MS } from '@src/integration/ai/providers/_engine/idle-watchdog.ts';
+import { DEFAULT_IDLE_MS, installIdleWatchdog } from '@src/integration/ai/providers/_engine/idle-watchdog.ts';
 
 /**
  * Shared lifecycle scaffold for headless AI provider spawns. Three adapters (claude / codex /

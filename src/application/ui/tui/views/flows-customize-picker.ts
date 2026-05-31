@@ -14,10 +14,10 @@
 
 import type { Choice, InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import {
-  primaryFlowRow,
   type AiFlowSettings,
   type AiImplementRole,
   type AiProvider,
+  primaryFlowRow,
   type Settings,
 } from '@src/domain/entity/settings.ts';
 import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';

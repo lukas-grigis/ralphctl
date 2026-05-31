@@ -11,12 +11,12 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import { ListCard } from '@src/application/ui/tui/components/list-card.tsx';
 import { EmptyState } from '@src/application/ui/tui/components/empty-state.tsx';
-import { StatusChip, ticketStatusKind, taskStatusKind } from '@src/application/ui/tui/components/status-chip.tsx';
+import { StatusChip, taskStatusKind, ticketStatusKind } from '@src/application/ui/tui/components/status-chip.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { Ticket } from '@src/domain/entity/ticket.ts';
-import { Section, Description } from '@src/application/ui/tui/views/sprint-detail-internals/shared-prose.tsx';
+import { Description, Section } from '@src/application/ui/tui/views/sprint-detail-internals/shared-prose.tsx';
 import type { FocusItem } from '@src/application/ui/tui/views/sprint-detail-internals/focus-list.ts';
 
 interface TicketsSectionProps {

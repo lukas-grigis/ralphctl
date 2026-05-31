@@ -29,49 +29,69 @@ The deletion commit is `afe771f9`. Legacy tests: `git show afe771f9~1:src/...`.
 
 ### Integration — AI Providers
 
-- `src/integration/ai/providers/claude-adapter.test.ts` — metadata, buildInteractiveArgs, buildHeadlessArgs (exact order), parseJsonOutput, detectRateLimit (all patterns incl. empty stderr, 5xx, retry-after:N), buildResumeArgs (valid, invalid: hyphen/space/metachar/empty/too-long), getSpawnEnv
-- `src/integration/ai/providers/copilot-adapter.test.ts` — same shape, plus extractSessionId (share-file TOCTOU), detectRateLimit (overloaded/529/empty/retry-after:N)
+- `src/integration/ai/providers/claude-adapter.test.ts` — metadata, buildInteractiveArgs, buildHeadlessArgs (exact
+  order), parseJsonOutput, detectRateLimit (all patterns incl. empty stderr, 5xx, retry-after:N), buildResumeArgs (
+  valid, invalid: hyphen/space/metachar/empty/too-long), getSpawnEnv
+- `src/integration/ai/providers/copilot-adapter.test.ts` — same shape, plus extractSessionId (share-file TOCTOU),
+  detectRateLimit (overloaded/529/empty/retry-after:N)
 
 ### Integration — AI Session
 
-- `src/integration/ai/session/process-runner.test.ts` — stdout/stderr capture, non-zero exit, ENOENT→StorageError, stdin, env merge, abort pre-spawn, SIGTERM→SIGKILL escalation, cwd verification via `pwd`, ESRCH tolerance
+- `src/integration/ai/session/process-runner.test.ts` — stdout/stderr capture, non-zero exit, ENOENT→StorageError,
+  stdin, env merge, abort pre-spawn, SIGTERM→SIGKILL escalation, cwd verification via `pwd`, ESRCH tolerance
 
 ### Integration — External
 
-- `src/integration/external/check-script-runner.test.ts` — exit 0/non-zero, combined output, RALPHCTL_LIFECYCLE_EVENT, per-call timeout, missing binary, >2 MB output (maxBuffer regression), timeout kills child
+- `src/integration/external/check-script-runner.test.ts` — exit 0/non-zero, combined output, RALPHCTL_LIFECYCLE_EVENT,
+  per-call timeout, missing binary, >2 MB output (maxBuffer regression), timeout kills child
 
 ### Integration — Persistence
 
-- `src/integration/persistence/file-locker.test.ts` — acquire/release, stale timestamp takeover, dead-PID takeover, corrupted lock, throw-release, PID+timestamp content, concurrent DIFFERENT targets (parallel, no deadlock), sequential re-acquire idempotency
-- `src/integration/persistence/file-task-repository.test.ts` — findBySprintId empty, saveAll round-trip, replace, findById, NotFoundError (missing id in real sprint), update in-place, update NotFoundError (no file/unknown id), order preserved, concurrent updates serialised, round-trip all optional fields (description/verificationCriteria/extraDimensions/verificationOutput/evaluationOutput/evaluationStatus/evaluationFile), update leaves siblings unchanged
+- `src/integration/persistence/file-locker.test.ts` — acquire/release, stale timestamp takeover, dead-PID takeover,
+  corrupted lock, throw-release, PID+timestamp content, concurrent DIFFERENT targets (parallel, no deadlock), sequential
+  re-acquire idempotency
+- `src/integration/persistence/file-task-repository.test.ts` — findBySprintId empty, saveAll round-trip, replace,
+  findById, NotFoundError (missing id in real sprint), update in-place, update NotFoundError (no file/unknown id), order
+  preserved, concurrent updates serialised, round-trip all optional fields (
+  description/verificationCriteria/extraDimensions/verificationOutput/evaluationOutput/evaluationStatus/evaluationFile),
+  update leaves siblings unchanged
 
 ### Integration — Signals
 
-- `src/integration/signals/file-system-handler.test.ts` — progress+files→progress.md, note→progress.md, blocked→progress.md, append-only, evaluation sidecar+progress, sidecar overwrite, evaluation without taskId→error, task-verified/task-complete→no-op, check-script/agents-md→no-op, concurrent serialisation
+- `src/integration/signals/file-system-handler.test.ts` — progress+files→progress.md, note→progress.md,
+  blocked→progress.md, append-only, evaluation sidecar+progress, sidecar overwrite, evaluation without taskId→error,
+  task-verified/task-complete→no-op, check-script/agents-md→no-op, concurrent serialisation
 
 ### Integration — Logging
 
-- `src/integration/logging/jsonl-file-writer.test.ts` — write→jsonl, multi-line, concurrent (no interleave), context payload, lazy mkdir, reuse existing dir, write-after-dispose→error, dispose idempotent, dispose-without-write creates no file
+- `src/integration/logging/jsonl-file-writer.test.ts` — write→jsonl, multi-line, concurrent (no interleave), context
+  payload, lazy mkdir, reuse existing dir, write-after-dispose→error, dispose idempotent, dispose-without-write creates
+  no file
 
 ### Chain flow tests — abort + short-circuit pattern (2026-04-29)
 
 Added to all 6 chain flow test files (`evaluate/execute/feedback/ideate/plan/refine`):
 
-- **Step short-circuit**: mid-chain leaf returning error → remaining steps have `status: 'skipped'`, verified via `trace.slice(failedIdx + 1)`.
-- **Abort propagation**: pre-aborted `AbortController.signal` passed to `flow.execute(ctx, ac.signal)` → `result.error.code === 'aborted'` and at least one trace entry with `status: 'aborted'`.
+- **Step short-circuit**: mid-chain leaf returning error → remaining steps have `status: 'skipped'`, verified via
+  `trace.slice(failedIdx + 1)`.
+- **Abort propagation**: pre-aborted `AbortController.signal` passed to `flow.execute(ctx, ac.signal)` →
+  `result.error.code === 'aborted'` and at least one trace entry with `status: 'aborted'`.
 
 ### Business use case coverage (2026-04-29)
 
-- `execute-single-task.test.ts`: empty stdout→failed, multiple blocked signals→all captured, task-verified+task-complete, task-complete alone (no task-verified required)
+- `execute-single-task.test.ts`: empty stdout→failed, multiple blocked signals→all captured,
+  task-verified+task-complete, task-complete alone (no task-verified required)
 - `evaluate-task.test.ts`: evaluation-failed with empty critique still emits failed signal (when dimensions present)
-- `refine-single-ticket.test.ts`: empty AI output → approved with empty requirements (documents: no length guard in use case)
+- `refine-single-ticket.test.ts`: empty AI output → approved with empty requirements (documents: no length guard in use
+  case)
 - `plan-sprint-tasks.test.ts`: ticketId cross-reference intentionally not validated (documented test)
 
 ### SessionManager coverage (2026-04-29)
 
 - `kill()` on completed runner: removes from registry, fires `removed` event, returns ok
 - Two concurrent `start()` calls: distinct ids, two `added` events in order
-- Late subscribe on terminated session: descriptor stays in registry until `kill()`, subscriber sees future events (no historical replay)
+- Late subscribe on terminated session: descriptor stays in registry until `kill()`, subscriber sees future events (no
+  historical replay)
 - `dispose()` while mid-step: explicitly tests await-and-abort pattern
 
 ### CLI coverage (2026-04-29)
@@ -152,9 +172,12 @@ Four leaves directly unit-tested in `src/application/chains/leaves/`:
   difference, cwd === planningFolderRoot, path sub-strings (session.md, tasks.json), guard failure.
 - `build-refinement-unit.test.ts` — asserts on `refinementCalls`, title-derived slug appears in unit root path,
   all 4 ctx fields stamped, two guard failures (sprint, currentTicket), custom name.
-- `export-sprint-requirements.test.ts` — FakeWriteContextFilePort; sets `RALPHCTL_ROOT` in beforeEach (resolveStoragePaths reads env at call time); asserts path contains sprint id + "requirements.json", JSON content (only approved tickets), ctx identity (output is identity), custom name, sprintId-from-ctx vs sprint.id distinction.
+- `export-sprint-requirements.test.ts` — FakeWriteContextFilePort; sets `RALPHCTL_ROOT` in beforeEach (
+  resolveStoragePaths reads env at call time); asserts path contains sprint id + "requirements.json", JSON content (only
+  approved tickets), ctx identity (output is identity), custom name, sprintId-from-ctx vs sprint.id distinction.
 
-**Key pattern**: `Sprint.addTicket()` returns `Result<Sprint, ...>` — must unwrap with `if (!r.ok) throw r.error; sprint = r.value`.
+**Key pattern**: `Sprint.addTicket()` returns `Result<Sprint, ...>` — must unwrap with
+`if (!r.ok) throw r.error; sprint = r.value`.
 
 ## Gotchas
 
@@ -163,24 +186,32 @@ Four leaves directly unit-tested in `src/application/chains/leaves/`:
 - **No barrel files** — imports always point to source modules directly
 - **`// Ported from afe771f9~1:src/...`** comment convention marks tests backported from legacy
 - **`Leaf.input()` throws are caught by `runLeaf`**: the framework catches the throw from `input()` and wraps it in
-  `Result.error` — the promise resolves, it does NOT reject. Use `result.ok === false` assertions, NOT `rejects.toThrow`.
+  `Result.error` — the promise resolves, it does NOT reject. Use `result.ok === false` assertions, NOT
+  `rejects.toThrow`.
 - **`resolveStoragePaths()` inside a leaf execute body**: it reads `process.env.RALPHCTL_ROOT` at call time (not import
   time). Set the env var in `beforeEach`/`afterEach` — no vitest setup file needed for leaves that call it inline.
-- **`Sprint.recordCheckRun(repo, at)`** returns a plain `Sprint` (no `Result` wrapper); `setBranch` and `setAffectedRepositories` return `Result<Sprint, InvalidStateError>`.
+- **`Sprint.recordCheckRun(repo, at)`** returns a plain `Sprint` (no `Result` wrapper); `setBranch` and
+  `setAffectedRepositories` return `Result<Sprint, InvalidStateError>`.
 
 ### Template registry fence (2026-05-04)
 
 `src/integration/ai/prompts/template-registry.test.ts` — 3 tests catching all three drift modes:
 
-- `every .md file in templates/ is registered in TEMPLATE_NAMES` — `readdirSync` stems vs `Object.values(TEMPLATE_NAMES)`
+- `every .md file in templates/ is registered in TEMPLATE_NAMES` — `readdirSync` stems vs
+  `Object.values(TEMPLATE_NAMES)`
 - `every TEMPLATE_NAMES entry resolves to an existing .md file` — set-membership check
-- `every TEMPLATE_NAMES key is loaded by at least one source file` — regex `TEMPLATE_NAMES\.<key>(?![A-Za-z0-9_])` across all non-test `.ts` files in `prompts/` (word-boundary suffix prevents prefix-collision false-positive accepts)
+- `every TEMPLATE_NAMES key is loaded by at least one source file` — regex `TEMPLATE_NAMES\.<key>(?![A-Za-z0-9_])`
+  across all non-test `.ts` files in `prompts/` (word-boundary suffix prevents prefix-collision false-positive accepts)
 
 **Key design decisions:**
 
-- `TEMPLATE_NAMES` lives in `prompt-template-names.ts`; loads are split across `prompt-builder-adapter.ts` + `prompt-partials-loader.ts` — scan the entire `prompts/` directory (all non-test `.ts`) to cover all consumers automatically.
-- Word-boundary regex (`(?![A-Za-z0-9_])`) prevents `plan` matching inside `planInteractive` — pure `String.includes` fails here.
-- Removed the orphan `plan` key from `TEMPLATE_NAMES` (it was a dead alias for `planCommon`); updated the assertion in `prompt-builder-adapter.test.ts` from `TEMPLATE_NAMES.plan` to `TEMPLATE_NAMES.planCommon`.
+- `TEMPLATE_NAMES` lives in `prompt-template-names.ts`; loads are split across `prompt-builder-adapter.ts` +
+  `prompt-partials-loader.ts` — scan the entire `prompts/` directory (all non-test `.ts`) to cover all consumers
+  automatically.
+- Word-boundary regex (`(?![A-Za-z0-9_])`) prevents `plan` matching inside `planInteractive` — pure `String.includes`
+  fails here.
+- Removed the orphan `plan` key from `TEMPLATE_NAMES` (it was a dead alias for `planCommon`); updated the assertion in
+  `prompt-builder-adapter.test.ts` from `TEMPLATE_NAMES.plan` to `TEMPLATE_NAMES.planCommon`.
 
 **Vitest lint rules to observe:**
 
@@ -204,7 +235,8 @@ Four leaves directly unit-tested in `src/application/chains/leaves/`:
   `flow.execute()`. Cleaner and faster; TUI rendering is tested by the execute golden path.
 - `persist-repo-selection` short-circuits the checkbox prompt for single-repo projects — no `FakePromptPort` needed.
 - `confirm-replan` and `confirm-task-list` skipped when `interactive` is not set (both check `if (!input.interactive)`).
-- Tasks in AI JSON must use `projectPath: "/tmp/demo-repo"` — `validateTasksAgainstSprint` enforces projectPath ∈ `affectedRepositories`.
+- Tasks in AI JSON must use `projectPath: "/tmp/demo-repo"` — `validateTasksAgainstSprint` enforces projectPath ∈
+  `affectedRepositories`.
 - `parseRequirementsJson` falls back to raw text as requirements body — plain string AI output works for refine tests.
 - The snapshot-existing-tasks leaf dynamically imports `storage-paths.ts` and reads `RALPHCTL_ROOT` at call time;
   the snapshot is best-effort (silently skipped when the file doesn't exist), so no env-var setup is needed.
@@ -213,34 +245,62 @@ Four leaves directly unit-tested in `src/application/chains/leaves/`:
 
 New test files under `tests/integration/application/ui/tui/views/` and `tests/unit/`:
 
-- `sprint-bound-flow-reseat.test.tsx` — reseat wiring contract using fake runner; asserts `setSprint` called on `completed+ctx.sprint`, NOT on `aborted`/`failed`/`started`.
-- `tests/unit/application/ui/shared/state-snapshot-done-filter.test.ts` — `loadAppStateSnapshot` recentSprints excludes `done` sprints.
-- `tests/unit/application/ui/tui/runtime/selection-done-on-boot.test.tsx` — `SelectionProvider` clears sprintId/sprintLabel when rehydrated sprint has `status: 'done'`. **Requires `sprintRepo` prop on SelectionProvider.**
+- `sprint-bound-flow-reseat.test.tsx` — reseat wiring contract using fake runner; asserts `setSprint` called on
+  `completed+ctx.sprint`, NOT on `aborted`/`failed`/`started`.
+- `tests/unit/application/ui/shared/state-snapshot-done-filter.test.ts` — `loadAppStateSnapshot` recentSprints excludes
+  `done` sprints.
+- `tests/unit/application/ui/tui/runtime/selection-done-on-boot.test.tsx` — `SelectionProvider` clears
+  sprintId/sprintLabel when rehydrated sprint has `status: 'done'`. **Requires `sprintRepo` prop on SelectionProvider.**
 - `home-create-hotkey.test.tsx` — `+` on Home routes to create-sprint flow; no-op without project.
 - `home-switch-feedback.test.tsx` — "✓ now on <name>" feedback after switch; disappears after ~3s with fake timers.
-- `pick-sprint-create-row.test.tsx` — PickSprintView renders "Create new sprint" row BEFORE project groups; Enter on it launches create-sprint.
-- `sprint-detail-no-auto-sync.test.tsx` — SprintDetailView MUST NOT call `setSprint` on mount (inverse of old behaviour). Uses `Object.assign(selection, { setSprint: spy })` pattern from `MakeSpy` component.
-- `sprint-detail-make-current.test.tsx` — `m` key calls `setSprint(id, name)`; `· current` badge visible when sprint matches selection.
+- `pick-sprint-create-row.test.tsx` — PickSprintView renders "Create new sprint" row BEFORE project groups; Enter on it
+  launches create-sprint.
+- `sprint-detail-no-auto-sync.test.tsx` — SprintDetailView MUST NOT call `setSprint` on mount (inverse of old
+  behaviour). Uses `Object.assign(selection, { setSprint: spy })` pattern from `MakeSpy` component.
+- `sprint-detail-make-current.test.tsx` — `m` key calls `setSprint(id, name)`; `· current` badge visible when sprint
+  matches selection.
 
-**Key pattern: MakeSpy / intercept pattern for selection** — `Object.assign(selection, { setSprint: spy })` inside a child component `useEffect` lets you intercept context calls without forking the provider.
+**Key pattern: MakeSpy / intercept pattern for selection** — `Object.assign(selection, { setSprint: spy })` inside a
+child component `useEffect` lets you intercept context calls without forking the provider.
 
 **JSX in test files**: Always use `.tsx` extension even for unit tests that import/render React components.
 
-**Fake timers + ink-testing-library**: `vi.useFakeTimers()` + `vi.runAllTimersAsync()` causes infinite loops due to Ink's Spinner `setInterval`. Use `vi.advanceTimersByTimeAsync(N)` instead. For time-gated render conditions (e.g. a toast freshness check), use `vi.spyOn(Date, 'now').mockReturnValue(BASE_TIME + 3100)` to advance the clock, then force a re-render via a context state change (e.g. `selection.setSprint(...)` from a helper component) — `setLocalError((curr) => curr)` bails out of React render (same value → no render committed). The `SwitchTrigger` helper pattern (component that calls `selection.setSprint` in a once-only `useEffect`) is preferred over keyboard navigation for deterministic sprint-switch tests. **`frame.indexOf('Alpha Project')` matches ViewShell breadcrumb chrome** — use line-by-line search filtering lines containing `'project:'` to find the actual group header row.
+**Fake timers + ink-testing-library**: `vi.useFakeTimers()` + `vi.runAllTimersAsync()` causes infinite loops due to
+Ink's Spinner `setInterval`. Use `vi.advanceTimersByTimeAsync(N)` instead. For time-gated render conditions (e.g. a
+toast freshness check), use `vi.spyOn(Date, 'now').mockReturnValue(BASE_TIME + 3100)` to advance the clock, then force a
+re-render via a context state change (e.g. `selection.setSprint(...)` from a helper component) —
+`setLocalError((curr) => curr)` bails out of React render (same value → no render committed). The `SwitchTrigger` helper
+pattern (component that calls `selection.setSprint` in a once-only `useEffect`) is preferred over keyboard navigation
+for deterministic sprint-switch tests. **`frame.indexOf('Alpha Project')` matches ViewShell breadcrumb chrome** — use
+line-by-line search filtering lines containing `'project:'` to find the actual group header row.
 
-**`ActionMenu` cursor + UUIDv7 ordering**: `makeDraftSprint` generates time-ordered UUIDs; created later = larger UUID = appears first in `recentSprints` (DESC sort). `initialMenuIndex` seeds to the current sprint's row. Pressing `k` (up) from the current sprint's row reaches the newer sprint at index 0.
+**`ActionMenu` cursor + UUIDv7 ordering**: `makeDraftSprint` generates time-ordered UUIDs; created later = larger UUID =
+appears first in `recentSprints` (DESC sort). `initialMenuIndex` seeds to the current sprint's row. Pressing `k` (up)
+from the current sprint's row reaches the newer sprint at index 0.
 
 ### E2E execute golden-path artefacts (2026-05-04)
 
 `src/_e2e/execute-golden-artefacts.e2e.test.tsx` — 3 focused `it(...)` cases complementing `golden-path.e2e.test.tsx`:
 
-- **commit-task SHA**: `external: { uncommitted: true }` makes `hasUncommittedChanges()` return true for both the dirty-tree preflight AND `commit-task`. Must also queue `promptPort.queueSelect('continue')` on a `FakePromptPort` passed as the `prompt` option — otherwise `dirty-tree-preflight` fires a select prompt that throws in the no-queue fake. Asserts `task.commitSha` matches `/^fakecommit/` and `ext.commitChangesCalls[0].message` matches `/^task\(/`.
-- **`evaluations/<task-id>.md` with `(score N/5)`**: Overrides `signalHandler` with a real `FileSystemSignalHandler(resolveStoragePaths())`. Must pre-create the execution unit directory with `mkdir(..., { recursive: true })` so the handler can write. Signal includes `DimensionScore` with `score: 5`. Asserts file content contains `(score 5/5)`, `Overall score: 5/5`, and `# Evaluation — passed`.
-- **`done-criteria.md` round-trip**: Pre-writes via `renderDoneCriteria([task])` + `writeFile(paths.doneCriteriaFile(sprint.id), ...)`. Enables `evaluationIterations: 1` so the evaluate-task leaf reads it via `readDoneCriteriaBullet`. Asserts runner reaches `completed` and file is unchanged after execute.
+- **commit-task SHA**: `external: { uncommitted: true }` makes `hasUncommittedChanges()` return true for both the
+  dirty-tree preflight AND `commit-task`. Must also queue `promptPort.queueSelect('continue')` on a `FakePromptPort`
+  passed as the `prompt` option — otherwise `dirty-tree-preflight` fires a select prompt that throws in the no-queue
+  fake. Asserts `task.commitSha` matches `/^fakecommit/` and `ext.commitChangesCalls[0].message` matches `/^task\(/`.
+- **`evaluations/<task-id>.md` with `(score N/5)`**: Overrides `signalHandler` with a real
+  `FileSystemSignalHandler(resolveStoragePaths())`. Must pre-create the execution unit directory with
+  `mkdir(..., { recursive: true })` so the handler can write. Signal includes `DimensionScore` with `score: 5`. Asserts
+  file content contains `(score 5/5)`, `Overall score: 5/5`, and `# Evaluation — passed`.
+- **`done-criteria.md` round-trip**: Pre-writes via `renderDoneCriteria([task])` +
+  `writeFile(paths.doneCriteriaFile(sprint.id), ...)`. Enables `evaluationIterations: 1` so the evaluate-task leaf reads
+  it via `readDoneCriteriaBullet`. Asserts runner reaches `completed` and file is unchanged after execute.
 
-**Key pitfall**: `dirty-tree-preflight` runs at the outer execute flow level (before per-task chains) and calls `hasUncommittedChanges` on every unique task `projectPath`. Setting `external.uncommitted: true` triggers it. Always queue a `FakePromptPort` select answer when the sprint has tasks with an uncommitted tree.
+**Key pitfall**: `dirty-tree-preflight` runs at the outer execute flow level (before per-task chains) and calls
+`hasUncommittedChanges` on every unique task `projectPath`. Setting `external.uncommitted: true` triggers it. Always
+queue a `FakePromptPort` select answer when the sprint has tasks with an uncommitted tree.
 
-**Key pitfall**: `FileSystemSignalHandler` uses `resolveStoragePaths()` (reads `RALPHCTL_ROOT` from env) to compute the evaluation file path — independent of `FakeSessionFolderBuilderPort.evaluationMdPath`. The handler path is `executionUnitDir(sprintId, unitSlug(taskId, taskName)) + '/evaluation.md'`.
+**Key pitfall**: `FileSystemSignalHandler` uses `resolveStoragePaths()` (reads `RALPHCTL_ROOT` from env) to compute the
+evaluation file path — independent of `FakeSessionFolderBuilderPort.evaluationMdPath`. The handler path is
+`executionUnitDir(sprintId, unitSlug(taskId, taskName)) + '/evaluation.md'`.
 
 ### Prompt completeness smoke tests (2026-05-04)
 
@@ -250,7 +310,8 @@ New test files under `tests/integration/application/ui/tui/views/` and `tests/un
 - Asserts `/\{\{[A-Z_]+\}\}/g` matches nothing after substitution.
 - **8 new tests added** covering optional-field branches not previously exercised:
   - `buildRefinePrompt` — pre-fetched `issueContext` text (wraps in `<context>` block)
-  - `buildExecutePrompt` — with `checkScript` (fenced shell block rendered); sprint with `branch` set (BRANCH_LINE populated); sprint with `setupRanAt` stamped (ENVIRONMENT_STATUS shows timestamp not "Not run.")
+  - `buildExecutePrompt` — with `checkScript` (fenced shell block rendered); sprint with `branch` set (BRANCH_LINE
+    populated); sprint with `setupRanAt` stamped (ENVIRONMENT_STATUS shows timestamp not "Not run.")
   - `buildEvaluatePrompt` — with `evaluateWorkspaceDir` (Contract files section rendered)
   - `buildFeedbackPrompt` — sprint without a branch (BRANCH_SECTION collapses to empty string)
   - `buildPlanPrompt` — sprint with `affectedRepositories` set (repos in CONTEXT block)

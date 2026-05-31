@@ -23,7 +23,7 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { composeSkillSources, createProjectSkillSource } from '@src/integration/ai/skills/project/source.ts';
-import { primaryFlowRow, type AiFlowSettings, type AiProvider, type Settings } from '@src/domain/entity/settings.ts';
+import { type AiFlowSettings, type AiProvider, primaryFlowRow, type Settings } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import { resolveEffort } from '@src/business/settings/resolve-effort.ts';
 import type { RunInTerminal } from '@src/application/ui/shared/run-in-terminal.ts';

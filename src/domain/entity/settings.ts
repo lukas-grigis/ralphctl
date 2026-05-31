@@ -15,6 +15,7 @@ import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
 import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
 import { COPILOT_MODELS } from '@src/domain/value/settings-models/copilot.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
+import { FLOW_IDS } from '@src/domain/value/flow-id.ts';
 
 /**
  * Persisted settings format version. Bumped whenever the on-disk shape changes in a way that
@@ -331,6 +332,37 @@ export type Settings = z.infer<typeof SettingsSchema>;
 export const primaryFlowRow = (ai: AiSettings, flow: FlowId): AiFlowSettings => {
   if (flow === 'implement') return ai.implement.generator;
   return ai[flow];
+};
+
+/**
+ * Compute the unique providers referenced across all per-flow rows, preserving the order
+ * they first appear in `FLOW_IDS`. Used to decide which native context files to write — one
+ * per unique provider (readiness fan-out, distill fan-out). For `implement` both the
+ * generator and evaluator role's providers contribute, so a cross-provider implement still
+ * produces both context files.
+ *
+ * Pure over {@link AiSettings} — no I/O — so it lives in the domain entity alongside
+ * {@link primaryFlowRow} rather than in any one consuming flow.
+ *
+ * @public
+ */
+export const uniqueProvidersFromAi = (ai: AiSettings): readonly AiProvider[] => {
+  const seen = new Set<AiProvider>();
+  const ordered: AiProvider[] = [];
+  const visit = (provider: AiProvider): void => {
+    if (seen.has(provider)) return;
+    seen.add(provider);
+    ordered.push(provider);
+  };
+  for (const flow of FLOW_IDS) {
+    if (flow === 'implement') {
+      visit(ai.implement.generator.provider);
+      visit(ai.implement.evaluator.provider);
+      continue;
+    }
+    visit(ai[flow].provider);
+  }
+  return ordered;
 };
 
 // AiProviderSchema is intentionally not re-exported — callers should use the type alias

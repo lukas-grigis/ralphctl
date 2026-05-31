@@ -1,6 +1,6 @@
 import {
-  transitionSprintToDoneUseCase,
   type TransitionSprintToDoneProps,
+  transitionSprintToDoneUseCase,
 } from '@src/business/sprint/transition-sprint-to-done.ts';
 import type { DoneSprint, Sprint } from '@src/domain/entity/sprint.ts';
 import type { Element } from '@src/application/chain/element.ts';

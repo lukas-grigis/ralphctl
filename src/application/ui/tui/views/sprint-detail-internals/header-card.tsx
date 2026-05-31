@@ -14,7 +14,7 @@ import { Box, Text } from 'ink';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { FieldList } from '@src/application/ui/tui/components/field-list.tsx';
 import { PipelineMap } from '@src/application/ui/tui/components/pipeline-map.tsx';
-import { StatusChip, sprintStatusKind } from '@src/application/ui/tui/components/status-chip.tsx';
+import { sprintStatusKind, StatusChip } from '@src/application/ui/tui/components/status-chip.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { fmtDuration, fmtIsoAbsolute } from '@src/application/ui/tui/theme/duration.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';

@@ -22,4 +22,11 @@ export interface ReviewCtx {
   readonly previousRound?: FeedbackRound;
   /** Terminal exit set by the per-round leaf; the loop's `shouldStop` reads this. */
   readonly lastReviewExit?: ReviewRoundExit;
+  /**
+   * Opt-in gate (default `false`) set by the review entry path. The pre-transition distill step
+   * reads it via the shared `DistillRequestedCtx` shape so review's AUTO-DONE path (empty round →
+   * transition) distils the same way an explicit close does. This is the ONLY field
+   * the distill composition adds — the self-contained sub-chain carries its own ctx internally.
+   */
+  readonly distillRequested: boolean;
 }

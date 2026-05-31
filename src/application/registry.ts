@@ -1,4 +1,22 @@
 import type { SprintStatus } from '@src/domain/entity/sprint.ts';
+import { createSprintManifest } from '@src/application/flows/create-sprint/manifest.ts';
+import { refineManifest } from '@src/application/flows/refine/manifest.ts';
+import { addTicketsManifest } from '@src/application/flows/add-tickets/manifest.ts';
+import { planManifest } from '@src/application/flows/plan/manifest.ts';
+import { readinessManifest } from '@src/application/flows/readiness/manifest.ts';
+import { detectScriptsManifest } from '@src/application/flows/detect-scripts/manifest.ts';
+import { detectSkillsManifest } from '@src/application/flows/detect-skills/manifest.ts';
+import { implementManifest } from '@src/application/flows/implement/manifest.ts';
+import { reviewManifest } from '@src/application/flows/review/manifest.ts';
+import { closeSprintManifest } from '@src/application/flows/close-sprint/manifest.ts';
+import { ideateManifest } from '@src/application/flows/ideate/manifest.ts';
+import { exportContextManifest } from '@src/application/flows/export-context/manifest.ts';
+import { exportRequirementsManifest } from '@src/application/flows/export-requirements/manifest.ts';
+import { createPrManifest } from '@src/application/flows/create-pr/manifest.ts';
+import { doctorManifest } from '@src/application/flows/doctor/manifest.ts';
+import { settingsManifest } from '@src/application/flows/settings/manifest.ts';
+import { ticketAddManifest } from '@src/application/flows/ticket-add/manifest.ts';
+import { ticketRemoveManifest } from '@src/application/flows/ticket-remove/manifest.ts';
 
 /**
  * Pre-launch readiness predicates declared by each flow. The TUI / CLI evaluate these against
@@ -55,25 +73,6 @@ export interface FlowManifest {
 export interface FlowEntry {
   readonly manifest: FlowManifest;
 }
-
-import { createSprintManifest } from '@src/application/flows/create-sprint/manifest.ts';
-import { refineManifest } from '@src/application/flows/refine/manifest.ts';
-import { addTicketsManifest } from '@src/application/flows/add-tickets/manifest.ts';
-import { planManifest } from '@src/application/flows/plan/manifest.ts';
-import { readinessManifest } from '@src/application/flows/readiness/manifest.ts';
-import { detectScriptsManifest } from '@src/application/flows/detect-scripts/manifest.ts';
-import { detectSkillsManifest } from '@src/application/flows/detect-skills/manifest.ts';
-import { implementManifest } from '@src/application/flows/implement/manifest.ts';
-import { reviewManifest } from '@src/application/flows/review/manifest.ts';
-import { closeSprintManifest } from '@src/application/flows/close-sprint/manifest.ts';
-import { ideateManifest } from '@src/application/flows/ideate/manifest.ts';
-import { exportContextManifest } from '@src/application/flows/export-context/manifest.ts';
-import { exportRequirementsManifest } from '@src/application/flows/export-requirements/manifest.ts';
-import { createPrManifest } from '@src/application/flows/create-pr/manifest.ts';
-import { doctorManifest } from '@src/application/flows/doctor/manifest.ts';
-import { settingsManifest } from '@src/application/flows/settings/manifest.ts';
-import { ticketAddManifest } from '@src/application/flows/ticket-add/manifest.ts';
-import { ticketRemoveManifest } from '@src/application/flows/ticket-remove/manifest.ts';
 
 /**
  * Single source of truth for "what flows exist." Adding a flow = appending one entry. Order

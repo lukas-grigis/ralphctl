@@ -9,7 +9,7 @@ import type { Project } from '@src/domain/entity/project.ts';
 import type { DraftSprint, Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { Task } from '@src/domain/entity/task.ts';
-import { createTicket, type ApprovedTicket } from '@src/domain/entity/ticket.ts';
+import { type ApprovedTicket, createTicket } from '@src/domain/entity/ticket.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { IdeatedTicketsSignal } from '@src/domain/signal.ts';

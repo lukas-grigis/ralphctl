@@ -14,6 +14,9 @@ const fakeStaticSource = (skills: readonly Skill[]): SkillSource => ({
   async getForFlow() {
     return Result.ok(skills);
   },
+  async getByName(name: string) {
+    return Result.ok(skills.find((s) => s.name === name));
+  },
 });
 
 describe('createProjectSkillSource', () => {

@@ -13,7 +13,7 @@
 
 import React from 'react';
 import { Text } from 'ink';
-import { useSpinnerFrame, spinnerGlyph } from '@src/application/ui/tui/runtime/use-spinner-frame.ts';
+import { spinnerGlyph, useSpinnerFrame } from '@src/application/ui/tui/runtime/use-spinner-frame.ts';
 import { inkColors } from '@src/application/ui/tui/theme/tokens.ts';
 
 export interface SpinnerProps {

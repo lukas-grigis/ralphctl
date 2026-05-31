@@ -3,13 +3,13 @@ import { Result } from '@src/domain/result.ts';
 import type { PullRequestCreator, PullRequestCreatorInput } from '@src/business/scm/pull-request-creator.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
+import { createSprintExecution, setExecutionBranch } from '@src/domain/entity/sprint-execution.ts';
 import type { SprintExecutionRepository } from '@src/domain/repository/sprint/sprint-execution-repository.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import type { FindTasksBySprintId } from '@src/domain/repository/task/find-tasks-by-sprint-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
-import { setExecutionBranch } from '@src/domain/entity/sprint-execution.ts';
 import {
   absolutePath,
   FIXED_LATER,
@@ -18,7 +18,6 @@ import {
   makeReviewSprint,
   makeTodoTask,
 } from '@tests/fixtures/domain.ts';
-import { createSprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';

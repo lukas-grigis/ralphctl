@@ -21,13 +21,16 @@ import type { Spawn } from '@src/integration/io/spawn.ts';
 import { crossPlatformSpawn } from '@src/integration/io/cross-platform-spawn.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import { createAiProvider } from '@src/application/bootstrap/provider-factory.ts';
-import { createInteractiveAiProvider } from '@src/application/bootstrap/interactive-provider-factory.ts';
+import {
+  createInteractiveAiProvider,
+  createInteractiveAiProviderFor,
+} from '@src/application/bootstrap/interactive-provider-factory.ts';
+import type { AiProvider, Settings } from '@src/domain/entity/settings.ts';
 import { createIssueFetcher } from '@src/integration/scm/issue-fetcher.ts';
 import { createIssuePusher } from '@src/integration/scm/issue-pusher.ts';
 import type { PullRequestCreator } from '@src/business/scm/pull-request-creator.ts';
 import { createPullRequestCreator } from '@src/integration/scm/pull-request-creator.ts';
 import type { StoragePaths } from '@src/application/bootstrap/storage-paths.ts';
-import type { Settings } from '@src/domain/entity/settings.ts';
 import type { SettingsRepository } from '@src/domain/repository/settings/settings-repository.ts';
 import { createJsonSettingsRepository } from '@src/integration/persistence/settings/json-settings-repository.ts';
 import type { AppSinks } from '@src/application/bootstrap/runtime-sinks.ts';
@@ -124,6 +127,14 @@ export interface AppDeps {
    * matching their UX.
    */
   readonly interactiveAi: InteractiveAiProvider;
+  /**
+   * Per-provider interactive-AI factory — selects the concrete {@link InteractiveAiProvider} for
+   * an explicit {@link AiProvider} (vs. the flow-keyed `interactiveAi` seed above). Threaded so
+   * the distill sub-chain's per-distinct-provider fan-out can spawn one interactive session
+   * per provider it writes a native context file for. Bound to the wire-time `eventBus` so every
+   * distill session logs onto the same observability pipe.
+   */
+  readonly interactiveAiFor: (provider: AiProvider) => InteractiveAiProvider;
   /** AI session signal sink — structured `<learning>` / verdict / progress events. */
   readonly signals: HarnessSignalSink;
   /**
@@ -363,6 +374,7 @@ export const wire = (opts: WireOptions): AppDeps => {
     writeFile: createAtomicWriteFile(),
     appendFile,
     interactiveAi: createInteractiveAiProvider({ flow: 'refine', ai: opts.settings.ai, eventBus }),
+    interactiveAiFor: (provider) => createInteractiveAiProviderFor(provider, eventBus),
     signals: opts.sinks.harness,
     templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
     clock: IsoTimestamp.now,

@@ -1,12 +1,10 @@
 import { Result } from '@src/domain/result.ts';
 import {
-  preflightTaskUseCase,
   type DirtyTreeChoice,
   type DirtyTreePolicy,
   type PreflightTaskProps,
+  preflightTaskUseCase,
 } from '@src/business/task/preflight-task.ts';
-
-export type { DirtyTreePolicy };
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
@@ -17,6 +15,8 @@ import { leaf, type LeafOpts } from '@src/application/chain/build/leaf.ts';
 import { gitResetHard, gitStashPush, gitStatusPorcelain } from '@src/integration/io/git-operations.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
+
+export type { DirtyTreePolicy };
 
 export interface PreflightTaskLeafDeps {
   readonly gitRunner: GitRunner;

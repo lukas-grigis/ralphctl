@@ -3,7 +3,7 @@ import type { Attempt, FailedAttempt, VerifiedAttempt } from '@src/domain/entity
 import type { CommitSha } from '@src/domain/value/commit-sha.ts';
 import type { EvaluationSignal } from '@src/domain/signal.ts';
 import { renderRoundOutcome } from '@src/business/task/render-round-outcome.ts';
-import { FIXED_NOW, FIXED_LATER, isoTimestamp } from '@tests/fixtures/domain.ts';
+import { FIXED_LATER, FIXED_NOW, isoTimestamp } from '@tests/fixtures/domain.ts';
 
 const verifiedAttempt = (overrides: Partial<VerifiedAttempt> = {}): Attempt => ({
   n: 1,

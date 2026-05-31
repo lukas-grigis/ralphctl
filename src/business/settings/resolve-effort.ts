@@ -1,4 +1,4 @@
-import { primaryFlowRow, type AiFlowSettings, type AiProvider, type Settings } from '@src/domain/entity/settings.ts';
+import { type AiFlowSettings, type AiProvider, primaryFlowRow, type Settings } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 
 /**

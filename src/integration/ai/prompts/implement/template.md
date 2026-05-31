@@ -89,7 +89,9 @@ sprint.
   changes the behaviour the test asserts. Removing a test to make verify pass counts as task failure.
 - **Do not write to the progress file.** The harness regenerates it from your signals after every
   round; anything you write there is overwritten within seconds. Emit `change`, `learning`, `note`,
-  and `decision` signals instead — the harness merges them into the per-task sections.
+  and `decision` signals instead — the harness merges them into the per-task sections. A `learning`
+  carries an insight plus OPTIONAL context (when / why it arose) and applies-to (where it applies —
+  a repo area, task kind, or subsystem).
 - **No sprint-local identifiers in committed artefacts.** Do not mention acceptance-criterion labels
   (`AC1`, `AC2`), ticket numbers, task IDs, or sprint IDs in source files, comments, docstrings, test
   names, commit messages, or any other committed artefact. These identifiers are ephemeral sprint

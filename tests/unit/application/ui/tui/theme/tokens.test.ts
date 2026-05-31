@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { breakpointFor, fluid, glyphs, resolveRailWidth, RAIL_WIDTH } from '@src/application/ui/tui/theme/tokens.ts';
+import { breakpointFor, fluid, glyphs, RAIL_WIDTH, resolveRailWidth } from '@src/application/ui/tui/theme/tokens.ts';
 
 describe('breakpointFor', () => {
   it('floors at sm for any non-negative width below the md threshold', () => {

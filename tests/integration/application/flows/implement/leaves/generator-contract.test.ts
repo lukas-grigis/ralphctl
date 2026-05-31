@@ -5,11 +5,11 @@ import { Result } from '@src/domain/result.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
-import type { AppEvent, AiSignalEvent } from '@src/business/observability/events.ts';
+import type { AiSignalEvent, AppEvent } from '@src/business/observability/events.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { createInMemorySink } from '@tests/fixtures/in-memory-sink.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
-import { FIXED_NOW, absolutePath, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
+import { absolutePath, FIXED_NOW, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
 import { createMockHeadlessProvider, type SpawnFixture } from '@tests/helpers/mock-headless-provider.ts';
@@ -168,7 +168,7 @@ describe('generatorLeaf — audit-[09] contract', () => {
     // `### Changes` / `### Decisions` / `### Learnings` / `### Notes` subsections.
     expect(result.value.ctx.currentAttemptChanges).toEqual(['added foo']);
     expect(result.value.ctx.currentAttemptDecisions).toEqual(['use json on-disk']);
-    expect(result.value.ctx.currentAttemptLearnings).toEqual(['providers differ on flags']);
+    expect(result.value.ctx.currentAttemptLearnings).toEqual([{ text: 'providers differ on flags' }]);
     expect(result.value.ctx.currentAttemptNotes).toEqual(['follow-up: tighten log']);
   });
 

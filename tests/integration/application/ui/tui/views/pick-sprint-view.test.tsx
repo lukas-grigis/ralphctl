@@ -21,7 +21,7 @@ import { useSelection } from '@src/application/ui/tui/runtime/selection-context.
 import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { waitFor } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
-import { projectId, makeProject, makeRepository, absolutePath } from '@tests/fixtures/domain.ts';
+import { absolutePath, makeProject, makeRepository, projectId } from '@tests/fixtures/domain.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 

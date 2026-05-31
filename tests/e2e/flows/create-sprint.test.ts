@@ -11,12 +11,11 @@ import type { SprintExecutionRepository } from '@src/domain/repository/sprint/sp
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
-import { FIXED_NOW, FIXED_PROJECT_ID, makeProject } from '@tests/fixtures/domain.ts';
+import { absolutePath, FIXED_NOW, FIXED_PROJECT_ID, makeProject } from '@tests/fixtures/domain.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
 import { createCreateSprintFlow } from '@src/application/flows/create-sprint/flow.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { recordingAppendFile } from '@tests/fixtures/recording-append-file.ts';
-import { absolutePath } from '@tests/fixtures/domain.ts';
 
 const fakeProjectRepo = (project: Project | undefined): ProjectRepository =>
   ({

@@ -20,7 +20,7 @@ import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
-import { spacing, inkColors } from '@src/application/ui/tui/theme/tokens.ts';
+import { inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { createSettingsApplyPresetFlow } from '@src/application/flows/settings-apply-preset/flow.ts';
 import { detectInstalledProviders } from '@src/integration/system/detect-cli.ts';
 import type { PresetName } from '@src/business/settings/presets.ts';

@@ -20,8 +20,8 @@ import { Text } from 'ink';
 import { describe, expect, it, vi } from 'vitest';
 import {
   SelectionProvider,
-  useSelection,
   type SelectionSeed,
+  useSelection,
 } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';

@@ -11,6 +11,8 @@ import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { Attempt } from '@src/domain/entity/attempt.ts';
 import { renderJournalEntry } from '@src/business/sprint/render-journal-entry.ts';
+import { dedupeLearnings } from '@src/application/flows/implement/leaves/_shared/dedupe-learnings.ts';
+import type { LearningEntry } from '@src/domain/signal.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
 /**
@@ -42,7 +44,7 @@ interface JournalInput {
   readonly roundN: number;
   readonly changes: readonly string[];
   readonly decisions: readonly string[];
-  readonly learnings: readonly string[];
+  readonly learnings: readonly LearningEntry[];
   readonly notes: readonly string[];
 }
 
@@ -146,7 +148,7 @@ export const progressJournalLeaf = (
         roundN,
         changes: dedupeTexts(ctx.currentAttemptChanges),
         decisions: dedupeTexts(ctx.currentAttemptDecisions),
-        learnings: dedupeTexts(ctx.currentAttemptLearnings),
+        learnings: dedupeLearnings(ctx.currentAttemptLearnings ?? []),
         notes: dedupeTexts(ctx.currentAttemptNotes),
       };
     },

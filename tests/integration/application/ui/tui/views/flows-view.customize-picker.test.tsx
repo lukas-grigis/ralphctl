@@ -29,9 +29,9 @@ import type { AiProvider, Settings } from '@src/domain/entity/settings.ts';
 import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
 import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
 import {
+  type CustomizePickerResult,
   modelCatalogFor,
   runCustomizePicker,
-  type CustomizePickerResult,
 } from '@src/application/ui/tui/views/flows-customize-picker.ts';
 import { applyOverrideToSettings } from '@src/application/ui/shared/launcher.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';

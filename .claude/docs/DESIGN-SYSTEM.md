@@ -31,16 +31,17 @@ glyph, or a magic spacing number in a view** — import the token.
 
 Semantic only. Each color means the same thing on every surface.
 
-| Token       | Meaning                                     |
-| ----------- | ------------------------------------------- |
-| `success`   | completion, pass, done                      |
-| `error`     | failure, blocked, fail                      |
-| `warning`   | in-progress, draft, paused, spinner default |
-| `info`      | annotations, meta, help, info cards         |
-| `muted`     | secondary text, inactive, disabled          |
-| `highlight` | focus, selection, "next" marker             |
-| `primary`   | brand accent — section stamps, active phase |
-| `secondary` | personality — quote rail, Ralph flavor bits |
+| Token       | Meaning                                                   |
+| ----------- | --------------------------------------------------------- |
+| `success`   | completion, pass, done                                    |
+| `error`     | failure, blocked, fail                                    |
+| `warning`   | in-progress, draft, paused                                |
+| `info`      | annotations, meta, help, info cards, spinner default      |
+| `muted`     | secondary text, inactive, disabled                        |
+| `highlight` | focus, selection, "next" marker                           |
+| `primary`   | brand accent — section stamps, active phase               |
+| `secondary` | personality — quote rail, Ralph flavor bits               |
+| `rule`      | keyline / divider tone — recessive card + divider borders |
 
 Rules:
 
@@ -52,21 +53,23 @@ Rules:
 
 Canonical set. If a view needs a symbol not in this list, **add it to `glyphs` first** (and document it here).
 
-| Group           | Tokens                                                                           |
-| --------------- | -------------------------------------------------------------------------------- |
-| Phase / status  | `phaseDone ■`, `phaseActive ◆`, `phasePending ◇`, `phaseDisabled ◌`              |
-| Cursors         | `actionCursor ▸`, `selectMarker ›`                                               |
-| Section markers | `badge ▣`, `sectionRule ━`                                                       |
-| State           | `check ✓`, `cross ✗`, `warningGlyph ⚠`, `infoGlyph i`                            |
-| Bullets         | `inlineDot ·`, `bulletListItem ·`, `emDash —`, `arrowRight →`, `activityArrow ↳` |
-| Separators      | `separatorVertical │`                                                            |
-| Motion          | `spinner` (braille frames `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`)                                          |
-| Personality     | `quoteRail ┃`                                                                    |
+| Group           | Tokens                                                                   |
+| --------------- | ------------------------------------------------------------------------ |
+| Phase / status  | `phaseDone ■`, `phaseActive ◆`, `phasePending ◇`, `phaseDisabled ◌`      |
+| Cursors         | `actionCursor ▸`, `selectMarker ›`                                       |
+| Section markers | `badge ▣`, `sectionRule ━`                                               |
+| State           | `check ✓`, `cross ✗`, `warningGlyph ⚠`, `infoGlyph i`                    |
+| Bullets         | `bullet ·`, `inlineDot ·`, `emDash —`, `arrowRight →`, `activityArrow ↳` |
+| Separators      | `pipe │`                                                                 |
+| Motion          | `spinner` (braille frames `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`)                                  |
+| Clip markers    | `clipEllipsis …`, `collapseExpand ▼ more`                                |
+| Personality     | `quoteRail ┃`                                                            |
 
 Do not mix glyph families (no `✔` from one set and `✓` from another). No emoji in TUI surfaces.
 
-**`glyphFor(signalKind)`** — exported from `tokens.ts`. Maps every `SignalKind` to a shape-distinct glyph
-that conveys meaning without colour, for use under `NO_COLOR=1`. Import from tokens; do not inline the
+**`glyphFor(signalKind)`** — exported from `tokens.ts`. Maps each `SignalKind` to a shape-distinct glyph
+that conveys meaning without colour, for use under `NO_COLOR=1`. Kinds whose label already reads distinctly
+(`done` / `script` / `proposal` / `skills`) return the empty string. Import from tokens; do not inline the
 character.
 
 ### 2.3 Spacing — `spacing`
@@ -138,7 +141,7 @@ resolveRailWidth(columns):
 ```
 
 `COMPACT_RAIL_WIDTH = 6` applies at `md` (100–139); only status glyphs are shown, no labels.
-The Execute view also exports `CONTEXT_WIDTH` for the right context column — touch those via
+`tokens.ts` also exports `CONTEXT_WIDTH` for the right context column — touch those via
 `resolveRailWidth` and the breakpoint helpers, not via new magic numbers.
 
 ## 3. Layout anatomy
@@ -151,11 +154,11 @@ Every non-Home view mounts through `<ViewShell>`:
 │                                                 │
 │  <body>  ← the view-specific content            │
 │                                                 │
-│  <PromptHost />  ← inline prompts (auto)        │
+│  <StatusBanner />  ← dismissible banners (auto) │
 │                                                 │
-│  <KeyboardHints />  ← view-local hints (auto)   │
+│  <PromptHost />  ← inline prompts (auto)        │
 └─────────────────────────────────────────────────┘
-<StatusBar>  ← owned by the router (breadcrumb + global hotkeys)
+<StatusBar>  ← owned by the router (breadcrumb + merged KeyboardHints: view-local + global)
 ```
 
 **Views never render their own header, hint strip, or status bar.** `ViewShell` + router own all three.
@@ -168,34 +171,37 @@ the same job.
 
 ### 4.1 Shell + chrome
 
-| Component       | Purpose                                                               |
-| --------------- | --------------------------------------------------------------------- |
-| `ViewShell`     | Frame for every view. Owns header + body + hints spacing.             |
-| `SectionStamp`  | `▣ VIEW TITLE ━━━…` header. Brand-mustard accent.                     |
-| `Breadcrumb`    | Path strip at the top of `StatusBar`.                                 |
-| `StatusBar`     | Breadcrumb + global hotkey hints. Owned by router. Never from a view. |
-| `KeyboardHints` | View-local hotkey strip. Published via `useViewHints([…])`.           |
-| `HelpOverlay`   | Modal `?`-key overlay. Driven by the centralised keyboard map.        |
-| `Banner`        | Home-only Ralph banner + pipeline map. Do not reuse elsewhere.        |
+| Component                | Purpose                                                                               |
+| ------------------------ | ------------------------------------------------------------------------------------- |
+| `ViewShell`              | Frame for every view. Owns header + body + hints spacing.                             |
+| `SectionStamp`           | `▣ VIEW TITLE ━━━…` header. Brand-mustard accent.                                     |
+| `Breadcrumb`             | Path strip at the top of `StatusBar`.                                                 |
+| `StatusBar`              | Breadcrumb + global hotkey hints. Owned by router. Never from a view.                 |
+| `KeyboardHints`          | View-local hotkey strip. Published via `useViewHints([…])`.                           |
+| `HelpOverlay`            | Modal `?`-key overlay. Driven by the centralised keyboard map.                        |
+| `Banner`                 | Home-only Ralph banner + pipeline map. Do not reuse elsewhere.                        |
+| `MemoryPressureBanner`   | Heap-pressure strip mounted at App root. Subscribes to the EventBus.                  |
+| `ChainLogDegradedBanner` | Latched warning when the on-disk `chain.log` sink can't keep up. Mounted at App root. |
 
 ### 4.2 Content surfaces
 
-| Component        | Purpose                                                                                                            |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `Card`           | Bordered content box. Base for ResultCard.                                                                         |
-| `ResultCard`     | Terminal state surface: `success` / `error` / `warning` / `info`. Carries `title`, `fields`, `lines`, `nextSteps`. |
-| `CardList`       | Vertical stack of cards with consistent spacing.                                                                   |
-| `FieldList`      | Aligned `[label, value]` rows. Used inside cards and detail views.                                                 |
-| `StatusChip`     | `[DRAFT]` / `[ACTIVE]` / `[REVIEW]` / `[DONE]` bracketed tag.                                                      |
-| `Badge`          | Small inline state label.                                                                                          |
-| `Spinner`        | Braille-frame loading indicator with trailing label.                                                               |
-| `EmptyState`     | "Nothing here yet" surface with optional next-step pointer.                                                        |
-| `ListView`       | Paginated list with `↑/↓` + `Enter`. For browse screens.                                                           |
-| `Divider`        | Horizontal rule.                                                                                                   |
-| `ScrollRegion`   | Scrollable viewport with PgUp/PgDn.                                                                                |
-| `PipelineMap`    | Home phase map (refine → plan → implement → review → close).                                                       |
-| `SprintPipeline` | Sprint-detail kanban-style summary.                                                                                |
-| `ActionMenu`     | Home action menu + submenus. Driven by `menu-builder.ts`.                                                          |
+| Component        | Purpose                                                                                                                                                                                                                                                                                          |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Card`           | Bordered content box. Base for ResultCard.                                                                                                                                                                                                                                                       |
+| `ResultCard`     | Chain-settlement outcome card for the Execute-view footer: `kind` is `success` / `failed` / `aborted`. Carries `title`, `summary`, `fields`, `nextSteps`. For info / warning / precondition surfaces in other views, use `Card` (tone `info` / `warning` / `error` / `success`) or `EmptyState`. |
+| `CardList`       | Vertical stack of cards with consistent spacing.                                                                                                                                                                                                                                                 |
+| `ListCard`       | Shared frame for cards in a vertical list (tickets, tasks); thin wrapper over `Card`.                                                                                                                                                                                                            |
+| `FieldList`      | Aligned `[label, value]` rows. Used inside cards and detail views.                                                                                                                                                                                                                               |
+| `StatusChip`     | `[DRAFT]` / `[ACTIVE]` / `[REVIEW]` / `[DONE]` bracketed tag.                                                                                                                                                                                                                                    |
+| `Badge`          | Small inline state label.                                                                                                                                                                                                                                                                        |
+| `Spinner`        | Braille-frame loading indicator with trailing label.                                                                                                                                                                                                                                             |
+| `EmptyState`     | "Nothing here yet" surface with optional next-step pointer.                                                                                                                                                                                                                                      |
+| `ListView`       | Paginated list with `↑/↓` + `Enter`. For browse screens.                                                                                                                                                                                                                                         |
+| `Divider`        | Horizontal rule.                                                                                                                                                                                                                                                                                 |
+| `ScrollRegion`   | Scrollable viewport with PgUp/PgDn.                                                                                                                                                                                                                                                              |
+| `PipelineMap`    | Home phase map (refine → plan → implement → close).                                                                                                                                                                                                                                              |
+| `SprintPipeline` | Sprint-detail kanban-style summary.                                                                                                                                                                                                                                                              |
+| `ActionMenu`     | Home action menu + submenus. Items built by `home-internals/menu-items.ts` (`buildMenuItems`).                                                                                                                                                                                                   |
 
 ### 4.3 Execute-view family
 
@@ -217,31 +223,35 @@ Specialised components owned by `ExecuteView`. Don't import them from other view
 
 ### 4.4 Prompt family (`src/application/ui/tui/prompts/`)
 
-Never build a new prompt component. Always call the injected `PromptPort` and let `InkPromptAdapter` queue it.
+Never build a new prompt component. Always call the injected `InteractivePrompt` port and let
+`createInkInteractivePrompt` queue it onto the `PromptQueue` rendered by `PromptHost`.
 
-| Prompt        | Returns          | Cancel behavior               |
-| ------------- | ---------------- | ----------------------------- |
-| `select`      | `T`              | throws `PromptCancelledError` |
-| `confirm`     | `boolean`        | throws `PromptCancelledError` |
-| `input`       | `string`         | throws `PromptCancelledError` |
-| `checkbox`    | `T[]`            | throws `PromptCancelledError` |
-| `editor`      | `string \| null` | returns `null` on cancel      |
-| `fileBrowser` | `string \| null` | returns `null` on cancel      |
+| Method           | Returns                             | Cancel behavior                            |
+| ---------------- | ----------------------------------- | ------------------------------------------ |
+| `askChoice`      | `Result<T, DomainError>`            | Result.error(AbortError) when queue drains |
+| `askConfirm`     | `Result<boolean, DomainError>`      | Result.error(AbortError) when queue drains |
+| `askText`        | `Result<string, DomainError>`       | Result.error(AbortError) when queue drains |
+| `askTextArea`    | `Result<string, DomainError>`       | Result.error(AbortError) when queue drains |
+| `askMultiChoice` | `Result<readonly T[], DomainError>` | Result.error(AbortError) when queue drains |
 
-`editor` is the Claude-style multi-line inline editor (Ctrl+D submits, Esc cancels). No external editor spawn.
+There is no file-browser or single-`editor` method on the port; the path-picker and multi-line text-area are
+renderer components selected by prompt `kind` (`text` / `textarea` / `confirm` / `choice` / `multi-choice`).
+
+`askTextArea` is the Claude-style multi-line inline editor (↵ submits; `\↵` or ctrl+j inserts a newline; Esc
+cancels). No external editor spawn.
 
 ## 5. State surfaces — one visual per kind
 
 Pick the right surface for the state. Don't mix raw `<Text color={inkColors.error}>…</Text>` with `ResultCard`.
 
-| State                   | Surface                                        | Notes                                                    |
-| ----------------------- | ---------------------------------------------- | -------------------------------------------------------- |
-| Loading / running       | `<Spinner label="…" />`                        | Warning color default. Never bare text.                  |
-| Empty (no data)         | `<EmptyState>` or `<ResultCard kind="info" />` | "No X yet" + `nextSteps` pointer.                        |
-| Precondition failed     | `<ResultCard kind="warning" />`                | "Needs Y first" + `nextSteps` pointer.                   |
-| Error                   | `<ResultCard kind="error" />`                  | `lines={[message]}`. No stack dumps in user-facing copy. |
-| Success / terminal done | `<ResultCard kind="success" />`                | `fields={…}` + `nextSteps={…}`.                          |
-| Idle (waiting on input) | the prompt itself                              | Don't render a spinner while a prompt is up.             |
+| State                   | Surface                                                                             | Notes                                                 |
+| ----------------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| Loading / running       | `<Spinner label="…" />`                                                             | Info color default. Never bare text.                  |
+| Empty (no data)         | `<EmptyState>` or `<Card tone="info" />`                                            | "No X yet" + next-step pointer.                       |
+| Precondition failed     | `<Card tone="warning" />`                                                           | "Needs Y first" + next-step pointer.                  |
+| Error                   | `<Card tone="error" />`                                                             | One-line message. No stack dumps in user-facing copy. |
+| Success / terminal done | `<Card tone="success" />` (or the Execute footer's `<ResultCard kind="success" />`) | fields + next steps.                                  |
+| Idle (waiting on input) | the prompt itself                                                                   | Don't render a spinner while a prompt is up.          |
 
 ## 6. Navigation contract
 
@@ -249,21 +259,23 @@ Pick the right surface for the state. Don't mix raw `<Text color={inkColors.erro
 
 These work from **every** view. Don't override them.
 
-| Key                 | Action                                           |
-| ------------------- | ------------------------------------------------ |
-| `Esc`               | Pop one frame (no-op at root)                    |
-| `h`                 | Home                                             |
-| `s`                 | Settings                                         |
-| `d`                 | Doctor                                           |
-| `b`                 | Toggle banner compact ↔ full                     |
-| `g`                 | Progress overlay (reads `progress.md` from disk) |
-| `y`                 | Yank active-task summary to clipboard            |
-| `P`                 | Open project picker (cross-project)              |
-| `S`                 | Open sprint picker (cross-project)               |
-| `?`                 | Help overlay                                     |
-| `Tab` / `Shift+Tab` | Cycle running flow sessions                      |
-| `Ctrl+1..9`         | Direct-jump to flow session                      |
-| `q`                 | Quit (Home root only)                            |
+| Key   | Action                                           |
+| ----- | ------------------------------------------------ |
+| `Esc` | Pop one frame (no-op at root)                    |
+| `h`   | Home                                             |
+| `n`   | New flow (flows view)                            |
+| `x`   | Sessions view                                    |
+| `s`   | Settings                                         |
+| `!`   | Doctor                                           |
+| `b`   | Toggle banner compact ↔ full                     |
+| `g`   | Progress overlay (reads `progress.md` from disk) |
+| `y`   | Yank active-task summary to clipboard            |
+| `P`   | Open project picker (cross-project)              |
+| `S`   | Open sprint picker (cross-project)               |
+| `?`   | Help overlay                                     |
+| `q`   | Quit (Home root only)                            |
+
+Switch between running flows via the Sessions view (`x`) — there is no Tab / Ctrl+digit flow-cycling chord.
 
 ### 6.2 Execute-view keys — active when Execute view owns the focus
 
@@ -298,15 +310,15 @@ useViewHints([
 
 Canonical vocabulary — reuse these spellings so users build one mental model:
 
-| Key                                | Action                        |
-| ---------------------------------- | ----------------------------- |
-| `↑/↓`                              | move cursor                   |
-| `←/→`                              | switch panes / prev/next page |
-| `Enter`                            | confirm / open / run          |
-| `Space`                            | toggle / multi-select         |
-| `Tab` / `Shift+Tab`                | next / prev field             |
-| `Ctrl+D`                           | submit multi-line editor      |
-| a single letter (`b`, `r`, `n`, …) | the view's primary action     |
+| Key                                | Action                                |
+| ---------------------------------- | ------------------------------------- |
+| `↑/↓`                              | move cursor                           |
+| `←/→`                              | switch panes / prev/next page         |
+| `Enter`                            | confirm / open / run                  |
+| `Space`                            | toggle / multi-select                 |
+| `Tab` / `Shift+Tab`                | next / prev field                     |
+| `↵` / `\↵`                         | submit / newline in multi-line editor |
+| a single letter (`b`, `r`, `n`, …) | the view's primary action             |
 
 Rules:
 
@@ -323,19 +335,22 @@ Each view type has one shape. Don't invent a new one.
 ```tsx
 <ViewShell title="CREATE SPRINT">
   {phase.kind === 'running' && <Spinner label={phase.label} />}
-  {phase.kind === 'done' && <ResultCard kind="success" …/>}
-  {phase.kind === 'error' && <ResultCard kind="error" …/>}
+  {phase.kind === 'done' && <Card tone="success" …/>}
+  {phase.kind === 'error' && <Card tone="error" …/>}
 </ViewShell>
 ```
 
+Reserve `<ResultCard kind="success|failed|aborted" />` for chain-settlement footers; ordinary views terminate
+with `Card`.
+
 - Drive phase state from local React state or `useReducer`.
 - `phase.step` drives the spinner label — set it before each prompt.
-- `Enter` on a terminal `ResultCard` pops the view.
+- `Enter` on a terminal outcome card pops the view.
 
 ### 7.2 List views
 
 - `ListView` with `↑/↓ · Enter open · Esc back`.
-- Empty state → `EmptyState` or `ResultCard kind="info"` with a `nextSteps` pointer.
+- Empty state → `EmptyState` or `Card tone="info"` with a next-step pointer.
 
 **Inline-detail toggle variant.** For lists where the parent is short and the detail content fits below in
 5–10 rows (today: ticket-list, task-list), `Enter` is allowed to toggle an inline detail card beneath the
@@ -359,8 +374,8 @@ pushes a dedicated `*-detail-view.tsx`).
 
 ### 7.4 Phase views (refine / plan / implement / review)
 
-- Behave like a workflow view: `SectionStamp`, phase state, `ResultCard` for outcome.
-- No bespoke input handlers — everything goes through the injected `PromptPort`.
+- Behave like a workflow view: `SectionStamp`, phase state, an outcome card for the terminal state.
+- No bespoke input handlers — everything goes through the injected `InteractivePrompt` port.
 
 ### 7.5 Settings view — section tabs
 
@@ -385,11 +400,11 @@ keypress-counting exercise. Three candidate fixes:
   [§6.3](#63-view-local-keys--published-via-useviewhints).
 
 Per-section row counts (all ≤ ~8): `Presets 4`, `Global 1`, `Refine 3`, `Plan 3`, `Implement 6`
-(generator triple + evaluator triple), `Readiness 3`, `Ideate 3`, `Harness 4`, `Other 2`,
+(generator triple + evaluator triple), `Readiness 3`, `Ideate 3`, `Create-PR 3`, `Harness 4`, `Other 2`,
 `Storage 0` (read-only). Implement is the largest and is the right stress-test for the cap.
 
 **Responsive fallback.** The section strip uses `flexWrap="wrap"`, so on terminals narrower
-than the strip's natural width (~76 cols at the default 10 labels) the strip wraps onto a
+than the strip's natural width (the default 11 labels) the strip wraps onto a
 second row. The body card below the strip is a stock `<Card>` — it follows the same
 single-column layout at every breakpoint, since the per-section field lists are short enough
 that wrapping was never the bottleneck. No special handling at `sm` is needed beyond the strip
@@ -403,9 +418,13 @@ remains visible on screen until the user picks a catalog entry to overwrite it.
 
 ### 7.6 Render caps for list data
 
-Every list rendered from chain trace, event-bus, or harness-signal data MUST `.slice(-max)` before `.map()` to JSX, with an elision row above the rendered tail when truncated. Exception: lists with a hard domain bound (legend entries, settings options, fixed phase order) may render in full — comment the bound at the call site.
+Every list rendered from chain trace, event-bus, or harness-signal data MUST `.slice(-max)` before `.map()` to JSX, with
+an elision row above the rendered tail when truncated. Exception: lists with a hard domain bound (legend entries,
+settings options, fixed phase order) may render in full — comment the bound at the call site.
 
-Spinner state lives in the leaf `<Spinner />` component (`src/application/ui/tui/components/spinner.tsx`). Don't call `useSpinnerFrame` from a component that renders a subtree larger than itself — the 90 ms re-render propagates. Use `<Spinner active … />` instead.
+Spinner state lives in the leaf `<Spinner />` component (`src/application/ui/tui/components/spinner.tsx`). Don't call
+`useSpinnerFrame` from a component that renders a subtree larger than itself — the 90 ms re-render propagates. Use
+`<Spinner active … />` instead.
 
 ## 8. Copy & tone
 
@@ -430,8 +449,8 @@ user is about to do.
 
 ### 8.3 Status words
 
-Use one spelling everywhere. `DRAFT`, `ACTIVE`, `REVIEW`, `DONE`, `IN PROGRESS`, `BLOCKED`, `FAILED`. No
-mixed case (`In Progress`, `in progress`). No synonyms (`complete` vs `done`).
+Use one spelling everywhere. `DRAFT`, `PLANNED`, `ACTIVE`, `REVIEW`, `DONE`, `TODO`, `IN PROGRESS`, `BLOCKED`,
+`FAILED`. No mixed case (`In Progress`, `in progress`). No synonyms (`complete` vs `done`).
 
 ## 9. Anti-patterns (non-negotiables)
 
@@ -442,9 +461,9 @@ mixed case (`In Progress`, `in progress`). No synonyms (`complete` vs `done`).
 - ❌ View renders its own header / hint strip / status bar.
 - ❌ View calls `console.log` / writes stdout directly — use the injected `Logger`.
 - ❌ View calls a use case directly — use flow factories from `src/application/flows/<flow>/` and the chain runner.
-- ❌ View mounts a prompt outside the injected `PromptPort`.
+- ❌ View mounts a prompt outside the injected `InteractivePrompt` port.
 - ❌ Mixing `<Text color={inkColors.error}>` with `ResultCard` in the same state.
-- ❌ New prompt component — reuse `InkPromptAdapter`.
+- ❌ New prompt component — reuse the `InteractivePrompt` port + `createInkInteractivePrompt`.
 - ❌ Barrel `index.ts` files — every import points to its source module.
 
 ## 10. When to extend vs. reuse
@@ -452,10 +471,11 @@ mixed case (`In Progress`, `in progress`). No synonyms (`complete` vs `done`).
 Before adding anything new, work this ladder top-down:
 
 1. **Does a token cover it?** Add color/glyph/spacing via `tokens.ts`, not ad-hoc.
-2. **Does an existing component render it?** `ResultCard` + `FieldList` + `StatusChip` + `Spinner` handle ~80% of states.
+2. **Does an existing component render it?** `ResultCard` + `FieldList` + `StatusChip` + `Spinner` handle ~80% of
+   states.
 3. **Is it a new state surface?** Add a `ResultCard` `kind`, don't build a parallel card.
 4. **Is it a new view shape?** Describe it here first (add a § 7 subsection), then build it.
-5. **Is it a new prompt kind?** Add a method to `PromptPort` + a prompt component under
+5. **Is it a new prompt kind?** Add a method to the `InteractivePrompt` port + a prompt component under
    `src/application/ui/tui/prompts/`.
 
 If you reach step 4 or 5, open a design note before the PR — this document should change with the code.
@@ -467,9 +487,10 @@ Run this before opening a PR on a new TUI surface:
 - [ ] Wrapped in `<ViewShell>` (not bare, unless Home).
 - [ ] Title is an ALL-CAPS `SectionStamp`.
 - [ ] Every color / glyph / spacing value comes from `tokens.ts`.
-- [ ] All interaction is a `PromptPort` call.
+- [ ] All interaction is an `InteractivePrompt` call.
 - [ ] `useViewHints([…])` lists every key the view responds to.
-- [ ] Loading state uses `<Spinner>`; terminal states use `<ResultCard>`.
+- [ ] Loading state uses `<Spinner>`; terminal states use a `Card` (or the Execute footer's `<ResultCard>`).
 - [ ] No use-case or adapter imported directly — flow factory or injected port only.
-- [ ] A test asserts the happy path renders a `ResultCard kind="success"` (or equivalent terminal).
+- [ ] A test asserts the happy path renders the terminal outcome card (a `Card tone="success"`, or a chain-settlement
+      `ResultCard kind="success"`).
 - [ ] `pnpm typecheck && pnpm lint && pnpm test` all green.

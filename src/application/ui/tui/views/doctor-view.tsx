@@ -15,13 +15,12 @@ import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { StatusChip } from '@src/application/ui/tui/components/status-chip.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
-import { glyphs, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useSystemStatus } from '@src/application/ui/tui/runtime/system-status-context.tsx';
 import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import type { ProbeGroup, ProbeResult } from '@src/application/flows/doctor/ctx.ts';
-import { inkColors } from '@src/application/ui/tui/theme/tokens.ts';
 
 const GROUP_ORDER: ReadonlyArray<ProbeGroup | 'other'> = [
   'storage',

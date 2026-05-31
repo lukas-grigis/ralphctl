@@ -4,7 +4,7 @@ import { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
-import { makeProject } from '@tests/fixtures/domain.ts';
+import { makeProject, makeRepository } from '@tests/fixtures/domain.ts';
 import { createFsProjectRepository } from '@src/integration/persistence/project/repository.ts';
 import { projectFile, projectsDir } from '@src/integration/persistence/storage.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
@@ -115,6 +115,32 @@ describe('createFsProjectRepository', () => {
     const removed = await repo.remove(ProjectId.generate());
     expect(removed.ok).toBe(false);
     if (!removed.ok) expect(removed.error).toBeInstanceOf(NotFoundError);
+  });
+
+  it('round-trips a repository carrying suggestedSkills through save → findById', async () => {
+    const repo = createFsProjectRepository({ root });
+    const repository = { ...makeRepository({ name: 'svc' }), suggestedSkills: ['react-patterns', 'pnpm'] as const };
+    const project = makeProject({ repositories: [repository] });
+
+    await repo.save(project);
+    const loaded = await repo.findById(project.id);
+    expect(loaded.ok).toBe(true);
+    if (loaded.ok) expect(loaded.value.repositories[0]?.suggestedSkills).toEqual(['react-patterns', 'pnpm']);
+  });
+
+  it('tolerates a persisted project.json whose repository omits suggestedSkills (legacy file)', async () => {
+    const repo = createFsProjectRepository({ root });
+    const project = makeProject({ repositories: [makeRepository({ name: 'svc' })] });
+    // Write a project file by hand with NO `suggestedSkills` key on the repository — the shape
+    // a project.json persisted before the field existed has on disk.
+    await fs.mkdir(projectsDir(root), { recursive: true });
+    const onDisk = JSON.parse(JSON.stringify(project)) as Record<string, unknown>;
+    expect((onDisk.repositories as Array<Record<string, unknown>>)[0]).not.toHaveProperty('suggestedSkills');
+    await fs.writeFile(projectFile(root, project.id), JSON.stringify(onDisk), 'utf8');
+
+    const loaded = await repo.findById(project.id);
+    expect(loaded.ok).toBe(true);
+    if (loaded.ok) expect(loaded.value.repositories[0]?.suggestedSkills).toBeUndefined();
   });
 
   it('surfaces invalid JSON on disk as StorageError(parse)', async () => {

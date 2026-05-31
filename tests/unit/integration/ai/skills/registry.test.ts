@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { existsSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { FLOW_SKILLS, skillsForFlow } from '@src/integration/ai/skills/_engine/registry.ts';
 import { flowRegistry } from '@src/application/registry.ts';

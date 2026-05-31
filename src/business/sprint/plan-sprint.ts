@@ -1,6 +1,6 @@
 import { Result } from '@src/domain/result.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
-import { planSprint, type DraftSprint, type PlannedSprint, type Sprint } from '@src/domain/entity/sprint.ts';
+import { type DraftSprint, type PlannedSprint, planSprint, type Sprint } from '@src/domain/entity/sprint.ts';
 import type { Task, TodoTask } from '@src/domain/entity/task.ts';
 import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';

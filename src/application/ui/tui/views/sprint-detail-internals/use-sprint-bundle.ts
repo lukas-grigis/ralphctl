@@ -20,7 +20,7 @@ import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { Task } from '@src/domain/entity/task.ts';
-import { useAsyncLoad, type AsyncLoadState } from '@src/application/ui/tui/runtime/use-async-load.ts';
+import { type AsyncLoadState, useAsyncLoad } from '@src/application/ui/tui/runtime/use-async-load.ts';
 import { useSessionManager } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 
 export interface SprintBundle {

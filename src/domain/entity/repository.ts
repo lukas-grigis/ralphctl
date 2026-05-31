@@ -37,6 +37,14 @@ export interface Repository extends Entity<RepositoryId> {
    * {@link verifyScript}. Same authoring path as `setupSkill`.
    */
   readonly verifySkill?: string;
+  /**
+   * Kebab-case skill names the readiness flow's AI proposed linking into the repo (the
+   * `skill-suggestions` signal). Persisted so the operator has a durable record of what was
+   * recommended; the `offer-skill-suggestions` readiness leaf is the human gate that turns a
+   * suggestion into an installed / stubbed skill. Plain optional-on-read field — persisted
+   * `project.json` files written before this field existed simply omit it.
+   */
+  readonly suggestedSkills?: readonly string[];
 }
 
 export interface RepositoryCreateInput {
@@ -50,6 +58,7 @@ export interface RepositoryCreateInput {
   readonly setupScript?: string;
   readonly setupSkill?: string;
   readonly verifySkill?: string;
+  readonly suggestedSkills?: readonly string[];
 }
 
 export const createRepository = (input: RepositoryCreateInput): Result<Repository, ValidationError> => {
@@ -83,6 +92,7 @@ export const createRepository = (input: RepositoryCreateInput): Result<Repositor
     slug: slugResult.value,
     name: nameResult.value,
     path: input.path,
+    ...suggestedSkillsPart(input.suggestedSkills),
     ...(verifyScript.value !== undefined ? { verifyScript: verifyScript.value } : {}),
     ...(verifyTimeout !== undefined ? { verifyTimeout } : {}),
     ...(setupScript.value !== undefined ? { setupScript: setupScript.value } : {}),
@@ -178,6 +188,19 @@ export const setRepositorySlug = (repo: Repository, slug: Slug): Repository => (
   ...repo,
   slug,
 });
+
+/**
+ * Trim each suggested skill name, drop blanks, de-duplicate. Returns `{ suggestedSkills }` only
+ * when at least one name survives so the factory omits the field entirely otherwise (a clean
+ * repo round-trips without an empty array on disk).
+ */
+const suggestedSkillsPart = (
+  input: readonly string[] | undefined
+): { readonly suggestedSkills?: readonly string[] } => {
+  if (input === undefined) return {};
+  const names = [...new Set(input.map((s) => s.trim()).filter((s) => s.length > 0))];
+  return names.length > 0 ? { suggestedSkills: names } : {};
+};
 
 const resolveName = (candidate: string | undefined, path: AbsolutePath): Result<string, ValidationError> => {
   if (candidate === undefined) {

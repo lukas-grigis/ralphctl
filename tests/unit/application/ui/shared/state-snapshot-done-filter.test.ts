@@ -17,7 +17,7 @@ import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repo
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { Project } from '@src/domain/entity/project.ts';
-import { makeProject, makeDraftSprint, makeReviewSprint, makeDoneSprint } from '@tests/fixtures/domain.ts';
+import { makeDoneSprint, makeDraftSprint, makeProject, makeReviewSprint } from '@tests/fixtures/domain.ts';
 
 // ── Repo stubs ────────────────────────────────────────────────────────────────
 

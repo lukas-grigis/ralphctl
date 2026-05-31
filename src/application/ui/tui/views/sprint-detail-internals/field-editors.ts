@@ -10,19 +10,19 @@
  */
 
 import { Result } from '@src/domain/result.ts';
+import type { Sprint } from '@src/domain/entity/sprint.ts';
 import { replaceTicket } from '@src/domain/entity/sprint.ts';
+import type { Ticket } from '@src/domain/entity/ticket.ts';
 import {
+  type ApprovedTicket,
   setTicketDescription,
   setTicketRequirements,
   setTicketTitle,
-  type ApprovedTicket,
 } from '@src/domain/entity/ticket.ts';
 import { updateTask } from '@src/domain/entity/task-factory.ts';
 import type { OpenEditPromptInput } from '@src/application/ui/tui/runtime/use-edit-field.ts';
 import type { PromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
-import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { Task } from '@src/domain/entity/task.ts';
-import type { Ticket } from '@src/domain/entity/ticket.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 

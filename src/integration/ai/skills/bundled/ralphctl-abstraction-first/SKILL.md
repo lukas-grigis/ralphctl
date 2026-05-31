@@ -6,6 +6,7 @@ description: Cross-phase skill — design the shape of the change (entities, bou
 # Abstraction-First
 
 > Concept
+>
 > from [Martin Fowler — "Abstraction-First"](https://martinfowler.com/articles/structured-prompt-driven/abstraction-first.html).
 > Adapted for ralphctl's three phases.
 

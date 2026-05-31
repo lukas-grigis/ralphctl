@@ -1,6 +1,6 @@
 import {
-  transitionSprintToReviewUseCase,
   type TransitionSprintToReviewProps,
+  transitionSprintToReviewUseCase,
 } from '@src/business/sprint/transition-sprint-to-review.ts';
 import type { ReviewSprint, Sprint } from '@src/domain/entity/sprint.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';

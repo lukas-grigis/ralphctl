@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderActiveTaskSummary } from '@src/application/ui/tui/runtime/render-active-task-summary.ts';
 import type { TaskBucket } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
-import type { HarnessSignal, EvaluationSignal } from '@src/domain/signal.ts';
+import type { EvaluationSignal, HarnessSignal } from '@src/domain/signal.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 
 const ts = (s: string): IsoTimestamp => s as unknown as IsoTimestamp;

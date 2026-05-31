@@ -12,7 +12,7 @@
  * composition rather than width arithmetic.
  */
 
-import { CONTEXT_WIDTH, RAIL_WIDTH, fluid, resolveRailWidth } from '@src/application/ui/tui/theme/tokens.ts';
+import { CONTEXT_WIDTH, fluid, RAIL_WIDTH, resolveRailWidth } from '@src/application/ui/tui/theme/tokens.ts';
 
 const TWO_COL_BREAKPOINT = 140;
 const THREE_COL_BREAKPOINT = 180;

@@ -3,7 +3,7 @@ import { Result } from '@src/domain/result.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
-import type { CommitMessageSignal, ChangeSignal } from '@src/domain/signal.ts';
+import type { ChangeSignal, CommitMessageSignal } from '@src/domain/signal.ts';
 import { renderSidecars } from '@src/integration/ai/contract/_engine/render-sidecars.ts';
 import type { SidecarRule } from '@src/integration/ai/contract/_engine/types.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';

@@ -11,7 +11,7 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Text } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
-import type { PromptQueue, PendingPrompt } from '@src/application/ui/tui/prompts/prompt-queue.ts';
+import type { PendingPrompt, PromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
 import { TextPrompt } from '@src/application/ui/tui/prompts/text-prompt.tsx';
 import { TextAreaPrompt } from '@src/application/ui/tui/prompts/text-area-prompt.tsx';
 import { ConfirmPrompt } from '@src/application/ui/tui/prompts/confirm-prompt.tsx';

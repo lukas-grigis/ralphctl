@@ -19,7 +19,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Result } from '@src/domain/result.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
-import type { PromptQueue, PendingPromptInput } from '@src/application/ui/tui/prompts/prompt-queue.ts';
+import type { PendingPromptInput, PromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
 import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isUuidv7, UUIDV7_REGEX, uuidv7 } from '@src/domain/value/uuid7.ts';
+import { isUuidv7, uuidv7, UUIDV7_REGEX } from '@src/domain/value/uuid7.ts';
 
 describe('uuidv7', () => {
   it('produces a value matching the UUIDv7 shape', () => {

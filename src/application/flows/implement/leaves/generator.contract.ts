@@ -126,6 +126,13 @@ const EXAMPLE_TS = '2026-05-22T10:00:00.000Z' as IsoTimestamp;
  */
 const generatorExampleSignals: readonly GeneratorSignal[] = [
   { type: 'change', text: 'added foo helper', timestamp: EXAMPLE_TS },
+  {
+    type: 'learning',
+    text: 'the JSON loader rejects trailing commas — strip them before parse',
+    context: 'hit while wiring the config reader',
+    appliesTo: 'config / io layer',
+    timestamp: EXAMPLE_TS,
+  },
   { type: 'task-verified', output: '$ pnpm test\n... 42 passed', timestamp: EXAMPLE_TS },
   {
     type: 'commit-message',

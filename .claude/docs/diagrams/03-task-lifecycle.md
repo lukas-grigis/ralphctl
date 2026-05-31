@@ -1,8 +1,11 @@
 # Task lifecycle
 
 A task moves through `todo → in_progress → (done | blocked)`. The implement flow runs the
-per-task subchain that drives every transition. Each task carries `attempts[]` — one entry
-per generator-evaluator round inside a single chain run.
+per-task subchain that drives every transition. Each task carries an append-only `attempts[]` —
+one entry per attempt. A single launch runs up to `maxAttempts` attempts per task (outer loop);
+each attempt contains the inner generator-evaluator loop of up to `maxTurns` rounds, which refine
+that one attempt's evaluation rather than appending new entries. The array is append-only across
+launches, so attempts accumulate within and across chain runs.
 
 ## One task, end to end
 
@@ -20,10 +23,12 @@ sequenceDiagram
 
     loop until evaluator passes OR maxAttempts hit
         Harness->>Gen: spawn (prompt.md, outputDir)
-        Gen-->>Harness: writes signals.json + (optional) commit-message.txt
+        Gen-->>Harness: writes signals.json (only)
+        Note over Harness,Gen: harness renders commit-message.txt sidecar post-spawn
         Harness->>Repo: read validated signals
         Harness->>Ev: spawn (prompt.md, outputDir)
-        Ev-->>Harness: writes signals.json + evaluation.md
+        Ev-->>Harness: writes signals.json (only)
+        Note over Harness,Ev: harness renders evaluation.md sidecar post-spawn
         Harness->>Task: append attempt + evaluation
         alt evaluator passed
             Harness->>Repo: post-task verify
@@ -54,14 +59,23 @@ All three are mirrored on `IterationConfig` at `src/application/chain/run/iterat
 
 ## Resume-after-crash
 
-Tasks left in `in_progress` from a prior crash reset to `todo` on the next implement launch
-(via the `reset-stale-in-progress` leaf at the top of the chain) and re-enter the queue. No
-double-execution; the in-flight attempt is dropped from `attempts[]`.
+A task left `in_progress` from a prior crash (Ctrl+C, SIGTERM, idle-watchdog, OOM — all leave a
+leftover `running` attempt) is resumed in place, not reset. On the next implement launch
+`resolveImplementQueue` keeps it `in_progress` and sorts it ahead of fresh `todo` work
+(in-progress-first stable override). The first `start-attempt` settles the leftover `running`
+attempt as `aborted` (cause `process-crash` — the entry is kept in `attempts[]`, never dropped),
+then opens a fresh attempt, so there is no double-execution. If settling that aborted attempt
+pushes the task over `maxAttempts`, it transitions straight to `blocked`. The only reset-to-`todo`
+path is the manual `task unblock` command, not an automatic launch reset.
 
 ## Backed by
 
-- Entity: `src/domain/entity/task.ts` (with `attempts[]`, `verification`, `evaluation`)
+- Entity: `src/domain/entity/task.ts` (`attempts[]`) and `src/domain/entity/attempt.ts` (each attempt's `verification` /
+  `evaluation`)
 - Repository: `src/domain/repository/task/`
-- Mutators: `src/business/task/{create-tasks,update-task,mark-blocked,record-evaluation,reset-stale-in-progress}.ts`
+- Mutators (use cases):
+  `src/business/task/{start-attempt,settle-attempt,commit-task,unblock-task,cancel-active-task}.ts`
+- Domain transitions:
+  `src/domain/entity/{task-lifecycle.ts (markTaskBlocked / unblockTask / resetTaskToTodo), task-settle.ts (markTaskDone / failCurrentAttempt), task-factory.ts (createTask / updateTask)}`
 - Per-task leaves: `src/application/flows/implement/leaves/`
 - Schema: `src/integration/persistence/task/{task,attempt,evaluation,verification}.schema.ts`

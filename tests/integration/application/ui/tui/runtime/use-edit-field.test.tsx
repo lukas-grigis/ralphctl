@@ -13,8 +13,8 @@ import { createPromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.
 import { PromptQueueProvider } from '@src/application/ui/tui/prompts/prompt-context.tsx';
 import { UiStateProvider } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import {
-  useEditField,
   type OpenEditPromptInput,
+  useEditField,
   type UseEditFieldState,
 } from '@src/application/ui/tui/runtime/use-edit-field.ts';
 

@@ -1,6 +1,6 @@
 import { Result } from '@src/domain/result.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
-import { removeRepository, type Project } from '@src/domain/entity/project.ts';
+import { type Project, removeRepository } from '@src/domain/entity/project.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import type { Save } from '@src/domain/repository/_base/save.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';

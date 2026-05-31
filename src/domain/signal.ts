@@ -75,13 +75,34 @@ export interface NoteSignal {
 }
 
 /**
+ * A learning the AI surfaced, structured into three parts:
+ *
+ *  - `text` — the **Insight**: the actionable one-line claim (required). The field keeps the
+ *    name `text` for back-compat with v1 ledger rows.
+ *  - `context` — the **Context**: when / why the insight arose (optional).
+ *  - `appliesTo` — the **Applies-to**: where it applies — repo area, task kind, subsystem
+ *    (optional).
+ *
+ * Shared by {@link LearningSignal} and the implement / procedural-memory pipelines so business
+ * and application code can carry the structured shape without importing a signal type. It lives
+ * in this domain file so neither layer needs to reach across a layer boundary for it.
+ */
+export interface LearningEntry {
+  readonly text: string;
+  readonly context?: string;
+  readonly appliesTo?: string;
+}
+
+/**
  * Generator-emitted insight worth pinning at the top of the sprint's `progress.md` under a
  * `## Learnings` section. Carries forward across tasks (cross-task knowledge: a gotcha, a
  * non-obvious project convention discovered mid-flow). Lower-stakes than `DecisionSignal`.
+ *
+ * Extends {@link LearningEntry} (Insight + optional Context + optional Applies-to) with the
+ * signal discriminant and emission timestamp.
  */
-export interface LearningSignal {
+export interface LearningSignal extends LearningEntry {
   readonly type: 'learning';
-  readonly text: string;
   readonly timestamp: IsoTimestamp;
 }
 

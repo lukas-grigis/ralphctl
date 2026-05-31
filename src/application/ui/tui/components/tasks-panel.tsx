@@ -26,7 +26,7 @@ import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-t
 import type { SprintState, TaskProjection } from '@src/application/ui/tui/components/tasks-projection.ts';
 import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
 import { glyphs, spacing } from '@src/application/ui/tui/theme/tokens.ts';
-import { InlineKindsBar, collectKinds } from '@src/application/ui/tui/components/tasks-panel-internals/signal-rows.tsx';
+import { collectKinds, InlineKindsBar } from '@src/application/ui/tui/components/tasks-panel-internals/signal-rows.tsx';
 import { OrphanSignals, TaskBlock } from '@src/application/ui/tui/components/tasks-panel-internals/task-row.tsx';
 import { buildFlatFocusKeys } from '@src/application/ui/tui/components/tasks-panel-internals/focus-keys.ts';
 import { useTasksPanelInput } from '@src/application/ui/tui/components/tasks-panel-internals/keymap.ts';

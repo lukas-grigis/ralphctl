@@ -22,8 +22,7 @@ import {
 import { createRunner } from '@src/application/chain/run/runner.ts';
 import type { GitRunner, GitRunResult } from '@src/integration/io/git-runner.ts';
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
-import type { Choice, InteractivePrompt } from '@src/business/interactive/prompt.ts';
-import type { AskConfirmInput } from '@src/business/interactive/prompt.ts';
+import type { AskConfirmInput, Choice, InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { createInMemorySink } from '@tests/fixtures/in-memory-sink.ts';
 import { createFileLocker } from '@src/integration/io/file-locker.ts';
@@ -197,7 +196,7 @@ describe('createReviewFlow', () => {
     const runner = createRunner({
       id: 'r-review',
       element: flow,
-      initialCtx: { sprintId: sprint.id } satisfies ReviewCtx,
+      initialCtx: { sprintId: sprint.id, distillRequested: false } satisfies ReviewCtx,
     });
     await runner.start();
 
@@ -247,7 +246,7 @@ describe('createReviewFlow', () => {
     const runner = createRunner({
       id: 'r-review-abort',
       element: flow,
-      initialCtx: { sprintId: sprint.id } satisfies ReviewCtx,
+      initialCtx: { sprintId: sprint.id, distillRequested: false } satisfies ReviewCtx,
     });
     await runner.start();
 
@@ -324,7 +323,7 @@ describe('createReviewFlow', () => {
     const runner = createRunner({
       id: 'r-review-multi',
       element: flow,
-      initialCtx: { sprintId: sprint.id } satisfies ReviewCtx,
+      initialCtx: { sprintId: sprint.id, distillRequested: false } satisfies ReviewCtx,
     });
     await runner.start();
 
@@ -391,7 +390,7 @@ describe('createReviewFlow', () => {
     const runner = createRunner({
       id: 'r-review-empty',
       element: flow,
-      initialCtx: { sprintId: sprint.id } satisfies ReviewCtx,
+      initialCtx: { sprintId: sprint.id, distillRequested: false } satisfies ReviewCtx,
     });
     await runner.start();
 

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
+import type { IssueFetcher } from '@src/business/scm/issue-fetcher.ts';
+import { StorageError } from '@src/domain/value/error/storage-error.ts';
+import { makePendingTicket } from '@tests/fixtures/domain.ts';
+import { parseHttpUrl } from '@src/domain/value/parsers/parse-http-url.ts';
+import { fetchIssueContextLeaf } from '@src/application/flows/refine/leaves/fetch-issue-context.ts';
+import type { RefineCtx } from '@src/application/flows/refine/ctx.ts';
 
 const captureLogEvents = (
   bus: ReturnType<typeof createInMemoryEventBus>
@@ -11,12 +17,6 @@ const captureLogEvents = (
   });
   return captured;
 };
-import type { IssueFetcher } from '@src/business/scm/issue-fetcher.ts';
-import { StorageError } from '@src/domain/value/error/storage-error.ts';
-import { makePendingTicket } from '@tests/fixtures/domain.ts';
-import { parseHttpUrl } from '@src/domain/value/parsers/parse-http-url.ts';
-import { fetchIssueContextLeaf } from '@src/application/flows/refine/leaves/fetch-issue-context.ts';
-import type { RefineCtx } from '@src/application/flows/refine/ctx.ts';
 
 const baseCtx = (): RefineCtx => ({ sprintId: 'sprint-x' as RefineCtx['sprintId'] });
 

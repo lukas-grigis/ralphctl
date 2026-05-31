@@ -23,7 +23,7 @@ import type { Project } from '@src/domain/entity/project.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { Attempt } from '@src/domain/entity/attempt.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
-import { Section, Description } from '@src/application/ui/tui/views/sprint-detail-internals/shared-prose.tsx';
+import { Description, Section } from '@src/application/ui/tui/views/sprint-detail-internals/shared-prose.tsx';
 import type { FocusItem } from '@src/application/ui/tui/views/sprint-detail-internals/focus-list.ts';
 import { AttemptCard, attemptElapsedMs } from '@src/application/ui/tui/views/sprint-detail-internals/attempt-card.tsx';
 

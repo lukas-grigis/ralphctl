@@ -47,9 +47,20 @@ interface UiStateApi {
    * session (does not reset on navigation).
    */
   readonly bannerCompact: boolean;
+  /**
+   * Session-scoped pin for the repository the user most recently picked inside one of the
+   * project-scoped flows (detect-scripts / detect-skills / readiness). Cleared when the TUI
+   * exits; not persisted to disk. Threaded via `launchFlow.extras.repositoryId` so subsequent
+   * flows skip the repo prompt for the rest of the session.
+   */
+  readonly sessionRepositoryId: RepositoryId | undefined;
+
   toggleHelp(): void;
+
   toggleProgress(): void;
+
   toggleBanner(): void;
+
   /**
    * Claim "input is captured by a prompt; suspend global keys." Returns a release function
    * matched 1:1 to the claim — calling release more than once is a no-op. The natural way to
@@ -67,6 +78,7 @@ interface UiStateApi {
    * ```
    */
   claimPrompt(): () => void;
+
   /**
    * Claim the `esc` keystroke for a view-local handler; the global `router.pop()` stays out
    * of the way until every claim is released. Counter-based (same shape as {@link claimPrompt})
@@ -79,13 +91,7 @@ interface UiStateApi {
    * ```
    */
   claimEscape(): () => void;
-  /**
-   * Session-scoped pin for the repository the user most recently picked inside one of the
-   * project-scoped flows (detect-scripts / detect-skills / readiness). Cleared when the TUI
-   * exits; not persisted to disk. Threaded via `launchFlow.extras.repositoryId` so subsequent
-   * flows skip the repo prompt for the rest of the session.
-   */
-  readonly sessionRepositoryId: RepositoryId | undefined;
+
   setSessionRepositoryId(id: RepositoryId | undefined): void;
   /**
    * Register a provider for the markdown summary of the operator's currently-focused task —

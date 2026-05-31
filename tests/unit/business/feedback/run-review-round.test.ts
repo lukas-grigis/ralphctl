@@ -3,7 +3,7 @@ import { Result } from '@src/domain/result.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
 import { FIXED_NOW, makeReviewSprint } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
-import { runReviewRoundUseCase, renderReviewCommitMessage } from '@src/business/feedback/run-review-round.ts';
+import { renderReviewCommitMessage, runReviewRoundUseCase } from '@src/business/feedback/run-review-round.ts';
 import type { FeedbackRound } from '@src/business/feedback/md-parser.ts';
 
 const FEEDBACK_WITH_ROUND_1 = `## Round 1

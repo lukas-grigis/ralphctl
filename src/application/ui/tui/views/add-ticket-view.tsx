@@ -23,7 +23,7 @@ import { spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { createTicketAddFlow } from '@src/application/flows/ticket-add/flow.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { HeaderCard } from '@src/application/ui/tui/views/add-ticket-internals/header-card.tsx';
-import { StepView, runFetch } from '@src/application/ui/tui/views/add-ticket-internals/step-view.tsx';
+import { runFetch, StepView } from '@src/application/ui/tui/views/add-ticket-internals/step-view.tsx';
 import type { Step } from '@src/application/ui/tui/views/add-ticket-internals/types.ts';
 
 interface AddTicketProps extends Readonly<Record<string, unknown>> {

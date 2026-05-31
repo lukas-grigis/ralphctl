@@ -1,6 +1,6 @@
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
-import { primaryFlowRow, type AiFlowSettings, type Settings } from '@src/domain/entity/settings.ts';
+import { type AiFlowSettings, primaryFlowRow, type Settings } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import { createClaudeProvider } from '@src/integration/ai/providers/claude/headless.ts';
 import { createCodexProvider } from '@src/integration/ai/providers/codex/headless.ts';

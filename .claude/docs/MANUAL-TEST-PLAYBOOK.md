@@ -29,7 +29,7 @@ its alt-screen behaviour differs.
 
 **Setup:** at least one project registered with one repository.
 
-1. Press `b` (or whatever opens the browse submenu) from Home → Projects view
+1. From the Home action menu, press `p` to open the Projects view
 2. Drill into a project → repository detail
 3. Pick the "Run readiness" flow
 4. **Expected:** routed to Execute view, project/repo selection prompt appears over a quiet canvas
@@ -55,7 +55,8 @@ its alt-screen behaviour differs.
    session for this ticket?" confirm appears (each ticket asks individually)
 3. Press Enter to accept first ticket
 4. **Expected:** AI CLI takes over with full UI for ticket 1. The TUI is hidden during the session.
-5. Have a conversation, ask the AI to write `requirements.md` when done, exit
+5. Have a conversation; the AI emits its approved requirements as a `refined-ticket` signal into `signals.json` when
+   done, then exit
 6. **Expected:** ralphctl re-appears with the parsed requirements shown inline, then
    "Approve these requirements?" prompt
 7. Press Enter to approve
@@ -82,7 +83,8 @@ its alt-screen behaviour differs.
 3. **Expected:** repo selection prompt appears (which repos to explore)
 4. Pick repos → confirm
 5. **Expected:** AI CLI takes over with full UI; the prompt instructs it to read the ticket requirements +
-   write tasks to `<sprintDir>/planning/<unit>/plan.json`
+   write the dependency-ordered task array as a `task-plan` signal to `signals.json` in its output directory
+   under `<sprintDir>/plan/<run-slug>/`
 6. Have a planning conversation, ask the AI to write the file, exit
 7. **Expected:** ralphctl re-appears, parsed task list rendered as a table
 8. **Expected:** "Confirm ready to execute?" prompt
@@ -131,14 +133,15 @@ its alt-screen behaviour differs.
 
 ---
 
-## Scenario 5 — forensic CLI commands (snapshot + runs)
+## Scenario 5 — forensic CLI commands (export-context + runs)
 
 **Setup:** a sprint that has had at least one implement run (so `progress.md` exists). To exercise the
 optional `events.ndjson` step below, run that implement spawn with `RALPHCTL_DEBUG_TRACE=1`.
 
-1. Run `ralphctl snapshot` (or `ralphctl snapshot --sprint <id>`)
-2. **Expected:** one static text frame of the sprint state prints to stdout — task counts, branch, last-run
-   outcome. Exit 0. No Ink mount.
+1. Run `ralphctl export-context --sprint <id> --project <id> --output /tmp/context.md`
+2. **Expected:** a markdown digest of the sprint state (sprint + project + tasks) is written to the output
+   path; stdout prints a one-line `wrote <path> (<bytes>)` confirmation. Exit 0. No Ink mount. Open the file
+   to confirm the task list and sprint metadata are present.
 3. (Optional, when `RALPHCTL_DEBUG_TRACE=1` was set during the run) Verify `events.ndjson` contains
    `=== chain-run <id> <flowId> started <iso> ===` / `… completed …` brackets around each run.
 4. Run `ralphctl runs list`
@@ -205,7 +208,8 @@ For every prompt context (an editor, a select, an input):
 3. Type a short feedback message; Ctrl+D to submit
 4. **Expected:** AI CLI takes over; resumes the relevant tasks via session-id resume to apply the feedback
 5. AI exits; verify scripts re-run; evaluator re-runs
-6. **Expected:** progress.md gets the new round's entries; if `RALPHCTL_DEBUG_TRACE=1` is set, events.ndjson captures the trace
+6. **Expected:** progress.md gets the new round's entries; if `RALPHCTL_DEBUG_TRACE=1` is set, events.ndjson captures
+   the trace
 7. From the same flow, submit an EMPTY input (just Ctrl+D)
 8. **Expected:** the loop exits cleanly, sprint stays in `review`
 
@@ -225,10 +229,11 @@ leaves whose `name` contains an absolute repo path).
    that embeds the absolute path (`preflight-task-1-/Users/...`). Path-jammed names must not appear in the
    rendered rail.
 4. Resize the terminal narrower (below `xl`, i.e. < 180 cols) so the three-column layout collapses
-5. **Expected:** rail width shrinks to 24 fixed cols; labels that exceed the budget are mid-truncated with
+5. **Expected:** rail width shrinks to the fixed 28-col `RAIL_WIDTH` (or the 6-col icons-only compact rail at
+   the `md` 100–139 breakpoint); labels that exceed the budget are mid-truncated with
    `…` rather than wrapping mid-word or overflowing into the adjacent column.
 6. Resize back to ≥ 180 cols
-7. **Expected:** rail grows fluidly (up to ~40 cols at wide widths) and the labels breathe without any
+7. **Expected:** rail grows fluidly (from 36 up to ~56 cols at wide widths) and the labels breathe without any
    layout jitter.
 
 ---
@@ -273,7 +278,7 @@ can't reach. Things still NOT covered:
   drift will surface here first.
 - File-system corner cases (NFS / SMB mounts, case-insensitive FS).
 - Concurrency under load — the implement flow runs strictly sequential, but cross-process locks (the
-  `<stateRoot>/locks/sprints/<id>.lock` file) are best tested with two real ralphctl processes.
+  `<stateRoot>/locks/repo-<hash>.lock` file) are best tested with two real ralphctl processes.
 
 If you find a class of bug that recurs, add a scenario for it here rather than fixing it once and waiting
 for the next regression.

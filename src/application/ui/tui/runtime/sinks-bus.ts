@@ -12,12 +12,14 @@ import type { Sink } from '@src/business/observability/sink.ts';
 export interface BusSink<T> extends Sink<T> {
   /** Snapshot of every value emitted so far, in emission order. Read-only. */
   readonly entries: readonly T[];
-  /** Register a listener; returns an unsubscribe function. */
-  subscribe(fn: (value: T) => void): () => void;
-  /** Drop the buffered entries. Subscribers stay attached. */
-  clear(): void;
   /** Number of currently-attached subscribers. Useful for tests / debugging. */
   readonly subscriberCount: number;
+
+  /** Register a listener; returns an unsubscribe function. */
+  subscribe(fn: (value: T) => void): () => void;
+
+  /** Drop the buffered entries. Subscribers stay attached. */
+  clear(): void;
 }
 
 export interface CreateBusSinkOptions {

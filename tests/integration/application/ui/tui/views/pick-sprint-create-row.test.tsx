@@ -20,7 +20,7 @@ import type { Project } from '@src/domain/entity/project.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
-import { tick, ENTER } from '@tests/integration/application/ui/tui/_keys.ts';
+import { ENTER, tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { makeProject, makeRepository } from '@tests/fixtures/domain.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';

@@ -6,7 +6,7 @@ import type { RefinedTicketSignal } from '@src/domain/signal.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { ParseError } from '@src/domain/value/error/parse-error.ts';
-import type { AppEvent, AiSignalEvent } from '@src/business/observability/events.ts';
+import type { AiSignalEvent, AppEvent } from '@src/business/observability/events.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { addTicket } from '@src/domain/entity/sprint.ts';
 import { makeDraftSprint, makePendingTicket } from '@tests/fixtures/domain.ts';

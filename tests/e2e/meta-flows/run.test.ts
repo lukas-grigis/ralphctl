@@ -1,8 +1,8 @@
-import { promises as fs } from 'node:fs';
+import { mkdtempSync, promises as fs, rmSync } from 'node:fs';
 import { realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
@@ -13,6 +13,7 @@ import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import type { SprintExecutionRepository } from '@src/domain/repository/sprint/sprint-execution-repository.ts';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
+import { createSprintExecution, setExecutionBranch } from '@src/domain/entity/sprint-execution.ts';
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
@@ -25,13 +26,11 @@ import {
   makePlannedSprint,
   makeTodoTask,
 } from '@tests/fixtures/domain.ts';
-import { createSprintExecution, setExecutionBranch } from '@src/domain/entity/sprint-execution.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
 import type { GitRunner, GitRunResult } from '@src/integration/io/git-runner.ts';
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
 import { writeJsonAtomic } from '@src/integration/io/fs.ts';
-import type { Choice, InteractivePrompt } from '@src/business/interactive/prompt.ts';
-import type { AskConfirmInput } from '@src/business/interactive/prompt.ts';
+import type { AskConfirmInput, Choice, InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import { createInMemorySink } from '@tests/fixtures/in-memory-sink.ts';
 import { createFileLocker } from '@src/integration/io/file-locker.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
@@ -42,7 +41,12 @@ import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts'
 import { createAppendFile } from '@src/integration/io/append-file-adapter.ts';
 
 const FAKE_CWD = absolutePath('/tmp/ralph/fake-cwd');
-const FAKE_REPOSITORIES = new Map([[FIXED_REPOSITORY_ID, { path: FAKE_CWD }]]);
+const FAKE_REPOSITORIES = new Map([[FIXED_REPOSITORY_ID, { path: FAKE_CWD, name: 'fake-repo' }]]);
+// Per-file-run unique memory root (the real AppendFile adapter writes the ledger here) so concurrent
+// vitest workers / repeated execs never collide on a shared `/tmp` path; torn down in afterAll.
+const FAKE_MEMORY_ROOT = absolutePath(mkdtempSync(join(tmpdir(), 'ralphctl-run-e2e-memory-')));
+const FAKE_PROJECT_ID = 'proj-run-e2e';
+afterAll(() => rmSync(String(FAKE_MEMORY_ROOT), { recursive: true, force: true }));
 const NOW = isoTimestamp('2026-05-09T10:00:00.000Z');
 
 const inMemorySprintRepo = (initial: Sprint): { repo: SprintRepository; current: () => Sprint } => {
@@ -293,6 +297,8 @@ describe('createRunFlow', () => {
         feedbackFile: absolutePath(f.feedbackFile),
         model: 'claude-opus-4-8',
         providerId: 'claude-code',
+        memoryRoot: FAKE_MEMORY_ROOT,
+        projectId: FAKE_PROJECT_ID,
       }
     );
 
@@ -380,6 +386,8 @@ describe('createRunFlow', () => {
         feedbackFile: absolutePath(f.feedbackFile),
         model: 'claude-opus-4-8',
         providerId: 'claude-code',
+        memoryRoot: FAKE_MEMORY_ROOT,
+        projectId: FAKE_PROJECT_ID,
         noReview: true,
       }
     );

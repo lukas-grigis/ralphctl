@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createFsTaskRepository } from '@src/integration/persistence/task/repository.ts';
 import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
-import { makeDraftSprint, makeDoneTask, makeTodoTask } from '@tests/fixtures/domain.ts';
-import { createCliHome, runCliCaptured, type CliHome } from '@tests/e2e/cli/_harness.ts';
+import { makeDoneTask, makeDraftSprint, makeTodoTask } from '@tests/fixtures/domain.ts';
+import { type CliHome, createCliHome, runCliCaptured } from '@tests/e2e/cli/_harness.ts';
 
 describe('ralphctl task', () => {
   let cli: CliHome;

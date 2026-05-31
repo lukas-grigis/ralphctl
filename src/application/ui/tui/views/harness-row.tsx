@@ -7,7 +7,7 @@
 import React from 'react';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { FieldList } from '@src/application/ui/tui/components/field-list.tsx';
-import { HARNESS_HINTS, type EditableField } from '@src/application/ui/tui/views/settings-view-model.ts';
+import { type EditableField, HARNESS_HINTS } from '@src/application/ui/tui/views/settings-view-model.ts';
 
 export interface HarnessRowProps {
   readonly title: string;

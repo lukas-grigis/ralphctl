@@ -22,9 +22,9 @@ import type { Runner } from '@src/application/chain/run/runner.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
 import {
-  launchFlow,
   type LauncherDeps,
   type LaunchExtras,
+  launchFlow,
   type LaunchResult,
 } from '@src/application/ui/shared/launcher.ts';
 

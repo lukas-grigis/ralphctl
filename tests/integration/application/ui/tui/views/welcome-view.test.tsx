@@ -7,7 +7,16 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
-import type { AiProvider } from '@src/domain/entity/settings.ts';
+import type { AiProvider, Settings } from '@src/domain/entity/settings.ts';
+import { WelcomeView } from '@src/application/ui/tui/views/welcome-view.tsx';
+import type { AppDeps } from '@src/application/bootstrap/wire.ts';
+import type { Project } from '@src/domain/entity/project.ts';
+import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
+import type { SettingsRepository } from '@src/domain/repository/settings/settings-repository.ts';
+import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
+import { makeProject } from '@tests/fixtures/domain.ts';
+import type { ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 
 // Hoisted state holder — each test mutates this before rendering so the mocked
 // `detectInstalledProviders` returns the desired set. `vi.hoisted` ensures it exists when the
@@ -19,17 +28,6 @@ vi.mock('@src/integration/system/detect-cli.ts', () => ({
     new Set(detectRef.installed) as ReadonlySet<AiProvider>,
   PROVIDER_BINARY: { 'claude-code': 'claude', 'github-copilot': 'copilot', 'openai-codex': 'codex' },
 }));
-
-import { WelcomeView } from '@src/application/ui/tui/views/welcome-view.tsx';
-import type { AppDeps } from '@src/application/bootstrap/wire.ts';
-import type { Project } from '@src/domain/entity/project.ts';
-import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
-import type { Settings } from '@src/domain/entity/settings.ts';
-import type { SettingsRepository } from '@src/domain/repository/settings/settings-repository.ts';
-import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
-import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
-import { makeProject } from '@tests/fixtures/domain.ts';
-import type { ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 
 const fakeSettingsRepo = (save: (s: Settings) => Promise<Result<undefined, never>>): SettingsRepository => ({
   path: '/tmp/test-settings.json',

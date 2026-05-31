@@ -10,8 +10,7 @@
  */
 
 import { promises as fs } from 'node:fs';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import { realpath } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';

@@ -22,7 +22,7 @@ import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repo
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
-import { tick, ESC } from '@tests/integration/application/ui/tui/_keys.ts';
+import { ESC, tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { makeApprovedTicket, makeDraftSprint } from '@tests/fixtures/domain.ts';
 

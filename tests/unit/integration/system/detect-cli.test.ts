@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   detectInstalledProviders,
+  primaryInstallCommand,
   PROVIDER_BINARY,
   PROVIDER_INSTALL_GUIDANCE,
-  primaryInstallCommand,
   renderProviderInstallGuidance,
   resolveInstallPlatform,
 } from '@src/integration/system/detect-cli.ts';

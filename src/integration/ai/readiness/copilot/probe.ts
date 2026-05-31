@@ -7,7 +7,7 @@ import { ProbeError } from '@src/domain/value/error/probe-error.ts';
 import type { Repository } from '@src/domain/entity/repository.ts';
 import { isNodeErrnoCode } from '@src/integration/io/fs.ts';
 import type { CopilotArtifacts } from '@src/integration/ai/readiness/copilot/artifacts.ts';
-import { absentState, type ReadinessState, presentState } from '@src/integration/ai/readiness/_engine/state.ts';
+import { absentState, presentState, type ReadinessState } from '@src/integration/ai/readiness/_engine/state.ts';
 import { hasAnyCopilotArtifact } from '@src/integration/ai/readiness/_engine/predicates.ts';
 import type { ReadinessProbe } from '@src/integration/ai/readiness/_engine/probe.ts';
 

@@ -1,7 +1,7 @@
 import { Result } from '@src/domain/result.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import { addTicket, type DraftSprint, type Sprint } from '@src/domain/entity/sprint.ts';
-import { approveTicketRequirements, type ApprovedTicket, type PendingTicket } from '@src/domain/entity/ticket.ts';
+import { type ApprovedTicket, approveTicketRequirements, type PendingTicket } from '@src/domain/entity/ticket.ts';
 import type { ConflictError } from '@src/domain/value/error/conflict-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { ValidationError } from '@src/domain/value/error/validation-error.ts';

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatIssueContext, type ExternalIssue } from '@src/business/scm/issue-fetcher.ts';
+import { type ExternalIssue, formatIssueContext } from '@src/business/scm/issue-fetcher.ts';
 
 describe('formatIssueContext', () => {
   it('renders GitLab issue comments under the Source Issue Data section', () => {

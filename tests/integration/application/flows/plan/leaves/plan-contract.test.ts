@@ -6,8 +6,9 @@ import type { TaskPlanSignal } from '@src/domain/signal.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { ParseError } from '@src/domain/value/error/parse-error.ts';
-import type { AppEvent, AiSignalEvent } from '@src/business/observability/events.ts';
+import type { AiSignalEvent, AppEvent } from '@src/business/observability/events.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
+import type { DraftSprint } from '@src/domain/entity/sprint.ts';
 import { addTicket } from '@src/domain/entity/sprint.ts';
 import { approveTicketRequirements } from '@src/domain/entity/ticket.ts';
 import { FIXED_LATER, makeDraftSprint, makePendingTicket, makeProject } from '@tests/fixtures/domain.ts';
@@ -19,7 +20,6 @@ import type {
   InteractiveAiProviderInput,
 } from '@src/integration/ai/providers/_engine/interactive-ai-provider.ts';
 import type { Project } from '@src/domain/entity/project.ts';
-import type { DraftSprint } from '@src/domain/entity/sprint.ts';
 import type { CallPlannerInteractiveDeps } from '@src/application/flows/plan/leaves/call-planner-interactive.ts';
 import { callPlannerInteractiveLeaf } from '@src/application/flows/plan/leaves/call-planner-interactive.ts';
 import type { PlanCtx } from '@src/application/flows/plan/ctx.ts';

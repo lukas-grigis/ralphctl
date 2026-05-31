@@ -25,7 +25,7 @@ import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useAsyncLoad } from '@src/application/ui/tui/runtime/use-async-load.ts';
-import { loadAppStateSnapshot, type AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
+import { type AppStateSnapshot, loadAppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { useSessionManager } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.tsx';

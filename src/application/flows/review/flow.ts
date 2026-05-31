@@ -9,6 +9,7 @@ import type { ReviewDeps } from '@src/application/flows/review/deps.ts';
 import { ensureFeedbackFileLeaf } from '@src/application/flows/review/leaves/ensure-feedback-file.ts';
 import { reviewRoundLeaf } from '@src/application/flows/review/leaves/review-round.ts';
 import { transitionSprintToDoneLeaf } from '@src/application/flows/_shared/sprint/transition-to-done.ts';
+import { createDistillStep } from '@src/application/flows/_shared/memory/distill-step.ts';
 
 const DEFAULT_MAX_ROUNDS = 50;
 
@@ -47,12 +48,18 @@ export interface CreateReviewFlowOpts {
  *     load-and-assert-sprint(['review']),
  *     ensure-feedback-file,
  *     loop('review-loop', review-round, { shouldStop: ctx.lastReviewExit !== undefined }),
+ *     distill-learnings-step,                  // opt-in; runs on the auto-done path
  *     transition-sprint-to-done,
  *   ])
  *
  * The review chain assumes the implement chain has already run (sprint is in `review`). The
  * `loadAndAssertSprintSubChain` whitelist enforces that — running review on a `planned`
  * sprint fails fast.
+ *
+ * The distill step sits BEFORE the transition so it runs while the sprint is still `review`
+ * (re-runnable on a mid-distill abort) and on the SAME auto-done path the empty-round termination
+ * takes. When the user opted out (`distillRequested === false`) the inner `distill-gate` guard
+ * skips the body; when `deps.distill` is absent the step is omitted entirely.
  */
 export const createReviewFlow = (deps: ReviewDeps, opts: CreateReviewFlowOpts): Element<ReviewCtx> => {
   const maxRounds = opts.maxRounds ?? DEFAULT_MAX_ROUNDS;
@@ -85,6 +92,7 @@ export const createReviewFlow = (deps: ReviewDeps, opts: CreateReviewFlowOpts): 
       shouldContinue: (_ctx, i) => i <= maxRounds,
       shouldStop: (ctx) => ctx.lastReviewExit !== undefined,
     }),
-    transitionSprintToDoneLeaf({ sprintRepo: deps.sprintRepo, clock: deps.clock, logger: deps.logger }),
+    ...(deps.distill !== undefined ? [createDistillStep<ReviewCtx>(deps.distill.deps, deps.distill.opts)] : []),
+    transitionSprintToDoneLeaf<ReviewCtx>({ sprintRepo: deps.sprintRepo, clock: deps.clock, logger: deps.logger }),
   ]);
 };

@@ -8,8 +8,8 @@ import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
-import { preflightTaskLeaf, type DirtyTreePolicy } from '@src/application/flows/implement/leaves/preflight-task.ts';
-import { resolveRepoOrThrow, type RepoExecConfig } from '@src/application/flows/implement/leaves/resolve-repo.ts';
+import { type DirtyTreePolicy, preflightTaskLeaf } from '@src/application/flows/implement/leaves/preflight-task.ts';
+import { type RepoExecConfig, resolveRepoOrThrow } from '@src/application/flows/implement/leaves/resolve-repo.ts';
 import { workingTreeCleanCheckLeaf } from '@src/application/flows/implement/leaves/working-tree-clean-check.ts';
 
 /**

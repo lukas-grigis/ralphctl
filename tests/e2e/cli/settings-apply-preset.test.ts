@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Settings } from '@src/domain/entity/settings.ts';
-import { createCliHome, runCliCaptured, type CliHome } from '@tests/e2e/cli/_harness.ts';
+import { type CliHome, createCliHome, runCliCaptured } from '@tests/e2e/cli/_harness.ts';
 
 describe('ralphctl settings apply-preset', () => {
   let cli: CliHome;

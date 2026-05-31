@@ -1,9 +1,9 @@
 import { Result } from '@src/domain/result.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { Project } from '@src/domain/entity/project.ts';
+import { updateRepository } from '@src/domain/entity/project.ts';
 import type { Repository } from '@src/domain/entity/repository.ts';
 import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
-import { updateRepository } from '@src/domain/entity/project.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { Element } from '@src/application/chain/element.ts';

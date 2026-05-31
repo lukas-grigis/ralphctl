@@ -16,6 +16,7 @@
  * proceed with an empty skill set.
  */
 
+import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
@@ -145,6 +146,17 @@ export const createBundledSkillSource = (deps: BundledSkillSourceDeps = {}): Ski
         skills.push(r.value);
       }
       return Result.ok(skills);
+    },
+
+    async getByName(name: string): Promise<Result<Skill | undefined, StorageError>> {
+      // Unknown name → not an error. A missing `<root>/<name>/SKILL.md` means the suggestion
+      // doesn't correspond to a bundled skill; the caller scaffolds a stub instead. We test
+      // for the file up front so a genuine read/parse failure (malformed frontmatter) still
+      // surfaces as a `StorageError` via `loadOne`.
+      const cached = cache.get(name);
+      if (cached !== undefined) return Result.ok(cached);
+      if (!existsSync(join(root, name, 'SKILL.md'))) return Result.ok(undefined);
+      return loadOne(name);
     },
   };
 };

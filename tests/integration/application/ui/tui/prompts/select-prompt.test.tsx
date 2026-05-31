@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render } from 'ink-testing-library';
 import { SelectPrompt } from '@src/application/ui/tui/prompts/select-prompt.tsx';
 import type { Choice } from '@src/business/interactive/prompt.ts';
-import { DOWN, ENTER, ESC, UP, tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { DOWN, ENTER, ESC, tick, UP } from '@tests/integration/application/ui/tui/_keys.ts';
 
 const options: ReadonlyArray<Choice<unknown>> = [
   { value: 'alpha', label: 'Alpha' },

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createFsSprintRepository } from '@src/integration/persistence/sprint/repository.ts';
 import { addTicket } from '@src/domain/entity/sprint.ts';
 import { makeApprovedTicket, makeDraftSprint, makePendingTicket, makePlannedSprint } from '@tests/fixtures/domain.ts';
-import { createCliHome, runCliCaptured, type CliHome } from '@tests/e2e/cli/_harness.ts';
+import { type CliHome, createCliHome, runCliCaptured } from '@tests/e2e/cli/_harness.ts';
 
 describe('ralphctl ticket', () => {
   let cli: CliHome;

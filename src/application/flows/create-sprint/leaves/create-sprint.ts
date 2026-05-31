@@ -3,7 +3,7 @@ import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.t
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
-import { createSprintUseCase, type CreateSprintOutput } from '@src/business/sprint/create-sprint.ts';
+import { type CreateSprintOutput, createSprintUseCase } from '@src/business/sprint/create-sprint.ts';
 import type { CreateSprintCtx } from '@src/application/flows/create-sprint/ctx.ts';
 
 export interface CreateSprintLeafDeps {

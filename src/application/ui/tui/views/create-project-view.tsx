@@ -29,7 +29,7 @@ import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
-import { spacing, inkColors, glyphs } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { createProject } from '@src/domain/entity/project.ts';
 import { createRepository } from '@src/domain/entity/repository.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';

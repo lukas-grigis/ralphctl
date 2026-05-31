@@ -5,7 +5,7 @@ import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { Element } from '@src/application/chain/element.ts';
-import { stampSessionMetaLeaf, type SessionMetaInput } from '@src/application/flows/_shared/stamp-session-meta.ts';
+import { type SessionMetaInput, stampSessionMetaLeaf } from '@src/application/flows/_shared/stamp-session-meta.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import { roundSignalsPath } from '@src/application/flows/implement/leaves/round-artifacts.ts';
 
