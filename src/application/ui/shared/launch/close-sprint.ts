@@ -20,12 +20,14 @@ export const launchCloseSprint = async (ctx: LaunchContext): Promise<LaunchResul
   }
   // Second HITL, opt-in and defaulting NO: promoting learnings rewrites the project's native
   // context files (CLAUDE.md / AGENTS.md / …) — never auto-accept. The `[y/N]` copy signals the
-  // default; ANY non-true answer (No, cancel, error) leaves `distillRequested` false so the
-  // in-chain `distill-gate` guard skips the body entirely.
+  // default. A non-ok result is a cancellation (Ctrl+C / Esc → `AbortError`, `.ok === false`) —
+  // cancel the whole launch, symmetric with the first close confirm above. Only a deliberate
+  // `false` proceeds without distilling (the in-chain `distill-gate` guard then skips the body).
   const distillConfirm = await deps.interactive.askConfirm({
     message: "Distill this sprint's learnings into project context files? [y/N]",
   });
-  const distillRequested = distillConfirm.ok && distillConfirm.value === true;
+  if (!distillConfirm.ok) return { ok: false, reason: 'Cancelled.' };
+  const distillRequested = distillConfirm.value === true;
 
   const sprintDir = join(String(deps.storage.dataRoot), 'sprints', String(snapshot.sprint.id));
   const progressPath = AbsolutePath.parse(join(sprintDir, 'progress.md'));

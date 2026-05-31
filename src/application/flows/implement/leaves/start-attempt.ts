@@ -61,6 +61,10 @@ export const startAttemptLeaf = (deps: StartAttemptLeafDeps, taskId: TaskId): El
         plateauHistory: undefined,
         currentRoundNum: undefined,
         lastEvaluation: undefined,
+        // A stale commit message from the prior attempt must not carry forward — the next
+        // attempt's generator turn proposes its own. Clear it here alongside the other
+        // per-attempt verdict state so a re-entry starts with no inherited commit copy.
+        proposedCommitMessage: undefined,
         // Clear any generator / evaluator session ids carried over from the prior task/attempt so
         // the new attempt starts with a fresh pair of "developers." Cross-attempt resume would
         // mix two unrelated bodies of work into one conversational thread and confuse the model.

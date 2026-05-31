@@ -95,6 +95,19 @@ describe('createBundledSkillSource (custom root)', () => {
     expect(result.error.message).toMatch(/invalid frontmatter/u);
   });
 
+  it('getByName surfaces a StorageError when the SKILL.md path is present but unreadable', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'bundled-source-'));
+    // Make `<root>/wedged-skill/SKILL.md` a DIRECTORY, not a file. The async read fails with a
+    // non-ENOENT error (EISDIR), which must propagate as a StorageError — not collapse to the
+    // unknown-name (undefined) case the way a genuinely missing file does.
+    await mkdir(join(root, 'wedged-skill', 'SKILL.md'), { recursive: true });
+    const source = createBundledSkillSource({ bundledRoot: root });
+    const result = await source.getByName('wedged-skill');
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.message).toMatch(/bundled skill not readable/u);
+  });
+
   it('requires frontmatter name to match the folder name', async () => {
     const root = await mkdtemp(join(tmpdir(), 'bundled-source-'));
     const alignDir = join(root, 'ralphctl-alignment');

@@ -137,25 +137,6 @@ export const renderTaskGraphIssue = (issue: TaskGraphIssue): string => {
 };
 
 /**
- * Schedule a sprint's task set into dependency waves for parallel execution.
- *
- * Validates the graph first via {@link validateTaskGraph}; any {@link TaskGraphIssue}
- * (unknown dependency, self-edge, cycle) short-circuits and propagates unchanged. On a sound
- * DAG, runs Kahn's algorithm by level:
- *  - wave 0 = every in-degree-0 node (no `dependsOn`), sorted by `Task.order` ASC;
- *  - decrement the in-degree of each scheduled node's successors;
- *  - the next wave = all nodes whose in-degree just hit 0, again sorted by `order` ASC;
- *  - repeat until every node is scheduled.
- *
- * Each returned wave is internally independent — no task in a wave depends on another in the
- * same wave — so the launcher can run a wave's tasks concurrently. Waves are strictly ordered:
- * every dependency of a task in wave `k` was scheduled in some wave `< k`.
- *
- * Empty input yields an empty schedule. Pure — no mutation of inputs, no I/O.
- *
- * @public
- */
-/**
  * Build the in-degree counts + successor adjacency for Kahn's algorithm. In-degree is the
  * count of a task's dependencies that resolve to a task in this set; `validateTaskGraph`
  * already guarantees every `dependsOn` id resolves, so the `byId.has` filter is belt-and-braces.
@@ -180,6 +161,25 @@ const buildGraph = (
   return { inDegree, successors };
 };
 
+/**
+ * Schedule a sprint's task set into dependency waves for parallel execution.
+ *
+ * Validates the graph first via {@link validateTaskGraph}; any {@link TaskGraphIssue}
+ * (unknown dependency, self-edge, cycle) short-circuits and propagates unchanged. On a sound
+ * DAG, runs Kahn's algorithm by level:
+ *  - wave 0 = every in-degree-0 node (no `dependsOn`), sorted by `Task.order` ASC;
+ *  - decrement the in-degree of each scheduled node's successors;
+ *  - the next wave = all nodes whose in-degree just hit 0, again sorted by `order` ASC;
+ *  - repeat until every node is scheduled.
+ *
+ * Each returned wave is internally independent — no task in a wave depends on another in the
+ * same wave — so the launcher can run a wave's tasks concurrently. Waves are strictly ordered:
+ * every dependency of a task in wave `k` was scheduled in some wave `< k`.
+ *
+ * Empty input yields an empty schedule. Pure — no mutation of inputs, no I/O.
+ *
+ * @public
+ */
 export const scheduleIntoWaves = (tasks: readonly Task[]): Result<ReadonlyArray<readonly Task[]>, TaskGraphIssue> => {
   const validation = validateTaskGraph(tasks);
   if (!validation.ok) return Result.error(validation.error);

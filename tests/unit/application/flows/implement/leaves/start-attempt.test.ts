@@ -105,6 +105,25 @@ describe('startAttemptLeaf', () => {
     expect(result.value.ctx.priorEvaluatorSessionId).toBeUndefined();
   });
 
+  it('clears a stale proposedCommitMessage on attempt re-entry (next attempt proposes its own)', async () => {
+    const todo = makeTodoTask();
+    const { repo } = fakeUpdateTask();
+    const leafEl = startAttemptLeaf({ taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger }, todo.id);
+
+    const initial: ImplementCtx = {
+      sprintId: 'sprint-x' as SprintId,
+      tasks: [todo],
+      // The prior attempt left a commit message on ctx; it must NOT carry into the new attempt —
+      // a stale commit copy would otherwise describe attempt n-1's work on attempt n's commit.
+      proposedCommitMessage:
+        'fix: stale message from prior attempt' as unknown as ImplementCtx['proposedCommitMessage'],
+    };
+    const result = await leafEl.execute(initial);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.ctx.proposedCommitMessage).toBeUndefined();
+  });
+
   it('throws an InvalidStateError when ctx.tasks is undefined (chain-construction error)', async () => {
     const todo = makeTodoTask();
     const { repo } = fakeUpdateTask();
