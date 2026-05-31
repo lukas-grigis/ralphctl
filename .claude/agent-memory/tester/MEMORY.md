@@ -158,7 +158,8 @@ if (process.platform === 'win32') return;
 
 ## Mocking Strategies (src)
 
-- **No module-level `vi.mock`** for integration tests — they use real implementations with temp dirs
+- **No module-level `vi.mock`** for integration tests — they use real implementations with temp dirs (exception: mocking node builtins like `node:fs/promises` to inject specific error codes deterministically, where real filesystem cannot reproduce the exact error code reliably)
+- **`vi.mock('node:fs/promises', ...)` for named-import injection**: ESM named imports bind at link time, so `vi.spyOn` on the namespace object only intercepts namespace-qualified calls (e.g. `fs.readFile()`), not already-bound local `readFile` identifiers. `vi.mock` hoisting replaces the entire module factory before any import is evaluated — the only reliable seam for named-import interception. Put this in a SEPARATE test file so it doesn't affect co-located real-fs tests.
 - `AbsolutePath.trustString()` bypasses the VO validator for test paths (use only when you own the value)
 - Domain entity creation via static factory: `Task.create({...})` returns `Result<Task, ValidationError>`
 
@@ -192,6 +193,23 @@ Four leaves directly unit-tested in `src/application/chains/leaves/`:
   time). Set the env var in `beforeEach`/`afterEach` — no vitest setup file needed for leaves that call it inline.
 - **`Sprint.recordCheckRun(repo, at)`** returns a plain `Sprint` (no `Result` wrapper); `setBranch` and
   `setAffectedRepositories` return `Result<Sprint, InvalidStateError>`.
+
+### Launcher HITL distill confirm gate (2026-05-31)
+
+`tests/unit/application/ui/shared/launch/distill-confirm-abort.test.ts` — 10 tests covering `launchCloseSprint` and `launchReview`:
+
+- `abort` (AbortError) on distill confirm → `{ ok: false, reason: 'Cancelled.' }` (load-bearing: fails if guard removed)
+- `Result.ok(false)` on distill confirm → runner returned (no cancel; distillRequested: false)
+- `Result.ok(true)` on distill confirm → runner returned (distillRequested: true)
+- close-sprint: first close confirm aborted → Cancelled
+- no sprint selected / no project loaded → early failure from each launcher
+
+**Key patterns:**
+
+- `LaunchContext` stub: partial `AppDeps` cast `as never` for fields the launch path never reaches before the guard
+- `identityBridge = <T>(r: Runner<T>) => r` — no event bus needed for launcher unit tests
+- `makeSnapshot({ omitSprint: true })` / `makeSnapshot({ omitProject: true })` — `exactOptionalPropertyTypes` forbids `{ sprint: undefined }` in a `Partial<AppStateSnapshot>` spread; use named boolean flags instead
+- `scriptedConfirm` builds the prompt fake as an array of response factories (zero-arg functions); `void input` suppresses unused-var lint
 
 ### Template registry fence (2026-05-04)
 
