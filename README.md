@@ -22,17 +22,19 @@ with [GitHub Copilot](https://docs.github.com/en/copilot/github-copilot-in-the-c
 > _"I'm helping!"_ — Ralph Wiggum
 
 > [!NOTE]
-> **Active development.** New features and polish ship regularly. The 0.8.x
-> line continues a burst of structural changes — thanks for sticking with us
-> through it. Upgrades are simple: install the latest version, redo your
-> config, proceed. See [Upgrading](#upgrading) and [CHANGELOG](./CHANGELOG.md).
+> **Active development.** New features and polish ship regularly. **0.9.0** adds
+> opt-in parallel task execution — independent tasks within a dependency wave run
+> concurrently, each in its own git worktree, folded back onto one branch.
+> Upgrades are simple: install the latest version, redo your config, proceed.
+> See [Upgrading](#upgrading) and [CHANGELOG](./CHANGELOG.md).
 
 ---
 
 ## What is ralphctl?
 
 AI coding agents are powerful but lose context on long tasks, need babysitting when things break, and have no way to
-coordinate changes across multiple repositories. ralphctl wraps your chosen AI CLI — currently Claude Code — in a
+coordinate changes across multiple repositories. ralphctl wraps your chosen AI CLI — Claude Code, with GitHub Copilot
+and OpenAI Codex in preview — in a
 structured harness that decomposes your work into dependency-ordered tasks, drives each one through
 a [generator-evaluator loop](https://www.anthropic.com/engineering/harness-design-long-running-apps) that catches issues
 before moving on, and persists context across sessions so nothing gets lost.
@@ -122,13 +124,15 @@ ralphctl settings set ai.implement.evaluator.model    <model-id>
 
 **Refine** is implementation-agnostic: the AI clarifies requirements with you, ticket by ticket, and flips each one from
 `pending` to `approved`. **Plan** requires every ticket approved — the AI explores the affected repos and generates a
-dependency-ordered task graph. **Implement** drives those tasks one at a time through a generator-evaluator cycle: a
-second AI pass reviews each task against its spec before the harness marks it done and moves to the next.
+dependency-ordered task graph. **Implement** drives those tasks in dependency order through a generator-evaluator cycle:
+a second AI pass reviews each task against its spec before the harness marks it done and moves on. Independent tasks in
+the same dependency wave can run in parallel (opt-in) when you want a sprint to finish faster.
 
 Key properties:
 
-- **Dependency-ordered execution** — tasks run strictly one at a time in topological order; no task starts until its
-  blockers are done
+- **Dependency-ordered execution** — tasks run in topological order; no task starts until its blockers are done.
+  Opt-in parallelism (`concurrency.maxParallelTasks` > 1) runs independent tasks within a dependency wave concurrently,
+  each in its own git worktree folded onto one branch — default stays serial
 - **Generator-evaluator cycle** — an independent AI reviewer checks each task; if it fails, the generator gets the
   critique and iterates (up to `harness.maxAttempts` tries before the task is flagged `blocked`)
 - **Context persistence** — sprint state, branch, progress history, and per-task context survive across sessions;
@@ -145,17 +149,19 @@ For the full architectural picture see [`.claude/docs/ARCHITECTURE.md`](./.claud
 > [!IMPORTANT]
 > Not all three AI providers are equally production-ready inside ralphctl.
 
-| Provider                                  | Status                                  | Headless flag                                               | Native context file               |
-| ----------------------------------------- | --------------------------------------- | ----------------------------------------------------------- | --------------------------------- |
-| **Claude Code** (`claude-code`)           | **Stable — primary verified provider**  | `--permission-mode bypassPermissions` + per-tool deny list  | `CLAUDE.md` at repo root          |
-| **GitHub Copilot CLI** (`github-copilot`) | Preview — not officially verified by us | `--autopilot --allow-all` + `--max-autopilot-continues=200` | `.github/copilot-instructions.md` |
-| **OpenAI Codex** (`openai-codex`)         | Preview — not officially verified by us | `-s workspace-write` (topology-scoped)                      | `AGENTS.md`                       |
+| Provider                                  | Status                                                                          | Headless flag                                               | Native context file               |
+| ----------------------------------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------------- | --------------------------------- |
+| **Claude Code** (`claude-code`)           | **Stable — primary verified provider**                                          | `--permission-mode bypassPermissions` + per-tool deny list  | `CLAUDE.md` at repo root          |
+| **GitHub Copilot CLI** (`github-copilot`) | Preview — maturing; works well day-to-day, not yet formally verified end-to-end | `--autopilot --allow-all` + `--max-autopilot-continues=200` | `.github/copilot-instructions.md` |
+| **OpenAI Codex** (`openai-codex`)         | Preview — maturing; works well day-to-day, not yet formally verified end-to-end | `-s workspace-write` (topology-scoped)                      | `AGENTS.md`                       |
 
-"Preview" means the integration exists and the TUI lets you select it, but end-to-end harness behaviour against those
-providers has not been formally verified. Copilot and Codex no-op some features (bundled skill injection, `bodyFile`
-forensic artifacts). Codex cannot fine-grained-deny edits on existing repo files — its sandbox modes are binary, so
-path scope (cwd + `--add-dir`) is the only safety envelope. If you hit a rough edge on a preview provider,
-please [open an issue](https://github.com/lukas-grigis/ralphctl/issues).
+"Preview" means the integration is in active use and increasingly solid — recent releases run Copilot and Codex well
+across the everyday flows — but harness behaviour against them hasn't been put through the same formal end-to-end
+verification as Claude Code. A couple of features still no-op on them (bundled skill injection, `bodyFile` forensic
+artifacts), and Codex can't fine-grained-deny edits on existing repo files — its sandbox modes are binary, so path
+scope (cwd + `--add-dir`) is the only safety envelope. Parallel execution is provider-agnostic: it works with whichever
+provider each implement role is configured to use, under the same per-provider caveats. If you hit a rough edge on a
+preview provider, please [open an issue](https://github.com/lukas-grigis/ralphctl/issues).
 
 One-shot configuration for any provider: `ralphctl settings apply-preset <name>` where `<name>` is
 `mixed`, `claude-only`, `copilot-only`, or `codex-only`.
@@ -168,6 +174,8 @@ One-shot configuration for any provider: `ralphctl settings apply-preset <name>`
 - **Catch mistakes before they compound** — independent AI review after each task, iterating until quality passes or
   budget is exhausted
 - **Coordinate across repositories** — one sprint can span multiple repos with automatic dependency tracking
+- **Finish sprints faster (opt-in)** — run independent tasks within a dependency wave in parallel, each in its own git
+  worktree, folded back onto one sprint branch (still one PR); default stays serial, zero change
 - **Branch per sprint** — optional shared branch across every affected repo; `ralphctl create-pr --sprint <id>` opens a
   PR / MR via `gh` or `glab` when you're done
 - **Recover from rate limits** — exponential backoff and session resume keep the in-flight task's full context when the
@@ -221,6 +229,17 @@ ralphctl settings set harness.maxAttempts 2          # Cap fix attempts per task
 ralphctl settings set harness.maxTurns    8          # Generator-evaluator turns per attempt (1–10)
 ralphctl settings set harness.rateLimitRetries 3     # Adapter-side 429 retries (0–10)
 ```
+
+**Run tasks in parallel** (optional — default is serial):
+
+```bash
+ralphctl settings set concurrency.maxParallelTasks 3   # 1–5; 1 = serial (default), >1 = parallel git worktrees
+```
+
+When `> 1`, independent tasks within a dependency wave run concurrently — each in its own git worktree, with its own
+`setupScript` run, folded back onto the single sprint branch (still one PR per sprint). A task whose worktree setup
+fails is blocked on its own without stopping its siblings; if two same-wave tasks edit the same file, the second is
+blocked at fold time and a relaunch retries it. Dependencies are always respected — only independent tasks overlap.
 
 ### Data directory
 

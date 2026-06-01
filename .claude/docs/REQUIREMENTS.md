@@ -1,6 +1,6 @@
 # RalphCTL — Acceptance Criteria
 
-Testable acceptance criteria, current as of v0.8.x. Read on demand — this file is not auto-imported into every
+Testable acceptance criteria, current as of v0.9.x. Read on demand — this file is not auto-imported into every
 Claude session. Source of truth for narrative constraints lives elsewhere; pointers below.
 
 | For…                              | Read…                                  |
@@ -38,10 +38,11 @@ it done; when a behaviour regresses, untick it.
       `<root>/{config,data,state}/…`. Per-sprint directory contains `sprint.json` + `execution.json` +
       `tasks.json` + `progress.md` + per-flow sandbox folders. `events.ndjson` lands here too when
       `RALPHCTL_DEBUG_TRACE=1` (opt-in debug sink, no-op otherwise).
-- [ ] **Cross-process repo lock** — `<stateRoot>/locks/repo-<hash>.lock` (sha1 of the repo worktree path)
-      blocks two ralphctl processes from racing the same working tree. Stale-takeover fires after the locker's fixed 30s
-      threshold
-      (`DEFAULT_STALE_AFTER_MS`, clamped 1ms..1h) — not env-configurable.
+- [ ] **Cross-process repo lock** — `<stateRoot>/locks/repo-<hash>.lock/` (lock directory, sha1 of the sprint dir path)
+      blocks two ralphctl processes from racing the same sprint. Both implement and review key on the sprint dir, so they
+      mutually exclude. A **heartbeat** keeps a live holder's lock perpetually fresh — stale-takeover fires only after a
+      crashed holder's mtime passes `DEFAULT_STALE_AFTER_MS` (30s, clamped 2000ms..1h) — not env-configurable. A
+      compromised lock aborts the in-flight run as an `AbortError`.
 - [ ] **`@public` JSDoc tag whitelist** — `pnpm deadcode` exits 0 on a clean tree; symbols intentionally kept
       after dead-code cleanup are tagged `@public`.
 

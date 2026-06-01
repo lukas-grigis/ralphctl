@@ -13,6 +13,12 @@ Only the latest version is supported — no backporting, no parallel branches.
 The sections below give per-version context for what changed and why, in case
 you're crossing a big jump and want to know what to expect.
 
+## 0.8.x → 0.9.0
+
+Nothing to do on upgrade. Parallel task execution is opt-in — `settings.concurrency.maxParallelTasks`
+defaults to `1` (serial, byte-for-byte unchanged); set it to 2–5 to enable. See
+[CHANGELOG](./CHANGELOG.md#090---2026-06-01).
+
 ## 0.8.0 → 0.8.6
 
 Nothing to do. The 0.8.x point releases only add silent, best-effort settings

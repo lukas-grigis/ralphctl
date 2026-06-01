@@ -7,6 +7,8 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-06-01
+
 ### Added
 
 - **Opt-in parallel task execution via `settings.concurrency.maxParallelTasks` (1–5).** Default `1`
@@ -23,8 +25,7 @@ to [Semantic Versioning](https://semver.org/).
   single topological scheduler — called at parse time in `parse-task-list.ts` (removing the
   private Kahn pass) and at implement-launch time in `launch/implement.ts`. A cycle or
   dangling-dependency reference fails fast before any task runs. Launch order is now
-  dependency-resolved then `in_progress`-first within the resumable set. Tasks still run strictly
-  one at a time (`maxParallelTasks` stays the pre-existing setting, default `1`).
+  dependency-resolved then `in_progress`-first within the resumable set.
 
 - **Up-to-`maxAttempts` per launch via outer `loop`.** `per-task-subchain.ts`
   wraps the full per-attempt segment in a `loop('task-attempts-<id>', …, { maxIterations:
@@ -48,6 +49,31 @@ maxAttempts, shouldStop })` so a single launch runs up to `maxAttempts` rounds p
   `review` so an abort leaves it re-runnable and the ledger un-stamped. New AI prompt flow:
   `distill-learnings`; shared module: `flows/_shared/memory/`; pure classifier:
   `deriveTaskKind` in `business/task/`.
+
+### Fixed
+
+- **Cross-process repo lock no longer goes stale while its holder is alive.** The advisory lock
+  (`file-locker.ts`) is now backed by `proper-lockfile` — a directory lock (atomic `mkdir`,
+  NFS-safe) kept fresh by a background heartbeat. Previously staleness was judged on age since
+  acquisition (30s default) with no heartbeat, so a long-running implement run — which holds the
+  lock for its whole duration — became takeover-eligible while still alive, letting a second
+  `ralphctl` process race the same sprint branch and break the single-PR guarantee. A live holder
+  is now never falsely stolen no matter how long the run lasts; a crashed holder is reclaimed once
+  its mtime passes `staleAfterMs` (which now bounds crash-reclaim latency only). The `FileLocker`
+  port contract is unchanged. Chosen over OS `flock` because ralphctl is cross-platform (no native
+  addon) and may run on NFS.
+
+- **A repo lock lost mid-run now aborts the in-flight run.** `withLock` hands its callback an
+  `AbortSignal` that fires when the held lock is compromised (heartbeat could not refresh / a
+  takeover occurred); the serial and parallel implement paths merge it with the host abort signal
+  (`combineAbortSignals`), so a compromised lock tears the chain down as an `AbortError` instead of
+  continuing to mutate a branch another process may now own.
+
+- **The `review` flow now holds the repo lock.** Review commits to the sprint branch and runs
+  verify, but previously ran with no cross-process lock. Its chain is now wrapped in `withRepoLock`
+  keyed on the sprint directory — the same key the implement flow uses — so an implement run and a
+  review run of one sprint mutually exclude. `withRepoLock` is now a ctx-generic helper shared by
+  both flows (`flows/_shared/`).
 
 ## [0.8.6] - 2026-05-29
 

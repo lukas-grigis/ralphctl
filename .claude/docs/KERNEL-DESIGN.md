@@ -108,8 +108,12 @@ Semantics:
   elements get `skipped`.
 - Emits one trace entry per child element. Composites never report a self-entry.
 
-The implement chain uses a `sequential` of bridge leaves to iterate per-task subchains in topological order;
-there is no concurrent fan-out primitive (concurrent fan-out within a dependency level is deferred).
+The implement chain uses a `sequential` of bridge leaves to iterate per-task subchains in topological order
+(serial path, `maxParallelTasks === 1`). Concurrent fan-out within a dependency level ships in 0.9.0 via the
+**above-the-chain** orchestrator `runWaves` (`src/application/chain/run/wave-scheduler.ts`), which sequences
+whole sub-chains above the primitives — deliberately not a sixth primitive. The five-primitive set
+(`element` / `leaf` / `sequential` / `loop` / `guard`) is unchanged; `runWaves` never implements `Element`
+and must never be composed into a `sequential` / `loop` / `guard`.
 
 ## loop — generator-evaluator primitive
 
@@ -298,8 +302,10 @@ const perTask = sequential('task-<id>', [
 // resumed sprint picks up the prior aborted task before any fresh work.
 const orderedTasks = [...tasks].sort((a, b) => (a.status === b.status ? 0 : a.status === 'in_progress' ? -1 : 1));
 
-// The whole run is wrapped in `withRepoLock(...)` keyed on the sprint dir — one implement
-// run at a time per sprint (it owns sprint-scoped state: tasks.json, progress.md, execution.json).
+// The whole run is wrapped in `withRepoLock(...)` (src/application/flows/_shared/with-repo-lock.ts),
+// a ctx-generic helper keyed on the sprint dir — shared by both implement (serial path) and review,
+// so an implement run and a review run of the same sprint mutually exclude. The parallel implement
+// path holds the same lock key directly in parallel-element.ts (spanning prologue + waves + epilogue).
 sequential('implement', [
   withRepoLock(
     {
