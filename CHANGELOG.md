@@ -25,8 +25,7 @@ to [Semantic Versioning](https://semver.org/).
   single topological scheduler — called at parse time in `parse-task-list.ts` (removing the
   private Kahn pass) and at implement-launch time in `launch/implement.ts`. A cycle or
   dangling-dependency reference fails fast before any task runs. Launch order is now
-  dependency-resolved then `in_progress`-first within the resumable set. Tasks still run strictly
-  one at a time (`maxParallelTasks` stays the pre-existing setting, default `1`).
+  dependency-resolved then `in_progress`-first within the resumable set.
 
 - **Up-to-`maxAttempts` per launch via outer `loop`.** `per-task-subchain.ts`
   wraps the full per-attempt segment in a `loop('task-attempts-<id>', …, { maxIterations:

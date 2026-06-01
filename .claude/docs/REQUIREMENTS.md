@@ -1,6 +1,6 @@
 # RalphCTL — Acceptance Criteria
 
-Testable acceptance criteria, current as of v0.8.x. Read on demand — this file is not auto-imported into every
+Testable acceptance criteria, current as of v0.9.x. Read on demand — this file is not auto-imported into every
 Claude session. Source of truth for narrative constraints lives elsewhere; pointers below.
 
 | For…                              | Read…                                  |

@@ -108,8 +108,12 @@ Semantics:
   elements get `skipped`.
 - Emits one trace entry per child element. Composites never report a self-entry.
 
-The implement chain uses a `sequential` of bridge leaves to iterate per-task subchains in topological order;
-there is no concurrent fan-out primitive (concurrent fan-out within a dependency level is deferred).
+The implement chain uses a `sequential` of bridge leaves to iterate per-task subchains in topological order
+(serial path, `maxParallelTasks === 1`). Concurrent fan-out within a dependency level ships in 0.9.0 via the
+**above-the-chain** orchestrator `runWaves` (`src/application/chain/run/wave-scheduler.ts`), which sequences
+whole sub-chains above the primitives — deliberately not a sixth primitive. The five-primitive set
+(`element` / `leaf` / `sequential` / `loop` / `guard`) is unchanged; `runWaves` never implements `Element`
+and must never be composed into a `sequential` / `loop` / `guard`.
 
 ## loop — generator-evaluator primitive
 
