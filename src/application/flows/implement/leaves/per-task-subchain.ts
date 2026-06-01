@@ -214,6 +214,7 @@ export const createPerTaskSubchain = (
                 cwd: repo.path,
                 sprintDir: opts.sprintDir,
                 ...(repo.verifyScript !== undefined ? { verifyScript: repo.verifyScript } : {}),
+                ...(repo.verifyTimeout !== undefined ? { timeoutMs: repo.verifyTimeout } : {}),
               },
               taskId
             ),
@@ -272,6 +273,7 @@ export const createPerTaskSubchain = (
                 cwd: repo.path,
                 sprintDir: opts.sprintDir,
                 ...(repo.verifyScript !== undefined ? { verifyScript: repo.verifyScript } : {}),
+                ...(repo.verifyTimeout !== undefined ? { timeoutMs: repo.verifyTimeout } : {}),
               },
               taskId
             ),

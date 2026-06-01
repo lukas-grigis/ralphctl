@@ -201,6 +201,7 @@ const scriptedChoicePrompt = <T>(answer: Result<T, StorageError | AbortError>): 
 
 interface FixtureOpts {
   readonly verifyScript?: string;
+  readonly timeoutMs?: number;
   readonly env?: PreTaskVerifyEnvironment;
   readonly interactive?: InteractivePrompt;
   readonly execution?: SprintExecution;
@@ -239,11 +240,49 @@ const fixture = (runner: ShellScriptRunner, opts: FixtureOpts = {}): Fixture => 
       logger: noopLogger,
       environment: opts.env ?? TTY_ENV,
     },
-    { cwd: CWD, ...(opts.verifyScript !== undefined ? { verifyScript: opts.verifyScript } : {}) },
+    {
+      cwd: CWD,
+      ...(opts.verifyScript !== undefined ? { verifyScript: opts.verifyScript } : {}),
+      ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+    },
     task.id
   );
   return { ctx, leaf, repo, execRepo };
 };
+
+// Captures the opts handed to the shell runner so we can assert the verify timeout is threaded.
+const capturingShellRunner = (
+  result: { passed: boolean; exitCode: number | null; output: string },
+  sink: { opts?: { timeoutMs?: number } }
+): ShellScriptRunner => ({
+  async run(_cwd, _script, runOpts) {
+    sink.opts = runOpts;
+    return Result.ok({ ...result, durationMs: 0 });
+  },
+});
+
+describe('preTaskVerifyLeaf — verifyTimeout plumbing', () => {
+  // Regression: Repository.verifyTimeout was dropped between the entity and the chain, so a
+  // user-set timeout silently had no effect and a hung verify burned the full 5-min default on
+  // BOTH the pre- and post-task call. The leaf must forward its `timeoutMs` opt to the runner.
+  it('threads the configured verifyTimeout to the shell runner as timeoutMs', async () => {
+    const sink: { opts?: { timeoutMs?: number } } = {};
+    const runner = capturingShellRunner({ passed: true, exitCode: 0, output: 'ok' }, sink);
+    const { ctx, leaf } = fixture(runner, { verifyScript: 'pnpm test', timeoutMs: 90_000 });
+    const res = await leaf.execute(ctx);
+    expect(res.ok).toBe(true);
+    expect(sink.opts?.timeoutMs).toBe(90_000);
+  });
+
+  it('omits timeoutMs when no verifyTimeout is configured (runner falls back to its default)', async () => {
+    const sink: { opts?: { timeoutMs?: number } } = {};
+    const runner = capturingShellRunner({ passed: true, exitCode: 0, output: 'ok' }, sink);
+    const { ctx, leaf } = fixture(runner, { verifyScript: 'pnpm test' });
+    const res = await leaf.execute(ctx);
+    expect(res.ok).toBe(true);
+    expect(sink.opts?.timeoutMs).toBeUndefined();
+  });
+});
 
 describe('preTaskVerifyLeaf — happy / spawn-error paths', () => {
   it('skipped row when no verifyScript configured — no prompt, lastPreVerifyOutcome="skipped"', async () => {

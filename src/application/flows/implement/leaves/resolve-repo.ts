@@ -17,6 +17,14 @@ export interface RepoExecConfig {
    */
   readonly name: string;
   readonly verifyScript?: string;
+  /**
+   * Per-spawn wall-clock cap (ms) for the verify script, from `Repository.verifyTimeout`. Threaded
+   * into both the pre- and post-task verify leaves as `timeoutMs`. When absent the shell runner
+   * falls back to `DEFAULT_SHELL_TIMEOUT_MS` (5 min). Previously this field was dropped between the
+   * Repository entity and the chain, so a user-configured verify timeout silently had no effect and
+   * a hung verify burned the full 5 min on BOTH the pre- and post-task call.
+   */
+  readonly verifyTimeout?: number;
   readonly setupScript?: string;
 }
 
