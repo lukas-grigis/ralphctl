@@ -377,7 +377,7 @@ of the stack — the leaf or use-case wrapping them catches and converts to `Res
 │           └── review/                ← apply-feedback per-round forensics
 └── state/
     └── locks/
-        └── repo-<worktree-hash>.lock ← cross-process advisory lock (one per working tree, keyed by sha1 of the absolute repo path)
+        └── repo-<worktree-hash>.lock/ ← cross-process advisory lock directory (one per sprint, keyed by sha1 of the sprint dir path — implement and review share the same key)
 ```
 
 Path resolution lives in `src/application/bootstrap/storage-paths.ts` (`resolveStoragePaths`,

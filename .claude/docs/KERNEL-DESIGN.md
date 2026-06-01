@@ -302,8 +302,10 @@ const perTask = sequential('task-<id>', [
 // resumed sprint picks up the prior aborted task before any fresh work.
 const orderedTasks = [...tasks].sort((a, b) => (a.status === b.status ? 0 : a.status === 'in_progress' ? -1 : 1));
 
-// The whole run is wrapped in `withRepoLock(...)` keyed on the sprint dir — one implement
-// run at a time per sprint (it owns sprint-scoped state: tasks.json, progress.md, execution.json).
+// The whole run is wrapped in `withRepoLock(...)` (src/application/flows/_shared/with-repo-lock.ts),
+// a ctx-generic helper keyed on the sprint dir — shared by both implement (serial path) and review,
+// so an implement run and a review run of the same sprint mutually exclude. The parallel implement
+// path holds the same lock key directly in parallel-element.ts (spanning prologue + waves + epilogue).
 sequential('implement', [
   withRepoLock(
     {

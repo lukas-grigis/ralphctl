@@ -263,6 +263,32 @@ leaves whose `name` contains an absolute repo path).
 
 ---
 
+## Scenario 13 — cross-process advisory lock
+
+**Setup:** a sprint with at least one task remaining (`todo`). Two separate terminal tabs.
+
+1. In terminal A, start the **Implement** flow on the sprint — let it reach the first AI session (so the
+   lock is held and the heartbeat is running)
+2. Within ~5 seconds (before any crash-reclaim threshold), start the **same** Implement flow on the
+   **same sprint** in terminal B
+3. **Expected:** terminal B immediately shows a warn banner — "Repository lock held by another process —
+   could not acquire after retries" — and the chain halts. Terminal A continues running normally.
+4. Kill terminal A's process (`Ctrl+C`)
+5. Wait ~30 seconds for the default crash-reclaim window (`DEFAULT_STALE_AFTER_MS`) to elapse — the
+   heartbeat stops, the lock directory goes stale
+6. Re-start the Implement flow in terminal B
+7. **Expected:** terminal B acquires the lock and resumes normally (the previously `in_progress` task
+   resets to `todo` and re-enters the queue)
+
+**Negative tests:**
+
+- Do NOT manually delete the `<stateRoot>/locks/repo-<hash>.lock/` directory while a holder is alive —
+  the compromised-lock path should trigger an `AbortError` tear-down, not a silent hang.
+- Verify no double-execution: tasks completed in terminal A before the kill must remain `done` after
+  terminal B resumes.
+
+---
+
 ## Known issues (file under here, link the fix commit)
 
 - (none currently)
@@ -277,8 +303,10 @@ can't reach. Things still NOT covered:
 - Real provider integration: every Claude / Copilot / Codex provider test uses a fake `spawn`. JSON-shape
   drift will surface here first.
 - File-system corner cases (NFS / SMB mounts, case-insensitive FS).
-- Concurrency under load — the implement flow runs strictly sequential, but cross-process locks (the
-  `<stateRoot>/locks/repo-<hash>.lock` file) are best tested with two real ralphctl processes.
+- Concurrency under load — the implement flow runs strictly sequential (or parallel when
+  `maxParallelTasks > 1`), but cross-process lock contention (the `<stateRoot>/locks/repo-<hash>.lock/`
+  directory) and the heartbeat crash-reclaim path are best tested with two real ralphctl processes
+  (see Scenario 13).
 
 If you find a class of bug that recurs, add a scenario for it here rather than fixing it once and waiting
 for the next regression.
