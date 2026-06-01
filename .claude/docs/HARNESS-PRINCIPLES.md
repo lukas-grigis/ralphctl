@@ -109,7 +109,7 @@ contracts define testable success up-front."_
 - Blocked transition: `src/application/flows/implement/leaves/` (settle-attempt leaf)
 - Task status enum includes `blocked`: `src/domain/entity/task.ts`
 - **Outer attempt loop.** `per-task-subchain.ts` wraps the full per-attempt segment in a
-  `loop('task-attempts-<id>', …, { maxIterations: maxAttempts, shouldStop: terminal })` so a single
+  `loop('task-attempts-<id>', …, { maxIterations: task.maxAttempts, shouldStop })` so a single
   launch can run up to `maxAttempts` rounds per task. Escalation fires within this outer loop
   (at most once per task), then a second plateau blocks. `maxAttempts === 1` is byte-for-byte
   the prior one-attempt-per-launch behaviour.
@@ -267,6 +267,12 @@ harness when new model releases; strip non-load-bearing pieces."_
 
 - Cross-phase skill: `src/integration/ai/skills/bundled/ralphctl-minimal-scaffolding/SKILL.md` (bundled skill)
 - No audit cadence yet — nothing enforces a per-model-release walk of this doc.
+
+**Note — parallelism as above-the-chain orchestration.** The `maxParallelTasks > 1` parallel
+execution was deliberately implemented as `runWaves` — an async orchestrator that sits
+**above** the five chain primitives, not as a sixth primitive (`forEachItem` / `parallel`). The
+five-primitive rule (`element` / `leaf` / `sequential` / `loop` / `guard`) is unchanged.
+`runWaves` never implements `Element` and must never be composed into a `sequential`/`loop`/`guard`.
 
 **Next step.** The `ralphctl-minimal-scaffolding` skill captures the principle; what's missing is a ritual.
 Add a checklist block to the "How to use this doc" section (below) and gate it on a team process (e.g.

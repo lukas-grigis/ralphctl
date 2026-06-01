@@ -259,6 +259,15 @@ Four leaves directly unit-tested in `src/application/chains/leaves/`:
 - The snapshot-existing-tasks leaf dynamically imports `storage-paths.ts` and reads `RALPHCTL_ROOT` at call time;
   the snapshot is best-effort (silently skipped when the file doesn't exist), so no env-var setup is needed.
 
+### Parallel implement real-git e2e test (2026-05-30)
+
+`tests/e2e/flows/implement-parallel-realgit.test.ts` — proves parallel path against a REAL git repo.
+**Real bug found (since FIXED via `gitDeleteBranch`; assertion now green):** `gitWorktreeRemove --force`
+left the `wt-*` branch refs behind — see [[project_parallel_worktree_branch_leak_bug]].
+Happy-path assertions that DID pass: runner `completed`, all 3 tasks `done`, sprint `review`,
+4 commits on sprint branch (wave order A/B before C), worktree DIRECTORIES cleaned up.
+Provider pattern: `session.cwd` is the worktree path in the parallel path — write real files there.
+
 ### Sprint-selection redesign tests (2026-05-22)
 
 New test files under `tests/integration/application/ui/tui/views/` and `tests/unit/`:

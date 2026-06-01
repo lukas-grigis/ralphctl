@@ -272,8 +272,13 @@ export const SettingsSchema = z.object({
     level: LogLevelSchema,
   }),
   concurrency: z.object({
-    /** Max tasks running in parallel within one sprint. `1` = strict serial execution. */
-    maxParallelTasks: z.number().int().min(1),
+    /**
+     * Max tasks running in parallel within one sprint. `1` = strict serial execution.
+     * Capped at `5`: above that, contention on the shared sprint branch's fold queue and on
+     * the AI providers' rate limits dominates, and worktree churn outweighs the throughput
+     * gain. The wave scheduler re-clamps to this same ceiling defensively.
+     */
+    maxParallelTasks: z.number().int().min(1).max(5),
   }),
   ui: z
     .object({

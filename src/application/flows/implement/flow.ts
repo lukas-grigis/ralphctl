@@ -1,5 +1,6 @@
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { Task } from '@src/domain/entity/task.ts';
+import { scheduleIntoWaves } from '@src/domain/entity/task-graph.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Element } from '@src/application/chain/element.ts';
@@ -130,6 +131,13 @@ export interface CreateImplementFlowOpts {
  *     ),
  *   ])
  *
+ * The prologue leaves (`load-and-assert-sprint` … `preflight-tasks`) and epilogue leaves
+ * (`save-tasks`, the review-transition guard) are sourced from {@link buildImplementPrologue} /
+ * {@link buildImplementEpilogue} — the SAME leaf instances the parallel launcher consumes via
+ * {@link planImplementWaves}, spliced INLINE here (not nested) so the serial `implement-locked`
+ * shape is byte-for-byte unchanged. The `implement-prologue` / `implement-epilogue` wrapper names
+ * exist only in the parallel plan, never in this serial tree.
+ *
  * See `per-task-subchain.ts` for the per-task body and `gen-eval-loop.ts` for the inner
  * generator-evaluator loop.
  *
@@ -183,52 +191,26 @@ export interface CreateImplementFlowOpts {
  *   launch ended before the cap because the operator aborted) is still picked up by re-running
  *   the chain.
  */
-export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFlowOpts): Element<ImplementCtx> => {
-  // Promise-shaped accessor read by `finalize-gen-eval` and the gen-eval loop's
-  // `shouldContinue` predicate. Re-resolved per call so a mid-run config edit (lower maxTurns,
-  // toggle escalation) takes effect on the next iteration rather than requiring a restart.
-  const readConfig = (): Promise<{
-    readonly maxTurns: number;
-    readonly escalateOnPlateau: boolean;
-    readonly escalationMap: Readonly<Record<string, string>>;
-  }> =>
-    Promise.resolve({
-      maxTurns: deps.config.harness.maxTurns,
-      escalateOnPlateau: deps.config.harness.escalateOnPlateau,
-      escalationMap: deps.config.harness.escalationMap,
-    });
-
+/**
+ * Build the prologue segment — everything from `load-and-assert-sprint` through `preflight-tasks`,
+ * the once-per-run setup that runs BEFORE any task executes:
+ *
+ *   load-and-assert-sprint → activate → load-execution → load-tasks → resolve-branch →
+ *   working-tree-clean-checks → progress-journal-activate → setup-script-runner → preflight-tasks
+ *
+ * Returned as `sequential('implement-prologue', [...])` so the parallel launcher can run it
+ * once on a dedicated runner under the held lock before fanning the task waves out. The serial
+ * `createImplementFlow` does NOT nest this wrapper — it splices the same leaf instances inline
+ * (via `.children`) so the serial observable chain shape stays byte-for-byte unchanged.
+ *
+ * @public
+ */
+export const buildImplementPrologue = (deps: ImplementDeps, opts: CreateImplementFlowOpts): Element<ImplementCtx> => {
   // Per-repo derived shapes — unique cwds drive `resolve-branch`, the clean-check fan-out, and
   // the per-repo preflight; the setup-script entries are repo + setupScript pairs scoped to the
   // tasks the sprint actually runs. See `sprint-repo-plan.ts` for the rationale.
   const uniqueRepoCwds = uniqueRepoCwdsForTasks(opts.repositories, opts.todoTasks);
   const setupRepoEntries = setupRepoEntriesForTasks(opts.repositories, opts.todoTasks);
-
-  const perTaskChains = opts.todoTasks.map((task) =>
-    createPerTaskSubchain(
-      deps,
-      {
-        sprintDir: opts.sprintDir,
-        progressFile: opts.progressFile,
-        terminalLeafName: IMPLEMENT_TASK_TERMINAL_LEAF,
-        generator: {
-          providerId: opts.generatorProviderId,
-          model: opts.generatorModel,
-          ...(opts.generatorEffort !== undefined ? { effort: opts.generatorEffort } : {}),
-        },
-        evaluator: {
-          providerId: opts.evaluatorProviderId,
-          model: opts.evaluatorModel,
-          ...(opts.evaluatorEffort !== undefined ? { effort: opts.evaluatorEffort } : {}),
-        },
-        memoryRoot: opts.memoryRoot,
-        projectId: opts.projectId,
-      },
-      task,
-      resolveRepoOrThrow(opts.repositories, task),
-      readConfig
-    )
-  );
 
   // Default to 'prompt' so the interactive recovery menu (Keep / Stash / Reset / Cancel) fires;
   // the business-layer default stays 'cancel' for non-interactive callers in isolation.
@@ -248,7 +230,7 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
     uniqueRepoCwds
   );
 
-  const inner = sequential<ImplementCtx>('implement-locked', [
+  return sequential<ImplementCtx>('implement-prologue', [
     loadAndAssertSprintSubChain<ImplementCtx>({ sprintRepo: deps.sprintRepo }, ['planned', 'active']),
     activateSprintLeaf({ sprintRepo: deps.sprintRepo, clock: deps.clock, logger: deps.logger }),
     loadSprintExecutionLeaf<ImplementCtx>({ sprintExecutionRepo: deps.sprintExecutionRepo }),
@@ -281,7 +263,25 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
       { repos: setupRepoEntries, sprintDir: opts.sprintDir }
     ),
     sequential<ImplementCtx>('preflight-tasks', preflightLeaves),
-    sequential<ImplementCtx>('implement-tasks', perTaskChains),
+  ]);
+};
+
+/**
+ * Build the epilogue segment — the once-per-run teardown that runs AFTER every task has settled:
+ *
+ *   save-tasks → transition-sprint-to-review(when any task done)
+ *
+ * Returned as `sequential('implement-epilogue', [...])` so the parallel launcher can run it
+ * once on a dedicated runner under the held lock — including on the abort/fatal path, where the
+ * `save-tasks` leaf must still persist the partially-merged ctx so folded commits are durably
+ * recorded. The serial `createImplementFlow` does NOT nest this wrapper — it splices the same leaf
+ * instances inline (via `.children`) so the serial observable chain shape stays byte-for-byte
+ * unchanged.
+ *
+ * @public
+ */
+export const buildImplementEpilogue = (deps: ImplementDeps, opts: CreateImplementFlowOpts): Element<ImplementCtx> =>
+  sequential<ImplementCtx>('implement-epilogue', [
     saveTasksLeaf<ImplementCtx>({ taskRepo: deps.taskRepo }),
     // Only transition to review when at least one task actually settled `done`. If every task
     // got blocked (e.g. pre-existing build failure, repeated self-block), the sprint has
@@ -299,6 +299,128 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
         ),
       ])
     ),
+  ]);
+
+/**
+ * The decomposed implement run — prologue / per-task waves / epilogue as separate elements plus
+ * the sprint-wide lock key. Produced by {@link planImplementWaves}; consumed by the parallel
+ * launcher to run the prologue, then `runWaves` over the per-task waves, then the epilogue,
+ * all under ONE held `fileLocker.withLock(lockKey)`.
+ *
+ * The serial `createImplementFlow` keeps its own internal `withRepoLock`-wrapped chain — the
+ * serial `===1` path keeps the lock inside the flow. This plan exists purely so the `>1`
+ * parallel path can be wired without re-deriving the segments.
+ *
+ * @public
+ */
+export interface ImplementWavePlan {
+  /**
+   * `sequential('implement-prologue', [...])` — the once-per-run setup (load → setup → preflight).
+   * Run once on its own runner before the waves.
+   */
+  readonly prologue: Element<ImplementCtx>;
+  /**
+   * Dependency layers from `scheduleIntoWaves(opts.todoTasks)` — each inner array is a set of
+   * tasks with no intra-wave dependency, safe to run concurrently. The parallel path forks one
+   * branch per task in a wave and hands the wave to `runWaves`. Waves are strictly ordered: every dependency of a
+   * task in wave `k` was scheduled in some wave `< k`.
+   */
+  readonly waves: ReadonlyArray<readonly Task[]>;
+  /**
+   * `sequential('implement-epilogue', [...])` — the once-per-run teardown (save → transition).
+   * Run once on its own runner after the waves (including on the abort/fatal path, so folded
+   * commits are durably persisted).
+   */
+  readonly epilogue: Element<ImplementCtx>;
+  /**
+   * Sprint-wide lock key — the sprint dir. The parallel launcher hoists ONE held lock on this
+   * key across prologue + waves + epilogue — the lock is hoisted for the `>1` path. Mirrors
+   * the `worktreePath` the serial path's internal `withRepoLock` uses.
+   */
+  readonly lockKey: AbsolutePath;
+}
+
+/**
+ * Decompose an implement run into its reusable segments for the parallel launcher.
+ *
+ * Returns the extracted {@link buildImplementPrologue} / {@link buildImplementEpilogue} segments,
+ * the dependency-scheduled task waves (`scheduleIntoWaves(opts.todoTasks)`), and the sprint-wide
+ * lock key. Lands NO parallel behaviour itself — it only computes the plan; the parallel launcher
+ * is the consumer that runs the prologue, fans the waves out via `runWaves`, and runs the epilogue under one held
+ * lock.
+ *
+ * On an unschedulable task set (cycle / self-edge / dangling dependency) the wave schedule fails.
+ * `launchImplement` already validates + schedules the full task set upfront (see
+ * `resolveImplementQueue`), so by the time the launcher builds a plan from the resumable queue the
+ * graph is known sound; the `Result.ok` branch is therefore the expected path. A `TaskGraphIssue`
+ * is propagated as an empty wave list so a mis-sequenced caller fails closed (no tasks scheduled)
+ * rather than throwing at construction time.
+ *
+ * @public
+ */
+export const planImplementWaves = (deps: ImplementDeps, opts: CreateImplementFlowOpts): ImplementWavePlan => {
+  const schedule = scheduleIntoWaves(opts.todoTasks);
+  return {
+    prologue: buildImplementPrologue(deps, opts),
+    waves: schedule.ok ? schedule.value : [],
+    epilogue: buildImplementEpilogue(deps, opts),
+    lockKey: opts.sprintDir,
+  };
+};
+
+export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFlowOpts): Element<ImplementCtx> => {
+  // Promise-shaped accessor read by `finalize-gen-eval` and the gen-eval loop's
+  // `shouldContinue` predicate. Re-resolved per call so a mid-run config edit (lower maxTurns,
+  // toggle escalation) takes effect on the next iteration rather than requiring a restart.
+  const readConfig = (): Promise<{
+    readonly maxTurns: number;
+    readonly escalateOnPlateau: boolean;
+    readonly escalationMap: Readonly<Record<string, string>>;
+  }> =>
+    Promise.resolve({
+      maxTurns: deps.config.harness.maxTurns,
+      escalateOnPlateau: deps.config.harness.escalateOnPlateau,
+      escalationMap: deps.config.harness.escalationMap,
+    });
+
+  const perTaskChains = opts.todoTasks.map((task) =>
+    createPerTaskSubchain(
+      deps,
+      {
+        sprintDir: opts.sprintDir,
+        progressFile: opts.progressFile,
+        terminalLeafName: IMPLEMENT_TASK_TERMINAL_LEAF,
+        generator: {
+          providerId: opts.generatorProviderId,
+          model: opts.generatorModel,
+          ...(opts.generatorEffort !== undefined ? { effort: opts.generatorEffort } : {}),
+        },
+        evaluator: {
+          providerId: opts.evaluatorProviderId,
+          model: opts.evaluatorModel,
+          ...(opts.evaluatorEffort !== undefined ? { effort: opts.evaluatorEffort } : {}),
+        },
+        memoryRoot: opts.memoryRoot,
+        projectId: opts.projectId,
+      },
+      task,
+      resolveRepoOrThrow(opts.repositories, task),
+      readConfig
+    )
+  );
+
+  // Serial path: the lock stays inside the flow — the `implement-locked` body is the SAME flat list of leaf instances it
+  // has always been — the prologue/epilogue segment builders supply those instances via `.children`
+  // (spliced inline, not nested), so the serial observable chain shape stays byte-for-byte
+  // unchanged. The `implement-prologue` / `implement-epilogue` wrapper names exist ONLY in the
+  // segments the parallel launcher consumes via `planImplementWaves`; they never appear in this serial tree.
+  const prologueLeaves = buildImplementPrologue(deps, opts).children ?? [];
+  const epilogueLeaves = buildImplementEpilogue(deps, opts).children ?? [];
+
+  const inner = sequential<ImplementCtx>('implement-locked', [
+    ...prologueLeaves,
+    sequential<ImplementCtx>('implement-tasks', perTaskChains),
+    ...epilogueLeaves,
   ]);
 
   // Lock key: the sprint dir. One implement run at a time per sprint — across all repos the

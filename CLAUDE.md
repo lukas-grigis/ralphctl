@@ -322,7 +322,7 @@ when CLI vendors tweak JSON shape.
 
 ## Performance & Limits
 
-**Implement runs tasks one at a time in dependency order.** `Task.order` (set as `i + 1` at parse
+**Implement runs tasks in dependency order; parallel execution is opt-in.** `Task.order` (set as `i + 1` at parse
 time by `parseTaskList` in `src/integration/ai/prompts/_engine/parse-task-list.ts`) is the
 intra-level tiebreak; `Task.dependsOn` carries the dependency edges (the planner emits them as
 `blockedBy` in the wire format and `parseTaskList` resolves them onto `dependsOn`). Graph validity —
@@ -331,13 +331,28 @@ and enforced at **both** boundaries: `parseTaskList` calls `scheduleIntoWaves` (
 dependency level, `Task.order` ASC within each level) and rejects the task list on a bad graph, and
 `resolveImplementQueue` (`src/application/ui/shared/launch/implement.ts`) re-runs `scheduleIntoWaves`
 at launch so a cyclic / dangling sprint fails fast with the rendered `TaskGraphIssue` rather than
-silently surfacing as an empty "No tasks to implement" queue. The scheduled levels are then
-**flattened into one serial queue** — tasks execute strictly one at a time, with each dependency
-guaranteed to lead the tasks that rely on it. Launch then applies a status-only stable override:
-`in_progress` tasks first (so a resumed sprint picks up the previously aborted task before any fresh
-work), then `todo`; V8's stable sort preserves dependency order within each status group.
-`settings.concurrency.maxParallelTasks` remains the pre-existing setting (default `1`, still no concurrent
-execution as of 0.8.x) — concurrent fan-out within a dependency level needs a new chain primitive (deferred).
+silently surfacing as an empty "No tasks to implement" queue. When `settings.concurrency.maxParallelTasks === 1`
+(the default), the scheduled levels flatten into one serial queue — byte-for-byte the prior behaviour.
+When `maxParallelTasks > 1` (range 1–5, Zod-clamped), the above-the-chain orchestrator `runWaves`
+(`src/application/chain/run/wave-scheduler.ts`) runs each dependency wave's tasks concurrently up to
+that cap; waves stay strictly sequential (wave k+1 starts only after every branch of wave k settled and
+merged). Each task runs in its own isolated git worktree at `<sprintDir>/worktrees/wt-<taskId>`,
+forked from the sprint-branch tip; the repo's `setupScript` runs inside each fresh worktree (a
+worktree has none of the main repo's build artefacts). A setup failure blocks only that task — it
+never hard-aborts the wave. Each worktree's commit is folded onto the single shared sprint branch
+(`git merge --ff-only`, else `cherry-pick`) through one serialised in-process fold queue, so a
+multi-task parallel sprint lands as one PR. When two same-wave tasks touch the same file the first
+folds cleanly; the second's cherry-pick conflicts → that task transitions to `blocked` (`cherry-pick
+--abort`, siblings stay `done`); a relaunch re-forks from the advanced tip and usually succeeds.
+Waves partition on dependency edges, not file overlap — conflict is resolved at fold time, not
+scheduling time. The sprint lock (`repoLockFile(locksRoot, sprintDir)`) spans prologue + waves +
+epilogue using the same lock key as the serial path, so a serial and a parallel run of the same
+sprint mutually exclude. Commits durably folded before an abort are preserved by the epilogue and
+never re-executed on relaunch. Concurrent appends to `progress.md` and the learnings ledger are
+serialised through one in-process mutex (no torn lines under fan-out). Launch then applies a
+status-only stable override: `in_progress` tasks first (so a resumed sprint picks up the previously
+aborted task before any fresh work), then `todo`; V8's stable sort preserves dependency order within
+each status group.
 
 **Rate-limit retry is adapter-side.** The headless provider wrapper at
 `src/integration/ai/providers/_engine/rate-limit-backoff.ts` sleeps with exponential delay between 429

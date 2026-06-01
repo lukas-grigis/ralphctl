@@ -294,6 +294,189 @@ export const gitCreateAndCheckoutBranch = async (
   return Result.ok(undefined);
 };
 
+// `git worktree add` can be slow: it materialises a full checkout (and may need to populate the
+// index from a large tree). The default 30s runner ceiling is comfortable for status / commit /
+// rev-parse but tight for a fresh worktree on a big repo, so add gets a roomier budget. The other
+// worktree verbs (remove / prune / fold) are bounded by index work, not a full checkout, and keep
+// the runner default.
+const WORKTREE_ADD_TIMEOUT_MS = 120_000;
+
+/**
+ * Canonical worktree branch ref for one parallel task: `ralphctl/<sprintId>/wt-<taskId>`.
+ *
+ * One nesting level below the shared sprint branch (`ralphctl/<sprintId>`) so the whole sprint's
+ * worktree refs share a prefix and prune cleanly. Pure — no validation here; sprint / task ids are
+ * UUID-shaped upstream, so the result is always a valid git ref name.
+ */
+export const gitWorktreeRef = (sprintId: string, taskId: string): string => `ralphctl/${sprintId}/wt-${taskId}`;
+
+/**
+ * Create a new worktree at `worktreePath` checked out on a freshly-created branch `branchName`,
+ * forked from the current `HEAD` of `repoRoot` (the shared sprint branch). `git worktree add -b
+ * <branch> <path>` — the `-b` form fails loudly if the branch already exists, which is the
+ * behaviour we want: a stale ref from a crashed prior run must be pruned first, never silently
+ * reused.
+ *
+ * Roomier timeout than the runner default — a fresh checkout can outlast 30s on a large repo.
+ */
+export const gitWorktreeAdd = async (
+  runner: GitRunner,
+  repoRoot: AbsolutePath,
+  worktreePath: AbsolutePath,
+  branchName: string
+): Promise<Result<void, StorageError>> => {
+  const result = await runner.run(repoRoot, ['worktree', 'add', '-b', branchName, String(worktreePath)], {
+    timeoutMs: WORKTREE_ADD_TIMEOUT_MS,
+  });
+  if (!result.ok) return Result.error(result.error);
+  if (result.value.exitCode !== 0) {
+    return Result.error(
+      new StorageError({
+        subCode: 'io',
+        message: `git worktree add failed: ${(result.value.stderr || result.value.stdout).trim()}`,
+      })
+    );
+  }
+  return Result.ok(undefined);
+};
+
+/**
+ * Remove the worktree rooted at `worktreePath` with `--force` — drops the checkout even when the
+ * worktree has uncommitted or untracked changes. Used on every exit path (success, abort, fatal)
+ * so a dead worktree never strands the sprint repo. `--force` is deliberate: the worktree's
+ * commits have already been folded onto the sprint branch by the time we remove it, so anything
+ * left in the working tree is scratch.
+ */
+export const gitWorktreeRemove = async (
+  runner: GitRunner,
+  repoRoot: AbsolutePath,
+  worktreePath: AbsolutePath
+): Promise<Result<void, StorageError>> => {
+  const result = await runner.run(repoRoot, ['worktree', 'remove', '--force', String(worktreePath)]);
+  if (!result.ok) return Result.error(result.error);
+  if (result.value.exitCode !== 0) {
+    return Result.error(
+      new StorageError({
+        subCode: 'io',
+        message: `git worktree remove failed: ${(result.value.stderr || result.value.stdout).trim()}`,
+      })
+    );
+  }
+  return Result.ok(undefined);
+};
+
+/**
+ * Force-delete a local branch ref (`git branch -D <name>`). Used to drop the throwaway
+ * `ralphctl/<sprint>/wt-<task>` ref a worktree was created on: `git worktree remove` deletes the
+ * worktree directory and its `.git/worktrees/<name>` record but LEAVES the branch behind, so a
+ * later `worktree add -b <same-ref>` (e.g. on relaunch after an aborted task) would otherwise fail
+ * with "branch already exists". `gitWorktreePrune` does not cover this — it only touches worktree
+ * records, not orphaned refs.
+ */
+export const gitDeleteBranch = async (
+  runner: GitRunner,
+  cwd: AbsolutePath,
+  branchName: string
+): Promise<Result<void, StorageError>> => {
+  const result = await runner.run(cwd, ['branch', '-D', branchName]);
+  if (!result.ok) return Result.error(result.error);
+  if (result.value.exitCode !== 0) {
+    return Result.error(
+      new StorageError({
+        subCode: 'io',
+        message: `git branch -D failed: ${(result.value.stderr || result.value.stdout).trim()}`,
+      })
+    );
+  }
+  return Result.ok(undefined);
+};
+
+/**
+ * Prune worktree administrative bookkeeping for worktrees whose directory has already vanished.
+ * `git worktree prune` is idempotent and cheap — it only touches `.git/worktrees/<name>` records,
+ * the same pointer-file machinery `git-exclude.ts` resolves through. Safe to call defensively
+ * before re-adding a worktree whose path was deleted out from under git.
+ */
+export const gitWorktreePrune = async (
+  runner: GitRunner,
+  repoRoot: AbsolutePath
+): Promise<Result<void, StorageError>> => {
+  const result = await runner.run(repoRoot, ['worktree', 'prune']);
+  if (!result.ok) return Result.error(result.error);
+  if (result.value.exitCode !== 0) {
+    return Result.error(
+      new StorageError({
+        subCode: 'io',
+        message: `git worktree prune failed: ${(result.value.stderr || result.value.stdout).trim()}`,
+      })
+    );
+  }
+  return Result.ok(undefined);
+};
+
+/**
+ * Fold a worktree branch onto the current branch of `repoRoot` (the shared sprint branch),
+ * preserving linear history so the sprint lands as one branch → one PR.
+ *
+ *   1. `git merge --ff-only <branch>` — the common case: the worktree forked from the sprint tip
+ *      and no sibling has folded since, so a fast-forward moves the sprint branch pointer with no
+ *      new commit. Linear by construction.
+ *   2. On ff failure (a sibling folded first, so the sprint branch has advanced), cherry-pick the
+ *      commits unique to `<branch>` — `git cherry-pick <merge-base>..<branch>` — replaying them on
+ *      top of the now-advanced sprint branch. Still linear; still one branch.
+ *
+ * A cherry-pick conflict SURFACES AS AN ERROR (the caller maps it to task `blocked`). Before
+ * returning the error we `git cherry-pick --abort` so the sprint branch is left clean and the
+ * already-folded siblings stay landed — the conflicted task is the only casualty.
+ *
+ * Folds must be serialised by the caller (one held lock, `base.tasks` order); this function does
+ * not lock — concurrent folds onto the same branch would corrupt the merge state.
+ */
+export const gitFoldBranch = async (
+  runner: GitRunner,
+  repoRoot: AbsolutePath,
+  branchName: string
+): Promise<Result<void, StorageError>> => {
+  const ff = await runner.run(repoRoot, ['merge', '--ff-only', branchName]);
+  if (!ff.ok) return Result.error(ff.error);
+  if (ff.value.exitCode === 0) return Result.ok(undefined);
+
+  // Not fast-forwardable — the sprint branch advanced under us. Replay the branch's unique
+  // commits via cherry-pick of `<merge-base>..<branch>`.
+  const base = await runner.run(repoRoot, ['merge-base', 'HEAD', branchName]);
+  if (!base.ok) return Result.error(base.error);
+  if (base.value.exitCode !== 0) {
+    return Result.error(
+      new StorageError({
+        subCode: 'io',
+        message: `git merge-base failed: ${(base.value.stderr || base.value.stdout).trim()}`,
+      })
+    );
+  }
+  const mergeBase = base.value.stdout.trim();
+  if (!HEX_SHA_RE.test(mergeBase)) {
+    return Result.error(
+      new StorageError({ subCode: 'io', message: `git merge-base returned non-SHA output: '${mergeBase}'` })
+    );
+  }
+
+  const pick = await runner.run(repoRoot, ['cherry-pick', `${mergeBase}..${branchName}`]);
+  if (!pick.ok) return Result.error(pick.error);
+  if (pick.value.exitCode !== 0) {
+    // Conflict (or any cherry-pick failure). Abort so the sprint branch is left clean — folded
+    // siblings stay landed; only this task is blocked. Abort is best-effort: surface the original
+    // cherry-pick failure regardless of whether the abort itself errored.
+    await runner.run(repoRoot, ['cherry-pick', '--abort']);
+    return Result.error(
+      new StorageError({
+        subCode: 'io',
+        message: `git cherry-pick failed (conflict folding ${branchName}): ${(pick.value.stderr || pick.value.stdout).trim()}`,
+      })
+    );
+  }
+  return Result.ok(undefined);
+};
+
 const validateCommitMessage = (message: string): Result<string, StorageError> => {
   if (message.length === 0) {
     return Result.error(new StorageError({ subCode: 'io', message: 'commit message must not be empty' }));
