@@ -6,7 +6,7 @@ import {
   type RunningAttempt,
   type VerifiedAttempt,
 } from '@src/domain/entity/attempt.ts';
-import type { BlockedTask, DoneTask, InProgressTask, Task } from '@src/domain/entity/task.ts';
+import type { BlockedTask, DoneTask, InProgressTask, Task, TodoTask } from '@src/domain/entity/task.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { parseRequiredString } from '@src/domain/value/parsers/parse-required-string.ts';
 import { requireStatus } from '@src/domain/value/require-status.ts';
@@ -14,9 +14,9 @@ import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.t
 import { type ValidationError } from '@src/domain/value/error/validation-error.ts';
 
 const requireRunningAttempt = (
-  task: InProgressTask
+  task: TodoTask | InProgressTask
 ): Result<
-  { readonly task: InProgressTask; readonly running: RunningAttempt; readonly idx: number },
+  { readonly task: TodoTask | InProgressTask; readonly running: RunningAttempt; readonly idx: number },
   InvalidStateError
 > => {
   const idx = task.attempts.length - 1;
@@ -25,7 +25,7 @@ const requireRunningAttempt = (
     return Result.error(
       new InvalidStateError({
         entity: 'task',
-        currentState: 'in_progress',
+        currentState: task.status,
         attemptedAction: 'record-attempt',
         message: `task '${task.id}' has no running attempt to record into`,
         hint: 'Call startNextAttempt before recording.',
@@ -35,10 +35,13 @@ const requireRunningAttempt = (
   return Result.ok({ task, running: last, idx });
 };
 
-const replaceLastAttempt = (task: InProgressTask, attempt: Attempt): InProgressTask => {
+const replaceLastAttempt = (task: TodoTask | InProgressTask, attempt: Attempt): InProgressTask => {
   const next = [...task.attempts];
   next[task.attempts.length - 1] = attempt;
-  return { ...task, attempts: next };
+  // Force `in_progress`: a running attempt means the task IS in progress, so settling it always
+  // yields an `in_progress` task — even when a crash persisted a status-corrupt `todo` task whose
+  // last attempt was still `running`. This is the self-heal half of `failCurrentAttempt` below.
+  return { ...task, status: 'in_progress', attempts: next };
 };
 
 /**
@@ -88,7 +91,13 @@ export const markTaskDone = (task: Task, now: IsoTimestamp): Result<DoneTask, In
 /**
  * Settle the current attempt as `failed`/`malformed`/`aborted`. If `maxAttempts` is set and
  * reached, transitions the task to `blocked` with reason `'attempt budget exhausted'`. Otherwise
- * the task stays `in_progress` and the caller can `startNextAttempt` again.
+ * the task settles to `in_progress` and the caller can `startNextAttempt` again.
+ *
+ * The real precondition is "a running attempt exists" (enforced by `requireRunningAttempt`), not
+ * the task's nominal status — so this also heals a status-corrupt `todo` task whose last attempt is
+ * still `running` (the crash signature a prior process can persist). Such a task settles to a clean
+ * `in_progress`; a normal `todo` task with no running attempt is still rejected. The `start-attempt`
+ * use case relies on this to resume a crashed run regardless of the carried status.
  *
  * The optional `abortMeta` is forwarded to {@link completeAttempt} — meaningful only when
  * `reason === 'aborted'`. The `start-attempt` use case supplies it on the resume path so the
@@ -103,9 +112,9 @@ export const failCurrentAttempt = (
   const guard = requireStatus(
     'task',
     task,
-    ['in_progress'] as const,
+    ['todo', 'in_progress'] as const,
     'fail-current-attempt',
-    'Only `in_progress` tasks have a current attempt to fail.'
+    'Only a task carrying a running attempt can have its current attempt failed.'
   );
   if (!guard.ok) return Result.error(guard.error);
   const inner = requireRunningAttempt(guard.value);

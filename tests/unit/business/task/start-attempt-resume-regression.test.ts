@@ -85,6 +85,41 @@ describe('startAttemptUseCase — resume from crashed running attempt', () => {
     }
   });
 
+  it('heals a status-corrupt `todo` task whose last attempt is still `running`', async () => {
+    // The wedge state observed in the field: a crash persisted the task as `todo` while its last
+    // attempt was left `running` (n=2). The old recovery branch was gated on `status ===
+    // 'in_progress'`, so it skipped this task and `startNextAttempt` dead-ended every launch with
+    // "already has a running attempt n=2". The fix keys recovery on the running attempt itself.
+    const inProgress = makeInProgressTaskWithRunningAttempt();
+    const wedged: Task = { ...inProgress, status: 'todo' };
+    expect(wedged.status).toBe('todo');
+    expect(wedged.attempts.at(-1)?.status).toBe('running');
+
+    const priorAttemptCount = wedged.attempts.length;
+    const { repo, writes } = fakeTaskRepo(new Map([[String(wedged.id), wedged]]));
+
+    const result = await startAttemptUseCase({
+      task: wedged,
+      sprintId: SPRINT_ID,
+      taskRepo: repo,
+      clock: () => FIXED_LATER,
+      logger: noopLogger,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const next = result.value;
+
+    // Status repaired to `in_progress`; leftover attempt settled `aborted`; a fresh `running`
+    // attempt appended — exactly the in_progress crash-resume outcome.
+    expect(next.status).toBe('in_progress');
+    expect(next.attempts).toHaveLength(priorAttemptCount + 1);
+    expect(next.attempts.at(-1)?.status).toBe('running');
+    expect(next.attempts.at(-2)?.status).toBe('aborted');
+    expect(next.attempts.at(-1)?.recovering?.fromAttemptN).toBe(priorAttemptCount);
+    expect(writes).toHaveLength(1);
+  });
+
   it('baseline: starting from a todo task appends exactly one running attempt and no aborted entries', async () => {
     // Symmetric control: the resume-settlement branch is gated on a prior running attempt.
     // A clean `todo` start must NOT synthesise a phantom aborted attempt — the only output

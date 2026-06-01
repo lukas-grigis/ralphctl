@@ -17,10 +17,13 @@ import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
  * Start a fresh `running` attempt on a task and persist the transition. Domain transition +
  * single-task repo update + log. The chain leaf adapts ctx → props → ctx.
  *
- * Resume semantics: if the task is already `in_progress` with a leftover `running` attempt
- * from a prior aborted chain (e.g. the user hit Ctrl+C or the host crashed mid-task), the
- * use case settles that attempt as `aborted` first, then opens a fresh attempt. This makes
- * the next Implement launch a transparent resume — no manual cleanup required.
+ * Resume semantics: if the task carries a leftover `running` attempt from a prior aborted chain
+ * (e.g. the user hit Ctrl+C or the host crashed mid-task), the use case settles that attempt as
+ * `aborted` first, then opens a fresh attempt. This makes the next Implement launch a transparent
+ * resume — no manual cleanup required. The trigger is the running attempt itself, NOT the carried
+ * status: a crash can persist a status-corrupt `todo` task whose last attempt is still `running`,
+ * and that is healed identically (the leftover attempt is aborted, the status repaired to
+ * `in_progress`, a fresh attempt opened) rather than dead-ending at `startNextAttempt`.
  *
  * Returns `BlockedTask` indirectly: when settling the prior attempt as aborted pushes the
  * task over `maxAttempts`, the domain transitions it to `blocked` and we surface that as a
@@ -51,9 +54,12 @@ export const startAttemptUseCase = async (
 
   // Resume path: a prior chain left a `running` attempt behind. Settle it as `aborted` before
   // appending a new one so the domain invariant ("only one running attempt at a time") holds.
+  // Keyed on the leftover running attempt — NOT on `status === 'in_progress'` — so a status-corrupt
+  // `todo` task whose last attempt is still `running` is recovered too (`failCurrentAttempt` repairs
+  // the status to `in_progress` as it settles) instead of dead-ending in `startNextAttempt`.
   let taskToStart: Task = props.task;
   let recovering: RecoveryContext | undefined;
-  if (props.task.status === 'in_progress' && hasRunningAttempt(props.task)) {
+  if (hasRunningAttempt(props.task)) {
     // Divergence guard: re-read the task from the repo and compare against the in-memory
     // copy before settling. A stale in-memory cache (e.g. another concurrent operation wrote
     // a new attempt or the operator manually patched tasks.json) would otherwise be silently

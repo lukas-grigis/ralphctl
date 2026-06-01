@@ -336,16 +336,17 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
     }
   });
   const taskNames = new Map<string, string>(todoTasks.map((t) => [String(t.id), t.name]));
-  // Detect resumes at launch time: any in-progress task whose last attempt is still `running`
-  // (the v8 OOM / Ctrl-C / SIGTERM signature in a prior process) gets a `RecoveryContext`
-  // pinned to its id. We pre-derive here — rather than waiting for the chain's start-attempt
-  // leaf to settle — so the TUI's resume-from-aborted banner shows up *before* the chain
-  // starts executing, not after the first leaf finishes. `process-crash` is the conservative
-  // cause for the cross-process inference; P1j's signal-aware path will refine it.
+  // Detect resumes at launch time: any task whose last attempt is still `running` (the v8 OOM /
+  // Ctrl-C / SIGTERM signature in a prior process) gets a `RecoveryContext` pinned to its id. We
+  // pre-derive here — rather than waiting for the chain's start-attempt leaf to settle — so the
+  // TUI's resume-from-aborted banner shows up *before* the chain starts executing, not after the
+  // first leaf finishes. Keyed on the leftover running attempt, NOT on `status === 'in_progress'`:
+  // a crash can persist a status-corrupt `todo` task whose last attempt is still `running` (which
+  // `startAttemptUseCase` heals), and the banner must fire for it too. `process-crash` is the
+  // conservative cause for the cross-process inference; P1j's signal-aware path will refine it.
   const taskRecovering = new Map<string, RecoveryContext>();
   const nowAtLaunch = deps.app.clock();
   for (const t of todoTasks) {
-    if (t.status !== 'in_progress') continue;
     const last = t.attempts.at(-1);
     if (last === undefined || last.status !== 'running') continue;
     taskRecovering.set(String(t.id), {
