@@ -3,6 +3,7 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { loop } from '@src/application/chain/build/loop.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
+import { withRepoLock } from '@src/application/flows/_shared/with-repo-lock.ts';
 import { loadAndAssertSprintSubChain } from '@src/application/flows/_shared/sprint/load-and-assert-sprint.ts';
 import type { ReviewCtx } from '@src/application/flows/review/ctx.ts';
 import type { ReviewDeps } from '@src/application/flows/review/deps.ts';
@@ -15,6 +16,12 @@ const DEFAULT_MAX_ROUNDS = 50;
 
 export interface CreateReviewFlowOpts {
   readonly sprintId: SprintId;
+  /**
+   * Per-sprint directory — the cross-process lock key (`<dataRoot>/sprints/<id>/`). Review commits
+   * to the sprint branch and runs verify, so it holds the SAME `withRepoLock` key the implement
+   * flow uses, making an implement run and a review run of one sprint mutually exclude.
+   */
+  readonly sprintDir: AbsolutePath;
   /**
    * Parent dir for per-round AI session forensics — `<sprintDir>/review/`. The per-round
    * leaf materialises `round-<N>/` subfolders here. The AI session's cwd is the per-round
@@ -85,7 +92,7 @@ export const createReviewFlow = (deps: ReviewDeps, opts: CreateReviewFlowOpts): 
     }
   );
 
-  return sequential<ReviewCtx>('review', [
+  const chain = sequential<ReviewCtx>('review', [
     loadAndAssertSprintSubChain<ReviewCtx>({ sprintRepo: deps.sprintRepo }, ['review']),
     ensureFeedbackFileLeaf(opts.feedbackFile),
     loop<ReviewCtx>('review-loop', reviewRound, {
@@ -95,4 +102,17 @@ export const createReviewFlow = (deps: ReviewDeps, opts: CreateReviewFlowOpts): 
     ...(deps.distill !== undefined ? [createDistillStep<ReviewCtx>(deps.distill.deps, deps.distill.opts)] : []),
     transitionSprintToDoneLeaf<ReviewCtx>({ sprintRepo: deps.sprintRepo, clock: deps.clock, logger: deps.logger }),
   ]);
+
+  // Hold the cross-process repo lock for the whole review run — keyed on the sprint dir, the SAME
+  // key the implement flow uses, so a review and an implement of one sprint mutually exclude
+  // (review commits to the sprint branch). Mirrors the serial implement path's wrapping.
+  return withRepoLock<ReviewCtx>(
+    {
+      fileLocker: deps.fileLocker,
+      locksRoot: deps.locksRoot,
+      worktreePath: opts.sprintDir,
+      eventBus: deps.eventBus,
+    },
+    chain
+  );
 };

@@ -26,7 +26,7 @@ import {
   uniqueRepoCwdsForTasks,
 } from '@src/application/flows/implement/leaves/sprint-repo-plan.ts';
 import { transitionSprintToReviewLeaf } from '@src/application/flows/implement/leaves/transition-sprint-to-review.ts';
-import { withRepoLock } from '@src/application/flows/implement/leaves/with-repo-lock.ts';
+import { withRepoLock } from '@src/application/flows/_shared/with-repo-lock.ts';
 
 export type { RepoExecConfig };
 

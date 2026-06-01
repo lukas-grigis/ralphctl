@@ -32,7 +32,7 @@ const recordingLocker = (log: string[]): FileLocker => ({
   async withLock(_lockPath, fn) {
     log.push('lock-acquire');
     try {
-      const value = await fn();
+      const value = await fn(new AbortController().signal);
       return Result.ok(value) as never;
     } finally {
       log.push('lock-release');
@@ -291,7 +291,7 @@ describe('createParallelImplementElement — uses the sprint-dir lock key', () =
     const locker: FileLocker = {
       async withLock(lockPath, fn) {
         lockedPath = lockPath;
-        return Result.ok(await fn()) as never;
+        return Result.ok(await fn(new AbortController().signal)) as never;
       },
     };
     const element = createParallelImplementElement(
