@@ -14,6 +14,8 @@ import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Runner } from '@src/application/chain/run/runner.ts';
 import type { Trace, TraceEntry } from '@src/application/chain/trace.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
+import type { TaskId } from '@src/domain/value/id/task-id.ts';
+import type { ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 import { createSessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
 import { ENTER, tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
@@ -213,22 +215,209 @@ describe('ExecuteView', () => {
     result.unmount();
   });
 
-  it('Enter on a completed session routes to sprint-detail when a sprint is selected', async () => {
+  it('Enter on a completed session routes to sprint-detail when the session has a pinned sprint', async () => {
     const sessions = createSessionManager();
     const runner = fakeRunner('r-3', 'completed');
-    sessions.register({ runner, flowId: 'refine', title: 'Refine — Done' });
+    const pinnedSprintId = 'sprint-fixture' as unknown as SprintId;
+    sessions.register({
+      runner,
+      flowId: 'refine',
+      title: 'Refine — Done',
+      pinnedSprintId,
+      pinnedSprintLabel: 'Demo Sprint',
+    });
 
-    const sprintId = 'sprint-fixture' as unknown as SprintId;
     const { result, routeIds } = renderView(<ExecuteView />, {
       deps: stubDeps(),
       initial: { id: 'execute', props: { sessionId: 'r-3' } },
       sessions,
-      selection: { sprintId, sprintLabel: 'Demo Sprint' },
     });
     await tick(40);
     result.stdin.write(ENTER);
     await tick();
     expect(routeIds()).toContain('sprint-detail');
+    result.unmount();
+  });
+
+  it('routes back to the pinned sprint on Enter even when the global selection drifted to a different sprint', async () => {
+    const sessions = createSessionManager();
+    const runner = fakeRunner('r-pin-nav', 'completed');
+    const sprintA = 'sprint-a-nav' as unknown as SprintId;
+    sessions.register({
+      runner,
+      flowId: 'implement',
+      title: 'Implement — Pinned',
+      pinnedSprintId: sprintA,
+      pinnedSprintLabel: 'Sprint A',
+    });
+
+    const sprintB = 'sprint-b-nav' as unknown as SprintId;
+    const routeEntries: ViewEntry[] = [];
+    const { result } = renderView(<ExecuteView />, {
+      deps: stubDeps(),
+      initial: { id: 'execute', props: { sessionId: 'r-pin-nav' } },
+      sessions,
+      selection: { sprintId: sprintB, sprintLabel: 'Sprint B' },
+      onRoute: (e) => {
+        routeEntries.push(e);
+      },
+    });
+    await tick(40);
+    result.stdin.write(ENTER);
+    await tick();
+    const sprintDetail = routeEntries.find((e) => e.id === 'sprint-detail');
+    expect(sprintDetail?.props?.sprintId).toBe(sprintA);
+    result.unmount();
+  });
+
+  it('two sessions pinned to different sprints each show their own sprint context in the breadcrumb', async () => {
+    const sessions = createSessionManager();
+    const runnerA = fakeRunner('r-ctx-a', 'running');
+    const sprintA = 'sprint-ctx-a' as unknown as SprintId;
+    sessions.register({
+      runner: runnerA,
+      flowId: 'implement',
+      title: 'Implement — A',
+      pinnedSprintId: sprintA,
+      pinnedSprintLabel: 'Sprint Alpha',
+      pinnedProjectLabel: 'Project One',
+    });
+    // Session B is registered but never viewed — A's context should show in the breadcrumb.
+    const runnerB = fakeRunner('r-ctx-b', 'running');
+    const sprintB = 'sprint-ctx-b' as unknown as SprintId;
+    sessions.register({
+      runner: runnerB,
+      flowId: 'implement',
+      title: 'Implement — B',
+      pinnedSprintId: sprintB,
+      pinnedSprintLabel: 'Sprint Beta',
+    });
+
+    const { result } = renderView(<ExecuteView />, {
+      deps: stubDeps(),
+      initial: { id: 'execute', props: { sessionId: 'r-ctx-a' } },
+      sessions,
+      selection: { sprintId: sprintB, sprintLabel: 'Sprint Beta' },
+    });
+    await tick(40);
+    const frame = result.lastFrame() ?? '';
+    expect(frame).toContain('Sprint Alpha');
+    expect(frame).toContain('Project One');
+    result.unmount();
+  });
+
+  it('cancel-whole-flow calls taskRepo with the pinned sprint id, not the global selection sprint', async () => {
+    const TASK = '01933fbb-1111-7000-8000-000000000099';
+    const taskNames = new Map([[TASK, 'Demo task']]);
+    const traceArray: TraceEntry[] = [{ elementName: `generator-${TASK}`, status: 'completed', durationMs: 100 }];
+    const runner: Runner<unknown> = {
+      id: 'r-cancel-pin',
+      status: 'running' as const,
+      ctx: {},
+      trace: traceArray as Trace,
+      subscribe: () => () => undefined,
+      start: vi.fn(),
+      abort: vi.fn(),
+    } as unknown as Runner<unknown>;
+
+    const sprintA = 'sprint-cancel-a' as unknown as SprintId;
+    const sessions = createSessionManager();
+    sessions.register({
+      runner,
+      flowId: 'implement',
+      title: 'Implement — Cancel',
+      pinnedSprintId: sprintA,
+      taskNames,
+      terminalSubstepName: 'uninstall-skills',
+    });
+
+    const findById = vi.fn().mockResolvedValue({ ok: false });
+    const deps: AppDeps = {
+      eventBus: noopEventBus,
+      taskRepo: { findById, findBySprintId: vi.fn().mockResolvedValue({ ok: true, value: [] }) },
+    } as unknown as AppDeps;
+
+    const sprintB = 'sprint-cancel-b' as unknown as SprintId;
+    const { result } = renderView(<ExecuteView />, {
+      deps,
+      initial: { id: 'execute', props: { sessionId: 'r-cancel-pin' } },
+      sessions,
+      selection: { sprintId: sprintB, sprintLabel: 'Sprint B Cancel' },
+    });
+    await tick(40);
+    result.stdin.write('c');
+    await tick();
+    result.stdin.write('2');
+    await tick(50);
+    expect(findById).toHaveBeenCalledWith(sprintA, TASK as unknown as TaskId);
+    result.unmount();
+  });
+
+  it('shows the stale-sprint fallback and drops baseline-health surfaces when the pinned sprint is done', async () => {
+    const sessions = createSessionManager();
+    const runner = fakeRunner('r-stale-done', 'running');
+    const sprintA = 'sprint-stale-done' as unknown as SprintId;
+    sessions.register({ runner, flowId: 'implement', title: 'Implement — Stale Done', pinnedSprintId: sprintA });
+
+    const mockSprintRepo = { findById: vi.fn().mockResolvedValue({ ok: true, value: { status: 'done' } }) };
+    const deps: AppDeps = { eventBus: noopEventBus, sprintRepo: mockSprintRepo } as unknown as AppDeps;
+
+    const { result } = renderView(<ExecuteView />, {
+      deps,
+      initial: { id: 'execute', props: { sessionId: 'r-stale-done' } },
+      sessions,
+    });
+    await tick(40);
+    const frame = result.lastFrame() ?? '';
+    expect(frame).toContain('Sprint no longer available');
+    // BaselineHealthChip always renders the word "baseline" — when stale it must be absent.
+    expect(frame).not.toContain('baseline');
+    result.unmount();
+  });
+
+  it('shows the stale-sprint fallback and drops baseline-health when the pinned sprint is removed', async () => {
+    const sessions = createSessionManager();
+    const runner = fakeRunner('r-stale-removed', 'running');
+    const sprintA = 'sprint-stale-removed' as unknown as SprintId;
+    sessions.register({ runner, flowId: 'implement', title: 'Implement — Stale Removed', pinnedSprintId: sprintA });
+
+    const mockSprintRepo = { findById: vi.fn().mockResolvedValue({ ok: false, error: { kind: 'not-found' } }) };
+    const deps: AppDeps = { eventBus: noopEventBus, sprintRepo: mockSprintRepo } as unknown as AppDeps;
+
+    const { result } = renderView(<ExecuteView />, {
+      deps,
+      initial: { id: 'execute', props: { sessionId: 'r-stale-removed' } },
+      sessions,
+    });
+    await tick(40);
+    const frame = result.lastFrame() ?? '';
+    expect(frame).toContain('Sprint no longer available');
+    expect(frame).not.toContain('baseline');
+    result.unmount();
+  });
+
+  it('focused-run context shows the pinned sprint and project in the breadcrumb while the execute view is mounted', async () => {
+    const sessions = createSessionManager();
+    const runner = fakeRunner('r-focused-ctx', 'running');
+    const sprintA = 'sprint-focused-a' as unknown as SprintId;
+    sessions.register({
+      runner,
+      flowId: 'implement',
+      title: 'Implement — Focused',
+      pinnedSprintId: sprintA,
+      pinnedSprintLabel: 'Sprint Pinned',
+      pinnedProjectLabel: 'Project Alpha',
+    });
+
+    const { result } = renderView(<ExecuteView />, {
+      deps: stubDeps(),
+      initial: { id: 'execute', props: { sessionId: 'r-focused-ctx' } },
+      sessions,
+    });
+    await tick(40);
+    const frame = result.lastFrame() ?? '';
+    expect(frame).toContain('Sprint Pinned');
+    expect(frame).toContain('Project Alpha');
     result.unmount();
   });
 });

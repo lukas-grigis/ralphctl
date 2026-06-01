@@ -18,6 +18,18 @@
 
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
+import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
+
+/**
+ * Project/sprint context captured from the currently-focused Execute view. Set on mount and
+ * cleared on unmount so the breadcrumb and progress overlay reflect the run's own sprint rather
+ * than the mutable global selection while the user is watching a run.
+ */
+export interface FocusedRunCtx {
+  readonly projectLabel: string | undefined;
+  readonly sprintId: SprintId | undefined;
+  readonly sprintLabel: string | undefined;
+}
 
 /**
  * Closure returned by the focused view that, on demand, renders the markdown summary of the
@@ -94,6 +106,18 @@ interface UiStateApi {
 
   setSessionRepositoryId(id: RepositoryId | undefined): void;
   /**
+   * Pin the project/sprint context of the currently-focused Execute view. Breadcrumb and
+   * progress overlay prefer this over the global selection while a value is set. Cleared to
+   * `undefined` when the Execute view unmounts.
+   */
+  setFocusedRunContext(ctx: FocusedRunCtx | undefined): void;
+  /** Project label from the focused Execute view's pinned descriptor, or `undefined`. */
+  readonly focusedRunProjectLabel: string | undefined;
+  /** Sprint id from the focused Execute view's pinned descriptor, or `undefined`. */
+  readonly focusedRunSprintId: SprintId | undefined;
+  /** Sprint label from the focused Execute view's pinned descriptor, or `undefined`. */
+  readonly focusedRunSprintLabel: string | undefined;
+  /**
    * Register a provider for the markdown summary of the operator's currently-focused task —
    * read by the global `y` hotkey via {@link getActiveTaskSummary}. Stored in a ref (not
    * state), so registering / unregistering does not trigger a re-render on every render of the
@@ -120,6 +144,7 @@ export const UiStateProvider = ({ children }: { readonly children: React.ReactNo
   const [claims, setClaims] = useState(0);
   const [escapeClaims, setEscapeClaims] = useState(0);
   const [sessionRepositoryId, setSessionRepositoryIdState] = useState<RepositoryId | undefined>(undefined);
+  const [focusedRunCtx, setFocusedRunCtxState] = useState<FocusedRunCtx | undefined>(undefined);
 
   const toggleHelp = useCallback(() => {
     setHelpOpen((v) => !v);
@@ -157,6 +182,10 @@ export const UiStateProvider = ({ children }: { readonly children: React.ReactNo
     setSessionRepositoryIdState(id);
   }, []);
 
+  const setFocusedRunContext = useCallback((ctx: FocusedRunCtx | undefined): void => {
+    setFocusedRunCtxState(ctx);
+  }, []);
+
   // The active-task summary provider is registered through a ref so swapping it does not churn
   // the context value (which would re-render every consumer including unrelated views). The
   // hotkey reads through `getActiveTaskSummary()` on press; until then the ref is dormant.
@@ -190,6 +219,10 @@ export const UiStateProvider = ({ children }: { readonly children: React.ReactNo
       claimEscape,
       sessionRepositoryId,
       setSessionRepositoryId,
+      focusedRunProjectLabel: focusedRunCtx?.projectLabel,
+      focusedRunSprintId: focusedRunCtx?.sprintId,
+      focusedRunSprintLabel: focusedRunCtx?.sprintLabel,
+      setFocusedRunContext,
       setActiveTaskSummaryProvider,
       getActiveTaskSummary,
     }),
@@ -206,6 +239,8 @@ export const UiStateProvider = ({ children }: { readonly children: React.ReactNo
       claimEscape,
       sessionRepositoryId,
       setSessionRepositoryId,
+      focusedRunCtx,
+      setFocusedRunContext,
       setActiveTaskSummaryProvider,
       getActiveTaskSummary,
     ]

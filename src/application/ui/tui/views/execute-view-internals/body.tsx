@@ -52,6 +52,8 @@ export interface ExecuteBodyProps {
   readonly onCancelAttempt: () => void;
   readonly onCancelFlow: () => void;
   readonly onDismissCancelScope: () => void;
+  /** When true the run's pinned sprint is no longer available — baseline-health surfaces are dropped. */
+  readonly pinnedSprintStale: boolean;
 }
 
 export const ExecuteBody = ({
@@ -80,21 +82,23 @@ export const ExecuteBody = ({
   onCancelAttempt,
   onCancelFlow,
   onDismissCancelScope,
+  pinnedSprintStale,
 }: ExecuteBodyProps): React.JSX.Element => (
   <Box flexDirection="column">
     {/* Multi-flow chip strip — renders only when ≥2 sessions are running, so a single-
         flow run pays zero pixels. */}
     <MultiFlowStrip sessions={sessionList} activeId={sessionId} now={now} />
-    {/* Baseline-health chip — sits above the active-task header so the verify-gate
-        state is visible without scrolling. Always rendered; renders a neutral
-        "awaiting first run" pill before the first leaf has touched the data. */}
-    <Box paddingX={spacing.indent}>
-      <BaselineHealthChip
-        {...(executionState !== undefined ? { execution: executionState } : {})}
-        {...(taskState !== undefined ? { tasks: taskState } : {})}
-        now={now}
-      />
-    </Box>
+    {/* Baseline-health chip — dropped when the run's pinned sprint is no longer available
+        so stale baseline data is never shown alongside the pick-a-sprint fallback. */}
+    {!pinnedSprintStale && (
+      <Box paddingX={spacing.indent}>
+        <BaselineHealthChip
+          {...(executionState !== undefined ? { execution: executionState } : {})}
+          {...(taskState !== undefined ? { tasks: taskState } : {})}
+          now={now}
+        />
+      </Box>
+    )}
     <HeaderCard
       descriptor={descriptor}
       isRunning={isRunning}
@@ -124,6 +128,7 @@ export const ExecuteBody = ({
       taskState={taskState}
       now={now}
       tokenUsage={tokenUsage}
+      pinnedSprintStale={pinnedSprintStale}
     />
 
     <Section title="Recent log">

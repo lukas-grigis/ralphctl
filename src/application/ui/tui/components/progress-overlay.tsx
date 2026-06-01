@@ -23,6 +23,7 @@ import { Box, Text, useInput } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx';
+import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 import { fmtDuration } from '@src/application/ui/tui/theme/duration.ts';
 
@@ -57,6 +58,7 @@ const formatAgo = (modifiedAtMs: number, now: number): string => {
 
 export const ProgressOverlay = (): React.JSX.Element => {
   const selection = useSelection();
+  const ui = useUiState();
   const storage = useStorage();
   const term = useTerminalSize();
   const [state, setState] = useState<ProgressState>({ kind: 'loading' });
@@ -65,7 +67,9 @@ export const ProgressOverlay = (): React.JSX.Element => {
   // re-mounts the overlay and refreshes the file + the timestamp.
   const [now] = useState<number>(() => Date.now());
 
-  const sprintId = selection.sprintId;
+  // When an Execute view is focused, prefer its pinned sprint so `g` opens the run's own
+  // progress file rather than whatever the global selection happens to be.
+  const sprintId = ui.focusedRunSprintId ?? selection.sprintId;
   const progressPath = useMemo(() => {
     if (sprintId === undefined) return undefined;
     return join(String(storage.dataRoot), 'sprints', String(sprintId), 'progress.md');
@@ -150,7 +154,8 @@ export const ProgressOverlay = (): React.JSX.Element => {
 
   const visibleLines = state.kind === 'ok' ? state.lines.slice(offset, offset + bodyRows) : [];
 
-  const sprintLabel = selection.sprintLabel ?? (sprintId !== undefined ? String(sprintId) : '(no sprint)');
+  const sprintLabel =
+    ui.focusedRunSprintLabel ?? selection.sprintLabel ?? (sprintId !== undefined ? String(sprintId) : '(no sprint)');
   const modifiedAgo = state.kind === 'ok' || state.kind === 'empty' ? formatAgo(state.modifiedAtMs, now) : undefined;
 
   return (
