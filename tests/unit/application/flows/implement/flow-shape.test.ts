@@ -209,8 +209,13 @@ const reconstructPreRefactorSerialFlow = (
     sequential<ImplementCtx>('implement-tasks', perTaskChains),
     saveTasksLeaf<ImplementCtx>({ taskRepo: deps.taskRepo }),
     guard<ImplementCtx>(
-      'transition-sprint-to-review-when-any-done',
-      (ctx) => ctx.tasks?.some((t) => t.status === 'done') === true,
+      'transition-sprint-to-review-when-settled',
+      (ctx) => {
+        const tasks = ctx.tasks ?? [];
+        const someDone = tasks.some((t) => t.status === 'done');
+        const noneRunnable = !tasks.some((t) => t.status === 'todo' || t.status === 'in_progress');
+        return someDone && noneRunnable;
+      },
       sequential<ImplementCtx>('transition-to-review-and-journal', [
         transitionSprintToReviewLeaf({ sprintRepo: deps.sprintRepo, clock: deps.clock, logger: deps.logger }),
         appendJournalSeparatorLeaf<ImplementCtx>(
