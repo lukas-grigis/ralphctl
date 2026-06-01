@@ -134,23 +134,27 @@ describe('createFileLocker', () => {
     expect(warnings).toHaveLength(0);
   });
 
-  it('surfaces a lock-compromised warning (without throwing) when the held lock is removed', async () => {
+  it('aborts the wrapped function signal and warns when the held lock is compromised', async () => {
     // Remove the lock directory out from under the holder. The heartbeat's next mtime refresh
     // fails, so proper-lockfile flags the lock compromised. The library default for that is to
-    // THROW (which would crash the process) — our adapter must instead surface a warning. A small
-    // staleAfterMs makes the heartbeat tick ~1s so the test does not have to wait the 30s default.
+    // THROW (which would crash the process) — our adapter instead aborts the signal handed to `fn`
+    // AND surfaces a warning. A small staleAfterMs makes the heartbeat tick ~1s so the test does
+    // not have to wait the 30s default.
     const warnings: Array<{ readonly kind: string; readonly cause: unknown }> = [];
     const locker = createFileLocker({ staleAfterMs: 2_000, onWarning: (w) => warnings.push(w) });
     const lock = lockPathIn(root, 'compromised.lock');
 
-    const result = await locker.withLock(lock, async () => {
+    let sawAbort = false;
+    const result = await locker.withLock(lock, async (signal) => {
       await fs.rm(String(lock), { recursive: true, force: true });
-      await waitFor(() => warnings.some((w) => w.kind === 'lock-compromised'), 5_000);
-      return 'survived';
+      await waitFor(() => signal.aborted, 5_000);
+      sawAbort = signal.aborted;
+      return 'observed';
     });
 
     expect(result.ok).toBe(true);
-    if (result.ok) expect(result.value).toBe('survived');
+    if (result.ok) expect(result.value).toBe('observed');
+    expect(sawAbort).toBe(true);
     expect(warnings.some((w) => w.kind === 'lock-compromised')).toBe(true);
   }, 8_000);
 });

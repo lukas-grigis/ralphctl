@@ -66,8 +66,14 @@ export interface FileLocker {
    * Acquire the lock at `lockPath`, run `fn`, then release. The release runs in a `finally`
    * so a thrown `fn` still clears the lock. Returns the function's result wrapped in
    * `Result.ok`, or a `StorageError` if the lock could not be acquired.
+   *
+   * `fn` receives an `AbortSignal` that aborts if the held lock is **compromised** mid-run (lost
+   * to a takeover / a heartbeat the library could not refresh in time). Long-running holders
+   * should thread it into their work so a compromised lock tears the run down rather than
+   * continuing to mutate a resource another process may now own. Callers that don't need it may
+   * ignore the parameter.
    */
-  withLock<T>(lockPath: AbsolutePath, fn: () => Promise<T>): Promise<Result<T, StorageError>>;
+  withLock<T>(lockPath: AbsolutePath, fn: (signal: AbortSignal) => Promise<T>): Promise<Result<T, StorageError>>;
 }
 
 export const createFileLocker = (opts: FileLockerOptions = {}): FileLocker => {
@@ -78,8 +84,14 @@ export const createFileLocker = (opts: FileLockerOptions = {}): FileLocker => {
   const retryDelayMs = opts.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
   const maxRetries = opts.maxRetries ?? DEFAULT_MAX_RETRIES;
 
-  const withLock = async <T>(lockPath: AbsolutePath, fn: () => Promise<T>): Promise<Result<T, StorageError>> => {
+  const withLock = async <T>(
+    lockPath: AbsolutePath,
+    fn: (signal: AbortSignal) => Promise<T>
+  ): Promise<Result<T, StorageError>> => {
     const path = String(lockPath);
+    // Aborts if the held lock is compromised — handed to `fn` so a long-running holder can tear
+    // its work down instead of mutating a resource a competitor may have taken over.
+    const compromised = new AbortController();
     let release: () => Promise<void>;
     try {
       // `proper-lockfile` needs the parent directory to exist before it can `mkdir` the lock dir.
@@ -94,9 +106,12 @@ export const createFileLocker = (opts: FileLockerOptions = {}): FileLocker => {
         update: heartbeatMs,
         // Constant-backoff retry mirrors the previous `maxRetries × retryDelayMs` (~5s) budget.
         retries: { retries: maxRetries, factor: 1, minTimeout: retryDelayMs, maxTimeout: retryDelayMs },
-        // The library default for `onCompromised` THROWS (which would crash the process). Surface
-        // it as a warning instead; the held `fn` is left to run (abort-on-compromise is future work).
-        onCompromised: (cause) => opts.onWarning?.({ kind: 'lock-compromised', path, cause }),
+        // The library default for `onCompromised` THROWS (which would crash the process). Abort the
+        // in-flight `fn` first (a compromised lock may now be held elsewhere), then surface a warning.
+        onCompromised: (cause) => {
+          if (!compromised.signal.aborted) compromised.abort(cause);
+          opts.onWarning?.({ kind: 'lock-compromised', path, cause });
+        },
       });
     } catch (cause) {
       return Result.error(
@@ -110,7 +125,7 @@ export const createFileLocker = (opts: FileLockerOptions = {}): FileLocker => {
       );
     }
     try {
-      const value = await fn();
+      const value = await fn(compromised.signal);
       return Result.ok(value) as Result<T, StorageError>;
     } finally {
       try {

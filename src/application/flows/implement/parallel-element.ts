@@ -8,6 +8,7 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Element, ElementResult } from '@src/application/chain/element.ts';
 import type { OnTrace, TraceEntry } from '@src/application/chain/trace.ts';
 import { createRunner, type Runner } from '@src/application/chain/run/runner.ts';
+import { combineAbortSignals } from '@src/application/chain/run/combine-signals.ts';
 import { runWaves, type WaveBranch } from '@src/application/chain/run/wave-scheduler.ts';
 import { bridgeRunnerToEventBus } from '@src/application/observability/chain-runner-bridge.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
@@ -88,8 +89,8 @@ export const createParallelImplementElement = (
       return Result.error({ error: lockPath.error, trace: [entry] });
     }
 
-    const acquired = await config.fileLocker.withLock(lockPath.value, async () =>
-      runUnderLock(plan, config, ctx, signal, onTrace)
+    const acquired = await config.fileLocker.withLock(lockPath.value, async (lockSignal) =>
+      runUnderLock(plan, config, ctx, combineAbortSignals(signal, lockSignal), onTrace)
     );
     if (!acquired.ok) {
       // Lock contention — surface verbatim. No waves ran, nothing to persist.

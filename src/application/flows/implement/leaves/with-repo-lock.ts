@@ -5,6 +5,7 @@ import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { Element, ElementResult } from '@src/application/chain/element.ts';
 import type { TraceEntry } from '@src/application/chain/trace.ts';
+import { combineAbortSignals } from '@src/application/chain/run/combine-signals.ts';
 import type { FileLocker } from '@src/integration/io/file-locker.ts';
 import { repoLockFile } from '@src/integration/io/lock-paths.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
@@ -58,7 +59,12 @@ export const withRepoLock = (opts: WithRepoLockOpts, inner: Element<ImplementCtx
     }
     const start = performance.now();
     const bannerId = `lock-${String(lockPath.value)}`;
-    const acquired = await opts.fileLocker.withLock(lockPath.value, async () => inner.execute(ctx, signal, onTrace));
+    // Thread the lock-compromised signal into the inner chain (merged with the host abort signal)
+    // so a lock lost mid-run tears the chain down as an AbortError instead of mutating the repo
+    // a competitor may now own.
+    const acquired = await opts.fileLocker.withLock(lockPath.value, async (lockSignal) =>
+      inner.execute(ctx, combineAbortSignals(signal, lockSignal), onTrace)
+    );
     const durationMs = performance.now() - start;
 
     if (!acquired.ok) {
