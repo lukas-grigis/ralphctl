@@ -11,6 +11,8 @@
  *     output for that content (a single `<Text>` value alongside the Description label)
  *   - PgDn then PgUp: window shifts by a page, then returns
  *   - resize: changing stdout rows triggers a clamp so the offset stays within the new bounds
+ *   - wide terminal + full-size header: the body stays a bounded scroll area (the reserve tracks
+ *     the taller full banner) so the Link row and confirm pills are never pushed off-screen
  */
 
 import { describe, expect, it, vi } from 'vitest';
@@ -21,7 +23,7 @@ import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import type { ExternalIssue, IssueFetcher } from '@src/business/scm/issue-fetcher.ts';
 import { makeDraftSprint } from '@tests/fixtures/domain.ts';
-import { DOWN, ENTER, UP } from '@tests/integration/application/ui/tui/_keys.ts';
+import { DOWN, ENTER, PAGE_DOWN, UP } from '@tests/integration/application/ui/tui/_keys.ts';
 import { waitFor } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
 
@@ -190,13 +192,14 @@ describe('AddTicketView — Review step scrollable description', () => {
 
     // ink-testing-library's stdout does not expose `rows` natively; the production terminal-
     // size hook falls back to 24 when rows is undefined. We monkey-patch `rows` onto the
-    // emitter and dispatch 'resize' to drive the production listener. The viewport on the
-    // pre-resize 24-row default is ~10 rows (CHROME=14, MIN=4); after rows=40 the viewport
-    // grows to ~26 — equivalent to a wider terminal that needs less scroll headroom.
+    // emitter and dispatch 'resize' to drive the production listener. The harness reports a
+    // 100-column terminal (full banner), so the pre-resize 24-row viewport floors at MIN=4;
+    // after rows=40 it grows to ~16 — still a bounded window that needs less scroll headroom.
     const stdout = result.stdout as unknown as { rows?: number; emit(event: string): boolean };
 
-    // Scroll near the bottom of the 30-line body on the default 24-row viewport.
-    for (let i = 0; i < 6; i++) {
+    // Scroll to the bottom of the 30-line body. PgDn moves by a viewport-height, which depends
+    // on the chrome reserve, so press enough times to reach the end regardless of viewport size.
+    for (let i = 0; i < 12; i++) {
       result.stdin.write('\x1b[6~'); // PgDn
       await tick(20);
     }
@@ -206,10 +209,10 @@ describe('AddTicketView — Review step scrollable description', () => {
     const beforeStart = Number(beforeMatch?.[1] ?? '0');
     expect(beforeStart).toBeGreaterThan(1);
 
-    // Grow the terminal: rows 24 → 40 ⇒ viewport ≈ 10 → 26 ⇒ maxOffset shrinks. Any offset
-    // that exceeded the new maxOffset must clamp down. The clamp effect runs on the
-    // maxOffset dependency; emitting 'resize' triggers the useTerminalSize listener which
-    // updates the rows state, which re-derives the viewport, which trips the effect.
+    // Grow the terminal: rows 24 → 40 ⇒ viewport grows ⇒ maxOffset shrinks. Any offset that
+    // exceeded the new maxOffset must clamp down. The clamp effect runs on the maxOffset
+    // dependency; emitting 'resize' triggers the useTerminalSize listener which updates the
+    // rows state, which re-derives the viewport, which trips the effect.
     stdout.rows = 40;
     stdout.emit('resize');
     await tick(60);
@@ -225,5 +228,50 @@ describe('AddTicketView — Review step scrollable description', () => {
     expect(afterStart).toBeGreaterThanOrEqual(1);
     expect(afterEnd).toBeLessThanOrEqual(30);
     expect(after).toContain('LAST-LINE-SENTINEL');
+  });
+
+  it('wide terminal with the full-size header: body stays a bounded scroll area so the Link row and confirm pills are never pushed off-screen', async () => {
+    const description = buildDescription(20);
+    const { deps, sprint } = makeDepsWithFetchedDescription(description);
+    const result = await walkToReview(deps, sprint.id);
+
+    // ink-testing-library reports a 100-column terminal — at/above the Banner's full-wordmark
+    // width threshold, so this view already renders the tall full-size header. Capture the body
+    // window at the default 24 rows, then grow the terminal to 40 rows. A reserve that ignored
+    // the full banner would leave room for all 20 lines on a 40-row terminal — expanding the
+    // body and shoving the Link row + confirm pills past the bottom in a real terminal. The
+    // robust layout reserves the taller full banner, so the body stays a bounded scroll window.
+    const preEnd = Number(/lines 1[–-](\d+) of 20/.exec(result.lastFrame() ?? '')?.[1] ?? '0');
+    const stdout = result.stdout as unknown as { rows?: number; emit(event: string): boolean };
+    stdout.rows = 40;
+    stdout.emit('resize');
+
+    // Growing the terminal grows the window — but it stays a bounded window (the indicator is
+    // still present, i.e. fewer than all 20 lines are visible). A banner-blind reserve would fit
+    // every line on 40 rows and drop the indicator entirely, so this is the regression guard.
+    await waitFor(() => {
+      const m = /lines 1[–-](\d+) of 20/.exec(result.lastFrame() ?? '');
+      expect(m).not.toBeNull();
+      const end = Number(m?.[1] ?? '0');
+      expect(end).toBeGreaterThan(preEnd);
+      expect(end).toBeLessThan(20);
+    });
+
+    const top = result.lastFrame() ?? '';
+    expect(top).toContain('FIRST-LINE-SENTINEL');
+    expect(top).toContain('https://github.com/acme/repo/issues/42');
+    expect(top).toContain('Add this ticket?');
+
+    // Scroll to the bottom of the body — the Link row and confirm pills remain on screen at this
+    // scroll position too.
+    for (let i = 0; i < 12; i++) {
+      result.stdin.write(PAGE_DOWN);
+      await tick(20);
+    }
+    await waitFor(() => expect(result.lastFrame()).toContain('LAST-LINE-SENTINEL'));
+    const bottom = result.lastFrame() ?? '';
+    expect(bottom).not.toContain('FIRST-LINE-SENTINEL');
+    expect(bottom).toContain('https://github.com/acme/repo/issues/42');
+    expect(bottom).toContain('Add this ticket?');
   });
 });
