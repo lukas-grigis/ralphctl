@@ -7,6 +7,8 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-06-01
+
 ### Added
 
 - **Opt-in parallel task execution via `settings.concurrency.maxParallelTasks` (1–5).** Default `1`
