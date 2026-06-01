@@ -274,8 +274,12 @@ produce one per distinct provider. No symlinks, no pointer schemes. Don't introd
 
 **Cross-process advisory lock** at `<stateRoot>/locks/repo-<hash>.lock` (sha1 of the repository worktree
 path, first 16 hex) serializes whole-flow runs against one working tree so two ralphctl processes can't race
-the same repo. Stale-takeover fires after the locker's `staleAfterMs` threshold (default 30s, clamped
-1–3600000 ms in `file-locker.ts`); it is not env-configurable.
+the same repo. Backed by `proper-lockfile` (`file-locker.ts`): the lock is a directory (atomic `mkdir`,
+NFS-safe) kept fresh by a background heartbeat, so a LIVE holder is never falsely stolen no matter how long
+the run lasts — a crashed holder stops heartbeating and is reclaimed once its mtime passes `staleAfterMs`
+(default 30s, clamped 2000–3600000 ms; bounds crash-reclaim latency only). Not env-configurable. The
+`onCompromised` path (a held lock lost mid-run) surfaces a `lock-compromised` warning rather than throwing;
+aborting the in-flight run on compromise is a deferred follow-up.
 
 **Atomic file writes** via `business/io/write-file.ts` for all persisted state. Direct `fs.writeFile` is
 fenced from business code by the layer rules.

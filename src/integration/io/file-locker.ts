@@ -1,63 +1,64 @@
 import { promises as fs } from 'node:fs';
 import { dirname } from 'node:path';
+import properLockfile from 'proper-lockfile';
 import { Result } from '@src/domain/result.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import { isNodeErrnoCode } from '@src/integration/io/fs.ts';
 
 /**
- * Advisory cooperative file lock. The holder writes a JSON file at the lock path containing
- * its PID and an ISO timestamp; competitors see `EEXIST` and either wait or take over if the
- * holder is stale. Used to serialize:
- *   - `progress.md` writes (per-sprint)
- *   - `feedback.md` writes (per-sprint)
- *   - whole-flow runs against a working tree (per-repository)
+ * Advisory cooperative file lock, backed by `proper-lockfile`. The holder creates a lock
+ * directory (atomic `mkdir`, so it works on NFS where `O_EXCL` open is unreliable) and a
+ * background timer keeps its mtime fresh — a **heartbeat**. Competitors see the directory and
+ * either wait (retry) or take over only once the heartbeat has gone stale. Used to serialize:
+ *   - `tasks.json` writes (per-sprint)
+ *   - whole-flow runs against a working tree (per-repository / per-sprint)
  *
- * Stale-takeover criteria:
- *   - timestamp older than `staleAfterMs`, OR
- *   - PID no longer running (signal 0 liveness check on the same machine)
+ * **Why a heartbeat (and not an age-on-acquire timestamp).** The implement flow holds one lock
+ * across the WHOLE run (prologue → waves → epilogue), which can take many minutes. A lock judged
+ * stale purely by "age since acquisition" would become takeover-eligible mid-run while its
+ * holder is alive and folding — letting a second process race the same sprint branch. The
+ * heartbeat keeps a LIVE holder's lock perpetually fresh, so it is never falsely stolen no
+ * matter how long the run lasts; a CRASHED holder stops heartbeating and is reclaimed once the
+ * mtime passes `staleAfterMs`. `staleAfterMs` therefore bounds crash-reclaim latency only.
  *
- * All failures map to `StorageError({ subCode: 'lock' })`. The release path runs in a
- * `finally` so the lock is always cleared, even if the wrapped function throws.
+ * All failures map to `StorageError({ subCode: 'lock' })`. The release runs in a `finally` so the
+ * lock is always cleared, even when the wrapped function throws.
+ *
+ * Nothing reads the on-disk lock format — its shape is wholly internal to this module, so the
+ * backing library owns it. (Pre-`proper-lockfile` runs wrote a JSON *file* at the lock path;
+ * this writes a *directory*. A leftover old-format file from an in-flight upgrade self-heals via
+ * the stale-reclaim path once `staleAfterMs` elapses.)
  */
-
-interface LockInfo {
-  readonly pid: number;
-  readonly timestamp: string;
-}
 
 const DEFAULT_RETRY_DELAY_MS = 50;
 const DEFAULT_MAX_RETRIES = 100;
 const DEFAULT_STALE_AFTER_MS = 30_000;
-const STALE_LOWER_BOUND_MS = 1;
+// `proper-lockfile` does not enforce a floor, but a too-small `stale` would let a lock be judged
+// stale between heartbeats. Keep a sane floor and refresh well inside the window (see below).
+const STALE_LOWER_BOUND_MS = 2_000;
 const STALE_UPPER_BOUND_MS = 3_600_000;
+const MIN_HEARTBEAT_MS = 1_000;
 
 export interface FileLockerOptions {
-  /** How long (ms) before a lock file is considered stale. Clamped to 1..3_600_000. Default 30_000. */
+  /** How long (ms) before a lock is considered stale — i.e. crash-reclaim latency. Clamped 2_000..3_600_000. Default 30_000. */
   readonly staleAfterMs?: number;
-  /** Retry delay (ms) when contending for an active lock. Default 50. */
+  /** Retry delay (ms) when contending for an actively-held lock. Default 50. */
   readonly retryDelayMs?: number;
   /** Maximum retry attempts before giving up. Default 100 (~5s at 50ms). */
   readonly maxRetries?: number;
-  /** Test seam: defaults to `Date.now`. */
-  readonly now?: () => number;
-  /** Test seam: defaults to `process.pid`. */
-  readonly pid?: () => number;
-  /** Test seam: defaults to a `process.kill(pid, 0)` liveness probe. */
-  readonly isPidAlive?: (pid: number) => boolean;
-  /** Test seam: defaults to `setTimeout`. */
-  readonly sleep?: (ms: number) => Promise<void>;
   /**
-   * Optional callback for non-fatal lock errors — currently only "failed to remove our own
-   * lock file on release". Fires for genuine errors (EACCES, EROFS, …), NOT for the expected
-   * stale-takeover case (ENOENT, another process unlinked it before us). Use to surface stale
-   * `.lock` files that would otherwise block subsequent runs invisibly. Default: no-op.
+   * Optional callback for non-fatal lock anomalies:
+   *   - `'release-unlink-failed'` — the lock could not be removed on release (e.g. EACCES, EROFS),
+   *     so a stale lock directory may linger and block the next run until cleared.
+   *   - `'lock-compromised'` — a HELD lock was lost mid-run (heartbeat could not refresh in time,
+   *     or the lock directory was removed/taken over). Mutual exclusion may no longer hold; the
+   *     in-flight function is NOT aborted here — surfaced loudly for the operator. Default: no-op.
    */
-  readonly onWarning?: (warning: {
-    readonly kind: 'release-unlink-failed';
-    readonly path: string;
-    readonly cause: unknown;
-  }) => void;
+  readonly onWarning?: (
+    warning:
+      | { readonly kind: 'release-unlink-failed'; readonly path: string; readonly cause: unknown }
+      | { readonly kind: 'lock-compromised'; readonly path: string; readonly cause: unknown }
+  ) => void;
 }
 
 export interface FileLocker {
@@ -70,68 +71,56 @@ export interface FileLocker {
 }
 
 export const createFileLocker = (opts: FileLockerOptions = {}): FileLocker => {
-  const staleAfterMs = clampStaleAfter(opts.staleAfterMs);
+  const stale = clampStaleAfter(opts.staleAfterMs);
+  // Refresh ~3× per stale window, floored at 1s and capped at `proper-lockfile`'s `stale/2` max,
+  // so a live holder's mtime is renewed comfortably before any competitor could judge it stale.
+  const heartbeatMs = Math.min(Math.floor(stale / 2), Math.max(MIN_HEARTBEAT_MS, Math.floor(stale / 3)));
   const retryDelayMs = opts.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
   const maxRetries = opts.maxRetries ?? DEFAULT_MAX_RETRIES;
-  const now = opts.now ?? Date.now;
-  const pid = opts.pid ?? ((): number => process.pid);
-  const isPidAlive = opts.isPidAlive ?? defaultIsPidAlive;
-  const sleep = opts.sleep ?? defaultSleep;
-
-  const acquire = async (lockPath: string): Promise<Result<void, StorageError>> => {
-    const info: LockInfo = { pid: pid(), timestamp: new Date(now()).toISOString() };
-    let retries = 0;
-    while (retries < maxRetries) {
-      try {
-        await fs.mkdir(dirname(lockPath), { recursive: true });
-        await fs.writeFile(lockPath, JSON.stringify(info), { flag: 'wx', mode: 0o600 });
-        return Result.ok(undefined);
-      } catch (cause) {
-        if (errnoCode(cause) !== 'EEXIST') {
-          return Result.error(
-            new StorageError({
-              subCode: 'lock',
-              message: `failed to acquire lock: ${stringifyError(cause)}`,
-              path: lockPath,
-              cause,
-            })
-          );
-        }
-        if (await isStale(lockPath, staleAfterMs, now, isPidAlive)) {
-          // Best-effort takeover: another process may grab it first; either way we loop.
-          await fs.unlink(lockPath).catch(() => {});
-          continue;
-        }
-        retries++;
-        await sleep(retryDelayMs);
-      }
-    }
-    return Result.error(
-      new StorageError({
-        subCode: 'lock',
-        message: `failed to acquire lock after ${String(maxRetries)} retries`,
-        path: lockPath,
-        hint: 'another ralphctl process is using this resource — wait, or remove the .lock file if stale',
-      })
-    );
-  };
 
   const withLock = async <T>(lockPath: AbsolutePath, fn: () => Promise<T>): Promise<Result<T, StorageError>> => {
     const path = String(lockPath);
-    const acquired = await acquire(path);
-    if (!acquired.ok) return Result.error(acquired.error);
+    let release: () => Promise<void>;
+    try {
+      // `proper-lockfile` needs the parent directory to exist before it can `mkdir` the lock dir.
+      await fs.mkdir(dirname(path), { recursive: true });
+      release = await properLockfile.lock(path, {
+        // The lock paths (`repo-<hash>.lock`, `tasks.json.lock`) are not real files — lock them
+        // lexically (`realpath: false`) and pin the on-disk lock directory to the path verbatim
+        // (`lockfilePath: path`) so it is not suffixed into `<path>.lock`.
+        realpath: false,
+        lockfilePath: path,
+        stale,
+        update: heartbeatMs,
+        // Constant-backoff retry mirrors the previous `maxRetries × retryDelayMs` (~5s) budget.
+        retries: { retries: maxRetries, factor: 1, minTimeout: retryDelayMs, maxTimeout: retryDelayMs },
+        // The library default for `onCompromised` THROWS (which would crash the process). Surface
+        // it as a warning instead; the held `fn` is left to run (abort-on-compromise is future work).
+        onCompromised: (cause) => opts.onWarning?.({ kind: 'lock-compromised', path, cause }),
+      });
+    } catch (cause) {
+      return Result.error(
+        new StorageError({
+          subCode: 'lock',
+          message: acquireErrorMessage(cause, maxRetries),
+          path,
+          cause,
+          hint: 'another ralphctl process is using this resource — wait, or remove the .lock file if stale',
+        })
+      );
+    }
     try {
       const value = await fn();
       return Result.ok(value) as Result<T, StorageError>;
     } finally {
       try {
-        await fs.unlink(path);
+        await release();
       } catch (cause) {
-        // ENOENT is the expected stale-takeover case (another process unlinked our lock). Any
-        // other errno — EACCES, EROFS, EBUSY — means we left a `.lock` file behind that will
-        // block the next run until the operator clears it. Surface via the optional warning
-        // hook; we don't fail the whole call because `fn` already produced a value.
-        if (!isNodeErrnoCode(cause, 'ENOENT')) {
+        // `ERELEASED` (already released) and `ENOTACQUIRED` (the lock was compromised / taken over,
+        // so it is no longer in our registry) are expected and benign. Any other errno — EACCES,
+        // EROFS — means a lock directory was left behind that will block the next run; surface it.
+        // We never fail the whole call, because `fn` already produced a value.
+        if (!isBenignReleaseError(cause)) {
           opts.onWarning?.({ kind: 'release-unlink-failed', path, cause });
         }
       }
@@ -141,50 +130,19 @@ export const createFileLocker = (opts: FileLockerOptions = {}): FileLocker => {
   return { withLock };
 };
 
-const isStale = async (
-  lockPath: string,
-  staleAfterMs: number,
-  now: () => number,
-  isPidAlive: (pid: number) => boolean
-): Promise<boolean> => {
-  let raw: string;
-  try {
-    raw = await fs.readFile(lockPath, 'utf8');
-  } catch {
-    return true;
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return true;
-  }
-  // Narrow guard: a malformed lock file (wrong shape, missing fields, wrong types) is
-  // indistinguishable from a stale lock — treat it as stale so the next acquire takes over.
-  if (typeof parsed !== 'object' || parsed === null) return true;
-  const rec = parsed as { timestamp?: unknown; pid?: unknown };
-  if (typeof rec.timestamp !== 'string' || typeof rec.pid !== 'number') return true;
-  const ts = Date.parse(rec.timestamp);
-  if (!Number.isFinite(ts)) return true;
-  if (now() - ts > staleAfterMs) return true;
-  return !isPidAlive(rec.pid);
-};
-
 const clampStaleAfter = (value: number | undefined): number => {
   if (value === undefined || !Number.isFinite(value) || value <= 0) return DEFAULT_STALE_AFTER_MS;
   return Math.min(STALE_UPPER_BOUND_MS, Math.max(STALE_LOWER_BOUND_MS, Math.floor(value)));
 };
 
-const defaultIsPidAlive = (pid: number): boolean => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-};
+/** `ELOCKED` = contention exhausted the retry budget; anything else is an unexpected acquire fault. */
+const acquireErrorMessage = (cause: unknown, maxRetries: number): string =>
+  errnoCode(cause) === 'ELOCKED'
+    ? `failed to acquire lock after ${String(maxRetries)} retries`
+    : `failed to acquire lock: ${stringifyError(cause)}`;
 
-const defaultSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+const BENIGN_RELEASE_CODES = new Set(['ERELEASED', 'ENOTACQUIRED']);
+const isBenignReleaseError = (cause: unknown): boolean => BENIGN_RELEASE_CODES.has(errnoCode(cause) ?? '');
 
 const errnoCode = (cause: unknown): string | undefined => {
   if (typeof cause === 'object' && cause !== null) {
