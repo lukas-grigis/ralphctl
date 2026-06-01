@@ -94,6 +94,12 @@ export interface TasksPanelProps {
    */
   readonly taskCriteriaById?: ReadonlyMap<string, readonly string[]>;
   /**
+   * Optional `taskId → blockedReason` map sourced from the polled task entities. When a task is
+   * blocked, its reason renders under the card header so the operator sees WHY (own failure vs
+   * `blocked upstream — …`) rather than a bare `blocked` status. Absent for runs with no blocks.
+   */
+  readonly blockedReasonById?: ReadonlyMap<string, string>;
+  /**
    * Dev-only flag — when `true`, failing evaluator rows render via
    * `<EvaluatorFailurePanel>` (per-dimension colour-coded view + critique excerpt with
    * expand affordance) instead of the canonical single-line summary. Defaults `false` so
@@ -131,6 +137,7 @@ export const TasksPanel = ({
   recoveringByTaskId,
   inputActive = false,
   taskCriteriaById,
+  blockedReasonById,
   showEvaluatorFailureUI = false,
   sprintState,
   nowMs,
@@ -293,6 +300,7 @@ export const TasksPanel = ({
         // doesn't have to mirror the bucketed order (projections are stored by `order`; bucketed
         // tasks track the runtime sequence).
         const taskProjection = sprintState?.tasks.find((t: TaskProjection) => t.id === task.id);
+        const blockedReason = blockedReasonById?.get(task.id);
         const isActive = idx === activeTaskIdx;
         return (
           <TaskBlock
@@ -317,6 +325,7 @@ export const TasksPanel = ({
             {...(recovering !== undefined ? { recovering } : {})}
             {...(taskCriteria !== undefined ? { taskCriteria } : {})}
             {...(taskProjection !== undefined ? { taskProjection } : {})}
+            {...(blockedReason !== undefined ? { blockedReason } : {})}
           />
         );
       })}

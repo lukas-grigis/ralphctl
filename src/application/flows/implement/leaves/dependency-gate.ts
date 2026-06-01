@@ -4,7 +4,7 @@ import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import type { BlockedTask, Task } from '@src/domain/entity/task.ts';
-import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
+import { BLOCKED_UPSTREAM_REASON_PREFIX, markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
@@ -69,7 +69,7 @@ export const dependencyGateLeaf = (deps: DependencyGateLeafDeps, taskId: TaskId)
         const detail = unmet
           .map(({ depId, dep }) => (dep === undefined ? `${String(depId)} (missing)` : `${dep.name} (${dep.status})`))
           .join(', ');
-        const reason = `blocked upstream — prerequisite not done: ${detail}`;
+        const reason = `${BLOCKED_UPSTREAM_REASON_PREFIX} — prerequisite not done: ${detail}`;
 
         const blocked = markTaskBlocked(task, reason);
         if (!blocked.ok) return Result.error(blocked.error);

@@ -58,6 +58,7 @@ export const TaskBlock = ({
   cardExpanded,
   cardFocused,
   nowMs,
+  blockedReason,
 }: {
   readonly task: TaskBucket;
   readonly running: boolean;
@@ -97,6 +98,13 @@ export const TaskBlock = ({
   readonly cardFocused: boolean;
   /** Wall-clock reference for the idle ticker (current time, ms epoch). */
   readonly nowMs: number;
+  /**
+   * Why this task is blocked — the entity's `Task.blockedReason`, supplied by the host from the
+   * polled task state (the live `TaskBucket` status is trace-derived and carries no reason). When
+   * present, a one-line reason renders under the header so the operator sees WHY a card blocked
+   * (own failure vs `blocked upstream — …`) instead of a bare status. Absent for non-blocked tasks.
+   */
+  readonly blockedReason?: string;
 }): React.JSX.Element => {
   const presentation = STATUS_PRESENTATION[task.status];
   const isSpinning = task.status === 'running';
@@ -182,6 +190,16 @@ export const TaskBlock = ({
             return <Text dimColor> {eta}</Text>;
           })()}
       </Box>
+      {blockedReason !== undefined && (
+        // Shown collapsed OR expanded — a blocked card's reason is its most important line.
+        <Box paddingLeft={2}>
+          <Box flexGrow={1} flexShrink={1}>
+            <Text color={inkColors.warning} wrap="truncate-end">
+              {glyphs.warningGlyph} {collapseWhitespace(blockedReason)}
+            </Text>
+          </Box>
+        </Box>
+      )}
       {cardExpanded && idleSnippets.length > 0 && (
         <Box paddingLeft={2}>
           <Box flexGrow={1} flexShrink={1}>

@@ -253,7 +253,7 @@ const fixture = (runner: ShellScriptRunner, opts: FixtureOpts = {}): Fixture => 
 // Captures the opts handed to the shell runner so we can assert the verify timeout is threaded.
 const capturingShellRunner = (
   result: { passed: boolean; exitCode: number | null; output: string },
-  sink: { opts?: { timeoutMs?: number } }
+  sink: { opts: unknown }
 ): ShellScriptRunner => ({
   async run(_cwd, _script, runOpts) {
     sink.opts = runOpts;
@@ -266,21 +266,21 @@ describe('preTaskVerifyLeaf — verifyTimeout plumbing', () => {
   // user-set timeout silently had no effect and a hung verify burned the full 5-min default on
   // BOTH the pre- and post-task call. The leaf must forward its `timeoutMs` opt to the runner.
   it('threads the configured verifyTimeout to the shell runner as timeoutMs', async () => {
-    const sink: { opts?: { timeoutMs?: number } } = {};
+    const sink: { opts: unknown } = { opts: undefined };
     const runner = capturingShellRunner({ passed: true, exitCode: 0, output: 'ok' }, sink);
     const { ctx, leaf } = fixture(runner, { verifyScript: 'pnpm test', timeoutMs: 90_000 });
     const res = await leaf.execute(ctx);
     expect(res.ok).toBe(true);
-    expect(sink.opts?.timeoutMs).toBe(90_000);
+    expect((sink.opts as { timeoutMs?: number } | undefined)?.timeoutMs).toBe(90_000);
   });
 
   it('omits timeoutMs when no verifyTimeout is configured (runner falls back to its default)', async () => {
-    const sink: { opts?: { timeoutMs?: number } } = {};
+    const sink: { opts: unknown } = { opts: undefined };
     const runner = capturingShellRunner({ passed: true, exitCode: 0, output: 'ok' }, sink);
     const { ctx, leaf } = fixture(runner, { verifyScript: 'pnpm test' });
     const res = await leaf.execute(ctx);
     expect(res.ok).toBe(true);
-    expect(sink.opts?.timeoutMs).toBeUndefined();
+    expect((sink.opts as { timeoutMs?: number } | undefined)?.timeoutMs).toBeUndefined();
   });
 });
 

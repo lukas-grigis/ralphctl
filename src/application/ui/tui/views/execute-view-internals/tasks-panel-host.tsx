@@ -53,6 +53,18 @@ export const TasksPanelHost = ({
     return m;
   }, [taskState]);
 
+  // taskId → blockedReason for blocked tasks, so the panel can render WHY a card blocked. The
+  // live TaskBucket status is trace-derived and carries no reason; the reason lives on the polled
+  // entity. Undefined when no task is blocked (keeps the panel's prop diff clean).
+  const blockedReasonById = useMemo<ReadonlyMap<string, string> | undefined>(() => {
+    if (taskState === undefined) return undefined;
+    const m = new Map<string, string>();
+    for (const t of taskState) {
+      if (t.status === 'blocked') m.set(String(t.id), t.blockedReason);
+    }
+    return m.size > 0 ? m : undefined;
+  }, [taskState]);
+
   if (bucketed === undefined) return null;
 
   return (
@@ -66,6 +78,7 @@ export const TasksPanelHost = ({
       {...(descriptor.taskNames !== undefined ? { nameById: descriptor.taskNames } : {})}
       {...(descriptor.taskRecovering !== undefined ? { recoveringByTaskId: descriptor.taskRecovering } : {})}
       {...(taskCriteriaById !== undefined ? { taskCriteriaById } : {})}
+      {...(blockedReasonById !== undefined ? { blockedReasonById } : {})}
     />
   );
 };
