@@ -101,7 +101,7 @@ interface GeneratePrContentOutput {
 export const generatePrContentLeaf = (deps: GeneratePrContentLeafDeps): Element<CreatePrCtx> =>
   leaf<CreatePrCtx, GeneratePrContentInput, GeneratePrContentOutput>('generate-pr-content', {
     useCase: {
-      execute: async (input) => {
+      execute: async (input, signal) => {
         // Derive verbatim `Closes <ref>` lines from ticket + task externalRefs — the prompt
         // embeds the rendered string and instructs the AI to mirror it at the bottom of the
         // body. Pre-computing here keeps the trailing refs deterministic instead of relying
@@ -164,6 +164,8 @@ export const generatePrContentLeaf = (deps: GeneratePrContentLeafDeps): Element<
           permissions: PR_AUTHORING_PERMISSIONS,
           signalsFile: signalsFilePathResult.value,
           outputDir: input.unitRoot,
+          // Thread the chain's abort signal so a TUI cancel mid-spawn kills the child.
+          ...(signal !== undefined ? { abortSignal: signal } : {}),
         };
 
         try {

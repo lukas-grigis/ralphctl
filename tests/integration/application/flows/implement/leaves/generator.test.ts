@@ -222,6 +222,30 @@ describe('generatorLeaf', () => {
     expect(provider.recordedSessions[0]?.model).toBe('claude-sonnet-4-6');
   });
 
+  // Abort wire (keystone for #1/#5): the runner threads its AbortController signal into every
+  // `element.execute(ctx, signal)`; the leaf framework forwards it as the 2nd arg of the
+  // use-case `execute(input, signal)`. The generator must carry it onto the spawned session so
+  // the headless provider arms its SIGTERM kill ladder. Before this wire the field was always
+  // undefined and a manual abort let the child run to completion (stranding lock + spinner).
+  it('threads the chain abort signal onto the spawned session so a cancel can kill the child', async () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    const provider = createFakeAiProvider({ responses: { implement: '' } });
+    const leaf = generatorLeaf({ ...buildDeps(), provider }, task.id);
+    const controller = new AbortController();
+    const result = await leaf.execute(baseCtx(task), controller.signal);
+    expect(result.ok).toBe(true);
+    expect(provider.recordedSessions[0]?.abortSignal).toBe(controller.signal);
+  });
+
+  it('leaves the session abortSignal undefined when the runner passes no signal', async () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    const provider = createFakeAiProvider({ responses: { implement: '' } });
+    const leaf = generatorLeaf({ ...buildDeps(), provider }, task.id);
+    const result = await leaf.execute(baseCtx(task));
+    expect(result.ok).toBe(true);
+    expect(provider.recordedSessions[0]?.abortSignal).toBeUndefined();
+  });
+
   it('publishes a banner-clear for the escalation banner when a new round starts', async () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const eventBus = createInMemoryEventBus();

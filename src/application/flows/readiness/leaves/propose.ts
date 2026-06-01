@@ -38,7 +38,8 @@ export const readinessSession = (
   signalsFile: AbsolutePath,
   bodyFile: AbsolutePath | undefined,
   outputDir: AbsolutePath,
-  effort?: string
+  effort?: string,
+  abortSignal?: AbortSignal
 ): AiSession => ({
   prompt,
   cwd,
@@ -48,6 +49,8 @@ export const readinessSession = (
   outputDir,
   ...(bodyFile !== undefined ? { bodyFile } : {}),
   ...(effort !== undefined ? { effort } : {}),
+  // Thread the chain's abort signal so a TUI cancel mid-spawn kills the child.
+  ...(abortSignal !== undefined ? { abortSignal } : {}),
 });
 
 export interface ProposeReadinessLeafDeps {
@@ -124,7 +127,8 @@ interface ProposeReadinessOutput {
 const proposeReadinessUseCase = async (
   deps: ProposeReadinessLeafDeps,
   tool: AssistantTool,
-  input: ProposeReadinessInput
+  input: ProposeReadinessInput,
+  abortSignal?: AbortSignal
 ): Promise<Result<ProposeReadinessOutput, DomainError>> => {
   const existingPath = pickExistingContextPath(tool, input.probedState);
   let existingBody: string | undefined;
@@ -145,7 +149,7 @@ const proposeReadinessUseCase = async (
           outputContractSection: renderContractSectionFor(readinessOutputContract, params.outputDir),
         }),
       buildSession: (prompt, signalsFile, bodyFile, outputDir) =>
-        readinessSession(deps.cwd, prompt, deps.model, signalsFile, bodyFile, outputDir, deps.effort),
+        readinessSession(deps.cwd, prompt, deps.model, signalsFile, bodyFile, outputDir, deps.effort, abortSignal),
       logger: deps.logger,
     },
     {
@@ -238,7 +242,7 @@ const pickExistingContextPath = (tool: AssistantTool, state: ReadinessState): st
 export const proposeReadinessLeaf = (deps: ProposeReadinessLeafDeps, tool: AssistantTool): Element<ReadinessCtx> =>
   leaf<ReadinessCtx, ProposeReadinessInput, ProposeReadinessOutput>(`propose-${tool}`, {
     useCase: {
-      execute: async (input) => proposeReadinessUseCase(deps, tool, input),
+      execute: async (input, signal) => proposeReadinessUseCase(deps, tool, input, signal),
     },
     input: (ctx) => {
       if (ctx.repository === undefined) {

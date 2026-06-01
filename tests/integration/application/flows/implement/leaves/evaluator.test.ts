@@ -118,4 +118,24 @@ describe('evaluatorLeaf', () => {
     await leaf.execute(ctx);
     expect(deps.provider.recordedSessions[0]?.model).toBe('evaluator-model-fixed');
   });
+
+  // Abort wire (keystone for #1/#5): the evaluator, like the generator, must carry the chain's
+  // abort signal onto the spawned session so a TUI cancel mid-spawn kills the child via the
+  // provider's SIGTERM ladder rather than letting it run to natural completion.
+  it('threads the chain abort signal onto the spawned session so a cancel can kill the child', async () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    const deps = buildDeps();
+    const leaf = evaluatorLeaf(deps, task.id);
+    const ctx: ImplementCtx = {
+      sprintId: task.id as unknown as ImplementCtx['sprintId'],
+      tasks: [task],
+      currentTask: task,
+      currentRoundNum: 1,
+      taskWorkspaceRoot: root.root,
+    };
+    const controller = new AbortController();
+    const result = await leaf.execute(ctx, controller.signal);
+    expect(result.ok).toBe(true);
+    expect(deps.provider.recordedSessions[0]?.abortSignal).toBe(controller.signal);
+  });
 });

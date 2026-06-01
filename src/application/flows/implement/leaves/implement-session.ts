@@ -54,7 +54,8 @@ export const implementSession = (
   signalsFile: AbsolutePath,
   role: 'generator' | 'evaluator',
   resume?: SessionId,
-  effort?: string
+  effort?: string,
+  abortSignal?: AbortSignal
 ): AiSession => {
   // The per-round output dir is the directory containing `signalsFile` (e.g.
   // `<sandboxCwd>/rounds/<N>/<role>/`). Stamping it on the session lets every adapter's
@@ -75,5 +76,12 @@ export const implementSession = (
     ...(outputDir.ok ? { outputDir: outputDir.value } : {}),
     ...(resume !== undefined ? { resume } : {}),
     ...(effort !== undefined ? { effort } : {}),
+    // Caller-controlled abort (TUI cancel / Ctrl-C). Threaded from the leaf framework's
+    // `execute(input, signal)` second argument so the headless provider's SIGTERM→SIGKILL
+    // kill ladder, abort-aware exit classification, and cancellable rate-limit sleep all
+    // observe a user cancel mid-spawn. Without this the field is undefined and that whole
+    // machinery is dead code — a manual abort would let the child run to natural completion,
+    // stranding the repo lock and the progress spinner until the run ends on its own.
+    ...(abortSignal !== undefined ? { abortSignal } : {}),
   };
 };

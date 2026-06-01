@@ -175,7 +175,7 @@ const readProgressFile = async (path: string): Promise<string> => {
 export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<ImplementCtx> =>
   leaf<ImplementCtx, GeneratorInput, GeneratorOutput>(`generator-${String(taskId)}`, {
     useCase: {
-      execute: async (input) => {
+      execute: async (input, signal) => {
         const roundNum = input.roundNum;
         const signalsFilePath = AbsolutePath.parse(roundSignalsPath(input.workspaceRoot, roundNum, 'generator'));
         if (!signalsFilePath.ok) return Result.error(signalsFilePath.error);
@@ -264,7 +264,8 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
               signalsFile,
               'generator',
               input.priorGeneratorSessionId,
-              deps.effort
+              deps.effort,
+              signal
             )
           );
           if (!spawn.ok) return Result.error(spawn.error);
