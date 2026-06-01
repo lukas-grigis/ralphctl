@@ -51,6 +51,13 @@ export interface SprintBoundLaunchExtras extends LaunchExtras {
    * should pass it.
    */
   readonly fallbackLabel?: string;
+  /**
+   * Called when the sprint's id/name become known (same moment as `onReseat`, but receives the
+   * runner id so the caller can retroactively pin the sprint onto the session descriptor without
+   * needing a closure over the `LaunchResult` value that isn't defined at callback-creation time).
+   * Intended for callers that pass `sessions.setPinnedSprint(runnerId, id, name)` here.
+   */
+  readonly onSprintResolved?: (runnerId: string, info: { readonly id: SprintId; readonly name: string }) => void;
 }
 
 export const launchSprintBoundFlow = async (
@@ -59,13 +66,13 @@ export const launchSprintBoundFlow = async (
   snapshot: AppStateSnapshot,
   extras: SprintBoundLaunchExtras = {}
 ): Promise<LaunchResult> => {
-  const { onReseat, fallbackLabel, ...launchExtras } = extras;
+  const { onReseat, fallbackLabel, onSprintResolved, ...launchExtras } = extras;
   const result = await launchFlow(deps, flowId, snapshot, launchExtras);
   if (!result.ok) return result;
   // Late-subscribe replay makes this race-free with `result.runner.start()` — the caller is
   // free to call `start()` immediately after we return.
-  if (onReseat !== undefined) {
-    attachReseatSubscriber(result.runner, fallbackLabel, onReseat);
+  if (onReseat !== undefined || onSprintResolved !== undefined) {
+    attachReseatSubscriber(result.runner, fallbackLabel, onReseat, onSprintResolved);
   }
   return result;
 };
@@ -73,11 +80,12 @@ export const launchSprintBoundFlow = async (
 const attachReseatSubscriber = (
   runner: Runner<unknown>,
   fallbackLabel: string | undefined,
-  onReseat: (info: { readonly id: SprintId; readonly name: string }) => void
+  onReseat: ((info: { readonly id: SprintId; readonly name: string }) => void) | undefined,
+  onSprintResolved: ((runnerId: string, info: { readonly id: SprintId; readonly name: string }) => void) | undefined
 ): void => {
-  // Self-unsubscribe on terminal events so the listener (and the captured `onReseat`
-  // closure) doesn't pin the runner across a long TUI session — historically a load-bearing
-  // OOM contributor for sprint-bound flows that get re-launched repeatedly.
+  // Self-unsubscribe on terminal events so the listener (and the captured closures) don't pin
+  // the runner across a long TUI session — historically a load-bearing OOM contributor for
+  // sprint-bound flows that get re-launched repeatedly.
   const unsub: () => void = runner.subscribe((event) => {
     if (event.type === 'failed' || event.type === 'aborted') {
       unsub();
@@ -85,10 +93,15 @@ const attachReseatSubscriber = (
     }
     if (event.type !== 'completed') return;
     const ctx = event.ctx as SprintBoundCtx;
-    if (ctx.sprint !== undefined) {
-      onReseat({ id: ctx.sprint.id, name: ctx.sprint.name });
-    } else if (ctx.sprintId !== undefined) {
-      onReseat({ id: ctx.sprintId, name: fallbackLabel ?? String(ctx.sprintId) });
+    const info =
+      ctx.sprint !== undefined
+        ? { id: ctx.sprint.id, name: ctx.sprint.name }
+        : ctx.sprintId !== undefined
+          ? { id: ctx.sprintId, name: fallbackLabel ?? String(ctx.sprintId) }
+          : undefined;
+    if (info !== undefined) {
+      onReseat?.(info);
+      onSprintResolved?.(runner.id, info);
     }
     unsub();
   });

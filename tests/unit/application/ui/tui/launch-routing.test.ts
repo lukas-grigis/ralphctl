@@ -25,8 +25,8 @@ const SID_LO = sprintId('01900000-0000-7000-8000-0000000000c1');
 const SID_HI = sprintId('01900000-0000-7000-8000-0000000000c9');
 
 /** Minimal draft sprint scoped to a project, with an explicit (lex-sortable) id. */
-const makeSprint = (projectId: ProjectId, id: SprintId): Sprint => {
-  const r = createSprint({ id, name: 'a sprint', projectId });
+const makeSprint = (projectId: ProjectId, id: SprintId, name = 'a sprint'): Sprint => {
+  const r = createSprint({ id, name, projectId });
   if (!r.ok) throw new Error(`fixture sprint failed: ${r.error.message}`);
   return r.value;
 };
@@ -126,6 +126,7 @@ describe('resolveInitialState', () => {
       projectId: a.id,
       projectLabel: 'One',
       sprintId: remembered.id,
+      sprintLabel: 'a sprint',
     });
   });
 
@@ -146,6 +147,7 @@ describe('resolveInitialState', () => {
       projectId: a.id,
       projectLabel: 'One',
       sprintId: newest.id,
+      sprintLabel: 'a sprint',
     });
   });
 
@@ -165,6 +167,7 @@ describe('resolveInitialState', () => {
       projectId: a.id,
       projectLabel: 'One',
       sprintId: newestA.id,
+      sprintLabel: 'a sprint',
     });
   });
 
@@ -185,5 +188,31 @@ describe('resolveInitialState', () => {
     const result = resolveInitialState({ settingsExist: true, projects: [], sprints: [] });
     expect(result.initialView).toEqual({ id: 'create-project' });
     expect(result.initialSelection).toBeUndefined();
+  });
+
+  it('seeds sprintLabel equal to the resolved sprint name', () => {
+    const a = makeProject({ id: ProjectId.generate(), slug: 'alpha', displayName: 'Alpha' });
+    const s = makeSprint(a.id, SID_HI, 'Sprint Alpha');
+    const result = resolveInitialState({
+      settingsExist: true,
+      projects: [a],
+      lastProjectId: a.id,
+      lastSprintId: s.id,
+      sprints: [s],
+    });
+    expect(result.initialSelection?.sprintId).toEqual(s.id);
+    expect(result.initialSelection?.sprintLabel).toBe('Sprint Alpha');
+  });
+
+  it('seeds no sprintLabel when the project has no sprints', () => {
+    const a = makeProject({ id: ProjectId.generate(), slug: 'alpha', displayName: 'Alpha' });
+    const result = resolveInitialState({
+      settingsExist: true,
+      projects: [a],
+      lastProjectId: a.id,
+      sprints: [],
+    });
+    expect(result.initialSelection?.sprintId).toBeUndefined();
+    expect(result.initialSelection?.sprintLabel).toBeUndefined();
   });
 });
