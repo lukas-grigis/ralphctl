@@ -23,7 +23,7 @@ import {
   uniqueRepoCwdsForTasks,
 } from '@src/application/flows/implement/leaves/sprint-repo-plan.ts';
 import { transitionSprintToReviewLeaf } from '@src/application/flows/implement/leaves/transition-sprint-to-review.ts';
-import { withRepoLock } from '@src/application/flows/implement/leaves/with-repo-lock.ts';
+import { withRepoLock } from '@src/application/flows/_shared/with-repo-lock.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
 import {

@@ -105,6 +105,7 @@ export const launchReview = async (ctx: LaunchContext): Promise<LaunchResult> =>
     },
     {
       sprintId: snapshot.sprint.id,
+      sprintDir: sprintDir.value,
       reviewRoot: reviewRoot.value,
       commitCwd: commitRepo.path,
       additionalRoots: affected.map((r) => r.path),

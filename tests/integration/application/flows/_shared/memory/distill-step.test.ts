@@ -490,6 +490,7 @@ describe('createDistillStep on the review auto-done path', () => {
       },
       {
         sprintId,
+        sprintDir: absolutePath(String(root.root)),
         reviewRoot,
         commitCwd: absolutePath(repoPath),
         additionalRoots: [absolutePath(repoPath)],

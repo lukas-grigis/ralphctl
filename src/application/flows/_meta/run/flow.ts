@@ -101,6 +101,7 @@ export const createRunFlow = (deps: RunDeps, opts: CreateRunFlowOpts): Element<R
   });
   const reviewFlow = createReviewFlow(deps.review, {
     sprintId: opts.sprintId,
+    sprintDir: opts.sprintDir,
     reviewRoot: opts.reviewRoot,
     commitCwd: opts.commitCwd,
     additionalRoots: opts.additionalRoots,

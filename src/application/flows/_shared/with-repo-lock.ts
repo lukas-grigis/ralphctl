@@ -1,34 +1,37 @@
 import { Result } from '@src/domain/result.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { Element, ElementResult } from '@src/application/chain/element.ts';
 import type { TraceEntry } from '@src/application/chain/trace.ts';
 import { combineAbortSignals } from '@src/application/chain/run/combine-signals.ts';
 import type { FileLocker } from '@src/integration/io/file-locker.ts';
 import { repoLockFile } from '@src/integration/io/lock-paths.ts';
-import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
 /**
- * Higher-order element that wraps an inner chain in a repository-level advisory lock. Used
- * by the implement and review chains to serialise whole-flow runs against the same working tree:
+ * Ctx-generic higher-order element that wraps an inner chain in a cross-process advisory lock, so a
+ * whole-flow run serialises against any other ralphctl process holding the same lock key. The
+ * wrapper never reads the carried ctx — it only passes it through to the inner chain — so every
+ * flow that needs the lock uses this ONE helper:
  *
- *   ralphctl run repo=A          ralphctl run repo=A          ralphctl run repo=B
- *      ↓                            ↓                            ↓
- *   acquire repo-A.lock          waits for repo-A.lock        acquires repo-B.lock
- *      ↓                            ↓                            ↓
- *   per-task chain runs          per-task chain runs (after)  runs in parallel
+ *   - implement (serial path) and review both wrap their chain here, keyed on the per-sprint
+ *     directory, so an implement run and a review run of the SAME sprint mutually exclude.
+ *   - the parallel implement path holds the same lock key directly (`parallel-element.ts`) because
+ *     it must span prologue + waves + epilogue, which a single-inner wrapper cannot express.
  *
- * Lock filename is keyed by a hash of the worktree path (see `repoLockFile`), so two
- * different `Repository` aggregates pointing at the same physical clone still serialise.
+ * The lock key is a hash of whatever `worktreePath` the caller passes (see `repoLockFile`); both
+ * implement and review pass the sprint directory. The lock-compromised signal is merged into the
+ * inner chain's abort signal (see `combineAbortSignals`), so a lock lost mid-run tears the chain
+ * down as an `AbortError` rather than continuing to mutate a resource a competitor may now own.
  *
  * Failure modes:
- *   - Lock acquisition fails (max retries, contention) → leaf returns
- *     `StorageError({ subCode: 'lock' })` and the chain halts with a clear message.
+ *   - Lock acquisition fails (contention past the retry budget) → returns
+ *     `StorageError({ subCode: 'lock' })`, the chain halts, and a warn banner is published.
  *   - Lock-path construction fails (path validation) → same `StorageError`.
- *   - Inner element returns `Result.error` → the lock is still released (the locker's
- *     `withLock` runs its `finally` even when the wrapped function throws).
+ *   - Inner element returns `Result.error` → the lock is still released (the locker's `withLock`
+ *     runs its `finally` even when the wrapped function throws).
+ *
+ * @public
  */
 
 export interface WithRepoLockOpts {
@@ -38,14 +41,14 @@ export interface WithRepoLockOpts {
   readonly eventBus: EventBus;
 }
 
-export const withRepoLock = (opts: WithRepoLockOpts, inner: Element<ImplementCtx>): Element<ImplementCtx> => ({
+export const withRepoLock = <TCtx>(opts: WithRepoLockOpts, inner: Element<TCtx>): Element<TCtx> => ({
   name: `with-repo-lock(${inner.name})`,
   // Expose the wrapped chain through the composite-pattern `children` slot so `flattenLeaves`
   // walks into it when the TUI builds its planned-leaf list. Without this the wrapper looked
   // like an opaque single leaf and the Flow-steps panel rendered only "with-repo-lock(…)" —
   // never the real setup / per-task / teardown sequence inside the lock.
   children: [inner],
-  async execute(ctx, signal, onTrace): Promise<ElementResult<ImplementCtx>> {
+  async execute(ctx, signal, onTrace): Promise<ElementResult<TCtx>> {
     const lockPath = repoLockFile(opts.locksRoot, opts.worktreePath);
     if (!lockPath.ok) {
       const entry: TraceEntry = {
@@ -91,14 +94,7 @@ export const withRepoLock = (opts: WithRepoLockOpts, inner: Element<ImplementCtx
     }
     // The locker returns the inner's Result-shaped result directly; bubble it up unchanged so
     // the inner trace surfaces in the parent.
-    if (!acquired.value.ok) {
-      const wrappedFailure = new StorageError({
-        subCode: 'lock',
-        message: `with-repo-lock: inner chain failed under ${String(lockPath.value)}`,
-      });
-      void wrappedFailure;
-      return acquired.value;
-    }
+    if (!acquired.value.ok) return acquired.value;
     return Result.ok(acquired.value.value);
   },
 });

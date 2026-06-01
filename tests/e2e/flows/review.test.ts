@@ -215,6 +215,7 @@ describe('createReviewFlow', () => {
       },
       {
         sprintId: sprint.id,
+        sprintDir: absolutePath(dir),
         reviewRoot: absolutePath(join(dir, 'review')),
         commitCwd: FAKE_CWD,
         additionalRoots: [FAKE_CWD],
@@ -265,6 +266,7 @@ describe('createReviewFlow', () => {
       },
       {
         sprintId: sprint.id,
+        sprintDir: absolutePath(dir),
         reviewRoot: absolutePath(join(dir, 'review')),
         commitCwd: FAKE_CWD,
         additionalRoots: [FAKE_CWD],
@@ -333,6 +335,7 @@ describe('createReviewFlow', () => {
       },
       {
         sprintId: sprint.id,
+        sprintDir: absolutePath(dir),
         reviewRoot,
         // Commit / verify still target a single repo today. The launcher picks the first
         // sprint-affected repo; the test mirrors that.
@@ -410,6 +413,7 @@ describe('createReviewFlow', () => {
       },
       {
         sprintId: sprint.id,
+        sprintDir: absolutePath(dir),
         reviewRoot: absolutePath(join(dir, 'review')),
         commitCwd: FAKE_CWD,
         additionalRoots: [FAKE_CWD],
