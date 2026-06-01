@@ -61,6 +61,11 @@ export const glyphs = {
   // place to introduce a switch.
   clipEllipsis: '…',
   collapseExpand: '▼ more',
+  // Windowed-list overflow cues (Tasks column / any anchored window). `moreAbove` /
+  // `moreBelow` head a dim "N more" row when an anchored viewport hides cards off either
+  // edge, telling the operator the list is scrolled rather than truncated.
+  moreAbove: '▴',
+  moreBelow: '▾',
 } as const;
 
 /** Spacing rhythm. Use these everywhere in lieu of magic numbers. */

@@ -237,6 +237,7 @@ export const ExecuteView = (): React.JSX.Element => {
       descriptor={descriptor}
       isRunning={isRunning}
       maxSignalsPerTask={layout.tasksMaxSignals}
+      maxTasks={layout.tasksMaxBlocks}
       inputActive={tasksInputActive}
       now={now}
       taskState={taskState}

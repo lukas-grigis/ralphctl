@@ -32,6 +32,14 @@ export interface ResponsiveLayout {
   readonly singleColumn: boolean;
   readonly flowStepsRows: number;
   readonly tasksMaxSignals: number;
+  /**
+   * Card-count budget for the Tasks column — how many task cards the middle column may render
+   * before the anchored window ({@link computeAnchoredWindow}) hides the rest behind an
+   * "N more" cue. Derived from terminal rows so the column stops growing past the viewport and
+   * pushing the Recent-log + footer off-screen. Counts cards, not rows (cards are
+   * variable-height; the rail counts the same way).
+   */
+  readonly tasksMaxBlocks: number;
   readonly logRows: number;
   readonly threeColRailWidth: number;
   readonly labelledRailWidth: number;
@@ -54,6 +62,15 @@ export const useResponsiveLayout = ({ columns, rows, isRunning }: UseResponsiveL
   const flowStepsRows = singleColumn ? NARROW_FLOW_STEPS_ROWS : baseFlowStepsRows;
   const tasksMaxSignals = isRunning ? 6 : 12;
   const logRows = isRunning ? 6 : 10;
+  // Card budget for the Tasks column. In single-column the stack also carries the (narrow)
+  // Flow-steps + Recent-log, so the Tasks slice is tighter; in multi-column the Tasks column
+  // owns the centre and can show more. `~4 rows/card` is a deliberately conservative estimate
+  // (a collapsed card is 1-2 rows, the expanded active card is many) — the anchored window
+  // keeps the active card visible regardless, so an approximate budget is fine. Floored so a
+  // tiny terminal still shows a useful handful.
+  const tasksMaxBlocks = singleColumn
+    ? Math.max(2, Math.floor((rows - NARROW_FLOW_STEPS_ROWS - 10) / 4))
+    : Math.max(3, Math.floor((rows - 14) / 4));
 
   // The two-column branch uses the fixed `RAIL_WIDTH`; the three-column branch grows the
   // rail fluidly. We compute once and reuse so the truncation budget passed to StepTrace
@@ -70,6 +87,7 @@ export const useResponsiveLayout = ({ columns, rows, isRunning }: UseResponsiveL
     singleColumn,
     flowStepsRows,
     tasksMaxSignals,
+    tasksMaxBlocks,
     logRows,
     threeColRailWidth,
     labelledRailWidth,

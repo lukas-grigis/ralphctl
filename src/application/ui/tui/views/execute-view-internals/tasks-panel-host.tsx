@@ -22,6 +22,8 @@ interface TasksPanelHostProps {
   readonly descriptor: SessionDescriptor;
   readonly isRunning: boolean;
   readonly maxSignalsPerTask: number;
+  /** Card-count budget for the windowed Tasks column (from `layout.tasksMaxBlocks`). */
+  readonly maxTasks: number;
   readonly inputActive: boolean;
   readonly now: number;
   readonly taskState: readonly Task[] | undefined;
@@ -32,6 +34,7 @@ export const TasksPanelHost = ({
   descriptor,
   isRunning,
   maxSignalsPerTask,
+  maxTasks,
   inputActive,
   now,
   taskState,
@@ -57,6 +60,7 @@ export const TasksPanelHost = ({
       bucketed={bucketed}
       running={isRunning}
       maxSignalsPerTask={maxSignalsPerTask}
+      maxTasks={maxTasks}
       inputActive={inputActive}
       nowMs={now}
       {...(descriptor.taskNames !== undefined ? { nameById: descriptor.taskNames } : {})}

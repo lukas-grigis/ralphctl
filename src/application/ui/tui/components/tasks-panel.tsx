@@ -26,6 +26,7 @@ import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-t
 import type { SprintState, TaskProjection } from '@src/application/ui/tui/components/tasks-projection.ts';
 import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
 import { glyphs, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { computeAnchoredWindow } from '@src/application/ui/tui/components/windowed-anchor.ts';
 import { collectKinds, InlineKindsBar } from '@src/application/ui/tui/components/tasks-panel-internals/signal-rows.tsx';
 import { OrphanSignals, TaskBlock } from '@src/application/ui/tui/components/tasks-panel-internals/task-row.tsx';
 import { buildFlatFocusKeys } from '@src/application/ui/tui/components/tasks-panel-internals/focus-keys.ts';
@@ -40,6 +41,15 @@ export interface TasksPanelProps {
   readonly nameById?: ReadonlyMap<string, string>;
   /** Max signals per task to render; older ones drop off the top. */
   readonly maxSignalsPerTask?: number;
+  /**
+   * Optional card-count budget for the task list. When supplied and the run has more tasks than
+   * this, the panel renders an anchored window of `maxTasks` cards centred on the active /
+   * focused card (so the live work stays visible) and shows dim "▴ N more above" / "▾ N more
+   * below" cues for the hidden remainder. Without it the column grew unbounded with 3-4+ tasks
+   * and pushed the Recent-log + footer off-screen. Defaults to unbounded (every card rendered)
+   * so isolated unit renders are unchanged — the Execute view threads `layout.tasksMaxBlocks`.
+   */
+  readonly maxTasks?: number;
   /** Max orphan signals to render. */
   readonly maxOrphanSignals?: number;
   /**
@@ -114,6 +124,7 @@ export const TasksPanel = ({
   running,
   nameById,
   maxSignalsPerTask = 8,
+  maxTasks,
   maxOrphanSignals = 6,
   maxSubStepsPerTask = 12,
   maxEvaluationsPerTask = 6,
@@ -235,6 +246,14 @@ export const TasksPanel = ({
   const kinds = collectKinds(bucketed);
   const orphanSliceLen = Math.min(bucketed.orphanSignals.length, maxOrphanSignals);
   const orphanSliceStart = bucketed.orphanSignals.length - orphanSliceLen;
+  // Anchored card window: keep the active / focused card visible and cap the rendered card
+  // count to the terminal-derived budget so the column stops growing past the viewport. Absent
+  // `maxTasks` ⇒ full range (no windowing), preserving isolated-render behaviour.
+  const taskWindow = computeAnchoredWindow(
+    bucketed.tasks.length,
+    effectiveCardCursor,
+    maxTasks ?? bucketed.tasks.length
+  );
   return (
     <Box flexDirection="column" paddingX={spacing.indent}>
       <InlineKindsBar kinds={kinds} />
@@ -245,7 +264,18 @@ export const TasksPanel = ({
         expandedKeys={expandedKeys}
         sliceStart={orphanSliceStart}
       />
-      {bucketed.tasks.map((task, idx) => {
+      {taskWindow.hiddenBefore > 0 && (
+        <Box paddingX={spacing.indent}>
+          <Text dimColor>
+            {glyphs.moreAbove} {taskWindow.hiddenBefore} more above
+          </Text>
+        </Box>
+      )}
+      {bucketed.tasks.slice(taskWindow.start, taskWindow.end).map((task, sliceIdx) => {
+        // Absolute index into `bucketed.tasks` — the window slices a sub-range, but `isActive`
+        // and `cardFocused` compare against absolute indices (`activeTaskIdx`,
+        // `effectiveCardCursor`), so recover the absolute position from the slice offset.
+        const idx = taskWindow.start + sliceIdx;
         // Deliberate stylistic 8-char short-uuid fallback (NOT a width-driven clip) — keeps
         // the header readable when the launcher hasn't supplied a friendly name. The friendly
         // name path goes through `nameById` and renders verbatim; if a future design makes
@@ -290,6 +320,13 @@ export const TasksPanel = ({
           />
         );
       })}
+      {taskWindow.hiddenAfter > 0 && (
+        <Box paddingX={spacing.indent}>
+          <Text dimColor>
+            {glyphs.moreBelow} {taskWindow.hiddenAfter} more below
+          </Text>
+        </Box>
+      )}
     </Box>
   );
 };
