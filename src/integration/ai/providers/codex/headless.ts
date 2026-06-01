@@ -184,6 +184,16 @@ export const buildCodexArgs = (
   return Result.ok(args);
 };
 
+/**
+ * Stale-resume detection. Codex persists each session as a "rollout"; after a crash / abort /
+ * expiry the rollout can vanish, so a subsequent `codex exec resume <id>` exits non-zero with
+ * "thread/resume failed: no rollout found for thread id … (code -32600)". The gen-eval loop
+ * threads the prior round's session id as `session.resume`, so a lost rollout would otherwise
+ * block the task on an evaluator/generator turn that never ran. We detect that exact failure
+ * and fall back to a cold spawn instead. Matches the message verbatim plus the JSON-RPC code.
+ */
+const RESUME_STALE_RE = /no rollout found|thread\/resume failed|code -32600/i;
+
 let tempCounter = 0;
 const defaultMkTempPath = (): string => {
   tempCounter += 1;
@@ -208,7 +218,9 @@ export const createCodexProvider = (deps: CodexProviderDeps): HeadlessAiProvider
       const outputFile = mkTempPath();
       const argsResult = buildCodexArgs(session, { outputFile });
       if (!argsResult.ok) return Result.error(argsResult.error) as Result<ProviderOutput, DomainError>;
-      const args = argsResult.value;
+      let args = argsResult.value;
+      // Latch so the stale-resume cold fallback fires at most once per generate() call.
+      let coldRetried = false;
 
       try {
         const maxAttempts = deps.rateLimitRetries + 1;
@@ -262,6 +274,31 @@ export const createCodexProvider = (deps: CodexProviderDeps): HeadlessAiProvider
               }
             }
             continue;
+          }
+          // Resume resilience: a `resume` spawn that fails because codex no longer has the
+          // rollout ("no rollout found", code -32600) would otherwise block the task. Fall
+          // back to a COLD spawn (no --resume) exactly once. Decrementing `attempt` keeps the
+          // fallback from consuming a rate-limit slot; the `coldRetried` latch bounds it.
+          if (!coldRetried && session.resume !== undefined && RESUME_STALE_RE.test(outcome.error.message)) {
+            coldRetried = true;
+            deps.eventBus.publish({
+              type: 'log',
+              level: 'warn',
+              message: 'codex-provider: resume thread not found — retrying cold (dropping --resume)',
+              meta: { resume: String(session.resume) },
+              at: IsoTimestamp.now(),
+            });
+            // Drop the stale resume id so buildCodexArgs takes the cold-start path. `delete`
+            // on a spread copy (never the caller's session) — `exactOptionalPropertyTypes`
+            // forbids re-setting `resume: undefined`, so omit the key entirely.
+            const coldSession: AiSession = { ...session };
+            delete (coldSession as { resume?: unknown }).resume;
+            const coldArgs = buildCodexArgs(coldSession, { outputFile });
+            if (coldArgs.ok) {
+              args = coldArgs.value;
+              attempt--;
+              continue;
+            }
           }
           return Result.error(outcome.error) as Result<ProviderOutput, DomainError>;
         }

@@ -352,6 +352,73 @@ describe('createCodexProvider', () => {
     expect(out.error.code).toBe('rate-limit');
   });
 
+  // Resume resilience (WS-F): a `resume` spawn that fails because codex no longer has the
+  // rollout ("no rollout found", code -32600) must fall back to a COLD spawn rather than block
+  // the task. This was the root cause of two blocked tasks in the wild (the prior session
+  // thread was lost to abort churn, so the evaluator's resume failed and the task self-blocked).
+  it('falls back to a cold spawn (drops --resume) when the resume thread is gone, salvaging the turn', async () => {
+    const cap = createCapturingBus();
+    const sess = session({ resume: 'lost-thread-019e845a' as SessionId });
+    const { spawn, calls } = makeSpawn([
+      // Attempt 1 (resume): codex can't find the rollout → exit 1 with the canonical message.
+      {
+        stderrChunks: [
+          'Error: thread/resume failed: no rollout found for thread id lost-thread-019e845a (code -32600)\n',
+        ],
+        exitCode: 1,
+      },
+      // Attempt 2 (cold fallback): clean run that captures a fresh session id.
+      { stdoutChunks: ['{"type":"thread.started","thread_id":"fresh-cold-thread"}\n'], exitCode: 0 },
+    ]);
+    const fsStub = stubFs('unused');
+
+    const provider = createCodexProvider({
+      // rateLimitRetries: 0 → maxAttempts 1. The cold fallback must still fire (it does not
+      // consume the rate-limit budget), so this also fences the `attempt--` edge case.
+      rateLimitRetries: 0,
+      eventBus: cap.bus,
+      spawn,
+      readFile: fsStub.readFile,
+      unlink: fsStub.unlink,
+      mkTempPath: fsStub.mkTempPath,
+    });
+
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+
+    // Exactly two spawns: the failed resume, then the cold retry.
+    expect(calls).toHaveLength(2);
+    // First spawn carried the resume id.
+    expect(calls[0]?.args).toContain('resume');
+    expect(calls[0]?.args).toContain('lost-thread-019e845a');
+    // Second spawn dropped resume and took the cold-start path (-C cwd + -s sandbox markers).
+    expect(calls[1]?.args).not.toContain('resume');
+    expect(calls[1]?.args).toContain('-C');
+    expect(calls[1]?.args).toContain('-s');
+    // The operator is told the fallback happened.
+    expect(cap.logs.some((l) => l.level === 'warn' && /resume thread not found/i.test(l.message))).toBe(true);
+  });
+
+  it('does NOT cold-retry a non-resume failure (plain exit 1 surfaces the error)', async () => {
+    const cap = createCapturingBus();
+    const { spawn, calls } = makeSpawn([{ stderrChunks: ['some other failure\n'], exitCode: 1 }]);
+    const fsStub = stubFs('unused');
+
+    const provider = createCodexProvider({
+      rateLimitRetries: 0,
+      eventBus: cap.bus,
+      spawn,
+      readFile: fsStub.readFile,
+      unlink: fsStub.unlink,
+      mkTempPath: fsStub.mkTempPath,
+    });
+
+    // No resume id on the session → the stale-resume fallback must not engage.
+    const out = await provider.generate(session());
+    expect(out.ok).toBe(false);
+    expect(calls).toHaveLength(1);
+  });
+
   it('cleans up the output tempfile even when the call errors', async () => {
     const cap = createCapturingBus();
     const { spawn } = makeSpawn([{ stderrChunks: ['some failure\n'], exitCode: 7 }]);
