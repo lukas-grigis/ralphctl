@@ -17,13 +17,21 @@
  * `PromptHost` queued-prompt frame, just recessive so the typed content owns the contrast.
  * The "▸ message" header sits above the box; the chord-hint row sits below.
  *
+ * Viewport: long bodies render through a cursor-following window. A row budget is derived from
+ * the terminal height minus a chrome reserve; when the buffer overflows it, the visible lines are
+ * sliced so the cursor's line — and the hint row below the field — always stay on screen, and a
+ * dim cue marks any content hidden above / below the window. When the whole buffer fits, every
+ * line renders with no slicing and no cue — byte-for-byte the short-body behaviour.
+ *
  * Key bindings (shown in the hint row):
  *   ↵ submit · \↵ newline · ←/→/↑/↓ cursor · home/end edge · esc {escLabel} · ctrl+w word · ctrl+u clear
+ *   (pgup/pgdn jump roughly a screenful, scrolling the window at the edges)
  */
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 
 export interface TextAreaPromptProps {
   readonly message: string;
@@ -36,6 +44,16 @@ export interface TextAreaPromptProps {
    */
   readonly escLabel?: string;
 }
+
+/**
+ * Reserve rows for the chrome around the editable text window — the prompt header above the
+ * field, the rounded border, the marginTop / marginBottom gutters, the keyboard-hint row below,
+ * the hidden-content cues, plus the surrounding prompt-host / breadcrumb / status chrome. Mirrors
+ * the reserve approach used by the review-step scrollable description; the floor keeps a tiny
+ * terminal usable — the field always shows a few rows even when the reserve would zero it out.
+ */
+const TEXT_AREA_CHROME_ROWS = 14;
+const TEXT_AREA_MIN_VIEWPORT = 4;
 
 /** Resolve which line index and column the cursor offset maps to. */
 const offsetToLineCol = (buf: string, offset: number): { line: number; col: number } => {
@@ -57,6 +75,30 @@ const lineColToOffset = (buf: string, lineIdx: number, col: number): number => {
   return offset;
 };
 
+/**
+ * Shift the window offset so the cursor's line stays inside it, preserving the previous offset
+ * (hysteresis) when the cursor is already visible. Clamped to [0, lastPossibleOffset] with no
+ * wrap-around — at the extremes the window simply stops.
+ */
+const followCursorOffset = (prevOffset: number, cursorLine: number, viewport: number, totalLines: number): number => {
+  const maxOffset = Math.max(0, totalLines - viewport);
+  let next = prevOffset;
+  if (cursorLine < next) next = cursorLine;
+  else if (cursorLine > next + viewport - 1) next = cursorLine - viewport + 1;
+  return Math.max(0, Math.min(next, maxOffset));
+};
+
+/**
+ * Detect an xterm SGR mouse report (e.g. ESC[<65;10;10M). The field is keyboard-only, but a wheel
+ * event can leak onto stdin while mouse-tracking is being torn down for a prompt; Ink strips the
+ * leading ESC, leaving "[<…M"/"[<…m" — all-printable ASCII that would otherwise be typed into the
+ * buffer. Reject it so stray wheel bytes never become text.
+ */
+const isMouseReport = (input: string): boolean => {
+  const stripped = input.startsWith(String.fromCharCode(27)) ? input.slice(1) : input;
+  return /^\[<\d+;\d+;\d+[Mm]$/.test(stripped);
+};
+
 export const TextAreaPrompt = ({
   message,
   onSubmit,
@@ -64,9 +106,13 @@ export const TextAreaPrompt = ({
   initial = '',
   escLabel = 'cancel',
 }: TextAreaPromptProps): React.JSX.Element => {
+  const term = useTerminalSize();
   const [buf, setBuf] = useState(initial);
   const [cursor, setCursor] = useState(initial.length);
   const [caretOn, setCaretOn] = useState(true);
+  // First buffer line shown in the window. Persisted so the window keeps its position
+  // (hysteresis) as the cursor moves within it; the render derives the effective offset from it.
+  const [firstVisible, setFirstVisible] = useState(0);
 
   // Mirror buffer and cursor in refs so handlers read the latest values when keystrokes arrive
   // between renders (paste + Enter, ctrl+u + Enter, fast typing). Matches TextPrompt's pattern.
@@ -77,25 +123,23 @@ export const TextAreaPrompt = ({
   // Set to current column on any horizontal move or edit; preserved across up/down moves only.
   const desiredColRef = useRef<number | null>(null);
 
-  // Atomically update both buf and cursor to avoid stale-closure races on rapid keystrokes.
-  // The transform receives (prevBuf, prevCursor) and returns [newBuf, newCursor].
+  // Atomically update both buf and cursor to avoid stale-closure races on rapid keystrokes. The
+  // refs are the synchronous source of truth: write them immediately so a keystroke that arrives
+  // before React flushes (paste + Enter, fast typing) still reads the latest value. Subscribing
+  // to terminal-size context defers React's commit, so the refs must not depend on the setState
+  // updater running synchronously — they are updated here, then mirrored into render state.
   const updateBufAndCursor = (transform: (b: string, c: number) => [string, number]): void => {
-    setBuf((prevBuf) => {
-      const prevCursor = cursorRef.current;
-      const [newBuf, newCursor] = transform(prevBuf, prevCursor);
-      bufRef.current = newBuf;
-      cursorRef.current = newCursor;
-      setCursor(newCursor);
-      return newBuf;
-    });
+    const [newBuf, newCursor] = transform(bufRef.current, cursorRef.current);
+    bufRef.current = newBuf;
+    cursorRef.current = newCursor;
+    setBuf(newBuf);
+    setCursor(newCursor);
   };
 
   const updateCursor = (next: (prev: number) => number): void => {
-    setCursor((prev) => {
-      const value = next(prev);
-      cursorRef.current = value;
-      return value;
-    });
+    const value = next(cursorRef.current);
+    cursorRef.current = value;
+    setCursor(value);
   };
 
   useEffect(() => {
@@ -104,6 +148,20 @@ export const TextAreaPrompt = ({
       clearInterval(id);
     };
   }, []);
+
+  const lines = buf.split('\n');
+  const { line: cursorLine, col: cursorCol } = offsetToLineCol(buf, cursor);
+  const viewport = Math.max(TEXT_AREA_MIN_VIEWPORT, term.rows - TEXT_AREA_CHROME_ROWS);
+  const overflows = lines.length > viewport;
+  // Effective window offset for this render — always contains the cursor line, so the caret and
+  // the hint row below stay on screen no matter how the cursor moved (edit, arrow, paste, page).
+  const windowStart = overflows ? followCursorOffset(firstVisible, cursorLine, viewport, lines.length) : 0;
+
+  // Persist the followed offset so the next interaction keeps the window where it settled. This
+  // is idempotent once the cursor is inside the window, so it cannot loop.
+  useEffect(() => {
+    if (firstVisible !== windowStart) setFirstVisible(windowStart);
+  }, [firstVisible, windowStart]);
 
   useInput((input, key) => {
     if (key.escape) {
@@ -152,15 +210,34 @@ export const TextAreaPrompt = ({
       const b = bufRef.current;
       const c = cursorRef.current;
       const { line, col } = offsetToLineCol(b, c);
-      const lines = b.split('\n');
+      const bufLines = b.split('\n');
       const targetCol = desiredColRef.current ?? col;
       if (desiredColRef.current === null) desiredColRef.current = col;
-      if (line >= lines.length - 1) {
+      if (line >= bufLines.length - 1) {
         // Already on last line — jump to end.
         updateCursor(() => b.length);
       } else {
         updateCursor(() => lineColToOffset(b, line + 1, targetCol));
       }
+      return;
+    }
+    // PgDn / PgUp — move the cursor roughly a screenful; the window follows so the net effect is
+    // a page scroll. Clamped to the buffer's first / last line, no wrap-around.
+    if (key.pageDown) {
+      const b = bufRef.current;
+      const { line, col } = offsetToLineCol(b, cursorRef.current);
+      const total = b.split('\n').length;
+      const targetCol = desiredColRef.current ?? col;
+      if (desiredColRef.current === null) desiredColRef.current = col;
+      updateCursor(() => lineColToOffset(b, Math.min(total - 1, line + viewport), targetCol));
+      return;
+    }
+    if (key.pageUp) {
+      const b = bufRef.current;
+      const { line, col } = offsetToLineCol(b, cursorRef.current);
+      const targetCol = desiredColRef.current ?? col;
+      if (desiredColRef.current === null) desiredColRef.current = col;
+      updateCursor(() => lineColToOffset(b, Math.max(0, line - viewport), targetCol));
       return;
     }
     // Home / ctrl+a — jump to start of current line.
@@ -215,16 +292,18 @@ export const TextAreaPrompt = ({
       desiredColRef.current = null;
       return;
     }
-    // Printable characters incl. pasted text. Paste may include `\n`; keep it.
-    if (input.length > 0 && !key.meta && !key.ctrl && !key.tab) {
+    // Printable characters incl. pasted text. Paste may include `\n`; keep it. Mouse SGR reports
+    // are rejected — the field is keyboard-only and a leaked wheel event must not type stray bytes.
+    if (input.length > 0 && !key.meta && !key.ctrl && !key.tab && !isMouseReport(input)) {
       const ins = input;
       updateBufAndCursor((b, c) => [b.slice(0, c) + ins + b.slice(c), c + ins.length]);
       desiredColRef.current = null;
     }
   });
 
-  const lines = buf.split('\n');
-  const { line: cursorLine, col: cursorCol } = offsetToLineCol(buf, cursor);
+  const visible = overflows ? lines.slice(windowStart, windowStart + viewport) : lines;
+  const hasAbove = overflows && windowStart > 0;
+  const hasBelow = overflows && windowStart + viewport < lines.length;
 
   return (
     <Box flexDirection="column" paddingX={spacing.indent}>
@@ -241,11 +320,13 @@ export const TextAreaPrompt = ({
         marginTop={spacing.gutter}
         marginBottom={spacing.gutter}
       >
-        {lines.map((line, i) => {
-          const isActiveLine = i === cursorLine;
+        {hasAbove ? <Text dimColor>{`  ${glyphs.clipEllipsis}`}</Text> : null}
+        {visible.map((line, i) => {
+          const absoluteIndex = windowStart + i;
+          const isActiveLine = absoluteIndex === cursorLine;
           return (
-            <Box key={`row-${String(i)}`}>
-              <Text dimColor>{i === 0 ? `${glyphs.arrowRight} ` : '  '}</Text>
+            <Box key={`row-${String(absoluteIndex)}`}>
+              <Text dimColor>{absoluteIndex === 0 ? `${glyphs.arrowRight} ` : '  '}</Text>
               {isActiveLine ? (
                 <>
                   <Text>{line.slice(0, cursorCol)}</Text>
@@ -269,6 +350,7 @@ export const TextAreaPrompt = ({
             </Box>
           );
         })}
+        {hasBelow ? <Text dimColor>{`  ${glyphs.clipEllipsis}`}</Text> : null}
       </Box>
       <Text dimColor>
         ↵ submit · \↵ newline · ←/→/↑/↓ cursor · home/end edge · esc {escLabel} · ctrl+w word · ctrl+u clear
