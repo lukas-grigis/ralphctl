@@ -159,8 +159,10 @@ Sprint lifecycle: `draft → planned → active → review → done`.
 
 \*`plan` moves a draft sprint to `planned`; `implement` then activates it (`planned → active`) on first
 launch, passing an already-`active` sprint through idempotently — a draft sprint must be planned first.
-Implement transitions the sprint to `review` once every task has settled (`done` or `blocked`). The `sprint
-close` CLI command and the close-sprint flow accept only `review`-status.
+Implement transitions the sprint to `review` once every task has settled (`done` or `blocked`) AND at least
+one task settled `done` — an all-blocked run stays `active` so the operator can fix the blocker and
+re-run without backing the sprint out of review. The `sprint close` CLI command and the close-sprint flow
+accept only `review`-status.
 
 **Two-phase planning.** **Refine** (`refine` chain) is implementation-agnostic per-ticket clarification —
 no repo exploration; ticket `requirementStatus` flips `pending → approved`. **Plan** (`plan` chain) requires
@@ -204,10 +206,12 @@ each attempt is recorded as a structured `SetupRun` (outcome: `success` / `faile
 `skipped`) persisted on `SprintExecution.setupRanAt`. Non-zero exit or spawn failure hard-aborts the
 chain. Verify runs both **pre-task** (before the AI) and **post-task** (after commit) with an attribution
 algorithm (`clean` / `regressed` / `baseline-broken` / `fixed-baseline`) that avoids blocking the AI for
-pre-existing failures. Failure transitions the task to `blocked`, never `done`. Both scripts are collected
-during `detect-scripts` and persisted on `Repository.{setupScript,verifyScript}`. Persisted
-`project.json` files written before v0.7.0 used `checkScript` / `checkTimeout`; the schema accepts those
-legacy keys on read and rewrites the canonical names on the next save (no manual migration step).
+pre-existing failures. Failure transitions the task to `blocked`, never `done`. `Repository.verifyTimeout`
+caps both the pre- and post-task verify calls as `timeoutMs` on the shell runner; when absent the runner
+falls back to `DEFAULT_SHELL_TIMEOUT_MS` (5 min). Both scripts are collected during `detect-scripts` and
+persisted on `Repository.{setupScript,verifyScript,verifyTimeout}`. Persisted `project.json` files written
+before v0.7.0 used `checkScript` / `checkTimeout`; the schema accepts those legacy keys on read and
+rewrites the canonical names on the next save (no manual migration step).
 
 **Branch management.** `resolveBranchLeaf` prompts on first run; persists on `SprintExecution.branch`;
 per-task preflight verifies the right branch. `ralphctl create-pr --sprint <id>` opens PR / MR via `gh` /
@@ -298,7 +302,12 @@ exception is the setup/verify-script runner (`shell-script-runner.ts`), which in
 
 **`AbortError` is the one error chains propagate transparently.** User-initiated cancellation (Ctrl+C, the
 TUI abort hotkey) flows through every wrapper without being absorbed by guards or fallbacks. Anywhere a guard
-or fallback catches errors, it MUST exempt `AbortError`.
+or fallback catches errors, it MUST exempt `AbortError`. The chain's `AbortSignal` is now threaded all the
+way into `implementSession()` via `execute(input, signal)` on every headless AI leaf (generator, evaluator,
+review, create-pr, readiness, detect-scripts, detect-skills) — the signal reaches the headless provider's
+SIGTERM→SIGKILL kill ladder, abort-aware exit classification, and cancellable rate-limit sleep. Without this
+threading a cancel would let the spawned child run to natural completion, stranding the repo lock and leaving
+the progress spinner stuck.
 
 **AI sessions plug onto the repo (implement / ideate).** Cwd is the user's repo (multi-repo flows
 pick `repositories[0]`); the per-flow sandbox under `<sprintDir>/<flow>/<unit-slug>/` is mounted via
@@ -360,7 +369,14 @@ never re-executed on relaunch. Concurrent appends to `progress.md` and the learn
 serialised through one in-process mutex (no torn lines under fan-out). Launch then applies a
 status-only stable override: `in_progress` tasks first (so a resumed sprint picks up the previously
 aborted task before any fresh work), then `todo`; V8's stable sort preserves dependency order within
-each status group.
+each status group. A `dependency-gate` leaf at the head of every per-task subchain enforces the
+prerequisite contract at run time: if any `dependsOn` task is not `done` (blocked or still unsettled),
+the dependent is transitioned to `blocked upstream — …` and the subchain body is skipped — no AI
+spawn wasted. The gate is status-only and works in both the serial and parallel paths. Block is
+transitive by construction (A → B → C cascades automatically). Unblocking the root prerequisite
+cascade-unblocks the entire upstream-blocked subtree in one action (`unblockTaskUseCase` calls
+`upstreamBlockedDependents` and rewrites the list atomically); own-failure blocks are never
+auto-cleared.
 
 **Rate-limit retry is adapter-side.** The headless provider wrapper at
 `src/integration/ai/providers/_engine/rate-limit-backoff.ts` sleeps with exponential delay between 429

@@ -7,6 +7,59 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Tasks-column windowing in the Execute view.** The middle Tasks column now renders an anchored
+  window of cards centred on the active task (`computeAnchoredWindow`) rather than mapping the entire
+  task list. With 3+ tasks the unwindowed column overflowed and pushed the Recent-log panel and footer
+  off-screen. Dim `▴ N more above` / `▾ N more below` overflow cues replace the clipped tail.
+
+- **Cascade-unblock for upstream-blocked dependents.** Unblocking a task now automatically re-arms
+  the whole subtree the dependency gate parked as "blocked upstream". Previously each blocked dependent
+  had to be hand-unblocked one at a time. Own-failure blocks (evaluator / verify / budget) are never
+  auto-cleared — they need a real fix.
+
+- **Block-reason surfacing in task cards.** Blocked task cards in the Execute view now show _why_ the
+  task blocked (`blockedReason` from the entity — own failure vs `blocked upstream — …`) instead of a
+  bare status badge.
+
+### Fixed
+
+- **Manual abort now kills the AI child process.** The chain `AbortSignal` is threaded all the way
+  into `implementSession()` and from there into the headless provider's SIGTERM→SIGKILL kill ladder,
+  abort-aware exit classification, and cancellable rate-limit sleep. Previously the signal was silently
+  dropped at the leaf boundary, letting the spawned `claude` / `codex` child run to natural completion
+  after a cancel — which stranded the repo lock (heartbeat kept it fresh) and left the
+  progress spinner / `[RUNNING]` badge stuck until the child finished on its own. The fix is applied
+  uniformly to all headless AI leaves: `implement` generator + evaluator, `review`, `create-pr`,
+  `readiness`, `detect-scripts`, and `detect-skills`.
+
+- **Dependent tasks no longer run blindly when their prerequisite is blocked.** A new `dependency-gate`
+  leaf at the head of every per-task subchain checks whether all `dependsOn` tasks are `done`; if any
+  prerequisite is not done (blocked or still unsettled), the dependent is transitioned to
+  `blocked upstream — …` and the rest of the subchain is skipped — no AI spawn wasted. The block is
+  transitive by construction (A blocks → B → C). Previously the wave scheduler ran dependents
+  regardless of prerequisite outcome, producing a cascade of doomed spawns that self-blocked and looked
+  like independent failures.
+
+- **Sprint no longer flips to `review` mid-run.** The `active → review` transition now requires every
+  task to be settled (`done` or `blocked`) AND at least one settled `done`. The prior predicate
+  (`some(done)`) flipped to review the instant the first task finished, silently shipping a partial
+  sprint with remaining tasks still `todo` / `in_progress`. An all-blocked run stays `active` — the
+  operator can fix the blocker and re-run implement without first backing the sprint out of review.
+
+- **Codex resume falls back to a cold spawn when the rollout is gone.** After a crash or abort the
+  Codex rollout (thread) can vanish; `codex exec resume <id>` then exits with
+  `thread/resume failed: no rollout found (code -32600)` and no `signals.json`, blocking the task.
+  The codex adapter now detects that exact error and retries once with a full cold spawn (dropping
+  `--resume`) before surfacing the failure. The fallback fires at most once per `generate()` call and
+  emits a warn-level log entry.
+
+- **`verifyTimeout` is now honoured.** `Repository.verifyTimeout` was threaded as far as the entity
+  but dropped between the launcher and `RepoExecConfig`, so a configured verify timeout had zero effect
+  and a hung verify burned the full 5-minute default on both the pre-task and post-task calls. The
+  value is now copied into `RepoExecConfig` and forwarded to both verify leaves as `timeoutMs`.
+
 ## [0.9.0] - 2026-06-01
 
 ### Added
