@@ -4,7 +4,6 @@ import type { IssuePusher } from '@src/business/scm/issue-pusher.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { PendingTicket } from '@src/domain/entity/ticket.ts';
-import type { IssueOriginRef } from '@src/domain/entity/project.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
@@ -39,24 +38,25 @@ export interface RefineDeps {
   readonly clock: () => IsoTimestamp;
   readonly issueFetcher?: IssueFetcher;
   /**
-   * Optional pusher for the refine flow's "Approve & update origin" path. Same lifetime as
+   * Optional pusher for the refine flow's "Post as comment" path. Same lifetime as
    * `issueFetcher`. Push failures are swallowed (log + continue) so a broken push never blocks
    * local refinement.
    */
   readonly issuePusher?: IssuePusher;
   /**
-   * Project-level default origin for "Approve & create origin" when the ticket has no `link`.
-   * Threaded down from the launcher (`snapshot.project.defaultIssueOrigin`). When unset, the
-   * 3-way prompt collapses to 2 options for tickets without a link.
+   * Non-interactive default for posting the refined requirements as a comment on the linked
+   * issue. Threaded from `settings.scm.postRefinementComment`. Consulted only when
+   * `reviewBeforeApprove` is absent (CI / headless); when the reviewer hook is wired the
+   * reviewer's explicit choice governs instead.
    */
-  readonly defaultIssueOrigin?: IssueOriginRef;
+  readonly postRefinementComment?: boolean;
   /**
    * Optional approval hook fired AFTER the AI proposes refined requirements and BEFORE the
    * ticket transitions to `approved`. Production wires this to a TUI review prompt;
    * headless / CI / tests omit it and the AI's body is auto-accepted.
    *
-   * Return shape: `{accept, alsoUpdateOrigin?}`. The middle "Approve & update origin" path
-   * sets `alsoUpdateOrigin: true`; the leaf then runs the push (best-effort).
+   * Return shape: `{accept, alsoUpdateOrigin?}`. The "Post as comment" path sets
+   * `alsoUpdateOrigin: true`; the leaf then posts the comment (best-effort).
    */
   readonly reviewBeforeApprove?: (
     proposed: string,

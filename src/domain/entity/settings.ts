@@ -280,6 +280,22 @@ export const SettingsSchema = z.object({
      */
     maxParallelTasks: z.number().int().min(1).max(5),
   }),
+  /**
+   * Source-control-management preferences. Defaults the whole section so settings files
+   * written before this section existed parse without a schema-version bump or migration —
+   * the load path stamps the section in and the next `save()` writes it inline.
+   */
+  scm: z
+    .object({
+      /**
+       * Governs the default reviewer choice for the refine flow's "Post as comment" action,
+       * and — in non-interactive (CI / headless) runs — whether the refined requirements are
+       * posted as a comment on the linked issue at all. Defaults `false`: the original issue
+       * description is never touched, and posting a comment is strictly opt-in.
+       */
+      postRefinementComment: z.boolean().default(false),
+    })
+    .default({ postRefinementComment: false }),
   ui: z
     .object({
       notifications: z

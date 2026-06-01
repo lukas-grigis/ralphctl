@@ -97,6 +97,7 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   logging: { level: 'info' },
   concurrency: { maxParallelTasks: 1 },
+  scm: { postRefinementComment: false },
   ui: { notifications: { enabled: true } },
   developer: { showEvaluatorFailureUI: false },
 };
