@@ -190,7 +190,14 @@ export const buildCodexArgs = (
  * "thread/resume failed: no rollout found for thread id … (code -32600)". The gen-eval loop
  * threads the prior round's session id as `session.resume`, so a lost rollout would otherwise
  * block the task on an evaluator/generator turn that never ran. We detect that exact failure
- * and fall back to a cold spawn instead. Matches the message verbatim plus the JSON-RPC code.
+ * and fall back to a cold spawn instead.
+ *
+ * The two textual alternatives match the canonical message verbatim; `code -32600` is an
+ * intentionally broad backstop (it is the generic JSON-RPC "Invalid Request" code, not unique to a
+ * lost rollout). A spurious match only ever triggers ONE benign cold respawn — the prompt is
+ * self-contained, so the cost is losing the in-thread conversation memory, never correctness — and
+ * the `coldRetried` latch bounds it. Kept broad on purpose so a future codex build that drops the
+ * textual wording but keeps the code still self-heals.
  */
 const RESUME_STALE_RE = /no rollout found|thread\/resume failed|code -32600/i;
 
@@ -279,7 +286,17 @@ export const createCodexProvider = (deps: CodexProviderDeps): HeadlessAiProvider
           // rollout ("no rollout found", code -32600) would otherwise block the task. Fall
           // back to a COLD spawn (no --resume) exactly once. Decrementing `attempt` keeps the
           // fallback from consuming a rate-limit slot; the `coldRetried` latch bounds it.
-          if (!coldRetried && session.resume !== undefined && RESUME_STALE_RE.test(outcome.error.message)) {
+          //
+          // Exempt an aborted run explicitly: a user cancel (Ctrl-C / TUI abort) must tear the run
+          // down, not spawn fresh work a competitor may now own. Today an AbortError's message
+          // wouldn't match RESUME_STALE_RE, so this is belt-and-braces — but it keeps the abort
+          // guarantee independent of how the abort path happens to word its error.
+          if (
+            !coldRetried &&
+            session.abortSignal?.aborted !== true &&
+            session.resume !== undefined &&
+            RESUME_STALE_RE.test(outcome.error.message)
+          ) {
             coldRetried = true;
             deps.eventBus.publish({
               type: 'log',

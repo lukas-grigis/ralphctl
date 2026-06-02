@@ -385,6 +385,11 @@ describe('createCodexProvider', () => {
 
     const out = await provider.generate(sess);
     expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    // The cold spawn captured the FRESH thread id (not the lost resume id), so the next gen-eval
+    // round can resume the new thread. `sessionId` is optional on the success output, so a
+    // regression that dropped the cold-spawn id would still pass `out.ok` — assert it explicitly.
+    expect(out.value.sessionId).toBe('fresh-cold-thread');
 
     // Exactly two spawns: the failed resume, then the cold retry.
     expect(calls).toHaveLength(2);
