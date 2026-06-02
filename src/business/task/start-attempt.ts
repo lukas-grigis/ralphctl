@@ -128,6 +128,20 @@ export const startAttemptUseCase = async (
         taskId: aborted.value.id,
         blockedReason: aborted.value.blockedReason,
       });
+      // Persist the blocked transition BEFORE surfacing the error. Without this the leftover
+      // running attempt stays on disk: the next launch re-enters this same resume path, re-settles
+      // it to blocked, re-errors — an infinite stuck loop where the task is never reported blocked
+      // and never leaves the queue. Persisting makes the block durable, so the launch queue filters
+      // it out (blocked is not resumable) and the operator can `unblock` it. A persist failure is
+      // surfaced in preference to the blocked-state error (it's the more actionable system fault).
+      const persistedBlocked = await props.taskRepo.update(props.sprintId, aborted.value);
+      if (!persistedBlocked.ok) {
+        log.error('failed to persist blocked task after resume', {
+          taskId: aborted.value.id,
+          error: persistedBlocked.error.message,
+        });
+        return Result.error(persistedBlocked.error);
+      }
       return Result.error(
         new InvalidStateError({
           entity: 'task',

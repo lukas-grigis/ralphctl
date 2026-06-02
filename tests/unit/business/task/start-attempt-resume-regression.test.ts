@@ -120,6 +120,38 @@ describe('startAttemptUseCase — resume from crashed running attempt', () => {
     expect(writes).toHaveLength(1);
   });
 
+  it('persists the blocked transition when settling the leftover attempt exhausts the budget', async () => {
+    // The task crashed DURING its final allowed attempt (maxAttempts=1, one running attempt). On
+    // resume the leftover attempt settles `aborted`, pushing the task over budget → `blocked`. The
+    // use case must PERSIST that blocked state before surfacing the error — otherwise the running
+    // attempt stays on disk and every relaunch re-hits the same resume path and re-errors (a stuck
+    // loop), while the task never reports as blocked and the operator has nothing to `unblock`.
+    const crashed = makeInProgressTaskWithRunningAttempt();
+    const atBudget: Task = { ...crashed, maxAttempts: 1 };
+    expect(atBudget.attempts).toHaveLength(1);
+
+    const { repo, writes } = fakeTaskRepo(new Map([[String(atBudget.id), atBudget]]));
+
+    const result = await startAttemptUseCase({
+      task: atBudget,
+      sprintId: SPRINT_ID,
+      taskRepo: repo,
+      clock: () => FIXED_LATER,
+      logger: noopLogger,
+    });
+
+    // Surfaced as an error so the chain does not try to start an attempt on a blocked task…
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.message).toMatch(/is blocked/);
+
+    // …but the blocked transition is durably persisted (the regression: it was computed yet never
+    // written, so the launch queue could never filter it out).
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.status).toBe('blocked');
+    expect(writes[0]?.attempts.at(-1)?.status).toBe('aborted');
+  });
+
   it('baseline: starting from a todo task appends exactly one running attempt and no aborted entries', async () => {
     // Symmetric control: the resume-settlement branch is gated on a prior running attempt.
     // A clean `todo` start must NOT synthesise a phantom aborted attempt — the only output

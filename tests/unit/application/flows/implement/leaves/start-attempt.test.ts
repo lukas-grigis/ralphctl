@@ -197,9 +197,12 @@ describe('startAttemptLeaf', () => {
     expect(eventLog.some((e) => e.message.includes('recovering aborted attempt'))).toBe(true);
   });
 
-  it('resume: returns InvalidStateError when settling the prior attempt exhausts the budget', async () => {
-    // Task with maxAttempts=1 and one running attempt → settling it pushes the task to
-    // `blocked`, which the use case surfaces as an InvalidStateError so the chain halts.
+  it('resume: persists the blocked transition AND returns InvalidStateError when the budget is exhausted', async () => {
+    // Task with maxAttempts=1 and one running attempt → settling it pushes the task to `blocked`,
+    // which the use case surfaces as an InvalidStateError so the chain doesn't start an attempt on a
+    // blocked task. Crucially the blocked state is PERSISTED before the error is raised: otherwise
+    // the leftover running attempt stays on disk and every relaunch re-hits this path and re-errors
+    // (a stuck loop), while the task never reports as blocked and the launch queue can't filter it.
     const inProgressMaxed = makeInProgressTaskWithRunningAttempt({ maxAttempts: 1 });
     const { repo, calls } = fakeUpdateTask({
       tasksById: new Map([[String(inProgressMaxed.id), inProgressMaxed]]),
@@ -213,7 +216,10 @@ describe('startAttemptLeaf', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.error.message).toContain('blocked');
-    expect(calls).toHaveLength(0); // nothing persisted — chain bails before the write.
+    // The blocked transition is durably written (regression: it used to be computed but dropped).
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.task.status).toBe('blocked');
+    expect(calls[0]?.task.attempts.at(-1)?.status).toBe('aborted');
   });
 
   it('resume: refuses to overwrite when in-memory diverges from persisted state', async () => {
