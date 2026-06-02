@@ -4,8 +4,9 @@
  *  - a cyclic / dangling graph FAILS FAST with the rendered `TaskGraphIssue` (never a silent
  *    deadlock surfacing later as an empty "No tasks to implement" queue);
  *  - a valid graph yields a queue that honours `dependsOn` ordering;
- *  - an in-progress (resumed) task still leads, with dependency order preserved within each
- *    status group.
+ *  - an in-progress (resumed) task leads only among the dependency-independent tasks runnable at
+ *    each step — it is never hoisted ahead of a prerequisite it depends on (the blocked-dependency
+ *    dead-end guard).
  */
 
 import { describe, expect, it } from 'vitest';
@@ -76,10 +77,12 @@ describe('resolveImplementQueue', () => {
     expect(names(result.value)).toEqual(['a', 'b', 'c']);
   });
 
-  it('keeps an in-progress (resumed) task first while preserving dependency order', () => {
-    // a → b → c chain; c is in_progress (a crashed resume). The dependency order is a, b, c,
-    // but the resumed task must LEAD so relaunch resumes it before opening fresh work — and the
-    // remaining todos stay in dependency order behind it.
+  it('does NOT hoist a resumed task ahead of its still-todo prerequisites (dependency order wins)', () => {
+    // a → b → c chain; c is in_progress with a, b still todo (e.g. a crash + manual unblock of a
+    // upstream prerequisite left the dependent in_progress while a prereq is back to todo). The
+    // resumed task must NOT lead here: c depends on b depends on a, so hoisting c first would make
+    // c's dependency-gate fire before a/b ran and dead-end it `blocked upstream`. Dependency order
+    // is the hard constraint — a, then b, then c (which resumes once its prereqs have settled).
     const a = makeTodoTask({ name: 'a', order: 1 });
     const b = makeTodoTask({ name: 'b', order: 2, dependsOn: [a.id] });
     const cTodo = makeTodoTask({ name: 'c', order: 3, dependsOn: [b.id] });
@@ -89,7 +92,35 @@ describe('resolveImplementQueue', () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    // c leads (resume override); a then b preserve dependency order behind it.
+    expect(names(result.value)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('runs a todo prerequisite before its in_progress dependent (blocked-dependency dead-end guard)', () => {
+    // The minimal regression: prerequisite b is todo, dependent c is in_progress and depends on b.
+    // The prerequisite MUST be queued first so c does not gate-block on a not-yet-run prereq.
+    const b = makeTodoTask({ name: 'b', order: 1 });
+    const cTodo = makeTodoTask({ name: 'c', order: 2, dependsOn: [b.id] });
+    const c = inProgressOf(cTodo);
+
+    const result = resolveImplementQueue([c, b]);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(names(result.value)).toEqual(['b', 'c']);
+  });
+
+  it('still leads with the resumed task among DEPENDENCY-INDEPENDENT peers', () => {
+    // No edges between a, b, c — all immediately runnable. The in-progress resume override applies
+    // within this frontier (it can violate no dependency order), so c leads, then a, b by order.
+    const a = makeTodoTask({ name: 'a', order: 1 });
+    const b = makeTodoTask({ name: 'b', order: 2 });
+    const cTodo = makeTodoTask({ name: 'c', order: 3 });
+    const c = inProgressOf(cTodo);
+
+    const result = resolveImplementQueue([a, b, c]);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
     expect(names(result.value)).toEqual(['c', 'a', 'b']);
     expect(result.value[0]?.status).toBe('in_progress');
   });
