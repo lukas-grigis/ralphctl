@@ -246,5 +246,22 @@ describe('createShellScriptRunner', () => {
 
       expect(calls[0]?.options.env?.['CI']).toBe('false');
     });
+
+    it('lets a user-exported process.env.PNPM_CONFIG_FROZEN_LOCKFILE override the default', async () => {
+      // Symmetry with the CI opt-out: the frozen-lockfile default also sits before process.env, so a
+      // user who wants the frozen install (e.g. CI parity) can export it and win.
+      const savedFrozen = process.env['PNPM_CONFIG_FROZEN_LOCKFILE'];
+      process.env['PNPM_CONFIG_FROZEN_LOCKFILE'] = 'true';
+      try {
+        const { spawn, calls } = fakeSpawn({ exitCode: 0 });
+        const runner = createShellScriptRunner({ spawn });
+        await runner.run(cwd, 'pnpm install');
+
+        expect(calls[0]?.options.env?.['PNPM_CONFIG_FROZEN_LOCKFILE']).toBe('true');
+      } finally {
+        if (savedFrozen === undefined) delete process.env['PNPM_CONFIG_FROZEN_LOCKFILE'];
+        else process.env['PNPM_CONFIG_FROZEN_LOCKFILE'] = savedFrozen;
+      }
+    });
   });
 });
