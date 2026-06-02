@@ -5,6 +5,7 @@ import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { buildPrompt, type BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
 import type { PromptDefinition } from '@src/integration/ai/prompts/_engine/definition.ts';
 import {
+  renderPlateauDirectiveSection,
   renderPriorCritiqueSection,
   renderProjectToolingSection,
   renderTaskDescriptionSection,
@@ -21,6 +22,7 @@ import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/templat
 export {
   renderVerifyScriptSection,
   renderPriorCritiqueSection,
+  renderPlateauDirectiveSection,
   renderProjectToolingSection,
   renderTaskDescriptionSection,
   renderTaskStepsSection,
@@ -78,6 +80,12 @@ export interface ImplementPromptParams {
    * the generator's fix attempt addresses the same dimensions the evaluator flagged.
    */
   readonly priorCritiqueSection: string;
+  /**
+   * "## ⚠ You have plateaued — change your approach" block — empty unless this is a plateau-break
+   * attempt (the gen-eval loop stalled and the escalation policy granted one more attempt). Tells
+   * the generator to abandon the non-converging approach and try a fundamentally different one.
+   */
+  readonly plateauDirectiveSection: string;
   /**
    * Audit-[09] output contract section — rendered from the generator's `AiOutputContract` by
    * `renderContractSectionFor(generatorOutputContract)`. Tells the AI to write exactly one
@@ -157,6 +165,11 @@ export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
       placeholder: 'PRIOR_CRITIQUE_SECTION',
       description: '"## Prior Critique" markdown block — empty on turn 1, the evaluator\'s failed critique on turn 2+.',
     },
+    plateauDirectiveSection: {
+      placeholder: 'PLATEAU_DIRECTIVE_SECTION',
+      description:
+        '"## ⚠ You have plateaued — change your approach" block — empty unless this is a plateau-break attempt.',
+    },
     outputContractSection: {
       placeholder: 'OUTPUT_CONTRACT_SECTION',
       description:
@@ -205,6 +218,16 @@ export interface BuildImplementPromptInput {
    */
   readonly priorCritique?: string;
   /**
+   * True once the escalation policy has fired for this task — the gen-eval loop stalled and one more
+   * attempt was granted (with or without a model bump). Renders the "change your approach" directive.
+   * The generator leaf sets it from `task.escalatedFromModel !== undefined`, which is a write-once,
+   * task-lifetime flag — so the directive renders on EVERY generator turn from the escalated attempt
+   * onward (every turn of that attempt, and any further attempt the task takes), not just one turn.
+   * That is intentional and harmless: re-telling the generator to change approach costs nothing and
+   * the once-per-task escalation cap still bounds the model bump. Default false (pre-escalation).
+   */
+  readonly plateauBreak?: boolean;
+  /**
    * Pre-rendered audit-[09] output contract section. The leaf composes this via
    * `renderContractSectionFor(generatorOutputContract)` before calling the builder so the
    * prompt module stays agnostic of the per-leaf contract.
@@ -233,5 +256,6 @@ export const buildImplementPrompt = async (
     progressFile: input.progressFile,
     priorProgress: input.priorProgress,
     priorCritiqueSection: renderPriorCritiqueSection(input.priorCritique),
+    plateauDirectiveSection: renderPlateauDirectiveSection(input.plateauBreak ?? false),
     outputContractSection: input.outputContractSection,
   });

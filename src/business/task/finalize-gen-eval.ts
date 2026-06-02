@@ -138,7 +138,9 @@ export const finalizeGenEvalUseCase = async (
     if (!applied.ok) return Result.error(applied.error);
     taskForPersist = applied.value.task;
     if (applied.value.blockedReason !== undefined) blockedReason = applied.value.blockedReason;
-    if (decision.kind === 'escalate') shouldFailAttempt = true;
+    // Both a model escalation and a same-model nudge grant one more attempt: fail the running
+    // attempt so the task stays in_progress and the outer loop re-enters (modulo maxAttempts).
+    if (decision.kind === 'escalate' || decision.kind === 'nudge') shouldFailAttempt = true;
   }
 
   const persisted = await props.taskRepo.update(props.sprintId, taskForPersist);

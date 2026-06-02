@@ -40,14 +40,13 @@ import { useTokenUsage } from '@src/application/ui/tui/runtime/use-token-usage.t
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { useRouter, useViewProps } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSession, useSessionManager, useSessions } from '@src/application/ui/tui/runtime/sessions-context.tsx';
-import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useBuses } from '@src/application/ui/tui/runtime/sinks-context.tsx';
 import { useSinkStream } from '@src/application/ui/tui/runtime/use-sink-stream.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useEventBusBuffer } from '@src/application/ui/tui/runtime/use-event-bus.ts';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 import type { AppEvent } from '@src/business/observability/events.ts';
-import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useUiState, type FocusedRunCtx } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { fmtElapsed } from '@src/application/ui/tui/theme/duration.ts';
 
@@ -87,7 +86,6 @@ export const ExecuteView = (): React.JSX.Element => {
   const sessionList = useSessions();
   const router = useRouter();
   const ui = useUiState();
-  const selection = useSelection();
   const buses = useBuses();
   const signals = useSinkStream(buses.harness, { limit: HARNESS_SIGNAL_LIMIT });
   const logEntries = useSinkStream(buses.log, { limit: LOG_TAIL_LIMIT });
@@ -99,7 +97,49 @@ export const ExecuteView = (): React.JSX.Element => {
   });
   const term = useTerminalSize();
 
-  const baselineSprintId: SprintId | undefined = selection.sprintId as SprintId | undefined;
+  // Each Execute view is scoped to its session's pinned sprint so concurrent runs remain
+  // independent of each other and of the mutable global selection.
+  const pinnedSprintId = session?.descriptor?.pinnedSprintId as SprintId | undefined;
+  const pinnedProjectLabel = session?.descriptor?.pinnedProjectLabel;
+  const pinnedSprintLabel = session?.descriptor?.pinnedSprintLabel;
+
+  // Best-effort probe: mark the sprint unavailable when it has been closed or removed so
+  // the Execute view can show an inline fallback instead of stale panel data.
+  const [pinnedSprintAvailable, setPinnedSprintAvailable] = React.useState(true);
+  React.useEffect(() => {
+    if (pinnedSprintId === undefined) return undefined;
+    let cancelled = false;
+    const check = async (): Promise<void> => {
+      try {
+        const r = await deps.sprintRepo.findById(pinnedSprintId);
+        if (cancelled) return;
+        if (!r.ok || r.value.status === 'done') setPinnedSprintAvailable(false);
+      } catch {
+        // Keep available on error (absent repo in test harnesses, transient I/O failures).
+      }
+    };
+    void check();
+    return (): void => {
+      cancelled = true;
+    };
+  }, [pinnedSprintId, deps.sprintRepo]);
+
+  // Register this run's pinned project/sprint as the focused-run context so breadcrumb and
+  // progress overlay reflect the run's own sprint while this view is mounted.
+  const setFocusedRunContext = ui.setFocusedRunContext;
+  React.useEffect(() => {
+    const ctx: FocusedRunCtx = {
+      projectLabel: pinnedProjectLabel,
+      sprintId: pinnedSprintId,
+      sprintLabel: pinnedSprintLabel,
+    };
+    setFocusedRunContext(ctx);
+    return (): void => {
+      setFocusedRunContext(undefined);
+    };
+  }, [pinnedProjectLabel, pinnedSprintId, pinnedSprintLabel, setFocusedRunContext]);
+
+  const baselineSprintId: SprintId | undefined = pinnedSprintId;
   const { executionState, taskState } = useBaselineHealthData({
     baselineSprintId,
     sprintExecutionRepo: deps.sprintExecutionRepo,
@@ -121,7 +161,7 @@ export const ExecuteView = (): React.JSX.Element => {
     helpOpen: ui.helpOpen,
     promptActive: ui.promptActive,
     router,
-    sprintId: selection.sprintId as SprintId | undefined,
+    sprintId: pinnedSprintId,
   });
 
   const now = useLiveClock(isRunning);
@@ -153,7 +193,7 @@ export const ExecuteView = (): React.JSX.Element => {
   } = useCancelHandlers({
     sessions,
     sessionId,
-    sprintId: selection.sprintId as SprintId | undefined,
+    sprintId: pinnedSprintId,
     currentTask,
     taskRepo: deps.taskRepo,
     logger: deps.logger,
@@ -183,17 +223,29 @@ export const ExecuteView = (): React.JSX.Element => {
   // can't fight the help overlay (`?`), the progress overlay (`g`), or a prompt.
   const tasksInputActive = !ui.helpOpen && !ui.progressOpen && !ui.promptActive;
 
-  const tasksPanel = (
+  // When the pinned sprint is no longer available (done or removed), blank the panels that
+  // depend on it and surface a pick-a-sprint prompt so the user knows what happened.
+  const pinnedSprintStale = pinnedSprintId !== undefined && !pinnedSprintAvailable;
+
+  const tasksPanel = pinnedSprintStale ? (
+    <Box paddingX={spacing.indent}>
+      <Text dimColor>Sprint no longer available — pick a sprint to continue.</Text>
+    </Box>
+  ) : (
     <TasksPanelHost
       bucketed={bucketed}
       descriptor={descriptor}
       isRunning={isRunning}
       maxSignalsPerTask={layout.tasksMaxSignals}
+      maxTasks={layout.tasksMaxBlocks}
       inputActive={tasksInputActive}
       now={now}
       taskState={taskState}
     />
   );
+
+  const effectiveExecutionState = pinnedSprintStale ? undefined : executionState;
+  const effectiveTaskState = pinnedSprintStale ? undefined : taskState;
 
   return (
     <ViewShell
@@ -214,8 +266,8 @@ export const ExecuteView = (): React.JSX.Element => {
           elapsed={elapsed}
           layout={layout}
           termColumns={term.columns}
-          executionState={executionState}
-          taskState={taskState}
+          executionState={effectiveExecutionState}
+          taskState={effectiveTaskState}
           tokenUsage={tokenUsage}
           tasksDone={tasksDone}
           tasksTotal={tasksTotal}
@@ -231,6 +283,7 @@ export const ExecuteView = (): React.JSX.Element => {
           onCancelAttempt={onCancelAttempt}
           onCancelFlow={onCancelFlow}
           onDismissCancelScope={onDismissCancelScope}
+          pinnedSprintStale={pinnedSprintStale}
         />
       )}
     </ViewShell>

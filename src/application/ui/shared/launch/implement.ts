@@ -20,7 +20,8 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
 import { Result } from '@src/domain/result.ts';
 import type { Task } from '@src/domain/entity/task.ts';
-import { renderTaskGraphIssue, scheduleIntoWaves } from '@src/domain/entity/task-graph.ts';
+import { renderTaskGraphIssue, validateTaskGraph } from '@src/domain/entity/task-graph.ts';
+import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
@@ -75,15 +76,25 @@ const applyImplementRoleOverrides = (
 /**
  * Resolve the ordered launch queue from a sprint's FULL task set (audit §5 human-gate).
  *
- * `scheduleIntoWaves` validates the graph first, so a cyclic / self-edge / dangling-dependency
- * sprint fails fast here with the rendered issue — a deadlock can't hide behind an innocuous
- * "No tasks to implement" message that only appears after unschedulable tasks are filtered out.
+ * `validateTaskGraph` runs first, so a cyclic / self-edge / dangling-dependency sprint fails fast
+ * here with the rendered issue — a deadlock can't hide behind an innocuous "No tasks to implement"
+ * message that only appears after unschedulable tasks are filtered out.
  *
- * On a sound DAG the waves are flattened (each wave already sorted by `Task.order`) and filtered
- * to the resumable subset (`todo` + `in_progress`), so a task never leads a dependency it relies
- * on. The in-progress-first override is then applied ON TOP via a stable sort (V8 stable) — a
- * resumed task still leads so a relaunch picks up where the prior run died before any fresh work,
- * while dependency order is preserved within each status group.
+ * On a sound DAG the queue is built by a dependency-respecting PRIORITY topological sort over the
+ * RESUMABLE subset (`todo` + `in_progress`): a task is emitted only after every resumable
+ * prerequisite it depends on has been emitted, and among the tasks that are legally runnable at
+ * each step the resumed (`in_progress`) ones lead, then `Task.order` ASC breaks the tie. A done /
+ * blocked prerequisite is NOT in the resumable subgraph, so it never blocks ordering — a resumed
+ * task whose prerequisites are all `done` still leads the queue.
+ *
+ * Why a priority topo-sort and not the old flat in-progress-first sort: the flat sort could hoist a
+ * resumed `in_progress` task AHEAD of a still-`todo` prerequisite it depends on (e.g. after a crash
+ * + manual unblock leaves `{prereq: todo, dependent: in_progress}`). In the serial path the per-task
+ * subchains run in queue order, so the dependent's `dependency-gate` would then fire BEFORE its
+ * prerequisite ran, blocking the dependent `blocked upstream` and dead-ending it for the launch.
+ * Making dependency order a hard constraint (a prerequisite always precedes its dependent) means the
+ * gate never sees a not-yet-run prerequisite — the prereq runs first, settles, and the dependent
+ * resumes behind it.
  *
  * Returns the rendered `TaskGraphIssue` string on an invalid graph, otherwise the ordered queue
  * (possibly empty when nothing is resumable — the caller reports that separately).
@@ -91,14 +102,50 @@ const applyImplementRoleOverrides = (
  * @public
  */
 export const resolveImplementQueue = (tasks: readonly Task[]): Result<readonly Task[], string> => {
-  const schedule = scheduleIntoWaves(tasks);
-  if (!schedule.ok) return Result.error(renderTaskGraphIssue(schedule.error));
-  const resumableIds = new Set(tasks.filter((t) => t.status === 'todo' || t.status === 'in_progress').map((t) => t.id));
-  const scheduled = schedule.value.flat().filter((t) => resumableIds.has(t.id));
-  const queue = [...scheduled].sort((a, b) => {
-    if (a.status === b.status) return 0;
-    return a.status === 'in_progress' ? -1 : 1;
-  });
+  // Validate the full graph first (cycle / self-edge / dangling) so a deadlock surfaces as the
+  // rendered issue rather than a silently-truncated queue.
+  const validation = validateTaskGraph(tasks);
+  if (!validation.ok) return Result.error(renderTaskGraphIssue(validation.error));
+
+  const resumable = tasks.filter((t) => t.status === 'todo' || t.status === 'in_progress');
+  const resumableIds = new Set(resumable.map((t) => t.id));
+
+  // In-degree + successors over the RESUMABLE subgraph only — a dependency that resolves to a
+  // done / blocked (non-resumable) task is already satisfied (or terminal) and must not gate the
+  // dependent here; the dependency-gate leaf handles the blocked-prerequisite case at run time.
+  const byId = new Map<TaskId, Task>(resumable.map((t) => [t.id, t]));
+  const inDegree = new Map<TaskId, number>(resumable.map((t) => [t.id, 0]));
+  const successors = new Map<TaskId, TaskId[]>(resumable.map((t) => [t.id, []]));
+  for (const t of resumable) {
+    for (const dep of t.dependsOn) {
+      if (!resumableIds.has(dep)) continue;
+      inDegree.set(t.id, (inDegree.get(t.id) ?? 0) + 1);
+      successors.get(dep)?.push(t.id);
+    }
+  }
+
+  // Resumed tasks lead, then lowest `Task.order` — applied only among the currently-runnable
+  // frontier, so it can never violate dependency order.
+  const priority = (a: Task, b: Task): number => {
+    if (a.status !== b.status) return a.status === 'in_progress' ? -1 : 1;
+    return a.order - b.order;
+  };
+
+  const queue: Task[] = [];
+  // `Task[]`, not the inferred `(TodoTask | InProgressTask)[]` from `resumable` — successors pushed
+  // below come from `byId` (typed `Task`), and the priority comparator only reads `status`/`order`.
+  const frontier: Task[] = resumable.filter((t) => (inDegree.get(t.id) ?? 0) === 0);
+  while (frontier.length > 0) {
+    frontier.sort(priority);
+    const next = frontier.shift() as Task;
+    queue.push(next);
+    for (const succId of successors.get(next.id) ?? []) {
+      const remaining = (inDegree.get(succId) ?? 0) - 1;
+      inDegree.set(succId, remaining);
+      const succ = byId.get(succId);
+      if (remaining === 0 && succ !== undefined) frontier.push(succ);
+    }
+  }
   return Result.ok(queue);
 };
 
@@ -241,6 +288,7 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
       path: r.path,
       name: r.name,
       ...(r.verifyScript !== undefined ? { verifyScript: r.verifyScript } : {}),
+      ...(r.verifyTimeout !== undefined ? { verifyTimeout: r.verifyTimeout } : {}),
       ...(r.setupScript !== undefined ? { setupScript: r.setupScript } : {}),
     });
   }
@@ -336,16 +384,17 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
     }
   });
   const taskNames = new Map<string, string>(todoTasks.map((t) => [String(t.id), t.name]));
-  // Detect resumes at launch time: any in-progress task whose last attempt is still `running`
-  // (the v8 OOM / Ctrl-C / SIGTERM signature in a prior process) gets a `RecoveryContext`
-  // pinned to its id. We pre-derive here — rather than waiting for the chain's start-attempt
-  // leaf to settle — so the TUI's resume-from-aborted banner shows up *before* the chain
-  // starts executing, not after the first leaf finishes. `process-crash` is the conservative
-  // cause for the cross-process inference; P1j's signal-aware path will refine it.
+  // Detect resumes at launch time: any task whose last attempt is still `running` (the v8 OOM /
+  // Ctrl-C / SIGTERM signature in a prior process) gets a `RecoveryContext` pinned to its id. We
+  // pre-derive here — rather than waiting for the chain's start-attempt leaf to settle — so the
+  // TUI's resume-from-aborted banner shows up *before* the chain starts executing, not after the
+  // first leaf finishes. Keyed on the leftover running attempt, NOT on `status === 'in_progress'`:
+  // a crash can persist a status-corrupt `todo` task whose last attempt is still `running` (which
+  // `startAttemptUseCase` heals), and the banner must fire for it too. `process-crash` is the
+  // conservative cause for the cross-process inference; P1j's signal-aware path will refine it.
   const taskRecovering = new Map<string, RecoveryContext>();
   const nowAtLaunch = deps.app.clock();
   for (const t of todoTasks) {
-    if (t.status !== 'in_progress') continue;
     const last = t.attempts.at(-1);
     if (last === undefined || last.status !== 'running') continue;
     taskRecovering.set(String(t.id), {

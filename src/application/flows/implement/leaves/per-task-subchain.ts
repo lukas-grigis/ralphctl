@@ -11,6 +11,7 @@ import { appendLearningsLeaf } from '@src/application/flows/implement/leaves/app
 import { branchPreflightLeaf } from '@src/application/flows/implement/leaves/branch-preflight.ts';
 import { buildTaskWorkspaceLeaf } from '@src/application/flows/implement/leaves/build-task-workspace.ts';
 import { commitTaskLeaf } from '@src/application/flows/implement/leaves/commit-task.ts';
+import { dependencyGateLeaf, isTaskRunnable } from '@src/application/flows/implement/leaves/dependency-gate.ts';
 import { finalizeGenEvalLeaf } from '@src/application/flows/implement/leaves/finalize-gen-eval.ts';
 import {
   createGenEvalLoop,
@@ -29,15 +30,24 @@ import { uninstallSkillsLeaf } from '@src/application/flows/_shared/skills/unins
  * Per-task subchain factory. Returns the `sequential('task-<id>', [...])` element that runs the
  * complete lifecycle for ONE task.
  *
- * The shape is a once-per-task prologue + an inner attempt loop + a once-per-task epilogue:
+ * The shape is a dependency gate + a guarded body (once-per-task prologue + inner attempt loop +
+ * once-per-task epilogue):
  *
- *   branch-preflight → workspace build → install-skills →           // once per task
- *   loop('task-attempts-<id>', sequential([                          // up to maxAttempts attempts
- *     start-attempt → pre-task-verify → gen-eval loop → finalize →
- *     post-task-verify → commit (guarded) → settle-attempt →
- *     append-learnings → progress-journal
- *   ]), { maxIterations: maxAttempts, shouldStop: terminal }) →
- *   uninstall-skills                                                 // once per task
+ *   dependency-gate →                                                // block-upstream-if prereq ≠ done
+ *   guard('task-runnable-<id>', sequential('task-body-<id>', [        // body runs only when runnable
+ *     branch-preflight → workspace build → install-skills →          // once per task
+ *     loop('task-attempts-<id>', sequential([                         // up to maxAttempts attempts
+ *       start-attempt → pre-task-verify → gen-eval loop → finalize →
+ *       post-task-verify → commit (guarded) → settle-attempt →
+ *       append-learnings → progress-journal
+ *     ]), { maxIterations: maxAttempts, shouldStop: terminal }) →
+ *     uninstall-skills                                               // once per task
+ *   ]))
+ *
+ * The leading `dependency-gate` is the blocked-dependency dead-end fix: if any `dependsOn` task
+ * is not `done`, it transitions this task to `blocked upstream …` and the `task-runnable` guard
+ * skips the entire body — so a dependent never spawns the generator against a tree missing its
+ * prerequisite's work (which used to self-block and ship the sprint partial).
  *
  * The terminal `uninstall-skills` leaf name is the value of {@link IMPLEMENT_TASK_TERMINAL_LEAF}
  * exported from `flow.ts` and is what the TUI's task-completion detector keys on — it stays
@@ -143,169 +153,182 @@ export const createPerTaskSubchain = (
   // a conditional spread so the serial element tree is byte-for-byte unchanged when included.
   const includeBranchPreflight = opts.includeBranchPreflight ?? true;
   return sequential<ImplementCtx>(`task-${String(taskId)}`, [
-    ...(includeBranchPreflight
-      ? [
-          branchPreflightLeaf(
-            { gitRunner: deps.gitRunner, logger: deps.logger },
-            { cwd: repo.path },
-            `branch-preflight-${String(taskId)}`
-          ),
-        ]
-      : []),
-    buildTaskWorkspaceLeaf(
-      { templateLoader: deps.templateLoader, logger: deps.logger },
-      {
-        sprintDir: opts.sprintDir,
-        cwd: repo.path,
-        progressFile: opts.progressFile,
-        ...(repo.verifyScript !== undefined ? { verifyScript: repo.verifyScript } : {}),
-      },
-      taskId
-    ),
-    installSkillsLeaf<ImplementCtx>(
-      { skillsAdapter: deps.skillsAdapter, skillSource: deps.skillSource },
-      { name: `install-skills-${String(taskId)}`, flowId: 'implement', cwdPicker: repoCwdPicker(repo.path) }
-    ),
-    // Inner attempt loop. The body is the full per-attempt segment; the loop re-enters it
-    // until `terminalTaskStatus` reports the settled task `done`/`blocked` or the `maxAttempts`
-    // cap fires. `maxAttempts === 1` runs exactly once (single-attempt-per-launch parity); a
-    // higher cap only manifests on the escalation-retry path. The 1000 ceiling on the `loop`
-    // primitive is just a backstop — `maxAttempts` (validated 1–10) is the real bound here.
-    loop<ImplementCtx>(
-      `task-attempts-${String(taskId)}`,
-      sequential<ImplementCtx>(`task-attempt-body-${String(taskId)}`, [
-        startAttemptLeaf({ taskRepo: deps.taskRepo, clock: deps.clock, logger: deps.logger }, taskId),
-        // PRE-task verify — captures the baseline state of the working tree BEFORE the AI runs
-        // so the post-task-verify can attribute correctly: a red post on a green pre means the
-        // AI regressed; a red post on a red pre is a pre-existing failure (don't blame the AI).
-        // Non-blocking by policy — a red baseline just stamps `baselineBroken: true` on the
-        // attempt and lets the AI try anyway.
-        preTaskVerifyLeaf(
+    // Dependency gate (blocked-dependency dead-end fix). Runs FIRST: if any `dependsOn` task is
+    // not `done`, it transitions this task straight to `blocked upstream …` and the body guard
+    // below skips the whole lifecycle — so a dependent never spawns the generator against a tree
+    // missing its prerequisite's work. Transitive by construction (A blocks → B → C …).
+    dependencyGateLeaf({ taskRepo: deps.taskRepo, logger: deps.logger }, taskId),
+    guard<ImplementCtx>(
+      `task-runnable-${String(taskId)}`,
+      (ctx) => isTaskRunnable(ctx, taskId),
+      sequential<ImplementCtx>(`task-body-${String(taskId)}`, [
+        ...(includeBranchPreflight
+          ? [
+              branchPreflightLeaf(
+                { gitRunner: deps.gitRunner, logger: deps.logger },
+                { cwd: repo.path },
+                `branch-preflight-${String(taskId)}`
+              ),
+            ]
+          : []),
+        buildTaskWorkspaceLeaf(
+          { templateLoader: deps.templateLoader, logger: deps.logger },
           {
-            shellScriptRunner: deps.shellScriptRunner,
-            taskRepo: deps.taskRepo,
-            sprintExecutionRepo: deps.sprintExecutionRepo,
-            interactive: deps.interactive,
-            gitRunner: deps.gitRunner,
-            clock: deps.clock,
-            eventBus: deps.eventBus,
-            logger: deps.logger,
-          },
-          {
-            cwd: repo.path,
             sprintDir: opts.sprintDir,
-            ...(repo.verifyScript !== undefined ? { verifyScript: repo.verifyScript } : {}),
-          },
-          taskId
-        ),
-        // Composite: per-turn generator + evaluator, repeated until a terminal exit is set on ctx
-        // or the configured `maxTurns` budget is hit. The evaluator is guarded — if the generator
-        // self-blocked this turn it set `lastExit` and the evaluator must not run.
-        createGenEvalLoop(
-          {
-            generatorProvider: deps.generatorProvider,
-            evaluatorProvider: deps.evaluatorProvider,
-            templateLoader: deps.templateLoader,
-            signals: deps.signals,
-            writeFile: deps.writeFile,
-            clock: deps.clock,
-            logger: deps.logger,
-            eventBus: deps.eventBus,
-            readConfig,
-            maxTurns: deps.config.harness.maxTurns,
-            plateauThreshold: deps.config.harness.plateauThreshold,
-          },
-          {
             cwd: repo.path,
-            sprintDir: opts.sprintDir,
             progressFile: opts.progressFile,
             ...(repo.verifyScript !== undefined ? { verifyScript: repo.verifyScript } : {}),
-            generator: opts.generator,
-            evaluator: opts.evaluator,
           },
           taskId
         ),
-        finalizeGenEvalLeaf(
+        installSkillsLeaf<ImplementCtx>(
+          { skillsAdapter: deps.skillsAdapter, skillSource: deps.skillSource },
+          { name: `install-skills-${String(taskId)}`, flowId: 'implement', cwdPicker: repoCwdPicker(repo.path) }
+        ),
+        // Inner attempt loop. The body is the full per-attempt segment; the loop re-enters it
+        // until `terminalTaskStatus` reports the settled task `done`/`blocked` or the `maxAttempts`
+        // cap fires. `maxAttempts === 1` runs exactly once (single-attempt-per-launch parity); a
+        // higher cap only manifests on the escalation-retry path. The 1000 ceiling on the `loop`
+        // primitive is just a backstop — `maxAttempts` (validated 1–10) is the real bound here.
+        loop<ImplementCtx>(
+          `task-attempts-${String(taskId)}`,
+          sequential<ImplementCtx>(`task-attempt-body-${String(taskId)}`, [
+            startAttemptLeaf({ taskRepo: deps.taskRepo, clock: deps.clock, logger: deps.logger }, taskId),
+            // PRE-task verify — captures the baseline state of the working tree BEFORE the AI runs
+            // so the post-task-verify can attribute correctly: a red post on a green pre means the
+            // AI regressed; a red post on a red pre is a pre-existing failure (don't blame the AI).
+            // Non-blocking by policy — a red baseline just stamps `baselineBroken: true` on the
+            // attempt and lets the AI try anyway.
+            preTaskVerifyLeaf(
+              {
+                shellScriptRunner: deps.shellScriptRunner,
+                taskRepo: deps.taskRepo,
+                sprintExecutionRepo: deps.sprintExecutionRepo,
+                interactive: deps.interactive,
+                gitRunner: deps.gitRunner,
+                clock: deps.clock,
+                eventBus: deps.eventBus,
+                logger: deps.logger,
+              },
+              {
+                cwd: repo.path,
+                sprintDir: opts.sprintDir,
+                ...(repo.verifyScript !== undefined ? { verifyScript: repo.verifyScript } : {}),
+                ...(repo.verifyTimeout !== undefined ? { timeoutMs: repo.verifyTimeout } : {}),
+              },
+              taskId
+            ),
+            // Composite: per-turn generator + evaluator, repeated until a terminal exit is set on ctx
+            // or the configured `maxTurns` budget is hit. The evaluator is guarded — if the generator
+            // self-blocked this turn it set `lastExit` and the evaluator must not run.
+            createGenEvalLoop(
+              {
+                generatorProvider: deps.generatorProvider,
+                evaluatorProvider: deps.evaluatorProvider,
+                templateLoader: deps.templateLoader,
+                signals: deps.signals,
+                writeFile: deps.writeFile,
+                clock: deps.clock,
+                logger: deps.logger,
+                eventBus: deps.eventBus,
+                readConfig,
+                maxTurns: deps.config.harness.maxTurns,
+                plateauThreshold: deps.config.harness.plateauThreshold,
+              },
+              {
+                cwd: repo.path,
+                sprintDir: opts.sprintDir,
+                progressFile: opts.progressFile,
+                ...(repo.verifyScript !== undefined ? { verifyScript: repo.verifyScript } : {}),
+                generator: opts.generator,
+                evaluator: opts.evaluator,
+              },
+              taskId
+            ),
+            finalizeGenEvalLeaf(
+              {
+                taskRepo: deps.taskRepo,
+                readConfig,
+                logger: deps.logger,
+                eventBus: deps.eventBus,
+                clock: deps.clock,
+                configuredGeneratorModel: opts.generator.model,
+              },
+              taskId
+            ),
+            // Verify gate sits BEFORE commit so a red verifyScript blocks the task instead of landing
+            // broken code on the sprint branch. On `verify-failed` the leaf stamps `lastBlockReason`,
+            // the guard around `commit-task` skips, and `settle-attempt` marks the task `blocked`.
+            // The AI is told to run the verify script itself via the prompt; this leaf is the
+            // harness-side enforcement.
+            postTaskVerifyLeaf(
+              {
+                shellScriptRunner: deps.shellScriptRunner,
+                taskRepo: deps.taskRepo,
+                clock: deps.clock,
+                eventBus: deps.eventBus,
+                logger: deps.logger,
+              },
+              {
+                cwd: repo.path,
+                sprintDir: opts.sprintDir,
+                ...(repo.verifyScript !== undefined ? { verifyScript: repo.verifyScript } : {}),
+                ...(repo.verifyTimeout !== undefined ? { timeoutMs: repo.verifyTimeout } : {}),
+              },
+              taskId
+            ),
+            guard<ImplementCtx>(
+              `commit-task-guard-${String(taskId)}`,
+              (ctx) => ctx.lastBlockReason === undefined,
+              commitTaskLeaf(
+                {
+                  gitRunner: deps.gitRunner,
+                  taskRepo: deps.taskRepo,
+                  clock: deps.clock,
+                  logger: deps.logger,
+                },
+                { cwd: repo.path },
+                taskId
+              )
+            ),
+            settleAttemptLeaf(
+              { taskRepo: deps.taskRepo, clock: deps.clock, logger: deps.logger, gitRunner: deps.gitRunner },
+              { cwd: repo.path },
+              taskId
+            ),
+            // WRITE side of Theme 6 (audit-[B5]). Reads the STILL-POPULATED `currentAttemptLearnings`
+            // accumulator and appends one NDJSON line per learning to the project's ledger. MUST run
+            // BEFORE `progress-journal` — the journal clears that accumulator after it renders. Append
+            // only (the read side dedups by stable id); best-effort (a failed append logs + proceeds).
+            appendLearningsLeaf(
+              { appendFile: deps.appendFile, clock: deps.clock, logger: deps.logger },
+              { memoryRoot: opts.memoryRoot, projectId: opts.projectId, repoPath: repo.path, repoName: repo.name },
+              taskId
+            ),
+            // Append the per-attempt journal section to `<sprintDir>/progress.md`. Records the
+            // verdict, attempt count, round info, duration, and the deduped decision count for the
+            // just-settled attempt. Best-effort — the leaf logs and swallows failures.
+            progressJournalLeaf(
+              { appendFile: deps.appendFile, clock: deps.clock, logger: deps.logger },
+              { progressFile: opts.progressFile, totalRounds: deps.config.harness.maxTurns },
+              taskId
+            ),
+          ]),
           {
-            taskRepo: deps.taskRepo,
-            readConfig,
-            logger: deps.logger,
-            eventBus: deps.eventBus,
-            clock: deps.clock,
-            configuredGeneratorModel: opts.generator.model,
-          },
-          taskId
+            // The attempt count is bounded by the task's own `maxAttempts` (validated 1–10). When
+            // unset, the `loop` primitive's 1000 ceiling is the backstop and `shouldStop` (terminal
+            // status) is the real bound. The domain's `failCurrentAttempt` still transitions the
+            // task to `blocked` once attempts hit the cap, so a budget-exhausted task is never
+            // silently dropped — `shouldStop` just recognises that terminal status and exits.
+            ...(task.maxAttempts !== undefined ? { maxIterations: task.maxAttempts } : {}),
+            shouldStop: (ctx) => terminalTaskStatus(ctx, taskId),
+          }
         ),
-        // Verify gate sits BEFORE commit so a red verifyScript blocks the task instead of landing
-        // broken code on the sprint branch. On `verify-failed` the leaf stamps `lastBlockReason`,
-        // the guard around `commit-task` skips, and `settle-attempt` marks the task `blocked`.
-        // The AI is told to run the verify script itself via the prompt; this leaf is the
-        // harness-side enforcement.
-        postTaskVerifyLeaf(
-          {
-            shellScriptRunner: deps.shellScriptRunner,
-            taskRepo: deps.taskRepo,
-            clock: deps.clock,
-            eventBus: deps.eventBus,
-            logger: deps.logger,
-          },
-          {
-            cwd: repo.path,
-            sprintDir: opts.sprintDir,
-            ...(repo.verifyScript !== undefined ? { verifyScript: repo.verifyScript } : {}),
-          },
-          taskId
+        uninstallSkillsLeaf<ImplementCtx>(
+          { skillsAdapter: deps.skillsAdapter },
+          { name: `${opts.terminalLeafName}-${String(taskId)}`, cwdPicker: repoCwdPicker(repo.path) }
         ),
-        guard<ImplementCtx>(
-          `commit-task-guard-${String(taskId)}`,
-          (ctx) => ctx.lastBlockReason === undefined,
-          commitTaskLeaf(
-            {
-              gitRunner: deps.gitRunner,
-              taskRepo: deps.taskRepo,
-              clock: deps.clock,
-              logger: deps.logger,
-            },
-            { cwd: repo.path },
-            taskId
-          )
-        ),
-        settleAttemptLeaf(
-          { taskRepo: deps.taskRepo, clock: deps.clock, logger: deps.logger, gitRunner: deps.gitRunner },
-          { cwd: repo.path },
-          taskId
-        ),
-        // WRITE side of Theme 6 (audit-[B5]). Reads the STILL-POPULATED `currentAttemptLearnings`
-        // accumulator and appends one NDJSON line per learning to the project's ledger. MUST run
-        // BEFORE `progress-journal` — the journal clears that accumulator after it renders. Append
-        // only (the read side dedups by stable id); best-effort (a failed append logs + proceeds).
-        appendLearningsLeaf(
-          { appendFile: deps.appendFile, clock: deps.clock, logger: deps.logger },
-          { memoryRoot: opts.memoryRoot, projectId: opts.projectId, repoPath: repo.path, repoName: repo.name },
-          taskId
-        ),
-        // Append the per-attempt journal section to `<sprintDir>/progress.md`. Records the
-        // verdict, attempt count, round info, duration, and the deduped decision count for the
-        // just-settled attempt. Best-effort — the leaf logs and swallows failures.
-        progressJournalLeaf(
-          { appendFile: deps.appendFile, clock: deps.clock, logger: deps.logger },
-          { progressFile: opts.progressFile, totalRounds: deps.config.harness.maxTurns },
-          taskId
-        ),
-      ]),
-      {
-        // The attempt count is bounded by the task's own `maxAttempts` (validated 1–10). When
-        // unset, the `loop` primitive's 1000 ceiling is the backstop and `shouldStop` (terminal
-        // status) is the real bound. The domain's `failCurrentAttempt` still transitions the
-        // task to `blocked` once attempts hit the cap, so a budget-exhausted task is never
-        // silently dropped — `shouldStop` just recognises that terminal status and exits.
-        ...(task.maxAttempts !== undefined ? { maxIterations: task.maxAttempts } : {}),
-        shouldStop: (ctx) => terminalTaskStatus(ctx, taskId),
-      }
-    ),
-    uninstallSkillsLeaf<ImplementCtx>(
-      { skillsAdapter: deps.skillsAdapter },
-      { name: `${opts.terminalLeafName}-${String(taskId)}`, cwdPicker: repoCwdPicker(repo.path) }
+      ])
     ),
   ]);
 };

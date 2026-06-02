@@ -88,6 +88,7 @@ describe('refineTicketInteractiveLeaf — audit-[09] contract', () => {
       writeFile,
       eventBus,
       model: 'claude-sonnet-4-6',
+      sprintId: 'test-sprint',
     };
   };
 

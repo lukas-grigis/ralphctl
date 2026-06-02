@@ -29,8 +29,8 @@ const baseRecord = {
 };
 
 describe('settings.harness — escalateOnPlateau + escalationMap', () => {
-  it('fresh-install defaults are off / empty', () => {
-    expect(DEFAULT_SETTINGS.harness.escalateOnPlateau).toBe(false);
+  it('fresh-install defaults: escalateOnPlateau on, empty map', () => {
+    expect(DEFAULT_SETTINGS.harness.escalateOnPlateau).toBe(true);
     expect(DEFAULT_SETTINGS.harness.escalationMap).toEqual({});
   });
 
@@ -92,7 +92,7 @@ describe('settings.harness — escalateOnPlateau + escalationMap', () => {
     const parsed = SettingsSchema.safeParse(record);
     expect(parsed.success).toBe(true);
     if (!parsed.success) return;
-    expect(parsed.data.harness.escalateOnPlateau).toBe(false);
+    expect(parsed.data.harness.escalateOnPlateau).toBe(true);
     expect(parsed.data.harness.escalationMap).toEqual({});
   });
 });

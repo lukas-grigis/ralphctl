@@ -222,6 +222,54 @@ describe('generatorLeaf', () => {
     expect(provider.recordedSessions[0]?.model).toBe('claude-sonnet-4-6');
   });
 
+  // Plateau-break: when the escalation policy stamped the task (model bump or same-model nudge),
+  // the generator must inject the "change your approach" directive into the prompt.
+  it('injects the change-of-approach directive into prompt.md when the task is a plateau-break (escalated)', async () => {
+    const initial = makeInProgressTaskWithRunningAttempt();
+    // A same-model nudge (top-of-ladder) stamps escalatedFromModel — the directive arms on that.
+    const stamped = recordTaskEscalation(initial, 'claude-opus-4-8', 'claude-opus-4-8');
+    if (!stamped.ok) throw stamped.error;
+    const leaf = generatorLeaf(buildDeps(), stamped.value.id);
+    const result = await leaf.execute(baseCtx(stamped.value));
+    expect(result.ok).toBe(true);
+
+    const content = await fs.readFile(join(String(root.root), 'rounds', '1', 'generator', 'prompt.md'), 'utf8');
+    expect(content).toContain('You have plateaued');
+    expect(content).toContain('change your approach');
+  });
+
+  it('omits the change-of-approach directive when the task has not escalated', async () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    const leaf = generatorLeaf(buildDeps(), task.id);
+    await leaf.execute(baseCtx(task));
+    const content = await fs.readFile(join(String(root.root), 'rounds', '1', 'generator', 'prompt.md'), 'utf8');
+    expect(content).not.toContain('You have plateaued');
+  });
+
+  // Abort wire (keystone for #1/#5): the runner threads its AbortController signal into every
+  // `element.execute(ctx, signal)`; the leaf framework forwards it as the 2nd arg of the
+  // use-case `execute(input, signal)`. The generator must carry it onto the spawned session so
+  // the headless provider arms its SIGTERM kill ladder. Before this wire the field was always
+  // undefined and a manual abort let the child run to completion (stranding lock + spinner).
+  it('threads the chain abort signal onto the spawned session so a cancel can kill the child', async () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    const provider = createFakeAiProvider({ responses: { implement: '' } });
+    const leaf = generatorLeaf({ ...buildDeps(), provider }, task.id);
+    const controller = new AbortController();
+    const result = await leaf.execute(baseCtx(task), controller.signal);
+    expect(result.ok).toBe(true);
+    expect(provider.recordedSessions[0]?.abortSignal).toBe(controller.signal);
+  });
+
+  it('leaves the session abortSignal undefined when the runner passes no signal', async () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    const provider = createFakeAiProvider({ responses: { implement: '' } });
+    const leaf = generatorLeaf({ ...buildDeps(), provider }, task.id);
+    const result = await leaf.execute(baseCtx(task));
+    expect(result.ok).toBe(true);
+    expect(provider.recordedSessions[0]?.abortSignal).toBeUndefined();
+  });
+
   it('publishes a banner-clear for the escalation banner when a new round starts', async () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const eventBus = createInMemoryEventBus();

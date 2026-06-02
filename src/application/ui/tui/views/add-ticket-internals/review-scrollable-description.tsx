@@ -14,16 +14,37 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { useSuppressGlobalHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
+import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 
 /**
- * Reserve rows for the chrome around the scrollable description body — banner + breadcrumb +
- * section stamp at the top, plus the Title row, the Link row, the spacing gutter, the
- * ConfirmPrompt (message + pills + hint), and the status bar at the bottom. The exact rows
- * vary with banner mode and terminal width; this constant is the worst-case estimate that
- * keeps the Link row and the confirm pills visible on a default 24-row terminal. Floor on the
- * viewport ensures a tiny terminal still shows something useful.
+ * Rows of chrome reserved around the scrollable description body when the header is the compact
+ * single-line strip (the default for this view below the full-banner width threshold):
+ * breadcrumb + section stamp at the top, plus the Title row, the Link row, the spacing gutter,
+ * the ConfirmPrompt (message + pills + hint), and the status bar at the bottom. Tuned so a
+ * default 24-row terminal scrolls a long body while keeping the Link row and confirm pills in
+ * view.
  */
-const REVIEW_CHROME_ROWS = 14;
+const REVIEW_CHROME_COMPACT = 14;
+
+/**
+ * Extra rows the full wordmark banner occupies over the compact strip (round frame + art block
+ * + quote rail). On a wide terminal the banner auto-switches to the full frame; reserving only
+ * the compact estimate there is the brittle failure this layout replaces — the unaccounted rows
+ * let the body grow tall enough to push the Title / Link / confirm rows off the bottom.
+ */
+const REVIEW_CHROME_FULL_BANNER_EXTRA = 10;
+
+/**
+ * Width at/below which the banner renders its compact strip instead of the full wordmark frame.
+ * Mirrors the Banner component's own threshold so the chrome reserve tracks what is drawn.
+ */
+const BANNER_FULL_MIN_WIDTH = 100;
+
+/**
+ * Floor on the description viewport. On a terminal too short for a comfortable area the body
+ * shrinks to this many rows — still scrollable through the full text — instead of stealing rows
+ * from the Title / Link / confirm chrome, so those controls stay visible.
+ */
 const REVIEW_MIN_VIEWPORT = 4;
 
 interface ReviewScrollableDescriptionProps {
@@ -32,8 +53,15 @@ interface ReviewScrollableDescriptionProps {
 
 export const ReviewScrollableDescription = ({ text }: ReviewScrollableDescriptionProps): React.JSX.Element => {
   const term = useTerminalSize();
+  const ui = useUiState();
   const lines = useMemo<readonly string[]>(() => text.split('\n'), [text]);
-  const viewport = Math.max(REVIEW_MIN_VIEWPORT, term.rows - REVIEW_CHROME_ROWS);
+  // Mirror ViewShell → Banner: the user `b`-toggle forces the compact strip; otherwise the
+  // banner auto-switches on width. Reserve the chrome that matches whichever header is actually
+  // drawn so the surrounding rows always fit, rather than a single worst-case constant that
+  // under-reserves on a wide terminal showing the full banner.
+  const bannerIsCompact = ui.bannerCompact || term.columns < BANNER_FULL_MIN_WIDTH;
+  const chromeRows = bannerIsCompact ? REVIEW_CHROME_COMPACT : REVIEW_CHROME_COMPACT + REVIEW_CHROME_FULL_BANNER_EXTRA;
+  const viewport = Math.max(REVIEW_MIN_VIEWPORT, term.rows - chromeRows);
   const overflows = lines.length > viewport;
   const maxOffset = Math.max(0, lines.length - viewport);
   const [offset, setOffset] = useState(0);

@@ -48,4 +48,33 @@ describe('implementSession', () => {
     const session = implementSession(SANDBOX, REPO, SPRINT_DIR, PROMPT, 'claude-opus-4-8', SIGNALS, 'evaluator');
     expect(String(session.outputDir)).toBe('/tmp/sandbox/rounds/2/evaluator');
   });
+
+  // Abort wire: without an abortSignal the field is absent (so the field stays optional and
+  // single-shot sessions don't carry a dangling signal).
+  it('omits `abortSignal` when none is supplied', () => {
+    const session = implementSession(SANDBOX, REPO, SPRINT_DIR, PROMPT, 'claude-opus-4-8', SIGNALS, 'generator');
+    expect(session).not.toHaveProperty('abortSignal');
+  });
+
+  // Abort wire (keystone): the leaf framework hands `execute(input, signal)` the chain's abort
+  // signal; the leaf threads it here. The headless provider only arms its SIGTERM→SIGKILL kill
+  // ladder + abort-aware exit classification when `session.abortSignal` is set, so this forward
+  // is what makes a TUI cancel actually kill the in-flight child (instead of letting it run to
+  // natural completion — which previously stranded the repo lock and the progress spinner).
+  it('forwards a supplied `abortSignal` onto the session descriptor', () => {
+    const controller = new AbortController();
+    const session = implementSession(
+      SANDBOX,
+      REPO,
+      SPRINT_DIR,
+      PROMPT,
+      'claude-opus-4-8',
+      SIGNALS,
+      'generator',
+      undefined,
+      undefined,
+      controller.signal
+    );
+    expect(session.abortSignal).toBe(controller.signal);
+  });
 });

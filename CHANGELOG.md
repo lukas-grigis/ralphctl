@@ -7,6 +7,102 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Plateau "change your approach" nudge + the model ladder is live by default.** When the
+  generator-evaluator loop plateaus (the same checks keep failing with no real progress),
+  `escalateOnPlateau` (now defaulting **on**) grants one more attempt: it climbs the model ladder
+  when a stronger rung exists AND injects a "you have plateaued — change your approach" directive
+  into that attempt's generator turn. For a top-of-ladder generator (e.g. the default Opus) there is
+  no higher model, so it keeps the model and relies on the directive to break out of a non-converging
+  approach. The directive renders via a new `{{PLATEAU_DIRECTIVE_SECTION}}` in the implement prompt
+  and is generator-only (the evaluator's rubric is held constant).
+
+- **Tasks-column windowing in the Execute view.** The middle Tasks column now renders an anchored
+  window of cards centred on the active task (`computeAnchoredWindow`) rather than mapping the entire
+  task list. With 3+ tasks the unwindowed column overflowed and pushed the Recent-log panel and footer
+  off-screen. Dim `▴ N more above` / `▾ N more below` overflow cues replace the clipped tail.
+
+- **Cascade-unblock for upstream-blocked dependents.** Unblocking a task now automatically re-arms
+  the whole subtree the dependency gate parked as "blocked upstream". Previously each blocked dependent
+  had to be hand-unblocked one at a time. Own-failure blocks (evaluator / verify / budget) are never
+  auto-cleared — they need a real fix.
+
+- **Block-reason surfacing in task cards.** Blocked task cards in the Execute view now show _why_ the
+  task blocked (`blockedReason` from the entity — own failure vs `blocked upstream — …`) instead of a
+  bare status badge.
+
+### Fixed
+
+- **Manual abort now kills the AI child process.** The chain `AbortSignal` is threaded all the way
+  into `implementSession()` and from there into the headless provider's SIGTERM→SIGKILL kill ladder,
+  abort-aware exit classification, and cancellable rate-limit sleep. Previously the signal was silently
+  dropped at the leaf boundary, letting the spawned `claude` / `codex` child run to natural completion
+  after a cancel — which stranded the repo lock (heartbeat kept it fresh) and left the
+  progress spinner / `[RUNNING]` badge stuck until the child finished on its own. The fix is applied
+  uniformly to all headless AI leaves: `implement` generator + evaluator, `review`, `create-pr`,
+  `readiness`, `detect-scripts`, and `detect-skills`.
+
+- **Dependent tasks no longer run blindly when their prerequisite is blocked.** A new `dependency-gate`
+  leaf at the head of every per-task subchain checks whether all `dependsOn` tasks are `done`; if any
+  prerequisite is not done (blocked or still unsettled), the dependent is transitioned to
+  `blocked upstream — …` and the rest of the subchain is skipped — no AI spawn wasted. The block is
+  transitive by construction (A blocks → B → C). Previously the wave scheduler ran dependents
+  regardless of prerequisite outcome, producing a cascade of doomed spawns that self-blocked and looked
+  like independent failures.
+
+- **Sprint no longer flips to `review` mid-run.** The `active → review` transition now requires every
+  task to be settled (`done` or `blocked`) AND at least one settled `done`. The prior predicate
+  (`some(done)`) flipped to review the instant the first task finished, silently shipping a partial
+  sprint with remaining tasks still `todo` / `in_progress`. An all-blocked run stays `active` — the
+  operator can fix the blocker and re-run implement without first backing the sprint out of review.
+
+- **Codex resume falls back to a cold spawn when the rollout is gone.** After a crash or abort the
+  Codex rollout (thread) can vanish; `codex exec resume <id>` then exits with
+  `thread/resume failed: no rollout found (code -32600)` and no `signals.json`, blocking the task.
+  The codex adapter now detects that exact error and retries once with a full cold spawn (dropping
+  `--resume`) before surfacing the failure. The fallback fires at most once per `generate()` call and
+  emits a warn-level log entry.
+
+- **`verifyTimeout` is now honoured.** `Repository.verifyTimeout` was threaded as far as the entity
+  but dropped between the launcher and `RepoExecConfig`, so a configured verify timeout had zero effect
+  and a hung verify burned the full 5-minute default on both the pre-task and post-task calls. The
+  value is now copied into `RepoExecConfig` and forwarded to both verify leaves as `timeoutMs`.
+
+- **Resume no longer dead-ends a dependent scheduled ahead of its prerequisite.** The implement launch
+  queue now uses a dependency-respecting priority order: a resumed (`in_progress`) task leads only among
+  the tasks runnable at each step, never ahead of a `todo` / `in_progress` task it depends on. The prior
+  flat in-progress-first sort could place a dependent before its prerequisite in the serial queue, so the
+  new `dependency-gate` blocked the dependent `blocked upstream` before its prerequisite ran — stranding
+  it for the launch and shipping the sprint to `review` missing work.
+
+- **A task that crashes on its final attempt now lands `blocked` durably.** On resume, settling the
+  leftover `running` attempt can push the task over its attempt budget; the `blocked` transition was
+  computed but not persisted, so every relaunch re-hit the same error and the task never surfaced as
+  blocked (a stuck loop). The blocked state is now written before the error is raised, so the launch
+  queue filters it out and the operator can `unblock` it.
+
+### Changed
+
+- **Refine writes back as an issue comment, not a description overwrite.** The refine reviewer's
+  write-back options changed: the old "approve & update" (overwrote the issue description) and
+  "approve & create" (opened a new issue from `defaultIssueOrigin`) are replaced by a single
+  **"Post as comment"** choice that appends the refined requirements as a NEW comment on the ticket's
+  linked issue, leaving the human-authored description untouched. When the reviewer edits the AI's
+  proposal, the comment carries the edited text (matching what is persisted locally). Non-interactive
+  runs opt in via `settings.scm.postRefinementComment` (default `false`). The `IssuePusher` port is now
+  comment-only (`comment(url, { body })`, backed by `gh issue comment` / `glab issue comment`); the
+  `update` / `create` methods are gone. `Project.defaultIssueOrigin` survives as a persisted field but
+  refine no longer consults it, and settings / project files written before this change parse unchanged.
+
+- **A plateau never blocks the task anymore.** `harness.escalateOnPlateau` now defaults to `true`
+  (was `false`). When the gen-eval loop plateaus, the harness grants one more attempt (model
+  escalation and/or the change-of-approach directive); after that single retry — or when no attempt
+  budget remains, or the generator is already at the top of the ladder — the work is preserved
+  (done-with-warning), matching the prior opt-out behaviour. The previous "plateau at the top of the
+  ladder / after escalation → blocked" paths that discarded the work are gone. Set
+  `harness.escalateOnPlateau=false` to keep the legacy done-with-warning-on-first-plateau behaviour.
+
 ## [0.9.0] - 2026-06-01
 
 ### Added

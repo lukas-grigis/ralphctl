@@ -271,17 +271,15 @@ export const setupScriptRunnerLeaf = (
             }
 
             // pnpm 11 hardened `removeModulesDirSafe` to abort on missing TTY rather than
-            // silently re-creating `node_modules` (pnpm/pnpm#9966). When the marker fires we
-            // surface an actionable project-side hint — `npm_config_confirm_modules_purge=false`
-            // (the env shim in shell-script-runner.ts) does NOT cover this code path, so the
-            // operator has to fix it at the project level. We deliberately do NOT auto-retry
-            // with `CI=true`: that flag flips Maven Surefire, Spring Boot
-            // `@DisabledIfEnvironmentVariable("CI")` gates, pnpm's frozen-lockfile semantics,
-            // and assorted other toolchain heuristics, so a "green" retry could mask drift from
-            // the real baseline the post-task verify gate later runs without `CI=true`.
+            // silently re-creating `node_modules` (pnpm/pnpm#9966 / #11562). The shell runner
+            // now sets `CI=true` (+ `PNPM_CONFIG_FROZEN_LOCKFILE=false`) on every setup/verify
+            // child — the only lever that suppresses this on pnpm 11, where every
+            // `confirm-modules-purge=false` form is ignored. So this marker should fire only when
+            // `CI` has been explicitly overridden in the operator's environment; the hint points
+            // there rather than asking the project under development to adapt.
             const noTtyDetected = output.includes(PNPM_NO_TTY_ERROR_MARKER);
             const pnpmTtyHint = noTtyDetected
-              ? 'pnpm no-TTY abort detected. Fix project-side: pin pnpm < 11 in mise.toml / package.json#packageManager (pnpm/pnpm#9966), run `pnpm install` once in a terminal to resync, or add `confirm-modules-purge=false` to .npmrc.'
+              ? 'pnpm no-TTY abort. The harness sets `CI=true` (+ `PNPM_CONFIG_FROZEN_LOCKFILE=false`) on setup/verify to prevent this — `CI` looks overridden in your environment. Clear `CI`, or run the install once in a terminal to resync `node_modules`.'
               : undefined;
             deps.eventBus.publish({
               type: 'log',

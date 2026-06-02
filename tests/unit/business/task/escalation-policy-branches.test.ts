@@ -94,7 +94,7 @@ describe('decideEscalation — user-only and edge cases', () => {
     }
   });
 
-  it('returns no-mapping for a model unknown to both default and user maps', () => {
+  it('returns nudge for a model unknown to both default and user maps (no rung above)', () => {
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     const decision = decideEscalation({
       task,
@@ -103,8 +103,8 @@ describe('decideEscalation — user-only and edge cases', () => {
       userMap: {},
     });
 
-    expect(decision.kind).toBe('no-mapping');
-    if (decision.kind === 'no-mapping') {
+    expect(decision.kind).toBe('nudge');
+    if (decision.kind === 'nudge') {
       expect(decision.currentModel).toBe('completely-unknown-model');
     }
   });

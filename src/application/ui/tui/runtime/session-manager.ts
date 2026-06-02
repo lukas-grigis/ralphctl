@@ -10,6 +10,8 @@
 
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
+import type { ProjectId } from '@src/domain/value/id/project-id.ts';
+import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { Trace } from '@src/application/chain/trace.ts';
 import type { Runner, RunnerStatus } from '@src/application/chain/run/runner.ts';
 
@@ -83,6 +85,17 @@ export interface SessionDescriptor {
    */
   readonly generatorModel?: string;
   readonly evaluatorModel?: string;
+  /**
+   * Project and sprint the run was launched against, pinned at launch time for the run's
+   * lifetime. The execute view reads these to identify the run's own sprint independently of
+   * the mutable global selection. Undefined when the flow was not launched against a project
+   * or sprint (e.g. create-sprint leaves pinnedSprintId unset because the sprint does not
+   * yet exist at launch time).
+   */
+  readonly pinnedProjectId?: ProjectId;
+  readonly pinnedProjectLabel?: string;
+  readonly pinnedSprintId?: SprintId;
+  readonly pinnedSprintLabel?: string;
 }
 
 export interface SessionRecord {
@@ -113,11 +126,21 @@ export interface SessionManager {
     readonly taskRecovering?: ReadonlyMap<string, RecoveryContext>;
     readonly generatorModel?: string;
     readonly evaluatorModel?: string;
+    readonly pinnedProjectId?: ProjectId;
+    readonly pinnedProjectLabel?: string;
+    readonly pinnedSprintId?: SprintId;
+    readonly pinnedSprintLabel?: string;
   }): SessionRecord;
   /** Request the runner to abort. No-op if the session is already terminal. */
   abort(id: string): void;
   /** Drop a session from the registry. Used after the user dismisses a finished run. */
   remove(id: string): void;
+  /**
+   * Retroactively pin the sprint on an existing descriptor. Called by sprint-bound launchers
+   * when the sprint is created mid-run (e.g. create-sprint) so the descriptor's pinned sprint
+   * fields are updated once the id/name become known. No-op if the runner id is not found.
+   */
+  setPinnedSprint(runnerId: string, sprintId: SprintId, sprintLabel: string): void;
   /** Subscribe to "registry changed" notifications. */
   subscribe(fn: SessionListener): () => void;
 }
@@ -198,6 +221,10 @@ export const createSessionManager = (opts?: { readonly clock?: () => number }): 
       taskRecovering,
       generatorModel,
       evaluatorModel,
+      pinnedProjectId,
+      pinnedProjectLabel,
+      pinnedSprintId,
+      pinnedSprintLabel,
     }): SessionRecord {
       evict(clock());
       const descriptor: SessionDescriptor = {
@@ -215,6 +242,10 @@ export const createSessionManager = (opts?: { readonly clock?: () => number }): 
         ...(taskRecovering !== undefined ? { taskRecovering } : {}),
         ...(generatorModel !== undefined ? { generatorModel } : {}),
         ...(evaluatorModel !== undefined ? { evaluatorModel } : {}),
+        ...(pinnedProjectId !== undefined ? { pinnedProjectId } : {}),
+        ...(pinnedProjectLabel !== undefined ? { pinnedProjectLabel } : {}),
+        ...(pinnedSprintId !== undefined ? { pinnedSprintId } : {}),
+        ...(pinnedSprintLabel !== undefined ? { pinnedSprintLabel } : {}),
       };
       const record: SessionRecord = { descriptor, runner: runner as Runner<unknown> };
       records.set(runner.id, record);
@@ -275,6 +306,9 @@ export const createSessionManager = (opts?: { readonly clock?: () => number }): 
     },
     remove(id: string): void {
       if (records.delete(id)) notify();
+    },
+    setPinnedSprint(runnerId: string, sprintId: SprintId, sprintLabel: string): void {
+      update(runnerId, { pinnedSprintId: sprintId, pinnedSprintLabel: sprintLabel });
     },
     subscribe(fn: SessionListener): () => void {
       listeners.add(fn);

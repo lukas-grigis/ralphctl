@@ -59,33 +59,33 @@ const makeChild = (
   return child;
 };
 
-describe('createIssuePusher — update', () => {
-  it('GitHub: dispatches to `gh issue edit` with body on stdin', async () => {
+describe('createIssuePusher — comment', () => {
+  it('GitHub: dispatches to `gh issue comment` with body on stdin', async () => {
     const { spawn, capture } = scriptedSpawn([
       {
         command: 'gh',
-        args: ['issue', 'edit', '42', '--repo', 'x/y', '--body-file', '-'],
+        args: ['issue', 'comment', '42', '--repo', 'x/y', '--body-file', '-'],
         stdout: '',
         exitCode: 0,
       },
     ]);
     const pusher = createIssuePusher({ spawn });
-    const r = await pusher.update('https://github.com/x/y/issues/42', { body: 'new body' });
+    const r = await pusher.comment('https://github.com/x/y/issues/42', { body: 'new body' });
     expect(r.ok).toBe(true);
     expect(capture.stdinWrites).toEqual(['new body']);
   });
 
-  it('GitLab: dispatches to `glab issue update` with --description flag', async () => {
+  it('GitLab: dispatches to `glab issue comment` with --body flag', async () => {
     const { spawn, capture } = scriptedSpawn([
       {
         command: 'glab',
-        args: ['issue', 'update', '7', '--repo', 'foo/bar', '--description', 'new body'],
+        args: ['issue', 'comment', '7', '--repo', 'foo/bar', '--body', 'new body'],
         stdout: '',
         exitCode: 0,
       },
     ]);
     const pusher = createIssuePusher({ spawn });
-    const r = await pusher.update('https://gitlab.com/foo/bar/-/issues/7', { body: 'new body' });
+    const r = await pusher.comment('https://gitlab.com/foo/bar/-/issues/7', { body: 'new body' });
     expect(r.ok).toBe(true);
     // glab takes the body as a flag value, not on stdin.
     expect(capture.stdinWrites).toEqual([]);
@@ -94,7 +94,7 @@ describe('createIssuePusher — update', () => {
   it('rejects unsupported issue URLs with a parse error', async () => {
     const { spawn } = scriptedSpawn([]);
     const pusher = createIssuePusher({ spawn });
-    const r = await pusher.update('https://example.com/not-an-issue', { body: 'x' });
+    const r = await pusher.comment('https://example.com/not-an-issue', { body: 'x' });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error.message).toMatch(/unsupported issue URL/);
   });
@@ -103,63 +103,15 @@ describe('createIssuePusher — update', () => {
     const { spawn } = scriptedSpawn([
       {
         command: 'gh',
-        args: ['issue', 'edit', '42', '--repo', 'x/y', '--body-file', '-'],
+        args: ['issue', 'comment', '42', '--repo', 'x/y', '--body-file', '-'],
         stdout: '',
         stderr: 'gh: not authenticated',
         exitCode: 1,
       },
     ]);
     const pusher = createIssuePusher({ spawn });
-    const r = await pusher.update('https://github.com/x/y/issues/42', { body: 'x' });
+    const r = await pusher.comment('https://github.com/x/y/issues/42', { body: 'x' });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error.message).toMatch(/gh issue edit failed.*not authenticated/);
-  });
-});
-
-describe('createIssuePusher — create', () => {
-  it('GitHub: dispatches to `gh issue create` and extracts the returned URL from stdout', async () => {
-    const { spawn, capture } = scriptedSpawn([
-      {
-        command: 'gh',
-        args: ['issue', 'create', '--repo', 'x/y', '--title', 'Hello', '--body-file', '-'],
-        stdout: 'https://github.com/x/y/issues/123\n',
-        exitCode: 0,
-      },
-    ]);
-    const pusher = createIssuePusher({ spawn });
-    const r = await pusher.create({ provider: 'github', owner: 'x', repo: 'y' }, { title: 'Hello', body: 'b' });
-    expect(r.ok).toBe(true);
-    if (r.ok) expect(r.value.url).toBe('https://github.com/x/y/issues/123');
-    expect(capture.stdinWrites).toEqual(['b']);
-  });
-
-  it('GitLab: dispatches to `glab issue create`', async () => {
-    const { spawn } = scriptedSpawn([
-      {
-        command: 'glab',
-        args: ['issue', 'create', '--repo', 'foo/bar', '--title', 'Hi', '--description', 'b'],
-        stdout: 'https://gitlab.com/foo/bar/-/issues/9\n',
-        exitCode: 0,
-      },
-    ]);
-    const pusher = createIssuePusher({ spawn });
-    const r = await pusher.create({ provider: 'gitlab', owner: 'foo', repo: 'bar' }, { title: 'Hi', body: 'b' });
-    expect(r.ok).toBe(true);
-    if (r.ok) expect(r.value.url).toBe('https://gitlab.com/foo/bar/-/issues/9');
-  });
-
-  it('surfaces a parse error when stdout has no URL', async () => {
-    const { spawn } = scriptedSpawn([
-      {
-        command: 'gh',
-        args: ['issue', 'create', '--repo', 'x/y', '--title', 'Hello', '--body-file', '-'],
-        stdout: '(nothing useful)\n',
-        exitCode: 0,
-      },
-    ]);
-    const pusher = createIssuePusher({ spawn });
-    const r = await pusher.create({ provider: 'github', owner: 'x', repo: 'y' }, { title: 'Hello', body: 'b' });
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error.message).toMatch(/no URL found in stdout/);
+    if (!r.ok) expect(r.error.message).toMatch(/gh issue comment failed.*not authenticated/);
   });
 });

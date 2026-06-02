@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { DoneTask, InProgressTask, VerificationCriterion } from '@src/domain/entity/task.ts';
+import type { DoneTask, InProgressTask, Task, VerificationCriterion } from '@src/domain/entity/task.ts';
 import { createTask, updateTask } from '@src/domain/entity/task-factory.ts';
 import {
   recordRunningAttemptCommit,
@@ -122,9 +122,21 @@ describe('failCurrentAttempt', () => {
     expect(r.value.blockedReason).toContain('attempt budget exhausted');
   });
 
-  it('rejects from todo', () => {
+  it('rejects from todo with no running attempt', () => {
     const r = failCurrentAttempt(makeTodoTask(), FIXED_LATER, 'failed');
     expect(r.ok).toBe(false);
+  });
+
+  it('heals a status-corrupt todo task whose last attempt is running', () => {
+    // A crash can persist `status: 'todo'` while the last attempt is still `running`. Settling the
+    // running attempt repairs the status to `in_progress` rather than rejecting — the self-heal the
+    // start-attempt resume path relies on.
+    const corrupt: Task = { ...makeInProgressTaskWithRunningAttempt(), status: 'todo' };
+    const r = failCurrentAttempt(corrupt, FIXED_LATER, 'aborted');
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.status).toBe('in_progress');
+    expect(r.value.attempts.at(-1)?.status).toBe('aborted');
   });
 });
 

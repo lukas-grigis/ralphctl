@@ -76,31 +76,48 @@ export const createShellScriptRunner = (deps: ShellScriptRunnerDeps = {}): Shell
           cwd: String(cwd),
           shell: true,
           detached: process.platform !== 'win32',
-          // Narrow non-interactive defaults — applied per-tool so we don't silently change the
-          // meaning of user-authored scripts. Setting blanket `CI=true` would trip
-          // `@DisabledIfEnvironmentVariable("CI")` test skips in Spring Boot, change Maven
-          // Surefire behaviour, and toggle countless other toolchain heuristics. Each entry
-          // below is read by exactly one tool family:
+          // Non-interactive defaults for the spawned setup/verify child. These live on the CHILD
+          // env only — ralphctl's own process env is untouched, so they never alter how the
+          // harness itself detects CI / colour.
           //
-          //   npm_config_confirm_modules_purge=false   — pnpm only; suppresses the
-          //     `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY` prompt when pnpm decides to wipe
-          //     `node_modules/` (lockfile / store mismatch). The same setting is also exposed
-          //     as `.npmrc:confirm-modules-purge=false` and `--config.confirm-modules-purge=false`.
+          //   CI=true   — setup/verify scripts run headless (no TTY). pnpm 11 hardened its
+          //     `node_modules` purge to ABORT without a TTY instead of re-creating it silently
+          //     (`ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`, pnpm/pnpm#9966 / #11562). On
+          //     pnpm 11 EVERY `confirm-modules-purge=false` form is ignored at the abort site —
+          //     verified against 11.1.3: the `npm_config_*` env, the `PNPM_CONFIG_*` env, and a
+          //     local `.npmrc` all still abort; only `CI=true` (env) or
+          //     `--config.confirm-modules-purge=false` (a CLI flag) suppress it. We run the
+          //     user's script as an opaque shell string and cannot inject a flag into their
+          //     `pnpm` invocation, so `CI=true` is the one lever available. It is also the honest
+          //     signal — this IS an automated, non-interactive context. Set on BOTH setup and
+          //     verify (both flow through this runner), so the two phases share one env and never
+          //     drift on baseline. Caveat: JVM tests gated on
+          //     `@DisabledIfEnvironmentVariable("CI")` skip — by design for automation, and
+          //     symmetric across setup/verify. (This deliberately reverses the earlier
+          //     "do NOT reach for CI=true" policy, which assumed a narrow pnpm flag would work —
+          //     it does not on pnpm 11.)
           //
-          //   NO_COLOR=1   — the well-defined cross-tool convention (https://no-color.org)
-          //     suppresses ANSI colour codes in tool output. The harness persists script
-          //     output verbatim to `<sprintDir>/logs/{setup,verify}/...` plain-text files;
-          //     without this default the logs fill with `^[[1m^[[30m…` escape sequences that
-          //     render as garbage in editors. Honoured by Node / Python / Rust / Go / Ruby
-          //     and modern CLI tools; tools that don't recognise it ignore it harmlessly.
-          //     Exception: JVM tools (Maven / Gradle / sbt) do NOT respect `NO_COLOR` — those
-          //     are handled at script-authoring time by the `detect-scripts` prompt suggesting
-          //     `mvn -B`, `gradle --console=plain`, `sbt -no-colors`.
+          //   PNPM_CONFIG_FROZEN_LOCKFILE=false   — `CI=true` also flips pnpm's `frozen-lockfile`
+          //     default to true, which would fail a bare `pnpm install` on a drifted lockfile
+          //     (`ERR_PNPM_OUTDATED_LOCKFILE`) — trading one abort for another. The pnpm-native
+          //     `PNPM_CONFIG_` prefix IS honoured here (unlike the broken `npm_config_` form),
+          //     so this restores the pre-CI install semantics: non-frozen, exactly as before.
           //
-          // Add more entries here as we hit narrow per-tool prompts; do NOT reach for `CI=true`.
-          // Defaults sit BEFORE `...process.env` so a user who exports `NO_COLOR=` (empty) or
-          // `FORCE_COLOR=1` can override; caller-supplied `opts.env` wins last.
-          env: { npm_config_confirm_modules_purge: 'false', NO_COLOR: '1', ...process.env, ...opts.env },
+          //   NO_COLOR=1   — the cross-tool convention (https://no-color.org). Persisted
+          //     setup/verify logs are plain text; without this they fill with `^[[1m…` escape
+          //     sequences that render as garbage in editors. Honoured by Node / Python / Rust /
+          //     Go / Ruby and modern CLIs; unknown to JVM tools (Maven / Gradle / sbt) — those
+          //     are handled at script-authoring time via `mvn -B`, `gradle --console=plain`.
+          //
+          // Defaults sit BEFORE `...process.env` so a user can override any of them (e.g. export
+          // `CI=` to opt out, `NO_COLOR=` / `FORCE_COLOR=1` for colour); `opts.env` wins last.
+          env: {
+            CI: 'true',
+            PNPM_CONFIG_FROZEN_LOCKFILE: 'false',
+            NO_COLOR: '1',
+            ...process.env,
+            ...opts.env,
+          },
         });
       } catch (cause) {
         resolve(

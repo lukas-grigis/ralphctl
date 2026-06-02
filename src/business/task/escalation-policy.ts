@@ -20,23 +20,27 @@ import type { ValidationError } from '@src/domain/value/error/validation-error.t
  *   - `flagOn`            — `settings.harness.escalateOnPlateau`.
  *   - `userMap`           — `settings.harness.escalationMap`; merged over the built-in default.
  *
+ * A plateau NEVER blocks. It either grants one more attempt (with a stronger model and/or a
+ * change-of-approach directive) or preserves the work (done-with-warning) — never throws it away.
+ *
  * Outputs (discriminated):
- *   - `escalate`          — all conditions met; caller stamps the task + emits events.
- *   - `flag-off`          — operator opted out; caller leaves the path unchanged (today's
- *                           done-with-warning behaviour preserved).
- *   - `already-escalated` — the task already carries `escalatedFromModel`/`escalatedToModel`;
- *                           caller transitions to blocked with no new event (once-per-task cap).
- *   - `no-mapping`        — flag is on but neither the default nor the user map has a rung
- *                           above `generatorModel`; caller emits a `warn` banner and blocks.
- *   - `budget-exhausted`  — flag is on, mapping exists, but the next attempt would exceed
- *                           `maxAttempts`; caller emits a `warn` banner naming the budget
- *                           exhaustion (not the missing mapping) and blocks.
+ *   - `escalate`          — a stronger model rung exists; caller stamps the task (model bump) +
+ *                           emits events. Task stays in_progress for one more attempt.
+ *   - `nudge`             — flag on, budget remains, but no stronger rung (generator already at
+ *                           the top of the ladder). Caller stamps the task with the SAME model so
+ *                           the once-per-task cap fires, and the generator gets a change-of-approach
+ *                           directive. Task stays in_progress for one more attempt. No model change.
+ *   - `flag-off`          — operator opted out; caller leaves the path unchanged (done-with-warning).
+ *   - `already-escalated` — the task already had its one plateau-break attempt and plateaued again;
+ *                           caller preserves the work (done-with-warning), no new event.
+ *   - `budget-exhausted`  — flag on but the next attempt would exceed `maxAttempts` (no budget to
+ *                           retry); caller preserves the work (done-with-warning) naming the budget.
  */
 export type EscalationDecision =
   | { readonly kind: 'escalate'; readonly from: string; readonly to: string }
+  | { readonly kind: 'nudge'; readonly currentModel: string }
   | { readonly kind: 'flag-off' }
   | { readonly kind: 'already-escalated'; readonly from: string; readonly to: string }
-  | { readonly kind: 'no-mapping'; readonly currentModel: string }
   | { readonly kind: 'budget-exhausted'; readonly attemptsUsed: number; readonly maxAttempts: number };
 
 export interface DecideEscalationProps {
@@ -71,7 +75,9 @@ export const decideEscalation = (props: DecideEscalationProps): EscalationDecisi
   const effective = mergeEscalationMap(props.userMap);
   const to = effective[props.generatorModel];
   if (to === undefined || to === props.generatorModel) {
-    return { kind: 'no-mapping', currentModel: props.generatorModel };
+    // No stronger model to climb to (generator at the top of the ladder). Don't block — grant one
+    // more attempt on the same model with a change-of-approach directive instead.
+    return { kind: 'nudge', currentModel: props.generatorModel };
   }
   return { kind: 'escalate', from: props.generatorModel, to };
 };
@@ -145,14 +151,38 @@ export const applyEscalation = (
       });
       return Result.ok({ task: stamped.value });
     }
+    case 'nudge': {
+      // Top of the in-provider ladder: no stronger model to climb to. Keep the model but grant one
+      // more attempt with a change-of-approach directive (armed in the generator via
+      // `escalatedFromModel`). Stamp from===to so the once-per-task cap still fires on a second
+      // plateau (then `already-escalated` preserves the work). No model-escalated event — the model
+      // did not change; the banner names the nudge so the operator sees what happened.
+      const stamped = recordTaskEscalation(task, decision.currentModel, decision.currentModel);
+      if (!stamped.ok) return Result.error(stamped.error);
+      eventBus.publish({
+        type: 'banner-show',
+        id: bannerId,
+        tier: 'info',
+        message: `plateau on '${decision.currentModel}' (top of ladder) — retrying with a change-of-approach directive`,
+        cause: 'plateau',
+        at: now,
+      });
+      log.info('plateau nudge: retrying on the same model with a change-of-approach directive', {
+        taskId: String(task.id),
+        currentModel: decision.currentModel,
+      });
+      return Result.ok({ task: stamped.value });
+    }
     case 'already-escalated': {
-      const message = `plateau persists after escalation (${decision.from} → ${decision.to}); blocking task`;
+      // The one plateau-break attempt also plateaued. Preserve the work (done-with-warning) rather
+      // than blocking — matches the flag-off path; a plateau never throws the work away. The warn
+      // banner tells the operator the retry topped out.
+      const message = `plateau persists after the retry; keeping the work`;
       eventBus.publish({
         type: 'banner-show',
         id: bannerId,
         tier: 'warn',
-        message: 'plateau persists after escalation',
-        cause: `${decision.from} → ${decision.to}`,
+        message: 'plateau persists after retry — keeping the work',
         at: now,
       });
       log.warn(message, {
@@ -160,27 +190,16 @@ export const applyEscalation = (
         from: decision.from,
         to: decision.to,
       });
-      return Result.ok({ task, blockedReason: message });
-    }
-    case 'no-mapping': {
-      const message = `plateau at top of configured escalation ladder for '${decision.currentModel}'`;
-      eventBus.publish({
-        type: 'banner-show',
-        id: bannerId,
-        tier: 'warn',
-        message,
-        at: now,
-      });
-      log.warn(message, { taskId: String(task.id), currentModel: decision.currentModel });
-      return Result.ok({ task, blockedReason: message });
+      return Result.ok({ task });
     }
     case 'budget-exhausted': {
-      const message = `plateau with attempt budget exhausted (attempts=${String(decision.attemptsUsed)}, maxAttempts=${String(decision.maxAttempts)})`;
+      // Plateau on the final allowed attempt — no budget left to retry. Preserve the work.
+      const message = `plateau with attempt budget exhausted (attempts=${String(decision.attemptsUsed)}, maxAttempts=${String(decision.maxAttempts)}); keeping the work`;
       eventBus.publish({
         type: 'banner-show',
         id: bannerId,
         tier: 'warn',
-        message: 'plateau, attempt budget exhausted',
+        message: 'plateau, attempt budget exhausted — keeping the work',
         cause: `attempts=${String(decision.attemptsUsed)}/${String(decision.maxAttempts)}`,
         at: now,
       });
@@ -189,7 +208,7 @@ export const applyEscalation = (
         attemptsUsed: decision.attemptsUsed,
         maxAttempts: decision.maxAttempts,
       });
-      return Result.ok({ task, blockedReason: message });
+      return Result.ok({ task });
     }
   }
 };

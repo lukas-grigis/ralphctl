@@ -147,7 +147,7 @@ const readProgressFile = async (path: string): Promise<string> => {
 export const evaluatorLeaf = (deps: EvaluatorLeafDeps, taskId: TaskId): Element<ImplementCtx> =>
   leaf<ImplementCtx, EvaluatorInput, EvaluatorOutput>(`evaluator-${String(taskId)}`, {
     useCase: {
-      execute: async (input) => {
+      execute: async (input, signal) => {
         const signalsFilePath = AbsolutePath.parse(roundSignalsPath(input.workspaceRoot, input.roundNum, 'evaluator'));
         if (!signalsFilePath.ok) return Result.error(signalsFilePath.error);
         const signalsFile = signalsFilePath.value;
@@ -189,7 +189,8 @@ export const evaluatorLeaf = (deps: EvaluatorLeafDeps, taskId: TaskId): Element<
               signalsFile,
               'evaluator',
               input.priorEvaluatorSessionId,
-              deps.effort
+              deps.effort,
+              signal
             )
           );
           if (!spawn.ok) return Result.error(spawn.error);

@@ -253,12 +253,15 @@ export const SettingsSchema = z.object({
      */
     plateauThreshold: z.number().int().min(2).max(5).default(2),
     /**
-     * When the gen-eval loop exits on a plateau, escalate the generator's model one rung up
-     * the ladder defined by {@link escalationMap} (merged with the built-in
-     * `DEFAULT_ESCALATION_MAP`) and reissue the attempt instead of transitioning the task
-     * straight to `blocked`. Defaults `false` — the runtime wiring lands in a follow-up task.
+     * When the gen-eval loop exits on a plateau, grant one more attempt instead of settling
+     * immediately: escalate the generator one rung up the ladder ({@link escalationMap} merged
+     * with the built-in `DEFAULT_ESCALATION_MAP`) when a stronger model exists, and ALWAYS inject
+     * a "change your approach" directive into that attempt's generator turn (so a top-of-ladder
+     * model — e.g. the default Opus generator — still acts differently rather than re-iterating).
+     * A plateau never blocks: after the one retry, or when no attempt budget remains, the work is
+     * preserved (done-with-warning). Defaults `true`.
      */
-    escalateOnPlateau: z.boolean().default(false),
+    escalateOnPlateau: z.boolean().default(true),
     /**
      * User overrides for the built-in `DEFAULT_ESCALATION_MAP` (in
      * `business/task/escalation-map.ts`). Keys are the current model id, values the model id
@@ -280,6 +283,22 @@ export const SettingsSchema = z.object({
      */
     maxParallelTasks: z.number().int().min(1).max(5),
   }),
+  /**
+   * Source-control-management preferences. Defaults the whole section so settings files
+   * written before this section existed parse without a schema-version bump or migration —
+   * the load path stamps the section in and the next `save()` writes it inline.
+   */
+  scm: z
+    .object({
+      /**
+       * Governs the default reviewer choice for the refine flow's "Post as comment" action,
+       * and — in non-interactive (CI / headless) runs — whether the refined requirements are
+       * posted as a comment on the linked issue at all. Defaults `false`: the original issue
+       * description is never touched, and posting a comment is strictly opt-in.
+       */
+      postRefinementComment: z.boolean().default(false),
+    })
+    .default({ postRefinementComment: false }),
   ui: z
     .object({
       notifications: z

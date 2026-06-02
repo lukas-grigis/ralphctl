@@ -3,6 +3,19 @@ import type { BlockedTask, Task, TodoTask } from '@src/domain/entity/task.ts';
 import { requireStatus } from '@src/domain/value/require-status.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 
+/**
+ * Reason-string prefix the dependency gate stamps on a task blocked solely because a prerequisite
+ * was not `done`. It distinguishes an UPSTREAM-cascade block (mechanically clearable — it auto-
+ * resolves once the root prerequisite is unblocked / completed) from an OWN-failure block
+ * (eval/verify/budget — needs the operator to actually fix something). {@link isUpstreamBlocked}
+ * reads it so `unblockTaskUseCase` can cascade-unblock these dependents when their root unblocks.
+ */
+export const BLOCKED_UPSTREAM_REASON_PREFIX = 'blocked upstream';
+
+/** True when `task` is blocked specifically because an upstream prerequisite was not done. */
+export const isUpstreamBlocked = (task: Task): task is BlockedTask =>
+  task.status === 'blocked' && task.blockedReason.startsWith(BLOCKED_UPSTREAM_REASON_PREFIX);
+
 export const markTaskBlocked = (task: Task, reason: string): Result<BlockedTask, InvalidStateError> => {
   const guard = requireStatus(
     'task',

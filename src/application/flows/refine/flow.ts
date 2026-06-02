@@ -189,10 +189,11 @@ export const createRefineFlow = (deps: RefineDeps, opts: CreateRefineFlowOpts): 
           writeFile: deps.writeFile,
           eventBus: deps.eventBus,
           model: opts.model,
+          sprintId: String(opts.sprintId),
           ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
+          ...(deps.postRefinementComment !== undefined ? { postRefinementComment: deps.postRefinementComment } : {}),
           ...(deps.reviewBeforeApprove !== undefined ? { reviewBeforeApprove: deps.reviewBeforeApprove } : {}),
           ...(deps.issuePusher !== undefined ? { issuePusher: deps.issuePusher } : {}),
-          ...(deps.defaultIssueOrigin !== undefined ? { defaultIssueOrigin: deps.defaultIssueOrigin } : {}),
         },
         ticket
       ),

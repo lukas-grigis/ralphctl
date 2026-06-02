@@ -17,7 +17,6 @@ import type {
 } from '@src/integration/ai/providers/_engine/interactive-ai-provider.ts';
 import type { IssueFetcher } from '@src/business/scm/issue-fetcher.ts';
 import type { IssuePusher } from '@src/business/scm/issue-pusher.ts';
-import type { IssueOriginRef } from '@src/domain/entity/project.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
@@ -308,7 +307,7 @@ describe('createRefineFlow — interactive', () => {
     expect(eventLog.some((e) => e.level === 'warn' && e.message.includes('fetch failed'))).toBe(true);
   });
 
-  it('reviewer picks "approve & update" → IssuePusher.update is called with body + footer', async () => {
+  it('reviewer picks "Post as comment" → IssuePusher.comment is called with body + signature', async () => {
     const link = (() => {
       const r = parseHttpUrl('link', 'https://github.com/x/y/issues/42');
       if (!r.ok) throw new Error('test setup');
@@ -321,20 +320,15 @@ describe('createRefineFlow — interactive', () => {
     const refinedBody = '# refined requirements\n- a real acceptance criterion';
     const fake = fakeInteractiveAi(() => refinedBody);
 
-    interface UpdateCall {
+    interface CommentCall {
       readonly url: string;
       readonly body: string;
     }
-    const updateCalls: UpdateCall[] = [];
-    const createCalls: unknown[] = [];
+    const commentCalls: CommentCall[] = [];
     const issuePusher: IssuePusher = {
-      async update(url, args) {
-        updateCalls.push({ url, body: args.body });
+      async comment(url, args) {
+        commentCalls.push({ url, body: args.body });
         return Result.ok(undefined);
-      },
-      async create(origin, args) {
-        createCalls.push({ origin, args });
-        return Result.ok({ url: 'https://example.invalid/should-not-be-called' });
       },
     };
 
@@ -364,57 +358,52 @@ describe('createRefineFlow — interactive', () => {
       }
     );
 
-    const runner = createRunner({ id: 'r-refine-update', element: flow, initialCtx: { sprintId: sprint.id } });
+    const runner = createRunner({ id: 'r-refine-comment', element: flow, initialCtx: { sprintId: sprint.id } });
     await runner.start();
 
     expect(runner.status).toBe('completed');
-    // The pusher was used in update mode exactly once, on the existing link.
-    expect(createCalls).toHaveLength(0);
-    expect(updateCalls).toHaveLength(1);
-    const call = updateCalls[0];
+    // The pusher posted a comment exactly once, on the existing link.
+    expect(commentCalls).toHaveLength(1);
+    const call = commentCalls[0];
     expect(call?.url).toBe('https://github.com/x/y/issues/42');
-    // Body carries the AI's content plus the "Refined by ralphctl" footer.
+    // Body carries the AI's content plus the ralphctl signature naming the sprint.
     expect(call?.body).toContain(refinedBody);
-    expect(call?.body).toMatch(/Refined by ralphctl/);
-    // Local sprint persisted with the approved ticket — the link stays untouched on an update.
+    expect(call?.body).toMatch(/Posted by \[ralphctl\]/);
+    expect(call?.body).toContain(`Sprint ${String(sprint.id)}`);
+    // Local sprint persisted with the approved ticket — the link is untouched (no create path).
     expect(saves).toHaveLength(1);
     const persistedTicket = saves[0]?.tickets[0];
     expect(persistedTicket?.status).toBe('approved');
     expect(String(persistedTicket?.link)).toBe('https://github.com/x/y/issues/42');
   });
 
-  it('reviewer picks "approve & create" → IssuePusher.create runs and returned URL is attached to ticket.link', async () => {
-    // Ticket starts WITHOUT a link; project carries a defaultIssueOrigin so the launcher would
-    // have shown "Approve & create origin". The reviewer picks it.
-    const { sprint, tickets } = draftWithPending(1);
+  it('reviewer EDITS the body then posts → the comment carries the edited body, not the AI original', async () => {
+    // Regression for the silent-divergence bug: a reviewer who edits the AI's proposal and then
+    // posts a comment must publish the EDITED text (the locally-persisted requirements), never the
+    // AI's discarded pre-edit body.
+    const link = (() => {
+      const r = parseHttpUrl('link', 'https://github.com/x/y/issues/42');
+      if (!r.ok) throw new Error('test setup');
+      return r.value;
+    })();
+    const { sprint, tickets } = draftWithPending(1, (_i, t) => ({ ...t, link }));
     const { repo, saves } = inMemoryRepo(sprint);
     const eventBus = createInMemoryEventBus();
 
-    const refinedBody = '# refined\n- something';
+    const refinedBody = '# refined requirements\n- a WRONG criterion the reviewer deletes';
+    const editedBody = '# refined requirements\n- the corrected acceptance criterion';
     const fake = fakeInteractiveAi(() => refinedBody);
 
-    const defaultIssueOrigin: IssueOriginRef = { provider: 'github', owner: 'acme', repo: 'widgets' };
-    const createdUrl = 'https://github.com/acme/widgets/issues/7';
-
-    interface CreateCall {
-      readonly origin: IssueOriginRef;
-      readonly title: string;
-      readonly body: string;
-    }
-    const createCalls: CreateCall[] = [];
-    const updateCalls: unknown[] = [];
+    const commentCalls: Array<{ url: string; body: string }> = [];
     const issuePusher: IssuePusher = {
-      async update(url, args) {
-        updateCalls.push({ url, args });
+      async comment(url, args) {
+        commentCalls.push({ url, body: args.body });
         return Result.ok(undefined);
-      },
-      async create(origin, args) {
-        createCalls.push({ origin, title: args.title, body: args.body });
-        return Result.ok({ url: createdUrl });
       },
     };
 
-    const reviewBeforeApprove = async () => ({ accept: true, alsoUpdateOrigin: true });
+    // The reviewer accepts but supplies an edited body — the use case persists it on the ticket.
+    const reviewBeforeApprove = async () => ({ accept: true, alsoUpdateOrigin: true, body: editedBody });
 
     const flow = createRefineFlow(
       {
@@ -429,7 +418,6 @@ describe('createRefineFlow — interactive', () => {
         skillSource: emptySkillSource,
         clock: () => '2026-01-01T00:00:00Z' as IsoTimestamp,
         issuePusher,
-        defaultIssueOrigin,
         reviewBeforeApprove,
       },
       {
@@ -441,23 +429,120 @@ describe('createRefineFlow — interactive', () => {
       }
     );
 
-    const runner = createRunner({ id: 'r-refine-create', element: flow, initialCtx: { sprintId: sprint.id } });
+    const runner = createRunner({ id: 'r-refine-edit-comment', element: flow, initialCtx: { sprintId: sprint.id } });
     await runner.start();
 
     expect(runner.status).toBe('completed');
-    // Create-mode push exactly once, on the project's defaultIssueOrigin.
-    expect(updateCalls).toHaveLength(0);
-    expect(createCalls).toHaveLength(1);
-    const call = createCalls[0];
-    expect(call?.origin).toEqual(defaultIssueOrigin);
-    expect(call?.title).toBe(tickets[0]!.title);
-    expect(call?.body).toContain(refinedBody);
-    expect(call?.body).toMatch(/Refined by ralphctl/);
-    // The chain attached the returned URL to ticket.link AND persisted it.
-    expect(saves).toHaveLength(1);
+    expect(commentCalls).toHaveLength(1);
+    const call = commentCalls[0];
+    // The posted comment carries the EDITED body and NOT the AI's discarded original.
+    expect(call?.body).toContain(editedBody);
+    expect(call?.body).not.toContain('WRONG criterion');
+    // …and the locally-persisted requirements match what was posted (no divergence).
     const persistedTicket = saves[0]?.tickets[0];
     expect(persistedTicket?.status).toBe('approved');
-    expect(String(persistedTicket?.link)).toBe(createdUrl);
+    expect(persistedTicket?.requirements).toBe(editedBody);
+  });
+
+  it('non-interactive run with postRefinementComment → comments on a linked ticket without prompting', async () => {
+    const link = (() => {
+      const r = parseHttpUrl('link', 'https://github.com/x/y/issues/99');
+      if (!r.ok) throw new Error('test setup');
+      return r.value;
+    })();
+    const { sprint, tickets } = draftWithPending(1, (_i, t) => ({ ...t, link }));
+    const { repo } = inMemoryRepo(sprint);
+    const eventBus = createInMemoryEventBus();
+
+    const refinedBody = '# refined\n- something';
+    const fake = fakeInteractiveAi(() => refinedBody);
+
+    const commentCalls: Array<{ url: string; body: string }> = [];
+    const issuePusher: IssuePusher = {
+      async comment(url, args) {
+        commentCalls.push({ url, body: args.body });
+        return Result.ok(undefined);
+      },
+    };
+
+    const flow = createRefineFlow(
+      {
+        sprintRepo: repo,
+        interactiveAi: fake.session,
+        templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
+        writeFile: createAtomicWriteFile(),
+        runInTerminal: passthroughRunInTerminal,
+        eventBus,
+        logger: noopLogger,
+        skillsAdapter: noopSkillsAdapter,
+        skillSource: emptySkillSource,
+        clock: () => '2026-01-01T00:00:00Z' as IsoTimestamp,
+        issuePusher,
+        // No reviewBeforeApprove — headless. The setting alone governs.
+        postRefinementComment: true,
+      },
+      {
+        sprintId: sprint.id,
+        pendingTickets: tickets,
+        providerId: 'claude-code',
+        model: 'claude-sonnet-4-6',
+        refinementRoot: refinementRoot(),
+      }
+    );
+
+    const runner = createRunner({ id: 'r-refine-headless', element: flow, initialCtx: { sprintId: sprint.id } });
+    await runner.start();
+
+    expect(runner.status).toBe('completed');
+    expect(commentCalls).toHaveLength(1);
+    expect(commentCalls[0]?.url).toBe('https://github.com/x/y/issues/99');
+    expect(commentCalls[0]?.body).toContain(refinedBody);
+  });
+
+  it('non-interactive run with postRefinementComment but no ticket link → posts nothing', async () => {
+    const { sprint, tickets } = draftWithPending(1);
+    const { repo } = inMemoryRepo(sprint);
+    const eventBus = createInMemoryEventBus();
+
+    const fake = fakeInteractiveAi(() => '# refined\n- something');
+
+    const commentCalls: unknown[] = [];
+    const issuePusher: IssuePusher = {
+      async comment(url, args) {
+        commentCalls.push({ url, args });
+        return Result.ok(undefined);
+      },
+    };
+
+    const flow = createRefineFlow(
+      {
+        sprintRepo: repo,
+        interactiveAi: fake.session,
+        templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
+        writeFile: createAtomicWriteFile(),
+        runInTerminal: passthroughRunInTerminal,
+        eventBus,
+        logger: noopLogger,
+        skillsAdapter: noopSkillsAdapter,
+        skillSource: emptySkillSource,
+        clock: () => '2026-01-01T00:00:00Z' as IsoTimestamp,
+        issuePusher,
+        postRefinementComment: true,
+      },
+      {
+        sprintId: sprint.id,
+        pendingTickets: tickets,
+        providerId: 'claude-code',
+        model: 'claude-sonnet-4-6',
+        refinementRoot: refinementRoot(),
+      }
+    );
+
+    const runner = createRunner({ id: 'r-refine-nolink', element: flow, initialCtx: { sprintId: sprint.id } });
+    await runner.start();
+
+    expect(runner.status).toBe('completed');
+    expect(commentCalls).toHaveLength(0);
   });
 
   it('halts the chain when the AI exits without writing the output file', async () => {

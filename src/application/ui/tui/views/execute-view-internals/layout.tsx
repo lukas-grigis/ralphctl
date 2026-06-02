@@ -43,6 +43,8 @@ interface LayoutProps {
   readonly taskState: readonly Task[] | undefined;
   readonly now: number;
   readonly tokenUsage: TokenUsage | undefined;
+  /** When true the run's pinned sprint is no longer available — baseline-health card is dropped. */
+  readonly pinnedSprintStale: boolean;
 }
 
 export const ExecuteLayout = ({
@@ -62,6 +64,7 @@ export const ExecuteLayout = ({
   taskState,
   now,
   tokenUsage,
+  pinnedSprintStale,
 }: LayoutProps): React.JSX.Element => {
   const flowStepsPanel = (
     <FlowStepsRail
@@ -86,16 +89,17 @@ export const ExecuteLayout = ({
           <SectionHeader title="Tasks" />
           {tasksPanel}
         </Box>
-        {/* Right context column — baseline-health card (P1k) on top, token-budget card
-            (P2b) below. P3a ETA stacks here in a later wave.
-            `contextWidth` grows slightly at xxl (fluid 28→36 at 0.14× columns). */}
+        {/* Right context column — baseline-health card on top (dropped when pinned sprint
+            is stale), token-budget card below. */}
         <Box flexDirection="column" width={contextWidth} flexShrink={0}>
-          <BaselineHealthCard
-            {...(executionState !== undefined ? { execution: executionState } : {})}
-            {...(taskState !== undefined ? { tasks: taskState } : {})}
-            now={now}
-            width={contextWidth}
-          />
+          {!pinnedSprintStale && (
+            <BaselineHealthCard
+              {...(executionState !== undefined ? { execution: executionState } : {})}
+              {...(taskState !== undefined ? { tasks: taskState } : {})}
+              now={now}
+              width={contextWidth}
+            />
+          )}
           <Box marginTop={spacing.section}>
             <TokenBudgetCard sessionId={sessionId} {...(tokenUsage !== undefined ? { usage: tokenUsage } : {})} />
           </Box>

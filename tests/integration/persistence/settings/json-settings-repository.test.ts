@@ -118,6 +118,7 @@ describe('JsonSettingsRepository', () => {
       },
       logging: { level: 'info' },
       concurrency: { maxParallelTasks: 1 },
+      scm: { postRefinementComment: false },
       ui: { notifications: { enabled: true } },
       developer: { showEvaluatorFailureUI: false },
     };
@@ -153,6 +154,7 @@ describe('JsonSettingsRepository', () => {
       },
       logging: { level: 'debug' },
       concurrency: { maxParallelTasks: 4 },
+      scm: { postRefinementComment: true },
       ui: { notifications: { enabled: false } },
       developer: { showEvaluatorFailureUI: true },
     };

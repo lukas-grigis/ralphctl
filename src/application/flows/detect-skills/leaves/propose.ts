@@ -37,7 +37,8 @@ export const detectSkillsSession = (
   signalsFile: AbsolutePath,
   outputDir: AbsolutePath,
   bodyFile?: AbsolutePath,
-  effort?: string
+  effort?: string,
+  abortSignal?: AbortSignal
 ): AiSession => ({
   prompt,
   cwd: repository.path,
@@ -47,6 +48,8 @@ export const detectSkillsSession = (
   outputDir,
   ...(bodyFile !== undefined ? { bodyFile } : {}),
   ...(effort !== undefined ? { effort } : {}),
+  // Thread the chain's abort signal so a TUI cancel mid-spawn kills the child.
+  ...(abortSignal !== undefined ? { abortSignal } : {}),
 });
 
 export interface ProposeDetectSkillsLeafDeps {
@@ -121,7 +124,8 @@ const allocateRunPaths = (runsRoot: AbsolutePath): Result<RunPaths, DomainError>
  */
 const proposeUseCase = async (
   deps: ProposeDetectSkillsLeafDeps,
-  input: ProposeInput
+  input: ProposeInput,
+  abortSignal?: AbortSignal
 ): Promise<Result<ProposeOutput, DomainError>> => {
   const log = deps.logger.named('detect-skills.propose');
   log.info(`starting repo ${input.repository.name}`, {
@@ -151,7 +155,8 @@ const proposeUseCase = async (
       paths.value.signalsFile,
       paths.value.runDir,
       paths.value.bodyFile,
-      deps.effort
+      deps.effort,
+      abortSignal
     )
   );
   if (!spawn.ok) {
@@ -216,7 +221,7 @@ const proposeUseCase = async (
 export const proposeDetectSkillsLeaf = (deps: ProposeDetectSkillsLeafDeps): Element<DetectSkillsCtx> =>
   leaf<DetectSkillsCtx, ProposeInput, ProposeOutput>('propose', {
     useCase: {
-      execute: async (input) => proposeUseCase(deps, input),
+      execute: async (input, signal) => proposeUseCase(deps, input, signal),
     },
     input: (ctx) => {
       if (ctx.repository === undefined) {

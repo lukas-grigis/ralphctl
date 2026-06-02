@@ -145,6 +145,9 @@ export const HomeView = (): React.JSX.Element => {
         onReseat: ({ id, name }) => {
           selection.setSprint(id, name);
         },
+        onSprintResolved: (runnerId, { id, name }) => {
+          sessions.setPinnedSprint(runnerId, id, name);
+        },
       }
     );
     if (!result.ok) {

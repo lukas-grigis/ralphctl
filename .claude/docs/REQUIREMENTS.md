@@ -88,7 +88,8 @@ Status flow: `draft → planned → active → review → done`.
 - [ ] **`planned → active`** — `implement` activates a `planned` sprint on first launch; an already-`active`
       sprint passes through idempotently.
 - [ ] **`active → review`** — `implement` transitions the sprint to `review` once every task has settled
-      (`done` or `blocked`).
+      (`done` or `blocked`) AND at least one task settled `done`. An all-blocked run stays `active`
+      (`shouldTransitionToReview` in `implement/flow.ts`).
 - [ ] **`review → done`** — `sprint close <id>` (CLI) and the close-sprint flow (TUI) accept only
       `review`-status sprints.
 - [ ] **No `task add / edit / remove`** — bulk task mutation outside the planner is intentional. The CLI
@@ -133,6 +134,7 @@ Status flow: `draft → planned → active → review → done`.
 - [x] **`verifyScript` gates per-task settlement with pre/post attribution** — runs before the AI (pre-task)
       and after commit (post-task). Attribution: `clean` / `regressed` / `baseline-broken` / `fixed-baseline`.
       A `baseline-broken` result does not block the AI; a `regressed` result transitions task to `blocked`.
+      `Repository.verifyTimeout` is forwarded as `timeoutMs` to both calls; absent → 5-min runner default.
 - [ ] **Branch management** — `resolveBranchLeaf` prompts on first run; persists on `SprintExecution.branch`;
       per-task preflight verifies the right branch is checked out.
 - [x] **Resume of aborted runs** — tasks left in `in_progress` from a prior crash reset to `todo` and

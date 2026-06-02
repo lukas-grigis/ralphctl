@@ -92,11 +92,12 @@ export const DEFAULT_SETTINGS: Settings = {
     maxAttempts: 3,
     rateLimitRetries: 3,
     plateauThreshold: 2,
-    escalateOnPlateau: false,
+    escalateOnPlateau: true,
     escalationMap: {},
   },
   logging: { level: 'info' },
   concurrency: { maxParallelTasks: 1 },
+  scm: { postRefinementComment: false },
   ui: { notifications: { enabled: true } },
   developer: { showEvaluatorFailureUI: false },
 };

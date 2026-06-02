@@ -6,8 +6,8 @@ import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
 import { refineTicketUseCase } from '@src/business/ticket/refine-ticket.ts';
-import { replaceTicket, type Sprint } from '@src/domain/entity/sprint.ts';
-import { type ApprovedTicket, type PendingTicket, setTicketLink, type Ticket } from '@src/domain/entity/ticket.ts';
+import type { Sprint } from '@src/domain/entity/sprint.ts';
+import { type ApprovedTicket, type PendingTicket, type Ticket } from '@src/domain/entity/ticket.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { RefinedTicketSignal } from '@src/domain/signal.ts';
@@ -18,7 +18,6 @@ import { validateSignalsFile } from '@src/integration/ai/contract/_engine/valida
 import type { RefineCtx } from '@src/application/flows/refine/ctx.ts';
 import { partitionRefineSignals, refineOutputContract } from '@src/application/flows/refine/leaves/refine.contract.ts';
 import type { IssuePusher } from '@src/business/scm/issue-pusher.ts';
-import type { IssueOriginRef } from '@src/domain/entity/project.ts';
 
 /**
  * Chain leaf — drives the user-in-the-loop AI session for one ticket. Integration work
@@ -71,24 +70,35 @@ export interface RefineTicketInteractiveDeps {
   readonly reviewBeforeApprove?: (
     proposed: string,
     ticket: PendingTicket
-  ) => Promise<{ readonly accept: boolean; readonly alsoUpdateOrigin?: boolean }>;
+  ) => Promise<{ readonly accept: boolean; readonly alsoUpdateOrigin?: boolean; readonly body?: string }>;
   /**
-   * Optional pusher — supplied alongside `defaultIssueOrigin` from the launcher. When the
-   * reviewer picks "Approve & update origin", the leaf calls update / create here. Any failure
-   * is swallowed (logged + surfaced via the chain trace as a `note` would be, but the leaf
-   * still completes successfully — local refinement always lands).
+   * Optional pusher. When the reviewer picks "Post as comment" (or, in non-interactive runs,
+   * `postRefinementComment` is enabled), the leaf posts the refined requirements as a comment
+   * on the linked issue here. Any failure is swallowed (logged, but the leaf still completes
+   * successfully — local refinement always lands).
    */
   readonly issuePusher?: IssuePusher;
   /**
-   * Project-level default for "create a new issue" when the approved ticket has no `link`.
-   * When neither this nor `ticket.link` is set, the launcher's 3-way prompt hides the middle
-   * option and the leaf never sees `alsoUpdateOrigin: true`.
+   * Sprint identifier — embedded in the comment signature so a reader can trace a posted
+   * comment back to the sprint that produced it.
    */
-  readonly defaultIssueOrigin?: IssueOriginRef;
+  readonly sprintId: string;
+  /**
+   * Non-interactive default for posting the refined requirements as a comment. Consulted only
+   * when `reviewBeforeApprove` is absent (CI / headless): when `true` and the ticket has a
+   * link, the comment is posted without prompting; otherwise nothing is pushed. When the
+   * reviewer hook IS wired, the reviewer's explicit choice governs instead.
+   */
+  readonly postRefinementComment?: boolean;
 }
 
-/** Footer appended to every pushed body so future readers know where it came from. */
-const REFINED_FOOTER = (now: string): string => `\n\n---\n_Refined by ralphctl on ${now}_`;
+/**
+ * Signature appended to every posted comment so a reader can recognise it as ralphctl-authored
+ * and trace it back to the sprint that produced it. Format stays consistent across every
+ * comment: a divider, the ralphctl link, the sprint id, and the post timestamp.
+ */
+const REFINEMENT_COMMENT_SIGNATURE = (sprintId: string, timestamp: string): string =>
+  `\n\n---\n_🤖 Posted by [ralphctl](https://github.com/lukas-grigis/ralphctl) · Sprint ${sprintId} · ${timestamp}_`;
 
 /**
  * Refine-specific signals-missing message. The shared `validateSignalsFile` hint is generic
@@ -169,52 +179,35 @@ interface RefineTicketInteractiveOutput {
 }
 
 /**
- * Best-effort push to the issue tracker. On success, returns a (possibly updated) ticket —
- * after a CREATE we attach the new URL to ticket.link. On failure, logs a warning and returns
- * the input ticket unchanged. Never throws; never aborts the chain.
+ * Best-effort comment on the linked issue. Posts the refined requirements (plus a ralphctl
+ * signature) as a NEW comment — the issue description is never modified. The ticket is returned
+ * unchanged either way. On failure, logs a warning. Never throws; never aborts the chain.
+ *
+ * Only the ticket's existing `link` is targeted: a ticket with no link has nothing to comment
+ * on, so the leaf skips silently (the launcher already hides the option in that case).
  */
-const maybePushOrigin = async (
+const maybeCommentOnOrigin = async (
   deps: RefineTicketInteractiveDeps,
   ticket: ApprovedTicket,
   body: string
-): Promise<ApprovedTicket> => {
+): Promise<void> => {
   if (deps.issuePusher === undefined) {
-    deps.logger.named('refine.push').warn('no IssuePusher wired — skipping origin update');
-    return ticket;
+    deps.logger.named('refine.push').warn('no IssuePusher wired — skipping issue comment');
+    return;
   }
-  const now = new Date().toISOString().slice(0, 10);
-  const fullBody = `${body}${REFINED_FOOTER(now)}`;
-
-  if (ticket.link !== undefined) {
-    const url = String(ticket.link);
-    const result = await deps.issuePusher.update(url, { body: fullBody });
-    if (!result.ok) {
-      deps.logger.named('refine.push').warn(`origin update failed (${url}): ${result.error.message}`);
-    } else {
-      deps.logger.named('refine.push').info(`updated origin issue ${url}`);
-    }
-    return ticket;
+  if (ticket.link === undefined) {
+    deps.logger.named('refine.push').warn('comment requested but ticket has no link — skipping');
+    return;
   }
-
-  if (deps.defaultIssueOrigin !== undefined) {
-    const created = await deps.issuePusher.create(deps.defaultIssueOrigin, { title: ticket.title, body: fullBody });
-    if (!created.ok) {
-      deps.logger.named('refine.push').warn(`origin create failed: ${created.error.message}`);
-      return ticket;
-    }
-    const withLink = setTicketLink(ticket, created.value.url);
-    if (!withLink.ok) {
-      deps.logger.named('refine.push').warn(`origin create succeeded but link was invalid: ${withLink.error.message}`);
-      return ticket;
-    }
-    deps.logger.named('refine.push').info(`created origin issue ${created.value.url}`);
-    return withLink.value;
+  const now = new Date().toISOString();
+  const fullBody = `${body}${REFINEMENT_COMMENT_SIGNATURE(deps.sprintId, now)}`;
+  const url = String(ticket.link);
+  const result = await deps.issuePusher.comment(url, { body: fullBody });
+  if (!result.ok) {
+    deps.logger.named('refine.push').warn(`issue comment failed (${url}): ${result.error.message}`);
+  } else {
+    deps.logger.named('refine.push').info(`posted comment on issue ${url}`);
   }
-
-  // alsoUpdateOrigin was set but no target exists. Shouldn't happen — the launcher hides the
-  // option in this case — but degrade gracefully if it slips through.
-  deps.logger.named('refine.push').warn('alsoUpdateOrigin requested but no link / defaultIssueOrigin available');
-  return ticket;
 };
 
 export const refineTicketInteractiveLeaf = (
@@ -291,16 +284,22 @@ export const refineTicketInteractiveLeaf = (
         });
         if (!useCaseResult.ok) return Result.error(useCaseResult.error);
         const out = useCaseResult.value;
-        if (!out.accepted || !out.alsoUpdateOrigin) return Result.ok(out);
-        // Approve + push path. The approve already swapped the ticket on the sprint; if the
-        // push CREATEs an issue, we need to also write the returned URL back onto the ticket
-        // AND replace it on the sprint again (so subsequent loads see the link).
-        const approvedTicket = out.ticket as ApprovedTicket;
-        const finalTicket = await maybePushOrigin(deps, approvedTicket, refinedSignal.body);
-        if (finalTicket === approvedTicket) return Result.ok(out);
-        const replaced = replaceTicket(out.sprint, finalTicket.id, finalTicket);
-        if (!replaced.ok) return Result.error(replaced.error);
-        return Result.ok({ ...out, sprint: replaced.value, ticket: finalTicket });
+        if (!out.accepted) return Result.ok(out);
+        // Decide whether to post a comment on the linked issue. With a reviewer hook wired the
+        // reviewer's explicit choice (`alsoUpdateOrigin`) governs; in non-interactive runs the
+        // `postRefinementComment` setting governs. Commenting never mutates the ticket, so the
+        // sprint is returned exactly as the use case produced it.
+        const shouldComment =
+          deps.reviewBeforeApprove !== undefined ? out.alsoUpdateOrigin : deps.postRefinementComment === true;
+        if (!shouldComment) return Result.ok(out);
+        // Post the SETTLED requirements — `refineTicketUseCase` stored the reviewer's edited body
+        // (when they edited it) on the approved ticket. Posting `refinedSignal.body` (the AI's raw
+        // pre-edit proposal) would publish text the reviewer may have deliberately discarded to a
+        // public issue tracker, diverging from the locally-persisted ticket. `out.accepted` is true
+        // here, so `out.ticket` is an `ApprovedTicket` and `requirements` is a non-empty string.
+        const approved = out.ticket as ApprovedTicket;
+        await maybeCommentOnOrigin(deps, approved, approved.requirements);
+        return Result.ok(out);
       },
     },
     input: (ctx) => {

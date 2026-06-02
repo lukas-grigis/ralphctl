@@ -184,6 +184,23 @@ export const buildCodexArgs = (
   return Result.ok(args);
 };
 
+/**
+ * Stale-resume detection. Codex persists each session as a "rollout"; after a crash / abort /
+ * expiry the rollout can vanish, so a subsequent `codex exec resume <id>` exits non-zero with
+ * "thread/resume failed: no rollout found for thread id … (code -32600)". The gen-eval loop
+ * threads the prior round's session id as `session.resume`, so a lost rollout would otherwise
+ * block the task on an evaluator/generator turn that never ran. We detect that exact failure
+ * and fall back to a cold spawn instead.
+ *
+ * The two textual alternatives match the canonical message verbatim; `code -32600` is an
+ * intentionally broad backstop (it is the generic JSON-RPC "Invalid Request" code, not unique to a
+ * lost rollout). A spurious match only ever triggers ONE benign cold respawn — the prompt is
+ * self-contained, so the cost is losing the in-thread conversation memory, never correctness — and
+ * the `coldRetried` latch bounds it. Kept broad on purpose so a future codex build that drops the
+ * textual wording but keeps the code still self-heals.
+ */
+const RESUME_STALE_RE = /no rollout found|thread\/resume failed|code -32600/i;
+
 let tempCounter = 0;
 const defaultMkTempPath = (): string => {
   tempCounter += 1;
@@ -208,7 +225,9 @@ export const createCodexProvider = (deps: CodexProviderDeps): HeadlessAiProvider
       const outputFile = mkTempPath();
       const argsResult = buildCodexArgs(session, { outputFile });
       if (!argsResult.ok) return Result.error(argsResult.error) as Result<ProviderOutput, DomainError>;
-      const args = argsResult.value;
+      let args = argsResult.value;
+      // Latch so the stale-resume cold fallback fires at most once per generate() call.
+      let coldRetried = false;
 
       try {
         const maxAttempts = deps.rateLimitRetries + 1;
@@ -262,6 +281,41 @@ export const createCodexProvider = (deps: CodexProviderDeps): HeadlessAiProvider
               }
             }
             continue;
+          }
+          // Resume resilience: a `resume` spawn that fails because codex no longer has the
+          // rollout ("no rollout found", code -32600) would otherwise block the task. Fall
+          // back to a COLD spawn (no --resume) exactly once. Decrementing `attempt` keeps the
+          // fallback from consuming a rate-limit slot; the `coldRetried` latch bounds it.
+          //
+          // Exempt an aborted run explicitly: a user cancel (Ctrl-C / TUI abort) must tear the run
+          // down, not spawn fresh work a competitor may now own. Today an AbortError's message
+          // wouldn't match RESUME_STALE_RE, so this is belt-and-braces — but it keeps the abort
+          // guarantee independent of how the abort path happens to word its error.
+          if (
+            !coldRetried &&
+            session.abortSignal?.aborted !== true &&
+            session.resume !== undefined &&
+            RESUME_STALE_RE.test(outcome.error.message)
+          ) {
+            coldRetried = true;
+            deps.eventBus.publish({
+              type: 'log',
+              level: 'warn',
+              message: 'codex-provider: resume thread not found — retrying cold (dropping --resume)',
+              meta: { resume: String(session.resume) },
+              at: IsoTimestamp.now(),
+            });
+            // Drop the stale resume id so buildCodexArgs takes the cold-start path. `delete`
+            // on a spread copy (never the caller's session) — `exactOptionalPropertyTypes`
+            // forbids re-setting `resume: undefined`, so omit the key entirely.
+            const coldSession: AiSession = { ...session };
+            delete (coldSession as { resume?: unknown }).resume;
+            const coldArgs = buildCodexArgs(coldSession, { outputFile });
+            if (coldArgs.ok) {
+              args = coldArgs.value;
+              attempt--;
+              continue;
+            }
           }
           return Result.error(outcome.error) as Result<ProviderOutput, DomainError>;
         }

@@ -1,6 +1,7 @@
 import { Result } from '@src/domain/result.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
+import { isUpstreamBlocked } from '@src/domain/entity/task-lifecycle.ts';
 
 /**
  * Walk the attempt history (newest → oldest) and return the most recent non-empty `critique`.
@@ -44,6 +45,38 @@ export const nextAvailableTask = (tasks: readonly Task[]): Task | undefined => {
   if (ready.length === 0) return undefined;
 
   return ready.reduce((best, t) => (t.order < best.order ? t : best));
+};
+
+/**
+ * Transitive closure of UPSTREAM-blocked dependents of `rootId`: every task that is blocked
+ * solely because a prerequisite was not done ({@link isUpstreamBlocked}) and that depends —
+ * directly or through a chain of other upstream-blocked tasks — on `rootId`.
+ *
+ * Used by `unblockTaskUseCase` to cascade: unblocking a root prerequisite re-arms the whole
+ * subtree the dependency gate parked, so the operator fixes one task and relaunches instead of
+ * hand-unblocking each dependent. Own-failure blocks (eval/verify/budget) are NOT in the closure
+ * — those need a real fix, so they are never auto-cleared. `rootId` itself is excluded (the
+ * caller unblocks it directly). Re-arming is safe even if a dependent has a *second*, still-blocked
+ * prerequisite: the dependency gate re-blocks it on the next run.
+ *
+ * Pure — does not mutate.
+ *
+ * @public
+ */
+export const upstreamBlockedDependents = (tasks: readonly Task[], rootId: TaskId): readonly TaskId[] => {
+  const found = new Set<TaskId>();
+  const queue: TaskId[] = [rootId];
+  while (queue.length > 0) {
+    const cur = queue.shift() as TaskId;
+    for (const t of tasks) {
+      if (t.id === rootId || found.has(t.id)) continue;
+      if (t.dependsOn.includes(cur) && isUpstreamBlocked(t)) {
+        found.add(t.id);
+        queue.push(t.id);
+      }
+    }
+  }
+  return [...found];
 };
 
 /** Issue surfaced by {@link validateTaskGraph}. */

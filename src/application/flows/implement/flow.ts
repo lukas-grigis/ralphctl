@@ -126,7 +126,7 @@ export interface CreateImplementFlowOpts {
  *         preflight-tasks,                 // interactive dirty-tree menu — one per repo, one-shot
  *         implement-tasks,                 // sequential task-<id> sub-chains
  *         save-tasks,
- *         transition-sprint-to-review(when any task done)
+ *         transition-sprint-to-review(when every task settled AND ≥1 done)
  *       ])
  *     ),
  *   ])
@@ -269,7 +269,7 @@ export const buildImplementPrologue = (deps: ImplementDeps, opts: CreateImplemen
 /**
  * Build the epilogue segment — the once-per-run teardown that runs AFTER every task has settled:
  *
- *   save-tasks → transition-sprint-to-review(when any task done)
+ *   save-tasks → transition-sprint-to-review(when every task settled AND ≥1 done)
  *
  * Returned as `sequential('implement-epilogue', [...])` so the parallel launcher can run it
  * once on a dedicated runner under the held lock — including on the abort/fatal path, where the
@@ -280,17 +280,41 @@ export const buildImplementPrologue = (deps: ImplementDeps, opts: CreateImplemen
  *
  * @public
  */
+/**
+ * Predicate for the active→review transition at the end of an implement run. The sprint flips
+ * to review only when the run has genuinely finished: every task has settled (`done`/`blocked`,
+ * so no `todo`/`in_progress` remains) AND at least one settled `done`. See the inline notes at
+ * the guard site for the two failure modes this guards (premature mid-run flip; all-blocked).
+ * Extracted as a pure function so the transition rule is unit-testable independent of the chain.
+ *
+ * @public
+ */
+export const shouldTransitionToReview = (tasks: ImplementCtx['tasks']): boolean => {
+  const list = tasks ?? [];
+  const someDone = list.some((t) => t.status === 'done');
+  const noneRunnable = !list.some((t) => t.status === 'todo' || t.status === 'in_progress');
+  return someDone && noneRunnable;
+};
+
 export const buildImplementEpilogue = (deps: ImplementDeps, opts: CreateImplementFlowOpts): Element<ImplementCtx> =>
   sequential<ImplementCtx>('implement-epilogue', [
     saveTasksLeaf<ImplementCtx>({ taskRepo: deps.taskRepo }),
-    // Only transition to review when at least one task actually settled `done`. If every task
-    // got blocked (e.g. pre-existing build failure, repeated self-block), the sprint has
-    // nothing to review — leaving it `active` lets the user fix the blocker and re-run
-    // implement without first manually backing the sprint out of review. Mixed runs (some
-    // done, some blocked) still transition: there's real work to review.
+    // Transition to review only when the run has genuinely finished — every task settled
+    // (`done` or `blocked`) AND at least one task settled `done`. Two failure modes this guards:
+    //   1. Premature flip: the prior `some(done)` predicate flipped to review the instant ONE
+    //      task finished, even while other tasks were still `todo` / `in_progress` — silently
+    //      shipping a partial sprint mid-run. Requiring "no runnable work left" keeps the sprint
+    //      `active` until every task has actually settled, so the operator never sees a sprint in
+    //      review with work still pending.
+    //   2. All-blocked: if nothing settled `done` (e.g. a foundational task blocked and cascaded
+    //      to its dependents), there's nothing to review — staying `active` lets the operator fix
+    //      the blocker and re-run implement without first backing the sprint out of review.
+    // A mixed end state (some done, some blocked) still transitions: the run is complete and the
+    // blocked tasks are surfaced in review for a deliberate close decision — no longer a silent
+    // mid-run partial ship.
     guard<ImplementCtx>(
-      'transition-sprint-to-review-when-any-done',
-      (ctx) => ctx.tasks?.some((t) => t.status === 'done') === true,
+      'transition-sprint-to-review-when-settled',
+      (ctx) => shouldTransitionToReview(ctx.tasks),
       sequential<ImplementCtx>('transition-to-review-and-journal', [
         transitionSprintToReviewLeaf({ sprintRepo: deps.sprintRepo, clock: deps.clock, logger: deps.logger }),
         appendJournalSeparatorLeaf<ImplementCtx>(

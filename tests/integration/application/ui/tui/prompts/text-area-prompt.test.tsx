@@ -10,6 +10,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'ink-testing-library';
 import { TextAreaPrompt } from '@src/application/ui/tui/prompts/text-area-prompt.tsx';
+import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import {
   CTRL_A,
   CTRL_E,
@@ -22,10 +23,16 @@ import {
   ESC,
   HOME,
   LEFT,
+  PAGE_DOWN,
+  PAGE_UP,
   RIGHT,
   tick,
   UP,
 } from '@tests/integration/application/ui/tui/_keys.ts';
+
+/** SGR mouse wheel reports (button 65 = wheel-down, 64 = wheel-up) at col/row 10. */
+const MOUSE_WHEEL_DOWN = `${String.fromCharCode(27)}[<65;10;10M`;
+const MOUSE_WHEEL_UP = `${String.fromCharCode(27)}[<64;10;10M`;
 
 describe('TextAreaPrompt', () => {
   it('appends typed characters to the buffer', async () => {
@@ -353,6 +360,103 @@ describe('TextAreaPrompt', () => {
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('ab\nxc');
+    unmount();
+  });
+
+  it('follows the cursor with a window so a tall buffer keeps the cursor line on screen', async () => {
+    // More lines than any plausible viewport (terminal rows default to 24 in the test harness).
+    const body = Array.from({ length: 16 }, (_, i) => `L${String(i).padStart(2, '0')}`);
+    const { stdin, lastFrame, unmount } = render(
+      <TextAreaPrompt
+        message="Description"
+        initial={body.join('\n')}
+        onSubmit={() => undefined}
+        onCancel={() => undefined}
+      />
+    );
+    await tick();
+    // Cursor seeds at the end, so the window has already followed it to the bottom.
+    expect(lastFrame()).toContain('L15');
+    expect(lastFrame()).not.toContain('L00');
+    // Walk the cursor up to the very top; the window follows so the first line shows again.
+    for (let i = 0; i < 15; i++) {
+      stdin.write(UP);
+      await tick();
+    }
+    expect(lastFrame()).toContain('L00');
+    expect(lastFrame()).not.toContain('L15');
+    // Walk back down to the bottom; the window must shift to keep the cursor line visible.
+    for (let i = 0; i < 15; i++) {
+      stdin.write(DOWN);
+      await tick();
+    }
+    expect(lastFrame()).toContain('L15');
+    expect(lastFrame()).not.toContain('L00');
+    unmount();
+  });
+
+  it('PgUp / PgDn scroll the window by a screenful and clamp without wrapping', async () => {
+    const body = Array.from({ length: 30 }, (_, i) => `L${String(i).padStart(2, '0')}`);
+    const { stdin, lastFrame, unmount } = render(
+      <TextAreaPrompt
+        message="Description"
+        initial={body.join('\n')}
+        onSubmit={() => undefined}
+        onCancel={() => undefined}
+      />
+    );
+    await tick();
+    // PgUp repeatedly walks to the top and then clamps — pressing past the edge does not wrap.
+    for (let i = 0; i < 6; i++) {
+      stdin.write(PAGE_UP);
+      await tick();
+    }
+    expect(lastFrame()).toContain('L00');
+    expect(lastFrame()).not.toContain('L29');
+    // PgDn repeatedly walks back to the bottom and clamps there.
+    for (let i = 0; i < 6; i++) {
+      stdin.write(PAGE_DOWN);
+      await tick();
+    }
+    expect(lastFrame()).toContain('L29');
+    expect(lastFrame()).not.toContain('L00');
+    unmount();
+  });
+
+  it('renders a short buffer with every line, no scroll cue, and the leading marker', async () => {
+    const { lastFrame, unmount } = render(
+      <TextAreaPrompt
+        message="Description"
+        initial={'alpha\nbravo\ncharlie'}
+        onSubmit={() => undefined}
+        onCancel={() => undefined}
+      />
+    );
+    await tick();
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('alpha');
+    expect(frame).toContain('bravo');
+    expect(frame).toContain('charlie');
+    // No hidden-content cue and no first-row slicing — identical to the pre-viewport rendering.
+    expect(frame).not.toContain(glyphs.clipEllipsis);
+    expect(frame).toContain(glyphs.arrowRight);
+    unmount();
+  });
+
+  it('ignores mouse SGR wheel reports instead of typing them into the buffer', async () => {
+    const onSubmit = vi.fn();
+    const { stdin, unmount } = render(
+      <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
+    );
+    stdin.write('hi');
+    await tick();
+    stdin.write(MOUSE_WHEEL_DOWN);
+    await tick();
+    stdin.write(MOUSE_WHEEL_UP);
+    await tick();
+    stdin.write(ENTER);
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith('hi');
     unmount();
   });
 });

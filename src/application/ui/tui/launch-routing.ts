@@ -36,6 +36,12 @@ export interface InitialSelection {
    * loaded `Sprint` entity (the home view fetches that lazily).
    */
   readonly sprintId?: SprintId;
+  /**
+   * Readable name of the seeded sprint, resolved from the sprints array at boot time.
+   * Absent when no sprint is seeded or when the sprint can no longer be found (removed).
+   * Prevents the breadcrumb from showing a raw identifier on the first paint.
+   */
+  readonly sprintLabel?: string;
 }
 
 export interface InitialState {
@@ -90,12 +96,16 @@ export const resolveInitialState = ({
   // Seed the most-recent sprint when the persisted one is missing; undefined when the project
   // has zero sprints.
   const seededSprintId = persistedSprintValid ? lastSprintId : projectSprints[0]?.id;
+  // Resolve the readable name so the breadcrumb shows it immediately on first paint.
+  // Falls back to absent (no label) when the sprint can no longer be found.
+  const seededSprint = seededSprintId !== undefined ? projectSprints.find((s) => s.id === seededSprintId) : undefined;
   return {
     initialView: { id: 'home' },
     initialSelection: {
       projectId: resolvedProject.id,
       projectLabel: resolvedProject.displayName,
       ...(seededSprintId !== undefined ? { sprintId: seededSprintId } : {}),
+      ...(seededSprint !== undefined ? { sprintLabel: seededSprint.name } : {}),
     },
   };
 };

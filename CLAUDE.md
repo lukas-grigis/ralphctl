@@ -159,8 +159,10 @@ Sprint lifecycle: `draft → planned → active → review → done`.
 
 \*`plan` moves a draft sprint to `planned`; `implement` then activates it (`planned → active`) on first
 launch, passing an already-`active` sprint through idempotently — a draft sprint must be planned first.
-Implement transitions the sprint to `review` once every task has settled (`done` or `blocked`). The `sprint
-close` CLI command and the close-sprint flow accept only `review`-status.
+Implement transitions the sprint to `review` once every task has settled (`done` or `blocked`) AND at least
+one task settled `done` — an all-blocked run stays `active` so the operator can fix the blocker and
+re-run without backing the sprint out of review. The `sprint close` CLI command and the close-sprint flow
+accept only `review`-status.
 
 **Two-phase planning.** **Refine** (`refine` chain) is implementation-agnostic per-ticket clarification —
 no repo exploration; ticket `requirementStatus` flips `pending → approved`. **Plan** (`plan` chain) requires
@@ -204,10 +206,12 @@ each attempt is recorded as a structured `SetupRun` (outcome: `success` / `faile
 `skipped`) persisted on `SprintExecution.setupRanAt`. Non-zero exit or spawn failure hard-aborts the
 chain. Verify runs both **pre-task** (before the AI) and **post-task** (after commit) with an attribution
 algorithm (`clean` / `regressed` / `baseline-broken` / `fixed-baseline`) that avoids blocking the AI for
-pre-existing failures. Failure transitions the task to `blocked`, never `done`. Both scripts are collected
-during `detect-scripts` and persisted on `Repository.{setupScript,verifyScript}`. Persisted
-`project.json` files written before v0.7.0 used `checkScript` / `checkTimeout`; the schema accepts those
-legacy keys on read and rewrites the canonical names on the next save (no manual migration step).
+pre-existing failures. Failure transitions the task to `blocked`, never `done`. `Repository.verifyTimeout`
+caps both the pre- and post-task verify calls as `timeoutMs` on the shell runner; when absent the runner
+falls back to `DEFAULT_SHELL_TIMEOUT_MS` (5 min). Both scripts are collected during `detect-scripts` and
+persisted on `Repository.{setupScript,verifyScript,verifyTimeout}`. Persisted `project.json` files written
+before v0.7.0 used `checkScript` / `checkTimeout`; the schema accepts those legacy keys on read and
+rewrites the canonical names on the next save (no manual migration step).
 
 **Branch management.** `resolveBranchLeaf` prompts on first run; persists on `SprintExecution.branch`;
 per-task preflight verifies the right branch. `ralphctl create-pr --sprint <id>` opens PR / MR via `gh` /
@@ -298,7 +302,12 @@ exception is the setup/verify-script runner (`shell-script-runner.ts`), which in
 
 **`AbortError` is the one error chains propagate transparently.** User-initiated cancellation (Ctrl+C, the
 TUI abort hotkey) flows through every wrapper without being absorbed by guards or fallbacks. Anywhere a guard
-or fallback catches errors, it MUST exempt `AbortError`.
+or fallback catches errors, it MUST exempt `AbortError`. The chain's `AbortSignal` is now threaded all the
+way into `implementSession()` via `execute(input, signal)` on every headless AI leaf (generator, evaluator,
+review, create-pr, readiness, detect-scripts, detect-skills) — the signal reaches the headless provider's
+SIGTERM→SIGKILL kill ladder, abort-aware exit classification, and cancellable rate-limit sleep. Without this
+threading a cancel would let the spawned child run to natural completion, stranding the repo lock and leaving
+the progress spinner stuck.
 
 **AI sessions plug onto the repo (implement / ideate).** Cwd is the user's repo (multi-repo flows
 pick `repositories[0]`); the per-flow sandbox under `<sprintDir>/<flow>/<unit-slug>/` is mounted via
@@ -315,8 +324,16 @@ Refine's session is rooted at `<sprintDir>/refinement/<ticket-slug>/`; plan's at
 agents / `.mcp.json` and bias the AI toward implementation specifics (refine) or toward repositories[0]
 on a multi-repo project (plan); refine would also pollute the repo with bundled skills. Plan mounts
 **every** project repository as an equal `--add-dir` source — no repo enjoys cwd privilege, so the planner
-treats every repo symmetrically. Refine's repo path is still consulted at launch time to derive
-`defaultIssueOrigin` for the "update remote" reviewer option, but no AI session is rooted there.
+treats every repo symmetrically. No AI session is rooted in any repo for either flow.
+
+**Refine writes back as an issue comment, never an overwrite.** Refine never rewrites the issue
+description and never opens a new issue — it posts the refined requirements as a NEW comment on the
+ticket's linked issue via the comment-only `IssuePusher` (`comment(url, { body })`; `gh issue comment`
+/ `glab issue comment`). It is opt-in: the interactive reviewer's "Post as comment" choice (offered
+only when the ticket has a linked issue), or `settings.scm.postRefinementComment` (default `false`) in
+non-interactive runs. The earlier "approve & update" / "approve & create" reviewer options and the
+`defaultIssueOrigin`-driven create path were removed — `Project.defaultIssueOrigin` survives as a
+persisted field but refine no longer consults it.
 
 **Bundled skills always lose to project skills.** When `<cwd>/.claude/skills/<name>/` already exists, the
 bundled copy is skipped and the project copy is left untouched. The skills adapter
@@ -360,7 +377,14 @@ never re-executed on relaunch. Concurrent appends to `progress.md` and the learn
 serialised through one in-process mutex (no torn lines under fan-out). Launch then applies a
 status-only stable override: `in_progress` tasks first (so a resumed sprint picks up the previously
 aborted task before any fresh work), then `todo`; V8's stable sort preserves dependency order within
-each status group.
+each status group. A `dependency-gate` leaf at the head of every per-task subchain enforces the
+prerequisite contract at run time: if any `dependsOn` task is not `done` (blocked or still unsettled),
+the dependent is transitioned to `blocked upstream — …` and the subchain body is skipped — no AI
+spawn wasted. The gate is status-only and works in both the serial and parallel paths. Block is
+transitive by construction (A → B → C cascades automatically). Unblocking the root prerequisite
+cascade-unblocks the entire upstream-blocked subtree in one action (`unblockTaskUseCase` calls
+`upstreamBlockedDependents` and rewrites the list atomically); own-failure blocks are never
+auto-cleared.
 
 **Rate-limit retry is adapter-side.** The headless provider wrapper at
 `src/integration/ai/providers/_engine/rate-limit-backoff.ts` sleeps with exponential delay between 429
@@ -386,29 +410,37 @@ launch and re-enter the queue. No double-execution.
 Mirrored on `IterationConfig` (`src/application/chain/run/iteration-config.ts`); the chain `loop` predicates
 and the headless provider adapter read it.
 
-**Escalation on plateau.** Two opt-in `settings.harness` knobs let the gen-eval loop retry a plateaued task
-on a stronger generator model instead of immediately blocking:
+**Escalation on plateau.** On a plateau the gen-eval loop grants one more attempt rather than settling
+immediately. **A plateau never blocks the task** — it either retries once or preserves the work
+(done-with-warning). Two `settings.harness` knobs tune it:
 
-- `escalateOnPlateau` (default `false`) — flag gate; when off, plateau exits keep today's
-  done-with-warning behaviour intact.
+- `escalateOnPlateau` (default **`true`**) — flag gate; when off, a plateau keeps the legacy
+  done-with-warning-on-first-plateau behaviour (no retry).
 - `escalationMap` (default `{}`) — user overrides merged over the built-in ladder. User keys win on
   conflict (allowing redirects) and user-only keys extend the ladder. Self-loops (`{ 'foo': 'foo' }`)
   parse but emit one warn-level log record per entry at settings load.
 
-`DEFAULT_ESCALATION_MAP` (in `src/business/task/escalation-map.ts`) is a code-managed constant seeding
-the common in-provider rungs from the per-provider model catalogs (Claude Haiku → Sonnet → Opus; Codex /
-Copilot `gpt-5-mini` and `gpt-5.4-mini` → `gpt-5.5`). It is kept in lockstep with
-`domain/value/settings-models/` by code review — operators don't need to spell out these rungs to opt in,
-the empty-map default already covers them once the flag flips on.
+The one plateau-break attempt does two things: (1) **model escalation** — climbs one rung up
+`DEFAULT_ESCALATION_MAP` (`src/business/task/escalation-map.ts`, seeding the common in-provider rungs
+Claude Haiku → Sonnet → Opus; Codex / Copilot `gpt-5-mini` and `gpt-5.4-mini` → `gpt-5.5`, kept in
+lockstep with `domain/value/settings-models/` by code review) when a stronger rung exists; and (2) a
+**"change your approach" directive** (`{{PLATEAU_DIRECTIVE_SECTION}}` in the implement prompt) injected
+into the generator turn, telling it to abandon the non-converging approach and try a fundamentally
+different one. The directive is gated on the write-once `Task.escalatedFromModel` flag, so it renders
+on every generator turn from the escalated attempt onward (not a single turn) — intentional and
+harmless: re-telling the generator to change approach costs nothing and the once-per-task cap still
+bounds the model bump. For a top-of-ladder generator (e.g. the default Opus) there is no higher
+model, so the attempt keeps the model and relies on the directive (a same-model "nudge" — stamped
+`escalatedFromModel === escalatedToModel` so the once-per-task cap still fires).
 
 Escalation is generator-only by design — the evaluator's model is held constant across the task so the
-scoring rubric does not shift mid-task, which would make plateau detection meaningless. The policy fires at
-most once per task: `Task.escalatedFromModel` / `escalatedToModel` are stamped on first escalation, and a
-second plateau on the same task transitions to `blocked` with no further escalation. Cost ceiling is
-therefore bounded — at worst one extra attempt per task on the upgraded model. Cross-provider escalation
-(e.g. swapping `claude-sonnet-4-6` → `gpt-5.5` instead of `claude-opus-4-8`) is intentionally deferred —
-the gen-eval split shipped the two-provider plumbing implement would need, but switching providers
-mid-task carries auth / context / tool-availability hazards that warrant a follow-up design pass.
+scoring rubric does not shift mid-task, which would make plateau detection meaningless. The policy fires
+at most once per task (`Task.escalatedFromModel` / `escalatedToModel` are write-once): after the single
+plateau-break attempt, a second plateau — or a plateau with no attempt budget left — preserves the work
+(done-with-warning), never blocks. Cost ceiling is bounded: at worst one extra attempt per task.
+Cross-provider escalation (e.g. `claude-opus-4-8` → `gpt-5.5`) and a multi-rung ladder are intentionally
+deferred — switching providers mid-task carries auth / context / tool-availability hazards, and the
+same-model nudge already gives a top-of-ladder generator a way to act differently.
 
 **Trace ring buffer.** The runner caps `runner.trace` at `MAX_TRACE_ENTRIES = 5_000`
 (`src/application/chain/run/runner.ts`). The `TaskRoundStarted` event (carrying `roundN`,

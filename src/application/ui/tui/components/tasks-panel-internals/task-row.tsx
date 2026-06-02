@@ -58,6 +58,7 @@ export const TaskBlock = ({
   cardExpanded,
   cardFocused,
   nowMs,
+  blockedReason,
 }: {
   readonly task: TaskBucket;
   readonly running: boolean;
@@ -97,6 +98,13 @@ export const TaskBlock = ({
   readonly cardFocused: boolean;
   /** Wall-clock reference for the idle ticker (current time, ms epoch). */
   readonly nowMs: number;
+  /**
+   * Why this task is blocked — the entity's `Task.blockedReason`, supplied by the host from the
+   * polled task state (the live `TaskBucket` status is trace-derived and carries no reason). When
+   * present, a one-line reason renders under the header so the operator sees WHY a card blocked
+   * (own failure vs `blocked upstream — …`) instead of a bare status. Absent for non-blocked tasks.
+   */
+  readonly blockedReason?: string;
 }): React.JSX.Element => {
   const presentation = STATUS_PRESENTATION[task.status];
   const isSpinning = task.status === 'running';
@@ -107,6 +115,11 @@ export const TaskBlock = ({
   const evalRows = task.evaluations.slice(-maxEvaluations);
   const evalElided = task.evaluations.length - evalRows.length;
   const criteriaBullets = taskCriteria;
+  // Guard an empty / whitespace-only blockedReason (both `BlockedTask.blockedReason` and the
+  // task-blocked signal permit ''): without this an AI that self-blocks with a blank reason
+  // renders a lone warning glyph. trim() first — `collapseWhitespace('')` is '' but a
+  // whitespace-only string collapses to a single space, which `!== undefined` alone wouldn't catch.
+  const blockedReasonText = blockedReason?.trim() ?? '';
   // Most recent commit SHA for the collapsed summary line — sourced from the projection's
   // lastAttempt when a TaskProjection is supplied. Truncated to 7 chars (git's `--short`
   // default).
@@ -182,6 +195,16 @@ export const TaskBlock = ({
             return <Text dimColor> {eta}</Text>;
           })()}
       </Box>
+      {blockedReasonText.length > 0 && (
+        // Shown collapsed OR expanded — a blocked card's reason is its most important line.
+        <Box paddingLeft={2}>
+          <Box flexGrow={1} flexShrink={1}>
+            <Text color={inkColors.warning} wrap="truncate-end">
+              {glyphs.warningGlyph} {collapseWhitespace(blockedReasonText)}
+            </Text>
+          </Box>
+        </Box>
+      )}
       {cardExpanded && idleSnippets.length > 0 && (
         <Box paddingLeft={2}>
           <Box flexGrow={1} flexShrink={1}>

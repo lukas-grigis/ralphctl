@@ -2092,10 +2092,10 @@ describe('createImplementFlow — gen-eval loop', () => {
   // path produces a genuine second attempt; `maxAttempts === 1` collapses to one iteration;
   // an abort propagates verbatim with no extra iteration.
 
-  it('escalation across attempts: attempt 1 plateaus + escalates → attempt 2 runs (settle fires again) → 2nd plateau blocks', async () => {
+  it('escalation across attempts: attempt 1 plateaus + escalates → attempt 2 runs (settle fires again) → 2nd plateau preserves work', async () => {
     // maxAttempts 3 so the escalation budget doesn't pre-empt the policy. Generator on a model
-    // (`claude-sonnet-4-6`) that HAS a default escalation rung (→ `claude-opus-4-8`); without a
-    // rung the policy would `no-mapping`-block on the first plateau and never reach attempt 2.
+    // (`claude-sonnet-4-6`) that HAS a default escalation rung (→ `claude-opus-4-8`). A plateau on
+    // a top-of-ladder model now nudges (same model) rather than blocking, so attempt 2 always runs.
     const f = await buildFixture(1, 3);
     tracking(f);
     const sprintRepo = inMemorySprintRepo(f.sprint);
@@ -2148,10 +2148,10 @@ describe('createImplementFlow — gen-eval loop', () => {
     expect(runner.status).toBe('completed');
 
     // Two attempts ran in ONE launch — the outer loop re-entered after the escalation kept the
-    // task in_progress. Attempt 1 settled `failed` (escalation), attempt 2 settled into the
-    // block. Both attempts are recorded on the task.
+    // task in_progress. Attempt 1 settled `failed` (escalation), attempt 2 plateaued again and —
+    // a plateau never blocks — the work is preserved (done-with-warning). Both attempts recorded.
     const finalTask = taskRepo.tasks()[0];
-    expect(finalTask?.status).toBe('blocked');
+    expect(finalTask?.status).toBe('done');
     expect(finalTask?.attempts).toHaveLength(2);
 
     // The settle leaf ran once per attempt — exactly two `settle-attempt-<id>` trace entries.
@@ -2164,13 +2164,11 @@ describe('createImplementFlow — gen-eval loop', () => {
     expect(startEntries).toHaveLength(2);
 
     // Escalation stamped exactly once: from the configured sonnet to the opus rung. A second
-    // escalation on the second plateau is suppressed (once-per-task cap) — the task blocks
-    // instead, with the already-escalated reason.
+    // escalation on the second plateau is suppressed (once-per-task cap) — the work is preserved
+    // (done-with-warning) instead of blocking.
     expect(finalTask?.escalatedFromModel).toBe('claude-sonnet-4-6');
     expect(finalTask?.escalatedToModel).toBe('claude-opus-4-8');
-    if (finalTask?.status === 'blocked') {
-      expect(finalTask.blockedReason).toContain('plateau persists after escalation');
-    }
+    expect(finalTask?.status).not.toBe('blocked');
 
     // Attempt 2's generator spawned on the ESCALATED model — proof the second iteration didn't
     // just re-run identical work. The first generator sessions ran on sonnet; a later one ran
@@ -2179,15 +2177,15 @@ describe('createImplementFlow — gen-eval loop', () => {
     expect(generatorModels).toContain('claude-sonnet-4-6');
     expect(generatorModels).toContain('claude-opus-4-8');
 
-    // No `done` task → sprint stays `active`, re-runnable after the operator addresses the block.
-    expect(sprintRepo.current().status).toBe('active');
+    // The plateau preserved the work as `done`, so the run finished and the sprint moves to review.
+    expect(sprintRepo.current().status).toBe('review');
   });
 
   it('maxAttempts === 1: the outer loop runs exactly one iteration (single-attempt-per-launch parity)', async () => {
     // Regression guard for the byte-for-byte parity claim. Even with escalation ON and a model
     // that has a rung, a `maxAttempts` of 1 must collapse the outer loop to a single iteration:
     // attempt 1 plateaus, the escalation budget is already exhausted (attempts === maxAttempts),
-    // the task blocks, and the loop stops. The escalated model is never spawned.
+    // the work is preserved (done-with-warning), and the loop stops. The escalated model is never spawned.
     const f = await buildFixture(1, 1);
     tracking(f);
     const sprintRepo = inMemorySprintRepo(f.sprint);
@@ -2244,14 +2242,15 @@ describe('createImplementFlow — gen-eval loop', () => {
     const startEntries = runner.trace.filter((e) => e.elementName === `start-attempt-${String(finalTask?.id)}`);
     expect(startEntries).toHaveLength(1);
 
-    // The task blocked at the cap (plateau + budget-exhausted), never escalated, and the
-    // escalated model was never spawned — only sonnet ran.
-    expect(finalTask?.status).toBe('blocked');
+    // Plateau on the only allowed attempt (budget-exhausted) preserves the work as `done` — never
+    // escalated, and the escalated model was never spawned — only sonnet ran.
+    expect(finalTask?.status).toBe('done');
     expect(finalTask?.escalatedToModel).toBeUndefined();
     const generatorModels = provider.recordedSessions.filter((s) => s.role === 'generator').map((s) => s.model);
     expect(generatorModels.every((m) => m === 'claude-sonnet-4-6')).toBe(true);
 
-    expect(sprintRepo.current().status).toBe('active');
+    // One done task → the run finished and the sprint moves to review.
+    expect(sprintRepo.current().status).toBe('review');
   });
 
   it('abort mid-loop: AbortError propagates and no second attempt iteration starts', async () => {

@@ -213,7 +213,7 @@ const ensureRoundDir = async (dir: AbsolutePath): Promise<Result<void, StorageEr
 export const reviewRoundLeaf = (deps: ReviewRoundLeafDeps, opts: ReviewRoundLeafOpts): Element<ReviewCtx> =>
   leaf<ReviewCtx, ReviewRoundInput, RunReviewRoundOutput>('review-round', {
     useCase: {
-      execute: async (input) => {
+      execute: async (input, signal) => {
         // Per-round dir at `<reviewRoot>/round-<N>/`. N is the round we're about to act on —
         // `previousRound.index` is the round just settled (or undefined on round 1), so
         // `(prev?.index ?? 0) + 1` is the active round. `mkdir -p` it now so the AI's spawn
@@ -285,6 +285,9 @@ export const reviewRoundLeaf = (deps: ReviewRoundLeafDeps, opts: ReviewRoundLeaf
               permissions: FULL_AUTO,
               signalsFile: paths.value.signalsFile,
               outputDir: paths.value.outputDir,
+              // Thread the chain's abort signal so a TUI cancel mid-spawn kills the child via
+              // the provider's SIGTERM ladder instead of letting it run to completion.
+              ...(signal !== undefined ? { abortSignal: signal } : {}),
             });
             if (!spawn.ok) return Result.error(spawn.error);
             const validated = await validateSignalsFile(paths.value.outputDir, reviewRoundOutputContract);

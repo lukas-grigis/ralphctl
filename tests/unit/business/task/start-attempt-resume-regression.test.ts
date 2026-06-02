@@ -85,6 +85,73 @@ describe('startAttemptUseCase — resume from crashed running attempt', () => {
     }
   });
 
+  it('heals a status-corrupt `todo` task whose last attempt is still `running`', async () => {
+    // The wedge state observed in the field: a crash persisted the task as `todo` while its last
+    // attempt was left `running` (n=2). The old recovery branch was gated on `status ===
+    // 'in_progress'`, so it skipped this task and `startNextAttempt` dead-ended every launch with
+    // "already has a running attempt n=2". The fix keys recovery on the running attempt itself.
+    const inProgress = makeInProgressTaskWithRunningAttempt();
+    const wedged: Task = { ...inProgress, status: 'todo' };
+    expect(wedged.status).toBe('todo');
+    expect(wedged.attempts.at(-1)?.status).toBe('running');
+
+    const priorAttemptCount = wedged.attempts.length;
+    const { repo, writes } = fakeTaskRepo(new Map([[String(wedged.id), wedged]]));
+
+    const result = await startAttemptUseCase({
+      task: wedged,
+      sprintId: SPRINT_ID,
+      taskRepo: repo,
+      clock: () => FIXED_LATER,
+      logger: noopLogger,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const next = result.value;
+
+    // Status repaired to `in_progress`; leftover attempt settled `aborted`; a fresh `running`
+    // attempt appended — exactly the in_progress crash-resume outcome.
+    expect(next.status).toBe('in_progress');
+    expect(next.attempts).toHaveLength(priorAttemptCount + 1);
+    expect(next.attempts.at(-1)?.status).toBe('running');
+    expect(next.attempts.at(-2)?.status).toBe('aborted');
+    expect(next.attempts.at(-1)?.recovering?.fromAttemptN).toBe(priorAttemptCount);
+    expect(writes).toHaveLength(1);
+  });
+
+  it('persists the blocked transition when settling the leftover attempt exhausts the budget', async () => {
+    // The task crashed DURING its final allowed attempt (maxAttempts=1, one running attempt). On
+    // resume the leftover attempt settles `aborted`, pushing the task over budget → `blocked`. The
+    // use case must PERSIST that blocked state before surfacing the error — otherwise the running
+    // attempt stays on disk and every relaunch re-hits the same resume path and re-errors (a stuck
+    // loop), while the task never reports as blocked and the operator has nothing to `unblock`.
+    const crashed = makeInProgressTaskWithRunningAttempt();
+    const atBudget: Task = { ...crashed, maxAttempts: 1 };
+    expect(atBudget.attempts).toHaveLength(1);
+
+    const { repo, writes } = fakeTaskRepo(new Map([[String(atBudget.id), atBudget]]));
+
+    const result = await startAttemptUseCase({
+      task: atBudget,
+      sprintId: SPRINT_ID,
+      taskRepo: repo,
+      clock: () => FIXED_LATER,
+      logger: noopLogger,
+    });
+
+    // Surfaced as an error so the chain does not try to start an attempt on a blocked task…
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.message).toMatch(/is blocked/);
+
+    // …but the blocked transition is durably persisted (the regression: it was computed yet never
+    // written, so the launch queue could never filter it out).
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.status).toBe('blocked');
+    expect(writes[0]?.attempts.at(-1)?.status).toBe('aborted');
+  });
+
   it('baseline: starting from a todo task appends exactly one running attempt and no aborted entries', async () => {
     // Symmetric control: the resume-settlement branch is gated on a prior running attempt.
     // A clean `todo` start must NOT synthesise a phantom aborted attempt — the only output

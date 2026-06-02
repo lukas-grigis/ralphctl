@@ -14,6 +14,8 @@ import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { StoragePaths } from '@src/application/bootstrap/storage-paths.ts';
 import type { Runner } from '@src/application/chain/run/runner.ts';
 import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
+import type { ProjectId } from '@src/domain/value/id/project-id.ts';
+import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { bridgeRunnerToEventBus } from '@src/application/observability/chain-runner-bridge.ts';
 import { createAiProvider } from '@src/application/bootstrap/provider-factory.ts';
 import { createInteractiveAiProvider } from '@src/application/bootstrap/interactive-provider-factory.ts';
@@ -89,6 +91,16 @@ export type LaunchResult =
        */
       readonly generatorModel?: string;
       readonly evaluatorModel?: string;
+      /**
+       * Project and sprint the run was launched against, pinned at launch time for the run's
+       * lifetime. Populated from the launch snapshot so every flow launched against a sprint
+       * pins it; flows started without a sprint (e.g. create-sprint) leave the sprint fields
+       * unset.
+       */
+      readonly pinnedProjectId?: ProjectId;
+      readonly pinnedProjectLabel?: string;
+      readonly pinnedSprintId?: SprintId;
+      readonly pinnedSprintLabel?: string;
     }
   | { readonly ok: false; readonly reason: string };
 
@@ -174,6 +186,10 @@ export const sessionHintsFromLaunchResult = (
   readonly taskRecovering?: ReadonlyMap<string, RecoveryContext>;
   readonly generatorModel?: string;
   readonly evaluatorModel?: string;
+  readonly pinnedProjectId?: ProjectId;
+  readonly pinnedProjectLabel?: string;
+  readonly pinnedSprintId?: SprintId;
+  readonly pinnedSprintLabel?: string;
 } => ({
   ...(result.taskNames !== undefined ? { taskNames: result.taskNames } : {}),
   ...(result.maxTurns !== undefined ? { maxTurns: result.maxTurns } : {}),
@@ -183,6 +199,10 @@ export const sessionHintsFromLaunchResult = (
   ...(result.taskRecovering !== undefined ? { taskRecovering: result.taskRecovering } : {}),
   ...(result.generatorModel !== undefined ? { generatorModel: result.generatorModel } : {}),
   ...(result.evaluatorModel !== undefined ? { evaluatorModel: result.evaluatorModel } : {}),
+  ...(result.pinnedProjectId !== undefined ? { pinnedProjectId: result.pinnedProjectId } : {}),
+  ...(result.pinnedProjectLabel !== undefined ? { pinnedProjectLabel: result.pinnedProjectLabel } : {}),
+  ...(result.pinnedSprintId !== undefined ? { pinnedSprintId: result.pinnedSprintId } : {}),
+  ...(result.pinnedSprintLabel !== undefined ? { pinnedSprintLabel: result.pinnedSprintLabel } : {}),
 });
 
 /**
@@ -355,30 +375,44 @@ export const launchFlow = async (
     ...(effort !== undefined ? { effort } : {}),
   };
 
-  switch (flowId) {
-    case 'create-sprint':
-      return launchCreateSprint(ctx);
-    case 'add-tickets':
-      return launchAddTickets(ctx);
-    case 'refine':
-      return launchRefine(ctx);
-    case 'plan':
-      return launchPlan(ctx);
-    case 'implement':
-      return launchImplement(ctx);
-    case 'review':
-      return launchReview(ctx);
-    case 'close-sprint':
-      return launchCloseSprint(ctx);
-    case 'readiness':
-      return launchReadiness(ctx);
-    case 'detect-skills':
-      return launchDetectSkills(ctx);
-    case 'detect-scripts':
-      return launchDetectScripts(ctx);
-    case 'ideate':
-      return launchIdeate(ctx);
-    default:
-      return { ok: false, reason: `Unknown flow: ${flowId}` };
-  }
+  const dispatchResult = await (async (): Promise<LaunchResult> => {
+    switch (flowId) {
+      case 'create-sprint':
+        return launchCreateSprint(ctx);
+      case 'add-tickets':
+        return launchAddTickets(ctx);
+      case 'refine':
+        return launchRefine(ctx);
+      case 'plan':
+        return launchPlan(ctx);
+      case 'implement':
+        return launchImplement(ctx);
+      case 'review':
+        return launchReview(ctx);
+      case 'close-sprint':
+        return launchCloseSprint(ctx);
+      case 'readiness':
+        return launchReadiness(ctx);
+      case 'detect-skills':
+        return launchDetectSkills(ctx);
+      case 'detect-scripts':
+        return launchDetectScripts(ctx);
+      case 'ideate':
+        return launchIdeate(ctx);
+      default:
+        return { ok: false, reason: `Unknown flow: ${flowId}` };
+    }
+  })();
+
+  if (!dispatchResult.ok) return dispatchResult;
+
+  return {
+    ...dispatchResult,
+    ...(snapshot.project !== undefined
+      ? { pinnedProjectId: snapshot.project.id, pinnedProjectLabel: snapshot.project.displayName }
+      : {}),
+    ...(snapshot.sprint !== undefined
+      ? { pinnedSprintId: snapshot.sprint.id, pinnedSprintLabel: snapshot.sprint.name }
+      : {}),
+  };
 };

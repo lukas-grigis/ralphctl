@@ -77,7 +77,7 @@ describe('decideEscalation', () => {
     expect(decision.kind).toBe('already-escalated');
   });
 
-  it('returns no-mapping when the current model has no rung above', () => {
+  it('returns nudge when the current model has no rung above (top of ladder)', () => {
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     const decision = decideEscalation({
       task,
@@ -85,10 +85,11 @@ describe('decideEscalation', () => {
       flagOn: true,
       userMap: {},
     });
-    expect(decision.kind).toBe('no-mapping');
+    expect(decision.kind).toBe('nudge');
+    if (decision.kind === 'nudge') expect(decision.currentModel).toBe('claude-opus-4-8');
   });
 
-  it('treats self-loop entries (from === to) as no-mapping', () => {
+  it('treats self-loop entries (from === to) as a nudge', () => {
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     const decision = decideEscalation({
       task,
@@ -96,7 +97,7 @@ describe('decideEscalation', () => {
       flagOn: true,
       userMap: { 'claude-sonnet-4-6': 'claude-sonnet-4-6' },
     });
-    expect(decision.kind).toBe('no-mapping');
+    expect(decision.kind).toBe('nudge');
   });
 
   it('returns budget-exhausted before checking the map when attempts === maxAttempts', () => {
@@ -146,7 +147,30 @@ describe('applyEscalation', () => {
     expect(banner?.id).toBe(escalationBannerId(String(task.id)));
   });
 
-  it('on already-escalated: warn banner + blockedReason, no model-escalated event', () => {
+  it('on nudge: stamps the same model (once-per-task marker), info banner, no blockedReason, no model-escalated event', () => {
+    const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
+    const { bus, events } = captureBus();
+    const applied = applyEscalation({
+      task,
+      decision: { kind: 'nudge', currentModel: 'claude-opus-4-8' },
+      eventBus: bus,
+      logger: noopLogger,
+      clock: fixedClock,
+    });
+    expect(applied.ok).toBe(true);
+    if (!applied.ok) return;
+    // Stamped from===to so the once-per-task cap fires on a second plateau; the generator reads
+    // escalatedFromModel to arm the change-of-approach directive.
+    expect(applied.value.task.escalatedFromModel).toBe('claude-opus-4-8');
+    expect(applied.value.task.escalatedToModel).toBe('claude-opus-4-8');
+    expect(applied.value.blockedReason).toBeUndefined();
+    expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
+    const banner = events.find((e): e is Extract<AppEvent, { type: 'banner-show' }> => e.type === 'banner-show');
+    expect(banner?.tier).toBe('info');
+    expect(banner?.message).toMatch(/change-of-approach directive/);
+  });
+
+  it('on already-escalated: warn banner, NO blockedReason (preserves work), no model-escalated event', () => {
     const task = withEscalation(
       makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
       'claude-sonnet-4-6',
@@ -162,31 +186,14 @@ describe('applyEscalation', () => {
     });
     expect(applied.ok).toBe(true);
     if (!applied.ok) return;
-    expect(applied.value.blockedReason).toMatch(/plateau persists after escalation/);
+    // A plateau never blocks — after the one retry the work is preserved (done-with-warning).
+    expect(applied.value.blockedReason).toBeUndefined();
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
     const banner = events.find((e): e is Extract<AppEvent, { type: 'banner-show' }> => e.type === 'banner-show');
     expect(banner?.tier).toBe('warn');
   });
 
-  it('on no-mapping: warn banner mentions ladder top, blockedReason set', () => {
-    const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
-    const { bus, events } = captureBus();
-    const applied = applyEscalation({
-      task,
-      decision: { kind: 'no-mapping', currentModel: 'claude-opus-4-8' },
-      eventBus: bus,
-      logger: noopLogger,
-      clock: fixedClock,
-    });
-    expect(applied.ok).toBe(true);
-    if (!applied.ok) return;
-    expect(applied.value.blockedReason).toMatch(/top of configured escalation ladder/);
-    const banner = events.find((e): e is Extract<AppEvent, { type: 'banner-show' }> => e.type === 'banner-show');
-    expect(banner?.tier).toBe('warn');
-    expect(banner?.message).toMatch(/claude-opus-4-8/);
-  });
-
-  it('on budget-exhausted: warn banner names budget exhaustion (not missing mapping)', () => {
+  it('on budget-exhausted: warn banner names budget exhaustion, NO blockedReason (preserves work)', () => {
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 1 });
     const { bus, events } = captureBus();
     const applied = applyEscalation({
@@ -198,7 +205,7 @@ describe('applyEscalation', () => {
     });
     expect(applied.ok).toBe(true);
     if (!applied.ok) return;
-    expect(applied.value.blockedReason).toMatch(/attempt budget exhausted/);
+    expect(applied.value.blockedReason).toBeUndefined();
     expect(applied.value.task.escalatedToModel).toBeUndefined();
     const banner = events.find((e): e is Extract<AppEvent, { type: 'banner-show' }> => e.type === 'banner-show');
     expect(banner?.tier).toBe('warn');

@@ -13,6 +13,7 @@ import { Box, Text } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
+import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 
 const breadcrumbLabel = (id: string): string => {
   switch (id) {
@@ -60,6 +61,11 @@ const breadcrumbLabel = (id: string): string => {
 export const Breadcrumb = (): React.JSX.Element => {
   const router = useRouter();
   const selection = useSelection();
+  const ui = useUiState();
+  // When an Execute view is focused, prefer its pinned project/sprint so the right-side
+  // context reflects the run's own sprint rather than the mutable global selection.
+  const effectiveProjectLabel = ui.focusedRunProjectLabel ?? selection.projectLabel;
+  const effectiveSprintLabel = ui.focusedRunSprintLabel ?? selection.sprintLabel;
   // Substitute the concrete project / sprint name for the generic stack-id label so the
   // breadcrumb reads "Home → Projects → experience hub" instead of "… → Project". Selection
   // is set immediately before `router.push` in the list views, so it matches the entry that
@@ -76,8 +82,8 @@ export const Breadcrumb = (): React.JSX.Element => {
       : labelFor(router.stack[0] ?? { id: 'home' });
 
   const right: string[] = [];
-  if (selection.projectLabel !== undefined) right.push(selection.projectLabel);
-  if (selection.sprintLabel !== undefined) right.push(selection.sprintLabel);
+  if (effectiveProjectLabel !== undefined) right.push(effectiveProjectLabel);
+  if (effectiveSprintLabel !== undefined) right.push(effectiveSprintLabel);
 
   return (
     <Box

@@ -16,6 +16,10 @@ import { leaf } from '@src/application/chain/build/leaf.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
 import { createSessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
+import { sessionHintsFromLaunchResult } from '@src/application/ui/shared/launcher.ts';
+import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
+import type { ProjectId } from '@src/domain/value/id/project-id.ts';
+import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 
 interface Ctx {
   readonly _?: never;
@@ -70,6 +74,82 @@ describe('session-manager', () => {
     // Late subscriber replays — manager must already be detached.
     runner.subscribe(() => undefined);
     expect(notifyCount).toBe(countAfterRegister);
+  });
+
+  it('threads pinned project/sprint ids and labels through register', () => {
+    const sessions = createSessionManager();
+    const flow: Element<Ctx> = sequential<Ctx>('flow', [okLeaf('one')]);
+    const runner = createRunner({ id: 'r-pinned', element: flow, initialCtx: {} });
+
+    sessions.register({
+      runner,
+      flowId: 'implement',
+      title: 'Implement',
+      pinnedProjectId: 'proj-1' as ProjectId,
+      pinnedProjectLabel: 'My Project',
+      pinnedSprintId: 'sprint-1' as SprintId,
+      pinnedSprintLabel: 'Sprint Alpha',
+    });
+
+    const record = sessions.get('r-pinned');
+    expect(record?.descriptor.pinnedProjectId).toBe('proj-1');
+    expect(record?.descriptor.pinnedProjectLabel).toBe('My Project');
+    expect(record?.descriptor.pinnedSprintId).toBe('sprint-1');
+    expect(record?.descriptor.pinnedSprintLabel).toBe('Sprint Alpha');
+  });
+
+  it('leaves pinned fields undefined when not supplied to register', () => {
+    const sessions = createSessionManager();
+    const flow: Element<Ctx> = sequential<Ctx>('flow', [okLeaf('one')]);
+    const runner = createRunner({ id: 'r-no-pinned', element: flow, initialCtx: {} });
+
+    sessions.register({ runner, flowId: 'refine', title: 'Refine' });
+
+    const record = sessions.get('r-no-pinned');
+    expect(record?.descriptor.pinnedProjectId).toBeUndefined();
+    expect(record?.descriptor.pinnedProjectLabel).toBeUndefined();
+    expect(record?.descriptor.pinnedSprintId).toBeUndefined();
+    expect(record?.descriptor.pinnedSprintLabel).toBeUndefined();
+  });
+
+  it('sessionHintsFromLaunchResult round-trips pinned project/sprint fields', () => {
+    const flow: Element<Ctx> = sequential<Ctx>('flow', [okLeaf('one')]);
+    const runner = createRunner({ id: 'r-hints', element: flow, initialCtx: {} });
+
+    const result = {
+      ok: true as const,
+      runner: runner as ReturnType<typeof createRunner>,
+      title: 'Implement',
+      pinnedProjectId: 'proj-abc' as ProjectId,
+      pinnedProjectLabel: 'Test Project',
+      pinnedSprintId: 'sprint-xyz' as SprintId,
+      pinnedSprintLabel: 'Test Sprint',
+    } satisfies Extract<LaunchResult, { ok: true }>;
+
+    const hints = sessionHintsFromLaunchResult(result);
+
+    expect(hints.pinnedProjectId).toBe('proj-abc');
+    expect(hints.pinnedProjectLabel).toBe('Test Project');
+    expect(hints.pinnedSprintId).toBe('sprint-xyz');
+    expect(hints.pinnedSprintLabel).toBe('Test Sprint');
+  });
+
+  it('sessionHintsFromLaunchResult omits pinned fields when not set on LaunchResult', () => {
+    const flow: Element<Ctx> = sequential<Ctx>('flow', [okLeaf('one')]);
+    const runner = createRunner({ id: 'r-no-hints', element: flow, initialCtx: {} });
+
+    const result = {
+      ok: true as const,
+      runner: runner as ReturnType<typeof createRunner>,
+      title: 'Refine',
+    } satisfies Extract<LaunchResult, { ok: true }>;
+
+    const hints = sessionHintsFromLaunchResult(result);
+
+    expect(hints.pinnedProjectId).toBeUndefined();
+    expect(hints.pinnedProjectLabel).toBeUndefined();
+    expect(hints.pinnedSprintId).toBeUndefined();
+    expect(hints.pinnedSprintLabel).toBeUndefined();
   });
 
   describe('eviction', () => {

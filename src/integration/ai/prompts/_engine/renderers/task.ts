@@ -192,3 +192,26 @@ export const renderPriorCritiqueSection = (critique: string | undefined): string
     trimmed,
   ].join('\n');
 };
+
+/**
+ * "Change your approach" directive injected when this task is a plateau-break attempt — i.e. the
+ * gen-eval loop stalled (the same evaluator dimensions kept failing across rounds with no real
+ * progress) and the escalation policy granted one more attempt. Empty when not a plateau-break
+ * attempt. The point is to break the model out of iterating on a non-converging path: it is told
+ * the previous strategy is stuck and to try a fundamentally different one, rather than nudging the
+ * same diff again. Pairs with the Prior Critique section (which still carries the specific failing
+ * dimensions). Generator-only — the evaluator never sees it (its rubric is held constant).
+ */
+export const renderPlateauDirectiveSection = (plateauBreak: boolean): string => {
+  if (!plateauBreak) return '';
+  return [
+    '## ⚠ You have plateaued — change your approach',
+    '',
+    'Earlier attempts at this task stalled: the same checks kept failing across multiple rounds with',
+    'no real progress. Do NOT keep iterating on the previous approach — that path is not converging.',
+    'Step back and rethink. Re-read the task contract and the prior critique, question the assumption',
+    'that led the earlier attempts astray, and implement a **fundamentally different** solution — a',
+    'different design, data flow, or code path. Then verify the failing criteria directly before',
+    'signalling completion.',
+  ].join('\n');
+};
