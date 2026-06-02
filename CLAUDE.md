@@ -402,29 +402,34 @@ launch and re-enter the queue. No double-execution.
 Mirrored on `IterationConfig` (`src/application/chain/run/iteration-config.ts`); the chain `loop` predicates
 and the headless provider adapter read it.
 
-**Escalation on plateau.** Two opt-in `settings.harness` knobs let the gen-eval loop retry a plateaued task
-on a stronger generator model instead of immediately blocking:
+**Escalation on plateau.** On a plateau the gen-eval loop grants one more attempt rather than settling
+immediately. **A plateau never blocks the task** — it either retries once or preserves the work
+(done-with-warning). Two `settings.harness` knobs tune it:
 
-- `escalateOnPlateau` (default `false`) — flag gate; when off, plateau exits keep today's
-  done-with-warning behaviour intact.
+- `escalateOnPlateau` (default **`true`**) — flag gate; when off, a plateau keeps the legacy
+  done-with-warning-on-first-plateau behaviour (no retry).
 - `escalationMap` (default `{}`) — user overrides merged over the built-in ladder. User keys win on
   conflict (allowing redirects) and user-only keys extend the ladder. Self-loops (`{ 'foo': 'foo' }`)
   parse but emit one warn-level log record per entry at settings load.
 
-`DEFAULT_ESCALATION_MAP` (in `src/business/task/escalation-map.ts`) is a code-managed constant seeding
-the common in-provider rungs from the per-provider model catalogs (Claude Haiku → Sonnet → Opus; Codex /
-Copilot `gpt-5-mini` and `gpt-5.4-mini` → `gpt-5.5`). It is kept in lockstep with
-`domain/value/settings-models/` by code review — operators don't need to spell out these rungs to opt in,
-the empty-map default already covers them once the flag flips on.
+The one plateau-break attempt does two things: (1) **model escalation** — climbs one rung up
+`DEFAULT_ESCALATION_MAP` (`src/business/task/escalation-map.ts`, seeding the common in-provider rungs
+Claude Haiku → Sonnet → Opus; Codex / Copilot `gpt-5-mini` and `gpt-5.4-mini` → `gpt-5.5`, kept in
+lockstep with `domain/value/settings-models/` by code review) when a stronger rung exists; and (2) a
+**"change your approach" directive** (`{{PLATEAU_DIRECTIVE_SECTION}}` in the implement prompt) injected
+into that attempt's generator turn, telling it to abandon the non-converging approach and try a
+fundamentally different one. For a top-of-ladder generator (e.g. the default Opus) there is no higher
+model, so the attempt keeps the model and relies on the directive (a same-model "nudge" — stamped
+`escalatedFromModel === escalatedToModel` so the once-per-task cap still fires).
 
 Escalation is generator-only by design — the evaluator's model is held constant across the task so the
-scoring rubric does not shift mid-task, which would make plateau detection meaningless. The policy fires at
-most once per task: `Task.escalatedFromModel` / `escalatedToModel` are stamped on first escalation, and a
-second plateau on the same task transitions to `blocked` with no further escalation. Cost ceiling is
-therefore bounded — at worst one extra attempt per task on the upgraded model. Cross-provider escalation
-(e.g. swapping `claude-sonnet-4-6` → `gpt-5.5` instead of `claude-opus-4-8`) is intentionally deferred —
-the gen-eval split shipped the two-provider plumbing implement would need, but switching providers
-mid-task carries auth / context / tool-availability hazards that warrant a follow-up design pass.
+scoring rubric does not shift mid-task, which would make plateau detection meaningless. The policy fires
+at most once per task (`Task.escalatedFromModel` / `escalatedToModel` are write-once): after the single
+plateau-break attempt, a second plateau — or a plateau with no attempt budget left — preserves the work
+(done-with-warning), never blocks. Cost ceiling is bounded: at worst one extra attempt per task.
+Cross-provider escalation (e.g. `claude-opus-4-8` → `gpt-5.5`) and a multi-rung ladder are intentionally
+deferred — switching providers mid-task carries auth / context / tool-availability hazards, and the
+same-model nudge already gives a top-of-ladder generator a way to act differently.
 
 **Trace ring buffer.** The runner caps `runner.trace` at `MAX_TRACE_ENTRIES = 5_000`
 (`src/application/chain/run/runner.ts`). The `TaskRoundStarted` event (carrying `roundN`,

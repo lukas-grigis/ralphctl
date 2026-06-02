@@ -9,6 +9,15 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Plateau "change your approach" nudge + the model ladder is live by default.** When the
+  generator-evaluator loop plateaus (the same checks keep failing with no real progress),
+  `escalateOnPlateau` (now defaulting **on**) grants one more attempt: it climbs the model ladder
+  when a stronger rung exists AND injects a "you have plateaued — change your approach" directive
+  into that attempt's generator turn. For a top-of-ladder generator (e.g. the default Opus) there is
+  no higher model, so it keeps the model and relies on the directive to break out of a non-converging
+  approach. The directive renders via a new `{{PLATEAU_DIRECTIVE_SECTION}}` in the implement prompt
+  and is generator-only (the evaluator's rubric is held constant).
+
 - **Tasks-column windowing in the Execute view.** The middle Tasks column now renders an anchored
   window of cards centred on the active task (`computeAnchoredWindow`) rather than mapping the entire
   task list. With 3+ tasks the unwindowed column overflowed and pushed the Recent-log panel and footer
@@ -59,6 +68,16 @@ to [Semantic Versioning](https://semver.org/).
   but dropped between the launcher and `RepoExecConfig`, so a configured verify timeout had zero effect
   and a hung verify burned the full 5-minute default on both the pre-task and post-task calls. The
   value is now copied into `RepoExecConfig` and forwarded to both verify leaves as `timeoutMs`.
+
+### Changed
+
+- **A plateau never blocks the task anymore.** `harness.escalateOnPlateau` now defaults to `true`
+  (was `false`). When the gen-eval loop plateaus, the harness grants one more attempt (model
+  escalation and/or the change-of-approach directive); after that single retry — or when no attempt
+  budget remains, or the generator is already at the top of the ladder — the work is preserved
+  (done-with-warning), matching the prior opt-out behaviour. The previous "plateau at the top of the
+  ladder / after escalation → blocked" paths that discarded the work are gone. Set
+  `harness.escalateOnPlateau=false` to keep the legacy done-with-warning-on-first-plateau behaviour.
 
 ## [0.9.0] - 2026-06-01
 

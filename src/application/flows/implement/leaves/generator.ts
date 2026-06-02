@@ -241,6 +241,10 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
             outputContractSection: renderContractSectionFor(generatorOutputContract, outputDir),
             ...(deps.verifyScript !== undefined ? { verifyScript: deps.verifyScript } : {}),
             ...(priorCritique !== undefined ? { priorCritique } : {}),
+            // Plateau-break attempt: the escalation policy stamped the task (model bump and/or a
+            // change-of-approach nudge) after the gen-eval loop stalled. Surface the "change your
+            // approach" directive so the generator abandons the non-converging path.
+            ...(task.escalatedFromModel !== undefined ? { plateauBreak: true } : {}),
           });
           if (!prompt.ok) return Result.error(prompt.error) as Result<readonly HarnessSignal[], DomainError>;
           // Persist the rendered prompt under `rounds/<N>/generator/prompt.md` BEFORE the AI

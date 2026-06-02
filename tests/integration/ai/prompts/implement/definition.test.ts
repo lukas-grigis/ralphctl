@@ -296,6 +296,39 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
     if (!result.ok) return;
     expect(result.value).not.toContain('## Prior Critique');
   });
+
+  it('renders the "change your approach" directive when plateauBreak is set', async () => {
+    const task = makeTaskWith({ name: 'export CSV' });
+    const result = await buildImplementPrompt(deps, {
+      task,
+      projectPath: '/tmp/ralph/main-repo',
+      progressFile: '/tmp/ralph/sprint-1/progress.md',
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
+      plateauBreak: true,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toContain('You have plateaued');
+    expect(result.value).toContain('change your approach');
+    expect(result.value).toContain('fundamentally different');
+  });
+
+  it('omits the plateau directive when plateauBreak is absent (the normal case)', async () => {
+    const task = makeTaskWith({ name: 'export CSV' });
+    const result = await buildImplementPrompt(deps, {
+      task,
+      projectPath: '/tmp/ralph/main-repo',
+      progressFile: '/tmp/ralph/sprint-1/progress.md',
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).not.toContain('You have plateaued');
+  });
 });
 
 describe('implementPromptDef — validate-rejected paths', () => {
@@ -312,6 +345,7 @@ describe('implementPromptDef — validate-rejected paths', () => {
       projectTooling: '_(none detected)_',
       progressFile: '/tmp/ralph/sprint-1/progress.md',
       priorCritiqueSection: '',
+      plateauDirectiveSection: '',
       priorProgress: '',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
       contractPath: CONTRACT_PATH,
@@ -333,6 +367,7 @@ describe('implementPromptDef — validate-rejected paths', () => {
       projectTooling: '_(none detected)_',
       progressFile: '',
       priorCritiqueSection: '',
+      plateauDirectiveSection: '',
       priorProgress: '',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
       contractPath: CONTRACT_PATH,

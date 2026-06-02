@@ -52,6 +52,8 @@ under its declared check type.
 
 {{VERIFICATION_CRITERIA_SECTION}}
 
+<plateau_directive>{{PLATEAU_DIRECTIVE_SECTION}}</plateau_directive>
+
 <prior_critique>{{PRIOR_CRITIQUE_SECTION}}</prior_critique>
 
 <prior_progress>

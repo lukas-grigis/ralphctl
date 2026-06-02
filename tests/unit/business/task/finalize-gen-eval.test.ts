@@ -219,7 +219,7 @@ describe('finalizeGenEvalUseCase', () => {
     expect(events.some((e) => e.type === 'model-escalated')).toBe(true);
   });
 
-  it('plateau + already-escalated: no new event, blockedReason set, shouldFailAttempt unset', async () => {
+  it('plateau + already-escalated: no new event, NO blockedReason (preserves work), shouldFailAttempt unset', async () => {
     const initial = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     const stamped = recordTaskEscalation(initial, 'claude-sonnet-4-6', 'claude-opus-4-8');
     if (!stamped.ok) throw stamped.error;
@@ -240,12 +240,13 @@ describe('finalizeGenEvalUseCase', () => {
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value.blockedReason).toMatch(/plateau persists after escalation/);
+    // After the one plateau-break retry, a second plateau preserves the work (done-with-warning).
+    expect(result.value.blockedReason).toBeUndefined();
     expect(result.value.shouldFailAttempt).toBeFalsy();
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
   });
 
-  it('plateau + flag-on + no-mapping: warn banner, blockedReason set, no escalation stamped', async () => {
+  it('plateau + flag-on + top-of-ladder: nudge stamps the same model + shouldFailAttempt, no blockedReason', async () => {
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     const bus = newBus();
     const events: Array<{ type: string }> = [];
@@ -264,11 +265,15 @@ describe('finalizeGenEvalUseCase', () => {
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value.task.escalatedToModel).toBeUndefined();
-    expect(result.value.blockedReason).toMatch(/top of configured escalation ladder/);
+    // Nudge: same model stamped (arms the directive + once-per-task cap), one more attempt granted.
+    expect(result.value.task.escalatedFromModel).toBe('claude-opus-4-8');
+    expect(result.value.task.escalatedToModel).toBe('claude-opus-4-8');
+    expect(result.value.shouldFailAttempt).toBe(true);
+    expect(result.value.blockedReason).toBeUndefined();
+    expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
   });
 
-  it('plateau + flag-on + budget edge: warn names budget exhaustion, no escalation stamped', async () => {
+  it('plateau + flag-on + budget edge: warn names budget exhaustion, NO blockedReason (preserves work)', async () => {
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 1 });
     const bus = newBus();
     const events: Array<{ type: string }> = [];
@@ -288,7 +293,8 @@ describe('finalizeGenEvalUseCase', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.task.escalatedToModel).toBeUndefined();
-    expect(result.value.blockedReason).toMatch(/budget exhausted/);
+    expect(result.value.blockedReason).toBeUndefined();
+    expect(result.value.shouldFailAttempt).toBeFalsy();
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
   });
 
