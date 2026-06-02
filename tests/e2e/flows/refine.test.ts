@@ -377,6 +377,73 @@ describe('createRefineFlow — interactive', () => {
     expect(String(persistedTicket?.link)).toBe('https://github.com/x/y/issues/42');
   });
 
+  it('reviewer EDITS the body then posts → the comment carries the edited body, not the AI original', async () => {
+    // Regression for the silent-divergence bug: a reviewer who edits the AI's proposal and then
+    // posts a comment must publish the EDITED text (the locally-persisted requirements), never the
+    // AI's discarded pre-edit body.
+    const link = (() => {
+      const r = parseHttpUrl('link', 'https://github.com/x/y/issues/42');
+      if (!r.ok) throw new Error('test setup');
+      return r.value;
+    })();
+    const { sprint, tickets } = draftWithPending(1, (_i, t) => ({ ...t, link }));
+    const { repo, saves } = inMemoryRepo(sprint);
+    const eventBus = createInMemoryEventBus();
+
+    const refinedBody = '# refined requirements\n- a WRONG criterion the reviewer deletes';
+    const editedBody = '# refined requirements\n- the corrected acceptance criterion';
+    const fake = fakeInteractiveAi(() => refinedBody);
+
+    const commentCalls: Array<{ url: string; body: string }> = [];
+    const issuePusher: IssuePusher = {
+      async comment(url, args) {
+        commentCalls.push({ url, body: args.body });
+        return Result.ok(undefined);
+      },
+    };
+
+    // The reviewer accepts but supplies an edited body — the use case persists it on the ticket.
+    const reviewBeforeApprove = async () => ({ accept: true, alsoUpdateOrigin: true, body: editedBody });
+
+    const flow = createRefineFlow(
+      {
+        sprintRepo: repo,
+        interactiveAi: fake.session,
+        templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
+        writeFile: createAtomicWriteFile(),
+        runInTerminal: passthroughRunInTerminal,
+        eventBus,
+        logger: noopLogger,
+        skillsAdapter: noopSkillsAdapter,
+        skillSource: emptySkillSource,
+        clock: () => '2026-01-01T00:00:00Z' as IsoTimestamp,
+        issuePusher,
+        reviewBeforeApprove,
+      },
+      {
+        sprintId: sprint.id,
+        pendingTickets: tickets,
+        providerId: 'claude-code',
+        model: 'claude-sonnet-4-6',
+        refinementRoot: refinementRoot(),
+      }
+    );
+
+    const runner = createRunner({ id: 'r-refine-edit-comment', element: flow, initialCtx: { sprintId: sprint.id } });
+    await runner.start();
+
+    expect(runner.status).toBe('completed');
+    expect(commentCalls).toHaveLength(1);
+    const call = commentCalls[0];
+    // The posted comment carries the EDITED body and NOT the AI's discarded original.
+    expect(call?.body).toContain(editedBody);
+    expect(call?.body).not.toContain('WRONG criterion');
+    // …and the locally-persisted requirements match what was posted (no divergence).
+    const persistedTicket = saves[0]?.tickets[0];
+    expect(persistedTicket?.status).toBe('approved');
+    expect(persistedTicket?.requirements).toBe(editedBody);
+  });
+
   it('non-interactive run with postRefinementComment → comments on a linked ticket without prompting', async () => {
     const link = (() => {
       const r = parseHttpUrl('link', 'https://github.com/x/y/issues/99');

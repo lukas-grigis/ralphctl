@@ -70,7 +70,7 @@ export interface RefineTicketInteractiveDeps {
   readonly reviewBeforeApprove?: (
     proposed: string,
     ticket: PendingTicket
-  ) => Promise<{ readonly accept: boolean; readonly alsoUpdateOrigin?: boolean }>;
+  ) => Promise<{ readonly accept: boolean; readonly alsoUpdateOrigin?: boolean; readonly body?: string }>;
   /**
    * Optional pusher. When the reviewer picks "Post as comment" (or, in non-interactive runs,
    * `postRefinementComment` is enabled), the leaf posts the refined requirements as a comment
@@ -292,7 +292,13 @@ export const refineTicketInteractiveLeaf = (
         const shouldComment =
           deps.reviewBeforeApprove !== undefined ? out.alsoUpdateOrigin : deps.postRefinementComment === true;
         if (!shouldComment) return Result.ok(out);
-        await maybeCommentOnOrigin(deps, out.ticket as ApprovedTicket, refinedSignal.body);
+        // Post the SETTLED requirements — `refineTicketUseCase` stored the reviewer's edited body
+        // (when they edited it) on the approved ticket. Posting `refinedSignal.body` (the AI's raw
+        // pre-edit proposal) would publish text the reviewer may have deliberately discarded to a
+        // public issue tracker, diverging from the locally-persisted ticket. `out.accepted` is true
+        // here, so `out.ticket` is an `ApprovedTicket` and `requirements` is a non-empty string.
+        const approved = out.ticket as ApprovedTicket;
+        await maybeCommentOnOrigin(deps, approved, approved.requirements);
         return Result.ok(out);
       },
     },

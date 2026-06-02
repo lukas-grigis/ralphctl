@@ -55,11 +55,14 @@ export interface RefineDeps {
    * ticket transitions to `approved`. Production wires this to a TUI review prompt;
    * headless / CI / tests omit it and the AI's body is auto-accepted.
    *
-   * Return shape: `{accept, alsoUpdateOrigin?}`. The "Post as comment" path sets
-   * `alsoUpdateOrigin: true`; the leaf then posts the comment (best-effort).
+   * Return shape: `{accept, alsoUpdateOrigin?, body?}`. The "Post as comment" path sets
+   * `alsoUpdateOrigin: true`; the leaf then posts the comment (best-effort). `body` carries the
+   * reviewer's edited requirements when they edited the AI's proposal — the use case persists it
+   * (and the comment publishes it) instead of the original AI body. Omitting `body` keeps the AI's
+   * proposal verbatim.
    */
   readonly reviewBeforeApprove?: (
     proposed: string,
     ticket: PendingTicket
-  ) => Promise<{ readonly accept: boolean; readonly alsoUpdateOrigin?: boolean }>;
+  ) => Promise<{ readonly accept: boolean; readonly alsoUpdateOrigin?: boolean; readonly body?: string }>;
 }
