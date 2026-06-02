@@ -69,7 +69,31 @@ to [Semantic Versioning](https://semver.org/).
   and a hung verify burned the full 5-minute default on both the pre-task and post-task calls. The
   value is now copied into `RepoExecConfig` and forwarded to both verify leaves as `timeoutMs`.
 
+- **Resume no longer dead-ends a dependent scheduled ahead of its prerequisite.** The implement launch
+  queue now uses a dependency-respecting priority order: a resumed (`in_progress`) task leads only among
+  the tasks runnable at each step, never ahead of a `todo` / `in_progress` task it depends on. The prior
+  flat in-progress-first sort could place a dependent before its prerequisite in the serial queue, so the
+  new `dependency-gate` blocked the dependent `blocked upstream` before its prerequisite ran — stranding
+  it for the launch and shipping the sprint to `review` missing work.
+
+- **A task that crashes on its final attempt now lands `blocked` durably.** On resume, settling the
+  leftover `running` attempt can push the task over its attempt budget; the `blocked` transition was
+  computed but not persisted, so every relaunch re-hit the same error and the task never surfaced as
+  blocked (a stuck loop). The blocked state is now written before the error is raised, so the launch
+  queue filters it out and the operator can `unblock` it.
+
 ### Changed
+
+- **Refine writes back as an issue comment, not a description overwrite.** The refine reviewer's
+  write-back options changed: the old "approve & update" (overwrote the issue description) and
+  "approve & create" (opened a new issue from `defaultIssueOrigin`) are replaced by a single
+  **"Post as comment"** choice that appends the refined requirements as a NEW comment on the ticket's
+  linked issue, leaving the human-authored description untouched. When the reviewer edits the AI's
+  proposal, the comment carries the edited text (matching what is persisted locally). Non-interactive
+  runs opt in via `settings.scm.postRefinementComment` (default `false`). The `IssuePusher` port is now
+  comment-only (`comment(url, { body })`, backed by `gh issue comment` / `glab issue comment`); the
+  `update` / `create` methods are gone. `Project.defaultIssueOrigin` survives as a persisted field but
+  refine no longer consults it, and settings / project files written before this change parse unchanged.
 
 - **A plateau never blocks the task anymore.** `harness.escalateOnPlateau` now defaults to `true`
   (was `false`). When the gen-eval loop plateaus, the harness grants one more attempt (model

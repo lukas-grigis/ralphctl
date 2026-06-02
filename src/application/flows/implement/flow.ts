@@ -126,7 +126,7 @@ export interface CreateImplementFlowOpts {
  *         preflight-tasks,                 // interactive dirty-tree menu — one per repo, one-shot
  *         implement-tasks,                 // sequential task-<id> sub-chains
  *         save-tasks,
- *         transition-sprint-to-review(when any task done)
+ *         transition-sprint-to-review(when every task settled AND ≥1 done)
  *       ])
  *     ),
  *   ])
@@ -269,7 +269,7 @@ export const buildImplementPrologue = (deps: ImplementDeps, opts: CreateImplemen
 /**
  * Build the epilogue segment — the once-per-run teardown that runs AFTER every task has settled:
  *
- *   save-tasks → transition-sprint-to-review(when any task done)
+ *   save-tasks → transition-sprint-to-review(when every task settled AND ≥1 done)
  *
  * Returned as `sequential('implement-epilogue', [...])` so the parallel launcher can run it
  * once on a dedicated runner under the held lock — including on the abort/fatal path, where the

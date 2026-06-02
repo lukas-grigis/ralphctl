@@ -218,9 +218,13 @@ export interface BuildImplementPromptInput {
    */
   readonly priorCritique?: string;
   /**
-   * True when this attempt is a plateau-break: the gen-eval loop stalled and the escalation policy
-   * granted one more attempt (with or without a model bump). Renders the "change your approach"
-   * directive. The generator leaf sets it from `task.escalatedFromModel !== undefined`. Default false.
+   * True once the escalation policy has fired for this task — the gen-eval loop stalled and one more
+   * attempt was granted (with or without a model bump). Renders the "change your approach" directive.
+   * The generator leaf sets it from `task.escalatedFromModel !== undefined`, which is a write-once,
+   * task-lifetime flag — so the directive renders on EVERY generator turn from the escalated attempt
+   * onward (every turn of that attempt, and any further attempt the task takes), not just one turn.
+   * That is intentional and harmless: re-telling the generator to change approach costs nothing and
+   * the once-per-task escalation cap still bounds the model bump. Default false (pre-escalation).
    */
   readonly plateauBreak?: boolean;
   /**

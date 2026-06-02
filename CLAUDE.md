@@ -324,8 +324,16 @@ Refine's session is rooted at `<sprintDir>/refinement/<ticket-slug>/`; plan's at
 agents / `.mcp.json` and bias the AI toward implementation specifics (refine) or toward repositories[0]
 on a multi-repo project (plan); refine would also pollute the repo with bundled skills. Plan mounts
 **every** project repository as an equal `--add-dir` source — no repo enjoys cwd privilege, so the planner
-treats every repo symmetrically. Refine's repo path is still consulted at launch time to derive
-`defaultIssueOrigin` for the "update remote" reviewer option, but no AI session is rooted there.
+treats every repo symmetrically. No AI session is rooted in any repo for either flow.
+
+**Refine writes back as an issue comment, never an overwrite.** Refine never rewrites the issue
+description and never opens a new issue — it posts the refined requirements as a NEW comment on the
+ticket's linked issue via the comment-only `IssuePusher` (`comment(url, { body })`; `gh issue comment`
+/ `glab issue comment`). It is opt-in: the interactive reviewer's "Post as comment" choice (offered
+only when the ticket has a linked issue), or `settings.scm.postRefinementComment` (default `false`) in
+non-interactive runs. The earlier "approve & update" / "approve & create" reviewer options and the
+`defaultIssueOrigin`-driven create path were removed — `Project.defaultIssueOrigin` survives as a
+persisted field but refine no longer consults it.
 
 **Bundled skills always lose to project skills.** When `<cwd>/.claude/skills/<name>/` already exists, the
 bundled copy is skipped and the project copy is left untouched. The skills adapter
@@ -417,8 +425,11 @@ The one plateau-break attempt does two things: (1) **model escalation** — clim
 Claude Haiku → Sonnet → Opus; Codex / Copilot `gpt-5-mini` and `gpt-5.4-mini` → `gpt-5.5`, kept in
 lockstep with `domain/value/settings-models/` by code review) when a stronger rung exists; and (2) a
 **"change your approach" directive** (`{{PLATEAU_DIRECTIVE_SECTION}}` in the implement prompt) injected
-into that attempt's generator turn, telling it to abandon the non-converging approach and try a
-fundamentally different one. For a top-of-ladder generator (e.g. the default Opus) there is no higher
+into the generator turn, telling it to abandon the non-converging approach and try a fundamentally
+different one. The directive is gated on the write-once `Task.escalatedFromModel` flag, so it renders
+on every generator turn from the escalated attempt onward (not a single turn) — intentional and
+harmless: re-telling the generator to change approach costs nothing and the once-per-task cap still
+bounds the model bump. For a top-of-ladder generator (e.g. the default Opus) there is no higher
 model, so the attempt keeps the model and relies on the directive (a same-model "nudge" — stamped
 `escalatedFromModel === escalatedToModel` so the once-per-task cap still fires).
 
