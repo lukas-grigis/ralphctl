@@ -196,4 +196,55 @@ describe('createShellScriptRunner', () => {
       }
     });
   });
+
+  describe('pnpm headless defaults (CI / frozen-lockfile)', () => {
+    // Setup/verify scripts spawn with no TTY. pnpm 11 aborts its node_modules purge without a
+    // TTY (`ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`) and ignores every confirm-modules-purge
+    // form — `CI=true` is the only env lever that suppresses it. `PNPM_CONFIG_FROZEN_LOCKFILE=false`
+    // neutralises CI's frozen-lockfile flip so a bare `pnpm install` keeps its pre-CI (non-frozen)
+    // behaviour. Defaults sit BEFORE process.env so a user can opt out by exporting `CI=`.
+
+    it('defaults CI=true and PNPM_CONFIG_FROZEN_LOCKFILE=false on the spawn env', async () => {
+      const savedCi = process.env['CI'];
+      const savedFrozen = process.env['PNPM_CONFIG_FROZEN_LOCKFILE'];
+      delete process.env['CI'];
+      delete process.env['PNPM_CONFIG_FROZEN_LOCKFILE'];
+      try {
+        const { spawn, calls } = fakeSpawn({ exitCode: 0 });
+        const runner = createShellScriptRunner({ spawn });
+        await runner.run(cwd, 'pnpm install');
+
+        expect(calls[0]?.options.env?.['CI']).toBe('true');
+        expect(calls[0]?.options.env?.['PNPM_CONFIG_FROZEN_LOCKFILE']).toBe('false');
+      } finally {
+        if (savedCi === undefined) delete process.env['CI'];
+        else process.env['CI'] = savedCi;
+        if (savedFrozen === undefined) delete process.env['PNPM_CONFIG_FROZEN_LOCKFILE'];
+        else process.env['PNPM_CONFIG_FROZEN_LOCKFILE'] = savedFrozen;
+      }
+    });
+
+    it('lets a user-exported process.env.CI override the default (opt-out)', async () => {
+      const savedCi = process.env['CI'];
+      process.env['CI'] = '';
+      try {
+        const { spawn, calls } = fakeSpawn({ exitCode: 0 });
+        const runner = createShellScriptRunner({ spawn });
+        await runner.run(cwd, 'true');
+
+        expect(calls[0]?.options.env?.['CI']).toBe('');
+      } finally {
+        if (savedCi === undefined) delete process.env['CI'];
+        else process.env['CI'] = savedCi;
+      }
+    });
+
+    it('lets caller-supplied opts.env override the CI default', async () => {
+      const { spawn, calls } = fakeSpawn({ exitCode: 0 });
+      const runner = createShellScriptRunner({ spawn });
+      await runner.run(cwd, 'true', { env: { CI: 'false' } });
+
+      expect(calls[0]?.options.env?.['CI']).toBe('false');
+    });
+  });
 });

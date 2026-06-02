@@ -193,13 +193,13 @@ describe('setupScriptRunnerLeaf', () => {
     expect(result.error.error.message).toBe('exited 7');
   });
 
-  it('surfaces a project-side hint and persists ONE row when pnpm aborts on missing TTY', async () => {
+  it('surfaces a CI-override hint and persists ONE row when pnpm aborts on missing TTY', async () => {
     // `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY` (pnpm refuses to wipe node_modules without
-    // an interactive confirmation, pnpm/pnpm#9966). The leaf does NOT auto-retry with CI=true
-    // because that would flip Maven Surefire, Spring Boot @DisabledIfEnvironmentVariable("CI")
-    // gates, pnpm's frozen-lockfile semantics, and other toolchain heuristics — a "green" retry
-    // could mask drift from the real baseline the post-task verify gate later runs without CI.
-    // Instead the leaf aborts on the single spawn and surfaces an actionable project-side hint.
+    // an interactive confirmation, pnpm/pnpm#9966 / #11562). The shell runner now sets CI=true
+    // on every setup/verify child — the only lever that suppresses this on pnpm 11 — so this
+    // path is reached only when CI is overridden in the operator's env. The leaf still does not
+    // run its own CI retry; it aborts on the single spawn and surfaces an actionable hint that
+    // points at the env override rather than asking the project under development to adapt.
     const repo = savingRepo();
     const bus = createCapturingBus();
     const shell = multiCallShell([
@@ -223,7 +223,8 @@ describe('setupScriptRunnerLeaf', () => {
     if (result.ok) return;
 
     expect(result.error.error).toBeInstanceOf(InvalidStateError);
-    // Exactly one spawn — no auto-retry.
+    // Exactly one spawn — the leaf itself does not do a CI retry (CI=true is injected one layer
+    // down, inside the shell runner, not via the leaf's opts.env).
     expect(shell.calls).toHaveLength(1);
     expect(shell.calls[0]?.env?.CI).toBeUndefined();
     // Exactly one audit row appended (the failed first attempt).
@@ -233,13 +234,13 @@ describe('setupScriptRunnerLeaf', () => {
     expect(finalExec?.setupRanAt[0]?.outcome).toBe('failed');
     // Error message keeps the no-tty pnpm trim form.
     expect(result.error.error.message).toBe('exited 1 (no-tty pnpm)');
-    // Hint surfaces the project-side fixes — no auto-retry / CI=true mention.
+    // Hint points at the env override — the harness sets CI=true, so reaching this path means
+    // CI was cleared in the operator's environment. No longer asks the project to adapt.
     const invalidStateError = result.error.error as InvalidStateError;
     const hint = invalidStateError.hint ?? '';
-    expect(hint).toContain('pin pnpm < 11');
-    expect(hint).toContain('confirm-modules-purge=false');
-    expect(hint).not.toContain('auto-retry');
-    expect(hint).not.toContain('CI=true');
+    expect(hint).toContain('CI');
+    expect(hint).toContain('resync');
+    expect(hint).not.toContain('pin pnpm < 11');
   });
 
   it('does not append the pnpm no-TTY hint to generic script failures', async () => {
