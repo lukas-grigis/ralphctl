@@ -26,6 +26,14 @@
 - [../implementer/project_global_modal_overlay_pattern.md](../implementer/project_global_modal_overlay_pattern.md) —
   Per-view inline vs App-Layout-level overlay — when to use each
 
+## Multi-Flow Navigation
+
+- [project_multi_flow_nav_design.md](project_multi_flow_nav_design.md) — Tab/Shift+Tab cycle + Ctrl+1..9 direct-jump: decisions on location, gating, router.replace vs push, Ctrl+digit terminal risk (Jun 2026)
+
+## Windowed List Navigation
+
+- [project_unified_windowed_list.md](project_unified_windowed_list.md) — useListWindow hook + WindowedList component: full convergence design, ScrollRegion suppressArrows, adoption plan for all 6 list views (Jun 2026)
+
 ## Status Card Patterns
 
 - [feedback_baseline_card_row_pattern.md](feedback_baseline_card_row_pattern.md) — One row pattern for status cards:

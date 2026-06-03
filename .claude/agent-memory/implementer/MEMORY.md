@@ -20,3 +20,9 @@
   task (self-blocked exit) instead of aborting the run; Aborted/RateLimit still propagate; via isRecoverableTurnError
 - [project_provider_stream_session_fields.md](project_provider_stream_session_fields.md) — empirical session-id/usage
   JSONL field names: codex thread_id on thread.started; copilot sessionId on result record
+- [project_session_als_fenced_from_integration.md](project_session_als_fenced_from_integration.md) — currentSessionId()
+  ALS helper in application/ is lint-fenced from integration; relocate to business/ before any adapter can read it
+- [project_view_hint_single_source.md](project_view_hint_single_source.md) — TUI hints gate via useViewHints enabledWhen;
+  inline body-footer hint prose is a duplicate ungated source — remove it when gating a key
+- [project_per_attempt_round_display.md](project_per_attempt_round_display.md) — live round counter folds monotonic global
+  round into per-attempt coords via perAttemptRound (render-time, not on bucket); genEvalMaxAttempts cap is half-wired
