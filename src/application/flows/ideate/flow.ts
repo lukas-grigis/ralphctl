@@ -1,10 +1,13 @@
 import { dirname, join } from 'node:path';
 import { promises as fs } from 'node:fs';
+import { Result } from '@src/domain/result.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import { type PlannedSprint, type Sprint, planSprint } from '@src/domain/entity/sprint.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
+import { leaf } from '@src/application/chain/build/leaf.ts';
 import { loadAndAssertSprintSubChain } from '@src/application/flows/_shared/sprint/load-and-assert-sprint.ts';
 import { loadProjectLeaf } from '@src/application/flows/_shared/project/load.ts';
 import { loadTasksLeaf } from '@src/application/flows/_shared/task/load.ts';
@@ -21,6 +24,7 @@ import { ideateAndPlanLeaf } from '@src/application/flows/ideate/leaves/ideate-a
 import { installSkillsLeaf } from '@src/application/flows/_shared/skills/install-skills.ts';
 import { uninstallSkillsLeaf } from '@src/application/flows/_shared/skills/uninstall-skills.ts';
 import { stampSessionMetaLeaf } from '@src/application/flows/_shared/stamp-session-meta.ts';
+import { assertCtxField } from '@src/application/flows/_shared/_engine/assert-ctx-field.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 
 export interface CreateIdeateFlowOpts {
@@ -54,12 +58,19 @@ export interface CreateIdeateFlowOpts {
  *     build-ideate-unit,           // mkdir <sprintDir>/ideate/<run-slug>/
  *     render-prompt-to-file,       // <unit-root>/prompt.md
  *     ideate-and-plan,             // interactive Claude → reads <unit-root>/ideate.json
- *     save-sprint,
+ *     transition-to-planned,       // draft → planned (same domain transition as plan)
  *     save-tasks,
+ *     save-sprint,                 // sprint.status = 'planned'
  *   ])
  *
- * Single-shot per invocation: ideate produces ONE ticket plus its tasks. Re-run for another
- * idea on the same draft sprint.
+ * Single-shot per invocation: ideate produces ONE ticket plus its tasks, then transitions the
+ * sprint `draft → planned` so Implement (which requires `planned` / `active`) is reachable right
+ * after. Re-run for another idea is not supported once planned — re-ideating starts from a fresh
+ * draft sprint.
+ *
+ * Persistence order mirrors plan: tasks first, then sprint. The sprint's `planned` status is the
+ * "tasks are ready" signal — saving it last means a crash mid-save leaves the sprint `draft` even
+ * if the tasks already landed.
  */
 /**
  * Read `<sprintDir>/progress.md` for the inline `## Prior progress` section (audit-[07]).
@@ -74,6 +85,32 @@ const readSprintProgress = async (ideateRoot: AbsolutePath): Promise<string> => 
     return '';
   }
 };
+
+/**
+ * Transition the ctx draft sprint `draft → planned` after `ideate-and-plan` has appended an
+ * approved ticket + its tasks. Reuses the SAME domain transition the plan flow runs
+ * (`planSprint` — wrapped there by `planSprintUseCase`). Ideate auto-accepts: the TUI user is
+ * already in the interactive AI session, so there is no extra reviewer gate. The downstream
+ * `save-sprint` leaf persists the `planned` sprint, mirroring plan's tasks-then-sprint order.
+ *
+ * Without this leaf the flow ends with the sprint still `draft`, and Implement — which requires
+ * `planned` / `active` — would be greyed out right after a successful ideate.
+ */
+const transitionToPlannedLeaf = (deps: Pick<IdeateDeps, 'clock'>): Element<IdeateCtx> =>
+  leaf<IdeateCtx, { readonly sprint: Sprint }, PlannedSprint>('transition-to-planned', {
+    useCase: {
+      execute: async ({ sprint }) => {
+        const transitioned = planSprint(sprint, deps.clock());
+        if (!transitioned.ok) return Result.error(transitioned.error);
+        return Result.ok(transitioned.value);
+      },
+    },
+    input: (ctx) => {
+      const sprint = assertCtxField(ctx, 'sprint', 'transition-to-planned');
+      return { sprint };
+    },
+    output: (ctx, sprint) => ({ ...ctx, sprint }),
+  });
 
 export const createIdeateFlow = (deps: IdeateDeps, opts: CreateIdeateFlowOpts): Element<IdeateCtx> => {
   const slug = opts.runSlug ?? `session-${String(Date.now())}`;
@@ -166,7 +203,8 @@ export const createIdeateFlow = (deps: IdeateDeps, opts: CreateIdeateFlowOpts): 
       ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
     }),
     uninstallSkillsLeaf<IdeateCtx>({ skillsAdapter: deps.skillsAdapter }, { cwdPicker: () => opts.cwd }),
-    saveSprintLeaf<IdeateCtx>({ sprintRepo: deps.sprintRepo }),
+    transitionToPlannedLeaf({ clock: deps.clock }),
     saveTasksLeaf<IdeateCtx>({ taskRepo: deps.taskRepo }),
+    saveSprintLeaf<IdeateCtx>({ sprintRepo: deps.sprintRepo }),
   ]);
 };
