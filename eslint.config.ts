@@ -203,7 +203,7 @@ const READINESS_PROVIDERS = ['claude', 'codex', 'copilot'] as const;
  * Cross-sibling reach goes through `skills/_engine/`; the composition switch over the per-tool
  * adapters lives at `skills/adapter-factory.ts`, which is not itself a sibling.
  */
-const SKILLS = ['bundled', 'claude', 'codex', 'copilot', 'project'] as const;
+const SKILLS = ['bundled', 'claude', 'codex', 'copilot', 'operator', 'project'] as const;
 
 /**
  * Domain layer rule. Pure entities + value objects + errors + Result + observability interfaces.

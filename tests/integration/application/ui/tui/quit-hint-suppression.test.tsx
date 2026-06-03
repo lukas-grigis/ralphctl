@@ -53,6 +53,7 @@ const stubStorage = (): StoragePaths => {
     locksRoot: p,
     runsRoot: p,
     memoryRoot: p,
+    operatorSkillsRoot: p,
   };
 };
 

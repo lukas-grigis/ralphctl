@@ -25,6 +25,7 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { composeSkillSources, createProjectSkillSource } from '@src/integration/ai/skills/project/source.ts';
+import { createOperatorSkillSource } from '@src/integration/ai/skills/operator/source.ts';
 import { type AiFlowSettings, type AiProvider, primaryFlowRow, type Settings } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import { resolveEffort } from '@src/business/settings/resolve-effort.ts';
@@ -335,8 +336,9 @@ export const launchFlow = async (
     ai: settings.ai,
     eventBus: deps.app.eventBus,
   });
+  const resolvedProvider = primaryFlowRow(settings.ai, adapterFlow).provider;
   const skillsAdapter = createSkillsAdapter({
-    provider: primaryFlowRow(settings.ai, adapterFlow).provider,
+    provider: resolvedProvider,
     logger: deps.app.logger,
   });
   const effort = aiFlow !== undefined ? resolveEffort(aiFlow, settings) : undefined;
@@ -347,7 +349,16 @@ export const launchFlow = async (
   // skills as of launch time. Flows that run without a project (none today) fall back cleanly
   // to bundled-only.
   const projectSource = createProjectSkillSource({ getProject: () => snapshot.project });
-  const composedSkillSource = composeSkillSources(deps.app.skillSource, projectSource);
+  // Global, provider-specific operator drop-in skills under `<appRoot>/skills/<providerDir>/`.
+  // Keyed on the resolved provider so a mixed config installs each flow's operator skills for
+  // that flow's provider only. Installed through the same adapter as bundled — same `ralphctl-`
+  // namespace + `.git/info/exclude` wildcard + tracked uninstall. A missing dir = empty source.
+  const operatorSource = createOperatorSkillSource({
+    operatorSkillsRoot: deps.storage.operatorSkillsRoot,
+    provider: resolvedProvider,
+    logger: deps.app.logger,
+  });
+  const composedSkillSource = composeSkillSources(deps.app.skillSource, projectSource, operatorSource);
 
   // Every launched runner gets bridged to the event bus so subscribers (TUI panels,
   // progress files, future webhooks) see chain progress without per-flow emission wiring. The

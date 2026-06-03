@@ -13,6 +13,7 @@ import {
   RALPHCTL_HOME_ENV,
   resolveStoragePaths,
   RUNS_SUBDIR,
+  SKILLS_SUBDIR,
   STATE_SUBDIR,
 } from '@src/application/bootstrap/storage-paths.ts';
 
@@ -28,6 +29,7 @@ describe('resolveStoragePaths', () => {
     expect(String(result.value.locksRoot)).toBe('/home/alice/.ralphctl/state/locks');
     expect(String(result.value.runsRoot)).toBe('/home/alice/.ralphctl/data/runs');
     expect(String(result.value.memoryRoot)).toBe('/home/alice/.ralphctl/data/memory');
+    expect(String(result.value.operatorSkillsRoot)).toBe('/home/alice/.ralphctl/skills');
   });
 
   it('uses os.homedir() by default', () => {
@@ -41,6 +43,7 @@ describe('resolveStoragePaths', () => {
     expect(String(result.value.locksRoot)).toContain(`${STATE_SUBDIR}/${LOCKS_SUBDIR}`);
     expect(String(result.value.runsRoot)).toContain(`${DATA_SUBDIR}/${RUNS_SUBDIR}`);
     expect(String(result.value.memoryRoot)).toContain(`${DATA_SUBDIR}/${MEMORY_SUBDIR}`);
+    expect(String(result.value.operatorSkillsRoot)).toContain(`${APP_ROOT_DIR}/${SKILLS_SUBDIR}`);
   });
 
   it('returns ValidationError when homedir is not absolute', () => {
@@ -59,6 +62,7 @@ describe('resolveStoragePaths', () => {
     expect(String(result.value.dataRoot)).toBe('/var/lib/ralphctl-test/data');
     expect(String(result.value.locksRoot)).toBe('/var/lib/ralphctl-test/state/locks');
     expect(String(result.value.memoryRoot)).toBe('/var/lib/ralphctl-test/data/memory');
+    expect(String(result.value.operatorSkillsRoot)).toBe('/var/lib/ralphctl-test/skills');
   });
 
   it('falls back to homedir layout when RALPHCTL_HOME is empty', () => {
@@ -114,6 +118,18 @@ describe('ensureStorageRoots', () => {
       const stat = await fs.stat(dir);
       expect(stat.isDirectory()).toBe(true);
     }
+  });
+
+  it('computes operatorSkillsRoot but does NOT create it (operator-authored, missing = empty)', async () => {
+    const paths = resolveStoragePaths({ homedir: () => fakeHome, env: {} });
+    if (!paths.ok) throw new Error('resolveStoragePaths failed');
+    expect(String(paths.value.operatorSkillsRoot)).toBe(`${fakeHome}/.ralphctl/${SKILLS_SUBDIR}`);
+
+    const result = await ensureStorageRoots(paths.value);
+    expect(result.ok).toBe(true);
+
+    // The skills root is operator-created; ensureStorageRoots must not materialise it.
+    await expect(fs.stat(String(paths.value.operatorSkillsRoot))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('is idempotent — running twice does not fail or duplicate work', async () => {

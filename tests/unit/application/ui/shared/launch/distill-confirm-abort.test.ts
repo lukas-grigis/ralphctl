@@ -121,6 +121,7 @@ const STUB_STORAGE = {
   configRoot: absolutePath('/tmp/ralphctl-distill-confirm-test/config'),
   stateRoot: absolutePath('/tmp/ralphctl-distill-confirm-test/state'),
   runsRoot: absolutePath('/tmp/ralphctl-distill-confirm-test/data/runs'),
+  operatorSkillsRoot: absolutePath('/tmp/ralphctl-distill-confirm-test/skills'),
 };
 
 /** No-op append — review and close-sprint both thread this port into the flow factory. */

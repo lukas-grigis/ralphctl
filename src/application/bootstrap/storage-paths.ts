@@ -37,6 +37,7 @@ export const STATE_SUBDIR = 'state';
 export const LOCKS_SUBDIR = 'locks';
 export const RUNS_SUBDIR = 'runs';
 export const MEMORY_SUBDIR = 'memory';
+export const SKILLS_SUBDIR = 'skills';
 export const RALPHCTL_HOME_ENV = 'RALPHCTL_HOME';
 
 export interface StoragePaths {
@@ -62,6 +63,18 @@ export interface StoragePaths {
    * (not `state`) because distilled learnings survive across sprints; user-managed lifecycle.
    */
   readonly memoryRoot: AbsolutePath;
+  /**
+   * `<appRoot>/skills` — global, provider-specific operator drop-in skills. The operator
+   * authors `SKILL.md` folders under a per-provider subdirectory (`<skillsRoot>/<providerDir>/
+   * <name>/SKILL.md`); at flow launch the resolved provider's subdir is installed into the
+   * target repo through the same {@link SkillsAdapter} path as bundled skills (same `ralphctl-`
+   * namespace, same `.git/info/exclude` wildcard, same tracked uninstall). There is no
+   * per-project operator location — this global root is the single source.
+   *
+   * NOT created by `ensureStorageRoots`: the directory is operator-authored, and a missing
+   * directory is a valid empty source (no operator skills configured), not an error.
+   */
+  readonly operatorSkillsRoot: AbsolutePath;
 }
 
 export interface ResolveStoragePathsDeps {
@@ -115,6 +128,8 @@ export const storagePathsFromRoot = (appRoot: AbsolutePath): Result<StoragePaths
   if (!runsRoot.ok) return Result.error(runsRoot.error);
   const memoryRoot = AbsolutePath.parse(join(String(dataRoot.value), MEMORY_SUBDIR));
   if (!memoryRoot.ok) return Result.error(memoryRoot.error);
+  const operatorSkillsRoot = AbsolutePath.parse(join(String(appRoot), SKILLS_SUBDIR));
+  if (!operatorSkillsRoot.ok) return Result.error(operatorSkillsRoot.error);
   return Result.ok({
     appRoot,
     dataRoot: dataRoot.value,
@@ -123,6 +138,7 @@ export const storagePathsFromRoot = (appRoot: AbsolutePath): Result<StoragePaths
     locksRoot: locksRoot.value,
     runsRoot: runsRoot.value,
     memoryRoot: memoryRoot.value,
+    operatorSkillsRoot: operatorSkillsRoot.value,
   }) as Result<StoragePaths, ValidationError>;
 };
 
