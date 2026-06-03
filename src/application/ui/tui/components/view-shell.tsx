@@ -63,10 +63,23 @@ export interface ViewShellProps {
    * fallback the view declares; absent both, Banner's width-based auto-switch applies.
    */
   readonly compactBanner?: boolean;
+  /**
+   * When true, the inner {@link ScrollRegion} ignores arrow / paging / vim scroll keys so a view
+   * that owns its own list cursor handles them itself (no double-scroll). Mouse-wheel scroll is
+   * unaffected. Default `undefined` / false — every current caller keeps the page-scroll keys.
+   */
+  readonly suppressScrollArrows?: boolean;
   readonly children: React.ReactNode;
 }
 
-export const ViewShell = ({ title, subtitle, right, compactBanner, children }: ViewShellProps): React.JSX.Element => {
+export const ViewShell = ({
+  title,
+  subtitle,
+  right,
+  compactBanner,
+  suppressScrollArrows,
+  children,
+}: ViewShellProps): React.JSX.Element => {
   const ui = useUiState();
   const queue = usePromptQueue();
   // Precedence: user toggle (`bannerCompact`) wins over the view's `compactBanner` prop, which
@@ -82,7 +95,7 @@ export const ViewShell = ({ title, subtitle, right, compactBanner, children }: V
       </Box>
 
       {/* ── CONTENT ────────────────────────────────────────────────────────────────────── */}
-      <ScrollRegion disabled={ui.promptActive || ui.helpOpen}>
+      <ScrollRegion disabled={ui.promptActive || ui.helpOpen} suppressArrows={suppressScrollArrows ?? false}>
         <SectionStamp title={title} subtitle={subtitle} right={right} />
         {children}
       </ScrollRegion>

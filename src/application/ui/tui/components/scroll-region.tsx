@@ -34,12 +34,24 @@ export interface ScrollRegionProps {
   readonly children: React.ReactNode;
   /** When true (prompt active, overlay open, etc.), swallow no keys and no mouse events. */
   readonly disabled?: boolean;
+  /**
+   * When true, the keyboard scroll handler ignores the arrow / paging / vim keys (↑ ↓ PageUp
+   * PageDown Ctrl+b/f/u/d g G k j) so they fall through to a view that owns its own list cursor
+   * — preventing a single keypress from both moving the cursor AND page-scrolling. Mouse-wheel
+   * scroll is UNAFFECTED: the wheel still drives the viewport regardless of this flag. The
+   * `disabled` gate still mutes everything (keys and wheel) when set.
+   */
+  readonly suppressArrows?: boolean;
 }
 
 /** Three terminal rows per wheel notch — feels right for most trackpads / mice. */
 const WHEEL_STEP = 3;
 
-export const ScrollRegion = ({ children, disabled = false }: ScrollRegionProps): React.JSX.Element => {
+export const ScrollRegion = ({
+  children,
+  disabled = false,
+  suppressArrows = false,
+}: ScrollRegionProps): React.JSX.Element => {
   const [offset, setOffset] = useState(0);
   const sizeRef = useRef<{ viewport: number; content: number }>({ viewport: 0, content: 0 });
   const viewportRef = useRef<DOMElement | null>(null);
@@ -71,6 +83,10 @@ export const ScrollRegion = ({ children, disabled = false }: ScrollRegionProps):
   useInput(
     (input, key) => {
       if (disabled) return;
+      // The view owns its own list cursor — leave every scroll key (↑ ↓ PageUp PageDown
+      // Ctrl+b/f/u/d g G, plus k/j if the view binds them) for its handler so a single press
+      // doesn't double-act (cursor move AND page scroll). Mouse-wheel scroll below is untouched.
+      if (suppressArrows) return;
       const max = maxOffset();
       if (max === 0) return;
       const viewportH = sizeRef.current.viewport;
