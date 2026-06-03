@@ -18,7 +18,8 @@ describe('checkSkillContract — bundled posture skills', () => {
 
   it('discovers the bundled skill folders', () => {
     // Guards against a wrong relative path silently yielding zero skills (vacuous pass).
-    expect(dirs.length).toBeGreaterThanOrEqual(4);
+    // There are 8 bundled skills; a regression that drops one (or regresses the dir) must not pass.
+    expect(dirs.length).toBeGreaterThanOrEqual(8);
   });
 
   for (const dir of dirs) {

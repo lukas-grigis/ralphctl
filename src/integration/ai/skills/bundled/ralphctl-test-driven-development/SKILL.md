@@ -6,7 +6,7 @@ license: MIT
 
 # Test-Driven Development
 
-> Concept from [Addy Osmani — "Test-Driven Development"](https://addyosmani.com/resources/essentialjsdesignpatterns/book/)
+> Concept from [Addy Osmani — "Test-Driven Development"](https://github.com/addyosmani/agent-skills)
 > (agent-skills, MIT). Adapted for ralphctl's execute phase.
 
 Write a failing test before writing the code that makes it pass. For bug fixes, reproduce the bug with a

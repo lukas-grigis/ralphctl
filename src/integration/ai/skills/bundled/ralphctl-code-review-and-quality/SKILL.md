@@ -1,6 +1,6 @@
 ---
 name: ralphctl-code-review-and-quality
-description: Execute-phase skill — multi-axis code review with severity vocabulary. Use when you are the evaluator assessing a generator's output, and when reviewing any change before signalling completion. AI-written code needs MORE scrutiny, not less.
+description: Multi-phase code-quality skill — primary frame for the evaluator role in Execute, the architecture axis in Plan, and correctness/readability in Refine. Multi-axis code review with severity vocabulary. Use when you are the evaluator assessing a generator's output, and when reviewing any change before signalling completion. AI-written code needs MORE scrutiny, not less.
 license: MIT
 ---
 

@@ -103,6 +103,12 @@ const main = async (): Promise<void> => {
       continue;
     }
 
+    // Guard the manifest-supplied name before it becomes a path segment: a malformed or templated
+    // entry (slashes, `..`, leading dot) could otherwise write the cache outside VENDOR_ROOT.
+    if (!/^[\w-]+$/.test(entry.name)) {
+      throw new Error(`[skills:update] invalid skill name in manifest: ${JSON.stringify(entry.name)}`);
+    }
+
     const cachePath = join(VENDOR_ROOT, entry.name, 'SKILL.md');
     const cached = await readCached(cachePath);
     const status = diffStatus(fetched, cached);
@@ -120,7 +126,8 @@ const main = async (): Promise<void> => {
 };
 
 // ESM main-module guard: run only when invoked directly (`tsx scripts/sync-skills.ts`), not when
-// the test suite imports the pure helpers above.
-if (import.meta.url === `file://${process.argv[1] ?? ''}`) {
+// the test suite imports the pure helpers above. Both sides are normalised through fileURLToPath /
+// resolve so the comparison holds on Windows (forward vs back slashes) as well as POSIX.
+if (fileURLToPath(import.meta.url) === resolve(process.argv[1] ?? '')) {
   await main();
 }
