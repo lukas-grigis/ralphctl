@@ -13,6 +13,8 @@ import { makeProject } from '@tests/fixtures/domain.ts';
 import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { createPromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
+import { ProjectId } from '@src/domain/value/id/project-id.ts';
+import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 
 const fakeProjectRepo = (projects: readonly Project[]): ProjectRepository =>
   ({
@@ -51,6 +53,20 @@ describe('ProjectsView', () => {
     expect(frame).toContain('Demo Project');
     expect(frame).toContain('demo-proj');
     expect(frame).toContain('1 project(s)');
+    result.unmount();
+  });
+
+  it('windows a long list: shows the visible head and a "N more" overflow cue below', async () => {
+    const projects = Array.from({ length: 6 }, (_, i) =>
+      makeProject({ id: ProjectId.generate(), displayName: `Project ${String(i)}`, slug: `proj-${String(i)}` })
+    );
+    const { result } = renderView(<ProjectsView />, { deps: stubDeps(projects), initial: { id: 'projects' } });
+    await tick(40);
+    const frame = result.lastFrame() ?? '';
+    // visibleRows = 4, so two projects spill past the window and the below-overflow cue appears.
+    expect(frame).toContain(glyphs.moreBelow);
+    expect(frame).toContain('2 more');
+    expect(frame).toContain('6 project(s)');
     result.unmount();
   });
 

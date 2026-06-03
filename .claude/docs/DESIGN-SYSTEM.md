@@ -330,6 +330,48 @@ Rules:
 - `Enter` on a terminal/result state pops the view.
 - `Esc` inside a submode returns to the parent mode before being claimed by the router.
 
+### 6.4 Windowed-list navigation contract
+
+Every long, scrollable, homogeneous item list mounts through the windowed-list primitive
+(`src/application/ui/tui/components/windowed-list.tsx` — `computeListWindow` / `useListWindow` /
+`WindowedList` / `OverflowRow`). The primitive owns the cursor and the keyboard so navigation is
+identical on every list surface. The map of record is `listKeys` in `keyboard-map.ts`.
+
+**Four key groups** (all handled by `useListWindow`, gated by its `active` flag):
+
+| Group          | Keys            | Action                |
+| -------------- | --------------- | --------------------- |
+| Move (primary) | `↑` / `↓`       | move cursor one row   |
+| Move (alias)   | `j` / `k`       | move cursor one row   |
+| Page           | `PgUp` / `PgDn` | move by `visibleRows` |
+| Jump           | `Home` / `End`  | first / last item     |
+
+`↵` (Enter / Return) submits the focused item. `g` / `G` remain vim-style aliases for `Home` / `End`.
+
+**Arrows are primary; `j`/`k` are a global alias.** Advertise `↑/↓` in a view's `useViewHints` when
+the view shows a nav hint. **Do not list `j`/`k` (or `PgUp`/`PgDn` / `Home`/`End`) in per-view hints**
+— they apply to every list and are documented once in the help overlay's `Lists` section (generated
+from `listKeys`). A per-view hint strip names only the view's own keys plus the primary `↑/↓` move.
+
+**Canonical `useViewHints` spellings.** Reuse the [§6.3](#63-view-local-keys--published-via-useviewhints)
+vocabulary: `↑/↓` → `move`, `Enter` → `open` / `confirm` / `run`. Inline-detail lists use
+`Enter` → `expand/collapse` ([§7.2](#72-list-views)).
+
+**Overflow-row rule.** When the list is taller than the viewport, `OverflowRow` renders a dim
+`▴ N more` cue above the window and a `▾ N more` cue below it (`glyphs.moreAbove` / `glyphs.moreBelow`).
+Never render a list longer than its window — the primitive slices before `.map()` by construction,
+satisfying the [§7.6](#76-render-caps-for-list-data) cap.
+
+**Id-based cursor rule.** `useListWindow` stores the cursor as the focused item's **id** (via the
+required `getId` prop), not its index. A reorder or eviction keeps focus on the same logical item —
+or snaps to the nearest survivor by prior index — instead of teleporting to whatever now sits at the
+old index. Always pass a stable id; never re-key a windowed list by array index.
+
+**`suppressScrollArrows` rule.** A view that owns a list cursor AND whose content can exceed the
+viewport must pass `suppressScrollArrows` to its `ViewShell` so the page-level `ScrollRegion` does
+not double-handle `↑/↓` / `PgUp`/`PgDn`. The list cursor wins; the page scroll yields. Views without
+a list cursor leave `ScrollRegion` to handle arrows normally.
+
 ## 7. View patterns
 
 Each view type has one shape. Don't invent a new one.

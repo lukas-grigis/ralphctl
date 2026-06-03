@@ -41,6 +41,7 @@ import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { PickerData } from '@src/application/ui/tui/views/pick-sprint-internals/types.ts';
 import {
   buildGroups,
+  cursorableNear,
   cursorableRowIndices,
   flatten,
   nextCursorableIndex,
@@ -226,6 +227,25 @@ export const PickSprintView = (): React.JSX.Element => {
     }
     if (key.downArrow || input === 'j') {
       setCursor((c) => nextCursorableIndex(rows, c, 1));
+      return;
+    }
+    if (key.pageUp) {
+      setCursor((c) => cursorableNear(rows, Math.max(0, c - visibleRows), -1));
+      return;
+    }
+    if (key.pageDown) {
+      setCursor((c) => cursorableNear(rows, Math.min(rows.length - 1, c + visibleRows), 1));
+      return;
+    }
+    if (key.home) {
+      setCursor(() => cursorableRowIndices(rows)[0] ?? 0);
+      return;
+    }
+    if (key.end) {
+      setCursor((c) => {
+        const candidates = cursorableRowIndices(rows);
+        return candidates[candidates.length - 1] ?? c;
+      });
       return;
     }
     if (key.return) {

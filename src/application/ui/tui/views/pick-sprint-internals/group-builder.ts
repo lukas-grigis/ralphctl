@@ -130,3 +130,26 @@ export const nextCursorableIndex = (rows: readonly FlatRow[], from: number, dire
   }
   return prev === from && candidates.includes(from) ? from : prev;
 };
+
+/**
+ * Snap an arbitrary (clamped) target index to the nearest cursorable row, biased in `direction`.
+ * Used by PageUp/PageDown, where a raw `cursor ± visibleRows` jump may land on a header or off the
+ * end of the list. When the exact target is already cursorable it is returned unchanged; otherwise
+ * we step toward the bias direction (Page**Down** prefers the next cursorable below, Page**Up** the
+ * previous above), then fall back to the closest cursorable on the other side so a jump always
+ * lands on a selectable row.
+ */
+export const cursorableNear = (rows: readonly FlatRow[], target: number, direction: 1 | -1): number => {
+  const candidates = cursorableRowIndices(rows);
+  if (candidates.length === 0) return target;
+  if (candidates.includes(target)) return target;
+  const below = candidates.find((i) => i > target);
+  let above: number | undefined;
+  for (const i of candidates) {
+    if (i < target) above = i;
+    else break;
+  }
+  const preferred = direction === 1 ? below : above;
+  const fallback = direction === 1 ? above : below;
+  return preferred ?? fallback ?? target;
+};

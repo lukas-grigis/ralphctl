@@ -11,12 +11,11 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
-import { CardList } from '@src/application/ui/tui/components/card-list.tsx';
+import { OverflowRow, useListWindow } from '@src/application/ui/tui/components/windowed-list.tsx';
 import { EmptyState } from '@src/application/ui/tui/components/empty-state.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { sprintStatusKind, StatusChip } from '@src/application/ui/tui/components/status-chip.tsx';
 import { ConfirmPrompt } from '@src/application/ui/tui/prompts/confirm-prompt.tsx';
-import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { renameSprint, type Sprint } from '@src/domain/entity/sprint.ts';
 import { useEditField } from '@src/application/ui/tui/runtime/use-edit-field.ts';
 import { Result } from '@src/domain/result.ts';
@@ -62,14 +61,28 @@ export const SprintsView = (): React.JSX.Element => {
 
   const items = state.kind === 'ok' ? state.value : [];
 
-  const [cursorId, setCursorId] = useState<SprintId | undefined>(undefined);
   const [confirmDelete, setConfirmDelete] = useState<Sprint | undefined>(undefined);
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
+
+  // Windowed cursor — owns ↑/↓ + j/k + PgUp/PgDn + Home/End + Enter; the cursor is the sprint id,
+  // so a reload/reorder keeps focus on the same sprint. Enter selects (sets current + drills in).
+  // Disabled while a prompt/help/confirm is up so its keys don't fight the modal.
+  const listActive = !ui.promptActive && !ui.helpOpen && confirmDelete === undefined;
+  const { window, visibleItems, focusedIndex, focusedItem } = useListWindow<Sprint>({
+    items,
+    getId: (s) => s.id,
+    visibleRows: 4,
+    active: listActive,
+    onSubmit: (s) => {
+      selection.setSprint(s.id, s.name);
+      router.push({ id: 'sprint-detail', props: { sprintId: s.id } });
+    },
+  });
 
   // Load tasks for the focused sprint so we can count stuck ones (blocked + in_progress) and
   // offer `u` to bulk-unblock them. Keyed by sprint id so cursor moves re-trigger the fetch.
   const [focusedSprintTasks, setFocusedSprintTasks] = useState<readonly Task[]>([]);
-  const focusedSprint = items.find((s) => s.id === cursorId) ?? items[0];
+  const focusedSprint = focusedItem ?? items[0];
   useEffect(() => {
     if (focusedSprint === undefined) {
       setFocusedSprintTasks([]);
@@ -171,12 +184,12 @@ export const SprintsView = (): React.JSX.Element => {
       return;
     }
     if (input === 'e') {
-      const target = items.find((s) => s.id === cursorId) ?? items[0];
+      const target = focusedSprint;
       if (target !== undefined && target.status !== 'done') handleRename(target);
       return;
     }
     if (input === 'd') {
-      const target = items.find((s) => s.id === cursorId) ?? items[0];
+      const target = focusedSprint;
       if (target !== undefined) setConfirmDelete(target);
       return;
     }
@@ -239,6 +252,7 @@ export const SprintsView = (): React.JSX.Element => {
     <ViewShell
       title="Sprints"
       subtitle={selection.projectId !== undefined ? 'scoped to current project' : 'all sprints across projects'}
+      suppressScrollArrows
     >
       {ui.helpOpen ? (
         <HelpOverlay />
@@ -279,53 +293,56 @@ export const SprintsView = (): React.JSX.Element => {
         />
       ) : (
         <Box flexDirection="column">
-          <CardList
-            items={state.value}
-            visibleRows={4}
-            active={!ui.promptActive && confirmDelete === undefined}
-            onSelect={(s): void => {
-              selection.setSprint(s.id, s.name);
-              router.push({ id: 'sprint-detail', props: { sprintId: s.id } });
-            }}
-            onCursor={(s): void => setCursorId(s.id)}
-            renderCard={(s, focused) => {
+          <Box flexDirection="column">
+            <OverflowRow direction="above" count={window.start} />
+            {visibleItems.map((s, localIdx) => {
+              const focused = window.start + localIdx === focusedIndex;
               const pending = s.tickets.filter((t) => t.status === 'pending').length;
               const approved = s.tickets.filter((t) => t.status === 'approved').length;
               return (
-                <Box flexDirection="column">
-                  <Box justifyContent="space-between">
-                    <Text bold {...(focused ? { color: inkColors.primary } : {})}>
-                      {s.name}
+                <Box key={s.id} flexDirection="column" marginBottom={1}>
+                  <Box
+                    flexDirection="column"
+                    borderStyle="round"
+                    borderColor={focused ? inkColors.primary : inkColors.rule}
+                    borderDimColor={!focused}
+                    paddingX={spacing.cardPadX}
+                  >
+                    <Box justifyContent="space-between">
+                      <Text bold {...(focused ? { color: inkColors.primary } : {})}>
+                        {s.name}
+                      </Text>
+                      <StatusChip label={s.status} kind={sprintStatusKind(s.status)} />
+                    </Box>
+                    <Text dimColor>{s.slug}</Text>
+                    <Text>
+                      <Text bold>{String(s.tickets.length)}</Text>
+                      <Text dimColor> tickets</Text>
+                      {pending > 0 && (
+                        <Text>
+                          <Text dimColor> {glyphs.bullet} </Text>
+                          <Text bold color={inkColors.warning}>
+                            {String(pending)}
+                          </Text>
+                          <Text dimColor> pending</Text>
+                        </Text>
+                      )}
+                      {approved > 0 && (
+                        <Text>
+                          <Text dimColor> {glyphs.bullet} </Text>
+                          <Text bold color={inkColors.success}>
+                            {String(approved)}
+                          </Text>
+                          <Text dimColor> approved</Text>
+                        </Text>
+                      )}
                     </Text>
-                    <StatusChip label={s.status} kind={sprintStatusKind(s.status)} />
                   </Box>
-                  <Text dimColor>{s.slug}</Text>
-                  <Text>
-                    <Text bold>{String(s.tickets.length)}</Text>
-                    <Text dimColor> tickets</Text>
-                    {pending > 0 && (
-                      <Text>
-                        <Text dimColor> {glyphs.bullet} </Text>
-                        <Text bold color={inkColors.warning}>
-                          {String(pending)}
-                        </Text>
-                        <Text dimColor> pending</Text>
-                      </Text>
-                    )}
-                    {approved > 0 && (
-                      <Text>
-                        <Text dimColor> {glyphs.bullet} </Text>
-                        <Text bold color={inkColors.success}>
-                          {String(approved)}
-                        </Text>
-                        <Text dimColor> approved</Text>
-                      </Text>
-                    )}
-                  </Text>
                 </Box>
               );
-            }}
-          />
+            })}
+            <OverflowRow direction="below" count={state.value.length - window.end} />
+          </Box>
           <Box paddingX={spacing.indent} marginTop={spacing.section}>
             <Text dimColor>
               {glyphs.bullet} {state.value.length} sprint(s) {glyphs.bullet} ↵ open {glyphs.bullet} c create{' '}

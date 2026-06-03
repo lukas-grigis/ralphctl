@@ -213,7 +213,15 @@ export const SprintDetailView = (): React.JSX.Element => {
   };
 
   return (
-    <ViewShell title="Sprint" subtitle={state.kind === 'ok' ? state.value.sprint.name : 'loading'}>
+    <ViewShell
+      title="Sprint"
+      subtitle={state.kind === 'ok' ? state.value.sprint.name : 'loading'}
+      // The ticket + task panes own the focus cursor (↑/↓ / j/k drive the windowed lists), so the
+      // page ScrollRegion must NOT also consume arrows once the list is visible — otherwise both
+      // would move on a single keypress. During loading / error the list isn't mounted, so the
+      // page scroll keeps its arrows there.
+      suppressScrollArrows={state.kind === 'ok'}
+    >
       {ui.helpOpen ? (
         <HelpOverlay />
       ) : state.kind === 'loading' || state.kind === 'idle' ? (

@@ -18,7 +18,7 @@ import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
-import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { END, HOME, PAGE_DOWN, PAGE_UP, tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { waitFor } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { absolutePath, makeProject, makeRepository, projectId } from '@tests/fixtures/domain.ts';
@@ -243,6 +243,73 @@ describe('PickSprintView', () => {
     expect(frame).toContain('Unknown project');
     expect(frame).toContain('lonely sprint');
     expect(frame).toContain('⚠');
+  });
+
+  // The focus marker (▍) precedes the focused row's label on the same rendered line. Returns the
+  // trimmed line carrying the marker so a test can assert which row is currently focused without
+  // depending on absolute screen coordinates.
+  const focusedLine = (frame: string): string => frame.split('\n').find((line) => line.includes('▍')) ?? '';
+
+  // 30 sprints in one project, named picksprint-01..30 with id counters that sort (descending,
+  // newest-first) so the rendered top→bottom order is picksprint-30 … picksprint-01. Comfortably
+  // exceeds the test viewport (24-row terminal → visibleRows ≈ 12), so a page jump is a partial
+  // window move (not a clamp to either extreme) and PageUp/PageDown are genuinely exercised.
+  const manySprints = (): readonly Sprint[] =>
+    Array.from({ length: 30 }, (_unused, i) => {
+      const n = i + 1;
+      const suffix = String(n).padStart(2, '0');
+      return makeSprint({
+        id: sprintId(`01900000-0000-7000-8000-0000000100${suffix}`),
+        projectId: PID_A,
+        name: `picksprint-${suffix}`,
+      });
+    });
+
+  // Parse the picksprint-NN number off the currently-focused line (NaN when none / non-sprint).
+  const focusedSprintNum = (frame: string): number => {
+    const m = /picksprint-(\d{2})/.exec(focusedLine(frame));
+    return m?.[1] !== undefined ? Number(m[1]) : NaN;
+  };
+
+  it('PageDown / PageUp page through the list by the visible window', async () => {
+    const { result } = renderView(<PickSprintView />, {
+      deps: stubDeps(manySprints(), [projectAlpha]),
+      initial: { id: 'pick-sprint' },
+      selection: { projectId: PID_A, projectLabel: 'Alpha Project' },
+    });
+    // Initial focus is the first (newest) sprint row — picksprint-30 at the top.
+    await waitFor(() => expect(focusedSprintNum(result.lastFrame() ?? '')).toBe(30));
+
+    // PageDown jumps a full window down — a middle sprint row well below the top, not the next
+    // single row and not clamped to the oldest (picksprint-01) either.
+    result.stdin.write(PAGE_DOWN);
+    await waitFor(() => expect(focusedSprintNum(result.lastFrame() ?? '')).toBeLessThan(30));
+    const afterPageDown = focusedSprintNum(result.lastFrame() ?? '');
+    expect(afterPageDown).toBeLessThan(29); // moved by a window, not one row
+    expect(afterPageDown).toBeGreaterThan(1); // not clamped to the oldest sprint
+
+    // PageUp returns by a full window — back onto the newest sprint row at the top.
+    result.stdin.write(PAGE_UP);
+    await waitFor(() => expect(focusedSprintNum(result.lastFrame() ?? '')).toBe(30));
+  });
+
+  it('Home jumps to the first selectable row and End to the last sprint', async () => {
+    const { result } = renderView(<PickSprintView />, {
+      deps: stubDeps(manySprints(), [projectAlpha]),
+      initial: { id: 'pick-sprint' },
+      selection: { projectId: PID_A, projectLabel: 'Alpha Project' },
+    });
+    await waitFor(() => expect(focusedLine(result.lastFrame() ?? '')).toContain('picksprint-30'));
+
+    // End jumps to the last cursorable row — the oldest sprint (picksprint-01) — skipping the
+    // trailing rows correctly. It must NOT land on a header.
+    result.stdin.write(END);
+    await waitFor(() => expect(focusedLine(result.lastFrame() ?? '')).toContain('picksprint-01'));
+
+    // Home jumps to the first selectable row. The synthetic `+ Create new sprint` action row sits
+    // at the very top and IS cursorable, so Home lands there (not on the Alpha header).
+    result.stdin.write(HOME);
+    await waitFor(() => expect(focusedLine(result.lastFrame() ?? '')).toContain('Create new sprint'));
   });
 
   it('empty project group renders no-sprints sub-line when scopeAll is true', async () => {

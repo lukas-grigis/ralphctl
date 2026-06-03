@@ -12,12 +12,17 @@ import { Box, Text } from 'ink';
 import { ListCard } from '@src/application/ui/tui/components/list-card.tsx';
 import { EmptyState } from '@src/application/ui/tui/components/empty-state.tsx';
 import { StatusChip, taskStatusKind, ticketStatusKind } from '@src/application/ui/tui/components/status-chip.tsx';
+import { computeListWindow, OverflowRow } from '@src/application/ui/tui/components/windowed-list.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { Ticket } from '@src/domain/entity/ticket.ts';
 import { Description, Section } from '@src/application/ui/tui/views/sprint-detail-internals/shared-prose.tsx';
-import type { FocusItem } from '@src/application/ui/tui/views/sprint-detail-internals/focus-list.ts';
+import {
+  type FocusItem,
+  sectionWindowCards,
+} from '@src/application/ui/tui/views/sprint-detail-internals/focus-list.ts';
 
 interface TicketsSectionProps {
   readonly sprint: Sprint;
@@ -37,52 +42,64 @@ export const TicketsSection = ({
   ticketsEditable,
   feedback,
   openIds,
-}: TicketsSectionProps): React.JSX.Element => (
-  <Box marginTop={spacing.section} flexDirection="column">
-    <Text bold>{glyphs.badge} Tickets</Text>
-    {sprint.tickets.length === 0 ? (
-      <Box marginTop={1}>
-        <EmptyState
-          title="No tickets yet"
-          hint={
-            ticketsEditable ? 'Press a to add the first one.' : 'Sprint is no longer in draft — tickets are frozen.'
-          }
-        />
+}: TicketsSectionProps): React.JSX.Element => {
+  const { rows } = useBreakpoint();
+  // Tickets sit at the head of the shared focus list, so the shared cursor doubles as the local
+  // ticket index. When it has moved past the tickets into the tasks pane, the index exceeds the
+  // ticket count and `computeListWindow` clamps it to the last ticket — the window stays anchored
+  // at the tail rather than scrolling away while focus lives below.
+  const window = computeListWindow(sprint.tickets.length, cursorIdx, sectionWindowCards(rows));
+  const visibleTickets = sprint.tickets.slice(window.start, window.end);
+  return (
+    <Box marginTop={spacing.section} flexDirection="column">
+      <Text bold>{glyphs.badge} Tickets</Text>
+      {sprint.tickets.length === 0 ? (
+        <Box marginTop={1}>
+          <EmptyState
+            title="No tickets yet"
+            hint={
+              ticketsEditable ? 'Press a to add the first one.' : 'Sprint is no longer in draft — tickets are frozen.'
+            }
+          />
+        </Box>
+      ) : (
+        <Box flexDirection="column" marginTop={1}>
+          <OverflowRow direction="above" count={window.start} />
+          {visibleTickets.map((ticket, localIdx) => {
+            const idx = window.start + localIdx;
+            const focused = focusList[cursorIdx]?.kind === 'ticket' && focusList[cursorIdx]?.ticket.id === ticket.id;
+            const expanded = openIds.has(String(ticket.id));
+            const taskCount = tasks.filter((t) => t.ticketId === ticket.id).length;
+            return (
+              <TicketCard
+                key={ticket.id}
+                ticket={ticket}
+                tasks={tasks}
+                taskCount={taskCount}
+                focused={focused}
+                expanded={expanded}
+                index={idx}
+              />
+            );
+          })}
+          <OverflowRow direction="below" count={sprint.tickets.length - window.end} />
+        </Box>
+      )}
+      <Box paddingX={spacing.indent} marginTop={spacing.section}>
+        <Text dimColor>
+          {ticketsEditable
+            ? `${glyphs.bullet} a add ${glyphs.bullet} ↵/o expand/collapse ${glyphs.bullet} d remove`
+            : `${glyphs.bullet} tickets frozen (sprint not in draft) ${glyphs.bullet} ↵/o expand/collapse`}
+        </Text>
       </Box>
-    ) : (
-      <Box flexDirection="column" marginTop={1}>
-        {sprint.tickets.map((ticket, idx) => {
-          const focused = focusList[cursorIdx]?.kind === 'ticket' && focusList[cursorIdx]?.ticket.id === ticket.id;
-          const expanded = openIds.has(String(ticket.id));
-          const taskCount = tasks.filter((t) => t.ticketId === ticket.id).length;
-          return (
-            <TicketCard
-              key={ticket.id}
-              ticket={ticket}
-              tasks={tasks}
-              taskCount={taskCount}
-              focused={focused}
-              expanded={expanded}
-              index={idx}
-            />
-          );
-        })}
-      </Box>
-    )}
-    <Box paddingX={spacing.indent} marginTop={spacing.section}>
-      <Text dimColor>
-        {ticketsEditable
-          ? `${glyphs.bullet} a add ${glyphs.bullet} ↵/o expand/collapse ${glyphs.bullet} d remove`
-          : `${glyphs.bullet} tickets frozen (sprint not in draft) ${glyphs.bullet} ↵/o expand/collapse`}
-      </Text>
+      {feedback !== undefined && (
+        <Box paddingX={spacing.indent} marginTop={1}>
+          <Text color={feedback.startsWith('✗') ? inkColors.error : inkColors.primary}>{feedback}</Text>
+        </Box>
+      )}
     </Box>
-    {feedback !== undefined && (
-      <Box paddingX={spacing.indent} marginTop={1}>
-        <Text color={feedback.startsWith('✗') ? inkColors.error : inkColors.primary}>{feedback}</Text>
-      </Box>
-    )}
-  </Box>
-);
+  );
+};
 
 const TicketCard = ({
   ticket,

@@ -12,7 +12,7 @@ import type { TaskRepository } from '@src/domain/repository/task/task-repository
 import type { Task } from '@src/domain/entity/task.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
-import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { END, tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { createPromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
 import { makeDraftSprint, makeTodoTask } from '@tests/fixtures/domain.ts';
@@ -303,6 +303,31 @@ describe('SprintsView', () => {
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Solo Sprint');
     expect(frame).toContain('1 sprint(s)');
+    result.unmount();
+  });
+
+  it('windows the list: a sprint past the viewport becomes visible after End focuses it', async () => {
+    // Eight sprints, only 4 rows visible at once. Newest-first sort puts 'sprint-08' at the top
+    // and 'sprint-01' (oldest) at the bottom — off the initial window. Pressing End focuses the
+    // last item and the cursor-centred window scrolls it into view, evicting the top of the list.
+    const sprints = Array.from({ length: 8 }, (_, i) => {
+      const n = String(i + 1).padStart(2, '0');
+      return makeSprint({ id: `sprint-${n}`, name: `Sprint ${n}`, slug: `s-${n}` });
+    });
+    const { result } = renderView(<SprintsView />, { deps: stubDeps(sprints), initial: { id: 'sprints' } });
+    await tick(40);
+    const before = result.lastFrame() ?? '';
+    // Newest (sprint-08) is at the top of the window; the oldest (sprint-01) is below the fold.
+    expect(before).toContain('Sprint 08');
+    expect(before).not.toContain('Sprint 01');
+
+    result.stdin.write(END);
+    await tick(40);
+    const after = result.lastFrame() ?? '';
+    // After End the window has scrolled to the bottom: the previously-hidden oldest sprint shows,
+    // and the newest has scrolled off the top.
+    expect(after).toContain('Sprint 01');
+    expect(after).not.toContain('Sprint 08');
     result.unmount();
   });
 

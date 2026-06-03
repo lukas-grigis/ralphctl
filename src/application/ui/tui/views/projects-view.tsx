@@ -7,12 +7,11 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
-import { CardList } from '@src/application/ui/tui/components/card-list.tsx';
+import { useListWindow, OverflowRow } from '@src/application/ui/tui/components/windowed-list.tsx';
 import { EmptyState } from '@src/application/ui/tui/components/empty-state.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { ConfirmPrompt } from '@src/application/ui/tui/prompts/confirm-prompt.tsx';
 import { type Project, setProjectDisplayName } from '@src/domain/entity/project.ts';
-import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import { useEditField } from '@src/application/ui/tui/runtime/use-edit-field.ts';
 import { Result } from '@src/domain/result.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
@@ -30,6 +29,7 @@ export const ProjectsView = (): React.JSX.Element => {
   const selection = useSelection();
   const ui = useUiState();
   useViewHints([
+    { keys: '↑/↓', label: 'move' },
     { keys: '↵', label: 'open' },
     { keys: 'c', label: 'create' },
     { keys: 'e', label: 'rename' },
@@ -38,7 +38,6 @@ export const ProjectsView = (): React.JSX.Element => {
   ]);
   const edit = useEditField();
 
-  const [cursorId, setCursorId] = useState<ProjectId | undefined>(undefined);
   const [confirmDelete, setConfirmDelete] = useState<Project | undefined>(undefined);
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
 
@@ -49,6 +48,21 @@ export const ProjectsView = (): React.JSX.Element => {
   }, []);
 
   const items = state.kind === 'ok' ? state.value : [];
+
+  // The windowed-list owns the single cursor (id-keyed on project id) and the keyboard nav
+  // (↑/↓ + j/k + PgUp/PgDn + Home/End). Disabled whenever a prompt / overlay / confirm is up so
+  // it doesn't compete for keys; Enter pushes the detail route and stamps the selection.
+  const listActive = !ui.helpOpen && !ui.promptActive && confirmDelete === undefined;
+  const { window, visibleItems, focusedItem } = useListWindow<Project>({
+    items,
+    getId: (p) => p.id,
+    visibleRows: 4,
+    active: listActive,
+    onSubmit: (p) => {
+      selection.setProject(p.id, p.displayName);
+      router.push({ id: 'project-detail', props: { projectId: p.id } });
+    },
+  });
 
   const handleRename = (target: Project): void => {
     setFeedback(undefined);
@@ -76,12 +90,12 @@ export const ProjectsView = (): React.JSX.Element => {
       return;
     }
     if (input === 'e') {
-      const target = items.find((p) => p.id === cursorId) ?? items[0];
+      const target = focusedItem ?? items[0];
       if (target !== undefined) handleRename(target);
       return;
     }
     if (input === 'd') {
-      const target = items.find((p) => p.id === cursorId) ?? items[0];
+      const target = focusedItem ?? items[0];
       if (target !== undefined) setConfirmDelete(target);
       return;
     }
@@ -109,7 +123,7 @@ export const ProjectsView = (): React.JSX.Element => {
   };
 
   return (
-    <ViewShell title="Projects" subtitle="Pick a project to make it the current selection">
+    <ViewShell title="Projects" subtitle="Pick a project to make it the current selection" suppressScrollArrows>
       {ui.helpOpen ? (
         <HelpOverlay />
       ) : state.kind === 'loading' || state.kind === 'idle' ? (
@@ -143,46 +157,52 @@ export const ProjectsView = (): React.JSX.Element => {
         />
       ) : (
         <Box flexDirection="column">
-          <CardList
-            items={state.value}
-            visibleRows={4}
-            active={!ui.promptActive && confirmDelete === undefined}
-            onSelect={(p): void => {
-              selection.setProject(p.id, p.displayName);
-              router.push({ id: 'project-detail', props: { projectId: p.id } });
-            }}
-            onCursor={(p): void => setCursorId(p.id)}
-            renderCard={(p, focused) => (
-              <Box flexDirection="column">
-                <Box justifyContent="space-between">
-                  <Text bold {...(focused ? { color: inkColors.primary } : {})}>
-                    {p.displayName}
-                  </Text>
+          <OverflowRow direction="above" count={window.start} />
+          {visibleItems.map((p) => {
+            const focused = focusedItem?.id === p.id;
+            return (
+              <Box key={p.id} flexDirection="column" marginBottom={1}>
+                <Box
+                  flexDirection="column"
+                  borderStyle="round"
+                  borderColor={focused ? inkColors.primary : inkColors.rule}
+                  borderDimColor={!focused}
+                  paddingX={spacing.cardPadX}
+                >
+                  <Box justifyContent="space-between">
+                    <Text bold {...(focused ? { color: inkColors.primary } : {})}>
+                      {p.displayName}
+                    </Text>
+                    <Text dimColor>
+                      {String(p.repositories.length)} repo{p.repositories.length === 1 ? '' : 's'}
+                    </Text>
+                  </Box>
                   <Text dimColor>
-                    {String(p.repositories.length)} repo{p.repositories.length === 1 ? '' : 's'}
+                    {p.slug}
+                    {p.description !== undefined && p.description.length > 0
+                      ? ` ${glyphs.bullet} ${p.description}`
+                      : ''}
                   </Text>
+                  {p.repositories.slice(0, 2).map((r) => (
+                    <Text key={r.id} dimColor>
+                      {glyphs.activityArrow} {r.name} <Text dimColor>{r.path}</Text>
+                    </Text>
+                  ))}
+                  {p.repositories.length > 2 && (
+                    <Text dimColor italic>
+                      +{String(p.repositories.length - 2)} more repository
+                      {p.repositories.length - 2 === 1 ? '' : 'ies'}
+                    </Text>
+                  )}
                 </Box>
-                <Text dimColor>
-                  {p.slug}
-                  {p.description !== undefined && p.description.length > 0 ? ` ${glyphs.bullet} ${p.description}` : ''}
-                </Text>
-                {p.repositories.slice(0, 2).map((r) => (
-                  <Text key={r.id} dimColor>
-                    {glyphs.activityArrow} {r.name} <Text dimColor>{r.path}</Text>
-                  </Text>
-                ))}
-                {p.repositories.length > 2 && (
-                  <Text dimColor italic>
-                    +{String(p.repositories.length - 2)} more repository{p.repositories.length - 2 === 1 ? '' : 'ies'}
-                  </Text>
-                )}
               </Box>
-            )}
-          />
+            );
+          })}
+          <OverflowRow direction="below" count={state.value.length - window.end} />
           <Box paddingX={spacing.indent} marginTop={spacing.section}>
             <Text dimColor>
-              {glyphs.bullet} {state.value.length} project(s) {glyphs.bullet} ↵ open {glyphs.bullet} c create{' '}
-              {glyphs.bullet} e rename {glyphs.bullet} d delete {glyphs.bullet} r reload
+              {glyphs.bullet} {state.value.length} project(s) {glyphs.bullet} ↑/↓ move {glyphs.bullet} ↵ open{' '}
+              {glyphs.bullet} c create {glyphs.bullet} e rename {glyphs.bullet} d delete {glyphs.bullet} r reload
             </Text>
           </Box>
           {(feedback ?? edit.feedback) !== undefined && (

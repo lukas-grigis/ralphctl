@@ -98,14 +98,20 @@ export const contextualKeys = {
   makeSprintCurrent: { keys: ['m'], label: 'make focused sprint current' },
 } as const satisfies Record<string, KeyBinding>;
 
-/** Vertical-list bindings — used by every list view + action menu. */
+/**
+ * Vertical-list bindings — the canonical windowed-list navigation contract (see DESIGN-SYSTEM.md
+ * § 6.4). Applied wherever a vertical list with a moving cursor is rendered, via the
+ * `useListWindow` primitive. Four key groups: arrows (primary move), j/k (vim alias for move),
+ * PgUp/PgDn (page), Home/End (jump first / last). Arrows are advertised per-view; j/k are a global
+ * alias shown only here in the help overlay, not in per-view hints.
+ */
 export const listKeys = {
   up: { keys: ['↑', 'k'], label: 'up' },
   down: { keys: ['↓', 'j'], label: 'down' },
-  pageUp: { keys: ['pgup'], label: 'page up' },
-  pageDown: { keys: ['pgdn'], label: 'page down' },
-  top: { keys: ['g'], label: 'top' },
-  bottom: { keys: ['G'], label: 'bottom' },
+  pageUp: { keys: ['PgUp'], label: 'page up' },
+  pageDown: { keys: ['PgDn'], label: 'page down' },
+  top: { keys: ['Home', 'g'], label: 'first' },
+  bottom: { keys: ['End', 'G'], label: 'last' },
   select: { keys: ['↵'], label: 'select' },
 } as const satisfies Record<string, KeyBinding>;
 
