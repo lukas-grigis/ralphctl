@@ -1,0 +1,32 @@
+{
+  "$comment": "Maintainer-only manifest mapping each UPSTREAM-DERIVED bundled skill to its upstream source. Drives `pnpm skills:update` (scripts/sync-skills.ts), which refreshes the raw-upstream cache under scripts/vendor/skills/ so `git diff scripts/vendor/` shows what changed upstream since the last sync. The maintainer then hand-re-applies the de-JS / compat adaptation to the live bundled SKILL.md under src/integration/ai/skills/bundled/<name>/. Bundled skills are FROZEN committed source — this tooling never touches src/.",
+  "$cleanRoom": [
+    "ralphctl-surgical-simplicity is clean-room (authored in-repo, no upstream) — intentionally omitted from `skills` below; `pnpm skills:update` does not manage it."
+  ],
+  "skills": [
+    {
+      "name": "ralphctl-debugging-and-error-recovery",
+      "repo": "addyosmani/agent-skills",
+      "path": "skills/debugging-and-error-recovery/SKILL.md",
+      "ref": "main",
+      "license": "MIT",
+      "upstreamUrl": "https://github.com/addyosmani/agent-skills"
+    },
+    {
+      "name": "ralphctl-code-review-and-quality",
+      "repo": "addyosmani/agent-skills",
+      "path": "skills/code-review-and-quality/SKILL.md",
+      "ref": "main",
+      "license": "MIT",
+      "upstreamUrl": "https://github.com/addyosmani/agent-skills"
+    },
+    {
+      "name": "ralphctl-test-driven-development",
+      "repo": "addyosmani/agent-skills",
+      "path": "skills/test-driven-development/SKILL.md",
+      "ref": "main",
+      "license": "MIT",
+      "upstreamUrl": "https://github.com/addyosmani/agent-skills"
+    }
+  ]
+}

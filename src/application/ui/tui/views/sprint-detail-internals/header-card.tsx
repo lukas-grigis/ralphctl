@@ -149,6 +149,11 @@ export const phaseAction = (sprint: Sprint, tasks: readonly Task[]): PhaseAction
   const pending = sprint.tickets.filter((t) => t.status === 'pending').length;
   const approved = sprint.tickets.filter((t) => t.status === 'approved').length;
   const todo = tasks.filter((t) => t.status === 'todo').length;
+  const inProgress = tasks.filter((t) => t.status === 'in_progress').length;
+  // Both `todo` and `in_progress` tasks are resumable on the next implement launch — an
+  // `in_progress` task is one left mid-run by a prior crash and is reset to `todo` on relaunch.
+  // Counting only `todo` here contradicted Home (which counts both) for crash-resumed sprints.
+  const resumable = todo + inProgress;
   switch (sprint.status) {
     case 'draft':
       if (sprint.tickets.length === 0) {
@@ -169,13 +174,13 @@ export const phaseAction = (sprint: Sprint, tasks: readonly Task[]): PhaseAction
       return undefined;
     case 'planned':
     case 'active':
-      if (todo > 0) {
+      if (resumable > 0) {
         return {
-          label: `Implement ${String(todo)} pending task(s)`,
+          label: `Implement ${String(resumable)} resumable task(s)`,
           hint: 'Press n → implement. The loop picks tasks in dependency order and commits as it goes.',
         };
       }
-      return { label: 'Review pending tasks', hint: 'No todo tasks — check the list below for blocked / done.' };
+      return { label: 'Review pending tasks', hint: 'No pending tasks — check the list below for blocked / done.' };
     case 'review':
       return {
         label: 'Open a pull request, then close',
@@ -207,6 +212,12 @@ export const NextPhaseCard = ({
       </Box>
     );
   }
+  // When the only remaining work is partially-complete (`in_progress`, no fresh `todo`), the
+  // sprint was left mid-run by a prior crash. Call out that the next launch resumes that work
+  // so the operator doesn't read "Implement" as starting from scratch.
+  const todo = tasks.filter((t) => t.status === 'todo').length;
+  const inProgress = tasks.filter((t) => t.status === 'in_progress').length;
+  const isResume = (sprint.status === 'planned' || sprint.status === 'active') && inProgress > 0 && todo === 0;
   return (
     <Box marginTop={spacing.section}>
       <Card title="Next phase" tone="primary">
@@ -217,6 +228,14 @@ export const NextPhaseCard = ({
           <Box marginTop={1}>
             <Text dimColor>{action.hint}</Text>
           </Box>
+          {isResume && (
+            <Box marginTop={1}>
+              <Text dimColor>
+                {glyphs.actionCursor} Resume in-progress task {glyphs.emDash} {String(inProgress)} task(s) partially
+                complete from a prior run; press n {glyphs.arrowRight} implement to resume.
+              </Text>
+            </Box>
+          )}
         </Box>
       </Card>
     </Box>

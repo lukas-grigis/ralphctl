@@ -1,11 +1,7 @@
 # Designer Memory
 
-## TUI Architecture (current — src/)
+## TUI Architecture
 
-- [project_srcnext_tui_foundation.md](project_srcnext_tui_foundation.md) — Cross-layer PromptPort placement decision +
-  TUI runtime location rationale (Apr 2026)
-- [project_srcnext_tui_views.md](project_srcnext_tui_views.md) — Browse + CRUD view patterns: useWorkflow hook,
-  cancel/guard patterns, FakePromptPort (Apr 2026)
 - [project_home_pipeline_map.md](project_home_pipeline_map.md) — HomeView pipeline-map spine + tiered browse submenu
   design decisions (Apr 2026)
 - [project_execute_view_terminal_state.md](project_execute_view_terminal_state.md) — Runner terminal status tracking
@@ -25,6 +21,14 @@
 
 - [../implementer/project_global_modal_overlay_pattern.md](../implementer/project_global_modal_overlay_pattern.md) —
   Per-view inline vs App-Layout-level overlay — when to use each
+
+## Multi-Flow Navigation
+
+- [project_multi_flow_nav_design.md](project_multi_flow_nav_design.md) — Tab/Shift+Tab cycle + Ctrl+1..9 direct-jump: decisions on location, gating, router.replace vs push, Ctrl+digit terminal risk (Jun 2026)
+
+## Windowed List Navigation
+
+- [project_unified_windowed_list.md](project_unified_windowed_list.md) — useListWindow hook + WindowedList component: full convergence design, ScrollRegion suppressArrows, adoption plan for all 6 list views (Jun 2026)
 
 ## Status Card Patterns
 

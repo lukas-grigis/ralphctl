@@ -55,16 +55,17 @@ const sprintNextActionLabel = (snapshot: AppStateSnapshot): string | undefined =
   const { pendingTicketCount, approvedTicketCount, resumableTaskCount } = snapshot.triggerInputs;
   switch (sprint.status) {
     case 'draft':
-      if (sprint.tickets.length === 0) return 'add tickets — open the sprint and press a';
-      if (pendingTicketCount > 0) return `refine ${String(pendingTicketCount)} pending ticket(s) — press n`;
-      if (approvedTicketCount > 0) return `plan ${String(approvedTicketCount)} approved ticket(s) — press n`;
+      if (sprint.tickets.length === 0) return 'a → add tickets (open the sprint, press a)';
+      if (pendingTicketCount > 0) return `n → refine (clarify ${String(pendingTicketCount)} pending ticket(s))`;
+      if (approvedTicketCount > 0)
+        return `n → plan (break ${String(approvedTicketCount)} approved ticket(s) into tasks)`;
       return undefined;
     case 'planned':
     case 'active':
-      if (resumableTaskCount > 0) return `implement ${String(resumableTaskCount)} pending task(s) — press n`;
-      return 'review the sprint — open it for the task list';
+      if (resumableTaskCount > 0) return `n → implement (run ${String(resumableTaskCount)} pending task(s))`;
+      return 'review the sprint (open it for the task list)';
     case 'review':
-      return 'open a pull request — press n → create-pr';
+      return 'n → create-pr (open a pull request)';
     case 'done':
       return undefined;
   }

@@ -56,6 +56,7 @@ export const useBucketedTasks = ({
       descriptor
         ? bucketTaskSignals(descriptor.trace, chainEvents, signals, {
             ...(descriptor.maxTurns !== undefined ? { maxTurns: descriptor.maxTurns } : {}),
+            ...(descriptor.maxAttempts !== undefined ? { maxAttempts: descriptor.maxAttempts } : {}),
             ...(descriptor.terminalSubstepName !== undefined
               ? { terminalSubstepName: descriptor.terminalSubstepName }
               : {}),

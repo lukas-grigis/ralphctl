@@ -3,12 +3,14 @@
  *   1. zero render when fewer than two sessions are running,
  *   2. chips appear for ≥2 running sessions with active chip highlighted,
  *   3. terminal sessions (completed / failed / aborted) drop off the strip,
- *   4. the Tab/Shift+Tab cycle hint pins at the right end.
+ *   4. the navigation cue pins at the right end and advertises both real chords
+ *      (Tab/Shift+Tab cycle + Ctrl+1..9 jump), sourced from the keyboard map so it can't drift.
  */
 
 import { render } from 'ink-testing-library';
 import { describe, expect, it } from 'vitest';
 import { MultiFlowStrip } from '@src/application/ui/tui/components/multi-flow-strip.tsx';
+import { globalKeys } from '@src/application/ui/tui/runtime/keyboard-map.ts';
 import type { SessionRecord } from '@src/application/ui/tui/runtime/session-manager.ts';
 import type { Runner } from '@src/application/chain/run/runner.ts';
 
@@ -51,6 +53,19 @@ describe('MultiFlowStrip', () => {
     expect(frame).toContain('implement:');
     expect(frame).toContain('durability');
     expect(frame).toContain('cycle');
+  });
+
+  it('advertises both real chords in the nav cue, sourced from the keyboard map', () => {
+    const sessions = [sess('1', 'tickets', 'refine'), sess('2', 'durability', 'implement')];
+    const { lastFrame } = render(<MultiFlowStrip sessions={sessions} activeId="2" now={NOW} />);
+    const frame = lastFrame() ?? '';
+    // Cue text is derived from keyboard-map bindings — not a hardcoded string — so the cue and the
+    // chords the router honours cannot drift apart.
+    expect(frame).toContain(`${globalKeys.cycleSession.keys.join('/')} cycle`);
+    expect(frame).toContain(`${globalKeys.jumpSession.keys.join('/')} jump`);
+    // Spot-check the literal shipped chords so a rename in keyboard-map shows up as a doc/cue diff.
+    expect(frame).toContain('Tab/Shift+Tab cycle');
+    expect(frame).toContain('Ctrl+1..9 jump');
   });
 
   it('excludes terminal sessions from the strip', () => {

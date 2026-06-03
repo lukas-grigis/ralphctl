@@ -79,10 +79,12 @@ const settleTask = (
   if (props.blockedReason !== undefined) {
     const aborted = failCurrentAttempt(task, now, 'aborted');
     if (!aborted.ok) return Result.error(aborted.error);
+    // A self-block (the generator emitted `<task-blocked>`) is an own-failure block — the operator
+    // must address the blocker; it never cascade-clears via the upstream-unblock path.
     if (aborted.value.status === 'blocked') {
-      return Result.ok({ ...aborted.value, blockedReason: props.blockedReason });
+      return Result.ok({ ...aborted.value, blockedReason: props.blockedReason, blockKind: 'own' });
     }
-    return markTaskBlocked(aborted.value, props.blockedReason);
+    return markTaskBlocked(aborted.value, props.blockedReason, 'own');
   }
   if (props.shouldFailAttempt === true) {
     // Escalation path: settle the running attempt as failed but keep the task `in_progress`

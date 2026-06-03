@@ -15,13 +15,13 @@ const isAiProvider = (raw: string): raw is AiProvider => (AI_PROVIDERS as readon
 /**
  * Detect a provider-setting key and return the parsed flow+role tuple. Returns `undefined` for
  * any other key; `applySettingsKey` (the legacy path) still handles those. Recognised shapes:
- *   - `ai.<flow>.provider`              (flow ∈ refine | plan | readiness | ideate)
+ *   - `ai.<flow>.provider`              (flow ∈ refine | plan | readiness | ideate | createPr)
  *   - `ai.implement.<role>.provider`    (role ∈ generator | evaluator)
  */
 const parseProviderKey = (key: string): { readonly flow: FlowId; readonly role?: AiImplementRole } | undefined => {
   const implementMatch = /^ai\.implement\.(generator|evaluator)\.provider$/.exec(key);
   if (implementMatch !== null) return { flow: 'implement', role: implementMatch[1] as AiImplementRole };
-  const flatMatch = /^ai\.(refine|plan|readiness|ideate)\.provider$/.exec(key);
+  const flatMatch = /^ai\.(refine|plan|readiness|ideate|createPr)\.provider$/.exec(key);
   if (flatMatch !== null) return { flow: flatMatch[1] as FlowId };
   return undefined;
 };

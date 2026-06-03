@@ -3,13 +3,14 @@
  * historic "press c, run aborts immediately" UX where the scope of the cancel was ambiguous —
  * was it just this attempt, or the whole flow?
  *
- * Two scoped options:
- *  1. Cancel current attempt: keeps the task in the queue, retries on the next round. Surfaces an
- *     estimated waste time (`~Xm of generator output`) computed from the active attempt's wall
+ * Two scoped options — both stop the run now; the only difference is what state the current task
+ * is left in. There is no live retry: cancelling does not re-spawn the generator in the same run.
+ *  1. Stop run now: the task stays unsettled and resumes from `todo` on the next launch. Surfaces
+ *     an estimated waste time (`~Xm of generator output`) computed from the active attempt's wall
  *     clock so the operator can weigh the cost.
- *  2. Cancel whole flow: marks the current task `blocked` (reason: `'user cancel'`) and aborts
- *     the chain. Shows the count of tasks remaining in the queue so the operator sees what they
- *     are giving up.
+ *  2. Stop run and mark blocked: marks the current task `blocked` (reason: `'user cancel'`) and
+ *     aborts the chain, so it won't resume automatically on the next launch. Shows the count of
+ *     tasks remaining in the queue so the operator sees what they are giving up.
  *
  *  Esc dismisses without action.
  *
@@ -30,9 +31,9 @@ export interface CancelScopeOverlayProps {
   readonly attemptElapsedMs: number | undefined;
   /** Tasks still in the queue (including the one currently running). Drives option-2 hint. */
   readonly remainingTaskCount: number;
-  /** Operator picked "cancel current attempt". */
+  /** Operator picked "stop run now" — task stays unsettled, resumes from todo next launch. */
   readonly onCancelAttempt: () => void;
-  /** Operator picked "cancel whole flow". */
+  /** Operator picked "stop run and mark blocked" — task won't resume automatically. */
   readonly onCancelFlow: () => void;
   /** Operator dismissed the overlay (esc). */
   readonly onDismiss: () => void;
@@ -95,7 +96,7 @@ export const CancelScopeOverlay = ({
                 1
               </Text>
             </Box>
-            <Text>Cancel current attempt (keep task, retry on next round)</Text>
+            <Text>Stop run now — this task stays unsettled and resumes from todo on the next launch</Text>
           </Box>
           {wasted !== undefined && (
             <Box paddingLeft={4}>
@@ -108,7 +109,7 @@ export const CancelScopeOverlay = ({
                 2
               </Text>
             </Box>
-            <Text>Cancel whole flow (mark current task blocked, exit chain)</Text>
+            <Text>Stop run and mark this task blocked — it won&apos;t resume automatically</Text>
           </Box>
           <Box paddingLeft={4}>
             <Text dimColor>{remainingHint}</Text>

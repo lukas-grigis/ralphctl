@@ -45,11 +45,26 @@ Based on the P0–P4 harness overhaul audit (2026-05-21), sections that had the 
 18. **ARCHITECTURE.md § Harness Signals table — SkillSuggestionsSignal** — said "no flow consumer
     yet" but the readiness flow now acts on it. Signal table entries often lag behind flow changes.
 
+19. **DESIGN-SYSTEM.md § 4.2 component table** — deleted components (`CardList`, `ListView`) linger
+    after a refactor. Always check after any TUI-component rename/delete sprint.
+20. **ARCHITECTURE.md § Future Work** — parallel-execution bullet survived long after it shipped in
+    0.9.0; always diff Future Work against the current git log before closing a docs pass.
+21. **CLAUDE.md § Security & Safety — blockKind / upstream-block classification** — used to describe
+    a `blockedReason.startsWith()` string match; structural discriminant `BlockedTask.blockKind` landed
+    in the ui-ux-stabilization sprint (2026-06-03). Always re-read this paragraph after task-lifecycle
+    changes.
+22. **ARCHITECTURE.md § Composition Root storage-paths** — new `StoragePaths` fields (`operatorSkillsRoot`,
+    `memoryRoot`) added without doc update. Grep `StoragePaths` type before closing architecture pass.
+23. **ARCHITECTURE.md § Storage layout** — new top-level directories (`~/.ralphctl/skills/`) need to
+    be added to the tree diagram. Check after any `StoragePaths` change.
+
 **Why:** These areas cluster around the observability/TUI surface, the chain framework primitives,
 and the implement-flow — all of which evolve in every sprint. Items 14–18 specifically from the
-`feat/parallelism-wiring-memory` drop (2026-05-30).
+`feat/parallelism-wiring-memory` drop (2026-05-30); items 19–23 from the `ui-ux-stabilization` drop
+(2026-06-03).
 
 **How to apply:** On the next feature drop, check these sections first before reading git log. In
 particular, always grep `events.ts` for the AppEvent union (compare to every doc that lists it),
-diff `element.ts` + `trace.ts` against KERNEL-DESIGN.md, and re-read CLAUDE.md § Performance &
-Limits after any implement-flow structural change.
+diff `element.ts` + `trace.ts` against KERNEL-DESIGN.md, re-read CLAUDE.md § Performance &
+Limits after any implement-flow structural change, and grep `StoragePaths` type for new fields after
+any storage-paths change.

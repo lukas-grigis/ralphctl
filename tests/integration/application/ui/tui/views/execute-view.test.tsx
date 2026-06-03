@@ -17,7 +17,7 @@ import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 import { createSessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
-import { ENTER, tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { ENTER, ESC, tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 const noopEventBus: EventBus = {
@@ -353,6 +353,82 @@ describe('ExecuteView', () => {
     result.unmount();
   });
 
+  it('mutes the TasksPanel cursor while the cancel-scope overlay is open', async () => {
+    // L3: the cancel-scope overlay renders inline behind the modal; without gating, the
+    // TasksPanel's j/k cursor (and esc/e) double-handle the hidden panel. We prove the mute
+    // via the card cursor: with two tasks the `›` marker sits on the first task. Pressing `j`
+    // while the overlay is open must NOT move it; after esc dismisses the overlay `j` moves
+    // the cursor to the second task as normal.
+    const T1 = '01933fbb-1111-7000-8000-000000000001';
+    const T2 = '01933fbb-1111-7000-8000-000000000002';
+    const taskNames = new Map([
+      [T1, 'First task'],
+      [T2, 'Second task'],
+    ]);
+    const traceArray: TraceEntry[] = [
+      { elementName: `generator-${T1}`, status: 'completed', durationMs: 100 },
+      { elementName: `settle-attempt-${T1}`, status: 'completed', durationMs: 1 },
+      { elementName: `generator-${T2}`, status: 'completed', durationMs: 100 },
+    ];
+    const runner: Runner<unknown> = {
+      id: 'r-cancel-mute',
+      status: 'running' as const,
+      ctx: {},
+      trace: traceArray as Trace,
+      subscribe: () => () => undefined,
+      start: vi.fn(),
+      abort: vi.fn(),
+    } as unknown as Runner<unknown>;
+
+    const sprintA = 'sprint-cancel-mute' as unknown as SprintId;
+    const sessions = createSessionManager();
+    sessions.register({
+      runner,
+      flowId: 'implement',
+      title: 'Implement — Mute',
+      pinnedSprintId: sprintA,
+      taskNames,
+      terminalSubstepName: 'uninstall-skills',
+      maxTurns: 10,
+    });
+
+    const deps: AppDeps = {
+      eventBus: noopEventBus,
+      sprintExecutionRepo: { findById: vi.fn().mockResolvedValue({ ok: false }) },
+      taskRepo: {
+        findById: vi.fn().mockResolvedValue({ ok: false }),
+        findBySprintId: vi.fn().mockResolvedValue({ ok: true, value: [] }),
+      },
+    } as unknown as AppDeps;
+
+    const { result } = renderView(<ExecuteView />, {
+      deps,
+      initial: { id: 'execute', props: { sessionId: 'r-cancel-mute' } },
+      sessions,
+    });
+    await tick(60);
+    // `›` (selectMarker) sits on the first task at rest.
+    const cursorOnSecond = (frame: string): boolean => /›[^\n]*Second task/.test(frame);
+    expect(cursorOnSecond(result.lastFrame() ?? '')).toBe(false);
+
+    // Open the overlay, then press `j` — the panel is muted, so the cursor stays put.
+    result.stdin.write('c');
+    await tick();
+    expect(result.lastFrame() ?? '').toContain('Cancel — pick a scope');
+    result.stdin.write('j');
+    await tick();
+    expect(cursorOnSecond(result.lastFrame() ?? '')).toBe(false);
+
+    // Dismiss the overlay; `j` is live again and advances the cursor to the second task.
+    result.stdin.write(ESC);
+    await tick();
+    expect(result.lastFrame() ?? '').not.toContain('Cancel — pick a scope');
+    result.stdin.write('j');
+    await tick();
+    expect(cursorOnSecond(result.lastFrame() ?? '')).toBe(true);
+    result.unmount();
+  });
+
   it('shows the stale-sprint fallback and drops baseline-health surfaces when the pinned sprint is done', async () => {
     const sessions = createSessionManager();
     const runner = fakeRunner('r-stale-done', 'running');
@@ -373,6 +449,50 @@ describe('ExecuteView', () => {
     // BaselineHealthChip always renders the word "baseline" — when stale it must be absent.
     expect(frame).not.toContain('baseline');
     result.unmount();
+  });
+
+  it('derives the section title from the flowId (audit 1-C)', async () => {
+    // Each non-implement flowId should produce its own display name in the SectionStamp, not
+    // the hardcoded "Implement" that previously appeared for every flow. SectionStamp renders
+    // the title string verbatim (no forced uppercasing); flowIdToTitle returns title-cased names.
+    const flowCases: ReadonlyArray<[string, string]> = [
+      ['refine', 'Refine'],
+      ['plan', 'Plan'],
+      ['ideate', 'Ideate'],
+      ['review', 'Review'],
+      ['create-pr', 'Create PR'],
+      ['readiness', 'Readiness'],
+      ['detect-scripts', 'Detect Scripts'],
+      ['detect-skills', 'Detect Skills'],
+      ['create-sprint', 'Create Sprint'],
+      ['close-sprint', 'Close Sprint'],
+      ['add-tickets', 'Add Tickets'],
+      ['ticket-add', 'Add Ticket'],
+      ['ticket-remove', 'Remove Ticket'],
+      ['export-context', 'Export Context'],
+      ['export-requirements', 'Export Requirements'],
+      ['doctor', 'Doctor'],
+      ['settings', 'Settings'],
+    ];
+    for (const [flowId, expectedTitle] of flowCases) {
+      const sessions = createSessionManager();
+      const runner = fakeRunner(`r-title-${flowId}`, 'running');
+      sessions.register({ runner, flowId, title: `${flowId} — Demo` });
+
+      const { result } = renderView(<ExecuteView />, {
+        deps: stubDeps(),
+        initial: { id: 'execute', props: { sessionId: `r-title-${flowId}` } },
+        sessions,
+      });
+
+      await tick(40);
+      const frame = result.lastFrame() ?? '';
+      expect(frame, `flowId="${flowId}" should show "${expectedTitle}"`).toContain(expectedTitle);
+      // The old hardcoded title must not appear for non-implement flows.
+      // (We check for the word boundary to avoid false positives in titles like "Create Sprint"
+      // which do not contain "Implement".)
+      result.unmount();
+    }
   });
 
   it('shows the stale-sprint fallback and drops baseline-health when the pinned sprint is removed', async () => {

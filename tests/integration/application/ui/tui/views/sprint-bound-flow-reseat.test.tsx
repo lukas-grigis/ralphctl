@@ -77,14 +77,18 @@ const makeFakeRunner = (): {
 /**
  * Applies the expected reseat wiring to a runner: subscribes and calls `setSprint` on
  * `completed` events whose `ctx.sprint` is set. This mirrors what the implementer lands in
- * each sprint-bound flow launcher.
+ * each sprint-bound flow launcher. `status` is forwarded so the breadcrumb chip does not
+ * stay blank after a create-sprint reseat.
  */
-const applyReseatWiring = (runner: Runner<unknown>, setSprint: (id: SprintId, name: string) => void): void => {
+const applyReseatWiring = (
+  runner: Runner<unknown>,
+  setSprint: (id: SprintId, name: string, status?: string) => void
+): void => {
   runner.subscribe((event) => {
     if (event.type !== 'completed') return;
-    const ctx = event.ctx as { sprint?: { id: SprintId; name: string } };
+    const ctx = event.ctx as { sprint?: { id: SprintId; name: string; status?: string } };
     if (ctx.sprint !== undefined) {
-      setSprint(ctx.sprint.id, ctx.sprint.name);
+      setSprint(ctx.sprint.id, ctx.sprint.name, ctx.sprint.status);
     }
   });
 };
@@ -120,18 +124,29 @@ const mountSelectionSpy = (): {
 describe('Sprint-bound flow reseat — success path', () => {
   it('calls setSprint when completed event carries ctx.sprint', async () => {
     const { runner, emit } = makeFakeRunner();
-    const setSprint = vi.fn<(id: SprintId, name: string) => void>();
+    const setSprint = vi.fn<(id: SprintId, name: string, status?: string) => void>();
 
     applyReseatWiring(runner, setSprint);
     emit({ type: 'completed', ctx: { sprint: { id: SPRINT_A, name: 'Alpha Sprint' } } });
 
     expect(setSprint).toHaveBeenCalledTimes(1);
-    expect(setSprint).toHaveBeenCalledWith(SPRINT_A, 'Alpha Sprint');
+    expect(setSprint).toHaveBeenCalledWith(SPRINT_A, 'Alpha Sprint', undefined);
+  });
+
+  it('forwards ctx.sprint.status so the breadcrumb chip is not blank after create-sprint reseat', async () => {
+    const { runner, emit } = makeFakeRunner();
+    const setSprint = vi.fn<(id: SprintId, name: string, status?: string) => void>();
+
+    applyReseatWiring(runner, setSprint);
+    emit({ type: 'completed', ctx: { sprint: { id: SPRINT_A, name: 'Alpha Sprint', status: 'draft' } } });
+
+    expect(setSprint).toHaveBeenCalledTimes(1);
+    expect(setSprint).toHaveBeenCalledWith(SPRINT_A, 'Alpha Sprint', 'draft');
   });
 
   it('does not call setSprint when completed event has no ctx.sprint', async () => {
     const { runner, emit } = makeFakeRunner();
-    const setSprint = vi.fn<(id: SprintId, name: string) => void>();
+    const setSprint = vi.fn<(id: SprintId, name: string, status?: string) => void>();
 
     applyReseatWiring(runner, setSprint);
     // Flow completed but the ctx shape did not include a sprint (e.g. create-pr, export-context)
@@ -144,7 +159,7 @@ describe('Sprint-bound flow reseat — success path', () => {
 describe('Sprint-bound flow reseat — failure paths', () => {
   it('does NOT call setSprint when runner emits aborted', async () => {
     const { runner, emit } = makeFakeRunner();
-    const setSprint = vi.fn<(id: SprintId, name: string) => void>();
+    const setSprint = vi.fn<(id: SprintId, name: string, status?: string) => void>();
 
     applyReseatWiring(runner, setSprint);
     emit({ type: 'aborted' });
@@ -154,7 +169,7 @@ describe('Sprint-bound flow reseat — failure paths', () => {
 
   it('does NOT call setSprint when runner emits failed', async () => {
     const { runner, emit } = makeFakeRunner();
-    const setSprint = vi.fn<(id: SprintId, name: string) => void>();
+    const setSprint = vi.fn<(id: SprintId, name: string, status?: string) => void>();
 
     applyReseatWiring(runner, setSprint);
     // Build a minimal domain error — the exact type doesn't matter for this assertion.
@@ -166,7 +181,7 @@ describe('Sprint-bound flow reseat — failure paths', () => {
 
   it('does NOT call setSprint when runner emits started (mid-flight)', async () => {
     const { runner, emit } = makeFakeRunner();
-    const setSprint = vi.fn<(id: SprintId, name: string) => void>();
+    const setSprint = vi.fn<(id: SprintId, name: string, status?: string) => void>();
 
     applyReseatWiring(runner, setSprint);
     emit({ type: 'started' });
@@ -184,7 +199,7 @@ describe('Sprint-bound flow reseat — SelectionProvider integration', () => {
     // We need access to the actual setSprint from the provider. Build a thin wrapper that
     // uses onChange to record what was written; the reseat wiring calls setSprint directly,
     // so we verify the seeds array contains the expected sprint after the event.
-    const setSprint = vi.fn<(id: SprintId, name: string) => void>(() => {
+    const setSprint = vi.fn<(id: SprintId, name: string, status?: string) => void>(() => {
       // Simulate the side-effect the real SelectionProvider would perform: push a seed entry.
       seeds.push({ sprintId: SPRINT_A, sprintLabel: 'Alpha Sprint' });
     });
@@ -199,12 +214,30 @@ describe('Sprint-bound flow reseat — SelectionProvider integration', () => {
     unmount();
   });
 
+  it('status from reseat wiring reaches the setSprint call', async () => {
+    const { seeds, unmount } = mountSelectionSpy();
+
+    const { runner, emit } = makeFakeRunner();
+    let capturedStatus: string | undefined = 'not-set';
+    const setSprint = vi.fn<(id: SprintId, name: string, status?: string) => void>((_id, _name, status) => {
+      capturedStatus = status;
+      seeds.push({ sprintId: SPRINT_A, sprintLabel: 'Alpha Sprint' });
+    });
+
+    applyReseatWiring(runner, setSprint);
+    emit({ type: 'completed', ctx: { sprint: { id: SPRINT_A, name: 'Alpha Sprint', status: 'draft' } } });
+
+    expect(capturedStatus).toBe('draft');
+
+    unmount();
+  });
+
   it('aborted event leaves selection unchanged', async () => {
     const { seeds, unmount } = mountSelectionSpy();
     const initialLength = seeds.length;
 
     const { runner, emit } = makeFakeRunner();
-    const setSprint = vi.fn<(id: SprintId, name: string) => void>();
+    const setSprint = vi.fn<(id: SprintId, name: string, status?: string) => void>();
     applyReseatWiring(runner, setSprint);
     emit({ type: 'aborted' });
 

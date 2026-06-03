@@ -3,6 +3,8 @@ import type { Command } from 'commander';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { createCreatePrFlow } from '@src/application/flows/create-pr/flow.ts';
+import { createAiProvider } from '@src/application/bootstrap/provider-factory.ts';
+import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
 import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
 
 interface Opts {
@@ -54,6 +56,24 @@ export const registerCreatePrCommand = (program: Command): void => {
         process.stderr.write(`error: sprint dir: ${sprintDir.error.message}\n`);
         process.exit(1);
       }
+      // PATH-gate the AI step: when `--ai` is on (the default), the create-pr AI session spawns
+      // the `createPr` row's provider CLI. Probe for it first so a missing binary fails fast with
+      // the actionable "binary not found" guidance, matching every other AI flow.
+      if (opts.ai) {
+        const gate = await checkCli('create-pr', deps.settings);
+        if (gate !== undefined && !gate.ok) {
+          process.stderr.write(`error: ${gate.reason}\n`);
+          process.exit(1);
+        }
+      }
+      // Rebuild the provider from the `createPr` settings row — `deps.provider` is wired from the
+      // `implement` row at boot, which mismatches the createPr model in a mixed-provider config.
+      const provider = createAiProvider({
+        flow: 'createPr',
+        ai: deps.settings.ai,
+        harnessConfig: deps.settings.harness,
+        eventBus: deps.eventBus,
+      });
       const flow = createCreatePrFlow(
         {
           sprintRepo: deps.sprintRepo,
@@ -63,7 +83,7 @@ export const registerCreatePrCommand = (program: Command): void => {
           gitRunner: deps.gitRunner,
           eventBus: deps.eventBus,
           clock: deps.clock,
-          provider: deps.provider,
+          provider,
           templateLoader: deps.templateLoader,
           writeFile: deps.writeFile,
           logger: deps.logger,

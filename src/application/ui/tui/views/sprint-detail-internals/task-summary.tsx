@@ -15,6 +15,7 @@ import { ListCard } from '@src/application/ui/tui/components/list-card.tsx';
 import { EmptyState } from '@src/application/ui/tui/components/empty-state.tsx';
 import { StatusChip, taskStatusKind } from '@src/application/ui/tui/components/status-chip.tsx';
 import { FieldList } from '@src/application/ui/tui/components/field-list.tsx';
+import { computeListWindow, OverflowRow } from '@src/application/ui/tui/components/windowed-list.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
 import { fmtDuration } from '@src/application/ui/tui/theme/duration.ts';
@@ -24,7 +25,10 @@ import type { Task } from '@src/domain/entity/task.ts';
 import type { Attempt } from '@src/domain/entity/attempt.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { Description, Section } from '@src/application/ui/tui/views/sprint-detail-internals/shared-prose.tsx';
-import type { FocusItem } from '@src/application/ui/tui/views/sprint-detail-internals/focus-list.ts';
+import {
+  type FocusItem,
+  sectionWindowCards,
+} from '@src/application/ui/tui/views/sprint-detail-internals/focus-list.ts';
 import { AttemptCard, attemptElapsedMs } from '@src/application/ui/tui/views/sprint-detail-internals/attempt-card.tsx';
 
 interface TasksSectionProps {
@@ -43,43 +47,57 @@ export const TasksSection = ({
   cursorIdx,
   project,
   openIds,
-}: TasksSectionProps): React.JSX.Element => (
-  <Box marginTop={spacing.section} flexDirection="column">
-    <Text bold>{glyphs.badge} Tasks</Text>
-    {tasks.length === 0 ? (
-      <Box marginTop={1}>
-        <EmptyState title="No tasks yet" hint="Run plan from Flows (n) once tickets are approved." />
+}: TasksSectionProps): React.JSX.Element => {
+  const { rows } = useBreakpoint();
+  // Tasks occupy the tail of the shared focus list (tickets first, then tasks). The local
+  // focused-task index is the shared cursor minus the ticket count; when the cursor is parked
+  // on a ticket it is negative, which `computeListWindow` clamps to the top of the task slice —
+  // so the window stays anchored at the head while focus lives in the tickets pane.
+  const ticketCount = focusList.length - tasks.length;
+  const localFocus = cursorIdx - ticketCount;
+  const window = computeListWindow(tasks.length, localFocus, sectionWindowCards(rows));
+  const visibleTasks = tasks.slice(window.start, window.end);
+  return (
+    <Box marginTop={spacing.section} flexDirection="column">
+      <Text bold>{glyphs.badge} Tasks</Text>
+      {tasks.length === 0 ? (
+        <Box marginTop={1}>
+          <EmptyState title="No tasks yet" hint="Run plan from Flows (n) once tickets are approved." />
+        </Box>
+      ) : (
+        <Box flexDirection="column" marginTop={1}>
+          <OverflowRow direction="above" count={window.start} />
+          {visibleTasks.map((task, localIdx) => {
+            const idx = window.start + localIdx;
+            const focusItem = focusList[cursorIdx];
+            const focused = focusItem?.kind === 'task' && focusItem.task.id === task.id;
+            const expanded = openIds.has(String(task.id));
+            const ticket = sprint.tickets.find((t) => t.id === task.ticketId);
+            const repoName = repositoryName(project, task.repositoryId);
+            return (
+              <TaskCard
+                key={task.id}
+                task={task}
+                sprint={sprint}
+                tasks={tasks}
+                project={project}
+                ticketTitle={ticket?.title}
+                repoName={repoName}
+                focused={focused}
+                expanded={expanded}
+                index={idx + 1}
+              />
+            );
+          })}
+          <OverflowRow direction="below" count={tasks.length - window.end} />
+        </Box>
+      )}
+      <Box paddingX={spacing.indent} marginTop={spacing.section}>
+        <Text dimColor>{glyphs.bullet} ↵/o expand/collapse</Text>
       </Box>
-    ) : (
-      <Box flexDirection="column" marginTop={1}>
-        {tasks.map((task, idx) => {
-          const focusItem = focusList[cursorIdx];
-          const focused = focusItem?.kind === 'task' && focusItem.task.id === task.id;
-          const expanded = openIds.has(String(task.id));
-          const ticket = sprint.tickets.find((t) => t.id === task.ticketId);
-          const repoName = repositoryName(project, task.repositoryId);
-          return (
-            <TaskCard
-              key={task.id}
-              task={task}
-              sprint={sprint}
-              tasks={tasks}
-              project={project}
-              ticketTitle={ticket?.title}
-              repoName={repoName}
-              focused={focused}
-              expanded={expanded}
-              index={idx + 1}
-            />
-          );
-        })}
-      </Box>
-    )}
-    <Box paddingX={spacing.indent} marginTop={spacing.section}>
-      <Text dimColor>{glyphs.bullet} ↵/o expand/collapse</Text>
     </Box>
-  </Box>
-);
+  );
+};
 
 const TaskCard = ({
   task,

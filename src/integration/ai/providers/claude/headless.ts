@@ -8,6 +8,7 @@ import { resolveWritableRoots } from '@src/integration/ai/providers/_engine/reso
 import type { SessionPermissions } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { RateLimitError } from '@src/domain/value/error/rate-limit-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { isClaudeModel } from '@src/domain/value/settings-models/claude.ts';
@@ -357,12 +358,14 @@ export const createClaudeProvider = (deps: ClaudeProviderDeps): HeadlessAiProvid
               // re-publishes if it also hits the rate-limit.
               deps.eventBus.publish({ type: 'banner-clear', id: bannerId, at: IsoTimestamp.now() });
               if (session.abortSignal?.aborted === true) {
+                // User cancel during the backoff sleep must surface as AbortError — the one
+                // error chains propagate transparently (CLAUDE.md §AbortError). InvalidStateError
+                // is classified as a recoverable turn error and would wrongly self-block the task.
+                // Mirrors the abort-on-exit shape in classify-spawn-exit.ts.
                 return Result.error(
-                  new InvalidStateError({
-                    entity: 'claude-provider',
-                    currentState: 'aborted-during-backoff',
-                    attemptedAction: 'retry',
-                    message: 'claude-provider: aborted by caller during rate-limit backoff',
+                  new AbortError({
+                    elementName: 'claude-provider',
+                    reason: 'claude-provider: aborted by caller during rate-limit backoff',
                   })
                 ) as Result<ProviderOutput, DomainError>;
               }
@@ -481,9 +484,11 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
       // result event may carry zero usage subkeys on degenerate spawns or when the spawn
       // was SIGTERM-recovered before the final result event landed.
       const window = contextWindowFor(envelope.model);
+      const chainSessionId = session.chainSessionId;
       deps.eventBus.publish({
         type: 'token-usage',
         sessionId: envelope.sessionId,
+        ...(chainSessionId !== undefined ? { chainSessionId } : {}),
         provider: 'claude-code',
         ...(envelope.model !== undefined ? { model: envelope.model } : {}),
         ...(envelope.usage.inputTokens !== undefined ? { inputTokens: envelope.usage.inputTokens } : {}),

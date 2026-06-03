@@ -1,21 +1,22 @@
 ---
-name: Inline task content in execute prompt
-description: buildExecutePrompt must inline task fields directly — no context-file indirection; mirror buildEvaluatePrompt pattern
+name: Inline task content in the prompt
+description: Inline task fields directly into the prompt — no per-task context-file indirection; the AI must receive task name / description / steps / criteria in the prompt body itself
 type: feedback
 ---
 
-`buildExecutePrompt` previously passed `CONTEXT_FILE: ''` (empty) — the AI received the template with no task
-name, no description, no steps, no verification criteria. This caused silent do-nothing runs and evaluator failures.
+**Durable principle: inline, don't indirect.** A prompt builder must fill task fields (name, description,
+steps, verification criteria) directly into the prompt body. Writing a per-task context file and pointing the
+prompt at it is needless IO, hard to test, and doesn't survive session-resume well. An early regression filled
+every slot with empty strings — the AI received the template with no task content, causing silent do-nothing
+runs and evaluator failures.
 
-**Why:** Context-file indirection (writing a per-task file then pointing the prompt at it) is needless IO,
-hard to test, and doesn't survive session-resume well. The evaluator template already did it right by inlining.
+**Where this lives now:** the implement prompt is `src/integration/ai/prompts/implement/template.md`; the
+generator / evaluator leaves render it via `round-artifacts.ts` (`writeRoundPrompt` lands the fully-substituted
+prompt at `rounds/<N>/<role>/prompt.md` before each spawn). The earlier `buildExecutePrompt` builder and the
+`task-execution.md` template are both gone.
 
-**How to apply:** Use these placeholders in `task-execution.md` and fill them in `buildExecutePrompt`:
-
-- `TASK_NAME`, `PROJECT_PATH`, `BRANCH_SECTION`
-- `TASK_DESCRIPTION_SECTION`, `TASK_STEPS_SECTION`, `VERIFICATION_CRITERIA_SECTION`
-- `CHECK_SCRIPT_SECTION` (intentionally empty — harness runs the gate, not the AI)
-- `PROGRESS_FILE` — absolute path via `resolveStoragePaths().sprintDir(sprint.id) + '/progress.md'`
-
-Mirror the section-formatting convention from `buildEvaluatePrompt`:
-`desc = task.description ? \`\n**Description:** ${task.description}\` : ''`
+**How to apply:** task content reaches the AI through inlined placeholders — `{{TASK_NAME}}`, `{{TASK_ID}}`,
+`{{PROJECT_PATH}}`, `{{TASK_DESCRIPTION_SECTION}}`, `{{TASK_STEPS_SECTION}}`,
+`{{VERIFICATION_CRITERIA_SECTION}}`, `{{PROGRESS_FILE}}`. Section-style placeholders collapse to empty string
+when the field is absent (e.g. a task with no description) rather than leaving a bare label. Never reintroduce a
+"write a per-task file, then reference its path" indirection for content the prompt body can carry directly.

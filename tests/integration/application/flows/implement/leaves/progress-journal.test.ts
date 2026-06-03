@@ -68,7 +68,7 @@ describe('progressJournalLeaf', () => {
   it('renders verdict=blocked with the blocked reason as the outcome paragraph', async () => {
     const append = recordingAppendFile();
     const inProgress = makeInProgressTaskWithRunningAttempt();
-    const blocked = markTaskBlocked(inProgress, 'pre-existing test failure');
+    const blocked = markTaskBlocked(inProgress, 'pre-existing test failure', 'own');
     if (!blocked.ok) throw blocked.error;
     const leaf = progressJournalLeaf(
       { appendFile: append.fn, clock: () => FIXED_LATER, logger: noopLogger },

@@ -105,7 +105,7 @@ export const MultiSelectPrompt = ({
         </Text>
       )}
       <Text dimColor>
-        space toggle · a select-all · n clear · ↵ submit ({String(picked.size)} selected) · esc cancel
+        ↑/↓ move · space toggle · a select-all · n clear · ↵ submit ({String(picked.size)} selected) · esc cancel
       </Text>
     </Box>
   );

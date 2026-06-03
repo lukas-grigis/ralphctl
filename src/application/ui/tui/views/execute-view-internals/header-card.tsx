@@ -8,6 +8,13 @@
  * renders `<gen> → <eval> (eval)` so the operator can tell which model produces vs which
  * model judges. When they match (single-provider, single-model runs) the row collapses to
  * the bare model name — the arrow would be noise.
+ *
+ * Round counter: `TaskBucket.genEvalRound` is monotonic across the whole task (the `rounds/`
+ * dir is shared by every attempt), while `genEvalMaxRounds` (`maxTurns`) caps a single attempt.
+ * Rendering the raw ratio overshoots on a 2nd+ attempt (e.g. `round 4/3`), so the focus row
+ * folds the round into per-attempt coordinates via `perAttemptRound` and shows the attempt
+ * counter alongside it (`attempt A/X · round R/maxTurns`) whenever more than one attempt is in
+ * play; single-attempt runs keep the bare `round R/maxTurns`.
  */
 
 import React from 'react';
@@ -16,7 +23,7 @@ import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { glyphs, inkColors } from '@src/application/ui/tui/theme/tokens.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
-import type { TaskBucket } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
+import { perAttemptRound, type TaskBucket } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 
 interface HeaderCardProps {
   readonly descriptor: SessionDescriptor;
@@ -96,15 +103,40 @@ export const HeaderCard = ({
                 <Text color={inkColors.highlight}>{currentSubStep}</Text>
               </>
             )}
-            {currentTask.genEvalRound > 0 && (
-              <>
-                <Text dimColor> {glyphs.bullet} round </Text>
-                <Text color={inkColors.info}>
-                  {String(currentTask.genEvalRound)}
-                  {currentTask.genEvalMaxRounds !== undefined ? `/${String(currentTask.genEvalMaxRounds)}` : ''}
-                </Text>
-              </>
-            )}
+            {currentTask.genEvalRound > 0 &&
+              (() => {
+                const maxTurns = currentTask.genEvalMaxRounds;
+                const maxAttempts = currentTask.genEvalMaxAttempts;
+                // Without a known per-attempt cap we can't fold the monotonic round into
+                // per-attempt coordinates — fall back to the raw round (no `/M` to overshoot).
+                if (maxTurns === undefined) {
+                  return (
+                    <>
+                      <Text dimColor> {glyphs.bullet} round </Text>
+                      <Text color={inkColors.info}>{String(currentTask.genEvalRound)}</Text>
+                    </>
+                  );
+                }
+                const { attemptN, roundInAttempt } = perAttemptRound(currentTask.genEvalRound, maxTurns);
+                const showAttempt = attemptN > 1 || (maxAttempts !== undefined && maxAttempts > 1);
+                return (
+                  <>
+                    {showAttempt && (
+                      <>
+                        <Text dimColor> {glyphs.bullet} attempt </Text>
+                        <Text color={inkColors.info}>
+                          {String(attemptN)}
+                          {maxAttempts !== undefined ? `/${String(maxAttempts)}` : ''}
+                        </Text>
+                      </>
+                    )}
+                    <Text dimColor> {glyphs.bullet} round </Text>
+                    <Text color={inkColors.info}>
+                      {String(roundInAttempt)}/{String(maxTurns)}
+                    </Text>
+                  </>
+                );
+              })()}
           </Box>
         )}
       </Box>

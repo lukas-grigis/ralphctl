@@ -16,10 +16,12 @@
  *   g                         → top
  *   G                         → bottom (the clamped max)
  *
- * Arrow keys are dual-purpose: list views (ListView, CardList) also use them to move the row
- * cursor. The early return on `max === 0` (content fits the viewport) keeps the dominant case
- * — a list shorter than the screen — conflict-free; only when the page itself overflows do
- * both handlers fire on the same key, which is the intended UX (cursor moves AND page scrolls).
+ * Arrow keys are dual-purpose: windowed-list views that own their own cursor via `useListWindow`
+ * also handle arrow keys for row navigation. The early return on `max === 0` (content fits the
+ * viewport) keeps the dominant case — a list shorter than the screen — conflict-free; only when
+ * the page itself overflows do both handlers fire on the same key. Pass `suppressArrows` (via
+ * `ViewShell suppressScrollArrows`) to prevent that double-act: the scroll region yields all
+ * arrow / paging keys so only the view's own cursor handler fires.
  *
  * Mouse tracking is also gated on `disabled`: while a prompt is open the SGR enable sequence
  * is withdrawn so wheel events stop emitting `\x1b[<64;…M` / `\x1b[<65;…M` bytes onto stdin,
@@ -34,12 +36,24 @@ export interface ScrollRegionProps {
   readonly children: React.ReactNode;
   /** When true (prompt active, overlay open, etc.), swallow no keys and no mouse events. */
   readonly disabled?: boolean;
+  /**
+   * When true, the keyboard scroll handler ignores the arrow / paging / vim keys (↑ ↓ PageUp
+   * PageDown Ctrl+b/f/u/d g G k j) so they fall through to a view that owns its own list cursor
+   * — preventing a single keypress from both moving the cursor AND page-scrolling. Mouse-wheel
+   * scroll is UNAFFECTED: the wheel still drives the viewport regardless of this flag. The
+   * `disabled` gate still mutes everything (keys and wheel) when set.
+   */
+  readonly suppressArrows?: boolean;
 }
 
 /** Three terminal rows per wheel notch — feels right for most trackpads / mice. */
 const WHEEL_STEP = 3;
 
-export const ScrollRegion = ({ children, disabled = false }: ScrollRegionProps): React.JSX.Element => {
+export const ScrollRegion = ({
+  children,
+  disabled = false,
+  suppressArrows = false,
+}: ScrollRegionProps): React.JSX.Element => {
   const [offset, setOffset] = useState(0);
   const sizeRef = useRef<{ viewport: number; content: number }>({ viewport: 0, content: 0 });
   const viewportRef = useRef<DOMElement | null>(null);
@@ -71,6 +85,10 @@ export const ScrollRegion = ({ children, disabled = false }: ScrollRegionProps):
   useInput(
     (input, key) => {
       if (disabled) return;
+      // The view owns its own list cursor — leave every scroll key (↑ ↓ PageUp PageDown
+      // Ctrl+b/f/u/d g G, plus k/j if the view binds them) for its handler so a single press
+      // doesn't double-act (cursor move AND page scroll). Mouse-wheel scroll below is untouched.
+      if (suppressArrows) return;
       const max = maxOffset();
       if (max === 0) return;
       const viewportH = sizeRef.current.viewport;

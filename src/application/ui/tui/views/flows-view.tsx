@@ -13,7 +13,7 @@ import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { ActionMenu, type MenuItem } from '@src/application/ui/tui/components/action-menu.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
-import { Badge } from '@src/application/ui/tui/components/badge.tsx';
+import { StatusChip, sprintStatusKind } from '@src/application/ui/tui/components/status-chip.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { flowRegistry } from '@src/application/registry.ts';
 import { evaluateTriggers } from '@src/application/registry-triggers.ts';
@@ -34,7 +34,7 @@ import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { getRunInTerminal } from '@src/application/ui/tui/runtime/run-in-terminal.ts';
 import { getImplementRoleOverrides } from '@src/application/ui/tui/runtime/implement-role-overrides.ts';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
-import { SprintPipeline } from '@src/application/ui/tui/components/sprint-pipeline.tsx';
+import { SprintPipeline, resolveSprintStage } from '@src/application/ui/tui/components/sprint-pipeline.tsx';
 import { sectionFor, sectionRank, visibleFlowsFor } from '@src/application/ui/tui/views/flows-visibility.ts';
 
 // Sprint-state-machine visibility lives in `flows-visibility.ts` so it can be unit-tested
@@ -64,6 +64,95 @@ const viewRouteFor = (flowId: string, snapshot: AppStateSnapshot): ViewEntry | u
     default:
       return undefined;
   }
+};
+
+interface OrientationCardProps {
+  readonly snapshot: AppStateSnapshot;
+  readonly showAll: boolean;
+}
+
+/**
+ * Status-aware orientation card rendered above the flow menu. Three regimes:
+ *
+ *   (a) No project selected — points the user toward Projects / P picker.
+ *   (b) Project loaded but no sprint — points the user toward Sprints.
+ *   (c) Sprint loaded — shows sprint name + status + the single most-eligible next action
+ *       derived from the same stage logic the pipeline map uses.
+ *
+ * The `v show all` toggle hint is demoted to a secondary dim line below the card.
+ */
+const OrientationCard = ({ snapshot, showAll }: OrientationCardProps): React.JSX.Element => {
+  const { project, sprint, triggerInputs } = snapshot;
+
+  if (project === undefined) {
+    return (
+      <Card tone="info">
+        <Text>
+          No project selected {glyphs.emDash} pick one with{' '}
+          <Text bold color={inkColors.highlight}>
+            P
+          </Text>{' '}
+          or open Projects to create one.
+        </Text>
+      </Card>
+    );
+  }
+
+  if (sprint === undefined) {
+    return (
+      <Card tone="info">
+        <Text>
+          No sprint selected for <Text bold>{project.displayName}</Text> {glyphs.emDash}{' '}
+          {snapshot.sprintCount === 0
+            ? ' create one from Sprints, then return here.'
+            : ' pick one with S or open Sprints.'}
+        </Text>
+      </Card>
+    );
+  }
+
+  // Sprint loaded — derive the recommended next action from the pipeline stage.
+  const stage = resolveSprintStage(snapshot);
+  let nextAction: string;
+  switch (stage) {
+    case 'Refine':
+      nextAction = `refine tickets (${String(triggerInputs.pendingTicketCount)} pending)`;
+      break;
+    case 'Plan':
+      nextAction = `plan tasks (${String(triggerInputs.approvedTicketCount)} approved ticket${triggerInputs.approvedTicketCount !== 1 ? 's' : ''})`;
+      break;
+    case 'Implement':
+      nextAction =
+        triggerInputs.resumableTaskCount > 0
+          ? `implement (${String(triggerInputs.resumableTaskCount)} task${triggerInputs.resumableTaskCount !== 1 ? 's' : ''} ready)`
+          : 'implement';
+      break;
+    case 'Review':
+      nextAction = 'apply review feedback';
+      break;
+    case 'Done':
+      nextAction = 'open a pull request';
+      break;
+    default:
+      nextAction = 'pick a flow below';
+  }
+
+  return (
+    <Card tone="info">
+      <Box flexDirection="row" gap={1}>
+        <Text bold>{sprint.name}</Text>
+        <StatusChip label={sprint.status.toUpperCase()} kind={sprintStatusKind(sprint.status)} />
+        <Text dimColor>
+          {glyphs.emDash} next: {nextAction}
+        </Text>
+      </Box>
+      <Box marginTop={spacing.gutter}>
+        <Text dimColor>
+          Press <Text bold>v</Text> to {showAll ? 'hide inapplicable flows' : 'show all flows with disabled reasons'}.
+        </Text>
+      </Box>
+    </Card>
+  );
 };
 
 export const FlowsView = (): React.JSX.Element => {
@@ -233,28 +322,8 @@ export const FlowsView = (): React.JSX.Element => {
       ) : (
         <Box flexDirection="column">
           <SprintPipeline snapshot={state.value} />
-          <Box marginTop={state.value.sprint !== undefined ? spacing.section : 0}>
-            <Card title="Eligibility" tone="rule">
-              <Box>
-                <Text dimColor>
-                  Flows are filtered by the current sprint state. Press <Text bold>v</Text> to{' '}
-                  {showAll ? 'hide inapplicable flows' : 'show every flow with disabled reasons'}.
-                </Text>
-              </Box>
-              <Box marginTop={1}>
-                <Text dimColor>
-                  {glyphs.bullet} Project:{' '}
-                  <Badge kind={state.value.project ? 'success' : 'warning'}>
-                    {state.value.project?.displayName ?? '(none)'}
-                  </Badge>
-                  {'   '}
-                  {glyphs.bullet} Sprint:{' '}
-                  <Badge kind={state.value.sprint ? 'success' : 'warning'}>
-                    {state.value.sprint?.name ?? '(none)'}
-                  </Badge>
-                </Text>
-              </Box>
-            </Card>
+          <Box marginTop={spacing.section}>
+            <OrientationCard snapshot={state.value} showAll={showAll} />
           </Box>
           <Box marginTop={spacing.section}>
             <ActionMenu items={items} active={!ui.promptActive} />
@@ -266,9 +335,6 @@ export const FlowsView = (): React.JSX.Element => {
               </Text>
             </Box>
           )}
-          <Box marginTop={spacing.section} paddingX={spacing.indent}>
-            <Text dimColor>↵ launch · v {showAll ? 'hide inapplicable' : 'show all'} · esc back · h home</Text>
-          </Box>
         </Box>
       )}
     </ViewShell>

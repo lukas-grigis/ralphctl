@@ -49,6 +49,7 @@
     "verify:coverage": "pnpm coverage",
     "coverage:unused": "tsx scripts/find-unused.ts",
     "deadcode": "knip",
+    "skills:update": "tsx scripts/sync-skills.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",

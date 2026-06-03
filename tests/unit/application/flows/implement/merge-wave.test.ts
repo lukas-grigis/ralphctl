@@ -20,7 +20,7 @@ import type { RepoExecConfig } from '@src/application/flows/implement/leaves/res
 import { forkCtx, mergeImplementWave } from '@src/application/flows/implement/merge-wave.ts';
 
 const blockedFrom = (task: ReturnType<typeof makeInProgressTaskWithRunningAttempt>): Task => {
-  const result = markTaskBlocked(task, 'plateau persists after escalation');
+  const result = markTaskBlocked(task, 'plateau persists after escalation', 'own');
   if (!result.ok) throw new Error('fixture: markTaskBlocked failed');
   return result.value;
 };

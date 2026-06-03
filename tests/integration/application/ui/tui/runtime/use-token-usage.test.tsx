@@ -110,6 +110,55 @@ describe('useTokenUsage', () => {
     r.unmount();
   });
 
+  it('keys by chainSessionId when present so the runner-id lookup hits', async () => {
+    const bus = createInMemoryEventBus();
+    let last: ReadonlyMap<string, TokenUsage> = new Map();
+    const r = render(<Probe bus={bus} onState={(u) => (last = u)} />);
+
+    // Provider stamps the AI CLI's own uuid in `sessionId` and the chain runner id in
+    // `chainSessionId`; the view looks up by the runner id, so the entry must be keyed by it.
+    bus.publish({
+      type: 'token-usage',
+      sessionId: 'cli-uuid-abc',
+      chainSessionId: 'runner-1',
+      provider: 'claude-code',
+      inputTokens: 40000,
+      outputTokens: 10000,
+      contextWindow: 200000,
+      at: NOW,
+    });
+    await new Promise((res) => setTimeout(res, 5));
+
+    expect(last.has('runner-1')).toBe(true);
+    expect(last.has('cli-uuid-abc')).toBe(false);
+    expect(last.get('runner-1')).toEqual({
+      provider: 'claude-code',
+      inputTokens: 40000,
+      outputTokens: 10000,
+      contextWindow: 200000,
+    });
+    r.unmount();
+  });
+
+  it('falls back to sessionId for legacy events without chainSessionId', async () => {
+    const bus = createInMemoryEventBus();
+    let last: ReadonlyMap<string, TokenUsage> = new Map();
+    const r = render(<Probe bus={bus} onState={(u) => (last = u)} />);
+
+    bus.publish({
+      type: 'token-usage',
+      sessionId: 'sess-legacy',
+      provider: 'openai-codex',
+      inputTokens: 1000,
+      at: NOW,
+    });
+    await new Promise((res) => setTimeout(res, 5));
+
+    expect(last.has('sess-legacy')).toBe(true);
+    expect(last.get('sess-legacy')?.inputTokens).toBe(1000);
+    r.unmount();
+  });
+
   it('caps retained sessions at the LRU limit and evicts the oldest on overflow', async () => {
     const bus = createInMemoryEventBus();
     let last: ReadonlyMap<string, TokenUsage> = new Map();

@@ -4,6 +4,7 @@ import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
 import { FULL_AUTO } from '@src/integration/ai/providers/_engine/session-permissions.ts';
+import { currentSessionId } from '@src/application/session/session.ts';
 
 /**
  * Per-call AiSession profile for implement and evaluate calls. The session "plugs onto" the
@@ -65,6 +66,13 @@ export const implementSession = (
   // for `signals.json` in the per-round dir, leaving the file absent and the leaf failing
   // with `signals-missing`.
   const outputDir = AbsolutePath.parse(dirname(String(signalsFile)));
+  // Read the chain/runner session id HERE — this helper is invoked from inside the
+  // generator/evaluator leaf's `execute(...)`, which the runner wraps in `runWithSession`,
+  // so `currentSessionId()` returns the active runner id. Threaded onto the session as DATA
+  // so the headless adapter can stamp it onto the token-usage event WITHOUT importing the
+  // application session helper across the layer boundary. Undefined when no session scope is
+  // active (e.g. a direct unit-test call) → the spread below omits the field.
+  const chainSessionId = currentSessionId();
   return {
     prompt,
     cwd: repoPath,
@@ -73,6 +81,7 @@ export const implementSession = (
     permissions: FULL_AUTO,
     signalsFile,
     role,
+    ...(chainSessionId !== undefined ? { chainSessionId } : {}),
     ...(outputDir.ok ? { outputDir: outputDir.value } : {}),
     ...(resume !== undefined ? { resume } : {}),
     ...(effort !== undefined ? { effort } : {}),

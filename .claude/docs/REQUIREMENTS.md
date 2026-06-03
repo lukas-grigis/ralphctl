@@ -104,7 +104,8 @@ Status flow: `draft → planned → active → review → done`.
       exploration); ticket status flips `pending → approved`.
 - [ ] **Plan** (`plan` chain, TUI) — requires all tickets `approved`; repo selection runs inside the chain
       and persists on `Sprint.affectedRepositories` (absolute paths); AI generates `tasks.json` atomically.
-- [ ] **Ideate** (`ideate` chain, TUI) — combines refine + plan in one session for low-stakes tickets.
+- [x] **Ideate** (`ideate` chain, TUI) — combines refine + plan in one session for low-stakes tickets;
+      transitions the sprint `draft → planned` after the plan phase, making the Implement flow reachable.
 - [ ] **Draft re-plan** — running `plan` on a draft sprint that already has tasks lets the AI see the existing
       tasks; the new plan atomically replaces the old one after user confirmation.
 
@@ -178,10 +179,15 @@ Status flow: `draft → planned → active → review → done`.
 - [ ] **Exponential backoff** — rate-limit retries use `rate-limit-backoff.ts` (`integration/ai/providers/_engine/`).
 - [ ] **Interactive variant** — `InteractiveAiProvider` hands over the terminal (alt-screen swap to the AI's
       own UI); the TUI restores its alt-screen state on the way back.
-- [ ] **Bundled skills** — `installSkillsLeaf` / `uninstallSkillsLeaf` bracket every AI session that benefits
+- [x] **Bundled skills** — `installSkillsLeaf` / `uninstallSkillsLeaf` bracket every AI session that benefits
       from defaults. Skills are copied into `<repo>/<parentDir>/skills/ralphctl-<name>/` and git-excluded via a
       single `ralphctl-*` wildcard appended to `.git/info/exclude`. Project skills always win over bundled ones.
-      Adapter is no-op for Codex / Copilot today.
+      Eight bundled skills ship (`ralphctl-abstraction-first`, `ralphctl-alignment`, `ralphctl-iterative-review`,
+      `ralphctl-minimal-scaffolding`, `ralphctl-debugging-and-error-recovery`, `ralphctl-code-review-and-quality`,
+      `ralphctl-test-driven-development`, `ralphctl-surgical-simplicity`). Each is validated by
+      `skill-contract-checker.ts` (hard-fail on contract violation) before it can ship.
+      Operator drop-in skills (`~/.ralphctl/skills/{claude,copilot,codex}/…`) install through the same path;
+      violations are warnings only.
 - [ ] **Provider-native context file** — the `readiness` flow fans out across every uniquely referenced
       provider in `settings.ai`, writing one native context file per distinct provider: `CLAUDE.md`
       (claude-code), `.github/copilot-instructions.md` (github-copilot), `AGENTS.md` (openai-codex). A
@@ -242,14 +248,20 @@ See [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) for tokens, components, view patterns
       module load.
 - [ ] **Help overlay** — `?` opens `<HelpOverlay />`; rendered from the centralised keyboard map.
 - [ ] **Centralised keyboard map** — one table; adding a binding is one edit.
-- [ ] **Multi-flow nav** — Tab / Shift+Tab cycle running flow sessions; `Ctrl+1..9` direct-jump;
-      `SessionsView` lists every runner with status + age.
+- [x] **Multi-flow nav** — Tab / Shift+Tab cycle running flow sessions; `Ctrl+1..9` direct-jump;
+      `SessionsView` lists every runner with status + age. Both chords are gated off while a prompt
+      or overlay is mounted.
 - [ ] **Live execute view** — `ExecuteView` subscribes to the EventBus; renders `StepTrace` + `TasksPanel` +
       `RecentEventsTail`. Late attach is lossless (synthetic replay).
 - [ ] **Prompt transcript** — resolved prompts render dim above the live prompt; history clears when the
       prompt queue idles past `SEQUENCE_IDLE_MS`.
 - [ ] **Form retry loop** — sprint-create / project-add / ticket-add / project-edit views retry on validation
       errors instead of popping back to home.
+- [x] **Windowed-list primitive** — all long, scrollable, homogeneous lists mount through
+      `windowed-list.tsx` (`computeListWindow` / `useListWindow` / `WindowedList` / `OverflowRow`). Id-based
+      cursor survives reorder/eviction. `↑/↓` primary, `j`/`k` alias, `PgUp`/`PgDn` page, `Home`/`End` jump.
+      `▴/▾` overflow cues. A view that owns its list cursor passes `suppressScrollArrows` to its `ViewShell`
+      (translated to `ScrollRegion`'s internal `suppressArrows`) so `↑/↓` / `PgUp`/`PgDn` aren't double-handled.
 - [x] **Responsive Execute view** — three-column at `xl` (≥180), two-column at `lg` (≥140), compact-rail
       at `md` (100–139), single-column below `md`. Rail grows fluidly 36→56 cols at `xl`+ via
       `resolveRailWidth`. `StepTrace` renders `Element.label` when present; long labels mid-truncated to

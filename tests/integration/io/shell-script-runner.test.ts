@@ -18,6 +18,8 @@ interface FakeChildScript {
   readonly stdoutBeforeExitDelayMs?: number;
   readonly emitErrorMessage?: string;
   readonly hang?: boolean;
+  /** Simulate a SIGTERM-trapping script: only a SIGKILL actually closes the child. */
+  readonly trapSigterm?: boolean;
 }
 
 const makeStream = (): EventEmitter & { setEncoding: (e: string) => void } => {
@@ -26,8 +28,10 @@ const makeStream = (): EventEmitter & { setEncoding: (e: string) => void } => {
   return ee;
 };
 
-const makeFakeChild = (script: FakeChildScript): ChildProcessWithoutNullStreams => {
-  const child = new EventEmitter() as ChildProcessWithoutNullStreams & { _killed: boolean };
+type FakeChild = ChildProcessWithoutNullStreams & { _killed: boolean; _signals: NodeJS.Signals[] };
+
+const makeFakeChild = (script: FakeChildScript): FakeChild => {
+  const child = new EventEmitter() as FakeChild;
   const stdout = makeStream();
   const stderr = makeStream();
   Object.assign(child, {
@@ -35,12 +39,17 @@ const makeFakeChild = (script: FakeChildScript): ChildProcessWithoutNullStreams 
     stderr,
     stdin: { end(): void {} },
     pid: 12345,
-    kill(): boolean {
+    kill(sig?: NodeJS.Signals): boolean {
       child._killed = true;
+      child._signals.push(sig ?? 'SIGTERM');
+      // A SIGTERM-trapping script ignores SIGTERM and only dies on the hard SIGKILL. Otherwise
+      // any signal closes the child on the next tick (the original fake-child behaviour).
+      if (script.trapSigterm === true && sig !== 'SIGKILL') return true;
       setTimeout(() => child.emit('close', null), 0);
       return true;
     },
     _killed: false,
+    _signals: [],
   });
   setTimeout(() => {
     for (const c of script.stdout ?? []) stdout.emit('data', Buffer.from(c, 'utf8'));
@@ -57,13 +66,20 @@ const makeFakeChild = (script: FakeChildScript): ChildProcessWithoutNullStreams 
 
 const fakeSpawn = (
   script: FakeChildScript
-): { spawn: Spawn; calls: Array<{ command: string; args: readonly string[]; options: SpawnOptions }> } => {
+): {
+  spawn: Spawn;
+  calls: Array<{ command: string; args: readonly string[]; options: SpawnOptions }>;
+  children: FakeChild[];
+} => {
   const calls: Array<{ command: string; args: readonly string[]; options: SpawnOptions }> = [];
+  const children: FakeChild[] = [];
   const spawn: Spawn = (command, args, options) => {
     calls.push({ command, args, options });
-    return makeFakeChild(script);
+    const child = makeFakeChild(script);
+    children.push(child);
+    return child;
   };
-  return { spawn, calls };
+  return { spawn, calls, children };
 };
 
 describe('createShellScriptRunner', () => {
@@ -106,8 +122,10 @@ describe('createShellScriptRunner', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error.subCode).toBe('io');
-      expect(result.error.message).toContain('ENOENT');
+      const err = result.error;
+      if (err.code !== 'storage-error') throw new Error(`expected StorageError, got ${err.code}`);
+      expect(err.subCode).toBe('io');
+      expect(err.message).toContain('ENOENT');
     }
   });
 
@@ -137,6 +155,108 @@ describe('createShellScriptRunner', () => {
 
   it('uses default timeout of 5 minutes when none provided', async () => {
     expect(DEFAULT_SHELL_TIMEOUT_MS).toBe(5 * 60_000);
+  });
+
+  describe('abort signal', () => {
+    // A held repo lock + a 5-minute verify timeout meant a Ctrl-C mid setup/verify was delayed
+    // for up to that timeout. The runner now threads the chain's AbortSignal: an abort kills the
+    // child tree promptly and surfaces as the codebase's AbortError (propagated transparently),
+    // NOT as a passed:false gate failure.
+
+    it('kills the child promptly and surfaces AbortError when aborted mid-run', async () => {
+      // A hanging script never closes on its own; only the abort-triggered kill resolves it.
+      const { spawn } = fakeSpawn({ hang: true });
+      const runner = createShellScriptRunner({ spawn });
+      const controller = new AbortController();
+
+      // Abort on the next tick — after spawn, while the child is still "running".
+      const pending = runner.run(cwd, 'sleep 999', { signal: controller.signal });
+      setTimeout(() => controller.abort(), 0);
+      const result = await pending;
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.name).toBe('AbortError');
+        expect(result.error.code).toBe('aborted');
+      }
+    });
+
+    it('escalates SIGTERM → SIGKILL after the grace window for a SIGTERM-trapping script', async () => {
+      // A script that traps SIGTERM ignores the first kill and would outlive the abort, stranding
+      // the run on a resource a competitor may now own. The runner schedules a hard SIGKILL after
+      // the grace window; only that signal closes this fake child. Inject a 5ms grace so the test
+      // doesn't wait out the real 5s ladder.
+      const { spawn, children } = fakeSpawn({ hang: true, trapSigterm: true });
+      const runner = createShellScriptRunner({ spawn, abortKillGraceMs: 5 });
+      const controller = new AbortController();
+
+      const pending = runner.run(cwd, 'trap "" TERM; sleep 999', { signal: controller.signal });
+      setTimeout(() => controller.abort(), 0);
+      const result = await pending;
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.name).toBe('AbortError');
+        expect(result.error.code).toBe('aborted');
+      }
+      // The abort sent SIGTERM first, then escalated to SIGKILL once the grace window elapsed.
+      const signals = children[0]?._signals ?? [];
+      expect(signals).toContain('SIGTERM');
+      expect(signals).toContain('SIGKILL');
+      expect(signals.indexOf('SIGTERM')).toBeLessThan(signals.indexOf('SIGKILL'));
+    });
+
+    it('does not fire a stray SIGKILL when the child exits cleanly within the grace window', async () => {
+      // A well-behaved child that closes on the abort's SIGTERM must NOT receive a later SIGKILL —
+      // finish() clears the grace timer. A long grace makes a stray kill observable if it leaked.
+      const { spawn, children } = fakeSpawn({ hang: true });
+      const runner = createShellScriptRunner({ spawn, abortKillGraceMs: 10_000 });
+      const controller = new AbortController();
+
+      const pending = runner.run(cwd, 'sleep 999', { signal: controller.signal });
+      setTimeout(() => controller.abort(), 0);
+      const result = await pending;
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.name).toBe('AbortError');
+      // The child closed on the SIGTERM; the grace timer was cleared, so no SIGKILL followed.
+      const signals = children[0]?._signals ?? [];
+      expect(signals).toContain('SIGTERM');
+      expect(signals).not.toContain('SIGKILL');
+    });
+
+    it('short-circuits to AbortError without spawning when the signal is already aborted', async () => {
+      const { spawn, calls } = fakeSpawn({ exitCode: 0 });
+      const runner = createShellScriptRunner({ spawn });
+      const controller = new AbortController();
+      controller.abort();
+
+      const result = await runner.run(cwd, 'echo hi', { signal: controller.signal });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.name).toBe('AbortError');
+      }
+      // Nothing was spawned — the short-circuit fires before the spawn() call.
+      expect(calls).toHaveLength(0);
+    });
+
+    it('ignores the signal listener once the script settles normally', async () => {
+      // A green run that completes before any abort must resolve passed:true, and a later abort
+      // (post-settle) must not flip the already-resolved result.
+      const { spawn } = fakeSpawn({ stdout: ['done\n'], exitCode: 0 });
+      const runner = createShellScriptRunner({ spawn });
+      const controller = new AbortController();
+
+      const result = await runner.run(cwd, 'echo done', { signal: controller.signal });
+      controller.abort(); // late abort — run already settled
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.passed).toBe(true);
+        expect(result.value.output).toBe('done');
+      }
+    });
   });
 
   it('passes through env vars merged on top of process.env', async () => {

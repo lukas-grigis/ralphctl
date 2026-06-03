@@ -11,43 +11,25 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
-import {
-  useActiveHints,
-  useSuppressedGlobalKeys,
-  type ViewHint,
-} from '@src/application/ui/tui/runtime/use-view-hints.tsx';
+import { useActiveHints, useSuppressedGlobalKeys } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { useSessions } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 import { useSystemStatus } from '@src/application/ui/tui/runtime/system-status-context.tsx';
+import { footerGlobalHints } from '@src/application/ui/tui/runtime/keyboard-map.ts';
 import { KeyboardHints } from '@src/application/ui/tui/components/keyboard-hints.tsx';
 import { Divider } from '@src/application/ui/tui/components/divider.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import type { DoctorReport } from '@src/application/flows/doctor/ctx.ts';
-
-const GLOBAL_HINTS: readonly ViewHint[] = [
-  { keys: 'h', label: 'home' },
-  { keys: 'n', label: 'new flow' },
-  { keys: 'P', label: 'switch project' },
-  { keys: 'x', label: 'sessions' },
-  { keys: 's', label: 'settings' },
-  { keys: '↑/↓', label: 'scroll' },
-  { keys: '?', label: 'help' },
-  { keys: 'esc', label: 'back' },
-  { keys: 'q', label: 'quit' },
-];
-
-/** A stethoscope sits in the footer; the tint flips with doctor state. */
-const STETHOSCOPE = '🩺';
 
 export const StatusBar = (): React.JSX.Element => {
   const sessions = useSessions();
   const localHints = useActiveHints();
   const suppressedKeys = useSuppressedGlobalKeys();
   const system = useSystemStatus();
-  // Per-view suppressions hide specific global hints so the footer never advertises a key combo
-  // whose default meaning is contradicted by the currently-mounted view (e.g. a Review-step
-  // description that fits the viewport mutes the ↑/↓ scroll hint because arrows are inert).
+  // Per-view suppressions hide specific footer hints (matched by their `keys` string) so the
+  // footer never advertises a key combo whose default meaning is contradicted by the
+  // currently-mounted view. A suppressed key absent from footerGlobalHints is simply a no-op.
   const visibleGlobalHints =
-    suppressedKeys.size === 0 ? GLOBAL_HINTS : GLOBAL_HINTS.filter((h) => !suppressedKeys.has(h.keys));
+    suppressedKeys.size === 0 ? footerGlobalHints : footerGlobalHints.filter((h) => !suppressedKeys.has(h.keys));
 
   const running = sessions.filter((s) => s.descriptor.status === 'running').length;
   const sessionSummary =
@@ -73,8 +55,19 @@ export const StatusBar = (): React.JSX.Element => {
           </Text>
         </Box>
       </Box>
+      {/*
+        Two groups so the merged strip degrades predictably when it overflows a narrow terminal:
+        the view-local action hints (`cancel` / `detach`) sit in a non-shrinking group so Yoga
+        never clips them mid-word, while the curated global tail absorbs the squeeze. Without the
+        split, Yoga distributes the overflow across every cell and can mangle the leading hints.
+      */}
       <Box paddingX={spacing.indent}>
-        <KeyboardHints hints={[...localHints, ...visibleGlobalHints]} />
+        {localHints.length > 0 && (
+          <Box flexShrink={0} marginRight={spacing.gutter}>
+            <KeyboardHints hints={localHints} />
+          </Box>
+        )}
+        <KeyboardHints hints={visibleGlobalHints} />
       </Box>
     </Box>
   );
@@ -100,7 +93,7 @@ const DoctorIndicator = ({
   if (failed > 0) {
     return (
       <Text>
-        <Text color={inkColors.error}>{STETHOSCOPE}</Text>
+        <Text color={inkColors.error}>{glyphs.stethoscope}</Text>
         <Text color={inkColors.error}>
           {' '}
           {String(failed)} doctor failure{failed === 1 ? '' : 's'}
@@ -112,7 +105,7 @@ const DoctorIndicator = ({
   if (warned > 0) {
     return (
       <Text>
-        <Text color={inkColors.warning}>{STETHOSCOPE}</Text>
+        <Text color={inkColors.warning}>{glyphs.stethoscope}</Text>
         <Text color={inkColors.warning}>
           {' '}
           {String(warned)} doctor warning{warned === 1 ? '' : 's'}
@@ -123,7 +116,7 @@ const DoctorIndicator = ({
   }
   return (
     <Text>
-      <Text color={inkColors.success}>{STETHOSCOPE}</Text>
+      <Text color={inkColors.success}>{glyphs.stethoscope}</Text>
       <Text dimColor> doctor ok</Text>
     </Text>
   );

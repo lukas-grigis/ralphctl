@@ -23,8 +23,13 @@ describe('CancelScopeOverlay', () => {
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('Cancel — pick a scope');
-    expect(frame).toContain('Cancel current attempt');
-    expect(frame).toContain('Cancel whole flow');
+    // Option 1 must say the task resumes from todo — NOT a (non-existent) live retry.
+    expect(frame).toContain('Stop run now');
+    expect(frame).toContain('resumes from todo on the next launch');
+    expect(frame).not.toContain('retry on next round');
+    // Option 2 must say the task is blocked and won't auto-resume.
+    expect(frame).toContain('Stop run and mark this task blocked');
+    expect(frame).toContain("won't resume automatically");
     expect(frame).toContain('~2m30s of generator output discarded');
     expect(frame).toContain('2 other tasks still queued');
   });

@@ -13,7 +13,7 @@ import { describe, expect, it } from 'vitest';
 import type { Trace } from '@src/application/chain/trace.ts';
 import type { AppEvent } from '@src/business/observability/events.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
-import { bucketTaskSignals } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
+import { bucketTaskSignals, perAttemptRound } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 
 const TASK = '01933fbb-1111-7000-8000-000000000001';
 const TASK2 = '01933fbb-2222-7000-8000-000000000002';
@@ -187,5 +187,54 @@ describe('bucketTaskSignals — round counter', () => {
     const result = bucketTaskSignals(trace, [], [], { maxTurns: 5 });
     expect(result.tasks[0]?.genEvalRound).toBe(3);
     expect(result.tasks[0]?.genEvalMaxRounds).toBe(5);
+  });
+
+  it('carries genEvalMaxAttempts onto each bucket when maxAttempts is supplied', () => {
+    const trace: Trace = [{ elementName: `generator-${TASK}`, status: 'completed', durationMs: 1 }];
+    const result = bucketTaskSignals(trace, [], [], { maxTurns: 3, maxAttempts: 3 });
+    expect(result.tasks[0]?.genEvalMaxAttempts).toBe(3);
+  });
+
+  it('omits genEvalMaxAttempts when maxAttempts is absent', () => {
+    const trace: Trace = [{ elementName: `generator-${TASK}`, status: 'completed', durationMs: 1 }];
+    const result = bucketTaskSignals(trace, [], [], { maxTurns: 3 });
+    expect(result.tasks[0]?.genEvalMaxAttempts).toBeUndefined();
+  });
+});
+
+describe('perAttemptRound — fold the monotonic round into per-attempt coordinates', () => {
+  it('maps attempt-1 rounds onto themselves (no overshoot when within budget)', () => {
+    expect(perAttemptRound(1, 3)).toEqual({ attemptN: 1, roundInAttempt: 1 });
+    expect(perAttemptRound(3, 3)).toEqual({ attemptN: 1, roundInAttempt: 3 });
+  });
+
+  it('folds the first round of attempt 2 back to round 1 instead of overshooting (4/3 → 1/3)', () => {
+    // The bug: global round 4 against a 3-turn budget read `round 4/3`. The fold maps it to
+    // attempt 2, round 1.
+    expect(perAttemptRound(4, 3)).toEqual({ attemptN: 2, roundInAttempt: 1 });
+    expect(perAttemptRound(6, 3)).toEqual({ attemptN: 2, roundInAttempt: 3 });
+    expect(perAttemptRound(7, 3)).toEqual({ attemptN: 3, roundInAttempt: 1 });
+  });
+
+  it('keeps a single-turn budget at attempt 1 round 1 for the first global round', () => {
+    expect(perAttemptRound(1, 1)).toEqual({ attemptN: 1, roundInAttempt: 1 });
+    expect(perAttemptRound(2, 1)).toEqual({ attemptN: 2, roundInAttempt: 1 });
+  });
+
+  it('never lets roundInAttempt exceed maxTurns (the never-overshoot invariant)', () => {
+    for (let round = 1; round <= 30; round += 1) {
+      const { roundInAttempt } = perAttemptRound(round, 3);
+      expect(roundInAttempt).toBeGreaterThanOrEqual(1);
+      expect(roundInAttempt).toBeLessThanOrEqual(3);
+    }
+  });
+
+  it('collapses defensively to attempt 1 for a non-positive or non-finite maxTurns', () => {
+    expect(perAttemptRound(4, 0)).toEqual({ attemptN: 1, roundInAttempt: 4 });
+    expect(perAttemptRound(4, Number.NaN)).toEqual({ attemptN: 1, roundInAttempt: 4 });
+  });
+
+  it('returns attempt 1 round 1 when no round has happened yet', () => {
+    expect(perAttemptRound(0, 3)).toEqual({ attemptN: 1, roundInAttempt: 1 });
   });
 });

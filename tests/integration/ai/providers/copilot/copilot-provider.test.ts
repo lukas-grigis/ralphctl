@@ -212,6 +212,38 @@ describe('createCopilotProvider', () => {
     expect(out.error.code).toBe('rate-limit');
   });
 
+  it('abort during rate-limit backoff: surfaces AbortError (not InvalidStateError)', async () => {
+    // A user cancel that lands while the provider is sleeping between 429 retries must surface as
+    // AbortError — the one error chains propagate transparently. InvalidStateError would be
+    // classified as a recoverable turn error and wrongly self-block the task.
+    const cap = createCapturingBus();
+    const controller = new AbortController();
+    const calls = { n: 0 };
+    const spawn: ProviderSpawn = () => {
+      calls.n++;
+      // Fire the abort right after the first (rate-limited) spawn so it lands during the
+      // generous backoff sleep below — never before exit classification (which checks abort
+      // first and would short-circuit the attempt itself).
+      setTimeout(() => controller.abort(), 5);
+      return makeFakeChild({ stderrChunks: ['Error: rate limit exceeded\n'], exitCode: 1 });
+    };
+
+    const provider = createCopilotProvider({
+      rateLimitRetries: 2,
+      eventBus: cap.bus,
+      spawn,
+      backoffSchedule: [5_000, 5_000, 5_000], // long enough that the abort lands mid-sleep
+    });
+
+    const out = await provider.generate(session({ abortSignal: controller.signal }));
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.error.code).toBe('aborted');
+    expect(out.error.name).toBe('AbortError');
+    // The retry never re-spawned — the abort tore the run down during the first backoff.
+    expect(calls.n).toBe(1);
+  });
+
   it('consumes JSON-only assistant delta events without writing signals.json', async () => {
     const cap = createCapturingBus();
     const sess = session();
@@ -519,6 +551,25 @@ describe('createCopilotProvider — TokenUsageEvent emission', () => {
     expect(out.ok).toBe(false);
 
     expect(cap.events.filter((e) => e.type === 'token-usage')).toHaveLength(0);
+  });
+
+  it('stamps chainSessionId onto the event when the session carries one', async () => {
+    // Downstream usage subscribers MUST key on `chainSessionId ?? sessionId` — the provider-uuid
+    // sessionId never matches a chain run id. Guard that the provider forwards it when set.
+    const cap = createCapturingBus();
+    const sess = session({ chainSessionId: 'chain-run-42' });
+    const { spawn } = makeSpawn([
+      { stdoutChunks: ['{"session_id":"sess-cs","model":"gpt-5.1"}\n', '<task-complete/>\n'], exitCode: 0 },
+    ]);
+
+    const provider = createCopilotProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+
+    const tokenEvents = cap.events.filter((e): e is TokenUsageEvent => e.type === 'token-usage');
+    expect(tokenEvents).toHaveLength(1);
+    expect(tokenEvents[0]!.chainSessionId).toBe('chain-run-42');
+    expect(tokenEvents[0]!.sessionId).toBe('sess-cs');
   });
 });
 

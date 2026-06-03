@@ -1,11 +1,14 @@
 /**
  * Cancel-scope handler factory hook — wires the two cancel options exposed by the
- * `CancelScopeOverlay`:
+ * `CancelScopeOverlay`. Both stop the run now via a chain-runner abort; there is no live
+ * retry. The two paths differ only in the task state they leave behind:
  *
- *   1. Cancel attempt — chain-runner abort. Same semantics as the historical `c` hotkey:
- *      keep the task queued, retry on the next round.
- *   2. Cancel whole flow — mark the current task `blocked` with a fixed user-cancel reason,
- *      then abort the chain so the unwind is identical from the runner's perspective.
+ *   1. Stop run now (`onCancelAttempt`) — chain-runner abort with no repo write. The task
+ *      stays unsettled, so the next launch resets it to `todo` and re-enters the queue.
+ *   2. Stop run and mark blocked (`onCancelFlow`) — mark the current task `blocked` with a
+ *      fixed user-cancel reason, then abort the chain. The block keeps the task off the
+ *      auto-resume queue on the next launch. The unwind is otherwise identical to option 1
+ *      from the runner's perspective.
  *
  * The repo write happens BEFORE the abort so a follow-up settle-attempt-leaf in the same
  * tick can't overwrite our pin to `blocked`.

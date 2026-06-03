@@ -45,7 +45,7 @@ export const submitField = async (
   // Implement carries a generator + evaluator pair and is addressed via a 4-segment key;
   // every other flow is the 3-segment shape.
   const implementRoleProviderMatch = /^ai\.implement\.(generator|evaluator)\.provider$/.exec(field.key);
-  const flatProviderMatch = /^ai\.(refine|plan|readiness|ideate)\.provider$/.exec(field.key);
+  const flatProviderMatch = /^ai\.(refine|plan|readiness|ideate|createPr)\.provider$/.exec(field.key);
   if (implementRoleProviderMatch !== null || flatProviderMatch !== null) {
     const providerFlow = createSettingsSetProviderFlow({ settingsRepo });
     const flow: FlowId = implementRoleProviderMatch !== null ? 'implement' : (flatProviderMatch![1] as FlowId);

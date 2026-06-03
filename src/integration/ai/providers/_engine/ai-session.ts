@@ -88,4 +88,14 @@ export interface AiSession {
    * alone. Single-role flows leave this unset; the adapters skip the field accordingly.
    */
   readonly role?: 'generator' | 'evaluator';
+  /**
+   * The chain / runner session id this spawn runs under. Threaded in as DATA by the
+   * application-layer construction site (which builds the session inside the runner's
+   * `runWithSession` scope), then stamped onto the {@link TokenUsageEvent} the adapter
+   * publishes post-spawn so subscribers (the TUI's TokenBudgetCard) can key spend by the
+   * runner id rather than the AI CLI's own per-spawn uuid. Provider-agnostic; the adapters
+   * never read `currentSessionId()` themselves — integration cannot import the application
+   * session helper. Unset → the adapter omits the field (legacy / out-of-scope callers).
+   */
+  readonly chainSessionId?: string;
 }

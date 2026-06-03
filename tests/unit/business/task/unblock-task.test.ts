@@ -14,7 +14,7 @@ import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 const SPRINT_ID = '01900000-0000-7000-8000-0000000000aa' as unknown as SprintId;
 
 const makeBlockedTask = (reason = 'flaky pre-task verify'): BlockedTask => {
-  const r = markTaskBlocked(makeTodoTask(), reason);
+  const r = markTaskBlocked(makeTodoTask(), reason, 'own');
   if (!r.ok) throw new Error(`fixture: ${r.error.message}`);
   return r.value;
 };
@@ -147,7 +147,11 @@ describe('unblockTaskUseCase', () => {
   it('cascade-unblocks upstream-blocked dependents when the root is unblocked', async () => {
     const root = makeBlockedTask('own failure: eval did not pass'); // own-failure block on the root
     const depTodo = makeTodoTask({ name: 'dependent', dependsOn: [root.id] });
-    const depUpstream = markTaskBlocked(depTodo, `${BLOCKED_UPSTREAM_REASON_PREFIX} — prerequisite not done: root`);
+    const depUpstream = markTaskBlocked(
+      depTodo,
+      `${BLOCKED_UPSTREAM_REASON_PREFIX} — prerequisite not done: root`,
+      'upstream'
+    );
     if (!depUpstream.ok) throw depUpstream.error;
     const repo = repoOk([root, depUpstream.value]);
 
@@ -168,7 +172,7 @@ describe('unblockTaskUseCase', () => {
   it('does NOT cascade-unblock a dependent blocked for its own failure', async () => {
     const root = makeBlockedTask('root own failure');
     const depTodo = makeTodoTask({ name: 'dependent', dependsOn: [root.id] });
-    const depOwn = markTaskBlocked(depTodo, 'verify failed on the dependent itself'); // NOT an upstream prefix
+    const depOwn = markTaskBlocked(depTodo, 'verify failed on the dependent itself', 'own'); // NOT an upstream prefix
     if (!depOwn.ok) throw depOwn.error;
     const repo = repoOk([root, depOwn.value]);
 

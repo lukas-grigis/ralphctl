@@ -33,37 +33,72 @@ export type TriggerEvaluation = { readonly enabled: true } | { readonly enabled:
  */
 export const evaluateTriggers = (triggers: FlowTriggers, inputs: TriggerInputs): TriggerEvaluation => {
   if (triggers.requiresProject === true && !inputs.hasProject) {
-    return { enabled: false, reason: 'No project is loaded.' };
+    return { enabled: false, reason: 'Select a project first — use P to pick one or create one from Projects.' };
   }
 
   if (triggers.currentSprintStatus !== undefined) {
     const allowed = triggers.currentSprintStatus;
     const current = inputs.currentSprintStatus;
-    if (current === undefined || !allowed.includes(current)) {
-      const expected = allowed.join(', ');
-      const actual = current ?? 'no sprint';
-      return { enabled: false, reason: `Requires sprint status ${expected} (current: ${actual}).` };
+    if (current === undefined) {
+      // No sprint at all — tell the user to create one.
+      return { enabled: false, reason: 'No sprint selected — create or pick one from Sprints.' };
+    }
+    if (!allowed.includes(current)) {
+      // Sprint exists but its status does not satisfy this flow's gate. Produce a specific hint
+      // based on what the flow actually needs so the user knows exactly what to do next.
+      const [first] = allowed;
+      if (first === 'draft') {
+        return { enabled: false, reason: `This flow only runs on draft sprints (sprint is ${current}).` };
+      }
+      if (allowed.includes('planned') && allowed.includes('active')) {
+        // Implement-style gate: needs a planned or active sprint.
+        return {
+          enabled: false,
+          reason:
+            current === 'draft'
+              ? 'Plan this sprint first — it must be planned (or active) before you can implement.'
+              : `Implement runs on planned or active sprints (sprint is ${current}).`,
+        };
+      }
+      if (first === 'review') {
+        return {
+          enabled: false,
+          reason:
+            current === 'active' || current === 'planned'
+              ? 'Run Implement to completion first — this flow needs a review-status sprint.'
+              : `This flow needs a review-status sprint (sprint is ${current}).`,
+        };
+      }
+      // Generic fallback for multi-value allowed sets not covered above (e.g. create-pr).
+      const readableAllowed = allowed.join(' or ');
+      return { enabled: false, reason: `Sprint must be ${readableAllowed} to run this flow (currently ${current}).` };
     }
   }
 
   if (triggers.minPendingTickets !== undefined && inputs.pendingTicketCount < triggers.minPendingTickets) {
     return {
       enabled: false,
-      reason: `Requires at least ${String(triggers.minPendingTickets)} pending ticket(s) (have ${String(inputs.pendingTicketCount)}).`,
+      reason:
+        inputs.pendingTicketCount === 0
+          ? 'Add at least one ticket to the sprint before refining.'
+          : `Add more tickets — need ${String(triggers.minPendingTickets)}, have ${String(inputs.pendingTicketCount)}.`,
     };
   }
 
   if (triggers.minApprovedTickets !== undefined && inputs.approvedTicketCount < triggers.minApprovedTickets) {
     return {
       enabled: false,
-      reason: `Requires at least ${String(triggers.minApprovedTickets)} approved ticket(s) (have ${String(inputs.approvedTicketCount)}).`,
+      reason:
+        inputs.approvedTicketCount === 0
+          ? 'Refine and approve your tickets first — planning requires at least one approved ticket.'
+          : `Approve more tickets — need ${String(triggers.minApprovedTickets)}, have ${String(inputs.approvedTicketCount)}.`,
     };
   }
 
   if (triggers.minResumableTasks !== undefined && inputs.resumableTaskCount < triggers.minResumableTasks) {
     return {
       enabled: false,
-      reason: `Requires at least ${String(triggers.minResumableTasks)} pending task(s) (have ${String(inputs.resumableTaskCount)}).`,
+      reason: 'No tasks to implement — run Plan first to generate a task list for this sprint.',
     };
   }
 

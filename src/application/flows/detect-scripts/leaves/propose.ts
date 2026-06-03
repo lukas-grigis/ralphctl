@@ -14,6 +14,7 @@ import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.t
 import type { HarnessSignal, SetupScriptSignal, VerifyScriptSignal } from '@src/domain/signal.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
+import { currentSessionId } from '@src/application/session/session.ts';
 import { buildDetectScriptsPrompt } from '@src/integration/ai/prompts/detect-scripts/definition.ts';
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
 import { validateSignalsFile } from '@src/integration/ai/contract/_engine/validate-signals-file.ts';
@@ -26,6 +27,9 @@ import type { DetectScriptsCtx } from '@src/application/flows/detect-scripts/ctx
 /**
  * Per-call AiSession profile for the detect-scripts chain — read-only by construction.
  * `outputDir` carries the per-run forensic dir; the AI writes `signals.json` directly there.
+ *
+ * Call only within a `runWithSession` scope: `chainSessionId` is captured from the ambient
+ * session at call time (omitted when invoked outside one, e.g. a bare test).
  */
 export const detectScriptsSession = (
   repository: Repository,
@@ -36,18 +40,26 @@ export const detectScriptsSession = (
   bodyFile?: AbsolutePath,
   effort?: string,
   abortSignal?: AbortSignal
-): AiSession => ({
-  prompt,
-  cwd: repository.path,
-  model,
-  permissions: READ_ONLY,
-  signalsFile,
-  outputDir,
-  ...(bodyFile !== undefined ? { bodyFile } : {}),
-  ...(effort !== undefined ? { effort } : {}),
-  // Thread the chain's abort signal so a TUI cancel mid-spawn kills the child.
-  ...(abortSignal !== undefined ? { abortSignal } : {}),
-});
+): AiSession => {
+  // `currentSessionId()` is read inside the leaf's execute scope (the runner wraps it in
+  // `runWithSession`) and threaded onto the session as DATA so the headless adapter can key
+  // the token-usage event by the runner id without importing the application session helper
+  // across the layer boundary. Undefined out of session scope → the spread omits it.
+  const chainSessionId = currentSessionId();
+  return {
+    prompt,
+    cwd: repository.path,
+    model,
+    permissions: READ_ONLY,
+    signalsFile,
+    outputDir,
+    ...(chainSessionId !== undefined ? { chainSessionId } : {}),
+    ...(bodyFile !== undefined ? { bodyFile } : {}),
+    ...(effort !== undefined ? { effort } : {}),
+    // Thread the chain's abort signal so a TUI cancel mid-spawn kills the child.
+    ...(abortSignal !== undefined ? { abortSignal } : {}),
+  };
+};
 
 export interface ProposeDetectScriptsLeafDeps {
   readonly provider: HeadlessAiProvider;

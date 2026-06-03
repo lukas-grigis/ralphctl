@@ -101,6 +101,22 @@ export interface DoneTask extends Omit<TaskBase, 'attempts'> {
 export interface BlockedTask extends TaskBase {
   readonly status: 'blocked';
   readonly blockedReason: string;
+  /**
+   * Structural discriminant for WHY the task is blocked — the only reliable basis for deciding
+   * whether the block auto-clears:
+   *
+   *  - `upstream` — a prerequisite (`dependsOn`) was not `done`, so the dependency gate cascade-
+   *    blocked this task. Mechanically clearable: `unblockTaskUseCase` auto-clears it once the root
+   *    prerequisite unblocks / completes. {@link isUpstreamBlocked} reads this.
+   *  - `own`      — the task failed on its own merits (eval / verify / budget / fold conflict /
+   *    operator cancel). Never auto-cleared — it needs the operator to actually fix something.
+   *
+   * Replaces the fragile `blockedReason.startsWith('blocked upstream')` heuristic: an own-failure
+   * reason that happened to begin with that text would have been mis-classified as auto-clearable.
+   * Legacy entries lacking the field are inferred at read time from the reason prefix (see the task
+   * schema's read-time migration); the canonical shape lands on the next save.
+   */
+  readonly blockKind: 'upstream' | 'own';
 }
 
 export type Task = TodoTask | InProgressTask | DoneTask | BlockedTask;

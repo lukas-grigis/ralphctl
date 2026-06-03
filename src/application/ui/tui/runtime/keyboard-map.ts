@@ -17,24 +17,51 @@ export interface KeyBinding {
   readonly keys: readonly string[];
   /** One-line label shown in the help overlay and (selectively) in the status bar. */
   readonly label: string;
+  /**
+   * When `true`, this binding is also surfaced in the always-visible status-bar footer (via
+   * {@link footerGlobalHints}) — the curated subset of global chords worth advertising on every
+   * screen. Absent / `false` keeps the binding in the help overlay only.
+   */
+  readonly showInFooter?: boolean;
 }
 
-/** Global bindings — available on every view. Conflict-free across the union below. */
+/**
+ * Global bindings — available on every view. Conflict-free across the union below.
+ *
+ * Bindings tagged `showInFooter` are mirrored into the status-bar footer via
+ * {@link footerGlobalHints}; the rest live in the help overlay only.
+ */
 export const globalKeys = {
-  back: { keys: ['esc'], label: 'back' },
-  home: { keys: ['h'], label: 'home' },
-  flows: { keys: ['n'], label: 'new flow' },
-  sessions: { keys: ['x'], label: 'sessions' },
-  settings: { keys: ['s'], label: 'settings' },
+  back: { keys: ['esc'], label: 'back', showInFooter: true },
+  home: { keys: ['h'], label: 'home', showInFooter: true },
+  flows: { keys: ['n'], label: 'new flow', showInFooter: true },
+  cycleSession: { keys: ['Tab', 'Shift+Tab'], label: 'cycle running flow' },
+  jumpSession: { keys: ['Ctrl+1..9'], label: 'jump to running flow (kitty-protocol term)' },
+  sessions: { keys: ['x'], label: 'sessions', showInFooter: true },
+  settings: { keys: ['s'], label: 'settings', showInFooter: true },
   doctor: { keys: ['!'], label: 'doctor' },
   bannerToggle: { keys: ['b'], label: 'toggle banner' },
   progressOverlay: { keys: ['g'], label: 'show progress.md' },
   yankTask: { keys: ['y'], label: 'copy active task summary' },
-  pickProject: { keys: ['P'], label: 'pick project' },
+  pickProject: { keys: ['P'], label: 'pick project', showInFooter: true },
   pickSprint: { keys: ['S'], label: 'pick sprint' },
-  help: { keys: ['?'], label: 'help' },
-  quit: { keys: ['q', 'ctrl+c'], label: 'quit' },
+  help: { keys: ['?'], label: 'help', showInFooter: true },
+  quit: { keys: ['q', 'ctrl+c'], label: 'quit', showInFooter: true },
 } as const satisfies Record<string, KeyBinding>;
+
+/**
+ * The curated subset of {@link globalKeys} surfaced in the always-visible status-bar footer,
+ * pre-mapped to the footer's `{ keys, label }` hint shape (`keys` joined with `/` for
+ * multi-variant bindings). Single source of truth for the footer's global hints — the status bar
+ * renders this instead of hand-maintaining a parallel list.
+ *
+ * @public
+ */
+export const footerGlobalHints: ReadonlyArray<{ readonly keys: string; readonly label: string }> = (
+  Object.values(globalKeys) as KeyBinding[]
+)
+  .filter((b) => b.showInFooter === true)
+  .map((b) => ({ keys: b.keys.join('/'), label: b.label }));
 
 /**
  * Bindings local to the sprint picker — the cross-project sprint list mounted from `S`.
@@ -71,14 +98,20 @@ export const contextualKeys = {
   makeSprintCurrent: { keys: ['m'], label: 'make focused sprint current' },
 } as const satisfies Record<string, KeyBinding>;
 
-/** Vertical-list bindings — used by every list view + action menu. */
+/**
+ * Vertical-list bindings — the canonical windowed-list navigation contract (see DESIGN-SYSTEM.md
+ * § 6.4). Applied wherever a vertical list with a moving cursor is rendered, via the
+ * `useListWindow` primitive. Four key groups: arrows (primary move), j/k (vim alias for move),
+ * PgUp/PgDn (page), Home/End (jump first / last). Arrows are advertised per-view; j/k are a global
+ * alias shown only here in the help overlay, not in per-view hints.
+ */
 export const listKeys = {
   up: { keys: ['↑', 'k'], label: 'up' },
   down: { keys: ['↓', 'j'], label: 'down' },
-  pageUp: { keys: ['pgup'], label: 'page up' },
-  pageDown: { keys: ['pgdn'], label: 'page down' },
-  top: { keys: ['g'], label: 'top' },
-  bottom: { keys: ['G'], label: 'bottom' },
+  pageUp: { keys: ['PgUp'], label: 'page up' },
+  pageDown: { keys: ['PgDn'], label: 'page down' },
+  top: { keys: ['Home', 'g'], label: 'first' },
+  bottom: { keys: ['End', 'G'], label: 'last' },
   select: { keys: ['↵'], label: 'select' },
 } as const satisfies Record<string, KeyBinding>;
 

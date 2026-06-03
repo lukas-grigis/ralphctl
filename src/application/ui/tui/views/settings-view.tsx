@@ -28,6 +28,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
+import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { ConfirmPrompt } from '@src/application/ui/tui/prompts/confirm-prompt.tsx';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx';
@@ -249,11 +250,11 @@ export const SettingsView = (): React.JSX.Element => {
         />
       ) : loadError !== undefined ? (
         <Box paddingX={spacing.indent}>
-          <Text color="red">Failed to load settings: {loadError}</Text>
+          <Text color={inkColors.error}>Failed to load settings: {loadError}</Text>
         </Box>
       ) : settings === undefined || activeSection === undefined ? (
         <Box paddingX={spacing.indent}>
-          <Text dimColor>Loading…</Text>
+          <Spinner label="Loading…" />
         </Box>
       ) : (
         <Box flexDirection="column">
@@ -268,7 +269,7 @@ export const SettingsView = (): React.JSX.Element => {
           </Box>
           {feedback !== undefined && (
             <Box paddingX={spacing.indent} marginTop={spacing.section}>
-              <Text color={feedback.tone === 'ok' ? inkColors.primary : 'red'}>
+              <Text color={feedback.tone === 'ok' ? inkColors.primary : inkColors.error}>
                 {feedback.tone === 'ok' ? glyphs.check : glyphs.cross} {feedback.text}
               </Text>
             </Box>

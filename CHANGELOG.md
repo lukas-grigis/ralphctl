@@ -9,6 +9,56 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Skills subsystem — harness-compatibility contract checker.** A new pure scanner
+  (`src/integration/ai/skills/_engine/skill-contract-checker.ts`) validates every bundled `SKILL.md`
+  against six harness rules (signal contract, git ownership, one-PR, package-manager agnosticism,
+  subagent control, verify gate) and hard-fails the contract test on any violation. Operator skills
+  receive a warn-only pass through the same checker — bad advice is logged and skipped, never fatal.
+
+- **Operator drop-in skills.** Maintainers can now author global, provider-specific skills under
+  `~/.ralphctl/skills/{claude,copilot,codex}/<name>/SKILL.md`. They are discovered by the new
+  `createOperatorSkillSource` and installed into the target repo through the same `ralphctl-` namespace,
+  `.git/info/exclude` wildcard, and tracked uninstall path as bundled skills. No per-project operator
+  location — the single root is `<appRoot>/skills` (`StoragePaths.operatorSkillsRoot`).
+
+- **Four new bundled skills (count 4 → 8).**
+  `ralphctl-debugging-and-error-recovery`, `ralphctl-code-review-and-quality`,
+  `ralphctl-test-driven-development` (adapted from addyosmani/agent-skills, MIT, attributed), and
+  `ralphctl-surgical-simplicity` (Karpathy-derived anti-overengineering posture, Execute-scoped).
+
+- **`pnpm skills:update` maintainer command.** `scripts/sync-skills.ts` re-vendors upstream `SKILL.md`
+  files from remote URLs listed in `scripts/skills-sources.json` into `scripts/vendor/skills/` for
+  human review before the adapted copy is committed to `src/…/bundled/<name>/SKILL.md`. Bundled skills
+  remain frozen committed source — no runtime download.
+
+- **Windowed-list primitive.** `src/application/ui/tui/components/windowed-list.tsx` — a single,
+  id-cursor-based scroll primitive (`computeListWindow` / `useListWindow` / `WindowedList` / `OverflowRow`)
+  that replaces `CardList` and `ListView` (pick-sprint's specialised `computeWindow` is retained). Arrows are primary;
+  `j`/`k` are global aliases; `PgUp`/`PgDn` page; `Home`/`End` jump. `▴ N more above` / `▾ N more below`
+  overflow cues; id-based cursor survives reorder and eviction. `card-list.tsx` and `list-view.tsx` are
+  deleted; sprint-detail, sessions, and pick-project off-screen-cursor bugs fixed. `ScrollRegion` gained
+  `suppressArrows` so a cursor-owning view is not double-scrolled.
+
+- **Tab / Shift+Tab cycle + Ctrl+1..9 jump between running flows is now wired.** Both chords are live
+  in `use-global-keys.ts`, gated off while a prompt or overlay is mounted — fixing the long-standing
+  state where the keybindings were advertised but dead. `Ctrl+1..9` requires a kitty-keyboard-protocol
+  terminal (iTerm2 / kitty / WezTerm / foot); in other terminals it is an inert no-op and the help
+  overlay labels it as such. `Tab` cycling works everywhere.
+
+- **`BlockedTask.blockKind` structural discriminant.** `'upstream' | 'own'` replaces the fragile
+  `blockedReason.startsWith('blocked upstream')` text match. Legacy `tasks.json` entries without the
+  field are migrated at read time (prefix match infers `'upstream'`, all others `'own'`).
+
+- **Flow-clarity UX.** Execute header names the actual flow (not always "Implement"); sprint-detail
+  next-action counts `in_progress` tasks as resumable and surfaces a crash-resume hint; per-attempt
+  round counter never exceeds its cap; action-oriented disabled-reasons; a status-aware orientation
+  card in the flows view.
+
+- **Affordance-hints refactor.** Footer + per-view hints derive from `keyboard-map.ts`; a gated handler
+  auto-hides its hint via the new `ViewHint.enabledWhen` field; status-bar's hand-maintained
+  `GLOBAL_HINTS` replaced by `footerGlobalHints` derived from the keyboard map; `q`-quit hint shows
+  on Home only; doctor glyph uses a token.
+
 - **Plateau "change your approach" nudge + the model ladder is live by default.** When the
   generator-evaluator loop plateaus (the same checks keep failing with no real progress),
   `escalateOnPlateau` (now defaulting **on**) grants one more attempt: it climbs the model ladder
@@ -33,6 +83,34 @@ to [Semantic Versioning](https://semver.org/).
   bare status badge.
 
 ### Fixed
+
+- **`TaskRepository.saveAll` now holds the per-file lock.** Previously concurrent cascade-unblock
+  writes could race each other and clobber `tasks.json`. The lock is acquired per file before each
+  write so unblock + settle arriving on the same tick serialise correctly.
+
+- **Setup/verify shell runner honours the chain `AbortSignal`.** A user cancel now terminates any
+  in-flight `setupScript` or `verifyScript` child process immediately instead of waiting for it to
+  exit on its own.
+
+- **Ideate flow transitions the sprint to `planned`.** The sprint stayed `draft` after ideate,
+  blocking the Implement flow trigger. The sprint now moves `draft → planned` after the plan phase
+  completes, matching the two-phase planning path.
+
+- **`createPr` provider switch routes through model-rebuild + PATH gate.** Changing the provider for
+  create-pr now rebuilds the provider triple and re-checks the CLI binary on PATH — aligning with the
+  preflight every other flow performs.
+
+- **`TokenBudgetCard` keys token-usage by chain session id.** The budget card was always blank because
+  it matched by an undefined key. Events are now correlated by the session id stamped at chain start.
+
+- **Breadcrumb coalesces project + sprint labels on a single run-focused predicate.** Avoids a stale
+  breadcrumb when the selection and the running flow's sprint diverge.
+
+- **SelectPrompt no longer submits on Space.** Space was incorrectly triggering confirm on choice
+  prompts; it now only scrolls or marks, matching the `Space → toggle / multi-select` contract.
+
+- **Various UX copy fixes.** Cancel-scope overlay copy is now truthful; `IN PROGRESS` chip renders;
+  `Loading…` text replaced by `<Spinner />`.
 
 - **Manual abort now kills the AI child process.** The chain `AbortSignal` is threaded all the way
   into `implementSession()` and from there into the headless provider's SIGTERM→SIGKILL kill ladder,

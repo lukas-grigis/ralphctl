@@ -11,7 +11,7 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import { terminalTaskStatus } from '@src/application/flows/implement/leaves/per-task-subchain.ts';
 
 const blockedFrom = (task: ReturnType<typeof makeInProgressTaskWithRunningAttempt>): Task => {
-  const result = markTaskBlocked(task, 'plateau persists after escalation');
+  const result = markTaskBlocked(task, 'plateau persists after escalation', 'own');
   if (!result.ok) throw new Error('fixture: markTaskBlocked failed');
   return result.value;
 };

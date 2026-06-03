@@ -22,6 +22,8 @@ import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { createCreatePrFlow } from '@src/application/flows/create-pr/flow.ts';
+import { createAiProvider } from '@src/application/bootstrap/provider-factory.ts';
+import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 
 const DEFAULT_BASE = 'main';
@@ -94,7 +96,28 @@ export const CreatePrView = (): React.JSX.Element => {
         setRun({ kind: 'error', message: `sprint dir: ${sprintDir.error.message}` });
         return;
       }
+      // PATH-gate the AI step: the create-pr AI session spawns the `createPr` row's provider
+      // CLI. Probe for it before firing so a missing binary surfaces the same actionable
+      // "binary not found" message every other AI flow gives, instead of an opaque spawn
+      // failure mid-run. Only relevant when AI authoring is on — the template path spawns no AI.
+      if (useAi) {
+        const gate = await checkCli('create-pr', deps.settings);
+        if (gate !== undefined && !gate.ok) {
+          setRun({ kind: 'error', message: gate.reason });
+          return;
+        }
+      }
       setRun({ kind: 'running' });
+      // Rebuild the provider from the `createPr` settings row. `deps.provider` is the wire-time
+      // seed keyed on the `implement` row; in a mixed-provider config that hands the createPr
+      // model string to the implement provider's CLI — a provider/model mismatch. The model is
+      // already sourced from `ai.createPr.model`, so the provider must match it.
+      const provider = createAiProvider({
+        flow: 'createPr',
+        ai: deps.settings.ai,
+        harnessConfig: deps.settings.harness,
+        eventBus: deps.eventBus,
+      });
       const flow = createCreatePrFlow(
         {
           sprintRepo: deps.sprintRepo,
@@ -104,7 +127,7 @@ export const CreatePrView = (): React.JSX.Element => {
           gitRunner: deps.gitRunner,
           eventBus: deps.eventBus,
           clock: deps.clock,
-          provider: deps.provider,
+          provider,
           templateLoader: deps.templateLoader,
           writeFile: deps.writeFile,
           logger: deps.logger,

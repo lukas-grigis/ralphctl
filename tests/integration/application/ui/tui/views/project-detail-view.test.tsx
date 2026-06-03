@@ -68,6 +68,44 @@ describe('ProjectDetailView', () => {
     result.unmount();
   });
 
+  it('advertises the navigate / select / edit hints the view actually responds to', async () => {
+    const project = makeTwoRepoProject();
+    const { result } = renderView(<ProjectDetailView />, {
+      deps: stubDeps(project),
+      initial: { id: 'project-detail', props: { projectId: project.id } },
+    });
+    await waitForViewReady(result);
+    const frame = result.lastFrame() ?? '';
+    // Previously-omitted keys the view handles must be advertised (audit L17).
+    expect(frame).toContain('navigate');
+    expect(frame).toContain('confirm/select');
+    expect(frame).toContain('edit field');
+    result.unmount();
+  });
+
+  it('hides the repo-only d/c/S hints on the project displayName row, shows them on a repo row', async () => {
+    const project = makeTwoRepoProject();
+    const { result } = renderView(<ProjectDetailView />, {
+      deps: stubDeps(project),
+      initial: { id: 'project-detail', props: { projectId: project.id } },
+    });
+    await waitForViewReady(result);
+    // Initial focus is the project displayName — the repo-scoped chords are no-ops there, so the
+    // footer must not advertise them.
+    const onProjectRow = result.lastFrame() ?? '';
+    expect(onProjectRow).not.toContain('remove repo');
+    expect(onProjectRow).not.toContain('detect scripts');
+    expect(onProjectRow).not.toContain('detect skills');
+    // Move down onto repo 1's name row — now the repo chords are live and must be advertised.
+    result.stdin.write(DOWN);
+    await tick();
+    const onRepoRow = result.lastFrame() ?? '';
+    expect(onRepoRow).toContain('remove repo');
+    expect(onRepoRow).toContain('detect scripts');
+    expect(onRepoRow).toContain('detect skills');
+    result.unmount();
+  });
+
   it('a pushes the add-repository wizard scoped to this project', async () => {
     const project = makeProject({});
     const { result, routeIds } = renderView(<ProjectDetailView />, {

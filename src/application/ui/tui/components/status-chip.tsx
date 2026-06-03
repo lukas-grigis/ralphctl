@@ -25,7 +25,7 @@ const COLOR: Readonly<Record<StatusKind, string>> = {
 
 export const StatusChip = ({ label, kind = 'info' }: StatusChipProps): React.JSX.Element => (
   <Text color={COLOR[kind]} bold>
-    [{label.toUpperCase()}]
+    [{label.toUpperCase().replace(/_/g, ' ')}]
   </Text>
 );
 

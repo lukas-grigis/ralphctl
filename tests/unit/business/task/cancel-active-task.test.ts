@@ -12,7 +12,7 @@ import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 const SPRINT_ID = '01900000-0000-7000-8000-0000000000aa' as unknown as SprintId;
 
 const makeBlockedTask = (reason = 'prior cancel'): BlockedTask => {
-  const r = markTaskBlocked(makeTodoTask(), reason);
+  const r = markTaskBlocked(makeTodoTask(), reason, 'own');
   if (!r.ok) throw new Error(`fixture: ${r.error.message}`);
   return r.value;
 };

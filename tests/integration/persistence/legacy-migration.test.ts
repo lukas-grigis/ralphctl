@@ -38,6 +38,10 @@ describe('persistence — legacy (v0) sprint dir migration round-trip', () => {
     const repositoryId = '01900000-0000-7000-8000-000000000002';
     const ticketId = '01900000-0000-7000-8000-000000000003';
     const taskId = '01900000-0000-7000-8000-000000000004';
+    // Two legacy `blocked` tasks with NO `blockKind` — the read-time migration must heal the field
+    // from the reason prefix (`blocked upstream…` → `upstream`, anything else → `own`).
+    const blockedUpstreamTaskId = '01900000-0000-7000-8000-000000000005';
+    const blockedOwnTaskId = '01900000-0000-7000-8000-000000000006';
     const sprintDir = app.sprintDir(sprintId as unknown as never);
 
     await fs.mkdir(sprintDir, { recursive: true });
@@ -125,6 +129,42 @@ describe('persistence — legacy (v0) sprint dir migration round-trip', () => {
           },
         ],
       },
+      // Legacy blocked task — upstream cascade, written BEFORE `blockKind` existed. The reason
+      // prefix `blocked upstream` must heal to `blockKind: 'upstream'` on read + save.
+      {
+        id: blockedUpstreamTaskId,
+        slug: 'legacy-blocked-upstream',
+        name: 'legacy-blocked-upstream',
+        order: 2,
+        ticketId,
+        repositoryId,
+        steps: ['do step 2'],
+        verificationCriteria: ['it works'],
+        dependsOn: [taskId],
+        externalRefs: [],
+        maxAttempts: 3,
+        status: 'blocked',
+        blockedReason: 'blocked upstream — legacy-task not done',
+        attempts: [],
+      },
+      // Legacy blocked task — own failure. A non-`blocked upstream` reason heals to
+      // `blockKind: 'own'`.
+      {
+        id: blockedOwnTaskId,
+        slug: 'legacy-blocked-own',
+        name: 'legacy-blocked-own',
+        order: 3,
+        ticketId,
+        repositoryId,
+        steps: ['do step 3'],
+        verificationCriteria: ['it works'],
+        dependsOn: [],
+        externalRefs: [],
+        maxAttempts: 3,
+        status: 'blocked',
+        blockedReason: 'post-task verify regressed',
+        attempts: [],
+      },
     ];
     await fs.writeFile(join(sprintDir, 'tasks.json'), JSON.stringify(legacyTasks, null, 2), 'utf8');
 
@@ -159,7 +199,15 @@ describe('persistence — legacy (v0) sprint dir migration round-trip', () => {
     expect(sprintLoad.value.tickets).toHaveLength(1);
     expect(sprintLoad.value.tickets[0]?.title).toBe('old ticket');
     expect(execLoad.value.setupRanAt).toHaveLength(1);
-    expect(tasksLoad.value).toHaveLength(1);
+    expect(tasksLoad.value).toHaveLength(3);
+
+    // The two legacy `blocked` tasks healed their missing `blockKind` from the reason prefix.
+    const loadedUpstream = tasksLoad.value.find((t) => t.id === (blockedUpstreamTaskId as unknown as never));
+    const loadedOwn = tasksLoad.value.find((t) => t.id === (blockedOwnTaskId as unknown as never));
+    expect(loadedUpstream?.status).toBe('blocked');
+    expect(loadedOwn?.status).toBe('blocked');
+    if (loadedUpstream?.status === 'blocked') expect(loadedUpstream.blockKind).toBe('upstream');
+    if (loadedOwn?.status === 'blocked') expect(loadedOwn.blockKind).toBe('own');
 
     // ----- Re-save and verify canonical v1 shape ----------------------------------
     await app.deps.sprintRepo.save(sprintLoad.value);
@@ -176,6 +224,9 @@ describe('persistence — legacy (v0) sprint dir migration round-trip', () => {
     const persistedTasks = after.json<{
       schemaVersion: number;
       tasks: ReadonlyArray<{
+        id: string;
+        status: string;
+        blockKind?: string;
         attempts: ReadonlyArray<{ verifyRuns?: ReadonlyArray<Record<string, unknown>>; checkRuns?: unknown }>;
       }>;
     }>('tasks.json');
@@ -197,5 +248,11 @@ describe('persistence — legacy (v0) sprint dir migration round-trip', () => {
     expect(attempt?.checkRuns).toBeUndefined();
     expect(attempt?.verifyRuns).toBeDefined();
     expect(attempt?.verifyRuns?.[0]).not.toHaveProperty('stdoutTailBytes');
+
+    // The healed `blockKind` is materialised into the canonical on-disk shape on save.
+    const persistedUpstream = persistedTasks.tasks.find((t) => t.id === blockedUpstreamTaskId);
+    const persistedOwn = persistedTasks.tasks.find((t) => t.id === blockedOwnTaskId);
+    expect(persistedUpstream?.blockKind).toBe('upstream');
+    expect(persistedOwn?.blockKind).toBe('own');
   });
 });

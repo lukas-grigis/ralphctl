@@ -71,7 +71,7 @@ export const dependencyGateLeaf = (deps: DependencyGateLeafDeps, taskId: TaskId)
           .join(', ');
         const reason = `${BLOCKED_UPSTREAM_REASON_PREFIX} — prerequisite not done: ${detail}`;
 
-        const blocked = markTaskBlocked(task, reason);
+        const blocked = markTaskBlocked(task, reason, 'upstream');
         if (!blocked.ok) return Result.error(blocked.error);
         const persisted = await deps.taskRepo.update(input.sprintId, blocked.value);
         if (!persisted.ok) return Result.error(persisted.error);

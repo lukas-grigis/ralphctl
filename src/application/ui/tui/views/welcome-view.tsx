@@ -20,7 +20,7 @@ import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
-import { inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { createSettingsApplyPresetFlow } from '@src/application/flows/settings-apply-preset/flow.ts';
 import { detectInstalledProviders } from '@src/integration/system/detect-cli.ts';
 import type { PresetName } from '@src/business/settings/presets.ts';
@@ -54,6 +54,9 @@ export const WelcomeView = (): React.JSX.Element => {
   const router = useRouter();
   const [step, setStep] = useState<Step>('detecting');
   const [chosenPreset, setChosenPreset] = useState<PresetName | undefined>(undefined);
+  // Track whether PATH had zero AI CLIs so the seeded copy doesn't claim a detection-based choice
+  // when there was nothing to detect — the `mixed` fallback is a guess, not a fit.
+  const [noCliDetected, setNoCliDetected] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | undefined>(undefined);
   // First-run seeding must execute exactly once, even if React re-runs the effect because a
   // parent re-render produced a fresh `deps` / `router` reference. Without this guard, the
@@ -65,6 +68,7 @@ export const WelcomeView = (): React.JSX.Element => {
     seededRef.current = true;
     const seed = async (): Promise<void> => {
       const installed = await detectInstalledProviders();
+      setNoCliDetected(installed.size === 0);
       const preset = pickPresetForDetected(installed);
       const flow = createSettingsApplyPresetFlow({ settingsRepo: deps.settingsRepo });
       const result = await flow.execute({ input: { preset } });
@@ -90,9 +94,18 @@ export const WelcomeView = (): React.JSX.Element => {
         <Card title="Seeding settings" tone="primary">
           <Box flexDirection="column" paddingX={spacing.indent}>
             {step === 'detecting' && <Spinner label="probing PATH for installed AI CLIs…" />}
-            {step === 'seeded' && chosenPreset !== undefined && (
-              <Text>Seeded with {PRESET_LABEL[chosenPreset]} preset based on detected CLIs.</Text>
-            )}
+            {step === 'seeded' &&
+              chosenPreset !== undefined &&
+              (noCliDetected ? (
+                <Box flexDirection="column">
+                  <Text color={inkColors.warning}>
+                    {glyphs.warningGlyph} No AI CLIs detected — install one (claude / copilot / codex) and run doctor.
+                  </Text>
+                  <Text dimColor>Seeded the {PRESET_LABEL[chosenPreset]} preset as a placeholder.</Text>
+                </Box>
+              ) : (
+                <Text>Seeded with {PRESET_LABEL[chosenPreset]} preset based on detected CLIs.</Text>
+              ))}
             {step === 'error' && (
               <Box flexDirection="column">
                 <Text color={inkColors.error}>Failed to save settings: {errorMsg}</Text>

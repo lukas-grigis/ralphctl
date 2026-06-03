@@ -16,23 +16,31 @@ import { BusesProvider } from '@src/application/ui/tui/runtime/sinks-context.tsx
 import type { SessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
 import type { PromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
 import type { ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
-import { RouterProvider } from '@src/application/ui/tui/runtime/router.tsx';
+import { RouterProvider, useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import type { LogLevelGate } from '@src/business/observability/log-level-filter.ts';
 import { DepsProvider } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { StorageProvider } from '@src/application/ui/tui/runtime/storage-context.tsx';
 import { SessionsProvider } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 import { PromptQueueProvider } from '@src/application/ui/tui/prompts/prompt-context.tsx';
 import { UiStateProvider, useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
-import { HintsProvider } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
+import { HintsProvider, useSuppressGlobalHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { SelectionProvider, type SelectionSeed } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { SystemStatusProvider } from '@src/application/ui/tui/runtime/system-status-context.tsx';
 import { LogLevelProvider } from '@src/application/ui/tui/runtime/log-level-context.tsx';
 import { renderView } from '@src/application/ui/tui/views/view-registry.tsx';
+import { globalKeys } from '@src/application/ui/tui/runtime/keyboard-map.ts';
 import { useGlobalKeys } from '@src/application/ui/tui/runtime/use-global-keys.ts';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 import { MemoryPressureBanner } from '@src/application/ui/tui/components/memory-pressure-banner.tsx';
 import { ChainLogDegradedBanner } from '@src/application/ui/tui/components/chain-log-degraded-banner.tsx';
 import { ProgressOverlay } from '@src/application/ui/tui/components/progress-overlay.tsx';
+
+/**
+ * Footer `keys` string for the quit hint. Derived the same way `footerGlobalHints` joins a
+ * binding's variants (`keys.join('/')`) so the suppression set matches the rendered hint's `keys`
+ * exactly — keep this in lockstep with the footer mapping rather than hardcoding `'q/ctrl+c'`.
+ */
+const QUIT_FOOTER_KEYS = globalKeys.quit.keys.join('/');
 
 export interface AppProps {
   readonly deps: AppDeps;
@@ -108,13 +116,27 @@ export const App = ({
  * instead of stacking against the previous shell output; ViewShell owns the column inside it
  * — header, scroll content, prompt host, and footer — so tall content scrolls within this
  * frame instead of pushing the status bar (or the prompt card) off-screen.
+ *
+ * Exported for the off-Home quit-hint suppression test, which mounts it directly under the
+ * provider stack with a probe child rather than the full view registry.
+ *
+ * @public
  */
-const Layout = ({ children }: { readonly children: React.ReactNode }): React.JSX.Element => {
+export const Layout = ({ children }: { readonly children: React.ReactNode }): React.JSX.Element => {
   const ui = useUiState();
+  const router = useRouter();
   const { rows } = useTerminalSize();
   // Suspend global key bindings while a prompt is in flight so view-level handlers don't fight
   // for input. The prompt's own component owns Esc / Enter / etc. while it's mounted.
   useGlobalKeys({ disabled: ui.promptActive });
+  // `q` only quits from Home (the global handler gates it on `router.current.id === 'home'`), so
+  // the footer must only advertise the quit hint there — otherwise it lies about what `q` does on
+  // every other screen. Suppress the quit hint (matched by its footer `keys` string, the joined
+  // `quit` binding variants) whenever the current view is not Home. The memo keeps the keys array
+  // reference stable across renders so the suppression effect doesn't churn the registry.
+  const isHome = router.current.id === 'home';
+  const suppressedQuit = React.useMemo<readonly string[]>(() => (isHome ? [] : [QUIT_FOOTER_KEYS]), [isHome]);
+  useSuppressGlobalHints(suppressedQuit);
   // ViewShell owns the full column inside this fixed-height frame: header → scroll content →
   // status banner → prompt-host → footer, with header / banner / prompt / footer pinned via
   // `flexShrink={0}`. The dismissible StatusBanner sits inside ViewShell so it lands next to

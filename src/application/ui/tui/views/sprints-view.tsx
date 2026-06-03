@@ -11,12 +11,11 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
-import { CardList } from '@src/application/ui/tui/components/card-list.tsx';
+import { OverflowRow, useListWindow } from '@src/application/ui/tui/components/windowed-list.tsx';
 import { EmptyState } from '@src/application/ui/tui/components/empty-state.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { sprintStatusKind, StatusChip } from '@src/application/ui/tui/components/status-chip.tsx';
 import { ConfirmPrompt } from '@src/application/ui/tui/prompts/confirm-prompt.tsx';
-import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { renameSprint, type Sprint } from '@src/domain/entity/sprint.ts';
 import { useEditField } from '@src/application/ui/tui/runtime/use-edit-field.ts';
 import { Result } from '@src/domain/result.ts';
@@ -36,6 +35,7 @@ import { sessionHintsFromLaunchResult } from '@src/application/ui/shared/launche
 import { launchSprintBoundFlow } from '@src/application/ui/shared/launch/sprint-bound.ts';
 import { loadAppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
+import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
 import { unblockTaskUseCase } from '@src/business/task/unblock-task.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 
@@ -44,6 +44,7 @@ export const SprintsView = (): React.JSX.Element => {
   const router = useRouter();
   const selection = useSelection();
   const ui = useUiState();
+  const { rows } = useBreakpoint();
   const sessions = useSessionManager();
   const queue = usePromptQueue();
   const storage = useStorage();
@@ -62,14 +63,29 @@ export const SprintsView = (): React.JSX.Element => {
 
   const items = state.kind === 'ok' ? state.value : [];
 
-  const [cursorId, setCursorId] = useState<SprintId | undefined>(undefined);
   const [confirmDelete, setConfirmDelete] = useState<Sprint | undefined>(undefined);
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
+
+  // Windowed cursor — owns ↑/↓ + j/k + PgUp/PgDn + Home/End + Enter; the cursor is the sprint id,
+  // so a reload/reorder keeps focus on the same sprint. Enter selects (sets current + drills in).
+  // Disabled while a prompt/help/confirm is up so its keys don't fight the modal.
+  const listActive = !ui.promptActive && !ui.helpOpen && confirmDelete === undefined;
+  const visibleRows = Math.max(4, Math.min(12, Math.floor(rows / 5)));
+  const { window, visibleItems, focusedIndex, focusedItem } = useListWindow<Sprint>({
+    items,
+    getId: (s) => s.id,
+    visibleRows,
+    active: listActive,
+    onSubmit: (s) => {
+      selection.setSprint(s.id, s.name, s.status);
+      router.push({ id: 'sprint-detail', props: { sprintId: s.id } });
+    },
+  });
 
   // Load tasks for the focused sprint so we can count stuck ones (blocked + in_progress) and
   // offer `u` to bulk-unblock them. Keyed by sprint id so cursor moves re-trigger the fetch.
   const [focusedSprintTasks, setFocusedSprintTasks] = useState<readonly Task[]>([]);
-  const focusedSprint = items.find((s) => s.id === cursorId) ?? items[0];
+  const focusedSprint = focusedItem ?? items[0];
   useEffect(() => {
     if (focusedSprint === undefined) {
       setFocusedSprintTasks([]);
@@ -93,13 +109,17 @@ export const SprintsView = (): React.JSX.Element => {
   const stuckTasks = focusedSprintTasks.filter((t) => t.status === 'blocked' || t.status === 'in_progress');
   const stuckCount = stuckTasks.length;
 
+  // `e rename` shares one source of truth with its handler: the rename chord guards
+  // `status !== 'done'` (a done sprint is immutable), so the hint must hide on a done sprint
+  // rather than advertise a no-op. `u` follows the same declarative gate on the stuck-task count.
+  const focusedDone = focusedSprint?.status === 'done';
   useViewHints([
     { keys: '↵', label: 'open' },
     { keys: 'c', label: 'create' },
-    { keys: 'e', label: 'rename' },
+    { keys: 'e', label: 'rename', enabledWhen: !focusedDone },
     { keys: 'd', label: 'delete' },
     { keys: 'r', label: 'reload' },
-    ...(stuckCount > 0 ? [{ keys: 'u', label: `unblock (${String(stuckCount)})` }] : []),
+    { keys: 'u', label: `unblock (${String(stuckCount)})`, enabledWhen: stuckCount > 0 },
   ]);
 
   // Claim the global-key mute while the confirm prompt is mounted.
@@ -123,8 +143,8 @@ export const SprintsView = (): React.JSX.Element => {
       'create-sprint',
       snapshot,
       {
-        onReseat: ({ id, name }) => {
-          selection.setSprint(id, name);
+        onReseat: ({ id, name, status }) => {
+          selection.setSprint(id, name, status);
         },
         onSprintResolved: (runnerId, { id, name }) => {
           sessions.setPinnedSprint(runnerId, id, name);
@@ -156,7 +176,7 @@ export const SprintsView = (): React.JSX.Element => {
         if (!renamed.ok) return Result.error(renamed.error);
         const saved = await deps.sprintRepo.save(renamed.value);
         if (!saved.ok) return Result.error(saved.error);
-        if (selection.sprintId === target.id) selection.setSprint(target.id, value.trim());
+        if (selection.sprintId === target.id) selection.setSprint(target.id, value.trim(), target.status);
         reload();
         return Result.ok(undefined);
       },
@@ -171,12 +191,20 @@ export const SprintsView = (): React.JSX.Element => {
       return;
     }
     if (input === 'e') {
-      const target = items.find((s) => s.id === cursorId) ?? items[0];
-      if (target !== undefined && target.status !== 'done') handleRename(target);
+      const target = focusedSprint;
+      if (target === undefined) return;
+      // A done sprint is immutable, so the rename chord (and its hint) are gated off. Someone who
+      // found `e` via the `?` overlay still presses it — flash a reason so the key isn't a mystery
+      // no-op rather than silently swallowing the keystroke.
+      if (target.status === 'done') {
+        setFeedback(`${glyphs.cross} done sprints can't be renamed`);
+        return;
+      }
+      handleRename(target);
       return;
     }
     if (input === 'd') {
-      const target = items.find((s) => s.id === cursorId) ?? items[0];
+      const target = focusedSprint;
       if (target !== undefined) setConfirmDelete(target);
       return;
     }
@@ -239,6 +267,7 @@ export const SprintsView = (): React.JSX.Element => {
     <ViewShell
       title="Sprints"
       subtitle={selection.projectId !== undefined ? 'scoped to current project' : 'all sprints across projects'}
+      suppressScrollArrows
     >
       {ui.helpOpen ? (
         <HelpOverlay />
@@ -279,57 +308,62 @@ export const SprintsView = (): React.JSX.Element => {
         />
       ) : (
         <Box flexDirection="column">
-          <CardList
-            items={state.value}
-            visibleRows={4}
-            active={!ui.promptActive && confirmDelete === undefined}
-            onSelect={(s): void => {
-              selection.setSprint(s.id, s.name);
-              router.push({ id: 'sprint-detail', props: { sprintId: s.id } });
-            }}
-            onCursor={(s): void => setCursorId(s.id)}
-            renderCard={(s, focused) => {
+          <Box flexDirection="column">
+            <OverflowRow direction="above" count={window.start} />
+            {visibleItems.map((s, localIdx) => {
+              const focused = window.start + localIdx === focusedIndex;
               const pending = s.tickets.filter((t) => t.status === 'pending').length;
               const approved = s.tickets.filter((t) => t.status === 'approved').length;
               return (
-                <Box flexDirection="column">
-                  <Box justifyContent="space-between">
-                    <Text bold {...(focused ? { color: inkColors.primary } : {})}>
-                      {s.name}
+                <Box key={s.id} flexDirection="column" marginBottom={1}>
+                  <Box
+                    flexDirection="column"
+                    borderStyle="round"
+                    borderColor={focused ? inkColors.primary : inkColors.rule}
+                    borderDimColor={!focused}
+                    paddingX={spacing.cardPadX}
+                  >
+                    <Box justifyContent="space-between">
+                      <Text bold {...(focused ? { color: inkColors.primary } : {})}>
+                        {s.name}
+                      </Text>
+                      <StatusChip label={s.status} kind={sprintStatusKind(s.status)} />
+                    </Box>
+                    <Text dimColor>{s.slug}</Text>
+                    <Text>
+                      <Text bold>{String(s.tickets.length)}</Text>
+                      <Text dimColor> tickets</Text>
+                      {pending > 0 && (
+                        <Text>
+                          <Text dimColor> {glyphs.bullet} </Text>
+                          <Text bold color={inkColors.warning}>
+                            {String(pending)}
+                          </Text>
+                          <Text dimColor> pending</Text>
+                        </Text>
+                      )}
+                      {approved > 0 && (
+                        <Text>
+                          <Text dimColor> {glyphs.bullet} </Text>
+                          <Text bold color={inkColors.success}>
+                            {String(approved)}
+                          </Text>
+                          <Text dimColor> approved</Text>
+                        </Text>
+                      )}
                     </Text>
-                    <StatusChip label={s.status} kind={sprintStatusKind(s.status)} />
                   </Box>
-                  <Text dimColor>{s.slug}</Text>
-                  <Text>
-                    <Text bold>{String(s.tickets.length)}</Text>
-                    <Text dimColor> tickets</Text>
-                    {pending > 0 && (
-                      <Text>
-                        <Text dimColor> {glyphs.bullet} </Text>
-                        <Text bold color={inkColors.warning}>
-                          {String(pending)}
-                        </Text>
-                        <Text dimColor> pending</Text>
-                      </Text>
-                    )}
-                    {approved > 0 && (
-                      <Text>
-                        <Text dimColor> {glyphs.bullet} </Text>
-                        <Text bold color={inkColors.success}>
-                          {String(approved)}
-                        </Text>
-                        <Text dimColor> approved</Text>
-                      </Text>
-                    )}
-                  </Text>
                 </Box>
               );
-            }}
-          />
+            })}
+            <OverflowRow direction="below" count={state.value.length - window.end} />
+          </Box>
+          {/* Just the count here — the key affordances live in the router's hint strip
+              (`useViewHints`), the single source of truth that gates `e`/`u` on focus state.
+              Duplicating the keys inline would re-advertise them ungated and contradict the gate. */}
           <Box paddingX={spacing.indent} marginTop={spacing.section}>
             <Text dimColor>
-              {glyphs.bullet} {state.value.length} sprint(s) {glyphs.bullet} ↵ open {glyphs.bullet} c create{' '}
-              {glyphs.bullet} e rename {glyphs.bullet} d delete {glyphs.bullet} r reload
+              {glyphs.bullet} {state.value.length} sprint(s)
             </Text>
           </Box>
           {(feedback ?? edit.feedback) !== undefined && (

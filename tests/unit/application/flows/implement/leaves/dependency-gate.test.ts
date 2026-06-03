@@ -24,7 +24,7 @@ const fakeRepo = (): UpdateTask & { calls: number } => ({
 });
 
 const blockedTask = (name: string): BlockedTask => {
-  const r = markTaskBlocked(makeTodoTask({ name }), 'prior failure');
+  const r = markTaskBlocked(makeTodoTask({ name }), 'prior failure', 'upstream');
   if (!r.ok) throw r.error;
   return r.value;
 };

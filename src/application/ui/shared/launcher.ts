@@ -25,6 +25,8 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { composeSkillSources, createProjectSkillSource } from '@src/integration/ai/skills/project/source.ts';
+import { createOperatorSkillSource } from '@src/integration/ai/skills/operator/source.ts';
+import { warnIfContractViolated as checkContract } from '@src/integration/ai/skills/_engine/skill-contract-checker.ts';
 import { type AiFlowSettings, type AiProvider, primaryFlowRow, type Settings } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import { resolveEffort } from '@src/business/settings/resolve-effort.ts';
@@ -55,6 +57,8 @@ export type LaunchResult =
       readonly taskNames?: ReadonlyMap<string, string>;
       /** Configured `maxTurns` for the run's gen-eval loop, surfaced as `round N/M` in the panel. */
       readonly maxTurns?: number;
+      /** Configured `maxAttempts` per task, surfaced as the `/X` in `attempt N/X` in the panel. */
+      readonly maxAttempts?: number;
       /**
        * Static element-tree leaf names in DFS order, computed at chain-construction time via
        * {@link flattenLeaves}. Drives the TUI's Flow-steps panel to render *all expected* steps
@@ -180,6 +184,7 @@ export const sessionHintsFromLaunchResult = (
 ): {
   readonly taskNames?: ReadonlyMap<string, string>;
   readonly maxTurns?: number;
+  readonly maxAttempts?: number;
   readonly plannedLeaves?: readonly string[];
   readonly planLabelByName?: ReadonlyMap<string, string>;
   readonly terminalSubstepName?: string;
@@ -193,6 +198,7 @@ export const sessionHintsFromLaunchResult = (
 } => ({
   ...(result.taskNames !== undefined ? { taskNames: result.taskNames } : {}),
   ...(result.maxTurns !== undefined ? { maxTurns: result.maxTurns } : {}),
+  ...(result.maxAttempts !== undefined ? { maxAttempts: result.maxAttempts } : {}),
   ...(result.plannedLeaves !== undefined ? { plannedLeaves: result.plannedLeaves } : {}),
   ...(result.planLabelByName !== undefined ? { planLabelByName: result.planLabelByName } : {}),
   ...(result.terminalSubstepName !== undefined ? { terminalSubstepName: result.terminalSubstepName } : {}),
@@ -227,6 +233,11 @@ const aiFlowIdFor = (flowId: string): FlowId | undefined => {
       return 'readiness';
     case 'review':
       return 'implement';
+    case 'create-pr':
+      // The kebab-case orchestration id maps to its camelCase settings row. `create-pr` only
+      // spawns an AI session when AI authoring is on; when it does, the createPr row drives the
+      // provider / model / effort the spawn uses.
+      return 'createPr';
     default:
       return undefined;
   }
@@ -335,8 +346,9 @@ export const launchFlow = async (
     ai: settings.ai,
     eventBus: deps.app.eventBus,
   });
+  const resolvedProvider = primaryFlowRow(settings.ai, adapterFlow).provider;
   const skillsAdapter = createSkillsAdapter({
-    provider: primaryFlowRow(settings.ai, adapterFlow).provider,
+    provider: resolvedProvider,
     logger: deps.app.logger,
   });
   const effort = aiFlow !== undefined ? resolveEffort(aiFlow, settings) : undefined;
@@ -347,7 +359,22 @@ export const launchFlow = async (
   // skills as of launch time. Flows that run without a project (none today) fall back cleanly
   // to bundled-only.
   const projectSource = createProjectSkillSource({ getProject: () => snapshot.project });
-  const composedSkillSource = composeSkillSources(deps.app.skillSource, projectSource);
+  // Global, provider-specific operator drop-in skills under `<appRoot>/skills/<providerDir>/`.
+  // Keyed on the resolved provider so a mixed config installs each flow's operator skills for
+  // that flow's provider only. Installed through the same adapter as bundled — same `ralphctl-`
+  // namespace + `.git/info/exclude` wildcard + tracked uninstall. A missing dir = empty source.
+  const operatorSource = createOperatorSkillSource({
+    operatorSkillsRoot: deps.storage.operatorSkillsRoot,
+    provider: resolvedProvider,
+    logger: deps.app.logger,
+    // Operator skills run the harness-compatibility scanner as a WARNING only — a violating
+    // skill is logged and still installed (the operator owns their skills). Adapt the checker's
+    // (logger, name, content) signature to the source's `(skill) => void` warner shape.
+    warnIfContractViolated: (skill) => {
+      checkContract(deps.app.logger, skill.name, skill.content);
+    },
+  });
+  const composedSkillSource = composeSkillSources(deps.app.skillSource, projectSource, operatorSource);
 
   // Every launched runner gets bridged to the event bus so subscribers (TUI panels,
   // progress files, future webhooks) see chain progress without per-flow emission wiring. The

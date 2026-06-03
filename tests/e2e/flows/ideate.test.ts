@@ -118,7 +118,7 @@ describe('createIdeateFlow', () => {
     return r.value;
   };
 
-  it('produces a ticket + tasks, persists both, sprint stays draft', async () => {
+  it('produces a ticket + tasks, persists both, transitions sprint draft → planned', async () => {
     const project = makeProject();
     const sprint = makeDraftSprint();
     const sprintRepo = inMemorySprintRepo(sprint);
@@ -199,12 +199,34 @@ describe('createIdeateFlow', () => {
     expect(fake.calls[0]?.promptBody).toContain('Quick CSV export');
     expect(fake.calls[0]?.promptBody).toContain(String(project.repositories[0]?.path));
 
-    // Sprint stays draft, has the new ticket appended.
+    // Sprint transitions draft → planned (so Implement is reachable right after), and has the
+    // new approved ticket appended.
     const finalSprint = sprintRepo.current();
-    expect(finalSprint.status).toBe('draft');
+    expect(finalSprint.status).toBe('planned');
     expect(finalSprint.tickets).toHaveLength(1);
     expect(finalSprint.tickets[0]?.title).toBe('Quick CSV export');
     expect(finalSprint.tickets[0]?.status).toBe('approved');
+
+    // The ctx sprint is the transitioned `planned` sprint, and the transition leaf runs after
+    // ideate-and-plan and before the save leaves (sequential flattens the load-and-assert
+    // sub-chain into its leaf names).
+    expect(runner.ctx.sprint?.status).toBe('planned');
+    const stepOrder = runner.trace.map((s) => s.elementName);
+    expect(stepOrder).toEqual([
+      'load-sprint',
+      'assert-sprint-status',
+      'load-project',
+      'load-tasks',
+      'build-ideate-unit',
+      'render-prompt-to-file',
+      'install-skills',
+      'stamp-meta-ideate',
+      'ideate-and-plan',
+      'uninstall-skills',
+      'transition-to-planned',
+      'save-tasks',
+      'save-sprint',
+    ]);
 
     // Tasks persisted (both new tasks).
     expect(taskRepo.tasks()).toHaveLength(2);

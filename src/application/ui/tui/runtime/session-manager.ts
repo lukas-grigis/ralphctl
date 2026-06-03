@@ -48,6 +48,8 @@ export interface SessionDescriptor {
   readonly taskNames?: ReadonlyMap<string, string>;
   /** Configured max iterations for any gen-eval loop inside the run (used as the `round N/M` cap). */
   readonly maxTurns?: number;
+  /** Configured cap on attempts per task (used as the `attempt A/X` cap). */
+  readonly maxAttempts?: number;
   /**
    * Element-tree leaf names in DFS order, captured at chain construction time. The Flow-steps
    * panel renders these as pending rows so the operator sees the *whole* plan upfront and
@@ -120,6 +122,7 @@ export interface SessionManager {
     readonly title: string;
     readonly taskNames?: ReadonlyMap<string, string>;
     readonly maxTurns?: number;
+    readonly maxAttempts?: number;
     readonly plannedLeaves?: readonly string[];
     readonly planLabelByName?: ReadonlyMap<string, string>;
     readonly terminalSubstepName?: string;
@@ -215,6 +218,7 @@ export const createSessionManager = (opts?: { readonly clock?: () => number }): 
       title,
       taskNames,
       maxTurns,
+      maxAttempts,
       plannedLeaves,
       planLabelByName,
       terminalSubstepName,
@@ -236,6 +240,7 @@ export const createSessionManager = (opts?: { readonly clock?: () => number }): 
         trace: runner.trace,
         ...(taskNames !== undefined ? { taskNames } : {}),
         ...(maxTurns !== undefined ? { maxTurns } : {}),
+        ...(maxAttempts !== undefined ? { maxAttempts } : {}),
         ...(plannedLeaves !== undefined ? { plannedLeaves } : {}),
         ...(planLabelByName !== undefined ? { planLabelByName } : {}),
         ...(terminalSubstepName !== undefined ? { terminalSubstepName } : {}),

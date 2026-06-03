@@ -21,6 +21,7 @@ import { join } from 'node:path';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
@@ -184,7 +185,7 @@ export const ProgressOverlay = (): React.JSX.Element => {
           <Text dimColor>esc · g to close</Text>
         </Box>
         <Box flexDirection="column" marginTop={spacing.section}>
-          {state.kind === 'loading' && <Text dimColor>Loading…</Text>}
+          {state.kind === 'loading' && <Spinner label="Loading…" />}
           {state.kind === 'missing' && (
             <Box flexDirection="column">
               <Text>{glyphs.infoGlyph} No progress file yet.</Text>

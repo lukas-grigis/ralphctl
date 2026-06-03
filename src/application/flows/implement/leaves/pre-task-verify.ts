@@ -17,9 +17,11 @@ import { setExecutionBaselineBrokenPolicy, type SprintExecution } from '@src/dom
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
+import { StorageError } from '@src/domain/value/error/storage-error.ts';
+import { ErrorCode } from '@src/domain/value/error/error-code.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
-import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
+import type { ShellRunOptions, ShellScriptResult, ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import { gitHasUncommittedChanges } from '@src/integration/io/git-operations.ts';
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
@@ -194,7 +196,7 @@ export const preTaskVerifyLeaf = (
   const env = deps.environment ?? defaultEnvironment();
   return leaf<ImplementCtx, LeafInput, LeafOutput>(`pre-task-verify-${String(taskId)}`, {
     useCase: {
-      execute: async (input): Promise<Result<LeafOutput, DomainError>> => {
+      execute: async (input, signal): Promise<Result<LeafOutput, DomainError>> => {
         // Carry-baseline short-circuit. When the previous task on this same cwd post-verified
         // green and the working tree is still clean, the script's outcome can only be the
         // same — re-running it is wasted compute (~2m30s on a typical repo). Skip the script,
@@ -238,9 +240,33 @@ export const preTaskVerifyLeaf = (
           ...(opts.verifyScript !== undefined ? { verifyScript: opts.verifyScript } : {}),
           ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
           clock: deps.clock,
-          runShellScript: (cwd, script, scriptOpts) => deps.shellScriptRunner.run(cwd, script, scriptOpts),
+          // Thread the chain abort signal so a Ctrl-C mid-verify kills the child promptly instead
+          // of stranding the repo lock for the full verifyTimeout. The runner now widens its
+          // error to `StorageError | AbortError`; `runVerifyScriptUseCase` only knows
+          // `StorageError`, so collapse an abort to a storage shape here (the runner has already
+          // killed the child) — the real abort is surfaced verbatim by the `signal.aborted` check
+          // below, before the folded spawn-error row is ever acted on.
+          runShellScript: (cwd, script, scriptOpts) =>
+            runVerifyShell(deps.shellScriptRunner, cwd, script, {
+              ...scriptOpts,
+              ...(signal !== undefined ? { signal } : {}),
+            }),
           logger: deps.logger,
         });
+
+        // Cancellation propagates verbatim. `runVerifyScriptUseCase` folds a runner
+        // `Result.error` into a `spawn-error` row, so the abort would otherwise be swallowed as an
+        // unknown-baseline outcome. Detect the cancel at the leaf boundary and surface the
+        // codebase's transparently-propagated `AbortError` instead — the chain tears down rather
+        // than recording a misleading spawn-error and starting the AI on a half-verified tree.
+        if (signal?.aborted === true) {
+          return Result.error(
+            new AbortError({
+              elementName: `pre-task-verify-${String(taskId)}`,
+              reason: 'aborted during pre-task verify',
+            })
+          );
+        }
 
         // Audit [01] / [03]: persist the full untruncated output to
         // `<sprintDir>/logs/verify/<task-id>/pre-attempt-<N>.log`. Best-effort — write
@@ -453,4 +479,29 @@ const emitBaselineRedBanner = (deps: Pick<PreTaskVerifyLeafDeps, 'eventBus' | 'c
     cause: `task ${String(taskId)}`,
     at: deps.clock(),
   });
+};
+
+/**
+ * Adapter between the abort-aware {@link ShellScriptRunner} (which now widens its error to
+ * `StorageError | AbortError`) and `runVerifyScriptUseCase`, whose `runShellScript` port still
+ * declares a `StorageError`-only error. The runner has already killed the child by the time an
+ * abort surfaces here, so collapsing the `AbortError` to a `StorageError` shape loses nothing —
+ * the leaf re-derives the real cancellation from `signal.aborted` immediately after the call and
+ * surfaces a verbatim `AbortError`, before the folded spawn-error row is ever acted on. Shared by
+ * the pre- and post-task verify leaves so both thread the signal identically.
+ *
+ * @public
+ */
+export const runVerifyShell = async (
+  runner: ShellScriptRunner,
+  cwd: AbsolutePath,
+  script: string,
+  opts: ShellRunOptions
+): Promise<Result<ShellScriptResult, StorageError>> => {
+  const res = await runner.run(cwd, script, opts);
+  if (res.ok) return Result.ok(res.value);
+  if (res.error.code === ErrorCode.Aborted) {
+    return Result.error(new StorageError({ subCode: 'io', message: res.error.message, cause: res.error }));
+  }
+  return Result.error(res.error);
 };

@@ -1,0 +1,78 @@
+# Workflows & State
+
+> On-demand reference (split out of `CLAUDE.md`). Read when working on sprint lifecycle, planning,
+> the implement gen-eval loop, or TUI navigation.
+
+Sprint lifecycle: `draft → planned → active → review → done`.
+
+| Operation               | Draft | Planned | Active | Review | Done |
+| ----------------------- | :---: | :-----: | :----: | :----: | :--: |
+| Add / refine ticket     |   ✓   |    ✗    |   ✗    |   ✗    |  ✗   |
+| Plan tasks              |   ✓   |    ✗    |   ✗    |   ✗    |  ✗   |
+| Implement               |   ✗   |   ✓\*   |   ✓    |   ✗    |  ✗   |
+| Review (apply feedback) |   ✗   |    ✗    |   ✗    |   ✓    |  ✗   |
+| Close (review → done)   |   ✗   |    ✗    |   ✗    |   ✓    |  ✗   |
+
+\*`plan` moves a draft sprint to `planned`; `implement` then activates it (`planned → active`) on first
+launch, passing an already-`active` sprint through idempotently — a draft sprint must be planned first.
+Implement transitions the sprint to `review` once every task has settled (`done` or `blocked`) AND at least
+one task settled `done` — an all-blocked run stays `active` so the operator can fix the blocker and
+re-run without backing the sprint out of review. The `sprint close` CLI command and the close-sprint flow
+accept only `review`-status.
+
+**Two-phase planning.** **Refine** (`refine` chain) is implementation-agnostic per-ticket clarification —
+no repo exploration; ticket `requirementStatus` flips `pending → approved`. **Plan** (`plan` chain) requires
+every ticket `approved`; repo selection runs inside the chain and persists on `Sprint.affectedRepositories`
+(absolute paths); AI generates `tasks.json` atomically and the sprint transitions `draft → planned`.
+**Ideate** combines both in a single AI session for low-stakes work.
+
+**Per-task generator-evaluator** inside `implement` uses the `loop` primitive. The gen-eval loop body is
+`generator-leaf → evaluator-leaf` (looped up to `maxTurns` per attempt, stopping when the evaluator sets
+`ctx.lastExit`). Each attempt then runs `settle-attempt` (which records the verdict) plus `append-learnings`
+and `progress-journal`; the outer attempt loop re-enters up to `maxAttempts` times per task and transitions
+the task to `blocked` once that budget is exhausted. A single launch now runs the outer attempt loop up to
+`maxAttempts` times per task — `maxAttempts === 1` is byte-for-byte the prior single-attempt behaviour.
+`settings.ai.implement` is a nested
+`{ generator, evaluator }` pair — each role carries its own `{ provider, model, effort? }` row, so
+the two sessions can run on different providers / models / effort levels (effort resolution rules
+described in `AI-SETTINGS.md` apply per-row). Default: generator runs `claude-code` /
+`claude-opus-4-8`, evaluator runs `openai-codex` / `gpt-5.5` — deep-coder reasoning on the produce
+side, an independent reviewer on the score side. Every other flow (`refine` / `plan` / `readiness` /
+`ideate` / `createPr`) keeps the flat `{ provider, model, effort? }` row shape; the analogous
+generator-evaluator split for the `plan` flow is deferred to future work.
+
+**Legacy `implement` promotion.** Settings files written by ralphctl ≤ 0.7.0 stored `ai.implement`
+as a flat `{ provider, model, effort? }` row. Such files are silently promoted at load time into the
+nested shape, with `generator` and `evaluator` both set to a copy of the legacy row — no
+`schemaVersion` bump and no user-facing notice. The next `save()` rewrites the file in the canonical
+nested shape, so the promotion fires at most once per file.
+
+**TUI is the primary surface.** From Home: pipeline-map quick-actions + browse submenu (Sprints / Tickets /
+Tasks / Projects). Multi-flow navigation: Tab / Shift+Tab cycle running flows, `Ctrl+1..9` direct-jump to
+the Nth running flow — both operate over RUNNING sessions only and are suspended while a prompt / overlay is
+mounted; `SessionsView` lists every runner. `Ctrl+1..9` only fires under a kitty-keyboard-protocol terminal
+(iTerm2 / kitty / WezTerm / foot) — Ink surfaces `key.ctrl` for digits only via the CSI-u extension; in other
+terminals it is an inert no-op (the help overlay labels it accordingly), while `Tab` cycling works everywhere.
+`?` opens the centralised help overlay generated from `keyboard-map.ts`.
+
+Execute view: three-column at `xl` (≥180), two-column at `lg` (≥140), compact-rail at `md` (100–139),
+single-column below `md`. Rail grows fluidly 36→56 cols at `xl`+ via `resolveRailWidth`. Named breakpoints
+(`sm 80 / md 100 / lg 140 / xl 180 / xxl 220`) are canonical — use `breakpointFor`, `fluid`, `responsive`,
+`useBreakpoint` from `theme/tokens.ts`; no hardcoded column literals. Global keys: `b` banner, `g` progress,
+`y` yank, `P` project picker, `S` sprint picker. Execute-view: `j`/`k` nav, `e` verification-criteria, `c` cancel-scope.
+
+**`setupScript` vs `verifyScript`.** Setup runs unconditionally once per affected repo at sprint start;
+each attempt is recorded as a structured `SetupRun` (outcome: `success` / `failed` / `spawn-error` /
+`skipped`) persisted on `SprintExecution.setupRanAt`. Non-zero exit or spawn failure hard-aborts the
+chain. Verify runs both **pre-task** (before the AI) and **post-task** (after commit) with an attribution
+algorithm (`clean` / `regressed` / `baseline-broken` / `fixed-baseline`) that avoids blocking the AI for
+pre-existing failures. Failure transitions the task to `blocked`, never `done`. `Repository.verifyTimeout`
+caps both the pre- and post-task verify calls as `timeoutMs` on the shell runner; when absent the runner
+falls back to `DEFAULT_SHELL_TIMEOUT_MS` (5 min). Both scripts are collected during `detect-scripts` and
+persisted on `Repository.{setupScript,verifyScript,verifyTimeout}`. Persisted `project.json` files written
+before v0.7.0 used `checkScript` / `checkTimeout`; the schema accepts those legacy keys on read and
+rewrites the canonical names on the next save (no manual migration step).
+
+**Branch management.** `resolveBranchLeaf` prompts on first run; persists on `SprintExecution.branch`;
+per-task preflight verifies the right branch. `ralphctl create-pr --sprint <id>` opens PR / MR via `gh` /
+`glab` and persists `SprintExecution.pullRequestUrl`.

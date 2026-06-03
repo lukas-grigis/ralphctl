@@ -12,7 +12,7 @@
 
 import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
-import type { TaskBucket } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
+import { perAttemptRound, type TaskBucket } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { TaskProjection } from '@src/application/ui/tui/components/tasks-projection.ts';
 import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
@@ -178,13 +178,37 @@ export const TaskBlock = ({
             {glyphs.bullet} {latestCommitSha}
           </Text>
         )}
-        {cardExpanded && task.genEvalRound !== undefined && task.genEvalRound > 0 && (
-          <Text color={inkColors.info}>
-            {' '}
-            {glyphs.bullet} round {String(task.genEvalRound)}
-            {task.genEvalMaxRounds !== undefined ? `/${String(task.genEvalMaxRounds)}` : ''}
-          </Text>
-        )}
+        {cardExpanded &&
+          task.genEvalRound !== undefined &&
+          task.genEvalRound > 0 &&
+          (() => {
+            const maxTurns = task.genEvalMaxRounds;
+            // No per-attempt cap known → show the bare round (no `/M` that could overshoot).
+            if (maxTurns === undefined) {
+              return (
+                <Text color={inkColors.info}>
+                  {' '}
+                  {glyphs.bullet} round {String(task.genEvalRound)}
+                </Text>
+              );
+            }
+            // `genEvalRound` is monotonic across the whole task; fold it back into the
+            // per-attempt window so a 2nd+ attempt reads `attempt A · round R/maxTurns`
+            // instead of overshooting (`round 4/3`).
+            const { attemptN, roundInAttempt } = perAttemptRound(task.genEvalRound, maxTurns);
+            const maxAttempts = task.genEvalMaxAttempts;
+            const showAttempt = attemptN > 1 || (maxAttempts !== undefined && maxAttempts > 1);
+            return (
+              <Text color={inkColors.info}>
+                {' '}
+                {glyphs.bullet}{' '}
+                {showAttempt
+                  ? `attempt ${String(attemptN)}${maxAttempts !== undefined ? `/${String(maxAttempts)}` : ''} ${glyphs.bullet} `
+                  : ''}
+                round {String(roundInAttempt)}/{String(maxTurns)}
+              </Text>
+            );
+          })()}
         {cardExpanded &&
           isActive &&
           task.genEvalRound !== undefined &&

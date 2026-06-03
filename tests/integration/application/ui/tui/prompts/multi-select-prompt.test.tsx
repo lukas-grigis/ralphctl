@@ -94,6 +94,15 @@ describe('MultiSelectPrompt', () => {
     unmount();
   });
 
+  it('hint advertises ↑/↓ move (the cursor-movement keys it handles)', async () => {
+    const { lastFrame, unmount } = render(
+      <MultiSelectPrompt message="Pick" options={shortOptions} onSubmit={() => undefined} onCancel={() => undefined} />
+    );
+    await tick();
+    expect(lastFrame() ?? '').toContain('↑/↓ move');
+    unmount();
+  });
+
   it('renders only the windowed slice when the list exceeds VISIBLE_ROWS', async () => {
     const { lastFrame, unmount } = render(
       <MultiSelectPrompt message="Pick" options={longOptions} onSubmit={() => undefined} onCancel={() => undefined} />

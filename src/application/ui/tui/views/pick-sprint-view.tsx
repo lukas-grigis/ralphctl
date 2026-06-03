@@ -41,6 +41,7 @@ import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { PickerData } from '@src/application/ui/tui/views/pick-sprint-internals/types.ts';
 import {
   buildGroups,
+  cursorableNear,
   cursorableRowIndices,
   flatten,
   nextCursorableIndex,
@@ -152,14 +153,14 @@ export const PickSprintView = (): React.JSX.Element => {
     if (sprint.projectId !== selection.projectId) {
       const project = data.projectsById.get(sprint.projectId);
       if (project !== undefined) {
-        selection.setProjectAndSprint(project.id, project.displayName, sprint.id, sprint.name);
+        selection.setProjectAndSprint(project.id, project.displayName, sprint.id, sprint.name, sprint.status);
         router.reset({ id: 'home' });
         return;
       }
       // Orphan: project deleted. Fall through to plain setSprint — the sprint will surface
       // under whatever project the selection still points at (or none).
     }
-    selection.setSprint(sprint.id, sprint.name);
+    selection.setSprint(sprint.id, sprint.name, sprint.status);
     router.reset({ id: 'home' });
   };
 
@@ -181,8 +182,8 @@ export const PickSprintView = (): React.JSX.Element => {
       'create-sprint',
       snapshot,
       {
-        onReseat: ({ id, name }) => {
-          selection.setSprint(id, name);
+        onReseat: ({ id, name, status }) => {
+          selection.setSprint(id, name, status);
         },
         onSprintResolved: (runnerId, { id, name }) => {
           sessions.setPinnedSprint(runnerId, id, name);
@@ -228,6 +229,25 @@ export const PickSprintView = (): React.JSX.Element => {
       setCursor((c) => nextCursorableIndex(rows, c, 1));
       return;
     }
+    if (key.pageUp) {
+      setCursor((c) => cursorableNear(rows, Math.max(0, c - visibleRows), -1));
+      return;
+    }
+    if (key.pageDown) {
+      setCursor((c) => cursorableNear(rows, Math.min(rows.length - 1, c + visibleRows), 1));
+      return;
+    }
+    if (key.home) {
+      setCursor(() => cursorableRowIndices(rows)[0] ?? 0);
+      return;
+    }
+    if (key.end) {
+      setCursor((c) => {
+        const candidates = cursorableRowIndices(rows);
+        return candidates[candidates.length - 1] ?? c;
+      });
+      return;
+    }
     if (key.return) {
       const row = rows[cursor];
       if (row?.kind === 'sprint') pick(row.sprint);
@@ -246,7 +266,7 @@ export const PickSprintView = (): React.JSX.Element => {
   });
 
   return (
-    <ViewShell title="Pick a sprint" subtitle="Switch sprint (and project) in one step">
+    <ViewShell title="Pick a sprint" subtitle="Switch sprint (and project) in one step" suppressScrollArrows>
       {ui.helpOpen ? (
         <HelpOverlay />
       ) : state.kind === 'loading' || state.kind === 'idle' ? (

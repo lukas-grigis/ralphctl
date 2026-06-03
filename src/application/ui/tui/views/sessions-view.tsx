@@ -2,6 +2,10 @@
  * Sessions list — every runner the manager knows about, live + recent. Selecting a row reopens
  * the execute view for that session.
  *
+ * The focus cursor is identity-based (keyed on the session id, not a list index) via
+ * {@link useListWindow}, so it survives a live reorder or eviction of an earlier session instead
+ * of jumping to whatever now sits at the old index (audit L7).
+ *
  * Local keys:
  *   ↑/↓  move the focus cursor
  *   ↵    open the execute view for the focused session
@@ -11,9 +15,9 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
-import { type ListColumn, ListView } from '@src/application/ui/tui/components/list-view.tsx';
 import { EmptyState } from '@src/application/ui/tui/components/empty-state.tsx';
 import { runnerStatusKind, StatusChip } from '@src/application/ui/tui/components/status-chip.tsx';
+import { OverflowRow, useListWindow } from '@src/application/ui/tui/components/windowed-list.tsx';
 import { ConfirmPrompt } from '@src/application/ui/tui/prompts/confirm-prompt.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
@@ -23,6 +27,13 @@ import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import type { SessionRecord } from '@src/application/ui/tui/runtime/session-manager.ts';
 import { fmtElapsed } from '@src/application/ui/tui/theme/duration.ts';
+
+const VISIBLE_ROWS = 10;
+const FLOW_COL_WIDTH = 16;
+const STATUS_COL_WIDTH = 14;
+const ELAPSED_COL_WIDTH = 10;
+
+const sessionId = (s: SessionRecord): string => s.descriptor.id;
 
 export const SessionsView = (): React.JSX.Element => {
   const router = useRouter();
@@ -34,21 +45,32 @@ export const SessionsView = (): React.JSX.Element => {
     { keys: 'c', label: 'cancel run' },
   ]);
 
-  const [cursorId, setCursorId] = useState<string | undefined>(undefined);
   const [confirmCancel, setConfirmCancel] = useState<SessionRecord | undefined>(undefined);
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
+
+  // List input is live only when no overlay / prompt is mounted; the global-key mute is claimed
+  // separately while the confirm prompt is up.
+  const listActive = !ui.helpOpen && !ui.promptActive && confirmCancel === undefined;
+
+  const { window, visibleItems, focusedIndex, focusedItem } = useListWindow<SessionRecord>({
+    items: sessions,
+    getId: sessionId,
+    visibleRows: VISIBLE_ROWS,
+    active: listActive,
+    onSubmit: (s) => router.push({ id: 'execute', props: { sessionId: s.descriptor.id } }),
+  });
 
   // Claim the global-key mute while the confirm prompt is mounted.
   const claimPrompt = ui.claimPrompt;
   useEffect(() => (confirmCancel !== undefined ? claimPrompt() : undefined), [confirmCancel, claimPrompt]);
 
   useInput((input) => {
-    if (ui.helpOpen || ui.promptActive || confirmCancel !== undefined) return;
+    if (!listActive) return;
     if (input === 'c') {
-      const target = sessions.find((s) => s.descriptor.id === cursorId) ?? sessions[0];
+      const target = focusedItem ?? sessions[0];
       if (target === undefined) return;
       if (target.descriptor.status !== 'running') {
-        setFeedback(`✗ session is ${target.descriptor.status}, nothing to cancel`);
+        setFeedback(`${glyphs.cross} session is ${target.descriptor.status}, nothing to cancel`);
         return;
       }
       setConfirmCancel(target);
@@ -59,38 +81,11 @@ export const SessionsView = (): React.JSX.Element => {
     setConfirmCancel(undefined);
     if (!confirmed) return;
     manager.abort(target.descriptor.id);
-    setFeedback(`✓ requested cancel for ${target.descriptor.title}`);
+    setFeedback(`${glyphs.check} requested cancel for ${target.descriptor.title}`);
   };
 
-  const columns: ReadonlyArray<ListColumn<SessionRecord>> = [
-    {
-      key: 'title',
-      header: 'Session',
-      grow: true,
-      render: (s) => <Text>{s.descriptor.title}</Text>,
-    },
-    {
-      key: 'flow',
-      header: 'Flow',
-      width: 16,
-      render: (s) => <Text dimColor>{s.descriptor.flowId}</Text>,
-    },
-    {
-      key: 'status',
-      header: 'Status',
-      width: 14,
-      render: (s) => <StatusChip label={s.descriptor.status} kind={runnerStatusKind(s.descriptor.status)} />,
-    },
-    {
-      key: 'elapsed',
-      header: 'Elapsed',
-      width: 10,
-      render: (s) => <Text dimColor>{fmtElapsed(s.descriptor.startedAt, s.descriptor.finishedAt ?? Date.now())}</Text>,
-    },
-  ];
-
   return (
-    <ViewShell title="Sessions" subtitle="every chain run, live and recent">
+    <ViewShell title="Sessions" subtitle="every chain run, live and recent" suppressScrollArrows>
       {ui.helpOpen ? (
         <HelpOverlay />
       ) : confirmCancel !== undefined ? (
@@ -112,16 +107,64 @@ export const SessionsView = (): React.JSX.Element => {
         <EmptyState title="No sessions yet" hint="Start a flow from the Flows screen (n)." />
       ) : (
         <Box flexDirection="column">
-          <ListView
-            items={sessions}
-            columns={columns}
-            onSelect={(s): void => {
-              router.push({ id: 'execute', props: { sessionId: s.descriptor.id } });
-            }}
-            onCursor={(s): void => setCursorId(s.descriptor.id)}
-            visibleRows={10}
-            active={!ui.promptActive && confirmCancel === undefined}
-          />
+          <Box paddingX={spacing.indent}>
+            <Text dimColor bold>
+              {'  '}
+            </Text>
+            <Box flexGrow={1}>
+              <Text dimColor bold>
+                Session{'  '}
+              </Text>
+            </Box>
+            <Box width={FLOW_COL_WIDTH}>
+              <Text dimColor bold>
+                Flow{'  '}
+              </Text>
+            </Box>
+            <Box width={STATUS_COL_WIDTH}>
+              <Text dimColor bold>
+                Status{'  '}
+              </Text>
+            </Box>
+            <Box width={ELAPSED_COL_WIDTH}>
+              <Text dimColor bold>
+                Elapsed
+              </Text>
+            </Box>
+          </Box>
+          <OverflowRow direction="above" count={window.start} />
+          {visibleItems.map((s, localIdx) => {
+            const focused = window.start + localIdx === focusedIndex;
+            return (
+              <Box key={s.descriptor.id} paddingX={spacing.indent}>
+                <Text color={focused ? inkColors.primary : inkColors.muted}>
+                  {focused ? glyphs.actionCursor : ' '}{' '}
+                </Text>
+                <Box flexGrow={1}>
+                  <Text bold={focused}>{s.descriptor.title}</Text>
+                  <Text> </Text>
+                </Box>
+                <Box width={FLOW_COL_WIDTH}>
+                  <Text bold={focused} dimColor>
+                    {s.descriptor.flowId}
+                  </Text>
+                  <Text> </Text>
+                </Box>
+                <Box width={STATUS_COL_WIDTH}>
+                  <Text bold={focused}>
+                    <StatusChip label={s.descriptor.status} kind={runnerStatusKind(s.descriptor.status)} />
+                  </Text>
+                  <Text> </Text>
+                </Box>
+                <Box width={ELAPSED_COL_WIDTH}>
+                  <Text bold={focused} dimColor>
+                    {fmtElapsed(s.descriptor.startedAt, s.descriptor.finishedAt ?? Date.now())}
+                  </Text>
+                </Box>
+              </Box>
+            );
+          })}
+          <OverflowRow direction="below" count={sessions.length - window.end} />
           <Box paddingX={spacing.indent} marginTop={spacing.section}>
             <Text dimColor>
               {glyphs.bullet} {sessions.length} session(s) {glyphs.bullet} ↵ open {glyphs.bullet} c cancel
@@ -129,7 +172,7 @@ export const SessionsView = (): React.JSX.Element => {
           </Box>
           {feedback !== undefined && (
             <Box paddingX={spacing.indent} marginTop={1}>
-              <Text color={feedback.startsWith('✗') ? inkColors.error : inkColors.primary}>{feedback}</Text>
+              <Text color={feedback.startsWith(glyphs.cross) ? inkColors.error : inkColors.primary}>{feedback}</Text>
             </Box>
           )}
         </Box>

@@ -142,7 +142,7 @@ describe('failCurrentAttempt', () => {
 
 describe('block / unblock / reset', () => {
   it('todo → blocked → todo', () => {
-    const blocked = markTaskBlocked(makeTodoTask(), 'waiting on infra');
+    const blocked = markTaskBlocked(makeTodoTask(), 'waiting on infra', 'own');
     expect(blocked.ok).toBe(true);
     if (!blocked.ok) return;
     const back = unblockTask(blocked.value);

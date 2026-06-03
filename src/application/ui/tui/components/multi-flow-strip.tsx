@@ -7,8 +7,11 @@
  * row, and the zero-pixel cost matches the design intent (no chrome when there's nothing to
  * disambiguate).
  *
- * The Tab/Shift+Tab cycle annotation pins at the right end of the strip (justifyContent
- * space-between) so the operator's eye finds the navigation hint in a stable spot.
+ * The navigation annotation pins at the right end of the strip (justifyContent space-between) so
+ * the operator's eye finds the hint in a stable spot. It advertises both real chords sourced from
+ * {@link globalKeys}: `cycleSession` (Tab / Shift+Tab cycle the running sessions) and `jumpSession`
+ * (Ctrl+1..9 direct-jump to the Nth running flow). The chord strings are read from the keyboard map
+ * rather than hardcoded so the cue can't drift from the bindings the router actually honours.
  *
  * Pure renderer over `sessions` + `activeId` + `now`; the bus subscription and session list live
  * in the parent (execute-view).
@@ -17,8 +20,16 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import type { SessionRecord } from '@src/application/ui/tui/runtime/session-manager.ts';
+import { globalKeys } from '@src/application/ui/tui/runtime/keyboard-map.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { fmtElapsed } from '@src/application/ui/tui/theme/duration.ts';
+
+/**
+ * Navigation cue sourced from the keyboard map so it tracks the bindings the router honours.
+ * `cycleSession.keys` (`Tab` / `Shift+Tab`) joined with `/` reads as both directions; `jumpSession`
+ * adds the Ctrl+N direct-jump chord that the `[N]` chip prefix indexes into.
+ */
+const NAV_HINT = `${globalKeys.cycleSession.keys.join('/')} cycle ${glyphs.bullet} ${globalKeys.jumpSession.keys.join('/')} jump`;
 
 /** @public */
 export interface MultiFlowStripProps {
@@ -34,9 +45,10 @@ export interface MultiFlowStripProps {
 
 /**
  * One chip. Layout: `[N] · <flowId>: <title> ⏱<elapsed>`. Active chip uses the highlight
- * colour; others dim. The leading `[N]` mirrors the `Ctrl+N` direct-jump number assigned by
- * the multi-flow navigation; SessionsView orders by `startedAt`, so the index here is stable
- * for the duration of a run.
+ * colour; others dim. The leading `[N]` is the live `Ctrl+N` direct-jump index for this running
+ * session ({@link globalKeys.jumpSession}): pressing `Ctrl+1..9` jumps to the Nth running flow.
+ * The running-session list (and SessionsView) order by `startedAt`, so the index is stable for the
+ * duration of a run.
  */
 const Chip = ({
   index,
@@ -94,7 +106,7 @@ export const MultiFlowStrip = ({
           </Box>
         ))}
       </Box>
-      <Text dimColor>↹ cycle</Text>
+      <Text dimColor>{NAV_HINT}</Text>
     </Box>
   );
 };

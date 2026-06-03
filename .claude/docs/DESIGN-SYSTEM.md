@@ -189,14 +189,13 @@ the same job.
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `Card`           | Bordered content box. Base for ResultCard.                                                                                                                                                                                                                                                       |
 | `ResultCard`     | Chain-settlement outcome card for the Execute-view footer: `kind` is `success` / `failed` / `aborted`. Carries `title`, `summary`, `fields`, `nextSteps`. For info / warning / precondition surfaces in other views, use `Card` (tone `info` / `warning` / `error` / `success`) or `EmptyState`. |
-| `CardList`       | Vertical stack of cards with consistent spacing.                                                                                                                                                                                                                                                 |
+| `WindowedList`   | Universal windowed-list primitive (`windowed-list.tsx`). Id-based cursor, arrows-primary navigation, `▴/▾` overflow cues. **Use this for every long, scrollable, homogeneous list** — replaces the deleted `CardList` and `ListView`.                                                            |
 | `ListCard`       | Shared frame for cards in a vertical list (tickets, tasks); thin wrapper over `Card`.                                                                                                                                                                                                            |
 | `FieldList`      | Aligned `[label, value]` rows. Used inside cards and detail views.                                                                                                                                                                                                                               |
 | `StatusChip`     | `[DRAFT]` / `[ACTIVE]` / `[REVIEW]` / `[DONE]` bracketed tag.                                                                                                                                                                                                                                    |
-| `Badge`          | Small inline state label.                                                                                                                                                                                                                                                                        |
 | `Spinner`        | Braille-frame loading indicator with trailing label.                                                                                                                                                                                                                                             |
 | `EmptyState`     | "Nothing here yet" surface with optional next-step pointer.                                                                                                                                                                                                                                      |
-| `ListView`       | Paginated list with `↑/↓` + `Enter`. For browse screens.                                                                                                                                                                                                                                         |
+| `OverflowRow`    | `▴ N more` / `▾ N more` cue row emitted by `WindowedList` when items are clipped above or below the visible window.                                                                                                                                                                              |
 | `Divider`        | Horizontal rule.                                                                                                                                                                                                                                                                                 |
 | `ScrollRegion`   | Scrollable viewport with PgUp/PgDn.                                                                                                                                                                                                                                                              |
 | `PipelineMap`    | Home phase map (refine → plan → implement → close).                                                                                                                                                                                                                                              |
@@ -259,23 +258,27 @@ Pick the right surface for the state. Don't mix raw `<Text color={inkColors.erro
 
 These work from **every** view. Don't override them.
 
-| Key   | Action                                           |
-| ----- | ------------------------------------------------ |
-| `Esc` | Pop one frame (no-op at root)                    |
-| `h`   | Home                                             |
-| `n`   | New flow (flows view)                            |
-| `x`   | Sessions view                                    |
-| `s`   | Settings                                         |
-| `!`   | Doctor                                           |
-| `b`   | Toggle banner compact ↔ full                     |
-| `g`   | Progress overlay (reads `progress.md` from disk) |
-| `y`   | Yank active-task summary to clipboard            |
-| `P`   | Open project picker (cross-project)              |
-| `S`   | Open sprint picker (cross-project)               |
-| `?`   | Help overlay                                     |
-| `q`   | Quit (Home root only)                            |
+| Key                 | Action                                           |
+| ------------------- | ------------------------------------------------ |
+| `Esc`               | Pop one frame (no-op at root)                    |
+| `h`                 | Home                                             |
+| `n`                 | New flow (flows view)                            |
+| `Tab` / `Shift+Tab` | Cycle running flow (next / prev)                 |
+| `Ctrl+1..9`         | Jump to running flow (Nth running session)       |
+| `x`                 | Sessions view                                    |
+| `s`                 | Settings                                         |
+| `!`                 | Doctor                                           |
+| `b`                 | Toggle banner compact ↔ full                     |
+| `g`                 | Progress overlay (reads `progress.md` from disk) |
+| `y`                 | Yank active-task summary to clipboard            |
+| `P`                 | Open project picker (cross-project)              |
+| `S`                 | Open sprint picker (cross-project)               |
+| `?`                 | Help overlay                                     |
+| `q`                 | Quit (Home root only)                            |
 
-Switch between running flows via the Sessions view (`x`) — there is no Tab / Ctrl+digit flow-cycling chord.
+Switch between running flows via `Tab` / `Shift+Tab` (cycle next / prev) or `Ctrl+1..9` (jump to the Nth
+running session); the Sessions view (`x`) lists them all. Both chords cycle / jump over RUNNING sessions
+only and are suspended while a prompt or overlay is mounted.
 
 ### 6.2 Execute-view keys — active when Execute view owns the focus
 
@@ -326,6 +329,48 @@ Rules:
 - `Enter` on a terminal/result state pops the view.
 - `Esc` inside a submode returns to the parent mode before being claimed by the router.
 
+### 6.4 Windowed-list navigation contract
+
+Every long, scrollable, homogeneous item list mounts through the windowed-list primitive
+(`src/application/ui/tui/components/windowed-list.tsx` — `computeListWindow` / `useListWindow` /
+`WindowedList` / `OverflowRow`). The primitive owns the cursor and the keyboard so navigation is
+identical on every list surface. The map of record is `listKeys` in `keyboard-map.ts`.
+
+**Four key groups** (all handled by `useListWindow`, gated by its `active` flag):
+
+| Group          | Keys            | Action                |
+| -------------- | --------------- | --------------------- |
+| Move (primary) | `↑` / `↓`       | move cursor one row   |
+| Move (alias)   | `j` / `k`       | move cursor one row   |
+| Page           | `PgUp` / `PgDn` | move by `visibleRows` |
+| Jump           | `Home` / `End`  | first / last item     |
+
+`↵` (Enter / Return) submits the focused item. `g` / `G` remain vim-style aliases for `Home` / `End`.
+
+**Arrows are primary; `j`/`k` are a global alias.** Advertise `↑/↓` in a view's `useViewHints` when
+the view shows a nav hint. **Do not list `j`/`k` (or `PgUp`/`PgDn` / `Home`/`End`) in per-view hints**
+— they apply to every list and are documented once in the help overlay's `Lists` section (generated
+from `listKeys`). A per-view hint strip names only the view's own keys plus the primary `↑/↓` move.
+
+**Canonical `useViewHints` spellings.** Reuse the [§6.3](#63-view-local-keys--published-via-useviewhints)
+vocabulary: `↑/↓` → `move`, `Enter` → `open` / `confirm` / `run`. Inline-detail lists use
+`Enter` → `expand/collapse` ([§7.2](#72-list-views)).
+
+**Overflow-row rule.** When the list is taller than the viewport, `OverflowRow` renders a dim
+`▴ N more` cue above the window and a `▾ N more` cue below it (`glyphs.moreAbove` / `glyphs.moreBelow`).
+Never render a list longer than its window — the primitive slices before `.map()` by construction,
+satisfying the [§7.6](#76-render-caps-for-list-data) cap.
+
+**Id-based cursor rule.** `useListWindow` stores the cursor as the focused item's **id** (via the
+required `getId` prop), not its index. A reorder or eviction keeps focus on the same logical item —
+or snaps to the nearest survivor by prior index — instead of teleporting to whatever now sits at the
+old index. Always pass a stable id; never re-key a windowed list by array index.
+
+**`suppressScrollArrows` rule.** A view that owns a list cursor AND whose content can exceed the
+viewport must pass `suppressScrollArrows` to its `ViewShell` so the page-level `ScrollRegion` does
+not double-handle `↑/↓` / `PgUp`/`PgDn`. The list cursor wins; the page scroll yields. Views without
+a list cursor leave `ScrollRegion` to handle arrows normally.
+
 ## 7. View patterns
 
 Each view type has one shape. Don't invent a new one.
@@ -349,7 +394,7 @@ with `Card`.
 
 ### 7.2 List views
 
-- `ListView` with `↑/↓ · Enter open · Esc back`.
+- `WindowedList` (via `useListWindow` + `WindowedList`) with `↑/↓ · Enter open · Esc back`. See [§6.4](#64-windowed-list-navigation-contract) for the full key contract.
 - Empty state → `EmptyState` or `Card tone="info"` with a next-step pointer.
 
 **Inline-detail toggle variant.** For lists where the parent is short and the detail content fits below in

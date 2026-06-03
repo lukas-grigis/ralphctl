@@ -1,7 +1,7 @@
 /**
- * Smoke tests for FlowsView. Verifies the eligibility card reflects the snapshot, every
- * registered flow appears in the menu, and project / sprint badges render with the right
- * placeholder when nothing is selected.
+ * Smoke tests for FlowsView. Verifies the orientation card reflects the correct regime for
+ * each context state (no project / no sprint / sprint loaded), flows appear in the menu,
+ * and the view renders with no redundant footer hint strip.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -89,14 +89,15 @@ const makeProjectSprintDeps = (
 };
 
 describe('FlowsView', () => {
-  it('renders the eligibility card with (none) badges on a fresh install', async () => {
+  it('renders the no-project orientation regime on a fresh install', async () => {
     const { result } = renderView(<FlowsView />, { deps: emptyDeps, initial: { id: 'flows' } });
-    // Wait for the async deps load + Ink render to settle rather than a fixed tick — under
-    // coverage instrumentation a fixed delay can capture a pre-settle frame (flaky).
-    await waitFor(() => (result.lastFrame() ?? '').includes('Eligibility'));
+    // Wait for the async deps load + Ink render to settle; orientation card is always present.
+    await waitFor(() => /no project|pick one/i.test(result.lastFrame() ?? ''));
     const frame = result.lastFrame() ?? '';
-    expect(frame).toContain('Eligibility');
-    expect(frame).toContain('(none)');
+    // The card should direct the user toward picking or creating a project.
+    expect(frame).toMatch(/no project|pick one/i);
+    // No system-y eligibility label in the new design.
+    expect(frame).not.toContain('Eligibility');
     result.unmount();
   });
 
@@ -104,14 +105,47 @@ describe('FlowsView', () => {
     // Sprint-state-machine visibility: with no project loaded, the project-scoped section is
     // hidden too; the user is meant to land here only after picking or creating a project.
     const { result } = renderView(<FlowsView />, { deps: emptyDeps, initial: { id: 'flows' } });
-    // Anchor on the always-rendered eligibility card so the absence assertions below run
-    // against a fully-settled frame — otherwise an early empty frame passes them trivially.
-    await waitFor(() => (result.lastFrame() ?? '').includes('Eligibility'));
+    // Anchor on the orientation card so absence assertions run on a fully-settled frame.
+    await waitFor(() => /no project|pick one/i.test(result.lastFrame() ?? ''));
     const frame = result.lastFrame() ?? '';
     expect(frame).not.toContain('Create sprint');
     expect(frame).not.toContain('Refine');
     expect(frame).not.toContain('Plan');
     expect(frame).not.toContain('Implement');
+    result.unmount();
+  });
+
+  it('renders the no-sprint orientation regime when a project is loaded but no sprint is selected', async () => {
+    // Project exists but no sprint is selected — second regime.
+    const deps = makeProjectSprintDeps({ id: FIXED_PROJECT_ID }, { id: FIXED_SPRINT_ID, projectId: FIXED_PROJECT_ID });
+    // Override: no sprint selected in the selection context.
+    const { result } = renderView(<FlowsView />, {
+      deps,
+      initial: { id: 'flows' },
+      selection: { projectId: FIXED_PROJECT_ID }, // sprintId intentionally omitted
+    });
+    await waitFor(() => /no sprint|create one|pick one/i.test(result.lastFrame() ?? ''));
+    const frame = result.lastFrame() ?? '';
+    expect(frame).toMatch(/no sprint|create one|pick one/i);
+    result.unmount();
+  });
+
+  it('renders the sprint-loaded orientation regime with sprint name and next-action hint', async () => {
+    // Project + draft sprint with no tickets → stage is Plan (all tickets approved, none pending).
+    const deps = makeProjectSprintDeps({ id: FIXED_PROJECT_ID }, { id: FIXED_SPRINT_ID, projectId: FIXED_PROJECT_ID });
+    const { result } = renderView(<FlowsView />, {
+      deps,
+      initial: { id: 'flows' },
+      selection: { projectId: FIXED_PROJECT_ID, sprintId: FIXED_SPRINT_ID },
+    });
+    await waitFor(() => (result.lastFrame() ?? '').includes('Fixture Sprint'));
+    const frame = result.lastFrame() ?? '';
+    // Sprint name must appear in the orientation card.
+    expect(frame).toContain('Fixture Sprint');
+    // Status chip for the draft status should appear.
+    expect(frame).toMatch(/DRAFT/);
+    // Next action derived from the pipeline stage should appear.
+    expect(frame).toMatch(/next:/i);
     result.unmount();
   });
 
@@ -137,11 +171,13 @@ describe('FlowsView', () => {
     });
     // Wait for the async project + sprint load to settle so the dimmed sprint-scoped rows are
     // rendered before asserting — a fixed tick can capture a pre-load frame under coverage.
-    await waitFor(() => /pending ticket|approved ticket/i.test(result.lastFrame() ?? ''));
+    // New copy: Refine reason mentions "ticket" (add at least one), Plan reason mentions
+    // "Refine and approve" — both contain "ticket".
+    await waitFor(() => /ticket/i.test(result.lastFrame() ?? ''));
     const frame = result.lastFrame() ?? '';
     // At least one trigger reason should be visible — both Refine and Plan are dimmed.
     // Use a forgiving check: the reason text may be truncated on narrow test terminals.
-    expect(frame).toMatch(/pending ticket|approved ticket/i);
+    expect(frame).toMatch(/ticket/i);
     result.unmount();
   });
 
@@ -161,13 +197,11 @@ describe('FlowsView', () => {
     const frame = result.lastFrame() ?? '';
     // The "Add tickets" row should appear.
     expect(frame).toContain('Add tickets');
-    // An eligible row must not carry any trigger reason. "No project is loaded." is the
-    // project-gate reason; "Requires sprint status" is the status-gate reason — neither should
-    // appear next to an eligible row.
+    // An eligible row must not carry any project-missing reason (new copy: "Select a project
+    // first"). Verify the orientation card wording is distinct from flow disabled reasons.
     expect(frame).not.toContain('No project is loaded.');
-    // Confirm the eligible "Add tickets" row is on-screen without any adjacent reason text.
-    // We cannot diff per-row in a text frame, but verifying the reasons that _should_ appear
-    // come from the dimmed rows (Refine / Plan) and NOT from an eligible row is sufficient.
+    expect(frame).not.toContain('Select a project first');
+    // Confirm the sprint name and status are on-screen (sprint-loaded regime).
     expect(frame).toContain('Fixture Sprint');
     result.unmount();
   });

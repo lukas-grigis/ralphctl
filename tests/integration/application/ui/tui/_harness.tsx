@@ -80,6 +80,7 @@ const defaultStorage = (): StoragePaths => {
     locksRoot: absPath(cwd),
     runsRoot: absPath(cwd),
     memoryRoot: absPath(cwd),
+    operatorSkillsRoot: absPath(cwd),
   };
 };
 
