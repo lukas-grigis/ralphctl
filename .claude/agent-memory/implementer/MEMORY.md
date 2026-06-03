@@ -25,4 +25,4 @@
 - [project_view_hint_single_source.md](project_view_hint_single_source.md) — TUI hints gate via useViewHints enabledWhen;
   inline body-footer hint prose is a duplicate ungated source — remove it when gating a key
 - [project_per_attempt_round_display.md](project_per_attempt_round_display.md) — live round counter folds monotonic global
-  round into per-attempt coords via perAttemptRound (render-time, not on bucket); genEvalMaxAttempts cap is half-wired
+  round into per-attempt coords via perAttemptRound (render-time, not on bucket); genEvalMaxAttempts cap now fully wired
