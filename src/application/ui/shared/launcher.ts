@@ -26,6 +26,7 @@ import type { AppStateSnapshot } from '@src/application/ui/shared/state-snapshot
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { composeSkillSources, createProjectSkillSource } from '@src/integration/ai/skills/project/source.ts';
 import { createOperatorSkillSource } from '@src/integration/ai/skills/operator/source.ts';
+import { warnIfContractViolated as checkContract } from '@src/integration/ai/skills/_engine/skill-contract-checker.ts';
 import { type AiFlowSettings, type AiProvider, primaryFlowRow, type Settings } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import { resolveEffort } from '@src/business/settings/resolve-effort.ts';
@@ -232,6 +233,11 @@ const aiFlowIdFor = (flowId: string): FlowId | undefined => {
       return 'readiness';
     case 'review':
       return 'implement';
+    case 'create-pr':
+      // The kebab-case orchestration id maps to its camelCase settings row. `create-pr` only
+      // spawns an AI session when AI authoring is on; when it does, the createPr row drives the
+      // provider / model / effort the spawn uses.
+      return 'createPr';
     default:
       return undefined;
   }
@@ -361,6 +367,12 @@ export const launchFlow = async (
     operatorSkillsRoot: deps.storage.operatorSkillsRoot,
     provider: resolvedProvider,
     logger: deps.app.logger,
+    // Operator skills run the harness-compatibility scanner as a WARNING only — a violating
+    // skill is logged and still installed (the operator owns their skills). Adapt the checker's
+    // (logger, name, content) signature to the source's `(skill) => void` warner shape.
+    warnIfContractViolated: (skill) => {
+      checkContract(deps.app.logger, skill.name, skill.content);
+    },
   });
   const composedSkillSource = composeSkillSources(deps.app.skillSource, projectSource, operatorSource);
 

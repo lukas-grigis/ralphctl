@@ -11,7 +11,7 @@ const detectFor = (installed: readonly AiProvider[]) => async (): Promise<Readon
  * defaults helper keeps the discriminated-union row type narrow without forcing the test to
  * construct a literal that mirrors the schema's discriminator.
  */
-const withFlowProvider = (flow: 'refine' | 'implement' | 'readiness', provider: AiProvider): Settings => {
+const withFlowProvider = (flow: 'refine' | 'implement' | 'readiness' | 'createPr', provider: AiProvider): Settings => {
   const fresh = defaultAiSettingsForProvider(provider);
   return {
     ...DEFAULT_SETTINGS,
@@ -61,6 +61,22 @@ describe('checkCli', () => {
 
   it('returns undefined for non-AI flows', async () => {
     const result = await checkCli('create-sprint', DEFAULT_SETTINGS, { detect: detectFor([]) });
+    expect(result).toBeUndefined();
+  });
+
+  it('maps the kebab-case create-pr orchestration id to the createPr settings row', async () => {
+    const settings = withFlowProvider('createPr', 'github-copilot');
+    const result = await checkCli('create-pr', settings, { detect: detectFor([]) });
+    expect(result).toBeDefined();
+    if (result === undefined || result.ok) return;
+    expect(result.reason).toContain('copilot');
+    expect(result.reason).toContain('createPr');
+    expect(result.reason).toContain('ai.createPr.provider');
+  });
+
+  it('returns undefined for create-pr when the configured createPr provider is on PATH', async () => {
+    const settings = withFlowProvider('createPr', 'openai-codex');
+    const result = await checkCli('create-pr', settings, { detect: detectFor(['openai-codex']) });
     expect(result).toBeUndefined();
   });
 

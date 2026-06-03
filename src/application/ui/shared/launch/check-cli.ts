@@ -43,6 +43,9 @@ const aiFlowIdForCheck = (flowId: string): FlowId | undefined => {
       return 'readiness';
     case 'review':
       return 'implement';
+    case 'create-pr':
+      // kebab orchestration id → camelCase settings row (mirrors `aiFlowIdFor`).
+      return 'createPr';
     default:
       return undefined;
   }
