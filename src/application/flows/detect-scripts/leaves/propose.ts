@@ -27,6 +27,9 @@ import type { DetectScriptsCtx } from '@src/application/flows/detect-scripts/ctx
 /**
  * Per-call AiSession profile for the detect-scripts chain — read-only by construction.
  * `outputDir` carries the per-run forensic dir; the AI writes `signals.json` directly there.
+ *
+ * Call only within a `runWithSession` scope: `chainSessionId` is captured from the ambient
+ * session at call time (omitted when invoked outside one, e.g. a bare test).
  */
 export const detectScriptsSession = (
   repository: Repository,

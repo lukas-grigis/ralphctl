@@ -31,6 +31,9 @@ import { readinessOutputContract } from '@src/application/flows/readiness/leaves
  * profile remains READ_ONLY for repository navigation, augmented with the Write tool so the
  * AI can write `signals.json` into `outputDir`. `outputDir` is the per-run forensic dir; the
  * harness validates `<outputDir>/signals.json` post-spawn.
+ *
+ * Call only within a `runWithSession` scope: `chainSessionId` is captured from the ambient
+ * session at call time (omitted when invoked outside one, e.g. a bare test).
  */
 export const readinessSession = (
   cwd: AbsolutePath,
