@@ -28,6 +28,13 @@ import type { StorageError } from '@src/domain/value/error/storage-error.ts';
  * Policy: domain transition + persist + log. Idempotent — an already-`todo` task passes through
  * unchanged (mirrors {@link activateSprintUseCase}'s shape).
  *
+ * **TOCTOU precondition.** The cascade path does an UNLOCKED `findBySprintId` read whose result
+ * seeds the (now-locked) `saveAll` rewrite — the read that feeds the rewrite happens before any
+ * lock is taken. So this use case MUST NOT run while an Implement run is active on the same sprint:
+ * a concurrent run could mutate `tasks.json` between the read and the write, and the rewrite would
+ * clobber those changes with stale data. Callers serialise via the sprint-dir repo lock; this is an
+ * operator-facing recovery hatch invoked between runs, not during one.
+ *
  * `blocked` → {@link unblockTask} (strips `blockedReason`, resets to `todo`).
  * `in_progress` with a settled last attempt → {@link resetTaskToTodo} (crash-recovery path).
  * `in_progress` with a still-running attempt → rejects with `InvalidStateError` (unsafe to reset).

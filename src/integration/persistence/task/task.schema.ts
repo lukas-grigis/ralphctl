@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { Result } from '@src/domain/result.ts';
+import { Result } from '@src/domain/result.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { BLOCKED_UPSTREAM_REASON_PREFIX } from '@src/domain/entity/task-lifecycle.ts';
 import type { MigrationGapError } from '@src/domain/value/error/migration-gap-error.ts';
@@ -137,29 +137,51 @@ const TaskBaseUnionSchema = z.discriminatedUnion('status', [
   DoneTaskSchema,
 ]);
 
+/** The raw, pre-transform inferred union — a `blocked` member still carries `blockKind?`. */
+type RawParsedTask = z.infer<typeof TaskBaseUnionSchema>;
+
+/**
+ * The transform's output type. Identical to {@link RawParsedTask} except the `blocked` member's
+ * `blockKind` is REQUIRED `'upstream' | 'own'` — `inferBlockKind` always materialises it. Narrowing
+ * the branch here (rather than leaving the inferred optional) means `TaskSchema`'s output already
+ * matches the domain `BlockedTask`, so `fromJsonTask` no longer needs to cast over an optional→required
+ * gap on `blockKind`. (The remaining cast is purely about the `DoneTask` attempts tuple — see below.)
+ */
+type ParsedTask =
+  | Exclude<RawParsedTask, { status: 'blocked' }>
+  | (Extract<RawParsedTask, { status: 'blocked' }> & { blockKind: 'upstream' | 'own' });
+
 /**
  * Read-time inference for a `blocked` task that predates {@link BlockedTask.blockKind}: a reason
  * starting with the (deprecated) `blocked upstream` prefix is an upstream-cascade block, everything
  * else is an own-failure block. Runs post-union so the discriminated-union members stay plain
- * objects (a transform on the member would break discrimination).
+ * objects (a transform on the member would break discrimination). Returns {@link ParsedTask}, whose
+ * `blocked` branch declares `blockKind` as required — every code path through here sets it.
  */
-const inferBlockKind = (task: z.infer<typeof TaskBaseUnionSchema>): z.infer<typeof TaskBaseUnionSchema> => {
-  if (task.status !== 'blocked' || task.blockKind !== undefined) return task;
+const inferBlockKind = (task: RawParsedTask): ParsedTask => {
+  if (task.status !== 'blocked') return task;
   return {
     ...task,
-    blockKind: task.blockedReason.startsWith(BLOCKED_UPSTREAM_REASON_PREFIX) ? 'upstream' : 'own',
+    blockKind: task.blockKind ?? (task.blockedReason.startsWith(BLOCKED_UPSTREAM_REASON_PREFIX) ? 'upstream' : 'own'),
   };
 };
 
 export const TaskSchema = TaskBaseUnionSchema.transform(inferBlockKind);
 
 /**
- * Schema infers `attempts: readonly Attempt[]` but `DoneTask` declares the stricter
- * `readonly [...Attempt[], VerifiedAttempt]` tuple. The cast is sound because `DoneTaskSchema`'s
- * `superRefine` validates the same invariant at runtime.
+ * `TaskSchema` already infers a `blocked` task's `blockKind` as the required `'upstream' | 'own'`
+ * (the transform narrows it), so the only residual gap versus the domain `Task` is the `DoneTask`
+ * attempts tuple: the schema infers `attempts: readonly Attempt[]` but `DoneTask` declares the
+ * stricter `readonly [...Attempt[], VerifiedAttempt]`. The narrowed `value as Task` cast bridges
+ * exactly that tuple gap and is sound because `DoneTaskSchema`'s `superRefine` validates the same
+ * invariant at runtime; the `blockKind` optional→required gap that previously forced a wider cast
+ * over the whole `Result` is gone.
  */
-export const fromJsonTask = (input: unknown): Result<Task, ParseError> =>
-  safeParseToResult(TaskSchema, input) as Result<Task, ParseError>;
+export const fromJsonTask = (input: unknown): Result<Task, ParseError> => {
+  const parsed = safeParseToResult<ParsedTask, typeof TaskSchema>(TaskSchema, input);
+  if (!parsed.ok) return parsed;
+  return Result.ok(parsed.value as Task);
+};
 
 export const toJsonTask = (task: Task): unknown => task;
 

@@ -6,6 +6,7 @@ import { fromJsonSprint } from '@src/integration/persistence/sprint/sprint.schem
 import { fromJsonTicket } from '@src/integration/persistence/sprint/ticket.schema.ts';
 import { fromJsonSprintExecution } from '@src/integration/persistence/sprint-execution/sprint-execution.schema.ts';
 import { completeAttempt, recordAttemptVerification, startAttempt } from '@src/domain/entity/attempt.ts';
+import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import {
   FIXED_NOW,
   FIXED_REPOSITORY_ID,
@@ -112,6 +113,30 @@ describe('codec round-trip', () => {
     const original = makeDoneTask();
     const back = roundTrip(original, fromJsonTask);
     expect(back).toEqual(original);
+  });
+
+  it('Task blocked upstream — preserves blockedReason and blockKind', () => {
+    const blocked = markTaskBlocked(makeTodoTask(), 'blocked upstream — dep not done', 'upstream');
+    if (!blocked.ok) throw new Error(`seed: ${blocked.error.message}`);
+    const back = roundTrip(blocked.value, fromJsonTask);
+    expect(back).toEqual(blocked.value);
+    expect(back.status).toBe('blocked');
+    if (back.status === 'blocked') {
+      expect(back.blockedReason).toBe('blocked upstream — dep not done');
+      expect(back.blockKind).toBe('upstream');
+    }
+  });
+
+  it('Task blocked own — preserves blockedReason and blockKind', () => {
+    const blocked = markTaskBlocked(makeTodoTask(), 'post-task verify regressed', 'own');
+    if (!blocked.ok) throw new Error(`seed: ${blocked.error.message}`);
+    const back = roundTrip(blocked.value, fromJsonTask);
+    expect(back).toEqual(blocked.value);
+    expect(back.status).toBe('blocked');
+    if (back.status === 'blocked') {
+      expect(back.blockedReason).toBe('post-task verify regressed');
+      expect(back.blockKind).toBe('own');
+    }
   });
 
   it('Attempt running — round-trips on its own', () => {
