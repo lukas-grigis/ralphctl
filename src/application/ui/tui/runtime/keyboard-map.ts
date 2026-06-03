@@ -36,7 +36,7 @@ export const globalKeys = {
   home: { keys: ['h'], label: 'home', showInFooter: true },
   flows: { keys: ['n'], label: 'new flow', showInFooter: true },
   cycleSession: { keys: ['Tab', 'Shift+Tab'], label: 'cycle running flow' },
-  jumpSession: { keys: ['Ctrl+1..9'], label: 'jump to running flow' },
+  jumpSession: { keys: ['Ctrl+1..9'], label: 'jump to running flow (kitty-protocol term)' },
   sessions: { keys: ['x'], label: 'sessions', showInFooter: true },
   settings: { keys: ['s'], label: 'settings', showInFooter: true },
   doctor: { keys: ['!'], label: 'doctor' },

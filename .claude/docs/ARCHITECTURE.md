@@ -112,6 +112,16 @@ machine (`idle → running → completed | failed | aborted`) and an event strea
 synthetic replay of every step entry plus the matching terminal event — UI re-attach is lossless. The trace is
 ring-buffered at `MAX_TRACE_ENTRIES = 5_000` to bound the per-runner memory footprint on multi-task runs.
 
+**Parallel task execution sits above the primitives, not inside them.** When
+`settings.concurrency.maxParallelTasks > 1`, the implement flow dispatches through `runWaves`
+(`src/application/chain/run/wave-scheduler.ts`) instead of the serial queue: tasks are grouped into
+dependency waves (Kahn-by-level over `Task.dependsOn`), each wave's tasks run concurrently up to the cap
+(`flows/implement/parallel-element.ts`), and waves stay strictly sequential. Each task runs in its own git
+worktree (`<sprintDir>/worktrees/wt-<taskId>`, `flows/implement/wave-branch.ts`) with a fresh `setupScript`;
+commits fold back onto the single shared sprint branch through one serialised in-process queue
+(`flows/implement/merge-wave.ts`), so a parallel sprint still lands as one PR. `maxParallelTasks === 1`
+(the default) flattens the waves into the serial queue — byte-for-byte the prior behaviour.
+
 See [KERNEL-DESIGN.md](./KERNEL-DESIGN.md) for the full contract.
 
 ## Session scoping

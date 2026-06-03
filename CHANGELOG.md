@@ -33,7 +33,7 @@ to [Semantic Versioning](https://semver.org/).
 
 - **Windowed-list primitive.** `src/application/ui/tui/components/windowed-list.tsx` — a single,
   id-cursor-based scroll primitive (`computeListWindow` / `useListWindow` / `WindowedList` / `OverflowRow`)
-  that replaces the three prior mechanisms (`CardList`, `ListView`, `computeWindow`). Arrows are primary;
+  that replaces `CardList` and `ListView` (pick-sprint's specialised `computeWindow` is retained). Arrows are primary;
   `j`/`k` are global aliases; `PgUp`/`PgDn` page; `Home`/`End` jump. `▴ N more above` / `▾ N more below`
   overflow cues; id-based cursor survives reorder and eviction. `card-list.tsx` and `list-view.tsx` are
   deleted; sprint-detail, sessions, and pick-project off-screen-cursor bugs fixed. `ScrollRegion` gained
@@ -41,7 +41,9 @@ to [Semantic Versioning](https://semver.org/).
 
 - **Tab / Shift+Tab cycle + Ctrl+1..9 jump between running flows is now wired.** Both chords are live
   in `use-global-keys.ts`, gated off while a prompt or overlay is mounted — fixing the long-standing
-  state where the keybindings were advertised but dead.
+  state where the keybindings were advertised but dead. `Ctrl+1..9` requires a kitty-keyboard-protocol
+  terminal (iTerm2 / kitty / WezTerm / foot); in other terminals it is an inert no-op and the help
+  overlay labels it as such. `Tab` cycling works everywhere.
 
 - **`BlockedTask.blockKind` structural discriminant.** `'upstream' | 'own'` replaces the fragile
   `blockedReason.startsWith('blocked upstream')` text match. Legacy `tasks.json` entries without the
@@ -109,8 +111,6 @@ to [Semantic Versioning](https://semver.org/).
 
 - **Various UX copy fixes.** Cancel-scope overlay copy is now truthful; `IN PROGRESS` chip renders;
   `Loading…` text replaced by `<Spinner />`.
-
-### Fixed
 
 - **Manual abort now kills the AI child process.** The chain `AbortSignal` is threaded all the way
   into `implementSession()` and from there into the headless provider's SIGTERM→SIGKILL kill ladder,

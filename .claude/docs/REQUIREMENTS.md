@@ -260,7 +260,8 @@ See [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) for tokens, components, view patterns
 - [x] **Windowed-list primitive** — all long, scrollable, homogeneous lists mount through
       `windowed-list.tsx` (`computeListWindow` / `useListWindow` / `WindowedList` / `OverflowRow`). Id-based
       cursor survives reorder/eviction. `↑/↓` primary, `j`/`k` alias, `PgUp`/`PgDn` page, `Home`/`End` jump.
-      `▴/▾` overflow cues. `ScrollRegion` passes `suppressArrows` when a list owns the cursor.
+      `▴/▾` overflow cues. A view that owns its list cursor passes `suppressScrollArrows` to its `ViewShell`
+      (translated to `ScrollRegion`'s internal `suppressArrows`) so `↑/↓` / `PgUp`/`PgDn` aren't double-handled.
 - [x] **Responsive Execute view** — three-column at `xl` (≥180), two-column at `lg` (≥140), compact-rail
       at `md` (100–139), single-column below `md`. Rail grows fluidly 36→56 cols at `xl`+ via
       `resolveRailWidth`. `StepTrace` renders `Element.label` when present; long labels mid-truncated to
