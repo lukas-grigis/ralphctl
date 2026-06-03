@@ -76,7 +76,18 @@ export const createFsTaskRepository = (deps: FsTaskRepositoryDeps): TaskReposito
     },
 
     async saveAll(sprintId, tasks) {
-      return writeAll(sprintId, tasks);
+      const doWriteAll = async (): Promise<Result<void, StorageError>> => writeAll(sprintId, tasks);
+
+      if (deps.fileLocker === undefined) return doWriteAll();
+      const path = String(tasksFile(deps.root, sprintId));
+      const lockPath = AbsolutePath.parse(`${path}.lock`);
+      if (!lockPath.ok) return doWriteAll(); // path was valid for `tasksFile`; this can't fail.
+      // Take the same per-file lock as `update()` so a wholesale rewrite (e.g. the cascade-unblock
+      // read-modify-writeAll in `unblock-task`) can't interleave with a concurrent `update()` and
+      // clobber its write. The lock path is built identically to `update()`.
+      const locked = await deps.fileLocker.withLock(lockPath.value, doWriteAll);
+      if (!locked.ok) return Result.error(locked.error);
+      return locked.value;
     },
 
     async update(sprintId, task) {
