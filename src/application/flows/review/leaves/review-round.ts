@@ -23,6 +23,7 @@ import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.t
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
+import { currentSessionId } from '@src/application/session/session.ts';
 import { buildApplyFeedbackPrompt } from '@src/integration/ai/prompts/apply-feedback/definition.ts';
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
 import { validateSignalsFile } from '@src/integration/ai/contract/_engine/validate-signals-file.ts';
@@ -277,6 +278,11 @@ export const reviewRoundLeaf = (deps: ReviewRoundLeafDeps, opts: ReviewRoundLeaf
             // it, and on a multi-repo sprint where the feedback targets a non-first repo it
             // also blinded the AI to the relevant tree entirely (root cause of the bug this
             // change fixes).
+            // `currentSessionId()` is read in the leaf's `execute(...)` scope (wrapped by the
+            // runner's `runWithSession`) and threaded onto the session as DATA so the headless
+            // adapter can key the token-usage event by the runner id without importing the
+            // application session helper across the layer boundary.
+            const chainSessionId = currentSessionId();
             const spawn = await deps.provider.generate({
               prompt,
               cwd: paths.value.outputDir,
@@ -285,6 +291,7 @@ export const reviewRoundLeaf = (deps: ReviewRoundLeafDeps, opts: ReviewRoundLeaf
               permissions: FULL_AUTO,
               signalsFile: paths.value.signalsFile,
               outputDir: paths.value.outputDir,
+              ...(chainSessionId !== undefined ? { chainSessionId } : {}),
               // Thread the chain's abort signal so a TUI cancel mid-spawn kills the child via
               // the provider's SIGTERM ladder instead of letting it run to completion.
               ...(signal !== undefined ? { abortSignal: signal } : {}),

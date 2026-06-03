@@ -175,7 +175,23 @@ export interface ChainLogDegradedEvent {
  */
 export interface TokenUsageEvent {
   readonly type: 'token-usage';
+  /**
+   * The AI CLI's own session uuid for this spawn (Claude `system.init` id, Copilot `sessionId`,
+   * Codex `thread_id`). Stable per provider spawn — useful for forensic correlation against the
+   * persisted `session-id.txt` sidecar — but it lives in a DIFFERENT id space from the chain
+   * runner id the TUI keys its views on. Subscribers that need the runner id read
+   * {@link chainSessionId} instead.
+   */
   readonly sessionId: string;
+  /**
+   * The chain runner / session id this spawn ran under, read from `currentSessionId()` (the
+   * runner wraps every `element.execute()` in `runWithSession(id, …)`). This is the id the TUI
+   * execute view looks up by, so subscribers that drive per-runner widgets (the TokenBudgetCard)
+   * MUST key on `chainSessionId ?? sessionId` — the provider-uuid `sessionId` never matches a
+   * runner id. Optional because one-shot spawns outside any chain scope (and legacy events) have
+   * no runner id; those still resolve by the provider-uuid `sessionId`.
+   */
+  readonly chainSessionId?: string;
   readonly provider: 'claude-code' | 'github-copilot' | 'openai-codex';
   readonly model?: string;
   readonly inputTokens?: number;

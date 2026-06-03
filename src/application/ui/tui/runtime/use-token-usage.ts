@@ -68,13 +68,18 @@ export const useTokenUsage = (bus: EventBus): ReadonlyMap<string, TokenUsage> =>
   useEffect(() => {
     return bus.subscribe((event) => {
       if (!isTokenUsage(event)) return;
+      // Key by the chain runner id when present — that is the id the execute view looks up by.
+      // Provider adapters stamp `sessionId` with the AI CLI's own uuid (a disjoint id space), so
+      // keying on it alone guarantees a miss. Legacy / one-shot events without a runner id fall
+      // back to `sessionId` so they still resolve.
+      const key = event.chainSessionId ?? event.sessionId;
       setUsage((prev) => {
         const next = new Map(prev);
         // Delete + re-set so an updated session jumps to the end of insertion order; the LRU
-        // eviction below then drops the actually-oldest entry, not whichever sessionId hashed
+        // eviction below then drops the actually-oldest entry, not whichever key hashed
         // first in Map's insertion order.
-        next.delete(event.sessionId);
-        next.set(event.sessionId, toUsage(event));
+        next.delete(key);
+        next.set(key, toUsage(event));
         while (next.size > TOKEN_USAGE_SESSION_CAP) {
           const oldest = next.keys().next().value;
           if (oldest === undefined) break;

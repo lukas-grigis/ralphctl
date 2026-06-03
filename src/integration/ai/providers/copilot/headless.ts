@@ -367,9 +367,11 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
       // counters from the meta line, sessionId + provider + (maybe) model is still useful for
       // a TUI widget that correlates rounds with provider sessions. Honest about absent fields.
       const window = contextWindowFor(model);
+      const chainSessionId = session.chainSessionId;
       deps.eventBus.publish({
         type: 'token-usage',
         sessionId,
+        ...(chainSessionId !== undefined ? { chainSessionId } : {}),
         provider: 'github-copilot',
         ...(model !== undefined ? { model } : {}),
         ...(usage.inputTokens !== undefined ? { inputTokens: usage.inputTokens } : {}),

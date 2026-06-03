@@ -11,6 +11,7 @@ import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.t
 import type { PrContentSignal } from '@src/domain/signal.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
+import { currentSessionId } from '@src/application/session/session.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
@@ -156,6 +157,11 @@ export const generatePrContentLeaf = (deps: GeneratePrContentLeafDeps): Element<
           return Result.ok({});
         }
 
+        // Read the chain/runner session id in the leaf's execute scope (the runner wraps it
+        // in `runWithSession`) and thread it onto the session as DATA so the headless adapter
+        // can key the token-usage event by the runner id without importing the application
+        // session helper across the layer boundary.
+        const chainSessionId = currentSessionId();
         const session: AiSession = {
           prompt: promptResult.value,
           cwd: input.unitRoot,
@@ -164,6 +170,7 @@ export const generatePrContentLeaf = (deps: GeneratePrContentLeafDeps): Element<
           permissions: PR_AUTHORING_PERMISSIONS,
           signalsFile: signalsFilePathResult.value,
           outputDir: input.unitRoot,
+          ...(chainSessionId !== undefined ? { chainSessionId } : {}),
           // Thread the chain's abort signal so a TUI cancel mid-spawn kills the child.
           ...(signal !== undefined ? { abortSignal: signal } : {}),
         };

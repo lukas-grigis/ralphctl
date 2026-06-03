@@ -481,9 +481,11 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
       // result event may carry zero usage subkeys on degenerate spawns or when the spawn
       // was SIGTERM-recovered before the final result event landed.
       const window = contextWindowFor(envelope.model);
+      const chainSessionId = session.chainSessionId;
       deps.eventBus.publish({
         type: 'token-usage',
         sessionId: envelope.sessionId,
+        ...(chainSessionId !== undefined ? { chainSessionId } : {}),
         provider: 'claude-code',
         ...(envelope.model !== undefined ? { model: envelope.model } : {}),
         ...(envelope.usage.inputTokens !== undefined ? { inputTokens: envelope.usage.inputTokens } : {}),

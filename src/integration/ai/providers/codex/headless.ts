@@ -637,9 +637,11 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
       // from the JSONL records on v0.130.x; the event still fires so subscribers can correlate
       // sessionId → provider without inferring success from token-field absence.
       const window = contextWindowFor(model);
+      const chainSessionId = session.chainSessionId;
       deps.eventBus.publish({
         type: 'token-usage',
         sessionId,
+        ...(chainSessionId !== undefined ? { chainSessionId } : {}),
         provider: 'openai-codex',
         ...(model !== undefined ? { model } : {}),
         ...(inputTokens !== undefined ? { inputTokens } : {}),

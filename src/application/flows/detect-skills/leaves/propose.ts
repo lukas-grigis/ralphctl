@@ -15,6 +15,7 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
+import { currentSessionId } from '@src/application/session/session.ts';
 import { buildDetectSkillsPrompt } from '@src/integration/ai/prompts/detect-skills/definition.ts';
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
 import { renderSidecars } from '@src/integration/ai/contract/_engine/render-sidecars.ts';
@@ -39,18 +40,26 @@ export const detectSkillsSession = (
   bodyFile?: AbsolutePath,
   effort?: string,
   abortSignal?: AbortSignal
-): AiSession => ({
-  prompt,
-  cwd: repository.path,
-  model,
-  permissions: READ_ONLY,
-  signalsFile,
-  outputDir,
-  ...(bodyFile !== undefined ? { bodyFile } : {}),
-  ...(effort !== undefined ? { effort } : {}),
-  // Thread the chain's abort signal so a TUI cancel mid-spawn kills the child.
-  ...(abortSignal !== undefined ? { abortSignal } : {}),
-});
+): AiSession => {
+  // `currentSessionId()` is read inside the leaf's execute scope (the runner wraps it in
+  // `runWithSession`) and threaded onto the session as DATA so the headless adapter can key
+  // the token-usage event by the runner id without importing the application session helper
+  // across the layer boundary. Undefined out of session scope → the spread omits it.
+  const chainSessionId = currentSessionId();
+  return {
+    prompt,
+    cwd: repository.path,
+    model,
+    permissions: READ_ONLY,
+    signalsFile,
+    outputDir,
+    ...(chainSessionId !== undefined ? { chainSessionId } : {}),
+    ...(bodyFile !== undefined ? { bodyFile } : {}),
+    ...(effort !== undefined ? { effort } : {}),
+    // Thread the chain's abort signal so a TUI cancel mid-spawn kills the child.
+    ...(abortSignal !== undefined ? { abortSignal } : {}),
+  };
+};
 
 export interface ProposeDetectSkillsLeafDeps {
   readonly provider: HeadlessAiProvider;
