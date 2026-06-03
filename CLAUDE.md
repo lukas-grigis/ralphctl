@@ -32,6 +32,7 @@ pnpm coverage          # vitest run --coverage (ad-hoc threshold check; not in v
 pnpm verify:coverage   # alias for pnpm coverage
 pnpm format:check      # prettier
 pnpm deadcode          # knip (clean tree exits 0)
+pnpm skills:update     # re-vendor upstream SKILL.md into scripts/vendor/skills/ for review (maintainers only)
 ```
 
 Before every commit, run `/verify` (wraps `pnpm typecheck && pnpm lint && pnpm test`). All three must pass.
@@ -336,10 +337,23 @@ non-interactive runs. The earlier "approve & update" / "approve & create" review
 `defaultIssueOrigin`-driven create path were removed — `Project.defaultIssueOrigin` survives as a
 persisted field but refine no longer consults it.
 
-**Bundled skills always lose to project skills.** When `<cwd>/.claude/skills/<name>/` already exists, the
-bundled copy is skipped and the project copy is left untouched. The skills adapter
+**Bundled skills (8 total) always lose to project skills.** When `<cwd>/.claude/skills/<name>/` already
+exists, the bundled copy is skipped and the project copy is left untouched. The skills adapter
 (`src/integration/ai/skills/adapter-factory.ts`) tracks only what it installed; uninstall removes only
-those entries.
+those entries. Every bundled `SKILL.md` is validated by `skill-contract-checker.ts` against six harness
+rules (signal contract, git ownership, one-PR, package-manager agnosticism, subagent control, verify gate);
+the contract test hard-fails on any violation, keeping bundled skills safe to auto-install.
+
+**Operator drop-in skills.** Global, provider-specific skills under `~/.ralphctl/skills/{claude,copilot,codex}/<name>/SKILL.md`
+are discovered by `createOperatorSkillSource` and installed through the same `ralphctl-` namespace and
+`.git/info/exclude` wildcard as bundled skills. `StoragePaths.operatorSkillsRoot` = `<appRoot>/skills`.
+The compat checker runs as a warning for operator skills — a violation logs and skips, never aborts the
+flow. There is no per-project operator location.
+
+**`pnpm skills:update` (maintainers only).** Re-vendors upstream `SKILL.md` files from URLs in
+`scripts/skills-sources.json` into `scripts/vendor/skills/` for human review; adapted committed copies live
+under `src/integration/ai/skills/bundled/<name>/SKILL.md`. Bundled skills are frozen committed source —
+no runtime download, no runtime provenance check.
 
 **File-based AI provider contract** — providers write `signals.json` and a `session-id.txt` file per spawn
 (both persisted to `<sprintDir>/implement/<unit-slug>/rounds/<N>/<role>/`); the harness reads them
@@ -380,12 +394,13 @@ status-only stable override: `in_progress` tasks first (so a resumed sprint pick
 aborted task before any fresh work), then `todo`; V8's stable sort preserves dependency order within
 each status group. A `dependency-gate` leaf at the head of every per-task subchain enforces the
 prerequisite contract at run time: if any `dependsOn` task is not `done` (blocked or still unsettled),
-the dependent is transitioned to `blocked upstream — …` and the subchain body is skipped — no AI
-spawn wasted. The gate is status-only and works in both the serial and parallel paths. Block is
-transitive by construction (A → B → C cascades automatically). Unblocking the root prerequisite
-cascade-unblocks the entire upstream-blocked subtree in one action (`unblockTaskUseCase` calls
-`upstreamBlockedDependents` and rewrites the list atomically); own-failure blocks are never
-auto-cleared.
+the dependent transitions to `blocked` with `blockKind: 'upstream'` and the subchain body is skipped — no AI
+spawn wasted. `BlockedTask.blockKind: 'upstream' | 'own'` is the structural discriminant; `isUpstreamBlocked`
+reads it — never the reason-string prefix. Legacy `tasks.json` entries without `blockKind` are migrated at
+read time. The gate is status-only and works in both the serial and parallel paths. Block is transitive by
+construction (A → B → C cascades automatically). Unblocking the root prerequisite cascade-unblocks the
+entire upstream-blocked subtree in one action (`unblockTaskUseCase` calls `upstreamBlockedDependents` and
+rewrites the list atomically); own-failure blocks are never auto-cleared.
 
 **Rate-limit retry is adapter-side.** The headless provider wrapper at
 `src/integration/ai/providers/_engine/rate-limit-backoff.ts` sleeps with exponential delay between 429

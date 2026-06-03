@@ -161,20 +161,20 @@ business/
 Service ports live under `business/<module>/` (one folder per cross-cutting concern). Repository interfaces live
 in `domain/repository/<aggregate>/`.
 
-| Port                                                  | Folder                              | Concrete adapter                                                  |
-| ----------------------------------------------------- | ----------------------------------- | ----------------------------------------------------------------- |
-| `Logger` + `Sink`                                     | `business/observability/`           | `createEventBusLogger` (re-published as `LogEvent`)               |
-| `EventBus`                                            | `business/observability/`           | `InMemoryEventBus` (`integration/observability/`)                 |
-| `HeadlessAiProvider`                                  | `integration/ai/providers/_engine/` | `claude` / `copilot` / `codex` adapters under `providers/<tool>/` |
-| `InteractiveAiProvider`                               | `integration/ai/providers/_engine/` | same per-tool adapters (interactive entrypoint)                   |
-| `HarnessSignalSink`                                   | `business/observability/`           | file sinks under `integration/observability/sinks/`               |
-| `TemplateLoader`                                      | `integration/ai/prompts/_engine/`   | `FsTemplateLoader` — dev: src tree, bundled: `dist/`              |
-| `ReadinessProbe`                                      | `integration/ai/readiness/_engine/` | per-tool probes under `readiness/<tool>/`                         |
-| `SkillsAdapter` + `SkillSource`                       | `integration/ai/skills/_engine/`    | per-tool adapter + bundled / project source                       |
-| `GitRunner` / `ShellScriptRunner`                     | `integration/io/`                   | `createGitRunner` / `createShellScriptRunner`                     |
-| `WriteFile` (port) + `FileLocker` (adapter)           | `business/io/` / `integration/io/`  | atomic write helper / `createFileLocker`                          |
-| `IssueFetcher` / `IssuePusher` / `PullRequestCreator` | `business/scm/`                     | `gh` / `glab` shell wrappers under `integration/scm/`             |
-| `VersionChecker`                                      | `business/version/`                 | `createNpmVersionChecker` (`integration/version/`)                |
+| Port                                                  | Folder                              | Concrete adapter                                                                                                                                                            |
+| ----------------------------------------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Logger` + `Sink`                                     | `business/observability/`           | `createEventBusLogger` (re-published as `LogEvent`)                                                                                                                         |
+| `EventBus`                                            | `business/observability/`           | `InMemoryEventBus` (`integration/observability/`)                                                                                                                           |
+| `HeadlessAiProvider`                                  | `integration/ai/providers/_engine/` | `claude` / `copilot` / `codex` adapters under `providers/<tool>/`                                                                                                           |
+| `InteractiveAiProvider`                               | `integration/ai/providers/_engine/` | same per-tool adapters (interactive entrypoint)                                                                                                                             |
+| `HarnessSignalSink`                                   | `business/observability/`           | file sinks under `integration/observability/sinks/`                                                                                                                         |
+| `TemplateLoader`                                      | `integration/ai/prompts/_engine/`   | `FsTemplateLoader` — dev: src tree, bundled: `dist/`                                                                                                                        |
+| `ReadinessProbe`                                      | `integration/ai/readiness/_engine/` | per-tool probes under `readiness/<tool>/`                                                                                                                                   |
+| `SkillsAdapter` + `SkillSource`                       | `integration/ai/skills/_engine/`    | per-tool adapter + bundled / operator / project source; `parseSkill` extracts a `Skill` from a `SKILL.md`; `checkSkillContract` validates against six harness rules (S1–S6) |
+| `GitRunner` / `ShellScriptRunner`                     | `integration/io/`                   | `createGitRunner` / `createShellScriptRunner`                                                                                                                               |
+| `WriteFile` (port) + `FileLocker` (adapter)           | `business/io/` / `integration/io/`  | atomic write helper / `createFileLocker`                                                                                                                                    |
+| `IssueFetcher` / `IssuePusher` / `PullRequestCreator` | `business/scm/`                     | `gh` / `glab` shell wrappers under `integration/scm/`                                                                                                                       |
+| `VersionChecker`                                      | `business/version/`                 | `createNpmVersionChecker` (`integration/version/`)                                                                                                                          |
 
 ## Repository interfaces (`src/domain/repository/`)
 
@@ -204,7 +204,7 @@ application/bootstrap/
 ├── wire.ts                ← createAppDeps via wire(opts: WireOptions): AppDeps
 ├── storage-paths.ts       ← resolveStoragePaths() + storagePathsFromRoot(absPath);
 │                            StoragePaths carries appRoot / dataRoot / configRoot / stateRoot /
-│                            locksRoot / runsRoot / memoryRoot
+│                            locksRoot / runsRoot / memoryRoot / operatorSkillsRoot
 ├── runtime-sinks.ts       ← AppSinks (HarnessSignalSink, …)
 ├── provider-factory.ts    ← createAiProvider({ harnessConfig, eventBus, spawn? } & ({ flow, ai } | { row }))
 ├── interactive-provider-factory.ts
@@ -340,6 +340,10 @@ of the stack — the leaf or use-case wrapping them catches and converts to `Res
 ~/.ralphctl/                      ← override with RALPHCTL_HOME
 ├── config/
 │   └── settings.json                ← user-configurable settings (per-flow models, provider, log level, …)
+├── skills/                          ← operator drop-in skills root (operatorSkillsRoot); operator-authored,
+│   ├── claude/<name>/SKILL.md          not created by ensureStorageRoots; missing dir = no operator skills
+│   ├── copilot/<name>/SKILL.md
+│   └── codex/<name>/SKILL.md
 ├── data/
 │   ├── projects/
 │   │   └── <project-id>.json
@@ -413,7 +417,11 @@ and the non-obvious mutators.
   `blockedBy` and `parseTaskList` resolves them onto `dependsOn`). Carries an `attempts[]` history — each
   `Attempt` has `evaluation`, `verification`, `attribution` (`clean` / `regressed` / `baseline-broken` /
   `fixed-baseline` from pre/post verify-script comparison), optional `abortCause` (`AbortCause` discriminated
-  union), and optional `recoveryContext` (resume-from-aborted metadata). Optional `extraDimensions` is the
+  union), and optional `recoveryContext` (resume-from-aborted metadata). `BlockedTask` adds a structural
+  `blockKind: 'upstream' | 'own'` discriminant — `'upstream'` when the `dependency-gate` parked the task
+  because a prerequisite was not `done`; `'own'` for evaluator / verify / budget failures. New code reads
+  `isUpstreamBlocked(task)` (checks `blockKind`) — never the `blockedReason` string prefix. Legacy
+  `tasks.json` entries without `blockKind` are migrated at read time. Optional `extraDimensions` is the
   planner's per-task grading rubric beyond the four floor dimensions (Correctness / Completeness / Safety /
   Consistency). Optional `maxAttempts` overrides the global cap. Optional `escalatedFromModel` /
   `escalatedToModel` are stamped on first plateau-escalation.
@@ -542,6 +550,11 @@ Cross-cutting TUI features:
 - **`ProgressOverlay`** (`g`) reads `progress.md` from disk on demand — no live tail, snapshot-on-open.
 - **`CancelScopeOverlay`** (`c`) lets the operator cancel either the current AI attempt or the whole flow.
 - **`glyphFor(signalKind)`** — adds shape-redundant glyphs for every signal kind under `NO_COLOR=1`.
+- **`WindowedList` primitive** — `windowed-list.tsx` exports `computeListWindow`, `useListWindow`,
+  `WindowedList`, and `OverflowRow`. Every long, scrollable, homogeneous list in the TUI mounts through
+  this primitive; the prior `CardList` and `ListView` components are deleted. Id-based cursor (`getId`
+  prop) survives item reorder and eviction. `ScrollRegion` now accepts `suppressArrows` — views that own
+  a list cursor pass it to prevent double-handling of `↑/↓` / `PgUp`/`PgDn` at the page level.
 
 For tokens / components / state surfaces / copy rules see [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md).
 
@@ -568,24 +581,6 @@ CI smoke-tests `node dist/cli.mjs --version` from arbitrary cwd plus a real `npm
   drift will surface here first. Same gap as v0.6.x; deferred.
 - **Bundle-mode detection robustness** — `import.meta.url.endsWith('/cli.mjs')` would silently no-op if the
   published bin is renamed. Candidate replacement: `existsSync(<here>/manifest.json)`.
-- **Parallel task execution (opt-in)** — `settings.concurrency.maxParallelTasks` (range 1–5, Zod-clamped;
-  default `1`) controls the parallel cap. `=== 1` is the serial path, byte-for-byte unchanged. `> 1`
-  activates `runWaves` (`src/application/chain/run/wave-scheduler.ts`), an above-the-chain orchestrator
-  that is NOT a new chain primitive — it sits above the five primitives and sequences whole sub-chains.
-  Each dependency wave's tasks run concurrently up to the cap; waves stay strictly sequential (wave k+1
-  starts only after every branch of wave k settled and merged). Each task runs in its own isolated git
-  worktree at `<sprintDir>/worktrees/wt-<taskId>`, forked from the sprint-branch tip. The repo's
-  `setupScript` runs inside each fresh worktree; a setup failure blocks only that task, never the wave.
-  Each worktree's commit is folded onto the shared sprint branch via one serialised fold queue (`git merge
---ff-only` else `cherry-pick`), so multi-task parallel sprints land as one PR. A fold conflict (two
-  same-wave tasks touching the same file) transitions the second task to `blocked`; a relaunch
-  re-forks from the advanced tip and usually succeeds. Waves partition on dependency edges, not file
-  overlap. The sprint lock spans prologue + waves + epilogue with the same lock key as the serial path.
-  Commits durably folded before an abort are preserved and never re-executed on relaunch. Concurrent
-  `progress.md` / learnings-ledger appends are serialised through one in-process mutex. New files:
-  `src/application/chain/run/wave-scheduler.ts`,
-  `src/application/flows/implement/{parallel-element,wave-branch,merge-wave}.ts`,
-  plus git worktree verbs in `src/integration/io/git-operations.ts`.
 - **Cross-provider escalation** — plateau escalation today stays within a provider (e.g. Sonnet → Opus);
   switching providers mid-task carries auth/context/tool hazards and is deferred.
 - **Learning-ledger retrieval / embeddings** — the distill step reads the full ledger (no retrieval engine).
