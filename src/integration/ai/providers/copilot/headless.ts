@@ -8,6 +8,7 @@ import { resolveWritableRoots } from '@src/integration/ai/providers/_engine/reso
 import type { SessionPermissions } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { RateLimitError } from '@src/domain/value/error/rate-limit-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { isCopilotModel } from '@src/domain/value/settings-models/copilot.ts';
@@ -201,12 +202,14 @@ export const createCopilotProvider = (deps: CopilotProviderDeps): HeadlessAiProv
               await sleepCancellable(delayMs, session.abortSignal);
               deps.eventBus.publish({ type: 'banner-clear', id: bannerId, at: IsoTimestamp.now() });
               if (session.abortSignal?.aborted === true) {
+                // User cancel during the backoff sleep must surface as AbortError — the one
+                // error chains propagate transparently (CLAUDE.md §AbortError). InvalidStateError
+                // is classified as a recoverable turn error and would wrongly self-block the task.
+                // Mirrors the abort-on-exit shape in classify-spawn-exit.ts.
                 return Result.error(
-                  new InvalidStateError({
-                    entity: 'copilot-provider',
-                    currentState: 'aborted-during-backoff',
-                    attemptedAction: 'retry',
-                    message: 'copilot-provider: aborted by caller during rate-limit backoff',
+                  new AbortError({
+                    elementName: 'copilot-provider',
+                    reason: 'copilot-provider: aborted by caller during rate-limit backoff',
                   })
                 ) as Result<ProviderOutput, DomainError>;
               }

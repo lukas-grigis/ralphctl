@@ -296,6 +296,38 @@ describe('createClaudeProvider', () => {
     expect(out.error.code).toBe('invalid-state');
     expect(calls.n).toBe(1);
   });
+
+  it('abort during rate-limit backoff: surfaces AbortError (not InvalidStateError)', async () => {
+    // A user cancel that lands while the provider is sleeping between 429 retries must surface as
+    // AbortError — the one error chains propagate transparently. InvalidStateError would be
+    // classified as a recoverable turn error and wrongly self-block the task.
+    const cap = createCapturingBus();
+    const controller = new AbortController();
+    const calls = { n: 0 };
+    const spawn: ProviderSpawn = () => {
+      calls.n++;
+      // Fire the abort right after the first (rate-limited) spawn so it lands during the
+      // generous backoff sleep below — never before exit classification (which checks abort
+      // first and would short-circuit the attempt itself).
+      setTimeout(() => controller.abort(), 5);
+      return makeFakeChild({ stderrChunks: ['rate limit exceeded; please retry later\n'], exitCode: 1 });
+    };
+
+    const provider = createClaudeProvider({
+      rateLimitRetries: 2,
+      eventBus: cap.bus,
+      spawn,
+      backoffSchedule: [5_000, 5_000, 5_000], // long enough that the abort lands mid-sleep
+    });
+
+    const out = await provider.generate(session({ abortSignal: controller.signal }));
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.error.code).toBe('aborted');
+    expect(out.error.name).toBe('AbortError');
+    // The retry never re-spawned — the abort tore the run down during the first backoff.
+    expect(calls.n).toBe(1);
+  });
 });
 
 describe('createClaudeProvider — TokenUsageEvent emission', () => {
@@ -419,6 +451,30 @@ describe('createClaudeProvider — TokenUsageEvent emission', () => {
     const tokenEvents = cap.events.filter((e): e is TokenUsageEvent => e.type === 'token-usage');
     expect(tokenEvents).toHaveLength(1);
     expect(tokenEvents[0]!.role).toBeUndefined();
+  });
+
+  it('stamps chainSessionId onto the event when the session carries one', async () => {
+    // Downstream usage subscribers MUST key on `chainSessionId ?? sessionId` — the provider-uuid
+    // sessionId never matches a chain run id. Guard that the provider forwards it when set.
+    const cap = createCapturingBus();
+    const sess = session({ chainSessionId: 'chain-run-42' });
+    const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-cs', model: 'claude-opus-4-8' });
+    const resultEvt = JSON.stringify({
+      type: 'result',
+      result: '<task-complete/>',
+      session_id: 'sess-cs',
+      usage: { input_tokens: 10, output_tokens: 5 },
+    });
+    const { spawn } = makeSpawn([{ stdoutChunks: [`${init}\n${resultEvt}\n`], exitCode: 0 }]);
+
+    const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+
+    const tokenEvents = cap.events.filter((e): e is TokenUsageEvent => e.type === 'token-usage');
+    expect(tokenEvents).toHaveLength(1);
+    expect(tokenEvents[0]!.chainSessionId).toBe('chain-run-42');
+    expect(tokenEvents[0]!.sessionId).toBe('sess-cs');
   });
 
   it('emits the event without token counts when the result event lacks a usage object', async () => {
