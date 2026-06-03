@@ -44,6 +44,9 @@ export const glyphs = {
   cross: '✗',
   warningGlyph: '⚠',
   infoGlyph: 'i',
+  // Health marker — footer doctor indicator. Monochrome medical cross, tinted by probe status;
+  // renders without color so it survives NO_COLOR (no emoji).
+  stethoscope: '✚',
   // Loading (braille spinner frames)
   spinner: ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const,
   // Personality rail

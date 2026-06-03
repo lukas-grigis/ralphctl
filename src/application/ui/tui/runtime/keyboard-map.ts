@@ -17,24 +17,51 @@ export interface KeyBinding {
   readonly keys: readonly string[];
   /** One-line label shown in the help overlay and (selectively) in the status bar. */
   readonly label: string;
+  /**
+   * When `true`, this binding is also surfaced in the always-visible status-bar footer (via
+   * {@link footerGlobalHints}) — the curated subset of global chords worth advertising on every
+   * screen. Absent / `false` keeps the binding in the help overlay only.
+   */
+  readonly showInFooter?: boolean;
 }
 
-/** Global bindings — available on every view. Conflict-free across the union below. */
+/**
+ * Global bindings — available on every view. Conflict-free across the union below.
+ *
+ * Bindings tagged `showInFooter` are mirrored into the status-bar footer via
+ * {@link footerGlobalHints}; the rest live in the help overlay only.
+ */
 export const globalKeys = {
-  back: { keys: ['esc'], label: 'back' },
-  home: { keys: ['h'], label: 'home' },
-  flows: { keys: ['n'], label: 'new flow' },
-  sessions: { keys: ['x'], label: 'sessions' },
-  settings: { keys: ['s'], label: 'settings' },
+  back: { keys: ['esc'], label: 'back', showInFooter: true },
+  home: { keys: ['h'], label: 'home', showInFooter: true },
+  flows: { keys: ['n'], label: 'new flow', showInFooter: true },
+  cycleSession: { keys: ['Tab', 'Shift+Tab'], label: 'cycle running flow' },
+  jumpSession: { keys: ['Ctrl+1..9'], label: 'jump to running flow' },
+  sessions: { keys: ['x'], label: 'sessions', showInFooter: true },
+  settings: { keys: ['s'], label: 'settings', showInFooter: true },
   doctor: { keys: ['!'], label: 'doctor' },
   bannerToggle: { keys: ['b'], label: 'toggle banner' },
   progressOverlay: { keys: ['g'], label: 'show progress.md' },
   yankTask: { keys: ['y'], label: 'copy active task summary' },
-  pickProject: { keys: ['P'], label: 'pick project' },
+  pickProject: { keys: ['P'], label: 'pick project', showInFooter: true },
   pickSprint: { keys: ['S'], label: 'pick sprint' },
-  help: { keys: ['?'], label: 'help' },
-  quit: { keys: ['q', 'ctrl+c'], label: 'quit' },
+  help: { keys: ['?'], label: 'help', showInFooter: true },
+  quit: { keys: ['q', 'ctrl+c'], label: 'quit', showInFooter: true },
 } as const satisfies Record<string, KeyBinding>;
+
+/**
+ * The curated subset of {@link globalKeys} surfaced in the always-visible status-bar footer,
+ * pre-mapped to the footer's `{ keys, label }` hint shape (`keys` joined with `/` for
+ * multi-variant bindings). Single source of truth for the footer's global hints — the status bar
+ * renders this instead of hand-maintaining a parallel list.
+ *
+ * @public
+ */
+export const footerGlobalHints: ReadonlyArray<{ readonly keys: string; readonly label: string }> = (
+  Object.values(globalKeys) as KeyBinding[]
+)
+  .filter((b) => b.showInFooter === true)
+  .map((b) => ({ keys: b.keys.join('/'), label: b.label }));
 
 /**
  * Bindings local to the sprint picker — the cross-project sprint list mounted from `S`.

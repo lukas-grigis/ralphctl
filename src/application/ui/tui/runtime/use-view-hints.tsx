@@ -12,6 +12,13 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 export interface ViewHint {
   readonly keys: string;
   readonly label: string;
+  /**
+   * Declarative visibility gate. `undefined` or `true` → the hint shows; `false` → the merged
+   * hint list omits it. Lets a view publish a static hint array and toggle individual entries by
+   * flipping this flag rather than rebuilding the array conditionally. Omitting it is
+   * backward-compatible — existing callers behave exactly as before.
+   */
+  readonly enabledWhen?: boolean;
 }
 
 interface HintsRegistryApi {
@@ -35,14 +42,14 @@ const HintsContext = createContext<HintsRegistryApi | undefined>(undefined);
 // Views call `useViewHints([...])` with a freshly-allocated array each render. Without a
 // content-based bail-out the effect would loop: fresh array → registry update → new context
 // value → caller re-renders → fresh array → ... (Maximum update depth exceeded.)
-const hintsEqual = (a: readonly ViewHint[], b: readonly ViewHint[]): boolean => {
+export const hintsEqual = (a: readonly ViewHint[], b: readonly ViewHint[]): boolean => {
   if (a === b) return true;
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {
     const x = a[i];
     const y = b[i];
     if (x === undefined || y === undefined) return false;
-    if (x.keys !== y.keys || x.label !== y.label) return false;
+    if (x.keys !== y.keys || x.label !== y.label || x.enabledWhen !== y.enabledWhen) return false;
   }
   return true;
 };
@@ -105,7 +112,10 @@ export const HintsProvider = ({ children }: { readonly children: React.ReactNode
     });
   }, []);
 
-  const merged = useMemo<readonly ViewHint[]>(() => [...registry.values()].flat(), [registry]);
+  const merged = useMemo<readonly ViewHint[]>(
+    () => [...registry.values()].flat().filter((hint) => hint.enabledWhen !== false),
+    [registry]
+  );
   const mergedSuppressed = useMemo<ReadonlySet<string>>(
     () => new Set([...suppressions.values()].flat()),
     [suppressions]
