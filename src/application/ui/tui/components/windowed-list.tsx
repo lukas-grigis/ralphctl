@@ -199,6 +199,11 @@ export interface WindowedListProps<T> {
  * Thin render wrapper for views that don't need bespoke layout: builds the window via
  * {@link useListWindow}, renders an {@link OverflowRow} above, the sliced visible items, and an
  * {@link OverflowRow} below. Long lists obey the slice-before-map mandate by construction.
+ *
+ * Views that need a custom row layout consume {@link useListWindow} directly instead; this wrapper
+ * is the documented drop-in for the simple homogeneous-list case (DESIGN-SYSTEM §6.4).
+ *
+ * @public
  */
 export function WindowedList<T>({
   items,
