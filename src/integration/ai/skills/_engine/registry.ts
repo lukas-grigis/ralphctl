@@ -39,6 +39,10 @@ export const FLOW_SKILLS: Record<FlowId, readonly string[]> = {
     'ralphctl-iterative-review',
     'ralphctl-abstraction-first',
     'ralphctl-minimal-scaffolding',
+    'ralphctl-debugging-and-error-recovery',
+    'ralphctl-test-driven-development',
+    'ralphctl-code-review-and-quality',
+    'ralphctl-surgical-simplicity',
   ],
   readiness: [
     'ralphctl-alignment',
@@ -51,6 +55,7 @@ export const FLOW_SKILLS: Record<FlowId, readonly string[]> = {
     'ralphctl-iterative-review',
     'ralphctl-abstraction-first',
     'ralphctl-minimal-scaffolding',
+    'ralphctl-surgical-simplicity',
   ],
   // `createPr` is the camelCase FlowId for the kebab-case orchestration flow `create-pr`.
   // The mapping lives in the registry test (and in the launcher's `aiFlowIdFor`). Skills
@@ -60,6 +65,7 @@ export const FLOW_SKILLS: Record<FlowId, readonly string[]> = {
     'ralphctl-iterative-review',
     'ralphctl-abstraction-first',
     'ralphctl-minimal-scaffolding',
+    'ralphctl-code-review-and-quality',
   ],
 };
 
