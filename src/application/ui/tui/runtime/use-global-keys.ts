@@ -8,10 +8,12 @@
 import type { MutableRefObject } from 'react';
 import { useEffect, useMemo, useRef } from 'react';
 import { useApp, useInput } from 'ink';
-import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
+import { useRouter, type ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
+import { useSessionManager } from '@src/application/ui/tui/runtime/sessions-context.tsx';
+import type { SessionRecord } from '@src/application/ui/tui/runtime/session-manager.ts';
 import { type CopyToClipboard, createCopyToClipboard } from '@src/integration/io/clipboard.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
@@ -36,6 +38,7 @@ export const useGlobalKeys = (opts: UseGlobalKeysOptions = {}): void => {
   const ui = useUiState();
   const selection = useSelection();
   const deps = useDeps();
+  const sessions = useSessionManager();
   const copyToClipboard = useMemo<CopyToClipboard>(
     () => opts.copyToClipboard ?? createCopyToClipboard(),
     [opts.copyToClipboard]
@@ -79,6 +82,20 @@ export const useGlobalKeys = (opts: UseGlobalKeysOptions = {}): void => {
     }
     if (input === 'g' && selection.sprintId !== undefined) {
       ui.toggleProgress();
+      return;
+    }
+
+    // Multi-flow navigation. Tab / Shift+Tab cycle through the RUNNING sessions; Ctrl+1..9 jump
+    // to the Nth running session (1-indexed). Reaches this point only when no prompt is mounted
+    // (opts.disabled gate above) and no overlay is open (help / progress early-returned). Focusing
+    // a session reuses the Sessions view's mechanism — push / replace the `execute` route keyed on
+    // the session id. With zero running sessions every chord is a silent no-op.
+    if (key.tab) {
+      focusRunningSession(sessions, router, key.shift ? 'prev' : 'next');
+      return;
+    }
+    if (key.ctrl && /^[1-9]$/.test(input)) {
+      focusRunningSession(sessions, router, Number(input) - 1);
       return;
     }
 
@@ -162,6 +179,51 @@ export const useGlobalKeys = (opts: UseGlobalKeysOptions = {}): void => {
         navigate('pick-sprint');
     }
   });
+};
+
+/**
+ * Navigate to a running session's Execute view, reusing the exact route the Sessions view's
+ * open action pushes (`{ id: 'execute', props: { sessionId } }`).
+ *
+ * `target` is either an absolute 0-based index (Ctrl+1..9 jump) or a relative direction
+ * (`'next'` / `'prev'` for Tab / Shift+Tab). Relative cycling wraps modularly off the currently
+ * focused session's index; entering from a non-execute view starts at the first (`'next'`) or
+ * last (`'prev'`) running session. An out-of-range jump index and an empty running list are both
+ * silent no-ops.
+ *
+ * On the Execute view we `replace` (don't stack breadcrumb history while hopping between live
+ * runs); from any other view we `push` so `esc` returns to where the operator came from.
+ */
+const focusRunningSession = (
+  sessions: { list(): readonly SessionRecord[] },
+  router: { current: ViewEntry; push(e: ViewEntry): void; replace(e: ViewEntry): void },
+  target: number | 'next' | 'prev'
+): void => {
+  const running = sessions.list().filter((s) => s.descriptor.status === 'running');
+  if (running.length === 0) return;
+
+  const onExecute = router.current.id === 'execute';
+  const focusedId = onExecute ? (router.current.props?.sessionId as string | undefined) : undefined;
+  const focusedIndex = running.findIndex((s) => s.descriptor.id === focusedId);
+
+  let next: number;
+  if (typeof target === 'number') {
+    if (target < 0 || target >= running.length) return;
+    next = target;
+  } else if (focusedIndex === -1) {
+    // Entering from a non-execute view (or focused session no longer running): Tab → first,
+    // Shift+Tab → last.
+    next = target === 'next' ? 0 : running.length - 1;
+  } else {
+    const delta = target === 'next' ? 1 : -1;
+    next = (focusedIndex + delta + running.length) % running.length;
+  }
+
+  const targetSession = running[next];
+  if (targetSession === undefined) return;
+  const entry: ViewEntry = { id: 'execute', props: { sessionId: targetSession.descriptor.id } };
+  if (onExecute) router.replace(entry);
+  else router.push(entry);
 };
 
 interface ClipboardBannerSpec {

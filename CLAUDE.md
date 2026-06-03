@@ -192,8 +192,9 @@ nested shape, with `generator` and `evaluator` both set to a copy of the legacy 
 nested shape, so the promotion fires at most once per file.
 
 **TUI is the primary surface.** From Home: pipeline-map quick-actions + browse submenu (Sprints / Tickets /
-Tasks / Projects). Multi-flow navigation: Tab / Shift+Tab cycle running flows, `Ctrl+1..9` direct-jump,
-`SessionsView` lists every runner. `?` opens the centralised help overlay generated from `keyboard-map.ts`.
+Tasks / Projects). Multi-flow navigation: Tab / Shift+Tab cycle running flows, `Ctrl+1..9` direct-jump to
+the Nth running flow — both operate over RUNNING sessions only and are suspended while a prompt / overlay is
+mounted; `SessionsView` lists every runner. `?` opens the centralised help overlay generated from `keyboard-map.ts`.
 
 Execute view: three-column at `xl` (≥180), two-column at `lg` (≥140), compact-rail at `md` (100–139),
 single-column below `md`. Rail grows fluidly 36→56 cols at `xl`+ via `resolveRailWidth`. Named breakpoints

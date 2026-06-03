@@ -18,12 +18,18 @@ import { UiStateProvider, useUiState } from '@src/application/ui/tui/runtime/ui-
 import { RouterProvider, useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { SelectionProvider } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { DepsProvider } from '@src/application/ui/tui/runtime/deps-context.tsx';
+import { SessionsProvider } from '@src/application/ui/tui/runtime/sessions-context.tsx';
+import type { SessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
 import { useGlobalKeys } from '@src/application/ui/tui/runtime/use-global-keys.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
 
 /** Minimal AppDeps stub — the global key handler only reaches for `deps.eventBus`. */
 const stubDeps = (): AppDeps => ({ eventBus: createInMemoryEventBus() }) as unknown as AppDeps;
+
+/** Empty session manager — useGlobalKeys now reads it, but these tests exercise no running flows. */
+const emptyManager = (): SessionManager =>
+  ({ list: () => [], get: () => undefined, subscribe: () => () => undefined }) as unknown as SessionManager;
 
 const GlobalHarness = ({ children }: { readonly children: React.ReactNode }): React.JSX.Element => {
   const ui = useUiState();
@@ -39,17 +45,19 @@ const ClaimingPrompt = ({ onSubmit }: { readonly onSubmit: (value: string) => vo
 
 const Harness = ({ onSubmit }: { readonly onSubmit: (value: string) => void }): React.JSX.Element => (
   <DepsProvider value={stubDeps()}>
-    <UiStateProvider>
-      <SelectionProvider>
-        <RouterProvider initial={{ id: 'home' }}>
-          {(): React.JSX.Element => (
-            <GlobalHarness>
-              <RouterAwareChild onSubmit={onSubmit} />
-            </GlobalHarness>
-          )}
-        </RouterProvider>
-      </SelectionProvider>
-    </UiStateProvider>
+    <SessionsProvider value={emptyManager()}>
+      <UiStateProvider>
+        <SelectionProvider>
+          <RouterProvider initial={{ id: 'home' }}>
+            {(): React.JSX.Element => (
+              <GlobalHarness>
+                <RouterAwareChild onSubmit={onSubmit} />
+              </GlobalHarness>
+            )}
+          </RouterProvider>
+        </SelectionProvider>
+      </UiStateProvider>
+    </SessionsProvider>
   </DepsProvider>
 );
 

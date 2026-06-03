@@ -259,23 +259,27 @@ Pick the right surface for the state. Don't mix raw `<Text color={inkColors.erro
 
 These work from **every** view. Don't override them.
 
-| Key   | Action                                           |
-| ----- | ------------------------------------------------ |
-| `Esc` | Pop one frame (no-op at root)                    |
-| `h`   | Home                                             |
-| `n`   | New flow (flows view)                            |
-| `x`   | Sessions view                                    |
-| `s`   | Settings                                         |
-| `!`   | Doctor                                           |
-| `b`   | Toggle banner compact ↔ full                     |
-| `g`   | Progress overlay (reads `progress.md` from disk) |
-| `y`   | Yank active-task summary to clipboard            |
-| `P`   | Open project picker (cross-project)              |
-| `S`   | Open sprint picker (cross-project)               |
-| `?`   | Help overlay                                     |
-| `q`   | Quit (Home root only)                            |
+| Key                 | Action                                           |
+| ------------------- | ------------------------------------------------ |
+| `Esc`               | Pop one frame (no-op at root)                    |
+| `h`                 | Home                                             |
+| `n`                 | New flow (flows view)                            |
+| `Tab` / `Shift+Tab` | Cycle running flow (next / prev)                 |
+| `Ctrl+1..9`         | Jump to running flow (Nth running session)       |
+| `x`                 | Sessions view                                    |
+| `s`                 | Settings                                         |
+| `!`                 | Doctor                                           |
+| `b`                 | Toggle banner compact ↔ full                     |
+| `g`                 | Progress overlay (reads `progress.md` from disk) |
+| `y`                 | Yank active-task summary to clipboard            |
+| `P`                 | Open project picker (cross-project)              |
+| `S`                 | Open sprint picker (cross-project)               |
+| `?`                 | Help overlay                                     |
+| `q`                 | Quit (Home root only)                            |
 
-Switch between running flows via the Sessions view (`x`) — there is no Tab / Ctrl+digit flow-cycling chord.
+Switch between running flows via `Tab` / `Shift+Tab` (cycle next / prev) or `Ctrl+1..9` (jump to the Nth
+running session); the Sessions view (`x`) lists them all. Both chords cycle / jump over RUNNING sessions
+only and are suspended while a prompt or overlay is mounted.
 
 ### 6.2 Execute-view keys — active when Execute view owns the focus
 

@@ -19,6 +19,8 @@ import type { StoragePaths } from '@src/application/bootstrap/storage-paths.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { DepsProvider } from '@src/application/ui/tui/runtime/deps-context.tsx';
+import { SessionsProvider } from '@src/application/ui/tui/runtime/sessions-context.tsx';
+import type { SessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
 import { StorageProvider } from '@src/application/ui/tui/runtime/storage-context.tsx';
 import { UiStateProvider, useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { SelectionProvider, useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
@@ -80,23 +82,29 @@ interface HarnessOptions {
   readonly withSprint: boolean;
 }
 
+/** Empty session manager — useGlobalKeys now reads it, but these tests exercise no running flows. */
+const emptyManager = (): SessionManager =>
+  ({ list: () => [], get: () => undefined, subscribe: () => () => undefined }) as unknown as SessionManager;
+
 const Harness = ({ dataRoot, withSprint }: HarnessOptions): React.JSX.Element => {
   const deps = {} as unknown as AppDeps;
   return (
     <DepsProvider value={deps}>
       <StorageProvider value={buildStorage(dataRoot)}>
-        <UiStateProvider>
-          <SelectionProvider>
-            <SeedSelection withSprint={withSprint} />
-            <RouterProvider initial={{ id: withSprint ? 'sprint-detail' : 'home' }}>
-              {(): React.JSX.Element => (
-                <GlobalHarness>
-                  <Text>UNDERLYING_VIEW</Text>
-                </GlobalHarness>
-              )}
-            </RouterProvider>
-          </SelectionProvider>
-        </UiStateProvider>
+        <SessionsProvider value={emptyManager()}>
+          <UiStateProvider>
+            <SelectionProvider>
+              <SeedSelection withSprint={withSprint} />
+              <RouterProvider initial={{ id: withSprint ? 'sprint-detail' : 'home' }}>
+                {(): React.JSX.Element => (
+                  <GlobalHarness>
+                    <Text>UNDERLYING_VIEW</Text>
+                  </GlobalHarness>
+                )}
+              </RouterProvider>
+            </SelectionProvider>
+          </UiStateProvider>
+        </SessionsProvider>
       </StorageProvider>
     </DepsProvider>
   );
