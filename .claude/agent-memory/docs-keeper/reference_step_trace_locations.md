@@ -15,5 +15,5 @@ will find drift:
 For Execute there is also a fourth location in `CLAUDE.md` — but as of 2026-05-02, CLAUDE.md contains step traces only
 for `onboard` and `create-pr` flows (by name/reference, not full trace), so check with `grep` on each audit.
 
-The canonical source of truth is always `src/application/chains/<name>/<name>-flow.test.ts` — the `it('runs …')`
-describe string contains the exact step list.
+The canonical source of truth is always `tests/e2e/flows/<flow>.test.ts` — its `describe(...)` / `it(...)` titles and
+asserted trace contain the exact step list.

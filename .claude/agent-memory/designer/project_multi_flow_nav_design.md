@@ -5,11 +5,12 @@ metadata:
   type: project
 ---
 
-Tab/Shift+Tab + Ctrl+1..9 multi-flow navigation design — finalized Jun 2026.
+Tab/Shift+Tab + Ctrl+1..9 multi-flow navigation — SHIPPED Jun 2026. The chord exists; `cycleSession` /
+`jumpSession` are declared in `keyboard-map.ts`. Ctrl+1..9 is gated on the kitty keyboard protocol
+(iTerm2 / kitty / WezTerm / foot — Ink only surfaces `key.ctrl` for digits via the CSI-u extension);
+in other terminals it is an inert no-op while Tab cycling works everywhere.
 
-**Why:** multi-flow-strip.tsx advertised `↹ cycle` and `[N]` chips but no handler existed anywhere in the codebase. CLAUDE.md and DESIGN-SYSTEM.md contradicted each other. Owner chose to implement, not remove.
-
-**Core decisions:**
+**Core decisions (the durable location/gating facts):**
 
 1. **Location:** `use-global-keys.ts` — same place as `S`/`P`/`x` navigation chords. Tab/Ctrl+digit are global chords, not per-view.
 
@@ -30,16 +31,8 @@ Tab/Shift+Tab + Ctrl+1..9 multi-flow navigation design — finalized Jun 2026.
 
 6. **No-op cases:** 0 running sessions → silent no-op. Ctrl+N with N > count → silent no-op.
 
-7. **Ctrl+digit risk:** In most terminal emulators Ctrl+1..9 do NOT generate a unique byte sequence (they send the raw digit bytes). Ink may not set `key.ctrl = true` for these. Fallback: use `Alt+1..9` (`key.meta && input === '1'`) which does generate distinct sequences in iTerm2/macOS Terminal. Implementer must verify before shipping.
+7. **keyboard-map.ts:** `cycleSession: { keys: ['Tab', 'Shift+Tab'], … }` and `jumpSession: { keys: ['Ctrl+1..9'], … }` live in `globalKeys`; the help overlay is generated from this map.
 
-8. **Strip hint:** change `↹ cycle` to `↹/⇧↹ cycle` in multi-flow-strip.tsx:97.
+**Files:** `use-global-keys.ts` (core), `keyboard-map.ts` (map), `multi-flow-strip.tsx` (strip hint).
 
-9. **keyboard-map.ts:** add `cycleSession: { keys: ['Tab', 'Shift+Tab'], label: 'cycle running sessions' }` and `jumpSession: { keys: ['Ctrl+1..9'], label: 'jump to Nth running session' }` to `globalKeys`.
-
-10. **Docs:** CLAUDE.md:195 and DESIGN-SYSTEM.md:278 both need updating — the chord DOES exist after this. DESIGN-SYSTEM.md:278 currently says explicitly "there is no Tab / Ctrl+digit chord."
-
-**Files:** use-global-keys.ts (core), keyboard-map.ts (map), multi-flow-strip.tsx (hint string), CLAUDE.md, DESIGN-SYSTEM.md.
-
-**Why:** deadline decision — owner chose "implement" (not remove) when pointing at M3 in the UI/UX audit.
-
-**How to apply:** when implementing, verify Ctrl+digit sequences in target terminals before committing to the chord; have the Alt+digit fallback ready.
+**How to apply:** Tab/Shift+Tab and Ctrl+1..9 operate over RUNNING sessions only and are suspended while a prompt / overlay is mounted; both are global chords. Ctrl+1..9 only fires under a kitty-protocol terminal — treat it as an enhancement over the always-available Tab cycling, and label it accordingly in any help / hint copy.
