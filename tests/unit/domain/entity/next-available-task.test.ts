@@ -46,7 +46,7 @@ describe('nextAvailableTask', () => {
 
   it('skips blocked tasks', () => {
     const a = makeTodoTask({ name: 'a' });
-    const blocked = through(markTaskBlocked(a, 'wait'));
+    const blocked = through(markTaskBlocked(a, 'wait', 'own'));
     expect(nextAvailableTask([blocked])).toBeUndefined();
   });
 });

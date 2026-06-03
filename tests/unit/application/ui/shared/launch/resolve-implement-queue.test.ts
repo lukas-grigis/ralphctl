@@ -130,7 +130,7 @@ describe('resolveImplementQueue', () => {
     // but filtered out of the launch queue.
     const a = makeTodoTask({ name: 'a', order: 1 });
     const b = makeTodoTask({ name: 'b', order: 2, dependsOn: [a.id] });
-    const blocked: Task = { ...a, status: 'blocked', blockedReason: 'manual block' };
+    const blocked: Task = { ...a, status: 'blocked', blockedReason: 'manual block', blockKind: 'own' };
 
     const result = resolveImplementQueue([blocked, b]);
 
@@ -140,7 +140,7 @@ describe('resolveImplementQueue', () => {
   });
 
   it('returns an empty queue when nothing is resumable (caller reports separately)', () => {
-    const done: Task = { ...makeTodoTask({ name: 'a' }), status: 'blocked', blockedReason: 'x' };
+    const done: Task = { ...makeTodoTask({ name: 'a' }), status: 'blocked', blockedReason: 'x', blockKind: 'own' };
 
     const result = resolveImplementQueue([done]);
 

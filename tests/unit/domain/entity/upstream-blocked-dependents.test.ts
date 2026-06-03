@@ -10,8 +10,8 @@ const through = <T>(r: { readonly ok: true; readonly value: T } | { readonly ok:
 };
 
 const upstream = (t: Task): Task =>
-  through(markTaskBlocked(t, `${BLOCKED_UPSTREAM_REASON_PREFIX} — prerequisite not done`));
-const ownBlocked = (t: Task): Task => through(markTaskBlocked(t, 'verify failed on its own merits'));
+  through(markTaskBlocked(t, `${BLOCKED_UPSTREAM_REASON_PREFIX} — prerequisite not done`, 'upstream'));
+const ownBlocked = (t: Task): Task => through(markTaskBlocked(t, 'verify failed on its own merits', 'own'));
 
 describe('upstreamBlockedDependents', () => {
   it('returns the transitive upstream-blocked subtree of the root, excluding the root itself', () => {

@@ -128,6 +128,9 @@ export const failCurrentAttempt = (
       ...inProgressNext,
       status: 'blocked',
       blockedReason: `attempt budget exhausted (maxAttempts=${guard.value.maxAttempts})`,
+      // Budget exhaustion is an own-failure block — the operator must address the failures; it never
+      // cascade-clears via the upstream-unblock path.
+      blockKind: 'own',
     };
     return Result.ok(blocked);
   }

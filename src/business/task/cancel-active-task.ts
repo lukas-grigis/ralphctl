@@ -47,7 +47,8 @@ export const cancelActiveTaskUseCase = async (
     return Result.ok(props.task);
   }
 
-  const transitioned = markTaskBlocked(props.task, props.reason);
+  // Operator-initiated cancel is an own-failure block — it never cascade-clears via upstream unblock.
+  const transitioned = markTaskBlocked(props.task, props.reason, 'own');
   if (!transitioned.ok) {
     log.warn('invalid state transition', {
       taskId: props.task.id,

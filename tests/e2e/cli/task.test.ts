@@ -74,7 +74,7 @@ describe('ralphctl task', () => {
     it('flips a blocked task back to todo and persists', async () => {
       const sprint = makeDraftSprint();
       const repo = createFsTaskRepository({ root: cli.paths.dataRoot });
-      const blocked = markTaskBlocked(makeTodoTask({ name: 'wedged' }), 'flaky verify');
+      const blocked = markTaskBlocked(makeTodoTask({ name: 'wedged' }), 'flaky verify', 'own');
       if (!blocked.ok) throw new Error(`fixture: ${blocked.error.message}`);
       await repo.saveAll(sprint.id, [blocked.value]);
 

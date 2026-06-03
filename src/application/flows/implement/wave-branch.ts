@@ -125,7 +125,9 @@ const blockTaskForFoldConflict = (task: Task, reason: string): BlockedTask => {
   void _status;
   void _finalAttemptN;
   void _blockedReason;
-  return { ...rest, status: 'blocked', blockedReason: reason };
+  // A fold conflict is an own-failure block — the worktree's work is sound but can't land without
+  // manual resolution, so it never cascade-clears via the upstream-unblock path.
+  return { ...rest, status: 'blocked', blockedReason: reason, blockKind: 'own' };
 };
 
 /**
@@ -296,7 +298,9 @@ const blockTaskInWorktree = (
   // No task in ctx (shouldn't happen — the wave carries the full list), or the task isn't in a
   // blockable state: carry ctx through so the reducer leaves base untouched and it resets/re-runs.
   if (task === undefined) return Result.ok({ ctx, trace: [entry] });
-  const blocked = markTaskBlocked(task, reason);
+  // Per-worktree setup failure is an own-failure block — the task couldn't be prepared, which a
+  // relaunch / operator fix must address; it never cascade-clears via upstream unblock.
+  const blocked = markTaskBlocked(task, reason, 'own');
   if (!blocked.ok) return Result.ok({ ctx, trace: [entry] });
   // Narrow to THIS task only — the merge overlay is by-id; emitting siblings risks clobbering a
   // concurrently-merged copy (the same narrowing contract the branch body applies after its subchain).

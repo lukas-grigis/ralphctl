@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { Result } from '@src/domain/result.ts';
 import type { Task } from '@src/domain/entity/task.ts';
+import { BLOCKED_UPSTREAM_REASON_PREFIX } from '@src/domain/entity/task-lifecycle.ts';
 import type { MigrationGapError } from '@src/domain/value/error/migration-gap-error.ts';
 import type { ParseError } from '@src/domain/value/error/parse-error.ts';
 import { RepositoryIdSchema, TaskIdSchema, TicketIdSchema } from '@src/integration/persistence/shared/value-schemas.ts';
@@ -81,7 +82,22 @@ const TaskBaseShape = {
 
 const TodoTaskSchema = z.object({ ...TaskBaseShape, status: z.literal('todo') });
 const InProgressTaskSchema = z.object({ ...TaskBaseShape, status: z.literal('in_progress') });
-const BlockedTaskSchema = z.object({ ...TaskBaseShape, status: z.literal('blocked'), blockedReason: z.string() });
+
+/**
+ * `blockKind` is the structural discriminant between an upstream-cascade block (auto-clearable)
+ * and an own-failure block (operator must fix). It is OPTIONAL on read so `tasks.json` files
+ * written before the field existed still load; a missing value is inferred post-parse from the
+ * legacy reason prefix (see {@link inferBlockKind}). The schema member stays a plain object — a
+ * `.transform()` here would make it ineligible for `z.discriminatedUnion`, so the inference runs
+ * on the parsed union instead. The inferred value materialises into the loaded entity, so the
+ * canonical shape lands on the next save.
+ */
+const BlockedTaskSchema = z.object({
+  ...TaskBaseShape,
+  status: z.literal('blocked'),
+  blockedReason: z.string(),
+  blockKind: z.union([z.literal('upstream'), z.literal('own')]).optional(),
+});
 
 /**
  * `DoneTask` requires the attempt at index `finalAttemptN - 1` to be a verified attempt.
@@ -114,12 +130,28 @@ const DoneTaskSchema = z
     }
   });
 
-export const TaskSchema = z.discriminatedUnion('status', [
+const TaskBaseUnionSchema = z.discriminatedUnion('status', [
   TodoTaskSchema,
   InProgressTaskSchema,
   BlockedTaskSchema,
   DoneTaskSchema,
 ]);
+
+/**
+ * Read-time inference for a `blocked` task that predates {@link BlockedTask.blockKind}: a reason
+ * starting with the (deprecated) `blocked upstream` prefix is an upstream-cascade block, everything
+ * else is an own-failure block. Runs post-union so the discriminated-union members stay plain
+ * objects (a transform on the member would break discrimination).
+ */
+const inferBlockKind = (task: z.infer<typeof TaskBaseUnionSchema>): z.infer<typeof TaskBaseUnionSchema> => {
+  if (task.status !== 'blocked' || task.blockKind !== undefined) return task;
+  return {
+    ...task,
+    blockKind: task.blockedReason.startsWith(BLOCKED_UPSTREAM_REASON_PREFIX) ? 'upstream' : 'own',
+  };
+};
+
+export const TaskSchema = TaskBaseUnionSchema.transform(inferBlockKind);
 
 /**
  * Schema infers `attempts: readonly Attempt[]` but `DoneTask` declares the stricter

@@ -5,18 +5,28 @@ import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.t
 
 /**
  * Reason-string prefix the dependency gate stamps on a task blocked solely because a prerequisite
- * was not `done`. It distinguishes an UPSTREAM-cascade block (mechanically clearable — it auto-
- * resolves once the root prerequisite is unblocked / completed) from an OWN-failure block
- * (eval/verify/budget — needs the operator to actually fix something). {@link isUpstreamBlocked}
- * reads it so `unblockTaskUseCase` can cascade-unblock these dependents when their root unblocks.
+ * was not `done`.
+ *
+ * @deprecated Superseded by the structural {@link BlockedTask.blockKind} discriminant. Retained
+ * ONLY for the read-time migration of legacy `tasks.json` entries lacking `blockKind` (the task
+ * schema infers `upstream` from this prefix, `own` otherwise). New code MUST classify via
+ * {@link isUpstreamBlocked} / `blockKind`, never the reason text.
  */
 export const BLOCKED_UPSTREAM_REASON_PREFIX = 'blocked upstream';
 
-/** True when `task` is blocked specifically because an upstream prerequisite was not done. */
+/**
+ * True when `task` is blocked specifically because an upstream prerequisite was not done. Reads the
+ * structural {@link BlockedTask.blockKind} discriminant — NOT the reason prefix — so an own-failure
+ * reason that happens to start with `'blocked upstream'` is correctly NOT treated as upstream.
+ */
 export const isUpstreamBlocked = (task: Task): task is BlockedTask =>
-  task.status === 'blocked' && task.blockedReason.startsWith(BLOCKED_UPSTREAM_REASON_PREFIX);
+  task.status === 'blocked' && task.blockKind === 'upstream';
 
-export const markTaskBlocked = (task: Task, reason: string): Result<BlockedTask, InvalidStateError> => {
+export const markTaskBlocked = (
+  task: Task,
+  reason: string,
+  blockKind: BlockedTask['blockKind']
+): Result<BlockedTask, InvalidStateError> => {
   const guard = requireStatus(
     'task',
     task,
@@ -25,14 +35,15 @@ export const markTaskBlocked = (task: Task, reason: string): Result<BlockedTask,
     'Done or already-blocked tasks cannot be re-blocked.'
   );
   if (!guard.ok) return Result.error(guard.error);
-  return Result.ok({ ...guard.value, status: 'blocked', blockedReason: reason });
+  return Result.ok({ ...guard.value, status: 'blocked', blockedReason: reason, blockKind });
 };
 
 export const unblockTask = (task: Task): Result<TodoTask, InvalidStateError> => {
   const guard = requireStatus('task', task, ['blocked'] as const, 'unblock');
   if (!guard.ok) return Result.error(guard.error);
-  const { blockedReason: _ignored, ...rest } = guard.value;
-  void _ignored;
+  const { blockedReason: _reason, blockKind: _kind, ...rest } = guard.value;
+  void _reason;
+  void _kind;
   return Result.ok({ ...rest, status: 'todo' });
 };
 

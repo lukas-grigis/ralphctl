@@ -7,6 +7,7 @@ const blocked = (name: string): BlockedTask => ({
   ...makeTodoTask({ name }),
   status: 'blocked',
   blockedReason: 'unit-test reason',
+  blockKind: 'own',
 });
 
 describe('shouldTransitionToReview', () => {
