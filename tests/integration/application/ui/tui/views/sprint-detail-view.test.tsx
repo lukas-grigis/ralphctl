@@ -106,7 +106,7 @@ describe('SprintDetailView — phase workspace', () => {
     const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, tasks), initial });
     await tick(40);
     const frame = result.lastFrame() ?? '';
-    expect(frame).toContain('Implement 2 pending task(s)');
+    expect(frame).toContain('Implement 2 resumable task(s)');
     const tasksHeader = frame.indexOf('▣ Tasks');
     const ticketsHeader = frame.indexOf('▣ Tickets');
     expect(tasksHeader).toBeGreaterThan(-1);

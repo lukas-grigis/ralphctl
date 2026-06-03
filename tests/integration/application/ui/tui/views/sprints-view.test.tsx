@@ -105,6 +105,18 @@ describe('SprintsView', () => {
     result.unmount();
   });
 
+  it("pressing 'e' on a done sprint flashes a reason instead of a silent no-op", async () => {
+    const done = makeSprint({ name: 'Shipped Sprint', status: 'done' });
+    const { result } = renderView(<SprintsView />, { deps: stubDeps([done]), initial: { id: 'sprints' } });
+    await tick(40);
+    result.stdin.write('e');
+    await tick(40);
+    const frame = result.lastFrame() ?? '';
+    // Someone who found `e` via `?` should learn why it's inert, not be left guessing.
+    expect(frame).toContain("done sprints can't be renamed");
+    result.unmount();
+  });
+
   it("pressing 'e' opens an Ink text prompt prefilled with the sprint name and saves on resolve", async () => {
     const sprint = makeDraftSprint({ name: 'Mispeld Sprint' });
     const save = vi.fn(async (s: Sprint) => Result.ok<Sprint>(s));

@@ -70,11 +70,50 @@ export interface TaskBucket {
    * Number of gen-eval-loop iterations the task has entered. Counted from the number of
    * `generator-<taskId>` substep entries in the trace. 0 when no generator turn has happened
    * yet (e.g. task is still in branch-preflight / build-workspace).
+   *
+   * MONOTONIC ACROSS THE WHOLE TASK — the on-disk `rounds/<N>/` index is shared by every
+   * attempt (`nextRoundNum = max(existing) + 1`), so attempt 2 continues numbering where
+   * attempt 1 left off. Do NOT render this directly against {@link genEvalMaxRounds}: the cap
+   * is per-ATTEMPT (`maxTurns`), so on a 2nd+ attempt the bare ratio overshoots (e.g. `4/3`).
+   * Use {@link perAttemptRound} at render time to fold the monotonic round back into the
+   * 1..maxTurns per-attempt window.
    */
   readonly genEvalRound: number;
-  /** Configured cap for the gen-eval-loop, when known. Surfaced as `round N/M` in the panel. */
+  /** Per-ATTEMPT cap for the gen-eval-loop (`maxTurns`), when known. Surfaced as `round N/M`. */
   readonly genEvalMaxRounds?: number;
+  /** Configured cap on attempts per task (`maxAttempts`), when known. Surfaced as `attempt A/X`. */
+  readonly genEvalMaxAttempts?: number;
 }
+
+/**
+ * Fold a task's monotonic gen-eval round into its per-attempt coordinates. {@link TaskBucket.genEvalRound}
+ * counts across the whole task (the `rounds/` dir is shared), while the loop's `maxTurns` cap resets each
+ * attempt — so a naive `round/maxTurns` overshoots once a 2nd attempt starts (e.g. global round 4 with a
+ * 3-turn budget reads `4/3`). This maps the global round back into `1..maxTurns` and derives which attempt
+ * it belongs to.
+ *
+ * The derivation assumes each prior attempt ran its full `maxTurns` budget — the worst case, and exactly the
+ * case where the overshoot bug surfaces. When an attempt stops early (the evaluator passes before `maxTurns`)
+ * the attempt index is approximate, but `roundInAttempt` is always clamped to `1..maxTurns`, so the display
+ * NEVER overshoots — the hard invariant this helper exists to guarantee.
+ *
+ * `maxTurns <= 0` (defensive — Zod clamps it to 1–10 upstream) collapses to `attempt 1 / round 1`.
+ *
+ * @public
+ */
+export const perAttemptRound = (
+  genEvalRound: number,
+  maxTurns: number
+): { readonly attemptN: number; readonly roundInAttempt: number } => {
+  if (!Number.isFinite(maxTurns) || maxTurns <= 0 || genEvalRound <= 0) {
+    return { attemptN: 1, roundInAttempt: Math.max(1, genEvalRound) };
+  }
+  const zeroBased = genEvalRound - 1;
+  return {
+    attemptN: Math.floor(zeroBased / maxTurns) + 1,
+    roundInAttempt: (zeroBased % maxTurns) + 1,
+  };
+};
 
 export interface BucketedExecution {
   readonly tasks: readonly TaskBucket[];
@@ -254,8 +293,15 @@ const countGeneratorTurns = (subSteps: readonly TaskSubStep[]): number =>
   subSteps.reduce((n, sub) => (sub.leafName === 'generator' ? n + 1 : n), 0);
 
 export interface BucketOptions {
-  /** Configured cap on gen-eval-loop iterations (`config.harness.maxTurns`). */
+  /** Configured cap on gen-eval-loop iterations per attempt (`config.harness.maxTurns`). */
   readonly maxTurns?: number;
+  /**
+   * Configured cap on attempts per task (`config.harness.maxAttempts`). Surfaced on each bucket as
+   * `genEvalMaxAttempts` so the header / task-row can render `attempt A/X`. Static config — unlike
+   * the round counter it is not derived from the trace, so the round overlay in `use-bucketed-tasks`
+   * preserves it untouched.
+   */
+  readonly maxAttempts?: number;
   /**
    * Name of the per-task subchain's final leaf — when it appears in the trace the task flips to
    * `completed`. Defaults to `'uninstall-skills'` (the implement flow's terminal leaf). Decoupling
@@ -328,6 +374,7 @@ export const bucketTaskSignals = (
       signals: signalsByTask.get(id) ?? [],
       genEvalRound,
       ...(opts.maxTurns !== undefined ? { genEvalMaxRounds: opts.maxTurns } : {}),
+      ...(opts.maxAttempts !== undefined ? { genEvalMaxAttempts: opts.maxAttempts } : {}),
     };
   });
 

@@ -212,7 +212,7 @@ export const HomeView = (): React.JSX.Element => {
         addTicketDisabled,
         onPushHome: (id) => router.push({ id }),
         onPushAddTicket: (sprintId) => router.push({ id: 'add-ticket', props: { sprintId } }),
-        onSwitchSprint: (s) => selection.setSprint(s.id, s.name),
+        onSwitchSprint: (s) => selection.setSprint(s.id, s.name, s.status),
         onLaunchCreateSprint: () => {
           void launchCreateSprint();
         },

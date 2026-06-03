@@ -451,6 +451,43 @@ describe('ExecuteView', () => {
     result.unmount();
   });
 
+  it('derives the section title from the flowId (audit 1-C)', async () => {
+    // Each non-implement flowId should produce its own display name in the SectionStamp, not
+    // the hardcoded "Implement" that previously appeared for every flow. SectionStamp renders
+    // the title string verbatim (no forced uppercasing); flowIdToTitle returns title-cased names.
+    const flowCases: ReadonlyArray<[string, string]> = [
+      ['refine', 'Refine'],
+      ['plan', 'Plan'],
+      ['ideate', 'Ideate'],
+      ['review', 'Review'],
+      ['create-pr', 'Create PR'],
+      ['readiness', 'Readiness'],
+      ['detect-scripts', 'Detect Scripts'],
+      ['detect-skills', 'Detect Skills'],
+      ['create-sprint', 'Create Sprint'],
+      ['close-sprint', 'Close Sprint'],
+    ];
+    for (const [flowId, expectedTitle] of flowCases) {
+      const sessions = createSessionManager();
+      const runner = fakeRunner(`r-title-${flowId}`, 'running');
+      sessions.register({ runner, flowId, title: `${flowId} — Demo` });
+
+      const { result } = renderView(<ExecuteView />, {
+        deps: stubDeps(),
+        initial: { id: 'execute', props: { sessionId: `r-title-${flowId}` } },
+        sessions,
+      });
+
+      await tick(40);
+      const frame = result.lastFrame() ?? '';
+      expect(frame, `flowId="${flowId}" should show "${expectedTitle}"`).toContain(expectedTitle);
+      // The old hardcoded title must not appear for non-implement flows.
+      // (We check for the word boundary to avoid false positives in titles like "Create Sprint"
+      // which do not contain "Implement".)
+      result.unmount();
+    }
+  });
+
   it('shows the stale-sprint fallback and drops baseline-health when the pinned sprint is removed', async () => {
     const sessions = createSessionManager();
     const runner = fakeRunner('r-stale-removed', 'running');

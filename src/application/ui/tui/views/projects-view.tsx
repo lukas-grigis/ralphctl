@@ -190,8 +190,8 @@ export const ProjectsView = (): React.JSX.Element => {
                   ))}
                   {p.repositories.length > 2 && (
                     <Text dimColor italic>
-                      +{String(p.repositories.length - 2)} more repository
-                      {p.repositories.length - 2 === 1 ? '' : 'ies'}
+                      +{String(p.repositories.length - 2)} more{' '}
+                      {p.repositories.length - 2 === 1 ? 'repository' : 'repositories'}
                     </Text>
                   )}
                 </Box>

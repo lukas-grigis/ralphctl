@@ -9,18 +9,28 @@
  *
  * Drives the real contexts (no synthetic stubs) so the test exercises the same predicate
  * production renders through.
+ *
+ * audit 1-A: also asserts that the sprint StatusChip renders at ≥md (≥100 cols) and is
+ * suppressed below md (<100 cols). Uses a `useTerminalSize` mock to control column count.
  */
 
 import React from 'react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { render } from 'ink-testing-library';
 import { ProjectId } from '@src/domain/value/id/project-id.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
+import type { SprintStatus } from '@src/domain/entity/sprint.ts';
 import { Breadcrumb } from '@src/application/ui/tui/components/breadcrumb.tsx';
 import { RouterProvider } from '@src/application/ui/tui/runtime/router.tsx';
 import { SelectionProvider, useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { UiStateProvider, useUiState, type FocusedRunCtx } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
+
+// Hoisted size control — vi.hoisted so the variable exists when the mock factory is hoisted.
+const sizeRef = vi.hoisted(() => ({ columns: 100, rows: 24 }));
+vi.mock('@src/application/ui/tui/runtime/use-terminal-size.ts', () => ({
+  useTerminalSize: () => ({ columns: sizeRef.columns, rows: sizeRef.rows }),
+}));
 
 const PROJECT_ID_STR = '0193ed2b-aaaa-7abc-8def-0123456789ab';
 const SPRINT_ID_STR = '0193ed2b-bbbb-7abc-8def-0123456789ab';
@@ -41,11 +51,18 @@ interface SeedOptions {
   /** Global selection seeded before the focused-run context lands (the "stale" baseline). */
   readonly globalProjectLabel?: string;
   readonly globalSprintLabel?: string;
+  /** Sprint lifecycle status to seed alongside the sprint label. */
+  readonly globalSprintStatus?: SprintStatus;
   /** Focused-run context to pin, or `undefined` to leave no run focused. */
   readonly focusedRun?: FocusedRunCtx;
 }
 
-const Seed = ({ globalProjectLabel, globalSprintLabel, focusedRun }: SeedOptions): React.JSX.Element => {
+const Seed = ({
+  globalProjectLabel,
+  globalSprintLabel,
+  globalSprintStatus,
+  focusedRun,
+}: SeedOptions): React.JSX.Element => {
   const selection = useSelection();
   const ui = useUiState();
   const setProjectRef = React.useRef(selection.setProject);
@@ -56,9 +73,9 @@ const Seed = ({ globalProjectLabel, globalSprintLabel, focusedRun }: SeedOptions
   setFocusedRef.current = ui.setFocusedRunContext;
   React.useEffect(() => {
     if (globalProjectLabel !== undefined) setProjectRef.current(parseProjectId(), globalProjectLabel);
-    if (globalSprintLabel !== undefined) setSprintRef.current(parseSprintId(), globalSprintLabel);
+    if (globalSprintLabel !== undefined) setSprintRef.current(parseSprintId(), globalSprintLabel, globalSprintStatus);
     if (focusedRun !== undefined) setFocusedRef.current(focusedRun);
-  }, [globalProjectLabel, globalSprintLabel, focusedRun]);
+  }, [globalProjectLabel, globalSprintLabel, globalSprintStatus, focusedRun]);
   return <></>;
 };
 
@@ -79,6 +96,7 @@ const Harness = (opts: SeedOptions): React.JSX.Element => (
 
 describe('Breadcrumb — right-side label coalescing', () => {
   it('a project-only focused run does NOT show a stale global sprint label', async () => {
+    sizeRef.columns = 100;
     const focusedRun: FocusedRunCtx = {
       projectLabel: 'run-project',
       sprintId: undefined,
@@ -102,6 +120,7 @@ describe('Breadcrumb — right-side label coalescing', () => {
   });
 
   it('a focused run with a sprint shows both labels from the run, not the global selection', async () => {
+    sizeRef.columns = 100;
     const focusedRun: FocusedRunCtx = {
       projectLabel: 'run-project',
       sprintId: parseSprintId(),
@@ -122,6 +141,7 @@ describe('Breadcrumb — right-side label coalescing', () => {
   });
 
   it('with no focused run, both labels resolve from the global selection', async () => {
+    sizeRef.columns = 100;
     const { lastFrame, unmount } = render(
       <Harness globalProjectLabel="global-project" globalSprintLabel="global-sprint" />
     );
@@ -132,5 +152,74 @@ describe('Breadcrumb — right-side label coalescing', () => {
     expect(frame).toContain('global-sprint');
 
     unmount();
+  });
+});
+
+describe('Breadcrumb — sprint status chip (audit 1-A)', () => {
+  it('renders the sprint status chip at ≥md (100 cols)', async () => {
+    sizeRef.columns = 100;
+    const { lastFrame, unmount } = render(
+      <Harness globalProjectLabel="my-project" globalSprintLabel="my-sprint" globalSprintStatus="active" />
+    );
+    await tick(50);
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('my-sprint');
+    // StatusChip wraps the label in brackets and uppercases it.
+    expect(frame).toContain('[ACTIVE]');
+    unmount();
+  });
+
+  it('omits the sprint status chip below md (<100 cols)', async () => {
+    sizeRef.columns = 80;
+    const { lastFrame, unmount } = render(
+      <Harness globalProjectLabel="my-project" globalSprintLabel="my-sprint" globalSprintStatus="active" />
+    );
+    await tick(50);
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('my-sprint');
+    // No chip at narrow width — avoids overflow on small terminals.
+    expect(frame).not.toContain('[ACTIVE]');
+    unmount();
+  });
+
+  it('does NOT show the status chip for a focused run even when the global status is set', async () => {
+    sizeRef.columns = 120;
+    const focusedRun: FocusedRunCtx = {
+      projectLabel: 'run-project',
+      sprintId: parseSprintId(),
+      sprintLabel: 'run-sprint',
+    };
+    const { lastFrame, unmount } = render(
+      <Harness
+        globalProjectLabel="global-project"
+        globalSprintLabel="global-sprint"
+        globalSprintStatus="review"
+        focusedRun={focusedRun}
+      />
+    );
+    await tick(50);
+    const frame = lastFrame() ?? '';
+    // The focused run's sprint label shows but the global status chip must not leak through.
+    expect(frame).toContain('run-sprint');
+    expect(frame).not.toContain('[REVIEW]');
+    unmount();
+  });
+
+  it('renders the correct chip kind for each status value', async () => {
+    sizeRef.columns = 120;
+    for (const [status, expected] of [
+      ['draft', '[DRAFT]'],
+      ['planned', '[PLANNED]'],
+      ['active', '[ACTIVE]'],
+      ['review', '[REVIEW]'],
+    ] as const) {
+      const { lastFrame, unmount } = render(
+        <Harness globalProjectLabel="p" globalSprintLabel="s" globalSprintStatus={status as SprintStatus} />
+      );
+      await tick(50);
+
+      expect(lastFrame() ?? '').toContain(expected);
+      unmount();
+    }
   });
 });

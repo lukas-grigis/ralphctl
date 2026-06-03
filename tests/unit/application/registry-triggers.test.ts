@@ -23,11 +23,14 @@ describe('evaluateTriggers', () => {
       expect(evaluateTriggers(triggers, { ...baseInputs, hasProject: true })).toEqual({ enabled: true });
     });
 
-    it('fails with a reason when no project is loaded', () => {
+    it('fails with an action-oriented reason when no project is loaded', () => {
       const triggers: FlowTriggers = { requiresProject: true };
       const result = evaluateTriggers(triggers, { ...baseInputs, hasProject: false });
       expect(result.enabled).toBe(false);
-      if (!result.enabled) expect(result.reason).toBe('No project is loaded.');
+      // Reason must tell the user what to do, not just state the failing condition.
+      if (!result.enabled) {
+        expect(result.reason).toMatch(/select a project|pick one/i);
+      }
     });
 
     it('ignores hasProject when requiresProject is not set', () => {
@@ -53,18 +56,19 @@ describe('evaluateTriggers', () => {
       });
     });
 
-    it('fails with a reason when the current status is not allowed', () => {
+    it('fails with an action-oriented reason when the current status is not allowed', () => {
       const triggers: FlowTriggers = { currentSprintStatus: ['draft'] };
       const result = evaluateTriggers(triggers, { ...baseInputs, currentSprintStatus: 'active' });
       expect(result.enabled).toBe(false);
-      if (!result.enabled) expect(result.reason).toBe('Requires sprint status draft (current: active).');
+      // Reason must mention the relevant sprint state, not raw system names.
+      if (!result.enabled) expect(result.reason).toMatch(/draft sprint/i);
     });
 
-    it('fails with a "no sprint" reason when no sprint is loaded', () => {
+    it('fails with a "create or pick" reason when no sprint is loaded', () => {
       const triggers: FlowTriggers = { currentSprintStatus: ['draft'] };
       const result = evaluateTriggers(triggers, { ...baseInputs, currentSprintStatus: undefined });
       expect(result.enabled).toBe(false);
-      if (!result.enabled) expect(result.reason).toBe('Requires sprint status draft (current: no sprint).');
+      if (!result.enabled) expect(result.reason).toMatch(/no sprint|create|pick/i);
     });
   });
 
@@ -75,11 +79,12 @@ describe('evaluateTriggers', () => {
       expect(evaluateTriggers(triggers, { ...baseInputs, pendingTicketCount: 5 })).toEqual({ enabled: true });
     });
 
-    it('fails when count is below the minimum', () => {
+    it('fails with an action-oriented reason when count is below the minimum', () => {
       const triggers: FlowTriggers = { minPendingTickets: 1 };
       const result = evaluateTriggers(triggers, { ...baseInputs, pendingTicketCount: 0 });
       expect(result.enabled).toBe(false);
-      if (!result.enabled) expect(result.reason).toBe('Requires at least 1 pending ticket(s) (have 0).');
+      // Reason should direct the user to add a ticket.
+      if (!result.enabled) expect(result.reason).toMatch(/add.*ticket|ticket.*add/i);
     });
   });
 
@@ -89,11 +94,16 @@ describe('evaluateTriggers', () => {
       expect(evaluateTriggers(triggers, { ...baseInputs, approvedTicketCount: 1 })).toEqual({ enabled: true });
     });
 
-    it('fails when count is below the minimum', () => {
+    it('fails with an action-oriented reason when count is below the minimum', () => {
       const triggers: FlowTriggers = { minApprovedTickets: 3 };
       const result = evaluateTriggers(triggers, { ...baseInputs, approvedTicketCount: 1 });
       expect(result.enabled).toBe(false);
-      if (!result.enabled) expect(result.reason).toBe('Requires at least 3 approved ticket(s) (have 1).');
+      // Reason should direct the user to approve more tickets (counts shown for non-zero case).
+      if (!result.enabled) {
+        expect(result.reason).toMatch(/approve.*ticket|ticket.*approv/i);
+        expect(result.reason).toContain('3');
+        expect(result.reason).toContain('1');
+      }
     });
   });
 
@@ -103,11 +113,12 @@ describe('evaluateTriggers', () => {
       expect(evaluateTriggers(triggers, { ...baseInputs, resumableTaskCount: 4 })).toEqual({ enabled: true });
     });
 
-    it('fails when count is below the minimum', () => {
+    it('fails with an action-oriented reason when count is below the minimum', () => {
       const triggers: FlowTriggers = { minResumableTasks: 1 };
       const result = evaluateTriggers(triggers, { ...baseInputs, resumableTaskCount: 0 });
       expect(result.enabled).toBe(false);
-      if (!result.enabled) expect(result.reason).toBe('Requires at least 1 pending task(s) (have 0).');
+      // Reason should direct the user to run Plan first.
+      if (!result.enabled) expect(result.reason).toMatch(/plan|task list/i);
     });
 
     it('counts in_progress tasks too — Implement stays available for the resume case', () => {
@@ -135,7 +146,8 @@ describe('evaluateTriggers', () => {
         pendingTicketCount: 0,
       });
       expect(result.enabled).toBe(false);
-      if (!result.enabled) expect(result.reason).toContain('sprint status draft');
+      // Status gate fires first — reason should mention draft sprints, not pending tickets.
+      if (!result.enabled) expect(result.reason).toMatch(/draft sprint/i);
     });
 
     it('fails on a later trigger when earlier triggers pass', () => {
@@ -146,7 +158,8 @@ describe('evaluateTriggers', () => {
         pendingTicketCount: 0,
       });
       expect(result.enabled).toBe(false);
-      if (!result.enabled) expect(result.reason).toContain('pending ticket');
+      // Status gate passes; pending-ticket gate fires — reason should mention adding tickets.
+      if (!result.enabled) expect(result.reason).toMatch(/ticket|add/i);
     });
 
     it('handles the implement-style combo (status OR + minResumableTasks)', () => {
@@ -162,6 +175,18 @@ describe('evaluateTriggers', () => {
         resumableTaskCount: 0,
       });
       expect(failed.enabled).toBe(false);
+    });
+
+    it('gives a "Plan this sprint first" hint when implement is tried on a draft sprint', () => {
+      // The most common precondition mistake: user tries Implement on a freshly created sprint.
+      const triggers: FlowTriggers = { currentSprintStatus: ['planned', 'active'], minResumableTasks: 1 };
+      const result = evaluateTriggers(triggers, {
+        ...baseInputs,
+        currentSprintStatus: 'draft',
+        resumableTaskCount: 0,
+      });
+      expect(result.enabled).toBe(false);
+      if (!result.enabled) expect(result.reason).toMatch(/plan.*sprint|must be planned/i);
     });
   });
 });

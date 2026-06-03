@@ -67,6 +67,41 @@ interface ExecuteProps extends Readonly<Record<string, unknown>> {
 }
 
 /**
+ * Derive a human-readable section title from a flow id. Keeps the Execute view header
+ * accurate for any flow that reuses this view (refine, plan, review, create-pr, …) instead
+ * of always showing "Implement". Falls back to the raw flowId so a future flow never shows
+ * a blank header.
+ */
+const flowIdToTitle = (flowId: string): string => {
+  switch (flowId) {
+    case 'implement':
+      return 'Implement';
+    case 'refine':
+      return 'Refine';
+    case 'plan':
+      return 'Plan';
+    case 'ideate':
+      return 'Ideate';
+    case 'review':
+      return 'Review';
+    case 'create-pr':
+      return 'Create PR';
+    case 'readiness':
+      return 'Readiness';
+    case 'detect-scripts':
+      return 'Detect Scripts';
+    case 'detect-skills':
+      return 'Detect Skills';
+    case 'create-sprint':
+      return 'Create Sprint';
+    case 'close-sprint':
+      return 'Close Sprint';
+    default:
+      return flowId;
+  }
+};
+
+/**
  * Buffer sizing for long Implement runs:
  *   - harness signals: ~20-40 per task (changes, learnings, decisions, commit messages, …),
  *     so 10 tasks × 30 = 300; 1000 keeps healthy headroom for a multi-hour 20-task sprint.
@@ -208,7 +243,7 @@ export const ExecuteView = (): React.JSX.Element => {
   const descriptor = session?.descriptor;
   if (!session || descriptor === undefined) {
     return (
-      <ViewShell title="Implement" subtitle="(unknown session)">
+      <ViewShell title="Implement" subtitle="(session not found)">
         <Box paddingX={spacing.indent}>
           <Text dimColor>The session id was not found in the registry. It may have been removed.</Text>
         </Box>
@@ -251,7 +286,7 @@ export const ExecuteView = (): React.JSX.Element => {
 
   return (
     <ViewShell
-      title="Implement"
+      title={flowIdToTitle(descriptor.flowId)}
       subtitle={descriptor.title}
       compactBanner
       right={<StatusChip label={descriptor.status} kind={runnerStatusKind(descriptor.status)} />}

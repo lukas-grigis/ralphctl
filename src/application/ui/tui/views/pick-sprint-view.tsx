@@ -153,14 +153,14 @@ export const PickSprintView = (): React.JSX.Element => {
     if (sprint.projectId !== selection.projectId) {
       const project = data.projectsById.get(sprint.projectId);
       if (project !== undefined) {
-        selection.setProjectAndSprint(project.id, project.displayName, sprint.id, sprint.name);
+        selection.setProjectAndSprint(project.id, project.displayName, sprint.id, sprint.name, sprint.status);
         router.reset({ id: 'home' });
         return;
       }
       // Orphan: project deleted. Fall through to plain setSprint — the sprint will surface
       // under whatever project the selection still points at (or none).
     }
-    selection.setSprint(sprint.id, sprint.name);
+    selection.setSprint(sprint.id, sprint.name, sprint.status);
     router.reset({ id: 'home' });
   };
 

@@ -18,7 +18,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import type { Sprint } from '@src/domain/entity/sprint.ts';
+import type { Sprint, SprintStatus } from '@src/domain/entity/sprint.ts';
 import type { Result } from '@src/domain/result.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 
@@ -41,6 +41,8 @@ interface SelectionApi {
   readonly sprintId: SprintId | undefined;
   readonly projectLabel: string | undefined;
   readonly sprintLabel: string | undefined;
+  /** Lifecycle status of the currently-selected sprint — used by the breadcrumb status chip. */
+  readonly sprintStatus: SprintStatus | undefined;
   /**
    * Last sprint-switch record (see {@link LastSprintSwitch}). `undefined` before any switch in
    * this session. Updated whenever `setSprint` / `setProjectAndSprint` lands on a non-undefined
@@ -49,14 +51,20 @@ interface SelectionApi {
    */
   readonly lastSwitch: LastSprintSwitch | undefined;
   setProject(id: ProjectId | undefined, label?: string): void;
-  setSprint(id: SprintId | undefined, label?: string): void;
+  setSprint(id: SprintId | undefined, label?: string, status?: SprintStatus): void;
   /**
    * Atomic project + sprint switch — used by the cross-project sprint picker so picking a
    * sprint from a different project updates both ids in a single state batch. Going through
    * `setProject` then `setSprint` would clear the sprint mid-flight (setProject zeroes the
    * sprint cursor as a side effect) and fire `onChange` twice; this setter fires it once.
    */
-  setProjectAndSprint(projectId: ProjectId, projectLabel: string, sprintId: SprintId, sprintLabel: string): void;
+  setProjectAndSprint(
+    projectId: ProjectId,
+    projectLabel: string,
+    sprintId: SprintId,
+    sprintLabel: string,
+    sprintStatus?: SprintStatus
+  ): void;
 }
 
 const SelectionContext = createContext<SelectionApi | undefined>(undefined);
@@ -106,6 +114,7 @@ export const SelectionProvider = ({
   const [sprintId, setSprintId] = useState<SprintId | undefined>(seed?.sprintId);
   const [projectLabel, setProjectLabel] = useState<string | undefined>(seed?.projectLabel);
   const [sprintLabel, setSprintLabel] = useState<string | undefined>(seed?.sprintLabel);
+  const [sprintStatus, setSprintStatus] = useState<SprintStatus | undefined>(undefined);
   const [lastSwitch, setLastSwitch] = useState<LastSprintSwitch | undefined>(undefined);
   // Keep the callback in a ref so re-renders don't churn the persistence effect's deps.
   const onChangeRef = useRef(onChange);
@@ -146,12 +155,14 @@ export const SelectionProvider = ({
     if (changed) {
       setSprintId(undefined);
       setSprintLabel(undefined);
+      setSprintStatus(undefined);
     }
   }, []);
 
-  const setSprint = useCallback((id: SprintId | undefined, label?: string) => {
+  const setSprint = useCallback((id: SprintId | undefined, label?: string, status?: SprintStatus) => {
     setSprintId(id);
     setSprintLabel(id === undefined ? undefined : label);
+    setSprintStatus(id === undefined ? undefined : status);
     // Record the switch so Home's transient feedback line can flash. Clearing (passing
     // `undefined`) is NOT a switch — leaving `lastSwitch` untouched lets the prior record
     // age out naturally instead of replaying its toast.
@@ -180,6 +191,7 @@ export const SelectionProvider = ({
         if (r.ok && r.value.status === 'done') {
           setSprintId(undefined);
           setSprintLabel(undefined);
+          setSprintStatus(undefined);
         }
       })
       .catch(() => {
@@ -191,15 +203,19 @@ export const SelectionProvider = ({
     };
   }, [seedSprintId]);
 
-  const setProjectAndSprint = useCallback((pId: ProjectId, pLabel: string, sId: SprintId, sLabel: string) => {
-    // React batches the four setState calls inside a single event handler — onChange's
-    // effect runs once after the batch, with both ids visible together.
-    setProjectId(pId);
-    setProjectLabel(pLabel);
-    setSprintId(sId);
-    setSprintLabel(sLabel);
-    setLastSwitch({ sprintId: sId, sprintLabel: sLabel, at: Date.now() });
-  }, []);
+  const setProjectAndSprint = useCallback(
+    (pId: ProjectId, pLabel: string, sId: SprintId, sLabel: string, sStatus?: SprintStatus) => {
+      // React batches the five setState calls inside a single event handler — onChange's
+      // effect runs once after the batch, with both ids visible together.
+      setProjectId(pId);
+      setProjectLabel(pLabel);
+      setSprintId(sId);
+      setSprintLabel(sLabel);
+      setSprintStatus(sStatus);
+      setLastSwitch({ sprintId: sId, sprintLabel: sLabel, at: Date.now() });
+    },
+    []
+  );
 
   const api = useMemo<SelectionApi>(
     () => ({
@@ -207,12 +223,23 @@ export const SelectionProvider = ({
       sprintId,
       projectLabel,
       sprintLabel,
+      sprintStatus,
       lastSwitch,
       setProject,
       setSprint,
       setProjectAndSprint,
     }),
-    [projectId, sprintId, projectLabel, sprintLabel, lastSwitch, setProject, setSprint, setProjectAndSprint]
+    [
+      projectId,
+      sprintId,
+      projectLabel,
+      sprintLabel,
+      sprintStatus,
+      lastSwitch,
+      setProject,
+      setSprint,
+      setProjectAndSprint,
+    ]
   );
 
   return <SelectionContext.Provider value={api}>{children}</SelectionContext.Provider>;

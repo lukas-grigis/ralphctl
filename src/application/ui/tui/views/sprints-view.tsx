@@ -74,7 +74,7 @@ export const SprintsView = (): React.JSX.Element => {
     visibleRows: 4,
     active: listActive,
     onSubmit: (s) => {
-      selection.setSprint(s.id, s.name);
+      selection.setSprint(s.id, s.name, s.status);
       router.push({ id: 'sprint-detail', props: { sprintId: s.id } });
     },
   });
@@ -173,7 +173,7 @@ export const SprintsView = (): React.JSX.Element => {
         if (!renamed.ok) return Result.error(renamed.error);
         const saved = await deps.sprintRepo.save(renamed.value);
         if (!saved.ok) return Result.error(saved.error);
-        if (selection.sprintId === target.id) selection.setSprint(target.id, value.trim());
+        if (selection.sprintId === target.id) selection.setSprint(target.id, value.trim(), target.status);
         reload();
         return Result.ok(undefined);
       },
@@ -189,7 +189,15 @@ export const SprintsView = (): React.JSX.Element => {
     }
     if (input === 'e') {
       const target = focusedSprint;
-      if (target !== undefined && target.status !== 'done') handleRename(target);
+      if (target === undefined) return;
+      // A done sprint is immutable, so the rename chord (and its hint) are gated off. Someone who
+      // found `e` via the `?` overlay still presses it — flash a reason so the key isn't a mystery
+      // no-op rather than silently swallowing the keystroke.
+      if (target.status === 'done') {
+        setFeedback(`${glyphs.cross} done sprints can't be renamed`);
+        return;
+      }
+      handleRename(target);
       return;
     }
     if (input === 'd') {

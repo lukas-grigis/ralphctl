@@ -14,6 +14,8 @@ import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { StatusChip, sprintStatusKind } from '@src/application/ui/tui/components/status-chip.tsx';
+import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
 
 const breadcrumbLabel = (id: string): string => {
   switch (id) {
@@ -62,6 +64,7 @@ export const Breadcrumb = (): React.JSX.Element => {
   const router = useRouter();
   const selection = useSelection();
   const ui = useUiState();
+  const { atLeast } = useBreakpoint();
   // When an Execute view is focused, BOTH right-side labels coalesce from its pinned context
   // as a single unit — never one from the run and the other from the mutable global selection.
   // A run always pins a project label, so its presence is the canonical "run focused" signal.
@@ -71,6 +74,9 @@ export const Breadcrumb = (): React.JSX.Element => {
   const runFocused = ui.focusedRunProjectLabel !== undefined;
   const effectiveProjectLabel = runFocused ? ui.focusedRunProjectLabel : selection.projectLabel;
   const effectiveSprintLabel = runFocused ? ui.focusedRunSprintLabel : selection.sprintLabel;
+  // Status chip: only available from the global selection (focused-run context carries labels
+  // only — the sprint lifecycle may change while a run is in progress so no stale status leaks).
+  const effectiveSprintStatus = runFocused ? undefined : selection.sprintStatus;
   // Substitute the concrete project / sprint name for the generic stack-id label so the
   // breadcrumb reads "Home → Projects → experience hub" instead of "… → Project". Selection
   // is set immediately before `router.push` in the list views, so it matches the entry that
@@ -111,12 +117,17 @@ export const Breadcrumb = (): React.JSX.Element => {
             [P]
           </Text>
           {right[1] !== undefined && (
-            <Text>
+            <Box>
               <Text dimColor> {glyphs.bullet} sprint: </Text>
               <Text color={inkColors.primary} bold>
                 {right[1]}
               </Text>
-            </Text>
+              {atLeast('md') && effectiveSprintStatus !== undefined && (
+                <Box marginLeft={1}>
+                  <StatusChip label={effectiveSprintStatus} kind={sprintStatusKind(effectiveSprintStatus)} />
+                </Box>
+              )}
+            </Box>
           )}
         </Box>
       )}

@@ -187,7 +187,7 @@ export const SprintDetailView = (): React.JSX.Element => {
       setCursorIdx((c) => (delta === 1 ? Math.min(focusList.length - 1, c + 1) : Math.max(0, c - 1))),
     beginRemove: (ticket) => setConfirmRemove(ticket),
     markCurrent: (s) => {
-      selection.setSprint(s.id, s.name);
+      selection.setSprint(s.id, s.name, s.status);
       setFeedback(`✓ now on ${s.name}`);
     },
     handleEdit,

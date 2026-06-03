@@ -9,11 +9,12 @@ import { ProjectsView } from '@src/application/ui/tui/views/projects-view.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
-import { makeProject } from '@tests/fixtures/domain.ts';
+import { makeProject, makeRepository } from '@tests/fixtures/domain.ts';
 import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { createPromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
 import { ProjectId } from '@src/domain/value/id/project-id.ts';
+import { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 
 const fakeProjectRepo = (projects: readonly Project[]): ProjectRepository =>
@@ -67,6 +68,44 @@ describe('ProjectsView', () => {
     expect(frame).toContain(glyphs.moreBelow);
     expect(frame).toContain('2 more');
     expect(frame).toContain('6 project(s)');
+    result.unmount();
+  });
+
+  // Only the first two repos render inline; the rest collapse into a "+N more repositor(y|ies)"
+  // overflow line. The pluralization is by the overflow count (length - 2), not the total.
+  const projectWithRepos = (count: number): Project =>
+    makeProject({
+      displayName: 'Multi Repo',
+      slug: 'multi',
+      repositories: Array.from({ length: count }, (_, i) =>
+        makeRepository({ id: RepositoryId.generate(), name: `repo-${String(i)}`, path: `/tmp/repo-${String(i)}` })
+      ),
+    });
+
+  it('overflow line reads singular "repository" when exactly one repo is hidden', async () => {
+    // 3 repos → 2 shown, 1 hidden → "+1 more repository".
+    const { result } = renderView(<ProjectsView />, {
+      deps: stubDeps([projectWithRepos(3)]),
+      initial: { id: 'projects' },
+    });
+    await tick(40);
+    const frame = result.lastFrame() ?? '';
+    expect(frame).toContain('+1 more repository');
+    expect(frame).not.toContain('repositoryies');
+    expect(frame).not.toContain('repositories');
+    result.unmount();
+  });
+
+  it('overflow line reads plural "repositories" when more than one repo is hidden', async () => {
+    // 4 repos → 2 shown, 2 hidden → "+2 more repositories".
+    const { result } = renderView(<ProjectsView />, {
+      deps: stubDeps([projectWithRepos(4)]),
+      initial: { id: 'projects' },
+    });
+    await tick(40);
+    const frame = result.lastFrame() ?? '';
+    expect(frame).toContain('+2 more repositories');
+    expect(frame).not.toContain('repositoryies');
     result.unmount();
   });
 

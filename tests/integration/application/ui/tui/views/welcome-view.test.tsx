@@ -75,6 +75,9 @@ describe('WelcomeView — first-run UX', () => {
     expect(saved[0]?.ai.implement.evaluator.provider).toBe('claude-code');
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('claude-only');
+    // A CLI was detected, so the copy claims a detection-based choice — not the zero-CLI warning.
+    expect(frame).toContain('based on detected CLIs');
+    expect(frame).not.toContain('No AI CLIs detected');
     expect(frame).not.toContain('Pick an AI provider');
     expect(routes.at(-1)?.id).toBe('create-project');
   });
@@ -98,6 +101,11 @@ describe('WelcomeView — first-run UX', () => {
     expect(saved[0]?.ai.refine.provider).toBe('openai-codex');
     expect(saved[0]?.ai.implement.generator.provider).toBe('claude-code');
     const frame = result.lastFrame() ?? '';
+    // Zero CLIs on PATH: the copy must NOT claim a detection-based choice (there was nothing to
+    // detect). It warns + points to install + doctor, and labels the mixed seed a placeholder.
+    expect(frame).toContain('No AI CLIs detected');
+    expect(frame).toContain('doctor');
+    expect(frame).not.toContain('based on detected CLIs');
     expect(frame).toContain('mixed');
   });
 
