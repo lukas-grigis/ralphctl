@@ -20,6 +20,7 @@
 
 import type { Runner } from '@src/application/chain/run/runner.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
+import type { SprintStatus } from '@src/domain/entity/sprint.ts';
 import type { AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
 import {
   type LauncherDeps,
@@ -30,21 +31,21 @@ import {
 
 /**
  * Minimal shape every sprint-bound chain's terminal ctx exposes. `sprint` is preferred —
- * it carries the canonical name. `sprintId` is the fallback for flows that surface only the
- * id post-completion (currently none, but kept resilient).
+ * it carries the canonical name and status. `sprintId` is the fallback for flows that surface
+ * only the id post-completion (currently none, but kept resilient).
  */
 interface SprintBoundCtx {
-  readonly sprint?: { readonly id: SprintId; readonly name: string };
+  readonly sprint?: { readonly id: SprintId; readonly name: string; readonly status?: SprintStatus };
   readonly sprintId?: SprintId;
 }
 
 export interface SprintBoundLaunchExtras extends LaunchExtras {
   /**
    * Called when the chain completes with a `sprint` (or `sprintId`) on ctx. The caller wires
-   * this to `selection.setSprint(id, name)` AND any transient-feedback state — both happen in
-   * one place so the UI never shows the reseat without the toast.
+   * this to `selection.setSprint(id, name, status)` AND any transient-feedback state — all
+   * happen in one place so the UI never shows the reseat without the toast.
    */
-  readonly onReseat?: (info: { readonly id: SprintId; readonly name: string }) => void;
+  readonly onReseat?: (info: { readonly id: SprintId; readonly name: string; readonly status?: SprintStatus }) => void;
   /**
    * Display name to use when ctx surfaces only `sprintId` (no `sprint` object). Defaults to
    * `String(id)`; callers that have a friendlier label (e.g. the snapshot's sprint name)
@@ -57,7 +58,10 @@ export interface SprintBoundLaunchExtras extends LaunchExtras {
    * needing a closure over the `LaunchResult` value that isn't defined at callback-creation time).
    * Intended for callers that pass `sessions.setPinnedSprint(runnerId, id, name)` here.
    */
-  readonly onSprintResolved?: (runnerId: string, info: { readonly id: SprintId; readonly name: string }) => void;
+  readonly onSprintResolved?: (
+    runnerId: string,
+    info: { readonly id: SprintId; readonly name: string; readonly status?: SprintStatus }
+  ) => void;
 }
 
 export const launchSprintBoundFlow = async (
@@ -80,8 +84,15 @@ export const launchSprintBoundFlow = async (
 const attachReseatSubscriber = (
   runner: Runner<unknown>,
   fallbackLabel: string | undefined,
-  onReseat: ((info: { readonly id: SprintId; readonly name: string }) => void) | undefined,
-  onSprintResolved: ((runnerId: string, info: { readonly id: SprintId; readonly name: string }) => void) | undefined
+  onReseat:
+    | ((info: { readonly id: SprintId; readonly name: string; readonly status?: SprintStatus }) => void)
+    | undefined,
+  onSprintResolved:
+    | ((
+        runnerId: string,
+        info: { readonly id: SprintId; readonly name: string; readonly status?: SprintStatus }
+      ) => void)
+    | undefined
 ): void => {
   // Self-unsubscribe on terminal events so the listener (and the captured closures) don't pin
   // the runner across a long TUI session — historically a load-bearing OOM contributor for
@@ -95,7 +106,11 @@ const attachReseatSubscriber = (
     const ctx = event.ctx as SprintBoundCtx;
     const info =
       ctx.sprint !== undefined
-        ? { id: ctx.sprint.id, name: ctx.sprint.name }
+        ? {
+            id: ctx.sprint.id,
+            name: ctx.sprint.name,
+            ...(ctx.sprint.status !== undefined ? { status: ctx.sprint.status } : {}),
+          }
         : ctx.sprintId !== undefined
           ? { id: ctx.sprintId, name: fallbackLabel ?? String(ctx.sprintId) }
           : undefined;

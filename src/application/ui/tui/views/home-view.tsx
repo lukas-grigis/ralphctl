@@ -142,8 +142,8 @@ export const HomeView = (): React.JSX.Element => {
       'create-sprint',
       snap,
       {
-        onReseat: ({ id, name }) => {
-          selection.setSprint(id, name);
+        onReseat: ({ id, name, status }) => {
+          selection.setSprint(id, name, status);
         },
         onSprintResolved: (runnerId, { id, name }) => {
           sessions.setPinnedSprint(runnerId, id, name);

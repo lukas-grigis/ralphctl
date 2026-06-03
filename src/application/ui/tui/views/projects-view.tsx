@@ -22,12 +22,14 @@ import { useSelection } from '@src/application/ui/tui/runtime/selection-context.
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
+import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
 
 export const ProjectsView = (): React.JSX.Element => {
   const deps = useDeps();
   const router = useRouter();
   const selection = useSelection();
   const ui = useUiState();
+  const { rows } = useBreakpoint();
   useViewHints([
     { keys: '↑/↓', label: 'move' },
     { keys: '↵', label: 'open' },
@@ -53,10 +55,11 @@ export const ProjectsView = (): React.JSX.Element => {
   // (↑/↓ + j/k + PgUp/PgDn + Home/End). Disabled whenever a prompt / overlay / confirm is up so
   // it doesn't compete for keys; Enter pushes the detail route and stamps the selection.
   const listActive = !ui.helpOpen && !ui.promptActive && confirmDelete === undefined;
+  const visibleRows = Math.max(4, Math.min(12, Math.floor(rows / 5)));
   const { window, visibleItems, focusedItem } = useListWindow<Project>({
     items,
     getId: (p) => p.id,
-    visibleRows: 4,
+    visibleRows,
     active: listActive,
     onSubmit: (p) => {
       selection.setProject(p.id, p.displayName);

@@ -35,6 +35,7 @@ import { sessionHintsFromLaunchResult } from '@src/application/ui/shared/launche
 import { launchSprintBoundFlow } from '@src/application/ui/shared/launch/sprint-bound.ts';
 import { loadAppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
+import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
 import { unblockTaskUseCase } from '@src/business/task/unblock-task.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 
@@ -43,6 +44,7 @@ export const SprintsView = (): React.JSX.Element => {
   const router = useRouter();
   const selection = useSelection();
   const ui = useUiState();
+  const { rows } = useBreakpoint();
   const sessions = useSessionManager();
   const queue = usePromptQueue();
   const storage = useStorage();
@@ -68,10 +70,11 @@ export const SprintsView = (): React.JSX.Element => {
   // so a reload/reorder keeps focus on the same sprint. Enter selects (sets current + drills in).
   // Disabled while a prompt/help/confirm is up so its keys don't fight the modal.
   const listActive = !ui.promptActive && !ui.helpOpen && confirmDelete === undefined;
+  const visibleRows = Math.max(4, Math.min(12, Math.floor(rows / 5)));
   const { window, visibleItems, focusedIndex, focusedItem } = useListWindow<Sprint>({
     items,
     getId: (s) => s.id,
-    visibleRows: 4,
+    visibleRows,
     active: listActive,
     onSubmit: (s) => {
       selection.setSprint(s.id, s.name, s.status);
@@ -140,8 +143,8 @@ export const SprintsView = (): React.JSX.Element => {
       'create-sprint',
       snapshot,
       {
-        onReseat: ({ id, name }) => {
-          selection.setSprint(id, name);
+        onReseat: ({ id, name, status }) => {
+          selection.setSprint(id, name, status);
         },
         onSprintResolved: (runnerId, { id, name }) => {
           sessions.setPinnedSprint(runnerId, id, name);

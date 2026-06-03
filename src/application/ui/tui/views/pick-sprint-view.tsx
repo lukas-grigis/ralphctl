@@ -182,8 +182,8 @@ export const PickSprintView = (): React.JSX.Element => {
       'create-sprint',
       snapshot,
       {
-        onReseat: ({ id, name }) => {
-          selection.setSprint(id, name);
+        onReseat: ({ id, name, status }) => {
+          selection.setSprint(id, name, status);
         },
         onSprintResolved: (runnerId, { id, name }) => {
           sessions.setPinnedSprint(runnerId, id, name);
@@ -266,7 +266,7 @@ export const PickSprintView = (): React.JSX.Element => {
   });
 
   return (
-    <ViewShell title="Pick a sprint" subtitle="Switch sprint (and project) in one step">
+    <ViewShell title="Pick a sprint" subtitle="Switch sprint (and project) in one step" suppressScrollArrows>
       {ui.helpOpen ? (
         <HelpOverlay />
       ) : state.kind === 'loading' || state.kind === 'idle' ? (
