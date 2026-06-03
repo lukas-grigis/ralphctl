@@ -424,6 +424,7 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
     title: `Implement — ${snapshot.sprint.name}`,
     taskNames,
     maxTurns: settings.harness.maxTurns,
+    maxAttempts: settings.harness.maxAttempts,
     plannedLeaves,
     ...(planLabelByName.size > 0 ? { planLabelByName } : {}),
     terminalSubstepName: IMPLEMENT_TASK_TERMINAL_LEAF,

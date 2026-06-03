@@ -56,6 +56,8 @@ export type LaunchResult =
       readonly taskNames?: ReadonlyMap<string, string>;
       /** Configured `maxTurns` for the run's gen-eval loop, surfaced as `round N/M` in the panel. */
       readonly maxTurns?: number;
+      /** Configured `maxAttempts` per task, surfaced as the `/X` in `attempt N/X` in the panel. */
+      readonly maxAttempts?: number;
       /**
        * Static element-tree leaf names in DFS order, computed at chain-construction time via
        * {@link flattenLeaves}. Drives the TUI's Flow-steps panel to render *all expected* steps
@@ -181,6 +183,7 @@ export const sessionHintsFromLaunchResult = (
 ): {
   readonly taskNames?: ReadonlyMap<string, string>;
   readonly maxTurns?: number;
+  readonly maxAttempts?: number;
   readonly plannedLeaves?: readonly string[];
   readonly planLabelByName?: ReadonlyMap<string, string>;
   readonly terminalSubstepName?: string;
@@ -194,6 +197,7 @@ export const sessionHintsFromLaunchResult = (
 } => ({
   ...(result.taskNames !== undefined ? { taskNames: result.taskNames } : {}),
   ...(result.maxTurns !== undefined ? { maxTurns: result.maxTurns } : {}),
+  ...(result.maxAttempts !== undefined ? { maxAttempts: result.maxAttempts } : {}),
   ...(result.plannedLeaves !== undefined ? { plannedLeaves: result.plannedLeaves } : {}),
   ...(result.planLabelByName !== undefined ? { planLabelByName: result.planLabelByName } : {}),
   ...(result.terminalSubstepName !== undefined ? { terminalSubstepName: result.terminalSubstepName } : {}),
