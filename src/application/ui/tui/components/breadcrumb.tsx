@@ -62,10 +62,15 @@ export const Breadcrumb = (): React.JSX.Element => {
   const router = useRouter();
   const selection = useSelection();
   const ui = useUiState();
-  // When an Execute view is focused, prefer its pinned project/sprint so the right-side
-  // context reflects the run's own sprint rather than the mutable global selection.
-  const effectiveProjectLabel = ui.focusedRunProjectLabel ?? selection.projectLabel;
-  const effectiveSprintLabel = ui.focusedRunSprintLabel ?? selection.sprintLabel;
+  // When an Execute view is focused, BOTH right-side labels coalesce from its pinned context
+  // as a single unit — never one from the run and the other from the mutable global selection.
+  // A run always pins a project label, so its presence is the canonical "run focused" signal.
+  // Gating the two lookups independently let a project-only run (e.g. detect-scripts, no
+  // sprint) pair the run's project with a stale global sprint label; gating them together
+  // means a focused run with no sprint shows no sprint label at all (the correct outcome).
+  const runFocused = ui.focusedRunProjectLabel !== undefined;
+  const effectiveProjectLabel = runFocused ? ui.focusedRunProjectLabel : selection.projectLabel;
+  const effectiveSprintLabel = runFocused ? ui.focusedRunSprintLabel : selection.sprintLabel;
   // Substitute the concrete project / sprint name for the generic stack-id label so the
   // breadcrumb reads "Home → Projects → experience hub" instead of "… → Project". Selection
   // is set immediately before `router.push` in the list views, so it matches the entry that
