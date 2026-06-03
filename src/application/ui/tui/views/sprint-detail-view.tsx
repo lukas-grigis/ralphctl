@@ -110,20 +110,26 @@ export const SprintDetailView = (): React.JSX.Element => {
     focusedNow?.kind === 'task' && focusedNow.task.status === 'todo' ? focusedNow.task : undefined;
   const canEdit = focusedTicket !== undefined || focusedTodoTask !== undefined;
 
+  // Every hint shares one source of truth with its handler via `enabledWhen`: the `a`/`d`
+  // ticket-CRUD chords are gated on `ticketsEditable` (draft only), so the hints must hide on a
+  // non-draft sprint or the footer would advertise keys that do nothing. `m` (mark-current) and
+  // `u` (unblock) follow the same declarative gate rather than conditional spreads.
   useViewHints([
     { keys: 'n', label: 'flows' },
     { keys: '↵/o', label: inDetail ? 'expand/collapse' : 'expand' },
-    { keys: 'a', label: 'add ticket' },
-    ...(canEdit ? [{ keys: 'e', label: 'edit field' }] : []),
-    { keys: 'd', label: 'remove ticket' },
+    { keys: 'a', label: 'add ticket', enabledWhen: ticketsEditable === true },
+    { keys: 'e', label: 'edit field', enabledWhen: canEdit },
+    { keys: 'd', label: 'remove ticket', enabledWhen: ticketsEditable === true },
     // Surface the `m` chord only when this sprint is not already the current one — once
     // they match, the action is a no-op and the hint adds noise. Suppressed while a
     // stuck task is focused so the `u unblock` hint (a more urgent operator action)
     // stays prominent in the footer without competing for horizontal space.
-    ...(sprint !== undefined && selection.sprintId !== sprint.id && focusedStuckTask === undefined
-      ? [{ keys: 'm', label: 'current' }]
-      : []),
-    ...(focusedStuckTask !== undefined ? [{ keys: 'u', label: 'unblock' }] : []),
+    {
+      keys: 'm',
+      label: 'current',
+      enabledWhen: sprint !== undefined && selection.sprintId !== sprint.id && focusedStuckTask === undefined,
+    },
+    { keys: 'u', label: 'unblock', enabledWhen: focusedStuckTask !== undefined },
   ]);
 
   const handleEdit = (): void => {

@@ -51,13 +51,6 @@ export const ProjectDetailView = (): React.JSX.Element => {
   const router = useRouter();
   const ui = useUiState();
   const { projectId } = useViewProps<ProjectDetailProps>();
-  useViewHints([
-    { keys: 'r', label: 'sprints' },
-    { keys: 'a', label: 'add repo' },
-    { keys: 'd', label: 'remove repo' },
-    { keys: 'c', label: 'detect scripts' },
-    { keys: 'S', label: 'detect skills' },
-  ]);
   const sessions = useSessionManager();
   const queue = usePromptQueue();
   const storage = useStorage();
@@ -103,6 +96,22 @@ export const ProjectDetailView = (): React.JSX.Element => {
   }, [project]);
 
   const focused = fields[Math.min(cursorIdx, Math.max(0, fields.length - 1))];
+
+  // Hints share one source of truth with their handlers. The view drives a flat field cursor
+  // (`↑/↓`) and edits the focused row (`e` / `↵`), plus the per-repo CRUD chords. `e edit field`
+  // gates on there being an editable focused row, so the footer never advertises a no-op edit on
+  // an empty field list. `d`/`c`/`S` act on the focused row only when it is a repo.
+  const focusedRepo = focused?.kind === 'repo';
+  useViewHints([
+    { keys: '↑/↓', label: 'navigate' },
+    { keys: '↵', label: 'confirm/select' },
+    { keys: 'e', label: 'edit field', enabledWhen: focused !== undefined },
+    { keys: 'a', label: 'add repo' },
+    { keys: 'd', label: 'remove repo', enabledWhen: focusedRepo },
+    { keys: 'c', label: 'detect scripts', enabledWhen: focusedRepo },
+    { keys: 'S', label: 'detect skills', enabledWhen: focusedRepo },
+    { keys: 'r', label: 'sprints' },
+  ]);
 
   // Reset the cursor when the underlying project changes — both the first successful load
   // (loading → ok) and a re-route to a different projectId. Without this, switching from a
@@ -374,12 +383,9 @@ const Body = ({ project, focused, feedback }: BodyProps): React.JSX.Element => {
         {project.repositories.map((repo) => (
           <RepoCard key={repo.id} repo={repo} focused={focused} />
         ))}
-        <Box paddingX={spacing.indent} marginTop={spacing.section}>
-          <Text dimColor>
-            a add {glyphs.bullet} ↑/↓ navigate {glyphs.bullet} e/↵ edit field {glyphs.bullet} c detect scripts{' '}
-            {glyphs.bullet} S detect skills {glyphs.bullet} d remove (keeps ≥ 1)
-          </Text>
-        </Box>
+        {/* Key affordances are published through the router's hint strip (`useViewHints`), the
+            single source of truth that gates the repo-only `d`/`c`/`S` chords on the focused row.
+            An inline duplicate would re-advertise them ungated and contradict the gate. */}
         {feedback !== undefined && (
           <Box paddingX={spacing.indent} marginTop={1}>
             <Text color={feedback.startsWith('✗') ? inkColors.error : inkColors.primary}>{feedback}</Text>

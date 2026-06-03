@@ -106,13 +106,17 @@ export const SprintsView = (): React.JSX.Element => {
   const stuckTasks = focusedSprintTasks.filter((t) => t.status === 'blocked' || t.status === 'in_progress');
   const stuckCount = stuckTasks.length;
 
+  // `e rename` shares one source of truth with its handler: the rename chord guards
+  // `status !== 'done'` (a done sprint is immutable), so the hint must hide on a done sprint
+  // rather than advertise a no-op. `u` follows the same declarative gate on the stuck-task count.
+  const focusedDone = focusedSprint?.status === 'done';
   useViewHints([
     { keys: '↵', label: 'open' },
     { keys: 'c', label: 'create' },
-    { keys: 'e', label: 'rename' },
+    { keys: 'e', label: 'rename', enabledWhen: !focusedDone },
     { keys: 'd', label: 'delete' },
     { keys: 'r', label: 'reload' },
-    ...(stuckCount > 0 ? [{ keys: 'u', label: `unblock (${String(stuckCount)})` }] : []),
+    { keys: 'u', label: `unblock (${String(stuckCount)})`, enabledWhen: stuckCount > 0 },
   ]);
 
   // Claim the global-key mute while the confirm prompt is mounted.
@@ -343,10 +347,12 @@ export const SprintsView = (): React.JSX.Element => {
             })}
             <OverflowRow direction="below" count={state.value.length - window.end} />
           </Box>
+          {/* Just the count here — the key affordances live in the router's hint strip
+              (`useViewHints`), the single source of truth that gates `e`/`u` on focus state.
+              Duplicating the keys inline would re-advertise them ungated and contradict the gate. */}
           <Box paddingX={spacing.indent} marginTop={spacing.section}>
             <Text dimColor>
-              {glyphs.bullet} {state.value.length} sprint(s) {glyphs.bullet} ↵ open {glyphs.bullet} c create{' '}
-              {glyphs.bullet} e rename {glyphs.bullet} d delete {glyphs.bullet} r reload
+              {glyphs.bullet} {state.value.length} sprint(s)
             </Text>
           </Box>
           {(feedback ?? edit.feedback) !== undefined && (

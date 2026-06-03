@@ -220,8 +220,10 @@ export const ExecuteView = (): React.JSX.Element => {
 
   // TasksPanel claims input for the signal-row cursor (j/k or ↑/↓ to move, Enter / Space to
   // expand a commit-message row). Disabled while any modal owns the keyboard so the cursor
-  // can't fight the help overlay (`?`), the progress overlay (`g`), or a prompt.
-  const tasksInputActive = !ui.helpOpen && !ui.progressOpen && !ui.promptActive;
+  // can't fight the help overlay (`?`), the progress overlay (`g`), a prompt, or the
+  // cancel-scope picker (`c`) — the latter is rendered inline behind the modal, so without
+  // this gate esc/j/k/e would double-handle the hidden panel.
+  const tasksInputActive = !ui.helpOpen && !ui.progressOpen && !ui.promptActive && !cancelScopeOpen;
 
   // When the pinned sprint is no longer available (done or removed), blank the panels that
   // depend on it and surface a pick-a-sprint prompt so the user knows what happened.

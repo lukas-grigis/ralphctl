@@ -118,6 +118,17 @@ describe('SettingsView', () => {
     result.unmount();
   });
 
+  it('shows an animated Spinner (not static text) while settings are loading', () => {
+    // The first synchronous frame renders before `refresh()` resolves — the loading state must
+    // be the shared <Spinner> (braille glyph + label), not a static "<Text>Loading…".
+    const { result } = renderView(<SettingsView />, { deps, initial: { id: 'settings' } });
+    const frame = result.lastFrame() ?? '';
+    expect(frame).toContain('Loading…');
+    // The braille spinner's first frame glyph; its presence proves <Spinner> mounted.
+    expect(frame).toContain('⠋');
+    result.unmount();
+  });
+
   it('shows the storage paths card when the storage section is active', async () => {
     const { result } = renderView(<SettingsView />, { deps, initial: { id: 'settings' } });
     await tick(40);

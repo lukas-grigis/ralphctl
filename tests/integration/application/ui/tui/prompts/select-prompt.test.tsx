@@ -1,6 +1,7 @@
 /**
  * Render tests for SelectPrompt. Cursor moves with ↑/↓ and j/k; Enter submits the focused
- * option; g / G snap to top / bottom; Esc cancels.
+ * option; Space does NOT submit (consistent with MultiSelectPrompt, where Space toggles);
+ * g / G snap to top / bottom; Esc cancels.
  */
 
 import { describe, expect, it, vi } from 'vitest';
@@ -21,6 +22,21 @@ describe('SelectPrompt', () => {
     const { stdin, unmount } = render(
       <SelectPrompt message="Pick" options={options} onSubmit={onSubmit} onCancel={() => undefined} />
     );
+    stdin.write(ENTER);
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith('alpha');
+    unmount();
+  });
+
+  it('Space does NOT submit (Enter is the sole submit key)', async () => {
+    const onSubmit = vi.fn();
+    const { stdin, unmount } = render(
+      <SelectPrompt message="Pick" options={options} onSubmit={onSubmit} onCancel={() => undefined} />
+    );
+    stdin.write(' ');
+    await tick();
+    expect(onSubmit).not.toHaveBeenCalled();
+    // Enter still submits the focused option.
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('alpha');

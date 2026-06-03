@@ -77,7 +77,7 @@ export const SelectPrompt = ({
       onCancel();
       return;
     }
-    if (key.return || input === ' ') {
+    if (key.return) {
       const opt = options[cursor];
       // Block submission of a disabled option — the renderer also surfaces the disabled
       // affordance visually, but we belt-and-brace here so a stale cursor cannot bypass the

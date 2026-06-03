@@ -17,7 +17,7 @@ import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 import { createSessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
-import { ENTER, tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { ENTER, ESC, tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 const noopEventBus: EventBus = {
@@ -350,6 +350,82 @@ describe('ExecuteView', () => {
     result.stdin.write('2');
     await tick(50);
     expect(findById).toHaveBeenCalledWith(sprintA, TASK as unknown as TaskId);
+    result.unmount();
+  });
+
+  it('mutes the TasksPanel cursor while the cancel-scope overlay is open', async () => {
+    // L3: the cancel-scope overlay renders inline behind the modal; without gating, the
+    // TasksPanel's j/k cursor (and esc/e) double-handle the hidden panel. We prove the mute
+    // via the card cursor: with two tasks the `›` marker sits on the first task. Pressing `j`
+    // while the overlay is open must NOT move it; after esc dismisses the overlay `j` moves
+    // the cursor to the second task as normal.
+    const T1 = '01933fbb-1111-7000-8000-000000000001';
+    const T2 = '01933fbb-1111-7000-8000-000000000002';
+    const taskNames = new Map([
+      [T1, 'First task'],
+      [T2, 'Second task'],
+    ]);
+    const traceArray: TraceEntry[] = [
+      { elementName: `generator-${T1}`, status: 'completed', durationMs: 100 },
+      { elementName: `settle-attempt-${T1}`, status: 'completed', durationMs: 1 },
+      { elementName: `generator-${T2}`, status: 'completed', durationMs: 100 },
+    ];
+    const runner: Runner<unknown> = {
+      id: 'r-cancel-mute',
+      status: 'running' as const,
+      ctx: {},
+      trace: traceArray as Trace,
+      subscribe: () => () => undefined,
+      start: vi.fn(),
+      abort: vi.fn(),
+    } as unknown as Runner<unknown>;
+
+    const sprintA = 'sprint-cancel-mute' as unknown as SprintId;
+    const sessions = createSessionManager();
+    sessions.register({
+      runner,
+      flowId: 'implement',
+      title: 'Implement — Mute',
+      pinnedSprintId: sprintA,
+      taskNames,
+      terminalSubstepName: 'uninstall-skills',
+      maxTurns: 10,
+    });
+
+    const deps: AppDeps = {
+      eventBus: noopEventBus,
+      sprintExecutionRepo: { findById: vi.fn().mockResolvedValue({ ok: false }) },
+      taskRepo: {
+        findById: vi.fn().mockResolvedValue({ ok: false }),
+        findBySprintId: vi.fn().mockResolvedValue({ ok: true, value: [] }),
+      },
+    } as unknown as AppDeps;
+
+    const { result } = renderView(<ExecuteView />, {
+      deps,
+      initial: { id: 'execute', props: { sessionId: 'r-cancel-mute' } },
+      sessions,
+    });
+    await tick(60);
+    // `›` (selectMarker) sits on the first task at rest.
+    const cursorOnSecond = (frame: string): boolean => /›[^\n]*Second task/.test(frame);
+    expect(cursorOnSecond(result.lastFrame() ?? '')).toBe(false);
+
+    // Open the overlay, then press `j` — the panel is muted, so the cursor stays put.
+    result.stdin.write('c');
+    await tick();
+    expect(result.lastFrame() ?? '').toContain('Cancel — pick a scope');
+    result.stdin.write('j');
+    await tick();
+    expect(cursorOnSecond(result.lastFrame() ?? '')).toBe(false);
+
+    // Dismiss the overlay; `j` is live again and advances the cursor to the second task.
+    result.stdin.write(ESC);
+    await tick();
+    expect(result.lastFrame() ?? '').not.toContain('Cancel — pick a scope');
+    result.stdin.write('j');
+    await tick();
+    expect(cursorOnSecond(result.lastFrame() ?? '')).toBe(true);
     result.unmount();
   });
 

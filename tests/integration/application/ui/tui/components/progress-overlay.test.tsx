@@ -59,15 +59,29 @@ const writeProgressFile = async (dataRoot: string, body: string): Promise<void> 
   await fs.writeFile(join(sprintDir, 'progress.md'), body, 'utf8');
 };
 
-const SeedSelection = ({ withSprint }: { readonly withSprint: boolean }): React.JSX.Element => {
+const SeedSelection = ({
+  withSprint,
+  withFocusedRun,
+}: {
+  readonly withSprint: boolean;
+  readonly withFocusedRun?: boolean | undefined;
+}): React.JSX.Element => {
   const selection = useSelection();
+  const ui = useUiState();
   const setSprintRef = React.useRef(selection.setSprint);
   setSprintRef.current = selection.setSprint;
+  const setFocusedRunRef = React.useRef(ui.setFocusedRunContext);
+  setFocusedRunRef.current = ui.setFocusedRunContext;
   React.useEffect(() => {
     if (withSprint) {
       setSprintRef.current(parseSprintId(), 'demo-sprint');
     }
-  }, [withSprint]);
+    // Pin a run's sprint context with the GLOBAL selection left cleared — exercises the gate
+    // that resolves `focusedRunSprintId ?? selection.sprintId`.
+    if (withFocusedRun === true) {
+      setFocusedRunRef.current({ projectLabel: undefined, sprintId: parseSprintId(), sprintLabel: 'pinned-run' });
+    }
+  }, [withSprint, withFocusedRun]);
   return <></>;
 };
 
@@ -80,13 +94,14 @@ const GlobalHarness = ({ children }: { readonly children: React.ReactNode }): Re
 interface HarnessOptions {
   readonly dataRoot: string;
   readonly withSprint: boolean;
+  readonly withFocusedRun?: boolean | undefined;
 }
 
 /** Empty session manager — useGlobalKeys now reads it, but these tests exercise no running flows. */
 const emptyManager = (): SessionManager =>
   ({ list: () => [], get: () => undefined, subscribe: () => () => undefined }) as unknown as SessionManager;
 
-const Harness = ({ dataRoot, withSprint }: HarnessOptions): React.JSX.Element => {
+const Harness = ({ dataRoot, withSprint, withFocusedRun }: HarnessOptions): React.JSX.Element => {
   const deps = {} as unknown as AppDeps;
   return (
     <DepsProvider value={deps}>
@@ -94,7 +109,7 @@ const Harness = ({ dataRoot, withSprint }: HarnessOptions): React.JSX.Element =>
         <SessionsProvider value={emptyManager()}>
           <UiStateProvider>
             <SelectionProvider>
-              <SeedSelection withSprint={withSprint} />
+              <SeedSelection withSprint={withSprint} withFocusedRun={withFocusedRun} />
               <RouterProvider initial={{ id: withSprint ? 'sprint-detail' : 'home' }}>
                 {(): React.JSX.Element => (
                   <GlobalHarness>
@@ -159,6 +174,27 @@ describe('ProgressOverlay — open / close', () => {
     const frame = lastFrame() ?? '';
     expect(frame).toContain('UNDERLYING_VIEW');
     expect(frame).not.toContain('esc · g to close');
+    unmount();
+  });
+
+  it('`g` opens on a pinned run when the global selection is cleared', async () => {
+    // Regression: the open-gate keyed on `selection.sprintId` only, while the overlay resolves
+    // `focusedRunSprintId ?? selection.sprintId`. Watching a run whose sprint is pinned (but the
+    // global selection cleared) made `g` a silent no-op. The widened gate opens onto the pin.
+    const dataRoot = await makeTmpRoot();
+    await writeProgressFile(dataRoot, '# Progress\n\nPinned run activity.');
+    const { stdin, lastFrame, unmount } = render(
+      <Harness dataRoot={dataRoot} withSprint={false} withFocusedRun={true} />
+    );
+    await tick(50); // let the focused-run pin effect run
+
+    stdin.write('g');
+    await tick(80);
+    const opened = lastFrame() ?? '';
+    expect(opened).toContain('Progress');
+    expect(opened).toContain('pinned-run');
+    expect(opened).toContain('Pinned run activity.');
+    expect(opened).not.toContain('UNDERLYING_VIEW');
     unmount();
   });
 });

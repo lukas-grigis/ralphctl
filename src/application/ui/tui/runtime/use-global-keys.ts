@@ -75,12 +75,15 @@ export const useGlobalKeys = (opts: UseGlobalKeysOptions = {}): void => {
 
     // Progress overlay — same modal contract as help. `g` opens (only when a sprint is loaded);
     // `g` also dismisses while open so the operator can mash the same key to toggle. `esc`
-    // dismisses. Anchoring on `selection.sprintId` keeps Home a no-op as the spec demands.
+    // dismisses. The open-gate mirrors the overlay's own sprint resolution
+    // (`focusedRunSprintId ?? selection.sprintId`): when an Execute view pins a run whose sprint
+    // is not the global selection, `g` must still open onto the pinned run instead of silently
+    // no-op'ing. Home — neither pinned nor selected — stays a no-op as the spec demands.
     if (ui.progressOpen) {
       if (key.escape || input === 'g') ui.toggleProgress();
       return;
     }
-    if (input === 'g' && selection.sprintId !== undefined) {
+    if (input === 'g' && (ui.focusedRunSprintId ?? selection.sprintId) !== undefined) {
       ui.toggleProgress();
       return;
     }

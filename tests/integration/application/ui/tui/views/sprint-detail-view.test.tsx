@@ -445,6 +445,35 @@ describe('SprintDetailView — phase workspace', () => {
     result.unmount();
   });
 
+  it('shows the a/d ticket-CRUD hints on a draft sprint (handlers are draft-gated)', async () => {
+    const sprint = makeSprint({
+      status: 'draft',
+      tickets: [{ id: 't1' as never, title: 'first', status: 'pending' } as never],
+    });
+    const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, []), initial });
+    await tick(40);
+    const frame = result.lastFrame() ?? '';
+    // The hint strip advertises the ticket add/remove chords only while they are wired up.
+    expect(frame).toContain('add ticket');
+    expect(frame).toContain('remove ticket');
+    result.unmount();
+  });
+
+  it('hides the a/d ticket-CRUD hints on a non-draft sprint (handlers are no-ops there)', async () => {
+    const sprint = makeSprint({
+      status: 'active',
+      tickets: [{ id: 't1' as never, title: 'first', status: 'approved' } as never],
+    });
+    const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, []), initial });
+    await tick(40);
+    const frame = result.lastFrame() ?? '';
+    // Ticket CRUD is draft-only; on an active sprint the chords do nothing, so the footer must
+    // not advertise them — the hint shares one source of truth with the gated handler.
+    expect(frame).not.toContain('add ticket');
+    expect(frame).not.toContain('remove ticket');
+    result.unmount();
+  });
+
   it('u is a no-op when the focused card is a todo task (no use-case invocation)', async () => {
     const sprint = makeSprint({
       status: 'active',

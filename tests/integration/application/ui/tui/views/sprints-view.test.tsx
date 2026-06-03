@@ -93,6 +93,18 @@ describe('SprintsView', () => {
     result.unmount();
   });
 
+  it('hides the e rename hint when the focused sprint is done (rename guards status !== done)', async () => {
+    const done = makeSprint({ name: 'Shipped Sprint', status: 'done' });
+    const { result } = renderView(<SprintsView />, { deps: stubDeps([done]), initial: { id: 'sprints' } });
+    await tick(40);
+    const frame = result.lastFrame() ?? '';
+    // The rename handler is a no-op on a done sprint, so the hint must hide rather than advertise
+    // a dead key — hint and handler share one source of truth.
+    expect(frame).toContain('Shipped Sprint');
+    expect(frame).not.toContain('e rename');
+    result.unmount();
+  });
+
   it("pressing 'e' opens an Ink text prompt prefilled with the sprint name and saves on resolve", async () => {
     const sprint = makeDraftSprint({ name: 'Mispeld Sprint' });
     const save = vi.fn(async (s: Sprint) => Result.ok<Sprint>(s));
