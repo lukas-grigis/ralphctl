@@ -16,10 +16,12 @@
  *   g                         → top
  *   G                         → bottom (the clamped max)
  *
- * Arrow keys are dual-purpose: list views (ListView, CardList) also use them to move the row
- * cursor. The early return on `max === 0` (content fits the viewport) keeps the dominant case
- * — a list shorter than the screen — conflict-free; only when the page itself overflows do
- * both handlers fire on the same key, which is the intended UX (cursor moves AND page scrolls).
+ * Arrow keys are dual-purpose: windowed-list views that own their own cursor via `useListWindow`
+ * also handle arrow keys for row navigation. The early return on `max === 0` (content fits the
+ * viewport) keeps the dominant case — a list shorter than the screen — conflict-free; only when
+ * the page itself overflows do both handlers fire on the same key. Pass `suppressArrows` (via
+ * `ViewShell suppressScrollArrows`) to prevent that double-act: the scroll region yields all
+ * arrow / paging keys so only the view's own cursor handler fires.
  *
  * Mouse tracking is also gated on `disabled`: while a prompt is open the SGR enable sequence
  * is withdrawn so wheel events stop emitting `\x1b[<64;…M` / `\x1b[<65;…M` bytes onto stdin,

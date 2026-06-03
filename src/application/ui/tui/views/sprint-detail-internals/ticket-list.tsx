@@ -94,7 +94,7 @@ export const TicketsSection = ({
       </Box>
       {feedback !== undefined && (
         <Box paddingX={spacing.indent} marginTop={1}>
-          <Text color={feedback.startsWith('✗') ? inkColors.error : inkColors.primary}>{feedback}</Text>
+          <Text color={feedback.startsWith(glyphs.cross) ? inkColors.error : inkColors.primary}>{feedback}</Text>
         </Box>
       )}
     </Box>

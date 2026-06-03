@@ -466,6 +466,13 @@ describe('ExecuteView', () => {
       ['detect-skills', 'Detect Skills'],
       ['create-sprint', 'Create Sprint'],
       ['close-sprint', 'Close Sprint'],
+      ['add-tickets', 'Add Tickets'],
+      ['ticket-add', 'Add Ticket'],
+      ['ticket-remove', 'Remove Ticket'],
+      ['export-context', 'Export Context'],
+      ['export-requirements', 'Export Requirements'],
+      ['doctor', 'Doctor'],
+      ['settings', 'Settings'],
     ];
     for (const [flowId, expectedTitle] of flowCases) {
       const sessions = createSessionManager();

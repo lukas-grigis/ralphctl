@@ -194,4 +194,34 @@ describe('multi-flow navigation chords', () => {
     expect(current.id).toBe('home');
     unmount();
   });
+
+  it('Tab with exactly one running session does not call the router (same-session guard)', async () => {
+    // When there is only one running session, Tab cycles back to the same session. Without the
+    // guard, router.replace fires with an identical entry causing a wasteful re-render.
+    // The guard short-circuits when the target id equals the focused id.
+    const manager = fakeManager([sess('only')]);
+    const routeCalls: ViewEntry[] = [];
+    let current: ViewEntry = { id: 'execute', props: { sessionId: 'only' } };
+    const { stdin, unmount } = render(
+      <Harness
+        manager={manager}
+        initial={current}
+        onRoute={(e) => {
+          routeCalls.push(e);
+          current = e;
+        }}
+      />
+    );
+    await tick(50);
+    // Drain the initial route probe call(s) that fire on mount.
+    const callsBeforeTab = routeCalls.length;
+    stdin.write(TAB);
+    await tick();
+    // The route must not have changed and no new router calls should have been made.
+    expect(current.id).toBe('execute');
+    expect(focusedSessionId(current)).toBe('only');
+    // No additional route callbacks beyond the initial mount probe.
+    expect(routeCalls.length).toBe(callsBeforeTab);
+    unmount();
+  });
 });

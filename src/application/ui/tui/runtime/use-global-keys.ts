@@ -224,6 +224,10 @@ const focusRunningSession = (
 
   const targetSession = running[next];
   if (targetSession === undefined) return;
+  // Guard: if the target is already the focused session, skip the router call — a replace with
+  // an identical entry is a wasteful re-render when Tab cycles a single running session back to
+  // itself (e.g. only one running session and Tab wraps modularly to the same id).
+  if (targetSession.descriptor.id === focusedId) return;
   const entry: ViewEntry = { id: 'execute', props: { sessionId: targetSession.descriptor.id } };
   if (onExecute) router.replace(entry);
   else router.push(entry);

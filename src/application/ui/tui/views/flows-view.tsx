@@ -102,8 +102,7 @@ const OrientationCard = ({ snapshot, showAll }: OrientationCardProps): React.JSX
     return (
       <Card tone="info">
         <Text>
-          No sprint selected for <Text bold>{project.displayName}</Text>
-          {glyphs.emDash}
+          No sprint selected for <Text bold>{project.displayName}</Text> {glyphs.emDash}{' '}
           {snapshot.sprintCount === 0
             ? ' create one from Sprints, then return here.'
             : ' pick one with S or open Sprints.'}
