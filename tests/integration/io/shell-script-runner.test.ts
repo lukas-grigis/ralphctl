@@ -106,8 +106,10 @@ describe('createShellScriptRunner', () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error.subCode).toBe('io');
-      expect(result.error.message).toContain('ENOENT');
+      const err = result.error;
+      if (err.code !== 'storage-error') throw new Error(`expected StorageError, got ${err.code}`);
+      expect(err.subCode).toBe('io');
+      expect(err.message).toContain('ENOENT');
     }
   });
 
@@ -137,6 +139,64 @@ describe('createShellScriptRunner', () => {
 
   it('uses default timeout of 5 minutes when none provided', async () => {
     expect(DEFAULT_SHELL_TIMEOUT_MS).toBe(5 * 60_000);
+  });
+
+  describe('abort signal', () => {
+    // A held repo lock + a 5-minute verify timeout meant a Ctrl-C mid setup/verify was delayed
+    // for up to that timeout. The runner now threads the chain's AbortSignal: an abort kills the
+    // child tree promptly and surfaces as the codebase's AbortError (propagated transparently),
+    // NOT as a passed:false gate failure.
+
+    it('kills the child promptly and surfaces AbortError when aborted mid-run', async () => {
+      // A hanging script never closes on its own; only the abort-triggered kill resolves it.
+      const { spawn } = fakeSpawn({ hang: true });
+      const runner = createShellScriptRunner({ spawn });
+      const controller = new AbortController();
+
+      // Abort on the next tick — after spawn, while the child is still "running".
+      const pending = runner.run(cwd, 'sleep 999', { signal: controller.signal });
+      setTimeout(() => controller.abort(), 0);
+      const result = await pending;
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.name).toBe('AbortError');
+        expect(result.error.code).toBe('aborted');
+      }
+    });
+
+    it('short-circuits to AbortError without spawning when the signal is already aborted', async () => {
+      const { spawn, calls } = fakeSpawn({ exitCode: 0 });
+      const runner = createShellScriptRunner({ spawn });
+      const controller = new AbortController();
+      controller.abort();
+
+      const result = await runner.run(cwd, 'echo hi', { signal: controller.signal });
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.name).toBe('AbortError');
+      }
+      // Nothing was spawned — the short-circuit fires before the spawn() call.
+      expect(calls).toHaveLength(0);
+    });
+
+    it('ignores the signal listener once the script settles normally', async () => {
+      // A green run that completes before any abort must resolve passed:true, and a later abort
+      // (post-settle) must not flip the already-resolved result.
+      const { spawn } = fakeSpawn({ stdout: ['done\n'], exitCode: 0 });
+      const runner = createShellScriptRunner({ spawn });
+      const controller = new AbortController();
+
+      const result = await runner.run(cwd, 'echo done', { signal: controller.signal });
+      controller.abort(); // late abort — run already settled
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.passed).toBe(true);
+        expect(result.value.output).toBe('done');
+      }
+    });
   });
 
   it('passes through env vars merged on top of process.env', async () => {

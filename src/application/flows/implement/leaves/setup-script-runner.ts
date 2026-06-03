@@ -14,6 +14,7 @@ import type { Save } from '@src/domain/repository/_base/save.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import { ErrorCode } from '@src/domain/value/error/error-code.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
@@ -124,7 +125,7 @@ export const setupScriptRunnerLeaf = (
     'setup-script-runner',
     {
       useCase: {
-        execute: async (input): Promise<Result<LeafOutput, DomainError>> => {
+        execute: async (input, signal): Promise<Result<LeafOutput, DomainError>> => {
           let execution = input.execution;
           for (const repo of opts.repos) {
             const command = repo.setupScript?.trim() ?? '';
@@ -190,7 +191,19 @@ export const setupScriptRunnerLeaf = (
             const spawnResult = await deps.shellScriptRunner.run(repo.path, command, {
               ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
               env: { RALPHCTL_LIFECYCLE_EVENT: 'setup' },
+              // Thread the chain abort signal so a Ctrl-C mid-setup kills the child promptly
+              // instead of waiting out the timeout while the repo lock is held. A cancel surfaces
+              // as `AbortError` below (propagated verbatim — never folded into a spawn-error row).
+              ...(signal !== undefined ? { signal } : {}),
             });
+
+            // Cancellation propagates verbatim: a `Result.error(AbortError)` from the runner is a
+            // user-initiated abort, not a setup failure. Return it untouched so the chain tears
+            // down per "AbortError is the one error chains propagate transparently" — do NOT
+            // record it as a `spawn-error` audit row or a failed-gate banner.
+            if (!spawnResult.ok && spawnResult.error.code === ErrorCode.Aborted) {
+              return Result.error(spawnResult.error);
+            }
 
             if (!spawnResult.ok) {
               // Spawn-time failure: the shell could not start the command at all (ENOENT, etc).

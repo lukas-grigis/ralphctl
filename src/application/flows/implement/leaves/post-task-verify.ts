@@ -14,9 +14,11 @@ import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
+import { runVerifyShell } from '@src/application/flows/implement/leaves/pre-task-verify.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
 /**
@@ -116,16 +118,38 @@ export const postTaskVerifyLeaf = (
 ): Element<ImplementCtx> =>
   leaf<ImplementCtx, LeafInput, LeafOutput>(`post-task-verify-${String(taskId)}`, {
     useCase: {
-      execute: async (input): Promise<Result<LeafOutput, DomainError>> => {
+      execute: async (input, signal): Promise<Result<LeafOutput, DomainError>> => {
         const { run, rawOutput, spawnErrorMessage } = await runVerifyScriptUseCase({
           cwd: opts.cwd,
           phase: 'post',
           ...(opts.verifyScript !== undefined ? { verifyScript: opts.verifyScript } : {}),
           ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
           clock: deps.clock,
-          runShellScript: (cwd, script, scriptOpts) => deps.shellScriptRunner.run(cwd, script, scriptOpts),
+          // Thread the chain abort signal so a Ctrl-C mid-verify kills the child promptly instead
+          // of stranding the repo lock for the full verifyTimeout. `runVerifyShell` collapses the
+          // runner's widened `AbortError` to a `StorageError` shape for the use-case port — the
+          // real cancellation is surfaced verbatim by the `signal.aborted` check below.
+          runShellScript: (cwd, script, scriptOpts) =>
+            runVerifyShell(deps.shellScriptRunner, cwd, script, {
+              ...scriptOpts,
+              ...(signal !== undefined ? { signal } : {}),
+            }),
           logger: deps.logger,
         });
+
+        // Cancellation propagates verbatim. `runVerifyScriptUseCase` folds a runner
+        // `Result.error` into a `spawn-error` row, so the abort would otherwise be swallowed as an
+        // unknown-attribution outcome. Detect the cancel at the leaf boundary and surface the
+        // codebase's transparently-propagated `AbortError` — the chain tears down rather than
+        // recording a misleading spawn-error attribution.
+        if (signal?.aborted === true) {
+          return Result.error(
+            new AbortError({
+              elementName: `post-task-verify-${String(taskId)}`,
+              reason: 'aborted during post-task verify',
+            })
+          );
+        }
 
         // Audit [01] / [03]: persist the full untruncated output to
         // `<sprintDir>/logs/verify/<task-id>/post-attempt-<N>.log`.
