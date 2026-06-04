@@ -27,7 +27,7 @@ import { SelectionProvider, useSelection } from '@src/application/ui/tui/runtime
 import { RouterProvider } from '@src/application/ui/tui/runtime/router.tsx';
 import { useGlobalKeys } from '@src/application/ui/tui/runtime/use-global-keys.ts';
 import { ProgressOverlay } from '@src/application/ui/tui/components/progress-overlay.tsx';
-import { ESC, tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { ESC, tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
 
 const SPRINT_ID_STR = '0193ed2b-1234-7abc-8def-0123456789ab';
 
@@ -151,7 +151,9 @@ describe('ProgressOverlay — open / close', () => {
     expect(lastFrame() ?? '').toContain('UNDERLYING_VIEW');
 
     stdin.write('g');
-    await tick(50);
+    // The overlay reads progress.md asynchronously; wait for the content to land rather than a
+    // fixed tick, which races the disk read under load (caught '⠋ Loading…' on a busy box).
+    await waitFor(() => (lastFrame() ?? '').includes('First line of activity.'));
     const opened = lastFrame() ?? '';
     expect(opened).toContain('Progress');
     expect(opened).toContain('demo-sprint');
@@ -190,7 +192,7 @@ describe('ProgressOverlay — open / close', () => {
     await tick(50); // let the focused-run pin effect run
 
     stdin.write('g');
-    await tick(80);
+    await waitFor(() => (lastFrame() ?? '').includes('Pinned run activity.'));
     const opened = lastFrame() ?? '';
     expect(opened).toContain('Progress');
     expect(opened).toContain('pinned-run');
@@ -207,7 +209,7 @@ describe('ProgressOverlay — missing / empty file', () => {
     const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} withSprint={true} />);
     await tick(50);
     stdin.write('g');
-    await tick(80); // disk read + state flush
+    await waitFor(() => (lastFrame() ?? '').includes('No progress file yet')); // disk read + state flush
 
     const frame = lastFrame() ?? '';
     expect(frame).toContain('No progress file yet');
@@ -221,7 +223,7 @@ describe('ProgressOverlay — missing / empty file', () => {
     const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} withSprint={true} />);
     await tick(50);
     stdin.write('g');
-    await tick(80);
+    await waitFor(() => (lastFrame() ?? '').includes('exists but is empty'));
 
     expect(lastFrame() ?? '').toContain('exists but is empty');
     unmount();
@@ -248,7 +250,7 @@ describe('ProgressOverlay — scrolling', () => {
     const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} withSprint={true} />);
     await tick(50);
     stdin.write('g');
-    await tick(80);
+    await waitFor(() => (lastFrame() ?? '').includes('HEAD-LINE'));
 
     // Initial: top of file visible, tail not.
     const top = lastFrame() ?? '';
