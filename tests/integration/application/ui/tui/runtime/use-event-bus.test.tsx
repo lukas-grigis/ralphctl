@@ -25,9 +25,11 @@ const Probe = ({
   readonly onSubscribeCount: (count: number) => void;
 }): React.JSX.Element => {
   // Fresh arrow function each render — if the hook re-subscribed on identity churn it would
-  // cycle the bus subscription on every parent re-render.
+  // cycle the bus subscription on every parent re-render. `flushMs: 20` keeps the coalescer's
+  // window short so the drains below stay fast.
   const events = useEventBusBuffer<ChainCompletedEvent>(bus, {
     filter: (e: AppEvent): e is ChainCompletedEvent => e.type === 'chain-completed',
+    flushMs: 20,
   });
   onSubscribeCount(events.length);
   return <Text>count={events.length}</Text>;
@@ -42,15 +44,15 @@ describe('useEventBusBuffer', () => {
 
     bus.publish({ type: 'chain-completed', chainId: 'c1', at: NOW });
     bus.publish({ type: 'chain-completed', chainId: 'c2', at: NOW });
-    // Microtask drain — Ink batches state updates.
-    await new Promise((res) => setTimeout(res, 5));
+    // Drain past the coalescer's 20ms flush window so the batched setState lands.
+    await new Promise((res) => setTimeout(res, 60));
     expect(lastCount).toBe(2);
 
     // Now publish a third event AND a non-matching one. If the hook had unsubscribed-resub'd
     // on the implicit re-render Ink might have caused, the buffer would have been reset.
     bus.publish({ type: 'chain-completed', chainId: 'c3', at: NOW });
     bus.publish({ type: 'log', level: 'info', message: 'noise', at: NOW });
-    await new Promise((res) => setTimeout(res, 5));
+    await new Promise((res) => setTimeout(res, 60));
     expect(lastCount).toBe(3);
     r.unmount();
   });

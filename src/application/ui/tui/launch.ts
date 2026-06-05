@@ -18,9 +18,10 @@ import type { AppSinks } from '@src/application/bootstrap/runtime-sinks.ts';
 import { ensureStorageRoots, resolveStoragePaths } from '@src/application/bootstrap/storage-paths.ts';
 import { detectLegacyLayout, renderLegacyLayoutMessage } from '@src/application/bootstrap/legacy-layout-detector.ts';
 import { createJsonSettingsRepository } from '@src/integration/persistence/settings/json-settings-repository.ts';
-import { wire } from '@src/application/bootstrap/wire.ts';
+import { type AppDeps, wire } from '@src/application/bootstrap/wire.ts';
 import { broadcastSink } from '@src/integration/observability/sinks/broadcast-sink.ts';
-import { createBusSink } from '@src/application/ui/tui/runtime/sinks-bus.ts';
+import { type BusSink, createBusSink } from '@src/application/ui/tui/runtime/sinks-bus.ts';
+import { type CoalescedBuffer, createCoalescedBuffer } from '@src/application/ui/tui/runtime/coalesced-buffer.ts';
 import { createSessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
 import { createPromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
 import { createInkInteractivePrompt } from '@src/application/ui/tui/prompts/ink-interactive-prompt.ts';
@@ -31,7 +32,7 @@ import type { LaunchExtras } from '@src/application/ui/shared/launcher.ts';
 import { App } from '@src/application/ui/tui/App.tsx';
 import { resolveInitialState } from '@src/application/ui/tui/launch-routing.ts';
 import { createLastSelectionStore } from '@src/integration/persistence/selection/last-selection-store.ts';
-import { createLogLevelGate, passesLogLevel } from '@src/business/observability/log-level-filter.ts';
+import { type LogLevelGate, createLogLevelGate, passesLogLevel } from '@src/business/observability/log-level-filter.ts';
 import { startHeapWatchdog } from '@src/integration/observability/heap-watchdog.ts';
 import { createOsNotificationDispatcher } from '@src/integration/observability/os-notification-dispatcher.ts';
 import { startNotificationSubscriber } from '@src/business/observability/notification-subscriber.ts';
@@ -40,6 +41,44 @@ interface Bootstrapped {
   readonly app: Parameters<typeof App>[0];
   readonly drain: () => void;
 }
+
+/**
+ * Build the EventBus-`log` → logBus forwarder. This forwarder is the UI-floor chokepoint: the
+ * log-level gate is applied HERE, at ingest, against the live gate (`gate.get()` per event) —
+ * providers publish every stream-json line to the EventBus verbatim, so this is the single place
+ * that drops sub-floor events before they reach the UI. (The persistent events.ndjson sink writes
+ * them regardless of floor.)
+ *
+ * Admitted events are pushed through a CoalescedBuffer rather than emitted one-by-one: at a DEBUG
+ * floor a long run fans thousands of lines/sec, and one `logBus.emit` per line drove one React
+ * commit per line in `useSinkStream` → unthrottled Yoga layout → OOM. The buffer delivers a
+ * trailing window at most ~16fps; each flush emits its batch into `logBus` inside one synchronous
+ * turn so the downstream setStates collapse into a single commit.
+ *
+ * Returns the buffer (for `flushNow` on heap-critical + `stop` on drain) and the bus-unsubscribe
+ * (so a re-launched TUI in the same Node process does not stack a second forwarder on the dead one
+ * and double-publish every event).
+ */
+const createLogForwarder = (
+  eventBus: AppDeps['eventBus'],
+  logBus: BusSink<LogEvent>,
+  gate: LogLevelGate
+): { readonly buffer: CoalescedBuffer<LogEvent>; readonly unsubscribe: () => void } => {
+  const buffer = createCoalescedBuffer<LogEvent>({
+    limit: 2000,
+    // Delta semantics: this forwarder re-emits each window value into `logBus`. A rolling window
+    // would re-emit prior-flush events every tick and re-grow the bus (the OOM we are fixing), so
+    // each flush must deliver only the events admitted since the previous flush.
+    clearOnFlush: true,
+    onFlush: (window) => {
+      for (const event of window) logBus.emit(event);
+    },
+  });
+  const unsubscribe = eventBus.subscribe((event) => {
+    if (event.type === 'log' && passesLogLevel(event.level, gate.get())) buffer.push(event);
+  });
+  return { buffer, unsubscribe };
+};
 
 const bootstrap = async (): Promise<Bootstrapped> => {
   const paths = resolveStoragePaths();
@@ -70,19 +109,16 @@ const bootstrap = async (): Promise<Bootstrapped> => {
   const sinks: AppSinks = { harness: harnessSink };
   const deps = wire({ storage: paths.value, sinks, settings: settings.value });
 
-  // Forward EventBus 'log' events into the TUI's log bus so the recent-events-tail panel
-  // keeps rendering. Capture the unsubscribe so the bootstrap's `drain()` (called from
-  // launchTui's finally on Ink shutdown) can release the listener — otherwise a re-launched
-  // TUI in the same Node process would stack a fresh forwarder on top of the dead one and
-  // each 'log' event would publish twice (or N times after N relaunches).
-  //
-  // Log-level gate is a small mutable holder seeded from `settings.logging.level`. The
-  // forwarder reads `gate.get()` on every event so the Settings view can swap the floor at
-  // runtime by calling `gate.set(newLevel)` via the LogLevelContext.
+  // Forward EventBus 'log' events into the TUI's log bus (coalesced, gate-at-ingest). See
+  // createLogForwarder for the full rationale. Log-level gate is a small mutable holder seeded
+  // from `settings.logging.level`; the Settings view swaps the floor at runtime via
+  // `gate.set(newLevel)` through the LogLevelContext, and the forwarder reads it per event.
   const logLevelGate = createLogLevelGate(settings.value.logging.level);
-  const unsubLogForward = deps.eventBus.subscribe((event) => {
-    if (event.type === 'log' && passesLogLevel(event.level, logLevelGate.get())) logBus.emit(event);
-  });
+  const { buffer: logForwarder, unsubscribe: unsubLogForward } = createLogForwarder(
+    deps.eventBus,
+    logBus,
+    logLevelGate
+  );
 
   // Heap watchdog gives the operator a 30-second warning before V8 SIGKILLs the harness on a
   // long-running session. On 'critical' it dumps the TUI's in-memory buffers (which retain the
@@ -90,6 +126,10 @@ const bootstrap = async (): Promise<Bootstrapped> => {
   const heapWatchdog = startHeapWatchdog({
     eventBus: deps.eventBus,
     onCritical: () => {
+      // Drop (do NOT flush) the batch the forwarder is holding, then clear the buses. Flushing
+      // here would re-emit the held window into `logBus` immediately before we empty it — pointless
+      // churn. discard() empties the window without emitting, so the clear below stays final.
+      logForwarder.discard();
       harnessBus.clear();
       logBus.clear();
     },
@@ -154,6 +194,7 @@ const bootstrap = async (): Promise<Bootstrapped> => {
     drain: (): void => {
       queue.drain(new Error('TUI shutting down'));
       unsubLogForward();
+      logForwarder.stop();
       heapWatchdog.stop();
       unsubNotifications();
     },

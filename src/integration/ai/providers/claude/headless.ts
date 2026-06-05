@@ -134,9 +134,11 @@ const previewToolResult = (content: unknown): string | undefined => {
  *  - `type:"system"`, `type:"result"`, unknown / malformed lines: silently skipped — they are
  *    accounted for by other telemetry (system → init logging; result → token-usage event).
  *
- * The `RALPHCTL_LOG_LEVEL=info` filter (applied by the bus → logger consumer at
- * `createEventBusLogger`) drops every event published here under the default verbosity. The
- * events only surface in chain.log when the operator explicitly lifts the floor to `debug`.
+ * These events are published DIRECTLY to the EventBus — there is no producer-side gate here.
+ * `createEventBusLogger` is a producer that *publishes* `log` AppEvents, not a filter, so it does
+ * not drop anything emitted at this site. The only UI-floor gate is the coalescing forwarder in
+ * `launch.ts`, which applies the live log-level floor at ingest before the TUI ever sees a line.
+ * The persistent events.ndjson sink writes every event here verbatim, regardless of the UI floor.
  */
 const publishStreamLineEvents = (eventBus: EventBus, line: ClaudeStreamLine): void => {
   const json = line.json;
@@ -418,10 +420,10 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
 
   const onLine = (line: ClaudeStreamLine): void => {
     parser.ingest(line);
-    // Per-line debug fan-out. The bus → logger consumer (`createEventBusLogger`) honours
-    // `RALPHCTL_LOG_LEVEL`, so these events stay invisible at the default `info` floor and
-    // only land in chain.log when an operator explicitly bumps the floor to `debug`. No
-    // extra gating needed at this site.
+    // Per-line debug fan-out, published DIRECTLY to the EventBus — no gate at this site. The
+    // UI-floor filter lives in launch.ts's coalescing forwarder (applied at ingest against the
+    // live log-level gate); the persistent events.ndjson sink records every event regardless of
+    // that floor. `createEventBusLogger` is a producer, not a filter, and drops nothing here.
     publishStreamLineEvents(deps.eventBus, line);
   };
 
