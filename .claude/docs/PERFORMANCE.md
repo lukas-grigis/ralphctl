@@ -166,6 +166,33 @@ Resolution uses the `SkillSource.getByName` lookup on the bundled source.
 | `NO_COLOR`                   | unset          | any truthy value | Suppress ANSI colors                                             |
 | `CI`                         | auto-detected  | any truthy value | Suppress implicit interactive prompts inside the implement flow  |
 
+## Diagnosing an OOM (heap snapshot)
+
+The heap watchdog (`startHeapWatchdog`) warns and sheds in-memory buffers as the V8 old-space
+fills, but if the process still aborts (`exit 134`, "JavaScript heap out of memory") the in-memory
+buffers vanish with it. To capture _what_ the heap held at the moment of death, relaunch with V8's
+near-heap-limit snapshot:
+
+```bash
+pnpm dev:heap-snapshot   # = mkdir -p .diagnostics && NODE_OPTIONS='--max-old-space-size=8192
+                         #     --heapsnapshot-near-heap-limit=2 --diagnostic-dir=.diagnostics' tsx src/index.ts
+```
+
+- **Where the dump lands.** `--diagnostic-dir=.diagnostics` writes the snapshot to `<repo>/.diagnostics/`
+  (gitignored). Without `--diagnostic-dir`, V8 writes to the process's **current working directory** — for
+  `pnpm dev` that is the repo root, so the script pins it to `.diagnostics/` to keep the tree clean. The
+  directory is NOT auto-created, hence the `mkdir -p`.
+- **Filename.** `Heap.<YYYYMMDD>.<HHMMSS>.<pid>.<tid>.<seq>.heapsnapshot`.
+- **Size.** The file is roughly the size of the live heap — near an 8 GB limit expect a **multi-GB** file
+  per snapshot (`=2` writes up to two). Delete `.diagnostics/` when done.
+- **Reading it.** Chrome/Edge DevTools → **Memory** → **Load** → pick the `.heapsnapshot` → sort by
+  _Retained Size_ / open the _Dominators_ view. A retained-memory leak shows one structure dominating; a
+  commit/throughput storm (the failure mode the coalescer fixes) shows transient React Fiber + Ink `Output`
+  cell arrays dominating, with every bounded ring buffer small — i.e. nothing is actually _retained_.
+
+For the installed binary instead of `pnpm dev`, set the same flags yourself:
+`NODE_OPTIONS='--heapsnapshot-near-heap-limit=2 --diagnostic-dir=/tmp/ralphctl-diag' ralphctl`.
+
 ## Release procedure
 
 GitHub Actions auto-publishes on tags `v[0-9]+.[0-9]+.[0-9]+`. Tag must match

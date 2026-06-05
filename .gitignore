@@ -45,6 +45,10 @@ Thumbs.db
 tmp
 *.tmp
 
+# Heap snapshots from `pnpm dev:heap-snapshot` (--heapsnapshot-near-heap-limit)
+.diagnostics/
+*.heapsnapshot
+
 # Claude Code per-user settings
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
