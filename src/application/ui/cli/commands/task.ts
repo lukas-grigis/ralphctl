@@ -104,6 +104,8 @@ export const registerTaskCommand = (program: Command): void => {
         task: loaded.value,
         sprintId: sprintId.value,
         taskRepo: deps.taskRepo,
+        sprintRepo: deps.sprintRepo,
+        clock: deps.clock,
         logger: deps.logger,
       });
       if (!result.ok) {

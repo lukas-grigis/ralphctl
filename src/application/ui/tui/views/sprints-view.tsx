@@ -227,6 +227,8 @@ export const SprintsView = (): React.JSX.Element => {
         task,
         sprintId: focusedSprint.id,
         taskRepo: deps.taskRepo,
+        sprintRepo: deps.sprintRepo,
+        clock: deps.clock,
         logger: deps.logger,
       });
       if (r.ok) {

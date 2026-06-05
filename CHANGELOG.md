@@ -7,6 +7,16 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Unblocking a task on a `review` sprint now reopens it so Implement can resume.** A mixed run
+  (some tasks `done`, some `blocked`) settles the sprint to `review`. Previously, unblocking the
+  blocked tasks left them as `todo` work the Implement gate (`planned` / `active` only) refused to
+  pick up — stranding the sprint with only Review / Close available. `unblockTaskUseCase` now reopens
+  a `review` sprint to `active` (new `revertSprintToActive` domain transition, `review → active`),
+  re-arming Implement so the revived tasks get implemented on the next run. Best-effort and
+  idempotent across the single-unblock, bulk-unblock, and `ralphctl task unblock` paths.
+
 ### Added
 
 - **Skills subsystem — harness-compatibility contract checker.** A new pure scanner
