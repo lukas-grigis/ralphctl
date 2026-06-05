@@ -3,7 +3,8 @@
 > On-demand reference (split out of `CLAUDE.md`). Read when working on sprint lifecycle, planning,
 > the implement gen-eval loop, or TUI navigation.
 
-Sprint lifecycle: `draft → planned → active → review → done`.
+Sprint lifecycle: `draft → planned → active → review → done`, plus one recovery edge
+`review → active` (unblocking a task on a review sprint — see below).
 
 | Operation               | Draft | Planned | Active | Review | Done |
 | ----------------------- | :---: | :-----: | :----: | :----: | :--: |
@@ -19,6 +20,16 @@ Implement transitions the sprint to `review` once every task has settled (`done`
 one task settled `done` — an all-blocked run stays `active` so the operator can fix the blocker and
 re-run without backing the sprint out of review. The `sprint close` CLI command and the close-sprint flow
 accept only `review`-status.
+
+**Unblock reopens a review sprint (`review → active`).** A _mixed_ run (some tasks `done`, some `blocked`)
+settles to `review`. Unblocking one of those blocked tasks (TUI `u` single / bulk, or `ralphctl task
+unblock`) revives `todo` work — so `unblockTaskUseCase` reopens a `review` sprint back to `active`
+(`revertSprintToActive` clears `reviewAt`, re-stamps `activatedAt`), re-arming the implement gate
+(`planned` / `active` only) so the unblocked tasks get picked up on the next Implement run. The reopen is
+best-effort and idempotent: a non-`review` sprint passes through untouched, and a reopen that fails to
+persist is logged without failing the unblock (re-running unblock retries it — the already-`todo`
+short-circuit still reopens). Without this, an unblocked task on a review sprint would be stranded:
+Implement is gated out and only Review / Close remain.
 
 **Two-phase planning.** **Refine** (`refine` chain) is implementation-agnostic per-ticket clarification —
 no repo exploration; ticket `requirementStatus` flips `pending → approved`. **Plan** (`plan` chain) requires

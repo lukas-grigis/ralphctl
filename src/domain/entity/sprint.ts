@@ -256,6 +256,39 @@ export const transitionSprintToReview = (
 };
 
 /**
+ * Transition `review → active` — the recovery counterpart to {@link transitionSprintToReview}.
+ *
+ * A mixed run (some tasks `done`, some `blocked`) settles the sprint to `review`. When the
+ * operator then unblocks a task, fresh `todo` work re-enters the sprint, so it is no longer
+ * review-complete — the `review` state's invariant ("every task settled") no longer holds.
+ * This reopens it to `active` so the implement gate re-arms and the unblocked tasks get picked
+ * up on the next run. `plannedAt` carries through; `reviewAt` is cleared back to `null`;
+ * `activatedAt` is re-stamped to mark the reopen (the sprint re-enters the active state now).
+ *
+ * Rejects from any non-`review` state — callers unblock between runs and only reopen a sprint
+ * that had actually advanced to review.
+ */
+export const revertSprintToActive = (sprint: Sprint, now: IsoTimestamp): Result<ActiveSprint, InvalidStateError> => {
+  const guard = requireStatus(
+    'sprint',
+    sprint,
+    ['review'] as const,
+    'revert-to-active',
+    'Only review sprints can be reopened to active.'
+  );
+  if (!guard.ok) return Result.error(guard.error);
+  const review = guard.value;
+  return Result.ok({
+    ...sprintBaseFrom(review),
+    status: 'active',
+    plannedAt: review.plannedAt,
+    activatedAt: now,
+    reviewAt: null,
+    doneAt: null,
+  });
+};
+
+/**
  * Transition `review → done`. Called by the review chain's `transition-sprint-to-done` leaf
  * after the user signals "done" via the empty / repeat termination round in `feedback.md`.
  * Terminal state — no further transitions, no further mutations.

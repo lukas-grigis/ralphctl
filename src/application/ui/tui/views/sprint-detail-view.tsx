@@ -152,6 +152,8 @@ export const SprintDetailView = (): React.JSX.Element => {
       task: target,
       sprintId: sprint.id,
       taskRepo: deps.taskRepo,
+      sprintRepo: deps.sprintRepo,
+      clock: deps.clock,
       logger: deps.logger,
     });
     if (!r.ok) {

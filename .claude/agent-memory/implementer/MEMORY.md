@@ -26,3 +26,5 @@
   inline body-footer hint prose is a duplicate ungated source — remove it when gating a key
 - [project_per_attempt_round_display.md](project_per_attempt_round_display.md) — live round counter folds monotonic global
   round into per-attempt coords via perAttemptRound (render-time, not on bucket); genEvalMaxAttempts cap now fully wired
+- [project_tui_commit_storm_coalescer.md](project_tui_commit_storm_coalescer.md) — consumer-side CoalescedBuffer decouples
+  event-arrival from React-commit rate; fix for DEBUG-floor commit-storm OOM; + status-diff guard on useSessions/useSession

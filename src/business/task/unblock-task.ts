@@ -7,6 +7,10 @@ import type { SaveAllTasks } from '@src/domain/repository/task/save-all-tasks.ts
 import type { Task, TodoTask } from '@src/domain/entity/task.ts';
 import { resetTaskToTodo, unblockTask } from '@src/domain/entity/task-lifecycle.ts';
 import { upstreamBlockedDependents } from '@src/domain/entity/task-graph.ts';
+import { type Sprint, revertSprintToActive } from '@src/domain/entity/sprint.ts';
+import type { FindById } from '@src/domain/repository/_base/find-by-id.ts';
+import type { Save } from '@src/domain/repository/_base/save.ts';
+import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
@@ -28,6 +32,15 @@ import type { StorageError } from '@src/domain/value/error/storage-error.ts';
  * Policy: domain transition + persist + log. Idempotent — an already-`todo` task passes through
  * unchanged (mirrors {@link activateSprintUseCase}'s shape).
  *
+ * **Sprint reopen.** A mixed run (some tasks `done`, some `blocked`) settles the sprint to
+ * `review`. Reviving a `todo` task there means the sprint is no longer review-complete and the
+ * implement gate (`planned` / `active` only) would otherwise leave the revived work stranded. So
+ * after a successful unblock this reopens a `review` sprint to `active` (see
+ * {@link revertSprintToActive}). Best-effort and idempotent: a non-`review` sprint passes through
+ * untouched, and a reopen that fails to persist is logged but does not fail the unblock — the task
+ * is already revived, and re-running unblock retries the reopen (the already-`todo` short-circuit
+ * still reopens).
+ *
  * **TOCTOU precondition.** The cascade path does an UNLOCKED `findBySprintId` read whose result
  * seeds the (now-locked) `saveAll` rewrite — the read that feeds the rewrite happens before any
  * lock is taken. So this use case MUST NOT run while an Implement run is active on the same sprint:
@@ -45,6 +58,10 @@ export interface UnblockTaskProps {
   readonly sprintId: SprintId;
   /** Composite is supplied by callers; the use case needs read + atomic-rewrite for the cascade. */
   readonly taskRepo: UpdateTask & FindTasksBySprintId & SaveAllTasks;
+  /** Used to reopen a `review` sprint to `active` once there is `todo` work again. */
+  readonly sprintRepo: FindById<Sprint, SprintId> & Save<Sprint>;
+  /** Wall-clock for the reopen's `activatedAt` re-stamp. */
+  readonly clock: () => IsoTimestamp;
   readonly logger: Logger;
 }
 
@@ -55,8 +72,43 @@ export const unblockTaskUseCase = async (
 ): Promise<Result<UnblockTaskOutput, InvalidStateError | NotFoundError | StorageError>> => {
   const log = props.logger.named('task.unblock');
 
+  // Reopen a `review` sprint to `active` so the implement gate re-arms now there's `todo` work.
+  // Best-effort: the unblock has already persisted by the time this runs, so a failed reopen is
+  // logged and swallowed rather than failing the operation — re-running unblock retries it.
+  const reopenSprintIfReview = async (): Promise<void> => {
+    const loaded = await props.sprintRepo.findById(props.sprintId);
+    if (!loaded.ok) {
+      log.warn('could not load sprint to reopen after unblock', {
+        sprintId: props.sprintId,
+        error: loaded.error.message,
+      });
+      return;
+    }
+    if (loaded.value.status !== 'review') return;
+    const reopened = revertSprintToActive(loaded.value, props.clock());
+    if (!reopened.ok) {
+      log.warn('could not reopen sprint after unblock', {
+        sprintId: props.sprintId,
+        error: reopened.error.message,
+      });
+      return;
+    }
+    const saved = await props.sprintRepo.save(reopened.value);
+    if (!saved.ok) {
+      log.warn('could not persist reopened sprint after unblock', {
+        sprintId: props.sprintId,
+        error: saved.error.message,
+      });
+      return;
+    }
+    log.info(`sprint '${reopened.value.slug}' reopened review → active to resume unblocked work`, {
+      sprintId: props.sprintId,
+    });
+  };
+
   if (props.task.status === 'todo') {
-    log.debug('already todo, skipping', { taskId: props.task.id, sprintId: props.sprintId });
+    log.debug('already todo, skipping task transition', { taskId: props.task.id, sprintId: props.sprintId });
+    await reopenSprintIfReview();
     return Result.ok(props.task);
   }
 
@@ -90,6 +142,7 @@ export const unblockTaskUseCase = async (
       return Result.error(persisted.error);
     }
     log.info(`unblocked task '${primary.name}'`, { taskId: primary.id, sprintId: props.sprintId });
+    await reopenSprintIfReview();
     return Result.ok(primary);
   }
 
@@ -104,6 +157,7 @@ export const unblockTaskUseCase = async (
       return Result.error(persisted.error);
     }
     log.info(`unblocked task '${primary.name}'`, { taskId: primary.id, sprintId: props.sprintId });
+    await reopenSprintIfReview();
     return Result.ok(primary);
   }
 
@@ -133,5 +187,6 @@ export const unblockTaskUseCase = async (
       cascaded: cascaded.map((t) => String(t.id)),
     }
   );
+  await reopenSprintIfReview();
   return Result.ok(primary);
 };

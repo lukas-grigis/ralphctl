@@ -26,6 +26,13 @@ const fakeSprintRepo = (sprints: readonly Sprint[]): SprintRepository =>
     async list() {
       return Result.ok([...sprints]);
     },
+    async findById(id: Sprint['id']) {
+      const found = sprints.find((s) => s.id === id);
+      return found ? Result.ok(found) : Result.ok(sprints[0] as Sprint);
+    },
+    async save() {
+      return Result.ok(undefined);
+    },
     async remove() {
       return Result.ok(undefined);
     },
@@ -46,6 +53,7 @@ const stubDeps = (sprints: readonly Sprint[]): AppDeps =>
     sprintExecutionRepo: {} as never,
     taskRepo: emptyTaskRepo(),
     settingsRepo: {} as never,
+    clock: () => IsoTimestamp.now(),
     logger: noopLogger,
   }) as unknown as AppDeps;
 

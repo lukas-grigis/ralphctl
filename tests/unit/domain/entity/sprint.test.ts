@@ -5,6 +5,7 @@ import {
   createSprintWithExecution,
   planSprint,
   renameSprint,
+  revertSprintToActive,
   setSprintSlug,
   type Sprint,
   transitionSprintToDone,
@@ -107,6 +108,26 @@ describe('transitionSprintToReview', () => {
   });
 });
 
+describe('revertSprintToActive', () => {
+  it('reopens review → active, clears reviewAt, and re-stamps activatedAt', () => {
+    const r = revertSprintToActive(makeReviewSprint(), FIXED_LATEST);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.status).toBe('active');
+    expect(r.value.reviewAt).toBeNull();
+    expect(r.value.doneAt).toBeNull();
+    expect(r.value.activatedAt).toBe(FIXED_LATEST);
+    expect(r.value.plannedAt).not.toBeNull();
+  });
+
+  it('rejects from any non-review state', () => {
+    expect(revertSprintToActive(makeDraftSprint(), FIXED_LATEST).ok).toBe(false);
+    expect(revertSprintToActive(makePlannedSprint(), FIXED_LATEST).ok).toBe(false);
+    expect(revertSprintToActive(makeActiveSprint(), FIXED_LATEST).ok).toBe(false);
+    expect(revertSprintToActive(makeDoneSprint(), FIXED_LATEST).ok).toBe(false);
+  });
+});
+
 describe('transitionSprintToDone', () => {
   it('transitions review → done and stamps doneAt', () => {
     const r = transitionSprintToDone(makeReviewSprint(), FIXED_LATEST);
@@ -147,7 +168,7 @@ describe('Sprint state-machine matrix', () => {
     },
     { from: 'planned', sprint: () => makePlannedSprint(), allowed: ['activate', 'rename'] },
     { from: 'active', sprint: () => makeActiveSprint(), allowed: ['transition-to-review', 'rename'] },
-    { from: 'review', sprint: () => makeReviewSprint(), allowed: ['transition-to-done', 'rename'] },
+    { from: 'review', sprint: () => makeReviewSprint(), allowed: ['transition-to-done', 'revert-to-active', 'rename'] },
     { from: 'done', sprint: () => makeDoneSprint(), allowed: [] },
   ];
 
@@ -167,6 +188,10 @@ describe('Sprint state-machine matrix', () => {
     it(`from ${c.from}: transition-to-done ${c.allowed.includes('transition-to-done') ? '✓' : '✗'}`, () => {
       const r = transitionSprintToDone(c.sprint(), FIXED_LATEST);
       expect(r.ok).toBe(c.allowed.includes('transition-to-done'));
+    });
+    it(`from ${c.from}: revert-to-active ${c.allowed.includes('revert-to-active') ? '✓' : '✗'}`, () => {
+      const r = revertSprintToActive(c.sprint(), FIXED_LATEST);
+      expect(r.ok).toBe(c.allowed.includes('revert-to-active'));
     });
     it(`from ${c.from}: rename ${c.allowed.includes('rename') ? '✓' : '✗'}`, () => {
       const r = renameSprint(c.sprint(), 'new-name');
