@@ -7,6 +7,13 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-06-07
+
+### Changed
+
+- **Dependency refresh.** Bumped `react` to 19.2.7 (runtime) plus dev-tooling patch/minor updates
+  (`@types/react`, `@types/node`, `vitest` / `@vitest/coverage-v8`, `typescript-eslint`, `knip`).
+
 ## [0.10.0] - 2026-06-03
 
 ### Fixed
