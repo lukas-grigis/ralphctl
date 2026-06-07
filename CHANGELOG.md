@@ -7,6 +7,8 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-06-03
+
 ### Fixed
 
 - **Unblocking a task on a `review` sprint now reopens it so Implement can resume.** A mixed run
