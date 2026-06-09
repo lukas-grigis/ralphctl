@@ -43,6 +43,20 @@ to [Semantic Versioning](https://semver.org/).
   (done-with-warning). `settings.harness.plateauThreshold` default raised **2 → 3** (range 2–5) to
   give the generator one extra chance to break a stall before an escalation rung is spent.
 
+### Fixed
+
+- **Copilot single-provider preset realigned to `claude-opus-4.8`.** `copilot-only`'s `plan`,
+  `implement`, and `ideate` rows lagged at `claude-opus-4.6` while the catalog refresh added
+  `claude-opus-4.8` and the escalation ladder climbs Copilot Claude to `claude-opus-4.8`. The
+  preset flagship now matches the catalog top and the ladder terminus — mirroring the dash-form
+  Claude invariant (default model, every single-provider preset, and the escalation ladder all
+  point at the same Opus) — so `copilot-economic` no longer escalates past `copilot-only`'s ceiling.
+
+- **Codex provider-reset default moves off deprecated `gpt-5.3-codex` → `gpt-5.5`.** Resetting the
+  implement row to Codex (`settings set ai.implement.<role>.provider openai-codex`, or the TUI
+  equivalent) previously seeded `gpt-5.3-codex`, which is deprecated for ChatGPT sign-in and has no
+  escalation rung. It now seeds `gpt-5.5`, matching the `codex-only` preset decision.
+
 ## [0.10.1] - 2026-06-07
 
 ### Changed

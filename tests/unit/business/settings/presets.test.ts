@@ -7,6 +7,7 @@ import { applyPreset, isPresetName, PRESET_NAMES, type PresetName } from '@src/b
 import { isClaudeModel } from '@src/domain/value/settings-models/claude.ts';
 import { isCodexModel } from '@src/domain/value/settings-models/codex.ts';
 import { isCopilotModel } from '@src/domain/value/settings-models/copilot.ts';
+import { mergeEscalationMap } from '@src/business/task/escalation-map.ts';
 
 const ECONOMIC_PRESETS: readonly PresetName[] = [
   'mixed-economic',
@@ -14,6 +15,27 @@ const ECONOMIC_PRESETS: readonly PresetName[] = [
   'copilot-economic',
   'codex-economic',
 ];
+
+/** Each economic preset and the standard preset whose implement flagship it should climb to. */
+const ECONOMIC_TO_STANDARD: Readonly<Record<string, PresetName>> = {
+  'mixed-economic': 'mixed',
+  'claude-economic': 'claude-only',
+  'copilot-economic': 'copilot-only',
+  'codex-economic': 'codex-only',
+};
+
+/** Walk the (acyclic) default ladder from `start` to its terminal rung. */
+const climbToLadderTop = (map: Readonly<Record<string, string>>, start: string): readonly string[] => {
+  const path: string[] = [start];
+  const seen = new Set<string>([start]);
+  let cur = start;
+  while (map[cur] !== undefined && map[cur] !== cur && !seen.has(map[cur]!)) {
+    cur = map[cur]!;
+    seen.add(cur);
+    path.push(cur);
+  }
+  return path;
+};
 
 const modelGuardFor = (provider: AiProvider): ((s: string) => boolean) => {
   switch (provider) {
@@ -55,6 +77,29 @@ describe('presets', () => {
           const guard = modelGuardFor(row.provider);
           expect(guard(row.model), `${preset}/${flow}: ${row.provider} → ${row.model}`).toBe(true);
         }
+      }
+    }
+  });
+
+  it('every economic preset implement.generator climbs the default ladder to its standard counterpart flagship', () => {
+    const ladder = mergeEscalationMap({});
+    for (const [economic, standard] of Object.entries(ECONOMIC_TO_STANDARD)) {
+      const economicOut = applyPreset(economic as PresetName, DEFAULT_SETTINGS);
+      const start = economicOut.ai.implement.generator.model;
+      const provider = economicOut.ai.implement.generator.provider;
+      const path = climbToLadderTop(ladder, start);
+      const top = path[path.length - 1];
+      const flagship = applyPreset(standard, DEFAULT_SETTINGS).ai.implement.generator.model;
+      // The economic preset must escalate to EXACTLY the model its standard sibling uses for
+      // implement — never overshooting (e.g. copilot-economic climbing past copilot-only) nor
+      // undershooting. This couples presets.ts to escalation-map.ts so a catalog refresh that
+      // bumps one but not the other cannot pass silently.
+      expect(top, `${economic} → ${standard}: climbs to ${top}, standard flagship is ${flagship}`).toBe(flagship);
+      // Every rung the climb traverses must be a real catalog member for the start provider —
+      // an off-catalog intermediate rung would make the adapter reject the spawn mid-escalation.
+      const guard = modelGuardFor(provider);
+      for (const rung of path) {
+        expect(guard(rung), `${economic}: ladder rung ${rung} not in ${provider} catalog`).toBe(true);
       }
     }
   });

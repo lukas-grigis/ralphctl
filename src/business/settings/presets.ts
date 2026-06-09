@@ -87,13 +87,13 @@ const CLAUDE_ONLY: AiSettings = {
 const COPILOT_ONLY: AiSettings = {
   effort: 'high',
   refine: { provider: 'github-copilot', model: 'claude-sonnet-4.6' },
-  plan: { provider: 'github-copilot', model: 'claude-opus-4.6', effort: 'xhigh' },
+  plan: { provider: 'github-copilot', model: 'claude-opus-4.8', effort: 'xhigh' },
   implement: {
-    generator: { provider: 'github-copilot', model: 'claude-opus-4.6', effort: 'xhigh' },
-    evaluator: { provider: 'github-copilot', model: 'claude-opus-4.6', effort: 'xhigh' },
+    generator: { provider: 'github-copilot', model: 'claude-opus-4.8', effort: 'xhigh' },
+    evaluator: { provider: 'github-copilot', model: 'claude-opus-4.8', effort: 'xhigh' },
   },
   readiness: { provider: 'github-copilot', model: 'gpt-5-mini', effort: 'medium' },
-  ideate: { provider: 'github-copilot', model: 'claude-opus-4.6' },
+  ideate: { provider: 'github-copilot', model: 'claude-opus-4.8' },
   createPr: { provider: 'github-copilot', model: 'gpt-5-mini' },
 };
 
