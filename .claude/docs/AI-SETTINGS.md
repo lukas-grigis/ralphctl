@@ -52,6 +52,21 @@ in one transaction; subsequent per-key edits via `ralphctl settings set ai.<flow
   coder one tier below it, where `codex-economic` starts implement (verified against Codex CLI
   v0.138.0). The `codex-only` preset moves implement off the deprecated `gpt-5.3-codex` to `gpt-5.5`.
 
+**Default escalation posture (inert ladder).** `DEFAULT_SETTINGS.ai.implement.generator` is
+`claude-opus-4-8`, which has no key in `DEFAULT_ESCALATION_MAP` — so the shipped default can never
+model-escalate. On a plateau it fires one same-model nudge (a change-of-approach directive), then settles
+`done-with-warning`. This is deliberate: the default posture is conservative. To activate a live ladder,
+use one of the `*-economic` presets (where `implement.generator` starts on Sonnet and escalates to Opus)
+or add a custom rung via `settings.harness.escalationMap`:
+
+```json
+"escalationMap": { "claude-opus-4-8": "claude-fable-5" }
+```
+
+`claude-fable-5` and its 1M-context variant `claude-fable-5[1m]` are in the Claude catalog as
+**opt-in only** — no preset, default, or built-in escalation rung references them. Select per row via
+the TUI picker or `settings set`, or add an escalationMap rung as shown above.
+
 **Fail-fast PATH check.** Every AI-spawning flow probes for its row's CLI binary at launch (`claude` /
 `copilot` / `codex` via `src/integration/system/detect-cli.ts`) and exits with `LaunchResult.fail` naming the
 binary, the flow, and the offending `settings.ai.<flow>.provider` key when the binary is absent.

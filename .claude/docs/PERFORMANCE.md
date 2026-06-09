@@ -64,27 +64,33 @@ launch and re-enter the queue. No double-execution.
 - `plateauThreshold` (2–5, default 3) — consecutive evaluator rounds flagging the same failed-dimension
   set before the loop exits with a plateau warning; score improvement, commit-progress, or
   critique-Jaccard shift can exempt a round from counting. The patient default (3) avoids spending an
-  escalation rung on a stall the generator would have broken on its own.
+  escalation rung on a stall the generator would have broken on its own. Must be ≤ `maxTurns` — the
+  schema rejects `maxTurns < plateauThreshold` because the plateau window can never fill within a
+  single attempt when the turn budget runs out first (escalation and nudge would be permanently
+  unreachable).
 
 Mirrored on `IterationConfig` (`src/application/chain/run/iteration-config.ts`); the chain `loop` predicates
 and the headless provider adapter read it.
 
-**Escalation on plateau.** On a plateau the gen-eval loop grants one more attempt rather than settling
-immediately. **A plateau never blocks the task** — it either retries once or preserves the work
-(done-with-warning). Two `settings.harness` knobs tune it:
+**Escalation on plateau (and other non-passing exits).** On a plateau or turn-budget-exhausted exit
+the gen-eval loop grants one more attempt rather than settling immediately. **Non-passing exits never
+block the task** — the escalation policy spends remedies cheapest-first; true exhaustion of remedies
+settles done-with-warning. Two `settings.harness` knobs tune it:
 
-- `escalateOnPlateau` (default **`true`**) — flag gate; when off, a plateau keeps the legacy
-  done-with-warning-on-first-plateau behaviour (no retry).
+- `escalateOnPlateau` (default **`true`**) — flag gate; when off, all non-passing exits keep the
+  legacy done-with-warning behaviour (no retry). Despite its name, this flag now gates ALL
+  failure-driven escalation: plateau, budget-exhausted, and malformed exits.
 - `escalationMap` (default `{}`) — user overrides merged over the built-in ladder. User keys win on
   conflict (allowing redirects) and user-only keys extend the ladder. Self-loops (`{ 'foo': 'foo' }`)
   parse but emit one warn-level log record per entry at settings load.
 
-The escalation policy is a **graduated remedy ladder** spent cheapest-first across successive plateaus:
-(1) **model escalation** — climbs **one rung per plateau** up `DEFAULT_ESCALATION_MAP`
+The escalation policy is a **graduated remedy ladder** (`src/business/task/escalation-policy.ts`)
+spent cheapest-first across successive plateau or budget-exhausted exits:
+(1) **model escalation** — climbs **one rung per exit** up `DEFAULT_ESCALATION_MAP`
 (`src/business/task/escalation-map.ts`, seeding the common in-provider rungs Claude Haiku → Sonnet →
 Opus in both dash-form Claude-Code/Codex ids and dot-form Copilot ids; Codex / Copilot `gpt-5-mini`,
 `gpt-5.4-mini` and the economic full tier `gpt-5.4` → `gpt-5.5`, kept in lockstep with
-`domain/value/settings-models/` by code review). Each plateau re-reads the most-recent
+`domain/value/settings-models/` by code review). Each exit re-reads the most-recent
 `Task.escalatedToModel` as the generator model, so the policy returns `escalate` repeatedly and the
 task climbs through every intermediate rung (bounded by `maxAttempts`). When the generator reaches the
 top of the ladder, the policy fires a single same-model **"change your approach" directive**
@@ -92,14 +98,30 @@ top of the ladder, the policy fires a single same-model **"change your approach"
 `escalatedFromModel === escalatedToModel`. The directive is gated on that same-model marker, NOT on a
 model bump: a bump hands the stronger model the targeted `priorCritique` instead, decoupling the
 "abandon your approach" directive from escalation so it is reserved for the top-of-ladder case where
-there is no fresh capability to lean on. A further plateau after the nudge tops out — keeping the work.
+there is no fresh capability to lean on. A further exit after the nudge tops out — keeping the work.
+
+**Routing by exit kind.** `plateau` and `budget-exhausted` exits (including the synthesized budget-
+exhausted when no leaf set `lastExit`) both go through `decideEscalation`. A `malformed` exit —
+evaluator failure, not generator's — gets a plain same-model fresh-attempt retry (no ladder rung burned)
+while the attempt budget remains, falling back to done-with-warning at the cap.
+
+**Attempt budget and legacy tasks.** Newly-planned tasks carry `task.maxAttempts` stamped at plan time
+(`settings.harness.maxAttempts` at the moment of planning). Legacy tasks planned before that stamp was
+introduced have `task.maxAttempts === undefined`; `decideEscalation` and the per-task loop cap both fall
+back to `settings.harness.maxAttempts` so the attempt budget binds for them too.
+
+**Inert default ladder.** The shipped default generator model (`claude-opus-4-8`) has no key in
+`DEFAULT_ESCALATION_MAP`. With default settings the harness can never model-escalate — on a plateau it
+fires one same-model nudge, then settles done-with-warning. See `AI-SETTINGS.md § Default escalation
+posture` for how to activate a live ladder (economic presets or a custom escalationMap rung).
 
 Escalation is generator-only by design — the evaluator's model is held constant across the task so the
 scoring rubric does not shift mid-task, which would make plateau detection meaningless. `Task`'s
 `escalatedFromModel` / `escalatedToModel` fields are re-stampable and hold the MOST-RECENT rung
 transition; the cost ceiling is enforced by the ladder top plus `maxAttempts` (each escalate/nudge
-fails the running attempt, consuming budget), not by a once-per-task cap. A plateau with no attempt
-budget left, or after the top-of-ladder nudge, preserves the work (done-with-warning) — never blocks.
+fails the running attempt, consuming budget), not by a once-per-task cap. A non-passing exit with no
+attempt budget left, or after the top-of-ladder nudge, preserves the work (done-with-warning) — never
+blocks.
 Cross-provider escalation (e.g. `claude-opus-4-8` → `gpt-5.5`) is intentionally deferred — switching
 providers mid-task carries auth / context / tool-availability hazards.
 

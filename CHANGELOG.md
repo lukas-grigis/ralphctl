@@ -29,11 +29,54 @@ to [Semantic Versioning](https://semver.org/).
   climb to it add an `'claude-opus-4-8': 'claude-fable-5'` rung via `settings.harness.escalationMap`.
   CLI baselines: Codex 0.138.0, Copilot 1.0.60, Claude Code 2.1.169.
 
+- **Planned tasks carry the configured attempt cap.** `settings.harness.maxAttempts` is stamped onto
+  every task at plan/ideate time, so the per-task attempt loop and the escalation budget actually bind
+  (previously the cap was launch-display metadata only and the loop fell through to the 1000-iteration
+  backstop). Legacy tasks without the stamp fall back to `settings.harness.maxAttempts` at consumption
+  time.
+
+- **Done-with-warning is now legible end to end.** The sprint journal verdict union gains
+  `pass-with-warning` and `escalated` with a plain-prose outcome detail (failed dimensions, turn
+  budget, remedy applied); PR bodies grow a "Completed with warnings" section on both the AI-authored
+  and fallback paths; the TUI task row marks done-with-warning cards with the warning glyph. A task
+  the evaluator never passed can no longer render as a clean pass.
+
+- **`maxTurns` ≥ `plateauThreshold` cross-knob validation.** `SettingsSchema` now rejects any
+  harness configuration where `maxTurns < plateauThreshold` with a Zod error naming both values.
+  When `maxTurns` is below the threshold the plateau window can never fill within one attempt, so
+  model escalation and the same-model nudge become permanently unreachable. The defaults
+  (maxTurns=5, plateauThreshold=3) satisfy the invariant; hand-edited `settings.json` files that
+  violate it surface a human-readable error at TUI launch.
+
 ### Changed
 
 - **`codex-only` preset moves implement off deprecated `gpt-5.3-codex` → `gpt-5.5`.** The deprecated
   model remains in the allowlist for API-key users who pin it explicitly; the preset no longer targets
   it by default.
+
+- **All non-passing gen-eval exits now consult the escalation policy and the attempt budget.**
+  `plateau` and `budget-exhausted` exits route through `decideEscalation`; `malformed` — the
+  evaluator's failure, not the generator's — triggers a plain same-model retry (no escalation rung
+  consumed). `done-with-warning` is now reserved for true exhaustion of remedies, and the
+  `model-escalated` event names the real trigger instead of always saying plateau.
+
+- **`escalateOnPlateau` now gates all failure-driven escalation, not just plateau exits.**
+  The flag previously governed only the plateau code path; it now acts as the master switch for
+  the entire graduated-remedy ladder so a single setting turns off escalation project-wide (name
+  retained for backward compatibility).
+
+- **Pre-blocked tasks skip the gen-eval loop AND post-task verify.** When `pre-task-verify`
+  hard-blocks, the loop's entry guard refuses every turn (zero generator spawns on the broken tree)
+  and a zero-turn guard skips the redundant post-task verify run.
+
+- **Serial-path blocked-diff quarantine.** A blocked task's rejected diff is stashed under
+  `ralphctl/<sprintId>/<taskId>/blocked-diff` (recorded on the task's `blockedReason` for recovery)
+  before sibling tasks run — previously the next sibling's `git add -A` swept the leftovers into its
+  own commit.
+
+- **Worktree setup script honours the chain abort signal.** The setup script runner threads the
+  chain's `AbortSignal` through to the spawned child so a user-initiated cancel during setup is
+  prompt rather than waiting out the shell timeout.
 
 - **Graduated escalation redesigned: multi-rung climb, decoupled change-approach nudge, patient
   plateau default.** The gen-eval loop now climbs the full `DEFAULT_ESCALATION_MAP` rung-by-rung on
