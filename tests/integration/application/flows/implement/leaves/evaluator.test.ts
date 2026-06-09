@@ -63,6 +63,13 @@ describe('evaluatorLeaf', () => {
     progressFile: absolutePath('/tmp/ralph/fake-sprint-dir/progress.md'),
     model: 'test-model',
     plateauThreshold: 2,
+    // Stub git runner — these tests don't exercise the plateau fingerprint; a clean-tree
+    // response keeps the post-spawn fingerprint call inert.
+    gitRunner: {
+      async run() {
+        return Result.ok({ stdout: '', stderr: '', exitCode: 0 });
+      },
+    },
     clock: () => FIXED_NOW,
     logger: noopLogger,
     eventBus: createInMemoryEventBus(),

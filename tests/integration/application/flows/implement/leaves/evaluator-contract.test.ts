@@ -14,9 +14,17 @@ import { absolutePath, FIXED_NOW, makeInProgressTaskWithRunningAttempt } from '@
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
 import { createMockHeadlessProvider, type SpawnFixture } from '@tests/helpers/mock-headless-provider.ts';
+import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { EvaluatorLeafDeps } from '@src/application/flows/implement/leaves/evaluator.ts';
 import { evaluatorLeaf } from '@src/application/flows/implement/leaves/evaluator.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
+
+/** Clean-tree git stub — the post-spawn fingerprint call is inert in these contract tests. */
+const stubGitRunner = (): GitRunner => ({
+  async run() {
+    return Result.ok({ stdout: '', stderr: '', exitCode: 0 });
+  },
+});
 
 /**
  * Audit-[10] nine-branch grid against the audit-[09] evaluator contract.
@@ -78,6 +86,7 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
       progressFile: absolutePath('/tmp/ralph/fake-sprint-dir/progress.md'),
       model: 'test-model',
       plateauThreshold: 2,
+      gitRunner: stubGitRunner(),
       clock: () => FIXED_NOW,
       logger: noopLogger,
       eventBus,
@@ -434,6 +443,7 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
       progressFile: absolutePath('/tmp/ralph/fake-sprint-dir/progress.md'),
       model: 'test-model',
       plateauThreshold: 2,
+      gitRunner: stubGitRunner(),
       clock: () => FIXED_NOW,
       logger: noopLogger,
       eventBus: createInMemoryEventBus(),
@@ -483,6 +493,7 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
       progressFile: absolutePath('/tmp/ralph/fake-sprint-dir/progress.md'),
       model: 'test-model',
       plateauThreshold: 2,
+      gitRunner: stubGitRunner(),
       clock: () => FIXED_NOW,
       logger: noopLogger,
       eventBus: createInMemoryEventBus(),

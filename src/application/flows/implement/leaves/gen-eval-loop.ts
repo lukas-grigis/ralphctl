@@ -3,6 +3,7 @@ import type { HarnessSignalSink } from '@src/business/observability/harness-sign
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
+import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
@@ -50,6 +51,11 @@ export interface GenEvalLoopDeps {
   readonly templateLoader: TemplateLoader;
   readonly signals: HarnessSignalSink;
   readonly writeFile: WriteFile;
+  /**
+   * Git transport — threaded into the evaluator leaf so it can fingerprint the working tree's
+   * uncommitted changes each round for the plateau predicate's work-product exemption.
+   */
+  readonly gitRunner: GitRunner;
   readonly clock: () => IsoTimestamp;
   readonly logger: Logger;
   readonly eventBus: EventBus;
@@ -109,6 +115,9 @@ export const createGenEvalLoop = (
   };
   const evaluatorLeafDeps = {
     ...sharedLeafDeps,
+    // Evaluator-only: the work-product fingerprint for the plateau predicate. The generator
+    // leaf neither needs nor accepts the git runner.
+    gitRunner: deps.gitRunner,
     provider: deps.evaluatorProvider,
     model: opts.evaluator.model,
     ...(opts.evaluator.effort !== undefined ? { effort: opts.evaluator.effort } : {}),

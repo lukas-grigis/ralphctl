@@ -46,6 +46,13 @@ describe('createGenEvalLoop — loop-entry guard', () => {
         readConfig: async () => ({ maxTurns: 5 }),
         maxTurns: 5,
         plateauThreshold: 2,
+        // Stub git runner — the guard refuses loop entry before any turn, so the plateau
+        // fingerprint call never fires; a clean-tree response keeps it inert if it ever did.
+        gitRunner: {
+          async run() {
+            return Result.ok({ stdout: '', stderr: '', exitCode: 0 });
+          },
+        },
       },
       {
         cwd: absolutePath('/tmp/ralph/fake-cwd'),

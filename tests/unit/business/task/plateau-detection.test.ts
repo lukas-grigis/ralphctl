@@ -24,10 +24,20 @@ const evalFrom = (...dims: DimensionScore[]): EvaluationSignal => ({
   timestamp: NOW,
 });
 
-const turn = (ev: EvaluationSignal, extras?: { critique?: string; commitSubject?: string }): PlateauTurnRecord => ({
+const turn = (
+  ev: EvaluationSignal,
+  extras?: {
+    critique?: string;
+    commitSubject?: string;
+    changedFilesHash?: string;
+    verdict?: PlateauTurnRecord['verdict'];
+  }
+): PlateauTurnRecord => ({
   evaluation: ev,
   ...(extras?.critique !== undefined ? { critique: extras.critique } : {}),
   ...(extras?.commitSubject !== undefined ? { commitSubject: extras.commitSubject } : {}),
+  ...(extras?.changedFilesHash !== undefined ? { changedFilesHash: extras.changedFilesHash } : {}),
+  ...(extras?.verdict !== undefined ? { verdict: extras.verdict } : {}),
 });
 
 describe('failedDimensions', () => {
@@ -112,13 +122,6 @@ describe('computePlateauVerdict — base case (regression for 2026-05-20 verifie
     expect(verdict.kind).toBe('none');
   });
 
-  it('does not fire when failed dimensions differ between turns', () => {
-    const prior = evalFrom(dim('correctness', false));
-    const current = evalFrom(dim('completeness', false));
-    const verdict = computePlateauVerdict([turn(prior)], turn(current), { threshold: 2 });
-    expect(verdict.kind).toBe('none');
-  });
-
   it('does not fire when current turn has no failed dimensions', () => {
     const prior = evalFrom(dim('completeness', false));
     const current = evalFrom(dim('completeness', true));
@@ -127,8 +130,75 @@ describe('computePlateauVerdict — base case (regression for 2026-05-20 verifie
   });
 });
 
-describe('computePlateauVerdict — commit-progress softening', () => {
-  it('returns "warning" when same dims+scores but commit subject changed', () => {
+describe('computePlateauVerdict — net-progress predicate (gap i: oscillating dimensions)', () => {
+  it('fires on a flip-flop at the same failure count (gap i: shifting members never used to plateau)', () => {
+    // {correctness} → {completeness}: both count 1. The old identical-set check returned `none`
+    // and let the loop run to the budget; the count predicate treats a same-count flip-flop as a stall.
+    const prior = evalFrom(dim('correctness', false));
+    const current = evalFrom(dim('completeness', false));
+    const verdict = computePlateauVerdict([turn(prior)], turn(current), { threshold: 2 });
+    expect(verdict.kind).toBe('plateau');
+  });
+
+  it('fires when the failure count grows across the window (regressing, not progressing)', () => {
+    const prior = evalFrom(dim('correctness', false));
+    const current = evalFrom(dim('correctness', false), dim('safety', false));
+    const verdict = computePlateauVerdict([turn(prior)], turn(current), { threshold: 2 });
+    expect(verdict.kind).toBe('plateau');
+  });
+
+  it('does NOT fire when the failure count drops — a shrinking failed set is real progress', () => {
+    const prior = evalFrom(dim('correctness', false), dim('safety', false));
+    const current = evalFrom(dim('correctness', false), dim('safety', true));
+    const verdict = computePlateauVerdict([turn(prior)], turn(current), { threshold: 2 });
+    expect(verdict.kind).toBe('none');
+  });
+
+  it('threshold=3: count drop anywhere in the window breaks the stall', () => {
+    const two = evalFrom(dim('correctness', false), dim('safety', false));
+    const one = evalFrom(dim('correctness', false));
+    // window: [two, one] + current(two): 2 → 1 is a drop → no stall.
+    const verdict = computePlateauVerdict([turn(two), turn(one)], turn(two), { threshold: 3 });
+    expect(verdict.kind).toBe('none');
+  });
+
+  it('threshold=3: oscillating members at a constant count plateaus once the window fills', () => {
+    const a = evalFrom(dim('correctness', false), dim('safety', false));
+    const b = evalFrom(dim('safety', false), dim('consistency', false));
+    const c = evalFrom(dim('consistency', false), dim('correctness', false));
+    // All count 2 with shifting members → stall.
+    const verdict = computePlateauVerdict([turn(a), turn(b)], turn(c), { threshold: 3 });
+    expect(verdict.kind).toBe('plateau');
+  });
+});
+
+describe('computePlateauVerdict — work-product softening (gap iii: fingerprint, not text)', () => {
+  it('returns "warning" when the work-product fingerprint changed between turns', () => {
+    const ev = evalFrom(dim('completeness', false));
+    const verdict = computePlateauVerdict(
+      [turn(ev, { changedFilesHash: 'hash-A' })],
+      turn(ev, { changedFilesHash: 'hash-B' }),
+      { threshold: 2 }
+    );
+    expect(verdict.kind).toBe('warning');
+    if (verdict.kind === 'warning') {
+      expect(verdict.dimensions).toEqual(['completeness']);
+      expect(verdict.reason).toBe('work-product-changed');
+    }
+  });
+
+  it('does NOT soften when the fingerprint is identical even if the commit subject was reworded', () => {
+    // gap iii: an LLM rewording the subject over an unchanged tree must not evade the plateau.
+    const ev = evalFrom(dim('completeness', false));
+    const verdict = computePlateauVerdict(
+      [turn(ev, { changedFilesHash: 'same-hash', commitSubject: 'WIP option A' })],
+      turn(ev, { changedFilesHash: 'same-hash', commitSubject: 'WIP option B (reworded)' }),
+      { threshold: 2 }
+    );
+    expect(verdict.kind).toBe('plateau');
+  });
+
+  it('falls back to the commit-subject proxy only when no fingerprint is present', () => {
     const ev = evalFrom(dim('completeness', false));
     const verdict = computePlateauVerdict(
       [turn(ev, { commitSubject: 'WIP option A' })],
@@ -136,13 +206,10 @@ describe('computePlateauVerdict — commit-progress softening', () => {
       { threshold: 2 }
     );
     expect(verdict.kind).toBe('warning');
-    if (verdict.kind === 'warning') {
-      expect(verdict.dimensions).toEqual(['completeness']);
-      expect(verdict.reason).toBe('commit-progress');
-    }
+    if (verdict.kind === 'warning') expect(verdict.reason).toBe('work-product-changed');
   });
 
-  it('does not soften when commit subject is the same', () => {
+  it('does not soften when neither fingerprint nor commit subject changed', () => {
     const ev = evalFrom(dim('completeness', false));
     const verdict = computePlateauVerdict(
       [turn(ev, { commitSubject: 'same subject' })],
@@ -152,12 +219,23 @@ describe('computePlateauVerdict — commit-progress softening', () => {
     expect(verdict.kind).toBe('plateau');
   });
 
-  it('does not soften when commit subject is missing on one side', () => {
+  it('caps consecutive warning softenings (gap: unbounded warnings churned to the budget)', () => {
     const ev = evalFrom(dim('completeness', false));
-    const verdict = computePlateauVerdict([turn(ev)], turn(ev, { commitSubject: 'first commit' }), {
-      threshold: 2,
-    });
+    // Two prior turns already softened to `warning` (stamped on the records). A third fingerprint
+    // change must NOT keep softening — the warning cap fires the plateau.
+    const priorTurns = [
+      turn(ev, { changedFilesHash: 'hash-1', verdict: 'warning' }),
+      turn(ev, { changedFilesHash: 'hash-2', verdict: 'warning' }),
+    ];
+    const verdict = computePlateauVerdict(priorTurns, turn(ev, { changedFilesHash: 'hash-3' }), { threshold: 2 });
     expect(verdict.kind).toBe('plateau');
+  });
+
+  it('still softens at the cap boundary — one prior warning leaves a grace round', () => {
+    const ev = evalFrom(dim('completeness', false));
+    const priorTurns = [turn(ev, { changedFilesHash: 'hash-1', verdict: 'warning' })];
+    const verdict = computePlateauVerdict(priorTurns, turn(ev, { changedFilesHash: 'hash-2' }), { threshold: 2 });
+    expect(verdict.kind).toBe('warning');
   });
 });
 
@@ -191,6 +269,35 @@ describe('computePlateauVerdict — critique-shift exemption', () => {
       threshold: 2,
     });
     expect(verdict.kind).toBe('plateau');
+  });
+
+  it('compares against the MAX similarity over ALL prior turns, defeating A/B/A alternation (gap ii)', () => {
+    // critiqueA → critiqueB → critiqueA. The current (A) looks novel next to its neighbour (B),
+    // but it recycles the window's FIRST turn (A). Comparing against all priors catches the recycle.
+    const ev = evalFrom(dim('completeness', false));
+    const critiqueA = 'still missing the early-return branch in the parser';
+    const critiqueB = 'overflow on huge inputs; bounds check needed in the buffer alloc path';
+    const verdict = computePlateauVerdict(
+      [turn(ev, { critique: critiqueA }), turn(ev, { critique: critiqueB })],
+      turn(ev, { critique: critiqueA }),
+      { threshold: 3 }
+    );
+    // The most-recent-prior comparison (B vs A) would have looked like a shift → `progress`; the
+    // all-priors max (A vs A = 1.0) correctly recognises the recycled complaint → plateau.
+    expect(verdict.kind).toBe('plateau');
+  });
+
+  it('still exempts genuinely-novel critique versus every prior turn (gap ii control)', () => {
+    const ev = evalFrom(dim('completeness', false));
+    const verdict = computePlateauVerdict(
+      [
+        turn(ev, { critique: 'still missing the early-return branch in the parser' }),
+        turn(ev, { critique: 'race condition in the connection pool on shutdown' }),
+      ],
+      turn(ev, { critique: 'memory leak: the file watcher is never unsubscribed on teardown' }),
+      { threshold: 3 }
+    );
+    expect(verdict.kind).toBe('progress');
   });
 });
 

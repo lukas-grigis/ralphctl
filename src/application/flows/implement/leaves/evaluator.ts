@@ -27,6 +27,8 @@ import type { SessionId } from '@src/integration/ai/providers/_engine/session-id
 import { renderSidecars } from '@src/integration/ai/contract/_engine/render-sidecars.ts';
 import { validateSignalsFileWithCorrectiveRetry } from '@src/integration/ai/contract/_engine/corrective-retry.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
+import type { GitRunner } from '@src/integration/io/git-runner.ts';
+import { computeWorkProductFingerprint } from '@src/application/flows/implement/leaves/work-product-fingerprint.ts';
 import { implementSession } from '@src/application/flows/implement/leaves/implement-session.ts';
 import { evaluatorOutputContract } from '@src/application/flows/implement/leaves/evaluator.contract.ts';
 import {
@@ -92,6 +94,13 @@ export interface EvaluatorLeafDeps {
   readonly verifyScript?: string;
   /** From `settings.harness.plateauThreshold` (2–5). */
   readonly plateauThreshold: number;
+  /**
+   * Git transport — used post-spawn to compute the round's work-product fingerprint (a content
+   * hash of `git status --porcelain` + `git diff HEAD` against {@link cwd}). Fed into the
+   * plateau predicate so its progress exemption measures real code change, not commit-message
+   * rewording. Threaded down from `ImplementDeps.gitRunner`.
+   */
+  readonly gitRunner: GitRunner;
   readonly clock: () => IsoTimestamp;
   readonly logger: Logger;
   /**
@@ -258,11 +267,18 @@ export const evaluatorLeaf = (deps: EvaluatorLeafDeps, taskId: TaskId): Element<
           return Result.ok(signals as readonly AiSignal[]) as Result<readonly HarnessSignal[], DomainError>;
         };
 
+        // Fingerprint the working tree's uncommitted changes for this round so the plateau
+        // predicate's progress exemption measures real code change instead of commit-message
+        // rewording. Best-effort — a git failure yields `undefined` and the predicate degrades
+        // to the commit-subject proxy. Computed BEFORE the use case so the record carries it.
+        const changedFilesHash = await computeWorkProductFingerprint(deps.gitRunner, deps.cwd);
+
         const result = await runEvaluatorTurnUseCase({
           task: input.task,
           priorTurns: input.priorTurns,
           plateauThreshold: deps.plateauThreshold,
           ...(input.currentCommitSubject !== undefined ? { currentCommitSubject: input.currentCommitSubject } : {}),
+          ...(changedFilesHash !== undefined ? { changedFilesHash } : {}),
           callEvaluate,
           evaluationFile: roundEvaluationRelativePath(input.roundNum),
           logger: deps.logger,

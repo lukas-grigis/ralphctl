@@ -28,10 +28,10 @@ import { isRecoverableTurnError } from '@src/business/task/turn-error-policy.ts'
  *  - `evaluation.status === 'malformed'` → `malformed` exit.
  *  - `evaluation.status === 'failed'` + the plateau predicate fires with no exemption →
  *     `plateau` exit. The plateau predicate compares the current turn against `priorTurns`
- *     using `settings.harness.plateauThreshold` (default 2). It exempts turns where a
- *     previously-failed dimension's score improved, where the critique prose shifted
- *     significantly, or where the AI's proposed commit message changed (the latter
- *     downgrades the plateau to a non-exiting warning recorded on the attempt).
+ *     using `settings.harness.plateauThreshold` (default 3). It exempts turns where the
+ *     failed-dimension count dropped, where the critique prose shifted against every prior
+ *     turn in the window, or where the work-product fingerprint changed (the latter
+ *     downgrades the plateau to a non-exiting warning, capped at two consecutive softenings).
  *  - Otherwise (`failed`, fresh dimensions or exemption applies) → continue: record critique
  *    on the running attempt so the next generator turn's prompt incorporates it; return no
  *    exit. When the reviewer left `critique` empty on a FAIL, a critique is synthesized from
@@ -62,9 +62,18 @@ export interface RunEvaluatorTurnProps {
    * Generator's `<commit-message>` subject from the same round (latest signal wins inside
    * the round). Threaded through so the plateau predicate's commit-progress exemption can
    * detect AI-side intent changes across turns even though the actual `git commit` runs
-   * once per attempt, after the loop exits.
+   * once per attempt, after the loop exits. Superseded by {@link changedFilesHash}; retained
+   * only as the fallback proxy for records that carry no fingerprint.
    */
   readonly currentCommitSubject?: string;
+  /**
+   * Content fingerprint of the working tree's uncommitted changes for this round, computed by
+   * the evaluator leaf via the git runner. The plateau predicate's work-product exemption only
+   * softens to a warning when this fingerprint differs from every prior turn in the window — so
+   * a reworded commit subject over an unchanged tree no longer evades the plateau. Absent when
+   * the leaf could not run git (degrades to the commit-subject proxy).
+   */
+  readonly changedFilesHash?: string;
   /**
    * Threshold from `settings.harness.plateauThreshold` (2–5). Number of consecutive turns
    * flagging the same dimension set before the plateau exit fires. Predicate clamps
@@ -195,20 +204,27 @@ export const runEvaluatorTurnUseCase = async (
   // never goes silent (and so the plateau predicate's critique-shift exemption has real text
   // to compare instead of always falling through on a missing critique).
   const critique = resolveCritique(evaluation);
-  const currentRecord: PlateauTurnRecord = {
+  const baseRecord: PlateauTurnRecord = {
     evaluation,
     ...(critique !== undefined && critique.trim().length > 0 ? { critique } : {}),
     ...(props.currentCommitSubject !== undefined && props.currentCommitSubject.trim().length > 0
       ? { commitSubject: props.currentCommitSubject }
       : {}),
+    ...(props.changedFilesHash !== undefined && props.changedFilesHash.length > 0
+      ? { changedFilesHash: props.changedFilesHash }
+      : {}),
   };
 
-  const verdict = computePlateauVerdict(props.priorTurns ?? [], currentRecord, {
+  const verdict = computePlateauVerdict(props.priorTurns ?? [], baseRecord, {
     threshold: props.plateauThreshold,
   });
 
+  // Stamp the assigned verdict kind onto the appended record so the warning cap is derivable
+  // purely from history on the next turn — no counter threaded through ctx.
+  const currentRecord: PlateauTurnRecord = { ...baseRecord, verdict: verdict.kind };
+
   if (verdict.kind === 'plateau') {
-    log.warn('evaluator plateaued on the same failed dimensions', {
+    log.warn('evaluator plateaued — no net progress across the window', {
       taskId: recorded.value.id,
       dimensions: verdict.dimensions,
       threshold: props.plateauThreshold,
@@ -222,9 +238,9 @@ export const runEvaluatorTurnUseCase = async (
   }
 
   if (verdict.kind === 'warning') {
-    // Same dimensions across threshold turns, but the AI's proposed commit subject changed —
-    // record a `plateau` warning so the attempt audit reflects the soft signal, then keep
-    // looping. The next evaluator turn decides whether the AI keeps making progress.
+    // Net stall, but the work-product fingerprint changed (real code edits) — record a `plateau`
+    // warning so the attempt audit reflects the soft signal, then keep looping. Capped at
+    // WARNING_SOFTEN_CAP consecutive softenings inside the predicate.
     const warned = recordRunningAttemptWarning(recorded.value, {
       kind: 'plateau',
       dimensions: verdict.dimensions,
@@ -236,7 +252,7 @@ export const runEvaluatorTurnUseCase = async (
       });
       return Result.error(warned.error);
     }
-    log.info('plateau softened to warning — commit-message changed; continuing', {
+    log.info('plateau softened to warning — work product changed; continuing', {
       taskId: warned.value.id,
       dimensions: verdict.dimensions,
       reason: verdict.reason,
