@@ -13,18 +13,30 @@ import type { Logger } from '@src/business/observability/logger.ts';
 
 /**
  * Built-in escalation ladder. Keys are the model id the generator is currently spawning
- * with; values are the model id to switch to after a plateau exit. Entries are seeded from
- * the per-provider model catalogs at `domain/value/settings-models/` — weakening or
- * removing an entry here implies the corresponding model is no longer in catalog, so this
- * file and the catalog are kept in lockstep by code review.
+ * with; values are the model id to switch to after a plateau exit. The ladder is climbed
+ * cheapest-first one rung per plateau, so each tier points at the next stronger tier (not the
+ * flagship directly) — letting an economic preset that starts a tier below flagship climb
+ * through every intermediate rung. Entries are seeded from the per-provider model catalogs at
+ * `domain/value/settings-models/` — weakening or removing an entry here implies the
+ * corresponding model is no longer in catalog, so this file and the catalog are kept in
+ * lockstep by code review.
+ *
+ * Dash-form ids (`claude-haiku-4-5`) are the Claude-Code / Codex catalog ids; dot-form ids
+ * (`claude-haiku-4.5`) are the Copilot catalog ids — both forms are seeded and kept in
+ * lockstep with `domain/value/settings-models/`.
  */
 export const DEFAULT_ESCALATION_MAP: Readonly<Record<string, string>> = {
-  // Claude — Sonnet escalates to Opus; Haiku escalates to Sonnet.
+  // Claude (Claude-Code / Codex dash-form) — Haiku → Sonnet → Opus.
   'claude-haiku-4-5': 'claude-sonnet-4-6',
   'claude-sonnet-4-6': 'claude-opus-4-8',
-  // Copilot/Codex — mini variants step up to their full-tier frontier.
+  // Claude (Copilot dot-form) — Haiku → Sonnet → Opus.
+  'claude-haiku-4.5': 'claude-sonnet-4.6',
+  'claude-sonnet-4.6': 'claude-opus-4.8',
+  // Copilot/Codex GPT — mini variants step up to their full-tier frontier, and the
+  // economic full tier (`gpt-5.4`) climbs to the flagship.
   'gpt-5-mini': 'gpt-5.5',
   'gpt-5.4-mini': 'gpt-5.5',
+  'gpt-5.4': 'gpt-5.5',
 };
 
 /**

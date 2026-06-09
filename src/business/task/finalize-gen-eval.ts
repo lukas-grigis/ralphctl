@@ -112,11 +112,11 @@ export const finalizeGenEvalUseCase = async (
 
   const mapped = mapExit(exit);
 
-  // On a plateau exit, consult the model-escalation policy. The policy may stamp the task
-  // with `escalatedFromModel`/`escalatedToModel` (escalation applied — task stays in_progress
-  // for the next attempt), or it may surface a blocking reason (already-escalated, no map
-  // rung above the current model, attempt-budget exhausted). When the operator opted out
-  // (`escalateOnPlateau === false`) the policy is a no-op and the legacy plateau path
+  // On a plateau exit, consult the model-escalation policy. The policy may stamp the task with the
+  // latest `escalatedFromModel`/`escalatedToModel` rung transition (escalate or top-of-ladder nudge
+  // — task stays in_progress for the next attempt), or it may keep the work (topped-out once the
+  // ladder is exhausted, or budget-exhausted when no attempt budget remains). When the operator
+  // opted out (`escalateOnPlateau === false`) the policy is a no-op and the legacy plateau path
   // (done-with-warning) is preserved.
   let taskForPersist: InProgressTask = props.task;
   let blockedReason: string | undefined = mapped.blockedReason;

@@ -91,7 +91,7 @@ export const DEFAULT_SETTINGS: Settings = {
     maxTurns: 5,
     maxAttempts: 3,
     rateLimitRetries: 3,
-    plateauThreshold: 2,
+    plateauThreshold: 3,
     escalateOnPlateau: true,
     escalationMap: {},
   },

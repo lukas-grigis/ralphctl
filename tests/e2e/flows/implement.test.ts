@@ -2092,10 +2092,13 @@ describe('createImplementFlow — gen-eval loop', () => {
   // path produces a genuine second attempt; `maxAttempts === 1` collapses to one iteration;
   // an abort propagates verbatim with no extra iteration.
 
-  it('escalation across attempts: attempt 1 plateaus + escalates → attempt 2 runs (settle fires again) → 2nd plateau preserves work', async () => {
-    // maxAttempts 3 so the escalation budget doesn't pre-empt the policy. Generator on a model
-    // (`claude-sonnet-4-6`) that HAS a default escalation rung (→ `claude-opus-4-8`). A plateau on
-    // a top-of-ladder model now nudges (same model) rather than blocking, so attempt 2 always runs.
+  it('graduated ladder across attempts: sonnet plateaus → escalate to opus → opus plateaus → nudge → budget-exhausted preserves work', async () => {
+    // maxAttempts 3 so the ladder can climb multiple rungs. Generator starts on a model
+    // (`claude-sonnet-4-6`) that HAS a default escalation rung (→ `claude-opus-4-8`). The graduated
+    // remedy ladder climbs one rung per plateau: attempt 1 (sonnet) escalates to opus, attempt 2
+    // (opus, top of ladder) nudges (same model + change-of-approach directive), attempt 3 (opus)
+    // plateaus with the budget exhausted (attempts === maxAttempts) — a plateau never blocks, so
+    // the work is preserved (done-with-warning).
     const f = await buildFixture(1, 3);
     tracking(f);
     const sprintRepo = inMemorySprintRepo(f.sprint);
@@ -2147,32 +2150,31 @@ describe('createImplementFlow — gen-eval loop', () => {
 
     expect(runner.status).toBe('completed');
 
-    // Two attempts ran in ONE launch — the outer loop re-entered after the escalation kept the
-    // task in_progress. Attempt 1 settled `failed` (escalation), attempt 2 plateaued again and —
-    // a plateau never blocks — the work is preserved (done-with-warning). Both attempts recorded.
+    // Three attempts ran in ONE launch — the outer loop re-entered after each escalate/nudge kept
+    // the task in_progress. Attempt 1 escalated sonnet→opus, attempt 2 nudged (top of ladder),
+    // attempt 3 plateaued with the budget exhausted — a plateau never blocks, so the work is
+    // preserved (done-with-warning). All three attempts recorded.
     const finalTask = taskRepo.tasks()[0];
     expect(finalTask?.status).toBe('done');
-    expect(finalTask?.attempts).toHaveLength(2);
+    expect(finalTask?.attempts).toHaveLength(3);
 
-    // The settle leaf ran once per attempt — exactly two `settle-attempt-<id>` trace entries.
-    // This is the load-bearing assertion that the 2ND iteration's settle actually executed,
+    // The settle leaf ran once per attempt — exactly three `settle-attempt-<id>` trace entries.
+    // This is the load-bearing assertion that each subsequent iteration's settle actually executed,
     // not merely that escalation was stamped.
     const settleEntries = runner.trace.filter((e) => e.elementName === `settle-attempt-${String(finalTask?.id)}`);
-    expect(settleEntries).toHaveLength(2);
-    // start-attempt fired twice too — once per loop iteration.
+    expect(settleEntries).toHaveLength(3);
+    // start-attempt fired three times too — once per loop iteration.
     const startEntries = runner.trace.filter((e) => e.elementName === `start-attempt-${String(finalTask?.id)}`);
-    expect(startEntries).toHaveLength(2);
+    expect(startEntries).toHaveLength(3);
 
-    // Escalation stamped exactly once: from the configured sonnet to the opus rung. A second
-    // escalation on the second plateau is suppressed (once-per-task cap) — the work is preserved
-    // (done-with-warning) instead of blocking.
-    expect(finalTask?.escalatedFromModel).toBe('claude-sonnet-4-6');
+    // The ladder climbed to the top and the last stamp is the top-of-ladder same-model nudge
+    // (from === to === opus). A plateau never blocks; the work is preserved (done-with-warning).
+    expect(finalTask?.escalatedFromModel).toBe('claude-opus-4-8');
     expect(finalTask?.escalatedToModel).toBe('claude-opus-4-8');
     expect(finalTask?.status).not.toBe('blocked');
 
-    // Attempt 2's generator spawned on the ESCALATED model — proof the second iteration didn't
-    // just re-run identical work. The first generator sessions ran on sonnet; a later one ran
-    // on opus.
+    // The generator climbed the ladder: attempt 1 ran on sonnet, later attempts ran on the
+    // escalated opus model — proof later iterations didn't just re-run identical work.
     const generatorModels = provider.recordedSessions.filter((s) => s.role === 'generator').map((s) => s.model);
     expect(generatorModels).toContain('claude-sonnet-4-6');
     expect(generatorModels).toContain('claude-opus-4-8');

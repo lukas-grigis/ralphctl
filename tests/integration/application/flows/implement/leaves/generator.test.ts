@@ -246,6 +246,20 @@ describe('generatorLeaf', () => {
     expect(content).not.toContain('You have plateaued');
   });
 
+  // On a model BUMP (from !== to) the directive is intentionally NOT armed — the stronger model
+  // gets the targeted priorCritique, and the "abandon your approach" directive is reserved for the
+  // top-of-ladder same-model nudge (from === to).
+  it('omits the change-of-approach directive on a model bump (escalatedFromModel !== escalatedToModel)', async () => {
+    const initial = makeInProgressTaskWithRunningAttempt();
+    const stamped = recordTaskEscalation(initial, 'claude-sonnet-4-6', 'claude-opus-4-8');
+    if (!stamped.ok) throw stamped.error;
+    const leaf = generatorLeaf(buildDeps(), stamped.value.id);
+    const result = await leaf.execute(baseCtx(stamped.value));
+    expect(result.ok).toBe(true);
+    const content = await fs.readFile(join(String(root.root), 'rounds', '1', 'generator', 'prompt.md'), 'utf8');
+    expect(content).not.toContain('You have plateaued');
+  });
+
   // Abort wire (keystone for #1/#5): the runner threads its AbortController signal into every
   // `element.execute(ctx, signal)`; the leaf framework forwards it as the 2nd arg of the
   // use-case `execute(input, signal)`. The generator must carry it onto the spawned session so

@@ -246,12 +246,14 @@ export const SettingsSchema = z.object({
     rateLimitRetries: z.number().int().min(0).max(10),
     /**
      * Consecutive evaluator turns flagging the same failed-dimension set before the loop
-     * exits with a `plateau` warning (2–5). Setting to 3+ gives the AI extra retries before
-     * the harness gives up. See `business/task/plateau-detection.ts` for the exemption rules
-     * (score improvement / commit-message change / critique-prose shift) that can soften or
-     * skip the plateau even when the threshold is met.
+     * exits with a `plateau` warning (2–5, default 3 — patient: the graduated remedy ladder
+     * climbs cheapest-first across plateaus, so a slightly higher threshold avoids spending an
+     * escalation rung on a stall the generator would have broken on its own). See
+     * `business/task/plateau-detection.ts` for the exemption rules (score improvement /
+     * commit-message change / critique-prose shift) that can soften or skip the plateau even
+     * when the threshold is met.
      */
-    plateauThreshold: z.number().int().min(2).max(5).default(2),
+    plateauThreshold: z.number().int().min(2).max(5).default(3),
     /**
      * When the gen-eval loop exits on a plateau, grant one more attempt instead of settling
      * immediately: escalate the generator one rung up the ladder ({@link escalationMap} merged

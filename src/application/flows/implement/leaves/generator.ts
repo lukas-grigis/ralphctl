@@ -241,10 +241,15 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
             outputContractSection: renderContractSectionFor(generatorOutputContract, outputDir),
             ...(deps.verifyScript !== undefined ? { verifyScript: deps.verifyScript } : {}),
             ...(priorCritique !== undefined ? { priorCritique } : {}),
-            // Plateau-break attempt: the escalation policy stamped the task (model bump and/or a
-            // change-of-approach nudge) after the gen-eval loop stalled. Surface the "change your
-            // approach" directive so the generator abandons the non-converging path.
-            ...(task.escalatedFromModel !== undefined ? { plateauBreak: true } : {}),
+            // Plateau-break directive: armed ONLY on a top-of-ladder same-model nudge
+            // (`escalatedFromModel === escalatedToModel`). On a model BUMP (from !== to) the
+            // stronger model gets the targeted `priorCritique` instead — the "abandon your
+            // approach" directive is decoupled from escalation and reserved for the same-model
+            // nudge, where there is no fresh capability to lean on so the only lever left is a
+            // change of approach.
+            ...(task.escalatedFromModel !== undefined && task.escalatedFromModel === task.escalatedToModel
+              ? { plateauBreak: true }
+              : {}),
           });
           if (!prompt.ok) return Result.error(prompt.error) as Result<readonly HarnessSignal[], DomainError>;
           // Persist the rendered prompt under `rounds/<N>/generator/prompt.md` BEFORE the AI

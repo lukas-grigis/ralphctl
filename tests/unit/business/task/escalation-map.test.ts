@@ -35,6 +35,20 @@ describe('DEFAULT_ESCALATION_MAP', () => {
     expect(DEFAULT_ESCALATION_MAP['claude-sonnet-4-6']).toBe('claude-opus-4-8');
     expect(DEFAULT_ESCALATION_MAP['gpt-5-mini']).toBe('gpt-5.5');
   });
+
+  it('lets the economic codex/copilot full tier climb to flagship (gpt-5.4 → gpt-5.5)', () => {
+    expect(DEFAULT_ESCALATION_MAP['gpt-5.4']).toBe('gpt-5.5');
+  });
+
+  it('seeds the dot-form Copilot Claude rungs (haiku → sonnet → opus)', () => {
+    expect(DEFAULT_ESCALATION_MAP['claude-haiku-4.5']).toBe('claude-sonnet-4.6');
+    expect(DEFAULT_ESCALATION_MAP['claude-sonnet-4.6']).toBe('claude-opus-4.8');
+  });
+
+  it('keeps the dash-form Claude-Code/Codex Claude rungs (haiku → sonnet → opus)', () => {
+    expect(DEFAULT_ESCALATION_MAP['claude-haiku-4-5']).toBe('claude-sonnet-4-6');
+    expect(DEFAULT_ESCALATION_MAP['claude-sonnet-4-6']).toBe('claude-opus-4-8');
+  });
 });
 
 describe('mergeEscalationMap', () => {

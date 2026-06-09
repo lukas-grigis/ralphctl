@@ -219,9 +219,10 @@ describe('finalizeGenEvalUseCase', () => {
     expect(events.some((e) => e.type === 'model-escalated')).toBe(true);
   });
 
-  it('plateau + already-escalated: no new event, NO blockedReason (preserves work), shouldFailAttempt unset', async () => {
+  it('plateau + topped-out (already nudged at the top): no new event, NO blockedReason (preserves work), shouldFailAttempt unset', async () => {
     const initial = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
-    const stamped = recordTaskEscalation(initial, 'claude-sonnet-4-6', 'claude-opus-4-8');
+    // Task was nudged at the top of the ladder (from === to === opus); plateauing again tops out.
+    const stamped = recordTaskEscalation(initial, 'claude-opus-4-8', 'claude-opus-4-8');
     if (!stamped.ok) throw stamped.error;
     const bus = newBus();
     const events: Array<{ type: string }> = [];
@@ -240,7 +241,7 @@ describe('finalizeGenEvalUseCase', () => {
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    // After the one plateau-break retry, a second plateau preserves the work (done-with-warning).
+    // The ladder is exhausted: a plateau after the top-of-ladder nudge preserves the work.
     expect(result.value.blockedReason).toBeUndefined();
     expect(result.value.shouldFailAttempt).toBeFalsy();
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
