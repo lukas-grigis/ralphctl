@@ -5,8 +5,9 @@ import {
   markTaskBlocked,
   unblockTask,
 } from '@src/domain/entity/task-lifecycle.ts';
+import { recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
 import type { BlockedTask } from '@src/domain/entity/task.ts';
-import { makeTodoTask } from '@tests/fixtures/domain.ts';
+import { makeInProgressTaskWithRunningAttempt, makeTodoTask } from '@tests/fixtures/domain.ts';
 
 const block = (reason: string, kind: BlockedTask['blockKind']): BlockedTask => {
   const r = markTaskBlocked(makeTodoTask(), reason, kind);
@@ -51,7 +52,7 @@ describe('isUpstreamBlocked — reads the structural discriminant, NOT the reaso
   });
 });
 
-describe('unblockTask — drops both blockedReason and blockKind', () => {
+describe('unblockTask — clean restart (drops block fields, resets budget + escalation)', () => {
   it('strips the blocked-only fields when resetting to todo', () => {
     const back = unblockTask(block(`${BLOCKED_UPSTREAM_REASON_PREFIX} — dep`, 'upstream'));
     expect(back.ok).toBe(true);
@@ -59,5 +60,27 @@ describe('unblockTask — drops both blockedReason and blockKind', () => {
     expect(back.value.status).toBe('todo');
     expect((back.value as unknown as Record<string, unknown>)['blockKind']).toBeUndefined();
     expect((back.value as unknown as Record<string, unknown>)['blockedReason']).toBeUndefined();
+  });
+
+  it('resets the attempt budget and clears model escalation so the retry gets a genuine fresh run', () => {
+    // Build an own-blocked task that carries a full attempt history AND a climbed-to escalation
+    // model — the exact shape that, without the reset, would hit `budget-exhausted` / `topped-out`
+    // on its very first retry plateau.
+    const inProgress = makeInProgressTaskWithRunningAttempt({ maxAttempts: 3 });
+    const escalated = recordTaskEscalation(inProgress, 'claude-sonnet-4-6', 'claude-opus-4-8');
+    if (!escalated.ok) throw escalated.error;
+    const blocked = markTaskBlocked(escalated.value, 'attempt budget exhausted', 'own');
+    if (!blocked.ok) throw blocked.error;
+    expect(blocked.value.attempts.length).toBeGreaterThan(0);
+
+    const back = unblockTask(blocked.value);
+    expect(back.ok).toBe(true);
+    if (!back.ok) return;
+    expect(back.value.status).toBe('todo');
+    expect(back.value.attempts).toHaveLength(0); // fresh budget
+    expect((back.value as unknown as Record<string, unknown>)['escalatedFromModel']).toBeUndefined();
+    expect((back.value as unknown as Record<string, unknown>)['escalatedToModel']).toBeUndefined();
+    // The cap itself (a planning field) survives — only the consumed budget resets.
+    expect(back.value.maxAttempts).toBe(3);
   });
 });
