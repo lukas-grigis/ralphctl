@@ -1,7 +1,7 @@
 import { Result } from '@src/domain/result.ts';
 import { recordExecutionPullRequestUrl } from '@src/domain/entity/sprint-execution.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
-import { derivePrContent } from '@src/business/sprint/views/pr-content.ts';
+import { derivePrContent, renderWarningsSection } from '@src/business/sprint/views/pr-content.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 
@@ -67,7 +67,14 @@ export const createCreatePrLeaf = (deps: CreatePrDeps): Element<CreatePrCtx> =>
         const derived = derivePrContent(sprint.value, tasks);
         // Precedence: explicit override > AI-authored content > template-derived default.
         const title = input.title ?? input.aiContent?.title ?? derived.title;
-        const body = input.body ?? input.aiContent?.body ?? derived.body;
+        const resolvedBody = input.body ?? input.aiContent?.body ?? derived.body;
+        // Warnings honesty: `derived.body` already carries the `## Completed with warnings`
+        // section; the override / AI-authored bodies do not. Append it harness-side for those two
+        // paths so a flagged task never lands in the PR without qualification regardless of which
+        // body wins. Deterministic + reliable — no template param to thread or keep in sync.
+        const usingDerivedBody = input.body === undefined && input.aiContent?.body === undefined;
+        const warningsSection = usingDerivedBody ? '' : renderWarningsSection(tasks);
+        const body = warningsSection.length > 0 ? `${resolvedBody}\n\n${warningsSection}` : resolvedBody;
 
         deps.eventBus.publish({
           type: 'log',

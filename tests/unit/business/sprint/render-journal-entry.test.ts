@@ -145,4 +145,77 @@ describe('renderJournalEntry', () => {
     expect(out).toContain('- Verdict: blocked');
     expect(out).toContain('Blocked: pre-existing test failure');
   });
+
+  it('a clean pass entry omits the Outcome detail subsection entirely (no regression)', () => {
+    const out = renderJournalEntry(baseInput());
+    expect(out).toContain('- Verdict: pass');
+    expect(out).not.toContain('### Outcome detail');
+    expect(out).not.toContain('Remedy:');
+  });
+
+  it('renders pass-with-warning + plateau dimensions in the Outcome detail prose', () => {
+    const out = renderJournalEntry(
+      baseInput({
+        verdict: 'pass-with-warning',
+        warning: { kind: 'plateau', dimensions: ['C1', 'C3'] },
+      })
+    );
+    expect(out).toContain('- Verdict: pass-with-warning');
+    expect(out).toContain('### Outcome detail');
+    expect(out).toContain('plateaued');
+    expect(out).toContain('C1, C3');
+    // No escalation supplied → the remedy is the "kept with warning" sentence.
+    expect(out).toContain('Remedy: kept the attempt with the warning attached');
+  });
+
+  it('renders budget-exhausted turn counts in the Outcome detail prose', () => {
+    const out = renderJournalEntry(
+      baseInput({
+        verdict: 'pass-with-warning',
+        warning: { kind: 'budget-exhausted', turnsUsed: 5, turnBudget: 5 },
+      })
+    );
+    expect(out).toContain('### Outcome detail');
+    expect(out).toContain('did not pass');
+    expect(out).toContain('5 of 5 turns used');
+  });
+
+  it('renders the escalated verdict and a model-rung climb as the remedy', () => {
+    const out = renderJournalEntry(
+      baseInput({
+        verdict: 'escalated',
+        warning: { kind: 'plateau', dimensions: ['C2'] },
+        escalation: { from: 'sonnet', to: 'opus' },
+      })
+    );
+    expect(out).toContain('- Verdict: escalated');
+    expect(out).toContain('### Outcome detail');
+    expect(out).toContain('Remedy: escalated the generator model from sonnet to opus');
+  });
+
+  it('states a top-of-ladder same-model retry explicitly when from === to', () => {
+    const out = renderJournalEntry(
+      baseInput({
+        verdict: 'escalated',
+        warning: { kind: 'malformed', detail: 'no verdict signal' },
+        escalation: { from: 'opus', to: 'opus' },
+      })
+    );
+    expect(out).toContain('### Outcome detail');
+    expect(out).toContain('could not be parsed');
+    expect(out).toContain('no verdict signal');
+    expect(out).toContain('Remedy: retried the same model (opus) — already at the top');
+  });
+
+  it('renders verify-failed detail in the Outcome detail prose', () => {
+    const out = renderJournalEntry(
+      baseInput({
+        verdict: 'pass-with-warning',
+        warning: { kind: 'verify-failed', detail: 'exit 1 — 2 tests failed' },
+      })
+    );
+    expect(out).toContain('### Outcome detail');
+    expect(out).toContain('verify script ran red');
+    expect(out).toContain('exit 1 — 2 tests failed');
+  });
 });

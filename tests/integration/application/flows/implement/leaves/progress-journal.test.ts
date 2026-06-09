@@ -25,8 +25,15 @@ import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { recordingAppendFile } from '@tests/fixtures/recording-append-file.ts';
 import { progressJournalLeaf } from '@src/application/flows/implement/leaves/progress-journal.ts';
 import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
+import { recordRunningAttemptVerification, recordRunningAttemptWarning } from '@src/domain/entity/task-attempts.ts';
+import { failCurrentAttempt, markTaskDone, recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
+
+const unwrap = <T>(r: { ok: true; value: T } | { ok: false; error: Error }): T => {
+  if (!r.ok) throw r.error;
+  return r.value;
+};
 
 const PROGRESS_FILE = absolutePath('/tmp/ralph/sprint/progress.md');
 const SPRINT_ID = (() => {
@@ -86,6 +93,68 @@ describe('progressJournalLeaf', () => {
     expect(written).toContain('- Verdict: blocked');
     expect(written).toContain('Blocked: pre-existing test failure');
     expect(written).toContain('- Round: round 2 of 5');
+  });
+
+  it('derives verdict=pass-with-warning + Outcome detail for a done task whose final attempt carries a warning', async () => {
+    const append = recordingAppendFile();
+    // Build a done task whose verified attempt carries a plateau warning: start → warn → verify →
+    // done. The journal must NOT claim a clean success and must name the failed dimensions.
+    const inProgress = makeInProgressTaskWithRunningAttempt();
+    const warned = unwrap(recordRunningAttemptWarning(inProgress, { kind: 'plateau', dimensions: ['C1', 'C2'] }));
+    const verified = unwrap(recordRunningAttemptVerification(warned));
+    const done = unwrap(markTaskDone(verified, FIXED_LATER));
+    const leaf = progressJournalLeaf(
+      { appendFile: append.fn, clock: () => FIXED_LATER, logger: noopLogger },
+      { progressFile: PROGRESS_FILE, totalRounds: 5 },
+      done.id
+    );
+    const result = await leaf.execute({ sprintId: SPRINT_ID, tasks: [done], currentRoundNum: 3 });
+    expect(result.ok).toBe(true);
+    const written = append.read(PROGRESS_FILE) ?? '';
+    expect(written).toContain('- Verdict: pass-with-warning');
+    expect(written).toContain('### Outcome detail');
+    expect(written).toContain('plateaued');
+    expect(written).toContain('C1, C2');
+    // Critical: never the clean-success line when a warning is present.
+    expect(written).not.toContain('Task completed successfully.');
+  });
+
+  it('derives verdict=escalated for an in_progress task whose attempt just failed and climbed a rung', async () => {
+    const append = recordingAppendFile();
+    // Attempt fails → task stays in_progress → escalation policy stamps a model climb. The journal
+    // leaf runs inside the per-attempt loop, so it appends this section before the next attempt.
+    const inProgress = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
+    const warned = unwrap(recordRunningAttemptWarning(inProgress, { kind: 'plateau', dimensions: ['C1'] }));
+    const failed = unwrap(failCurrentAttempt(warned, FIXED_LATER, 'failed'));
+    expect(failed.status).toBe('in_progress');
+    const escalated = unwrap(recordTaskEscalation(failed as never, 'sonnet', 'opus'));
+    const leaf = progressJournalLeaf(
+      { appendFile: append.fn, clock: () => FIXED_LATER, logger: noopLogger },
+      { progressFile: PROGRESS_FILE, totalRounds: 5 },
+      escalated.id
+    );
+    const result = await leaf.execute({ sprintId: SPRINT_ID, tasks: [escalated], currentRoundNum: 2 });
+    expect(result.ok).toBe(true);
+    const written = append.read(PROGRESS_FILE) ?? '';
+    expect(written).toContain('- Verdict: escalated');
+    expect(written).toContain('### Outcome detail');
+    expect(written).toContain('Remedy: escalated the generator model from sonnet to opus');
+  });
+
+  it('derives verdict=pass with no Outcome detail for a clean done task', async () => {
+    const append = recordingAppendFile();
+    const task = makeDoneTask({ name: 'clean' });
+    const leaf = progressJournalLeaf(
+      { appendFile: append.fn, clock: () => FIXED_LATER, logger: noopLogger },
+      { progressFile: PROGRESS_FILE, totalRounds: 5 },
+      task.id
+    );
+    const result = await leaf.execute({ sprintId: SPRINT_ID, tasks: [task], currentRoundNum: 1 });
+    expect(result.ok).toBe(true);
+    const written = append.read(PROGRESS_FILE) ?? '';
+    expect(written).toContain('- Verdict: pass');
+    expect(written).not.toContain('### Outcome detail');
+    expect(written).toContain('Task completed successfully.');
   });
 
   it('appends successive sections without rewriting prior content', async () => {

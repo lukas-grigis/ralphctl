@@ -9,8 +9,13 @@ import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { Task } from '@src/domain/entity/task.ts';
-import type { Attempt } from '@src/domain/entity/attempt.ts';
-import { renderJournalEntry } from '@src/business/sprint/render-journal-entry.ts';
+import type { Attempt, AttemptWarning } from '@src/domain/entity/attempt.ts';
+import {
+  renderJournalEntry,
+  type JournalEscalation,
+  type JournalVerdict,
+  type JournalWarning,
+} from '@src/business/sprint/render-journal-entry.ts';
 import { dedupeLearnings } from '@src/application/flows/implement/leaves/_shared/dedupe-learnings.ts';
 import type { LearningEntry } from '@src/domain/signal.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
@@ -77,12 +82,70 @@ const renderOutcomeParagraph = (task: Task, attempt: Attempt | undefined): strin
     if (critique !== undefined && critique.length > 0) {
       return critique;
     }
-    return 'Task completed successfully.';
+    // Never claim a clean success when the final attempt carries a warning — the journal feeds
+    // the next attempt's generator, so a budget / plateau / malformed / verify-failed exit must
+    // read as "done, but flagged" and let the `### Outcome detail` subsection state why.
+    return attempt?.warning !== undefined
+      ? 'Task settled as done with a warning attached.'
+      : 'Task completed successfully.';
   }
-  // in_progress / todo shouldn't happen at the journal-append point (settle ran first), but
-  // produce a safe fallback so the section still renders rather than throwing.
+  // in_progress: the attempt failed and the escalation / malformed-retry policy reopened the
+  // task for another attempt (the journal leaf runs inside the per-attempt loop, so it appends
+  // before the next attempt starts). Surface the critique that drives the retry when present.
+  if (task.status === 'in_progress') {
+    const critique = attempt?.critique?.trim();
+    return critique !== undefined && critique.length > 0
+      ? `Attempt did not pass; the harness is retrying. ${critique}`
+      : 'Attempt did not pass; the harness is retrying.';
+  }
+  // todo shouldn't reach the journal-append point (settle ran first); safe fallback.
   return `Settled with task status \`${task.status}\`.`;
 };
+
+/**
+ * Derive the journal verdict from the just-settled task. The journal leaf runs inside the
+ * per-attempt loop right after settle, so the task status is authoritative:
+ *
+ *  - `blocked`     → the task failed on its own merits / upstream cascade.
+ *  - `in_progress` → the attempt failed and the escalation (model climb) or malformed-retry
+ *                    policy reopened the task for another attempt → `escalated`.
+ *  - `done` + the final attempt carries a warning → `pass-with-warning`.
+ *  - `done`, no warning → `pass`.
+ */
+const deriveVerdict = (task: Task, attempt: Attempt | undefined): JournalVerdict => {
+  if (task.status === 'blocked') return 'blocked';
+  if (task.status === 'in_progress') return 'escalated';
+  if (task.status === 'done' && attempt?.warning !== undefined) return 'pass-with-warning';
+  return 'pass';
+};
+
+/** Flatten a domain {@link AttemptWarning} into the renderer's serialization-free shape. */
+const toJournalWarning = (warning: AttemptWarning): JournalWarning => {
+  switch (warning.kind) {
+    case 'budget-exhausted':
+      return { kind: 'budget-exhausted', turnsUsed: warning.turnsUsed, turnBudget: warning.turnBudget };
+    case 'plateau':
+      return { kind: 'plateau', dimensions: warning.dimensions };
+    case 'malformed':
+      return { kind: 'malformed', detail: warning.detail };
+    case 'verify-failed': {
+      const exit = warning.exitCode !== null ? `exit ${String(warning.exitCode)}` : 'no exit code';
+      const detail = warning.stderr.trim().length > 0 ? `${exit} — ${warning.stderr.trim()}` : exit;
+      return { kind: 'verify-failed', detail };
+    }
+  }
+};
+
+/**
+ * Project the task-level escalation stamp into the renderer shape. `escalatedFromModel` /
+ * `escalatedToModel` are re-stamped per climb; at append-time (right after this attempt's
+ * settle) the latest stamp reflects the transition the escalation policy just applied. Both must
+ * be present for the transition to render.
+ */
+const toJournalEscalation = (task: Task): JournalEscalation | undefined =>
+  task.escalatedFromModel !== undefined && task.escalatedToModel !== undefined
+    ? { from: task.escalatedFromModel, to: task.escalatedToModel }
+    : undefined;
 
 const latestAttempt = (task: Task): Attempt | undefined => task.attempts[task.attempts.length - 1];
 
@@ -104,7 +167,14 @@ export const progressJournalLeaf = (
     useCase: {
       execute: async (input) => {
         const attempt = latestAttempt(input.task);
-        const verdict: 'pass' | 'blocked' = input.task.status === 'blocked' ? 'blocked' : 'pass';
+        const verdict = deriveVerdict(input.task, attempt);
+        // The warning / escalation fields are projected only when they exist, so the clean-pass
+        // entry stays byte-identical to the pre-widening output (no `### Outcome detail`).
+        const warning = attempt?.warning !== undefined ? toJournalWarning(attempt.warning) : undefined;
+        // Surface the model-ladder transition on the failing-then-retrying (`escalated`) entry and
+        // on a `pass-with-warning` whose prior climb is still stamped on the task.
+        const escalation =
+          verdict === 'escalated' || verdict === 'pass-with-warning' ? toJournalEscalation(input.task) : undefined;
         const text = renderJournalEntry({
           taskName: input.task.name,
           attemptN: input.task.attempts.length,
@@ -113,6 +183,8 @@ export const progressJournalLeaf = (
           roundN: input.roundN,
           totalRounds: opts.totalRounds,
           ...(attemptDurationMs(attempt) !== undefined ? { durationMs: attemptDurationMs(attempt)! } : {}),
+          ...(warning !== undefined ? { warning } : {}),
+          ...(escalation !== undefined ? { escalation } : {}),
           changes: input.changes,
           decisions: input.decisions,
           learnings: input.learnings,

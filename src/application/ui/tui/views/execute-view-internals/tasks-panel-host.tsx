@@ -15,7 +15,24 @@ import React, { useMemo } from 'react';
 import { TasksPanel } from '@src/application/ui/tui/components/tasks-panel.tsx';
 import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
+import type { AttemptWarning } from '@src/domain/entity/attempt.ts';
 import type { Task } from '@src/domain/entity/task.ts';
+
+/** One-line summary for a flagged completion shown under the task card. Kind-specific prose. */
+const warningSummaryFor = (w: AttemptWarning): string => {
+  switch (w.kind) {
+    case 'budget-exhausted':
+      return `done with warning: turn budget exhausted (${String(w.turnsUsed)}/${String(w.turnBudget)} turns)`;
+    case 'plateau':
+      return w.dimensions.length > 0
+        ? `done with warning: evaluator plateaued on ${w.dimensions.join(', ')}`
+        : 'done with warning: evaluator plateaued';
+    case 'malformed':
+      return 'done with warning: evaluator output malformed';
+    case 'verify-failed':
+      return `done with warning: post-task verify red (${w.exitCode !== null ? `exit ${String(w.exitCode)}` : 'no exit code'})`;
+  }
+};
 
 interface TasksPanelHostProps {
   readonly bucketed: BucketedExecution | undefined;
@@ -65,6 +82,20 @@ export const TasksPanelHost = ({
     return m.size > 0 ? m : undefined;
   }, [taskState]);
 
+  // taskId → one-line summary for a done task whose FINAL attempt carries a warning. Mirrors the
+  // blocked-reason map: the live TaskBucket is trace-derived and carries no warning, so the data
+  // comes off the polled entity. Undefined when every done task landed clean (clean prop diff).
+  const warningSummaryById = useMemo<ReadonlyMap<string, string> | undefined>(() => {
+    if (taskState === undefined) return undefined;
+    const m = new Map<string, string>();
+    for (const t of taskState) {
+      if (t.status !== 'done') continue;
+      const warning = t.attempts[t.attempts.length - 1]?.warning;
+      if (warning !== undefined) m.set(String(t.id), warningSummaryFor(warning));
+    }
+    return m.size > 0 ? m : undefined;
+  }, [taskState]);
+
   if (bucketed === undefined) return null;
 
   return (
@@ -79,6 +110,7 @@ export const TasksPanelHost = ({
       {...(descriptor.taskRecovering !== undefined ? { recoveringByTaskId: descriptor.taskRecovering } : {})}
       {...(taskCriteriaById !== undefined ? { taskCriteriaById } : {})}
       {...(blockedReasonById !== undefined ? { blockedReasonById } : {})}
+      {...(warningSummaryById !== undefined ? { warningSummaryById } : {})}
     />
   );
 };

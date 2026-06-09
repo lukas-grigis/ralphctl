@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { derivePrContent } from '@src/business/sprint/views/pr-content.ts';
-import { makeApprovedTicket, makeDoneTask, makeDraftSprint, makeTodoTask } from '@tests/fixtures/domain.ts';
+import { derivePrContent, renderWarningsSection } from '@src/business/sprint/views/pr-content.ts';
+import {
+  makeApprovedTicket,
+  makeDoneTaskWithWarning,
+  makeDoneTask,
+  makeDraftSprint,
+  makeTodoTask,
+} from '@tests/fixtures/domain.ts';
 
 describe('derivePrContent', () => {
   it('uses the sprint name as the title', () => {
@@ -77,6 +83,40 @@ describe('derivePrContent', () => {
     const hits = out.body.match(/- Closes #123/g) ?? [];
     expect(hits).toHaveLength(1);
     expect(out.body).toContain('- Closes !456');
+  });
+
+  it('appends a `## Completed with warnings` section for a done task with a final-attempt warning', () => {
+    const sprint = makeDraftSprint();
+    const warned = makeDoneTaskWithWarning({
+      name: 'flaky-task',
+      warning: { kind: 'plateau', dimensions: ['C1', 'C2'] },
+    });
+    const out = derivePrContent(sprint, [warned]);
+    expect(out.body).toContain('## Completed with warnings');
+    expect(out.body).toContain('- flaky-task — evaluator plateaued on: C1, C2');
+    // It still lists the task under the normal Tasks section.
+    expect(out.body).toContain('## Tasks');
+    expect(out.body).toContain('- flaky-task');
+  });
+
+  it('omits the warnings section entirely when every done task landed clean (no empty header)', () => {
+    const sprint = makeDraftSprint();
+    const out = derivePrContent(sprint, [makeDoneTask({ name: 'clean' })]);
+    expect(out.body).not.toContain('## Completed with warnings');
+  });
+
+  it('renderWarningsSection returns an empty string when no task is flagged', () => {
+    expect(renderWarningsSection([makeDoneTask(), makeTodoTask()])).toBe('');
+  });
+
+  it('renderWarningsSection surfaces budget-exhausted with the turn counts', () => {
+    const warned = makeDoneTaskWithWarning({
+      name: 'budgeted',
+      warning: { kind: 'budget-exhausted', turnsUsed: 5, turnBudget: 5 },
+    });
+    const section = renderWarningsSection([warned]);
+    expect(section).toContain('## Completed with warnings');
+    expect(section).toContain('- budgeted — turn budget exhausted (5/5 turns)');
   });
 
   it('folds in Task.externalRefs[] alongside ticket refs, deduped first-seen-wins', () => {

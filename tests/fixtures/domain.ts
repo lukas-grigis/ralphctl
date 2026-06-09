@@ -22,8 +22,13 @@ import { createSprintExecution, type SprintExecution } from '@src/domain/entity/
 import { createProject, type Project } from '@src/domain/entity/project.ts';
 import { createRepository, type Repository } from '@src/domain/entity/repository.ts';
 import type { DoneTask, InProgressTask, TodoTask } from '@src/domain/entity/task.ts';
+import type { AttemptWarning } from '@src/domain/entity/attempt.ts';
 import { createTask } from '@src/domain/entity/task-factory.ts';
-import { recordRunningAttemptVerification, startNextAttempt } from '@src/domain/entity/task-attempts.ts';
+import {
+  recordRunningAttemptVerification,
+  recordRunningAttemptWarning,
+  startNextAttempt,
+} from '@src/domain/entity/task-attempts.ts';
 import { markTaskDone } from '@src/domain/entity/task-settle.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { CommitSha } from '@src/domain/value/commit-sha.ts';
@@ -196,5 +201,23 @@ export const makeDoneTask = (overrides?: { name?: string; externalRefs?: readonl
   const todo = makeTodoTask(todoOverrides);
   const inProgress = unwrap(startNextAttempt(todo, FIXED_NOW, 'session-1'));
   const verified = unwrap(recordRunningAttemptVerification(inProgress));
+  return unwrap(markTaskDone(verified, FIXED_LATER));
+};
+
+/**
+ * A done task whose final (verified) attempt carries an {@link AttemptWarning} — the
+ * "done-with-warning" exit that the journal / PR body / TUI must surface honestly. The warning is
+ * recorded on the running attempt before verification + done so it survives onto the verified
+ * attempt. Defaults to a `plateau` warning; pass `warning` to exercise the other kinds.
+ */
+export const makeDoneTaskWithWarning = (overrides?: { name?: string; warning?: AttemptWarning }): DoneTask => {
+  const todoOverrides: Parameters<typeof makeTodoTask>[0] = {};
+  if (overrides?.name !== undefined) todoOverrides.name = overrides.name;
+  const todo = makeTodoTask(todoOverrides);
+  const inProgress = unwrap(startNextAttempt(todo, FIXED_NOW, 'session-1'));
+  const warned = unwrap(
+    recordRunningAttemptWarning(inProgress, overrides?.warning ?? { kind: 'plateau', dimensions: ['C1'] })
+  );
+  const verified = unwrap(recordRunningAttemptVerification(warned));
   return unwrap(markTaskDone(verified, FIXED_LATER));
 };

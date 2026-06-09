@@ -100,6 +100,13 @@ export interface TasksPanelProps {
    */
   readonly blockedReasonById?: ReadonlyMap<string, string>;
   /**
+   * Optional `taskId → warning summary` map sourced from the polled task entities. When a task
+   * settled `done` but its FINAL attempt carries an `AttemptWarning`, its one-line summary renders
+   * under the card header with the warning glyph so a flagged completion never reads as a clean
+   * pass. Absent for runs whose done tasks are all clean.
+   */
+  readonly warningSummaryById?: ReadonlyMap<string, string>;
+  /**
    * Dev-only flag — when `true`, failing evaluator rows render via
    * `<EvaluatorFailurePanel>` (per-dimension colour-coded view + critique excerpt with
    * expand affordance) instead of the canonical single-line summary. Defaults `false` so
@@ -138,6 +145,7 @@ export const TasksPanel = ({
   inputActive = false,
   taskCriteriaById,
   blockedReasonById,
+  warningSummaryById,
   showEvaluatorFailureUI = false,
   sprintState,
   nowMs,
@@ -301,6 +309,7 @@ export const TasksPanel = ({
         // tasks track the runtime sequence).
         const taskProjection = sprintState?.tasks.find((t: TaskProjection) => t.id === task.id);
         const blockedReason = blockedReasonById?.get(task.id);
+        const warningSummary = warningSummaryById?.get(task.id);
         const isActive = idx === activeTaskIdx;
         return (
           <TaskBlock
@@ -326,6 +335,7 @@ export const TasksPanel = ({
             {...(taskCriteria !== undefined ? { taskCriteria } : {})}
             {...(taskProjection !== undefined ? { taskProjection } : {})}
             {...(blockedReason !== undefined ? { blockedReason } : {})}
+            {...(warningSummary !== undefined ? { warningSummary } : {})}
           />
         );
       })}
