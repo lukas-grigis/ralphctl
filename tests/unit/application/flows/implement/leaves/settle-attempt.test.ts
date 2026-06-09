@@ -221,3 +221,87 @@ describe('settleAttemptLeaf', () => {
     }
   });
 });
+
+describe('settleAttemptLeaf — retry-wins precedence (composed red-verify case)', () => {
+  it('shouldFailAttempt + blockedReason together → attempt fails, task stays in_progress (retry outranks the red-verify block)', async () => {
+    // finalize granted a retry; a LATER red post-verify stamped lastBlockReason. The remedy
+    // ladder's whole point is remedies-before-surrender, so the retry must survive.
+    const ip = inProgressWithVerification(3);
+    const { repo, calls } = fakeUpdateTask();
+    const leafEl = settleAttemptLeaf(
+      { taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger },
+      { cwd: absolutePath('/tmp/settle-attempt-test') },
+      ip.id
+    );
+
+    const ctx: ImplementCtx = {
+      sprintId: 'sprint-x' as SprintId,
+      tasks: [ip],
+      currentTaskId: ip.id,
+      currentTask: ip,
+      lastVerdict: 'failed',
+      lastBlockReason: 'verify failed after task: regressed (exit 1)',
+      lastShouldFailAttempt: true,
+    };
+    const result = await leafEl.execute(ctx);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const settled = result.value.ctx.tasks?.[0];
+    // NOT blocked — the granted retry wins while budget remains.
+    expect(settled?.status).toBe('in_progress');
+    expect(settled?.attempts.at(-1)?.status).toBe('failed');
+    expect(calls[0]?.task.status).toBe('in_progress');
+  });
+
+  it('blockedReason WITHOUT a granted retry still blocks (self-block / exhausted paths unchanged)', async () => {
+    const ip = inProgressWithVerification(3);
+    const { repo } = fakeUpdateTask();
+    const leafEl = settleAttemptLeaf(
+      { taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger },
+      { cwd: absolutePath('/tmp/settle-attempt-test') },
+      ip.id
+    );
+
+    const ctx: ImplementCtx = {
+      sprintId: 'sprint-x' as SprintId,
+      tasks: [ip],
+      currentTaskId: ip.id,
+      currentTask: ip,
+      lastVerdict: 'failed',
+      lastBlockReason: 'agent self-blocked: needs a design decision',
+    };
+    const result = await leafEl.execute(ctx);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.ctx.tasks?.[0]?.status).toBe('blocked');
+  });
+
+  it('malformed verdict on the retry path settles the attempt with status malformed, not failed', async () => {
+    const ip = inProgressWithVerification(3);
+    const { repo } = fakeUpdateTask();
+    const leafEl = settleAttemptLeaf(
+      { taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger },
+      { cwd: absolutePath('/tmp/settle-attempt-test') },
+      ip.id
+    );
+
+    const ctx: ImplementCtx = {
+      sprintId: 'sprint-x' as SprintId,
+      tasks: [ip],
+      currentTaskId: ip.id,
+      currentTask: ip,
+      lastVerdict: 'malformed',
+      lastShouldFailAttempt: true,
+    };
+    const result = await leafEl.execute(ctx);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const settled = result.value.ctx.tasks?.[0];
+    expect(settled?.status).toBe('in_progress');
+    // The attempt history reports the REAL failure mode — the evaluator's contract failure.
+    expect(settled?.attempts.at(-1)?.status).toBe('malformed');
+  });
+});

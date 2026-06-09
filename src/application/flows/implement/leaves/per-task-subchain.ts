@@ -23,6 +23,10 @@ import {
   isSettledBlocked,
   quarantineBlockedDiffLeaf,
 } from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
+import {
+  isRedVerifyRetry,
+  quarantineRetryDiffLeaf,
+} from '@src/application/flows/implement/leaves/quarantine-retry-diff.ts';
 import { progressJournalLeaf } from '@src/application/flows/implement/leaves/progress-journal.ts';
 import type { RepoExecConfig } from '@src/application/flows/implement/leaves/resolve-repo.ts';
 import { settleAttemptLeaf } from '@src/application/flows/implement/leaves/settle-attempt.ts';
@@ -304,6 +308,17 @@ export const createPerTaskSubchain = (
                 { cwd: repo.path },
                 taskId
               )
+            ),
+            // Composed-case cleanup: a granted retry (escalate / nudge / malformed) whose work ALSO
+            // failed post-verify red. The commit guard above skipped the red work; this stashes it
+            // so the RETRIED attempt's pre-verify starts from the last good commit instead of
+            // hard-blocking on its own predecessor's rejected diff. Must run BEFORE settle-attempt —
+            // settle's output projection clears both flags the guard reads. Green-verify retries
+            // commit normally and the stash no-ops on their clean tree.
+            guard<ImplementCtx>(
+              `quarantine-retry-diff-guard-${String(taskId)}`,
+              isRedVerifyRetry,
+              quarantineRetryDiffLeaf({ gitRunner: deps.gitRunner, logger: deps.logger }, { cwd: repo.path }, taskId)
             ),
             settleAttemptLeaf(
               { taskRepo: deps.taskRepo, clock: deps.clock, logger: deps.logger, gitRunner: deps.gitRunner },

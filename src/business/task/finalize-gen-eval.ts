@@ -86,10 +86,15 @@ export interface FinalizeGenEvalOutput {
    * paths: the escalation policy stamping `escalatedFromModel`/`escalatedToModel` (an escalate or
    * top-of-ladder nudge after a plateau / budget-exhausted exit), and the plain same-model
    * malformed retry (which fails the attempt WITHOUT stamping the escalation fields). The caller
-   * propagates this onto ctx so settle-attempt fails the running attempt. Neither path sets
-   * `blockedReason` — a failure-driven retry never blocks — so on this path only
-   * `shouldFailAttempt` is produced; the settle-attempt precedence (`blockedReason` wins over
-   * `shouldFailAttempt`) is a guard for the unrelated self-blocked path and does not engage here.
+   * propagates this onto ctx so settle-attempt fails the running attempt.
+   *
+   * Finalize itself never sets `blockedReason` together with this flag — but a LATER leaf can: a
+   * red post-task-verify stamps `ctx.lastBlockReason` after a retry was granted here. Settle's
+   * precedence resolves that composition in the retry's favour (remedies are spent before
+   * surrendering); the red work never lands because the commit guard keys on the block reason
+   * independently and the retry-diff quarantine stashes the rejected diff before the next
+   * attempt. Once the budget exhausts, this flag stops being granted and the same red verify
+   * blocks the task.
    */
   readonly shouldFailAttempt?: boolean;
 }
