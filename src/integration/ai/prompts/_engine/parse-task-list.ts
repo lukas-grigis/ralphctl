@@ -66,6 +66,15 @@ export interface ParseTaskListInput {
    * don't observe the bus; behaviour is otherwise identical.
    */
   readonly logger?: Logger;
+  /**
+   * Default per-task attempt cap stamped onto every generated task — sourced from
+   * `settings.harness.maxAttempts` by the plan / ideate flows. Carried on the task so the
+   * gen-eval loop bounds attempts (`per-task-subchain` `maxIterations`), `failCurrentAttempt`
+   * blocks the task once the budget is spent, and the escalation `budget-exhausted` branch can
+   * fire — none of which engage while `task.maxAttempts` is undefined. Omitted in tests that
+   * only assert task shape; absent → no cap stamped (legacy uncapped behaviour).
+   */
+  readonly defaultMaxAttempts?: number;
 }
 
 export const parseTaskList = (
@@ -167,6 +176,7 @@ export const parseTaskList = (
       ...(dependsOn.length > 0 ? { dependsOn } : {}),
       ...(normalisedExtras !== undefined && normalisedExtras.length > 0 ? { extraDimensions: normalisedExtras } : {}),
       ...(externalRefs !== undefined ? { externalRefs } : {}),
+      ...(input.defaultMaxAttempts !== undefined ? { maxAttempts: input.defaultMaxAttempts } : {}),
     });
     if (!created.ok) {
       return Result.error(

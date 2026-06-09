@@ -26,6 +26,12 @@ export interface ParsePlanOutputInput {
   readonly sprint: Sprint;
   /** Optional logger; forwarded to {@link parseTaskList} for the topological-reorder log line. */
   readonly logger?: Logger;
+  /**
+   * Default per-task attempt cap (`settings.harness.maxAttempts`) stamped onto every planned
+   * task. Forwarded to {@link parseTaskList}; absent → no cap (legacy uncapped behaviour, used
+   * by parser-shape tests).
+   */
+  readonly defaultMaxAttempts?: number;
 }
 
 export const parsePlanOutput = (
@@ -68,5 +74,6 @@ export const parsePlanOutput = (
     project: ctx.project,
     mode: { kind: 'lookup', tickets: approvedTickets },
     ...(ctx.logger !== undefined ? { logger: ctx.logger } : {}),
+    ...(ctx.defaultMaxAttempts !== undefined ? { defaultMaxAttempts: ctx.defaultMaxAttempts } : {}),
   });
 };

@@ -40,6 +40,11 @@ export interface CreateIdeateFlowOpts {
   readonly model: string;
   /** Resolved effort / reasoning level for the ideate chain — optional. */
   readonly effort?: string;
+  /**
+   * Default per-task attempt cap (`settings.harness.maxAttempts`) stamped onto every task the
+   * ideate plan produces, so the gen-eval loop bounds attempts at execute time.
+   */
+  readonly maxAttempts: number;
   /** Per-sprint root: `<sprintDir>/ideate/`. Per-run subfolder created at execute time. */
   readonly ideateRoot: AbsolutePath;
   /** Per-run slug — the subfolder under ideateRoot. Defaults to `'session-<timestamp>'`. */
@@ -200,6 +205,7 @@ export const createIdeateFlow = (deps: IdeateDeps, opts: CreateIdeateFlowOpts): 
       writeFile: deps.writeFile,
       eventBus: deps.eventBus,
       model: opts.model,
+      maxAttempts: opts.maxAttempts,
       ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
     }),
     uninstallSkillsLeaf<IdeateCtx>({ skillsAdapter: deps.skillsAdapter }, { cwdPicker: () => opts.cwd }),

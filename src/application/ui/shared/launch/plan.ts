@@ -88,6 +88,7 @@ export const launchPlan = async (ctx: LaunchContext): Promise<LaunchResult> => {
       additionalRoots: snapshot.project.repositories.map((r) => r.path),
       providerId: settings.ai.plan.provider,
       model: settings.ai.plan.model,
+      maxAttempts: settings.harness.maxAttempts,
       ...(effort !== undefined ? { effort } : {}),
       planRoot: planRoot.value,
     }
