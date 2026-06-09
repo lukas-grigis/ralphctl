@@ -108,6 +108,7 @@ describe('presets', () => {
     // Catalog membership is what lets a per-row pick pass the adapter boundary…
     expect(isClaudeModel('claude-fable-5')).toBe(true);
     expect(isClaudeModel('claude-fable-5[1m]')).toBe(true);
+    expect(isClaudeModel('claude-opus-4-8[1m]')).toBe(true);
     // …while presets and the built-in escalation ladder deliberately do NOT reference it: the
     // catalog-top = ladder-top = preset-flagship invariant intentionally excludes the fable tier
     // until a deliberate flagship swap. Promoting it later means deleting this fence on purpose.

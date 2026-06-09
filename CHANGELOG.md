@@ -23,10 +23,12 @@ to [Semantic Versioning](https://semver.org/).
   allowlist so pinned configs do not break. Copilot catalog adds `gpt-5.5`, `claude-opus-4.7`,
   `claude-opus-4.8`, Gemini 3.x family (`gemini-3-flash-preview`, `gemini-3-pro-preview`,
   `gemini-3.1-pro-preview`, `gemini-3.5-flash`), `mai-code-1-flash`, and `raptor-mini-preview`.
-  Claude catalog adds the frontier tier `claude-fable-5` and its 1M-context variant
-  `claude-fable-5[1m]` as **opt-in only** entries — selectable per row (TUI picker / `settings set`)
-  but referenced by no preset, default, or built-in escalation rung; users who want the ladder to
-  climb to it add an `'claude-opus-4-8': 'claude-fable-5'` rung via `settings.harness.escalationMap`.
+  Claude catalog adds the frontier tier `claude-fable-5` plus the 1M-context variants
+  `claude-opus-4-8[1m]` and `claude-fable-5[1m]` as **opt-in only** entries — selectable per row
+  (TUI picker / `settings set`) but referenced by no preset, default, or built-in escalation rung;
+  users who want the ladder to climb add an `'claude-opus-4-8': 'claude-fable-5'` rung via
+  `settings.harness.escalationMap`. The `[1m]` variants carry a 1,000,000-token context-window
+  entry, so the TUI budget bar renders correctly for long-context runs.
   CLI baselines: Codex 0.138.0, Copilot 1.0.60, Claude Code 2.1.169.
 
 - **Planned tasks carry the configured attempt cap.** `settings.harness.maxAttempts` is stamped onto
