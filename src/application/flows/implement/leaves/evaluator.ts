@@ -25,7 +25,8 @@ import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/r
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
 import { renderSidecars } from '@src/integration/ai/contract/_engine/render-sidecars.ts';
-import { validateSignalsFile } from '@src/integration/ai/contract/_engine/validate-signals-file.ts';
+import { validateSignalsFileWithCorrectiveRetry } from '@src/integration/ai/contract/_engine/corrective-retry.ts';
+import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import { implementSession } from '@src/application/flows/implement/leaves/implement-session.ts';
 import { evaluatorOutputContract } from '@src/application/flows/implement/leaves/evaluator.contract.ts';
 import {
@@ -195,12 +196,43 @@ export const evaluatorLeaf = (deps: EvaluatorLeafDeps, taskId: TaskId): Element<
           );
           if (!spawn.ok) return Result.error(spawn.error);
 
-          // Validate `signals.json` against the evaluator contract. Failure surfaces a
-          // domain error (signals-missing / invalid-json / schema-mismatch / migration-gap)
-          // with a precise hint. `runEvaluatorTurnUseCase` converts a recoverable validation
-          // failure into a `self-blocked` exit (task settles as blocked — the ungraded change is
-          // NOT marked done; run continues); only a fatal `Aborted`/`RateLimit` propagates.
-          const validated = await validateSignalsFile(outputDir, evaluatorOutputContract);
+          // Validate `signals.json` against the evaluator contract. On a RECOVERABLE failure
+          // (signals-missing / invalid-json / schema-mismatch) re-prompt the reviewer ONCE on
+          // the resumed session with a corrective message + the Zod issue list, then re-validate
+          // — one near-miss element no longer blocks the whole verdict. `runEvaluatorTurnUseCase`
+          // converts a still-failing validation into a `self-blocked` exit (task settles as
+          // blocked — the ungraded change is NOT marked done; run continues); only a fatal
+          // `Aborted`/`RateLimit` propagates.
+          const validated = await validateSignalsFileWithCorrectiveRetry(
+            {
+              outputDir,
+              logger: deps.logger,
+              reinvoke: async (corrective) => {
+                // Resume the reviewer's just-spawned thread so the corrective lands as a
+                // follow-up turn — read the session id this spawn captured to disk. Falls back
+                // to the prior-round id when this spawn never reported one.
+                const resume =
+                  (await readRoundSessionId(input.workspaceRoot, input.roundNum, 'evaluator')) ??
+                  input.priorEvaluatorSessionId;
+                const respawn = await deps.provider.generate(
+                  implementSession(
+                    input.workspaceRoot,
+                    deps.cwd,
+                    deps.sprintDir,
+                    corrective as Prompt,
+                    deps.model,
+                    signalsFile,
+                    'evaluator',
+                    resume,
+                    deps.effort,
+                    signal
+                  )
+                );
+                return respawn.ok ? Result.ok(undefined) : Result.error(respawn.error);
+              },
+            },
+            evaluatorOutputContract
+          );
           if (!validated.ok) return Result.error(validated.error);
           const signals = validated.value;
 

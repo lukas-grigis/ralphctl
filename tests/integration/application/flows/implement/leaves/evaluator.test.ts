@@ -39,7 +39,15 @@ describe('evaluatorLeaf', () => {
           {
             type: 'evaluation',
             status: 'passed',
-            dimensions: [{ dimension: 'correctness', passed: true, finding: 'all good' }],
+            // Full floor set so the signal passes the floor-dimension refinement cleanly — these
+            // tests cover the leaf's pre-spawn prompt-write side effect, not the verdict, but a
+            // vacuous PASS would now trip a corrective retry and muddy the assertions.
+            dimensions: [
+              { dimension: 'correctness', passed: true, finding: 'all good' },
+              { dimension: 'completeness', passed: true, finding: 'all steps shipped' },
+              { dimension: 'safety', passed: true, finding: 'inputs validated' },
+              { dimension: 'consistency', passed: true, finding: 'matches siblings' },
+            ],
             timestamp: FIXED_NOW,
           },
         ],

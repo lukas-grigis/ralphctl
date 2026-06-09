@@ -103,10 +103,18 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
     return { events, eventBus };
   };
 
+  // Terminal verdicts now MUST grade all four floor dimensions (correctness / completeness /
+  // safety / consistency), so every fixture below carries the full floor set.
+  const floorPasses = [
+    { dimension: 'completeness', passed: true, finding: 'all steps shipped' },
+    { dimension: 'safety', passed: true, finding: 'inputs validated' },
+    { dimension: 'consistency', passed: true, finding: 'matches siblings' },
+  ];
+
   const passedEvaluation: EvaluationSignal = {
     type: 'evaluation',
     status: 'passed',
-    dimensions: [{ dimension: 'correctness', passed: true, finding: 'all good' }],
+    dimensions: [{ dimension: 'correctness', passed: true, finding: 'all good' }, ...floorPasses],
     critique: 'Solid pass.',
     timestamp: '2026-05-22T10:00:00.000Z' as EvaluationSignal['timestamp'],
   };
@@ -114,7 +122,7 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
   const failedEvaluation: EvaluationSignal = {
     type: 'evaluation',
     status: 'failed',
-    dimensions: [{ dimension: 'correctness', passed: false, finding: 'returns wrong type' }],
+    dimensions: [{ dimension: 'correctness', passed: false, finding: 'returns wrong type' }, ...floorPasses],
     critique: 'Fix the return type before merging.',
     timestamp: '2026-05-22T10:00:00.000Z' as EvaluationSignal['timestamp'],
   };
@@ -352,5 +360,138 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.error).toBeInstanceOf(AbortError);
+  });
+
+  // ── Floor-dimension refinement — a vacuous PASS (partial floor set) is rejected ───
+  it('vacuous PASS (only correctness graded): floor refinement rejects → self-block', async () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    const fixtures = new Map<string, SpawnFixture>([
+      [
+        signalsFilePath(),
+        {
+          kind: 'ok',
+          payload: {
+            schemaVersion: 1,
+            // A "passed" with only the correctness dimension — exactly the vacuous-pass hole the
+            // floor refinement closes. Without the corrective retry's second spawn this blocks.
+            signals: [
+              {
+                type: 'evaluation',
+                status: 'passed',
+                dimensions: [{ dimension: 'correctness', passed: true, finding: 'all good' }],
+                timestamp: '2026-05-22T10:00:00.000Z',
+              },
+            ],
+          },
+        },
+      ],
+    ]);
+    const leaf = evaluatorLeaf(buildDeps(fixtures).deps, task.id);
+    const result = await leaf.execute(baseCtx(task));
+    expectSelfBlock(result, 'schema');
+  });
+
+  // ── Corrective retry — recovers when the second (resumed) spawn writes a valid file ──
+  it('corrective retry: first spawn writes a vacuous PASS, resumed spawn writes the full floor set → ok', async () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    // Two spawns against the SAME signalsFile path: spawn 1 fails the floor refinement, spawn 2
+    // (the resumed corrective turn) writes a complete passing verdict.
+    const sequences = new Map<string, readonly SpawnFixture[]>([
+      [
+        signalsFilePath(),
+        [
+          {
+            kind: 'ok',
+            payload: {
+              schemaVersion: 1,
+              signals: [
+                {
+                  type: 'evaluation',
+                  status: 'passed',
+                  dimensions: [{ dimension: 'correctness', passed: true, finding: 'all good' }],
+                  timestamp: '2026-05-22T10:00:00.000Z',
+                },
+              ],
+            },
+          },
+          { kind: 'ok', payload: { schemaVersion: 1, signals: [passedEvaluation] } },
+        ],
+      ],
+    ]);
+    const mock = createMockHeadlessProvider({ sequences });
+    const writeFile: EvaluatorLeafDeps['writeFile'] = async (path, content) => {
+      await fs.mkdir(join(String(path), '..'), { recursive: true });
+      await fs.writeFile(String(path), content, 'utf8');
+      return Result.ok(undefined);
+    };
+    const deps: EvaluatorLeafDeps = {
+      provider: mock.provider,
+      templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
+      signals: createInMemorySink<HarnessSignal>(),
+      writeFile,
+      cwd: absolutePath('/tmp/ralph/fake-cwd'),
+      sprintDir: absolutePath('/tmp/ralph/fake-sprint-dir'),
+      progressFile: absolutePath('/tmp/ralph/fake-sprint-dir/progress.md'),
+      model: 'test-model',
+      plateauThreshold: 2,
+      clock: () => FIXED_NOW,
+      logger: noopLogger,
+      eventBus: createInMemoryEventBus(),
+    };
+    const leaf = evaluatorLeaf(deps, task.id);
+    const result = await leaf.execute(baseCtx(task));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // The recovered verdict is a clean PASS — the loop's terminal `passed` exit, NOT a self-block.
+    expect(result.value.ctx.lastExit?.kind).toBe('passed');
+    expect(result.value.ctx.lastEvaluation?.status).toBe('passed');
+    // Exactly two spawns: the original + ONE corrective retry (no loop).
+    expect(mock.invocations).toHaveLength(2);
+  });
+
+  it('corrective retry exhausted: both spawns write a vacuous PASS → self-block (one retry max)', async () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    const vacuous: SpawnFixture = {
+      kind: 'ok',
+      payload: {
+        schemaVersion: 1,
+        signals: [
+          {
+            type: 'evaluation',
+            status: 'passed',
+            dimensions: [{ dimension: 'correctness', passed: true, finding: 'all good' }],
+            timestamp: '2026-05-22T10:00:00.000Z',
+          },
+        ],
+      },
+    };
+    const sequences = new Map<string, readonly SpawnFixture[]>([[signalsFilePath(), [vacuous, vacuous]]]);
+    const mock = createMockHeadlessProvider({ sequences });
+    const writeFile: EvaluatorLeafDeps['writeFile'] = async (path, content) => {
+      await fs.mkdir(join(String(path), '..'), { recursive: true });
+      await fs.writeFile(String(path), content, 'utf8');
+      return Result.ok(undefined);
+    };
+    const deps: EvaluatorLeafDeps = {
+      provider: mock.provider,
+      templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
+      signals: createInMemorySink<HarnessSignal>(),
+      writeFile,
+      cwd: absolutePath('/tmp/ralph/fake-cwd'),
+      sprintDir: absolutePath('/tmp/ralph/fake-sprint-dir'),
+      progressFile: absolutePath('/tmp/ralph/fake-sprint-dir/progress.md'),
+      model: 'test-model',
+      plateauThreshold: 2,
+      clock: () => FIXED_NOW,
+      logger: noopLogger,
+      eventBus: createInMemoryEventBus(),
+    };
+    const leaf = evaluatorLeaf(deps, task.id);
+    const result = await leaf.execute(baseCtx(task));
+
+    expectSelfBlock(result, 'schema');
+    // Original + exactly one corrective retry — never loops.
+    expect(mock.invocations).toHaveLength(2);
   });
 });

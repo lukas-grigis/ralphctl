@@ -34,7 +34,9 @@ import { isRecoverableTurnError } from '@src/business/task/turn-error-policy.ts'
  *     downgrades the plateau to a non-exiting warning recorded on the attempt).
  *  - Otherwise (`failed`, fresh dimensions or exemption applies) → continue: record critique
  *    on the running attempt so the next generator turn's prompt incorporates it; return no
- *    exit.
+ *    exit. When the reviewer left `critique` empty on a FAIL, a critique is synthesized from
+ *    the failed dimensions' findings ({@link resolveCritique}) so the loop's only error wire
+ *    to the next generator turn never goes silent.
  *
  * The actual AI call + signal extraction are integration concerns supplied as function-shape
  * deps. The leaf is responsible for reading the provider's `signalsFile`, forwarding signals
@@ -98,6 +100,31 @@ export interface RunEvaluatorTurnOutput {
 
 const findEvaluation = (signals: readonly HarnessSignal[]): EvaluationSignal | undefined =>
   signals.find((s): s is EvaluationSignal => s.type === 'evaluation');
+
+/**
+ * Resolve the critique fed forward to the next generator turn on a `failed` verdict.
+ *
+ * The evaluator's `critique` field is the loop's ONLY error wire to the next generator turn —
+ * the per-dimension findings otherwise sit in the operator-only `evaluation.md` sidecar where
+ * the generator never reads them. When the reviewer emits a FAIL but leaves `critique` empty
+ * or absent, synthesize one from the failed dimensions' `finding` fields so the loop never
+ * advances silently. `dimensionScoreSchema` guarantees a non-empty `finding` on every failed
+ * dimension, so the synthesized critique always carries actionable content.
+ *
+ * Returns `undefined` only when the AI supplied no usable critique AND there are no failed
+ * dimensions to synthesize from (a degenerate shape — `failed` with zero failures is already
+ * rejected by the signal schema, so in practice the synthesized branch always fires).
+ */
+const resolveCritique = (evaluation: EvaluationSignal): string | undefined => {
+  const explicit = evaluation.critique;
+  if (explicit !== undefined && explicit.trim().length > 0) return explicit;
+
+  const synthesized = evaluation.dimensions
+    .filter((d) => !d.passed && d.finding.trim().length > 0)
+    .map((d) => `[${d.dimension}] ${d.finding.trim()}`)
+    .join('\n');
+  return synthesized.length > 0 ? synthesized : undefined;
+};
 
 export const runEvaluatorTurnUseCase = async (
   props: RunEvaluatorTurnProps
@@ -163,8 +190,11 @@ export const runEvaluatorTurnUseCase = async (
 
   // Build the current turn's plateau record from what we know NOW — the just-recorded
   // evaluation, the critique we're about to feed forward, and the generator's proposed
-  // commit subject for this round.
-  const critique = evaluation.critique;
+  // commit subject for this round. When the reviewer left `critique` empty on a FAIL we
+  // synthesize one from the per-dimension findings so the wire to the next generator turn
+  // never goes silent (and so the plateau predicate's critique-shift exemption has real text
+  // to compare instead of always falling through on a missing critique).
+  const critique = resolveCritique(evaluation);
   const currentRecord: PlateauTurnRecord = {
     evaluation,
     ...(critique !== undefined && critique.trim().length > 0 ? { critique } : {}),

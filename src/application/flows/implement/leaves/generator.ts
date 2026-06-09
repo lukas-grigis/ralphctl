@@ -26,7 +26,8 @@ import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/r
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
 import { renderSidecars } from '@src/integration/ai/contract/_engine/render-sidecars.ts';
-import { validateSignalsFile } from '@src/integration/ai/contract/_engine/validate-signals-file.ts';
+import { validateSignalsFileWithCorrectiveRetry } from '@src/integration/ai/contract/_engine/corrective-retry.ts';
+import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import { implementSession } from '@src/application/flows/implement/leaves/implement-session.ts';
 import { generatorOutputContract } from '@src/application/flows/implement/leaves/generator.contract.ts';
 import { escalationBannerId } from '@src/business/task/escalation-policy.ts';
@@ -279,12 +280,42 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
           );
           if (!spawn.ok) return Result.error(spawn.error);
 
-          // Validate `signals.json` against the generator contract. Failure surfaces a
-          // domain error (signals-missing / invalid-json / schema-mismatch / migration-gap)
-          // with a precise hint. `runGeneratorTurnUseCase` converts a recoverable validation
-          // failure into a `self-blocked` exit (task settles as blocked, run continues); only
-          // a fatal `Aborted`/`RateLimit` propagates and aborts the run.
-          const validated = await validateSignalsFile(outputDir, generatorOutputContract);
+          // Validate `signals.json` against the generator contract. On a RECOVERABLE failure
+          // (signals-missing / invalid-json / schema-mismatch) re-prompt the generator ONCE on
+          // the resumed session with a corrective message + the Zod issue list, then re-validate.
+          // `runGeneratorTurnUseCase` converts a still-failing validation into a `self-blocked`
+          // exit (task settles as blocked, run continues); only a fatal `Aborted`/`RateLimit`
+          // propagates and aborts the run.
+          const validated = await validateSignalsFileWithCorrectiveRetry(
+            {
+              outputDir,
+              logger: deps.logger,
+              reinvoke: async (corrective) => {
+                // Resume the generator's just-spawned thread so the corrective lands as a
+                // follow-up turn. Falls back to the prior-round id when this spawn never
+                // reported one to disk.
+                const resume =
+                  (await readRoundSessionId(input.workspaceRoot, roundNum, 'generator')) ??
+                  input.priorGeneratorSessionId;
+                const respawn = await deps.provider.generate(
+                  implementSession(
+                    input.workspaceRoot,
+                    deps.cwd,
+                    deps.sprintDir,
+                    corrective as Prompt,
+                    effectiveModel,
+                    signalsFile,
+                    'generator',
+                    resume,
+                    deps.effort,
+                    signal
+                  )
+                );
+                return respawn.ok ? Result.ok(undefined) : Result.error(respawn.error);
+              },
+            },
+            generatorOutputContract
+          );
           if (!validated.ok) return Result.error(validated.error);
           const signals = validated.value;
 

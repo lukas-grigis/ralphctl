@@ -36,6 +36,21 @@ export interface DimensionScore {
 }
 
 /**
+ * The four floor dimensions every terminal evaluator verdict MUST grade. They are the
+ * always-present rubric pinned in the evaluate prompt (`prompts/evaluate/template.md`); the
+ * planner may append task-specific dimensions on top, but these four are mandatory on every
+ * `passed` / `failed` verdict so a vacuous "passed with zero dimensions" can never validate.
+ *
+ * Names are compared case-/whitespace-insensitively (lowercased, trimmed) by the signal-schema
+ * refinement and by `failedDimensions` in the plateau predicate, so the canonical lowercase
+ * spelling here is the single source of truth the integration schema imports (domain → integration
+ * is the allowed direction).
+ *
+ * @public
+ */
+export const FLOOR_DIMENSIONS = ['correctness', 'completeness', 'safety', 'consistency'] as const;
+
+/**
  * Outcome of an evaluator run. The signal carries a PASS / FAIL verdict (`status`), the
  * per-dimension findings (`dimensions`), and an optional `critique` the generator reads on
  * the next round. Per the evaluator-rubric redesign, no numeric score field is persisted —

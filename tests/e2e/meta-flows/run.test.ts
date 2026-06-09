@@ -147,7 +147,20 @@ const passingProvider: HeadlessAiProvider = {
   async generate(session) {
     const isEvaluator = String(session.signalsFile).includes('/evaluator/');
     const signals = isEvaluator
-      ? [{ type: 'evaluation' as const, status: 'passed' as const, dimensions: [], timestamp: NOW }]
+      ? [
+          {
+            type: 'evaluation' as const,
+            status: 'passed' as const,
+            // Full floor set — a terminal PASS must grade all four floor dimensions per the schema.
+            dimensions: [
+              { dimension: 'correctness', passed: true, finding: 'all good' },
+              { dimension: 'completeness', passed: true, finding: 'steps shipped' },
+              { dimension: 'safety', passed: true, finding: 'inputs validated' },
+              { dimension: 'consistency', passed: true, finding: 'matches siblings' },
+            ],
+            timestamp: NOW,
+          },
+        ]
       : [{ type: 'task-verified' as const, output: 'tests pass', timestamp: NOW }];
     const wrote = await writeJsonAtomic(String(session.signalsFile), signals);
     if (!wrote.ok) return Result.error(wrote.error);

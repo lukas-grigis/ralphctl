@@ -249,6 +249,10 @@ const commitCapturingGit = (taskCount: number): CommitCapturingGit => {
         if (target !== undefined) head = target;
         return okGit('', 0);
       }
+      // The evaluator leaf fingerprints the working tree each round (status --porcelain handled
+      // above + diff HEAD here) for the plateau predicate. A fixed diff body is fine — these
+      // tests pass on the first turn, so the fingerprint is never compared against a prior round.
+      if (args[0] === 'diff' && args[1] === 'HEAD') return okGit('@@ -1 +1 @@\n-old\n+new\n', 0);
       void taskCount;
       throw new Error(`unscripted git args: ${args.join(' ')}`);
     },
@@ -381,14 +385,27 @@ const commitMessage = (subject: string, body?: string): HarnessSignal => ({
 });
 
 /**
- * Synthesise the same single-overall-dimension shape the deleted legacy `<evaluation-failed>`
- * test parser produced — preserves the "generic failure" intent of older fixtures without
- * forcing every call site to author dimension rows.
+ * The three floor dimensions other than `correctness`, all passing — appended so terminal
+ * verdicts carry the full floor set the signal schema now requires.
+ */
+const floorPasses = [
+  { dimension: 'completeness', passed: true, finding: 'steps shipped' },
+  { dimension: 'safety', passed: true, finding: 'inputs validated' },
+  { dimension: 'consistency', passed: true, finding: 'matches siblings' },
+];
+
+/**
+ * Synthesise a FAIL verdict — the correctness floor dimension fails, the rest pass. Carries the
+ * full floor set the schema now requires while preserving the "generic failure" intent of the
+ * older single-`overall` fixtures.
  */
 const evaluationFailed = (critique: string): EvaluationSignal => ({
   type: 'evaluation',
   status: 'failed',
-  dimensions: [{ dimension: 'overall', passed: false, finding: critique.length > 0 ? critique : 'failed' }],
+  dimensions: [
+    { dimension: 'correctness', passed: false, finding: critique.length > 0 ? critique : 'failed' },
+    ...floorPasses,
+  ],
   critique,
   timestamp: FIXED_NOW,
 });
@@ -396,7 +413,7 @@ const evaluationFailed = (critique: string): EvaluationSignal => ({
 const evaluationPassed = (): EvaluationSignal => ({
   type: 'evaluation',
   status: 'passed',
-  dimensions: [],
+  dimensions: [{ dimension: 'correctness', passed: true, finding: 'all good' }, ...floorPasses],
   timestamp: FIXED_NOW,
 });
 
@@ -1890,6 +1907,8 @@ describe('createImplementFlow — gen-eval loop', () => {
         if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
           return okGit('0000000000000000000000000000000000000000\n', 0);
         }
+        // Evaluator-round work-product fingerprint — clean tree per repo, so an empty diff.
+        if (args[0] === 'diff' && args[1] === 'HEAD') return okGit('', 0);
         throw new Error(`multi-repo test: unscripted git args at ${String(cwd)}: ${args.join(' ')}`);
       },
     };

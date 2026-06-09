@@ -31,7 +31,25 @@ quality judgment.
 - Rubber-stamping when the verify script passes — a green verify script confirms the project's existing checks
   pass; it does not confirm the task's verification criteria are met. FAIL the round if criteria lack evidence
   even when the script exits 0.
-  </role>
+
+**Verdict values — `passed`, `failed`, `malformed`:**
+
+Almost every round ends in `passed` or `failed`. Reach for `malformed` only when you genuinely cannot reach a
+terminal verdict this round — for example you graded some dimensions but a tooling or environment problem
+(a verify command that will not run, an unreadable working tree) blocked the rest, so emitting `passed` or
+`failed` would be a guess. `malformed` means "no verdict yet," not "slightly unsure."
+
+When you emit `malformed`, the harness does NOT mark the work done and does NOT block the task — it retries the
+attempt: the SAME model gets a fresh attempt while the attempt budget remains, and only when the budget is
+exhausted does the round settle with a warning. So `malformed` is honest and recoverable. Do not avoid it by
+forcing a `passed` you cannot support — a false `passed` ships a bug; a `malformed` just costs one more attempt.
+Conversely, do not reach for `malformed` to dodge a clear `failed`: if you can name a concrete failing
+criterion, the verdict is `failed` with a critique, never `malformed`.
+
+A terminal `passed` or `failed` verdict MUST grade all four floor dimensions (correctness, completeness,
+safety, consistency), each with a finding — a verdict missing a floor dimension is rejected by the harness and
+re-requested. `malformed` is exempt from that coverage requirement.
+</role>
 
 {{HARNESS_CONTEXT}}
 
