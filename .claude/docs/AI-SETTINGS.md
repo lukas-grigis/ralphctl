@@ -21,11 +21,30 @@ floored from the global value; `minimal` is reachable only via an explicit per-f
 at a different one; the launcher rebuilds the provider / interactive-AI / skills-adapter trio per launch
 keyed on the dispatched flow's row, so mixed and uniform configs traverse the same code path.
 
-**Four equal presets** stamp the entire `ai` section in one shot: `mixed` (best-fit provider per flow),
-`claude-only`, `copilot-only`, `codex-only`. None is marked default. Apply via
-`ralphctl settings apply-preset <name>` or from the TUI settings view (four buttons above the global
-effort row). Re-applying overwrites every row in one transaction; subsequent per-key edits via
-`ralphctl settings set ai.<flow>.<field> <value>` stick.
+**Eight presets** stamp the entire `ai` section in one shot — four standard and four economic, all equally
+first-class (none is marked default). Standard presets: `mixed` (best-fit provider per flow),
+`claude-only`, `copilot-only`, `codex-only`. Economic presets (ADDITIONAL — they do not replace the
+standard ones): `mixed-economic`, `claude-economic`, `copilot-economic`, `codex-economic`. The economic
+strategy is: start `implement` one tier below the provider's flagship at `high` effort, so most tasks
+finish on the cheaper tier; the graduated escalation ladder climbs to the flagship only when a task
+plateaus — quality is preserved, token spend is reduced on easy tasks. Effort matrix mirrors the standard
+presets (`plan` and `implement` heavy, `readiness` `medium`, `refine`/`ideate` inherit global `high`).
+Apply via `ralphctl settings apply-preset <name>` or from the TUI settings view; the apply surface is
+unchanged — eight names are accepted, same command and same TUI flow. Re-applying overwrites every row
+in one transaction; subsequent per-key edits via `ralphctl settings set ai.<flow>.<field> <value>` stick.
+
+**Model catalog versions used by the presets** (as of the 0.10.x catalogs):
+
+- Claude Code — `claude-haiku-4-5` / `claude-sonnet-4-6` / `claude-opus-4-8` (verified against Claude
+  Code v2.1.169).
+- GitHub Copilot — adds `gpt-5.5`, `claude-opus-4.7`, `claude-opus-4.8`, Gemini 3.x family
+  (`gemini-3-flash-preview`, `gemini-3-pro-preview`, `gemini-3.1-pro-preview`, `gemini-3.5-flash`),
+  plus `mai-code-1-flash`, `raptor-mini-preview` (verified against Copilot CLI v1.0.60).
+- OpenAI Codex — adds `gpt-5.3-codex-spark` (text-only research preview, ChatGPT Pro only);
+  `gpt-5.2` and `gpt-5.3-codex` are deprecated for ChatGPT sign-in but kept in the allowlist because
+  they remain available via API-key auth. `gpt-5.5` is the frontier default; `gpt-5.4` is the flagship
+  frontier coder (verified against Codex CLI v0.138.0). The `codex-only` preset moves implement off the
+  deprecated `gpt-5.3-codex` to `gpt-5.5`.
 
 **Fail-fast PATH check.** Every AI-spawning flow probes for its row's CLI binary at launch (`claude` /
 `copilot` / `codex` via `src/integration/system/detect-cli.ts`) and exits with `LaunchResult.fail` naming the

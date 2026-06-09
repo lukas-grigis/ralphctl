@@ -7,6 +7,42 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Four new economic presets (`mixed-economic`, `claude-economic`, `copilot-economic`,
+  `codex-economic`).** ADDITIONAL to the four standard presets — the total is now eight, all equally
+  first-class. Strategy: `implement` starts one tier below the flagship at `high` effort; the
+  graduated escalation ladder climbs to the flagship only when a task plateaus. Most tasks finish on
+  the cheaper tier; only genuinely hard ones pay flagship token rates. Global effort, `plan`,
+  `readiness`, and `createPr` effort patterns mirror the standard presets. Apply via
+  `ralphctl settings apply-preset <name>` or from the TUI settings view — the apply surface is
+  unchanged.
+
+- **Model catalog refresh.** Codex catalog adds `gpt-5.3-codex-spark` (text-only research preview,
+  ChatGPT Pro); `gpt-5.2` and `gpt-5.3-codex` are marked deprecated-but-API-valid and kept in the
+  allowlist so pinned configs do not break. Copilot catalog adds `gpt-5.5`, `claude-opus-4.7`,
+  `claude-opus-4.8`, Gemini 3.x family (`gemini-3-flash-preview`, `gemini-3-pro-preview`,
+  `gemini-3.1-pro-preview`, `gemini-3.5-flash`), `mai-code-1-flash`, and `raptor-mini-preview`.
+  Claude catalog unchanged. CLI baselines: Codex 0.138.0, Copilot 1.0.60, Claude Code 2.1.169.
+
+### Changed
+
+- **`codex-only` preset moves implement off deprecated `gpt-5.3-codex` → `gpt-5.5`.** The deprecated
+  model remains in the allowlist for API-key users who pin it explicitly; the preset no longer targets
+  it by default.
+
+- **Graduated escalation redesigned: multi-rung climb, decoupled change-approach nudge, patient
+  plateau default.** The gen-eval loop now climbs the full `DEFAULT_ESCALATION_MAP` rung-by-rung on
+  successive plateaus (was: at most one model bump per task). Each plateau re-reads the most-recent
+  `Task.escalatedToModel` as the generator model, so `decideEscalation` returns `escalate` repeatedly
+  until the generator reaches the top of the ladder — bounded by `maxAttempts`. The "change your
+  approach" directive is decoupled from the model bump: a model bump passes the targeted
+  `priorCritique` to the stronger model; the "abandon your approach" directive fires only as a
+  same-model nudge at the top of the ladder (where there is no fresh capability to lean on). A further
+  plateau after the nudge returns `topped-out` (was `already-escalated`) and preserves the work
+  (done-with-warning). `settings.harness.plateauThreshold` default raised **2 → 3** (range 2–5) to
+  give the generator one extra chance to break a stall before an escalation rung is spent.
+
 ## [0.10.1] - 2026-06-07
 
 ### Changed

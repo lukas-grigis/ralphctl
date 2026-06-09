@@ -61,9 +61,10 @@ launch and re-enter the queue. No double-execution.
 - `maxTurns` (1–10) — generator-evaluator turns budgeted per attempt
 - `maxAttempts` (1–10) — cap on attempts per task before transitioning to `blocked`
 - `rateLimitRetries` (0–10) — adapter-side 429 retries
-- `plateauThreshold` (2–5, default 2) — consecutive evaluator rounds flagging the same failed-dimension
+- `plateauThreshold` (2–5, default 3) — consecutive evaluator rounds flagging the same failed-dimension
   set before the loop exits with a plateau warning; score improvement, commit-progress, or
-  critique-Jaccard shift can exempt a round from counting
+  critique-Jaccard shift can exempt a round from counting. The patient default (3) avoids spending an
+  escalation rung on a stall the generator would have broken on its own.
 
 Mirrored on `IterationConfig` (`src/application/chain/run/iteration-config.ts`); the chain `loop` predicates
 and the headless provider adapter read it.
@@ -78,27 +79,29 @@ immediately. **A plateau never blocks the task** — it either retries once or p
   conflict (allowing redirects) and user-only keys extend the ladder. Self-loops (`{ 'foo': 'foo' }`)
   parse but emit one warn-level log record per entry at settings load.
 
-The one plateau-break attempt does two things: (1) **model escalation** — climbs one rung up
-`DEFAULT_ESCALATION_MAP` (`src/business/task/escalation-map.ts`, seeding the common in-provider rungs
-Claude Haiku → Sonnet → Opus; Codex / Copilot `gpt-5-mini` and `gpt-5.4-mini` → `gpt-5.5`, kept in
-lockstep with `domain/value/settings-models/` by code review) when a stronger rung exists; and (2) a
-**"change your approach" directive** (`{{PLATEAU_DIRECTIVE_SECTION}}` in the implement prompt) injected
-into the generator turn, telling it to abandon the non-converging approach and try a fundamentally
-different one. The directive is gated on the write-once `Task.escalatedFromModel` flag, so it renders
-on every generator turn from the escalated attempt onward (not a single turn) — intentional and
-harmless: re-telling the generator to change approach costs nothing and the once-per-task cap still
-bounds the model bump. For a top-of-ladder generator (e.g. the default Opus) there is no higher
-model, so the attempt keeps the model and relies on the directive (a same-model "nudge" — stamped
-`escalatedFromModel === escalatedToModel` so the once-per-task cap still fires).
+The escalation policy is a **graduated remedy ladder** spent cheapest-first across successive plateaus:
+(1) **model escalation** — climbs **one rung per plateau** up `DEFAULT_ESCALATION_MAP`
+(`src/business/task/escalation-map.ts`, seeding the common in-provider rungs Claude Haiku → Sonnet →
+Opus in both dash-form Claude-Code/Codex ids and dot-form Copilot ids; Codex / Copilot `gpt-5-mini`,
+`gpt-5.4-mini` and the economic full tier `gpt-5.4` → `gpt-5.5`, kept in lockstep with
+`domain/value/settings-models/` by code review). Each plateau re-reads the most-recent
+`Task.escalatedToModel` as the generator model, so the policy returns `escalate` repeatedly and the
+task climbs through every intermediate rung (bounded by `maxAttempts`). When the generator reaches the
+top of the ladder, the policy fires a single same-model **"change your approach" directive**
+(`{{PLATEAU_DIRECTIVE_SECTION}}` in the implement prompt) — a "nudge" stamped
+`escalatedFromModel === escalatedToModel`. The directive is gated on that same-model marker, NOT on a
+model bump: a bump hands the stronger model the targeted `priorCritique` instead, decoupling the
+"abandon your approach" directive from escalation so it is reserved for the top-of-ladder case where
+there is no fresh capability to lean on. A further plateau after the nudge tops out — keeping the work.
 
 Escalation is generator-only by design — the evaluator's model is held constant across the task so the
-scoring rubric does not shift mid-task, which would make plateau detection meaningless. The policy fires
-at most once per task (`Task.escalatedFromModel` / `escalatedToModel` are write-once): after the single
-plateau-break attempt, a second plateau — or a plateau with no attempt budget left — preserves the work
-(done-with-warning), never blocks. Cost ceiling is bounded: at worst one extra attempt per task.
-Cross-provider escalation (e.g. `claude-opus-4-8` → `gpt-5.5`) and a multi-rung ladder are intentionally
-deferred — switching providers mid-task carries auth / context / tool-availability hazards, and the
-same-model nudge already gives a top-of-ladder generator a way to act differently.
+scoring rubric does not shift mid-task, which would make plateau detection meaningless. `Task`'s
+`escalatedFromModel` / `escalatedToModel` fields are re-stampable and hold the MOST-RECENT rung
+transition; the cost ceiling is enforced by the ladder top plus `maxAttempts` (each escalate/nudge
+fails the running attempt, consuming budget), not by a once-per-task cap. A plateau with no attempt
+budget left, or after the top-of-ladder nudge, preserves the work (done-with-warning) — never blocks.
+Cross-provider escalation (e.g. `claude-opus-4-8` → `gpt-5.5`) is intentionally deferred — switching
+providers mid-task carries auth / context / tool-availability hazards.
 
 **Trace ring buffer.** The runner caps `runner.trace` at `MAX_TRACE_ENTRIES = 5_000`
 (`src/application/chain/run/runner.ts`). The `TaskRoundStarted` event (carrying `roundN`,

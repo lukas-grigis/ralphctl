@@ -110,9 +110,10 @@ contracts define testable success up-front."_
 - Task status enum includes `blocked`: `src/domain/entity/task.ts`
 - **Outer attempt loop.** `per-task-subchain.ts` wraps the full per-attempt segment in a
   `loop('task-attempts-<id>', …, { maxIterations: task.maxAttempts, shouldStop })` so a single
-  launch can run up to `maxAttempts` rounds per task. Escalation fires within this outer loop
-  (at most once per task), then a second plateau blocks. `maxAttempts === 1` is byte-for-byte
-  the prior one-attempt-per-launch behaviour.
+  launch can run up to `maxAttempts` rounds per task. The graduated remedy ladder (row 6) fires
+  within this outer loop — climbing one model rung per plateau, then a top-of-ladder nudge — each
+  retry consuming one attempt of the budget. A plateau never blocks; it either retries or keeps
+  the work. `maxAttempts === 1` is byte-for-byte the prior one-attempt-per-launch behaviour.
 
 ---
 
@@ -128,9 +129,14 @@ self into approving anyway; superficial testing."_ Plateau detection is the harn
 
 **Where it lives.**
 
-- `plateauThreshold` (2–5, default 2): `src/application/chain/run/iteration-config.ts`
+- `plateauThreshold` (2–5, patient default 3): `src/application/chain/run/iteration-config.ts`
 - Exemptions (score improvement, commit progress, critique-Jaccard shift prevent counting): same file
 - Loop predicate in the implement flow: `src/application/flows/implement/`
+- **Graduated remedy ladder** (`src/business/task/escalation-policy.ts` + `escalation-map.ts`): on a
+  plateau the policy spends remedies cheapest-first — climb the model ladder **one rung per plateau**
+  (`escalate`, re-stampable, bounded by `maxAttempts`), then a single top-of-ladder same-model `nudge`
+  with a change-of-approach directive, then `topped-out` (keep the work). See PERFORMANCE.md
+  "Escalation on plateau".
 
 ---
 
