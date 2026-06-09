@@ -28,3 +28,5 @@
   round into per-attempt coords via perAttemptRound (render-time, not on bucket); genEvalMaxAttempts cap now fully wired
 - [project_tui_commit_storm_coalescer.md](project_tui_commit_storm_coalescer.md) — consumer-side CoalescedBuffer decouples
   event-arrival from React-commit rate; fix for DEBUG-floor commit-storm OOM; + status-diff guard on useSessions/useSession
+- [project_escalation_gate_broadened.md](project_escalation_gate_broadened.md) — finalize-gen-eval now escalates on
+  plateau+budget-exhausted+malformed (not just plateau); malformed = same-model retry no ladder rung; fallbackMaxAttempts wired

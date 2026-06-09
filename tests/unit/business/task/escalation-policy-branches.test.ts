@@ -60,6 +60,7 @@ describe('applyEscalation — defensive failure branch', () => {
     const result = applyEscalation({
       task,
       decision: { kind: 'escalate', from: '', to: 'some-other-model' },
+      trigger: 'plateau',
       eventBus: bus,
       logger: noopLogger,
       clock: fixedClock,
@@ -80,6 +81,7 @@ describe('decideEscalation — user-only and edge cases', () => {
       generatorModel: 'custom-finetuned-model-v1',
       flagOn: true,
       userMap: { 'custom-finetuned-model-v1': 'custom-finetuned-model-v2' },
+      fallbackMaxAttempts: 3,
     });
 
     expect(decision.kind).toBe('escalate');
@@ -96,6 +98,7 @@ describe('decideEscalation — user-only and edge cases', () => {
       generatorModel: 'completely-unknown-model',
       flagOn: true,
       userMap: {},
+      fallbackMaxAttempts: 3,
     });
 
     expect(decision.kind).toBe('nudge');
@@ -113,6 +116,7 @@ describe('decideEscalation — user-only and edge cases', () => {
       generatorModel: 'claude-sonnet-4-6',
       flagOn: true,
       userMap: {},
+      fallbackMaxAttempts: 3,
     });
 
     expect(decision.kind).toBe('budget-exhausted');
@@ -129,6 +133,7 @@ describe('decideEscalation — user-only and edge cases', () => {
       generatorModel: 'claude-sonnet-4-6',
       flagOn: true,
       userMap: {},
+      fallbackMaxAttempts: 3,
     });
 
     expect(decision.kind).toBe('escalate');
@@ -146,6 +151,7 @@ describe('decideEscalation — user-only and edge cases', () => {
       generatorModel: 'claude-opus-4-8',
       flagOn: true,
       userMap: {},
+      fallbackMaxAttempts: 3,
     });
 
     expect(decision.kind).toBe('topped-out');

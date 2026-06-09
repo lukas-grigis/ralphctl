@@ -8,25 +8,45 @@ import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { ValidationError } from '@src/domain/value/error/validation-error.ts';
 
 /**
- * Pure policy that decides whether a plateau exit should escalate the generator model. Lives
- * separate from {@link finalizeGenEvalUseCase} so the graduated-remedy ladder (cheapest-first,
- * climb the model ladder multiple rungs) + budget edge + map lookup logic is independently
- * unit-testable (no taskRepo / bus stubs needed for the decision itself).
+ * The gen-eval exit kind that triggered the model-escalation policy. Threaded through so the
+ * emitted `model-escalated` event + banner copy name the real cause rather than always saying
+ * "plateau". `'malformed'` is absent on purpose — that exit is the evaluator's failure and never
+ * climbs the model ladder (the finalize use case routes it to a plain same-model retry instead).
+ */
+export type EscalationTrigger = 'plateau' | 'budget-exhausted';
+
+/**
+ * Human-readable noun for {@link EscalationTrigger}, used in banner / log copy.
+ */
+const triggerLabel = (trigger: EscalationTrigger): string =>
+  trigger === 'plateau' ? 'plateau' : 'turn budget exhausted';
+
+/**
+ * Pure policy that decides whether a failure-driven exit should escalate the generator model.
+ * Lives separate from {@link finalizeGenEvalUseCase} so the graduated-remedy ladder
+ * (cheapest-first, climb the model ladder multiple rungs) + budget edge + map lookup logic is
+ * independently unit-testable (no taskRepo / bus stubs needed for the decision itself).
  *
  * Inputs:
- *   - `task`              — the in-flight task with the just-finished plateau attempt.
- *   - `generatorModel`    — the model the just-finished attempt ran on
- *                           (= `task.escalatedToModel ?? configured`).
- *   - `flagOn`            — `settings.harness.escalateOnPlateau`.
- *   - `userMap`           — `settings.harness.escalationMap`; merged over the built-in default.
+ *   - `task`                — the in-flight task with the just-finished escalatable attempt.
+ *   - `generatorModel`      — the model the just-finished attempt ran on
+ *                             (= `task.escalatedToModel ?? configured`).
+ *   - `flagOn`              — `settings.harness.escalateOnPlateau` (gates ALL failure-driven
+ *                             escalation, not only plateau — the flag name is retained for
+ *                             backward compatibility).
+ *   - `userMap`             — `settings.harness.escalationMap`; merged over the built-in default.
+ *   - `fallbackMaxAttempts` — effective attempt budget when `task.maxAttempts` is unset (legacy
+ *                             tasks planned before the field existed); wired from
+ *                             `settings.harness.maxAttempts`.
  *
- * A plateau NEVER blocks. It either grants one more attempt (with a stronger model and/or a
- * change-of-approach directive) or preserves the work (done-with-warning) — never throws it away.
+ * An escalatable exit NEVER blocks. It either grants one more attempt (with a stronger model
+ * and/or a change-of-approach directive) or preserves the work (done-with-warning) — never throws
+ * it away.
  *
- * The ladder is climbed cheapest-first across SUCCESSIVE plateaus: `generatorModel` advances by
- * one rung on each escalate (because the leaf re-reads `escalatedToModel`), so the same policy
- * returns `escalate` repeatedly until the generator reaches the top of the ladder. Only then does
- * the same-model `nudge` fire, and a further plateau after the nudge tops out.
+ * The ladder is climbed cheapest-first across SUCCESSIVE escalatable exits: `generatorModel`
+ * advances by one rung on each escalate (because the leaf re-reads `escalatedToModel`), so the
+ * same policy returns `escalate` repeatedly until the generator reaches the top of the ladder.
+ * Only then does the same-model `nudge` fire, and a further failure after the nudge tops out.
  *
  * Outputs (discriminated):
  *   - `escalate`          — a stronger model rung exists above `generatorModel`; caller re-stamps
@@ -38,10 +58,11 @@ import type { ValidationError } from '@src/domain/value/error/validation-error.t
  *                           nudge), and the generator gets a change-of-approach directive. Task stays
  *                           in_progress for one more attempt. No model change.
  *   - `flag-off`          — operator opted out; caller leaves the path unchanged (done-with-warning).
- *   - `topped-out`        — the task was already nudged at the top of the ladder and plateaued again;
+ *   - `topped-out`        — the task was already nudged at the top of the ladder and failed again;
  *                           caller preserves the work (done-with-warning), no new event.
- *   - `budget-exhausted`  — flag on but the next attempt would exceed `maxAttempts` (no budget to
- *                           retry); caller preserves the work (done-with-warning) naming the budget.
+ *   - `budget-exhausted`  — flag on but the next attempt would exceed the effective `maxAttempts`
+ *                           (no budget to retry); caller preserves the work (done-with-warning)
+ *                           naming the budget.
  */
 export type EscalationDecision =
   | { readonly kind: 'escalate'; readonly from: string; readonly to: string }
@@ -55,6 +76,13 @@ export interface DecideEscalationProps {
   readonly generatorModel: string;
   readonly flagOn: boolean;
   readonly userMap: Readonly<Record<string, string>>;
+  /**
+   * Effective attempt budget when `task.maxAttempts` is unset. Legacy tasks planned before the
+   * field existed (pre-commit 3992de36) carry no per-task cap; without this the budget check
+   * would never fire and a legacy task could climb the ladder unbounded. Wired from
+   * `settings.harness.maxAttempts`.
+   */
+  readonly fallbackMaxAttempts: number;
 }
 
 /**
@@ -71,11 +99,15 @@ export interface DecideEscalationProps {
  */
 export const decideEscalation = (props: DecideEscalationProps): EscalationDecision => {
   if (!props.flagOn) return { kind: 'flag-off' };
-  if (props.task.maxAttempts !== undefined && props.task.attempts.length >= props.task.maxAttempts) {
+  // `task.maxAttempts` is the per-task cap stamped at plan time; legacy tasks lack it, so fall
+  // back to the configured `settings.harness.maxAttempts` rather than letting the budget check
+  // go silent (which would let a legacy task climb the ladder unbounded). Domain entity untouched.
+  const effectiveMaxAttempts = props.task.maxAttempts ?? props.fallbackMaxAttempts;
+  if (props.task.attempts.length >= effectiveMaxAttempts) {
     return {
       kind: 'budget-exhausted',
       attemptsUsed: props.task.attempts.length,
-      maxAttempts: props.task.maxAttempts,
+      maxAttempts: effectiveMaxAttempts,
     };
   }
   const merged = mergeEscalationMap(props.userMap);
@@ -114,6 +146,11 @@ export const escalationBannerId = (taskId: string): string => `model-escalation-
 export interface ApplyEscalationProps {
   readonly task: InProgressTask;
   readonly decision: EscalationDecision;
+  /**
+   * The exit kind that triggered the policy — named in the emitted `model-escalated` event +
+   * banner / log copy so a budget-exhausted-driven escalation is not mislabeled as a plateau.
+   */
+  readonly trigger: EscalationTrigger;
   readonly eventBus: EventBus;
   readonly logger: Logger;
   readonly clock: () => IsoTimestamp;
@@ -123,8 +160,8 @@ export interface ApplyEscalationOutput {
   readonly task: InProgressTask;
   /**
    * Reserved for a future decision that needs settle-attempt to block the task. No current
-   * decision sets it — a plateau never blocks, so escalate / nudge stay `in_progress` and
-   * flag-off / topped-out / budget-exhausted preserve the work (done-with-warning). The caller
+   * decision sets it — an escalatable exit never blocks, so escalate / nudge stay `in_progress`
+   * and flag-off / topped-out / budget-exhausted preserve the work (done-with-warning). The caller
    * still threads it through defensively.
    */
   readonly blockedReason?: string;
@@ -134,16 +171,18 @@ export interface ApplyEscalationOutput {
  * Side-effecting half of the policy — given a {@link decideEscalation} verdict, emit the
  * matching banner + log lines and (for the happy path) return the task with the escalation
  * fields stamped. The preserve paths (topped-out / budget-exhausted) and flag-off return the
- * task as-is; none set `blockedReason`, because a plateau never blocks.
+ * task as-is; none set `blockedReason`, because an escalatable exit never blocks. The `trigger`
+ * names the originating exit kind in the emitted event + copy.
  *
  * The `flag-off` decision short-circuits — the caller leaves the existing behaviour intact
  * (today's done-with-warning settle) so opting out cleanly preserves the v0.7.0 path.
  */
 export const applyEscalation = (props: ApplyEscalationProps): Result<ApplyEscalationOutput, ValidationError> => {
-  const { task, decision, eventBus, clock } = props;
+  const { task, decision, trigger, eventBus, clock } = props;
   const log = props.logger.named('task.escalation-policy');
   const bannerId = escalationBannerId(String(task.id));
   const now = clock();
+  const cause = triggerLabel(trigger);
 
   switch (decision.kind) {
     case 'flag-off':
@@ -157,7 +196,7 @@ export const applyEscalation = (props: ApplyEscalationProps): Result<ApplyEscala
         attemptN: task.attempts.length,
         from: decision.from,
         to: decision.to,
-        reason: 'plateau',
+        reason: trigger,
         at: now,
       });
       eventBus.publish({
@@ -165,7 +204,7 @@ export const applyEscalation = (props: ApplyEscalationProps): Result<ApplyEscala
         id: bannerId,
         tier: 'info',
         message: `escalated generator model: ${decision.from} → ${decision.to}`,
-        cause: 'plateau',
+        cause,
         at: now,
       });
       log.info(`escalating generator model: ${decision.from} → ${decision.to}`, {
@@ -173,7 +212,7 @@ export const applyEscalation = (props: ApplyEscalationProps): Result<ApplyEscala
         attemptN: task.attempts.length,
         from: decision.from,
         to: decision.to,
-        reason: 'plateau',
+        reason: trigger,
       });
       return Result.ok({ task: stamped.value });
     }
@@ -181,7 +220,7 @@ export const applyEscalation = (props: ApplyEscalationProps): Result<ApplyEscala
       // Top of the in-provider ladder: no stronger model to climb to. Keep the model but grant one
       // more attempt with a change-of-approach directive (armed in the generator via the
       // same-model marker `escalatedFromModel === escalatedToModel`). Stamp from===to so the next
-      // plateau detects the top-of-ladder nudge and returns `topped-out`. No model-escalated event —
+      // failure detects the top-of-ladder nudge and returns `topped-out`. No model-escalated event —
       // the model did not change; the banner names the nudge so the operator sees what happened.
       const stamped = recordTaskEscalation(task, decision.currentModel, decision.currentModel);
       if (!stamped.ok) return Result.error(stamped.error);
@@ -189,42 +228,47 @@ export const applyEscalation = (props: ApplyEscalationProps): Result<ApplyEscala
         type: 'banner-show',
         id: bannerId,
         tier: 'info',
-        message: `plateau on '${decision.currentModel}' (top of ladder) — retrying with a change-of-approach directive`,
-        cause: 'plateau',
+        message: `${cause} on '${decision.currentModel}' (top of ladder) — retrying with a change-of-approach directive`,
+        cause,
         at: now,
       });
-      log.info('plateau nudge: retrying on the same model with a change-of-approach directive', {
+      log.info('top-of-ladder nudge: retrying on the same model with a change-of-approach directive', {
         taskId: String(task.id),
         currentModel: decision.currentModel,
+        reason: trigger,
       });
       return Result.ok({ task: stamped.value });
     }
     case 'topped-out': {
-      // The generator climbed to the top of the ladder and the top-of-ladder nudge also plateaued.
-      // Preserve the work (done-with-warning) rather than blocking — matches the flag-off path; a
-      // plateau never throws the work away. The warn banner tells the operator the ladder exhausted.
-      const message = `ladder exhausted on '${decision.model}'; keeping the work`;
+      // The generator climbed to the top of the ladder and the top-of-ladder nudge also failed.
+      // Preserve the work (done-with-warning) rather than blocking — matches the flag-off path; an
+      // escalatable exit never throws the work away. The warn banner tells the operator the ladder
+      // exhausted.
+      const message = `ladder exhausted on '${decision.model}' (${cause}); keeping the work`;
       eventBus.publish({
         type: 'banner-show',
         id: bannerId,
         tier: 'warn',
         message: 'ladder exhausted — keeping the work',
+        cause,
         at: now,
       });
       log.warn(message, {
         taskId: String(task.id),
         model: decision.model,
+        reason: trigger,
       });
       return Result.ok({ task });
     }
     case 'budget-exhausted': {
-      // Plateau on the final allowed attempt — no budget left to retry. Preserve the work.
-      const message = `plateau with attempt budget exhausted (attempts=${String(decision.attemptsUsed)}, maxAttempts=${String(decision.maxAttempts)}); keeping the work`;
+      // Escalatable exit on the final allowed attempt — no attempt budget left to retry. Preserve
+      // the work.
+      const message = `${cause} with attempt budget exhausted (attempts=${String(decision.attemptsUsed)}, maxAttempts=${String(decision.maxAttempts)}); keeping the work`;
       eventBus.publish({
         type: 'banner-show',
         id: bannerId,
         tier: 'warn',
-        message: 'plateau, attempt budget exhausted — keeping the work',
+        message: `${cause}, attempt budget exhausted — keeping the work`,
         cause: `attempts=${String(decision.attemptsUsed)}/${String(decision.maxAttempts)}`,
         at: now,
       });
@@ -232,6 +276,7 @@ export const applyEscalation = (props: ApplyEscalationProps): Result<ApplyEscala
         taskId: String(task.id),
         attemptsUsed: decision.attemptsUsed,
         maxAttempts: decision.maxAttempts,
+        reason: trigger,
       });
       return Result.ok({ task });
     }

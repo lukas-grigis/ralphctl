@@ -566,6 +566,7 @@ function runTests(): void {
           maxTurns: 5,
           escalateOnPlateau: false,
           escalationMap: {} as Record<string, string>,
+          maxAttempts: 3,
         });
 
       const parallelElement = createParallelImplementElement(plan, {
@@ -798,6 +799,7 @@ function runTests(): void {
           maxTurns: 5,
           escalateOnPlateau: false,
           escalationMap: {} as Record<string, string>,
+          maxAttempts: 3,
         });
 
       const parallelElement = createParallelImplementElement(plan, {
@@ -982,6 +984,7 @@ function runTests(): void {
           maxTurns: 5,
           escalateOnPlateau: false,
           escalationMap: {} as Record<string, string>,
+          maxAttempts: 3,
         });
 
       const parallelElement = createParallelImplementElement(plan, {

@@ -255,16 +255,24 @@ export const SettingsSchema = z.object({
      */
     plateauThreshold: z.number().int().min(2).max(5).default(3),
     /**
-     * When the gen-eval loop exits on a plateau, grant one more attempt instead of settling
-     * immediately. The generator climbs one rung per plateau up the merged ladder ({@link
-     * escalationMap} over the built-in `DEFAULT_ESCALATION_MAP`) across successive plateaus,
-     * bounded by `maxAttempts`; each climb hands the targeted prior critique to the stronger
-     * model. The "change your approach" directive is NOT injected on a model bump — it fires only
-     * once the generator reaches the top of the ladder, as a same-model nudge (one more attempt on
-     * the same model, where no fresh capability remains so a change of approach is the only lever).
-     * A plateau never blocks: after the ladder tops out (a further plateau on the nudged top-tier
-     * model) or the attempt budget is exhausted, the work is preserved (done-with-warning).
-     * Defaults `true`.
+     * Master switch for failure-driven generator-model escalation. The flag name is retained for
+     * backward compatibility, but it now gates ALL failure-driven escalation — not only plateau:
+     * `plateau` AND `budget-exhausted` (the turn budget ran out without a terminal verdict) exits
+     * both climb the ladder, and `malformed` exits (the evaluator emitted no parseable verdict) get
+     * a plain same-model fresh-attempt retry — instead of settling immediately.
+     *
+     * On an escalatable exit the generator climbs one rung up the merged ladder ({@link
+     * escalationMap} over the built-in `DEFAULT_ESCALATION_MAP`) across successive failures, bounded
+     * by `maxAttempts`; each climb hands the targeted prior critique to the stronger model. The
+     * "change your approach" directive is NOT injected on a model bump — it fires only once the
+     * generator reaches the top of the ladder, as a same-model nudge (one more attempt on the same
+     * model, where no fresh capability remains so a change of approach is the only lever). A
+     * malformed exit never burns a ladder rung (it is the evaluator's failure, not the generator's)
+     * — it retries on the same model while budget remains.
+     *
+     * A failure-driven retry never blocks: after the ladder tops out (a further failure on the
+     * nudged top-tier model) or the attempt budget is exhausted, the work is preserved
+     * (done-with-warning). Defaults `true`.
      */
     escalateOnPlateau: z.boolean().default(true),
     /**

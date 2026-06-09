@@ -19,11 +19,13 @@ export interface IterationConfig {
    */
   readonly plateauThreshold: number;
   /**
-   * When the gen-eval loop exits on a plateau, escalate the generator's model one rung up
-   * the ladder defined by {@link escalationMap} (merged with the built-in
-   * `DEFAULT_ESCALATION_MAP` in `business/task/escalation-map.ts`) and reissue the attempt
-   * instead of transitioning the task straight to `blocked`. Mirrors the boolean on
-   * `settings.harness.escalateOnPlateau`.
+   * Master switch for failure-driven generator-model escalation. Despite the name (kept for
+   * backward compatibility) it gates ALL failure-driven escalation, not only plateau: on a
+   * `plateau` or `budget-exhausted` exit the generator's model climbs one rung up the ladder
+   * defined by {@link escalationMap} (merged with the built-in `DEFAULT_ESCALATION_MAP` in
+   * `business/task/escalation-map.ts`) and the attempt is reissued; a `malformed` exit reissues on
+   * the same model (the evaluator's failure never burns a ladder rung) — instead of settling the
+   * task immediately. Mirrors the boolean on `settings.harness.escalateOnPlateau`.
    */
   readonly escalateOnPlateau: boolean;
   /**

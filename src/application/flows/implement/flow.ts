@@ -400,11 +400,13 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
     readonly maxTurns: number;
     readonly escalateOnPlateau: boolean;
     readonly escalationMap: Readonly<Record<string, string>>;
+    readonly maxAttempts: number;
   }> =>
     Promise.resolve({
       maxTurns: deps.config.harness.maxTurns,
       escalateOnPlateau: deps.config.harness.escalateOnPlateau,
       escalationMap: deps.config.harness.escalationMap,
+      maxAttempts: deps.config.harness.maxAttempts,
     });
 
   const perTaskChains = opts.todoTasks.map((task) =>

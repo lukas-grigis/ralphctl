@@ -495,6 +495,7 @@ type PerTaskReadConfig = () => Promise<{
   readonly maxTurns: number;
   readonly escalateOnPlateau: boolean;
   readonly escalationMap: Readonly<Record<string, string>>;
+  readonly maxAttempts: number;
 }>;
 
 const buildOneBranch = (

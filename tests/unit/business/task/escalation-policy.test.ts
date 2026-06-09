@@ -31,6 +31,7 @@ describe('decideEscalation', () => {
       generatorModel: 'claude-sonnet-4-6',
       flagOn: false,
       userMap: {},
+      fallbackMaxAttempts: 3,
     });
     expect(decision.kind).toBe('flag-off');
   });
@@ -42,6 +43,7 @@ describe('decideEscalation', () => {
       generatorModel: 'claude-sonnet-4-6',
       flagOn: true,
       userMap: {},
+      fallbackMaxAttempts: 3,
     });
     expect(decision.kind).toBe('escalate');
     if (decision.kind === 'escalate') {
@@ -57,6 +59,7 @@ describe('decideEscalation', () => {
       generatorModel: 'claude-sonnet-4-6',
       flagOn: true,
       userMap: { 'claude-sonnet-4-6': 'custom-frontier-model' },
+      fallbackMaxAttempts: 3,
     });
     expect(decision.kind).toBe('escalate');
     if (decision.kind === 'escalate') expect(decision.to).toBe('custom-frontier-model');
@@ -65,13 +68,25 @@ describe('decideEscalation', () => {
   it('climbs the ladder one rung per plateau: haiku → sonnet → opus across successive plateaus', () => {
     // Rung 1: fresh task on haiku plateaus → escalate to sonnet.
     const fresh = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
-    const d1 = decideEscalation({ task: fresh, generatorModel: 'claude-haiku-4-5', flagOn: true, userMap: {} });
+    const d1 = decideEscalation({
+      task: fresh,
+      generatorModel: 'claude-haiku-4-5',
+      flagOn: true,
+      userMap: {},
+      fallbackMaxAttempts: 3,
+    });
     expect(d1.kind).toBe('escalate');
     if (d1.kind === 'escalate') expect(d1.to).toBe('claude-sonnet-4-6');
 
     // Rung 2: task already escalated to sonnet, now running on sonnet, plateaus → escalate to opus.
     const onSonnet = withEscalation(fresh, 'claude-haiku-4-5', 'claude-sonnet-4-6');
-    const d2 = decideEscalation({ task: onSonnet, generatorModel: 'claude-sonnet-4-6', flagOn: true, userMap: {} });
+    const d2 = decideEscalation({
+      task: onSonnet,
+      generatorModel: 'claude-sonnet-4-6',
+      flagOn: true,
+      userMap: {},
+      fallbackMaxAttempts: 3,
+    });
     expect(d2.kind).toBe('escalate');
     if (d2.kind === 'escalate') {
       expect(d2.from).toBe('claude-sonnet-4-6');
@@ -80,12 +95,24 @@ describe('decideEscalation', () => {
 
     // Top: re-stamped to opus, plateaus on opus (no higher rung, not yet nudged) → nudge.
     const onOpus = withEscalation(onSonnet, 'claude-sonnet-4-6', 'claude-opus-4-8');
-    const d3 = decideEscalation({ task: onOpus, generatorModel: 'claude-opus-4-8', flagOn: true, userMap: {} });
+    const d3 = decideEscalation({
+      task: onOpus,
+      generatorModel: 'claude-opus-4-8',
+      flagOn: true,
+      userMap: {},
+      fallbackMaxAttempts: 3,
+    });
     expect(d3.kind).toBe('nudge');
 
     // After the top-of-ladder nudge (from === to === opus), a further plateau tops out.
     const nudged = withEscalation(onOpus, 'claude-opus-4-8', 'claude-opus-4-8');
-    const d4 = decideEscalation({ task: nudged, generatorModel: 'claude-opus-4-8', flagOn: true, userMap: {} });
+    const d4 = decideEscalation({
+      task: nudged,
+      generatorModel: 'claude-opus-4-8',
+      flagOn: true,
+      userMap: {},
+      fallbackMaxAttempts: 3,
+    });
     expect(d4.kind).toBe('topped-out');
     if (d4.kind === 'topped-out') expect(d4.model).toBe('claude-opus-4-8');
   });
@@ -97,6 +124,7 @@ describe('decideEscalation', () => {
       generatorModel: 'claude-opus-4-8',
       flagOn: true,
       userMap: {},
+      fallbackMaxAttempts: 3,
     });
     expect(decision.kind).toBe('nudge');
     if (decision.kind === 'nudge') expect(decision.currentModel).toBe('claude-opus-4-8');
@@ -109,6 +137,7 @@ describe('decideEscalation', () => {
       generatorModel: 'claude-sonnet-4-6',
       flagOn: true,
       userMap: { 'claude-sonnet-4-6': 'claude-sonnet-4-6' },
+      fallbackMaxAttempts: 3,
     });
     expect(decision.kind).toBe('nudge');
   });
@@ -120,12 +149,24 @@ describe('decideEscalation', () => {
     // the cycle fall through to the same-model nudge, and a further plateau then tops out — bounded.
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     const cyclicMap = { 'model-a': 'model-b', 'model-b': 'model-a' };
-    const decision = decideEscalation({ task, generatorModel: 'model-a', flagOn: true, userMap: cyclicMap });
+    const decision = decideEscalation({
+      task,
+      generatorModel: 'model-a',
+      flagOn: true,
+      userMap: cyclicMap,
+      fallbackMaxAttempts: 3,
+    });
     expect(decision.kind).toBe('nudge');
     if (decision.kind === 'nudge') expect(decision.currentModel).toBe('model-a');
 
     const nudged = withEscalation(task, 'model-a', 'model-a');
-    const after = decideEscalation({ task: nudged, generatorModel: 'model-a', flagOn: true, userMap: cyclicMap });
+    const after = decideEscalation({
+      task: nudged,
+      generatorModel: 'model-a',
+      flagOn: true,
+      userMap: cyclicMap,
+      fallbackMaxAttempts: 3,
+    });
     expect(after.kind).toBe('topped-out');
   });
 
@@ -136,8 +177,33 @@ describe('decideEscalation', () => {
       generatorModel: 'claude-sonnet-4-6',
       flagOn: true,
       userMap: {},
+      fallbackMaxAttempts: 3,
     });
     expect(decision.kind).toBe('budget-exhausted');
+  });
+
+  it('falls back to fallbackMaxAttempts when task.maxAttempts is unset (legacy task)', () => {
+    // Legacy task: no per-task cap. With one attempt used and a fallback of 1, the budget is
+    // exhausted; with a fallback of 3 there is room to climb.
+    const legacy = makeInProgressTaskWithRunningAttempt();
+    const exhausted = decideEscalation({
+      task: legacy,
+      generatorModel: 'claude-sonnet-4-6',
+      flagOn: true,
+      userMap: {},
+      fallbackMaxAttempts: 1,
+    });
+    expect(exhausted.kind).toBe('budget-exhausted');
+    if (exhausted.kind === 'budget-exhausted') expect(exhausted.maxAttempts).toBe(1);
+
+    const remaining = decideEscalation({
+      task: legacy,
+      generatorModel: 'claude-sonnet-4-6',
+      flagOn: true,
+      userMap: {},
+      fallbackMaxAttempts: 3,
+    });
+    expect(remaining.kind).toBe('escalate');
   });
 });
 
@@ -149,6 +215,7 @@ describe('applyEscalation', () => {
     const applied = applyEscalation({
       task,
       decision: { kind: 'escalate', from: 'claude-sonnet-4-6', to: 'claude-opus-4-8' },
+      trigger: 'plateau',
       eventBus: bus,
       logger: noopLogger,
       clock: fixedClock,
@@ -182,6 +249,7 @@ describe('applyEscalation', () => {
     const applied = applyEscalation({
       task,
       decision: { kind: 'nudge', currentModel: 'claude-opus-4-8' },
+      trigger: 'plateau',
       eventBus: bus,
       logger: noopLogger,
       clock: fixedClock,
@@ -209,6 +277,7 @@ describe('applyEscalation', () => {
     const applied = applyEscalation({
       task,
       decision: { kind: 'topped-out', model: 'claude-opus-4-8' },
+      trigger: 'plateau',
       eventBus: bus,
       logger: noopLogger,
       clock: fixedClock,
@@ -233,6 +302,7 @@ describe('applyEscalation', () => {
     const applied = applyEscalation({
       task: onSonnet,
       decision: { kind: 'escalate', from: 'claude-sonnet-4-6', to: 'claude-opus-4-8' },
+      trigger: 'plateau',
       eventBus: bus,
       logger: noopLogger,
       clock: fixedClock,
@@ -243,12 +313,36 @@ describe('applyEscalation', () => {
     expect(applied.value.task.escalatedToModel).toBe('claude-opus-4-8');
   });
 
+  it('on escalate with trigger=budget-exhausted: event reason + banner cause name the budget exit, not plateau', () => {
+    const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
+    const { bus, events } = captureBus();
+
+    const applied = applyEscalation({
+      task,
+      decision: { kind: 'escalate', from: 'claude-sonnet-4-6', to: 'claude-opus-4-8' },
+      trigger: 'budget-exhausted',
+      eventBus: bus,
+      logger: noopLogger,
+      clock: fixedClock,
+    });
+
+    expect(applied.ok).toBe(true);
+    if (!applied.ok) return;
+    const escalated = events.find(
+      (e): e is Extract<AppEvent, { type: 'model-escalated' }> => e.type === 'model-escalated'
+    );
+    expect(escalated?.reason).toBe('budget-exhausted');
+    const banner = events.find((e): e is Extract<AppEvent, { type: 'banner-show' }> => e.type === 'banner-show');
+    expect(banner?.cause).toBe('turn budget exhausted');
+  });
+
   it('on budget-exhausted: warn banner names budget exhaustion, NO blockedReason (preserves work)', () => {
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 1 });
     const { bus, events } = captureBus();
     const applied = applyEscalation({
       task,
       decision: { kind: 'budget-exhausted', attemptsUsed: 1, maxAttempts: 1 },
+      trigger: 'plateau',
       eventBus: bus,
       logger: noopLogger,
       clock: fixedClock,
@@ -269,6 +363,7 @@ describe('applyEscalation', () => {
     const applied = applyEscalation({
       task,
       decision: { kind: 'flag-off' },
+      trigger: 'plateau',
       eventBus: bus,
       logger: noopLogger,
       clock: fixedClock,

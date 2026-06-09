@@ -21,16 +21,20 @@ import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
  *                                               (running attempt settled as aborted first)
  *   any verdict, no blockedReason             → mark task done
  *
- * `verdict` is captured for logging and audit only — the inner-loop policy already collapsed
- * the four non-pass termination kinds (`failed` / `malformed` / `plateau` / `budget-exhausted`
- * → `markTaskDone` + structured warning, `self-blocked` → `markTaskBlocked`) inside
- * `finalize-gen-eval`. The optional `warning` is stamped onto the running attempt before the
- * task transitions so attempt history carries the failure-mode for review tooling.
+ * `verdict` is captured for logging and audit only — the inner-loop policy already mapped each
+ * termination kind inside `finalize-gen-eval` (`self-blocked` → `markTaskBlocked`; a
+ * failure-driven escalation / nudge / malformed-retry → `shouldFailAttempt` keeping the task
+ * `in_progress` for the next attempt; an exhausted-remedy `plateau` / `budget-exhausted` /
+ * `malformed` → `markTaskDone` + structured warning). The optional `warning` is stamped onto the
+ * running attempt before the task transitions so attempt history carries the failure-mode for
+ * review tooling.
  *
- * Why "done with warning" instead of "retry the attempt": v2 runs ONE attempt per task; retry
- * is the inner gen-eval loop's job (turns bounded by `maxTurns`). When the loop terminates
- * without a passing verdict the operator inspects the warning and decides whether to redo the
- * task — the harness does not auto-retry.
+ * Why some failures retry and others settle "done with warning": when the escalation policy grants
+ * one more attempt (model bump, top-of-ladder nudge, or plain same-model malformed retry, all
+ * bounded by the effective `maxAttempts`) `shouldFailAttempt` keeps the task `in_progress` so the
+ * outer attempt loop re-enters with the stronger model / fresh session. Once the remedy ladder is
+ * exhausted or the attempt budget runs out the work is preserved (`markTaskDone` + warning) — the
+ * operator inspects the warning and decides whether to redo the task.
  */
 export type SettleVerdict = 'passed' | 'failed' | 'malformed';
 

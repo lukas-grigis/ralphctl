@@ -55,18 +55,23 @@ import { uninstallSkillsLeaf } from '@src/application/flows/_shared/skills/unins
  *
  * ## Inner attempt loop
  *
- * A single launch now runs up to `task.maxAttempts` attempts per task instead of one. The outer
- * `loop` re-enters the attempt segment until {@link terminalTaskStatus} reports the just-settled
- * task is `done` or `blocked`, or the `maxAttempts` cap fires (the loop primitive's 1000 ceiling
- * is only a backstop). When `task.maxAttempts === 1` the loop runs exactly one iteration — the
- * single-attempt-per-launch behaviour is byte-for-byte preserved for that case.
+ * A single launch now runs up to the effective `maxAttempts` (the task's own cap when stamped at
+ * plan time, else the configured `settings.harness.maxAttempts` fallback for legacy tasks) attempts
+ * per task instead of one. The outer `loop` re-enters the attempt segment until
+ * {@link terminalTaskStatus} reports the just-settled task is `done` or `blocked`, or the
+ * `maxIterations` cap fires (the loop primitive's 1000 ceiling is only a backstop). When the
+ * effective cap is `1` the loop runs exactly one iteration — the single-attempt-per-launch
+ * behaviour is byte-for-byte preserved for that case.
  *
- * The escalation path is what makes a second iteration productive: on a plateau with
- * `escalateOnPlateau` on, `settle-attempt` keeps the task `in_progress` (escalated generator
- * model stamped), `terminalTaskStatus` returns false, and the loop re-runs `start-attempt`,
- * which opens a fresh attempt that the next generator turn runs on the upgraded model. The hard
- * attempt cap still transitions the task to `blocked` (via the domain `failCurrentAttempt`
- * budget check) — a budget-exhausted task is never silently dropped.
+ * The escalation path is what makes a second iteration productive: on a plateau / budget-exhausted
+ * exit with `escalateOnPlateau` on and budget remaining, `settle-attempt` keeps the task
+ * `in_progress` (escalated generator model stamped), `terminalTaskStatus` returns false, and the
+ * loop re-runs `start-attempt`, which opens a fresh attempt that the next generator turn runs on
+ * the upgraded model. A budget-exhausted task is never silently dropped: rather than spending the
+ * final attempt and relying on `failCurrentAttempt`'s blocked-at-cap branch (which the escalation
+ * path never reaches — `decideEscalation` PRE-EMPTS at the cap, returning `budget-exhausted` and
+ * settling the work `done`-with-warning), the policy stops granting retries once the effective
+ * `maxAttempts` is reached and the loop exits on the resulting terminal status.
  *
  * `branch-preflight` / `build-task-workspace` / `install-skills` / `uninstall-skills` are
  * deliberately OUTSIDE the loop: they are per-task setup/teardown, not per-attempt work, and
@@ -145,6 +150,7 @@ export const createPerTaskSubchain = (
     readonly maxTurns: number;
     readonly escalateOnPlateau: boolean;
     readonly escalationMap: Readonly<Record<string, string>>;
+    readonly maxAttempts: number;
   }>
 ): Element<ImplementCtx> => {
   const taskId = task.id;
@@ -315,12 +321,14 @@ export const createPerTaskSubchain = (
             ),
           ]),
           {
-            // The attempt count is bounded by the task's own `maxAttempts` (validated 1–10). When
-            // unset, the `loop` primitive's 1000 ceiling is the backstop and `shouldStop` (terminal
-            // status) is the real bound. The domain's `failCurrentAttempt` still transitions the
-            // task to `blocked` once attempts hit the cap, so a budget-exhausted task is never
-            // silently dropped — `shouldStop` just recognises that terminal status and exits.
-            ...(task.maxAttempts !== undefined ? { maxIterations: task.maxAttempts } : {}),
+            // The attempt count is bounded by the task's own `maxAttempts` (validated 1–10), or the
+            // configured `settings.harness.maxAttempts` fallback for legacy tasks planned before the
+            // field existed (mirrors the budget fallback in `finalize-gen-eval`/`decideEscalation`,
+            // so a legacy task's loop cap and its escalation budget agree). The domain's
+            // `failCurrentAttempt` still transitions the task to `blocked` once attempts hit the
+            // cap, so a budget-exhausted task is never silently dropped — `shouldStop` just
+            // recognises that terminal status and exits.
+            maxIterations: task.maxAttempts ?? deps.config.harness.maxAttempts,
             shouldStop: (ctx) => terminalTaskStatus(ctx, taskId),
           }
         ),
