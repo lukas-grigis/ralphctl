@@ -294,26 +294,27 @@ are imported by the launcher (`application/ui/shared/launch/<flow>.ts`) or the C
 
 ### Flows and their nature
 
-| Flow id                        | Shape    | CLI command                   | Notes                                               |
-| ------------------------------ | -------- | ----------------------------- | --------------------------------------------------- |
-| `create-sprint`                | chain    | no                            | Interactive prompts; TUI only                       |
-| `add-tickets`                  | chain    | no                            | Interactive loop; TUI only                          |
-| `refine`                       | chain    | no                            | Hands the terminal to the AI CLI; TUI only          |
-| `plan`                         | chain    | no                            | Interactive AI handoff; TUI only                    |
-| `ideate`                       | chain    | no                            | Interactive AI handoff; TUI only                    |
-| `readiness`                    | chain    | no                            | Multi-step with confirm gates; TUI only             |
-| `detect-scripts`               | chain    | no                            | Setup/verify script discovery; TUI only             |
-| `detect-skills`                | chain    | no                            | Skill discovery; TUI only                           |
-| `implement`                    | chain    | no                            | Genuinely needs the chain (gen-eval + retry)        |
-| `review`                       | chain    | no                            | Apply-feedback loop; TUI only                       |
-| `close-sprint`                 | use-case | yes (`sprint close`)          | review → done transition                            |
-| `export-context`               | use-case | yes                           | Render harness-context markdown                     |
-| `export-requirements`          | use-case | yes                           | Render approved-ticket requirements markdown        |
-| `create-pr`                    | use-case | yes                           | Open PR via `gh` / `glab`, persist URL on execution |
-| `doctor`                       | use-case | yes                           | Environment health check                            |
-| `settings`                     | use-case | yes (`settings show` / `set`) | Per-key read/write                                  |
-| `ticket-add` / `ticket-remove` | use-case | yes                           | `ticket add` / `ticket remove`                      |
-| —                              | CLI-only | `runs list` / `runs prune`    | Inspect and prune per-run forensic artifacts        |
+| Flow id                    | Shape    | CLI command                   | Notes                                                                                                |
+| -------------------------- | -------- | ----------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `create-sprint`            | chain    | no                            | Interactive prompts; TUI only                                                                        |
+| `add-tickets`              | chain    | no                            | Interactive loop; TUI only                                                                           |
+| `refine`                   | chain    | no                            | Hands the terminal to the AI CLI; TUI only                                                           |
+| `plan`                     | chain    | no                            | Interactive AI handoff; TUI only                                                                     |
+| `ideate`                   | chain    | no                            | Interactive AI handoff; TUI only                                                                     |
+| `readiness`                | chain    | no                            | Multi-step with confirm gates; TUI only                                                              |
+| `detect-scripts`           | chain    | no                            | Setup/verify script discovery; TUI only                                                              |
+| `detect-skills`            | chain    | no                            | Skill discovery; TUI only                                                                            |
+| `implement`                | chain    | no                            | Genuinely needs the chain (gen-eval + retry)                                                         |
+| `review`                   | chain    | no                            | Apply-feedback loop; TUI only                                                                        |
+| `close-sprint`             | use-case | yes (`sprint close`)          | review → done transition                                                                             |
+| `export-context`           | use-case | yes                           | Render harness-context markdown                                                                      |
+| `export-requirements`      | use-case | yes                           | Render approved-ticket requirements markdown                                                         |
+| `create-pr`                | use-case | yes                           | Open PR via `gh` / `glab`, persist URL on execution                                                  |
+| `doctor`                   | use-case | yes                           | Environment health check                                                                             |
+| `settings`                 | use-case | yes (`settings show` / `set`) | Per-key read/write                                                                                   |
+| `ticket-remove`            | use-case | yes (`ticket remove`)         | Routes via `sprint-detail` view when launched from Flows                                             |
+| `ticket-add` (no registry) | use-case | yes (`ticket add`)            | CLI path + `a` shortcut → `add-ticket` wizard; removed from Flows menu (superseded by `add-tickets`) |
+| —                          | CLI-only | `runs list` / `runs prune`    | Inspect and prune per-run forensic artifacts                                                         |
 
 CLI surface is deliberately smaller than v0.6.x — the interactive chains stay TUI-only by design. Run
 `ralphctl <command> --help` for flag-level detail on the CLI commands.

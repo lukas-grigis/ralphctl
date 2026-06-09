@@ -103,7 +103,7 @@ const mapExit = (exit: GenEvalExit): { verdict: RunTaskVerdict; warning?: Attemp
     case 'malformed':
       return { verdict: 'malformed', warning: { kind: 'malformed', detail: exit.detail } };
     case 'plateau':
-      return { verdict: 'failed', warning: { kind: 'plateau', dimensions: exit.dimensions } };
+      return { verdict: 'failed' };
     case 'budget-exhausted':
       return {
         verdict: 'failed',

@@ -3,9 +3,9 @@
  * returns the set of flow ids that should be visible.
  *
  * Sprint-scoped flows are gated by `sprint.status`:
- *  - `draft`   → refine, add-tickets, plan, ticket-add, ticket-remove
- *  - `planned` → implement, ticket-add, ticket-remove
- *  - `active`  → implement, ticket-add
+ *  - `draft`   → refine, add-tickets, plan, ticket-remove
+ *  - `planned` → implement, ticket-remove
+ *  - `active`  → implement
  *  - `review`  → review, close-sprint
  *  - `done`    → create-pr
  *
@@ -31,7 +31,6 @@ export const SPRINT_SCOPED_FLOW_IDS: readonly string[] = [
   'review',
   'close-sprint',
   'create-pr',
-  'ticket-add',
   'ticket-remove',
 ];
 
@@ -70,9 +69,9 @@ const HIDDEN_SET: ReadonlySet<string> = new Set(HIDDEN_BY_DEFAULT_FLOW_IDS);
  * `showAll` is on).
  */
 const ALLOWED_BY_STATUS: Readonly<Record<SprintStatus, ReadonlySet<string>>> = {
-  draft: new Set(['refine', 'add-tickets', 'plan', 'ticket-add', 'ticket-remove']),
-  planned: new Set(['implement', 'ticket-add', 'ticket-remove']),
-  active: new Set(['implement', 'ticket-add']),
+  draft: new Set(['refine', 'add-tickets', 'plan', 'ticket-remove']),
+  planned: new Set(['implement', 'ticket-remove']),
+  active: new Set(['implement']),
   review: new Set(['review', 'close-sprint']),
   done: new Set(['create-pr']),
 };
