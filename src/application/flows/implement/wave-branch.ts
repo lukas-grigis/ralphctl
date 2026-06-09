@@ -258,15 +258,21 @@ const runWorktreeSetupScript = async (
   if (signal?.aborted) return abortedStep(name, 0, onTrace);
 
   const start = performance.now();
-  const ran = await deps.implement.shellScriptRunner.run(worktreePath, setupScript);
+  // Thread the chain abort signal into the runner so a Ctrl-C mid-setup kills the child promptly
+  // instead of waiting out the shell timeout while the wave holds its worktree.
+  const ran = await deps.implement.shellScriptRunner.run(
+    worktreePath,
+    setupScript,
+    signal !== undefined ? { signal } : {}
+  );
   const durationMs = performance.now() - start;
 
   if (ran.ok && ran.value.passed) {
     onTrace?.({ elementName: name, status: 'completed', durationMs });
     return undefined;
   }
-  // A user abort that raced the setup propagates verbatim — the shell runner surfaces a kill as
-  // `passed: false`, not an abort, so re-check the signal before treating it as a real failure.
+  // A user abort surfaces as the runner's AbortError (signal threaded above) — and may also race
+  // the setup's natural failure — so re-check the signal before treating it as a real failure.
   if (signal?.aborted) return abortedStep(name, durationMs, onTrace);
 
   const detail = ran.ok ? `exit ${String(ran.value.exitCode ?? 'null')}` : ran.error.message;
