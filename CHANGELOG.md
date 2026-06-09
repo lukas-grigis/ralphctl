@@ -23,7 +23,11 @@ to [Semantic Versioning](https://semver.org/).
   allowlist so pinned configs do not break. Copilot catalog adds `gpt-5.5`, `claude-opus-4.7`,
   `claude-opus-4.8`, Gemini 3.x family (`gemini-3-flash-preview`, `gemini-3-pro-preview`,
   `gemini-3.1-pro-preview`, `gemini-3.5-flash`), `mai-code-1-flash`, and `raptor-mini-preview`.
-  Claude catalog unchanged. CLI baselines: Codex 0.138.0, Copilot 1.0.60, Claude Code 2.1.169.
+  Claude catalog adds the frontier tier `claude-fable-5` and its 1M-context variant
+  `claude-fable-5[1m]` as **opt-in only** entries — selectable per row (TUI picker / `settings set`)
+  but referenced by no preset, default, or built-in escalation rung; users who want the ladder to
+  climb to it add an `'claude-opus-4-8': 'claude-fable-5'` rung via `settings.harness.escalationMap`.
+  CLI baselines: Codex 0.138.0, Copilot 1.0.60, Claude Code 2.1.169.
 
 ### Changed
 

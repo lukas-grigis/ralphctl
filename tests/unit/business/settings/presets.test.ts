@@ -104,6 +104,28 @@ describe('presets', () => {
     }
   });
 
+  it('claude-fable-5 (base + 1M variant) is in catalog but stays opt-in only — no preset row and no default ladder rung references it', () => {
+    // Catalog membership is what lets a per-row pick pass the adapter boundary…
+    expect(isClaudeModel('claude-fable-5')).toBe(true);
+    expect(isClaudeModel('claude-fable-5[1m]')).toBe(true);
+    // …while presets and the built-in escalation ladder deliberately do NOT reference it: the
+    // catalog-top = ladder-top = preset-flagship invariant intentionally excludes the fable tier
+    // until a deliberate flagship swap. Promoting it later means deleting this fence on purpose.
+    for (const preset of PRESET_NAMES) {
+      const out = applyPreset(preset, DEFAULT_SETTINGS);
+      for (const flow of FLOW_IDS) {
+        const rows = flow === 'implement' ? [out.ai.implement.generator, out.ai.implement.evaluator] : [out.ai[flow]];
+        for (const row of rows) {
+          expect(row.model.startsWith('claude-fable'), `${preset}/${flow}: ${row.model}`).toBe(false);
+        }
+      }
+    }
+    for (const [from, to] of Object.entries(mergeEscalationMap({}))) {
+      expect(from.startsWith('claude-fable'), `ladder rung from '${from}'`).toBe(false);
+      expect(to.startsWith('claude-fable'), `ladder rung '${from}' → '${to}'`).toBe(false);
+    }
+  });
+
   it('codex-only no longer references the deprecated gpt-5.3-codex', () => {
     const out = applyPreset('codex-only', DEFAULT_SETTINGS);
     const models = [

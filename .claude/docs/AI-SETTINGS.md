@@ -38,7 +38,10 @@ in one transaction; subsequent per-key edits via `ralphctl settings set ai.<flow
 **Model catalog versions used by the presets** (as of the 0.10.x catalogs):
 
 - Claude Code — `claude-haiku-4-5` / `claude-sonnet-4-6` / `claude-opus-4-8` (verified against Claude
-  Code v2.1.169).
+  Code v2.1.169). The catalog additionally lists the frontier tier `claude-fable-5` and its 1M-context
+  variant `claude-fable-5[1m]` (the `[1m]` suffix is Claude Code's long-context syntax, passed through
+  verbatim) as **opt-in only** — no preset, default, or built-in escalation rung references them; pick
+  per row or add an `'claude-opus-4-8': 'claude-fable-5'` rung via `settings.harness.escalationMap`.
 - GitHub Copilot — adds `gpt-5.5`, `claude-opus-4.7`, `claude-opus-4.8`, Gemini 3.x family
   (`gemini-3-flash-preview`, `gemini-3-pro-preview`, `gemini-3.1-pro-preview`, `gemini-3.5-flash`),
   plus `mai-code-1-flash`, `raptor-mini-preview` (verified against Copilot CLI v1.0.60).
