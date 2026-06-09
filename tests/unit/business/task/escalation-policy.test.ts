@@ -113,6 +113,22 @@ describe('decideEscalation', () => {
     expect(decision.kind).toBe('nudge');
   });
 
+  it('treats a multi-node user-map cycle as top-of-ladder instead of escalating forever', () => {
+    // `{ a: b, b: a }` is a 2-cycle the self-loop warning (`{ a: a }`) does not catch. Without the
+    // cyclic-chain guard, model-a → escalate to model-b and model-b → escalate to model-a loop
+    // indefinitely, each a real escalate keeping the task in_progress. The guard makes a model on
+    // the cycle fall through to the same-model nudge, and a further plateau then tops out — bounded.
+    const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
+    const cyclicMap = { 'model-a': 'model-b', 'model-b': 'model-a' };
+    const decision = decideEscalation({ task, generatorModel: 'model-a', flagOn: true, userMap: cyclicMap });
+    expect(decision.kind).toBe('nudge');
+    if (decision.kind === 'nudge') expect(decision.currentModel).toBe('model-a');
+
+    const nudged = withEscalation(task, 'model-a', 'model-a');
+    const after = decideEscalation({ task: nudged, generatorModel: 'model-a', flagOn: true, userMap: cyclicMap });
+    expect(after.kind).toBe('topped-out');
+  });
+
   it('returns budget-exhausted before checking the map when attempts === maxAttempts', () => {
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 1 });
     const decision = decideEscalation({

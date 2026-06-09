@@ -148,7 +148,7 @@ export const recordTaskEscalation = (
   task: InProgressTask,
   fromModel: string,
   toModel: string
-): Result<InProgressTask, InvalidStateError | ValidationError> => {
+): Result<InProgressTask, ValidationError> => {
   const from = parseRequiredString('task.escalatedFromModel', fromModel);
   if (!from.ok) return Result.error(from.error);
   const to = parseRequiredString('task.escalatedToModel', toModel);

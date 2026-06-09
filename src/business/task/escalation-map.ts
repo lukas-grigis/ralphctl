@@ -13,10 +13,12 @@ import type { Logger } from '@src/business/observability/logger.ts';
 
 /**
  * Built-in escalation ladder. Keys are the model id the generator is currently spawning
- * with; values are the model id to switch to after a plateau exit. The ladder is climbed
- * cheapest-first one rung per plateau, so each tier points at the next stronger tier (not the
- * flagship directly) — letting an economic preset that starts a tier below flagship climb
- * through every intermediate rung. Entries are seeded from the per-provider model catalogs at
+ * with; values are the model id to switch to after a plateau exit. The Claude ladders are
+ * climbed cheapest-first one rung per plateau — each tier points at the next stronger tier, so
+ * an economic preset that starts a tier below flagship climbs through every intermediate rung
+ * (haiku → sonnet → opus). The GPT mini tiers instead step straight to the frontier default
+ * (`gpt-5.5`); the economic full tier (`gpt-5.4`) climbs the single remaining rung to it.
+ * Entries are seeded from the per-provider model catalogs at
  * `domain/value/settings-models/` — weakening or removing an entry here implies the
  * corresponding model is no longer in catalog, so this file and the catalog are kept in
  * lockstep by code review.
@@ -61,4 +63,26 @@ export const warnEscalationMapSelfLoops = (escalationMap: Readonly<Record<string
       logger.warn(`escalationMap: '${from}' maps to itself — entry has no effect`, { from, to });
     }
   }
+};
+
+/**
+ * True when following the escalation chain from `start` revisits any model — i.e. the map
+ * contains a cycle reachable from `start`. The built-in {@link DEFAULT_ESCALATION_MAP} is
+ * acyclic, but a user-authored `escalationMap` can introduce a multi-node cycle (`{ a: b, b: a }`)
+ * that {@link warnEscalationMapSelfLoops} (which only catches the 1-cycle `{ a: a }`) misses.
+ *
+ * `decideEscalation` consults this so a cyclic rung never drives an unbounded climb: a generator
+ * model that sits on a cycle is treated as top-of-ladder (same-model nudge → topped-out) instead
+ * of escalating forever. Conservative by design — a cycle anywhere downstream of `start` blocks
+ * escalation from `start` too, because every step would eventually loop. Pure; no I/O.
+ */
+export const escalationLadderCyclicFrom = (map: Readonly<Record<string, string>>, start: string): boolean => {
+  const seen = new Set<string>([start]);
+  let cur: string | undefined = map[start];
+  while (cur !== undefined) {
+    if (seen.has(cur)) return true;
+    seen.add(cur);
+    cur = map[cur];
+  }
+  return false;
 };

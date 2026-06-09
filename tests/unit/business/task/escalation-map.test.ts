@@ -13,6 +13,7 @@ import { CURRENT_SCHEMA_VERSION, SettingsSchema } from '@src/domain/entity/setti
 import type { Logger } from '@src/business/observability/logger.ts';
 import {
   DEFAULT_ESCALATION_MAP,
+  escalationLadderCyclicFrom,
   mergeEscalationMap,
   warnEscalationMapSelfLoops,
 } from '@src/business/task/escalation-map.ts';
@@ -137,5 +138,35 @@ describe('warnEscalationMapSelfLoops', () => {
     warnEscalationMapSelfLoops(parsed.data.harness.escalationMap, logger);
     expect(warn).toHaveBeenCalledTimes(1);
     expect(String(warn.mock.calls[0]?.[0])).toContain('claude-opus-4-8');
+  });
+});
+
+describe('escalationLadderCyclicFrom', () => {
+  it('returns false for an acyclic chain that reaches a terminus', () => {
+    expect(escalationLadderCyclicFrom({ a: 'b', b: 'c' }, 'a')).toBe(false);
+  });
+
+  it('returns false when the start model has no rung', () => {
+    expect(escalationLadderCyclicFrom({ a: 'b' }, 'z')).toBe(false);
+  });
+
+  it('detects a self-loop (1-cycle)', () => {
+    expect(escalationLadderCyclicFrom({ a: 'a' }, 'a')).toBe(true);
+  });
+
+  it('detects a multi-node cycle from either node', () => {
+    const map = { a: 'b', b: 'a' };
+    expect(escalationLadderCyclicFrom(map, 'a')).toBe(true);
+    expect(escalationLadderCyclicFrom(map, 'b')).toBe(true);
+  });
+
+  it('detects a cycle reachable downstream of the start (lead-in chain)', () => {
+    expect(escalationLadderCyclicFrom({ a: 'b', b: 'c', c: 'b' }, 'a')).toBe(true);
+  });
+
+  it('does not flag the acyclic DEFAULT_ESCALATION_MAP from any of its keys', () => {
+    for (const key of Object.keys(DEFAULT_ESCALATION_MAP)) {
+      expect(escalationLadderCyclicFrom(DEFAULT_ESCALATION_MAP, key), `cycle from ${key}`).toBe(false);
+    }
   });
 });

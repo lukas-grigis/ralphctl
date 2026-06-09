@@ -1,11 +1,10 @@
 import { Result } from '@src/domain/result.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
-import { mergeEscalationMap } from '@src/business/task/escalation-map.ts';
+import { escalationLadderCyclicFrom, mergeEscalationMap } from '@src/business/task/escalation-map.ts';
 import type { InProgressTask } from '@src/domain/entity/task.ts';
 import { recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
-import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { ValidationError } from '@src/domain/value/error/validation-error.ts';
 
 /**
@@ -79,10 +78,18 @@ export const decideEscalation = (props: DecideEscalationProps): EscalationDecisi
       maxAttempts: props.task.maxAttempts,
     };
   }
-  const next = mergeEscalationMap(props.userMap)[props.generatorModel];
-  if (next !== undefined && next !== props.generatorModel) {
+  const merged = mergeEscalationMap(props.userMap);
+  const next = merged[props.generatorModel];
+  if (
+    next !== undefined &&
+    next !== props.generatorModel &&
+    !escalationLadderCyclicFrom(merged, props.generatorModel)
+  ) {
     // A stronger rung exists above the model the just-finished attempt ran on. Climb to it. This
-    // fires on every plateau as the generator advances up the ladder one rung at a time.
+    // fires on every plateau as the generator advances up the ladder one rung at a time. The
+    // cyclic-chain guard keeps an operator-authored `escalationMap` cycle (`{ a: b, b: a }`, which
+    // the self-loop warning misses) from driving an unbounded climb — a model on a cycle falls
+    // through to the same-model nudge / topped-out path below instead of escalating forever.
     return { kind: 'escalate', from: props.generatorModel, to: next };
   }
   // Top of the ladder (no rung above `generatorModel`). If the task was already nudged at the top
@@ -114,21 +121,25 @@ export interface ApplyEscalationProps {
 
 export interface ApplyEscalationOutput {
   readonly task: InProgressTask;
+  /**
+   * Reserved for a future decision that needs settle-attempt to block the task. No current
+   * decision sets it — a plateau never blocks, so escalate / nudge stay `in_progress` and
+   * flag-off / topped-out / budget-exhausted preserve the work (done-with-warning). The caller
+   * still threads it through defensively.
+   */
   readonly blockedReason?: string;
 }
 
 /**
  * Side-effecting half of the policy — given a {@link decideEscalation} verdict, emit the
  * matching banner + log lines and (for the happy path) return the task with the escalation
- * fields stamped. Failure paths return the task unchanged plus a `blockedReason` the caller
- * threads into settle-attempt so the task lands blocked.
+ * fields stamped. The preserve paths (topped-out / budget-exhausted) and flag-off return the
+ * task as-is; none set `blockedReason`, because a plateau never blocks.
  *
  * The `flag-off` decision short-circuits — the caller leaves the existing behaviour intact
  * (today's done-with-warning settle) so opting out cleanly preserves the v0.7.0 path.
  */
-export const applyEscalation = (
-  props: ApplyEscalationProps
-): Result<ApplyEscalationOutput, InvalidStateError | ValidationError> => {
+export const applyEscalation = (props: ApplyEscalationProps): Result<ApplyEscalationOutput, ValidationError> => {
   const { task, decision, eventBus, clock } = props;
   const log = props.logger.named('task.escalation-policy');
   const bannerId = escalationBannerId(String(task.id));
