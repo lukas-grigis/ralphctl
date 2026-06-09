@@ -209,6 +209,27 @@ describe('computePlateauVerdict — work-product softening (gap iii: fingerprint
     if (verdict.kind === 'warning') expect(verdict.reason).toBe('work-product-changed');
   });
 
+  it('either-side rule: current hash MISSING while priors carry hashes → no exemption (a reworded subject must not soften on a git hiccup)', () => {
+    const ev = evalFrom(dim('completeness', false));
+    const verdict = computePlateauVerdict(
+      [turn(ev, { changedFilesHash: 'hash-A', commitSubject: 'WIP option A' })],
+      // Transient git failure on the current round: no fingerprint, only a reworded subject.
+      turn(ev, { commitSubject: 'WIP option B (reworded)' }),
+      { threshold: 2 }
+    );
+    expect(verdict.kind).toBe('plateau');
+  });
+
+  it('either-side rule: current hash present but NO prior hashes → conservative no-exemption', () => {
+    const ev = evalFrom(dim('completeness', false));
+    const verdict = computePlateauVerdict(
+      [turn(ev, { commitSubject: 'WIP option A' })],
+      turn(ev, { changedFilesHash: 'hash-B', commitSubject: 'WIP option A' }),
+      { threshold: 2 }
+    );
+    expect(verdict.kind).toBe('plateau');
+  });
+
   it('does not soften when neither fingerprint nor commit subject changed', () => {
     const ev = evalFrom(dim('completeness', false));
     const verdict = computePlateauVerdict(

@@ -250,9 +250,11 @@ const commitCapturingGit = (taskCount: number): CommitCapturingGit => {
         return okGit('', 0);
       }
       // The evaluator leaf fingerprints the working tree each round (status --porcelain handled
-      // above + diff HEAD here) for the plateau predicate. A fixed diff body is fine — these
-      // tests pass on the first turn, so the fingerprint is never compared against a prior round.
+      // above + diff HEAD + ls-files here) for the plateau predicate. A fixed diff body and an
+      // empty untracked list are fine — these tests pass on the first turn, so the fingerprint
+      // is never compared against a prior round.
       if (args[0] === 'diff' && args[1] === 'HEAD') return okGit('@@ -1 +1 @@\n-old\n+new\n', 0);
+      if (args[0] === 'ls-files') return okGit('', 0); // no untracked files → hash-object never runs
       void taskCount;
       throw new Error(`unscripted git args: ${args.join(' ')}`);
     },
@@ -1909,6 +1911,7 @@ describe('createImplementFlow — gen-eval loop', () => {
         }
         // Evaluator-round work-product fingerprint — clean tree per repo, so an empty diff.
         if (args[0] === 'diff' && args[1] === 'HEAD') return okGit('', 0);
+        if (args[0] === 'ls-files') return okGit('', 0); // fingerprint untracked probe — none here
         throw new Error(`multi-repo test: unscripted git args at ${String(cwd)}: ${args.join(' ')}`);
       },
     };

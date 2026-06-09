@@ -119,13 +119,29 @@ export const createGitRunner = (deps: GitRunnerDeps = {}): GitRunner => {
           );
           return;
         }
-        finish(
-          Result.ok({
-            stdout: Buffer.concat(stdoutChunks).toString('utf8'),
-            stderr: Buffer.concat(stderrChunks).toString('utf8'),
-            exitCode: code ?? -1,
-          })
-        );
+        // Materializing stdout can throw ERR_STRING_TOO_LONG when output exceeds V8's max string
+        // length (~512MiB — e.g. a `git diff HEAD` over enormous generated artifacts). This close
+        // handler runs outside any caller try/catch, so an uncaught throw here would kill the
+        // whole process instead of surfacing through the Result envelope. Catch and map to
+        // StorageError — consumers like the work-product fingerprint degrade gracefully.
+        try {
+          finish(
+            Result.ok({
+              stdout: Buffer.concat(stdoutChunks).toString('utf8'),
+              stderr: Buffer.concat(stderrChunks).toString('utf8'),
+              exitCode: code ?? -1,
+            })
+          );
+        } catch (cause) {
+          finish(
+            Result.error(
+              new StorageError({
+                subCode: 'io',
+                message: `git output too large to materialize: git ${args.join(' ')} — ${stringifyError(cause)}`,
+              })
+            )
+          );
+        }
       });
     });
 

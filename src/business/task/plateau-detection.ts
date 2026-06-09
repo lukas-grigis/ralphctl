@@ -241,27 +241,40 @@ const critiqueShiftedFromAll = (window: readonly PlateauTurnRecord[], current: P
   return comparedAny && maxSimilarity < CRITIQUE_SHIFT_SIMILARITY;
 };
 
+const hasHash = (r: PlateauTurnRecord): boolean => r.changedFilesHash !== undefined && r.changedFilesHash.length > 0;
+
 /**
  * True when `current`'s work-product fingerprint differs from EVERY prior turn in the window —
- * the AI changed the working tree, not just the commit message. Falls back to the commit-subject
- * text proxy ONLY when no fingerprint is present on either side (older in-flight records). With a
- * fingerprint present, a reworded commit subject over an unchanged tree no longer counts.
+ * the AI changed the working tree, not just the commit message.
+ *
+ * EITHER-SIDE RULE (deliberate, conservative): the commit-subject text proxy runs ONLY when NO
+ * record on either side of the comparison carries a fingerprint. When the current turn's hash is
+ * missing but prior turns have hashes (the one live cause is a transient git failure in
+ * `computeWorkProductFingerprint` — `plateauHistory` is in-memory per attempt, so mixed-version
+ * records cannot occur), there is no evidence of change: return false rather than letting a
+ * routinely-reworded commit subject grant an unwarranted softening. The consequence — a genuine
+ * code change made during a git-hiccup round may plateau-exit — is acceptable because the exit
+ * escalates rather than losing work. The mirrored case (current hash present, no prior hashes)
+ * is equally conservative: `comparedAny === false` denies the exemption.
  */
 const workProductChanged = (window: readonly PlateauTurnRecord[], current: PlateauTurnRecord): boolean => {
-  const currentHash = current.changedFilesHash;
-  if (currentHash !== undefined && currentHash.length > 0) {
+  const anyPriorHash = window.some(hasHash);
+  if (hasHash(current)) {
     let comparedAny = false;
     for (const prior of window) {
-      const priorHash = prior.changedFilesHash;
-      if (priorHash === undefined || priorHash.length === 0) continue;
+      if (!hasHash(prior)) continue;
       comparedAny = true;
-      if (priorHash === currentHash) return false; // identical to a prior turn → no change
+      if (prior.changedFilesHash === current.changedFilesHash) return false; // identical → no change
     }
     return comparedAny; // differs from every prior fingerprint we could compare
   }
+  if (anyPriorHash) {
+    // Current hash missing but priors carry hashes: no evidence of change — no exemption.
+    return false;
+  }
 
-  // No fingerprint available — fall back to the legacy commit-subject proxy against the most
-  // recent prior turn (the only signal older records carry).
+  // No fingerprint on EITHER side — fall back to the legacy commit-subject proxy against the
+  // most recent prior turn (the only signal such records carry).
   const lastPrior = window[window.length - 1];
   const priorSubject = lastPrior?.commitSubject;
   const currentSubject = current.commitSubject;
