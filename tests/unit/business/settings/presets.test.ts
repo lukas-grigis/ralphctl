@@ -4,10 +4,77 @@ import { SettingsSchema } from '@src/domain/entity/settings.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
 import { FLOW_IDS } from '@src/domain/value/flow-id.ts';
 import { applyPreset, isPresetName, PRESET_NAMES, type PresetName } from '@src/business/settings/presets.ts';
+import { isClaudeModel } from '@src/domain/value/settings-models/claude.ts';
+import { isCodexModel } from '@src/domain/value/settings-models/codex.ts';
+import { isCopilotModel } from '@src/domain/value/settings-models/copilot.ts';
+
+const ECONOMIC_PRESETS: readonly PresetName[] = [
+  'mixed-economic',
+  'claude-economic',
+  'copilot-economic',
+  'codex-economic',
+];
+
+const modelGuardFor = (provider: AiProvider): ((s: string) => boolean) => {
+  switch (provider) {
+    case 'claude-code':
+      return isClaudeModel;
+    case 'github-copilot':
+      return isCopilotModel;
+    case 'openai-codex':
+      return isCodexModel;
+  }
+};
 
 describe('presets', () => {
-  it('exposes exactly four equal preset names', () => {
-    expect([...PRESET_NAMES]).toEqual(['mixed', 'claude-only', 'copilot-only', 'codex-only']);
+  it('exposes all eight equal preset names', () => {
+    expect([...PRESET_NAMES]).toEqual([
+      'mixed',
+      'claude-only',
+      'copilot-only',
+      'codex-only',
+      'mixed-economic',
+      'claude-economic',
+      'copilot-economic',
+      'codex-economic',
+    ]);
+  });
+
+  it('includes each economic preset in PRESET_NAMES', () => {
+    for (const preset of ECONOMIC_PRESETS) {
+      expect(PRESET_NAMES).toContain(preset);
+    }
+  });
+
+  it('every model referenced by every preset is a member of its provider catalog', () => {
+    for (const preset of PRESET_NAMES) {
+      const out = applyPreset(preset, DEFAULT_SETTINGS);
+      for (const flow of FLOW_IDS) {
+        const rows = flow === 'implement' ? [out.ai.implement.generator, out.ai.implement.evaluator] : [out.ai[flow]];
+        for (const row of rows) {
+          const guard = modelGuardFor(row.provider);
+          expect(guard(row.model), `${preset}/${flow}: ${row.provider} → ${row.model}`).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('codex-only no longer references the deprecated gpt-5.3-codex', () => {
+    const out = applyPreset('codex-only', DEFAULT_SETTINGS);
+    const models = [
+      out.ai.refine.model,
+      out.ai.plan.model,
+      out.ai.implement.generator.model,
+      out.ai.implement.evaluator.model,
+      out.ai.readiness.model,
+      out.ai.ideate.model,
+      out.ai.createPr.model,
+    ];
+    expect(models).not.toContain('gpt-5.3-codex');
+    expect(out.ai.implement.generator.model).toBe('gpt-5.5');
+    expect(out.ai.implement.evaluator.model).toBe('gpt-5.5');
+    expect(out.ai.implement.generator.effort).toBe('high');
+    expect(out.ai.implement.evaluator.effort).toBe('high');
   });
 
   it('isPresetName guards string input', () => {
