@@ -1,7 +1,7 @@
 import type { FlowManifest } from '@src/application/registry.ts';
 
 export const ticketRemoveManifest: FlowManifest = {
-  id: 'ticket-remove',
+  id: 'remove-ticket',
   title: 'Remove ticket',
   description: 'Drop a ticket from a draft sprint.',
   canBackground: false,

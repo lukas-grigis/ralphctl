@@ -5,15 +5,15 @@ import { addTicket } from '@src/domain/entity/sprint.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 
-import type { TicketAddCtx, TicketAddInput } from '@src/application/flows/ticket-add/ctx.ts';
-import type { TicketAddDeps } from '@src/application/flows/ticket-add/deps.ts';
+import type { TicketAddCtx, TicketAddInput } from '@src/application/flows/add-ticket/ctx.ts';
+import type { TicketAddDeps } from '@src/application/flows/add-ticket/deps.ts';
 
 /**
  * Append a pending ticket to a sprint. Linear: load sprint → mint ticket → addTicket guard
  * (refuses non-draft sprints, rejects duplicate ids) → save the updated sprint.
  */
 export const createTicketAddFlow = (deps: TicketAddDeps): Element<TicketAddCtx> =>
-  leaf<TicketAddCtx, TicketAddInput, Ticket>('ticket-add', {
+  leaf<TicketAddCtx, TicketAddInput, Ticket>('add-ticket', {
     useCase: {
       async execute(input) {
         const sprint = await deps.sprintRepo.findById(input.sprintId);

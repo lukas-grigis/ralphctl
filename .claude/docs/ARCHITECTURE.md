@@ -312,8 +312,8 @@ are imported by the launcher (`application/ui/shared/launch/<flow>.ts`) or the C
 | `create-pr`                | use-case | yes                           | Open PR via `gh` / `glab`, persist URL on execution                                                  |
 | `doctor`                   | use-case | yes                           | Environment health check                                                                             |
 | `settings`                 | use-case | yes (`settings show` / `set`) | Per-key read/write                                                                                   |
-| `ticket-remove`            | use-case | yes (`ticket remove`)         | Routes via `sprint-detail` view when launched from Flows                                             |
-| `ticket-add` (no registry) | use-case | yes (`ticket add`)            | CLI path + `a` shortcut → `add-ticket` wizard; removed from Flows menu (superseded by `add-tickets`) |
+| `remove-ticket`            | use-case | yes (`ticket remove`)         | Routes via `sprint-detail` view when launched from Flows                                             |
+| `add-ticket` (no registry) | use-case | yes (`ticket add`)            | CLI path + `a` shortcut → `add-ticket` wizard; removed from Flows menu (superseded by `add-tickets`) |
 | —                          | CLI-only | `runs list` / `runs prune`    | Inspect and prune per-run forensic artifacts                                                         |
 
 CLI surface is deliberately smaller than v0.6.x — the interactive chains stay TUI-only by design. Run

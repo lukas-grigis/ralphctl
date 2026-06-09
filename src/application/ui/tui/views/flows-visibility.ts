@@ -4,7 +4,7 @@
  *
  * Sprint-scoped flows are gated by `sprint.status`:
  *  - `draft`   → refine, add-tickets, plan, ticket-remove
- *  - `planned` → implement, ticket-remove
+ *  - `planned` → implement, remove-ticket
  *  - `active`  → implement
  *  - `review`  → review, close-sprint
  *  - `done`    → create-pr
@@ -31,7 +31,7 @@ export const SPRINT_SCOPED_FLOW_IDS: readonly string[] = [
   'review',
   'close-sprint',
   'create-pr',
-  'ticket-remove',
+  'remove-ticket',
 ];
 
 /**
@@ -69,8 +69,8 @@ const HIDDEN_SET: ReadonlySet<string> = new Set(HIDDEN_BY_DEFAULT_FLOW_IDS);
  * `showAll` is on).
  */
 const ALLOWED_BY_STATUS: Readonly<Record<SprintStatus, ReadonlySet<string>>> = {
-  draft: new Set(['refine', 'add-tickets', 'plan', 'ticket-remove']),
-  planned: new Set(['implement', 'ticket-remove']),
+  draft: new Set(['refine', 'add-tickets', 'plan', 'remove-ticket']),
+  planned: new Set(['implement', 'remove-ticket']),
   active: new Set(['implement']),
   review: new Set(['review', 'close-sprint']),
   done: new Set(['create-pr']),

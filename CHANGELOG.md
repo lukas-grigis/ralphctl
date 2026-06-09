@@ -52,8 +52,8 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- **Flow consolidation — `ticket-add` removed from the Flows menu; `add-tickets` is now the
-  single "Add tickets" entry for draft sprints.** The `ticket-add` use-case (id `ticket-add`) was
+- **Flow consolidation — `ticket-add` removed from the Flows menu (use-case renamed `add-ticket`); `add-tickets` is now the
+  single "Add tickets" entry for draft sprints.** The `add-ticket` use-case (id `add-ticket`, formerly `ticket-add`) was
   registered as a Flows menu entry ("Add ticket") alongside `add-tickets` ("Add tickets"), both gated
   on draft sprints. They duplicated the same affordance with different UX quality: `add-tickets` is
   a full interactive chain with a multi-ticket loop, optional GitHub/GitLab issue URL prefill, a

@@ -20,7 +20,7 @@ import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useRouter, useViewProps } from '@src/application/ui/tui/runtime/router.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { spacing } from '@src/application/ui/tui/theme/tokens.ts';
-import { createTicketAddFlow } from '@src/application/flows/ticket-add/flow.ts';
+import { createTicketAddFlow } from '@src/application/flows/add-ticket/flow.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { HeaderCard } from '@src/application/ui/tui/views/add-ticket-internals/header-card.tsx';
 import { runFetch, StepView } from '@src/application/ui/tui/views/add-ticket-internals/step-view.tsx';

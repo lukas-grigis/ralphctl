@@ -15,7 +15,7 @@ import { exportRequirementsManifest } from '@src/application/flows/export-requir
 import { createPrManifest } from '@src/application/flows/create-pr/manifest.ts';
 import { doctorManifest } from '@src/application/flows/doctor/manifest.ts';
 import { settingsManifest } from '@src/application/flows/settings/manifest.ts';
-import { ticketRemoveManifest } from '@src/application/flows/ticket-remove/manifest.ts';
+import { ticketRemoveManifest } from '@src/application/flows/remove-ticket/manifest.ts';
 
 /**
  * Pre-launch readiness predicates declared by each flow. The TUI / CLI evaluate these against

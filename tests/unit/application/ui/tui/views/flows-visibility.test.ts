@@ -24,18 +24,18 @@ describe('visibleFlowsFor', () => {
     expect(visible.has('refine')).toBe(true);
     expect(visible.has('add-tickets')).toBe(true);
     expect(visible.has('plan')).toBe(true);
-    expect(visible.has('ticket-remove')).toBe(true);
-    expect(visible.has('ticket-add')).toBe(false);
+    expect(visible.has('remove-ticket')).toBe(true);
+    expect(visible.has('add-ticket')).toBe(false);
     expect(visible.has('implement')).toBe(false);
     expect(visible.has('review')).toBe(false);
     expect(visible.has('close-sprint')).toBe(false);
   });
 
-  it('planned sprint: implement + ticket-remove are visible; ticket-add/refine/plan are not', () => {
+  it('planned sprint: implement + remove-ticket are visible; add-ticket/refine/plan are not', () => {
     const visible = visibleFlowsFor({ hasProject: true, sprintStatus: 'planned', showAll: false });
     expect(visible.has('implement')).toBe(true);
-    expect(visible.has('ticket-remove')).toBe(true);
-    expect(visible.has('ticket-add')).toBe(false);
+    expect(visible.has('remove-ticket')).toBe(true);
+    expect(visible.has('add-ticket')).toBe(false);
     expect(visible.has('refine')).toBe(false);
     expect(visible.has('plan')).toBe(false);
   });
@@ -43,8 +43,8 @@ describe('visibleFlowsFor', () => {
   it('active sprint: implement only (no add or remove via Flows menu during active execution)', () => {
     const visible = visibleFlowsFor({ hasProject: true, sprintStatus: 'active', showAll: false });
     expect(visible.has('implement')).toBe(true);
-    expect(visible.has('ticket-add')).toBe(false);
-    expect(visible.has('ticket-remove')).toBe(false);
+    expect(visible.has('add-ticket')).toBe(false);
+    expect(visible.has('remove-ticket')).toBe(false);
   });
 
   it('review sprint: only review + close-sprint are visible (no refine/plan/implement)', () => {
@@ -97,17 +97,17 @@ describe('visibleFlowsFor', () => {
     }
   });
 
-  it('removed flows (settings, doctor, ticket-add) do not appear in any mode (default OR showAll)', () => {
+  it('removed flows (settings, doctor, add-ticket) do not appear in any mode (default OR showAll)', () => {
     const showAll = visibleFlowsFor({ hasProject: true, sprintStatus: 'draft', showAll: true });
     const defaultMode = visibleFlowsFor({ hasProject: true, sprintStatus: 'draft', showAll: false });
     expect(showAll.has('settings')).toBe(false);
     expect(showAll.has('doctor')).toBe(false);
-    // ticket-add was removed from the registry; its use-case survives for CLI + the `a` shortcut
+    // add-ticket was removed from the registry; its use-case survives for CLI + the `a` shortcut
     // wizard but it no longer appears as a Flows menu entry in any visibility mode.
-    expect(showAll.has('ticket-add')).toBe(false);
+    expect(showAll.has('add-ticket')).toBe(false);
     expect(defaultMode.has('settings')).toBe(false);
     expect(defaultMode.has('doctor')).toBe(false);
-    expect(defaultMode.has('ticket-add')).toBe(false);
+    expect(defaultMode.has('add-ticket')).toBe(false);
   });
 });
 

@@ -26,7 +26,7 @@ import type { CloseSprintDeps } from '@src/application/flows/close-sprint/deps.t
  * close on a `planned` / `active` sprint fails fast with `InvalidStateError`. Persistence
  * is internal to `transitionSprintToDoneUseCase`; no separate save leaf is needed downstream.
  *
- * `sprintId` enters via the runner's `initialCtx` (matching how `ticket-remove` is launched);
+ * `sprintId` enters via the runner's `initialCtx` (matching how `remove-ticket` is launched);
  * no opts bag is needed at the factory boundary.
  *
  * The distill step runs BEFORE the transition so the sprint is still `review` while it

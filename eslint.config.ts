@@ -155,8 +155,8 @@ const FLOWS = [
   'settings-set',
   'settings-set-provider',
   'settings-show',
-  'ticket-add',
-  'ticket-remove',
+  'add-ticket',
+  'remove-ticket',
 ] as const;
 
 const META_FLOWS = ['run'] as const;
