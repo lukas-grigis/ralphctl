@@ -256,12 +256,15 @@ export const SettingsSchema = z.object({
     plateauThreshold: z.number().int().min(2).max(5).default(3),
     /**
      * When the gen-eval loop exits on a plateau, grant one more attempt instead of settling
-     * immediately: escalate the generator one rung up the ladder ({@link escalationMap} merged
-     * with the built-in `DEFAULT_ESCALATION_MAP`) when a stronger model exists, and ALWAYS inject
-     * a "change your approach" directive into that attempt's generator turn (so a top-of-ladder
-     * model — e.g. the default Opus generator — still acts differently rather than re-iterating).
-     * A plateau never blocks: after the one retry, or when no attempt budget remains, the work is
-     * preserved (done-with-warning). Defaults `true`.
+     * immediately. The generator climbs one rung per plateau up the merged ladder ({@link
+     * escalationMap} over the built-in `DEFAULT_ESCALATION_MAP`) across successive plateaus,
+     * bounded by `maxAttempts`; each climb hands the targeted prior critique to the stronger
+     * model. The "change your approach" directive is NOT injected on a model bump — it fires only
+     * once the generator reaches the top of the ladder, as a same-model nudge (one more attempt on
+     * the same model, where no fresh capability remains so a change of approach is the only lever).
+     * A plateau never blocks: after the ladder tops out (a further plateau on the nudged top-tier
+     * model) or the attempt budget is exhausted, the work is preserved (done-with-warning).
+     * Defaults `true`.
      */
     escalateOnPlateau: z.boolean().default(true),
     /**

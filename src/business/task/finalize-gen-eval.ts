@@ -69,10 +69,12 @@ export interface FinalizeGenEvalOutput {
   readonly blockedReason?: string;
   /**
    * True when the escalation policy stamped `escalatedFromModel`/`escalatedToModel` on the
-   * task. The caller propagates this onto ctx so settle-attempt fails the running attempt
-   * (leaving the task `in_progress` for the next chain invocation, modulo `maxAttempts`)
-   * instead of marking it `done`. Mutually exclusive with `blockedReason` — the policy emits
-   * one or the other.
+   * task (an escalate or top-of-ladder nudge). The caller propagates this onto ctx so
+   * settle-attempt fails the running attempt (leaving the task `in_progress` for the next chain
+   * invocation, modulo `maxAttempts`) instead of marking it `done`. The escalation path never
+   * sets `blockedReason` — a plateau never blocks — so on this path only `shouldFailAttempt` is
+   * produced; the settle-attempt precedence (`blockedReason` wins over `shouldFailAttempt`) is a
+   * guard for the unrelated self-blocked path and does not engage here.
    */
   readonly shouldFailAttempt?: boolean;
 }

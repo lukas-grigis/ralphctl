@@ -4,9 +4,11 @@
 
 /**
  * Models supported by the OpenAI Codex CLI adapter. Enumerated from the `codex -m`
- * picker (codex v0.138.0): `gpt-5.5` is the frontier default; `gpt-5.4` is the flagship
- * frontier coder; `gpt-5.4-mini` is the efficient/mini tier; `gpt-5.3-codex-spark` is a
- * text-only research preview surfaced to ChatGPT Pro accounts only. `gpt-5.2` and
+ * picker (codex v0.138.0): `gpt-5.5` is the frontier default — the model `codex-only` runs
+ * implement on and the top rung of the Codex escalation ladder; `gpt-5.4` is the strong
+ * frontier coder one tier below it (where the economic preset starts implement before climbing
+ * to `gpt-5.5` on a plateau); `gpt-5.4-mini` is the efficient/mini tier; `gpt-5.3-codex-spark`
+ * is a text-only research preview surfaced to ChatGPT Pro accounts only. `gpt-5.2` and
  * `gpt-5.3-codex` are DEPRECATED for ChatGPT sign-in but kept in the allowlist because they
  * remain available via API-key auth — removing them would break pinned configs. The codex
  * backend serves models dynamically — new entries that appear in the picker after this list

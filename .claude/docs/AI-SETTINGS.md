@@ -27,8 +27,10 @@ first-class (none is marked default). Standard presets: `mixed` (best-fit provid
 standard ones): `mixed-economic`, `claude-economic`, `copilot-economic`, `codex-economic`. The economic
 strategy is: start `implement` one tier below the provider's flagship at `high` effort, so most tasks
 finish on the cheaper tier; the graduated escalation ladder climbs to the flagship only when a task
-plateaus — quality is preserved, token spend is reduced on easy tasks. Effort matrix mirrors the standard
-presets (`plan` and `implement` heavy, `readiness` `medium`, `refine`/`ideate` inherit global `high`).
+plateaus — quality is preserved, token spend is reduced on easy tasks. The effort matrix keeps the
+standard presets' shape (`plan`/`implement` heavy, `readiness` `medium`, `refine`/`ideate` inherit global
+`high`) but runs `plan`/`implement` at `high` — one tier below the standard presets' `xhigh` (Codex
+already floors `xhigh` to `high`, so its economic and standard rows match there).
 Apply via `ralphctl settings apply-preset <name>` or from the TUI settings view; the apply surface is
 unchanged — eight names are accepted, same command and same TUI flow. Re-applying overwrites every row
 in one transaction; subsequent per-key edits via `ralphctl settings set ai.<flow>.<field> <value>` stick.
@@ -42,9 +44,10 @@ in one transaction; subsequent per-key edits via `ralphctl settings set ai.<flow
   plus `mai-code-1-flash`, `raptor-mini-preview` (verified against Copilot CLI v1.0.60).
 - OpenAI Codex — adds `gpt-5.3-codex-spark` (text-only research preview, ChatGPT Pro only);
   `gpt-5.2` and `gpt-5.3-codex` are deprecated for ChatGPT sign-in but kept in the allowlist because
-  they remain available via API-key auth. `gpt-5.5` is the frontier default; `gpt-5.4` is the flagship
-  frontier coder (verified against Codex CLI v0.138.0). The `codex-only` preset moves implement off the
-  deprecated `gpt-5.3-codex` to `gpt-5.5`.
+  they remain available via API-key auth. `gpt-5.5` is the frontier default — the model `codex-only`
+  runs implement on and the top rung of the Codex escalation ladder; `gpt-5.4` is the strong frontier
+  coder one tier below it, where `codex-economic` starts implement (verified against Codex CLI
+  v0.138.0). The `codex-only` preset moves implement off the deprecated `gpt-5.3-codex` to `gpt-5.5`.
 
 **Fail-fast PATH check.** Every AI-spawning flow probes for its row's CLI binary at launch (`claude` /
 `copilot` / `codex` via `src/integration/system/detect-cli.ts`) and exits with `LaunchResult.fail` naming the
