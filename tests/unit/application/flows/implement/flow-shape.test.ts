@@ -338,6 +338,65 @@ describe('buildImplementPrologue / buildImplementEpilogue', () => {
   });
 });
 
+describe('createPerTaskSubchain — quarantine-blocked-diff placement (serial-path fence)', () => {
+  const readConfig = () =>
+    Promise.resolve({ maxTurns: 5, escalateOnPlateau: false, escalationMap: {}, maxAttempts: 3 });
+
+  const buildSubchain = (includeBranchPreflight: boolean): ShapeNode => {
+    const task = makeTodoTask({ name: 'do-work' });
+    const opts = makeOpts([task]);
+    const subchain = createPerTaskSubchain(
+      stubDeps(),
+      {
+        sprintDir: opts.sprintDir,
+        progressFile: opts.progressFile,
+        terminalLeafName: IMPLEMENT_TASK_TERMINAL_LEAF,
+        generator: { providerId: opts.generatorProviderId, model: opts.generatorModel },
+        evaluator: { providerId: opts.evaluatorProviderId, model: opts.evaluatorModel },
+        memoryRoot: opts.memoryRoot,
+        projectId: opts.projectId,
+        includeBranchPreflight,
+      },
+      task,
+      resolveRepoOrThrow(opts.repositories, task),
+      readConfig
+    );
+    return snapshot(subchain);
+  };
+
+  // The body sequential is `task-body-<id>`, nested under the `task-runnable-<id>` guard.
+  const taskBodyChildren = (shape: ShapeNode): readonly ShapeNode[] => {
+    const body = findByName(shape, shape.name.replace('task-', 'task-body-'));
+    return body?.children ?? [];
+  };
+
+  it('keeps the terminal uninstall-skills leaf as the LAST element on the serial path', () => {
+    const children = taskBodyChildren(buildSubchain(true));
+    const last = children[children.length - 1];
+    expect(last?.name).toMatch(/^uninstall-skills-/);
+  });
+
+  it('splices the quarantine guard immediately BEFORE the terminal leaf on the serial path', () => {
+    const children = taskBodyChildren(buildSubchain(true));
+    const allNames = children.map((c) => c.name);
+    const quarantineIdx = allNames.findIndex((n) => n.startsWith('quarantine-blocked-diff-guard-'));
+    const terminalIdx = allNames.findIndex((n) => n.startsWith('uninstall-skills-'));
+    expect(quarantineIdx).toBeGreaterThanOrEqual(0);
+    expect(quarantineIdx).toBe(terminalIdx - 1); // directly before the terminal leaf
+    // And the guard wraps the leaf itself (so it skips on a non-blocked task).
+    const guardNode = children[quarantineIdx];
+    expect(guardNode?.children?.[0]?.name).toMatch(/^quarantine-blocked-diff-/);
+  });
+
+  it('OMITS the quarantine leaf on the parallel path (includeBranchPreflight === false)', () => {
+    const allNames = names(buildSubchain(false));
+    expect(allNames.some((n) => n.startsWith('quarantine-blocked-diff'))).toBe(false);
+    // The terminal leaf is still the last body element on the parallel path.
+    const children = taskBodyChildren(buildSubchain(false));
+    expect(children[children.length - 1]?.name).toMatch(/^uninstall-skills-/);
+  });
+});
+
 describe('planImplementWaves', () => {
   it('returns the prologue, epilogue, lockKey, and dependency-scheduled waves', () => {
     const task = makeTodoTask({ name: 'do-work' });

@@ -148,9 +148,12 @@ export interface CreateImplementFlowOpts {
  * `.git/info/exclude` keeps `git status` clean of harness-managed context.
  *
  * Preflight rationale: the dirty-tree check is a precondition for the whole invocation, not for
- * each task. Between tasks the tree is clean (commit-task commits each task's work), so a
- * per-task check just re-asserts what's already known. Running preflight ONCE at the outer level
- * also lets `install-skills` materialise its files afterwards without tripping the check.
+ * each task. Between tasks the tree is kept clean — a `done` task is committed by `commit-task`,
+ * and a `blocked` task's rejected diff (which `settle-attempt`'s guardrail deliberately leaves in
+ * the shared serial tree for inspection) is moved aside by the per-task `quarantine-blocked-diff`
+ * leaf into a recoverable stash. So a per-task preflight would just re-assert what's already known.
+ * Running preflight ONCE at the outer level also lets `install-skills` materialise its files
+ * afterwards without tripping the check.
  *
  * Pre-setup gate rationale: branch resolution + a hard `working-tree-clean-check` (no recovery
  * menu) run BEFORE `setup-script-runner`. Setup commands typically assume a "ready" tree —

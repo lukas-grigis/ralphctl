@@ -19,6 +19,10 @@ import {
 } from '@src/application/flows/implement/leaves/gen-eval-loop.ts';
 import { postTaskVerifyLeaf } from '@src/application/flows/implement/leaves/post-task-verify.ts';
 import { preTaskVerifyLeaf } from '@src/application/flows/implement/leaves/pre-task-verify.ts';
+import {
+  isSettledBlocked,
+  quarantineBlockedDiffLeaf,
+} from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
 import { progressJournalLeaf } from '@src/application/flows/implement/leaves/progress-journal.ts';
 import type { RepoExecConfig } from '@src/application/flows/implement/leaves/resolve-repo.ts';
 import { settleAttemptLeaf } from '@src/application/flows/implement/leaves/settle-attempt.ts';
@@ -41,6 +45,7 @@ import { uninstallSkillsLeaf } from '@src/application/flows/_shared/skills/unins
  *       post-task-verify → commit (guarded) → settle-attempt →
  *       append-learnings → progress-journal
  *     ]), { maxIterations: maxAttempts, shouldStop: terminal }) →
+ *     quarantine-blocked-diff (guarded, serial-path only) →          // once per task
  *     uninstall-skills                                               // once per task
  *   ]))
  *
@@ -83,7 +88,9 @@ import { uninstallSkillsLeaf } from '@src/application/flows/_shared/skills/unins
  *
  * Continue-on-blocked: tasks that settle `blocked` (self-block reason) do NOT halt the chain —
  * sibling tasks run unconditionally. The settle-attempt leaf catches the block, the chain
- * keeps going.
+ * keeps going. On the serial path the guarded `quarantine-blocked-diff` leaf then stashes the
+ * blocked task's rejected diff (which the settle guardrail deliberately left in the shared tree)
+ * so the next sibling starts on a clean tree instead of inheriting — and committing — the leftovers.
  *
  * AbortError propagates verbatim through the attempt loop: a mid-attempt abort fails the inner
  * sequential, the loop returns the `AbortError` without starting another iteration.
@@ -332,6 +339,32 @@ export const createPerTaskSubchain = (
             shouldStop: (ctx) => terminalTaskStatus(ctx, taskId),
           }
         ),
+        // SERIAL-PATH ONLY. A task that settled `blocked` (self-block / budget-exhausted) leaves its
+        // rejected diff in the SHARED worktree — `settle-attempt`'s dirty-tree guardrail exempts the
+        // block path so the operator can inspect it. On the serial path that contaminates the next
+        // task (its `git add -A` sweeps the leftovers into its commit; the dirt flips its pre-verify
+        // red and the red post-verify is mis-attributed `baseline-broken`, landing a corrupt commit).
+        // This guarded leaf stashes the rejected diff so the tree is clean again before the next task
+        // runs, restoring the invariant the prologue's one-shot preflight assumes. The guard is
+        // synchronous (status === 'blocked' read from the settled `ctx.tasks` copy — `settle-attempt`
+        // cleared `ctx.currentTask`); the splice itself is gated on the serial-path proxy
+        // `includeBranchPreflight` so the parallel launcher (per-task worktrees, already isolated)
+        // never includes it. Stays INSIDE the body guard + AFTER the loop so it runs once per task,
+        // and BEFORE `uninstall-skills` so that leaf remains the subchain's terminal element (the
+        // TUI's task-completion detector keys on it).
+        ...(includeBranchPreflight
+          ? [
+              guard<ImplementCtx>(
+                `quarantine-blocked-diff-guard-${String(taskId)}`,
+                (ctx) => isSettledBlocked(ctx, taskId),
+                quarantineBlockedDiffLeaf(
+                  { gitRunner: deps.gitRunner, taskRepo: deps.taskRepo, logger: deps.logger },
+                  { cwd: repo.path },
+                  taskId
+                )
+              ),
+            ]
+          : []),
         uninstallSkillsLeaf<ImplementCtx>(
           { skillsAdapter: deps.skillsAdapter },
           { name: `${opts.terminalLeafName}-${String(taskId)}`, cwdPicker: repoCwdPicker(repo.path) }

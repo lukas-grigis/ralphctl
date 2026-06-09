@@ -227,6 +227,10 @@ const commitCapturingGit = (taskCount: number): CommitCapturingGit => {
         return okGit(' M file\n', 0); // commit-task gate: dirty
       }
       if (args[0] === 'add' && args[1] === '-A') return okGit('', 0);
+      // Serial-path quarantine of a blocked task's rejected diff: `gitStashPush` runs `status
+      // --porcelain` (handled above — dirty for the just-blocked task) then `stash push -u -m …`.
+      // Report success so the quarantine leaf records its pointer and the run proceeds.
+      if (args[0] === 'stash' && args[1] === 'push') return okGit('Saved working directory\n', 0);
       if (args[0] === 'commit' && args[1] === '-m') {
         messages.push(args[2] ?? '');
         cleanAfterCommit = true;
