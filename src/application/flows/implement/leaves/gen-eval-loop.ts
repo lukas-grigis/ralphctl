@@ -164,9 +164,16 @@ export const createGenEvalLoop = (
       ),
     ]),
     {
-      shouldContinue: async (_ctx, i) => {
+      // Loop-entry guard. Refuse to enter a turn when a terminal exit is ALREADY on ctx — the
+      // only way `lastExit` is set at loop entry is a pre-task-verify block/skip (start-attempt
+      // runs before pre-verify and settle-attempt clears `lastExit` at the end of every attempt,
+      // so no stale exit can leak across attempts/tasks; the parallel merge-wave classifies
+      // `lastExit` PER_TASK). Without this check a pre-blocked task would still claim a
+      // `rounds/<N>/` dir, stamp two meta sidecars, and spawn one full generator session on the
+      // exact broken tree the gate refused — the most expensive unit in the system.
+      shouldContinue: async (ctx, i) => {
         const cfg = await deps.readConfig();
-        return i <= Math.max(1, cfg.maxTurns);
+        return ctx.lastExit === undefined && i <= Math.max(1, cfg.maxTurns);
       },
       shouldStop: (ctx) => ctx.lastExit !== undefined,
     }

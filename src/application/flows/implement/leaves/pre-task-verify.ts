@@ -439,12 +439,16 @@ export const preTaskVerifyLeaf = (
         lastPreVerifyOutcome: out.run.outcome,
       };
       // When the leaf decided to short-circuit the task (non-interactive block or skip), lift
-      // the reason onto `lastExit` + `lastBlockReason`. The gen-eval loop's `shouldStop`
-      // predicate sees `lastExit !== undefined` and exits without running any turn;
-      // finalize-gen-eval reads the self-blocked exit and stamps `verdict: 'failed'` +
-      // `blockedReason` so settle-attempt routes the task to `blocked`. Self-blocked is the
-      // existing GenEvalExit kind that already carries an arbitrary reason string — there's
-      // no need for a separate `baseline-broken` exit kind to wire the same outcome.
+      // the reason onto `lastExit` + `lastBlockReason`. The gen-eval loop's `shouldContinue`
+      // predicate sees `lastExit !== undefined` at loop entry and REFUSES to enter any turn —
+      // no round folder is claimed, no meta sidecar is stamped, and the generator never spawns
+      // on the broken tree the gate just refused. finalize-gen-eval then reads the self-blocked
+      // exit and stamps `verdict: 'failed'` + `blockedReason` so settle-attempt routes the task
+      // to `blocked`. post-task-verify also short-circuits to a synthetic `'skipped'` run
+      // (`lastBlockReason` set AND `genEvalTurn === undefined`) so the dominant-cost verify
+      // script is not re-run when there was no AI work to verify. Self-blocked is the existing
+      // GenEvalExit kind that already carries an arbitrary reason string — there's no need for a
+      // separate `baseline-broken` exit kind to wire the same outcome.
       if (out.blockReason !== undefined) {
         return {
           ...next,
