@@ -21,6 +21,8 @@ import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { HarnessSignalSink } from '@src/business/observability/harness-signal-sink.ts';
 import { buildEvaluatePrompt } from '@src/integration/ai/prompts/evaluate/definition.ts';
+import { buildEvaluateContinuationPrompt } from '@src/integration/ai/prompts/evaluate-continuation/definition.ts';
+import type { BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
@@ -37,6 +39,10 @@ import {
   roundSignalsPath,
   writeRoundPrompt,
 } from '@src/application/flows/implement/leaves/round-artifacts.ts';
+import {
+  capProgressBody,
+  RECENT_ATTEMPT_SECTIONS,
+} from '@src/application/flows/implement/leaves/_shared/cap-progress.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { PlateauTurnRecord } from '@src/business/task/plateau-detection.ts';
 
@@ -141,17 +147,69 @@ interface EvaluatorOutput {
 }
 
 /**
- * Read the current `progress.md` body to inline into the evaluator prompt. Best-effort: a
- * missing / unreadable file returns the empty string so the template's surrounding prose
- * handles the empty case without a per-flow special branch. Mirrors the generator-leaf
- * helper of the same name so both sides of the gen-eval loop see the same journal body.
+ * Read the current `progress.md` body to inline into the evaluator prompt, CAPPED to the sprint
+ * header, ALL of the current task's own attempt sections, and the last N other-task sections
+ * (see {@link capProgressBody}). `progress.md` is sprint-wide and append-only, so a late-sprint
+ * journal is dozens of sections long; inlining the whole body into every evaluator turn grew
+ * token cost superlinearly. The cap bounds breadth across siblings — the current task's own
+ * history rides in full because its earlier warnings / escalations / remedies are the depth the
+ * verdict must account for — while the FULL file stays on disk, reachable to the AI via the
+ * `sprintDir` `--add-dir` mount named in the prompt, with every elision marked in place. Applied
+ * to both the full evaluate prompt (round 1 / fresh session) and the continuation prompt.
+ * Mirrors the generator-leaf helper so both sides of the gen-eval loop see the same journal body.
+ *
+ * Best-effort: a missing / unreadable file returns the empty string so the template's
+ * surrounding prose handles the empty case without a per-flow special branch.
  */
-const readProgressFile = async (path: string): Promise<string> => {
+const readCappedProgress = async (path: string, currentTaskName: string): Promise<string> => {
   try {
-    return await fs.readFile(path, 'utf8');
+    return capProgressBody(await fs.readFile(path, 'utf8'), RECENT_ATTEMPT_SECTIONS, currentTaskName);
   } catch {
     return '';
   }
+};
+
+/**
+ * Select and build this turn's evaluator prompt by session continuity. Mirrors the generator
+ * leaf's {@link import('./generator.ts')} helper.
+ *
+ * The FIRST evaluator turn of a session thread (`priorEvaluatorSessionId === undefined`) re-sends
+ * the full specification + rubric; a RESUMED turn sends the slim continuation prompt because the
+ * conversation already holds them, so only the per-round delta (round number, recent journal)
+ * need ride. `start-attempt` clears the session slot per attempt, so attempt boundaries always
+ * re-send the full context. A provider that never reports a session id keeps getting the full
+ * prompt automatically — the discriminant is the same field `--resume` consumes.
+ */
+const buildEvaluatorPrompt = async (
+  deps: Pick<EvaluatorLeafDeps, 'templateLoader' | 'cwd' | 'progressFile' | 'verifyScript'>,
+  args: {
+    readonly task: InProgressTask;
+    readonly workspaceRoot: AbsolutePath;
+    readonly roundNum: number;
+    readonly outputContractSection: string;
+    readonly priorEvaluatorSessionId: SessionId | undefined;
+  }
+): Promise<Result<Prompt, BuildPromptError>> => {
+  const priorProgress = await readCappedProgress(String(deps.progressFile), args.task.name);
+  const contractPath = join(String(args.workspaceRoot), 'contract.md');
+
+  if (args.priorEvaluatorSessionId === undefined) {
+    return buildEvaluatePrompt(deps.templateLoader, {
+      task: args.task,
+      projectPath: String(deps.cwd),
+      contractPath,
+      outputContractSection: args.outputContractSection,
+      priorProgress,
+      ...(deps.verifyScript !== undefined ? { verifyScript: deps.verifyScript } : {}),
+    });
+  }
+  return buildEvaluateContinuationPrompt(deps.templateLoader, {
+    roundNumber: args.roundNum,
+    contractPath,
+    progressFile: String(deps.progressFile),
+    priorProgress,
+    outputContractSection: args.outputContractSection,
+  });
 };
 
 export const evaluatorLeaf = (deps: EvaluatorLeafDeps, taskId: TaskId): Element<ImplementCtx> =>
@@ -171,17 +229,13 @@ export const evaluatorLeaf = (deps: EvaluatorLeafDeps, taskId: TaskId): Element<
         const outputDir = outputDirPath.value;
 
         const callEvaluate: RunEvaluatorTurnProps['callEvaluate'] = async (task) => {
-          // Inline the current progress.md body into the prompt. Best-effort — a missing or
-          // unreadable file degrades to empty, which the template's surrounding prose handles
-          // without a special branch. Mirrors the generator-leaf wiring.
-          const priorProgress = await readProgressFile(String(deps.progressFile));
-          const prompt = await buildEvaluatePrompt(deps.templateLoader, {
+          const outputContractSection = renderContractSectionFor(evaluatorOutputContract, outputDir);
+          const prompt = await buildEvaluatorPrompt(deps, {
             task,
-            projectPath: String(deps.cwd),
-            contractPath: join(String(input.workspaceRoot), 'contract.md'),
-            outputContractSection: renderContractSectionFor(evaluatorOutputContract, outputDir),
-            priorProgress,
-            ...(deps.verifyScript !== undefined ? { verifyScript: deps.verifyScript } : {}),
+            workspaceRoot: input.workspaceRoot,
+            roundNum: input.roundNum,
+            outputContractSection,
+            priorEvaluatorSessionId: input.priorEvaluatorSessionId,
           });
           if (!prompt.ok) return Result.error(prompt.error) as Result<readonly HarnessSignal[], DomainError>;
           // Persist the rendered prompt under `rounds/<N>/evaluator/prompt.md` BEFORE the AI

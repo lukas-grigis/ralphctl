@@ -153,4 +153,93 @@ describe('evaluatorLeaf', () => {
     expect(result.ok).toBe(true);
     expect(deps.provider.recordedSessions[0]?.abortSignal).toBe(controller.signal);
   });
+
+  // Prompt selection by session continuity — mirrors the generator leaf. The FIRST evaluator
+  // turn of a session thread re-sends the full specification + rubric; a RESUMED turn sends the
+  // slim continuation prompt. A provider that never reports a session id always gets the full
+  // prompt because the discriminant — `priorEvaluatorSessionId` — is the same field `--resume`
+  // consumes.
+  describe('prompt selection by session continuity', () => {
+    const PASSING_EVAL: readonly HarnessSignal[] = [
+      {
+        type: 'evaluation',
+        status: 'passed',
+        dimensions: [
+          { dimension: 'correctness', passed: true, finding: 'all good' },
+          { dimension: 'completeness', passed: true, finding: 'all steps shipped' },
+          { dimension: 'safety', passed: true, finding: 'inputs validated' },
+          { dimension: 'consistency', passed: true, finding: 'matches siblings' },
+        ],
+        timestamp: FIXED_NOW,
+      },
+    ];
+
+    const readPrompt = (round: number): Promise<string> =>
+      fs.readFile(join(String(root.root), 'rounds', String(round), 'evaluator', 'prompt.md'), 'utf8');
+
+    const baseCtx = (
+      task: ReturnType<typeof makeInProgressTaskWithRunningAttempt>,
+      roundNum: number
+    ): ImplementCtx => ({
+      sprintId: task.id as unknown as ImplementCtx['sprintId'],
+      tasks: [task],
+      currentTask: task,
+      currentRoundNum: roundNum,
+      taskWorkspaceRoot: root.root,
+    });
+
+    it('sends the FULL evaluate prompt on the first turn (no prior session id)', async () => {
+      const task = makeInProgressTaskWithRunningAttempt();
+      const leaf = evaluatorLeaf(buildDeps(), task.id);
+      const result = await leaf.execute(baseCtx(task, 1));
+      expect(result.ok).toBe(true);
+
+      const content = await readPrompt(1);
+      expect(content).toContain('independent code reviewer');
+      expect(content).not.toContain('# Re-evaluate — Round');
+    });
+
+    it('sends the CONTINUATION prompt on a resumed turn (prior session id present)', async () => {
+      const provider = createFakeAiProvider({
+        responses: { evaluate: '', 'evaluate-continuation': '' },
+        signals: { evaluate: PASSING_EVAL, 'evaluate-continuation': PASSING_EVAL },
+        sessionIds: { evaluate: 'eval-1' },
+      });
+      const task = makeInProgressTaskWithRunningAttempt();
+      const leaf = evaluatorLeaf({ ...buildDeps(), provider }, task.id);
+
+      const first = await leaf.execute(baseCtx(task, 1));
+      expect(first.ok).toBe(true);
+      if (!first.ok) return;
+      expect(first.value.ctx.priorEvaluatorSessionId).toBe('eval-1');
+      expect(await readPrompt(1)).toContain('independent code reviewer');
+
+      await fs.mkdir(join(String(root.root), 'rounds', '2', 'evaluator'), { recursive: true });
+      const second = await leaf.execute({ ...first.value.ctx, currentRoundNum: 2 });
+      expect(second.ok).toBe(true);
+
+      const round2 = await readPrompt(2);
+      expect(round2).toContain('# Re-evaluate — Round 2');
+      expect(round2).not.toContain('## Review protocol'); // a heading unique to the full template
+    });
+
+    it('always sends the FULL prompt when the provider never reports a session id', async () => {
+      const task = makeInProgressTaskWithRunningAttempt();
+      const deps = buildDeps(); // no sessionIds configured
+      const leaf = evaluatorLeaf(deps, task.id);
+
+      const first = await leaf.execute(baseCtx(task, 1));
+      expect(first.ok).toBe(true);
+      if (!first.ok) return;
+      expect(first.value.ctx.priorEvaluatorSessionId).toBeUndefined();
+
+      await fs.mkdir(join(String(root.root), 'rounds', '2', 'evaluator'), { recursive: true });
+      const second = await leaf.execute({ ...first.value.ctx, currentRoundNum: 2 });
+      expect(second.ok).toBe(true);
+
+      expect(await readPrompt(1)).toContain('independent code reviewer');
+      expect(await readPrompt(2)).toContain('independent code reviewer');
+      expect(await readPrompt(2)).not.toContain('# Re-evaluate — Round');
+    });
+  });
 });

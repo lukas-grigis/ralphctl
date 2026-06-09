@@ -83,6 +83,12 @@ export interface FakeAiProvider extends HeadlessAiProvider {
 export const MARKERS: Readonly<Record<string, string>> = {
   refine: 'requirements analyst working interactively',
   plan: 'task planning specialist',
+  // Continuation markers MUST precede their full counterparts in this map: dispatch returns the
+  // FIRST matching marker, and the evaluate-continuation role block re-states "independent code
+  // reviewer" (so it would otherwise be misdispatched as `evaluate`). The continuation H1s are
+  // unique, so listing them first resolves the overlap deterministically.
+  'implement-continuation': '# Continue — Round',
+  'evaluate-continuation': '# Re-evaluate — Round',
   implement: '# Task Execution Protocol',
   evaluate: 'independent code reviewer',
   readiness: 'project context file proposal',

@@ -22,6 +22,8 @@ import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { HarnessSignalSink } from '@src/business/observability/harness-signal-sink.ts';
 import { buildImplementPrompt } from '@src/integration/ai/prompts/implement/definition.ts';
+import { buildImplementContinuationPrompt } from '@src/integration/ai/prompts/implement-continuation/definition.ts';
+import type { BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
@@ -36,6 +38,10 @@ import {
   roundSignalsPath,
   writeRoundPrompt,
 } from '@src/application/flows/implement/leaves/round-artifacts.ts';
+import {
+  capProgressBody,
+  RECENT_ATTEMPT_SECTIONS,
+} from '@src/application/flows/implement/leaves/_shared/cap-progress.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
 /**
@@ -161,16 +167,83 @@ interface GeneratorOutput {
 }
 
 /**
- * Read the current `progress.md` body to inline into the prompt. Best-effort: a missing /
- * unreadable file returns the empty string so the template's surrounding prose handles the
- * empty case without a per-flow special branch.
+ * Read the current `progress.md` body to inline into the prompt, CAPPED to the sprint header,
+ * ALL of the current task's own attempt sections, and the last N other-task sections (see
+ * {@link capProgressBody}). `progress.md` is sprint-wide and append-only, so a late-sprint
+ * journal is dozens of sections long; inlining the whole body into every generator turn grew
+ * token cost superlinearly. The cap bounds breadth across siblings — the current task's own
+ * history rides in full because its earlier warnings / escalations / remedies are the depth the
+ * next attempt must honour — while the FULL file stays on disk, reachable to the AI via the
+ * `sprintDir` `--add-dir` mount named in the prompt, with every elision marked in place. Applied
+ * to both the full implement prompt (round 1 / fresh session) and the continuation prompt.
+ *
+ * Best-effort: a missing / unreadable file returns the empty string so the template's
+ * surrounding prose handles the empty case without a per-flow special branch.
  */
-const readProgressFile = async (path: string): Promise<string> => {
+const readCappedProgress = async (path: string, currentTaskName: string): Promise<string> => {
   try {
-    return await fs.readFile(path, 'utf8');
+    return capProgressBody(await fs.readFile(path, 'utf8'), RECENT_ATTEMPT_SECTIONS, currentTaskName);
   } catch {
     return '';
   }
+};
+
+/**
+ * Select and build this turn's generator prompt by session continuity.
+ *
+ * The FIRST turn of a session thread (`priorGeneratorSessionId === undefined`) re-sends the full
+ * implement brief; a RESUMED turn sends the slim continuation prompt because the conversation
+ * already holds the brief, so only the per-round delta (critique, round number, plateau
+ * directive) need ride. `start-attempt` clears the session slot per attempt, so attempt
+ * boundaries always re-send the full context. A provider that never reports a session id keeps
+ * getting the full prompt automatically — the discriminant is the same field `--resume` consumes,
+ * so the prompt and the resume target can never disagree.
+ *
+ * Shared between both branches:
+ *  - `priorProgress` — the capped sprint-journal excerpt (full file stays on disk).
+ *  - `plateauBreak` — armed ONLY on a top-of-ladder same-model nudge
+ *    (`escalatedFromModel === escalatedToModel`). On a model BUMP (from !== to) the stronger model
+ *    gets the targeted `priorCritique` instead, so the "abandon your approach" directive is
+ *    reserved for the same-model nudge where no fresh capability remains.
+ */
+const buildGeneratorPrompt = async (
+  deps: Pick<GeneratorLeafDeps, 'templateLoader' | 'cwd' | 'progressFile' | 'verifyScript'>,
+  args: {
+    readonly task: InProgressTask;
+    readonly workspaceRoot: AbsolutePath;
+    readonly roundNum: number;
+    readonly outputContractSection: string;
+    readonly priorGeneratorSessionId: SessionId | undefined;
+  }
+): Promise<Result<Prompt, BuildPromptError>> => {
+  const priorCritique = latestCritique(args.task);
+  const priorProgress = await readCappedProgress(String(deps.progressFile), args.task.name);
+  const contractPath = join(String(args.workspaceRoot), 'contract.md');
+  const plateauBreak =
+    args.task.escalatedFromModel !== undefined && args.task.escalatedFromModel === args.task.escalatedToModel;
+
+  if (args.priorGeneratorSessionId === undefined) {
+    return buildImplementPrompt(deps.templateLoader, {
+      task: args.task,
+      projectPath: String(deps.cwd),
+      contractPath,
+      progressFile: String(deps.progressFile),
+      priorProgress,
+      outputContractSection: args.outputContractSection,
+      ...(deps.verifyScript !== undefined ? { verifyScript: deps.verifyScript } : {}),
+      ...(priorCritique !== undefined ? { priorCritique } : {}),
+      ...(plateauBreak ? { plateauBreak: true } : {}),
+    });
+  }
+  return buildImplementContinuationPrompt(deps.templateLoader, {
+    roundNumber: args.roundNum,
+    contractPath,
+    progressFile: String(deps.progressFile),
+    priorProgress,
+    outputContractSection: args.outputContractSection,
+    ...(priorCritique !== undefined ? { priorCritique } : {}),
+    ...(plateauBreak ? { plateauBreak: true } : {}),
+  });
 };
 
 export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<ImplementCtx> =>
@@ -228,29 +301,13 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
         const learningsEmitted: LearningEntry[] = [];
         const notesEmitted: string[] = [];
         const callImplement: RunGeneratorTurnProps['callImplement'] = async (task) => {
-          const priorCritique = latestCritique(task);
-          // Inline the current progress.md body into the prompt (audit-[07]). Best-effort —
-          // a missing or unreadable file degrades to empty, which the template's surrounding
-          // prose handles without a special branch.
-          const priorProgress = await readProgressFile(String(deps.progressFile));
-          const prompt = await buildImplementPrompt(deps.templateLoader, {
+          const outputContractSection = renderContractSectionFor(generatorOutputContract, outputDir);
+          const prompt = await buildGeneratorPrompt(deps, {
             task,
-            projectPath: String(deps.cwd),
-            contractPath: join(String(input.workspaceRoot), 'contract.md'),
-            progressFile: String(deps.progressFile),
-            priorProgress,
-            outputContractSection: renderContractSectionFor(generatorOutputContract, outputDir),
-            ...(deps.verifyScript !== undefined ? { verifyScript: deps.verifyScript } : {}),
-            ...(priorCritique !== undefined ? { priorCritique } : {}),
-            // Plateau-break directive: armed ONLY on a top-of-ladder same-model nudge
-            // (`escalatedFromModel === escalatedToModel`). On a model BUMP (from !== to) the
-            // stronger model gets the targeted `priorCritique` instead — the "abandon your
-            // approach" directive is decoupled from escalation and reserved for the same-model
-            // nudge, where there is no fresh capability to lean on so the only lever left is a
-            // change of approach.
-            ...(task.escalatedFromModel !== undefined && task.escalatedFromModel === task.escalatedToModel
-              ? { plateauBreak: true }
-              : {}),
+            workspaceRoot: input.workspaceRoot,
+            roundNum,
+            outputContractSection,
+            priorGeneratorSessionId: input.priorGeneratorSessionId,
           });
           if (!prompt.ok) return Result.error(prompt.error) as Result<readonly HarnessSignal[], DomainError>;
           // Persist the rendered prompt under `rounds/<N>/generator/prompt.md` BEFORE the AI
