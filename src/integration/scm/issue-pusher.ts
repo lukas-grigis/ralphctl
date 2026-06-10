@@ -52,15 +52,24 @@ const commentGitLab = async (
   spawn: Spawn,
   url: string,
   body: string,
-  parsed: { owner: string; repo: string; number: number }
+  parsed: { hostname: string; owner: string; repo: string; number: number }
 ): Promise<Result<void, StorageError>> => {
-  // `glab issue comment <number> --repo <owner>/<repo> --body <body>` — glab doesn't accept
+  // `glab issue comment <number> --repo <host>/<owner>/<repo> --body <body>` — glab doesn't accept
   // the body via stdin, so we pass it as a flag value. Markdown / newlines survive because
-  // spawn marshals each argv element as a separate exec arg (no shell parsing).
+  // spawn marshals each argv element as a separate exec arg (no shell parsing). The host MUST be
+  // prefixed — without it glab defaults to gitlab.com and a self-hosted issue 401s / 404s.
   const r = await runCli(
     spawn,
     'glab',
-    ['issue', 'comment', String(parsed.number), '--repo', `${parsed.owner}/${parsed.repo}`, '--body', body],
+    [
+      'issue',
+      'comment',
+      String(parsed.number),
+      '--repo',
+      `${parsed.hostname}/${parsed.owner}/${parsed.repo}`,
+      '--body',
+      body,
+    ],
     { timeoutMs: CLI_TIMEOUT_MS }
   );
   if (!r.ok) return Result.error(r.error);

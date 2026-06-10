@@ -79,7 +79,7 @@ describe('createIssuePusher — comment', () => {
     const { spawn, capture } = scriptedSpawn([
       {
         command: 'glab',
-        args: ['issue', 'comment', '7', '--repo', 'foo/bar', '--body', 'new body'],
+        args: ['issue', 'comment', '7', '--repo', 'gitlab.com/foo/bar', '--body', 'new body'],
         stdout: '',
         exitCode: 0,
       },
@@ -89,6 +89,20 @@ describe('createIssuePusher — comment', () => {
     expect(r.ok).toBe(true);
     // glab takes the body as a flag value, not on stdin.
     expect(capture.stdinWrites).toEqual([]);
+  });
+
+  it('self-hosted GitLab: prefixes the URL host onto glab --repo', async () => {
+    const { spawn } = scriptedSpawn([
+      {
+        command: 'glab',
+        args: ['issue', 'comment', '55', '--repo', 'gitlab.example.internal/team/project', '--body', 'done'],
+        stdout: '',
+        exitCode: 0,
+      },
+    ]);
+    const pusher = createIssuePusher({ spawn });
+    const r = await pusher.comment('https://gitlab.example.internal/team/project/-/work_items/55', { body: 'done' });
+    expect(r.ok).toBe(true);
   });
 
   it('rejects unsupported issue URLs with a parse error', async () => {

@@ -24,6 +24,8 @@ const MAX_COMMENTS = 20;
 
 interface ParsedUrl {
   readonly host: 'github' | 'gitlab';
+  /** The URL hostname (e.g. `gitlab.com`, `gitlab.example.internal`). Used to target self-hosted instances. */
+  readonly hostname: string;
   readonly owner: string;
   readonly repo: string;
   readonly number: number;
@@ -123,25 +125,35 @@ export const parseIssueUrl = (url: string): ParsedUrl | null => {
       const repo = segments[1];
       const num = Number(segments[3]);
       if (owner && repo && Number.isInteger(num) && num > 0) {
-        return { host: 'github', owner, repo, number: num };
+        return { host: 'github', hostname: parsed.hostname, owner, repo, number: num };
       }
     }
     return null;
   }
 
-  // GitLab: /<group...>/<project>/-/issues/<number>
+  // GitLab: /<group...>/<project>/-/issues/<number> — also accept the `work_items` path.
+  // Since GitLab 16 issues are work items sharing one iid namespace, so a `/-/work_items/N`
+  // URL resolves to the same issue as `/-/issues/N` and `glab issue view N` fetches both.
   const dashIdx = segments.indexOf('-');
-  if (dashIdx >= 2 && segments[dashIdx + 1] === 'issues') {
+  const kind = dashIdx >= 0 ? segments[dashIdx + 1] : undefined;
+  if (dashIdx >= 2 && (kind === 'issues' || kind === 'work_items')) {
     const num = Number(segments[dashIdx + 2]);
     const repo = segments[dashIdx - 1];
     if (repo && Number.isInteger(num) && num > 0) {
       const owner = segments.slice(0, dashIdx - 1).join('/');
-      return { host: 'gitlab', owner, repo, number: num };
+      return { host: 'gitlab', hostname: parsed.hostname, owner, repo, number: num };
     }
   }
 
   return null;
 };
+
+/**
+ * The `--repo` argument for `glab`. Fully-qualified as `HOST/OWNER/REPO` so the CLI targets the
+ * right instance — without the host, `glab` silently defaults to `gitlab.com` and an issue on a
+ * self-hosted host (e.g. `gitlab.example.internal`) 401s / 404s against the wrong server.
+ */
+const glabRepoArg = (parsed: ParsedUrl): string => `${parsed.hostname}/${parsed.owner}/${parsed.repo}`;
 
 const looksLikeNotFound = (stderr: string): boolean => {
   const s = stderr.toLowerCase();
@@ -227,7 +239,7 @@ const fetchGitLabNotes = async (
   const result = await runCli(
     spawn,
     'glab',
-    ['issue', 'note', 'list', String(parsed.number), '--repo', `${parsed.owner}/${parsed.repo}`, '--output', 'json'],
+    ['issue', 'note', 'list', String(parsed.number), '--repo', glabRepoArg(parsed), '--output', 'json'],
     { timeoutMs: CLI_TIMEOUT_MS }
   );
   if (!result.ok) return { comments: [], failure: result.error.message };
@@ -268,7 +280,7 @@ const fetchGitLab = async (
   const result = await runCli(
     spawn,
     'glab',
-    ['issue', 'view', String(parsed.number), '--repo', `${parsed.owner}/${parsed.repo}`, '--output', 'json'],
+    ['issue', 'view', String(parsed.number), '--repo', glabRepoArg(parsed), '--output', 'json'],
     { timeoutMs: CLI_TIMEOUT_MS }
   );
   if (!result.ok) return Result.error(result.error);
