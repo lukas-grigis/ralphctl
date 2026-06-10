@@ -40,9 +40,33 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
  * to read the same fields:
  *
  *   - `lastVerifyResult` — `'skipped' | 'passed' | 'verify-failed'`, derived from the row.
- *   - `lastBlockReason`  — set only on `'regressed'`. Pre-existing failures (`baseline-broken`)
- *                          do NOT block — they preserve the AI's verdict so the operator can
- *                          fix the baseline without losing the AI's work.
+ *   - `lastBlockReason`  — set on raw red post and on `'regressed'`. Pre-existing failures
+ *                          (`baseline-broken`) do NOT block — they preserve the AI's verdict so
+ *                          the operator can fix the baseline without losing the AI's work.
+ *   - `lastShouldFailAttempt` — set to `true` ON `'regressed'` AND ONLY WHILE the task's attempt
+ *                          budget remains (see {@link budgetRemains}). This is the bounded
+ *                          red-post-verify RETRY (T6): an evaluator-passed attempt whose harness
+ *                          post-verify regressed a green baseline gets one more attempt — the same
+ *                          retry seam an escalation grant uses — instead of blocking immediately.
+ *
+ * ## Why the retry outranks the block (mirrors `settle-attempt`'s PRECEDENCE rule)
+ *
+ * On a `'regressed'` attempt with budget remaining this leaf sets BOTH `lastShouldFailAttempt`
+ * AND `lastBlockReason`. They co-occur deliberately, and `settle-attempt`'s precedence resolves
+ * the composition in the retry's favour: a granted retry outranks a block reason, because the
+ * whole point of the attempt budget is to spend remedies before surrendering, and a red verify on
+ * the failing work is exactly the signal a fresh attempt targets. The red work NEVER lands: the
+ * `commit-task` guard keys on `lastBlockReason` INDEPENDENTLY of the retry flag (so the broken
+ * diff is never committed), and `quarantineRetryDiffLeaf` (guarded on both flags via
+ * `isRedVerifyRetry`) stashes the rejected diff so the retried attempt's pre-verify starts clean.
+ * The next loop iteration re-enters `start-attempt` with a fresh attempt whose generator prompt now
+ * carries the `<retry_feedback>` block (the prior attempt's failing post-verify output). Once the
+ * budget exhausts this leaf stops setting the retry flag and the same red verify blocks the task —
+ * a human then intervenes (today's behaviour, now reserved for genuine budget exhaustion).
+ *
+ * Other attributions keep today's behaviour exactly: `clean` / `fixed-baseline` (post green → no
+ * block), `baseline-broken` (escape hatch → no block, preserve verdict), and `undefined` (raw red
+ * with no pre-verify evidence → block, no retry).
  *
  * This leaf must sit BEFORE `commit-task` in the per-task chain — that's how the harness
  * enforces "tests must pass before we declare the task complete." The AI is told to run the
@@ -66,6 +90,16 @@ export interface PostTaskVerifyLeafOpts {
    * output to `<sprintDir>/logs/verify/<task-id>/post-attempt-<N>.log` per audit [01] / [03].
    */
   readonly sprintDir?: AbsolutePath;
+  /**
+   * Effective per-task attempt cap (T6). Resolved at wiring time in `per-task-subchain.ts` as
+   * `task.maxAttempts ?? settings.harness.maxAttempts` — the SAME expression the outer attempt
+   * loop uses for its `maxIterations`, so the leaf's retry budget and the loop's iteration cap can
+   * never disagree. A `'regressed'` post-verify grants the bounded retry only while budget remains
+   * (see {@link budgetRemains}); on the last allowed attempt it blocks instead. Undefined for
+   * legacy callers without a cap wired — those keep the pre-T6 block-immediately behaviour because
+   * {@link budgetRemains} returns `false` when the cap is unknown.
+   */
+  readonly maxAttempts?: number;
 }
 
 interface LeafInput {
@@ -122,6 +156,24 @@ const legacyVerifyResult = (
   const stderr = run.outcome === 'spawn-error' ? (spawnErrorMessage ?? '') : rawOutput;
   return { kind: 'verify-failed', exitCode: run.exitCode, stderr };
 };
+
+/**
+ * Whether a `'regressed'` post-verify may grant the bounded red-post-verify RETRY (T6) rather than
+ * block. Budget is counted by attempts INCLUDING the running one: `start-attempt` appended the
+ * running attempt before this leaf, so `attempts.length` already counts it as spent. The retry is
+ * granted while `attempts.length < maxAttempts` — i.e. a fresh attempt slot remains under the cap.
+ *
+ * Worked example (the explicit case the spec pins): with `maxAttempts === 3` and the running
+ * attempt being the 3rd (`attempts.length === 3`), `3 < 3` is `false` → NO retry, the task blocks.
+ * On the 1st of 3 (`attempts.length === 1`), `1 < 3` is `true` → retry. The comparison matches the
+ * domain's own cap check in `failCurrentAttempt` (`attempts.length >= maxAttempts → blocked`), so
+ * the leaf and the loop agree on the exact attempt the budget runs out.
+ *
+ * `cap === undefined` (no budget wired) returns `false` — legacy callers keep blocking immediately,
+ * the pre-T6 behaviour.
+ */
+const budgetRemains = (task: InProgressTask, cap: number | undefined): boolean =>
+  cap !== undefined && task.attempts.length < cap;
 
 export const postTaskVerifyLeaf = (
   deps: PostTaskVerifyLeafDeps,
@@ -318,6 +370,15 @@ export const postTaskVerifyLeaf = (
           ? `verify script regressed baseline (exit=${String(out.run.exitCode)}); harness will not commit on red`
           : `verify script failed (exit=${String(out.run.exitCode)}); harness will not commit on red`
         : undefined;
+      // Bounded red-post-verify RETRY (T6). ONLY a `'regressed'` attribution (an evaluator-passed
+      // attempt that broke a GREEN baseline) qualifies — not raw red (no pre-verify evidence),
+      // `baseline-broken` (pre-existing failure, no block at all), `clean`, or `fixed-baseline`.
+      // While the task's attempt budget remains we also set `lastShouldFailAttempt`: settle's
+      // PRECEDENCE then keeps the task in_progress for one more attempt (commit was already skipped
+      // by the block guard; the retry-diff quarantine stashes the rejected diff). On the last
+      // allowed attempt `budgetRemains` is false → block only, matching today's behaviour. The
+      // running attempt counts as spent (start-attempt appended it), so a 3rd-of-3 attempt blocks.
+      const grantRetry = out.attribution === 'regressed' && budgetRemains(out.task, opts.maxAttempts);
       return {
         ...ctx,
         currentTask: out.task,
@@ -330,6 +391,7 @@ export const postTaskVerifyLeaf = (
         // `settle-attempt` (which clears per-attempt fields only).
         priorPostVerifyOutcome: { cwd: opts.cwd, outcome: out.run.outcome },
         ...(blockReason !== undefined ? { lastBlockReason: blockReason } : {}),
+        ...(grantRetry ? { lastShouldFailAttempt: true } : {}),
       };
     },
   });

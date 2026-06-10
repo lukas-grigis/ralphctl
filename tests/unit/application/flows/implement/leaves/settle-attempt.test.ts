@@ -254,6 +254,38 @@ describe('settleAttemptLeaf — retry-wins precedence (composed red-verify case)
     expect(calls[0]?.task.status).toBe('in_progress');
   });
 
+  it('T6: red-post-verify retry (both flags) + budget remaining → task settles in_progress, attempt records failed (not blocked)', async () => {
+    // Pins the exact composition T6's post-task-verify leaf produces on a `'regressed'` attribution
+    // with budget remaining: `lastShouldFailAttempt: true` AND a regressed `lastBlockReason`. The
+    // settle precedence (retry outranks block) must keep the task in_progress for the next attempt
+    // and record the running attempt as `failed` — NOT blocked, NOT done. This is the load-bearing
+    // guarantee that the red-post-verify retry no longer needs an operator while budget remains.
+    const ip = inProgressWithVerification(3); // 1 attempt so far, cap 3 → budget remains
+    const { repo, calls } = fakeUpdateTask();
+    const leafEl = settleAttemptLeaf(
+      { taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger },
+      { cwd: absolutePath('/tmp/settle-attempt-test') },
+      ip.id
+    );
+
+    const result = await leafEl.execute({
+      sprintId: 'sprint-x' as SprintId,
+      tasks: [ip],
+      currentTaskId: ip.id,
+      currentTask: ip,
+      lastVerdict: 'passed', // the evaluator PASSED — only the harness post-verify regressed
+      lastBlockReason: 'verify script regressed baseline (exit=1); harness will not commit on red',
+      lastShouldFailAttempt: true,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const settled = result.value.ctx.tasks?.[0];
+    expect(settled?.status).toBe('in_progress');
+    expect(settled?.attempts.at(-1)?.status).toBe('failed');
+    expect(calls[0]?.task.status).toBe('in_progress');
+  });
+
   it('blockedReason WITHOUT a granted retry still blocks (self-block / exhausted paths unchanged)', async () => {
     const ip = inProgressWithVerification(3);
     const { repo } = fakeUpdateTask();

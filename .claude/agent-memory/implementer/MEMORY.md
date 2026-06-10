@@ -30,3 +30,5 @@
   event-arrival from React-commit rate; fix for DEBUG-floor commit-storm OOM; + status-diff guard on useSessions/useSession
 - [project_escalation_gate_broadened.md](project_escalation_gate_broadened.md) — finalize-gen-eval now escalates on
   plateau+budget-exhausted+malformed (not just plateau); malformed = same-model retry no ladder rung; fallbackMaxAttempts wired
+- [project_attempt_scoped_ctx_reset_seam.md](project_attempt_scoped_ctx_reset_seam.md) — implement attempt-scoped ctx
+  resets split across start-attempt (entry: verdict/session) vs progress-journal (exit: GENERATOR_HINTS accumulators)

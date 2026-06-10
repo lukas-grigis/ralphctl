@@ -1582,8 +1582,11 @@ describe('createImplementFlow — gen-eval loop', () => {
   // branch, no quiet pass. This is the primary "go-off-the-computer" guardrail and the
   // composition that powers it (post-task-verify → guard → commit-task → settle-attempt) only
   // gets exercised end-to-end here.
-  it('regressed baseline (pre=green, post=red) blocks the task and prevents the commit', async () => {
-    const f = await buildFixture(1);
+  it('regressed baseline (pre=green, post=red) on the LAST allowed attempt blocks the task and prevents the commit', async () => {
+    // `maxAttempts: 1` so the single allowed attempt's regressed post-verify exhausts the retry
+    // budget immediately (T6: `1 < 1` is false → block only). This pins the budget-exhausted half
+    // of the policy — the regressed verify still blocks once retries run out, with no commit on red.
+    const f = await buildFixture(1, 1);
     tracking(f);
     const sprintRepo = inMemorySprintRepo(f.sprint);
     const taskRepo = inMemoryTaskRepo(f.tasks);
@@ -1663,6 +1666,158 @@ describe('createImplementFlow — gen-eval loop', () => {
     expect(git.commitMessages()).toEqual([]);
     // Sprint stays active (no task settled `done`).
     expect(sprintRepo.current().status).not.toBe('review');
+  });
+
+  it('T6 red-post-verify retry: attempt 1 evaluator-passes but post-verify regresses → retry; attempt 2 post-verify green → done, rejected diff quarantined', async () => {
+    // The headline T6 win: an evaluator-PASSED attempt whose harness post-verify regressed a green
+    // baseline no longer blocks-and-waits-for-a-human while attempt budget remains. It retries the
+    // SAME task with the failing post-verify output threaded into the next generator prompt, and
+    // the rejected (red) diff is stashed so attempt 2 starts from the last good commit.
+    //
+    //   attempt 1: pre=green, post=RED (regressed) → commit skipped, diff quarantined, in_progress
+    //   attempt 2: pre=green, post=green (clean)    → commit lands, task → done
+    //
+    // Two attempts recorded; the run completes without an operator; the sprint moves to review.
+    const f = await buildFixture(1, 3); // cap 3 — budget remains after attempt 1
+    tracking(f);
+    const sprintRepo = inMemorySprintRepo(f.sprint);
+    const taskRepo = inMemoryTaskRepo(f.tasks);
+
+    let implCalls = 0;
+    let evalCalls = 0;
+    const provider = createFakeAiProvider({
+      signals: {
+        // The generator always reports success; the evaluator always PASSES. The ONLY thing red on
+        // attempt 1 is the harness post-verify — proving the retry is driven by the harness gate,
+        // not by an evaluator-failed verdict (which the finalize/escalation path already covers).
+        implement: () => {
+          implCalls += 1;
+          return [taskVerified('looks great')];
+        },
+        evaluate: () => {
+          evalCalls += 1;
+          return [evaluationPassed()];
+        },
+      },
+    });
+
+    // Per attempt the verify script runs twice: pre then post. So call sequence is
+    // [a1-pre, a1-post, a2-pre, a2-post]. Attempt 1's post (call 2) is RED → regressed; every other
+    // call is green. Attempt 2's post (call 4) is green → clean → done.
+    let shellCallCount = 0;
+    const retryThenPassShell: ShellScriptRunner = {
+      async run() {
+        shellCallCount += 1;
+        const isAttempt1Post = shellCallCount === 2;
+        if (isAttempt1Post) {
+          return Result.ok({ passed: false, exitCode: 1, output: 'attempt 1 broke the build\n', durationMs: 12 });
+        }
+        return Result.ok({ passed: true, exitCode: 0, output: 'all green\n', durationMs: 10 });
+      },
+    };
+
+    const reposWithCheck = new Map([
+      [FIXED_REPOSITORY_ID, { path: FAKE_CWD, name: 'fake-repo', verifyScript: 'pnpm test' }],
+    ]);
+
+    // Dedicated git fake: attempt 1's red post skips the commit, so the quarantine stashes the
+    // dirty tree; attempt 2 commits normally. We model the tree as dirty (the AI wrote files) until
+    // either a commit OR a quarantine stash consumes the diff, then clean for the settle guardrail.
+    const commitMessages: string[] = [];
+    let head = 'main';
+    let preflightStatusesRemaining = 2; // working-tree-clean-check + preflight-task (both clean)
+    let treeClean = false; // flips true after a commit or a quarantine stash consumes the diff
+    const retryGit: GitRunner = {
+      async run(_, args) {
+        if (args[0] === 'status' && args[1] === '--porcelain') {
+          if (preflightStatusesRemaining > 0) {
+            preflightStatusesRemaining -= 1;
+            return okGit('', 0);
+          }
+          if (treeClean) {
+            treeClean = false;
+            return okGit('', 0);
+          }
+          return okGit(' M file\n', 0); // dirty — the AI's work sits in the tree
+        }
+        if (args[0] === 'add' && args[1] === '-A') return okGit('', 0);
+        // Quarantine of attempt 1's rejected red diff: gitStashPush runs `status` (dirty, above)
+        // then `stash push`. Consuming the diff leaves the tree clean for attempt 2's pre-verify.
+        if (args[0] === 'stash' && args[1] === 'push') {
+          treeClean = true;
+          return okGit('Saved working directory\n', 0);
+        }
+        if (args[0] === 'commit' && args[1] === '-m') {
+          commitMessages.push(args[2] ?? '');
+          treeClean = true;
+          return okGit('', 0);
+        }
+        if (args[0] === 'rev-parse' && args[1] === 'HEAD') return okGit(`${'0'.repeat(40)}\n`, 0);
+        if (args[0] === 'rev-parse' && args[1] === '--abbrev-ref' && args[2] === 'HEAD') return okGit(`${head}\n`, 0);
+        if (args[0] === 'show-ref') return okGit('', 1);
+        if (args[0] === 'checkout') {
+          const target = args[1] === '-b' ? args[2] : args[1];
+          if (target !== undefined) head = target;
+          return okGit('', 0);
+        }
+        if (args[0] === 'diff' && args[1] === 'HEAD') return okGit('@@ -1 +1 @@\n-old\n+new\n', 0);
+        if (args[0] === 'ls-files') return okGit('', 0);
+        return okGit('', 0);
+      },
+    };
+
+    const deps: ImplementDeps = {
+      ...buildDeps(sprintRepo.repo, inMemoryExecutionRepo(f.execution).repo, taskRepo.repo, provider, f.dir, retryGit),
+      shellScriptRunner: retryThenPassShell,
+    };
+
+    const flow = createImplementFlow(deps, {
+      sprintId: f.sprint.id,
+      todoTasks: f.tasks,
+      repositories: reposWithCheck,
+      generatorProviderId: 'claude-code',
+      generatorModel: 'claude-opus-4-8',
+      evaluatorProviderId: 'claude-code',
+      evaluatorModel: 'claude-opus-4-8',
+      progressFile: absolutePath(f.progressFile),
+      sprintDir: absolutePath(f.dir),
+      memoryRoot: FAKE_MEMORY_ROOT,
+      projectId: FAKE_PROJECT_ID,
+    });
+    const runner = createRunner({
+      id: 'r-impl-red-post-verify-retry',
+      element: flow,
+      initialCtx: { sprintId: f.sprint.id } satisfies ImplementCtx,
+    });
+    await runner.start();
+
+    expect(runner.status).toBe('completed');
+
+    // Two attempts ran in one launch — attempt 1 retried on the red post-verify, attempt 2 passed.
+    const finalTask = taskRepo.tasks()[0];
+    expect(finalTask?.status).toBe('done');
+    expect(finalTask?.attempts).toHaveLength(2);
+    // Attempt 1 settled `failed` (the granted retry); attempt 2 settled `verified` (the pass).
+    expect(finalTask?.attempts[0]?.status).toBe('failed');
+    expect(finalTask?.attempts.at(-1)?.status).toBe('verified');
+    // The load-bearing trace assertion: start-attempt + settle-attempt each fired twice — proof the
+    // loop genuinely re-entered (not a single attempt with two turns), AND the quarantine leaf ran
+    // exactly once (attempt 1's rejected red diff was stashed, attempt 2's clean tree no-op'd it).
+    const startEntries = runner.trace.filter((e) => e.elementName === `start-attempt-${String(finalTask?.id)}`);
+    expect(startEntries).toHaveLength(2);
+    const settleEntries = runner.trace.filter((e) => e.elementName === `settle-attempt-${String(finalTask?.id)}`);
+    expect(settleEntries).toHaveLength(2);
+    const quarantineEntries = runner.trace.filter(
+      (e) => e.elementName === `quarantine-retry-diff-${String(finalTask?.id)}` && e.status === 'completed'
+    );
+    expect(quarantineEntries).toHaveLength(1);
+    // Exactly ONE commit landed — attempt 2's green work. Attempt 1's red diff was never committed.
+    expect(commitMessages).toHaveLength(1);
+    // The generator ran twice (once per attempt); the evaluator passed both times.
+    expect(implCalls).toBe(2);
+    expect(evalCalls).toBe(2);
+    // One done task → sprint moves to review.
+    expect(sprintRepo.current().status).toBe('review');
   });
 
   it('baseline-broken (pre=red, post=red) preserves the AI verdict when operator has opted into the amnesty', async () => {

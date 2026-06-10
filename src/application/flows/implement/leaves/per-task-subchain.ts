@@ -88,7 +88,12 @@ import { uninstallSkillsLeaf } from '@src/application/flows/_shared/skills/unins
  *
  * Verify gate sits BEFORE commit so a red verifyScript blocks the task instead of landing
  * broken code on the sprint branch. On `verify-failed` the leaf stamps `lastBlockReason`,
- * the guard around `commit-task` skips, and `settle-attempt` marks the task `blocked`.
+ * the guard around `commit-task` skips, and `settle-attempt` marks the task `blocked` — UNLESS
+ * the failure is a `'regressed'` attribution (green baseline broken) AND attempt budget remains:
+ * then the leaf ALSO stamps `lastShouldFailAttempt`, settle's precedence keeps the task
+ * `in_progress`, the rejected diff is quarantined, and the loop re-enters with the failing
+ * post-verify output threaded into the next generator prompt (T6). Only on budget exhaustion does
+ * a regressed verify block.
  *
  * Intermediate commits from earlier attempts are KEPT when a later attempt blocks the task —
  * deliberate asymmetry with the quarantine: each such commit passed its own post-verify green
@@ -174,6 +179,12 @@ export const createPerTaskSubchain = (
   // the parallel launcher omits it (each task runs in its own dedicated worktree ref). Spliced via
   // a conditional spread so the serial element tree is byte-for-byte unchanged when included.
   const includeBranchPreflight = opts.includeBranchPreflight ?? true;
+  // Effective per-task attempt cap — the task's own `maxAttempts` (stamped at plan time, validated
+  // 1–10) or the configured `settings.harness.maxAttempts` fallback for legacy tasks. Computed ONCE
+  // here so BOTH the outer attempt loop's `maxIterations` (below) AND `post-task-verify`'s
+  // red-post-verify retry budget (T6) read the same value — the leaf and the loop can never
+  // disagree about which attempt the budget runs out on.
+  const effectiveMaxAttempts = task.maxAttempts ?? deps.config.harness.maxAttempts;
   return sequential<ImplementCtx>(`task-${String(taskId)}`, [
     // Dependency gate (blocked-dependency dead-end fix). Runs FIRST: if any `dependsOn` task is
     // not `done`, it transitions this task straight to `blocked upstream …` and the body guard
@@ -295,6 +306,10 @@ export const createPerTaskSubchain = (
               {
                 cwd: repo.path,
                 sprintDir: opts.sprintDir,
+                // T6: the effective attempt cap so a `'regressed'` post-verify retries within budget
+                // (settle precedence keeps the task in_progress) instead of blocking immediately.
+                // SAME value as the loop's `maxIterations` below — shared const, never drifts.
+                maxAttempts: effectiveMaxAttempts,
                 ...(repo.verifyScript !== undefined ? { verifyScript: repo.verifyScript } : {}),
                 ...(repo.verifyTimeout !== undefined ? { timeoutMs: repo.verifyTimeout } : {}),
               },
@@ -356,7 +371,7 @@ export const createPerTaskSubchain = (
             // `failCurrentAttempt` still transitions the task to `blocked` once attempts hit the
             // cap, so a budget-exhausted task is never silently dropped — `shouldStop` just
             // recognises that terminal status and exits.
-            maxIterations: task.maxAttempts ?? deps.config.harness.maxAttempts,
+            maxIterations: effectiveMaxAttempts,
             shouldStop: (ctx) => terminalTaskStatus(ctx, taskId),
           }
         ),

@@ -1,15 +1,40 @@
 import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
-import { absolutePath, FIXED_NOW, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
+import { absolutePath, FIXED_NOW, makeInProgressTaskWithRunningAttempt, makeTodoTask } from '@tests/fixtures/domain.ts';
 import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import type { Task } from '@src/domain/entity/task.ts';
+import type { InProgressTask, Task } from '@src/domain/entity/task.ts';
 import type { VerifyRunOutcome } from '@src/domain/entity/attempt.ts';
+import { startNextAttempt } from '@src/domain/entity/task-attempts.ts';
+import { failCurrentAttempt } from '@src/domain/entity/task-settle.ts';
 import { postTaskVerifyLeaf } from '@src/application/flows/implement/leaves/post-task-verify.ts';
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
+
+const unwrap = <T, E>(r: Result<T, E>): T => {
+  if (!r.ok) {
+    const err: unknown = r.error;
+    throw new Error(`test unwrap failed: ${err instanceof Error ? err.message : JSON.stringify(err)}`);
+  }
+  return r.value as T;
+};
+
+/**
+ * Build an in-progress task whose attempt history has `attemptN - 1` settled (`failed`) attempts
+ * plus one `running` attempt — so `attempts.length === attemptN`. Drives the budget-boundary
+ * cases: with `maxAttempts === 3` and `attemptN === 3` (the running attempt being the 3rd), the
+ * red-post-verify retry budget is exhausted (`3 < 3` is false → no retry).
+ */
+const makeTaskOnAttempt = (attemptN: number, maxAttempts: number): InProgressTask => {
+  let task: Task = makeTodoTask({ maxAttempts });
+  for (let i = 0; i < attemptN - 1; i++) {
+    task = unwrap(startNextAttempt(task, FIXED_NOW, `session-${String(i)}`));
+    task = unwrap(failCurrentAttempt(task, FIXED_NOW, 'failed'));
+  }
+  return unwrap(startNextAttempt(task, FIXED_NOW, `session-${String(attemptN)}`));
+};
 
 const CWD = absolutePath('/tmp/repo');
 
@@ -299,5 +324,142 @@ describe('postTaskVerifyLeaf', () => {
     expect(persistedRows).toHaveLength(1);
     expect(persistedRows?.[0]?.phase).toBe('post');
     expect(persistedRows?.[0]?.outcome).toBe('success');
+  });
+
+  // ─── T6: bounded red-post-verify retry (regressed + budget → retry, else block-only) ──────
+  //
+  // A `'regressed'` attribution (evaluator-passed attempt that broke a GREEN baseline) sets the
+  // ctx retry flag `lastShouldFailAttempt` IN ADDITION to `lastBlockReason` WHILE the task's
+  // attempt budget remains. Settle's precedence then keeps the task in_progress for one more
+  // attempt (the loop re-enters); the commit guard still skips on the block reason, so the red
+  // work never lands. On budget exhaustion the flag is withheld → block only (today's behaviour).
+  // Other attributions are untouched: only `'regressed'` ever arms the retry.
+  describe('T6 red-post-verify bounded retry', () => {
+    const runRegressed = async (attemptN: number, maxAttempts: number) => {
+      const task = makeTaskOnAttempt(attemptN, maxAttempts);
+      const ctx: ImplementCtx = {
+        sprintId: SPRINT_ID,
+        currentTask: task,
+        currentTaskId: task.id,
+        tasks: [task],
+        lastPreVerifyOutcome: 'success', // green pre → a red post is `regressed`
+      };
+      const { repo } = fakeTaskRepo();
+      const leaf = postTaskVerifyLeaf(
+        {
+          shellScriptRunner: fakeRunner({ passed: false, exitCode: 1, output: 'broke it' }),
+          taskRepo: repo,
+          clock: () => FIXED_NOW,
+          eventBus: createCapturingBus().bus,
+          logger: noopLogger,
+        },
+        { cwd: CWD, verifyScript: 'pnpm test', maxAttempts },
+        task.id
+      );
+      const out = await leaf.execute(ctx);
+      if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
+      return out.value.ctx;
+    };
+
+    it('(a) regressed + budget remaining (attempt 1 of 3) → retry flag AND block reason both set', async () => {
+      const ctx = await runRegressed(1, 3);
+      expect(ctx.currentTask?.attempts.at(-1)?.attribution).toBe('regressed');
+      expect(ctx.lastShouldFailAttempt).toBe(true);
+      expect(ctx.lastBlockReason).toContain('regressed baseline');
+    });
+
+    it('(a2) regressed + budget remaining (attempt 2 of 3) → retry flag still set', async () => {
+      const ctx = await runRegressed(2, 3);
+      expect(ctx.lastShouldFailAttempt).toBe(true);
+      expect(ctx.lastBlockReason).toContain('regressed baseline');
+    });
+
+    it('(b) regressed + budget exhausted (attempt 3 of 3, running attempt is spent) → block reason only, NO retry', async () => {
+      // The explicit spec case: maxAttempts=3, running attempt n=3 → `3 < 3` is false → no retry.
+      const ctx = await runRegressed(3, 3);
+      expect(ctx.currentTask?.attempts.at(-1)?.attribution).toBe('regressed');
+      expect(ctx.lastBlockReason).toContain('regressed baseline');
+      expect(ctx.lastShouldFailAttempt).toBeUndefined();
+    });
+
+    it('budget boundary: maxAttempts=1, attempt 1 (the only allowed attempt) → block only, NO retry', async () => {
+      const ctx = await runRegressed(1, 1);
+      expect(ctx.lastBlockReason).toContain('regressed baseline');
+      expect(ctx.lastShouldFailAttempt).toBeUndefined();
+    });
+
+    it('no maxAttempts wired (legacy caller) → block only, NO retry (pre-T6 behaviour preserved)', async () => {
+      const task = makeInProgressTaskWithRunningAttempt();
+      const ctx: ImplementCtx = {
+        sprintId: SPRINT_ID,
+        currentTask: task,
+        currentTaskId: task.id,
+        tasks: [task],
+        lastPreVerifyOutcome: 'success',
+      };
+      const { repo } = fakeTaskRepo();
+      const leaf = postTaskVerifyLeaf(
+        {
+          shellScriptRunner: fakeRunner({ passed: false, exitCode: 1, output: 'broke it' }),
+          taskRepo: repo,
+          clock: () => FIXED_NOW,
+          eventBus: createCapturingBus().bus,
+          logger: noopLogger,
+        },
+        { cwd: CWD, verifyScript: 'pnpm test' }, // no maxAttempts
+        task.id
+      );
+      const out = await leaf.execute(ctx);
+      if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
+      expect(out.value.ctx.lastBlockReason).toContain('regressed baseline');
+      expect(out.value.ctx.lastShouldFailAttempt).toBeUndefined();
+    });
+
+    const runWithPre = async (preOutcome: VerifyRunOutcome, postPassed: boolean) => {
+      const task = makeTaskOnAttempt(1, 3); // budget wide open — isolates the attribution gate
+      const ctx: ImplementCtx = {
+        sprintId: SPRINT_ID,
+        currentTask: task,
+        currentTaskId: task.id,
+        tasks: [task],
+        lastPreVerifyOutcome: preOutcome,
+      };
+      const { repo } = fakeTaskRepo();
+      const leaf = postTaskVerifyLeaf(
+        {
+          shellScriptRunner: fakeRunner({ passed: postPassed, exitCode: postPassed ? 0 : 1, output: 'x' }),
+          taskRepo: repo,
+          clock: () => FIXED_NOW,
+          eventBus: createCapturingBus().bus,
+          logger: noopLogger,
+        },
+        { cwd: CWD, verifyScript: 'pnpm test', maxAttempts: 3 },
+        task.id
+      );
+      const out = await leaf.execute(ctx);
+      if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
+      return out.value.ctx;
+    };
+
+    it('(c) baseline-broken (pre=red, post=red) → no block, no retry flag (escape hatch untouched)', async () => {
+      const ctx = await runWithPre('failed', false);
+      expect(ctx.currentTask?.attempts.at(-1)?.attribution).toBe('baseline-broken');
+      expect(ctx.lastBlockReason).toBeUndefined();
+      expect(ctx.lastShouldFailAttempt).toBeUndefined();
+    });
+
+    it('(d) clean (pre=green, post=green) → neither block nor retry flag', async () => {
+      const ctx = await runWithPre('success', true);
+      expect(ctx.currentTask?.attempts.at(-1)?.attribution).toBe('clean');
+      expect(ctx.lastBlockReason).toBeUndefined();
+      expect(ctx.lastShouldFailAttempt).toBeUndefined();
+    });
+
+    it('(e) fixed-baseline (pre=red, post=green) → neither block nor retry flag', async () => {
+      const ctx = await runWithPre('failed', true);
+      expect(ctx.currentTask?.attempts.at(-1)?.attribution).toBe('fixed-baseline');
+      expect(ctx.lastBlockReason).toBeUndefined();
+      expect(ctx.lastShouldFailAttempt).toBeUndefined();
+    });
   });
 });
