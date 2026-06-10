@@ -197,6 +197,34 @@ const promoteLegacyAiRows = (ai: unknown): unknown =>
   migrateRetiredClaudeOpus(seedLegacyCreatePrRow(promoteLegacyImplementRow(ai)));
 
 /**
+ * Parse-time self-heal for the `maxTurns ≥ plateauThreshold` cross-knob invariant.
+ *
+ * `maxTurns` as low as 1 was fully valid before the invariant landed, so a persisted
+ * `settings.json` tuned for fast iteration would FAIL the parse on upgrade — bricking the TUI
+ * launch AND every CLI command including `ralphctl settings set`, the product's own repair tool.
+ * Like {@link promoteLegacyAiRows}, the heal happens silently at parse time (no schemaVersion
+ * bump; the canonical pair lands on the next save).
+ *
+ * Heal rule: preserve the operator's turn budget where the floors allow — clamp
+ * `plateauThreshold` down to `max(2, maxTurns)` (2 is the schema floor), then raise `maxTurns`
+ * up to that threshold only when forced (i.e. `maxTurns === 1` becomes the minimum legal pair
+ * `(2, 2)`). A missing `plateauThreshold` uses the schema default (3) for the comparison so a
+ * legacy `{ maxTurns: 1 }` file heals instead of tripping the refine after defaulting.
+ */
+const healHarnessCrossKnobs = (harness: unknown): unknown => {
+  if (typeof harness !== 'object' || harness === null) return harness;
+  const h = harness as Record<string, unknown>;
+  const turns = h['maxTurns'];
+  if (typeof turns !== 'number' || !Number.isInteger(turns)) return harness;
+  const rawThreshold = h['plateauThreshold'];
+  const threshold = typeof rawThreshold === 'number' && Number.isInteger(rawThreshold) ? rawThreshold : 3;
+  if (turns >= threshold) return harness;
+  const healedThreshold = Math.max(2, Math.min(threshold, turns));
+  const healedTurns = Math.max(turns, healedThreshold);
+  return { ...h, maxTurns: healedTurns, plateauThreshold: healedThreshold };
+};
+
+/**
  * Per-flow AI settings:
  *
  *   ai.effort?            // global default, used when a row omits its own effort
@@ -237,77 +265,81 @@ export const SettingsSchema = z.object({
    */
   schemaVersion: z.literal(CURRENT_SCHEMA_VERSION).default(CURRENT_SCHEMA_VERSION),
   ai: AiSettingsSchema,
-  harness: z
-    .object({
-      /** Generator–evaluator turns budgeted per `Attempt` (1–10). */
-      maxTurns: z.number().int().min(1).max(10),
-      /** Default cap on attempts per task before transitioning to `blocked` (1–10). */
-      maxAttempts: z.number().int().min(1).max(10),
-      /** Adapter-side retries on `RateLimitError` before surfacing the failure (0–10). */
-      rateLimitRetries: z.number().int().min(0).max(10),
-      /**
-       * Consecutive evaluator turns flagging the same failed-dimension set before the loop
-       * exits with a `plateau` warning (2–5, default 3 — patient: the graduated remedy ladder
-       * climbs cheapest-first across plateaus, so a slightly higher threshold avoids spending an
-       * escalation rung on a stall the generator would have broken on its own). See
-       * `business/task/plateau-detection.ts` for the exemption rules (score improvement /
-       * commit-message change / critique-prose shift) that can soften or skip the plateau even
-       * when the threshold is met.
-       */
-      plateauThreshold: z.number().int().min(2).max(5).default(3),
-      /**
-       * Master switch for failure-driven generator-model escalation. The flag name is retained for
-       * backward compatibility, but it now gates ALL failure-driven escalation — not only plateau:
-       * `plateau` AND `budget-exhausted` (the turn budget ran out without a terminal verdict) exits
-       * both climb the ladder, and `malformed` exits (the evaluator emitted no parseable verdict) get
-       * a plain same-model fresh-attempt retry — instead of settling immediately.
-       *
-       * On an escalatable exit the generator climbs one rung up the merged ladder ({@link
-       * escalationMap} over the built-in `DEFAULT_ESCALATION_MAP`) across successive failures, bounded
-       * by `maxAttempts`; each climb hands the targeted prior critique to the stronger model. The
-       * "change your approach" directive is NOT injected on a model bump — it fires only once the
-       * generator reaches the top of the ladder, as a same-model nudge (one more attempt on the same
-       * model, where no fresh capability remains so a change of approach is the only lever). A
-       * malformed exit never burns a ladder rung (it is the evaluator's failure, not the generator's)
-       * — it retries on the same model while budget remains.
-       *
-       * A failure-driven retry never blocks: after the ladder tops out (a further failure on the
-       * nudged top-tier model) or the attempt budget is exhausted, the work is preserved
-       * (done-with-warning). Defaults `true`.
-       */
-      escalateOnPlateau: z.boolean().default(true),
-      /**
-       * User overrides for the built-in `DEFAULT_ESCALATION_MAP` (in
-       * `business/task/escalation-map.ts`). Keys are the current model id, values the model id
-       * to escalate to. Empty by default; merged at read time with user keys winning on
-       * conflict and extending the default ladder. Non-string entries fail schema validation
-       * with a typed Zod error naming the offending field.
-       */
-      escalationMap: z.record(z.string(), z.string()).default({}),
-    })
-    .superRefine((harness, ctx) => {
-      /**
-       * Cross-knob invariant: `maxTurns` must be ≥ `plateauThreshold`.
-       *
-       * `plateauHistory` resets at the start of each attempt — `computePlateauVerdict` needs
-       * `plateauThreshold` consecutive failed turns within ONE attempt to fire. When
-       * `maxTurns < plateauThreshold` the turn budget runs out before the plateau window can fill,
-       * so `escalateOnPlateau` and its remedies (model escalation, nudge) become permanently
-       * unreachable for every attempt regardless of generator output.
-       *
-       * Operators who encounter this error from a persisted `settings.json` can fix it by setting
-       *   `maxTurns` ≥ `plateauThreshold`  (increase the turn budget), or
-       *   `plateauThreshold` ≤ `maxTurns`  (lower the plateau window).
-       * The defaults (maxTurns=5, plateauThreshold=2) satisfy this invariant.
-       */
-      if (harness.maxTurns < harness.plateauThreshold) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['maxTurns'],
-          message: `maxTurns (${String(harness.maxTurns)}) must be ≥ plateauThreshold (${String(harness.plateauThreshold)}); when maxTurns < plateauThreshold the plateau window can never fill within a single attempt and escalation becomes unreachable. Increase maxTurns or lower plateauThreshold.`,
-        });
-      }
-    }),
+  harness: z.preprocess(
+    healHarnessCrossKnobs,
+    z
+      .object({
+        /** Generator–evaluator turns budgeted per `Attempt` (1–10). */
+        maxTurns: z.number().int().min(1).max(10),
+        /** Default cap on attempts per task before transitioning to `blocked` (1–10). */
+        maxAttempts: z.number().int().min(1).max(10),
+        /** Adapter-side retries on `RateLimitError` before surfacing the failure (0–10). */
+        rateLimitRetries: z.number().int().min(0).max(10),
+        /**
+         * Consecutive evaluator turns flagging the same failed-dimension set before the loop
+         * exits with a `plateau` warning (2–5, default 3 — patient: the graduated remedy ladder
+         * climbs cheapest-first across plateaus, so a slightly higher threshold avoids spending an
+         * escalation rung on a stall the generator would have broken on its own). See
+         * `business/task/plateau-detection.ts` for the exemption rules (score improvement /
+         * commit-message change / critique-prose shift) that can soften or skip the plateau even
+         * when the threshold is met.
+         */
+        plateauThreshold: z.number().int().min(2).max(5).default(3),
+        /**
+         * Master switch for failure-driven generator-model escalation. The flag name is retained for
+         * backward compatibility, but it now gates ALL failure-driven escalation — not only plateau:
+         * `plateau` AND `budget-exhausted` (the turn budget ran out without a terminal verdict) exits
+         * both climb the ladder, and `malformed` exits (the evaluator emitted no parseable verdict) get
+         * a plain same-model fresh-attempt retry — instead of settling immediately.
+         *
+         * On an escalatable exit the generator climbs one rung up the merged ladder ({@link
+         * escalationMap} over the built-in `DEFAULT_ESCALATION_MAP`) across successive failures, bounded
+         * by `maxAttempts`; each climb hands the targeted prior critique to the stronger model. The
+         * "change your approach" directive is NOT injected on a model bump — it fires only once the
+         * generator reaches the top of the ladder, as a same-model nudge (one more attempt on the same
+         * model, where no fresh capability remains so a change of approach is the only lever). A
+         * malformed exit never burns a ladder rung (it is the evaluator's failure, not the generator's)
+         * — it retries on the same model while budget remains.
+         *
+         * A failure-driven retry never blocks: after the ladder tops out (a further failure on the
+         * nudged top-tier model) or the attempt budget is exhausted, the work is preserved
+         * (done-with-warning). Defaults `true`.
+         */
+        escalateOnPlateau: z.boolean().default(true),
+        /**
+         * User overrides for the built-in `DEFAULT_ESCALATION_MAP` (in
+         * `business/task/escalation-map.ts`). Keys are the current model id, values the model id
+         * to escalate to. Empty by default; merged at read time with user keys winning on
+         * conflict and extending the default ladder. Non-string entries fail schema validation
+         * with a typed Zod error naming the offending field.
+         */
+        escalationMap: z.record(z.string(), z.string()).default({}),
+      })
+      .superRefine((harness, ctx) => {
+        /**
+         * Cross-knob invariant: `maxTurns` must be ≥ `plateauThreshold`.
+         *
+         * `plateauHistory` resets at the start of each attempt — `computePlateauVerdict` needs
+         * `plateauThreshold` consecutive failed turns within ONE attempt to fire. When
+         * `maxTurns < plateauThreshold` the turn budget runs out before the plateau window can fill,
+         * so `escalateOnPlateau` and its remedies (model escalation, nudge) become permanently
+         * unreachable for every attempt regardless of generator output.
+         *
+         * Persisted records never trip this: {@link healHarnessCrossKnobs} self-heals legacy pairs
+         * at parse time (maxTurns 1–2 was fully valid before the invariant landed; failing the
+         * parse would brick the TUI AND the `settings set` repair command on upgrade). This refine
+         * is the backstop for direct construction in code/tests and documents the invariant. The
+         * defaults (maxTurns=5, plateauThreshold=3) satisfy it.
+         */
+        if (harness.maxTurns < harness.plateauThreshold) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['maxTurns'],
+            message: `maxTurns (${String(harness.maxTurns)}) must be ≥ plateauThreshold (${String(harness.plateauThreshold)}); when maxTurns < plateauThreshold the plateau window can never fill within a single attempt and escalation becomes unreachable. Increase maxTurns or lower plateauThreshold.`,
+          });
+        }
+      })
+  ),
   logging: z.object({
     level: LogLevelSchema,
   }),

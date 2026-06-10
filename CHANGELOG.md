@@ -43,12 +43,15 @@ to [Semantic Versioning](https://semver.org/).
   and fallback paths; the TUI task row marks done-with-warning cards with the warning glyph. A task
   the evaluator never passed can no longer render as a clean pass.
 
-- **`maxTurns` ≥ `plateauThreshold` cross-knob validation.** `SettingsSchema` now rejects any
-  harness configuration where `maxTurns < plateauThreshold` with a Zod error naming both values.
-  When `maxTurns` is below the threshold the plateau window can never fill within one attempt, so
-  model escalation and the same-model nudge become permanently unreachable. The defaults
-  (maxTurns=5, plateauThreshold=3) satisfy the invariant; hand-edited `settings.json` files that
-  violate it surface a human-readable error at TUI launch.
+- **`maxTurns` ≥ `plateauThreshold` cross-knob invariant, with parse-time self-heal.** When
+  `maxTurns` is below the threshold the plateau window can never fill within one attempt, so
+  model escalation and the same-model nudge become permanently unreachable. Persisted
+  configurations that violate the pair (fully valid before this release — e.g. `maxTurns: 2`
+  tuned for fast iteration) SELF-HEAL at load: the threshold clamps down to the turn budget
+  (floors permitting; `maxTurns: 1` becomes the minimum legal pair `2/2`) and the canonical pair
+  lands on the next save — no bricked TUI or CLI on upgrade. Direct construction with a violating
+  pair still fails with a Zod error naming both values. Defaults (maxTurns=5, plateauThreshold=3)
+  satisfy the invariant.
 
 ### Changed
 

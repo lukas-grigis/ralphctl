@@ -64,10 +64,12 @@ launch and re-enter the queue. No double-execution.
 - `plateauThreshold` (2–5, default 3) — consecutive evaluator rounds flagging the same failed-dimension
   set before the loop exits with a plateau warning; score improvement, commit-progress, or
   critique-Jaccard shift can exempt a round from counting. The patient default (3) avoids spending an
-  escalation rung on a stall the generator would have broken on its own. Must be ≤ `maxTurns` — the
-  schema rejects `maxTurns < plateauThreshold` because the plateau window can never fill within a
-  single attempt when the turn budget runs out first (escalation and nudge would be permanently
-  unreachable).
+  escalation rung on a stall the generator would have broken on its own. Must be ≤ `maxTurns` — the plateau window can
+  never fill within a single attempt when the turn budget runs out first (escalation and nudge
+  would be permanently unreachable). A violating PERSISTED pair self-heals at parse time
+  (threshold clamps down to the turn budget, floors permitting) rather than failing the load —
+  `maxTurns` 1–2 was valid before the invariant, and a parse failure would brick the TUI and the
+  `settings set` repair command on upgrade.
 
 Mirrored on `IterationConfig` (`src/application/chain/run/iteration-config.ts`); the chain `loop` predicates
 and the headless provider adapter read it.
