@@ -260,13 +260,12 @@ const hasHash = (r: PlateauTurnRecord): boolean => r.changedFilesHash !== undefi
 const workProductChanged = (window: readonly PlateauTurnRecord[], current: PlateauTurnRecord): boolean => {
   const anyPriorHash = window.some(hasHash);
   if (hasHash(current)) {
-    let comparedAny = false;
-    for (const prior of window) {
-      if (!hasHash(prior)) continue;
-      comparedAny = true;
-      if (prior.changedFilesHash === current.changedFilesHash) return false; // identical → no change
+    for (let i = window.length - 1; i >= 0; i--) {
+      const prior = window[i];
+      if (prior === undefined || !hasHash(prior)) continue;
+      return prior.changedFilesHash !== current.changedFilesHash; // MUTANT: last hashed prior only
     }
-    return comparedAny; // differs from every prior fingerprint we could compare
+    return false;
   }
   if (anyPriorHash) {
     // Current hash missing but priors carry hashes: no evidence of change — no exemption.

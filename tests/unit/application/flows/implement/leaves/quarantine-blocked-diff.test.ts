@@ -3,6 +3,7 @@ import { Result } from '@src/domain/result.ts';
 import type { GitRunResult, GitRunner } from '@src/integration/io/git-runner.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import type { AppendFile } from '@src/business/io/append-file.ts';
 import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import type { BlockedTask } from '@src/domain/entity/task.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
@@ -17,6 +18,19 @@ import { absolutePath, makeTodoTask } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 
 const CWD = absolutePath('/tmp/repo');
+const PROGRESS = absolutePath('/tmp/sprint/progress.md');
+
+/** Capturing AppendFile — records every (path, text) append for journal-pointer assertions. */
+const capturingAppend = (): { fn: AppendFile; appended: Array<{ path: string; text: string }> } => {
+  const appended: Array<{ path: string; text: string }> = [];
+  return {
+    appended,
+    fn: async (path, text) => {
+      appended.push({ path: String(path), text });
+      return Result.ok(undefined);
+    },
+  };
+};
 
 const sprintId = ((): SprintId => {
   const r = SprintId.parse('0193ed2b-1234-7abc-8def-0123456789ab');
@@ -79,14 +93,26 @@ describe('quarantineStashMessage', () => {
 });
 
 describe('isSettledBlocked', () => {
-  it('is true for a blocked task on ctx.tasks, false for in_progress / missing', () => {
+  it('is true for a blocked task whose attempt ran at least one gen-eval turn', () => {
     const blocked = blockedTask();
-    const ctx: ImplementCtx = { sprintId, tasks: [blocked] };
+    const ctx: ImplementCtx = { sprintId, tasks: [blocked], genEvalTurn: 1 };
     expect(isSettledBlocked(ctx, blocked.id)).toBe(true);
+  });
 
+  it('is false for in_progress / missing tasks', () => {
     const inProgress = makeTodoTask({ name: 'B' });
-    expect(isSettledBlocked({ sprintId, tasks: [inProgress] }, inProgress.id)).toBe(false);
-    expect(isSettledBlocked({ sprintId, tasks: [] }, blocked.id)).toBe(false);
+    expect(isSettledBlocked({ sprintId, tasks: [inProgress], genEvalTurn: 1 }, inProgress.id)).toBe(false);
+    expect(isSettledBlocked({ sprintId, tasks: [], genEvalTurn: 1 }, blockedTask().id)).toBe(false);
+  });
+
+  it('zero-turn discriminant: a task pre-blocked before ANY AI work never quarantines — the dirt is the operator\u2019s', () => {
+    // Pre-task-verify hard-blocked (red baseline -> operator 'skip' / non-interactive): the
+    // loop-entry guard spawned zero turns, so whatever dirties the tree is operator WIP —
+    // possibly changes they explicitly chose to KEEP at the dirty-tree preflight. Stashing it
+    // would override that choice and mislabel their work as a task-attributed rejected diff.
+    const blocked = blockedTask('baseline already red at task start');
+    const ctx: ImplementCtx = { sprintId, tasks: [blocked] }; // genEvalTurn undefined = zero turns
+    expect(isSettledBlocked(ctx, blocked.id)).toBe(false);
   });
 });
 
@@ -98,8 +124,8 @@ describe('quarantineBlockedDiffLeaf', () => {
     const ctx: ImplementCtx = { sprintId, tasks: [blocked] };
 
     const res = await quarantineBlockedDiffLeaf(
-      { gitRunner: runner, taskRepo: repo, logger: noopLogger },
-      { cwd: CWD },
+      { gitRunner: runner, taskRepo: repo, appendFile: capturingAppend().fn, logger: noopLogger },
+      { cwd: CWD, progressFile: PROGRESS },
       blocked.id
     ).execute(ctx);
 
@@ -123,8 +149,8 @@ describe('quarantineBlockedDiffLeaf', () => {
     const ctx: ImplementCtx = { sprintId, tasks: [blocked] };
 
     const res = await quarantineBlockedDiffLeaf(
-      { gitRunner: runner, taskRepo: repo, logger: noopLogger },
-      { cwd: CWD },
+      { gitRunner: runner, taskRepo: repo, appendFile: capturingAppend().fn, logger: noopLogger },
+      { cwd: CWD, progressFile: PROGRESS },
       blocked.id
     ).execute(ctx);
 
@@ -151,8 +177,8 @@ describe('quarantineBlockedDiffLeaf', () => {
     const ctx: ImplementCtx = { sprintId, tasks: [blocked] };
 
     const res = await quarantineBlockedDiffLeaf(
-      { gitRunner: runner, taskRepo: repo, logger: noopLogger },
-      { cwd: CWD },
+      { gitRunner: runner, taskRepo: repo, appendFile: capturingAppend().fn, logger: noopLogger },
+      { cwd: CWD, progressFile: PROGRESS },
       blocked.id
     ).execute(ctx);
 
@@ -171,8 +197,8 @@ describe('quarantineBlockedDiffLeaf', () => {
     const ctx: ImplementCtx = { sprintId, tasks: [blocked] };
 
     const res = await quarantineBlockedDiffLeaf(
-      { gitRunner: runner, taskRepo: repo, logger: noopLogger },
-      { cwd: CWD },
+      { gitRunner: runner, taskRepo: repo, appendFile: capturingAppend().fn, logger: noopLogger },
+      { cwd: CWD, progressFile: PROGRESS },
       blocked.id
     ).execute(ctx);
 

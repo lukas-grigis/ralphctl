@@ -37,7 +37,7 @@ import {
 } from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import { createFakeProject, type FakeProject } from '@tests/helpers/fake-project.ts';
-import { makeTodoTask } from '@tests/fixtures/domain.ts';
+import { absolutePath, makeTodoTask } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 
 const sprintId = ((): SprintId => {
@@ -95,10 +95,19 @@ describe('quarantine-blocked-diff — real git contamination fence', () => {
     expect(dirtyBefore.ok && dirtyBefore.value.length).toBeGreaterThan(0);
 
     // ── Run the quarantine leaf for the just-blocked task A (the serial-path splice).
+    const journalAppends: string[] = [];
     const ctx: ImplementCtx = { sprintId, tasks: [a] };
     const quarantined = await quarantineBlockedDiffLeaf(
-      { gitRunner, taskRepo: repo, logger: noopLogger },
-      { cwd },
+      {
+        gitRunner,
+        taskRepo: repo,
+        appendFile: async (_path, text) => {
+          journalAppends.push(text);
+          return Result.ok(undefined);
+        },
+        logger: noopLogger,
+      },
+      { cwd, progressFile: absolutePath('/tmp/quarantine-progress.md') },
       a.id
     ).execute(ctx);
     expect(quarantined.ok).toBe(true);
@@ -112,6 +121,9 @@ describe('quarantine-blocked-diff — real git contamination fence', () => {
     const message = quarantineStashMessage(sprintId, a.id);
     const savedA = repo.saved() as BlockedTask;
     expect(savedA.blockedReason).toContain('verify failed');
+    // The recovery pointer is ALSO journaled — blockedReason is stripped by an operator unblock
+    // (clean restart), so progress.md is the durable harness artifact naming the stash.
+    expect(journalAppends.join('')).toContain('quarantined to git stash');
     expect(savedA.blockedReason).toContain(message);
     expect(savedA.blockedReason).toMatch(/git stash list/);
     const stashList = await project.git('stash', 'list');

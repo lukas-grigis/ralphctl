@@ -374,8 +374,13 @@ export const createPerTaskSubchain = (
                 `quarantine-blocked-diff-guard-${String(taskId)}`,
                 (ctx) => isSettledBlocked(ctx, taskId),
                 quarantineBlockedDiffLeaf(
-                  { gitRunner: deps.gitRunner, taskRepo: deps.taskRepo, logger: deps.logger },
-                  { cwd: repo.path },
+                  {
+                    gitRunner: deps.gitRunner,
+                    taskRepo: deps.taskRepo,
+                    appendFile: deps.appendFile,
+                    logger: deps.logger,
+                  },
+                  { cwd: repo.path, progressFile: opts.progressFile },
                   taskId
                 )
               ),

@@ -1,6 +1,7 @@
 import { Result } from '@src/domain/result.ts';
 import { type RecordQuarantineOutput, recordQuarantineUseCase } from '@src/business/task/record-quarantine.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
+import type { AppendFile } from '@src/business/io/append-file.ts';
 import type { BlockedTask } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -60,12 +61,20 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 export interface QuarantineBlockedDiffLeafDeps {
   readonly gitRunner: GitRunner;
   readonly taskRepo: UpdateTask;
+  readonly appendFile: AppendFile;
   readonly logger: Logger;
 }
 
 export interface QuarantineBlockedDiffLeafOpts {
   /** The shared sprint worktree the just-blocked task ran (and dirtied) against. */
   readonly cwd: AbsolutePath;
+  /**
+   * Sprint journal the recovery pointer is ALSO appended to. `blockedReason` alone is not
+   * durable: an operator unblock is a clean restart that strips the reason — erasing the only
+   * persisted pointer right at the moment the operator acts on the block. The journal line
+   * survives the unblock, so the stash stays discoverable from a harness artifact.
+   */
+  readonly progressFile: AbsolutePath;
 }
 
 interface QuarantineInput {
@@ -127,6 +136,16 @@ export const quarantineBlockedDiffLeaf = (
           });
           return Result.ok(undefined);
         }
+        // Durable pointer: blockedReason is stripped by an operator unblock (clean restart), so
+        // the journal carries the recovery handle too. Best-effort like everything here.
+        const journalLine = `\n_Task ${recorded.value.name}: rejected diff quarantined to git stash — recover via \`git stash list\` (message: \`${message}\`)._\n`;
+        const appended = await deps.appendFile(opts.progressFile, journalLine);
+        if (!appended.ok) {
+          log.warn('quarantine pointer journal append failed', {
+            taskId: String(taskId),
+            error: appended.error.message,
+          });
+        }
         return Result.ok(recorded.value);
       },
     },
@@ -157,14 +176,25 @@ export const quarantineBlockedDiffLeaf = (
   });
 
 /**
- * Synchronous guard predicate for the quarantine splice: true when the task settled `blocked`. Read
- * from `ctx.tasks` (the settled copy `settle-attempt` writes back) because `settle-attempt` clears
- * `ctx.currentTask`. The escalation-retry path leaves the task `in_progress`, so this is false and
- * the guard skips — no spurious stash. Defensive on a missing task (false → skip).
+ * Synchronous guard predicate for the quarantine splice: true when the task settled `blocked` AND
+ * at least one gen-eval turn actually ran. Read from `ctx.tasks` (the settled copy
+ * `settle-attempt` writes back) because `settle-attempt` clears `ctx.currentTask`. The
+ * escalation-retry path leaves the task `in_progress`, so this is false and the guard skips — no
+ * spurious stash. Defensive on a missing task (false → skip).
+ *
+ * THE ZERO-TURN DISCRIMINANT (`ctx.genEvalTurn !== undefined`) is load-bearing: a task blocked by
+ * pre-task-verify before any AI work (red baseline → operator 'skip' / non-interactive hard
+ * block) has NO rejected AI diff — whatever dirties the tree is the OPERATOR's, possibly WIP they
+ * explicitly chose to keep at the dirty-tree preflight. Stashing it would silently override that
+ * choice, mislabel their work as a task-attributed "rejected diff", and change every later task's
+ * baseline mid-run. `settle-attempt` deliberately does not clear `genEvalTurn` (only
+ * `start-attempt` resets it per attempt), so an unset counter here is precisely "the final
+ * attempt ran zero turns" — any earlier attempt's AI work was either committed or blocked that
+ * same attempt with `genEvalTurn ≥ 1`.
  *
  * `AbortError` is irrelevant here (a pure predicate cannot abort); the leaf body handles propagation.
  *
  * @public
  */
 export const isSettledBlocked = (ctx: ImplementCtx, taskId: TaskId): boolean =>
-  ctx.tasks?.find((t) => t.id === taskId)?.status === 'blocked';
+  ctx.tasks?.find((t) => t.id === taskId)?.status === 'blocked' && ctx.genEvalTurn !== undefined;
