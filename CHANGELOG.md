@@ -7,133 +7,105 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+This release refreshes the model catalogs, adds four budget-conscious presets, and reworks how the
+harness recovers when a task stalls — so most work finishes on a cheaper model and only genuinely
+hard tasks climb to the flagship.
+
 ### Added
 
-- **Four new economic presets (`mixed-economic`, `claude-economic`, `copilot-economic`,
-  `codex-economic`).** ADDITIONAL to the four standard presets — the total is now eight, all equally
-  first-class. Strategy: `implement` starts one tier below the flagship at `high` effort; the
-  graduated escalation ladder climbs to the flagship only when a task plateaus. Most tasks finish on
-  the cheaper tier; only genuinely hard ones pay flagship token rates. Global effort, `plan`,
-  `readiness`, and `createPr` effort patterns mirror the standard presets. Apply via
-  `ralphctl settings apply-preset <name>` or from the TUI settings view — the apply surface is
-  unchanged.
+- **Four budget-friendly presets — `mixed-economic`, `claude-economic`, `copilot-economic`,
+  `codex-economic`.** Eight presets now ship, all first-class. The economic variants run `implement`
+  one model tier below the flagship and only climb to the flagship when a task genuinely stalls — so
+  most tasks finish on the cheaper model and you pay top-tier token rates only for the hard ones.
+  Planning, readiness, and PR-authoring effort match the standard presets. Apply with
+  `ralphctl settings apply-preset <name>` or from the TUI settings view.
 
-- **Model catalog refresh.** Codex catalog adds `gpt-5.3-codex-spark` (text-only research preview,
-  ChatGPT Pro); `gpt-5.2` and `gpt-5.3-codex` are marked deprecated-but-API-valid and kept in the
-  allowlist so pinned configs do not break. Copilot catalog adds `gpt-5.5`, `claude-opus-4.7`,
-  `claude-opus-4.8`, Gemini 3.x family (`gemini-3-flash-preview`, `gemini-3-pro-preview`,
-  `gemini-3.1-pro-preview`, `gemini-3.5-flash`), `mai-code-1-flash`, and `raptor-mini-preview`.
-  Claude catalog adds the frontier tier `claude-fable-5` plus the 1M-context variants
-  `claude-opus-4-8[1m]` and `claude-fable-5[1m]` as **opt-in only** entries — selectable per row
-  (TUI picker / `settings set`) but referenced by no preset, default, or built-in escalation rung;
-  users who want the ladder to climb add an `'claude-opus-4-8': 'claude-fable-5'` rung via
-  `settings.harness.escalationMap`. The `[1m]` variants carry a 1,000,000-token context-window
-  entry, so the TUI budget bar renders correctly for long-context runs.
-  CLI baselines: Codex 0.138.0, Copilot 1.0.60, Claude Code 2.1.169.
+- **Refreshed model catalogs.** New models are selectable per row from the TUI picker or via
+  `ralphctl settings set`:
+  - **Claude** — adds the frontier `claude-fable-5` plus the 1M-context variants
+    `claude-opus-4-8[1m]` and `claude-fable-5[1m]`. The 1M variants are **opt-in only**: no preset or
+    default points at them and the escalation ladder won't climb to them unless you add a rung to
+    `settings.harness.escalationMap` (e.g. `'claude-opus-4-8': 'claude-fable-5'`). They carry a
+    1,000,000-token context window, so the TUI budget bar reads correctly on long-context runs.
+  - **Copilot** — adds `gpt-5.5`, `claude-opus-4.7`, `claude-opus-4.8`, the Gemini 3.x family
+    (`gemini-3-flash-preview`, `gemini-3-pro-preview`, `gemini-3.1-pro-preview`, `gemini-3.5-flash`),
+    `mai-code-1-flash`, and `raptor-mini-preview`.
+  - **Codex** — adds `gpt-5.3-codex-spark` (text-only research preview, ChatGPT Pro). `gpt-5.2` and
+    `gpt-5.3-codex` are now marked deprecated but stay in the allowlist, so configs that pin them
+    keep working.
+  - Validated against Codex 0.138.0, Copilot 1.0.60, and Claude Code 2.1.169.
 
-- **Planned tasks carry the configured attempt cap.** `settings.harness.maxAttempts` is stamped onto
-  every task at plan/ideate time, so the per-task attempt loop and the escalation budget actually bind
-  (previously the cap was launch-display metadata only and the loop fell through to the 1000-iteration
-  backstop). Legacy tasks without the stamp fall back to `settings.harness.maxAttempts` at consumption
-  time.
+- **The attempt cap now actually binds.** `settings.harness.maxAttempts` is stamped onto each task
+  when it is planned, so the per-task retry loop and the escalation budget respect it. Previously the
+  cap was shown at launch but never enforced — the loop fell through to a 1000-iteration backstop.
+  Tasks planned before this release fall back to your current `maxAttempts` setting at run time.
 
-- **Done-with-warning is now legible end to end.** The sprint journal verdict union gains
-  `pass-with-warning` and `escalated` with a plain-prose outcome detail (failed dimensions, turn
-  budget, remedy applied); PR bodies grow a "Completed with warnings" section on both the AI-authored
-  and fallback paths; the TUI task row marks done-with-warning cards with the warning glyph. A task
-  the evaluator never passed can no longer render as a clean pass.
-
-- **`maxTurns` ≥ `plateauThreshold` cross-knob invariant, with parse-time self-heal.** When
-  `maxTurns` is below the threshold the plateau window can never fill within one attempt, so
-  model escalation and the same-model nudge become permanently unreachable. Persisted
-  configurations that violate the pair (fully valid before this release — e.g. `maxTurns: 2`
-  tuned for fast iteration) SELF-HEAL at load: the threshold clamps down to the turn budget
-  (floors permitting; `maxTurns: 1` becomes the minimum legal pair `2/2`) and the canonical pair
-  lands on the next save — no bricked TUI or CLI on upgrade. Direct construction with a violating
-  pair still fails with a Zod error naming both values. Defaults (maxTurns=5, plateauThreshold=3)
-  satisfy the invariant.
+- **"Done with warnings" is now visible everywhere.** A task that finished but never fully passed the
+  evaluator used to render as a clean pass. It is now flagged end to end — in the sprint journal, in a
+  dedicated "Completed with warnings" section of the PR body (both AI-authored and fallback paths),
+  and with a warning glyph on the TUI task card — alongside a plain-language reason (which checks
+  failed, the turn budget, the remedy applied).
 
 ### Changed
 
-- **Flow consolidation — `ticket-add` removed from the Flows menu (use-case renamed `add-ticket`); `add-tickets` is now the
-  single "Add tickets" entry for draft sprints.** The `add-ticket` use-case (id `add-ticket`, formerly `ticket-add`) was
-  registered as a Flows menu entry ("Add ticket") alongside `add-tickets` ("Add tickets"), both gated
-  on draft sprints. They duplicated the same affordance with different UX quality: `add-tickets` is
-  a full interactive chain with a multi-ticket loop, optional GitHub/GitLab issue URL prefill, a
-  per-ticket save-confirm, and an atomic batch save; `ticket-add` is a bare use-case shim that has
-  no loop and no URL prefill. The `ticket-add` entry is removed from the registry. The `ticket-add`
-  use-case itself is unchanged — it backs the `ralphctl ticket add` CLI command and the `a` inline
-  shortcut in the sprint detail and home views (both dispatch the single-ticket `add-ticket` wizard).
-  The `a` shortcut is retained as a contextual affordance; only the duplicate Flows menu entry is
-  gone. No data migration needed.
+- **Smarter, more patient stall recovery.** When the generator-evaluator loop stops making progress,
+  the harness now climbs your model ladder one rung at a time across successive stalls (it used to
+  bump the model at most once per task), carrying the specific critique up to each stronger model.
+  Only once it reaches the top of the ladder does it inject the "change your approach" directive as a
+  last resort. A malformed evaluator response — the evaluator's failure, not the generator's —
+  triggers a plain same-model retry without spending an escalation rung. The default patience before a
+  stall counts (`settings.harness.plateauThreshold`) is raised from **2 to 3** (range 2–5), giving the
+  model one more chance to break through before a rung is spent. A task that still can't pass keeps its
+  work (done-with-warning) rather than having it discarded.
 
-- **`codex-only` preset moves implement off deprecated `gpt-5.3-codex` → `gpt-5.5`.** The deprecated
-  model remains in the allowlist for API-key users who pin it explicitly; the preset no longer targets
-  it by default.
+- **One switch for all escalation.** `settings.harness.escalateOnPlateau` now turns the entire
+  stall-recovery ladder on or off, not just the plateau path — so a single setting disables escalation
+  project-wide. (Name kept for backward compatibility.)
 
-- **All non-passing gen-eval exits now consult the escalation policy and the attempt budget.**
-  `plateau` and `budget-exhausted` exits route through `decideEscalation`; `malformed` — the
-  evaluator's failure, not the generator's — triggers a plain same-model retry (no escalation rung
-  consumed). `done-with-warning` is now reserved for true exhaustion of remedies, and the
-  `model-escalated` event names the real trigger instead of always saying plateau.
+- **Config pairs that can't work now self-heal on load.** If `maxTurns` is below `plateauThreshold`
+  the stall window can never fill, leaving model escalation permanently unreachable. Configs that
+  violate this — valid before this release, e.g. `maxTurns: 2` tuned for fast iteration — now heal at
+  load time: the threshold clamps down to the turn budget (`maxTurns: 1` becomes the minimum legal
+  pair `2/2`) and the corrected pair is saved on the next write. No bricked TUI or CLI on upgrade.
+  Defaults (5 turns / threshold 3) are unaffected.
 
-- **`escalateOnPlateau` now gates all failure-driven escalation, not just plateau exits.**
-  The flag previously governed only the plateau code path; it now acts as the master switch for
-  the entire graduated-remedy ladder so a single setting turns off escalation project-wide (name
-  retained for backward compatibility).
+- **"Add ticket" consolidated to a single flow.** The Flows menu carried two near-identical entries
+  for draft sprints — "Add ticket" and "Add tickets." The richer "Add tickets" (multi-ticket loop,
+  optional GitHub/GitLab issue prefill, per-ticket confirm, atomic save) is now the only Flows-menu
+  entry. The single-ticket wizard still backs the `a` shortcut in the sprint-detail and home views and
+  the `ralphctl ticket add` CLI command — only the duplicate menu entry is gone. No data migration.
 
-- **Pre-blocked tasks skip the gen-eval loop AND post-task verify.** When `pre-task-verify`
-  hard-blocks, the loop's entry guard refuses every turn (zero generator spawns on the broken tree)
-  and a zero-turn guard skips the redundant post-task verify run.
+- **No wasted spawns on blocked tasks.** When a task's pre-run check hard-blocks (e.g. a broken tree),
+  the harness now skips the whole generator-evaluator loop and the redundant post-task verify instead
+  of spawning the AI against a baseline it can't build on.
 
-- **Serial-path blocked-diff quarantine.** A blocked task's rejected diff is stashed under
-  `ralphctl/<sprintId>/<taskId>/blocked-diff` (recorded on the task's `blockedReason` for recovery)
-  before sibling tasks run — previously the next sibling's `git add -A` swept the leftovers into its
-  own commit.
+- **Cancelling during setup is now immediate.** The worktree setup script honours the cancel signal,
+  so aborting mid-setup stops the running script rather than waiting out its timeout.
 
-- **Worktree setup script honours the chain abort signal.** The setup script runner threads the
-  chain's `AbortSignal` through to the spawned child so a user-initiated cancel during setup is
-  prompt rather than waiting out the shell timeout.
-
-- **Graduated escalation redesigned: multi-rung climb, decoupled change-approach nudge, patient
-  plateau default.** The gen-eval loop now climbs the full `DEFAULT_ESCALATION_MAP` rung-by-rung on
-  successive plateaus (was: at most one model bump per task). Each plateau re-reads the most-recent
-  `Task.escalatedToModel` as the generator model, so `decideEscalation` returns `escalate` repeatedly
-  until the generator reaches the top of the ladder — bounded by `maxAttempts`. The "change your
-  approach" directive is decoupled from the model bump: a model bump passes the targeted
-  `priorCritique` to the stronger model; the "abandon your approach" directive fires only as a
-  same-model nudge at the top of the ladder (where there is no fresh capability to lean on). A further
-  plateau after the nudge returns `topped-out` (was `already-escalated`) and preserves the work
-  (done-with-warning). `settings.harness.plateauThreshold` default raised **2 → 3** (range 2–5) to
-  give the generator one extra chance to break a stall before an escalation rung is spent.
+- **`codex-only` moves `implement` off the deprecated `gpt-5.3-codex` to `gpt-5.5`.** The deprecated
+  model stays in the allowlist for anyone who pins it explicitly; the preset no longer targets it.
 
 ### Fixed
 
-- **Adversarial-review wave: the gen-eval rework's cross-change seams.** A 30-agent review of the
-  branch confirmed 24 findings; all are resolved. Highlights — a granted escalation/malformed
-  retry now outranks a red post-task-verify (the rejected red diff is stashed so the retry starts
-  from the last good commit; the block still fires once the budget exhausts); the work-product
-  fingerprint hashes untracked-file CONTENT (new-file tasks no longer false-plateau) and oversized
-  git output degrades to a typed error instead of crashing the process; the blocked-diff
-  quarantine never stashes operator-kept WIP (zero-turn discriminant) and journals its recovery
-  pointer durably (it survives an operator unblock); corrective retries are self-contained so a
-  cold spawn re-reads the actual work instead of fabricating a verdict; journal structure is
-  forgery-proof (AI text cannot fabricate `## Task:` section boundaries; task names are
-  single-line); the journal never misattributes a prior model climb to a malformed retry, never
-  brands a warn-then-pass grace round as pass-with-warning, and the change-of-approach directive
-  fires only on stall-driven retries.
+- **`copilot-only` flagship realigned to `claude-opus-4.8`.** Its `plan`, `implement`, and `ideate`
+  rows lagged at `claude-opus-4.6` while the catalog and the escalation ladder moved to 4.8 — so
+  `copilot-economic` could escalate past `copilot-only`'s own ceiling. All three rows now point at the
+  catalog top, matching the ladder terminus.
 
-- **Copilot single-provider preset realigned to `claude-opus-4.8`.** `copilot-only`'s `plan`,
-  `implement`, and `ideate` rows lagged at `claude-opus-4.6` while the catalog refresh added
-  `claude-opus-4.8` and the escalation ladder climbs Copilot Claude to `claude-opus-4.8`. The
-  preset flagship now matches the catalog top and the ladder terminus — mirroring the dash-form
-  Claude invariant (default model, every single-provider preset, and the escalation ladder all
-  point at the same Opus) — so `copilot-economic` no longer escalates past `copilot-only`'s ceiling.
+- **Resetting the implement row to Codex now seeds `gpt-5.5`.** Switching the implement provider back
+  to Codex (`ralphctl settings set ai.implement.<role>.provider openai-codex`, or the TUI equivalent)
+  previously seeded the deprecated `gpt-5.3-codex`, which has no escalation rung and is unavailable for
+  ChatGPT sign-in. It now seeds `gpt-5.5`, matching the `codex-only` preset.
 
-- **Codex provider-reset default moves off deprecated `gpt-5.3-codex` → `gpt-5.5`.** Resetting the
-  implement row to Codex (`settings set ai.implement.<role>.provider openai-codex`, or the TUI
-  equivalent) previously seeded `gpt-5.3-codex`, which is deprecated for ChatGPT sign-in and has no
-  escalation rung. It now seeds `gpt-5.5`, matching the `codex-only` preset decision.
+- **Hardened the new stall-recovery loop.** A branch-wide review surfaced and closed two dozen edge
+  cases in the reworked feedback loop. The behaviour you can now rely on: a granted retry takes
+  priority over a red post-task verify (the rejected diff is stashed so the retry resumes from the last
+  good commit, and the block still fires once the budget runs out); new-file tasks no longer
+  false-stall, because the change detector now compares file content against every prior round, not
+  just the last; a blocked task's rejected diff is quarantined so it never bleeds into a sibling's
+  commit, and its recovery pointer survives an operator unblock; corrective retries re-read the real
+  work instead of trusting a stale verdict; and the sprint journal can't be spoofed by AI-authored
+  text or misreport which model produced a round.
 
 ## [0.10.1] - 2026-06-07
 
