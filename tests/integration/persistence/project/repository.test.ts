@@ -128,6 +128,34 @@ describe('createFsProjectRepository', () => {
     if (loaded.ok) expect(loaded.value.repositories[0]?.suggestedSkills).toEqual(['react-patterns', 'pnpm']);
   });
 
+  it('round-trips a repository carrying structured verifyGates through save → findById', async () => {
+    const repo = createFsProjectRepository({ root });
+    const gates = [
+      { pathPrefix: 'apps/web-ui', command: 'pnpm --filter web-ui test', timeoutMs: 60_000 },
+      { pathPrefix: '', command: 'pnpm lint' },
+    ] as const;
+    const repository = { ...makeRepository({ name: 'svc' }), verifyGates: gates };
+    const project = makeProject({ repositories: [repository] });
+
+    await repo.save(project);
+    const loaded = await repo.findById(project.id);
+    expect(loaded.ok).toBe(true);
+    if (loaded.ok) expect(loaded.value.repositories[0]?.verifyGates).toEqual(gates);
+  });
+
+  it('tolerates a persisted project.json whose repository omits verifyGates (legacy file)', async () => {
+    const repo = createFsProjectRepository({ root });
+    const project = makeProject({ repositories: [makeRepository({ name: 'svc' })] });
+    await fs.mkdir(projectsDir(root), { recursive: true });
+    const onDisk = JSON.parse(JSON.stringify(project)) as Record<string, unknown>;
+    expect((onDisk.repositories as Array<Record<string, unknown>>)[0]).not.toHaveProperty('verifyGates');
+    await fs.writeFile(projectFile(root, project.id), JSON.stringify(onDisk), 'utf8');
+
+    const loaded = await repo.findById(project.id);
+    expect(loaded.ok).toBe(true);
+    if (loaded.ok) expect(loaded.value.repositories[0]?.verifyGates).toBeUndefined();
+  });
+
   it('tolerates a persisted project.json whose repository omits suggestedSkills (legacy file)', async () => {
     const repo = createFsProjectRepository({ root });
     const project = makeProject({ repositories: [makeRepository({ name: 'svc' })] });

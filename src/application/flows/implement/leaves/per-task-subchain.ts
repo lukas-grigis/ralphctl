@@ -247,6 +247,7 @@ export const createPerTaskSubchain = (
                 cwd: repo.path,
                 sprintDir: opts.sprintDir,
                 ...(repo.verifyScript !== undefined ? { verifyScript: repo.verifyScript } : {}),
+                ...(repo.verifyGates !== undefined ? { verifyGates: repo.verifyGates } : {}),
                 ...(repo.verifyTimeout !== undefined ? { timeoutMs: repo.verifyTimeout } : {}),
               },
               taskId
@@ -299,6 +300,8 @@ export const createPerTaskSubchain = (
               {
                 shellScriptRunner: deps.shellScriptRunner,
                 taskRepo: deps.taskRepo,
+                // Diff-footprint probe for structured-gate scoping (T11). Shared serial-path runner.
+                gitRunner: deps.gitRunner,
                 clock: deps.clock,
                 eventBus: deps.eventBus,
                 logger: deps.logger,
@@ -311,6 +314,7 @@ export const createPerTaskSubchain = (
                 // SAME value as the loop's `maxIterations` below — shared const, never drifts.
                 maxAttempts: effectiveMaxAttempts,
                 ...(repo.verifyScript !== undefined ? { verifyScript: repo.verifyScript } : {}),
+                ...(repo.verifyGates !== undefined ? { verifyGates: repo.verifyGates } : {}),
                 ...(repo.verifyTimeout !== undefined ? { timeoutMs: repo.verifyTimeout } : {}),
               },
               taskId

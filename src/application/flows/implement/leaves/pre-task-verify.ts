@@ -4,7 +4,8 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { VerifyRun, VerifyRunOutcome } from '@src/domain/entity/attempt.ts';
-import { runVerifyScriptUseCase } from '@src/business/task/run-verify-script.ts';
+import { normalizeVerifyGates, runVerifyGatesUseCase } from '@src/business/task/run-verify-script.ts';
+import type { VerifyGate } from '@src/domain/entity/repository.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import { appendAttemptVerifyRun, markAttemptBaselineBroken } from '@src/domain/entity/task-attempts.ts';
 import type { InProgressTask, Task } from '@src/domain/entity/task.ts';
@@ -113,6 +114,13 @@ const isInteractive = (env: PreTaskVerifyEnvironment): boolean => env.isStdinTty
 export interface PreTaskVerifyLeafOpts {
   readonly cwd: AbsolutePath;
   readonly verifyScript?: string;
+  /**
+   * Structured per-module verify gates (WS3). When present AND non-empty, the leaf runs THESE via
+   * the multi-gate executor in `all-run` mode (no diff scope) — the baseline snapshot needs the
+   * COMPLETE picture so post-verify's scoped subset compares like-vs-like per gate. Absent → the
+   * leaf normalises `verifyScript` to a single catch-all gate, so one code path runs everything.
+   */
+  readonly verifyGates?: readonly VerifyGate[];
   readonly timeoutMs?: number;
   /**
    * Per-sprint state directory. When set, the leaf writes the full untruncated verify-script
@@ -234,11 +242,17 @@ export const preTaskVerifyLeaf = (
           // regression.
         }
 
-        const { run, rawOutput, spawnErrorMessage } = await runVerifyScriptUseCase({
+        // Normalise legacy script + structured gates into ONE gate list (gates win when present),
+        // then run the FULL set with NO scope — `all-run` mode. Pre-verify is the attribution
+        // baseline; it must run every gate so post-verify's diff-scoped subset is a subset of what
+        // pre already ran (like-vs-like per gate, HARNESS-PRINCIPLES § 9).
+        const gates = normalizeVerifyGates(opts.verifyScript, opts.verifyGates);
+        const { run, rawOutput, spawnErrorMessage } = await runVerifyGatesUseCase({
           cwd: opts.cwd,
           phase: 'pre',
-          ...(opts.verifyScript !== undefined ? { verifyScript: opts.verifyScript } : {}),
-          ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+          gates,
+          mode: 'all-run',
+          ...(opts.timeoutMs !== undefined ? { defaultTimeoutMs: opts.timeoutMs } : {}),
           clock: deps.clock,
           // Thread the chain abort signal so a Ctrl-C mid-verify kills the child promptly instead
           // of stranding the repo lock for the full verifyTimeout. The runner now widens its

@@ -32,3 +32,5 @@
   plateau+budget-exhausted+malformed (not just plateau); malformed = same-model retry no ladder rung; fallbackMaxAttempts wired
 - [project_attempt_scoped_ctx_reset_seam.md](project_attempt_scoped_ctx_reset_seam.md) — implement attempt-scoped ctx
   resets split across start-attempt (entry: verdict/session) vs progress-journal (exit: GENERATOR_HINTS accumulators)
+- [project_structured_verify_gates.md](project_structured_verify_gates.md) — WS3 per-module verify gates: precedence,
+  multi-gate VerifyRun representation, gitDiffFootprint seam, fail-fast post / all-run pre asymmetry, run-ALL fallback

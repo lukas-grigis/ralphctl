@@ -201,6 +201,7 @@ const scriptedChoicePrompt = <T>(answer: Result<T, StorageError | AbortError>): 
 
 interface FixtureOpts {
   readonly verifyScript?: string;
+  readonly verifyGates?: ReadonlyArray<{ pathPrefix: string; command: string; timeoutMs?: number }>;
   readonly timeoutMs?: number;
   readonly env?: PreTaskVerifyEnvironment;
   readonly interactive?: InteractivePrompt;
@@ -243,6 +244,7 @@ const fixture = (runner: ShellScriptRunner, opts: FixtureOpts = {}): Fixture => 
     {
       cwd: CWD,
       ...(opts.verifyScript !== undefined ? { verifyScript: opts.verifyScript } : {}),
+      ...(opts.verifyGates !== undefined ? { verifyGates: opts.verifyGates } : {}),
       ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
     },
     task.id
@@ -281,6 +283,59 @@ describe('preTaskVerifyLeaf — verifyTimeout plumbing', () => {
     const res = await leaf.execute(ctx);
     expect(res.ok).toBe(true);
     expect((sink.opts as { timeoutMs?: number } | undefined)?.timeoutMs).toBeUndefined();
+  });
+});
+
+describe('preTaskVerifyLeaf — structured verifyGates (T11, all-run, no scope)', () => {
+  // Records which gate commands ran; can be made to fail specific gates.
+  const gateShell = (
+    fail: ReadonlySet<string> = new Set()
+  ): { runner: ShellScriptRunner; ran: () => readonly string[] } => {
+    const ran: string[] = [];
+    const runner: ShellScriptRunner = {
+      async run(_cwd, command) {
+        ran.push(command);
+        const passed = !fail.has(command);
+        return Result.ok({ passed, exitCode: passed ? 0 : 1, output: `${command}-out`, durationMs: 0 });
+      },
+    };
+    return { runner, ran: () => ran };
+  };
+
+  const GATES = [
+    { pathPrefix: 'apps/web-ui', command: 'test-web' },
+    { pathPrefix: 'apps/api', command: 'test-api' },
+    { pathPrefix: '', command: 'lint-all' },
+  ] as const;
+
+  it('runs ALL gates regardless of which paths changed (baseline needs the complete picture)', async () => {
+    const { runner, ran } = gateShell();
+    const { ctx, leaf } = fixture(runner, { verifyGates: GATES });
+    const out = await leaf.execute(ctx);
+    if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
+    expect(ran()).toEqual(['test-web', 'test-api', 'lint-all']);
+    expect(out.value.ctx.lastPreVerifyOutcome).toBe('success');
+  });
+
+  it('all-run continues past an early red gate and the aggregate baseline is red (baselineBroken stamped)', async () => {
+    const { runner, ran } = gateShell(new Set(['test-web']));
+    // Non-interactive so a red baseline hard-blocks deterministically without a prompt.
+    const { ctx, leaf } = fixture(runner, { verifyGates: GATES, env: NON_TTY_ENV });
+    const out = await leaf.execute(ctx);
+    if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
+    // Every gate still ran (all-run) even though test-web failed first.
+    expect(ran()).toEqual(['test-web', 'test-api', 'lint-all']);
+    expect(out.value.ctx.lastPreVerifyOutcome).toBe('failed');
+    expect(out.value.ctx.currentTask?.attempts.at(-1)?.baselineBroken).toBe(true);
+  });
+
+  it('gates win over a legacy verifyScript when both configured', async () => {
+    const { runner, ran } = gateShell();
+    const { ctx, leaf } = fixture(runner, { verifyScript: 'legacy-script', verifyGates: GATES });
+    const out = await leaf.execute(ctx);
+    if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
+    expect(ran()).toEqual(['test-web', 'test-api', 'lint-all']);
+    expect(ran()).not.toContain('legacy-script');
   });
 });
 

@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { absolutePath, FIXED_NOW } from '@tests/fixtures/domain.ts';
-import { attributeVerify, runVerifyScriptUseCase } from '@src/business/task/run-verify-script.ts';
+import {
+  attributeVerify,
+  normalizeVerifyGates,
+  runVerifyGatesUseCase,
+  runVerifyScriptUseCase,
+} from '@src/business/task/run-verify-script.ts';
+import type { VerifyGate } from '@src/domain/entity/repository.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 
 /** Local scale constant used to build deliberately large output fixtures (audit-[03]: no
@@ -146,5 +152,280 @@ describe('attributeVerify — truth table', () => {
     expect(attributeVerify('skipped', 'failed')).toBeUndefined();
     expect(attributeVerify('success', 'skipped')).toBeUndefined();
     expect(attributeVerify('failed', 'skipped')).toBeUndefined();
+  });
+});
+
+describe('normalizeVerifyGates — legacy ⇄ structured precedence', () => {
+  it('structured gates win when present and non-empty', () => {
+    const gates: readonly VerifyGate[] = [{ pathPrefix: 'apps/web', command: 'pnpm --filter web test' }];
+    expect(normalizeVerifyGates('pnpm test', gates)).toBe(gates);
+  });
+
+  it('legacy script becomes a single catch-all gate when no gates configured', () => {
+    expect(normalizeVerifyGates('pnpm test', undefined)).toEqual([{ pathPrefix: '', command: 'pnpm test' }]);
+  });
+
+  it('empty gate list falls back to the legacy script', () => {
+    expect(normalizeVerifyGates('pnpm test', [])).toEqual([{ pathPrefix: '', command: 'pnpm test' }]);
+  });
+
+  it('whitespace-only / absent script with no gates → empty list (skipped run)', () => {
+    expect(normalizeVerifyGates('   ', undefined)).toEqual([]);
+    expect(normalizeVerifyGates(undefined, undefined)).toEqual([]);
+    expect(normalizeVerifyGates(undefined, [])).toEqual([]);
+  });
+});
+
+describe('runVerifyGatesUseCase — multi-gate execution (T10)', () => {
+  // A scripted shell whose per-command result is keyed by the command string so a test can make
+  // specific gates pass / fail and assert which actually ran (declaration order, scope, fail-fast).
+  const scriptedShell = (
+    plan: Readonly<Record<string, { passed: boolean; exitCode: number; output: string; durationMs?: number }>>
+  ): { shell: Parameters<typeof runVerifyGatesUseCase>[0]['runShellScript']; ran: () => readonly string[] } => {
+    const ran: string[] = [];
+    const shell: Parameters<typeof runVerifyGatesUseCase>[0]['runShellScript'] = async (_cwd, command) => {
+      ran.push(command);
+      const r = plan[command];
+      if (r === undefined) return Result.ok({ passed: true, exitCode: 0, output: `${command}-ok`, durationMs: 10 });
+      return Result.ok({ passed: r.passed, exitCode: r.exitCode, output: r.output, durationMs: r.durationMs ?? 10 });
+    };
+    return { shell, ran: () => ran };
+  };
+
+  const base = {
+    cwd: CWD,
+    clock: () => FIXED_NOW,
+    logger: noopLogger,
+  } as const;
+
+  it('legacy single-script path is unchanged (one catch-all gate, success)', async () => {
+    const { shell, ran } = scriptedShell({});
+    const { run, rawOutput } = await runVerifyGatesUseCase({
+      ...base,
+      phase: 'post',
+      gates: normalizeVerifyGates('pnpm test', undefined),
+      mode: 'fail-fast',
+      runShellScript: shell,
+    });
+    expect(ran()).toEqual(['pnpm test']);
+    expect(run.outcome).toBe('success');
+    expect(run.command).toBe('pnpm test');
+    // Single-gate run emits the bare output (no separator) — byte-for-byte the legacy log.
+    expect(rawOutput).toBe('pnpm test-ok');
+  });
+
+  it('empty gate set → skipped row, never spawns the shell', async () => {
+    const { shell, ran } = scriptedShell({});
+    const { run, rawOutput } = await runVerifyGatesUseCase({
+      ...base,
+      phase: 'pre',
+      gates: [],
+      mode: 'all-run',
+      runShellScript: shell,
+    });
+    expect(ran()).toEqual([]);
+    expect(run.outcome).toBe('skipped');
+    expect(run.command).toBe('');
+    expect(rawOutput).toBe('');
+  });
+
+  it('multi-gate all-pass → success; command joins every executed gate; output concatenated with separators', async () => {
+    const gates: readonly VerifyGate[] = [
+      { pathPrefix: 'a', command: 'gate-a' },
+      { pathPrefix: 'b', command: 'gate-b' },
+    ];
+    const { shell, ran } = scriptedShell({});
+    const { run, rawOutput } = await runVerifyGatesUseCase({
+      ...base,
+      phase: 'pre',
+      gates,
+      mode: 'all-run',
+      runShellScript: shell,
+    });
+    expect(ran()).toEqual(['gate-a', 'gate-b']);
+    expect(run.outcome).toBe('success');
+    expect(run.command).toBe('gate-a; gate-b');
+    expect(rawOutput).toContain('── gate-a ──');
+    expect(rawOutput).toContain('── gate-b ──');
+  });
+
+  it('fail-fast (post) stops at the first failing gate; command reports the culprit', async () => {
+    const gates: readonly VerifyGate[] = [
+      { pathPrefix: 'a', command: 'gate-a' },
+      { pathPrefix: 'b', command: 'gate-b' },
+      { pathPrefix: 'c', command: 'gate-c' },
+    ];
+    const { shell, ran } = scriptedShell({ 'gate-b': { passed: false, exitCode: 5, output: 'b broke' } });
+    const { run } = await runVerifyGatesUseCase({
+      ...base,
+      phase: 'post',
+      gates,
+      mode: 'fail-fast',
+      runShellScript: shell,
+    });
+    // gate-c never runs — fail-fast stopped at gate-b.
+    expect(ran()).toEqual(['gate-a', 'gate-b']);
+    expect(run.outcome).toBe('failed');
+    expect(run.command).toBe('gate-b');
+    expect(run.exitCode).toBe(5);
+  });
+
+  it('all-run (pre) executes every gate despite an early failure; aggregate outcome stays failed', async () => {
+    const gates: readonly VerifyGate[] = [
+      { pathPrefix: 'a', command: 'gate-a' },
+      { pathPrefix: 'b', command: 'gate-b' },
+      { pathPrefix: 'c', command: 'gate-c' },
+    ];
+    const { shell, ran } = scriptedShell({ 'gate-a': { passed: false, exitCode: 3, output: 'a broke' } });
+    const { run } = await runVerifyGatesUseCase({
+      ...base,
+      phase: 'pre',
+      gates,
+      mode: 'all-run',
+      runShellScript: shell,
+    });
+    // Baseline needs the complete picture — every gate ran even though gate-a failed first.
+    expect(ran()).toEqual(['gate-a', 'gate-b', 'gate-c']);
+    expect(run.outcome).toBe('failed');
+    // The FIRST failure decides the aggregate command/exit (gate-a).
+    expect(run.command).toBe('gate-a');
+    expect(run.exitCode).toBe(3);
+  });
+
+  it('scope filtering — a gate whose pathPrefix matches no touched path is skipped; catch-all always runs', async () => {
+    const gates: readonly VerifyGate[] = [
+      { pathPrefix: 'apps/web-ui', command: 'gate-web' },
+      { pathPrefix: 'apps/api', command: 'gate-api' },
+      { pathPrefix: '', command: 'gate-lint' },
+    ];
+    const { shell, ran } = scriptedShell({});
+    const { run } = await runVerifyGatesUseCase({
+      ...base,
+      phase: 'post',
+      gates,
+      scope: ['apps/web-ui/src/App.tsx'],
+      mode: 'fail-fast',
+      runShellScript: shell,
+    });
+    // Only the web-ui gate (prefix matches) + the catch-all run; the api gate is filtered out.
+    expect(ran()).toEqual(['gate-web', 'gate-lint']);
+    expect(run.outcome).toBe('success');
+  });
+
+  it('absent scope → ALL gates run (pre-verify / footprint fallback)', async () => {
+    const gates: readonly VerifyGate[] = [
+      { pathPrefix: 'apps/web-ui', command: 'gate-web' },
+      { pathPrefix: 'apps/api', command: 'gate-api' },
+    ];
+    const { shell, ran } = scriptedShell({});
+    await runVerifyGatesUseCase({ ...base, phase: 'pre', gates, mode: 'all-run', runShellScript: shell });
+    expect(ran()).toEqual(['gate-web', 'gate-api']);
+  });
+
+  it('all gates filtered out by scope → skipped row (no spawn)', async () => {
+    const gates: readonly VerifyGate[] = [{ pathPrefix: 'apps/api', command: 'gate-api' }];
+    const { shell, ran } = scriptedShell({});
+    const { run } = await runVerifyGatesUseCase({
+      ...base,
+      phase: 'post',
+      gates,
+      scope: ['apps/web-ui/src/App.tsx'],
+      mode: 'fail-fast',
+      runShellScript: shell,
+    });
+    expect(ran()).toEqual([]);
+    expect(run.outcome).toBe('skipped');
+  });
+
+  it('per-gate timeoutMs is threaded; falls back to defaultTimeoutMs when absent', async () => {
+    const seen: Array<number | undefined> = [];
+    const shell: Parameters<typeof runVerifyGatesUseCase>[0]['runShellScript'] = async (_cwd, _command, sopts) => {
+      seen.push(sopts.timeoutMs);
+      return Result.ok({ passed: true, exitCode: 0, output: '', durationMs: 1 });
+    };
+    const gates: readonly VerifyGate[] = [
+      { pathPrefix: 'a', command: 'gate-a', timeoutMs: 1234 },
+      { pathPrefix: 'b', command: 'gate-b' },
+    ];
+    await runVerifyGatesUseCase({
+      ...base,
+      phase: 'pre',
+      gates,
+      mode: 'all-run',
+      defaultTimeoutMs: 9999,
+      runShellScript: shell,
+    });
+    expect(seen).toEqual([1234, 9999]);
+  });
+
+  it('durationMs sums the executed gates', async () => {
+    const gates: readonly VerifyGate[] = [
+      { pathPrefix: 'a', command: 'gate-a' },
+      { pathPrefix: 'b', command: 'gate-b' },
+    ];
+    const { shell } = scriptedShell({
+      'gate-a': { passed: true, exitCode: 0, output: '', durationMs: 30 },
+      'gate-b': { passed: true, exitCode: 0, output: '', durationMs: 70 },
+    });
+    const { run } = await runVerifyGatesUseCase({
+      ...base,
+      phase: 'pre',
+      gates,
+      mode: 'all-run',
+      runShellScript: shell,
+    });
+    expect(run.durationMs).toBe(100);
+  });
+
+  it('spawn-error on a gate folds into spawn-error outcome with the spawn message', async () => {
+    const gates: readonly VerifyGate[] = [{ pathPrefix: '', command: 'missing-binary' }];
+    const shell: Parameters<typeof runVerifyGatesUseCase>[0]['runShellScript'] = async () =>
+      Result.error(new StorageError({ subCode: 'io', message: 'spawn ENOENT: missing-binary' }));
+    const { run, spawnErrorMessage } = await runVerifyGatesUseCase({
+      ...base,
+      phase: 'post',
+      gates,
+      mode: 'fail-fast',
+      runShellScript: shell,
+    });
+    expect(run.outcome).toBe('spawn-error');
+    expect(run.exitCode).toBe(-1);
+    expect(spawnErrorMessage).toContain('spawn ENOENT');
+  });
+
+  // Attribution composition: pre runs the FULL gate set (all-run), post runs a diff-scoped SUBSET
+  // (fail-fast). Because the post subset ⊆ pre's full set, attribution per gate is like-vs-like —
+  // a scoped red post on a green pre is `regressed`. This proves the aggregate outcomes feed the
+  // existing `attributeVerify` truth table unchanged (HARNESS-PRINCIPLES § 9 deviation note).
+  it('like-vs-like: green pre (all gates) + red scoped post → regressed via attributeVerify', async () => {
+    const gates: readonly VerifyGate[] = [
+      { pathPrefix: 'apps/web-ui', command: 'gate-web' },
+      { pathPrefix: 'apps/api', command: 'gate-api' },
+    ];
+    // Pre: all gates green.
+    const preShell = scriptedShell({});
+    const pre = await runVerifyGatesUseCase({
+      ...base,
+      phase: 'pre',
+      gates,
+      mode: 'all-run',
+      runShellScript: preShell.shell,
+    });
+    expect(pre.run.outcome).toBe('success');
+    expect(preShell.ran()).toEqual(['gate-web', 'gate-api']);
+
+    // Post: web-ui diff only → scoped to gate-web, which now fails.
+    const postShell = scriptedShell({ 'gate-web': { passed: false, exitCode: 1, output: 'web broke' } });
+    const post = await runVerifyGatesUseCase({
+      ...base,
+      phase: 'post',
+      gates,
+      scope: ['apps/web-ui/src/App.tsx'],
+      mode: 'fail-fast',
+      runShellScript: postShell.shell,
+    });
+    expect(postShell.ran()).toEqual(['gate-web']);
+    expect(post.run.outcome).toBe('failed');
+    expect(attributeVerify(pre.run.outcome, post.run.outcome)).toBe('regressed');
   });
 });

@@ -22,6 +22,21 @@ export const RepositorySchema = z
     name: z.string(),
     path: AbsolutePathSchema,
     verifyScript: z.string().optional(),
+    // Structured per-module verify gates (WS3). Optional field — round-trip safe, no
+    // schemaVersion bump: a `project.json` persisted before this field existed simply omits it,
+    // and a repo with no gates never writes the key (the entity factory drops an empty array).
+    // The `''` catch-all prefix is permitted (it is the legacy `verifyScript` equivalent), so the
+    // prefix is a plain string with no min-length floor.
+    verifyGates: z
+      .array(
+        z.object({
+          pathPrefix: z.string(),
+          command: z.string(),
+          timeoutMs: z.number().optional(),
+        })
+      )
+      .readonly()
+      .optional(),
     verifyTimeout: z.number().optional(),
     checkScript: z.string().optional(),
     checkTimeout: z.number().optional(),

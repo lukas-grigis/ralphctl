@@ -90,6 +90,49 @@ export const gitHasUncommittedChanges = async (
   return Result.ok(status.value.length > 0);
 };
 
+/**
+ * The set of working-tree paths that differ from `HEAD` — the attempt's diff footprint. Used by
+ * post-task-verify to scope which structured verify gates run (only gates whose `pathPrefix`
+ * matches a changed path). Combines `git diff --name-only HEAD` (tracked, staged + unstaged) with
+ * `git ls-files --others --exclude-standard` (untracked but not ignored) so a brand-new file in a
+ * module still scopes that module's gate in.
+ *
+ * Returns POSIX-style, repo-root-relative paths (git emits these natively). Bubbles a
+ * `StorageError` on any non-zero git exit so the caller can apply its run-ALL-gates fallback —
+ * never silently returns an empty footprint on a git failure.
+ */
+export const gitDiffFootprint = async (
+  runner: GitRunner,
+  cwd: AbsolutePath
+): Promise<Result<readonly string[], StorageError>> => {
+  const diff = await runner.run(cwd, ['diff', '--name-only', 'HEAD']);
+  if (!diff.ok) return Result.error(diff.error);
+  if (diff.value.exitCode !== 0) {
+    return Result.error(
+      new StorageError({
+        subCode: 'io',
+        message: `git diff --name-only HEAD failed: ${(diff.value.stderr || diff.value.stdout).trim()}`,
+      })
+    );
+  }
+  const untracked = await runner.run(cwd, ['ls-files', '--others', '--exclude-standard']);
+  if (!untracked.ok) return Result.error(untracked.error);
+  if (untracked.value.exitCode !== 0) {
+    return Result.error(
+      new StorageError({
+        subCode: 'io',
+        message: `git ls-files --others failed: ${(untracked.value.stderr || untracked.value.stdout).trim()}`,
+      })
+    );
+  }
+  const paths = new Set<string>();
+  for (const line of `${diff.value.stdout}\n${untracked.value.stdout}`.split('\n')) {
+    const path = line.trim();
+    if (path.length > 0) paths.add(path);
+  }
+  return Result.ok([...paths]);
+};
+
 /** Resolve `HEAD` to a commit SHA. */
 export const gitRevParseHead = async (runner: GitRunner, cwd: AbsolutePath): Promise<Result<string, StorageError>> => {
   const result = await runner.run(cwd, ['rev-parse', 'HEAD']);

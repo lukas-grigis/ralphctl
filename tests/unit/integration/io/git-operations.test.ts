@@ -7,6 +7,7 @@ import {
   gitBranchExists,
   gitCommitWithMessage,
   gitCreateAndCheckoutBranch,
+  gitDiffFootprint,
   gitGetCurrentBranch,
   gitHasUncommittedChanges,
   gitResetHard,
@@ -49,6 +50,39 @@ const scriptRunner = (calls: ScriptedCall[]): { runner: GitRunner; received: Arr
 
 const ok = (stdout = '', exitCode = 0, stderr = ''): Result<GitRunResult, StorageError> =>
   Result.ok({ stdout, stderr, exitCode });
+
+describe('gitDiffFootprint', () => {
+  it('unions tracked diff + untracked (exclude-standard) into a de-duplicated path list', async () => {
+    const { runner } = scriptRunner([
+      { args: ['diff', '--name-only', 'HEAD'], result: ok('apps/web-ui/a.ts\napps/api/b.ts\n') },
+      { args: ['ls-files', '--others', '--exclude-standard'], result: ok('apps/web-ui/a.ts\napps/web-ui/new.ts\n') },
+    ]);
+    const result = await gitDiffFootprint(runner, cwd);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      // de-dup: apps/web-ui/a.ts appears in both lists but once in the result.
+      expect([...result.value].sort()).toEqual(['apps/api/b.ts', 'apps/web-ui/a.ts', 'apps/web-ui/new.ts']);
+    }
+  });
+
+  it('returns empty list on a clean tree (no changes, no untracked)', async () => {
+    const { runner } = scriptRunner([
+      { args: ['diff', '--name-only', 'HEAD'], result: ok('') },
+      { args: ['ls-files', '--others', '--exclude-standard'], result: ok('') },
+    ]);
+    const result = await gitDiffFootprint(runner, cwd);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value).toEqual([]);
+  });
+
+  it('bubbles a StorageError on a non-zero git diff exit (caller applies its run-ALL fallback)', async () => {
+    const { runner } = scriptRunner([
+      { args: ['diff', '--name-only', 'HEAD'], result: ok('fatal: not a git repository', 128, 'fatal') },
+    ]);
+    const result = await gitDiffFootprint(runner, cwd);
+    expect(result.ok).toBe(false);
+  });
+});
 
 describe('gitStatusPorcelain', () => {
   it('returns empty list on clean tree', async () => {

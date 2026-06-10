@@ -1,4 +1,5 @@
 import type { Task } from '@src/domain/entity/task.ts';
+import type { VerifyGate } from '@src/domain/entity/repository.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
@@ -17,6 +18,14 @@ export interface RepoExecConfig {
    */
   readonly name: string;
   readonly verifyScript?: string;
+  /**
+   * Structured per-module verify gates, from `Repository.verifyGates`. When present AND non-empty
+   * the pre/post-task verify leaves run THESE (the multi-gate executor) instead of `verifyScript`;
+   * post-verify additionally scopes them to the attempt's diff footprint and runs fail-fast, while
+   * pre-verify runs the full set (baseline needs the complete picture). Absent → the leaves fall
+   * back to the single `verifyScript` path verbatim.
+   */
+  readonly verifyGates?: readonly VerifyGate[];
   /**
    * Per-spawn wall-clock cap (ms) for the verify script, from `Repository.verifyTimeout`. Threaded
    * into both the pre- and post-task verify leaves as `timeoutMs`. When absent the shell runner

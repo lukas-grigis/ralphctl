@@ -10,6 +10,7 @@ import { startNextAttempt } from '@src/domain/entity/task-attempts.ts';
 import { failCurrentAttempt } from '@src/domain/entity/task-settle.ts';
 import { postTaskVerifyLeaf } from '@src/application/flows/implement/leaves/post-task-verify.ts';
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
+import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 
@@ -61,6 +62,18 @@ const errorRunner = (message = 'shell missing'): ShellScriptRunner => ({
   },
 });
 
+/**
+ * Git runner that answers every probe with a clean exit + a deterministic single-file diff
+ * footprint (`src/foo.ts`). The legacy single-script path never calls it (footprint scoping is
+ * gated on structured gates being configured), so these tests' default fixtures are unaffected;
+ * the structured-gate tests below supply their own footprints.
+ */
+const fakeGitRunner = (stdout = 'src/foo.ts\n'): GitRunner => ({
+  async run() {
+    return Result.ok({ stdout, stderr: '', exitCode: 0 });
+  },
+});
+
 interface FakeRepo extends UpdateTask {
   readonly updates: readonly Task[];
 }
@@ -100,6 +113,7 @@ const fixture = (
     {
       shellScriptRunner: runner,
       taskRepo: repo,
+      gitRunner: fakeGitRunner(),
       clock: () => FIXED_NOW,
       eventBus: bus.bus,
       logger: noopLogger,
@@ -251,6 +265,7 @@ describe('postTaskVerifyLeaf', () => {
         {
           shellScriptRunner: runner,
           taskRepo: repo,
+          gitRunner: fakeGitRunner(),
           clock: () => FIXED_NOW,
           eventBus: createCapturingBus().bus,
           logger: noopLogger,
@@ -295,6 +310,116 @@ describe('postTaskVerifyLeaf', () => {
     });
   });
 
+  // ───────── T11: structured verify gates — diff-scoped fail-fast + footprint fallback ─────────
+  describe('structured verifyGates (T11)', () => {
+    // Records the (command) of every gate the shell ran, keyed result per command.
+    const gateShell = (
+      fail: ReadonlySet<string> = new Set()
+    ): { runner: ShellScriptRunner; ran: () => readonly string[] } => {
+      const ran: string[] = [];
+      const runner: ShellScriptRunner = {
+        async run(_cwd, command) {
+          ran.push(command);
+          const passed = !fail.has(command);
+          return Result.ok({ passed, exitCode: passed ? 0 : 1, output: `${command}-out`, durationMs: 1 });
+        },
+      };
+      return { runner, ran: () => ran };
+    };
+
+    // Git runner that returns a fixed footprint (joined newline-separated) for diff/ls-files, or
+    // can be made to error / return empty to drive the fallback.
+    const footprintGit = (footprint: readonly string[]): GitRunner => ({
+      async run() {
+        return Result.ok({ stdout: footprint.join('\n'), stderr: '', exitCode: 0 });
+      },
+    });
+    const errorGit = (): GitRunner => ({
+      async run() {
+        return Result.error({
+          code: 'storage-error',
+          subCode: 'io',
+          name: 'StorageError',
+          message: 'not a git repo',
+        } as never);
+      },
+    });
+
+    const GATES = [
+      { pathPrefix: 'apps/web-ui', command: 'test-web' },
+      { pathPrefix: 'apps/api', command: 'test-api' },
+      { pathPrefix: '', command: 'lint-all' },
+    ] as const;
+
+    const runGated = async (args: {
+      gitRunner: GitRunner;
+      shell: ShellScriptRunner;
+      preOutcome?: VerifyRunOutcome;
+    }) => {
+      const task = makeInProgressTaskWithRunningAttempt();
+      const ctx: ImplementCtx = {
+        sprintId: SPRINT_ID,
+        currentTask: task,
+        currentTaskId: task.id,
+        tasks: [task],
+        ...(args.preOutcome !== undefined ? { lastPreVerifyOutcome: args.preOutcome } : {}),
+      };
+      const { repo } = fakeTaskRepo();
+      const leaf = postTaskVerifyLeaf(
+        {
+          shellScriptRunner: args.shell,
+          taskRepo: repo,
+          gitRunner: args.gitRunner,
+          clock: () => FIXED_NOW,
+          eventBus: createCapturingBus().bus,
+          logger: noopLogger,
+        },
+        { cwd: CWD, verifyGates: GATES },
+        task.id
+      );
+      const out = await leaf.execute(ctx);
+      if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
+      return out.value.ctx;
+    };
+
+    it('scopes gates to the diff footprint — only the matching module gate + catch-all run', async () => {
+      const { runner, ran } = gateShell();
+      await runGated({ gitRunner: footprintGit(['apps/web-ui/src/App.tsx']), shell: runner, preOutcome: 'success' });
+      // web-ui prefix matches + catch-all; api gate filtered out.
+      expect(ran()).toEqual(['test-web', 'lint-all']);
+    });
+
+    it('a scoped red gate on a green pre is still `regressed` (like-vs-like)', async () => {
+      const { runner } = gateShell(new Set(['test-web']));
+      const ctx = await runGated({
+        gitRunner: footprintGit(['apps/web-ui/src/App.tsx']),
+        shell: runner,
+        preOutcome: 'success',
+      });
+      expect(ctx.currentTask?.attempts.at(-1)?.attribution).toBe('regressed');
+      expect(ctx.lastBlockReason).toContain('regressed baseline');
+    });
+
+    it('fallback: footprint probe error → runs ALL gates (never silently skips)', async () => {
+      const { runner, ran } = gateShell();
+      await runGated({ gitRunner: errorGit(), shell: runner, preOutcome: 'success' });
+      expect(ran()).toEqual(['test-web', 'test-api', 'lint-all']);
+    });
+
+    it('fallback: empty footprint → runs ALL gates', async () => {
+      const { runner, ran } = gateShell();
+      await runGated({ gitRunner: footprintGit([]), shell: runner, preOutcome: 'success' });
+      expect(ran()).toEqual(['test-web', 'test-api', 'lint-all']);
+    });
+
+    it('post fail-fast: a red module gate stops before the catch-all runs', async () => {
+      const { runner, ran } = gateShell(new Set(['test-web']));
+      await runGated({ gitRunner: footprintGit(['apps/web-ui/src/App.tsx']), shell: runner, preOutcome: 'success' });
+      // test-web fails → fail-fast; lint-all never runs.
+      expect(ran()).toEqual(['test-web']);
+    });
+  });
+
   it('persists the running attempt with the appended VerifyRun via taskRepo.update', async () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const ctx: ImplementCtx = {
@@ -310,6 +435,7 @@ describe('postTaskVerifyLeaf', () => {
       {
         shellScriptRunner: fakeRunner({ passed: true, exitCode: 0, output: 'ok' }),
         taskRepo: repo,
+        gitRunner: fakeGitRunner(),
         clock: () => FIXED_NOW,
         eventBus: bus.bus,
         logger: noopLogger,
@@ -349,6 +475,7 @@ describe('postTaskVerifyLeaf', () => {
         {
           shellScriptRunner: fakeRunner({ passed: false, exitCode: 1, output: 'broke it' }),
           taskRepo: repo,
+          gitRunner: fakeGitRunner(),
           clock: () => FIXED_NOW,
           eventBus: createCapturingBus().bus,
           logger: noopLogger,
@@ -402,6 +529,7 @@ describe('postTaskVerifyLeaf', () => {
         {
           shellScriptRunner: fakeRunner({ passed: false, exitCode: 1, output: 'broke it' }),
           taskRepo: repo,
+          gitRunner: fakeGitRunner(),
           clock: () => FIXED_NOW,
           eventBus: createCapturingBus().bus,
           logger: noopLogger,
@@ -429,6 +557,7 @@ describe('postTaskVerifyLeaf', () => {
         {
           shellScriptRunner: fakeRunner({ passed: postPassed, exitCode: postPassed ? 0 : 1, output: 'x' }),
           taskRepo: repo,
+          gitRunner: fakeGitRunner(),
           clock: () => FIXED_NOW,
           eventBus: createCapturingBus().bus,
           logger: noopLogger,

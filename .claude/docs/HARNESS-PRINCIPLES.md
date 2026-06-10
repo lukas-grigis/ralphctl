@@ -207,6 +207,18 @@ concrete criteria with hard thresholds — any failed criterion triggers rework.
 - Attribution algorithm (`clean` / `regressed` / `baseline-broken` / `fixed-baseline`): implement leaves
 - Scripts collected by the `detect-scripts` flow: `src/application/flows/detect-scripts/`
 
+**Deviation — structured verify gates (WS3).** When a repo configures `Repository.verifyGates` (per-module
+`{ pathPrefix, command, timeoutMs? }` gates), pre/post are deliberately ASYMMETRIC in scope: pre-verify runs
+ALL gates (the baseline snapshot needs the complete picture), while post-verify runs only the gates whose
+`pathPrefix` matches the attempt's diff footprint (`git diff --name-only HEAD` + untracked), fail-fast. This
+is a scope optimisation — a monorepo verifyScript pays every module on every run; the gates let post-verify
+pay only the modules the diff touched. Attribution stays like-vs-like and the `regressed` path is unchanged:
+because post's executed set ⊆ pre's executed set (post is a diff-scoped subset of the full set pre ran), a
+red scoped post on a green pre is still `regressed` per the unchanged attribution truth table. The legacy
+single `verifyScript` normalises to one catch-all gate (`pathPrefix: ''`), so the non-gated path is
+byte-for-byte the old behaviour. CRITICAL: a footprint probe failure or an empty footprint falls back to
+running ALL gates — a gate is never silently skipped.
+
 ---
 
 ### 10. Native context file per provider

@@ -4,7 +4,10 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Attribution, VerifyRun, VerifyRunOutcome } from '@src/domain/entity/attempt.ts';
-import { attributeVerify, runVerifyScriptUseCase } from '@src/business/task/run-verify-script.ts';
+import { attributeVerify, normalizeVerifyGates, runVerifyGatesUseCase } from '@src/business/task/run-verify-script.ts';
+import type { VerifyGate } from '@src/domain/entity/repository.ts';
+import { gitDiffFootprint } from '@src/integration/io/git-operations.ts';
+import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import { appendAttemptVerifyRun, setAttemptAttribution } from '@src/domain/entity/task-attempts.ts';
 import type { InProgressTask, Task } from '@src/domain/entity/task.ts';
@@ -76,6 +79,13 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 export interface PostTaskVerifyLeafDeps {
   readonly shellScriptRunner: ShellScriptRunner;
   readonly taskRepo: UpdateTask;
+  /**
+   * Used to compute the attempt's diff footprint (`git diff --name-only HEAD` + untracked) so the
+   * structured verify gates run only for the modules the diff touched. A footprint failure or an
+   * empty result falls back to running ALL gates — never silently skips. Only consulted when
+   * `opts.verifyGates` is present AND non-empty; the legacy single-script path ignores it.
+   */
+  readonly gitRunner: GitRunner;
   readonly clock: () => IsoTimestamp;
   readonly eventBus: EventBus;
   readonly logger: Logger;
@@ -84,6 +94,15 @@ export interface PostTaskVerifyLeafDeps {
 export interface PostTaskVerifyLeafOpts {
   readonly cwd: AbsolutePath;
   readonly verifyScript?: string;
+  /**
+   * Structured per-module verify gates (WS3). When present AND non-empty, the leaf runs THESE via
+   * the multi-gate executor in `fail-fast` mode, SCOPED to the attempt's diff footprint (only
+   * gates whose `pathPrefix` matches a changed path). Footprint failure / empty → run ALL gates.
+   * Absent → the leaf normalises `verifyScript` to a single catch-all gate (one code path). The
+   * `'regressed'` attribution semantics are unchanged: a scoped red post on a green pre is still
+   * `regressed`, because every post-executed gate also ran in pre's full set.
+   */
+  readonly verifyGates?: readonly VerifyGate[];
   readonly timeoutMs?: number;
   /**
    * Per-sprint state directory. When set, the leaf writes the full untruncated verify-script
@@ -175,6 +194,44 @@ const legacyVerifyResult = (
 const budgetRemains = (task: InProgressTask, cap: number | undefined): boolean =>
   cap !== undefined && task.attempts.length < cap;
 
+/**
+ * Compute the diff-footprint scope for the structured verify gates, or `undefined` to signal the
+ * run-ALL-gates fallback. Returns `undefined` (NOT an empty array) when:
+ *
+ *  - the footprint probe errored (corrupt repo / git missing) — we cannot trust a partial scope;
+ *  - the footprint is empty (the AI committed everything already, so `git diff HEAD` shows nothing,
+ *    or it made no changes) — a scoped run would then skip EVERY non-catch-all gate, defeating the
+ *    point of an authoritative post-verify.
+ *
+ * In both cases the caller passes no scope, so the executor runs all gates. The fallback is logged
+ * (warn for an error, debug for an empty footprint) — the gate is never silently skipped.
+ */
+const computeScope = async (
+  deps: Pick<PostTaskVerifyLeafDeps, 'gitRunner' | 'eventBus' | 'clock'>,
+  cwd: AbsolutePath
+): Promise<readonly string[] | undefined> => {
+  const footprint = await gitDiffFootprint(deps.gitRunner, cwd);
+  if (!footprint.ok) {
+    deps.eventBus.publish({
+      type: 'log',
+      level: 'warn',
+      message: `post-task-verify ${String(cwd)}: diff footprint failed (${footprint.error.message}) — running ALL verify gates`,
+      at: deps.clock(),
+    });
+    return undefined;
+  }
+  if (footprint.value.length === 0) {
+    deps.eventBus.publish({
+      type: 'log',
+      level: 'debug',
+      message: `post-task-verify ${String(cwd)}: empty diff footprint — running ALL verify gates`,
+      at: deps.clock(),
+    });
+    return undefined;
+  }
+  return footprint.value;
+};
+
 export const postTaskVerifyLeaf = (
   deps: PostTaskVerifyLeafDeps,
   opts: PostTaskVerifyLeafOpts,
@@ -204,11 +261,23 @@ export const postTaskVerifyLeaf = (
           return Result.ok({ task: input.task, run: skipped, rawOutput: '' });
         }
 
-        const { run, rawOutput, spawnErrorMessage } = await runVerifyScriptUseCase({
+        // Normalise legacy script + structured gates into ONE gate list (gates win when present).
+        const gates = normalizeVerifyGates(opts.verifyScript, opts.verifyGates);
+        // Diff-scope the gates to the attempt's footprint — but ONLY when the repo actually
+        // configured structured gates. The legacy single catch-all gate matches every path, so
+        // computing a footprint for it is wasted git work; leave `scope` undefined (all-run subset
+        // = the one gate). When gates ARE configured we compute the footprint and pass it as scope;
+        // fail-fast stops at the first red scoped gate. CRITICAL fallback: a footprint failure or
+        // an empty result runs ALL gates (scope undefined) — we never silently skip a gate.
+        const usingStructuredGates = opts.verifyGates !== undefined && opts.verifyGates.length > 0;
+        const scope = usingStructuredGates ? await computeScope(deps, opts.cwd) : undefined;
+        const { run, rawOutput, spawnErrorMessage } = await runVerifyGatesUseCase({
           cwd: opts.cwd,
           phase: 'post',
-          ...(opts.verifyScript !== undefined ? { verifyScript: opts.verifyScript } : {}),
-          ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+          gates,
+          mode: 'fail-fast',
+          ...(scope !== undefined ? { scope } : {}),
+          ...(opts.timeoutMs !== undefined ? { defaultTimeoutMs: opts.timeoutMs } : {}),
           clock: deps.clock,
           // Thread the chain abort signal so a Ctrl-C mid-verify kills the child promptly instead
           // of stranding the repo lock for the full verifyTimeout. `runVerifyShell` collapses the
