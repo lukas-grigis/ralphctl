@@ -1,9 +1,16 @@
 import { z } from 'zod';
-import type { AiSignal, NoteSignal, SetupScriptSignal, VerifyScriptSignal } from '@src/domain/signal.ts';
+import type {
+  AiSignal,
+  NoteSignal,
+  SetupScriptSignal,
+  VerifyGatesSignal,
+  VerifyScriptSignal,
+} from '@src/domain/signal.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { noteSignalSchema } from '@src/integration/ai/contract/_engine/signals/note/schema.ts';
 import { setupScriptSignalSchema } from '@src/integration/ai/contract/_engine/signals/setup-script/schema.ts';
 import { verifyScriptSignalSchema } from '@src/integration/ai/contract/_engine/signals/verify-script/schema.ts';
+import { verifyGatesSignalSchema } from '@src/integration/ai/contract/_engine/signals/verify-gates/schema.ts';
 import { brandSignalArray } from '@src/integration/ai/contract/_engine/brand-signal-array.ts';
 import type { AiOutputContract } from '@src/integration/ai/contract/_engine/types.ts';
 
@@ -13,12 +20,13 @@ import type { AiOutputContract } from '@src/integration/ai/contract/_engine/type
  *
  *   - `setup-script` — single shell line for the sprint-start setup gate (optional).
  *   - `verify-script` — single shell line for the post-task verify gate (optional).
+ *   - `verify-gates` — structured per-module gates for monorepo-style repos (optional, ADDITIVE
+ *     to `verify-script`: emitted only alongside the single-line fallback, never instead of it).
  *   - `note` — operator-readable observation (optional, free-form).
  *
- * Both `setup-script` and `verify-script` are optional. A clean repo where the AI honestly
- * says "nothing to do" emits neither; the confirm leaf shows a "no suggestions" state in
- * that case. Failing the chain on missing signals would be the wrong outcome for a useful
- * "no answer".
+ * Every signal kind is optional. A clean single-module repo emits `setup-script` + `verify-script`
+ * and no gates; a monorepo emits all three; a repo the AI cannot characterise emits a bare `note`.
+ * Failing the chain on missing signals would be the wrong outcome for a useful "no answer".
  *
  * No sidecars — the rendered prompt + raw body live in the per-run forensic dir already;
  * adding a derived sidecar over the validated signals would just duplicate the script lines.
@@ -27,7 +35,7 @@ import type { AiOutputContract } from '@src/integration/ai/contract/_engine/type
  * carried; new files declare `schemaVersion: 1`.
  */
 
-type DetectScriptsSignal = SetupScriptSignal | VerifyScriptSignal | NoteSignal;
+type DetectScriptsSignal = SetupScriptSignal | VerifyScriptSignal | VerifyGatesSignal | NoteSignal;
 
 const atMostOneOf =
   (kind: string) =>
@@ -35,9 +43,10 @@ const atMostOneOf =
     signals.filter((s) => s.type === kind).length <= 1;
 
 const signalsArraySchemaRaw = z
-  .array(z.union([setupScriptSignalSchema, verifyScriptSignalSchema, noteSignalSchema]))
+  .array(z.union([setupScriptSignalSchema, verifyScriptSignalSchema, verifyGatesSignalSchema, noteSignalSchema]))
   .refine(atMostOneOf('setup-script'), 'at most one setup-script signal per detect-scripts spawn')
-  .refine(atMostOneOf('verify-script'), 'at most one verify-script signal per detect-scripts spawn');
+  .refine(atMostOneOf('verify-script'), 'at most one verify-script signal per detect-scripts spawn')
+  .refine(atMostOneOf('verify-gates'), 'at most one verify-gates signal per detect-scripts spawn');
 
 /**
  * Cast bridge between Zod's inferred shape (optional fields widened to `T | undefined`
@@ -65,6 +74,14 @@ const EXAMPLE_SIGNALS: readonly DetectScriptsSignal[] = [
   {
     type: 'verify-script',
     command: 'pnpm typecheck && pnpm lint && pnpm test',
+    timestamp: EXAMPLE_TS,
+  },
+  {
+    type: 'verify-gates',
+    gates: [
+      { pathPrefix: 'services/api/', command: 'pnpm --filter api test' },
+      { pathPrefix: 'services/web/', command: 'pnpm --filter web test' },
+    ],
     timestamp: EXAMPLE_TS,
   },
   {

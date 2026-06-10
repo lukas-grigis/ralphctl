@@ -81,6 +81,11 @@ export const rowForSignal = (sig: HarnessSignal): SignalRow | undefined => {
     case 'setup-script':
     case 'verify-script':
       return { label: 'script', text: `${sig.type}: ${sig.command}` };
+    case 'verify-gates':
+      return {
+        label: 'script',
+        text: `verify-gates: ${String(sig.gates.length)} module${sig.gates.length === 1 ? '' : 's'}`,
+      };
     case 'agents-md-proposal':
       return { label: 'proposal', text: `context file proposal (${String(sig.content.length)} chars)` };
     case 'setup-skill-proposal':

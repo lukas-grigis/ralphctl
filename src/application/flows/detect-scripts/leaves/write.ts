@@ -4,6 +4,7 @@ import type { Project } from '@src/domain/entity/project.ts';
 import { updateRepository } from '@src/domain/entity/project.ts';
 import type { Repository } from '@src/domain/entity/repository.ts';
 import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
+import type { VerifyGateProposal } from '@src/domain/signal.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
@@ -22,6 +23,7 @@ interface WriteInput {
   readonly proposal: {
     readonly proposedSetupScript?: string;
     readonly proposedVerifyScript?: string;
+    readonly proposedVerifyGates?: readonly VerifyGateProposal[];
   };
 }
 
@@ -36,7 +38,11 @@ interface WriteInput {
  *
  * Mapping note: the AI emits `<verify-script>` (the post-task gate); the repository field that
  * holds it is `verifyScript`. The prompt-tag wire name and the domain field name are aligned
- * after the v0.7.0 rename.
+ * after the v0.7.0 rename. Structured `verify-gates` map onto `Repository.verifyGates` — ADDITIVE
+ * to `verifyScript`: a monorepo proposal persists BOTH (the script stays the legacy fallback; the
+ * gates win at verify time when present and non-empty). The entity setter normalises gates
+ * (trims commands, drops blanks) and clears the field on an all-blank input, so a proposal that
+ * survived confirm with only blank commands round-trips to "no gates" cleanly.
  */
 const writeUseCase = async (
   deps: WriteDetectScriptsLeafDeps,
@@ -53,6 +59,7 @@ const writeUseCase = async (
   const updated = updateRepository(input.project, input.repository.id, {
     ...(input.proposal.proposedSetupScript !== undefined ? { setupScript: input.proposal.proposedSetupScript } : {}),
     ...(input.proposal.proposedVerifyScript !== undefined ? { verifyScript: input.proposal.proposedVerifyScript } : {}),
+    ...(input.proposal.proposedVerifyGates !== undefined ? { verifyGates: input.proposal.proposedVerifyGates } : {}),
   });
   if (!updated.ok) return Result.error(updated.error);
 
@@ -63,6 +70,7 @@ const writeUseCase = async (
     repositoryId: String(input.repository.id),
     setupWritten: input.proposal.proposedSetupScript !== undefined,
     verifyWritten: input.proposal.proposedVerifyScript !== undefined,
+    verifyGatesWritten: input.proposal.proposedVerifyGates?.length ?? 0,
   });
 
   return Result.ok(undefined);
@@ -108,6 +116,9 @@ export const writeDetectScriptsLeaf = (deps: WriteDetectScriptsLeafDeps): Elemen
             : {}),
           ...(ctx.proposal.proposedVerifyScript !== undefined
             ? { proposedVerifyScript: ctx.proposal.proposedVerifyScript }
+            : {}),
+          ...(ctx.proposal.proposedVerifyGates !== undefined
+            ? { proposedVerifyGates: ctx.proposal.proposedVerifyGates }
             : {}),
         },
       };

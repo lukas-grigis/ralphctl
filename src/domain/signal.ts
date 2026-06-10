@@ -195,6 +195,42 @@ export interface VerifyScriptSignal {
 }
 
 /**
+ * One structured per-module verify gate proposed by `detect-scripts` for a monorepo-style repo.
+ * Mirrors the `VerifyGate` domain shape (`repository.ts`) at the signal boundary so the gates
+ * round-trip onto {@link Repository.verifyGates} unchanged.
+ *
+ *  - `pathPrefix` — POSIX-style path prefix relative to the repo root that scopes the gate. `''`
+ *    (empty string) is the catch-all that matches everything — used only for cross-module
+ *    integration checks.
+ *  - `command` — the verbatim shell line to run for this module, lifted from the module's own
+ *    tooling.
+ *  - `timeoutMs` — optional per-gate wall-clock cap.
+ */
+export interface VerifyGateProposal {
+  readonly pathPrefix: string;
+  readonly command: string;
+  readonly timeoutMs?: number;
+}
+
+/**
+ * Structured per-module verify gates proposed by the `detect-scripts` flow for monorepo-style
+ * repositories — distinct module roots (separate build manifests in subdirectories), each
+ * verified by its own command. ADDITIVE to {@link VerifyScriptSignal}: a single-module repo
+ * proposal carries `verify-script` only; a monorepo proposal carries `verify-script` (the legacy
+ * catch-all fallback the operator sees) AND `verify-gates`. The gates persist onto
+ * {@link Repository.verifyGates}, which wins over `verifyScript` when present and non-empty.
+ *
+ * Empty `gates` is not the canonical "no gates" state — the AI omits the signal entirely for
+ * single-module repos; the schema rejects an empty array so an accidental empty emission cannot
+ * masquerade as a meaningful "no modules" proposal.
+ */
+export interface VerifyGatesSignal {
+  readonly type: 'verify-gates';
+  readonly gates: readonly VerifyGateProposal[];
+  readonly timestamp: IsoTimestamp;
+}
+
+/**
  * Zero or more kebab-case skill names the AI proposes linking into the agentic working
  * directory (e.g. `react-patterns`, `nextjs-app-router`). Empty `names` is the canonical
  * "no suggestions" state.
@@ -350,6 +386,7 @@ export type HarnessSignal =
   | AgentsMdProposalSignal
   | SetupScriptSignal
   | VerifyScriptSignal
+  | VerifyGatesSignal
   | SetupSkillProposalSignal
   | VerifySkillProposalSignal
   | SkillSuggestionsSignal

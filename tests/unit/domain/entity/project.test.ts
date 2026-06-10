@@ -148,4 +148,57 @@ describe('updateRepository', () => {
     expect(r.value.repositories[0]?.suggestedSkills).toBeUndefined();
     expect('suggestedSkills' in (r.value.repositories[0] ?? {})).toBe(false);
   });
+
+  it('persists structured verifyGates alongside the verify script (additive)', () => {
+    const seeded = createRepository({
+      id: FIXED_REPOSITORY_ID,
+      path: absolutePath('/tmp/monorepo'),
+      verifyScript: 'root-verify',
+    });
+    if (!seeded.ok) throw new Error('seed');
+    const proj = makeProject({ repositories: [seeded.value] });
+
+    const r = updateRepository(proj, FIXED_REPOSITORY_ID, {
+      verifyGates: [
+        { pathPrefix: 'services/api/', command: 'api-verify' },
+        { pathPrefix: 'services/web/', command: 'web-verify', timeoutMs: 90_000 },
+      ],
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const saved = r.value.repositories[0];
+    // Gates land, AND the legacy verify script is preserved — they coexist.
+    expect(saved?.verifyScript).toBe('root-verify');
+    expect(saved?.verifyGates).toEqual([
+      { pathPrefix: 'services/api/', command: 'api-verify' },
+      { pathPrefix: 'services/web/', command: 'web-verify', timeoutMs: 90_000 },
+    ]);
+  });
+
+  it('normalises gates through the entity setter — blank commands drop, all-blank clears', () => {
+    const seeded = createRepository({
+      id: FIXED_REPOSITORY_ID,
+      path: absolutePath('/tmp/monorepo-clear'),
+      verifyGates: [{ pathPrefix: 'a/', command: 'keep' }],
+    });
+    if (!seeded.ok) throw new Error('seed');
+    const proj = makeProject({ repositories: [seeded.value] });
+    expect(proj.repositories[0]?.verifyGates).toEqual([{ pathPrefix: 'a/', command: 'keep' }]);
+
+    const r = updateRepository(proj, FIXED_REPOSITORY_ID, {
+      verifyGates: [{ pathPrefix: 'a/', command: '   ' }],
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    // Only gate had a blank command → nothing survives → field removed entirely.
+    expect(r.value.repositories[0]?.verifyGates).toBeUndefined();
+    expect('verifyGates' in (r.value.repositories[0] ?? {})).toBe(false);
+  });
+
+  it('rejects a gate with a non-positive timeoutMs', () => {
+    const r = updateRepository(makeProject(), FIXED_REPOSITORY_ID, {
+      verifyGates: [{ pathPrefix: 'a/', command: 'check', timeoutMs: 0 }],
+    });
+    expect(r.ok).toBe(false);
+  });
 });

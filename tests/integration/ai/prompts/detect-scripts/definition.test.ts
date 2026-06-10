@@ -44,8 +44,8 @@ describe('detectScriptsPromptDef — completeness', () => {
     }
   });
 
-  it('expectedSignals advertises setup-script, verify-script, and note', () => {
-    expect(detectScriptsPromptDef.expectedSignals).toEqual(['setup-script', 'verify-script', 'note']);
+  it('expectedSignals advertises setup-script, verify-script, verify-gates, and note', () => {
+    expect(detectScriptsPromptDef.expectedSignals).toEqual(['setup-script', 'verify-script', 'verify-gates', 'note']);
   });
 });
 
@@ -158,5 +158,52 @@ describe('detect-scripts template — detection guidance', () => {
     // documented, omit when silent" rather than a blanket silence-is-safer rule.
     expect(body).toMatch(/Emit when documented, omit when silent/i);
     expect(body).toMatch(/omit.*when the project.*files are silent/i);
+  });
+
+  it('gates the verify-gates signal on monorepos with separable module roots', async () => {
+    const body = await renderedBody();
+    // The per-module gate block must (a) name the signal, (b) restrict it to monorepos, and
+    // (c) state the single-module exception inline — dropping any of these silently widens or
+    // narrows what the AI proposes.
+    expect(body).toMatch(/Per-module verify gates/i);
+    expect(body).toMatch(/separable module roots/i);
+    expect(body).toMatch(/single-module repository .* the verify script alone/i);
+  });
+
+  it('frames verify-gates as additive to the verify script, never a replacement', async () => {
+    const body = await renderedBody();
+    // The ADDITIVE contract is load-bearing: gates persist alongside the legacy script fallback.
+    expect(body).toMatch(/`verify-gates` signal is ADDITIVE/);
+    expect(body).toMatch(/alongside the `verify-script` signal, never[\s\S]{0,12}instead of it/i);
+  });
+
+  it('pins the gate field names the schema parses (pathPrefix, command, timeoutMs)', async () => {
+    const body = await renderedBody();
+    // Field-name drift between template and schema silently drops the whole signal. The
+    // documented output contract MUST name the exact keys the Zod schema reads.
+    expect(body).toMatch(/`pathPrefix`/);
+    expect(body).toMatch(/`command`/);
+    expect(body).toMatch(/`timeoutMs`/);
+  });
+
+  it('does not hardcode a package manager in the verify-gates guidance paragraph', async () => {
+    const body = await renderedBody();
+    // House rule: no hardcoded package-manager names in prose. The gate guidance must phrase
+    // commands generically ("the module's own check / test entry point"). The worked JSON
+    // examples downstream legitimately use the `<tool>` placeholder, so we slice the prose
+    // block specifically — from its CONSTRAINT heading (not the same phrase in the
+    // success-criteria summary above) to the end of the constraints block. Anchoring on the
+    // bold heading skips the JVM-flag constraint (which legitimately names mvn/gradle).
+    const start = body.indexOf('**Per-module verify gates');
+    const block = body.slice(start, body.indexOf('</constraints>', start));
+    expect(block.length).toBeGreaterThan(0);
+    // The phrase soft-wraps in the template source — allow the line break between the two halves.
+    expect(block).toMatch(/check \/ test[\s\S]{0,6}entry point/i);
+    expect(block).not.toMatch(/\bpnpm\b/);
+    expect(block).not.toMatch(/\bnpm\b/);
+    expect(block).not.toMatch(/\byarn\b/);
+    expect(block).not.toMatch(/\bcargo\b/);
+    expect(block).not.toMatch(/\bmvn\b/);
+    expect(block).not.toMatch(/\bgradle\b/);
   });
 });
