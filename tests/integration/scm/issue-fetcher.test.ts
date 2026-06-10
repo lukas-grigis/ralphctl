@@ -67,6 +67,7 @@ describe('parseIssueUrl', () => {
   it('parses GitHub issue URLs', () => {
     expect(parseIssueUrl('https://github.com/x/y/issues/42')).toEqual({
       host: 'github',
+      hostname: 'github.com',
       owner: 'x',
       repo: 'y',
       number: 42,
@@ -76,9 +77,20 @@ describe('parseIssueUrl', () => {
   it('parses GitLab issue URLs (group/project/-/issues/N)', () => {
     expect(parseIssueUrl('https://gitlab.com/foo/bar/-/issues/7')).toEqual({
       host: 'gitlab',
+      hostname: 'gitlab.com',
       owner: 'foo',
       repo: 'bar',
       number: 7,
+    });
+  });
+
+  it('parses GitLab work-item URLs (group/project/-/work_items/N) on self-hosted hosts', () => {
+    expect(parseIssueUrl('https://gitlab.example.internal/team/project/-/work_items/55')).toEqual({
+      host: 'gitlab',
+      hostname: 'gitlab.example.internal',
+      owner: 'team',
+      repo: 'project',
+      number: 55,
     });
   });
 
@@ -191,7 +203,7 @@ describe('createIssueFetcher', () => {
     const spawn = scriptedSpawn([
       {
         command: 'glab',
-        args: ['issue', 'view', '5', '--repo', 'foo/bar', '--output', 'json'],
+        args: ['issue', 'view', '5', '--repo', 'gitlab.com/foo/bar', '--output', 'json'],
         stdout: JSON.stringify({
           title: 'GLab issue',
           description: 'desc body',
@@ -202,7 +214,7 @@ describe('createIssueFetcher', () => {
       },
       {
         command: 'glab',
-        args: ['issue', 'note', 'list', '5', '--repo', 'foo/bar', '--output', 'json'],
+        args: ['issue', 'note', 'list', '5', '--repo', 'gitlab.com/foo/bar', '--output', 'json'],
         stdout: '[]',
         exitCode: 0,
       },
@@ -217,11 +229,34 @@ describe('createIssueFetcher', () => {
     expect(out.value.comments).toEqual([]);
   });
 
+  it('self-hosted GitLab — threads the URL host into glab --repo (not gitlab.com)', async () => {
+    const spawn = scriptedSpawn([
+      {
+        command: 'glab',
+        // The host MUST be prefixed — otherwise glab defaults to gitlab.com and 401s.
+        args: ['issue', 'view', '55', '--repo', 'gitlab.example.internal/team/project', '--output', 'json'],
+        stdout: JSON.stringify({ title: 'WI', description: 'body', state: 'opened' }),
+        exitCode: 0,
+      },
+      {
+        command: 'glab',
+        args: ['issue', 'note', 'list', '55', '--repo', 'gitlab.example.internal/team/project', '--output', 'json'],
+        stdout: '[]',
+        exitCode: 0,
+      },
+    ]);
+    const fetcher = createIssueFetcher({ spawn });
+    const out = await fetcher('https://gitlab.example.internal/team/project/-/work_items/55');
+    expect(out.ok).toBe(true);
+    if (!out.ok || out.value === null) return;
+    expect(out.value.title).toBe('WI');
+  });
+
   it('GitLab notes — filters system notes, maps username + body', async () => {
     const spawn = scriptedSpawn([
       {
         command: 'glab',
-        args: ['issue', 'view', '5', '--repo', 'foo/bar', '--output', 'json'],
+        args: ['issue', 'view', '5', '--repo', 'gitlab.com/foo/bar', '--output', 'json'],
         stdout: JSON.stringify({
           title: 'T',
           description: 'D',
@@ -232,7 +267,7 @@ describe('createIssueFetcher', () => {
       },
       {
         command: 'glab',
-        args: ['issue', 'note', 'list', '5', '--repo', 'foo/bar', '--output', 'json'],
+        args: ['issue', 'note', 'list', '5', '--repo', 'gitlab.com/foo/bar', '--output', 'json'],
         stdout: JSON.stringify([
           { body: 'first reply', author: { username: 'alice' }, system: false, created_at: '2026-01-01T00:00:00Z' },
           {
@@ -260,13 +295,13 @@ describe('createIssueFetcher', () => {
     const spawn = scriptedSpawn([
       {
         command: 'glab',
-        args: ['issue', 'view', '5', '--repo', 'foo/bar', '--output', 'json'],
+        args: ['issue', 'view', '5', '--repo', 'gitlab.com/foo/bar', '--output', 'json'],
         stdout: JSON.stringify({ title: 'T', description: 'D', state: 'opened' }),
         exitCode: 0,
       },
       {
         command: 'glab',
-        args: ['issue', 'note', 'list', '5', '--repo', 'foo/bar', '--output', 'json'],
+        args: ['issue', 'note', 'list', '5', '--repo', 'gitlab.com/foo/bar', '--output', 'json'],
         stdout: JSON.stringify([
           { body: 'closed', author: { username: 'bot' }, system: true, created_at: '2026-01-01T00:00:00Z' },
           { body: 'reopened', author: { username: 'bot' }, system: true, created_at: '2026-01-02T00:00:00Z' },
@@ -296,13 +331,13 @@ describe('createIssueFetcher', () => {
     const spawn = scriptedSpawn([
       {
         command: 'glab',
-        args: ['issue', 'view', '5', '--repo', 'foo/bar', '--output', 'json'],
+        args: ['issue', 'view', '5', '--repo', 'gitlab.com/foo/bar', '--output', 'json'],
         stdout: JSON.stringify({ title: 'T', description: 'D', state: 'opened' }),
         exitCode: 0,
       },
       {
         command: 'glab',
-        args: ['issue', 'note', 'list', '5', '--repo', 'foo/bar', '--output', 'json'],
+        args: ['issue', 'note', 'list', '5', '--repo', 'gitlab.com/foo/bar', '--output', 'json'],
         stdout: JSON.stringify(raw),
         exitCode: 0,
       },
@@ -321,7 +356,7 @@ describe('createIssueFetcher', () => {
     const spawn = scriptedSpawn([
       {
         command: 'glab',
-        args: ['issue', 'view', '5', '--repo', 'foo/bar', '--output', 'json'],
+        args: ['issue', 'view', '5', '--repo', 'gitlab.com/foo/bar', '--output', 'json'],
         stdout: JSON.stringify({
           title: 'T',
           description: 'D',
@@ -332,7 +367,7 @@ describe('createIssueFetcher', () => {
       },
       {
         command: 'glab',
-        args: ['issue', 'note', 'list', '5', '--repo', 'foo/bar', '--output', 'json'],
+        args: ['issue', 'note', 'list', '5', '--repo', 'gitlab.com/foo/bar', '--output', 'json'],
         stdout: '',
         stderr: 'permission denied',
         exitCode: 1,
@@ -357,7 +392,7 @@ describe('createIssueFetcher', () => {
     const spawn = scriptedSpawn([
       {
         command: 'glab',
-        args: ['issue', 'view', '5', '--repo', 'foo/bar', '--output', 'json'],
+        args: ['issue', 'view', '5', '--repo', 'gitlab.com/foo/bar', '--output', 'json'],
         stdout: JSON.stringify({
           title: 'T',
           description: 'D',
@@ -368,7 +403,7 @@ describe('createIssueFetcher', () => {
       },
       {
         command: 'glab',
-        args: ['issue', 'note', 'list', '5', '--repo', 'foo/bar', '--output', 'json'],
+        args: ['issue', 'note', 'list', '5', '--repo', 'gitlab.com/foo/bar', '--output', 'json'],
         stdout: 'not json',
         exitCode: 0,
       },
