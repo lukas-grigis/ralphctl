@@ -58,6 +58,7 @@ describe('validateSignalsFileWithCorrectiveRetry', () => {
       {
         outputDir: unwrapPath(tmp),
         logger: noopLogger,
+        selfContainedContext: 'OUTPUT CONTRACT SECTION (self-contained)',
         reinvoke: async () => {
           calls += 1;
           return Result.ok(undefined);
@@ -76,6 +77,7 @@ describe('validateSignalsFileWithCorrectiveRetry', () => {
       {
         outputDir: unwrapPath(tmp),
         logger: noopLogger,
+        selfContainedContext: 'OUTPUT CONTRACT SECTION (self-contained)',
         reinvoke: async (corrective: Prompt) => {
           correctiveSeen = corrective;
           // The corrective turn fixes the file.
@@ -90,6 +92,11 @@ describe('validateSignalsFileWithCorrectiveRetry', () => {
     // (the inner `signals` array is unwrapped before the schema parses, so the path is the array
     // index `0`, not `signals.0`).
     expect(correctiveSeen).toContain('schema validation');
+    // Self-containment pin: EVERY corrective body carries the output-contract block + the
+    // cold-session hedge, so a fresh spawn (no resumable id / codex stale-resume cold fallback)
+    // re-reads its grounding instead of fabricating a verdict from the error text.
+    expect(correctiveSeen).toContain('OUTPUT CONTRACT SECTION (self-contained)');
+    expect(correctiveSeen).toContain('do NOT invent a verdict');
     expect(correctiveSeen).toMatch(/at `0`:/);
   });
 
@@ -100,6 +107,7 @@ describe('validateSignalsFileWithCorrectiveRetry', () => {
       {
         outputDir: unwrapPath(tmp),
         logger: noopLogger,
+        selfContainedContext: 'OUTPUT CONTRACT SECTION (self-contained)',
         reinvoke: async () => {
           calls += 1;
           // Retry leaves the bad file in place → second validation fails too.
@@ -119,6 +127,7 @@ describe('validateSignalsFileWithCorrectiveRetry', () => {
       {
         outputDir: unwrapPath(tmp),
         logger: noopLogger,
+        selfContainedContext: 'OUTPUT CONTRACT SECTION (self-contained)',
         reinvoke: async (corrective: Prompt) => {
           correctiveSeen = corrective;
           writeFileSync(signalsPath, VALID);
@@ -138,6 +147,7 @@ describe('validateSignalsFileWithCorrectiveRetry', () => {
       {
         outputDir: unwrapPath(tmp),
         logger: noopLogger,
+        selfContainedContext: 'OUTPUT CONTRACT SECTION (self-contained)',
         reinvoke: async (corrective: Prompt) => {
           correctiveSeen = corrective;
           writeFileSync(signalsPath, VALID);
@@ -157,6 +167,7 @@ describe('validateSignalsFileWithCorrectiveRetry', () => {
       {
         outputDir: unwrapPath(tmp),
         logger: noopLogger,
+        selfContainedContext: 'OUTPUT CONTRACT SECTION (self-contained)',
         reinvoke: async () => {
           calls += 1;
           return Result.error(new RateLimitError({ subCode: 'spawn-stderr', message: 'rate-limited' }) as DomainError);
@@ -177,6 +188,7 @@ describe('validateSignalsFileWithCorrectiveRetry', () => {
       {
         outputDir: unwrapPath(tmp),
         logger: noopLogger,
+        selfContainedContext: 'OUTPUT CONTRACT SECTION (self-contained)',
         reinvoke: async () => Result.error(new AbortError({ elementName: 'test', reason: 'cancelled' }) as DomainError),
       },
       contract
@@ -206,6 +218,7 @@ describe('validateSignalsFileWithCorrectiveRetry', () => {
       {
         outputDir: unwrapPath(tmp),
         logger: noopLogger,
+        selfContainedContext: 'OUTPUT CONTRACT SECTION (self-contained)',
         reinvoke: async () => {
           calls += 1;
           return Result.ok(undefined);

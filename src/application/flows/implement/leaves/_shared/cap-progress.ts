@@ -31,7 +31,9 @@
  * bounds what is *inlined*, never what is *recorded*.
  *
  * The delimiter is the literal start-of-line `## Task:` token the journal renderer emits for
- * every attempt section. We split on a positive-lookahead so each section keeps its own leading
+ * every attempt section. The renderer GUARANTEES no AI-controlled line reaches column 0 starting
+ * with `#` (bullet continuations are indented; the outcome paragraph is heading-neutralized; task
+ * names are single-line), so a quoted '## Task:' inside a critique cannot forge a boundary here. We split on a positive-lookahead so each section keeps its own leading
  * `## Task:` line, then reassemble header + kept sections in original order. A body with no
  * sections (the first task of a sprint) passes through untouched.
  *

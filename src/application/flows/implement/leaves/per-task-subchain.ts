@@ -90,6 +90,11 @@ import { uninstallSkillsLeaf } from '@src/application/flows/_shared/skills/unins
  * broken code on the sprint branch. On `verify-failed` the leaf stamps `lastBlockReason`,
  * the guard around `commit-task` skips, and `settle-attempt` marks the task `blocked`.
  *
+ * Intermediate commits from earlier attempts are KEPT when a later attempt blocks the task —
+ * deliberate asymmetry with the quarantine: each such commit passed its own post-verify green
+ * (the never-commit-on-red guard), so resetting history would discard verified work the operator
+ * may want. Only the final blocked attempt's uncommitted diff is quarantined.
+ *
  * Continue-on-blocked: tasks that settle `blocked` (self-block reason) do NOT halt the chain —
  * sibling tasks run unconditionally. The settle-attempt leaf catches the block, the chain
  * keeps going. On the serial path the guarded `quarantine-blocked-diff` leaf then stashes the

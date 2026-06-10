@@ -71,7 +71,7 @@ verify run on a tree the generator never touched.
 **Serial-path blocked-diff quarantine.** On the serial path, when a task is blocked (own-failure),
 its rejected diff is stashed to `ralphctl/<sprintId>/<taskId>/blocked-diff` and recorded on
 `blockedReason` before sibling tasks run — preserving the rejected work for post-mortem inspection
-without contaminating subsequent tasks' working trees.
+without contaminating subsequent tasks' working trees. Intermediate commits from earlier green-verify attempts of a later-blocked task remain on the sprint branch by design — each passed its own verify; only the final blocked attempt’s uncommitted diff moves to the stash.
 
 **Legacy `implement` promotion.** Settings files written by ralphctl ≤ 0.7.0 stored `ai.implement`
 as a flat `{ provider, model, effort? }` row. Such files are silently promoted at load time into the

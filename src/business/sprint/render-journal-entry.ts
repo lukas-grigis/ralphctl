@@ -150,14 +150,40 @@ const formatDuration = (ms: number | undefined): string => {
 const SHA_DISPLAY_LENGTH = 7;
 
 /**
+ * Collapse newlines / control characters in a single-line slot (the section-header task name).
+ * The `## Task: <name> — Attempt <N>` line is the STRUCTURAL delimiter `capProgressBody` splits
+ * and attributes on — a newline-bearing name would let AI- or planner-authored text fabricate or
+ * break section boundaries, defeating the depth guarantee for the task's own history.
+ */
+const sanitizeInline = (text: string): string => text.replace(/[\r\n\t\v\f]+/g, ' ').trim();
+
+/**
+ * Neutralize AI-controlled prose so no line can start a Markdown heading at column 0. The
+ * journal's `## Task:` lines are load-bearing structure (cap-progress's section delimiter, the
+ * next generator's cross-attempt memory) — a critique or signal body quoting
+ * `## Task: other — Attempt 1` verbatim would otherwise FORGE a section boundary, fabricating a
+ * verdict for later prompts and splitting the real section so its tail gets mis-attributed and
+ * elided. Heading-shaped lines are indented two spaces, which renders fine as prose and makes a
+ * structural match at `^##` impossible.
+ */
+const neutralizeProseHeadings = (text: string): string =>
+  text
+    .split('\n')
+    .map((line) => (line.startsWith('#') ? `  ${line}` : line))
+    .join('\n');
+
+/**
  * Append a `### <heading>` subsection with one bullet per entry. No-op when the list is empty
- * — the journal omits the heading entirely so readers don't see hollow placeholders.
+ * — the journal omits the heading entirely so readers don't see hollow placeholders. Interior
+ * lines of multi-line entries are indented as Markdown list continuations, which doubles as the
+ * heading-forgery neutralization (see {@link neutralizeProseHeadings} for why a column-0 `#`
+ * from AI text must never reach the journal).
  */
 const appendSubsection = (lines: string[], heading: string, entries: readonly string[]): void => {
   if (entries.length === 0) return;
   lines.push(`### ${heading}`);
   for (const entry of entries) {
-    lines.push(`- ${entry}`);
+    lines.push(`- ${entry.split('\n').join('\n  ')}`);
   }
   lines.push('');
 };
@@ -171,12 +197,14 @@ const appendLearningsSubsection = (lines: string[], entries: readonly LearningEn
   if (entries.length === 0) return;
   lines.push('### Learnings');
   for (const entry of entries) {
-    lines.push(`- **${entry.text}**`);
+    // Interior lines indent as list continuations — the same heading-forgery neutralization
+    // appendSubsection applies (AI text must never land a column-0 `#`).
+    lines.push(`- **${entry.text.split('\n').join('\n  ')}**`);
     if (entry.context !== undefined && entry.context.trim().length > 0) {
-      lines.push(`  - Context: ${entry.context.trim()}`);
+      lines.push(`  - Context: ${entry.context.trim().split('\n').join('\n    ')}`);
     }
     if (entry.appliesTo !== undefined && entry.appliesTo.trim().length > 0) {
-      lines.push(`  - Applies to: ${entry.appliesTo.trim()}`);
+      lines.push(`  - Applies to: ${entry.appliesTo.trim().split('\n').join('\n    ')}`);
     }
   }
   lines.push('');
@@ -217,14 +245,23 @@ const warningSentence = (warning: JournalWarning): string => {
 };
 
 /**
- * One plain-prose sentence describing the remedy the escalation policy applied. Distinguishes a
+ * One plain-prose sentence describing the remedy applied after this attempt. Distinguishes a
  * model-rung climb from a top-of-ladder same-model retry so the next generator reads the truth.
+ * A malformed exit retries on the same model WITHOUT touching the ladder (the projection layer
+ * suppresses any stale escalation stamp on that path), so it gets its own honest sentence.
  */
-const remedySentence = (verdict: JournalVerdict, escalation: JournalEscalation | undefined): string | undefined => {
+const remedySentence = (
+  verdict: JournalVerdict,
+  escalation: JournalEscalation | undefined,
+  warning: JournalWarning | undefined
+): string | undefined => {
   if (escalation !== undefined) {
     return escalation.from === escalation.to
       ? `Remedy: retried the same model (${escalation.to}) — already at the top of the escalation ladder.`
       : `Remedy: escalated the generator model from ${escalation.from} to ${escalation.to}.`;
+  }
+  if (verdict === 'escalated' && warning?.kind === 'malformed') {
+    return 'Remedy: retried on the same model — the evaluator failed to produce a verdict, so no escalation rung was spent.';
   }
   if (verdict === 'pass-with-warning') {
     return 'Remedy: kept the attempt with the warning attached for operator review.';
@@ -240,7 +277,7 @@ const remedySentence = (verdict: JournalVerdict, escalation: JournalEscalation |
 const appendOutcomeDetail = (lines: string[], input: JournalEntryInput): void => {
   const bullets: string[] = [];
   if (input.warning !== undefined) bullets.push(warningSentence(input.warning));
-  const remedy = remedySentence(input.verdict, input.escalation);
+  const remedy = remedySentence(input.verdict, input.escalation, input.warning);
   if (remedy !== undefined) bullets.push(remedy);
   if (bullets.length === 0) return;
   lines.push('### Outcome detail');
@@ -255,10 +292,11 @@ const appendOutcomeDetail = (lines: string[], input: JournalEntryInput): void =>
  */
 export const renderJournalEntry = (input: JournalEntryInput): string => {
   const sha = input.commitSha !== undefined ? input.commitSha.slice(0, SHA_DISPLAY_LENGTH) : EM_DASH;
-  const outcome = input.outcome.trim().length > 0 ? input.outcome.trim() : '_(no outcome paragraph)_';
+  const outcome =
+    input.outcome.trim().length > 0 ? neutralizeProseHeadings(input.outcome.trim()) : '_(no outcome paragraph)_';
   const lines: string[] = [];
   lines.push('');
-  lines.push(`## Task: ${input.taskName} — Attempt ${String(input.attemptN)}`);
+  lines.push(`## Task: ${sanitizeInline(input.taskName)} — Attempt ${String(input.attemptN)}`);
   lines.push('');
   lines.push(`_${String(input.timestamp)}_`);
   lines.push('');

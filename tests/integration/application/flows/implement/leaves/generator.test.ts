@@ -3,7 +3,11 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
-import { recordRunningAttemptCritique } from '@src/domain/entity/task-attempts.ts';
+import {
+  recordRunningAttemptCritique,
+  recordRunningAttemptWarning,
+  startNextAttempt,
+} from '@src/domain/entity/task-attempts.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { AppEvent, TaskRoundStartedEvent } from '@src/business/observability/events.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
@@ -12,8 +16,8 @@ import { createFakeAiProvider } from '@tests/fixtures/fake-ai-provider.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import { createEventBusLogger } from '@src/business/observability/event-bus-logger.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
-import { absolutePath, FIXED_NOW, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
-import { recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
+import { absolutePath, FIXED_LATER, FIXED_NOW, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
+import { failCurrentAttempt, recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
 import { escalationBannerId } from '@src/business/task/escalation-policy.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
@@ -228,8 +232,17 @@ describe('generatorLeaf', () => {
   // the generator must inject the "change your approach" directive into the prompt.
   it('injects the change-of-approach directive into prompt.md when the task is a plateau-break (escalated)', async () => {
     const initial = makeInProgressTaskWithRunningAttempt();
-    // A same-model nudge (top-of-ladder) stamps escalatedFromModel — the directive arms on that.
-    const stamped = recordTaskEscalation(initial, 'claude-opus-4-8', 'claude-opus-4-8');
+    // A same-model nudge (top-of-ladder) stamps escalatedFromModel — the directive arms on that
+    // PLUS a stall-driven prior attempt: the last settled attempt must carry a plateau /
+    // budget-exhausted warning (a malformed retry after a nudge must NOT re-inject the directive).
+    const warned = recordRunningAttemptWarning(initial, { kind: 'plateau', dimensions: ['correctness'] });
+    if (!warned.ok) throw warned.error;
+    const settled = failCurrentAttempt(warned.value, FIXED_LATER, 'failed');
+    if (!settled.ok) throw settled.error;
+    if (settled.value.status !== 'in_progress') throw new Error('fixture: expected in_progress after fail');
+    const reopened = startNextAttempt(settled.value, FIXED_LATER);
+    if (!reopened.ok) throw reopened.error;
+    const stamped = recordTaskEscalation(reopened.value, 'claude-opus-4-8', 'claude-opus-4-8');
     if (!stamped.ok) throw stamped.error;
     const leaf = generatorLeaf(buildDeps(), stamped.value.id);
     const result = await leaf.execute(baseCtx(stamped.value));
@@ -238,6 +251,25 @@ describe('generatorLeaf', () => {
     const content = await fs.readFile(join(String(root.root), 'rounds', '1', 'generator', 'prompt.md'), 'utf8');
     expect(content).toContain('You have plateaued');
     expect(content).toContain('change your approach');
+  });
+
+  it('omits the directive on a malformed retry after a nudge — the new approach was never judged stalled', async () => {
+    const initial = makeInProgressTaskWithRunningAttempt();
+    // Prior attempt settled with a MALFORMED warning (the evaluator's failure) — even though the
+    // nudge stamp persists on the task, the directive must not re-fire.
+    const warned = recordRunningAttemptWarning(initial, { kind: 'malformed', detail: 'no verdict' });
+    if (!warned.ok) throw warned.error;
+    const settled = failCurrentAttempt(warned.value, FIXED_LATER, 'malformed');
+    if (!settled.ok) throw settled.error;
+    if (settled.value.status !== 'in_progress') throw new Error('fixture: expected in_progress after fail');
+    const reopened = startNextAttempt(settled.value, FIXED_LATER);
+    if (!reopened.ok) throw reopened.error;
+    const stamped = recordTaskEscalation(reopened.value, 'claude-opus-4-8', 'claude-opus-4-8');
+    if (!stamped.ok) throw stamped.error;
+    const leaf = generatorLeaf(buildDeps(), stamped.value.id);
+    await leaf.execute(baseCtx(stamped.value));
+    const content = await fs.readFile(join(String(root.root), 'rounds', '1', 'generator', 'prompt.md'), 'utf8');
+    expect(content).not.toContain('You have plateaued');
   });
 
   it('omits the change-of-approach directive when the task has not escalated', async () => {

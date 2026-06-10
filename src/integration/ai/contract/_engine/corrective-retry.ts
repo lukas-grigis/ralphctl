@@ -46,6 +46,18 @@ export interface CorrectiveRetryDeps {
    * `Result.ok(undefined)`; a non-zero / errored spawn to `Result.error`).
    */
   readonly reinvoke: (corrective: Prompt) => Promise<Result<void, DomainError>>;
+  /**
+   * SELF-CONTAINMENT block appended to every corrective body — the per-round output-contract
+   * section plus role context (contract.md path; for the evaluator, the instruction that the
+   * working-tree diff is its primary input). Load-bearing: the resume target is best-effort
+   * (round 1 of an attempt has no prior-session fallback, a degraded spawn may never persist a
+   * session id, and the codex adapter silently drops a stale `--resume` and respawns COLD inside
+   * the adapter where this leaf cannot observe it). Without this block, a cold corrective spawn's
+   * ENTIRE prompt is the error text — for the evaluator, just enough scaffolding to FABRICATE a
+   * schema-valid `passed` verdict for work it never saw. With it, a cold spawn performs a
+   * legitimate re-read (these are agentic sessions with repo access) instead of inventing one.
+   */
+  readonly selfContainedContext: string;
 }
 
 /**
@@ -67,19 +79,29 @@ const isCorrectableContractError = (err: DomainError): boolean =>
  * `schema-mismatch` (the parse error carries the `ZodError` in `cause`); `invalid-json` and
  * `signals-missing` need their own short text since there is nothing to enumerate.
  */
-const correctiveBody = (err: DomainError, signalsPath: string): string => {
+/** Zod issues enumerated in the corrective body are capped — a pathological mismatch can carry
+ * hundreds of element-level issues, and past the first few the model gains nothing from more. */
+const MAX_ENUMERATED_ISSUES = 10;
+
+const correctiveBody = (err: DomainError, signalsPath: string, selfContainedContext: string): string => {
   const lines: string[] = [];
   lines.push('Your previous `signals.json` did not satisfy the output contract, so the harness could');
   lines.push('not read a verdict. Fix it now in ONE follow-up — re-read the output-contract section');
-  lines.push('above and re-write the file. Do not change anything else.');
+  lines.push('below and re-write the file. Do not change anything else.');
   lines.push('');
 
   if (err instanceof ParseError && err.subCode === 'schema-mismatch' && err.cause instanceof ZodError) {
     lines.push('The shape failed schema validation. Each line below is one problem — fix every one:');
     lines.push('');
-    for (const issue of err.cause.issues) {
+    const issues = err.cause.issues;
+    for (const issue of issues.slice(0, MAX_ENUMERATED_ISSUES)) {
       const path = issue.path.length > 0 ? issue.path.join('.') : '(root)';
       lines.push(`- at \`${path}\`: ${issue.message}`);
+    }
+    if (issues.length > MAX_ENUMERATED_ISSUES) {
+      lines.push(
+        `- …plus ${String(issues.length - MAX_ENUMERATED_ISSUES)} more of the same kinds — fix the pattern, not just the listed lines.`
+      );
     }
     lines.push('');
     lines.push('Common cause: a terminal `evaluation` verdict (`passed` / `failed`) MUST grade all four');
@@ -96,6 +118,14 @@ const correctiveBody = (err: DomainError, signalsPath: string): string => {
 
   lines.push('');
   lines.push(`Write the corrected file to the exact absolute path \`${signalsPath}\` and stop.`);
+  lines.push('');
+  // Self-containment hedge — see CorrectiveRetryDeps.selfContainedContext for why this MUST
+  // ride every corrective body even though the happy path resumes an existing session.
+  lines.push('If this session does not already hold the task context (fresh session), re-read the');
+  lines.push('referenced on-disk files before acting — do NOT invent a verdict or content from this');
+  lines.push('message alone.');
+  lines.push('');
+  lines.push(selfContainedContext);
   return lines.join('\n');
 };
 
@@ -120,7 +150,7 @@ export const validateSignalsFileWithCorrectiveRetry = async <TSig extends AiSign
     error: err.message,
   });
 
-  const corrective = correctiveBody(err, signalsPath) as Prompt;
+  const corrective = correctiveBody(err, signalsPath, deps.selfContainedContext) as Prompt;
   const respawn = await deps.reinvoke(corrective);
   if (!respawn.ok) {
     log.warn('corrective retry spawn failed — self-blocking on the spawn error', {

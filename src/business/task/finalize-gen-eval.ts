@@ -12,6 +12,7 @@ import type { ValidationError } from '@src/domain/value/error/validation-error.t
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { GenEvalExit, RunTaskVerdict } from '@src/business/task/gen-eval-exit.ts';
 import { applyEscalation, decideEscalation, type EscalationTrigger } from '@src/business/task/escalation-policy.ts';
+import { clearRunningAttemptPlateauWarning } from '@src/domain/entity/task-attempts.ts';
 
 /**
  * Settle a finished gen-eval loop. Maps the loop's terminal `GenEvalExit` to the
@@ -226,8 +227,11 @@ export const finalizeGenEvalUseCase = async (
   // Resolve the retry remedy from the exit kind. `plateau` / `budget-exhausted` (real + synthesized)
   // consult the model-escalation policy; `malformed` gets a plain same-model retry (no ladder rung);
   // `passed` / `self-blocked` have no remedy (settle-attempt handles them directly).
+  // A clean `passed` exit strips a softened-plateau warning stamped mid-loop (the grace round
+  // worked exactly as designed — the pass must not render as pass-with-warning downstream).
+  // Other warning kinds (verify-failed) survive: they record real post-pass facts.
   let remedy: Remedy = {
-    task: props.task,
+    task: exit.kind === 'passed' ? clearRunningAttemptPlateauWarning(props.task) : props.task,
     ...(mapped.blockedReason !== undefined ? { blockedReason: mapped.blockedReason } : {}),
     shouldFailAttempt: false,
   };

@@ -202,9 +202,14 @@ const readCappedProgress = async (path: string, currentTaskName: string): Promis
  * Shared between both branches:
  *  - `priorProgress` — the capped sprint-journal excerpt (full file stays on disk).
  *  - `plateauBreak` — armed ONLY on a top-of-ladder same-model nudge
- *    (`escalatedFromModel === escalatedToModel`). On a model BUMP (from !== to) the stronger model
- *    gets the targeted `priorCritique` instead, so the "abandon your approach" directive is
- *    reserved for the same-model nudge where no fresh capability remains.
+ *    (`escalatedFromModel === escalatedToModel`) AND only while the retry was DRIVEN by a stall:
+ *    the last settled attempt must carry a `plateau` / `budget-exhausted` warning. The nudge
+ *    stamp persists on the task (decideEscalation's topped-out detection needs it — never clear
+ *    it), so without the warning gate a later malformed retry — the EVALUATOR's failure, with the
+ *    nudge attempt's unevaluated new approach sitting in the tree — would re-inject "abandon your
+ *    approach" and induce the generator to pivot away from work nobody judged stalled. On a model
+ *    BUMP (from !== to) the stronger model gets the targeted `priorCritique` instead, so the
+ *    directive stays reserved for the same-model nudge where no fresh capability remains.
  */
 const buildGeneratorPrompt = async (
   deps: Pick<GeneratorLeafDeps, 'templateLoader' | 'cwd' | 'progressFile' | 'verifyScript'>,
@@ -219,8 +224,14 @@ const buildGeneratorPrompt = async (
   const priorCritique = latestCritique(args.task);
   const priorProgress = await readCappedProgress(String(deps.progressFile), args.task.name);
   const contractPath = join(String(args.workspaceRoot), 'contract.md');
+  // Last SETTLED attempt (the running attempt is the one being built for) — its warning kind
+  // tells us WHY this retry was granted.
+  const lastSettled = [...args.task.attempts].reverse().find((a) => a.status !== 'running');
+  const stallDriven = lastSettled?.warning?.kind === 'plateau' || lastSettled?.warning?.kind === 'budget-exhausted';
   const plateauBreak =
-    args.task.escalatedFromModel !== undefined && args.task.escalatedFromModel === args.task.escalatedToModel;
+    args.task.escalatedFromModel !== undefined &&
+    args.task.escalatedFromModel === args.task.escalatedToModel &&
+    stallDriven;
 
   if (args.priorGeneratorSessionId === undefined) {
     return buildImplementPrompt(deps.templateLoader, {
@@ -347,6 +358,14 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
             {
               outputDir,
               logger: deps.logger,
+              // Self-containment for a COLD corrective spawn (no resumable id / codex stale-resume
+              // fallback): the per-round output contract + the on-disk task spec, so a fresh
+              // session re-reads its grounding instead of emitting signals from the error text.
+              selfContainedContext: [
+                `Task spec (read it): \`${join(String(input.workspaceRoot), 'contract.md')}\``,
+                '',
+                outputContractSection,
+              ].join('\n'),
               reinvoke: async (corrective) => {
                 // Resume the generator's just-spawned thread so the corrective lands as a
                 // follow-up turn. Falls back to the prior-round id when this spawn never

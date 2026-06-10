@@ -161,7 +161,10 @@ export const parseTaskList = (
     // `createTask` re-validates the auto / manual command invariant and clones defensively.
     const created = createTask({
       ...(mappedId !== undefined ? { id: mappedId } : {}),
-      name: t.name,
+      // Single-line names everywhere: the name is interpolated into the journal's structural
+      // `## Task: <name> — Attempt <N>` header line that cap-progress splits and attributes on —
+      // a planner-emitted newline would break the task's own section boundary.
+      name: t.name.replace(/[\r\n\t\v\f]+/g, ' ').trim(),
       ...(t.description !== undefined && t.description.trim().length > 0 ? { description: t.description } : {}),
       steps: t.steps,
       verificationCriteria: t.verificationCriteria.map((c) => ({

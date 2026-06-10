@@ -270,6 +270,18 @@ export const evaluatorLeaf = (deps: EvaluatorLeafDeps, taskId: TaskId): Element<
             {
               outputDir,
               logger: deps.logger,
+              // Self-containment for a COLD corrective spawn (no resumable id / codex stale-resume
+              // fallback): the per-round output contract plus the reviewer's grounding — without
+              // this, a context-free retry's whole prompt is the error text, which is exactly
+              // enough scaffolding to fabricate a schema-valid verdict for unseen work.
+              selfContainedContext: [
+                `Task spec (read it): \`${join(String(input.workspaceRoot), 'contract.md')}\``,
+                'Your PRIMARY INPUT is the uncommitted working-tree diff — inspect it via shell',
+                '(`git status` / `git diff HEAD`) before grading. A verdict must reflect the actual',
+                'work, never this message.',
+                '',
+                outputContractSection,
+              ].join('\n'),
               reinvoke: async (corrective) => {
                 // Resume the reviewer's just-spawned thread so the corrective lands as a
                 // follow-up turn — read the session id this spawn captured to disk. Falls back

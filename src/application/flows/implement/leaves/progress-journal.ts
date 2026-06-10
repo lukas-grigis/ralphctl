@@ -78,6 +78,14 @@ const renderOutcomeParagraph = (task: Task, attempt: Attempt | undefined): strin
       : 'Blocked — no reason recorded.';
   }
   if (task.status === 'done') {
+    // A PASSED final evaluation outranks a stale critique: the critique on the attempt may be
+    // left over from an earlier failing round of the same attempt (the warn-then-pass shape),
+    // and printing it as the outcome would feed a false failure narrative to the next prompts.
+    if (attempt?.evaluation?.status === 'passed') {
+      return attempt.warning !== undefined
+        ? 'Task settled as done with a warning attached.'
+        : 'Task completed successfully.';
+    }
     const critique = attempt?.critique?.trim();
     if (critique !== undefined && critique.length > 0) {
       return critique;
@@ -138,9 +146,13 @@ const toJournalWarning = (warning: AttemptWarning): JournalWarning => {
 
 /**
  * Project the task-level escalation stamp into the renderer shape. `escalatedFromModel` /
- * `escalatedToModel` are re-stamped per climb; at append-time (right after this attempt's
- * settle) the latest stamp reflects the transition the escalation policy just applied. Both must
- * be present for the transition to render.
+ * `escalatedToModel` are re-stamped per climb and PERSIST across later attempts — so the stamp
+ * only reflects "the transition the policy just applied" when this attempt's exit actually went
+ * through the escalation policy. The malformed same-model retry deliberately bypasses the ladder
+ * (the evaluator's failure, not the generator's — finalize stamps nothing), so on that path a
+ * PRIOR attempt's climb would render as this attempt's remedy: a false
+ * 'escalated the generator model from A to B' line in the next generator's cross-attempt memory.
+ * The caller suppresses the projection when the latest warning kind is 'malformed'.
  */
 const toJournalEscalation = (task: Task): JournalEscalation | undefined =>
   task.escalatedFromModel !== undefined && task.escalatedToModel !== undefined
@@ -172,9 +184,13 @@ export const progressJournalLeaf = (
         // entry stays byte-identical to the pre-widening output (no `### Outcome detail`).
         const warning = attempt?.warning !== undefined ? toJournalWarning(attempt.warning) : undefined;
         // Surface the model-ladder transition on the failing-then-retrying (`escalated`) entry and
-        // on a `pass-with-warning` whose prior climb is still stamped on the task.
+        // on a `pass-with-warning` whose prior climb is still stamped on the task — EXCEPT when
+        // this attempt's exit was `malformed`: that retry bypasses the ladder by design, so any
+        // stamp on the task is a stale prior climb, not this attempt's remedy.
         const escalation =
-          verdict === 'escalated' || verdict === 'pass-with-warning' ? toJournalEscalation(input.task) : undefined;
+          (verdict === 'escalated' || verdict === 'pass-with-warning') && attempt?.warning?.kind !== 'malformed'
+            ? toJournalEscalation(input.task)
+            : undefined;
         const text = renderJournalEntry({
           taskName: input.task.name,
           attemptN: input.task.attempts.length,
