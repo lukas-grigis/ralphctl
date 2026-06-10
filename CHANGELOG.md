@@ -7,6 +7,8 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-06-10
+
 This release refreshes the model catalogs, adds four budget-conscious presets, and reworks how the
 harness recovers when a task stalls — so most work finishes on a cheaper model and only genuinely
 hard tasks climb to the flagship.
@@ -106,6 +108,13 @@ hard tasks climb to the flagship.
   commit, and its recovery pointer survives an operator unblock; corrective retries re-read the real
   work instead of trusting a stale verdict; and the sprint journal can't be spoofed by AI-authored
   text or misreport which model produced a round.
+
+- **Self-hosted GitLab issues now resolve against the right server.** Issue fetch and comment-back
+  threaded only `OWNER/REPO` into `glab --repo`, so `glab` silently defaulted to `gitlab.com` and an
+  issue on a self-hosted host (e.g. `gitlab.example.internal`) failed against the wrong server. The
+  URL hostname is now carried through as a fully-qualified `HOST/OWNER/REPO`. The `/-/work_items/N`
+  URL path is also accepted — since GitLab 16 issues are work items sharing one iid namespace, so it
+  resolves to the same issue as `/-/issues/N`.
 
 ## [0.10.1] - 2026-06-07
 
