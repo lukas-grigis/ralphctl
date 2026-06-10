@@ -71,6 +71,18 @@ if (process.platform === 'win32') return;
 - **`Sprint.recordCheckRun(repo, at)`** returns a plain `Sprint` (no `Result` wrapper); `setBranch` and
   `setAffectedRepositories` return `Result<Sprint, InvalidStateError>`.
 
+### Gen-eval exit mapping (2026-06-10)
+
+`finalize-gen-eval` `mapExit` semantics — important for writing correct assertions:
+
+- `passed` → `{ verdict: 'passed' }` — NO warning, NO blockedReason.
+- `self-blocked` → `{ verdict: 'failed', blockedReason }` — NO warning.
+- `malformed` → `{ verdict: 'malformed', warning: { kind: 'malformed', detail } }`.
+- `plateau` → `{ verdict: 'failed' }` — NO warning (plateau is an escalation trigger, not done-with-warning).
+- `budget-exhausted` → `{ verdict: 'failed', warning: { kind: 'budget-exhausted', turnsUsed, turnBudget } }`.
+
+The `shouldFailAttempt` field is controlled by the escalation policy (not mapExit), so it can appear independently of the warning. A mutant test needs to assert BOTH fields explicitly — a vacuous `if (result.ok && result.value.warning?.kind === 'plateau')` guard always passes and kills nothing.
+
 ### Launcher HITL distill confirm gate (2026-05-31)
 
 `tests/unit/application/ui/shared/launch/distill-confirm-abort.test.ts` — 10 tests covering `launchCloseSprint` and `launchReview`:
