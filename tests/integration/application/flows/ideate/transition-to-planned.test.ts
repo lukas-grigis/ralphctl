@@ -138,6 +138,7 @@ describe('createIdeateFlow — draft → planned transition (M1)', () => {
         cwd: FAKE_CWD,
         providerId: 'claude-code',
         model: 'claude-sonnet-4-6',
+        maxAttempts: 3,
         ideateRoot: ideateRoot(),
       }
     );

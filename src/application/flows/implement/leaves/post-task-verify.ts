@@ -72,6 +72,18 @@ interface LeafInput {
   readonly task: InProgressTask;
   readonly sprintId: SprintId;
   readonly preOutcome?: VerifyRunOutcome;
+  /**
+   * True when the task was blocked BEFORE any gen-eval turn ran — i.e. pre-task-verify
+   * hard-blocked (non-interactive red baseline / operator skip) and the loop's `shouldContinue`
+   * refused entry, so the generator never spawned. Drives the zero-turn short-circuit below:
+   * with no AI work to verify, re-running the dominant-cost verify script is pure waste and
+   * there is nothing to attribute (HARNESS-PRINCIPLES § 9). Derived in `input` from
+   * `ctx.lastBlockReason` set AND `ctx.genEvalTurn === undefined` — start-attempt resets
+   * `genEvalTurn` per attempt, the generator leaf bumps it to ≥1 on its first turn, so an unset
+   * counter is precisely "zero turns ran." A turn-1 generator self-block has `genEvalTurn === 1`
+   * and correctly falls through to the real script.
+   */
+  readonly preVerifyBlockedZeroTurn: boolean;
 }
 
 interface LeafOutput {
@@ -119,6 +131,27 @@ export const postTaskVerifyLeaf = (
   leaf<ImplementCtx, LeafInput, LeafOutput>(`post-task-verify-${String(taskId)}`, {
     useCase: {
       execute: async (input, signal): Promise<Result<LeafOutput, DomainError>> => {
+        // Zero-turn short-circuit. When pre-task-verify hard-blocked the task BEFORE any
+        // generator spawned (the gen-eval loop's `shouldContinue` refused entry on a
+        // pre-existing `lastExit`), there is no AI work on the tree to verify — re-running the
+        // dominant-cost verify script is pure waste, and there is nothing to attribute
+        // (HARNESS-PRINCIPLES § 9). Synthesise a `'skipped'` VerifyRun so the ctx carry stays
+        // consistent: `legacyVerifyResult` maps `'skipped'` to `{ kind: 'skipped' }` (no spurious
+        // verify-failed warning downstream), attribution stays undefined (it needs both pre and
+        // post outcomes), and `priorPostVerifyOutcome` carries `'skipped'` so the NEXT task's
+        // pre-verify carry-baseline does not short-circuit (that path requires `'success'`).
+        if (input.preVerifyBlockedZeroTurn) {
+          const skipped: VerifyRun = {
+            phase: 'post',
+            ranAt: deps.clock(),
+            command: '',
+            exitCode: 0,
+            durationMs: 0,
+            outcome: 'skipped',
+          };
+          return Result.ok({ task: input.task, run: skipped, rawOutput: '' });
+        }
+
         const { run, rawOutput, spawnErrorMessage } = await runVerifyScriptUseCase({
           cwd: opts.cwd,
           phase: 'post',
@@ -251,9 +284,16 @@ export const postTaskVerifyLeaf = (
           message: `post-task-verify-${String(taskId)}: expected in_progress task — got '${ctx.currentTask.status}'`,
         });
       }
+      // Zero-turn discriminant: a block reason is on ctx AND no generator turn ran this attempt.
+      // `start-attempt` resets `genEvalTurn` to undefined per attempt and the generator leaf bumps
+      // it to ≥1 on its first turn, so `genEvalTurn === undefined` is precisely "zero turns ran" —
+      // the pre-task-verify hard-block case. A turn-1 generator self-block has `genEvalTurn === 1`
+      // and falls through to the real verify script.
+      const preVerifyBlockedZeroTurn = ctx.lastBlockReason !== undefined && ctx.genEvalTurn === undefined;
       return {
         task: ctx.currentTask,
         sprintId: ctx.sprintId,
+        preVerifyBlockedZeroTurn,
         ...(ctx.lastPreVerifyOutcome !== undefined ? { preOutcome: ctx.lastPreVerifyOutcome } : {}),
       };
     },

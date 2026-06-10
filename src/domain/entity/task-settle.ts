@@ -138,26 +138,17 @@ export const failCurrentAttempt = (
 };
 
 /**
- * Stamp the once-per-task generator model escalation onto an `in_progress` task. The fields are
- * write-once: a task that already carries either side is rejected so the escalation cap is
- * enforced at the domain layer rather than every caller re-deriving the check.
+ * Stamp the generator model escalation onto an `in_progress` task. The fields hold the
+ * MOST-RECENT rung transition and are re-stampable: a task may be re-stamped on each plateau as
+ * it climbs the ladder one rung at a time, and a top-of-ladder same-model nudge stamps
+ * `from === to`. The cost ceiling is enforced by the policy (ladder top + `maxAttempts`), not
+ * here — this helper only validates the two model strings and records the latest transition.
  */
 export const recordTaskEscalation = (
   task: InProgressTask,
   fromModel: string,
   toModel: string
-): Result<InProgressTask, InvalidStateError | ValidationError> => {
-  if (task.escalatedFromModel !== undefined || task.escalatedToModel !== undefined) {
-    return Result.error(
-      new InvalidStateError({
-        entity: 'task',
-        currentState: 'in_progress',
-        attemptedAction: 'record-escalation',
-        message: `task '${task.id}' already escalated (${String(task.escalatedFromModel)} → ${String(task.escalatedToModel)})`,
-        hint: 'The once-per-task cap blocks a second escalation; transition to blocked instead.',
-      })
-    );
-  }
+): Result<InProgressTask, ValidationError> => {
   const from = parseRequiredString('task.escalatedFromModel', fromModel);
   if (!from.ok) return Result.error(from.error);
   const to = parseRequiredString('task.escalatedToModel', toModel);

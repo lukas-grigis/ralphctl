@@ -20,6 +20,17 @@ import { prContentSignalSchema } from '@src/integration/ai/contract/_engine/sign
 const ts = '2026-05-22T10:00:00.000Z';
 
 /**
+ * The three floor dimensions other than `correctness` — appended so a terminal verdict carries
+ * the full floor set the signal schema now requires. Individual tests vary the `correctness`
+ * row to drive the case under test.
+ */
+const floorRest = [
+  { dimension: 'completeness', passed: true, finding: '' },
+  { dimension: 'safety', passed: true, finding: '' },
+  { dimension: 'consistency', passed: true, finding: '' },
+];
+
+/**
  * Per-kind happy-path parses — ensures every schema validates a canonical example. Edge
  * cases (missing optional fields, wrong types) are exercised by `validate-signals-file.test.ts`
  * via the leaf contracts; this file's only job is to keep each schema's shape under test
@@ -40,15 +51,58 @@ describe('signal schemas (happy-path parses)', () => {
   it('note', () => {
     expect(noteSignalSchema.safeParse({ type: 'note', text: 'just noting', timestamp: ts }).success).toBe(true);
   });
-  it('evaluation: PASS verdict with all dimensions passed', () => {
+  it('evaluation: PASS verdict with all floor dimensions passed', () => {
     expect(
       evaluationSignalSchema.safeParse({
         type: 'evaluation',
         status: 'passed',
-        dimensions: [{ dimension: 'correctness', passed: true, finding: '' }],
+        dimensions: [{ dimension: 'correctness', passed: true, finding: '' }, ...floorRest],
         timestamp: ts,
       }).success
     ).toBe(true);
+  });
+
+  it('evaluation: rejects a PASS verdict missing a floor dimension', () => {
+    // Only `correctness` graded — the schema now requires all four floor dimensions on a
+    // terminal verdict, so a vacuous "passed" with a partial floor set is rejected.
+    const r = evaluationSignalSchema.safeParse({
+      type: 'evaluation',
+      status: 'passed',
+      dimensions: [{ dimension: 'correctness', passed: true, finding: '' }],
+      timestamp: ts,
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('evaluation: rejects a PASS verdict with zero dimensions (the vacuous-pass hole)', () => {
+    const r = evaluationSignalSchema.safeParse({
+      type: 'evaluation',
+      status: 'passed',
+      dimensions: [],
+      timestamp: ts,
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('evaluation: rejects a FAIL verdict missing a floor dimension', () => {
+    const r = evaluationSignalSchema.safeParse({
+      type: 'evaluation',
+      status: 'failed',
+      dimensions: [{ dimension: 'correctness', passed: false, finding: 'oops' }],
+      timestamp: ts,
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it('evaluation: malformed status is exempt from floor-dimension coverage', () => {
+    // `malformed` is the no-verdict escape hatch — the harness retries; no coverage check applies.
+    const r = evaluationSignalSchema.safeParse({
+      type: 'evaluation',
+      status: 'malformed',
+      dimensions: [],
+      timestamp: ts,
+    });
+    expect(r.success).toBe(true);
   });
 
   it('evaluation: FAIL with one failing dimension + finding + executionEvidence', () => {
@@ -63,6 +117,7 @@ describe('signal schemas (happy-path parses)', () => {
             finding: 'test failed at src/foo.ts:23',
             executionEvidence: 'npm test\n  1 failing',
           },
+          ...floorRest,
         ],
         critique: 'fix src/foo.ts:23',
         timestamp: ts,
@@ -74,7 +129,7 @@ describe('signal schemas (happy-path parses)', () => {
     const r = evaluationSignalSchema.safeParse({
       type: 'evaluation',
       status: 'passed',
-      dimensions: [{ dimension: 'correctness', score: 5, passed: true, finding: '' }],
+      dimensions: [{ dimension: 'correctness', score: 5, passed: true, finding: '' }, ...floorRest],
       timestamp: ts,
     });
     // Zod's non-strict object passes the parse but drops the unknown `score` key on output —
@@ -93,7 +148,7 @@ describe('signal schemas (happy-path parses)', () => {
     const r = evaluationSignalSchema.safeParse({
       type: 'evaluation',
       status: 'passed',
-      dimensions: [{ dimension: 'correctness', passed: true, finding: '' }],
+      dimensions: [{ dimension: 'correctness', passed: true, finding: '' }, ...floorRest],
       overallScore: 5,
       timestamp: ts,
     });
@@ -104,10 +159,11 @@ describe('signal schemas (happy-path parses)', () => {
   });
 
   it('evaluation: rejects a failed-status signal whose every dimension passed', () => {
+    // Full floor set present so the rejection is on the all-passed check, not floor coverage.
     const r = evaluationSignalSchema.safeParse({
       type: 'evaluation',
       status: 'failed',
-      dimensions: [{ dimension: 'correctness', passed: true, finding: '' }],
+      dimensions: [{ dimension: 'correctness', passed: true, finding: '' }, ...floorRest],
       timestamp: ts,
     });
     expect(r.success).toBe(false);
@@ -117,7 +173,7 @@ describe('signal schemas (happy-path parses)', () => {
     const r = evaluationSignalSchema.safeParse({
       type: 'evaluation',
       status: 'passed',
-      dimensions: [{ dimension: 'correctness', passed: false, finding: 'oops' }],
+      dimensions: [{ dimension: 'correctness', passed: false, finding: 'oops' }, ...floorRest],
       timestamp: ts,
     });
     expect(r.success).toBe(false);
@@ -127,7 +183,7 @@ describe('signal schemas (happy-path parses)', () => {
     const r = evaluationSignalSchema.safeParse({
       type: 'evaluation',
       status: 'failed',
-      dimensions: [{ dimension: 'correctness', passed: false, finding: '' }],
+      dimensions: [{ dimension: 'correctness', passed: false, finding: '' }, ...floorRest],
       timestamp: ts,
     });
     expect(r.success).toBe(false);

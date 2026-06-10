@@ -153,9 +153,20 @@ describe('buildPrompt — error paths', () => {
     if (!result.ok) expect(result.error).toBeInstanceOf(StorageError);
   });
 
+  it('accepts a placeholder-shaped literal inside a parameter VALUE — AI prose is not drift', async () => {
+    // The journal-poison scenario: priorProgress quoting '{{ROUND_NUMBER}}' must not fail the
+    // build (the old post-render scan made one journaled quote permanently wedge the task).
+    await writePromptTemplate(dir, 'greeting', 'Hi {{NAME}}\n');
+    const result = await buildPrompt(createFsTemplateLoader(dir), simpleDef, {
+      name: 'journal says: added {{ROUND_NUMBER}} to the template',
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value).toContain('{{ROUND_NUMBER}}');
+  });
+
   it('returns ParseError when the template carries a placeholder the manifest does not declare', async () => {
     // Template references {{UNKNOWN}} but the def has no spec for it — drift detected at the
-    // assertFullySubstituted fence.
+    // template-side assertTemplateKeysFilled fence.
     await writePromptTemplate(dir, 'greeting', '{{NAME}} {{UNKNOWN}}\n');
     const result = await buildPrompt(createFsTemplateLoader(dir), simpleDef, { name: 'Ada' });
     expect(result.ok).toBe(false);

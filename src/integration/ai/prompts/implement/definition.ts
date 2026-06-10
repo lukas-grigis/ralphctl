@@ -218,13 +218,13 @@ export interface BuildImplementPromptInput {
    */
   readonly priorCritique?: string;
   /**
-   * True once the escalation policy has fired for this task — the gen-eval loop stalled and one more
-   * attempt was granted (with or without a model bump). Renders the "change your approach" directive.
-   * The generator leaf sets it from `task.escalatedFromModel !== undefined`, which is a write-once,
-   * task-lifetime flag — so the directive renders on EVERY generator turn from the escalated attempt
-   * onward (every turn of that attempt, and any further attempt the task takes), not just one turn.
-   * That is intentional and harmless: re-telling the generator to change approach costs nothing and
-   * the once-per-task escalation cap still bounds the model bump. Default false (pre-escalation).
+   * True on a top-of-ladder same-model nudge — the gen-eval loop stalled at the strongest rung and
+   * one more attempt was granted on the SAME model. Renders the "change your approach" directive.
+   * The generator leaf sets it from `task.escalatedFromModel === task.escalatedToModel` (the
+   * same-model marker), NOT from a model bump: a bump hands the stronger model the targeted prior
+   * critique instead, so the directive is reserved for the nudge where no fresh capability remains.
+   * The escalation fields are re-stampable as the generator climbs the ladder, so this flips on only
+   * when the latest transition is a same-model nudge. Default false (no nudge in effect).
    */
   readonly plateauBreak?: boolean;
   /**

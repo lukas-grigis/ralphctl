@@ -714,6 +714,59 @@ describe('preTaskVerifyLeaf — carry-baseline short-circuit', () => {
     expect(out.value.ctx.lastBlockReason).toBe('operator skipped task on broken baseline');
   });
 
+  // D4: the 'skipped' carry must NOT short-circuit pre-verify — the shortcut requires 'success'.
+  // When post-task-verify emits 'skipped' (zero-turn short-circuit case), the NEXT task's
+  // pre-verify must run the real script, not assume a green baseline.
+  it("carried 'skipped' outcome (prior post-verify was zero-turn) → does NOT short-circuit, runs real script", async () => {
+    // Arrange: previous task's post-verify short-circuited → 'skipped' carry.
+    // The pre-verify of THIS task must fall through to the real script — 'skipped' is NOT a
+    // green baseline evidence. A mutant that changed the guard to `!== undefined` instead of
+    // `=== 'success'` would incorrectly short-circuit on any non-undefined carry.
+    const shell = countingShellRunner({ passed: true, exitCode: 0, output: 'OK' });
+    const git = cleanGitRunner();
+    const task = makeInProgressTaskWithRunningAttempt();
+    const execution = createSprintExecution({ sprintId: SPRINT_ID });
+    const ctx: ImplementCtx = {
+      sprintId: SPRINT_ID,
+      currentTask: task,
+      currentTaskId: task.id,
+      tasks: [task],
+      execution,
+      // Outcome is 'skipped' — NOT 'success'. The short-circuit must not fire.
+      priorPostVerifyOutcome: { cwd: CWD, outcome: 'skipped' },
+    };
+    const repo = fakeTaskRepo();
+    const execRepo = fakeExecRepo();
+    const bus = createCapturingBus();
+    const leaf = preTaskVerifyLeaf(
+      {
+        shellScriptRunner: shell.runner,
+        taskRepo: repo,
+        sprintExecutionRepo: execRepo,
+        interactive: neverPrompt,
+        gitRunner: git.runner,
+        clock: () => FIXED_NOW,
+        eventBus: bus.bus,
+        logger: noopLogger,
+        environment: TTY_ENV,
+      },
+      { cwd: CWD, verifyScript: 'pnpm test' },
+      task.id
+    );
+    const out = await leaf.execute(ctx);
+    if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
+    // Git probe must NOT have run — the cwd-match check happens BEFORE the git probe,
+    // but the outcome check must fail before reaching cwd-match.
+    expect(git.callCount()).toBe(0);
+    // Real script must have run.
+    expect(shell.callCount()).toBe(1);
+    // The audit row was appended (real script ran, not synthesized).
+    expect(repo.updates).toHaveLength(1);
+    expect(out.value.ctx.lastPreVerifyOutcome).toBe('success');
+    // Short-circuit log must NOT be present.
+    expect(bus.logs.some((e) => e.message.includes('short-circuited'))).toBe(false);
+  });
+
   it('no carried outcome (task 1 of sprint) → falls through, no git probe, real script', async () => {
     const shell = countingShellRunner({ passed: true, exitCode: 0, output: 'OK' });
     const git = cleanGitRunner();

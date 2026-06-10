@@ -227,6 +227,10 @@ const commitCapturingGit = (taskCount: number): CommitCapturingGit => {
         return okGit(' M file\n', 0); // commit-task gate: dirty
       }
       if (args[0] === 'add' && args[1] === '-A') return okGit('', 0);
+      // Serial-path quarantine of a blocked task's rejected diff: `gitStashPush` runs `status
+      // --porcelain` (handled above — dirty for the just-blocked task) then `stash push -u -m …`.
+      // Report success so the quarantine leaf records its pointer and the run proceeds.
+      if (args[0] === 'stash' && args[1] === 'push') return okGit('Saved working directory\n', 0);
       if (args[0] === 'commit' && args[1] === '-m') {
         messages.push(args[2] ?? '');
         cleanAfterCommit = true;
@@ -245,6 +249,12 @@ const commitCapturingGit = (taskCount: number): CommitCapturingGit => {
         if (target !== undefined) head = target;
         return okGit('', 0);
       }
+      // The evaluator leaf fingerprints the working tree each round (status --porcelain handled
+      // above + diff HEAD + ls-files here) for the plateau predicate. A fixed diff body and an
+      // empty untracked list are fine — these tests pass on the first turn, so the fingerprint
+      // is never compared against a prior round.
+      if (args[0] === 'diff' && args[1] === 'HEAD') return okGit('@@ -1 +1 @@\n-old\n+new\n', 0);
+      if (args[0] === 'ls-files') return okGit('', 0); // no untracked files → hash-object never runs
       void taskCount;
       throw new Error(`unscripted git args: ${args.join(' ')}`);
     },
@@ -377,14 +387,27 @@ const commitMessage = (subject: string, body?: string): HarnessSignal => ({
 });
 
 /**
- * Synthesise the same single-overall-dimension shape the deleted legacy `<evaluation-failed>`
- * test parser produced — preserves the "generic failure" intent of older fixtures without
- * forcing every call site to author dimension rows.
+ * The three floor dimensions other than `correctness`, all passing — appended so terminal
+ * verdicts carry the full floor set the signal schema now requires.
+ */
+const floorPasses = [
+  { dimension: 'completeness', passed: true, finding: 'steps shipped' },
+  { dimension: 'safety', passed: true, finding: 'inputs validated' },
+  { dimension: 'consistency', passed: true, finding: 'matches siblings' },
+];
+
+/**
+ * Synthesise a FAIL verdict — the correctness floor dimension fails, the rest pass. Carries the
+ * full floor set the schema now requires while preserving the "generic failure" intent of the
+ * older single-`overall` fixtures.
  */
 const evaluationFailed = (critique: string): EvaluationSignal => ({
   type: 'evaluation',
   status: 'failed',
-  dimensions: [{ dimension: 'overall', passed: false, finding: critique.length > 0 ? critique : 'failed' }],
+  dimensions: [
+    { dimension: 'correctness', passed: false, finding: critique.length > 0 ? critique : 'failed' },
+    ...floorPasses,
+  ],
   critique,
   timestamp: FIXED_NOW,
 });
@@ -392,7 +415,7 @@ const evaluationFailed = (critique: string): EvaluationSignal => ({
 const evaluationPassed = (): EvaluationSignal => ({
   type: 'evaluation',
   status: 'passed',
-  dimensions: [],
+  dimensions: [{ dimension: 'correctness', passed: true, finding: 'all good' }, ...floorPasses],
   timestamp: FIXED_NOW,
 });
 
@@ -1886,6 +1909,9 @@ describe('createImplementFlow — gen-eval loop', () => {
         if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
           return okGit('0000000000000000000000000000000000000000\n', 0);
         }
+        // Evaluator-round work-product fingerprint — clean tree per repo, so an empty diff.
+        if (args[0] === 'diff' && args[1] === 'HEAD') return okGit('', 0);
+        if (args[0] === 'ls-files') return okGit('', 0); // fingerprint untracked probe — none here
         throw new Error(`multi-repo test: unscripted git args at ${String(cwd)}: ${args.join(' ')}`);
       },
     };
@@ -2092,10 +2118,13 @@ describe('createImplementFlow — gen-eval loop', () => {
   // path produces a genuine second attempt; `maxAttempts === 1` collapses to one iteration;
   // an abort propagates verbatim with no extra iteration.
 
-  it('escalation across attempts: attempt 1 plateaus + escalates → attempt 2 runs (settle fires again) → 2nd plateau preserves work', async () => {
-    // maxAttempts 3 so the escalation budget doesn't pre-empt the policy. Generator on a model
-    // (`claude-sonnet-4-6`) that HAS a default escalation rung (→ `claude-opus-4-8`). A plateau on
-    // a top-of-ladder model now nudges (same model) rather than blocking, so attempt 2 always runs.
+  it('graduated ladder across attempts: sonnet plateaus → escalate to opus → opus plateaus → nudge → budget-exhausted preserves work', async () => {
+    // maxAttempts 3 so the ladder can climb multiple rungs. Generator starts on a model
+    // (`claude-sonnet-4-6`) that HAS a default escalation rung (→ `claude-opus-4-8`). The graduated
+    // remedy ladder climbs one rung per plateau: attempt 1 (sonnet) escalates to opus, attempt 2
+    // (opus, top of ladder) nudges (same model + change-of-approach directive), attempt 3 (opus)
+    // plateaus with the budget exhausted (attempts === maxAttempts) — a plateau never blocks, so
+    // the work is preserved (done-with-warning).
     const f = await buildFixture(1, 3);
     tracking(f);
     const sprintRepo = inMemorySprintRepo(f.sprint);
@@ -2147,32 +2176,31 @@ describe('createImplementFlow — gen-eval loop', () => {
 
     expect(runner.status).toBe('completed');
 
-    // Two attempts ran in ONE launch — the outer loop re-entered after the escalation kept the
-    // task in_progress. Attempt 1 settled `failed` (escalation), attempt 2 plateaued again and —
-    // a plateau never blocks — the work is preserved (done-with-warning). Both attempts recorded.
+    // Three attempts ran in ONE launch — the outer loop re-entered after each escalate/nudge kept
+    // the task in_progress. Attempt 1 escalated sonnet→opus, attempt 2 nudged (top of ladder),
+    // attempt 3 plateaued with the budget exhausted — a plateau never blocks, so the work is
+    // preserved (done-with-warning). All three attempts recorded.
     const finalTask = taskRepo.tasks()[0];
     expect(finalTask?.status).toBe('done');
-    expect(finalTask?.attempts).toHaveLength(2);
+    expect(finalTask?.attempts).toHaveLength(3);
 
-    // The settle leaf ran once per attempt — exactly two `settle-attempt-<id>` trace entries.
-    // This is the load-bearing assertion that the 2ND iteration's settle actually executed,
+    // The settle leaf ran once per attempt — exactly three `settle-attempt-<id>` trace entries.
+    // This is the load-bearing assertion that each subsequent iteration's settle actually executed,
     // not merely that escalation was stamped.
     const settleEntries = runner.trace.filter((e) => e.elementName === `settle-attempt-${String(finalTask?.id)}`);
-    expect(settleEntries).toHaveLength(2);
-    // start-attempt fired twice too — once per loop iteration.
+    expect(settleEntries).toHaveLength(3);
+    // start-attempt fired three times too — once per loop iteration.
     const startEntries = runner.trace.filter((e) => e.elementName === `start-attempt-${String(finalTask?.id)}`);
-    expect(startEntries).toHaveLength(2);
+    expect(startEntries).toHaveLength(3);
 
-    // Escalation stamped exactly once: from the configured sonnet to the opus rung. A second
-    // escalation on the second plateau is suppressed (once-per-task cap) — the work is preserved
-    // (done-with-warning) instead of blocking.
-    expect(finalTask?.escalatedFromModel).toBe('claude-sonnet-4-6');
+    // The ladder climbed to the top and the last stamp is the top-of-ladder same-model nudge
+    // (from === to === opus). A plateau never blocks; the work is preserved (done-with-warning).
+    expect(finalTask?.escalatedFromModel).toBe('claude-opus-4-8');
     expect(finalTask?.escalatedToModel).toBe('claude-opus-4-8');
     expect(finalTask?.status).not.toBe('blocked');
 
-    // Attempt 2's generator spawned on the ESCALATED model — proof the second iteration didn't
-    // just re-run identical work. The first generator sessions ran on sonnet; a later one ran
-    // on opus.
+    // The generator climbed the ladder: attempt 1 ran on sonnet, later attempts ran on the
+    // escalated opus model — proof later iterations didn't just re-run identical work.
     const generatorModels = provider.recordedSessions.filter((s) => s.role === 'generator').map((s) => s.model);
     expect(generatorModels).toContain('claude-sonnet-4-6');
     expect(generatorModels).toContain('claude-opus-4-8');

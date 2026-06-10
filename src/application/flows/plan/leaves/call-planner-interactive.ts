@@ -67,6 +67,12 @@ export interface CallPlannerInteractiveDeps {
   /** Optional reasoning / effort level — adapter-specific; ignored when the CLI has no flag for it. */
   readonly effort?: string;
   /**
+   * Default per-task attempt cap (`settings.harness.maxAttempts`) stamped onto every planned
+   * task so the gen-eval loop, `failCurrentAttempt` block transition, and escalation
+   * budget-exhausted branch all bound attempts. Threaded from the plan flow factory.
+   */
+  readonly maxAttempts: number;
+  /**
    * Optional human-in-the-loop approval callback wired by the flow factory. The launcher
    * threads in a TUI prompt that summarises the proposed task list and asks accept/reject.
    * When omitted (tests, headless) the AI's plan is auto-accepted.
@@ -148,6 +154,7 @@ export const callPlannerInteractiveLeaf = (deps: CallPlannerInteractiveDeps): El
           project: input.project,
           sprint: input.sprint,
           logger: deps.logger,
+          defaultMaxAttempts: deps.maxAttempts,
         });
         if (!parsed.ok) return Result.error(parsed.error);
 

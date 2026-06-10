@@ -31,6 +31,7 @@ describe('decideEscalation', () => {
       generatorModel: 'claude-sonnet-4-6',
       flagOn: false,
       userMap: {},
+      fallbackMaxAttempts: 3,
     });
     expect(decision.kind).toBe('flag-off');
   });
@@ -42,6 +43,7 @@ describe('decideEscalation', () => {
       generatorModel: 'claude-sonnet-4-6',
       flagOn: true,
       userMap: {},
+      fallbackMaxAttempts: 3,
     });
     expect(decision.kind).toBe('escalate');
     if (decision.kind === 'escalate') {
@@ -57,33 +59,72 @@ describe('decideEscalation', () => {
       generatorModel: 'claude-sonnet-4-6',
       flagOn: true,
       userMap: { 'claude-sonnet-4-6': 'custom-frontier-model' },
+      fallbackMaxAttempts: 3,
     });
     expect(decision.kind).toBe('escalate');
     if (decision.kind === 'escalate') expect(decision.to).toBe('custom-frontier-model');
   });
 
-  it('returns already-escalated when the task already carries both escalation fields', () => {
-    const task = withEscalation(
-      makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
-      'claude-sonnet-4-6',
-      'claude-opus-4-8'
-    );
-    const decision = decideEscalation({
-      task,
+  it('climbs the ladder one rung per plateau: haiku → sonnet → opus across successive plateaus', () => {
+    // Rung 1: fresh task on haiku plateaus → escalate to sonnet.
+    const fresh = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
+    const d1 = decideEscalation({
+      task: fresh,
+      generatorModel: 'claude-haiku-4-5',
+      flagOn: true,
+      userMap: {},
+      fallbackMaxAttempts: 3,
+    });
+    expect(d1.kind).toBe('escalate');
+    if (d1.kind === 'escalate') expect(d1.to).toBe('claude-sonnet-4-6');
+
+    // Rung 2: task already escalated to sonnet, now running on sonnet, plateaus → escalate to opus.
+    const onSonnet = withEscalation(fresh, 'claude-haiku-4-5', 'claude-sonnet-4-6');
+    const d2 = decideEscalation({
+      task: onSonnet,
+      generatorModel: 'claude-sonnet-4-6',
+      flagOn: true,
+      userMap: {},
+      fallbackMaxAttempts: 3,
+    });
+    expect(d2.kind).toBe('escalate');
+    if (d2.kind === 'escalate') {
+      expect(d2.from).toBe('claude-sonnet-4-6');
+      expect(d2.to).toBe('claude-opus-4-8');
+    }
+
+    // Top: re-stamped to opus, plateaus on opus (no higher rung, not yet nudged) → nudge.
+    const onOpus = withEscalation(onSonnet, 'claude-sonnet-4-6', 'claude-opus-4-8');
+    const d3 = decideEscalation({
+      task: onOpus,
       generatorModel: 'claude-opus-4-8',
       flagOn: true,
       userMap: {},
+      fallbackMaxAttempts: 3,
     });
-    expect(decision.kind).toBe('already-escalated');
+    expect(d3.kind).toBe('nudge');
+
+    // After the top-of-ladder nudge (from === to === opus), a further plateau tops out.
+    const nudged = withEscalation(onOpus, 'claude-opus-4-8', 'claude-opus-4-8');
+    const d4 = decideEscalation({
+      task: nudged,
+      generatorModel: 'claude-opus-4-8',
+      flagOn: true,
+      userMap: {},
+      fallbackMaxAttempts: 3,
+    });
+    expect(d4.kind).toBe('topped-out');
+    if (d4.kind === 'topped-out') expect(d4.model).toBe('claude-opus-4-8');
   });
 
-  it('returns nudge when the current model has no rung above (top of ladder)', () => {
+  it('returns nudge when the current model has no rung above (top of ladder, not yet nudged)', () => {
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     const decision = decideEscalation({
       task,
       generatorModel: 'claude-opus-4-8',
       flagOn: true,
       userMap: {},
+      fallbackMaxAttempts: 3,
     });
     expect(decision.kind).toBe('nudge');
     if (decision.kind === 'nudge') expect(decision.currentModel).toBe('claude-opus-4-8');
@@ -96,8 +137,37 @@ describe('decideEscalation', () => {
       generatorModel: 'claude-sonnet-4-6',
       flagOn: true,
       userMap: { 'claude-sonnet-4-6': 'claude-sonnet-4-6' },
+      fallbackMaxAttempts: 3,
     });
     expect(decision.kind).toBe('nudge');
+  });
+
+  it('treats a multi-node user-map cycle as top-of-ladder instead of escalating forever', () => {
+    // `{ a: b, b: a }` is a 2-cycle the self-loop warning (`{ a: a }`) does not catch. Without the
+    // cyclic-chain guard, model-a → escalate to model-b and model-b → escalate to model-a loop
+    // indefinitely, each a real escalate keeping the task in_progress. The guard makes a model on
+    // the cycle fall through to the same-model nudge, and a further plateau then tops out — bounded.
+    const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
+    const cyclicMap = { 'model-a': 'model-b', 'model-b': 'model-a' };
+    const decision = decideEscalation({
+      task,
+      generatorModel: 'model-a',
+      flagOn: true,
+      userMap: cyclicMap,
+      fallbackMaxAttempts: 3,
+    });
+    expect(decision.kind).toBe('nudge');
+    if (decision.kind === 'nudge') expect(decision.currentModel).toBe('model-a');
+
+    const nudged = withEscalation(task, 'model-a', 'model-a');
+    const after = decideEscalation({
+      task: nudged,
+      generatorModel: 'model-a',
+      flagOn: true,
+      userMap: cyclicMap,
+      fallbackMaxAttempts: 3,
+    });
+    expect(after.kind).toBe('topped-out');
   });
 
   it('returns budget-exhausted before checking the map when attempts === maxAttempts', () => {
@@ -107,8 +177,33 @@ describe('decideEscalation', () => {
       generatorModel: 'claude-sonnet-4-6',
       flagOn: true,
       userMap: {},
+      fallbackMaxAttempts: 3,
     });
     expect(decision.kind).toBe('budget-exhausted');
+  });
+
+  it('falls back to fallbackMaxAttempts when task.maxAttempts is unset (legacy task)', () => {
+    // Legacy task: no per-task cap. With one attempt used and a fallback of 1, the budget is
+    // exhausted; with a fallback of 3 there is room to climb.
+    const legacy = makeInProgressTaskWithRunningAttempt();
+    const exhausted = decideEscalation({
+      task: legacy,
+      generatorModel: 'claude-sonnet-4-6',
+      flagOn: true,
+      userMap: {},
+      fallbackMaxAttempts: 1,
+    });
+    expect(exhausted.kind).toBe('budget-exhausted');
+    if (exhausted.kind === 'budget-exhausted') expect(exhausted.maxAttempts).toBe(1);
+
+    const remaining = decideEscalation({
+      task: legacy,
+      generatorModel: 'claude-sonnet-4-6',
+      flagOn: true,
+      userMap: {},
+      fallbackMaxAttempts: 3,
+    });
+    expect(remaining.kind).toBe('escalate');
   });
 });
 
@@ -120,6 +215,7 @@ describe('applyEscalation', () => {
     const applied = applyEscalation({
       task,
       decision: { kind: 'escalate', from: 'claude-sonnet-4-6', to: 'claude-opus-4-8' },
+      trigger: 'plateau',
       eventBus: bus,
       logger: noopLogger,
       clock: fixedClock,
@@ -153,14 +249,15 @@ describe('applyEscalation', () => {
     const applied = applyEscalation({
       task,
       decision: { kind: 'nudge', currentModel: 'claude-opus-4-8' },
+      trigger: 'plateau',
       eventBus: bus,
       logger: noopLogger,
       clock: fixedClock,
     });
     expect(applied.ok).toBe(true);
     if (!applied.ok) return;
-    // Stamped from===to so the once-per-task cap fires on a second plateau; the generator reads
-    // escalatedFromModel to arm the change-of-approach directive.
+    // Stamped from===to so the next plateau detects the top-of-ladder nudge (topped-out); the
+    // generator reads escalatedFromModel === escalatedToModel to arm the change-of-approach directive.
     expect(applied.value.task.escalatedFromModel).toBe('claude-opus-4-8');
     expect(applied.value.task.escalatedToModel).toBe('claude-opus-4-8');
     expect(applied.value.blockedReason).toBeUndefined();
@@ -170,27 +267,73 @@ describe('applyEscalation', () => {
     expect(banner?.message).toMatch(/change-of-approach directive/);
   });
 
-  it('on already-escalated: warn banner, NO blockedReason (preserves work), no model-escalated event', () => {
+  it('on topped-out: warn banner, NO blockedReason (preserves work), no model-escalated event', () => {
     const task = withEscalation(
       makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
-      'claude-sonnet-4-6',
+      'claude-opus-4-8',
       'claude-opus-4-8'
     );
     const { bus, events } = captureBus();
     const applied = applyEscalation({
       task,
-      decision: { kind: 'already-escalated', from: 'claude-sonnet-4-6', to: 'claude-opus-4-8' },
+      decision: { kind: 'topped-out', model: 'claude-opus-4-8' },
+      trigger: 'plateau',
       eventBus: bus,
       logger: noopLogger,
       clock: fixedClock,
     });
     expect(applied.ok).toBe(true);
     if (!applied.ok) return;
-    // A plateau never blocks — after the one retry the work is preserved (done-with-warning).
+    // A plateau never blocks — once the ladder is exhausted the work is preserved (done-with-warning).
     expect(applied.value.blockedReason).toBeUndefined();
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
     const banner = events.find((e): e is Extract<AppEvent, { type: 'banner-show' }> => e.type === 'banner-show');
     expect(banner?.tier).toBe('warn');
+    expect(banner?.message).toMatch(/ladder exhausted/);
+  });
+
+  it('on escalate: re-stamps a task that was already escalated (multi-rung climb)', () => {
+    const onSonnet = withEscalation(
+      makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
+      'claude-haiku-4-5',
+      'claude-sonnet-4-6'
+    );
+    const { bus } = captureBus();
+    const applied = applyEscalation({
+      task: onSonnet,
+      decision: { kind: 'escalate', from: 'claude-sonnet-4-6', to: 'claude-opus-4-8' },
+      trigger: 'plateau',
+      eventBus: bus,
+      logger: noopLogger,
+      clock: fixedClock,
+    });
+    expect(applied.ok).toBe(true);
+    if (!applied.ok) return;
+    expect(applied.value.task.escalatedFromModel).toBe('claude-sonnet-4-6');
+    expect(applied.value.task.escalatedToModel).toBe('claude-opus-4-8');
+  });
+
+  it('on escalate with trigger=budget-exhausted: event reason + banner cause name the budget exit, not plateau', () => {
+    const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
+    const { bus, events } = captureBus();
+
+    const applied = applyEscalation({
+      task,
+      decision: { kind: 'escalate', from: 'claude-sonnet-4-6', to: 'claude-opus-4-8' },
+      trigger: 'budget-exhausted',
+      eventBus: bus,
+      logger: noopLogger,
+      clock: fixedClock,
+    });
+
+    expect(applied.ok).toBe(true);
+    if (!applied.ok) return;
+    const escalated = events.find(
+      (e): e is Extract<AppEvent, { type: 'model-escalated' }> => e.type === 'model-escalated'
+    );
+    expect(escalated?.reason).toBe('budget-exhausted');
+    const banner = events.find((e): e is Extract<AppEvent, { type: 'banner-show' }> => e.type === 'banner-show');
+    expect(banner?.cause).toBe('turn budget exhausted');
   });
 
   it('on budget-exhausted: warn banner names budget exhaustion, NO blockedReason (preserves work)', () => {
@@ -199,6 +342,7 @@ describe('applyEscalation', () => {
     const applied = applyEscalation({
       task,
       decision: { kind: 'budget-exhausted', attemptsUsed: 1, maxAttempts: 1 },
+      trigger: 'plateau',
       eventBus: bus,
       logger: noopLogger,
       clock: fixedClock,
@@ -219,6 +363,7 @@ describe('applyEscalation', () => {
     const applied = applyEscalation({
       task,
       decision: { kind: 'flag-off' },
+      trigger: 'plateau',
       eventBus: bus,
       logger: noopLogger,
       clock: fixedClock,
@@ -232,14 +377,18 @@ describe('applyEscalation', () => {
 });
 
 describe('recordTaskEscalation domain helper', () => {
-  it('rejects a second escalation on a task that already carries the fields', () => {
+  it('allows a second escalation (re-stamp) as the task climbs the ladder', () => {
     const once = withEscalation(
       makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
-      'claude-sonnet-4-6',
-      'claude-opus-4-8'
+      'claude-haiku-4-5',
+      'claude-sonnet-4-6'
     );
-    const twice = recordTaskEscalation(once, 'claude-opus-4-8', 'another-model');
-    expect(twice.ok).toBe(false);
+    const twice = recordTaskEscalation(once, 'claude-sonnet-4-6', 'claude-opus-4-8');
+    expect(twice.ok).toBe(true);
+    if (!twice.ok) return;
+    // Fields hold the MOST-RECENT rung transition.
+    expect(twice.value.escalatedFromModel).toBe('claude-sonnet-4-6');
+    expect(twice.value.escalatedToModel).toBe('claude-opus-4-8');
   });
 
   it('rejects empty model ids', () => {

@@ -305,8 +305,12 @@ export interface AiSignalEvent {
  *                  just plateaued. The next attempt (`attemptN + 1`) is the one that spawns
  *                  with the upgraded model.
  *  - `from` / `to` — model ids the policy moved between. Always non-empty.
- *  - `reason`    — only `'plateau'` is emitted today; future escalation triggers (rate-limit
- *                  burnout, evaluator inconclusive, etc.) would extend this discriminator.
+ *  - `reason`    — the gen-eval exit kind that triggered the escalation. `'plateau'` (two
+ *                  consecutive failed evals on the same dimensions) and `'budget-exhausted'`
+ *                  (the turn budget ran out without a terminal verdict) both drive the model
+ *                  ladder. `'plateau'` is kept as a member so any consumer that matched the
+ *                  prior single-literal shape still narrows. `'malformed'` is deliberately
+ *                  absent — that exit is the evaluator's failure and never escalates the model.
  */
 export interface ModelEscalatedEvent {
   readonly type: 'model-escalated';
@@ -314,7 +318,7 @@ export interface ModelEscalatedEvent {
   readonly attemptN: number;
   readonly from: string;
   readonly to: string;
-  readonly reason: 'plateau';
+  readonly reason: 'plateau' | 'budget-exhausted';
   readonly at: IsoTimestamp;
 }
 

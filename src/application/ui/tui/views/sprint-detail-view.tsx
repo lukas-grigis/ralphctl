@@ -47,7 +47,7 @@ import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx
 import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
-import { createTicketRemoveFlow } from '@src/application/flows/ticket-remove/flow.ts';
+import { createTicketRemoveFlow } from '@src/application/flows/remove-ticket/flow.ts';
 import { unblockTaskUseCase } from '@src/business/task/unblock-task.ts';
 import { NextPhaseCard, SprintHeader } from '@src/application/ui/tui/views/sprint-detail-internals/header-card.tsx';
 import { TicketsSection } from '@src/application/ui/tui/views/sprint-detail-internals/ticket-list.tsx';

@@ -253,7 +253,7 @@ describe('SprintDetailView — per-card expand/collapse', () => {
     expect(frame).toContain('requirements for charlie card');
 
     // Move cursor up one to bravo (the middle ticket) and remove it via d → y. The confirm
-    // prompt mounts, then on `y` the ticket-remove flow fires + reload pulls a fresh sprint
+    // prompt mounts, then on `y` the remove-ticket flow fires + reload pulls a fresh sprint
     // without bravo. Expansion state on alpha + charlie must survive the reload — the reload
     // briefly flips the view to a Loading spinner while the new bundle resolves, so we poll
     // until the cards are back before asserting.

@@ -59,6 +59,7 @@ export const TaskBlock = ({
   cardFocused,
   nowMs,
   blockedReason,
+  warningSummary,
 }: {
   readonly task: TaskBucket;
   readonly running: boolean;
@@ -105,6 +106,14 @@ export const TaskBlock = ({
    * (own failure vs `blocked upstream — …`) instead of a bare status. Absent for non-blocked tasks.
    */
   readonly blockedReason?: string;
+  /**
+   * One-line warning summary for a task that settled `done` but whose FINAL attempt carries an
+   * `AttemptWarning` (budget / plateau / malformed / verify-failed). Supplied by the host from the
+   * polled task entities — the live `TaskBucket` status is trace-derived and carries no warning.
+   * When present a warning glyph + this summary renders under the header so the operator sees a
+   * flagged completion is not a clean pass. Absent for clean / non-done tasks.
+   */
+  readonly warningSummary?: string;
 }): React.JSX.Element => {
   const presentation = STATUS_PRESENTATION[task.status];
   const isSpinning = task.status === 'running';
@@ -120,6 +129,10 @@ export const TaskBlock = ({
   // renders a lone warning glyph. trim() first — `collapseWhitespace('')` is '' but a
   // whitespace-only string collapses to a single space, which `!== undefined` alone wouldn't catch.
   const blockedReasonText = blockedReason?.trim() ?? '';
+  // Warning summary for a flagged completion — rendered only for a done (`completed`) card so it
+  // never competes with the blocked-reason line (mutually exclusive by status). Empty / absent →
+  // no line, keeping a clean pass visually identical to its pre-change rendering.
+  const warningSummaryText = task.status === 'completed' ? (warningSummary?.trim() ?? '') : '';
   // Most recent commit SHA for the collapsed summary line — sourced from the projection's
   // lastAttempt when a TaskProjection is supplied. Truncated to 7 chars (git's `--short`
   // default).
@@ -225,6 +238,18 @@ export const TaskBlock = ({
           <Box flexGrow={1} flexShrink={1}>
             <Text color={inkColors.warning} wrap="truncate-end">
               {glyphs.warningGlyph} {collapseWhitespace(blockedReasonText)}
+            </Text>
+          </Box>
+        </Box>
+      )}
+      {warningSummaryText.length > 0 && (
+        // A done card that carries a final-attempt warning — surfaced collapsed OR expanded so the
+        // operator never reads a flagged completion as a clean pass. Same warning glyph as the
+        // attempt-card / blocked line; the tasks list previously showed it only for blockedReason.
+        <Box paddingLeft={2}>
+          <Box flexGrow={1} flexShrink={1}>
+            <Text color={inkColors.warning} wrap="truncate-end">
+              {glyphs.warningGlyph} {collapseWhitespace(warningSummaryText)}
             </Text>
           </Box>
         </Box>

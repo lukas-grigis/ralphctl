@@ -230,3 +230,24 @@ describe('parseTaskList — dependency-wave schedule', () => {
     assertOrderMatchesPosition(out.value);
   });
 });
+
+describe('parseTaskList — defaultMaxAttempts', () => {
+  it('stamps the supplied cap onto every generated task', () => {
+    const out = parseTaskList([spec({ id: 'A' }), spec({ id: 'B' })], {
+      project,
+      mode: { kind: 'fixed', ticketId },
+      defaultMaxAttempts: 3,
+    });
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.value).toHaveLength(2);
+    for (const task of out.value) expect(task.maxAttempts).toBe(3);
+  });
+
+  it('leaves maxAttempts unset when no cap is supplied (legacy uncapped behaviour)', () => {
+    const out = parseTaskList([spec({ id: 'A' })], { project, mode: { kind: 'fixed', ticketId } });
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.value[0]?.maxAttempts).toBeUndefined();
+  });
+});

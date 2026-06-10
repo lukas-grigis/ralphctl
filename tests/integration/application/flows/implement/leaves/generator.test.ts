@@ -3,7 +3,11 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
-import { recordRunningAttemptCritique } from '@src/domain/entity/task-attempts.ts';
+import {
+  recordRunningAttemptCritique,
+  recordRunningAttemptWarning,
+  startNextAttempt,
+} from '@src/domain/entity/task-attempts.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { AppEvent, TaskRoundStartedEvent } from '@src/business/observability/events.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
@@ -12,8 +16,8 @@ import { createFakeAiProvider } from '@tests/fixtures/fake-ai-provider.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import { createEventBusLogger } from '@src/business/observability/event-bus-logger.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
-import { absolutePath, FIXED_NOW, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
-import { recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
+import { absolutePath, FIXED_LATER, FIXED_NOW, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
+import { failCurrentAttempt, recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
 import { escalationBannerId } from '@src/business/task/escalation-policy.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
@@ -175,11 +179,13 @@ describe('generatorLeaf', () => {
     // "whatever the adapter wrote to disk is what gets resumed next"). The point of the test is
     // that the SECOND call's session.resume matches the FIRST call's captured id.
     const provider = createFakeAiProvider({
-      responses: { implement: '' },
+      responses: { implement: '', 'implement-continuation': '' },
       sessionIds: {
-        implement: (session) =>
-          // Distinct ids per round so the assertion catches "wrong round id forwarded" bugs.
-          session.resume === undefined ? 'gen-r1' : 'gen-r2',
+        // Round 1 sends the full `implement` prompt; round 2 (resumed) sends the
+        // `implement-continuation` prompt — script both so each round captures its own id.
+        // Distinct ids per round so the assertion catches "wrong round id forwarded" bugs.
+        implement: 'gen-r1',
+        'implement-continuation': 'gen-r2',
       },
     });
     const leaf = generatorLeaf({ ...buildDeps(eventBus), provider }, task.id);
@@ -192,7 +198,7 @@ describe('generatorLeaf', () => {
     // Round 1's captured id lands on ctx so the next round can pick it up.
     expect(first.value.ctx.priorGeneratorSessionId).toBe('gen-r1');
 
-    const second = await leaf.execute(first.value.ctx);
+    const second = await leaf.execute({ ...first.value.ctx, currentRoundNum: 2 });
     expect(second.ok).toBe(true);
     if (!second.ok) return;
     // Round 2: the leaf MUST forward round 1's captured id as the resume target.
@@ -226,8 +232,17 @@ describe('generatorLeaf', () => {
   // the generator must inject the "change your approach" directive into the prompt.
   it('injects the change-of-approach directive into prompt.md when the task is a plateau-break (escalated)', async () => {
     const initial = makeInProgressTaskWithRunningAttempt();
-    // A same-model nudge (top-of-ladder) stamps escalatedFromModel — the directive arms on that.
-    const stamped = recordTaskEscalation(initial, 'claude-opus-4-8', 'claude-opus-4-8');
+    // A same-model nudge (top-of-ladder) stamps escalatedFromModel — the directive arms on that
+    // PLUS a stall-driven prior attempt: the last settled attempt must carry a plateau /
+    // budget-exhausted warning (a malformed retry after a nudge must NOT re-inject the directive).
+    const warned = recordRunningAttemptWarning(initial, { kind: 'plateau', dimensions: ['correctness'] });
+    if (!warned.ok) throw warned.error;
+    const settled = failCurrentAttempt(warned.value, FIXED_LATER, 'failed');
+    if (!settled.ok) throw settled.error;
+    if (settled.value.status !== 'in_progress') throw new Error('fixture: expected in_progress after fail');
+    const reopened = startNextAttempt(settled.value, FIXED_LATER);
+    if (!reopened.ok) throw reopened.error;
+    const stamped = recordTaskEscalation(reopened.value, 'claude-opus-4-8', 'claude-opus-4-8');
     if (!stamped.ok) throw stamped.error;
     const leaf = generatorLeaf(buildDeps(), stamped.value.id);
     const result = await leaf.execute(baseCtx(stamped.value));
@@ -238,10 +253,43 @@ describe('generatorLeaf', () => {
     expect(content).toContain('change your approach');
   });
 
+  it('omits the directive on a malformed retry after a nudge — the new approach was never judged stalled', async () => {
+    const initial = makeInProgressTaskWithRunningAttempt();
+    // Prior attempt settled with a MALFORMED warning (the evaluator's failure) — even though the
+    // nudge stamp persists on the task, the directive must not re-fire.
+    const warned = recordRunningAttemptWarning(initial, { kind: 'malformed', detail: 'no verdict' });
+    if (!warned.ok) throw warned.error;
+    const settled = failCurrentAttempt(warned.value, FIXED_LATER, 'malformed');
+    if (!settled.ok) throw settled.error;
+    if (settled.value.status !== 'in_progress') throw new Error('fixture: expected in_progress after fail');
+    const reopened = startNextAttempt(settled.value, FIXED_LATER);
+    if (!reopened.ok) throw reopened.error;
+    const stamped = recordTaskEscalation(reopened.value, 'claude-opus-4-8', 'claude-opus-4-8');
+    if (!stamped.ok) throw stamped.error;
+    const leaf = generatorLeaf(buildDeps(), stamped.value.id);
+    await leaf.execute(baseCtx(stamped.value));
+    const content = await fs.readFile(join(String(root.root), 'rounds', '1', 'generator', 'prompt.md'), 'utf8');
+    expect(content).not.toContain('You have plateaued');
+  });
+
   it('omits the change-of-approach directive when the task has not escalated', async () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const leaf = generatorLeaf(buildDeps(), task.id);
     await leaf.execute(baseCtx(task));
+    const content = await fs.readFile(join(String(root.root), 'rounds', '1', 'generator', 'prompt.md'), 'utf8');
+    expect(content).not.toContain('You have plateaued');
+  });
+
+  // On a model BUMP (from !== to) the directive is intentionally NOT armed — the stronger model
+  // gets the targeted priorCritique, and the "abandon your approach" directive is reserved for the
+  // top-of-ladder same-model nudge (from === to).
+  it('omits the change-of-approach directive on a model bump (escalatedFromModel !== escalatedToModel)', async () => {
+    const initial = makeInProgressTaskWithRunningAttempt();
+    const stamped = recordTaskEscalation(initial, 'claude-sonnet-4-6', 'claude-opus-4-8');
+    if (!stamped.ok) throw stamped.error;
+    const leaf = generatorLeaf(buildDeps(), stamped.value.id);
+    const result = await leaf.execute(baseCtx(stamped.value));
+    expect(result.ok).toBe(true);
     const content = await fs.readFile(join(String(root.root), 'rounds', '1', 'generator', 'prompt.md'), 'utf8');
     expect(content).not.toContain('You have plateaued');
   });
@@ -313,5 +361,73 @@ describe('generatorLeaf', () => {
 
     const rounds = events.filter((e) => e.type === 'task-round-started');
     expect(rounds).toHaveLength(1);
+  });
+
+  // Prompt selection by session continuity. The FIRST turn of a session thread (no prior id)
+  // re-sends the full brief; a RESUMED turn (prior id present) sends the slim continuation
+  // prompt. A provider that never reports a session id keeps getting the full prompt because the
+  // discriminant — `priorGeneratorSessionId` — is the same field `--resume` consumes.
+  describe('prompt selection by session continuity', () => {
+    const readPrompt = async (round: number): Promise<string> =>
+      fs.readFile(join(String(root.root), 'rounds', String(round), 'generator', 'prompt.md'), 'utf8');
+
+    it('sends the FULL implement prompt on the first turn (no prior session id)', async () => {
+      const task = makeInProgressTaskWithRunningAttempt();
+      const leaf = generatorLeaf(buildDeps(), task.id);
+      const result = await leaf.execute(baseCtx(task));
+      expect(result.ok).toBe(true);
+
+      const content = await readPrompt(1);
+      expect(content).toContain('# Task Execution Protocol');
+      expect(content).not.toContain('# Continue — Round');
+    });
+
+    it('sends the CONTINUATION prompt on a resumed turn (prior session id present)', async () => {
+      // A provider that reports a session id so round 1 lands `priorGeneratorSessionId` on ctx.
+      const provider = createFakeAiProvider({
+        responses: { implement: '', 'implement-continuation': '' },
+        sessionIds: { implement: 'gen-1' },
+      });
+      const task = makeInProgressTaskWithRunningAttempt();
+      const leaf = generatorLeaf({ ...buildDeps(), provider }, task.id);
+
+      const first = await leaf.execute(baseCtx(task));
+      expect(first.ok).toBe(true);
+      if (!first.ok) return;
+      expect(first.value.ctx.priorGeneratorSessionId).toBe('gen-1');
+      // Round 1 used the full brief.
+      expect(await readPrompt(1)).toContain('# Task Execution Protocol');
+
+      await fs.mkdir(join(String(root.root), 'rounds', '2', 'generator'), { recursive: true });
+      const second = await leaf.execute({ ...first.value.ctx, currentRoundNum: 2 });
+      expect(second.ok).toBe(true);
+
+      // Round 2 resumed → the continuation prompt, which names the round and omits the full brief.
+      const round2 = await readPrompt(2);
+      expect(round2).toContain('# Continue — Round 2');
+      expect(round2).not.toContain('# Task Execution Protocol');
+    });
+
+    it('always sends the FULL prompt when the provider never reports a session id', async () => {
+      // No `sessionIds` configured → `priorGeneratorSessionId` is never set, so every round sends
+      // the full prompt. This is the non-Claude-resume path (a provider that can't resume threads).
+      const provider = createFakeAiProvider({ responses: { implement: '' } });
+      const task = makeInProgressTaskWithRunningAttempt();
+      const leaf = generatorLeaf({ ...buildDeps(), provider }, task.id);
+
+      const first = await leaf.execute(baseCtx(task));
+      expect(first.ok).toBe(true);
+      if (!first.ok) return;
+      expect(first.value.ctx.priorGeneratorSessionId).toBeUndefined();
+
+      await fs.mkdir(join(String(root.root), 'rounds', '2', 'generator'), { recursive: true });
+      const second = await leaf.execute({ ...first.value.ctx, currentRoundNum: 2 });
+      expect(second.ok).toBe(true);
+
+      // Both rounds carry the full brief — never the continuation prompt.
+      expect(await readPrompt(1)).toContain('# Task Execution Protocol');
+      expect(await readPrompt(2)).toContain('# Task Execution Protocol');
+      expect(await readPrompt(2)).not.toContain('# Continue — Round');
+    });
   });
 });

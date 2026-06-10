@@ -69,6 +69,10 @@ export const PRESET_LABEL: Readonly<Record<PresetName, string>> = {
   'claude-only': 'Apply: Claude only',
   'copilot-only': 'Apply: Copilot only',
   'codex-only': 'Apply: Codex only',
+  'mixed-economic': 'Apply: Mixed (economic)',
+  'claude-economic': 'Apply: Claude (economic)',
+  'copilot-economic': 'Apply: Copilot (economic)',
+  'codex-economic': 'Apply: Codex (economic)',
 };
 
 export const LOG_LEVELS = ['silent', 'debug', 'info', 'warn', 'error'] as const;

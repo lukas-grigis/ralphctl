@@ -82,6 +82,7 @@ describe('ideateAndPlanLeaf — audit-[09] contract', () => {
       writeFile,
       eventBus,
       model: 'claude-sonnet-4-6',
+      maxAttempts: 3,
     };
   };
 

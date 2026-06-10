@@ -167,6 +167,26 @@ export const recordRunningAttemptWarning = (
 };
 
 /**
+ * Remove a SOFTENED-PLATEAU warning from the running attempt when the terminal exit is a clean
+ * `passed`. The plateau predicate's work-product softening stamps a `{ kind: 'plateau' }`
+ * warning mid-loop while granting a grace round; when that grace round then PASSES, the warning
+ * would otherwise survive onto the done attempt and brand a genuine clean pass as
+ * pass-with-warning across the journal, the PR body, and the TUI — diluting the
+ * done-with-warning signal those surfaces exist to carry. ONLY kind `'plateau'` is stripped: a
+ * `verify-failed` (or any other) warning records a real post-pass fact and must survive. No-op
+ * when the running attempt carries no warning or a different kind.
+ */
+export const clearRunningAttemptPlateauWarning = (task: InProgressTask): InProgressTask => {
+  const guard = requireRunningAttempt(task);
+  if (!guard.ok) return task; // no running attempt — nothing to clear (defensive; callers hold one)
+  const running = guard.value.running;
+  if (running.warning?.kind !== 'plateau') return task;
+  const { warning: _cleared, ...rest } = running;
+  void _cleared;
+  return replaceLastAttempt(task, rest as typeof running);
+};
+
+/**
  * Append a {@link VerifyRun} row to the running attempt's audit array. Used by the harness
  * pre/post verify-script leaves to persist deterministic verification results independent of
  * the AI's `task-verified` self-report.

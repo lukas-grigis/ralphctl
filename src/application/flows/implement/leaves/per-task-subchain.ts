@@ -19,6 +19,14 @@ import {
 } from '@src/application/flows/implement/leaves/gen-eval-loop.ts';
 import { postTaskVerifyLeaf } from '@src/application/flows/implement/leaves/post-task-verify.ts';
 import { preTaskVerifyLeaf } from '@src/application/flows/implement/leaves/pre-task-verify.ts';
+import {
+  isSettledBlocked,
+  quarantineBlockedDiffLeaf,
+} from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
+import {
+  isRedVerifyRetry,
+  quarantineRetryDiffLeaf,
+} from '@src/application/flows/implement/leaves/quarantine-retry-diff.ts';
 import { progressJournalLeaf } from '@src/application/flows/implement/leaves/progress-journal.ts';
 import type { RepoExecConfig } from '@src/application/flows/implement/leaves/resolve-repo.ts';
 import { settleAttemptLeaf } from '@src/application/flows/implement/leaves/settle-attempt.ts';
@@ -41,6 +49,7 @@ import { uninstallSkillsLeaf } from '@src/application/flows/_shared/skills/unins
  *       post-task-verify → commit (guarded) → settle-attempt →
  *       append-learnings → progress-journal
  *     ]), { maxIterations: maxAttempts, shouldStop: terminal }) →
+ *     quarantine-blocked-diff (guarded, serial-path only) →          // once per task
  *     uninstall-skills                                               // once per task
  *   ]))
  *
@@ -55,18 +64,23 @@ import { uninstallSkillsLeaf } from '@src/application/flows/_shared/skills/unins
  *
  * ## Inner attempt loop
  *
- * A single launch now runs up to `task.maxAttempts` attempts per task instead of one. The outer
- * `loop` re-enters the attempt segment until {@link terminalTaskStatus} reports the just-settled
- * task is `done` or `blocked`, or the `maxAttempts` cap fires (the loop primitive's 1000 ceiling
- * is only a backstop). When `task.maxAttempts === 1` the loop runs exactly one iteration — the
- * single-attempt-per-launch behaviour is byte-for-byte preserved for that case.
+ * A single launch now runs up to the effective `maxAttempts` (the task's own cap when stamped at
+ * plan time, else the configured `settings.harness.maxAttempts` fallback for legacy tasks) attempts
+ * per task instead of one. The outer `loop` re-enters the attempt segment until
+ * {@link terminalTaskStatus} reports the just-settled task is `done` or `blocked`, or the
+ * `maxIterations` cap fires (the loop primitive's 1000 ceiling is only a backstop). When the
+ * effective cap is `1` the loop runs exactly one iteration — the single-attempt-per-launch
+ * behaviour is byte-for-byte preserved for that case.
  *
- * The escalation path is what makes a second iteration productive: on a plateau with
- * `escalateOnPlateau` on, `settle-attempt` keeps the task `in_progress` (escalated generator
- * model stamped), `terminalTaskStatus` returns false, and the loop re-runs `start-attempt`,
- * which opens a fresh attempt that the next generator turn runs on the upgraded model. The hard
- * attempt cap still transitions the task to `blocked` (via the domain `failCurrentAttempt`
- * budget check) — a budget-exhausted task is never silently dropped.
+ * The escalation path is what makes a second iteration productive: on a plateau / budget-exhausted
+ * exit with `escalateOnPlateau` on and budget remaining, `settle-attempt` keeps the task
+ * `in_progress` (escalated generator model stamped), `terminalTaskStatus` returns false, and the
+ * loop re-runs `start-attempt`, which opens a fresh attempt that the next generator turn runs on
+ * the upgraded model. A budget-exhausted task is never silently dropped: rather than spending the
+ * final attempt and relying on `failCurrentAttempt`'s blocked-at-cap branch (which the escalation
+ * path never reaches — `decideEscalation` PRE-EMPTS at the cap, returning `budget-exhausted` and
+ * settling the work `done`-with-warning), the policy stops granting retries once the effective
+ * `maxAttempts` is reached and the loop exits on the resulting terminal status.
  *
  * `branch-preflight` / `build-task-workspace` / `install-skills` / `uninstall-skills` are
  * deliberately OUTSIDE the loop: they are per-task setup/teardown, not per-attempt work, and
@@ -76,9 +90,16 @@ import { uninstallSkillsLeaf } from '@src/application/flows/_shared/skills/unins
  * broken code on the sprint branch. On `verify-failed` the leaf stamps `lastBlockReason`,
  * the guard around `commit-task` skips, and `settle-attempt` marks the task `blocked`.
  *
+ * Intermediate commits from earlier attempts are KEPT when a later attempt blocks the task —
+ * deliberate asymmetry with the quarantine: each such commit passed its own post-verify green
+ * (the never-commit-on-red guard), so resetting history would discard verified work the operator
+ * may want. Only the final blocked attempt's uncommitted diff is quarantined.
+ *
  * Continue-on-blocked: tasks that settle `blocked` (self-block reason) do NOT halt the chain —
  * sibling tasks run unconditionally. The settle-attempt leaf catches the block, the chain
- * keeps going.
+ * keeps going. On the serial path the guarded `quarantine-blocked-diff` leaf then stashes the
+ * blocked task's rejected diff (which the settle guardrail deliberately left in the shared tree)
+ * so the next sibling starts on a clean tree instead of inheriting — and committing — the leftovers.
  *
  * AbortError propagates verbatim through the attempt loop: a mid-attempt abort fails the inner
  * sequential, the loop returns the `AbortError` without starting another iteration.
@@ -145,6 +166,7 @@ export const createPerTaskSubchain = (
     readonly maxTurns: number;
     readonly escalateOnPlateau: boolean;
     readonly escalationMap: Readonly<Record<string, string>>;
+    readonly maxAttempts: number;
   }>
 ): Element<ImplementCtx> => {
   const taskId = task.id;
@@ -228,6 +250,7 @@ export const createPerTaskSubchain = (
                 templateLoader: deps.templateLoader,
                 signals: deps.signals,
                 writeFile: deps.writeFile,
+                gitRunner: deps.gitRunner,
                 clock: deps.clock,
                 logger: deps.logger,
                 eventBus: deps.eventBus,
@@ -291,6 +314,17 @@ export const createPerTaskSubchain = (
                 taskId
               )
             ),
+            // Composed-case cleanup: a granted retry (escalate / nudge / malformed) whose work ALSO
+            // failed post-verify red. The commit guard above skipped the red work; this stashes it
+            // so the RETRIED attempt's pre-verify starts from the last good commit instead of
+            // hard-blocking on its own predecessor's rejected diff. Must run BEFORE settle-attempt —
+            // settle's output projection clears both flags the guard reads. Green-verify retries
+            // commit normally and the stash no-ops on their clean tree.
+            guard<ImplementCtx>(
+              `quarantine-retry-diff-guard-${String(taskId)}`,
+              isRedVerifyRetry,
+              quarantineRetryDiffLeaf({ gitRunner: deps.gitRunner, logger: deps.logger }, { cwd: repo.path }, taskId)
+            ),
             settleAttemptLeaf(
               { taskRepo: deps.taskRepo, clock: deps.clock, logger: deps.logger, gitRunner: deps.gitRunner },
               { cwd: repo.path },
@@ -315,15 +349,48 @@ export const createPerTaskSubchain = (
             ),
           ]),
           {
-            // The attempt count is bounded by the task's own `maxAttempts` (validated 1–10). When
-            // unset, the `loop` primitive's 1000 ceiling is the backstop and `shouldStop` (terminal
-            // status) is the real bound. The domain's `failCurrentAttempt` still transitions the
-            // task to `blocked` once attempts hit the cap, so a budget-exhausted task is never
-            // silently dropped — `shouldStop` just recognises that terminal status and exits.
-            ...(task.maxAttempts !== undefined ? { maxIterations: task.maxAttempts } : {}),
+            // The attempt count is bounded by the task's own `maxAttempts` (validated 1–10), or the
+            // configured `settings.harness.maxAttempts` fallback for legacy tasks planned before the
+            // field existed (mirrors the budget fallback in `finalize-gen-eval`/`decideEscalation`,
+            // so a legacy task's loop cap and its escalation budget agree). The domain's
+            // `failCurrentAttempt` still transitions the task to `blocked` once attempts hit the
+            // cap, so a budget-exhausted task is never silently dropped — `shouldStop` just
+            // recognises that terminal status and exits.
+            maxIterations: task.maxAttempts ?? deps.config.harness.maxAttempts,
             shouldStop: (ctx) => terminalTaskStatus(ctx, taskId),
           }
         ),
+        // SERIAL-PATH ONLY. A task that settled `blocked` (self-block / budget-exhausted) leaves its
+        // rejected diff in the SHARED worktree — `settle-attempt`'s dirty-tree guardrail exempts the
+        // block path so the operator can inspect it. On the serial path that contaminates the next
+        // task (its `git add -A` sweeps the leftovers into its commit; the dirt flips its pre-verify
+        // red and the red post-verify is mis-attributed `baseline-broken`, landing a corrupt commit).
+        // This guarded leaf stashes the rejected diff so the tree is clean again before the next task
+        // runs, restoring the invariant the prologue's one-shot preflight assumes. The guard is
+        // synchronous (status === 'blocked' read from the settled `ctx.tasks` copy — `settle-attempt`
+        // cleared `ctx.currentTask`); the splice itself is gated on the serial-path proxy
+        // `includeBranchPreflight` so the parallel launcher (per-task worktrees, already isolated)
+        // never includes it. Stays INSIDE the body guard + AFTER the loop so it runs once per task,
+        // and BEFORE `uninstall-skills` so that leaf remains the subchain's terminal element (the
+        // TUI's task-completion detector keys on it).
+        ...(includeBranchPreflight
+          ? [
+              guard<ImplementCtx>(
+                `quarantine-blocked-diff-guard-${String(taskId)}`,
+                (ctx) => isSettledBlocked(ctx, taskId),
+                quarantineBlockedDiffLeaf(
+                  {
+                    gitRunner: deps.gitRunner,
+                    taskRepo: deps.taskRepo,
+                    appendFile: deps.appendFile,
+                    logger: deps.logger,
+                  },
+                  { cwd: repo.path, progressFile: opts.progressFile },
+                  taskId
+                )
+              ),
+            ]
+          : []),
         uninstallSkillsLeaf<ImplementCtx>(
           { skillsAdapter: deps.skillsAdapter },
           { name: `${opts.terminalLeafName}-${String(taskId)}`, cwdPicker: repoCwdPicker(repo.path) }

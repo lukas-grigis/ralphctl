@@ -3,9 +3,9 @@
  * not reached by the main escalation-policy.test.ts / escalation-map.test.ts files.
  *
  * Specific gaps:
- *   - escalation-policy.ts line 120: `recordTaskEscalation` failing inside `applyEscalation`
- *     for the `escalate` decision. The `decideEscalation` guard normally prevents this via
- *     `already-escalated`, but `applyEscalation` is public and must handle the failure.
+ *   - escalation-policy.ts: `recordTaskEscalation` failing inside `applyEscalation` for the
+ *     `escalate` decision. `decideEscalation` never produces an empty model id, but
+ *     `applyEscalation` is public and must handle a validation failure from a malformed decision.
  *   - escalation-map.ts: `warnEscalationMapSelfLoops` — one warn per self-loop entry;
  *     `mergeEscalationMap` — user override wins, user-only keys extend the ladder.
  */
@@ -49,22 +49,18 @@ const captureWarnLogger = (): { logger: Logger; warnings: string[] } => {
   return { logger, warnings };
 };
 
-describe('applyEscalation — defensive failure branch (line 120)', () => {
-  it('returns Result.error when recordTaskEscalation fails on the escalate path', () => {
-    // Arrange: create a task that already has escalation fields stamped. Then pass an
-    // `escalate` decision directly — bypassing the `decideEscalation` guard that would
-    // normally catch this via `already-escalated`. This exercises the defensive
-    // `if (!stamped.ok) return Result.error(stamped.error)` on line 120.
-    const alreadyEscalated = withEscalation(
-      makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
-      'claude-sonnet-4-6',
-      'claude-opus-4-8'
-    );
+describe('applyEscalation — defensive failure branch', () => {
+  it('returns Result.error when recordTaskEscalation fails on the escalate path (empty model id)', () => {
+    // Arrange: pass an `escalate` decision with an empty `from` model directly — `decideEscalation`
+    // never emits this, but `applyEscalation` is public and must surface the validation failure
+    // (exercises the defensive `if (!stamped.ok) return Result.error(stamped.error)`).
+    const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     const bus = createInMemoryEventBus();
 
     const result = applyEscalation({
-      task: alreadyEscalated,
-      decision: { kind: 'escalate', from: 'claude-opus-4-8', to: 'some-other-model' },
+      task,
+      decision: { kind: 'escalate', from: '', to: 'some-other-model' },
+      trigger: 'plateau',
       eventBus: bus,
       logger: noopLogger,
       clock: fixedClock,
@@ -85,6 +81,7 @@ describe('decideEscalation — user-only and edge cases', () => {
       generatorModel: 'custom-finetuned-model-v1',
       flagOn: true,
       userMap: { 'custom-finetuned-model-v1': 'custom-finetuned-model-v2' },
+      fallbackMaxAttempts: 3,
     });
 
     expect(decision.kind).toBe('escalate');
@@ -101,6 +98,7 @@ describe('decideEscalation — user-only and edge cases', () => {
       generatorModel: 'completely-unknown-model',
       flagOn: true,
       userMap: {},
+      fallbackMaxAttempts: 3,
     });
 
     expect(decision.kind).toBe('nudge');
@@ -118,6 +116,7 @@ describe('decideEscalation — user-only and edge cases', () => {
       generatorModel: 'claude-sonnet-4-6',
       flagOn: true,
       userMap: {},
+      fallbackMaxAttempts: 3,
     });
 
     expect(decision.kind).toBe('budget-exhausted');
@@ -126,7 +125,7 @@ describe('decideEscalation — user-only and edge cases', () => {
     }
   });
 
-  it('already-escalated carries the from/to fields from the task', () => {
+  it('escalates again from a mid-ladder task (haiku→sonnet already stamped, now on sonnet)', () => {
     const base = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     const escalated = withEscalation(base, 'claude-haiku-4-5', 'claude-sonnet-4-6');
     const decision = decideEscalation({
@@ -134,13 +133,29 @@ describe('decideEscalation — user-only and edge cases', () => {
       generatorModel: 'claude-sonnet-4-6',
       flagOn: true,
       userMap: {},
+      fallbackMaxAttempts: 3,
     });
 
-    expect(decision.kind).toBe('already-escalated');
-    if (decision.kind === 'already-escalated') {
-      expect(decision.from).toBe('claude-haiku-4-5');
-      expect(decision.to).toBe('claude-sonnet-4-6');
+    expect(decision.kind).toBe('escalate');
+    if (decision.kind === 'escalate') {
+      expect(decision.from).toBe('claude-sonnet-4-6');
+      expect(decision.to).toBe('claude-opus-4-8');
     }
+  });
+
+  it('tops out only after a same-model nudge at the top of the ladder', () => {
+    const base = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
+    const nudged = withEscalation(base, 'claude-opus-4-8', 'claude-opus-4-8');
+    const decision = decideEscalation({
+      task: nudged,
+      generatorModel: 'claude-opus-4-8',
+      flagOn: true,
+      userMap: {},
+      fallbackMaxAttempts: 3,
+    });
+
+    expect(decision.kind).toBe('topped-out');
+    if (decision.kind === 'topped-out') expect(decision.model).toBe('claude-opus-4-8');
   });
 });
 

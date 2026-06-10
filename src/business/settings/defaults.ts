@@ -36,7 +36,10 @@ const DEFAULT_MODELS_BY_PROVIDER: Readonly<Record<AiProvider, Readonly<Record<Fl
   'openai-codex': {
     refine: 'gpt-5.4-mini',
     plan: 'gpt-5.5',
-    implement: 'gpt-5.3-codex',
+    // `gpt-5.3-codex` is deprecated for ChatGPT sign-in — the "reset implement to Codex" path
+    // rides the frontier default `gpt-5.5` instead, matching the CODEX_ONLY preset decision so
+    // the everyday autonomous loop works under ChatGPT auth and sits at the top of the ladder.
+    implement: 'gpt-5.5',
     readiness: 'gpt-5.4-mini',
     ideate: 'gpt-5.5',
     createPr: 'gpt-5.4-mini',
@@ -91,7 +94,7 @@ export const DEFAULT_SETTINGS: Settings = {
     maxTurns: 5,
     maxAttempts: 3,
     rateLimitRetries: 3,
-    plateauThreshold: 2,
+    plateauThreshold: 3,
     escalateOnPlateau: true,
     escalationMap: {},
   },

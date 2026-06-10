@@ -71,7 +71,9 @@ shifts — each new engineer arrives with no memory of what happened on the prev
 - Status-transition separator: `src/application/flows/_shared/progress/append-journal-separator.ts` (records
   `activated` / `transitioned to review` / `closed` lines between task-attempt sections)
 - Prompts that consume it: `progress.md` body inlined via `{{PRIOR_PROGRESS}}` (wrapped in `<prior_progress>`)
-  in `src/integration/ai/prompts/plan/template.md` and `src/integration/ai/prompts/evaluate/template.md`
+  in `src/integration/ai/prompts/plan/template.md`, `src/integration/ai/prompts/evaluate/template.md`,
+  `src/integration/ai/prompts/implement/template.md` (~line 65), `src/integration/ai/prompts/ideate/template.md`
+  (~line 47), and `src/integration/ai/prompts/refine/template.md` (~line 33)
 
 ---
 
@@ -93,26 +95,40 @@ revert + recovery. Model reads git logs at session start."_
 
 ---
 
-### 5. Hard cap on attempts → blocked transition
+### 5. Hard cap on attempts → blocked or done-with-warning
 
-**Rule.** When the generator-evaluator loop exhausts its attempt budget, the task must transition to
-`blocked` — not `done`, not silently dropped. Silent failure hides bugs; `blocked` surfaces them.
+**Rule.** When the generator-evaluator loop exhausts its attempt budget, the task must not be silently
+dropped. Silent failure hides bugs; surfacing the outcome is mandatory.
 
 **Source.** Anthropic — Harness Design: _"Hard thresholds — any failed criterion triggers rework. Sprint
 contracts define testable success up-front."_
 
-**ralphctl status.** `applied`
+**ralphctl status.** `applied` with deliberate deviation from the strict rule — see below.
 
 **Where it lives.**
 
 - `maxAttempts` setting: `src/application/chain/run/iteration-config.ts`
-- Blocked transition: `src/application/flows/implement/leaves/` (settle-attempt leaf)
-- Task status enum includes `blocked`: `src/domain/entity/task.ts`
+- Settle leaf: `src/application/flows/implement/leaves/settle-attempt.ts` (transitions to `blocked` or `done`)
+- Task status enum includes `blocked` and `done`: `src/domain/entity/task.ts`
 - **Outer attempt loop.** `per-task-subchain.ts` wraps the full per-attempt segment in a
   `loop('task-attempts-<id>', …, { maxIterations: task.maxAttempts, shouldStop })` so a single
-  launch can run up to `maxAttempts` rounds per task. Escalation fires within this outer loop
-  (at most once per task), then a second plateau blocks. `maxAttempts === 1` is byte-for-byte
-  the prior one-attempt-per-launch behaviour.
+  launch can run up to the effective `maxAttempts` rounds per task (`task.maxAttempts` stamped at
+  plan time, with a `settings.harness.maxAttempts` fallback for legacy tasks). The graduated remedy
+  ladder (row 6) fires within this outer loop — climbing one model rung per plateau or
+  budget-exhausted exit, then a top-of-ladder nudge, while evaluator-malformed exits get a plain
+  same-model retry — each retry consuming one attempt of the budget. `maxAttempts === 1` is
+  byte-for-byte the prior one-attempt-per-launch behaviour.
+
+**Deviation: true exhaustion → done-with-warning, not blocked.** When every remedy is exhausted (all
+attempts spent, no rung remaining, or `escalateOnPlateau === false`), the task transitions to `done`
+with an `AttemptWarning` rather than `blocked`. Rationale: the AI produced work on every attempt; a
+`blocked` outcome would abandon it and require the operator to manually unblock. `done-with-warning`
+preserves the work product and surfaces the outcome honestly (sprint journal verdict
+`pass-with-warning`, the PR body's "Completed with warnings" section, the TUI tasks panel glyph) so
+the operator can review and decide. The paths that DO transition to `blocked` are the own-failure
+exits: a generator self-block (`<task-blocked>`), a pre-task-verify hard block, a red post-task
+verify attributed to the AI's own work, and a parallel-path fold conflict — on the serial path a
+blocked task's rejected diff is quarantined to a stash so siblings start clean.
 
 ---
 
@@ -128,9 +144,14 @@ self into approving anyway; superficial testing."_ Plateau detection is the harn
 
 **Where it lives.**
 
-- `plateauThreshold` (2–5, default 2): `src/application/chain/run/iteration-config.ts`
+- `plateauThreshold` (2–5, patient default 3): `src/application/chain/run/iteration-config.ts`
 - Exemptions (score improvement, commit progress, critique-Jaccard shift prevent counting): same file
 - Loop predicate in the implement flow: `src/application/flows/implement/`
+- **Graduated remedy ladder** (`src/business/task/escalation-policy.ts` + `escalation-map.ts`): on a
+  plateau the policy spends remedies cheapest-first — climb the model ladder **one rung per plateau**
+  (`escalate`, re-stampable, bounded by `maxAttempts`), then a single top-of-ladder same-model `nudge`
+  with a change-of-approach directive, then `topped-out` (keep the work). See PERFORMANCE.md
+  "Escalation on plateau".
 
 ---
 

@@ -3,6 +3,7 @@ import type { HarnessSignalSink } from '@src/business/observability/harness-sign
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
+import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
@@ -50,6 +51,11 @@ export interface GenEvalLoopDeps {
   readonly templateLoader: TemplateLoader;
   readonly signals: HarnessSignalSink;
   readonly writeFile: WriteFile;
+  /**
+   * Git transport — threaded into the evaluator leaf so it can fingerprint the working tree's
+   * uncommitted changes each round for the plateau predicate's work-product exemption.
+   */
+  readonly gitRunner: GitRunner;
   readonly clock: () => IsoTimestamp;
   readonly logger: Logger;
   readonly eventBus: EventBus;
@@ -109,6 +115,9 @@ export const createGenEvalLoop = (
   };
   const evaluatorLeafDeps = {
     ...sharedLeafDeps,
+    // Evaluator-only: the work-product fingerprint for the plateau predicate. The generator
+    // leaf neither needs nor accepts the git runner.
+    gitRunner: deps.gitRunner,
     provider: deps.evaluatorProvider,
     model: opts.evaluator.model,
     ...(opts.evaluator.effort !== undefined ? { effort: opts.evaluator.effort } : {}),
@@ -164,9 +173,16 @@ export const createGenEvalLoop = (
       ),
     ]),
     {
-      shouldContinue: async (_ctx, i) => {
+      // Loop-entry guard. Refuse to enter a turn when a terminal exit is ALREADY on ctx — the
+      // only way `lastExit` is set at loop entry is a pre-task-verify block/skip (start-attempt
+      // runs before pre-verify and settle-attempt clears `lastExit` at the end of every attempt,
+      // so no stale exit can leak across attempts/tasks; the parallel merge-wave classifies
+      // `lastExit` PER_TASK). Without this check a pre-blocked task would still claim a
+      // `rounds/<N>/` dir, stamp two meta sidecars, and spawn one full generator session on the
+      // exact broken tree the gate refused — the most expensive unit in the system.
+      shouldContinue: async (ctx, i) => {
         const cfg = await deps.readConfig();
-        return i <= Math.max(1, cfg.maxTurns);
+        return ctx.lastExit === undefined && i <= Math.max(1, cfg.maxTurns);
       },
       shouldStop: (ctx) => ctx.lastExit !== undefined,
     }

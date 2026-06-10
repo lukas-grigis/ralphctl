@@ -4,7 +4,7 @@ import type { ParseError } from '@src/domain/value/error/parse-error.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
-import { assertFullySubstituted, substitute } from '@src/integration/ai/prompts/_engine/substitute.ts';
+import { assertTemplateKeysFilled, substitute } from '@src/integration/ai/prompts/_engine/substitute.ts';
 import type { ParameterSpec, PromptDefinition } from '@src/integration/ai/prompts/_engine/definition.ts';
 
 /** Aggregate error type returned by `buildPrompt`. */
@@ -13,8 +13,10 @@ export type BuildPromptError = StorageError | ParseError | ValidationError;
 /**
  * Generic prompt builder. Reads a `PromptDefinition` and a typed input bag, loads the
  * template + any partials, validates each input field via its spec, runs substitution, and
- * brands the result as `Prompt` after `assertFullySubstituted` confirms no placeholders
- * remain.
+ * brands the result as `Prompt` after `assertTemplateKeysFilled` confirms every placeholder
+ * the template (and partials) declares received a value. The fence is TEMPLATE-side on
+ * purpose: substituted values may legally contain placeholder-shaped literals (AI-authored
+ * journal/critique text quoting a `{{TOKEN}}`), which pass through verbatim as inert prose.
  *
  * Pure orchestration — no domain knowledge baked in. Per-prompt modules expose ergonomic
  * top-level builders (`buildRefinePrompt`, `buildPlanPrompt`, …) that pre-render domain
@@ -34,14 +36,18 @@ export const buildPrompt = async <TInput extends object>(
   if (!template.ok) return Result.error(template.error);
 
   const values: Record<string, string> = {};
+  const partialBodies: string[] = [];
 
   // Auto-loaded partials. Bodies are trimmed so trailing whitespace from the partial file
-  // doesn't bleed into the rendered prompt.
+  // doesn't bleed into the rendered prompt. The bodies are also kept for the template-side
+  // fence: a placeholder INSIDE a partial survives the single-pass substitution, so its keys
+  // count as template-declared.
   if (def.partials !== undefined) {
     for (const [placeholder, name] of Object.entries(def.partials)) {
       const partial = await loader.load(name);
       if (!partial.ok) return Result.error(partial.error);
       values[placeholder] = partial.value.trim();
+      partialBodies.push(partial.value);
     }
   }
 
@@ -74,5 +80,5 @@ export const buildPrompt = async <TInput extends object>(
   }
 
   const rendered = substitute(template.value, values);
-  return assertFullySubstituted(rendered, `buildPrompt(${def.templateName})`);
+  return assertTemplateKeysFilled(rendered, template.value, partialBodies, values, `buildPrompt(${def.templateName})`);
 };

@@ -53,13 +53,13 @@ const turnRecord = (
 
 const EVAL_FILE = 'rounds/1/evaluator/evaluation.md';
 
-describe('runEvaluatorTurnUseCase — warning path without critique', () => {
-  it('continues without recording critique when warning path has no critique (line 226)', async () => {
-    // Arrange: commit-subject changed so plateau is softened to warning, but there is
-    // NO critique text. The branch at line 215 (`if critique !== undefined && ...`) must
-    // be false so line 226 (`return Result.ok({ task: warned.value, ... })`) executes.
+describe('runEvaluatorTurnUseCase — warning path with synthesized critique', () => {
+  it('records a synthesized critique on the warning path when the evaluator left critique empty', async () => {
+    // Arrange: commit-subject changed so plateau is softened to warning, with NO explicit
+    // critique text. Post Part 1(b) the use case synthesizes a critique from the failed
+    // dimension's finding so the warning path still feeds the next generator turn.
     const task = verifiedTask();
-    const ev = failedEval('completeness'); // no critique field
+    const ev = failedEval('completeness'); // no explicit critique field; finding present
 
     const result = await runEvaluatorTurnUseCase({
       task,
@@ -78,8 +78,8 @@ describe('runEvaluatorTurnUseCase — warning path without critique', () => {
       // Warning was recorded on the attempt
       const warning = result.value.task.attempts.at(-1)?.warning;
       expect(warning?.kind).toBe('plateau');
-      // Critique was NOT recorded (there was none to record)
-      expect(result.value.task.attempts.at(-1)?.critique).toBeUndefined();
+      // Critique IS recorded now — synthesized from the failed dimension's finding.
+      expect(result.value.task.attempts.at(-1)?.critique).toBe('[completeness] placeholder failure finding');
       // turnRecord still populated
       expect(result.value.turnRecord).toBeDefined();
     }
@@ -117,10 +117,10 @@ describe('runEvaluatorTurnUseCase — progress verdict (critique-shift)', () => 
   });
 });
 
-describe('runEvaluatorTurnUseCase — failed without critique (no prior turns)', () => {
-  it('continues without critique when evaluator fails with empty critique field', async () => {
-    // Failed eval, empty critique string — the `if critique !== undefined && trim() > 0`
-    // guard at line 236 should be false, so we reach line 249 with no critique recorded.
+describe('runEvaluatorTurnUseCase — failed with empty critique synthesizes from findings (no prior turns)', () => {
+  it('records a synthesized critique when the evaluator fails with an empty critique string', async () => {
+    // Failed eval, empty critique string — post Part 1(b) the use case synthesizes a critique
+    // from the failed dimension's finding so the loop's error wire never goes silent.
     const task = verifiedTask();
     const failed = evaluation('failed', {
       dimensions: [{ dimension: 'correctness', passed: false, finding: 'wrong' }],
@@ -138,8 +138,8 @@ describe('runEvaluatorTurnUseCase — failed without critique (no prior turns)',
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.exit).toBeUndefined();
-      // No critique recorded
-      expect(result.value.task.attempts.at(-1)?.critique).toBeUndefined();
+      // Critique synthesized from the failed dimension's finding.
+      expect(result.value.task.attempts.at(-1)?.critique).toBe('[correctness] wrong');
       // turnRecord still present — the loop can detect future plateaus
       expect(result.value.turnRecord).toBeDefined();
     }

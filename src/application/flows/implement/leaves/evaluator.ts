@@ -21,11 +21,16 @@ import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { HarnessSignalSink } from '@src/business/observability/harness-signal-sink.ts';
 import { buildEvaluatePrompt } from '@src/integration/ai/prompts/evaluate/definition.ts';
+import { buildEvaluateContinuationPrompt } from '@src/integration/ai/prompts/evaluate-continuation/definition.ts';
+import type { BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
 import { renderSidecars } from '@src/integration/ai/contract/_engine/render-sidecars.ts';
-import { validateSignalsFile } from '@src/integration/ai/contract/_engine/validate-signals-file.ts';
+import { validateSignalsFileWithCorrectiveRetry } from '@src/integration/ai/contract/_engine/corrective-retry.ts';
+import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
+import type { GitRunner } from '@src/integration/io/git-runner.ts';
+import { computeWorkProductFingerprint } from '@src/application/flows/implement/leaves/work-product-fingerprint.ts';
 import { implementSession } from '@src/application/flows/implement/leaves/implement-session.ts';
 import { evaluatorOutputContract } from '@src/application/flows/implement/leaves/evaluator.contract.ts';
 import {
@@ -34,6 +39,10 @@ import {
   roundSignalsPath,
   writeRoundPrompt,
 } from '@src/application/flows/implement/leaves/round-artifacts.ts';
+import {
+  capProgressBody,
+  RECENT_ATTEMPT_SECTIONS,
+} from '@src/application/flows/implement/leaves/_shared/cap-progress.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { PlateauTurnRecord } from '@src/business/task/plateau-detection.ts';
 
@@ -91,6 +100,13 @@ export interface EvaluatorLeafDeps {
   readonly verifyScript?: string;
   /** From `settings.harness.plateauThreshold` (2–5). */
   readonly plateauThreshold: number;
+  /**
+   * Git transport — used post-spawn to compute the round's work-product fingerprint (a content
+   * hash of `git status --porcelain` + `git diff HEAD` against {@link cwd}). Fed into the
+   * plateau predicate so its progress exemption measures real code change, not commit-message
+   * rewording. Threaded down from `ImplementDeps.gitRunner`.
+   */
+  readonly gitRunner: GitRunner;
   readonly clock: () => IsoTimestamp;
   readonly logger: Logger;
   /**
@@ -131,17 +147,69 @@ interface EvaluatorOutput {
 }
 
 /**
- * Read the current `progress.md` body to inline into the evaluator prompt. Best-effort: a
- * missing / unreadable file returns the empty string so the template's surrounding prose
- * handles the empty case without a per-flow special branch. Mirrors the generator-leaf
- * helper of the same name so both sides of the gen-eval loop see the same journal body.
+ * Read the current `progress.md` body to inline into the evaluator prompt, CAPPED to the sprint
+ * header, ALL of the current task's own attempt sections, and the last N other-task sections
+ * (see {@link capProgressBody}). `progress.md` is sprint-wide and append-only, so a late-sprint
+ * journal is dozens of sections long; inlining the whole body into every evaluator turn grew
+ * token cost superlinearly. The cap bounds breadth across siblings — the current task's own
+ * history rides in full because its earlier warnings / escalations / remedies are the depth the
+ * verdict must account for — while the FULL file stays on disk, reachable to the AI via the
+ * `sprintDir` `--add-dir` mount named in the prompt, with every elision marked in place. Applied
+ * to both the full evaluate prompt (round 1 / fresh session) and the continuation prompt.
+ * Mirrors the generator-leaf helper so both sides of the gen-eval loop see the same journal body.
+ *
+ * Best-effort: a missing / unreadable file returns the empty string so the template's
+ * surrounding prose handles the empty case without a per-flow special branch.
  */
-const readProgressFile = async (path: string): Promise<string> => {
+const readCappedProgress = async (path: string, currentTaskName: string): Promise<string> => {
   try {
-    return await fs.readFile(path, 'utf8');
+    return capProgressBody(await fs.readFile(path, 'utf8'), RECENT_ATTEMPT_SECTIONS, currentTaskName);
   } catch {
     return '';
   }
+};
+
+/**
+ * Select and build this turn's evaluator prompt by session continuity. Mirrors the generator
+ * leaf's {@link import('./generator.ts')} helper.
+ *
+ * The FIRST evaluator turn of a session thread (`priorEvaluatorSessionId === undefined`) re-sends
+ * the full specification + rubric; a RESUMED turn sends the slim continuation prompt because the
+ * conversation already holds them, so only the per-round delta (round number, recent journal)
+ * need ride. `start-attempt` clears the session slot per attempt, so attempt boundaries always
+ * re-send the full context. A provider that never reports a session id keeps getting the full
+ * prompt automatically — the discriminant is the same field `--resume` consumes.
+ */
+const buildEvaluatorPrompt = async (
+  deps: Pick<EvaluatorLeafDeps, 'templateLoader' | 'cwd' | 'progressFile' | 'verifyScript'>,
+  args: {
+    readonly task: InProgressTask;
+    readonly workspaceRoot: AbsolutePath;
+    readonly roundNum: number;
+    readonly outputContractSection: string;
+    readonly priorEvaluatorSessionId: SessionId | undefined;
+  }
+): Promise<Result<Prompt, BuildPromptError>> => {
+  const priorProgress = await readCappedProgress(String(deps.progressFile), args.task.name);
+  const contractPath = join(String(args.workspaceRoot), 'contract.md');
+
+  if (args.priorEvaluatorSessionId === undefined) {
+    return buildEvaluatePrompt(deps.templateLoader, {
+      task: args.task,
+      projectPath: String(deps.cwd),
+      contractPath,
+      outputContractSection: args.outputContractSection,
+      priorProgress,
+      ...(deps.verifyScript !== undefined ? { verifyScript: deps.verifyScript } : {}),
+    });
+  }
+  return buildEvaluateContinuationPrompt(deps.templateLoader, {
+    roundNumber: args.roundNum,
+    contractPath,
+    progressFile: String(deps.progressFile),
+    priorProgress,
+    outputContractSection: args.outputContractSection,
+  });
 };
 
 export const evaluatorLeaf = (deps: EvaluatorLeafDeps, taskId: TaskId): Element<ImplementCtx> =>
@@ -161,17 +229,13 @@ export const evaluatorLeaf = (deps: EvaluatorLeafDeps, taskId: TaskId): Element<
         const outputDir = outputDirPath.value;
 
         const callEvaluate: RunEvaluatorTurnProps['callEvaluate'] = async (task) => {
-          // Inline the current progress.md body into the prompt. Best-effort — a missing or
-          // unreadable file degrades to empty, which the template's surrounding prose handles
-          // without a special branch. Mirrors the generator-leaf wiring.
-          const priorProgress = await readProgressFile(String(deps.progressFile));
-          const prompt = await buildEvaluatePrompt(deps.templateLoader, {
+          const outputContractSection = renderContractSectionFor(evaluatorOutputContract, outputDir);
+          const prompt = await buildEvaluatorPrompt(deps, {
             task,
-            projectPath: String(deps.cwd),
-            contractPath: join(String(input.workspaceRoot), 'contract.md'),
-            outputContractSection: renderContractSectionFor(evaluatorOutputContract, outputDir),
-            priorProgress,
-            ...(deps.verifyScript !== undefined ? { verifyScript: deps.verifyScript } : {}),
+            workspaceRoot: input.workspaceRoot,
+            roundNum: input.roundNum,
+            outputContractSection,
+            priorEvaluatorSessionId: input.priorEvaluatorSessionId,
           });
           if (!prompt.ok) return Result.error(prompt.error) as Result<readonly HarnessSignal[], DomainError>;
           // Persist the rendered prompt under `rounds/<N>/evaluator/prompt.md` BEFORE the AI
@@ -195,12 +259,55 @@ export const evaluatorLeaf = (deps: EvaluatorLeafDeps, taskId: TaskId): Element<
           );
           if (!spawn.ok) return Result.error(spawn.error);
 
-          // Validate `signals.json` against the evaluator contract. Failure surfaces a
-          // domain error (signals-missing / invalid-json / schema-mismatch / migration-gap)
-          // with a precise hint. `runEvaluatorTurnUseCase` converts a recoverable validation
-          // failure into a `self-blocked` exit (task settles as blocked — the ungraded change is
-          // NOT marked done; run continues); only a fatal `Aborted`/`RateLimit` propagates.
-          const validated = await validateSignalsFile(outputDir, evaluatorOutputContract);
+          // Validate `signals.json` against the evaluator contract. On a RECOVERABLE failure
+          // (signals-missing / invalid-json / schema-mismatch) re-prompt the reviewer ONCE on
+          // the resumed session with a corrective message + the Zod issue list, then re-validate
+          // — one near-miss element no longer blocks the whole verdict. `runEvaluatorTurnUseCase`
+          // converts a still-failing validation into a `self-blocked` exit (task settles as
+          // blocked — the ungraded change is NOT marked done; run continues); only a fatal
+          // `Aborted`/`RateLimit` propagates.
+          const validated = await validateSignalsFileWithCorrectiveRetry(
+            {
+              outputDir,
+              logger: deps.logger,
+              // Self-containment for a COLD corrective spawn (no resumable id / codex stale-resume
+              // fallback): the per-round output contract plus the reviewer's grounding — without
+              // this, a context-free retry's whole prompt is the error text, which is exactly
+              // enough scaffolding to fabricate a schema-valid verdict for unseen work.
+              selfContainedContext: [
+                `Task spec (read it): \`${join(String(input.workspaceRoot), 'contract.md')}\``,
+                'Your PRIMARY INPUT is the uncommitted working-tree diff — inspect it via shell',
+                '(`git status` / `git diff HEAD`) before grading. A verdict must reflect the actual',
+                'work, never this message.',
+                '',
+                outputContractSection,
+              ].join('\n'),
+              reinvoke: async (corrective) => {
+                // Resume the reviewer's just-spawned thread so the corrective lands as a
+                // follow-up turn — read the session id this spawn captured to disk. Falls back
+                // to the prior-round id when this spawn never reported one.
+                const resume =
+                  (await readRoundSessionId(input.workspaceRoot, input.roundNum, 'evaluator')) ??
+                  input.priorEvaluatorSessionId;
+                const respawn = await deps.provider.generate(
+                  implementSession(
+                    input.workspaceRoot,
+                    deps.cwd,
+                    deps.sprintDir,
+                    corrective as Prompt,
+                    deps.model,
+                    signalsFile,
+                    'evaluator',
+                    resume,
+                    deps.effort,
+                    signal
+                  )
+                );
+                return respawn.ok ? Result.ok(undefined) : Result.error(respawn.error);
+              },
+            },
+            evaluatorOutputContract
+          );
           if (!validated.ok) return Result.error(validated.error);
           const signals = validated.value;
 
@@ -226,11 +333,18 @@ export const evaluatorLeaf = (deps: EvaluatorLeafDeps, taskId: TaskId): Element<
           return Result.ok(signals as readonly AiSignal[]) as Result<readonly HarnessSignal[], DomainError>;
         };
 
+        // Fingerprint the working tree's uncommitted changes for this round so the plateau
+        // predicate's progress exemption measures real code change instead of commit-message
+        // rewording. Best-effort — a git failure yields `undefined` and the predicate degrades
+        // to the commit-subject proxy. Computed BEFORE the use case so the record carries it.
+        const changedFilesHash = await computeWorkProductFingerprint(deps.gitRunner, deps.cwd);
+
         const result = await runEvaluatorTurnUseCase({
           task: input.task,
           priorTurns: input.priorTurns,
           plateauThreshold: deps.plateauThreshold,
           ...(input.currentCommitSubject !== undefined ? { currentCommitSubject: input.currentCommitSubject } : {}),
+          ...(changedFilesHash !== undefined ? { changedFilesHash } : {}),
           callEvaluate,
           evaluationFile: roundEvaluationRelativePath(input.roundNum),
           logger: deps.logger,

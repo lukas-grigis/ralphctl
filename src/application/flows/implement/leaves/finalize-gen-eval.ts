@@ -29,6 +29,7 @@ export interface FinalizeGenEvalLeafDeps {
     readonly maxTurns: number;
     readonly escalateOnPlateau: boolean;
     readonly escalationMap: Readonly<Record<string, string>>;
+    readonly maxAttempts: number;
   }>;
   readonly logger: Logger;
   readonly eventBus: EventBus;

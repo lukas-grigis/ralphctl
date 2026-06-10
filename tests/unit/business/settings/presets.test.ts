@@ -4,10 +4,145 @@ import { SettingsSchema } from '@src/domain/entity/settings.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
 import { FLOW_IDS } from '@src/domain/value/flow-id.ts';
 import { applyPreset, isPresetName, PRESET_NAMES, type PresetName } from '@src/business/settings/presets.ts';
+import { isClaudeModel } from '@src/domain/value/settings-models/claude.ts';
+import { isCodexModel } from '@src/domain/value/settings-models/codex.ts';
+import { isCopilotModel } from '@src/domain/value/settings-models/copilot.ts';
+import { mergeEscalationMap } from '@src/business/task/escalation-map.ts';
+
+const ECONOMIC_PRESETS: readonly PresetName[] = [
+  'mixed-economic',
+  'claude-economic',
+  'copilot-economic',
+  'codex-economic',
+];
+
+/** Each economic preset and the standard preset whose implement flagship it should climb to. */
+const ECONOMIC_TO_STANDARD: Readonly<Record<string, PresetName>> = {
+  'mixed-economic': 'mixed',
+  'claude-economic': 'claude-only',
+  'copilot-economic': 'copilot-only',
+  'codex-economic': 'codex-only',
+};
+
+/** Walk the (acyclic) default ladder from `start` to its terminal rung. */
+const climbToLadderTop = (map: Readonly<Record<string, string>>, start: string): readonly string[] => {
+  const path: string[] = [start];
+  const seen = new Set<string>([start]);
+  let cur = start;
+  while (map[cur] !== undefined && map[cur] !== cur && !seen.has(map[cur]!)) {
+    cur = map[cur]!;
+    seen.add(cur);
+    path.push(cur);
+  }
+  return path;
+};
+
+const modelGuardFor = (provider: AiProvider): ((s: string) => boolean) => {
+  switch (provider) {
+    case 'claude-code':
+      return isClaudeModel;
+    case 'github-copilot':
+      return isCopilotModel;
+    case 'openai-codex':
+      return isCodexModel;
+  }
+};
 
 describe('presets', () => {
-  it('exposes exactly four equal preset names', () => {
-    expect([...PRESET_NAMES]).toEqual(['mixed', 'claude-only', 'copilot-only', 'codex-only']);
+  it('exposes all eight equal preset names', () => {
+    expect([...PRESET_NAMES]).toEqual([
+      'mixed',
+      'claude-only',
+      'copilot-only',
+      'codex-only',
+      'mixed-economic',
+      'claude-economic',
+      'copilot-economic',
+      'codex-economic',
+    ]);
+  });
+
+  it('includes each economic preset in PRESET_NAMES', () => {
+    for (const preset of ECONOMIC_PRESETS) {
+      expect(PRESET_NAMES).toContain(preset);
+    }
+  });
+
+  it('every model referenced by every preset is a member of its provider catalog', () => {
+    for (const preset of PRESET_NAMES) {
+      const out = applyPreset(preset, DEFAULT_SETTINGS);
+      for (const flow of FLOW_IDS) {
+        const rows = flow === 'implement' ? [out.ai.implement.generator, out.ai.implement.evaluator] : [out.ai[flow]];
+        for (const row of rows) {
+          const guard = modelGuardFor(row.provider);
+          expect(guard(row.model), `${preset}/${flow}: ${row.provider} → ${row.model}`).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('every economic preset implement.generator climbs the default ladder to its standard counterpart flagship', () => {
+    const ladder = mergeEscalationMap({});
+    for (const [economic, standard] of Object.entries(ECONOMIC_TO_STANDARD)) {
+      const economicOut = applyPreset(economic as PresetName, DEFAULT_SETTINGS);
+      const start = economicOut.ai.implement.generator.model;
+      const provider = economicOut.ai.implement.generator.provider;
+      const path = climbToLadderTop(ladder, start);
+      const top = path[path.length - 1];
+      const flagship = applyPreset(standard, DEFAULT_SETTINGS).ai.implement.generator.model;
+      // The economic preset must escalate to EXACTLY the model its standard sibling uses for
+      // implement — never overshooting (e.g. copilot-economic climbing past copilot-only) nor
+      // undershooting. This couples presets.ts to escalation-map.ts so a catalog refresh that
+      // bumps one but not the other cannot pass silently.
+      expect(top, `${economic} → ${standard}: climbs to ${top}, standard flagship is ${flagship}`).toBe(flagship);
+      // Every rung the climb traverses must be a real catalog member for the start provider —
+      // an off-catalog intermediate rung would make the adapter reject the spawn mid-escalation.
+      const guard = modelGuardFor(provider);
+      for (const rung of path) {
+        expect(guard(rung), `${economic}: ladder rung ${rung} not in ${provider} catalog`).toBe(true);
+      }
+    }
+  });
+
+  it('claude-fable-5 (base + 1M variant) is in catalog but stays opt-in only — no preset row and no default ladder rung references it', () => {
+    // Catalog membership is what lets a per-row pick pass the adapter boundary…
+    expect(isClaudeModel('claude-fable-5')).toBe(true);
+    expect(isClaudeModel('claude-fable-5[1m]')).toBe(true);
+    expect(isClaudeModel('claude-opus-4-8[1m]')).toBe(true);
+    // …while presets and the built-in escalation ladder deliberately do NOT reference it: the
+    // catalog-top = ladder-top = preset-flagship invariant intentionally excludes the fable tier
+    // until a deliberate flagship swap. Promoting it later means deleting this fence on purpose.
+    for (const preset of PRESET_NAMES) {
+      const out = applyPreset(preset, DEFAULT_SETTINGS);
+      for (const flow of FLOW_IDS) {
+        const rows = flow === 'implement' ? [out.ai.implement.generator, out.ai.implement.evaluator] : [out.ai[flow]];
+        for (const row of rows) {
+          expect(row.model.startsWith('claude-fable'), `${preset}/${flow}: ${row.model}`).toBe(false);
+        }
+      }
+    }
+    for (const [from, to] of Object.entries(mergeEscalationMap({}))) {
+      expect(from.startsWith('claude-fable'), `ladder rung from '${from}'`).toBe(false);
+      expect(to.startsWith('claude-fable'), `ladder rung '${from}' → '${to}'`).toBe(false);
+    }
+  });
+
+  it('codex-only no longer references the deprecated gpt-5.3-codex', () => {
+    const out = applyPreset('codex-only', DEFAULT_SETTINGS);
+    const models = [
+      out.ai.refine.model,
+      out.ai.plan.model,
+      out.ai.implement.generator.model,
+      out.ai.implement.evaluator.model,
+      out.ai.readiness.model,
+      out.ai.ideate.model,
+      out.ai.createPr.model,
+    ];
+    expect(models).not.toContain('gpt-5.3-codex');
+    expect(out.ai.implement.generator.model).toBe('gpt-5.5');
+    expect(out.ai.implement.evaluator.model).toBe('gpt-5.5');
+    expect(out.ai.implement.generator.effort).toBe('high');
+    expect(out.ai.implement.evaluator.effort).toBe('high');
   });
 
   it('isPresetName guards string input', () => {

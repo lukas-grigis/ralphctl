@@ -38,13 +38,36 @@ export const markTaskBlocked = (
   return Result.ok({ ...guard.value, status: 'blocked', blockedReason: reason, blockKind });
 };
 
+/**
+ * Unblock a `blocked` task back to `todo` as a CLEAN RESTART: strip the block fields AND reset the
+ * attempt budget (empty `attempts`) and any carried-over model escalation. A deliberate operator
+ * unblock means "the blocker is addressed — give this task a genuine fresh run," so it re-enters
+ * with a full `maxAttempts` budget on the configured model, behaving like a freshly-planned task.
+ *
+ * Without the reset, an own-blocked task sitting at a full attempt history would, on its next run,
+ * hit `budget-exhausted` on the first plateau (no room to climb the escalation ladder again) — and
+ * carrying a top-of-ladder escalation stamp would `topped-out` immediately. The per-attempt history
+ * still lives in `progress.md` and git; only the task's in-memory attempt ledger resets.
+ *
+ * Distinct from {@link resetTaskToTodo} (crash recovery), which PRESERVES attempts because it
+ * resumes mid-work rather than restarting. Upstream-blocked dependents re-armed by the unblock
+ * cascade carry no attempts, so the reset is a no-op for them.
+ */
 export const unblockTask = (task: Task): Result<TodoTask, InvalidStateError> => {
   const guard = requireStatus('task', task, ['blocked'] as const, 'unblock');
   if (!guard.ok) return Result.error(guard.error);
-  const { blockedReason: _reason, blockKind: _kind, ...rest } = guard.value;
+  const {
+    blockedReason: _reason,
+    blockKind: _kind,
+    escalatedFromModel: _from,
+    escalatedToModel: _to,
+    ...rest
+  } = guard.value;
   void _reason;
   void _kind;
-  return Result.ok({ ...rest, status: 'todo' });
+  void _from;
+  void _to;
+  return Result.ok({ ...rest, status: 'todo', attempts: [] });
 };
 
 /**

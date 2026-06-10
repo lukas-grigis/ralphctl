@@ -52,6 +52,27 @@ side, an independent reviewer on the score side. Every other flow (`refine` / `p
 `ideate` / `createPr`) keeps the flat `{ provider, model, effort? }` row shape; the analogous
 generator-evaluator split for the `plan` flow is deferred to future work.
 
+**Gen-eval settle semantics.** Every non-passing exit from the gen-eval loop is now routed through the
+escalation policy and the attempt budget before settling. `plateau` and `budget-exhausted` exits
+consult `decideEscalation` — escalate/nudge fail the running attempt so the outer loop re-enters on the
+stronger model; topped-out and attempt-budget-exhausted keep the work (done-with-warning). `malformed`
+exits (evaluator failure) get a plain same-model fresh-attempt retry (no ladder rung) while budget
+remains. `done-with-warning` is reserved for true exhaustion of remedies (all attempts spent, no rung
+remaining, or `escalateOnPlateau === false`). A task that truly exhausts all remedies is never silently
+dropped — the `done-with-warning` outcome is surfaced in the sprint journal, the PR, and the TUI. See
+`PERFORMANCE.md § Escalation on plateau` for the full routing rules.
+
+**Pre-blocked task skip.** When `pre-task-verify` returns a block decision (non-interactive hard-block
+or operator "skip"), it stamps `lastExit = { kind: 'self-blocked', reason }` on ctx. The gen-eval
+loop's `shouldStop` predicate fires immediately and no generator or evaluator turn runs. A zero-turn
+guard also skips the post-task verify when `lastExit` is already set on ctx entry, avoiding a spurious
+verify run on a tree the generator never touched.
+
+**Serial-path blocked-diff quarantine.** On the serial path, when a task is blocked (own-failure),
+its rejected diff is stashed to `ralphctl/<sprintId>/<taskId>/blocked-diff` and recorded on
+`blockedReason` before sibling tasks run — preserving the rejected work for post-mortem inspection
+without contaminating subsequent tasks' working trees. Intermediate commits from earlier green-verify attempts of a later-blocked task remain on the sprint branch by design — each passed its own verify; only the final blocked attempt’s uncommitted diff moves to the stash.
+
 **Legacy `implement` promotion.** Settings files written by ralphctl ≤ 0.7.0 stored `ai.implement`
 as a flat `{ provider, model, effort? }` row. Such files are silently promoted at load time into the
 nested shape, with `generator` and `evaluator` both set to a copy of the legacy row — no

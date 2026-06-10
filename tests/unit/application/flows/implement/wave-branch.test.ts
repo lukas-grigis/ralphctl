@@ -138,11 +138,11 @@ const okShell = (passed = true, exitCode = 0): Result<ShellScriptResult, Storage
 
 const fakeShell = (
   result: Result<ShellScriptResult, StorageError> = okShell()
-): { runner: ShellScriptRunner; calls: Array<{ cwd: string; script: string }> } => {
-  const calls: Array<{ cwd: string; script: string }> = [];
+): { runner: ShellScriptRunner; calls: Array<{ cwd: string; script: string; signal: AbortSignal | undefined }> } => {
+  const calls: Array<{ cwd: string; script: string; signal: AbortSignal | undefined }> = [];
   const runner: ShellScriptRunner = {
-    async run(cwd, script) {
-      calls.push({ cwd: String(cwd), script });
+    async run(cwd, script, opts) {
+      calls.push({ cwd: String(cwd), script, signal: opts?.signal });
       return result;
     },
   };
@@ -369,6 +369,25 @@ describe('buildWorktreeBranch — per-worktree setup script', () => {
     expect(shell.calls[0]!.script).toBe('pnpm install');
     // The fold still ran because the task settled `done`.
     expect(calls.some((c) => c[0] === 'merge' && c[1] === '--ff-only')).toBe(true);
+  });
+
+  it('threads the chain abort signal into the setup-script runner (prompt Ctrl-C kill, not timeout)', async () => {
+    const task = makeTodoTask();
+    const done: Task = { ...makeDoneTask(), id: task.id };
+    const { runner } = fakeGit();
+    const shell = fakeShell(okShell(true));
+    const deps = makeBranchDeps(runner, { emit: vi.fn() }, stubBus([]), shell.runner);
+    const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
+    const controller = new AbortController();
+
+    const branch = buildWorktreeBranch(deps, repoWithSetup, task, wt, 'ref', settlingSubchain(task.id, done));
+    const out = await branch.execute(baseCtx([task]), controller.signal);
+
+    expect(out.ok).toBe(true);
+    // The runner received the SAME signal the chain handed the branch — an abort mid-setup kills
+    // the child promptly instead of waiting out the shell timeout while the worktree sits locked.
+    expect(shell.calls).toHaveLength(1);
+    expect(shell.calls[0]!.signal).toBe(controller.signal);
   });
 
   it('blocks ONLY this task and skips the subchain when setupScript exits non-zero; cleanup still runs', async () => {

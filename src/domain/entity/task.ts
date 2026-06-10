@@ -63,17 +63,20 @@ interface TaskBase extends Entity<TaskId> {
    */
   readonly externalRefs?: readonly string[];
   /**
-   * Generator model id the task was originally configured with at the moment a plateau
-   * escalation fired. Stamped by the escalation policy in `finalize-gen-eval` together with
-   * {@link escalatedToModel}. Together they record that the task escalated exactly once and
-   * also serve as the cap — both fields are checked before a second escalation can fire.
+   * Generator model id the most-recent rung transition climbed FROM. Stamped by the escalation
+   * policy in `finalize-gen-eval` together with {@link escalatedToModel}. These fields are
+   * re-stampable: the graduated ladder may climb several rungs across successive plateaus, and
+   * each climb overwrites the pair with the latest transition. They are NOT the escalation cap —
+   * the cap is policy-enforced (top of the ladder plus `maxAttempts`). When `escalatedFromModel
+   * === escalatedToModel` the stamp marks a top-of-ladder same-model nudge rather than a bump.
    */
   readonly escalatedFromModel?: string;
   /**
-   * Generator model id the next attempt's generator leaf must spawn with. Stamped by the
-   * escalation policy in `finalize-gen-eval` when a plateau triggers a once-per-task model
-   * upgrade. The generator leaf prefers this value over `settings.ai.implement.generator.model`
-   * when present; the evaluator role is never affected.
+   * Generator model id the next attempt's generator leaf must spawn with — the rung the
+   * most-recent transition climbed TO. Stamped by the escalation policy in `finalize-gen-eval`
+   * on each plateau-driven rung change (re-stampable across rungs). The generator leaf prefers
+   * this value over `settings.ai.implement.generator.model` when present; the evaluator role is
+   * never affected.
    */
   readonly escalatedToModel?: string;
 }

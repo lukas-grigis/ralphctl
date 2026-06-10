@@ -21,7 +21,9 @@
  * We verify the exact shape already used in sprints-view.tsx still holds (guards against
  * accidental removal) and that new flows landing in the implementer's wave follow the same
  * contract. The sprint-bound flows list is: create-sprint, refine, plan, ideate, implement,
- * review, close-sprint, ticket-add, ticket-remove, add-tickets, create-pr.
+ * review, close-sprint, ticket-remove, add-tickets, create-pr.
+ * (`add-ticket` is a use-case building block for the CLI + `a` shortcut wizard — it has no
+ * registry entry and does not go through the chain runner / reseat path.)
  */
 
 import { render } from 'ink-testing-library';

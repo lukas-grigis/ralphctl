@@ -181,11 +181,13 @@ const buildParallelElement = (
     readonly maxTurns: number;
     readonly escalateOnPlateau: boolean;
     readonly escalationMap: Readonly<Record<string, string>>;
+    readonly maxAttempts: number;
   }> =>
     Promise.resolve({
       maxTurns: implementDeps.config.harness.maxTurns,
       escalateOnPlateau: implementDeps.config.harness.escalateOnPlateau,
       escalationMap: implementDeps.config.harness.escalationMap,
+      maxAttempts: implementDeps.config.harness.maxAttempts,
     });
 
   // Serialise every append for the WHOLE parallel run — prologue, all branches, and the epilogue

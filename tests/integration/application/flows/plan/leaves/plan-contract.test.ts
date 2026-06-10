@@ -103,6 +103,7 @@ describe('callPlannerInteractiveLeaf — audit-[09] contract', () => {
       eventBus,
       clock: () => FIXED_LATER,
       model: 'claude-sonnet-4-6',
+      maxAttempts: 3,
     };
   };
 

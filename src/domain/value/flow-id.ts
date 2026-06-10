@@ -1,7 +1,7 @@
 /**
  * AI-driven flow identifiers — the closed set of flows that open an AI session and therefore
  * carry a per-flow `{ provider, model, effort? }` row in {@link Settings}. Non-AI flows
- * (doctor, export, ticket-add, …) are NOT members and do not appear in settings.ai. The
+ * (doctor, export, add-ticket, …) are NOT members and do not appear in settings.ai. The
  * `createPr` slot is the camelCase counterpart of the kebab-case orchestration id
  * `create-pr` — `create-pr` only spawns AI when the user passes `--ai`, but when it does the
  * harness reads `settings.ai.createPr` for the AI step's model.

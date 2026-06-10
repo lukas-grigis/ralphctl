@@ -154,11 +154,13 @@ describe('computePlateauVerdict — multiple dimensions plateau', () => {
     expect(verdict.kind).toBe('none');
   });
 
-  it('does not fire when one new dimension appears in the failed set', () => {
+  it('fires when a new dimension appears (the failed set grew — regressing, not progressing)', () => {
+    // Under the net-progress predicate a growing failure count is non-decreasing → stall. The old
+    // identical-set check let this through as `none`; a widening failure set is not forward progress.
     const prior = evalFrom(dim('correctness', false));
     const current = evalFrom(dim('correctness', false), dim('completeness', false));
     const verdict = computePlateauVerdict([turn(prior)], turn(current), { threshold: 2 });
-    expect(verdict.kind).toBe('none');
+    expect(verdict.kind).toBe('plateau');
   });
 });
 

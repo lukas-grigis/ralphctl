@@ -58,6 +58,12 @@ export interface IdeateAndPlanLeafDeps {
   readonly model: string;
   /** Optional reasoning / effort level forwarded to the AI CLI. */
   readonly effort?: string;
+  /**
+   * Default per-task attempt cap (`settings.harness.maxAttempts`) stamped onto every task the
+   * ideate plan produces, so the gen-eval loop bounds attempts at execute time. Threaded from
+   * the ideate flow factory.
+   */
+  readonly maxAttempts: number;
 }
 
 interface IdeateAndPlanInput {
@@ -136,6 +142,7 @@ export const ideateAndPlanLeaf = (deps: IdeateAndPlanLeafDeps): Element<IdeateCt
           // ideate input surface, but ready when added) propagates to every generated task.
           ticket: pending.value,
           logger: deps.logger,
+          defaultMaxAttempts: deps.maxAttempts,
         });
         if (!parsed.ok) return Result.error(parsed.error);
 

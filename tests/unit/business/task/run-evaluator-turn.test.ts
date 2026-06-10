@@ -317,4 +317,56 @@ describe('runEvaluatorTurnUseCase', () => {
       expect(result.value.task.attempts.at(-1)?.critique).toBe('try again with X');
     }
   });
+
+  // Part 1(b): the FAIL verdict's `critique` is the loop's only error wire to the next generator
+  // turn. When the reviewer leaves it empty, synthesize one from the failed dimensions' findings
+  // so the loop never advances silently while per-dimension findings sit in the operator-only
+  // evaluation.md sidecar.
+  it('synthesizes a critique from failed-dimension findings when the evaluator left critique empty', async () => {
+    const task = verifiedTask();
+    const failed: EvaluationSignal = evaluation('failed', {
+      dimensions: [
+        { dimension: 'correctness', passed: false, finding: 'returns 500 on empty input at src/foo.ts:23' },
+        { dimension: 'safety', passed: false, finding: 'unvalidated SQL at src/db.ts:9' },
+        { dimension: 'completeness', passed: true, finding: '' },
+      ],
+      // No critique field — the reviewer emitted findings but no top-level critique.
+    });
+    const result = await runEvaluatorTurnUseCase({
+      task,
+      plateauThreshold: 2,
+      callEvaluate: async () => Result.ok([failed] as readonly HarnessSignal[]),
+      evaluationFile: EVAL_FILE,
+      logger: noopLogger,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.exit).toBeUndefined();
+      const critique = result.value.task.attempts.at(-1)?.critique ?? '';
+      // Only the FAILED dimensions contribute, each tagged with its dimension name + finding.
+      expect(critique).toContain('[correctness] returns 500 on empty input at src/foo.ts:23');
+      expect(critique).toContain('[safety] unvalidated SQL at src/db.ts:9');
+      // The passing dimension is not echoed into the critique.
+      expect(critique).not.toContain('completeness');
+    }
+  });
+
+  it('prefers the explicit critique over synthesis when the evaluator provided one', async () => {
+    const task = verifiedTask();
+    const failed: EvaluationSignal = evaluation('failed', {
+      dimensions: [{ dimension: 'correctness', passed: false, finding: 'finding text not used' }],
+      critique: 'explicit reviewer critique',
+    });
+    const result = await runEvaluatorTurnUseCase({
+      task,
+      plateauThreshold: 2,
+      callEvaluate: async () => Result.ok([failed] as readonly HarnessSignal[]),
+      evaluationFile: EVAL_FILE,
+      logger: noopLogger,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.task.attempts.at(-1)?.critique).toBe('explicit reviewer critique');
+    }
+  });
 });

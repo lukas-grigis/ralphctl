@@ -7,8 +7,8 @@ import type {
   TicketRemoveCtx,
   TicketRemoveInput,
   TicketRemoveOutput,
-} from '@src/application/flows/ticket-remove/ctx.ts';
-import type { TicketRemoveDeps } from '@src/application/flows/ticket-remove/deps.ts';
+} from '@src/application/flows/remove-ticket/ctx.ts';
+import type { TicketRemoveDeps } from '@src/application/flows/remove-ticket/deps.ts';
 
 /**
  * Drop a ticket from a sprint. Linear: load sprint → removeTicket guard (refuses non-draft
@@ -17,7 +17,7 @@ import type { TicketRemoveDeps } from '@src/application/flows/ticket-remove/deps
  * it as an error (CLI exit 1) or a soft success (idempotent script).
  */
 export const createTicketRemoveFlow = (deps: TicketRemoveDeps): Element<TicketRemoveCtx> =>
-  leaf<TicketRemoveCtx, TicketRemoveInput, TicketRemoveOutput>('ticket-remove', {
+  leaf<TicketRemoveCtx, TicketRemoveInput, TicketRemoveOutput>('remove-ticket', {
     useCase: {
       async execute(input) {
         const sprint = await deps.sprintRepo.findById(input.sprintId);

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { DimensionScore, EvaluationSignal } from '@src/domain/signal.ts';
+import { FLOOR_DIMENSIONS, type DimensionScore, type EvaluationSignal } from '@src/domain/signal.ts';
 import { IsoTimestampSchema } from '@src/integration/persistence/shared/value-schemas.ts';
 import type { Compatible } from '@src/integration/persistence/shared/codec-internal.ts';
 
@@ -39,11 +39,17 @@ void _dimensionTypeCheck;
  * Zod schema for the `evaluation` AI signal — the evaluator's verdict + per-dimension
  * findings. PASS / FAIL only (no numeric score, no `overallScore`).
  *
- * The signal-level refinement enforces verdict / dimension consistency:
- *  - `status: 'passed'`  → every dimension MUST be `passed: true`.
- *  - `status: 'failed'`  → at least one dimension MUST be `passed: false`.
+ * The signal-level refinement enforces verdict / dimension consistency AND the floor-dimension
+ * coverage the prompt prose mandates:
+ *  - `status: 'passed'`  → every dimension MUST be `passed: true` AND all four
+ *     {@link FLOOR_DIMENSIONS} (correctness / completeness / safety / consistency) MUST be
+ *     present. A "passed with zero dimensions" (or a partial floor set) is rejected here — the
+ *     hole that previously let a vacuous PASS validate while the rubric lived in prompt-prose only.
+ *  - `status: 'failed'`  → at least one dimension MUST be `passed: false` AND all four floor
+ *     dimensions MUST be present (so the critique can name a concrete failing floor item).
  *  - `status: 'malformed'` is the escape hatch the harness uses when the AI emits dimension
- *     rows but no terminal verdict; no consistency check applies.
+ *     rows but no terminal verdict; no consistency or coverage check applies — the harness
+ *     retries the attempt (see `prompts/evaluate/template.md`).
  */
 export const evaluationSignalSchema = z
   .object({
@@ -54,6 +60,20 @@ export const evaluationSignalSchema = z
     timestamp: IsoTimestampSchema,
   })
   .superRefine((s, ctx) => {
+    if (s.status === 'malformed') return;
+
+    // Floor-dimension coverage applies to BOTH terminal verdicts. The names are matched
+    // case-/whitespace-insensitively, mirroring `failedDimensions` in the plateau predicate.
+    const present = new Set(s.dimensions.map((d) => d.dimension.trim().toLowerCase()));
+    const missing = FLOOR_DIMENSIONS.filter((name) => !present.has(name));
+    if (missing.length > 0) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `status is "${s.status}" but the required floor dimension(s) ${missing.join(', ')} are missing — every terminal verdict must grade correctness, completeness, safety, and consistency`,
+        path: ['dimensions'],
+      });
+    }
+
     if (s.status === 'passed') {
       const failedIndex = s.dimensions.findIndex((d) => !d.passed);
       if (failedIndex !== -1) {
@@ -63,7 +83,7 @@ export const evaluationSignalSchema = z
           path: ['dimensions', failedIndex, 'passed'],
         });
       }
-    } else if (s.status === 'failed') {
+    } else {
       const anyFailed = s.dimensions.some((d) => !d.passed);
       if (!anyFailed) {
         ctx.addIssue({

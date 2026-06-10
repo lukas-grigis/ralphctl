@@ -52,8 +52,7 @@ const viewRouteFor = (flowId: string, snapshot: AppStateSnapshot): ViewEntry | u
       return { id: 'doctor' };
     case 'settings':
       return { id: 'settings' };
-    case 'ticket-add':
-    case 'ticket-remove':
+    case 'remove-ticket':
       return snapshot.sprint ? { id: 'sprint-detail', props: { sprintId: snapshot.sprint.id } } : undefined;
     case 'export-context':
       return { id: 'export-context' };

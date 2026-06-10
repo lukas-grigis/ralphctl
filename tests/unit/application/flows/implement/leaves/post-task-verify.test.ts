@@ -194,6 +194,82 @@ describe('postTaskVerifyLeaf', () => {
     expect(row?.outcome).toBe('spawn-error');
   });
 
+  describe('zero-turn short-circuit (pre-verify hard block before any gen-eval turn)', () => {
+    // Counting runner — proves the verify script is NOT spawned on the short-circuit path.
+    const countingRunner = (): { runner: ShellScriptRunner; calls: () => number } => {
+      let calls = 0;
+      return {
+        runner: {
+          async run() {
+            calls += 1;
+            return Result.ok({ passed: true, exitCode: 0, output: '', durationMs: 0 });
+          },
+        },
+        calls: () => calls,
+      };
+    };
+
+    const blockedCtx = (over: Partial<ImplementCtx> = {}): ImplementCtx => {
+      const task = makeInProgressTaskWithRunningAttempt();
+      return {
+        sprintId: SPRINT_ID,
+        currentTask: task,
+        currentTaskId: task.id,
+        tasks: [task],
+        lastBlockReason: 'baseline already red at task start (non-interactive — operator could not be prompted)',
+        ...over,
+      };
+    };
+
+    const buildLeaf = (runner: ShellScriptRunner, repo: UpdateTask, taskId: Task['id']) =>
+      postTaskVerifyLeaf(
+        {
+          shellScriptRunner: runner,
+          taskRepo: repo,
+          clock: () => FIXED_NOW,
+          eventBus: createCapturingBus().bus,
+          logger: noopLogger,
+        },
+        { cwd: CWD, verifyScript: 'pnpm test' },
+        taskId
+      );
+
+    it('zero turns (lastBlockReason set, genEvalTurn undefined) → short-circuits to skipped, never spawns the script', async () => {
+      const ctx = blockedCtx({ genEvalTurn: undefined });
+      const { runner, calls } = countingRunner();
+      const { repo } = fakeTaskRepo();
+      const leaf = buildLeaf(runner, repo, ctx.currentTask!.id);
+      const out = await leaf.execute(ctx);
+      if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
+      // No verify-script spawn, no audit-row persistence — pure short-circuit.
+      expect(calls()).toBe(0);
+      expect(repo.updates).toHaveLength(0);
+      // Synthetic skipped run flows through legacyVerifyResult → { kind: 'skipped' }.
+      expect(out.value.ctx.lastVerifyResult?.kind).toBe('skipped');
+      // Attribution needs both outcomes — none here.
+      expect(out.value.ctx.currentTask?.attempts.at(-1)?.attribution).toBeUndefined();
+      // Pre-verify block reason survives untouched (the leaf must not clear it).
+      expect(out.value.ctx.lastBlockReason).toBe(ctx.lastBlockReason);
+      // Carry records outcome 'skipped' so the NEXT task's pre-verify carry (needs 'success')
+      // does not short-circuit the real script.
+      expect(out.value.ctx.priorPostVerifyOutcome).toEqual({ cwd: CWD, outcome: 'skipped' });
+    });
+
+    it('turn-1 generator self-block (lastBlockReason set, genEvalTurn === 1) → does NOT short-circuit, runs the real script', async () => {
+      const ctx = blockedCtx({ genEvalTurn: 1, lastBlockReason: 'agent self-blocked: needs a design decision' });
+      const { runner, calls } = countingRunner();
+      const { repo } = fakeTaskRepo();
+      const leaf = buildLeaf(runner, repo, ctx.currentTask!.id);
+      const out = await leaf.execute(ctx);
+      if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
+      // A real turn ran — the verify script must spawn (and the audit row must persist).
+      expect(calls()).toBe(1);
+      expect(repo.updates).toHaveLength(1);
+      // Green script → passed, not the synthetic skipped.
+      expect(out.value.ctx.lastVerifyResult?.kind).toBe('passed');
+    });
+  });
+
   it('persists the running attempt with the appended VerifyRun via taskRepo.update', async () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const ctx: ImplementCtx = {

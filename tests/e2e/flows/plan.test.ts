@@ -206,6 +206,7 @@ describe('createPlanFlow — interactive', () => {
       projectId: project.id,
       providerId: 'claude-code',
       model: 'claude-opus-4-8',
+      maxAttempts: 3,
       planRoot: planRoot(),
     });
 
@@ -237,6 +238,7 @@ describe('createPlanFlow — interactive', () => {
       projectId: project.id,
       providerId: 'claude-code',
       model: 'claude-opus-4-8',
+      maxAttempts: 3,
       planRoot: planRoot(),
     });
     const runner = createRunner({
@@ -275,6 +277,7 @@ describe('createPlanFlow — interactive', () => {
       projectId: project.id,
       providerId: 'claude-code',
       model: 'claude-opus-4-8',
+      maxAttempts: 3,
       planRoot: planRoot(),
     });
     const runner = createRunner({

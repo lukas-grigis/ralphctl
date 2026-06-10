@@ -148,7 +148,7 @@ Status flow: `draft → planned → active → review → done`.
       → `ChainCompleted/Failed/Aborted`; per-task `TaskAttemptStarted` / `TaskAttemptEvaluated` /
       `TaskRoundStarted` (carrying `roundN`, `attemptN`, `totalCap`).
 - [x] **Plateau predicate** — consecutive evaluator rounds flagging the same failed-dimension set exit the
-      loop with a plateau warning after `settings.harness.plateauThreshold` (2–5, default 2) rounds.
+      loop with a plateau warning after `settings.harness.plateauThreshold` (2–5, default 3) rounds.
       Score improvement, commit-message change, or critique-Jaccard shift exempts a round.
 - [x] **Token-usage event** — `TokenUsageEvent` emitted once per spawn (model, context window,
       input/output, cache tokens). TUI `TokenBudgetCard` subscribes.

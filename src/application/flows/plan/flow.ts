@@ -41,6 +41,11 @@ export interface CreatePlanFlowOpts {
   readonly model: string;
   /** Resolved effort / reasoning level for the plan chain — optional. */
   readonly effort?: string;
+  /**
+   * Default per-task attempt cap (`settings.harness.maxAttempts`) stamped onto every planned
+   * task so the gen-eval loop actually bounds attempts at execute time.
+   */
+  readonly maxAttempts: number;
   /** Per-sprint root: `<sprintDir>/plan/`. Per-run subfolder created at execute time. */
   readonly planRoot: AbsolutePath;
   /** Optional run slug. Defaults to `'session-<timestamp>'`. */
@@ -185,6 +190,7 @@ export const createPlanFlow = (deps: PlanDeps, opts: CreatePlanFlowOpts): Elemen
       eventBus: deps.eventBus,
       clock: deps.clock,
       model: opts.model,
+      maxAttempts: opts.maxAttempts,
       ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
       ...(opts.additionalRoots !== undefined && opts.additionalRoots.length > 0
         ? { additionalRoots: opts.additionalRoots }

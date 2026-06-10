@@ -37,6 +37,11 @@ export interface ParseIdeateOutputInput {
   readonly ticket?: Ticket;
   /** Optional logger; forwarded to {@link parseTaskList} for the topological-reorder log line. */
   readonly logger?: Logger;
+  /**
+   * Default per-task attempt cap (`settings.harness.maxAttempts`) stamped onto every task.
+   * Forwarded to {@link parseTaskList}; absent → no cap (parser-shape tests).
+   */
+  readonly defaultMaxAttempts?: number;
 }
 
 export interface ParseIdeateOutputResult {
@@ -74,6 +79,7 @@ export const parseIdeateOutput = (
     project: ctx.project,
     mode: { kind: 'fixed', ticketId: ctx.ticketId, ...(ctx.ticket !== undefined ? { ticket: ctx.ticket } : {}) },
     ...(ctx.logger !== undefined ? { logger: ctx.logger } : {}),
+    ...(ctx.defaultMaxAttempts !== undefined ? { defaultMaxAttempts: ctx.defaultMaxAttempts } : {}),
   });
   if (!tasks.ok) return Result.error(tasks.error);
 

@@ -2,8 +2,8 @@ import type { Command } from 'commander';
 import type { Ticket } from '@src/domain/entity/ticket.ts';
 import { TicketId } from '@src/domain/value/id/ticket-id.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import { createTicketAddFlow } from '@src/application/flows/ticket-add/flow.ts';
-import { createTicketRemoveFlow } from '@src/application/flows/ticket-remove/flow.ts';
+import { createTicketAddFlow } from '@src/application/flows/add-ticket/flow.ts';
+import { createTicketRemoveFlow } from '@src/application/flows/remove-ticket/flow.ts';
 import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
 
 interface SprintOpt {

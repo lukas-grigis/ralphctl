@@ -48,9 +48,19 @@ export interface MockHeadlessProviderOpts {
   /**
    * Fixture map keyed by `session.signalsFile` path. Lookup is exact string compare on the
    * absolute path the leaf passes. Use `String(session.signalsFile)` when seeding the map
-   * so the brand stripping aligns with the runtime comparison.
+   * so the brand stripping aligns with the runtime comparison. Optional only when every path
+   * the leaf will spawn against is covered by {@link sequences}.
    */
-  readonly fixtures: ReadonlyMap<string, SpawnFixture>;
+  readonly fixtures?: ReadonlyMap<string, SpawnFixture>;
+  /**
+   * Optional per-path fixture *sequences* — consecutive spawns against the SAME `signalsFile`
+   * path consume one fixture per call, in order. Used to exercise the corrective-retry path
+   * where the first spawn writes an invalid `signals.json` and the second (resumed) spawn
+   * writes a valid one. When a path appears in both `sequences` and `fixtures`, the sequence
+   * wins until it is exhausted; the last sequence entry is reused for any further calls so a
+   * caller cannot accidentally throw on an extra spawn.
+   */
+  readonly sequences?: ReadonlyMap<string, readonly SpawnFixture[]>;
   /**
    * Defaults applied to every `ok` fixture's `ProviderOutput` when the fixture itself
    * doesn't specify them. Keeps test fixtures terse — only the fields the test cares about
@@ -78,13 +88,27 @@ const writeSignalsFile = async (path: AbsolutePath, content: string): Promise<Re
 
 export const createMockHeadlessProvider = (opts: MockHeadlessProviderOpts): MockHeadlessProvider => {
   const invocations: MockHeadlessProviderRecord[] = [];
+  // Per-path cursor into `opts.sequences` so consecutive spawns against one path advance the
+  // sequence. Mutable copy so we don't touch the caller's map.
+  const cursors = new Map<string, number>();
   const provider: HeadlessAiProvider = {
     async generate(session) {
       invocations.push({ signalsFile: session.signalsFile, session });
-      const fixture = opts.fixtures.get(String(session.signalsFile));
+      const key = String(session.signalsFile);
+      const seq = opts.sequences?.get(key);
+      let fixture: SpawnFixture | undefined;
+      if (seq !== undefined && seq.length > 0) {
+        const i = cursors.get(key) ?? 0;
+        // Clamp at the last entry so an extra spawn reuses it instead of throwing.
+        const idx = Math.min(i, seq.length - 1);
+        fixture = seq[idx];
+        cursors.set(key, i + 1);
+      } else {
+        fixture = opts.fixtures?.get(key);
+      }
       if (fixture === undefined) {
         throw new Error(
-          `mock-headless-provider: no fixture registered for signalsFile=${String(session.signalsFile)} — register one via opts.fixtures.set(...).`
+          `mock-headless-provider: no fixture registered for signalsFile=${key} — register one via opts.fixtures.set(...) or opts.sequences.set(...).`
         );
       }
       if (fixture.kind === 'spawn-error') {

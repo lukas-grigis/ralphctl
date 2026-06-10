@@ -30,6 +30,10 @@
 
 - [project_unified_windowed_list.md](project_unified_windowed_list.md) — useListWindow hook + WindowedList component: full convergence design, ScrollRegion suppressArrows, adoption plan for all 6 list views (Jun 2026)
 
+## Flow Registry
+
+- [project_ticket_add_flow_consolidation.md](project_ticket_add_flow_consolidation.md) — ticket-add removed from registry; add-tickets is sole Flows menu entry; `a` shortcut stays on add-ticket wizard (Jun 2026)
+
 ## Status Card Patterns
 
 - [feedback_baseline_card_row_pattern.md](feedback_baseline_card_row_pattern.md) — One row pattern for status cards:

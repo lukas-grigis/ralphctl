@@ -21,16 +21,20 @@ import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
  *                                               (running attempt settled as aborted first)
  *   any verdict, no blockedReason             → mark task done
  *
- * `verdict` is captured for logging and audit only — the inner-loop policy already collapsed
- * the four non-pass termination kinds (`failed` / `malformed` / `plateau` / `budget-exhausted`
- * → `markTaskDone` + structured warning, `self-blocked` → `markTaskBlocked`) inside
- * `finalize-gen-eval`. The optional `warning` is stamped onto the running attempt before the
- * task transitions so attempt history carries the failure-mode for review tooling.
+ * `verdict` is captured for logging and audit only — the inner-loop policy already mapped each
+ * termination kind inside `finalize-gen-eval` (`self-blocked` → `markTaskBlocked`; a
+ * failure-driven escalation / nudge / malformed-retry → `shouldFailAttempt` keeping the task
+ * `in_progress` for the next attempt; an exhausted-remedy `plateau` / `budget-exhausted` /
+ * `malformed` → `markTaskDone` + structured warning). The optional `warning` is stamped onto the
+ * running attempt before the task transitions so attempt history carries the failure-mode for
+ * review tooling.
  *
- * Why "done with warning" instead of "retry the attempt": v2 runs ONE attempt per task; retry
- * is the inner gen-eval loop's job (turns bounded by `maxTurns`). When the loop terminates
- * without a passing verdict the operator inspects the warning and decides whether to redo the
- * task — the harness does not auto-retry.
+ * Why some failures retry and others settle "done with warning": when the escalation policy grants
+ * one more attempt (model bump, top-of-ladder nudge, or plain same-model malformed retry, all
+ * bounded by the effective `maxAttempts`) `shouldFailAttempt` keeps the task `in_progress` so the
+ * outer attempt loop re-enters with the stronger model / fresh session. Once the remedy ladder is
+ * exhausted or the attempt budget runs out the work is preserved (`markTaskDone` + warning) — the
+ * operator inspects the warning and decides whether to redo the task.
  */
 export type SettleVerdict = 'passed' | 'failed' | 'malformed';
 
@@ -67,7 +71,7 @@ export interface SettleAttemptProps {
 export type SettleAttemptOutput = DoneTask | InProgressTask | BlockedTask;
 
 const settleTask = (
-  props: Pick<SettleAttemptProps, 'task' | 'warning' | 'blockedReason' | 'shouldFailAttempt'>,
+  props: Pick<SettleAttemptProps, 'task' | 'warning' | 'blockedReason' | 'shouldFailAttempt' | 'verdict'>,
   now: IsoTimestamp
 ): Result<DoneTask | InProgressTask | BlockedTask, InvalidStateError> => {
   let task: InProgressTask = props.task;
@@ -75,6 +79,21 @@ const settleTask = (
     const stamped = recordRunningAttemptWarning(task, props.warning);
     if (!stamped.ok) return Result.error(stamped.error);
     task = stamped.value;
+  }
+  // PRECEDENCE: a granted retry outranks a block reason. finalize-gen-eval never sets both —
+  // when they co-occur it is because a LATER leaf (a red post-task-verify) stamped the block
+  // AFTER finalize granted the retry (escalate / nudge / malformed same-model retry). The whole
+  // point of the remedy ladder is to spend remedies before surrendering, and a red verify on the
+  // failing work is exactly the signal a stronger-model retry targets — so the retry runs. The
+  // red work never lands: the commit guard keys on the block reason independently, and the
+  // retry-diff quarantine stashes the rejected diff so the next attempt starts clean. Once the
+  // budget exhausts, finalize stops granting retries and the same red verify blocks the task.
+  if (props.shouldFailAttempt === true) {
+    // Settle the running attempt — `malformed` when the evaluator's contract failure drove the
+    // retry (the attempt history must report the real failure mode), `failed` otherwise. Keeps
+    // the task `in_progress` (or `blocked` if the running attempt count just hit the cap); the
+    // next chain invocation re-attempts with the escalated (or same, for malformed) model.
+    return failCurrentAttempt(task, now, props.verdict === 'malformed' ? 'malformed' : 'failed');
   }
   if (props.blockedReason !== undefined) {
     const aborted = failCurrentAttempt(task, now, 'aborted');
@@ -85,12 +104,6 @@ const settleTask = (
       return Result.ok({ ...aborted.value, blockedReason: props.blockedReason, blockKind: 'own' });
     }
     return markTaskBlocked(aborted.value, props.blockedReason, 'own');
-  }
-  if (props.shouldFailAttempt === true) {
-    // Escalation path: settle the running attempt as failed but keep the task `in_progress`
-    // (or transition to `blocked` if the running attempt count just hit `maxAttempts`). The
-    // next chain invocation re-attempts the task with the escalated generator model.
-    return failCurrentAttempt(task, now, 'failed');
   }
   return markTaskDone(task, now);
 };

@@ -21,11 +21,53 @@ floored from the global value; `minimal` is reachable only via an explicit per-f
 at a different one; the launcher rebuilds the provider / interactive-AI / skills-adapter trio per launch
 keyed on the dispatched flow's row, so mixed and uniform configs traverse the same code path.
 
-**Four equal presets** stamp the entire `ai` section in one shot: `mixed` (best-fit provider per flow),
-`claude-only`, `copilot-only`, `codex-only`. None is marked default. Apply via
-`ralphctl settings apply-preset <name>` or from the TUI settings view (four buttons above the global
-effort row). Re-applying overwrites every row in one transaction; subsequent per-key edits via
-`ralphctl settings set ai.<flow>.<field> <value>` stick.
+**Eight presets** stamp the entire `ai` section in one shot — four standard and four economic, all equally
+first-class (none is marked default). Standard presets: `mixed` (best-fit provider per flow),
+`claude-only`, `copilot-only`, `codex-only`. Economic presets (ADDITIONAL — they do not replace the
+standard ones): `mixed-economic`, `claude-economic`, `copilot-economic`, `codex-economic`. The economic
+strategy is: start `implement` one tier below the provider's flagship at `high` effort, so most tasks
+finish on the cheaper tier; the graduated escalation ladder climbs to the flagship only when a task
+plateaus — quality is preserved, token spend is reduced on easy tasks. The effort matrix keeps the
+standard presets' shape (`plan`/`implement` heavy, `readiness` `medium`, `refine`/`ideate` inherit global
+`high`) but runs `plan`/`implement` at `high` — one tier below the standard presets' `xhigh` (Codex
+already floors `xhigh` to `high`, so its economic and standard rows match there).
+Apply via `ralphctl settings apply-preset <name>` or from the TUI settings view; the apply surface is
+unchanged — eight names are accepted, same command and same TUI flow. Re-applying overwrites every row
+in one transaction; subsequent per-key edits via `ralphctl settings set ai.<flow>.<field> <value>` stick.
+
+**Model catalog versions used by the presets** (as of the 0.10.x catalogs):
+
+- Claude Code — `claude-haiku-4-5` / `claude-sonnet-4-6` / `claude-opus-4-8` (verified against Claude
+  Code v2.1.169). The catalog additionally lists the frontier tier `claude-fable-5` plus the 1M-context
+  variants `claude-opus-4-8[1m]` and `claude-fable-5[1m]` (the `[1m]` suffix is Claude Code's
+  long-context syntax, passed through verbatim — on large repos the 1M window avoids mid-session
+  compaction during deep implement runs) as **opt-in only** — no preset, default, or built-in
+  escalation rung references them; pick per row or add an `'claude-opus-4-8': 'claude-fable-5'` rung
+  via `settings.harness.escalationMap`.
+- GitHub Copilot — adds `gpt-5.5`, `claude-opus-4.7`, `claude-opus-4.8`, Gemini 3.x family
+  (`gemini-3-flash-preview`, `gemini-3-pro-preview`, `gemini-3.1-pro-preview`, `gemini-3.5-flash`),
+  plus `mai-code-1-flash`, `raptor-mini-preview` (verified against Copilot CLI v1.0.60).
+- OpenAI Codex — adds `gpt-5.3-codex-spark` (text-only research preview, ChatGPT Pro only);
+  `gpt-5.2` and `gpt-5.3-codex` are deprecated for ChatGPT sign-in but kept in the allowlist because
+  they remain available via API-key auth. `gpt-5.5` is the frontier default — the model `codex-only`
+  runs implement on and the top rung of the Codex escalation ladder; `gpt-5.4` is the strong frontier
+  coder one tier below it, where `codex-economic` starts implement (verified against Codex CLI
+  v0.138.0). The `codex-only` preset moves implement off the deprecated `gpt-5.3-codex` to `gpt-5.5`.
+
+**Default escalation posture (inert ladder).** `DEFAULT_SETTINGS.ai.implement.generator` is
+`claude-opus-4-8`, which has no key in `DEFAULT_ESCALATION_MAP` — so the shipped default can never
+model-escalate. On a plateau it fires one same-model nudge (a change-of-approach directive), then settles
+`done-with-warning`. This is deliberate: the default posture is conservative. To activate a live ladder,
+use one of the `*-economic` presets (where `implement.generator` starts on Sonnet and escalates to Opus)
+or add a custom rung via `settings.harness.escalationMap`:
+
+```json
+"escalationMap": { "claude-opus-4-8": "claude-fable-5" }
+```
+
+`claude-fable-5` and its 1M-context variant `claude-fable-5[1m]` are in the Claude catalog as
+**opt-in only** — no preset, default, or built-in escalation rung references them. Select per row via
+the TUI picker or `settings set`, or add an escalationMap rung as shown above.
 
 **Fail-fast PATH check.** Every AI-spawning flow probes for its row's CLI binary at launch (`claude` /
 `copilot` / `codex` via `src/integration/system/detect-cli.ts`) and exits with `LaunchResult.fail` naming the

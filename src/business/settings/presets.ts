@@ -5,14 +5,33 @@ import type { AiSettings, Settings } from '@src/domain/entity/settings.ts';
  * applying it stamps `ai.effort` plus all five per-flow rows. Preset identity is NOT
  * persisted; the next per-row edit sticks and nothing remembers which preset was applied.
  *
- * Four shipped presets, all equally first-class — no preset is marked "recommended" or
- * "default". `mixed` routes each flow to the best provider for that flow's purpose;
- * `<provider>-only` routes every flow to that one provider (the fully-supported
- * single-provider configuration).
+ * Eight shipped presets, all equally first-class — no preset is marked "recommended" or
+ * "default". The four standard presets: `mixed` routes each flow to the best provider for that
+ * flow's purpose; `<provider>-only` routes every flow to that one provider (the fully-supported
+ * single-provider configuration). The four `*-economic` variants mirror those routings but
+ * start `implement` one tier below the flagship to save tokens, leaning on the escalation
+ * ladder to climb to the flagship only when a task plateaus.
  */
-export type PresetName = 'mixed' | 'claude-only' | 'copilot-only' | 'codex-only';
+export type PresetName =
+  | 'mixed'
+  | 'claude-only'
+  | 'copilot-only'
+  | 'codex-only'
+  | 'mixed-economic'
+  | 'claude-economic'
+  | 'copilot-economic'
+  | 'codex-economic';
 
-export const PRESET_NAMES: readonly PresetName[] = ['mixed', 'claude-only', 'copilot-only', 'codex-only'] as const;
+export const PRESET_NAMES: readonly PresetName[] = [
+  'mixed',
+  'claude-only',
+  'copilot-only',
+  'codex-only',
+  'mixed-economic',
+  'claude-economic',
+  'copilot-economic',
+  'codex-economic',
+] as const;
 
 export const isPresetName = (raw: string): raw is PresetName => (PRESET_NAMES as readonly string[]).includes(raw);
 
@@ -68,13 +87,13 @@ const CLAUDE_ONLY: AiSettings = {
 const COPILOT_ONLY: AiSettings = {
   effort: 'high',
   refine: { provider: 'github-copilot', model: 'claude-sonnet-4.6' },
-  plan: { provider: 'github-copilot', model: 'claude-opus-4.6', effort: 'xhigh' },
+  plan: { provider: 'github-copilot', model: 'claude-opus-4.8', effort: 'xhigh' },
   implement: {
-    generator: { provider: 'github-copilot', model: 'claude-opus-4.6', effort: 'xhigh' },
-    evaluator: { provider: 'github-copilot', model: 'claude-opus-4.6', effort: 'xhigh' },
+    generator: { provider: 'github-copilot', model: 'claude-opus-4.8', effort: 'xhigh' },
+    evaluator: { provider: 'github-copilot', model: 'claude-opus-4.8', effort: 'xhigh' },
   },
   readiness: { provider: 'github-copilot', model: 'gpt-5-mini', effort: 'medium' },
-  ideate: { provider: 'github-copilot', model: 'claude-opus-4.6' },
+  ideate: { provider: 'github-copilot', model: 'claude-opus-4.8' },
   createPr: { provider: 'github-copilot', model: 'gpt-5-mini' },
 };
 
@@ -83,8 +102,78 @@ const CODEX_ONLY: AiSettings = {
   refine: { provider: 'openai-codex', model: 'gpt-5.4' },
   plan: { provider: 'openai-codex', model: 'gpt-5.5', effort: 'high' },
   implement: {
-    generator: { provider: 'openai-codex', model: 'gpt-5.3-codex', effort: 'high' },
-    evaluator: { provider: 'openai-codex', model: 'gpt-5.3-codex', effort: 'high' },
+    // gpt-5.3-codex is deprecated for ChatGPT sign-in — implement now rides the frontier
+    // default so the everyday autonomous loop keeps working under ChatGPT auth.
+    generator: { provider: 'openai-codex', model: 'gpt-5.5', effort: 'high' },
+    evaluator: { provider: 'openai-codex', model: 'gpt-5.5', effort: 'high' },
+  },
+  readiness: { provider: 'openai-codex', model: 'gpt-5.4-mini', effort: 'medium' },
+  ideate: { provider: 'openai-codex', model: 'gpt-5.5' },
+  createPr: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
+};
+
+/**
+ * Economic preset matrices — ADDITIONAL to the four standard presets above; they do not
+ * replace them. Strategy: quality held, money saved. `implement` starts one tier BELOW the
+ * provider's flagship at `high` effort (rather than at the flagship), the evaluator shares
+ * that cheaper row, and `refine` / `readiness` / `ideate` / `createPr` route to the cheap
+ * tier. This is safe because the redesigned escalation ladder climbs to the flagship only
+ * when a task plateaus — so most tasks finish on the cheaper tier and only the genuinely hard
+ * ones pay flagship token rates. Global `ai.effort` is stamped to `high` like the standard
+ * presets; per-row efforts mirror the standard presets (`plan` / `implement` heavy, `readiness`
+ * `medium`, `refine` / `ideate` inherit global). Implement.generator and implement.evaluator
+ * share the same row — splitting roles is an explicit per-row edit, not a preset.
+ *
+ * `refine` / `readiness` / `createPr` drop to the cheap tier across all four; `ideate` drops a
+ * tier too, EXCEPT `codex-economic` where it stays on `gpt-5.5` — Codex has no cheaper
+ * coding-grade tier that suits single-shot ideation, so the row matches `codex-only`.
+ */
+const MIXED_ECONOMIC: AiSettings = {
+  effort: 'high',
+  refine: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
+  plan: { provider: 'github-copilot', model: 'claude-sonnet-4.6', effort: 'high' },
+  implement: {
+    generator: { provider: 'claude-code', model: 'claude-sonnet-4-6', effort: 'high' },
+    evaluator: { provider: 'claude-code', model: 'claude-sonnet-4-6', effort: 'high' },
+  },
+  readiness: { provider: 'github-copilot', model: 'gpt-5-mini', effort: 'medium' },
+  ideate: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
+  createPr: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
+};
+
+const CLAUDE_ECONOMIC: AiSettings = {
+  effort: 'high',
+  refine: { provider: 'claude-code', model: 'claude-haiku-4-5' },
+  plan: { provider: 'claude-code', model: 'claude-sonnet-4-6', effort: 'high' },
+  implement: {
+    generator: { provider: 'claude-code', model: 'claude-sonnet-4-6', effort: 'high' },
+    evaluator: { provider: 'claude-code', model: 'claude-sonnet-4-6', effort: 'high' },
+  },
+  readiness: { provider: 'claude-code', model: 'claude-haiku-4-5', effort: 'medium' },
+  ideate: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
+  createPr: { provider: 'claude-code', model: 'claude-haiku-4-5' },
+};
+
+const COPILOT_ECONOMIC: AiSettings = {
+  effort: 'high',
+  refine: { provider: 'github-copilot', model: 'gpt-5.4-mini' },
+  plan: { provider: 'github-copilot', model: 'claude-sonnet-4.6', effort: 'high' },
+  implement: {
+    generator: { provider: 'github-copilot', model: 'claude-sonnet-4.6', effort: 'high' },
+    evaluator: { provider: 'github-copilot', model: 'claude-sonnet-4.6', effort: 'high' },
+  },
+  readiness: { provider: 'github-copilot', model: 'gpt-5-mini', effort: 'medium' },
+  ideate: { provider: 'github-copilot', model: 'claude-sonnet-4.6' },
+  createPr: { provider: 'github-copilot', model: 'gpt-5-mini' },
+};
+
+const CODEX_ECONOMIC: AiSettings = {
+  effort: 'high',
+  refine: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
+  plan: { provider: 'openai-codex', model: 'gpt-5.4', effort: 'high' },
+  implement: {
+    generator: { provider: 'openai-codex', model: 'gpt-5.4', effort: 'high' },
+    evaluator: { provider: 'openai-codex', model: 'gpt-5.4', effort: 'high' },
   },
   readiness: { provider: 'openai-codex', model: 'gpt-5.4-mini', effort: 'medium' },
   ideate: { provider: 'openai-codex', model: 'gpt-5.5' },
@@ -96,6 +185,10 @@ const PRESETS: Readonly<Record<PresetName, AiSettings>> = {
   'claude-only': CLAUDE_ONLY,
   'copilot-only': COPILOT_ONLY,
   'codex-only': CODEX_ONLY,
+  'mixed-economic': MIXED_ECONOMIC,
+  'claude-economic': CLAUDE_ECONOMIC,
+  'copilot-economic': COPILOT_ECONOMIC,
+  'codex-economic': CODEX_ECONOMIC,
 };
 
 /**

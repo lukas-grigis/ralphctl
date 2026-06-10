@@ -187,7 +187,13 @@ function runTests(): void {
   const evaluationPassed = (): HarnessSignal => ({
     type: 'evaluation',
     status: 'passed',
-    dimensions: [],
+    // Full floor set — a terminal PASS must grade all four floor dimensions per the signal schema.
+    dimensions: [
+      { dimension: 'correctness', passed: true, finding: 'all good' },
+      { dimension: 'completeness', passed: true, finding: 'steps shipped' },
+      { dimension: 'safety', passed: true, finding: 'inputs validated' },
+      { dimension: 'consistency', passed: true, finding: 'matches siblings' },
+    ],
     timestamp: FIXED_NOW,
   });
 
@@ -566,6 +572,7 @@ function runTests(): void {
           maxTurns: 5,
           escalateOnPlateau: false,
           escalationMap: {} as Record<string, string>,
+          maxAttempts: 3,
         });
 
       const parallelElement = createParallelImplementElement(plan, {
@@ -798,6 +805,7 @@ function runTests(): void {
           maxTurns: 5,
           escalateOnPlateau: false,
           escalationMap: {} as Record<string, string>,
+          maxAttempts: 3,
         });
 
       const parallelElement = createParallelImplementElement(plan, {
@@ -982,6 +990,7 @@ function runTests(): void {
           maxTurns: 5,
           escalateOnPlateau: false,
           escalationMap: {} as Record<string, string>,
+          maxAttempts: 3,
         });
 
       const parallelElement = createParallelImplementElement(plan, {

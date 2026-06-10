@@ -13,7 +13,13 @@ import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/h
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
-import { absolutePath, FIXED_LATER, makeReviewSprint } from '@tests/fixtures/domain.ts';
+import {
+  absolutePath,
+  FIXED_LATER,
+  makeDoneTask,
+  makeDoneTaskWithWarning,
+  makeReviewSprint,
+} from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { createCreatePrLeaf } from '@src/application/flows/create-pr/leaves/create-pr-leaf.ts';
@@ -181,5 +187,55 @@ describe('createCreatePrLeaf — title/body precedence', () => {
     expect(result.ok).toBe(true);
     expect(calls[0]?.title).toBe('Explicit title');
     expect(calls[0]?.body).toBe('AI body');
+  });
+
+  it('appends the warnings section harness-side after the AI body when a done task is flagged', async () => {
+    const { creator, calls } = captureCreator();
+    const leaf = createCreatePrLeaf(buildDeps(sprint, exec, creator));
+    const warned = makeDoneTaskWithWarning({
+      name: 'flaky-task',
+      warning: { kind: 'plateau', dimensions: ['C1'] },
+    });
+    const ctx: CreatePrCtx = {
+      input: {
+        sprintId: sprint.id,
+        cwd: absolutePath('/tmp/repo'),
+        sprintDir: absolutePath('/tmp/sprint-dir'),
+        base: 'main',
+        draft: false,
+        // Override tasks seam so the leaf sees a flagged task without a repo round-trip.
+        tasks: [warned],
+      },
+      aiContent: { title: 'AI title', body: 'AI body' },
+    };
+    const result = await leaf.execute(ctx);
+    expect(result.ok).toBe(true);
+    // AI body preserved verbatim, warnings section appended below it (not inside the AI prose).
+    expect(calls[0]?.body).toContain('AI body');
+    expect(calls[0]?.body).toContain('## Completed with warnings');
+    expect(calls[0]?.body).toContain('- flaky-task — evaluator plateaued on: C1');
+    expect(calls[0]?.body?.indexOf('AI body')).toBeLessThan(
+      calls[0]?.body?.indexOf('## Completed with warnings') ?? -1
+    );
+  });
+
+  it('does not append a warnings section to the AI body when every done task landed clean', async () => {
+    const { creator, calls } = captureCreator();
+    const leaf = createCreatePrLeaf(buildDeps(sprint, exec, creator));
+    const ctx: CreatePrCtx = {
+      input: {
+        sprintId: sprint.id,
+        cwd: absolutePath('/tmp/repo'),
+        sprintDir: absolutePath('/tmp/sprint-dir'),
+        base: 'main',
+        draft: false,
+        tasks: [makeDoneTask({ name: 'clean' })],
+      },
+      aiContent: { title: 'AI title', body: 'AI body' },
+    };
+    const result = await leaf.execute(ctx);
+    expect(result.ok).toBe(true);
+    expect(calls[0]?.body).toBe('AI body');
+    expect(calls[0]?.body).not.toContain('## Completed with warnings');
   });
 });
