@@ -231,6 +231,9 @@ export const FlowsView = (): React.JSX.Element => {
             flowId: entry.manifest.id,
             flowTitle: entry.manifest.title,
             settings,
+            // exactOptionalPropertyTypes: only pass the key when defined — the picker arg is
+            // `?`-optional (absent), not `| undefined`. Absent ⇒ picker falls back to modelCatalogFor.
+            ...(deps.availableModelsFor !== undefined ? { availableModelsFor: deps.availableModelsFor } : {}),
           });
           if (picker.kind === 'cancel') return;
 

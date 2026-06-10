@@ -105,7 +105,12 @@ export const capitalize = (s: string): string => (s.length === 0 ? s : s[0]!.toU
 const FLOW_DISPLAY_LABEL: Partial<Record<FlowId, string>> = { createPr: 'Create-PR' };
 const flowLabel = (flow: FlowId): string => FLOW_DISPLAY_LABEL[flow] ?? capitalize(flow);
 
-const buildFlowFields = (keyPrefix: string, label: string, row: AiFlowSettings): readonly EditableField[] => [
+const buildFlowFields = (
+  keyPrefix: string,
+  label: string,
+  row: AiFlowSettings,
+  availableModels: ReadonlyMap<AiProvider, readonly string[]> | undefined
+): readonly EditableField[] => [
   {
     kind: 'select',
     key: `${keyPrefix}.provider`,
@@ -117,7 +122,9 @@ const buildFlowFields = (keyPrefix: string, label: string, row: AiFlowSettings):
     kind: 'select',
     key: `${keyPrefix}.model`,
     label: `${label} model`,
-    options: modelOptionsFor(row.provider),
+    // Prefer the account-available subset for this provider when it has resolved; fall back to
+    // the full catalog while the availability probe is still in flight (map empty/undefined).
+    options: availableModels?.get(row.provider) ?? modelOptionsFor(row.provider),
     current: row.model,
   },
   {
@@ -129,7 +136,10 @@ const buildFlowFields = (keyPrefix: string, label: string, row: AiFlowSettings):
   },
 ];
 
-export const buildSections = (s: Settings): readonly SettingsSection[] => {
+export const buildSections = (
+  s: Settings,
+  availableModels?: ReadonlyMap<AiProvider, readonly string[]>
+): readonly SettingsSection[] => {
   const presetFields: readonly EditableField[] = PRESET_NAMES.map((preset) => ({
     kind: 'preset' as const,
     key: `presets.${preset}`,
@@ -149,15 +159,15 @@ export const buildSections = (s: Settings): readonly SettingsSection[] => {
   ];
 
   const implementFields: readonly EditableField[] = [
-    ...buildFlowFields('ai.implement.generator', 'Generator', s.ai.implement.generator),
-    ...buildFlowFields('ai.implement.evaluator', 'Evaluator', s.ai.implement.evaluator),
+    ...buildFlowFields('ai.implement.generator', 'Generator', s.ai.implement.generator, availableModels),
+    ...buildFlowFields('ai.implement.evaluator', 'Evaluator', s.ai.implement.evaluator, availableModels),
   ];
 
   const flowSection = (flow: Exclude<FlowId, 'implement'>): SettingsSection => ({
     id: flow,
     label: flowLabel(flow),
     title: `AI — ${flowLabel(flow)}`,
-    fields: buildFlowFields(`ai.${flow}`, flowLabel(flow), s.ai[flow]),
+    fields: buildFlowFields(`ai.${flow}`, flowLabel(flow), s.ai[flow], availableModels),
     readonly: false,
   });
 

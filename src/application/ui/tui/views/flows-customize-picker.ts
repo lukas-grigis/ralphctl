@@ -45,6 +45,16 @@ export const modelCatalogFor = (provider: AiProvider): readonly string[] => {
 
 const AI_PROVIDERS: readonly AiProvider[] = ['claude-code', 'github-copilot', 'openai-codex'];
 
+/**
+ * Resolve the model catalog the picker offers for a provider. Prefers the injected
+ * availability lookup (account-narrowed subset) when present; falls back to the full static
+ * catalog (the test / no-deps path).
+ */
+const resolveModelCatalog = async (
+  provider: AiProvider,
+  availableModelsFor: ((provider: AiProvider) => Promise<readonly string[]>) | undefined
+): Promise<readonly string[]> => (availableModelsFor ? availableModelsFor(provider) : modelCatalogFor(provider));
+
 /** Sentinel value returned for the `Keep default` option — never collides with a real id. */
 const KEEP = '__keep__';
 
@@ -116,7 +126,8 @@ const customizeRow = async (
   interactive: InteractivePrompt,
   header: string,
   defaultRow: AiFlowSettings,
-  globalEffort: Settings['ai']['effort']
+  globalEffort: Settings['ai']['effort'],
+  availableModelsFor: ((provider: AiProvider) => Promise<readonly string[]>) | undefined
 ): Promise<NonNullable<LaunchExtras['override']> | undefined> => {
   // Step 1 — provider. Keep default first, then every provider option (including the
   // default's own provider; picking it explicitly is treated as "no change").
@@ -132,7 +143,7 @@ const customizeRow = async (
   // Step 2 — model. When the provider switched, the saved default model belongs to a
   // different provider's catalog; omit `Keep default` so the user can't accidentally pick an
   // incompatible model. Otherwise show `Keep default` first.
-  const modelCatalog = modelCatalogFor(effectiveProvider);
+  const modelCatalog = await resolveModelCatalog(effectiveProvider, availableModelsFor);
   const modelOptions: ReadonlyArray<Choice<string>> = providerChanged
     ? modelCatalog.map((m) => ({ label: m, value: m }))
     : [
@@ -173,6 +184,12 @@ export interface RunCustomizePickerArgs {
   readonly flowId: string;
   readonly flowTitle: string;
   readonly settings: Settings;
+  /**
+   * Optional per-provider availability lookup (injected from `AppDeps.availableModelsFor`). When
+   * present the model step shows only the operator's account-available models; when absent the
+   * step falls back to the full {@link modelCatalogFor} catalog (the test / no-deps path).
+   */
+  readonly availableModelsFor?: (provider: AiProvider) => Promise<readonly string[]>;
 }
 
 /**
@@ -189,6 +206,7 @@ export const runCustomizePicker = async ({
   flowId,
   flowTitle,
   settings,
+  availableModelsFor,
 }: RunCustomizePickerArgs): Promise<CustomizePickerResult> => {
   const aiFlow = aiFlowIdForPicker(flowId);
   if (aiFlow === undefined) return { kind: 'defaults' };
@@ -224,7 +242,7 @@ export const runCustomizePicker = async ({
     for (const role of roles) {
       const row = role === 'generator' ? settings.ai.implement.generator : settings.ai.implement.evaluator;
       const roleHeader = `${header}\n\nRole: ${role}`;
-      const result = await customizeRow(interactive, roleHeader, row, settings.ai.effort);
+      const result = await customizeRow(interactive, roleHeader, row, settings.ai.effort, availableModelsFor);
       if (result === undefined) return { kind: 'cancel' };
       if (Object.keys(result).length > 0) collected[role] = result;
     }
@@ -243,7 +261,7 @@ export const runCustomizePicker = async ({
 
   const defaultRow = defaultRowFor(flowId, settings);
   if (defaultRow === undefined) return { kind: 'defaults' };
-  const override = await customizeRow(interactive, header, defaultRow, settings.ai.effort);
+  const override = await customizeRow(interactive, header, defaultRow, settings.ai.effort, availableModelsFor);
   if (override === undefined) return { kind: 'cancel' };
   if (Object.keys(override).length === 0) return { kind: 'defaults' };
   return { kind: 'single', override };

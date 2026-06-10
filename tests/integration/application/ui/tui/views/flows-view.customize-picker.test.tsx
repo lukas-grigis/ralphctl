@@ -555,3 +555,56 @@ describe('applyOverrideToSettings — launcher per-field fallback', () => {
     expect(effective).toBe(DEFAULT_SETTINGS);
   });
 });
+
+describe('runCustomizePicker — availableModelsFor gates the model step', () => {
+  /** Extract the model-step options from a single-row customize walk's captured prompts. */
+  const modelOptionsFromCapture = (captured: readonly CapturedPrompt[]): readonly string[] => {
+    // Single-row walk: [entry prompt, provider step, model step, effort step].
+    const modelStep = captured.find((c) => c.message.includes('Model:'));
+    if (modelStep === undefined) throw new Error('no model step captured');
+    return modelStep.options;
+  };
+
+  it('absent availableModelsFor → model step shows the full catalog', async () => {
+    const defaultRow = DEFAULT_SETTINGS.ai.refine;
+    const fullCatalog = modelCatalogFor(defaultRow.provider);
+    const { interactive, captured } = buildScriptedPrompt([
+      { action: 'pick', choice: 'Customize for this run…' },
+      { action: 'pick', choice: `Keep default (${defaultRow.provider})` },
+      { action: 'pick', choice: `Keep default (${defaultRow.model})` },
+      { action: 'pick', choice: 'Keep default (auto)' },
+    ]);
+    await runCustomizePicker({ interactive, flowId: 'refine', flowTitle: 'refine', settings: DEFAULT_SETTINGS });
+    const modelOptions = modelOptionsFromCapture(captured);
+    // Keep-default is the first option; the rest are the full catalog.
+    for (const model of fullCatalog) expect(modelOptions).toContain(model);
+  });
+
+  it('availableModelsFor returning a subset → model step shows only the subset', async () => {
+    const defaultRow = DEFAULT_SETTINGS.ai.refine;
+    const fullCatalog = modelCatalogFor(defaultRow.provider);
+    const subset = fullCatalog.slice(0, 1);
+    const excluded = fullCatalog.slice(1);
+    expect(excluded.length).toBeGreaterThan(0);
+
+    const availableModelsFor = async (provider: AiProvider): Promise<readonly string[]> =>
+      provider === defaultRow.provider ? subset : modelCatalogFor(provider);
+
+    const { interactive, captured } = buildScriptedPrompt([
+      { action: 'pick', choice: 'Customize for this run…' },
+      { action: 'pick', choice: `Keep default (${defaultRow.provider})` },
+      { action: 'pick', choice: `Keep default (${defaultRow.model})` },
+      { action: 'pick', choice: 'Keep default (auto)' },
+    ]);
+    await runCustomizePicker({
+      interactive,
+      flowId: 'refine',
+      flowTitle: 'refine',
+      settings: DEFAULT_SETTINGS,
+      availableModelsFor,
+    });
+    const modelOptions = modelOptionsFromCapture(captured);
+    for (const model of subset) expect(modelOptions).toContain(model);
+    for (const model of excluded) expect(modelOptions).not.toContain(model);
+  });
+});

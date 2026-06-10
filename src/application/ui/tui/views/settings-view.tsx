@@ -40,7 +40,7 @@ import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx
 import { createSettingsShowFlow } from '@src/application/flows/settings-show/flow.ts';
 import type { PresetName } from '@src/business/settings/presets.ts';
 import type { PresetWarning } from '@src/application/flows/settings-apply-preset/ctx.ts';
-import type { AiProvider, Settings } from '@src/domain/entity/settings.ts';
+import { type AiProvider, type Settings, uniqueProvidersFromAi } from '@src/domain/entity/settings.ts';
 import type { LogLevel } from '@src/domain/value/log-level.ts';
 import { detectInstalledProviders } from '@src/integration/system/detect-cli.ts';
 import { SettingsEditor } from '@src/application/ui/tui/views/settings-editor.tsx';
@@ -67,6 +67,13 @@ export const SettingsView = (): React.JSX.Element => {
    * enabled" so the picker is usable in the rare frame between mount and probe-completion.
    */
   const [installedProviders, setInstalledProviders] = useState<ReadonlySet<AiProvider> | undefined>(undefined);
+  /**
+   * Per-provider account-available model subset, resolved lazily after the settings load. Keyed by
+   * provider; absent entries fall back to the full catalog inside {@link buildSections}. Empty
+   * while the availability probes are in flight — the full catalog renders, then re-renders
+   * filtered once each provider resolves. Never blocks the view.
+   */
+  const [availableModels, setAvailableModels] = useState<ReadonlyMap<AiProvider, readonly string[]>>(new Map());
   const [sectionIdx, setSectionIdx] = useState(0);
   const [cursor, setCursor] = useState(0);
   const [editingField, setEditingField] = useState<EditableField | undefined>(undefined);
@@ -107,9 +114,27 @@ export const SettingsView = (): React.JSX.Element => {
     };
   }, []);
 
+  // Resolve account-available models once settings load — one probe per distinct provider in the
+  // loaded config. Non-blocking: each result folds into the map as it arrives, re-rendering the
+  // affected provider's model options filtered. The probe never throws (fail open).
+  const availableModelsFor = deps.availableModelsFor;
+  useEffect(() => {
+    if (settings === undefined || availableModelsFor === undefined) return;
+    let cancelled = false;
+    for (const provider of uniqueProvidersFromAi(settings.ai)) {
+      void availableModelsFor(provider).then((models) => {
+        if (cancelled) return;
+        setAvailableModels((prev) => new Map(prev).set(provider, models));
+      });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [settings, availableModelsFor]);
+
   const sections = useMemo<readonly SettingsSection[]>(
-    () => (settings === undefined ? [] : buildSections(settings)),
-    [settings]
+    () => (settings === undefined ? [] : buildSections(settings, availableModels)),
+    [settings, availableModels]
   );
 
   const activeSection = sections[sectionIdx];
