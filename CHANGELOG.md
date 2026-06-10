@@ -109,6 +109,20 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Adversarial-review wave: the gen-eval rework's cross-change seams.** A 30-agent review of the
+  branch confirmed 24 findings; all are resolved. Highlights — a granted escalation/malformed
+  retry now outranks a red post-task-verify (the rejected red diff is stashed so the retry starts
+  from the last good commit; the block still fires once the budget exhausts); the work-product
+  fingerprint hashes untracked-file CONTENT (new-file tasks no longer false-plateau) and oversized
+  git output degrades to a typed error instead of crashing the process; the blocked-diff
+  quarantine never stashes operator-kept WIP (zero-turn discriminant) and journals its recovery
+  pointer durably (it survives an operator unblock); corrective retries are self-contained so a
+  cold spawn re-reads the actual work instead of fabricating a verdict; journal structure is
+  forgery-proof (AI text cannot fabricate `## Task:` section boundaries; task names are
+  single-line); the journal never misattributes a prior model climb to a malformed retry, never
+  brands a warn-then-pass grace round as pass-with-warning, and the change-of-approach directive
+  fires only on stall-driven retries.
+
 - **Copilot single-provider preset realigned to `claude-opus-4.8`.** `copilot-only`'s `plan`,
   `implement`, and `ideate` rows lagged at `claude-opus-4.6` while the catalog refresh added
   `claude-opus-4.8` and the escalation ladder climbs Copilot Claude to `claude-opus-4.8`. The

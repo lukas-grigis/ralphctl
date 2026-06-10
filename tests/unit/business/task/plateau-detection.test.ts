@@ -357,6 +357,62 @@ describe('computePlateauVerdict — configurable threshold', () => {
   });
 });
 
+describe('computePlateauVerdict — workProductChanged "differs from EVERY prior" multi-window (D3)', () => {
+  // D3: workProductChanged is documented as "differs from EVERY prior turn in the window".
+  // The current implementation iterates from the last hashed prior and returns at the FIRST
+  // match — it only compares against the LAST hashed prior, not ALL of them.
+  // The test below exposes the gap: current hash equals an EARLIER prior but differs from the
+  // LAST prior. The exemption should NOT fire (plateau), but the current code returns 'warning'
+  // because it only checks the last one.
+  // NOTE: if the implementation is fixed to check all priors, this test will pass naturally.
+  // If the implementation has the gap, this test will FAIL and surface the bug.
+  it('at threshold=3, current hash matches an EARLIER prior but differs from the LAST → NO exemption, plateau fires', async () => {
+    // window = [hash-A (turn 0), hash-B (turn 1)], current = hash-A.
+    // "differs from every prior" requires hash-A !== hash-A (turn 0) which is FALSE →
+    // the exemption must NOT be granted. The plateau must fire.
+    // A last-prior-only check would see hash-B !== hash-A → true and grant the exemption
+    // (returning 'warning'), which is the bug this test catches.
+    const ev = evalFrom(dim('completeness', false));
+    const verdict = computePlateauVerdict(
+      [
+        turn(ev, { changedFilesHash: 'hash-A' }), // older prior — matches current
+        turn(ev, { changedFilesHash: 'hash-B' }), // most-recent prior — differs from current
+      ],
+      turn(ev, { changedFilesHash: 'hash-A' }), // current equals the OLDER prior
+      { threshold: 3 }
+    );
+    // The work-product exemption requires the hash to differ from EVERY prior in the window.
+    // hash-A === hash-A in the window → exemption must NOT apply.
+    expect(verdict.kind).toBe('plateau');
+  });
+
+  it('at threshold=3, current hash differs from BOTH priors → exemption fires (warning)', async () => {
+    // Control: when the hash genuinely differs from every prior, the softening must still work.
+    const ev = evalFrom(dim('completeness', false));
+    const verdict = computePlateauVerdict(
+      [turn(ev, { changedFilesHash: 'hash-A' }), turn(ev, { changedFilesHash: 'hash-B' })],
+      turn(ev, { changedFilesHash: 'hash-C' }),
+      { threshold: 3 }
+    );
+    expect(verdict.kind).toBe('warning');
+    if (verdict.kind === 'warning') expect(verdict.reason).toBe('work-product-changed');
+  });
+
+  it('at threshold=3, current hash matches the LAST prior — plateau fires regardless of earlier prior hashes', async () => {
+    // If current === last prior, the exemption must not apply even though an earlier prior differs.
+    const ev = evalFrom(dim('completeness', false));
+    const verdict = computePlateauVerdict(
+      [
+        turn(ev, { changedFilesHash: 'hash-X' }), // older prior — differs from current
+        turn(ev, { changedFilesHash: 'hash-Y' }), // last prior — matches current
+      ],
+      turn(ev, { changedFilesHash: 'hash-Y' }), // current equals the LAST prior
+      { threshold: 3 }
+    );
+    expect(verdict.kind).toBe('plateau');
+  });
+});
+
 describe('computePlateauVerdict — sliding window', () => {
   it('only looks at the most-recent (threshold-1) prior turns, not the whole history', () => {
     const stable = evalFrom(dim('completeness', false));

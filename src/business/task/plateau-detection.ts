@@ -260,12 +260,16 @@ const hasHash = (r: PlateauTurnRecord): boolean => r.changedFilesHash !== undefi
 const workProductChanged = (window: readonly PlateauTurnRecord[], current: PlateauTurnRecord): boolean => {
   const anyPriorHash = window.some(hasHash);
   if (hasHash(current)) {
-    for (let i = window.length - 1; i >= 0; i--) {
-      const prior = window[i];
-      if (prior === undefined || !hasHash(prior)) continue;
-      return prior.changedFilesHash !== current.changedFilesHash; // MUTANT: last hashed prior only
+    // EVERY hashed prior must differ — a current tree identical to ANY prior round's tree means
+    // the AI cycled back to an earlier state (A→B→A), which is churn, not progress. Checking
+    // only the most recent prior would grant the softening on exactly that oscillation.
+    let comparedAny = false;
+    for (const prior of window) {
+      if (!hasHash(prior)) continue;
+      comparedAny = true;
+      if (prior.changedFilesHash === current.changedFilesHash) return false; // identical → no change
     }
-    return false;
+    return comparedAny;
   }
   if (anyPriorHash) {
     // Current hash missing but priors carry hashes: no evidence of change — no exemption.
