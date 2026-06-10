@@ -10,8 +10,10 @@ import { extractPlaceholders } from '@src/integration/ai/prompts/_engine/extract
 import {
   buildImplementPrompt,
   implementPromptDef,
+  renderPreVerifyResultsSection,
   renderPriorCritiqueSection,
   renderProjectToolingSection,
+  renderRetryFeedbackSection,
   renderTaskDescriptionSection,
   renderTaskStepsSection,
   renderVerificationCriteriaSection,
@@ -197,6 +199,38 @@ describe('renderProjectToolingSection', () => {
   });
 });
 
+describe('renderPreVerifyResultsSection', () => {
+  it('returns the trimmed output verbatim when provided', () => {
+    const out = renderPreVerifyResultsSection('  3 suites green.\n  0 failures.  ');
+    expect(out).toBe('3 suites green.\n  0 failures.');
+  });
+
+  it('returns the empty string when undefined', () => {
+    expect(renderPreVerifyResultsSection(undefined)).toBe('');
+  });
+
+  it('returns the empty string for empty / whitespace input', () => {
+    expect(renderPreVerifyResultsSection('')).toBe('');
+    expect(renderPreVerifyResultsSection('   \n\t')).toBe('');
+  });
+});
+
+describe('renderRetryFeedbackSection', () => {
+  it('returns the trimmed feedback verbatim when provided', () => {
+    const out = renderRetryFeedbackSection('  Command: pnpm test\nExit 1  ');
+    expect(out).toBe('Command: pnpm test\nExit 1');
+  });
+
+  it('returns the empty string when undefined', () => {
+    expect(renderRetryFeedbackSection(undefined)).toBe('');
+  });
+
+  it('returns the empty string for empty / whitespace input', () => {
+    expect(renderRetryFeedbackSection('')).toBe('');
+    expect(renderRetryFeedbackSection('   ')).toBe('');
+  });
+});
+
 describe('renderPriorCritiqueSection', () => {
   it('renders the heading + the verbatim critique when provided', () => {
     const out = renderPriorCritiqueSection('## Completeness\n- step 3 verification missing');
@@ -315,6 +349,73 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
     expect(result.value).toContain('fundamentally different');
   });
 
+  it('renders pre-verify results when preVerifyOutput is provided', async () => {
+    const task = makeTaskWith({ name: 'export CSV' });
+    const result = await buildImplementPrompt(deps, {
+      task,
+      projectPath: '/tmp/ralph/main-repo',
+      progressFile: '/tmp/ralph/sprint-1/progress.md',
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
+      preVerifyOutput: 'All checks passed.\n3 suites green.',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toContain('<pre_verify_results>');
+    expect(result.value).toContain('All checks passed.');
+  });
+
+  it('omits pre-verify content when preVerifyOutput is absent (placeholder collapses cleanly)', async () => {
+    const task = makeTaskWith({ name: 'export CSV' });
+    const result = await buildImplementPrompt(deps, {
+      task,
+      projectPath: '/tmp/ralph/main-repo',
+      progressFile: '/tmp/ralph/sprint-1/progress.md',
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // Tag present, content empty — no leftover placeholder.
+    expect(result.value).toContain('<pre_verify_results>');
+    expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
+  });
+
+  it('renders retry feedback when retryFeedback is provided', async () => {
+    const task = makeTaskWith({ name: 'export CSV' });
+    const result = await buildImplementPrompt(deps, {
+      task,
+      projectPath: '/tmp/ralph/main-repo',
+      progressFile: '/tmp/ralph/sprint-1/progress.md',
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
+      retryFeedback: 'Command: pnpm test\nExit 1: AssertionError at line 42',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toContain('<retry_feedback>');
+    expect(result.value).toContain('AssertionError at line 42');
+  });
+
+  it('omits retry feedback content when retryFeedback is absent (placeholder collapses cleanly)', async () => {
+    const task = makeTaskWith({ name: 'export CSV' });
+    const result = await buildImplementPrompt(deps, {
+      task,
+      projectPath: '/tmp/ralph/main-repo',
+      progressFile: '/tmp/ralph/sprint-1/progress.md',
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toContain('<retry_feedback>');
+    expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
+  });
+
   it('omits the plateau directive when plateauBreak is absent (the normal case)', async () => {
     const task = makeTaskWith({ name: 'export CSV' });
     const result = await buildImplementPrompt(deps, {
@@ -349,6 +450,8 @@ describe('implementPromptDef — validate-rejected paths', () => {
       priorProgress: '',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
       contractPath: CONTRACT_PATH,
+      preVerifyResults: '',
+      retryFeedbackSection: '',
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);
@@ -371,6 +474,8 @@ describe('implementPromptDef — validate-rejected paths', () => {
       priorProgress: '',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
       contractPath: CONTRACT_PATH,
+      preVerifyResults: '',
+      retryFeedbackSection: '',
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);

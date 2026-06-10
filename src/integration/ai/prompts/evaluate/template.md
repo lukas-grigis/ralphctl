@@ -92,6 +92,8 @@ The block below mirrors that file for in-context reference.
   <verify_script>{{VERIFY_SCRIPT_SECTION}}</verify_script>
   <project_tooling>{{PROJECT_TOOLING}}</project_tooling>
   <prior_progress>{{PRIOR_PROGRESS}}</prior_progress>
+
+{{GENERATOR_HINTS_SECTION}}
 </inputs>
 
 <constraints>
@@ -106,8 +108,11 @@ The block below mirrors that file for in-context reference.
   invalid and is itself a Completeness failure on re-evaluation.
 - **Evidence requirement.** Every PASS claim requires a concrete observation. "Looks correct", "appears
   complete", and "no issues found" are not observations — they are the absence of investigation.
-- **Verify script scope.** A passing verify script confirms the project's existing checks pass. It does not
-  confirm this task's verification criteria are met. Grade criteria independently.
+- **Verify script scope.** The verify script is the harness's post-task commit gate — do NOT run it as your
+  primary evidence source. Run each `auto` criterion's command directly instead. Exception: when the task
+  defines no `auto` criteria, the verify script is the fallback evidence source. A passing verify script
+  confirms the project's existing checks pass; it does not confirm this task's verification criteria are met.
+  Grade criteria independently of whether the verify script exits 0.
 - Read `<prior_progress>` before grading to avoid penalising the generator for decisions already recorded in
   earlier rounds.
 </constraints>
@@ -132,8 +137,11 @@ Open with a thinking block: list the criteria you will grade and any red flags f
 
 Run deterministic checks first — they are authoritative and cheap.
 
-1. **Run the verify script** (when one is configured in `<verify_script>`) — same gate the harness uses
-   post-task. Record the verbatim output. If it fails, the implementation fails regardless of how clean the
+1. **Run each `auto` criterion's command** from `<task_specification>` directly and record the verbatim
+   output for each. Do NOT run the verify script from `<verify_script>` — the harness runs that
+   independently as the authoritative commit gate after your turn. Exception: when the task defines no
+   `auto` criteria at all, run the verify script once as the fallback evidence source and record its output.
+   If any criterion command fails, the implementation fails for that criterion regardless of how clean the
    code looks. Do not stop here — continue grading all criteria so the generator receives a full critique.
 2. **Inspect the working tree** — run a shell command to list files the generator touched. The tree is
    expected to be dirty at this point; a dirty tree is not a failure.
@@ -162,8 +170,10 @@ observation — file path, line number, function name, tool output, or quoted sn
 2. Read surrounding code — check whether the change follows existing patterns. Cite a specific sibling file
    or function when the comparison matters.
 3. Run extended verification when cheap and deterministic:
-   - UI / frontend tasks — run targeted test scenarios against the changed UI (console errors, layout,
-     interactive behaviour) when a test runner or browser capability is available.
+   - UI / frontend tasks — when no `auto` criterion already exercises the changed UI, run targeted test
+     scenarios against it (console errors, layout, interactive behaviour) when a test runner or browser
+     capability is available. Skip when an `auto` criterion covers the same surface — running it again
+     would duplicate work already done in Phase 1.
    - API tasks — make a targeted request to the endpoint when a local server is running.
    - Library or module tasks — run the relevant test file directly when the change is small.
    - CLI tasks — run the affected command with representative input and verify the output.
@@ -191,9 +201,9 @@ specific observations each.
 
 Answer both questions honestly:
 
-1. Did you run the verify script (when configured) AND every `auto` criterion's command? If not, set
-   Completeness `passed: false` with a one-line finding explaining what you skipped, and set
-   `status: "failed"`.
+1. Did you execute every `auto` criterion's command and record its verbatim output? (If the task has no
+   `auto` criteria, did you run the verify script as the fallback?) If not, set Completeness `passed: false`
+   with a one-line finding explaining what you skipped, and set `status: "failed"`.
 2. Can you name a specific observation for each dimension AND each criterion? For every PASS you are about to
    emit, point to a concrete piece of evidence. If not, the same applies: Completeness fails.
 

@@ -100,11 +100,13 @@ Each task entry uses these fields:
     `check === "manual"`. Use the project's own commands — read the project's AI context
     file or manifest for the exact verification command this repository expects.
 - **`blockedBy`** — `id`s of earlier tasks that must complete first.
-- **`extraDimensions`** — optional kebab-case evaluator dimensions in addition to the four
-  floor dimensions (correctness, completeness, safety, consistency). Use only when a task
-  has a property the floor dimensions don't capture (e.g. `accessibility`, `performance`,
-  `migration-safety`). Omit entirely when the floor dimensions are enough. Cap: 2–3 per
-  task; hard max 6.
+- **`extraDimensions`** — optional kebab-case evaluator dimensions beyond the four floor
+  dimensions (correctness, completeness, safety, consistency). Attach an extra dimension
+  ONLY when an acceptance criterion explicitly demands a measurable property that no floor
+  dimension covers AND no manual criterion already encodes it. When in doubt, omit — the
+  floor dimensions are almost always sufficient. Example of a justified attachment:
+  `migration-safety` when the ticket requires a zero-downtime schema change that the four
+  floor dimensions cannot score on their own. Cap: 2–3 per task; hard max 6.
 
 If you cannot produce a sound plan, emit the `task-plan` signal with `tasksJson` set to:
 
@@ -173,6 +175,12 @@ Right size:
   structure.
 - Micro-refactoring tasks (add directive, remove import) — fold into the task that needs
   them.
+- **Ending steps with "run the verification commands" or "run all the checks."** Verification
+  belongs in `verificationCriteria` — the harness and the evaluator execute it. A final step
+  that re-runs the full suite only duplicates the post-task gate and inflates generator
+  cost. Exception: a step MAY run a specific check when a later step depends on its output
+  (e.g. "run the migration dry-run and confirm the schema diff before writing the rollback
+  script").
 
 ### Dependency Graph
 
@@ -259,8 +267,7 @@ Good — precise steps with file paths and pattern references:
     "Add AuthContext provider in src/contexts/AuthContext.tsx wrapping the app — follow the existing ThemeContext pattern",
     "Create useAuth hook in src/hooks/useAuth.ts exposing auth state and actions",
     "Add ProtectedRoute wrapper component in src/components/ProtectedRoute.tsx",
-    "Write unit tests in src/services/__tests__/auth.test.ts — follow patterns in src/services/__tests__/user.test.ts",
-    "Run the project's verification commands (read the project's AI context file or manifest for the exact commands — typecheck, lint, and tests must all pass)"
+    "Write unit tests in src/services/__tests__/auth.test.ts — follow patterns in src/services/__tests__/user.test.ts"
   ],
   "verificationCriteria": [
     {

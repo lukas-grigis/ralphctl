@@ -3,6 +3,7 @@ import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts'
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { buildPrompt, type BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
 import type { PromptDefinition } from '@src/integration/ai/prompts/_engine/definition.ts';
+import { renderGeneratorHintsSection } from '@src/integration/ai/prompts/_engine/renderers/task.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 
 /**
@@ -49,6 +50,12 @@ export interface EvaluateContinuationPromptParams {
    * embedded `signals.json` path always names the current round — `{{OUTPUT_CONTRACT_SECTION}}`.
    */
   readonly outputContractSection: string;
+  /**
+   * Same-round generator observations rendered inside a `<generator_hints>` block. Framed as
+   * unverified claims — useful for environment context, never as evidence. Empty string when no
+   * hints were collected — `{{GENERATOR_HINTS_SECTION}}` collapses cleanly.
+   */
+  readonly generatorHintsSection: string;
 }
 
 const requireNonEmpty =
@@ -89,6 +96,11 @@ export const evaluateContinuationPromptDef: PromptDefinition<EvaluateContinuatio
         'output-contract section must not be empty (renderContractSectionFor always emits a body)'
       ),
     },
+    generatorHintsSection: {
+      placeholder: 'GENERATOR_HINTS_SECTION',
+      description:
+        'Same-round generator observations (environment notes, learnings) framed as unverified context inside a <generator_hints> block — empty when no hints were collected.',
+    },
   },
   partials: {
     HARNESS_CONTEXT: 'harness-context',
@@ -108,6 +120,12 @@ export interface BuildEvaluateContinuationPromptInput {
   readonly priorProgress: string;
   /** Pre-rendered audit-[09] output contract section for this round's evaluator output dir. */
   readonly outputContractSection: string;
+  /**
+   * Same-round generator observations to thread to the evaluator as environment hints. Framed
+   * as unverified claims — useful for environment context, never as evidence. Omitted or empty
+   * → `{{GENERATOR_HINTS_SECTION}}` collapses cleanly.
+   */
+  readonly generatorHints?: string;
 }
 
 /**
@@ -124,4 +142,5 @@ export const buildEvaluateContinuationPrompt = async (
     progressFile: input.progressFile,
     priorProgress: input.priorProgress,
     outputContractSection: input.outputContractSection,
+    generatorHintsSection: renderGeneratorHintsSection(input.generatorHints),
   });

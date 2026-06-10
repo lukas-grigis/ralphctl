@@ -51,11 +51,15 @@ is empty there is no recent journal context to apply.
 For the complete history — older than the excerpt above — read `{{PROGRESS_FILE}}` on disk.
 </prior_progress>
 
+{{GENERATOR_HINTS_SECTION}}
+
 <protocol>
 Re-grade this round the same way you graded the first:
 
-1. Re-run the verify script (when configured) and every `auto` criterion's command — record the
-   verbatim output. The prior round's run is stale; the generator changed the tree.
+1. Re-run each `auto` criterion's command directly and record the verbatim output. Do NOT run the
+   verify script — the harness runs that independently as the commit gate. Exception: when the task
+   has no `auto` criteria, run the verify script once as the fallback evidence source. The prior
+   round's runs are stale; the generator changed the tree.
 2. Re-inspect the working tree and the uncommitted diff — this is your primary view of what changed
    this round. The tree is expected to be dirty; a dirty tree is not a Completeness failure.
 3. Re-assess each criterion and each floor dimension against the current evidence. A criterion you

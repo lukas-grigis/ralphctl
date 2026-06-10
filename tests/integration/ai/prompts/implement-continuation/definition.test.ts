@@ -144,6 +144,51 @@ describe('buildImplementContinuationPrompt — end-to-end against the real templ
     if (!result.ok) return;
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
+
+  it('renders pre-verify results when preVerifyOutput is provided', async () => {
+    const result = await buildImplementContinuationPrompt(deps, {
+      roundNumber: 3,
+      contractPath: CONTRACT_PATH,
+      progressFile: PROGRESS_FILE,
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      preVerifyOutput: '3 suites green, 0 failures.',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toContain('<pre_verify_results>');
+    expect(result.value).toContain('3 suites green');
+  });
+
+  it('renders retry feedback when retryFeedback is provided', async () => {
+    const result = await buildImplementContinuationPrompt(deps, {
+      roundNumber: 3,
+      contractPath: CONTRACT_PATH,
+      progressFile: PROGRESS_FILE,
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      retryFeedback: 'Command: pnpm typecheck\nExit 1: TS2345 at src/foo.ts:12',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toContain('<retry_feedback>');
+    expect(result.value).toContain('TS2345 at src/foo.ts:12');
+  });
+
+  it('collapses pre-verify and retry-feedback blocks cleanly when absent', async () => {
+    const result = await buildImplementContinuationPrompt(deps, {
+      roundNumber: 2,
+      contractPath: CONTRACT_PATH,
+      progressFile: PROGRESS_FILE,
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toContain('<pre_verify_results>');
+    expect(result.value).toContain('<retry_feedback>');
+    expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
+  });
 });
 
 describe('implementContinuationPromptDef — validate-rejected paths', () => {
@@ -157,6 +202,8 @@ describe('implementContinuationPromptDef — validate-rejected paths', () => {
       priorCritiqueSection: '',
       plateauDirectiveSection: '',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
+      preVerifyResults: '',
+      retryFeedbackSection: '',
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);
@@ -172,6 +219,8 @@ describe('implementContinuationPromptDef — validate-rejected paths', () => {
       priorCritiqueSection: '',
       plateauDirectiveSection: '',
       outputContractSection: '   ',
+      preVerifyResults: '',
+      retryFeedbackSection: '',
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);

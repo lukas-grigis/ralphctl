@@ -6,8 +6,10 @@ import { buildPrompt, type BuildPromptError } from '@src/integration/ai/prompts/
 import type { PromptDefinition } from '@src/integration/ai/prompts/_engine/definition.ts';
 import {
   renderPlateauDirectiveSection,
+  renderPreVerifyResultsSection,
   renderPriorCritiqueSection,
   renderProjectToolingSection,
+  renderRetryFeedbackSection,
   renderTaskDescriptionSection,
   renderTaskStepsSection,
   renderVerificationCriteriaSection,
@@ -23,7 +25,9 @@ export {
   renderVerifyScriptSection,
   renderPriorCritiqueSection,
   renderPlateauDirectiveSection,
+  renderPreVerifyResultsSection,
   renderProjectToolingSection,
+  renderRetryFeedbackSection,
   renderTaskDescriptionSection,
   renderTaskStepsSection,
   renderVerificationCriteriaSection,
@@ -93,6 +97,20 @@ export interface ImplementPromptParams {
    * The leaf composes this string before calling `buildImplementPrompt`.
    */
   readonly outputContractSection: string;
+  /**
+   * Verbatim output (or a trimmed tail) from the harness pre-task verification run, injected
+   * inside `<pre_verify_results>…</pre_verify_results>`. When non-empty the generator reviews
+   * baseline state rather than re-running the verify script. Empty string when the harness did
+   * not run a pre-verify (e.g. first task of a fresh setup).
+   */
+  readonly preVerifyResults: string;
+  /**
+   * When a previous attempt's harness post-verify failed, this carries the failing command and
+   * a tail of its output, injected inside `<retry_feedback>…</retry_feedback>`. Tells the
+   * generator to treat fixing that regression as the first priority of this attempt. Empty
+   * string on a first attempt or when the prior post-verify passed.
+   */
+  readonly retryFeedbackSection: string;
 }
 
 const requireNonEmpty =
@@ -179,6 +197,16 @@ export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
         'output-contract section must not be empty (renderContractSectionFor always emits a body)'
       ),
     },
+    preVerifyResults: {
+      placeholder: 'PRE_VERIFY_RESULTS',
+      description:
+        'Verbatim output (or trimmed tail) from the harness pre-task verify run — empty when the harness did not run a pre-verify.',
+    },
+    retryFeedbackSection: {
+      placeholder: 'RETRY_FEEDBACK_SECTION',
+      description:
+        'Failing post-verify command + output tail from the previous attempt — empty on a first attempt or when the prior post-verify passed.',
+    },
   },
   partials: {
     HARNESS_CONTEXT: 'harness-context',
@@ -233,6 +261,18 @@ export interface BuildImplementPromptInput {
    * prompt module stays agnostic of the per-leaf contract.
    */
   readonly outputContractSection: string;
+  /**
+   * Verbatim output (or trimmed tail) from the harness pre-task verify run. When provided the
+   * generator reviews the baseline state without re-running. Absent or empty → placeholder
+   * collapses inside `<pre_verify_results>…</pre_verify_results>`.
+   */
+  readonly preVerifyOutput?: string;
+  /**
+   * Failing post-verify command + output tail from the previous attempt, injected when a prior
+   * attempt's harness post-verify failed with `attribution === 'regressed'`. Absent or empty →
+   * placeholder collapses inside `<retry_feedback>…</retry_feedback>`.
+   */
+  readonly retryFeedback?: string;
 }
 
 /**
@@ -258,4 +298,6 @@ export const buildImplementPrompt = async (
     priorCritiqueSection: renderPriorCritiqueSection(input.priorCritique),
     plateauDirectiveSection: renderPlateauDirectiveSection(input.plateauBreak ?? false),
     outputContractSection: input.outputContractSection,
+    preVerifyResults: renderPreVerifyResultsSection(input.preVerifyOutput),
+    retryFeedbackSection: renderRetryFeedbackSection(input.retryFeedback),
   });
