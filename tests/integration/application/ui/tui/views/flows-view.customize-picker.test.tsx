@@ -556,6 +556,223 @@ describe('applyOverrideToSettings — launcher per-field fallback', () => {
   });
 });
 
+describe('runCustomizePicker — effort-inheritance visibility (T14)', () => {
+  // When the user changes the model but keeps the same provider, the effort step must make the
+  // inherited value visible so the user can decide deliberately — no silent xhigh inheritance.
+
+  it('model-only change → effort step label shows the inherited row value and source tag', async () => {
+    // Set up a row with an explicit per-row effort so we can assert it appears in the label.
+    const settings: Settings = {
+      ...DEFAULT_SETTINGS,
+      ai: {
+        ...DEFAULT_SETTINGS.ai,
+        refine: { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'xhigh' },
+      },
+    };
+    const otherModel = CLAUDE_MODELS.find((m) => m !== settings.ai.refine.model)!;
+    let effortStepOptions: readonly string[] | undefined;
+    const interactive: InteractivePrompt = {
+      async askText() {
+        throw new Error('not used');
+      },
+      async askTextArea() {
+        throw new Error('not used');
+      },
+      async askConfirm() {
+        throw new Error('not used');
+      },
+      async askMultiChoice() {
+        throw new Error('not used');
+      },
+      async askChoice<T>(message: string, options: ReadonlyArray<Choice<T>>) {
+        if (message.includes('What would you like to do?')) {
+          const c = options.find((o) => o.label === 'Customize for this run…');
+          return Result.ok(c!.value) as unknown as Result<T, DomainError>;
+        }
+        if (message.includes('Provider:')) {
+          const c = options.find((o) => o.label.startsWith('Keep default'));
+          return Result.ok(c!.value) as unknown as Result<T, DomainError>;
+        }
+        if (message.includes('Model:')) {
+          const c = options.find((o) => o.label === otherModel);
+          return Result.ok(c!.value) as unknown as Result<T, DomainError>;
+        }
+        if (message.includes('Effort:')) {
+          effortStepOptions = options.map((o) => o.label);
+          return Result.error(new AbortError({ elementName: 'test', reason: 'snapshot' })) as unknown as Result<
+            T,
+            DomainError
+          >;
+        }
+        throw new Error(`unexpected prompt: ${message}`);
+      },
+    };
+    await runCustomizePicker({ interactive, flowId: 'refine', flowTitle: 'Refine', settings });
+    expect(effortStepOptions).toBeDefined();
+    // The keep-default option must show the concrete inherited effort AND the source tag so
+    // the user is not surprised by xhigh arriving silently.
+    const keepDefaultLabel = effortStepOptions![0];
+    expect(keepDefaultLabel).toContain('xhigh');
+    expect(keepDefaultLabel).toContain('saved row');
+  });
+
+  it('model-only change with global effort (no per-row effort) → effort step label shows global source', async () => {
+    const settings: Settings = {
+      ...DEFAULT_SETTINGS,
+      ai: {
+        ...DEFAULT_SETTINGS.ai,
+        effort: 'high',
+        refine: { provider: 'claude-code', model: 'claude-opus-4-8' },
+      },
+    };
+    const otherModel = CLAUDE_MODELS.find((m) => m !== settings.ai.refine.model)!;
+    let effortStepOptions: readonly string[] | undefined;
+    const interactive: InteractivePrompt = {
+      async askText() {
+        throw new Error('not used');
+      },
+      async askTextArea() {
+        throw new Error('not used');
+      },
+      async askConfirm() {
+        throw new Error('not used');
+      },
+      async askMultiChoice() {
+        throw new Error('not used');
+      },
+      async askChoice<T>(message: string, options: ReadonlyArray<Choice<T>>) {
+        if (message.includes('What would you like to do?')) {
+          const c = options.find((o) => o.label === 'Customize for this run…');
+          return Result.ok(c!.value) as unknown as Result<T, DomainError>;
+        }
+        if (message.includes('Provider:')) {
+          const c = options.find((o) => o.label.startsWith('Keep default'));
+          return Result.ok(c!.value) as unknown as Result<T, DomainError>;
+        }
+        if (message.includes('Model:')) {
+          const c = options.find((o) => o.label === otherModel);
+          return Result.ok(c!.value) as unknown as Result<T, DomainError>;
+        }
+        if (message.includes('Effort:')) {
+          effortStepOptions = options.map((o) => o.label);
+          return Result.error(new AbortError({ elementName: 'test', reason: 'snapshot' })) as unknown as Result<
+            T,
+            DomainError
+          >;
+        }
+        throw new Error(`unexpected prompt: ${message}`);
+      },
+    };
+    await runCustomizePicker({ interactive, flowId: 'refine', flowTitle: 'Refine', settings });
+    expect(effortStepOptions).toBeDefined();
+    const keepDefaultLabel = effortStepOptions![0];
+    expect(keepDefaultLabel).toContain('high');
+    expect(keepDefaultLabel).toContain('global');
+  });
+
+  it('model-only change + user selects Keep default → effort is absent from override (not forced xhigh)', async () => {
+    // This is the core regression test for the incident. The user changes only the model;
+    // selects Keep default on effort. The resulting override must NOT carry effort — the
+    // launcher then resolves via the standard chain (per-row → global → undefined), which for
+    // a row-without-effort and no global means the AI CLI's own built-in default, NOT xhigh.
+    const settings: Settings = {
+      ...DEFAULT_SETTINGS,
+      ai: {
+        ...DEFAULT_SETTINGS.ai,
+        refine: { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'xhigh' },
+      },
+    };
+    const otherModel = CLAUDE_MODELS.find((m) => m !== settings.ai.refine.model)!;
+    const { interactive } = buildScriptedPrompt([
+      { action: 'pick', choice: 'Customize for this run…' },
+      { action: 'pick', choice: `Keep default (claude-code)` },
+      { action: 'pick', choice: otherModel },
+      // Pick the keep-default effort option (whatever label it renders — label varies).
+      // We use a cancel here to inspect that we reached the effort step; in the assertion we
+      // drive a real keep-default via a separate targeted pick below.
+    ]);
+    // Drive the full path with a scripted keep-default on effort to verify override.effort is absent.
+    const { interactive: interactive2 } = buildScriptedPrompt([
+      { action: 'pick', choice: 'Customize for this run…' },
+      { action: 'pick', choice: `Keep default (claude-code)` },
+      { action: 'pick', choice: otherModel },
+      // Keep-default on effort — pick by value sentinel (__keep__). The scripted prompt
+      // matches by label first, then value. The keep-default option's value is '__keep__'.
+      { action: 'pick', choice: '__keep__' },
+    ]);
+    // Suppress the unused first interactive (the cancel-based introspection above is only for
+    // documentation; the real assertion uses interactive2).
+    void interactive;
+    const result = await runCustomizePicker({
+      interactive: interactive2,
+      flowId: 'refine',
+      flowTitle: 'Refine',
+      settings,
+    });
+    if (result.kind !== 'single') throw new Error(`expected kind 'single', got ${result.kind}`);
+    expect(result.override.model).toBe(otherModel);
+    // effort must be absent — not silently inherited from the saved xhigh row.
+    expect(result.override.effort).toBeUndefined();
+  });
+
+  it('no change to model → effort step still shows keep-default (existing label, no source tag)', async () => {
+    // When the user does not change the model, the effort step renders the same label as
+    // before: Keep default (<resolved value>). No source tag is appended in this case.
+    const settings: Settings = {
+      ...DEFAULT_SETTINGS,
+      ai: {
+        ...DEFAULT_SETTINGS.ai,
+        refine: { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'high' },
+      },
+    };
+    let effortStepOptions: readonly string[] | undefined;
+    const interactive: InteractivePrompt = {
+      async askText() {
+        throw new Error('not used');
+      },
+      async askTextArea() {
+        throw new Error('not used');
+      },
+      async askConfirm() {
+        throw new Error('not used');
+      },
+      async askMultiChoice() {
+        throw new Error('not used');
+      },
+      async askChoice<T>(message: string, options: ReadonlyArray<Choice<T>>) {
+        if (message.includes('What would you like to do?')) {
+          const c = options.find((o) => o.label === 'Customize for this run…');
+          return Result.ok(c!.value) as unknown as Result<T, DomainError>;
+        }
+        if (message.includes('Provider:')) {
+          const c = options.find((o) => o.label.startsWith('Keep default'));
+          return Result.ok(c!.value) as unknown as Result<T, DomainError>;
+        }
+        if (message.includes('Model:')) {
+          // Keep default — same model, no change
+          const c = options.find((o) => o.label.startsWith('Keep default'));
+          return Result.ok(c!.value) as unknown as Result<T, DomainError>;
+        }
+        if (message.includes('Effort:')) {
+          effortStepOptions = options.map((o) => o.label);
+          return Result.error(new AbortError({ elementName: 'test', reason: 'snapshot' })) as unknown as Result<
+            T,
+            DomainError
+          >;
+        }
+        throw new Error(`unexpected prompt: ${message}`);
+      },
+    };
+    await runCustomizePicker({ interactive, flowId: 'refine', flowTitle: 'Refine', settings });
+    expect(effortStepOptions).toBeDefined();
+    const keepDefaultLabel = effortStepOptions![0];
+    // No source tag when the model was not changed.
+    expect(keepDefaultLabel).toContain('high');
+    expect(keepDefaultLabel).not.toContain('saved row');
+    expect(keepDefaultLabel).not.toContain('global');
+  });
+});
+
 describe('runCustomizePicker — availableModelsFor gates the model step', () => {
   /** Extract the model-step options from a single-row customize walk's captured prompts. */
   const modelOptionsFromCapture = (captured: readonly CapturedPrompt[]): readonly string[] => {

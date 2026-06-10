@@ -189,6 +189,9 @@ export const SettingsView = (): React.JSX.Element => {
         setPendingPreset(field.preset);
         return;
       }
+      // Read-only map fields are not editable in the TUI — activating them is a no-op.
+      // The hint line already guides the user to the CLI syntax for editing.
+      if (field.kind === 'readonly-map') return;
       setPresetWarnings([]);
       setEditingField(field);
     }

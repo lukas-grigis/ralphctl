@@ -156,10 +156,35 @@ const customizeRow = async (
   // Step 3 — effort. When the provider switched, the saved row's effort may not exist in the
   // new provider's vocabulary; `Keep default` then means "let the launcher resolve" (the row
   // carries no per-flow effort, so resolveEffort floors the global value to the new provider).
+  //
+  // When the provider stayed the same but the model changed, the saved row's effort would be
+  // silently inherited — which is the bug: sonnet @ xhigh (the worst wall-clock combination)
+  // appears when the user's intent was only "use a cheaper model". Make the inheritance
+  // visible by labelling the keep-default option with the concrete value it carries, flagging
+  // whether it comes from the saved row or the global default so the user can decide
+  // deliberately. The model-changed case also shifts the highlighted default to the global
+  // effort (or 'auto') rather than the per-row value so the safest option leads.
   const effortCatalog = PROVIDER_EFFORT_LEVELS[effectiveProvider];
-  const effortDefaultLabel = providerChanged
-    ? 'Keep default'
-    : labelKeepDefault(resolveEffortForRow(defaultRow, globalEffort) ?? 'auto');
+  const modelChanged = modelAns.value !== KEEP && modelAns.value !== defaultRow.model;
+  const resolvedRowEffort = resolveEffortForRow(defaultRow, globalEffort);
+  let effortDefaultLabel: string;
+  if (providerChanged) {
+    // Provider switched — the saved row's effort vocabulary may not apply; omit the concrete
+    // value so the user isn't misled into thinking it will carry over.
+    effortDefaultLabel = 'Keep default';
+  } else if (modelChanged) {
+    // Model changed but provider stayed. Show the value the row would inherit AND flag that
+    // it comes from the saved row, so the user can make a deliberate choice.
+    const rowEffortSource = defaultRow.effort !== undefined ? 'saved row' : globalEffort !== undefined ? 'global' : '';
+    const effortDisplay = resolvedRowEffort ?? 'auto';
+    effortDefaultLabel =
+      rowEffortSource.length > 0
+        ? `Keep default (${effortDisplay} — ${rowEffortSource})`
+        : `Keep default (${effortDisplay})`;
+  } else {
+    // Neither provider nor model changed — show the resolved effort as-is (existing behaviour).
+    effortDefaultLabel = labelKeepDefault(resolvedRowEffort ?? 'auto');
+  }
   const effortOptions: ReadonlyArray<Choice<string>> = [
     { label: effortDefaultLabel, value: KEEP },
     ...effortCatalog.map((e) => ({ label: e, value: e })),

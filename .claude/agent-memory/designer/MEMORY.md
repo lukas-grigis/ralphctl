@@ -34,6 +34,14 @@
 
 - [project_ticket_add_flow_consolidation.md](project_ticket_add_flow_consolidation.md) — ticket-add removed from registry; add-tickets is sole Flows menu entry; `a` shortcut stays on add-ticket wizard (Jun 2026)
 
+## Picker & Customize Flow
+
+- [project_picker_effort_inheritance.md](project_picker_effort_inheritance.md) — T14 effort-inheritance fix: model-only change shows concrete inherited effort + source tag in keep-default label (Jun 2026)
+
+## Settings Harness Section
+
+- [project_harness_settings_section.md](project_harness_settings_section.md) — T15 harness section: escalateOnPlateau/skipPreVerifyOnFreshSetup as select fields; readonly-map kind for escalationMap (Jun 2026)
+
 ## Status Card Patterns
 
 - [feedback_baseline_card_row_pattern.md](feedback_baseline_card_row_pattern.md) — One row pattern for status cards:
