@@ -51,6 +51,15 @@ command, timeoutMs? }` — supplements the legacy `verifyScript` string and wins
   one-line caveats in the hints); `escalationMap` renders read-only with the CLI edit hint — every harness
   key the CLI supports is now visible in the TUI.
 
+- **Model picker filtered to account-available models.** A per-provider `ModelAvailabilityProbe` (new port
+  in `providers/_engine`) narrows the picker and settings-view catalogs to the models the operator's
+  account/CLI can actually run, while the static catalogs in `settings-models/` stay the full official
+  list. The probe fails open — any error returns the full catalog, so the picker never blocks or shows
+  zero models. The Codex adapter reads `~/.codex/models_cache.json`; Claude and Copilot are passthrough
+  for now (Copilot's models API needs the CLI OAuth token). `wire()` exposes a memoised
+  `availableModelsFor(provider)` consumed by the customize picker and the settings view, with the full
+  catalog as the in-flight fallback.
+
 ### Changed
 
 - **Verification division of labor — each gate runs exactly once.** The prompt templates now assign each role
@@ -68,6 +77,13 @@ command, timeoutMs? }` — supplements the legacy `verifyScript` string and wins
   from the last clean commit, and the failing verify command and log tail are carried into the generator
   prompt via `RETRY_FEEDBACK_SECTION`. Budget exhaustion still transitions to `blocked`, and the commit guard
   independently checks the block reason — red work never lands regardless of budget.
+
+- **Copilot model catalog reconciled to GitHub's official supported-models list (2026-06-10).** Adds
+  `gpt-5.4-nano`, `claude-fable-5`, and `gemini-3-flash` (GA rename of `gemini-3-flash-preview`); drops the
+  de-listed `gpt-5.1`, `gpt-5.2`, `gpt-5.1-codex` / `gpt-5.1-codex-max` / `gpt-5.1-codex-mini`,
+  `gpt-5.2-codex`, `gpt-4.1`, `claude-sonnet-4`, and `gemini-3-pro-preview`. The static catalog is now the
+  official set rather than retaining superseded entries; the per-session availability probe is the mechanism
+  for hiding models a given account can't use.
 
 ## [0.11.0] - 2026-06-10
 
