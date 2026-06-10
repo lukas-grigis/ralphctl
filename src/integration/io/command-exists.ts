@@ -10,8 +10,11 @@ import { spawn } from 'node:child_process';
  *     `.bat` — which is what npm / winget shims install (`claude.cmd`, `gh.cmd`, …). A bare
  *     `spawn(name)` cannot launch a `.cmd` shim, and the POSIX `command -v` builtin does not
  *     exist in `cmd.exe`, so neither is safe here.
- *   - POSIX: spawn `command -v <name>` under a shell. `command` is a POSIX shell builtin
- *     (hence `shell: true`) mandated to report PATH presence without executing the target.
+ *   - POSIX: spawn `sh -c 'command -v "$0"' <name>`. `command` is a POSIX shell builtin
+ *     (hence the explicit `sh`) mandated to report PATH presence without executing the target.
+ *     `<name>` is bound to the shell's `$0` positional rather than interpolated into the script,
+ *     so it is never re-parsed as shell syntax — this closes the command-injection seam AND
+ *     avoids the Node `DEP0190` warning that fires when an args array is paired with `shell: true`.
  *
  * Resolution policy (identical on both platforms):
  *
@@ -26,7 +29,7 @@ export const commandExists = (name: string): Promise<boolean> =>
     const child =
       process.platform === 'win32'
         ? spawn('where', [name], { stdio: 'ignore' })
-        : spawn('command', ['-v', name], { stdio: 'ignore', shell: true });
+        : spawn('sh', ['-c', 'command -v "$0"', name], { stdio: 'ignore' });
     let settled = false;
     const settle = (value: boolean): void => {
       if (settled) return;
