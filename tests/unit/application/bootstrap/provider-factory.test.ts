@@ -10,6 +10,7 @@ const harnessConfig: Settings['harness'] = {
   plateauThreshold: 2,
   escalateOnPlateau: false,
   escalationMap: {},
+  skipPreVerifyOnFreshSetup: false,
 };
 
 const claudeConfig: Settings['ai'] = {

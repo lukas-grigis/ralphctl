@@ -97,6 +97,7 @@ export const DEFAULT_SETTINGS: Settings = {
     plateauThreshold: 3,
     escalateOnPlateau: true,
     escalationMap: {},
+    skipPreVerifyOnFreshSetup: false,
   },
   logging: { level: 'info' },
   concurrency: { maxParallelTasks: 1 },

@@ -46,6 +46,7 @@ const parseProviderKey = (key: string): { readonly flow: FlowId; readonly role?:
  *                                                      implement splits into a generator + evaluator pair
  *   harness.maxTurns | maxAttempts | rateLimitRetries | plateauThreshold    integer (range-checked)
  *   harness.escalateOnPlateau                          boolean (escalate generator model on plateau)
+ *   harness.skipPreVerifyOnFreshSetup                  boolean (skip first pre-verify when this run's setup verified the tree)
  *   harness.escalationMap.<fromModel>                  upgraded model id; empty input clears the entry
  *   logging.level                                      silent | debug | info | warn | error
  *   concurrency.maxParallelTasks                       1–5 (1 = serial; >1 = parallel, one git worktree per task)

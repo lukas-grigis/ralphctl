@@ -314,6 +314,27 @@ export const SettingsSchema = z.object({
          * with a typed Zod error naming the offending field.
          */
         escalationMap: z.record(z.string(), z.string()).default({}),
+        /**
+         * Opt-in fast path: skip the FIRST pre-task verify of a launch when this launch's own
+         * setup script already built+tested the same tree. Defaults `false` so existing users see
+         * zero behaviour change — flipping it on is an explicit assertion that "my setup script
+         * verifies the tree", not merely that it installs dependencies.
+         *
+         * When `true`, the `pre-task-verify` leaf synthesizes a green baseline (instead of
+         * re-running the verify gate) for the first task on each repo, but ONLY when ALL hold:
+         * this launch's setup run for that repo succeeded, the working tree is clean, and no prior
+         * task on the same cwd has already carried a green post-verify baseline (the existing
+         * carry-baseline short-circuit owns that case). This eliminates the redundant verify the
+         * first task of every run otherwise pays seconds after setup already proved the tree green.
+         *
+         * CAVEAT — the skip is only sound when the setup script ACTUALLY VERIFIES the tree (builds
+         * + runs the test gate). A setup script that merely installs dependencies (`pnpm install`,
+         * `mvn dependency:go-offline`) validates nothing: with this flag on, the skip would hide a
+         * pre-broken baseline, and a later red post-verify on that same tree would be mis-attributed
+         * to the AI's work rather than the inherited breakage. Leave this `false` unless your setup
+         * gate is a full verify.
+         */
+        skipPreVerifyOnFreshSetup: z.boolean().default(false),
       })
       .superRefine((harness, ctx) => {
         /**

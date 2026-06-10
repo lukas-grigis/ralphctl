@@ -36,3 +36,5 @@
   multi-gate VerifyRun representation, gitDiffFootprint seam, fail-fast post / all-run pre asymmetry, run-ALL fallback
 - [project_detect_scripts_verify_gates_signal.md](project_detect_scripts_verify_gates_signal.md) — T9 verify-gates signal:
   ONE signal carrying gates[] (not per-gate), .nonempty() schema, additive to verify-script, needed RepositoryUpdate wiring
+- [project_run_scoped_ctx_marker_fences.md](project_run_scoped_ctx_marker_fences.md) — a run-scoped ImplementCtx field
+  needs 3 merge-wave fence updates (\_exhaustive map + mergeImplementWave + forkCtx); T13 fresh-setup-skip marker

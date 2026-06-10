@@ -334,6 +334,7 @@ const buildDeps = (
       plateauThreshold: 2,
       escalateOnPlateau: false,
       escalationMap: {},
+      skipPreVerifyOnFreshSetup: false,
     },
   },
   gitRunner,
@@ -776,6 +777,7 @@ describe('createImplementFlow — gen-eval loop', () => {
           plateauThreshold: 2,
           escalateOnPlateau: false,
           escalationMap: {},
+          skipPreVerifyOnFreshSetup: false,
         },
       },
     };
@@ -1937,6 +1939,7 @@ describe('createImplementFlow — gen-eval loop', () => {
           plateauThreshold: 2,
           escalateOnPlateau: false,
           escalationMap: {},
+          skipPreVerifyOnFreshSetup: false,
         },
       },
     };
@@ -2305,6 +2308,7 @@ describe('createImplementFlow — gen-eval loop', () => {
           plateauThreshold: 2,
           escalateOnPlateau: true,
           escalationMap: {},
+          skipPreVerifyOnFreshSetup: false,
         },
       },
     };
@@ -2391,6 +2395,7 @@ describe('createImplementFlow — gen-eval loop', () => {
           plateauThreshold: 2,
           escalateOnPlateau: true,
           escalationMap: {},
+          skipPreVerifyOnFreshSetup: false,
         },
       },
     };
@@ -2478,6 +2483,7 @@ describe('createImplementFlow — gen-eval loop', () => {
           plateauThreshold: 2,
           escalateOnPlateau: false,
           escalationMap: {},
+          skipPreVerifyOnFreshSetup: false,
         },
       },
     };

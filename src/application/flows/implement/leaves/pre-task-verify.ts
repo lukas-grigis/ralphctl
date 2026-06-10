@@ -10,6 +10,7 @@ import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import { appendAttemptVerifyRun, markAttemptBaselineBroken } from '@src/domain/entity/task-attempts.ts';
 import type { InProgressTask, Task } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
+import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
@@ -127,6 +128,16 @@ export interface PreTaskVerifyLeafOpts {
    * output to `<sprintDir>/logs/verify/<task-id>/pre-attempt-<N>.log` per audit [01] / [03].
    */
   readonly sprintDir?: AbsolutePath;
+  /**
+   * Opt-in fresh-setup skip (`settings.harness.skipPreVerifyOnFreshSetup`, default `false`).
+   * When `true`, the FIRST pre-verify of a run on this repo synthesizes a green baseline —
+   * instead of re-running the verify gate — provided this launch's setup script verified the
+   * same repo green (`ctx.setupVerifiedRepoIdsThisRun` contains the task's repo id) AND the
+   * working tree is clean. Tasks 2..N are already covered by the carry-baseline short-circuit
+   * (they carry a green post-verify from the prior task), so this branch only fires when no
+   * such carry is available. Off → the leaf always runs the real verify gate.
+   */
+  readonly skipPreVerifyOnFreshSetup?: boolean;
 }
 
 interface LeafInput {
@@ -140,6 +151,18 @@ interface LeafInput {
    * synthetic green {@link VerifyRun} without spawning the verify script.
    */
   readonly priorPostVerifyOutcome?: { readonly cwd: AbsolutePath; readonly outcome: VerifyRunOutcome };
+  /**
+   * The in-flight task's repository id (`ctx.currentTask.repositoryId`). Matched against
+   * {@link setupVerifiedRepoIds} to decide the fresh-setup skip — keyed on repo id, not cwd, so
+   * the parallel path (worktree path ≠ setup path, same repo id) takes the skip too.
+   */
+  readonly repositoryId: RepositoryId;
+  /**
+   * Carried from `ctx.setupVerifiedRepoIdsThisRun` — the repos this launch's setup verified
+   * green. Drives the fresh-setup short-circuit when {@link PreTaskVerifyLeafOpts.skipPreVerifyOnFreshSetup}
+   * is on and no prior-task carry is available.
+   */
+  readonly setupVerifiedRepoIds?: readonly RepositoryId[];
 }
 
 interface LeafOutput {
@@ -215,10 +238,10 @@ export const preTaskVerifyLeaf = (
         //
         // Git status returning an error (corrupt repo, fs error) demotes to "ineligible" —
         // the real script runs instead, matching today's behavior verbatim.
-        if (
+        const carriedGreenForThisCwd =
           input.priorPostVerifyOutcome?.outcome === 'success' &&
-          String(input.priorPostVerifyOutcome.cwd) === String(opts.cwd)
-        ) {
+          String(input.priorPostVerifyOutcome.cwd) === String(opts.cwd);
+        if (carriedGreenForThisCwd) {
           const dirty = await gitHasUncommittedChanges(deps.gitRunner, opts.cwd);
           if (dirty.ok && !dirty.value) {
             deps.eventBus.publish({
@@ -227,19 +250,40 @@ export const preTaskVerifyLeaf = (
               message: `pre-task-verify ${String(opts.cwd)}: short-circuited (carried green baseline, tree clean)`,
               at: deps.clock(),
             });
-            const synthetic: VerifyRun = {
-              phase: 'pre',
-              ranAt: deps.clock(),
-              command: '',
-              exitCode: 0,
-              durationMs: 0,
-              outcome: 'success',
-            };
-            return Result.ok({ task: input.task, run: synthetic, execution: input.execution });
+            return Result.ok({ task: input.task, run: syntheticGreenPreRun(deps.clock), execution: input.execution });
           }
           // Dirty tree, or git probe failed — fall through to the real verify path. Don't
           // surface the git-status error: the operator gets the existing behavior, not a
           // regression.
+        }
+
+        // Fresh-setup short-circuit (T13) — a strict generalisation of the carry-baseline path
+        // above, for the FIRST pre-verify of the run on this repo. The carry path only seeds from a
+        // PRIOR TASK's green post-verify, so the first task of every launch always re-ran the gate
+        // even when this launch's setup script just built+tested the same tree seconds earlier.
+        // When the operator has opted in (`skipPreVerifyOnFreshSetup`), this launch's setup verified
+        // this repo green (the run-scoped marker — NOT a persisted prior-launch success), and the
+        // tree is clean, synthesize the SAME green baseline so downstream attribution + the
+        // PRE_VERIFY_RESULTS rendering fold to the identical path. Gated on the carry being absent so
+        // the two short-circuits never overlap — once a task has post-verified green, the carry path
+        // owns the subsequent skip.
+        if (
+          opts.skipPreVerifyOnFreshSetup === true &&
+          !carriedGreenForThisCwd &&
+          (input.setupVerifiedRepoIds ?? []).some((id) => String(id) === String(input.repositoryId))
+        ) {
+          const dirty = await gitHasUncommittedChanges(deps.gitRunner, opts.cwd);
+          if (dirty.ok && !dirty.value) {
+            deps.eventBus.publish({
+              type: 'log',
+              level: 'info',
+              message: `pre-task-verify ${String(opts.cwd)}: short-circuited (this run's setup verified the tree green, tree clean)`,
+              at: deps.clock(),
+            });
+            return Result.ok({ task: input.task, run: syntheticGreenPreRun(deps.clock), execution: input.execution });
+          }
+          // Dirty tree or git probe failed — fall through to the real verify gate (same demotion
+          // policy as the carry path: never surface the git-status error as a regression).
         }
 
         // Normalise legacy script + structured gates into ONE gate list (gates win when present),
@@ -441,7 +485,11 @@ export const preTaskVerifyLeaf = (
         task: ctx.currentTask,
         sprintId: ctx.sprintId,
         execution: ctx.execution,
+        repositoryId: ctx.currentTask.repositoryId,
         ...(ctx.priorPostVerifyOutcome !== undefined ? { priorPostVerifyOutcome: ctx.priorPostVerifyOutcome } : {}),
+        ...(ctx.setupVerifiedRepoIdsThisRun !== undefined
+          ? { setupVerifiedRepoIds: ctx.setupVerifiedRepoIdsThisRun }
+          : {}),
       };
     },
     output: (ctx, out) => {
@@ -474,6 +522,22 @@ export const preTaskVerifyLeaf = (
     },
   });
 };
+
+/**
+ * Synthetic green `phase: 'pre'` {@link VerifyRun} — the shared shape both short-circuit paths
+ * (carry-baseline and fresh-setup) return so downstream attribution and the T4 PRE_VERIFY_RESULTS
+ * rendering see an identical baseline regardless of which skip fired. `command: ''` /
+ * `durationMs: 0` mark it as not-spawned; the contract is the leaf's only (no audit row appended,
+ * `lastPreVerifyOutcome` carries `'success'`).
+ */
+const syntheticGreenPreRun = (clock: () => IsoTimestamp): VerifyRun => ({
+  phase: 'pre',
+  ranAt: clock(),
+  command: '',
+  exitCode: 0,
+  durationMs: 0,
+  outcome: 'success',
+});
 
 const emitBaselineRedLog = (
   deps: Pick<PreTaskVerifyLeafDeps, 'eventBus' | 'clock'>,

@@ -158,6 +158,77 @@ describe('setupScriptRunnerLeaf', () => {
     expect(repo.saves).toHaveLength(1);
   });
 
+  // T13: a fresh green run stamps the run-scoped `setupVerifiedRepoIdsThisRun` marker so the
+  // first pre-task-verify can take the fresh-setup skip. The resume-skip and no-script paths must
+  // NOT stamp it (their success — if any — belongs to a prior launch / validates nothing).
+  it('stamps setupVerifiedRepoIdsThisRun with the repo id when the script ran green this invocation', async () => {
+    const repo = savingRepo();
+    const bus = createCapturingBus();
+    const leaf = setupScriptRunnerLeaf(
+      {
+        shellScriptRunner: passingShell({ output: 'ok', durationMs: 800 }),
+        clock: () => FIXED_NOW,
+        eventBus: bus.bus,
+        sprintExecutionRepo: repo,
+        logger: noopLogger,
+      },
+      { repos: [{ repositoryId: FIXED_REPOSITORY_ID, path: REPO_PATH, setupScript: 'pnpm verify' }] }
+    );
+    const result = await leaf.execute(initialCtx(baseExecution()));
+    if (!result.ok) throw new Error(`expected ok: ${result.error.error.message}`);
+    expect(result.value.ctx.setupVerifiedRepoIdsThisRun?.map(String)).toEqual([String(FIXED_REPOSITORY_ID)]);
+  });
+
+  it('does NOT stamp setupVerifiedRepoIdsThisRun on the resume-skip path (success belongs to a prior launch)', async () => {
+    const repo = savingRepo();
+    const bus = createCapturingBus();
+    const seedExecution: SprintExecution = {
+      ...baseExecution(),
+      setupRanAt: [
+        {
+          repositoryId: FIXED_REPOSITORY_ID,
+          ranAt: FIXED_NOW,
+          command: 'pnpm verify',
+          exitCode: 0,
+          durationMs: 100,
+          outcome: 'success',
+        },
+      ],
+    };
+    const leaf = setupScriptRunnerLeaf(
+      {
+        shellScriptRunner: passingShell({ output: 'should not run' }),
+        clock: () => FIXED_NOW,
+        eventBus: bus.bus,
+        sprintExecutionRepo: repo,
+        logger: noopLogger,
+      },
+      { repos: [{ repositoryId: FIXED_REPOSITORY_ID, path: REPO_PATH, setupScript: 'pnpm verify' }] }
+    );
+    const result = await leaf.execute(initialCtx(seedExecution));
+    if (!result.ok) throw new Error('expected ok');
+    // Marker absent — the resume skip means this LAUNCH did not verify the tree.
+    expect(result.value.ctx.setupVerifiedRepoIdsThisRun).toBeUndefined();
+  });
+
+  it('does NOT stamp setupVerifiedRepoIdsThisRun when the repo has no setupScript (skipped — nothing validated)', async () => {
+    const repo = savingRepo();
+    const bus = createCapturingBus();
+    const leaf = setupScriptRunnerLeaf(
+      {
+        shellScriptRunner: passingShell(),
+        clock: () => FIXED_NOW,
+        eventBus: bus.bus,
+        sprintExecutionRepo: repo,
+        logger: noopLogger,
+      },
+      { repos: [{ repositoryId: FIXED_REPOSITORY_ID, path: REPO_PATH }] }
+    );
+    const result = await leaf.execute(initialCtx(baseExecution()));
+    if (!result.ok) throw new Error('expected ok');
+    expect(result.value.ctx.setupVerifiedRepoIdsThisRun).toBeUndefined();
+  });
+
   it('records a failed row and aborts the chain when the script exits non-zero', async () => {
     const repo = savingRepo();
     const bus = createCapturingBus();

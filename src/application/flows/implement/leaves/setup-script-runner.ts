@@ -110,6 +110,13 @@ interface LeafInput {
 
 interface LeafOutput {
   readonly execution: SprintExecution;
+  /**
+   * Repository ids whose setup script ran green DURING THIS invocation. Excludes the
+   * resume-skip path (whose success belongs to an earlier launch) and the no-script `'skipped'`
+   * path (nothing was validated). Lifted onto `ctx.setupVerifiedRepoIdsThisRun` so the first
+   * pre-task-verify of the run can seed a green baseline under `skipPreVerifyOnFreshSetup`.
+   */
+  readonly verifiedThisRun: readonly RepositoryId[];
 }
 
 export const setupScriptRunnerLeaf = (
@@ -127,6 +134,11 @@ export const setupScriptRunnerLeaf = (
       useCase: {
         execute: async (input, signal): Promise<Result<LeafOutput, DomainError>> => {
           let execution = input.execution;
+          // Repos whose setup ran green in THIS invocation. Seeds the
+          // `skipPreVerifyOnFreshSetup` fast path on the first pre-task-verify. The resume-skip
+          // and no-script paths deliberately do NOT contribute — only a fresh green run proves
+          // the tree was verified by this launch.
+          const verifiedThisRun: RepositoryId[] = [];
           for (const repo of opts.repos) {
             const command = repo.setupScript?.trim() ?? '';
             // Resume gate: if a prior chain on this sprint already ran setup successfully
@@ -274,6 +286,7 @@ export const setupScriptRunnerLeaf = (
             execution = await persistRun(execution, run, deps);
 
             if (passed) {
+              verifiedThisRun.push(repo.repositoryId);
               deps.eventBus.publish({
                 type: 'log',
                 level: 'info',
@@ -372,7 +385,7 @@ export const setupScriptRunnerLeaf = (
               })
             );
           }
-          return Result.ok({ execution });
+          return Result.ok({ execution, verifiedThisRun });
         },
       },
       input: (ctx) => {
@@ -387,8 +400,13 @@ export const setupScriptRunnerLeaf = (
         return { execution: ctx.execution };
       },
       // Re-stamp ctx with the (possibly mutated) execution so downstream leaves like
-      // `resolveBranchLeaf` see the audit-appended value.
-      output: (ctx, out) => ({ ...ctx, execution: out.execution }),
+      // `resolveBranchLeaf` see the audit-appended value, plus the run-scoped set of repos this
+      // launch's setup verified — read by the first pre-task-verify under `skipPreVerifyOnFreshSetup`.
+      output: (ctx, out) => ({
+        ...ctx,
+        execution: out.execution,
+        ...(out.verifiedThisRun.length > 0 ? { setupVerifiedRepoIdsThisRun: out.verifiedThisRun } : {}),
+      }),
     },
     { label: `setup-script${repoLabel}` }
   );

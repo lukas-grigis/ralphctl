@@ -219,6 +219,12 @@ single `verifyScript` normalises to one catch-all gate (`pathPrefix: ''`), so th
 byte-for-byte the old behaviour. CRITICAL: a footprint probe failure or an empty footprint falls back to
 running ALL gates — a gate is never silently skipped.
 
+**Deviation — skip pre-verify on fresh setup (WS6, opt-in).** With `settings.harness.skipPreVerifyOnFreshSetup`
+on (default off), the FIRST pre-task verify of a run synthesizes a green baseline (instead of re-running the
+gate) when this launch's own setup script already verified that repo green and the tree is clean — the owner
+asserts "my setup script verifies the tree", trading the strict pre/post symmetry for the redundant first-task
+gate run. Default-off keeps the symmetry intact for everyone who has not made that assertion.
+
 ---
 
 ### 10. Native context file per provider

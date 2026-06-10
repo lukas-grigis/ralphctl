@@ -42,6 +42,7 @@ const _exhaustive = {
   sprint: SPRINT,
   execution: SPRINT,
   progressFile: SPRINT,
+  setupVerifiedRepoIdsThisRun: SPRINT,
   // task list → overlay
   tasks: TASKS,
   // per-task single-slot → undefined
@@ -129,6 +130,9 @@ export const mergeImplementWave = (
     ...(base.sprint !== undefined ? { sprint: base.sprint } : {}),
     ...(base.execution !== undefined ? { execution: base.execution } : {}),
     ...(base.progressFile !== undefined ? { progressFile: base.progressFile } : {}),
+    ...(base.setupVerifiedRepoIdsThisRun !== undefined
+      ? { setupVerifiedRepoIdsThisRun: base.setupVerifiedRepoIdsThisRun }
+      : {}),
     // task list → overlay
     ...(tasks !== undefined ? { tasks } : {}),
     // per-task + signal-accum classes intentionally omitted → undefined in the merged ctx.
@@ -176,6 +180,11 @@ export const forkCtx = (
     ...(base.execution !== undefined ? { execution: base.execution } : {}),
     ...(base.progressFile !== undefined ? { progressFile: base.progressFile } : {}),
     ...(base.tasks !== undefined ? { tasks: base.tasks } : {}),
+    // run-scoped (like `execution`): the set of repos this launch's setup verified survives the
+    // fork so a parallel branch's first pre-task-verify can also take the fresh-setup skip.
+    ...(base.setupVerifiedRepoIdsThisRun !== undefined
+      ? { setupVerifiedRepoIdsThisRun: base.setupVerifiedRepoIdsThisRun }
+      : {}),
     // per-task + signal-accum classes cleared (omitted → undefined); `priorPostVerifyOutcome`
     // dropped (accepted cost). `expectedBranch` is intentionally NOT set here — see the docstring:
     // the branch element omits `branch-preflight`, so leaving it `undefined` is correct.

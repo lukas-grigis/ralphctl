@@ -246,6 +246,10 @@ export const createPerTaskSubchain = (
               {
                 cwd: repo.path,
                 sprintDir: opts.sprintDir,
+                // Opt-in fresh-setup skip — read straight off the harness config (a static
+                // launch-time value, same channel as `effectiveMaxAttempts` below; not a mid-run
+                // re-readable knob, so it rides `deps.config` rather than `readConfig`).
+                skipPreVerifyOnFreshSetup: deps.config.harness.skipPreVerifyOnFreshSetup,
                 ...(repo.verifyScript !== undefined ? { verifyScript: repo.verifyScript } : {}),
                 ...(repo.verifyGates !== undefined ? { verifyGates: repo.verifyGates } : {}),
                 ...(repo.verifyTimeout !== undefined ? { timeoutMs: repo.verifyTimeout } : {}),
