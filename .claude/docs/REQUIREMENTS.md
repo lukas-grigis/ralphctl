@@ -123,7 +123,9 @@ Status flow: `draft → planned → active → review → done`.
 - [x] **Per-task generator-evaluator loop** — the attempt body is
       `start-attempt → pre-task-verify → gen-eval inner loop (generator/evaluator per turn) → finalize → post-task-verify → commit (guarded) → settle-attempt → append-learnings → progress-journal`,
       wrapped in an outer `loop` over attempts.
-      Exits when the evaluator passes or `maxAttempts` is hit (then transition to `blocked`).
+      Exits when the evaluator passes, `maxAttempts` is hit (transition to `blocked`), or a red post-verify
+      with attribution `regressed` exhausts the attempt budget (also `blocked`; within budget it retries with
+      the failing evidence in the generator prompt via `RETRY_FEEDBACK_SECTION`).
       A single launch runs the outer attempt loop up to `maxAttempts` times per task (`maxAttempts === 1`
       preserves the prior single-attempt-per-launch behaviour).
 - [ ] **Per-flow model selection** — `settings.ai.implement` is a nested `{ generator, evaluator }` pair; each
@@ -132,10 +134,13 @@ Status flow: `draft → planned → active → review → done`.
 - [x] **`setupScript` runs unconditionally once per affected repo at sprint start** — outcome recorded as a
       structured `SetupRun` on `SprintExecution.setupRanAt`; any failure hard-aborts the chain with the
       failing repo named.
-- [x] **`verifyScript` gates per-task settlement with pre/post attribution** — runs before the AI (pre-task)
-      and after commit (post-task). Attribution: `clean` / `regressed` / `baseline-broken` / `fixed-baseline`.
-      A `baseline-broken` result does not block the AI; a `regressed` result transitions task to `blocked`.
-      `Repository.verifyTimeout` is forwarded as `timeoutMs` to both calls; absent → 5-min runner default.
+- [x] **`verifyScript` / `verifyGates` gates per-task settlement with pre/post attribution** — runs before the
+      AI (pre-task) and after commit (post-task). Attribution: `clean` / `regressed` / `baseline-broken` /
+      `fixed-baseline`. A `baseline-broken` result does not block the AI; a `regressed` result triggers a
+      retry within the attempt budget (failing verify evidence injected via `RETRY_FEEDBACK_SECTION`); budget
+      exhaustion transitions task to `blocked`. When `Repository.verifyGates` is present and non-empty,
+      post-task verify runs only diff-scoped gates (pre-task always runs all gates). `Repository.verifyTimeout`
+      is forwarded as `timeoutMs` to both calls; absent → 5-min runner default.
 - [ ] **Branch management** — `resolveBranchLeaf` prompts on first run; persists on `SprintExecution.branch`;
       per-task preflight verifies the right branch is checked out.
 - [x] **Resume of aborted runs** — tasks left in `in_progress` from a prior crash reset to `todo` and

@@ -77,9 +77,9 @@ on every settlement. The split keeps planning mutations isolated from execution-
 list does not lose the sprint plan.
 
 `Repository` is **nested inside `Project`** as a value object — not its own aggregate. Project carries an array
-of repositories (each with `setupScript`, `verifyScript`, `verifyTimeout`, optional skill/script hints); mutating a repo
-goes through
-`ProjectRepository.save()`.
+of repositories (each with `setupScript`, `verifyScript`, `verifyTimeout`, optional `verifyGates` (`VerifyGate[]` —
+per-module `{ pathPrefix, command, timeoutMs? }` gates; wins over `verifyScript` when present and non-empty),
+optional skill/script hints); mutating a repo goes through `ProjectRepository.save()`.
 
 `Ticket` is nested inside `Sprint` (status flips `pending → approved` during refine).
 
@@ -412,8 +412,10 @@ smart constructors. Read the source for the field list; this section names each 
 and the non-obvious mutators.
 
 - **`Project`** (`project.ts`) — identified by `ProjectId`; carries an array of `Repository` value objects (each
-  with optional `setupScript`, `verifyScript`, `verifyTimeout`, `setupSkill`, `verifySkill`, and `suggestedSkills`
-  — names persisted by `offerSkillSuggestionsLeaf` in the readiness flow).
+  with optional `setupScript`, `verifyScript`, `verifyTimeout`, `verifyGates` (`VerifyGate[]` — per-module
+  `{ pathPrefix, command, timeoutMs? }` gates proposed by `detect-scripts`; wins over `verifyScript` when
+  present and non-empty), `setupSkill`, `verifySkill`, and `suggestedSkills` — names persisted by
+  `offerSkillSuggestionsLeaf` in the readiness flow).
 - **`Sprint`** (`sprint.ts`) — identified by `SprintId`; lifecycle `draft → planned → active → review → done`; carries
   `projectId`, nested `Ticket[]`, `affectedRepositories` (absolute paths). Mutators: `addTicket`, `refineTicket`,
   `removeTicket`, `planSprint(draft → planned)`, `activate`, `transitionToReview`, `transitionToDone`.
@@ -438,7 +440,7 @@ and the non-obvious mutators.
   `escalatedToModel` are stamped on first plateau-escalation.
 - **`Settings`** — declared by `SettingsSchema` in `domain/entity/settings.ts`. Top-level fields:
   `schemaVersion` (currently `2`), `ai`,
-  `harness: { maxTurns, maxAttempts, rateLimitRetries, plateauThreshold, escalateOnPlateau, escalationMap }`,
+  `harness: { maxTurns, maxAttempts, rateLimitRetries, plateauThreshold, escalateOnPlateau, escalationMap, skipPreVerifyOnFreshSetup }`,
   `logging: { level }`, `concurrency: { maxParallelTasks }`, `ui: { notifications: { enabled } }`,
   `developer: { showEvaluatorFailureUI }`. `ai` is a flat per-flow record: an optional global
   `ai.effort` plus one row per flow — `ai.{refine, plan, readiness, ideate, createPr}`, each
@@ -472,6 +474,7 @@ signals: [...] }` envelope. The harness reads + Zod-validates post-spawn via
 | `CommitMessageSignal`                                    | Used by `commit-task` leaf to author commit message                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `SetupScriptSignal`                                      | `detect-scripts` flow persists on `Repository.setupScript`                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `VerifyScriptSignal`                                     | `detect-scripts` flow persists on `Repository.verifyScript`                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `VerifyGatesSignal`                                      | `detect-scripts` flow persists per-module `{ pathPrefix, command, timeoutMs? }` gates onto `Repository.verifyGates` (additive to `VerifyScriptSignal`; emitted for monorepo proposals only — single-module repos omit the signal; gates win over `verifyScript` when present and non-empty)                                                                                                                                                                   |
 | `AgentsMdProposalSignal`                                 | `readiness` flow writes the provider-native context file (CLAUDE.md / .github/copilot-instructions.md / AGENTS.md)                                                                                                                                                                                                                                                                                                                                            |
 | `SetupSkillProposalSignal` / `VerifySkillProposalSignal` | `detect-skills` flow surfaces suggestions                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `SkillSuggestionsSignal`                                 | `readiness` flow — `offerSkillSuggestionsLeaf` presents a human-gated install/scaffold step per suggested skill; accepted names persist on `Repository.suggestedSkills`                                                                                                                                                                                                                                                                                       |

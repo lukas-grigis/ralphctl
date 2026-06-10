@@ -7,6 +7,68 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Structured per-module verify gates (`Repository.verifyGates`).** A `VerifyGate[]` — `{ pathPrefix,
+command, timeoutMs? }` — supplements the legacy `verifyScript` string and wins when present and non-empty.
+  Pre-task verify runs ALL gates (complete attribution baseline); post-task verify runs only the gates whose
+  `pathPrefix` matches the attempt's diff footprint (`git diff --name-only HEAD` + untracked), fail-fast. A
+  footprint probe failure or an empty footprint falls back to running all gates — a gate is never silently
+  skipped. A monorepo task touching one module no longer pays every other module's suite twice per verify
+  pass. The legacy single `verifyScript` normalises to one `pathPrefix: ''` catch-all gate — existing repos
+  are untouched; no schema-version bump.
+
+- **`detect-scripts` proposes structured verify gates for monorepos.** The `detect-scripts` flow now emits an
+  additive `verify-gates` signal — one `{ pathPrefix, command, timeoutMs? }` gate per separable module root
+  — alongside the legacy `verify-script` proposal. Single-module repos are unchanged (no gates emitted);
+  monorepo proposals carry the chained script as the catch-all fallback the operator sees, while the gates
+  persist onto `Repository.verifyGates` for diff-scoped post-verify. The TUI tasks-panel signal rows render
+  the new signal.
+
+- **`settings.harness.skipPreVerifyOnFreshSetup` (default `false`).** Opt-in: skip the FIRST pre-task verify
+  of a run when this launch's own setup script already built and tested the same tree — eliminating a
+  redundant verify the first task of every launch otherwise pays seconds after setup proved the tree green.
+  Safe only when the setup script actually verifies (builds + runs the test gate), not merely installs
+  dependencies. Default `false` keeps the strict pre/post symmetry for everyone who has not made that
+  assertion.
+
+- **Three new prompt placeholders, wired from real data.**
+  - `PRE_VERIFY_RESULTS` (implement + continuation): the running attempt's pre-verify command, exit, duration,
+    and log tail — so "review the baseline rather than re-running" is actionable.
+  - `RETRY_FEEDBACK_SECTION` (implement + continuation): the prior attempt's failing post-verify evidence,
+    injected when a `regressed` post-verify grants a retry.
+  - `GENERATOR_HINTS_SECTION` (evaluate + continuation): same-round generator signals rendered into the
+    evaluator prompt as unverified environment context, so environment quirks aren't re-debugged twice per
+    round.
+
+- **TUI picker keep-default effort label names value and source.** The "Keep default" option in the
+  customize-for-this-run effort picker now shows the concrete effort value and where it came from (e.g.
+  "Keep default (xhigh — saved row)" / "(high — global)"), so keeping a setting is an informed choice
+  rather than an invisible carryover.
+
+- **TUI settings harness section gains two new toggles and a read-only `escalationMap` display.**
+  `escalateOnPlateau` and `skipPreVerifyOnFreshSetup` are now editable from the settings view (with
+  one-line caveats in the hints); `escalationMap` renders read-only with the CLI edit hint — every harness
+  key the CLI supports is now visible in the TUI.
+
+### Changed
+
+- **Verification division of labor — each gate runs exactly once.** The prompt templates now assign each role
+  its own verify gate so the repo-wide script is never executed more than once per round: the generator runs
+  each auto verification criterion once (never the full `verifyScript` — the harness post-verify is named as
+  the sole authoritative full-gate run, and Phase 2.4 asks for the cheapest relevant check); the evaluator
+  runs every auto criterion itself (independence intact) but no longer runs the repo-wide script; the plan
+  template no longer emits run-the-checks steps in the good-steps example (verification belongs in
+  `verificationCriteria`) and only attaches `extraDimensions` when an acceptance criterion demands a property
+  no floor dimension covers.
+
+- **Red post-verify retries within the attempt budget rather than blocking immediately.** A post-task verify
+  returning red with attribution `regressed` (evaluator-passed attempt, harness-rejected) now grants a retry
+  inside the task's `maxAttempts` budget: the quarantine leaf stashes the rejected diff so the retry starts
+  from the last clean commit, and the failing verify command and log tail are carried into the generator
+  prompt via `RETRY_FEEDBACK_SECTION`. Budget exhaustion still transitions to `blocked`, and the commit guard
+  independently checks the block reason — red work never lands regardless of budget.
+
 ## [0.11.0] - 2026-06-10
 
 This release refreshes the model catalogs, adds four budget-conscious presets, and reworks how the

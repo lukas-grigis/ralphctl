@@ -93,17 +93,33 @@ single-column below `md`. Rail grows fluidly 36→56 cols at `xl`+ via `resolveR
 `useBreakpoint` from `theme/tokens.ts`; no hardcoded column literals. Global keys: `b` banner, `g` progress,
 `y` yank, `P` project picker, `S` sprint picker. Execute-view: `j`/`k` nav, `e` verification-criteria, `c` cancel-scope.
 
-**`setupScript` vs `verifyScript`.** Setup runs unconditionally once per affected repo at sprint start;
-each attempt is recorded as a structured `SetupRun` (outcome: `success` / `failed` / `spawn-error` /
-`skipped`) persisted on `SprintExecution.setupRanAt`. Non-zero exit or spawn failure hard-aborts the
-chain. Verify runs both **pre-task** (before the AI) and **post-task** (after commit) with an attribution
-algorithm (`clean` / `regressed` / `baseline-broken` / `fixed-baseline`) that avoids blocking the AI for
-pre-existing failures. Failure transitions the task to `blocked`, never `done`. `Repository.verifyTimeout`
-caps both the pre- and post-task verify calls as `timeoutMs` on the shell runner; when absent the runner
-falls back to `DEFAULT_SHELL_TIMEOUT_MS` (5 min). Both scripts are collected during `detect-scripts` and
-persisted on `Repository.{setupScript,verifyScript,verifyTimeout}`. Persisted `project.json` files written
-before v0.7.0 used `checkScript` / `checkTimeout`; the schema accepts those legacy keys on read and
-rewrites the canonical names on the next save (no manual migration step).
+**`setupScript` vs `verifyScript` / `verifyGates`.** Setup runs unconditionally once per affected repo at
+sprint start; each attempt is recorded as a structured `SetupRun` (outcome: `success` / `failed` /
+`spawn-error` / `skipped`) persisted on `SprintExecution.setupRanAt`. Non-zero exit or spawn failure
+hard-aborts the chain. Verify runs both **pre-task** (before the AI) and **post-task** (after commit) with
+an attribution algorithm (`clean` / `regressed` / `baseline-broken` / `fixed-baseline`) that avoids
+blocking the AI for pre-existing failures. `Repository.verifyTimeout` caps both verify calls as `timeoutMs`
+on the shell runner; absent → `DEFAULT_SHELL_TIMEOUT_MS` (5 min). Scripts are collected during
+`detect-scripts` and persisted on `Repository.{setupScript,verifyScript,verifyTimeout}`. Persisted
+`project.json` files written before v0.7.0 used `checkScript` / `checkTimeout`; the schema accepts those
+legacy keys on read and rewrites the canonical names on the next save (no manual migration step).
+
+**Structured verify gates.** `Repository.verifyGates` (`VerifyGate[]` — `{ pathPrefix, command, timeoutMs? }`)
+wins over `verifyScript` when present and non-empty. Pre-task verify runs ALL gates (full attribution
+baseline). Post-task verify runs only gates whose `pathPrefix` matches the attempt's diff footprint
+(`git diff --name-only HEAD` + untracked), fail-fast — so a monorepo task touching one module does not pay
+every other module's gate. A footprint probe failure or an empty footprint falls back to running all gates
+(never a silent skip). The legacy single `verifyScript` normalises to one `pathPrefix: ''` catch-all gate.
+`detect-scripts` emits a `VerifyGatesSignal` alongside the legacy `VerifyScriptSignal` for monorepo repos.
+See `PERFORMANCE.md § Verify-gate cost and scoping` for the full picture.
+
+**Red post-verify retry.** A post-task verify that comes back red with attribution `regressed`
+(evaluator-passed attempt, harness-rejected) now grants a retry within the task's attempt budget
+(`task.maxAttempts ?? harness.maxAttempts`) rather than blocking immediately. The failing verify command
+and log tail are injected into the next attempt's generator prompt via the `RETRY_FEEDBACK_SECTION`
+placeholder (the quarantine leaf stashes the rejected diff so the retry starts from the last clean commit).
+Budget exhaustion still transitions to `blocked` and the commit guard independently keys on the block
+reason, so red work never lands regardless of budget.
 
 **Branch management.** `resolveBranchLeaf` prompts on first run; persists on `SprintExecution.branch`;
 per-task preflight verifies the right branch. `ralphctl create-pr --sprint <id>` opens PR / MR via `gh` /

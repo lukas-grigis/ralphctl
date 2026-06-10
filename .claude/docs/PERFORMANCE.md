@@ -127,6 +127,29 @@ blocks.
 Cross-provider escalation (e.g. `claude-opus-4-8` → `gpt-5.5`) is intentionally deferred — switching
 providers mid-task carries auth / context / tool-availability hazards.
 
+**Verify-gate cost and scoping.** In a measured 23-min single-task sprint, the repo-wide verify script ran four
+times per task (harness pre + post + generator in-turn + evaluator in-turn). The following knobs reduce that cost:
+
+- **Verification division of labor** (prompt-level, not a settings key): the generator runs only per-criterion
+  commands; the evaluator runs every auto criterion but not the repo-wide script; the harness post-verify is the
+  sole authoritative full-gate run. The `PRE_VERIFY_RESULTS` placeholder (implement + continuation prompts) lets
+  the generator review the pre-task baseline rather than re-running it.
+- **`Repository.verifyGates`** (`VerifyGate[]` — `{ pathPrefix, command, timeoutMs? }`) enables per-module gate
+  scoping: pre-task verify runs ALL gates (complete attribution baseline); post-task verify runs only the gates
+  whose `pathPrefix` matches the attempt's diff footprint (`git diff --name-only HEAD` + untracked), fail-fast.
+  A footprint probe failure or an empty footprint falls back to running all gates — a gate is never silently
+  skipped. A monorepo task touching one module no longer pays every other module's suite on every verify pass.
+  The legacy single `verifyScript` normalises to one catch-all `pathPrefix: ''` gate — non-gated repos are
+  byte-for-byte the prior behaviour.
+- **`settings.harness.skipPreVerifyOnFreshSetup`** (default `false`) — skip the FIRST pre-task verify of a run
+  when this launch's own setup script already proved the tree green. The skip synthesizes the same green
+  `VerifyRun` shape the carry-baseline path produces, so the `PRE_VERIFY_RESULTS` block and attribution fold
+  through one code path. Safe only when the setup script actually verifies the tree, not merely installs
+  dependencies. See `AI-SETTINGS.md § settings.harness keys`.
+
+Wall-clock per gen-eval round: setup (once at sprint start) + pre-verify + generator turn(s) + evaluator turn(s) +
+post-verify + commit. Post-verify dominates for monorepos; `verifyGates` diff-scoping is the highest-leverage knob there.
+
 **Trace ring buffer.** The runner caps `runner.trace` at `MAX_TRACE_ENTRIES = 5_000`
 (`src/application/chain/run/runner.ts`). The `TaskRoundStarted` event (carrying `roundN`,
 `attemptN`, `totalCap`) drives the `round N/M` display — replacing the old React-ref high-water mark.
