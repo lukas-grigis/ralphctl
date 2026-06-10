@@ -4,7 +4,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
-import type { HarnessSignal, SetupScriptSignal, VerifyScriptSignal } from '@src/domain/signal.ts';
+import type {
+  HarnessSignal,
+  SetupScriptSignal,
+  VerifyGateProposal,
+  VerifyGatesSignal,
+  VerifyScriptSignal,
+} from '@src/domain/signal.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import type { Project } from '@src/domain/entity/project.ts';
@@ -24,6 +30,8 @@ import { createEventBusLogger } from '@src/business/observability/event-bus-logg
 import { createDetectScriptsFlow } from '@src/application/flows/detect-scripts/flow.ts';
 import { detectScriptsSession } from '@src/application/flows/detect-scripts/leaves/propose.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
+import { createFsProjectRepository } from '@src/integration/persistence/project/repository.ts';
+import { projectFile } from '@src/integration/persistence/storage.ts';
 
 const DETECT_MARKER = 'inventorying a single repository';
 
@@ -105,6 +113,12 @@ const setupScript = (command: string): SetupScriptSignal => ({
 const verifyScript = (command: string): VerifyScriptSignal => ({
   type: 'verify-script',
   command,
+  timestamp: IsoTimestamp.now(),
+});
+
+const verifyGates = (gates: readonly VerifyGateProposal[]): VerifyGatesSignal => ({
+  type: 'verify-gates',
+  gates,
   timestamp: IsoTimestamp.now(),
 });
 
@@ -200,6 +214,70 @@ describe('createDetectScriptsFlow', () => {
     const promptContent = await fs.readFile(join(flowDir, runDirs[0]!, 'prompt.md'), 'utf8');
     expect(promptContent).toContain(DETECT_MARKER);
     expect(promptContent).toContain(String(repository.path));
+  });
+
+  it('monorepo path — AI proposes verify-gates alongside the script, both persist (additive)', async () => {
+    const repository = makeRepository({ path: '/tmp/ralph/detect-scripts-gates', name: 'mono' });
+    const project = makeProject({ repositories: [repository] });
+    const interactive = scriptedInteractive({ choices: ['approve'] });
+    const { deps, saves } = buildDeps(
+      project,
+      {
+        signals: [
+          setupScript('pnpm install'),
+          verifyScript('pnpm -r verify'),
+          verifyGates([
+            { pathPrefix: 'services/api/', command: 'pnpm --filter api verify' },
+            { pathPrefix: 'services/web/', command: 'pnpm --filter web verify', timeoutMs: 120_000 },
+          ]),
+        ],
+      },
+      interactive,
+      runsRoot
+    );
+
+    const flow = createDetectScriptsFlow(deps, { projectId: project.id, model: 'claude-sonnet-4-6' });
+    const runner = createRunner({ id: 'r-detect-gates', element: flow, initialCtx: { projectId: project.id } });
+    await runner.start();
+
+    expect(runner.status).toBe('completed');
+    expect(runner.ctx.proposal?.proposedVerifyGates).toEqual([
+      { pathPrefix: 'services/api/', command: 'pnpm --filter api verify' },
+      { pathPrefix: 'services/web/', command: 'pnpm --filter web verify', timeoutMs: 120_000 },
+    ]);
+    expect(runner.ctx.accepted).toBe(true);
+
+    expect(saves).toHaveLength(1);
+    const saved = saves[0]!.repositories[0]!;
+    // Additive: the single-line verify script stays as the legacy fallback, gates persist beside it.
+    expect(saved.verifyScript).toBe('pnpm -r verify');
+    expect(saved.verifyGates).toEqual([
+      { pathPrefix: 'services/api/', command: 'pnpm --filter api verify' },
+      { pathPrefix: 'services/web/', command: 'pnpm --filter web verify', timeoutMs: 120_000 },
+    ]);
+  });
+
+  it('single-module path — AI omits verify-gates, only the script persists, no gates field written', async () => {
+    const repository = makeRepository({ path: '/tmp/ralph/detect-scripts-single', name: 'svc' });
+    const project = makeProject({ repositories: [repository] });
+    const interactive = scriptedInteractive({ choices: ['approve'] });
+    const { deps, saves } = buildDeps(
+      project,
+      { signals: [setupScript('pnpm install'), verifyScript('pnpm test')] },
+      interactive,
+      runsRoot
+    );
+
+    const flow = createDetectScriptsFlow(deps, { projectId: project.id, model: 'claude-sonnet-4-6' });
+    const runner = createRunner({ id: 'r-detect-single', element: flow, initialCtx: { projectId: project.id } });
+    await runner.start();
+
+    expect(runner.status).toBe('completed');
+    expect(runner.ctx.proposal?.proposedVerifyGates).toBeUndefined();
+    const saved = saves[0]!.repositories[0]!;
+    expect(saved.verifyScript).toBe('pnpm test');
+    expect(saved.verifyGates).toBeUndefined();
+    expect('verifyGates' in saved).toBe(false);
   });
 
   it('rejection path — user declines → project is not saved', async () => {
@@ -399,5 +477,101 @@ describe('createDetectScriptsFlow', () => {
     expect(session.cwd).toBe(repository.path);
     expect(session.signalsFile).toBe(signalsFile);
     expect(session.outputDir).toBe(outputDir);
+  });
+});
+
+describe('createDetectScriptsFlow — real on-disk persistence', () => {
+  // Round-trips proposed gates through the production `project.json` codec to the filesystem
+  // and back via a fresh repository instance — a schema regression or a setter that stopped
+  // writing surfaces here as a missing field after re-read, not as a green test against a fake.
+  let dataRoot: AbsolutePath;
+  let dataRootRaw: string;
+  let runsRoot: AbsolutePath;
+  let runsRootRaw: string;
+
+  beforeEach(async () => {
+    const dataRaw = await fs.mkdtemp(join(tmpdir(), 'ralphctl-detect-scripts-data-'));
+    dataRootRaw = await realpath(dataRaw);
+    const parsedData = AbsolutePath.parse(dataRootRaw);
+    if (!parsedData.ok) throw new Error('AbsolutePath.parse failed for dataRoot');
+    dataRoot = parsedData.value;
+    await fs.mkdir(join(dataRootRaw, 'projects'), { recursive: true });
+
+    const runsRaw = await fs.mkdtemp(join(tmpdir(), 'ralphctl-detect-scripts-runs-'));
+    runsRootRaw = await realpath(runsRaw);
+    const parsedRuns = AbsolutePath.parse(runsRootRaw);
+    if (!parsedRuns.ok) throw new Error('AbsolutePath.parse failed for runsRoot');
+    runsRoot = parsedRuns.value;
+  });
+
+  afterEach(async () => {
+    await fs.rm(dataRootRaw, { recursive: true, force: true });
+    await fs.rm(runsRootRaw, { recursive: true, force: true });
+  });
+
+  it('persists proposed verify-gates to project.json and reads them back through the codec', async () => {
+    const repository = makeRepository({ path: '/tmp/ralph/detect-scripts-realfs', name: 'mono' });
+    const project = makeProject({ repositories: [repository] });
+
+    // Real filesystem-backed repository — same persistence path production uses.
+    const projectRepo = createFsProjectRepository({ root: dataRoot });
+    const seeded = await projectRepo.save(project);
+    expect(seeded.ok).toBe(true);
+
+    const harness = createInMemorySink<HarnessSignal>();
+    const eventBus = createInMemoryEventBus();
+    const provider = createFakeAiProvider({
+      signals: {
+        'detect-scripts': [
+          setupScript('pnpm install'),
+          verifyScript('pnpm -r verify'),
+          verifyGates([
+            { pathPrefix: 'services/api/', command: 'pnpm --filter api verify' },
+            { pathPrefix: 'services/web/', command: 'pnpm --filter web verify', timeoutMs: 90_000 },
+          ]),
+        ],
+      },
+      markerOverrides: { 'detect-scripts': DETECT_MARKER },
+    });
+    const interactive = scriptedInteractive({ choices: ['approve'] });
+
+    const deps = {
+      projectRepo,
+      provider,
+      templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
+      signals: harness,
+      eventBus,
+      logger: createEventBusLogger({ eventBus, clock: () => isoTimestamp('2026-05-11T10:00:00.000Z') }),
+      interactive,
+      runsRoot,
+    };
+
+    const flow = createDetectScriptsFlow(deps, { projectId: project.id, model: 'claude-sonnet-4-6' });
+    const runner = createRunner({ id: 'r-detect-realfs', element: flow, initialCtx: { projectId: project.id } });
+    await runner.start();
+    expect(runner.status).toBe('completed');
+
+    // The project file exists on disk.
+    const filePath = projectFile(dataRoot, project.id);
+    const onDisk = JSON.parse(await fs.readFile(filePath, 'utf8')) as {
+      readonly repositories: ReadonlyArray<Record<string, unknown>>;
+    };
+    expect(onDisk.repositories[0]?.verifyGates).toEqual([
+      { pathPrefix: 'services/api/', command: 'pnpm --filter api verify' },
+      { pathPrefix: 'services/web/', command: 'pnpm --filter web verify', timeoutMs: 90_000 },
+    ]);
+    expect(onDisk.repositories[0]?.verifyScript).toBe('pnpm -r verify');
+
+    // Re-read through a fresh repository instance → exercises the decode/codec path, not a cache.
+    const reread = createFsProjectRepository({ root: dataRoot });
+    const loaded = await reread.findById(project.id);
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) return;
+    const repo = loaded.value.repositories[0]!;
+    expect(repo.verifyGates).toEqual([
+      { pathPrefix: 'services/api/', command: 'pnpm --filter api verify' },
+      { pathPrefix: 'services/web/', command: 'pnpm --filter web verify', timeoutMs: 90_000 },
+    ]);
+    expect(repo.verifyScript).toBe('pnpm -r verify');
   });
 });

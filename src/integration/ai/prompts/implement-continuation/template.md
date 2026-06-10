@@ -27,6 +27,10 @@ proceed directly to the critique below.
 
 <prior_critique>{{PRIOR_CRITIQUE_SECTION}}</prior_critique>
 
+<retry_feedback>{{RETRY_FEEDBACK_SECTION}}</retry_feedback>
+
+<pre_verify_results>{{PRE_VERIFY_RESULTS}}</pre_verify_results>
+
 <prior_progress>
 The most recent sprint-journal sections (decisions, changes, learnings, notes from prior
 task-attempts) are below for quick reference. Honor prior decisions; do not re-litigate them
@@ -39,10 +43,12 @@ For the complete history — older than the excerpt above — read `{{PROGRESS_F
 </prior_progress>
 
 <goal>
-Address every dimension the evaluator flagged in `<prior_critique>`, then re-run the task's
-verification commands. Emit `task-verified` with the verbatim command output, propose a
+Address every dimension the evaluator flagged in `<prior_critique>`, then run each `auto`
+criterion's command once. Do NOT run the verify script — the harness runs it after your turn as
+the independent commit gate. Exception: when the task defines no `auto` criteria, run the verify
+script once yourself. Emit `task-verified` with the verbatim command output, propose a
 `commit-message` when you touched any file, and emit `task-complete` only after every flagged
-dimension is resolved and every verification command passes. Removing or disabling a test to make
+dimension is resolved and every criterion command passes. Removing or disabling a test to make
 verify pass counts as task failure — fix the implementation, not the test. When a flagged item is
 genuinely blocked (missing dependency, contradictory input, unresolvable ambiguity), emit
 `task-blocked` with the concrete reason instead of guessing.

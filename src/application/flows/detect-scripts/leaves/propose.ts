@@ -11,7 +11,13 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import type { Repository } from '@src/domain/entity/repository.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
-import type { HarnessSignal, SetupScriptSignal, VerifyScriptSignal } from '@src/domain/signal.ts';
+import type {
+  HarnessSignal,
+  SetupScriptSignal,
+  VerifyGateProposal,
+  VerifyGatesSignal,
+  VerifyScriptSignal,
+} from '@src/domain/signal.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { currentSessionId } from '@src/application/session/session.ts';
@@ -95,6 +101,13 @@ interface ProposeInput {
 interface ProposeOutput {
   readonly proposedSetupScript?: string;
   readonly proposedVerifyScript?: string;
+  /**
+   * Structured per-module verify gates the AI proposed for a monorepo-style repo. ADDITIVE to
+   * `proposedVerifyScript` — present only alongside it, never instead. Absent for single-module
+   * repos. Persisted onto `Repository.verifyGates` on accept; the script remains the legacy
+   * fallback the operator sees and edits.
+   */
+  readonly proposedVerifyGates?: readonly VerifyGateProposal[];
   /**
    * Per-run forensic dir surfaced for the confirm leaf to read `body.txt` when both scripts
    * are absent. Always set on success — the leaf creates the dir before calling the AI.
@@ -208,8 +221,7 @@ const proposeUseCase = async (
     deps.eventBus.publish({ type: 'ai-signal', signal: sig, source: 'detect-scripts' });
   }
 
-  const setupScript = signals.find((s): s is SetupScriptSignal => s.type === 'setup-script')?.command;
-  const verifyScript = signals.find((s): s is VerifyScriptSignal => s.type === 'verify-script')?.command;
+  const { setupScript, verifyScript, verifyGates } = extractProposal(signals);
 
   if (setupScript === undefined && verifyScript === undefined) {
     // Surface the run dir at warn level — an empty proposal is the case the operator most
@@ -224,14 +236,38 @@ const proposeUseCase = async (
     repositoryId: String(input.repository.id),
     hasSetupScript: setupScript !== undefined,
     hasVerifyScript: verifyScript !== undefined,
+    verifyGateCount: verifyGates?.length ?? 0,
     runDir: String(paths.value.runDir),
   });
 
   return Result.ok({
     ...(setupScript !== undefined ? { proposedSetupScript: setupScript } : {}),
     ...(verifyScript !== undefined ? { proposedVerifyScript: verifyScript } : {}),
+    ...(verifyGates !== undefined ? { proposedVerifyGates: verifyGates } : {}),
     runDir: paths.value.runDir,
   });
+};
+
+/**
+ * Project the validated detect-scripts signal array onto the three optional proposal fields. The
+ * contract caps each kind at one, so `find` is the right primitive. Extracted from
+ * `proposeUseCase` so the use-case body stays a flat read of its validation chain.
+ */
+const extractProposal = (
+  signals: readonly HarnessSignal[]
+): {
+  readonly setupScript?: string;
+  readonly verifyScript?: string;
+  readonly verifyGates?: readonly VerifyGateProposal[];
+} => {
+  const setupScript = signals.find((s): s is SetupScriptSignal => s.type === 'setup-script')?.command;
+  const verifyScript = signals.find((s): s is VerifyScriptSignal => s.type === 'verify-script')?.command;
+  const verifyGates = signals.find((s): s is VerifyGatesSignal => s.type === 'verify-gates')?.gates;
+  return {
+    ...(setupScript !== undefined ? { setupScript } : {}),
+    ...(verifyScript !== undefined ? { verifyScript } : {}),
+    ...(verifyGates !== undefined ? { verifyGates } : {}),
+  };
 };
 
 export const proposeDetectScriptsLeaf = (deps: ProposeDetectScriptsLeafDeps): Element<DetectScriptsCtx> =>
@@ -255,6 +291,7 @@ export const proposeDetectScriptsLeaf = (deps: ProposeDetectScriptsLeafDeps): El
       proposal: {
         ...(out.proposedSetupScript !== undefined ? { proposedSetupScript: out.proposedSetupScript } : {}),
         ...(out.proposedVerifyScript !== undefined ? { proposedVerifyScript: out.proposedVerifyScript } : {}),
+        ...(out.proposedVerifyGates !== undefined ? { proposedVerifyGates: out.proposedVerifyGates } : {}),
         runDir: out.runDir,
       },
     }),

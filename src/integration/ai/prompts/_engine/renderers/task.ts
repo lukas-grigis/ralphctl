@@ -194,6 +194,60 @@ export const renderPriorCritiqueSection = (critique: string | undefined): string
 };
 
 /**
+ * Render the optional generator-hints section passed to the evaluator. The hints carry same-round
+ * generator observations — proposed commit subject, environment notes (dev-server ports, quirks),
+ * learnings recorded during the generator turn. Framing is deliberately adversarial: these are
+ * unverified claims from the generator and MUST NOT substitute for the evaluator's own execution
+ * evidence. The section is useful as environment context (e.g. which port a dev server runs on)
+ * but every `auto` criterion still requires the evaluator's own run.
+ *
+ * Empty / absent → empty string so the `{{GENERATOR_HINTS_SECTION}}` placeholder collapses without
+ * leaving an orphan heading or XML-like tag in the rendered prompt.
+ */
+export const renderGeneratorHintsSection = (hints: string | undefined): string => {
+  if (hints === undefined) return '';
+  const trimmed = hints.trim();
+  if (trimmed.length === 0) return '';
+  return [
+    '<generator_hints>',
+    'The following notes were recorded by the generator during its implementation turn. They are',
+    'unverified claims — useful as environment context (e.g. which server/port to target for e2e),',
+    'but NEVER as evidence. Every `auto` criterion still requires your own execution run.',
+    '',
+    trimmed,
+    '</generator_hints>',
+  ].join('\n');
+};
+
+/**
+ * Render the optional pre-verify results block injected into the generator prompt. When the
+ * harness ran a pre-task verification before spawning the generator, its output is injected here
+ * so the generator can review the baseline state without re-running the verify script itself.
+ *
+ * Empty / absent → empty string so the `{{PRE_VERIFY_RESULTS}}` placeholder inside
+ * `<pre_verify_results>…</pre_verify_results>` collapses without leaving a stale tag body in the
+ * rendered prompt.
+ */
+export const renderPreVerifyResultsSection = (preVerifyOutput: string | undefined): string => {
+  if (preVerifyOutput === undefined) return '';
+  return preVerifyOutput.trim();
+};
+
+/**
+ * Render the optional retry-feedback block injected into the generator prompt when a previous
+ * attempt's harness post-verify failed. The block carries the failing command and a tail of its
+ * output so the generator can treat fixing that regression as the first priority of this attempt.
+ *
+ * Empty / absent → empty string so the `{{RETRY_FEEDBACK_SECTION}}` placeholder inside
+ * `<retry_feedback>…</retry_feedback>` collapses without leaving a stale tag body in the rendered
+ * prompt.
+ */
+export const renderRetryFeedbackSection = (retryFeedback: string | undefined): string => {
+  if (retryFeedback === undefined) return '';
+  return retryFeedback.trim();
+};
+
+/**
  * "Change your approach" directive injected when this task is a plateau-break attempt — i.e. the
  * gen-eval loop stalled (the same evaluator dimensions kept failing across rounds with no real
  * progress) and the escalation policy granted one more attempt. Empty when not a plateau-break

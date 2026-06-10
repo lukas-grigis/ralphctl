@@ -153,3 +153,68 @@ describe('applySettingsKey — escalation keys', () => {
     if (!result.ok) expect(result.error.message).toContain('missing the source model id');
   });
 });
+
+describe('settings.harness — skipPreVerifyOnFreshSetup (T13)', () => {
+  it('fresh-install default is false (zero behaviour change for existing users)', () => {
+    expect(DEFAULT_SETTINGS.harness.skipPreVerifyOnFreshSetup).toBe(false);
+  });
+
+  it('schema defaults the key to false when the harness section omits it (legacy file self-heal)', () => {
+    const record = {
+      ...baseRecord,
+      harness: { maxTurns: 5, maxAttempts: 3, rateLimitRetries: 3, plateauThreshold: 2 },
+    };
+    const parsed = SettingsSchema.safeParse(record);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.harness.skipPreVerifyOnFreshSetup).toBe(false);
+  });
+
+  it('parses an explicit true value', () => {
+    const record = {
+      ...baseRecord,
+      harness: { ...baseRecord.harness, skipPreVerifyOnFreshSetup: true },
+    };
+    const parsed = SettingsSchema.safeParse(record);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.harness.skipPreVerifyOnFreshSetup).toBe(true);
+  });
+
+  it('rejects a non-boolean value with an `expected boolean` schema error naming the field', () => {
+    const record = {
+      ...baseRecord,
+      harness: { ...baseRecord.harness, skipPreVerifyOnFreshSetup: 'yes' },
+    };
+    const parsed = SettingsSchema.safeParse(record);
+    expect(parsed.success).toBe(false);
+    if (parsed.success) return;
+    const offending = parsed.error.issues.find((issue) => issue.path.join('.') === 'harness.skipPreVerifyOnFreshSetup');
+    expect(offending).toBeDefined();
+  });
+
+  it('round-trips harness.skipPreVerifyOnFreshSetup=true via applySettingsKey', () => {
+    const result = applySettingsKey(DEFAULT_SETTINGS, 'harness.skipPreVerifyOnFreshSetup', 'true');
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.harness.skipPreVerifyOnFreshSetup).toBe(true);
+  });
+
+  it('accepts boolean synonyms (1/yes/on, 0/no/off) for harness.skipPreVerifyOnFreshSetup', () => {
+    for (const raw of ['true', '1', 'yes', 'on'] as const) {
+      const r = applySettingsKey(DEFAULT_SETTINGS, 'harness.skipPreVerifyOnFreshSetup', raw);
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.value.harness.skipPreVerifyOnFreshSetup).toBe(true);
+    }
+    for (const raw of ['false', '0', 'no', 'off'] as const) {
+      const r = applySettingsKey(DEFAULT_SETTINGS, 'harness.skipPreVerifyOnFreshSetup', raw);
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.value.harness.skipPreVerifyOnFreshSetup).toBe(false);
+    }
+  });
+
+  it('rejects a non-boolean value for harness.skipPreVerifyOnFreshSetup', () => {
+    const result = applySettingsKey(DEFAULT_SETTINGS, 'harness.skipPreVerifyOnFreshSetup', 'maybe');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain('not a boolean');
+  });
+});

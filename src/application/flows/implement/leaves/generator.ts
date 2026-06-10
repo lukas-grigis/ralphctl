@@ -42,6 +42,15 @@ import {
   capProgressBody,
   RECENT_ATTEMPT_SECTIONS,
 } from '@src/application/flows/implement/leaves/_shared/cap-progress.ts';
+import {
+  formatPreVerifyResults,
+  formatRetryFeedback,
+  lastSettledAttempt,
+  runningAttempt,
+  VERIFY_TAIL_MAX_CHARS,
+} from '@src/application/flows/implement/leaves/_shared/verify-run-summary.ts';
+import type { LogTailReader } from '@src/business/io/log-tail-reader.ts';
+import { createFsLogTailReader } from '@src/integration/io/read-log-tail.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
 /**
@@ -105,6 +114,16 @@ export interface GeneratorLeafDeps {
    * lookup; matches the value the surrounding `loop`'s `shouldContinue` predicate enforces.
    */
   readonly maxTurns: number;
+  /**
+   * Best-effort reader for the trailing bytes of the harness verify-script logs under
+   * `<sprintDir>/logs/verify/<taskId>/{pre,post}-attempt-<n>.log`. Used to enrich the
+   * `<pre_verify_results>` (current attempt's pre-verify) and `<retry_feedback>` (prior
+   * attempt's failing post-verify) prompt blocks with a short log tail. Defaults to the
+   * filesystem adapter; tests inject a fake. A missing / unreadable log resolves to `undefined`
+   * and the block degrades to the structured `VerifyRun` metadata alone — never throws, never
+   * blocks the turn.
+   */
+  readonly logTailReader?: LogTailReader;
 }
 
 interface GeneratorInput {
@@ -189,6 +208,23 @@ const readCappedProgress = async (path: string, currentTaskName: string): Promis
 };
 
 /**
+ * True when this turn is a top-of-ladder same-model nudge that should arm the "change your
+ * approach" directive — `escalatedFromModel === escalatedToModel` (the same-model marker, NOT a
+ * model bump) AND the retry was DRIVEN by a stall (the last settled attempt carries a `plateau` /
+ * `budget-exhausted` warning). The nudge stamp persists on the task, so without the warning gate a
+ * later malformed retry — the evaluator's failure, with the nudge attempt's unevaluated new
+ * approach in the tree — would re-inject "abandon your approach" and pivot the generator off work
+ * nobody judged stalled. On a model BUMP the stronger model gets the targeted prior critique
+ * instead, so the directive stays reserved for the same-model nudge where no fresh capability
+ * remains.
+ */
+const isPlateauBreakAttempt = (task: InProgressTask): boolean => {
+  const lastSettled = [...task.attempts].reverse().find((a) => a.status !== 'running');
+  const stallDriven = lastSettled?.warning?.kind === 'plateau' || lastSettled?.warning?.kind === 'budget-exhausted';
+  return task.escalatedFromModel !== undefined && task.escalatedFromModel === task.escalatedToModel && stallDriven;
+};
+
+/**
  * Select and build this turn's generator prompt by session continuity.
  *
  * The FIRST turn of a session thread (`priorGeneratorSessionId === undefined`) re-sends the full
@@ -201,15 +237,9 @@ const readCappedProgress = async (path: string, currentTaskName: string): Promis
  *
  * Shared between both branches:
  *  - `priorProgress` — the capped sprint-journal excerpt (full file stays on disk).
- *  - `plateauBreak` — armed ONLY on a top-of-ladder same-model nudge
- *    (`escalatedFromModel === escalatedToModel`) AND only while the retry was DRIVEN by a stall:
- *    the last settled attempt must carry a `plateau` / `budget-exhausted` warning. The nudge
- *    stamp persists on the task (decideEscalation's topped-out detection needs it — never clear
- *    it), so without the warning gate a later malformed retry — the EVALUATOR's failure, with the
- *    nudge attempt's unevaluated new approach sitting in the tree — would re-inject "abandon your
- *    approach" and induce the generator to pivot away from work nobody judged stalled. On a model
- *    BUMP (from !== to) the stronger model gets the targeted `priorCritique` instead, so the
- *    directive stays reserved for the same-model nudge where no fresh capability remains.
+ *  - `plateauBreak` — see {@link isPlateauBreakAttempt} for the same-model-nudge arming rule.
+ *  - the `<pre_verify_results>` / `<retry_feedback>` verify blocks — already composed by the leaf
+ *    (best-effort log reads) and passed in as `preVerifyOutput` / `retryFeedback`.
  */
 const buildGeneratorPrompt = async (
   deps: Pick<GeneratorLeafDeps, 'templateLoader' | 'cwd' | 'progressFile' | 'verifyScript'>,
@@ -219,19 +249,28 @@ const buildGeneratorPrompt = async (
     readonly roundNum: number;
     readonly outputContractSection: string;
     readonly priorGeneratorSessionId: SessionId | undefined;
+    /**
+     * Pre-rendered `<pre_verify_results>` body — the current attempt's harness pre-verify run +
+     * log tail (T4). Empty string when no pre-verify ran. Passed through to the builder's
+     * `preVerifyOutput` slot only when non-empty so the placeholder collapses cleanly otherwise.
+     */
+    readonly preVerifyOutput: string;
+    /**
+     * Pre-rendered `<retry_feedback>` body — the prior attempt's failing post-verify run + log
+     * tail (T4 stub for T6). Empty string when there is no failing prior post-verify.
+     */
+    readonly retryFeedback: string;
   }
 ): Promise<Result<Prompt, BuildPromptError>> => {
   const priorCritique = latestCritique(args.task);
   const priorProgress = await readCappedProgress(String(deps.progressFile), args.task.name);
   const contractPath = join(String(args.workspaceRoot), 'contract.md');
-  // Last SETTLED attempt (the running attempt is the one being built for) — its warning kind
-  // tells us WHY this retry was granted.
-  const lastSettled = [...args.task.attempts].reverse().find((a) => a.status !== 'running');
-  const stallDriven = lastSettled?.warning?.kind === 'plateau' || lastSettled?.warning?.kind === 'budget-exhausted';
-  const plateauBreak =
-    args.task.escalatedFromModel !== undefined &&
-    args.task.escalatedFromModel === args.task.escalatedToModel &&
-    stallDriven;
+  const plateauBreak = isPlateauBreakAttempt(args.task);
+
+  // Thread the verify blocks through only when non-empty so the renderer's absent-branch
+  // collapses the `<pre_verify_results>` / `<retry_feedback>` placeholders cleanly.
+  const preVerifyCarry = args.preVerifyOutput.length > 0 ? { preVerifyOutput: args.preVerifyOutput } : {};
+  const retryFeedbackCarry = args.retryFeedback.length > 0 ? { retryFeedback: args.retryFeedback } : {};
 
   if (args.priorGeneratorSessionId === undefined) {
     return buildImplementPrompt(deps.templateLoader, {
@@ -244,6 +283,8 @@ const buildGeneratorPrompt = async (
       ...(deps.verifyScript !== undefined ? { verifyScript: deps.verifyScript } : {}),
       ...(priorCritique !== undefined ? { priorCritique } : {}),
       ...(plateauBreak ? { plateauBreak: true } : {}),
+      ...preVerifyCarry,
+      ...retryFeedbackCarry,
     });
   }
   return buildImplementContinuationPrompt(deps.templateLoader, {
@@ -254,7 +295,67 @@ const buildGeneratorPrompt = async (
     outputContractSection: args.outputContractSection,
     ...(priorCritique !== undefined ? { priorCritique } : {}),
     ...(plateauBreak ? { plateauBreak: true } : {}),
+    ...preVerifyCarry,
+    ...retryFeedbackCarry,
   });
+};
+
+/**
+ * Best-effort fetch the trailing bytes of a harness verify-script log under
+ * `<sprintDir>/logs/verify/<taskId>/<phase>-attempt-<n>.log`. Returns `undefined` on any failure
+ * — a missing log (skipped / carried baseline produced no file), an unreadable file, or an
+ * invalid path. The reader port itself never throws and resolves absent files to `undefined`, so
+ * the only thing to guard here is path construction. AbortError is not produced by the reader
+ * (pure file IO with no signal), so nothing to re-throw.
+ */
+const readVerifyLogTail = async (
+  reader: LogTailReader,
+  sprintDir: AbsolutePath,
+  taskId: TaskId,
+  phase: 'pre' | 'post',
+  attemptN: number
+): Promise<string | undefined> => {
+  const logPath = AbsolutePath.parse(
+    join(String(sprintDir), 'logs', 'verify', String(taskId), `${phase}-attempt-${String(attemptN)}.log`)
+  );
+  if (!logPath.ok) return undefined;
+  return reader(logPath.value, VERIFY_TAIL_MAX_CHARS);
+};
+
+/**
+ * Compose the two harness-verify prompt blocks for this turn (T4):
+ *  - `preVerifyOutput`  — the running attempt's `phase: 'pre'` verify run + the tail of
+ *    `<sprintDir>/logs/verify/<taskId>/pre-attempt-<runningAttempt.n>.log`.
+ *  - `retryFeedback`    — the prior settled attempt's FAILING `phase: 'post'` verify run + the
+ *    tail of `post-attempt-<priorAttempt.n>.log` (T4 stub for T6's retry policy).
+ *
+ * Every step is best-effort: a missing attempt, a missing verify row, or an unreadable log
+ * degrades to '' (block disappears) or to the structured metadata alone. Never throws, never
+ * blocks the turn. The reader is pure file IO with no abort signal, so no AbortError can surface.
+ */
+const composeVerifyBlocks = async (
+  reader: LogTailReader,
+  sprintDir: AbsolutePath,
+  taskId: TaskId,
+  task: InProgressTask
+): Promise<{ readonly preVerifyOutput: string; readonly retryFeedback: string }> => {
+  // pre-task-verify writes `pre-attempt-<attempts.length>.log`, and the running attempt IS the
+  // last one, so its `n` names the current attempt's pre-verify log.
+  const preVerifyAttemptN = runningAttempt(task)?.n;
+  const preVerifyTail =
+    preVerifyAttemptN !== undefined
+      ? await readVerifyLogTail(reader, sprintDir, taskId, 'pre', preVerifyAttemptN)
+      : undefined;
+
+  // The prior settled attempt's `n` names its post-verify log.
+  const priorAttemptN = lastSettledAttempt(task)?.n;
+  const retryFeedbackTail =
+    priorAttemptN !== undefined ? await readVerifyLogTail(reader, sprintDir, taskId, 'post', priorAttemptN) : undefined;
+
+  return {
+    preVerifyOutput: formatPreVerifyResults(task, preVerifyTail),
+    retryFeedback: formatRetryFeedback(task, retryFeedbackTail),
+  };
 };
 
 export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<ImplementCtx> =>
@@ -311,14 +412,28 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
         const changesEmitted: string[] = [];
         const learningsEmitted: LearningEntry[] = [];
         const notesEmitted: string[] = [];
+        const logTailReader = deps.logTailReader ?? createFsLogTailReader();
         const callImplement: RunGeneratorTurnProps['callImplement'] = async (task) => {
           const outputContractSection = renderContractSectionFor(generatorOutputContract, outputDir);
+
+          // T4: surface the harness's pre-task verify result (so the generator reviews baseline
+          // state instead of re-running the verify script in-turn) and the prior attempt's failing
+          // post-verify (so a retry fixes the regression first). All best-effort — see helper.
+          const { preVerifyOutput, retryFeedback } = await composeVerifyBlocks(
+            logTailReader,
+            deps.sprintDir,
+            taskId,
+            task
+          );
+
           const prompt = await buildGeneratorPrompt(deps, {
             task,
             workspaceRoot: input.workspaceRoot,
             roundNum,
             outputContractSection,
             priorGeneratorSessionId: input.priorGeneratorSessionId,
+            preVerifyOutput,
+            retryFeedback,
           });
           if (!prompt.ok) return Result.error(prompt.error) as Result<readonly HarnessSignal[], DomainError>;
           // Persist the rendered prompt under `rounds/<N>/generator/prompt.md` BEFORE the AI

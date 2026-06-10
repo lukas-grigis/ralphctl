@@ -350,6 +350,7 @@ function runTests(): void {
           plateauThreshold: 2,
           escalateOnPlateau: false,
           escalationMap: {},
+          skipPreVerifyOnFreshSetup: false,
         },
       },
       gitRunner: realGit,
@@ -572,6 +573,7 @@ function runTests(): void {
           maxTurns: 5,
           escalateOnPlateau: false,
           escalationMap: {} as Record<string, string>,
+          skipPreVerifyOnFreshSetup: false,
           maxAttempts: 3,
         });
 
@@ -805,6 +807,7 @@ function runTests(): void {
           maxTurns: 5,
           escalateOnPlateau: false,
           escalationMap: {} as Record<string, string>,
+          skipPreVerifyOnFreshSetup: false,
           maxAttempts: 3,
         });
 
@@ -990,6 +993,7 @@ function runTests(): void {
           maxTurns: 5,
           escalateOnPlateau: false,
           escalationMap: {} as Record<string, string>,
+          skipPreVerifyOnFreshSetup: false,
           maxAttempts: 3,
         });
 

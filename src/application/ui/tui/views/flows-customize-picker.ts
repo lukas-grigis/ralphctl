@@ -45,6 +45,16 @@ export const modelCatalogFor = (provider: AiProvider): readonly string[] => {
 
 const AI_PROVIDERS: readonly AiProvider[] = ['claude-code', 'github-copilot', 'openai-codex'];
 
+/**
+ * Resolve the model catalog the picker offers for a provider. Prefers the injected
+ * availability lookup (account-narrowed subset) when present; falls back to the full static
+ * catalog (the test / no-deps path).
+ */
+const resolveModelCatalog = async (
+  provider: AiProvider,
+  availableModelsFor: ((provider: AiProvider) => Promise<readonly string[]>) | undefined
+): Promise<readonly string[]> => (availableModelsFor ? availableModelsFor(provider) : modelCatalogFor(provider));
+
 /** Sentinel value returned for the `Keep default` option — never collides with a real id. */
 const KEEP = '__keep__';
 
@@ -116,7 +126,8 @@ const customizeRow = async (
   interactive: InteractivePrompt,
   header: string,
   defaultRow: AiFlowSettings,
-  globalEffort: Settings['ai']['effort']
+  globalEffort: Settings['ai']['effort'],
+  availableModelsFor: ((provider: AiProvider) => Promise<readonly string[]>) | undefined
 ): Promise<NonNullable<LaunchExtras['override']> | undefined> => {
   // Step 1 — provider. Keep default first, then every provider option (including the
   // default's own provider; picking it explicitly is treated as "no change").
@@ -132,7 +143,7 @@ const customizeRow = async (
   // Step 2 — model. When the provider switched, the saved default model belongs to a
   // different provider's catalog; omit `Keep default` so the user can't accidentally pick an
   // incompatible model. Otherwise show `Keep default` first.
-  const modelCatalog = modelCatalogFor(effectiveProvider);
+  const modelCatalog = await resolveModelCatalog(effectiveProvider, availableModelsFor);
   const modelOptions: ReadonlyArray<Choice<string>> = providerChanged
     ? modelCatalog.map((m) => ({ label: m, value: m }))
     : [
@@ -145,10 +156,35 @@ const customizeRow = async (
   // Step 3 — effort. When the provider switched, the saved row's effort may not exist in the
   // new provider's vocabulary; `Keep default` then means "let the launcher resolve" (the row
   // carries no per-flow effort, so resolveEffort floors the global value to the new provider).
+  //
+  // When the provider stayed the same but the model changed, the saved row's effort would be
+  // silently inherited — which is the bug: sonnet @ xhigh (the worst wall-clock combination)
+  // appears when the user's intent was only "use a cheaper model". Make the inheritance
+  // visible by labelling the keep-default option with the concrete value it carries, flagging
+  // whether it comes from the saved row or the global default so the user can decide
+  // deliberately. The model-changed case also shifts the highlighted default to the global
+  // effort (or 'auto') rather than the per-row value so the safest option leads.
   const effortCatalog = PROVIDER_EFFORT_LEVELS[effectiveProvider];
-  const effortDefaultLabel = providerChanged
-    ? 'Keep default'
-    : labelKeepDefault(resolveEffortForRow(defaultRow, globalEffort) ?? 'auto');
+  const modelChanged = modelAns.value !== KEEP && modelAns.value !== defaultRow.model;
+  const resolvedRowEffort = resolveEffortForRow(defaultRow, globalEffort);
+  let effortDefaultLabel: string;
+  if (providerChanged) {
+    // Provider switched — the saved row's effort vocabulary may not apply; omit the concrete
+    // value so the user isn't misled into thinking it will carry over.
+    effortDefaultLabel = 'Keep default';
+  } else if (modelChanged) {
+    // Model changed but provider stayed. Show the value the row would inherit AND flag that
+    // it comes from the saved row, so the user can make a deliberate choice.
+    const rowEffortSource = defaultRow.effort !== undefined ? 'saved row' : globalEffort !== undefined ? 'global' : '';
+    const effortDisplay = resolvedRowEffort ?? 'auto';
+    effortDefaultLabel =
+      rowEffortSource.length > 0
+        ? `Keep default (${effortDisplay} — ${rowEffortSource})`
+        : `Keep default (${effortDisplay})`;
+  } else {
+    // Neither provider nor model changed — show the resolved effort as-is (existing behaviour).
+    effortDefaultLabel = labelKeepDefault(resolvedRowEffort ?? 'auto');
+  }
   const effortOptions: ReadonlyArray<Choice<string>> = [
     { label: effortDefaultLabel, value: KEEP },
     ...effortCatalog.map((e) => ({ label: e, value: e })),
@@ -173,6 +209,12 @@ export interface RunCustomizePickerArgs {
   readonly flowId: string;
   readonly flowTitle: string;
   readonly settings: Settings;
+  /**
+   * Optional per-provider availability lookup (injected from `AppDeps.availableModelsFor`). When
+   * present the model step shows only the operator's account-available models; when absent the
+   * step falls back to the full {@link modelCatalogFor} catalog (the test / no-deps path).
+   */
+  readonly availableModelsFor?: (provider: AiProvider) => Promise<readonly string[]>;
 }
 
 /**
@@ -189,6 +231,7 @@ export const runCustomizePicker = async ({
   flowId,
   flowTitle,
   settings,
+  availableModelsFor,
 }: RunCustomizePickerArgs): Promise<CustomizePickerResult> => {
   const aiFlow = aiFlowIdForPicker(flowId);
   if (aiFlow === undefined) return { kind: 'defaults' };
@@ -224,7 +267,7 @@ export const runCustomizePicker = async ({
     for (const role of roles) {
       const row = role === 'generator' ? settings.ai.implement.generator : settings.ai.implement.evaluator;
       const roleHeader = `${header}\n\nRole: ${role}`;
-      const result = await customizeRow(interactive, roleHeader, row, settings.ai.effort);
+      const result = await customizeRow(interactive, roleHeader, row, settings.ai.effort, availableModelsFor);
       if (result === undefined) return { kind: 'cancel' };
       if (Object.keys(result).length > 0) collected[role] = result;
     }
@@ -243,7 +286,7 @@ export const runCustomizePicker = async ({
 
   const defaultRow = defaultRowFor(flowId, settings);
   if (defaultRow === undefined) return { kind: 'defaults' };
-  const override = await customizeRow(interactive, header, defaultRow, settings.ai.effort);
+  const override = await customizeRow(interactive, header, defaultRow, settings.ai.effort, availableModelsFor);
   if (override === undefined) return { kind: 'cancel' };
   if (Object.keys(override).length === 0) return { kind: 'defaults' };
   return { kind: 'single', override };

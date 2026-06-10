@@ -22,7 +22,7 @@ import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
  * explicitly via `ai.implement.generator.<field>` or `ai.implement.evaluator.<field>`.
  */
 const SETTINGS_KEY_HINT =
-  'supported keys: ai.effort, ai.{flow}.{provider,model,effort} (flow in {refine,plan,readiness,ideate,createPr}), ai.implement.{generator,evaluator}.{provider,model,effort}, harness.{maxTurns,maxAttempts,rateLimitRetries,plateauThreshold,escalateOnPlateau}, harness.escalationMap.<fromModel>, logging.level, concurrency.maxParallelTasks, scm.postRefinementComment, ui.notifications.enabled';
+  'supported keys: ai.effort, ai.{flow}.{provider,model,effort} (flow in {refine,plan,readiness,ideate,createPr}), ai.implement.{generator,evaluator}.{provider,model,effort}, harness.{maxTurns,maxAttempts,rateLimitRetries,plateauThreshold,escalateOnPlateau,skipPreVerifyOnFreshSetup}, harness.escalationMap.<fromModel>, logging.level, concurrency.maxParallelTasks, scm.postRefinementComment, ui.notifications.enabled';
 
 const IMPLEMENT_ROLES: readonly AiImplementRole[] = ['generator', 'evaluator'];
 const isImplementRole = (raw: string): raw is AiImplementRole => (IMPLEMENT_ROLES as readonly string[]).includes(raw);
@@ -193,6 +193,20 @@ export const applySettingsKey = (current: Settings, key: string, raw: string): R
         );
       }
       return Result.ok({ ...current, harness: { ...current.harness, escalateOnPlateau: b } });
+    }
+    case 'harness.skipPreVerifyOnFreshSetup': {
+      const b = parseBool(raw);
+      if (b === undefined) {
+        return Result.error(
+          new ValidationError({
+            field: key,
+            value: raw,
+            message: `'${raw}' is not a boolean`,
+            hint: "use 'true' or 'false'",
+          })
+        );
+      }
+      return Result.ok({ ...current, harness: { ...current.harness, skipPreVerifyOnFreshSetup: b } });
     }
     case 'logging.level': {
       return Result.ok({ ...current, logging: { level: raw as Settings['logging']['level'] } });

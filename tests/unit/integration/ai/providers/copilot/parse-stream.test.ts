@@ -59,10 +59,10 @@ describe('createCopilotStreamParser — extractBodyText', () => {
   });
 
   it('does not treat a session-id meta line as body text', () => {
-    const evt = JSON.stringify({ session_id: 'sess-1', model: 'gpt-5.1' });
+    const evt = JSON.stringify({ session_id: 'sess-1', model: 'gpt-5.5' });
     const [line] = drive([`${evt}\n`]);
     expect(line?.sessionId).toBe('sess-1');
-    expect(line?.model).toBe('gpt-5.1');
+    expect(line?.model).toBe('gpt-5.5');
     expect(line?.bodyText).toBeUndefined();
   });
 

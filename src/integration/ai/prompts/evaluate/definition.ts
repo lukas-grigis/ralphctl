@@ -6,6 +6,7 @@ import { buildPrompt, type BuildPromptError } from '@src/integration/ai/prompts/
 import type { PromptDefinition } from '@src/integration/ai/prompts/_engine/definition.ts';
 import {
   renderExtraDimensionsSection,
+  renderGeneratorHintsSection,
   renderProjectToolingSection,
   renderTaskDescriptionSection,
   renderTaskStepsSection,
@@ -69,6 +70,13 @@ export interface EvaluatePromptParams {
    * empty case without a per-flow special branch.
    */
   readonly priorProgress: string;
+  /**
+   * Optional same-round generator observations — proposed commit subject, environment notes,
+   * learnings. Rendered inside a `<generator_hints>` block that explicitly frames these as
+   * unverified claims: useful for environment context (e.g. dev-server port), never as
+   * evidence. Empty string when no hints were collected — template collapses cleanly.
+   */
+  readonly generatorHintsSection: string;
 }
 
 const requireNonEmpty =
@@ -139,6 +147,11 @@ export const evaluatePromptDef: PromptDefinition<EvaluatePromptParams> = {
       description:
         'Current body of `progress.md` substituted into the `## Prior progress` section — empty when the journal has no entries yet.',
     },
+    generatorHintsSection: {
+      placeholder: 'GENERATOR_HINTS_SECTION',
+      description:
+        'Same-round generator observations (environment notes, learnings) framed as unverified context inside a <generator_hints> block — empty when no hints were collected.',
+    },
   },
   partials: {
     HARNESS_CONTEXT: 'harness-context',
@@ -167,6 +180,13 @@ export interface BuildEvaluatePromptInput {
    * string when omitted (test fixtures); production leaves always read the on-disk body.
    */
   readonly priorProgress?: string;
+  /**
+   * Same-round generator observations to thread to the evaluator as environment hints. These
+   * are framed explicitly as unverified claims — useful for environment context (e.g. which
+   * dev-server port to target for e2e), never as evidence substituting the evaluator's own run.
+   * Omitted or empty → `{{GENERATOR_HINTS_SECTION}}` collapses cleanly.
+   */
+  readonly generatorHints?: string;
 }
 
 /**
@@ -190,4 +210,5 @@ export const buildEvaluatePrompt = async (
     extraDimensionsSection: renderExtraDimensionsSection(input.task.extraDimensions),
     outputContractSection: input.outputContractSection,
     priorProgress: input.priorProgress ?? '',
+    generatorHintsSection: renderGeneratorHintsSection(input.generatorHints),
   });

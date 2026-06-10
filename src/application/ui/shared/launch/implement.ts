@@ -290,6 +290,7 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
       path: r.path,
       name: r.name,
       ...(r.verifyScript !== undefined ? { verifyScript: r.verifyScript } : {}),
+      ...(r.verifyGates !== undefined ? { verifyGates: r.verifyGates } : {}),
       ...(r.verifyTimeout !== undefined ? { verifyTimeout: r.verifyTimeout } : {}),
       ...(r.setupScript !== undefined ? { setupScript: r.setupScript } : {}),
     });

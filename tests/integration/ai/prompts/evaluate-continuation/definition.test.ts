@@ -103,6 +103,36 @@ describe('buildEvaluateContinuationPrompt — end-to-end against the real templa
     if (!result.ok) return;
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
+
+  it('renders generator hints when provided', async () => {
+    const result = await buildEvaluateContinuationPrompt(deps, {
+      roundNumber: 3,
+      contractPath: CONTRACT_PATH,
+      progressFile: PROGRESS_FILE,
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      generatorHints: 'Dev server on port 4000.',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toContain('<generator_hints>');
+    expect(result.value).toContain('port 4000');
+    expect(result.value).toContain('unverified claims');
+  });
+
+  it('omits the generator-hints block when generatorHints is absent (collapses cleanly)', async () => {
+    const result = await buildEvaluateContinuationPrompt(deps, {
+      roundNumber: 3,
+      contractPath: CONTRACT_PATH,
+      progressFile: PROGRESS_FILE,
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).not.toContain('<generator_hints>');
+    expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
+  });
 });
 
 describe('evaluateContinuationPromptDef — validate-rejected paths', () => {
@@ -114,6 +144,7 @@ describe('evaluateContinuationPromptDef — validate-rejected paths', () => {
       progressFile: PROGRESS_FILE,
       priorProgress: '',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
+      generatorHintsSection: '',
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);
@@ -127,6 +158,7 @@ describe('evaluateContinuationPromptDef — validate-rejected paths', () => {
       progressFile: PROGRESS_FILE,
       priorProgress: '',
       outputContractSection: '   ',
+      generatorHintsSection: '',
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);

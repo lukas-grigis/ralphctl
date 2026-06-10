@@ -1,8 +1,10 @@
 /**
  * `detect-scripts` prompt: one-shot, read-only repo inventory that asks the AI to propose a
- * setup script (sprint-start prep) and a verify script (post-task gate). Under the audit-[09]
+ * setup script (sprint-start prep) and a verify script (post-task gate), plus — for monorepo-style
+ * repos with separable module roots — structured per-module `verify-gates`. Under the audit-[09]
  * contract, the AI writes `signals.json` directly into the spawn's `outputDir` with
- * `setup-script` / `verify-script` / `note` signals — the harness validates post-spawn.
+ * `setup-script` / `verify-script` / `verify-gates` / `note` signals — the harness validates
+ * post-spawn. `verify-gates` is ADDITIVE: emitted alongside `verify-script`, never instead of it.
  *
  * Sibling of `readiness` — that prompt bundles context-file generation with script proposals;
  * this one strips the context-file half away for callers who already have CLAUDE.md / AGENTS.md
@@ -21,7 +23,8 @@ export interface DetectScriptsPromptParams {
   /**
    * Audit-[09] output contract section — rendered from the detect-scripts `AiOutputContract`
    * by `renderContractSectionFor(detectScriptsOutputContract)`. Instructs the AI to write
-   * `signals.json` directly with optional `setup-script` / `verify-script` / `note` signals.
+   * `signals.json` directly with optional `setup-script` / `verify-script` / `verify-gates` /
+   * `note` signals.
    */
   readonly outputContractSection: string;
 }
@@ -50,7 +53,7 @@ export const detectScriptsPromptDef: PromptDefinition<DetectScriptsPromptParams>
   partials: {
     HARNESS_CONTEXT: 'harness-context',
   },
-  expectedSignals: ['setup-script', 'verify-script', 'note'],
+  expectedSignals: ['setup-script', 'verify-script', 'verify-gates', 'note'],
 };
 
 export interface BuildDetectScriptsPromptInput {

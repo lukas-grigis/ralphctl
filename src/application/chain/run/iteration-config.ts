@@ -34,4 +34,12 @@ export interface IterationConfig {
    * the ladder).
    */
   readonly escalationMap: Readonly<Record<string, string>>;
+  /**
+   * Opt-in: skip the first pre-task verify of a launch when this launch's setup script already
+   * verified the same tree (clean tree + setup succeeded this run). Mirrors the boolean on
+   * `settings.harness.skipPreVerifyOnFreshSetup`; defaults `false`. See the field's JSDoc in
+   * `domain/entity/settings.ts` for the soundness caveat (the setup script must actually verify,
+   * not merely install).
+   */
+  readonly skipPreVerifyOnFreshSetup: boolean;
 }

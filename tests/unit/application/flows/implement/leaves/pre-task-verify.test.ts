@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
-import { absolutePath, FIXED_NOW, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
+import {
+  absolutePath,
+  FIXED_NOW,
+  FIXED_REPOSITORY_ID,
+  makeInProgressTaskWithRunningAttempt,
+  repositoryId,
+} from '@tests/fixtures/domain.ts';
 import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { Task } from '@src/domain/entity/task.ts';
@@ -201,11 +207,14 @@ const scriptedChoicePrompt = <T>(answer: Result<T, StorageError | AbortError>): 
 
 interface FixtureOpts {
   readonly verifyScript?: string;
+  readonly verifyGates?: ReadonlyArray<{ pathPrefix: string; command: string; timeoutMs?: number }>;
   readonly timeoutMs?: number;
   readonly env?: PreTaskVerifyEnvironment;
   readonly interactive?: InteractivePrompt;
   readonly execution?: SprintExecution;
   readonly gitRunner?: GitRunner;
+  readonly skipPreVerifyOnFreshSetup?: boolean;
+  readonly setupVerifiedRepoIds?: ReadonlyArray<ReturnType<typeof repositoryId>>;
 }
 
 interface Fixture {
@@ -224,6 +233,7 @@ const fixture = (runner: ShellScriptRunner, opts: FixtureOpts = {}): Fixture => 
     currentTaskId: task.id,
     tasks: [task],
     execution,
+    ...(opts.setupVerifiedRepoIds !== undefined ? { setupVerifiedRepoIdsThisRun: opts.setupVerifiedRepoIds } : {}),
   };
   const repo = fakeTaskRepo();
   const execRepo = fakeExecRepo();
@@ -242,7 +252,11 @@ const fixture = (runner: ShellScriptRunner, opts: FixtureOpts = {}): Fixture => 
     },
     {
       cwd: CWD,
+      ...(opts.skipPreVerifyOnFreshSetup !== undefined
+        ? { skipPreVerifyOnFreshSetup: opts.skipPreVerifyOnFreshSetup }
+        : {}),
       ...(opts.verifyScript !== undefined ? { verifyScript: opts.verifyScript } : {}),
+      ...(opts.verifyGates !== undefined ? { verifyGates: opts.verifyGates } : {}),
       ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
     },
     task.id
@@ -281,6 +295,59 @@ describe('preTaskVerifyLeaf — verifyTimeout plumbing', () => {
     const res = await leaf.execute(ctx);
     expect(res.ok).toBe(true);
     expect((sink.opts as { timeoutMs?: number } | undefined)?.timeoutMs).toBeUndefined();
+  });
+});
+
+describe('preTaskVerifyLeaf — structured verifyGates (T11, all-run, no scope)', () => {
+  // Records which gate commands ran; can be made to fail specific gates.
+  const gateShell = (
+    fail: ReadonlySet<string> = new Set()
+  ): { runner: ShellScriptRunner; ran: () => readonly string[] } => {
+    const ran: string[] = [];
+    const runner: ShellScriptRunner = {
+      async run(_cwd, command) {
+        ran.push(command);
+        const passed = !fail.has(command);
+        return Result.ok({ passed, exitCode: passed ? 0 : 1, output: `${command}-out`, durationMs: 0 });
+      },
+    };
+    return { runner, ran: () => ran };
+  };
+
+  const GATES = [
+    { pathPrefix: 'apps/web-ui', command: 'test-web' },
+    { pathPrefix: 'apps/api', command: 'test-api' },
+    { pathPrefix: '', command: 'lint-all' },
+  ] as const;
+
+  it('runs ALL gates regardless of which paths changed (baseline needs the complete picture)', async () => {
+    const { runner, ran } = gateShell();
+    const { ctx, leaf } = fixture(runner, { verifyGates: GATES });
+    const out = await leaf.execute(ctx);
+    if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
+    expect(ran()).toEqual(['test-web', 'test-api', 'lint-all']);
+    expect(out.value.ctx.lastPreVerifyOutcome).toBe('success');
+  });
+
+  it('all-run continues past an early red gate and the aggregate baseline is red (baselineBroken stamped)', async () => {
+    const { runner, ran } = gateShell(new Set(['test-web']));
+    // Non-interactive so a red baseline hard-blocks deterministically without a prompt.
+    const { ctx, leaf } = fixture(runner, { verifyGates: GATES, env: NON_TTY_ENV });
+    const out = await leaf.execute(ctx);
+    if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
+    // Every gate still ran (all-run) even though test-web failed first.
+    expect(ran()).toEqual(['test-web', 'test-api', 'lint-all']);
+    expect(out.value.ctx.lastPreVerifyOutcome).toBe('failed');
+    expect(out.value.ctx.currentTask?.attempts.at(-1)?.baselineBroken).toBe(true);
+  });
+
+  it('gates win over a legacy verifyScript when both configured', async () => {
+    const { runner, ran } = gateShell();
+    const { ctx, leaf } = fixture(runner, { verifyScript: 'legacy-script', verifyGates: GATES });
+    const out = await leaf.execute(ctx);
+    if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
+    expect(ran()).toEqual(['test-web', 'test-api', 'lint-all']);
+    expect(ran()).not.toContain('legacy-script');
   });
 });
 
@@ -847,6 +914,232 @@ describe('preTaskVerifyLeaf — carry-baseline short-circuit', () => {
     if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
     expect(git.callCount()).toBe(1);
     expect(shell.callCount()).toBe(1);
+    expect(out.value.ctx.lastPreVerifyOutcome).toBe('success');
+  });
+});
+
+describe('preTaskVerifyLeaf — fresh-setup short-circuit (T13)', () => {
+  // Builds a standalone leaf wired with counting shell + git runners so each test can assert the
+  // verify gate was (or was not) re-run and the git-clean probe fired exactly once.
+  const buildLeaf = (args: {
+    readonly shell: ShellRunnerCounter;
+    readonly git: GitRunnerCounter;
+    readonly task: Task;
+    readonly skipPreVerifyOnFreshSetup?: boolean;
+    readonly verifyScript?: string;
+    readonly verifyGates?: ReadonlyArray<{ pathPrefix: string; command: string }>;
+    readonly env?: PreTaskVerifyEnvironment;
+  }): ReturnType<typeof preTaskVerifyLeaf> =>
+    preTaskVerifyLeaf(
+      {
+        shellScriptRunner: args.shell.runner,
+        taskRepo: fakeTaskRepo(),
+        sprintExecutionRepo: fakeExecRepo(),
+        interactive: neverPrompt,
+        gitRunner: args.git.runner,
+        clock: () => FIXED_NOW,
+        eventBus: createCapturingBus().bus,
+        logger: noopLogger,
+        environment: args.env ?? TTY_ENV,
+      },
+      {
+        cwd: CWD,
+        ...(args.skipPreVerifyOnFreshSetup !== undefined
+          ? { skipPreVerifyOnFreshSetup: args.skipPreVerifyOnFreshSetup }
+          : {}),
+        ...(args.verifyScript !== undefined ? { verifyScript: args.verifyScript } : {}),
+        ...(args.verifyGates !== undefined ? { verifyGates: args.verifyGates } : {}),
+      },
+      args.task.id
+    );
+
+  const ctxFor = (task: Task, setupVerifiedRepoIds?: ReadonlyArray<ReturnType<typeof repositoryId>>): ImplementCtx => ({
+    sprintId: SPRINT_ID,
+    currentTask: task,
+    currentTaskId: task.id,
+    tasks: [task],
+    execution: createSprintExecution({ sprintId: SPRINT_ID }),
+    // priorPostVerifyOutcome intentionally absent — fresh-setup applies to the FIRST task of the run.
+    ...(setupVerifiedRepoIds !== undefined ? { setupVerifiedRepoIdsThisRun: setupVerifiedRepoIds } : {}),
+  });
+
+  // (a) flag on + setup green this run + clean tree → synthetic green run, script NOT invoked.
+  it('flag on + this-run setup green for the repo + clean tree → synthesizes green, verify gate NOT run', async () => {
+    const shell = countingShellRunner({ passed: true, exitCode: 0, output: 'OK' });
+    const git = cleanGitRunner();
+    const task = makeInProgressTaskWithRunningAttempt();
+    const leaf = buildLeaf({
+      shell,
+      git,
+      task,
+      skipPreVerifyOnFreshSetup: true,
+      verifyScript: 'pnpm test',
+    });
+    const out = await leaf.execute(ctxFor(task, [FIXED_REPOSITORY_ID]));
+    if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
+    // Verify gate never ran; git-clean probe fired once.
+    expect(shell.callCount()).toBe(0);
+    expect(git.callCount()).toBe(1);
+    // No audit row appended (synthetic), green carries to attribution.
+    expect(out.value.ctx.currentTask?.attempts.at(-1)?.verifyRuns ?? []).toHaveLength(0);
+    expect(out.value.ctx.lastPreVerifyOutcome).toBe('success');
+  });
+
+  // (b) flag on + dirty tree → real run.
+  it('flag on + dirty tree → falls through to the real verify gate', async () => {
+    const shell = countingShellRunner({ passed: true, exitCode: 0, output: 'OK' });
+    const git = dirtyGitRunner();
+    const task = makeInProgressTaskWithRunningAttempt();
+    const leaf = buildLeaf({
+      shell,
+      git,
+      task,
+      skipPreVerifyOnFreshSetup: true,
+      verifyScript: 'pnpm test',
+    });
+    const out = await leaf.execute(ctxFor(task, [FIXED_REPOSITORY_ID]));
+    if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
+    expect(git.callCount()).toBe(1);
+    expect(shell.callCount()).toBe(1);
+    expect(out.value.ctx.lastPreVerifyOutcome).toBe('success');
+  });
+
+  // (c) flag on + setup from a PREVIOUS launch only (repo id NOT in this-run marker) → real run.
+  it('flag on + this-run setup marker does NOT list the repo (prior-launch success only) → real run, no git probe', async () => {
+    const shell = countingShellRunner({ passed: true, exitCode: 0, output: 'OK' });
+    const git = cleanGitRunner();
+    const task = makeInProgressTaskWithRunningAttempt();
+    // Marker lists a DIFFERENT repo — this task's repo was not verified by THIS launch's setup.
+    const otherRepo = repositoryId('01900000-0000-7000-8000-0000000000ff');
+    const leaf = buildLeaf({
+      shell,
+      git,
+      task,
+      skipPreVerifyOnFreshSetup: true,
+      verifyScript: 'pnpm test',
+    });
+    const out = await leaf.execute(ctxFor(task, [otherRepo]));
+    if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
+    // No git probe — repo-id mismatch is checked before the git-clean call.
+    expect(git.callCount()).toBe(0);
+    expect(shell.callCount()).toBe(1);
+    expect(out.value.ctx.lastPreVerifyOutcome).toBe('success');
+  });
+
+  it('flag on + NO this-run setup marker at all → real run, no git probe', async () => {
+    const shell = countingShellRunner({ passed: true, exitCode: 0, output: 'OK' });
+    const git = cleanGitRunner();
+    const task = makeInProgressTaskWithRunningAttempt();
+    const leaf = buildLeaf({
+      shell,
+      git,
+      task,
+      // marker undefined — no setup verified this run
+      skipPreVerifyOnFreshSetup: true,
+      verifyScript: 'pnpm test',
+    });
+    const out = await leaf.execute(ctxFor(task));
+    if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
+    expect(git.callCount()).toBe(0);
+    expect(shell.callCount()).toBe(1);
+    expect(out.value.ctx.lastPreVerifyOutcome).toBe('success');
+  });
+
+  // (d) flag off → real run (today's behaviour), even with a green this-run setup marker + clean tree.
+  it('flag OFF + setup green this run + clean tree → real run (no skip — today behaviour preserved)', async () => {
+    const shell = countingShellRunner({ passed: true, exitCode: 0, output: 'OK' });
+    const git = cleanGitRunner();
+    const task = makeInProgressTaskWithRunningAttempt();
+    const leaf = buildLeaf({
+      shell,
+      git,
+      task,
+      skipPreVerifyOnFreshSetup: false,
+      verifyScript: 'pnpm test',
+    });
+    const out = await leaf.execute(ctxFor(task, [FIXED_REPOSITORY_ID]));
+    if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
+    // No git probe (flag-off check happens first), real script ran.
+    expect(git.callCount()).toBe(0);
+    expect(shell.callCount()).toBe(1);
+    expect(out.value.ctx.lastPreVerifyOutcome).toBe('success');
+  });
+
+  it('flag opt absent (default off) → real run', async () => {
+    const shell = countingShellRunner({ passed: true, exitCode: 0, output: 'OK' });
+    const git = cleanGitRunner();
+    const task = makeInProgressTaskWithRunningAttempt();
+    const leaf = buildLeaf({
+      shell,
+      git,
+      task,
+      // skipPreVerifyOnFreshSetup omitted entirely
+      verifyScript: 'pnpm test',
+    });
+    const out = await leaf.execute(ctxFor(task, [FIXED_REPOSITORY_ID]));
+    if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
+    expect(git.callCount()).toBe(0);
+    expect(shell.callCount()).toBe(1);
+  });
+
+  // (e) flag on + setup green + STRUCTURED gates configured → skip applies identically.
+  it('flag on + structured verifyGates configured + clean tree → synthesizes green, NO gate runs', async () => {
+    const ran: string[] = [];
+    let calls = 0;
+    const shell: ShellRunnerCounter = {
+      runner: {
+        async run(_cwd, command) {
+          calls += 1;
+          ran.push(command);
+          return Result.ok({ passed: true, exitCode: 0, output: `${command}-out`, durationMs: 0 });
+        },
+      },
+      callCount: () => calls,
+    };
+    const git = cleanGitRunner();
+    const task = makeInProgressTaskWithRunningAttempt();
+    const leaf = buildLeaf({
+      shell,
+      git,
+      task,
+      skipPreVerifyOnFreshSetup: true,
+      verifyGates: [
+        { pathPrefix: 'apps/web', command: 'test-web' },
+        { pathPrefix: '', command: 'lint-all' },
+      ],
+    });
+    const out = await leaf.execute(ctxFor(task, [FIXED_REPOSITORY_ID]));
+    if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
+    // No gate command ran — the skip fires before the multi-gate executor.
+    expect(shell.callCount()).toBe(0);
+    expect(ran).toEqual([]);
+    expect(git.callCount()).toBe(1);
+    expect(out.value.ctx.lastPreVerifyOutcome).toBe('success');
+  });
+
+  it('flag on + setup green + clean tree BUT a prior-task carry is present → carry path owns it (still skips, single git probe)', async () => {
+    // When BOTH a carry AND a fresh-setup marker could apply, the carry-baseline short-circuit
+    // wins (it is checked first) and the fresh-setup branch is gated off by `!carriedGreenForThisCwd`,
+    // so the git-clean tree is probed exactly once, not twice.
+    const shell = countingShellRunner({ passed: true, exitCode: 0, output: 'OK' });
+    const git = cleanGitRunner();
+    const task = makeInProgressTaskWithRunningAttempt();
+    const ctx: ImplementCtx = {
+      ...ctxFor(task, [FIXED_REPOSITORY_ID]),
+      priorPostVerifyOutcome: { cwd: CWD, outcome: 'success' },
+    };
+    const leaf = buildLeaf({
+      shell,
+      git,
+      task,
+      skipPreVerifyOnFreshSetup: true,
+      verifyScript: 'pnpm test',
+    });
+    const out = await leaf.execute(ctx);
+    if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
+    expect(shell.callCount()).toBe(0);
+    // Exactly ONE git probe — the carry path short-circuited; the fresh-setup branch did not re-probe.
+    expect(git.callCount()).toBe(1);
     expect(out.value.ctx.lastPreVerifyOutcome).toBe('success');
   });
 });

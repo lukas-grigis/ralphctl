@@ -241,7 +241,13 @@ export const progressJournalLeaf = (
       };
     },
     // settle-attempt clears its own per-attempt fields but leaves the signal accumulators for
-    // us to read. We clear all four here so the next task starts with empty accumulators.
+    // us to read. We clear all four here so the next ATTEMPT (and the next task) starts with
+    // empty accumulators. This is the per-attempt reset boundary: the journal leaf is the LAST
+    // element of the attempt-body sequential and runs UNCONDITIONALLY on every loop iteration —
+    // including a red-post-verify retry (T6) where the task settled `in_progress`. So a retried
+    // attempt never inherits the REJECTED attempt's change/learning/note hints; the next
+    // generator turn (and the evaluator hints derived from these accumulators) sees only its own
+    // attempt's signals, not the prior failed attempt's leftovers.
     output: (ctx) => ({
       ...ctx,
       currentAttemptDecisions: undefined,

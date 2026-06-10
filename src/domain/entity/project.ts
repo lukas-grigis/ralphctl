@@ -17,6 +17,7 @@ import {
   setRepositorySetupSkill,
   setRepositorySlug,
   setRepositorySuggestedSkills,
+  setRepositoryVerifyGates,
   setRepositoryVerifyScript,
   setRepositoryVerifySkill,
   setRepositoryVerifyTimeout,
@@ -65,6 +66,7 @@ export type RepositoryUpdate = Partial<
     | 'slug'
     | 'path'
     | 'verifyScript'
+    | 'verifyGates'
     | 'verifyTimeout'
     | 'setupScript'
     | 'setupSkill'
@@ -256,6 +258,11 @@ export const updateRepository = (
   }
   if ('verifyScript' in partial) {
     const r = setRepositoryVerifyScript(updated, partial.verifyScript);
+    if (!r.ok) return Result.error(r.error);
+    updated = r.value;
+  }
+  if ('verifyGates' in partial) {
+    const r = setRepositoryVerifyGates(updated, partial.verifyGates);
     if (!r.ok) return Result.error(r.error);
     updated = r.value;
   }

@@ -175,6 +175,38 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
     expect(result.value).toContain('**Consistency**');
   });
 
+  it('renders generator hints inside a framing block when provided', async () => {
+    const task = makeTaskWith({ name: 'with-hints' });
+    const result = await buildEvaluatePrompt(deps, {
+      task,
+      projectPath: '/tmp/ralph/main-repo',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
+      generatorHints: 'Dev server runs on port 3001. Known quirk: first run logs a deprecation warning.',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toContain('<generator_hints>');
+    expect(result.value).toContain('port 3001');
+    // The framing must warn the evaluator these are unverified claims.
+    expect(result.value).toContain('unverified claims');
+    expect(result.value).toContain('NEVER as evidence');
+  });
+
+  it('omits the generator-hints block entirely when generatorHints is absent', async () => {
+    const task = makeTaskWith({ name: 'no-hints' });
+    const result = await buildEvaluatePrompt(deps, {
+      task,
+      projectPath: '/tmp/ralph/main-repo',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).not.toContain('<generator_hints>');
+    expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
+  });
+
   it('inlines the priorProgress body into the `## Prior progress` section', async () => {
     const task = makeTaskWith({ name: 'with-prior' });
     const result = await buildEvaluatePrompt(deps, {
@@ -237,6 +269,7 @@ describe('evaluatePromptDef — validate-rejected paths', () => {
       extraDimensionsSection: '',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
       priorProgress: '',
+      generatorHintsSection: '',
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);
@@ -256,6 +289,7 @@ describe('evaluatePromptDef — validate-rejected paths', () => {
       extraDimensionsSection: '',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
       priorProgress: '',
+      generatorHintsSection: '',
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);
@@ -275,6 +309,7 @@ describe('evaluatePromptDef — validate-rejected paths', () => {
       extraDimensionsSection: '',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
       priorProgress: '',
+      generatorHintsSection: '',
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);

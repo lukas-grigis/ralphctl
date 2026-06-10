@@ -43,6 +43,10 @@ import {
   capProgressBody,
   RECENT_ATTEMPT_SECTIONS,
 } from '@src/application/flows/implement/leaves/_shared/cap-progress.ts';
+import {
+  composeGeneratorHints,
+  type GeneratorHintsInput,
+} from '@src/application/flows/implement/leaves/_shared/generator-hints.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { PlateauTurnRecord } from '@src/business/task/plateau-detection.ts';
 
@@ -122,6 +126,13 @@ interface EvaluatorInput {
   readonly task: InProgressTask;
   readonly priorTurns: readonly PlateauTurnRecord[];
   readonly currentCommitSubject?: string;
+  /**
+   * Pre-composed same-round generator observations (T5) — proposed commit subject, change /
+   * learning / note accumulators from `ImplementCtx`, framed downstream as unverified environment
+   * context. Composed in the `input` projection (pure ctx read) and rendered inside the
+   * `<generator_hints>` block. Empty string when no generator hints were accumulated this attempt.
+   */
+  readonly generatorHints: string;
   readonly workspaceRoot: AbsolutePath;
   readonly roundNum: number;
   /**
@@ -188,10 +199,16 @@ const buildEvaluatorPrompt = async (
     readonly roundNum: number;
     readonly outputContractSection: string;
     readonly priorEvaluatorSessionId: SessionId | undefined;
+    /**
+     * Pre-composed `<generator_hints>` body (T5). Threaded into the builder's `generatorHints`
+     * slot only when non-empty so the placeholder collapses cleanly otherwise.
+     */
+    readonly generatorHints: string;
   }
 ): Promise<Result<Prompt, BuildPromptError>> => {
   const priorProgress = await readCappedProgress(String(deps.progressFile), args.task.name);
   const contractPath = join(String(args.workspaceRoot), 'contract.md');
+  const hintsCarry = args.generatorHints.length > 0 ? { generatorHints: args.generatorHints } : {};
 
   if (args.priorEvaluatorSessionId === undefined) {
     return buildEvaluatePrompt(deps.templateLoader, {
@@ -201,6 +218,7 @@ const buildEvaluatorPrompt = async (
       outputContractSection: args.outputContractSection,
       priorProgress,
       ...(deps.verifyScript !== undefined ? { verifyScript: deps.verifyScript } : {}),
+      ...hintsCarry,
     });
   }
   return buildEvaluateContinuationPrompt(deps.templateLoader, {
@@ -209,6 +227,7 @@ const buildEvaluatorPrompt = async (
     progressFile: String(deps.progressFile),
     priorProgress,
     outputContractSection: args.outputContractSection,
+    ...hintsCarry,
   });
 };
 
@@ -236,6 +255,7 @@ export const evaluatorLeaf = (deps: EvaluatorLeafDeps, taskId: TaskId): Element<
             roundNum: input.roundNum,
             outputContractSection,
             priorEvaluatorSessionId: input.priorEvaluatorSessionId,
+            generatorHints: input.generatorHints,
           });
           if (!prompt.ok) return Result.error(prompt.error) as Result<readonly HarnessSignal[], DomainError>;
           // Persist the rendered prompt under `rounds/<N>/evaluator/prompt.md` BEFORE the AI
@@ -391,11 +411,21 @@ export const evaluatorLeaf = (deps: EvaluatorLeafDeps, taskId: TaskId): Element<
         });
       }
       const currentCommitSubject = ctx.proposedCommitMessage?.subject;
+      // T5: compose the same-round generator hints from the per-attempt ctx accumulators. Pure
+      // read — `composeGeneratorHints` caps + clamps so a deep multi-round attempt's accumulators
+      // can't balloon the evaluator prompt. Empty across all sources → '' → placeholder collapses.
+      const hintsInput: GeneratorHintsInput = {
+        ...(currentCommitSubject !== undefined ? { commitSubject: currentCommitSubject } : {}),
+        ...(ctx.currentAttemptChanges !== undefined ? { changes: ctx.currentAttemptChanges } : {}),
+        ...(ctx.currentAttemptLearnings !== undefined ? { learnings: ctx.currentAttemptLearnings } : {}),
+        ...(ctx.currentAttemptNotes !== undefined ? { notes: ctx.currentAttemptNotes } : {}),
+      };
       return {
         task: ctx.currentTask,
         priorTurns: ctx.plateauHistory ?? [],
         workspaceRoot: ctx.taskWorkspaceRoot,
         roundNum: ctx.currentRoundNum,
+        generatorHints: composeGeneratorHints(hintsInput),
         ...(currentCommitSubject !== undefined ? { currentCommitSubject } : {}),
         ...(ctx.priorEvaluatorSessionId !== undefined ? { priorEvaluatorSessionId: ctx.priorEvaluatorSessionId } : {}),
       };

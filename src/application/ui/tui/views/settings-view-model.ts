@@ -35,6 +35,20 @@ export type EditableField =
       readonly label: string;
       readonly preset: PresetName;
       readonly current: string;
+    }
+  | {
+      /**
+       * Read-only map display — renders `<from> → <to>` entries or a dimmed empty-state message.
+       * Activating this field (↵/e) is a no-op. The cursor still navigates through it so the
+       * hint line stays visible; `settings-view.tsx` guards against editing it via `field.kind`.
+       */
+      readonly kind: 'readonly-map';
+      readonly key: string;
+      readonly label: string;
+      /** Serialised representation shown as the "current value" — rendered by the row component. */
+      readonly current: string;
+      /** The raw entries to render; empty map shows the empty-state message. */
+      readonly entries: ReadonlyArray<{ readonly from: string; readonly to: string }>;
     };
 
 /**
@@ -87,6 +101,10 @@ export const HARNESS_HINTS: Readonly<Record<string, string>> = {
     'How many times a single task may be re-attempted across separate Implement runs before it blocks.',
   'harness.rateLimitRetries': 'Auto-retries with exponential backoff when the AI provider returns a rate-limit error.',
   'harness.plateauThreshold': 'Consecutive evaluator turns on the same failed dimensions before the loop exits (2-5).',
+  'harness.escalateOnPlateau':
+    'Gates ALL failure-driven escalation — plateau AND budget-exhausted exits climb the model ladder; disable to always stay on the configured model.',
+  'harness.skipPreVerifyOnFreshSetup':
+    'Asserts your setup script verifies the tree (builds + tests); enable only when setup is a full verify gate, not just a dependency install.',
 };
 
 export const modelOptionsFor = (provider: AiProvider): readonly string[] => {
@@ -105,7 +123,12 @@ export const capitalize = (s: string): string => (s.length === 0 ? s : s[0]!.toU
 const FLOW_DISPLAY_LABEL: Partial<Record<FlowId, string>> = { createPr: 'Create-PR' };
 const flowLabel = (flow: FlowId): string => FLOW_DISPLAY_LABEL[flow] ?? capitalize(flow);
 
-const buildFlowFields = (keyPrefix: string, label: string, row: AiFlowSettings): readonly EditableField[] => [
+const buildFlowFields = (
+  keyPrefix: string,
+  label: string,
+  row: AiFlowSettings,
+  availableModels: ReadonlyMap<AiProvider, readonly string[]> | undefined
+): readonly EditableField[] => [
   {
     kind: 'select',
     key: `${keyPrefix}.provider`,
@@ -117,7 +140,9 @@ const buildFlowFields = (keyPrefix: string, label: string, row: AiFlowSettings):
     kind: 'select',
     key: `${keyPrefix}.model`,
     label: `${label} model`,
-    options: modelOptionsFor(row.provider),
+    // Prefer the account-available subset for this provider when it has resolved; fall back to
+    // the full catalog while the availability probe is still in flight (map empty/undefined).
+    options: availableModels?.get(row.provider) ?? modelOptionsFor(row.provider),
     current: row.model,
   },
   {
@@ -129,7 +154,10 @@ const buildFlowFields = (keyPrefix: string, label: string, row: AiFlowSettings):
   },
 ];
 
-export const buildSections = (s: Settings): readonly SettingsSection[] => {
+export const buildSections = (
+  s: Settings,
+  availableModels?: ReadonlyMap<AiProvider, readonly string[]>
+): readonly SettingsSection[] => {
   const presetFields: readonly EditableField[] = PRESET_NAMES.map((preset) => ({
     kind: 'preset' as const,
     key: `presets.${preset}`,
@@ -149,18 +177,19 @@ export const buildSections = (s: Settings): readonly SettingsSection[] => {
   ];
 
   const implementFields: readonly EditableField[] = [
-    ...buildFlowFields('ai.implement.generator', 'Generator', s.ai.implement.generator),
-    ...buildFlowFields('ai.implement.evaluator', 'Evaluator', s.ai.implement.evaluator),
+    ...buildFlowFields('ai.implement.generator', 'Generator', s.ai.implement.generator, availableModels),
+    ...buildFlowFields('ai.implement.evaluator', 'Evaluator', s.ai.implement.evaluator, availableModels),
   ];
 
   const flowSection = (flow: Exclude<FlowId, 'implement'>): SettingsSection => ({
     id: flow,
     label: flowLabel(flow),
     title: `AI — ${flowLabel(flow)}`,
-    fields: buildFlowFields(`ai.${flow}`, flowLabel(flow), s.ai[flow]),
+    fields: buildFlowFields(`ai.${flow}`, flowLabel(flow), s.ai[flow], availableModels),
     readonly: false,
   });
 
+  const escalationMapEntries = Object.entries(s.harness.escalationMap).map(([from, to]) => ({ from, to }));
   const harnessFields: readonly EditableField[] = [
     { kind: 'text', key: 'harness.maxTurns', label: 'Max turns', current: String(s.harness.maxTurns) },
     { kind: 'text', key: 'harness.maxAttempts', label: 'Max attempts', current: String(s.harness.maxAttempts) },
@@ -175,6 +204,27 @@ export const buildSections = (s: Settings): readonly SettingsSection[] => {
       key: 'harness.plateauThreshold',
       label: 'Plateau threshold',
       current: String(s.harness.plateauThreshold),
+    },
+    {
+      kind: 'select',
+      key: 'harness.escalateOnPlateau',
+      label: 'Escalate on plateau',
+      options: ['true', 'false'],
+      current: String(s.harness.escalateOnPlateau),
+    },
+    {
+      kind: 'select',
+      key: 'harness.skipPreVerifyOnFreshSetup',
+      label: 'Skip pre-verify',
+      options: ['true', 'false'],
+      current: String(s.harness.skipPreVerifyOnFreshSetup),
+    },
+    {
+      kind: 'readonly-map',
+      key: 'harness.escalationMap',
+      label: 'Escalation map',
+      current: escalationMapEntries.length === 0 ? 'defaults apply' : `${String(escalationMapEntries.length)} entries`,
+      entries: escalationMapEntries,
     },
   ];
 

@@ -5,7 +5,9 @@ import { buildPrompt, type BuildPromptError } from '@src/integration/ai/prompts/
 import type { PromptDefinition } from '@src/integration/ai/prompts/_engine/definition.ts';
 import {
   renderPlateauDirectiveSection,
+  renderPreVerifyResultsSection,
   renderPriorCritiqueSection,
+  renderRetryFeedbackSection,
 } from '@src/integration/ai/prompts/_engine/renderers/task.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 
@@ -65,6 +67,18 @@ export interface ImplementContinuationPromptParams {
    * embedded `signals.json` path always names the current round — `{{OUTPUT_CONTRACT_SECTION}}`.
    */
   readonly outputContractSection: string;
+  /**
+   * Verbatim output (or trimmed tail) from the harness pre-task verify run, inside
+   * `<pre_verify_results>…</pre_verify_results>`. Empty string when the harness did not run a
+   * pre-verify — placeholder collapses cleanly.
+   */
+  readonly preVerifyResults: string;
+  /**
+   * Failing post-verify command + output tail from the previous attempt, inside
+   * `<retry_feedback>…</retry_feedback>`. Empty string on a first attempt or when the prior
+   * post-verify passed — placeholder collapses cleanly.
+   */
+  readonly retryFeedbackSection: string;
 }
 
 const requireNonEmpty =
@@ -114,6 +128,16 @@ export const implementContinuationPromptDef: PromptDefinition<ImplementContinuat
         'output-contract section must not be empty (renderContractSectionFor always emits a body)'
       ),
     },
+    preVerifyResults: {
+      placeholder: 'PRE_VERIFY_RESULTS',
+      description:
+        'Verbatim output (or trimmed tail) from the harness pre-task verify run — empty when the harness did not run a pre-verify.',
+    },
+    retryFeedbackSection: {
+      placeholder: 'RETRY_FEEDBACK_SECTION',
+      description:
+        'Failing post-verify command + output tail from the previous attempt — empty on a first attempt or when the prior post-verify passed.',
+    },
   },
   partials: {
     HARNESS_CONTEXT: 'harness-context',
@@ -146,6 +170,16 @@ export interface BuildImplementContinuationPromptInput {
   readonly plateauBreak?: boolean;
   /** Pre-rendered audit-[09] output contract section for this round's generator output dir. */
   readonly outputContractSection: string;
+  /**
+   * Verbatim output (or trimmed tail) from the harness pre-task verify run. Absent or empty →
+   * `{{PRE_VERIFY_RESULTS}}` collapses cleanly inside `<pre_verify_results>`.
+   */
+  readonly preVerifyOutput?: string;
+  /**
+   * Failing post-verify command + output tail when a prior attempt's harness post-verify failed
+   * with `attribution === 'regressed'`. Absent or empty → `{{RETRY_FEEDBACK_SECTION}}` collapses.
+   */
+  readonly retryFeedback?: string;
 }
 
 /**
@@ -164,4 +198,6 @@ export const buildImplementContinuationPrompt = async (
     priorCritiqueSection: renderPriorCritiqueSection(input.priorCritique),
     plateauDirectiveSection: renderPlateauDirectiveSection(input.plateauBreak ?? false),
     outputContractSection: input.outputContractSection,
+    preVerifyResults: renderPreVerifyResultsSection(input.preVerifyOutput),
+    retryFeedbackSection: renderRetryFeedbackSection(input.retryFeedback),
   });

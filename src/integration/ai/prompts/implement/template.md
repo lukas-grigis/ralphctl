@@ -20,8 +20,8 @@ only after every declared step is done and every verification command passes.
 <success_criteria>
 
 - Every declared implementation step has been executed in the stated order.
-- Every verification command in `<verify_script>` exits 0 (or, when no script is configured, the
-  project's own check commands pass).
+- Every `auto` verification criterion's command exits 0 (or, when no `auto` criteria are defined,
+  the project's own check commands pass).
 - `task-verified` has been emitted with the verbatim command output.
 - `commit-message` has been emitted with a subject and a WHY-focused body — except for a pure
   investigation task that wrote no files, where the signal may be omitted (see Phase 3 step 4).
@@ -56,6 +56,8 @@ under its declared check type.
 
 <prior_critique>{{PRIOR_CRITIQUE_SECTION}}</prior_critique>
 
+<retry_feedback>{{RETRY_FEEDBACK_SECTION}}</retry_feedback>
+
 <prior_progress>
 `progress.md` (at the sprint root, `{{PROGRESS_FILE}}`) is an append-only chronological journal
 of every prior task-attempt on this sprint — decisions made, changes shipped, learnings recorded,
@@ -71,6 +73,8 @@ sprint.
 <verify_script>
 {{VERIFY_SCRIPT_SECTION}}
 </verify_script>
+
+<pre_verify_results>{{PRE_VERIFY_RESULTS}}</pre_verify_results>
 
 <project_tooling>
 {{PROJECT_TOOLING}}
@@ -148,11 +152,14 @@ on the first attempt, not to discover problems after the fact.
    it for cross-task context; re-read `{{PROGRESS_FILE}}` directly only when you need the latest
    on-disk state (e.g. another task settled mid-session).
 4. **Working tree state** — inspect the working tree for uncommitted changes before writing anything.
-5. **Environment** — review `<verify_script>` above. If a verify script is listed and the harness
-   already ran a pre-task verification, review those results rather than re-running. If no script is
-   configured, run the project's own verification commands (consult the project's AI context file when
-   present, or project config). If any check shows a pre-existing failure, stop immediately:
+5. **Environment** — review `<verify_script>` and `<pre_verify_results>` above. If
+   `<pre_verify_results>` is non-empty, the harness already verified the baseline — review those
+   results instead of re-running. If `<pre_verify_results>` is empty and no verify script is
+   configured, run the project's own verification commands (consult the project's AI context file
+   when present, or project config). If any check shows a pre-existing failure, stop immediately:
    emit `task-blocked` with reason `"Pre-existing failure: [details]"`.
+   If `<retry_feedback>` is non-empty, a previous attempt's harness post-verify failed — address
+   that regression as the very first priority of this attempt before doing any other work.
 6. **Conventions** — read project config to understand what is enforced: lint and formatter settings,
    compiler config, test framework patterns (e.g. `*.test.ts` vs `*.spec.ts`, `__tests__/` vs
    co-located).
@@ -176,17 +183,20 @@ Proceed to Phase 2 once Phase 1 passes.
    verification criteria rather than signalling blocked. If steps appear incomplete relative to the
    ticket, emit `task-blocked` rather than expanding scope — the planner may have scoped them
    narrowly on purpose.
-4. **Run verification commands after each meaningful change** to catch issues early. The authoritative
-   gate is Phase 3 step 2; interim runs are incremental sanity checks.
+4. **After each meaningful change, run the cheapest check relevant to what you just touched** — for
+   example, the typecheck command or the test file for the module you edited — not the full suite.
+   The authoritative gate is Phase 3 step 2; interim runs are incremental sanity checks.
 
 ### Phase 3 — Completion
 
 In order:
 
 1. **Confirm all steps done** — every declared step has been completed.
-2. **Run all verification commands** — execute every command in `<verify_script>` (or the project's
-   own verification commands when no script is configured). Fix any failures before proceeding. The
-   harness re-runs this gate post-task; the task is not marked done unless it passes.
+2. **Run each `auto` criterion's command once** and fix any failures before proceeding. Do NOT run
+   the verify script from `<verify_script>` — the harness runs it after your turn as the
+   independent commit gate; running it yourself would duplicate that gate and inflate cost.
+   Exception: when the task defines no `auto` criteria, run the verify script once yourself to
+   confirm no regressions before signalling completion.
 3. **Record verification results** — emit `task-verified` with the verbatim commands and their
    combined stdout/stderr output in the `output` field.
 4. **Propose the commit message** — emit `commit-message` with a real subject and a body explaining

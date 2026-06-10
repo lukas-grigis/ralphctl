@@ -11,6 +11,25 @@ import { parseRequiredString } from '@src/domain/value/parsers/parse-required-st
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 
 /**
+ * One structured per-module verify gate. A monorepo-style repo chains module gates inside a
+ * single opaque {@link Repository.verifyScript}, so every verify run pays for every module. A
+ * `VerifyGate` carves that into addressable units so a post-verify run can execute only the
+ * gates whose `pathPrefix` matches the attempt's diff footprint.
+ *
+ *  - `pathPrefix` — POSIX-style path prefix relative to the repo root that scopes the gate.
+ *    `''` (empty string) matches everything — the catch-all gate a legacy `verifyScript`
+ *    normalises to.
+ *  - `command`    — the verbatim shell line to run for this module.
+ *  - `timeoutMs`  — optional per-gate wall-clock cap. Falls back to the repo's `verifyTimeout`
+ *    (then the shell runner default) when absent.
+ */
+export interface VerifyGate {
+  readonly pathPrefix: string;
+  readonly command: string;
+  readonly timeoutMs?: number;
+}
+
+/**
  * `id` is the stable domain identity (UUIDv7). `slug` is a kebab-case CLI handle (renamable
  * without breaking refs). `path` is a local-machine fact and may differ across environments —
  * never use it as identity. `name` is human-readable display, defaulted from `path` basename
@@ -22,6 +41,15 @@ export interface Repository extends Entity<RepositoryId> {
   readonly name: string;
   readonly path: AbsolutePath;
   readonly verifyScript?: string;
+  /**
+   * Structured per-module verify gates. Precedence (resolved by consumers, not here): when
+   * `verifyGates` is present AND non-empty it WINS — the multi-gate executor runs these and
+   * ignores `verifyScript`. {@link verifyScript} remains for legacy repos (no gates configured)
+   * and as the `detect-scripts` fallback when the AI proposes no structured gates. The
+   * factory/setter never persists an empty array — an all-blank input clears the field — so
+   * "present and non-empty" collapses to "present" on read.
+   */
+  readonly verifyGates?: readonly VerifyGate[];
   readonly verifyTimeout?: number;
   readonly setupScript?: string;
   /**
@@ -54,6 +82,7 @@ export interface RepositoryCreateInput {
   /** Optional. Defaults to `kebab-case(name)` (which itself defaults to `basename(path)`). */
   readonly slug?: Slug;
   readonly verifyScript?: string;
+  readonly verifyGates?: readonly VerifyGate[];
   readonly verifyTimeout?: number;
   readonly setupScript?: string;
   readonly setupSkill?: string;
@@ -80,6 +109,9 @@ export const createRepository = (input: RepositoryCreateInput): Result<Repositor
   const verifySkill = parseOptionalString('repository.verifySkill', input.verifySkill);
   if (!verifySkill.ok) return Result.error(verifySkill.error);
 
+  const verifyGates = verifyGatesPart(input.verifyGates);
+  if (!verifyGates.ok) return Result.error(verifyGates.error);
+
   let verifyTimeout: number | undefined;
   if (input.verifyTimeout !== undefined) {
     const parsed = parsePositiveInt('repository.verifyTimeout', input.verifyTimeout);
@@ -94,6 +126,7 @@ export const createRepository = (input: RepositoryCreateInput): Result<Repositor
     path: input.path,
     ...suggestedSkillsPart(input.suggestedSkills),
     ...(verifyScript.value !== undefined ? { verifyScript: verifyScript.value } : {}),
+    ...(verifyGates.value.verifyGates !== undefined ? { verifyGates: verifyGates.value.verifyGates } : {}),
     ...(verifyTimeout !== undefined ? { verifyTimeout } : {}),
     ...(setupScript.value !== undefined ? { setupScript: setupScript.value } : {}),
     ...(setupSkill.value !== undefined ? { setupSkill: setupSkill.value } : {}),
@@ -113,6 +146,27 @@ export const setRepositoryVerifyScript = (
     return Result.ok(rest);
   }
   return Result.ok({ ...repo, verifyScript: next.value });
+};
+
+/**
+ * Replace the repository's structured `verifyGates`. Normalised through the same
+ * {@link verifyGatesPart} the factory uses (trim commands, drop blank-command gates, drop the
+ * field entirely when nothing survives) so the field round-trips cleanly and an all-blank input
+ * clears it — a repo with no gates persists without an empty array on disk. Returns a
+ * `ValidationError` when a surviving gate carries a non-positive `timeoutMs`.
+ */
+export const setRepositoryVerifyGates = (
+  repo: Repository,
+  gates: readonly VerifyGate[] | undefined
+): Result<Repository, ValidationError> => {
+  const part = verifyGatesPart(gates);
+  if (!part.ok) return Result.error(part.error);
+  if (part.value.verifyGates === undefined) {
+    const { verifyGates: _drop, ...rest } = repo;
+    void _drop;
+    return Result.ok(rest);
+  }
+  return Result.ok({ ...repo, verifyGates: part.value.verifyGates });
 };
 
 export const setRepositoryVerifyTimeout = (
@@ -217,6 +271,38 @@ const suggestedSkillsPart = (
   if (input === undefined) return {};
   const names = [...new Set(input.map((s) => s.trim()).filter((s) => s.length > 0))];
   return names.length > 0 ? { suggestedSkills: names } : {};
+};
+
+/**
+ * Normalise a `verifyGates` input. Trims each gate's `command`, drops gates whose command is
+ * blank, trims the `pathPrefix` is NOT done — a prefix is matched verbatim against POSIX paths,
+ * so leading/trailing whitespace in a prefix would be a deliberate (if unusual) author choice;
+ * we only validate the load-bearing `command` and the optional `timeoutMs`. Returns
+ * `{ verifyGates }` only when at least one gate survives so the factory omits the field entirely
+ * otherwise (a repo with no gates round-trips without an empty array on disk). A surviving gate
+ * with a non-positive `timeoutMs` fails the whole parse.
+ */
+const verifyGatesPart = (
+  input: readonly VerifyGate[] | undefined
+): Result<{ readonly verifyGates?: readonly VerifyGate[] }, ValidationError> => {
+  if (input === undefined) return Result.ok({});
+  const gates: VerifyGate[] = [];
+  for (const gate of input) {
+    const command = typeof gate.command === 'string' ? gate.command.trim() : '';
+    if (command.length === 0) continue;
+    let timeoutMs: number | undefined;
+    if (gate.timeoutMs !== undefined) {
+      const parsed = parsePositiveInt('repository.verifyGates[].timeoutMs', gate.timeoutMs);
+      if (!parsed.ok) return Result.error(parsed.error);
+      timeoutMs = parsed.value;
+    }
+    gates.push({
+      pathPrefix: typeof gate.pathPrefix === 'string' ? gate.pathPrefix : '',
+      command,
+      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+    });
+  }
+  return Result.ok(gates.length > 0 ? { verifyGates: gates } : {});
 };
 
 const resolveName = (candidate: string | undefined, path: AbsolutePath): Result<string, ValidationError> => {

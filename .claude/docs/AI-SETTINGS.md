@@ -69,6 +69,16 @@ or add a custom rung via `settings.harness.escalationMap`:
 **opt-in only** — no preset, default, or built-in escalation rung references them. Select per row via
 the TUI picker or `settings set`, or add an escalationMap rung as shown above.
 
+**`settings.harness` keys** (full list — see `PERFORMANCE.md § Iteration budget` for the gen-eval tuning knobs):
+
+- `maxTurns`, `maxAttempts`, `rateLimitRetries`, `plateauThreshold`, `escalateOnPlateau`, `escalationMap` — see
+  `PERFORMANCE.md`.
+- `skipPreVerifyOnFreshSetup` (default `false`) — opt-in: skip the FIRST pre-task verify of a launch when this
+  launch's own setup script already built and tested the same tree. Safe only when the setup script actually runs
+  the verify gate (not merely installs dependencies) — an install-only setup script would hide a pre-broken
+  baseline. Default `false` keeps the strict pre/post symmetry for everyone who has not made that assertion. See
+  `PERFORMANCE.md § Verify-gate cost and scoping`.
+
 **Fail-fast PATH check.** Every AI-spawning flow probes for its row's CLI binary at launch (`claude` /
 `copilot` / `codex` via `src/integration/system/detect-cli.ts`) and exits with `LaunchResult.fail` naming the
 binary, the flow, and the offending `settings.ai.<flow>.provider` key when the binary is absent.

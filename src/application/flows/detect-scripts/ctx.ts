@@ -3,6 +3,7 @@ import type { Project } from '@src/domain/entity/project.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { Repository } from '@src/domain/entity/repository.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
+import type { VerifyGateProposal } from '@src/domain/signal.ts';
 
 /**
  * Context flowing through the detect-scripts chain.
@@ -39,6 +40,13 @@ export interface DetectScriptsCtx {
      * on accept — the harness's post-task gate.
      */
     readonly proposedVerifyScript?: string;
+    /**
+     * AI-suggested structured per-module verify gates for a monorepo-style repo. ADDITIVE to
+     * `proposedVerifyScript` — present only alongside it (the script stays the legacy fallback
+     * the operator sees), absent for single-module repos. Maps to `Repository.verifyGates` on
+     * accept, which wins over `verifyScript` when present and non-empty.
+     */
+    readonly proposedVerifyGates?: readonly VerifyGateProposal[];
     /**
      * Per-run forensic dir under `<dataRoot>/runs/detect-scripts/<run-id>/` holding the
      * rendered `prompt.md` and (for providers that implement `bodyFile`, i.e. Claude today)

@@ -2,6 +2,7 @@ import { Result } from '@src/domain/result.ts';
 import type { Choice, InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import type { Repository } from '@src/domain/entity/repository.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import type { VerifyGateProposal } from '@src/domain/signal.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
@@ -18,6 +19,7 @@ interface ConfirmInput {
   readonly proposal: {
     readonly proposedSetupScript?: string;
     readonly proposedVerifyScript?: string;
+    readonly proposedVerifyGates?: readonly VerifyGateProposal[];
   };
   /**
    * Per-run forensic dir under `<runsRoot>/detect-scripts/<run-id>/`. The empty-proposal branch
@@ -35,10 +37,16 @@ interface ConfirmOutput {
    * The (possibly edited) proposal that should land on the repository. Equal to the input
    * proposal when the user approved as-is; carries the user's edits when they picked
    * "Edit & approve"; unused when `accepted === false` (write leaf no-ops).
+   *
+   * `proposedVerifyGates` is carried verbatim through approve / edit — gates are a structured
+   * map that an inline single-line text editor cannot meaningfully tweak, so they ride along
+   * with the proposal (approved or rejected wholesale) and only the legacy `verifyScript`
+   * fallback is line-editable. The empty-proposal manual-entry branch never synthesises gates.
    */
   readonly proposal: {
     readonly proposedSetupScript?: string;
     readonly proposedVerifyScript?: string;
+    readonly proposedVerifyGates?: readonly VerifyGateProposal[];
   };
 }
 
@@ -66,7 +74,11 @@ const confirmUseCase = async (
   deps: ConfirmDetectScriptsLeafDeps,
   input: ConfirmInput
 ): Promise<Result<ConfirmOutput, DomainError>> => {
-  const { proposedSetupScript: nextSetup, proposedVerifyScript: nextVerify } = input.proposal;
+  const {
+    proposedSetupScript: nextSetup,
+    proposedVerifyScript: nextVerify,
+    proposedVerifyGates: nextGates,
+  } = input.proposal;
 
   if (nextSetup === undefined && nextVerify === undefined) {
     // AI returned no proposals — surface that to the user instead of silently no-op'ing.
@@ -131,6 +143,15 @@ const confirmUseCase = async (
     preview.push(`  next:    ${nextVerify}`);
     preview.push('');
   }
+  if (nextGates !== undefined && nextGates.length > 0) {
+    preview.push('Per-module verify gates (monorepo — diff-scoped, win over the verify script):');
+    for (const gate of nextGates) {
+      const scope = gate.pathPrefix.length > 0 ? gate.pathPrefix : '(all — cross-module)';
+      const timeout = gate.timeoutMs !== undefined ? ` [timeout ${String(gate.timeoutMs)}ms]` : '';
+      preview.push(`  ${scope} → ${gate.command}${timeout}`);
+    }
+    preview.push('');
+  }
 
   const choices: ReadonlyArray<Choice<Decision>> = [
     { label: 'Approve', value: 'approve', description: 'Apply the proposal as-is.' },
@@ -153,6 +174,7 @@ const confirmUseCase = async (
       proposal: {
         ...(nextSetup !== undefined ? { proposedSetupScript: nextSetup } : {}),
         ...(nextVerify !== undefined ? { proposedVerifyScript: nextVerify } : {}),
+        ...(nextGates !== undefined && nextGates.length > 0 ? { proposedVerifyGates: nextGates } : {}),
       },
     });
   }
@@ -171,12 +193,17 @@ const confirmUseCase = async (
     if (answer.value.length > 0) editedVerify = answer.value;
   }
 
-  const accepted = editedSetup !== undefined || editedVerify !== undefined;
+  // Gates are not line-editable — they ride along verbatim when the user reaches the edit path.
+  // They count toward acceptance: a monorepo proposal whose script lines were both dropped still
+  // has meaningful verification to persist.
+  const keepGates = nextGates !== undefined && nextGates.length > 0;
+  const accepted = editedSetup !== undefined || editedVerify !== undefined || keepGates;
   return Result.ok({
     accepted,
     proposal: {
       ...(editedSetup !== undefined ? { proposedSetupScript: editedSetup } : {}),
       ...(editedVerify !== undefined ? { proposedVerifyScript: editedVerify } : {}),
+      ...(keepGates ? { proposedVerifyGates: nextGates } : {}),
     },
   });
 };
@@ -213,6 +240,9 @@ export const confirmDetectScriptsLeaf = (deps: ConfirmDetectScriptsLeafDeps): El
             : {}),
           ...(ctx.proposal.proposedVerifyScript !== undefined
             ? { proposedVerifyScript: ctx.proposal.proposedVerifyScript }
+            : {}),
+          ...(ctx.proposal.proposedVerifyGates !== undefined
+            ? { proposedVerifyGates: ctx.proposal.proposedVerifyGates }
             : {}),
         },
         ...(ctx.proposal.runDir !== undefined ? { runDir: ctx.proposal.runDir } : {}),

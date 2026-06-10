@@ -2,6 +2,7 @@ import type { Result } from '@src/domain/result.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { VerifyRun, VerifyRunOutcome, VerifyRunPhase } from '@src/domain/entity/attempt.ts';
+import type { VerifyGate } from '@src/domain/entity/repository.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 
@@ -138,6 +139,227 @@ export const runVerifyScriptUseCase = async (props: RunVerifyScriptProps): Promi
     },
     rawOutput: output,
   };
+};
+
+// ───────────────────────────── multi-gate verify (WS3 / T10) ─────────────────────────────
+
+/**
+ * How a multi-gate run treats a gate that exits non-zero.
+ *
+ *  - `'fail-fast'` — stop at the first failing gate. Post-verify uses this: the attempt's diff
+ *    footprint scopes which gates run, and one red gate is enough to reject the work.
+ *  - `'all-run'`   — execute every (filtered) gate regardless of intermediate failures. Pre-verify
+ *    uses this: the baseline snapshot needs the COMPLETE picture so attribution compares
+ *    like-vs-like per gate (a post that re-runs a subset still ran in the pre's superset).
+ *
+ * Caller-chosen, never a hidden heuristic.
+ */
+export type VerifyGateMode = 'fail-fast' | 'all-run';
+
+/**
+ * Input to the multi-gate executor. Mirrors {@link RunVerifyScriptProps} for the shared fields
+ * and adds the gate list, the optional touched-path scope, and the run mode.
+ *
+ *  - `gates`     — already-normalised gate list (see {@link normalizeVerifyGates}). When empty,
+ *    the run is a no-op recorded as a single `'skipped'` row.
+ *  - `scope`     — touched paths (POSIX, repo-root-relative) that filter which gates run. A gate
+ *    runs when its `pathPrefix` prefixes ANY scoped path (`''` always matches). `undefined`
+ *    means "no scope" → ALL gates run (pre-verify, or a post-verify footprint fallback).
+ *  - `mode`      — fail-fast (post) vs all-run (pre). See {@link VerifyGateMode}.
+ *  - `defaultTimeoutMs` — repo-level `verifyTimeout` fallback for a gate without its own
+ *    `timeoutMs`. The shell runner applies its own default when this too is absent.
+ */
+export interface RunVerifyGatesProps {
+  readonly cwd: AbsolutePath;
+  readonly phase: VerifyRunPhase;
+  readonly gates: readonly VerifyGate[];
+  readonly scope?: readonly string[];
+  readonly mode: VerifyGateMode;
+  readonly defaultTimeoutMs?: number;
+  readonly clock: () => IsoTimestamp;
+  readonly runShellScript: RunVerifyScriptProps['runShellScript'];
+  readonly logger: Logger;
+}
+
+/**
+ * Normalise the two legacy/structured inputs into ONE gate list so the executor has a single code
+ * path. Precedence matches the entity-documented rule: `verifyGates` wins when present AND
+ * non-empty; otherwise the legacy `verifyScript` becomes a single catch-all gate
+ * `{ pathPrefix: '', command: verifyScript }`. A whitespace-only / absent script with no gates
+ * yields `[]` (the executor records a `'skipped'` row).
+ */
+export const normalizeVerifyGates = (
+  verifyScript: string | undefined,
+  verifyGates: readonly VerifyGate[] | undefined
+): readonly VerifyGate[] => {
+  if (verifyGates !== undefined && verifyGates.length > 0) return verifyGates;
+  const command = verifyScript?.trim() ?? '';
+  if (command.length === 0) return [];
+  return [{ pathPrefix: '', command }];
+};
+
+/**
+ * True iff `gate` should run under `scope`. A `''` prefix is the catch-all and always matches.
+ * Otherwise the gate runs when its prefix prefixes ANY touched path. `scope === undefined` means
+ * "no scope supplied" → every gate runs (the caller already decided not to filter).
+ */
+const gateInScope = (gate: VerifyGate, scope: readonly string[] | undefined): boolean => {
+  if (scope === undefined) return true;
+  if (gate.pathPrefix === '') return true;
+  return scope.some((path) => path.startsWith(gate.pathPrefix));
+};
+
+/**
+ * Multi-gate verify executor — the WS3 generalisation of {@link runVerifyScriptUseCase}. Runs the
+ * scoped subset of `gates` in declaration order and aggregates the per-gate outcomes into ONE
+ * {@link VerifyRun} so the existing attempt/attribution shape is untouched:
+ *
+ *  - `outcome` is `'success'` only when EVERY executed gate succeeded. The first non-success
+ *    decides the aggregate outcome (`'failed'` / `'spawn-error'`), and in `fail-fast` mode the
+ *    run stops there; in `all-run` mode the remaining gates still execute (their output is still
+ *    captured) but the aggregate outcome stays the first failure's.
+ *  - `command` reports what actually ran: the failing gate's command on a failure (so the audit
+ *    row points at the culprit), else the `'; '`-joined commands of every executed gate.
+ *  - `exitCode` is the failing gate's exit code (or `0` when all passed; `-1` for spawn-error).
+ *  - `durationMs` sums the executed gates.
+ *  - `rawOutput` concatenates each executed gate's output behind a clear `── <command> ──`
+ *    separator so the single per-phase log file stays readable.
+ *
+ * An empty (post-filter) gate set records a `'skipped'` row — same contract as the no-script
+ * path. Total over its inputs (never `Result.error`); spawn-level failures fold into the row.
+ */
+/** The first non-success gate, captured so it decides the aggregate row's command/exit/outcome. */
+interface GateFailure {
+  readonly outcome: 'failed' | 'spawn-error';
+  readonly command: string;
+  readonly exitCode: number;
+  readonly message?: string;
+}
+
+/** Mutable accumulator threaded through the gate loop. */
+interface GateRunState {
+  readonly executed: Array<{ readonly command: string; readonly output: string }>;
+  totalDurationMs: number;
+  failure?: GateFailure;
+}
+
+export const runVerifyGatesUseCase = async (props: RunVerifyGatesProps): Promise<RunVerifyScriptOutput> => {
+  const log = props.logger.named('task.verify-gates');
+  const scoped = props.gates.filter((gate) => gateInScope(gate, props.scope));
+
+  if (scoped.length === 0) {
+    log.debug('no verify gates in scope, recording skipped row', {
+      cwd: props.cwd,
+      phase: props.phase,
+      totalGates: props.gates.length,
+    });
+    return {
+      run: { phase: props.phase, ranAt: props.clock(), command: '', exitCode: 0, durationMs: 0, outcome: 'skipped' },
+      rawOutput: '',
+    };
+  }
+
+  log.debug(`running ${String(scoped.length)} ${props.phase}-task verify gate(s) (${props.mode})`, {
+    cwd: props.cwd,
+    scoped: scoped.length,
+    total: props.gates.length,
+  });
+
+  const startedAt = props.clock();
+  const state: GateRunState = { executed: [], totalDurationMs: 0 };
+
+  for (const gate of scoped) {
+    await runOneGate(props, log, gate, state);
+    // Fail-fast halts at the first non-success; all-run keeps going to complete the baseline.
+    if (state.failure !== undefined && props.mode === 'fail-fast') break;
+  }
+
+  return projectGateRun(props, startedAt, state, log);
+};
+
+/** Run one gate and fold its outcome into `state`. The FIRST non-success captures the failure. */
+const runOneGate = async (
+  props: RunVerifyGatesProps,
+  log: ReturnType<Logger['named']>,
+  gate: VerifyGate,
+  state: GateRunState
+): Promise<void> => {
+  const timeoutMs = gate.timeoutMs ?? props.defaultTimeoutMs;
+  const result = await props.runShellScript(props.cwd, gate.command, {
+    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+    env: { RALPHCTL_LIFECYCLE_EVENT: props.phase === 'pre' ? 'pre-task' : 'post-task' },
+  });
+
+  if (!result.ok) {
+    log.warn('verify gate could not be executed', {
+      cwd: props.cwd,
+      phase: props.phase,
+      command: gate.command,
+      error: result.error.message,
+    });
+    state.executed.push({ command: gate.command, output: '' });
+    state.failure ??= { outcome: 'spawn-error', command: gate.command, exitCode: -1, message: result.error.message };
+    return;
+  }
+
+  const { passed, exitCode, output, durationMs } = result.value;
+  state.totalDurationMs += durationMs;
+  state.executed.push({ command: gate.command, output });
+  if (!passed) state.failure ??= { outcome: 'failed', command: gate.command, exitCode: exitCode ?? -1 };
+};
+
+/** Project the accumulated gate state into the single aggregated {@link RunVerifyScriptOutput}. */
+const projectGateRun = (
+  props: RunVerifyGatesProps,
+  startedAt: IsoTimestamp,
+  state: GateRunState,
+  log: ReturnType<Logger['named']>
+): RunVerifyScriptOutput => {
+  const rawOutput = concatGateOutput(state.executed);
+  const { failure, totalDurationMs, executed } = state;
+  if (failure !== undefined) {
+    log.info(`${props.phase}-task verify ${failure.outcome}`, { cwd: props.cwd, command: failure.command });
+    return {
+      run: {
+        phase: props.phase,
+        ranAt: startedAt,
+        command: failure.command,
+        exitCode: failure.exitCode,
+        durationMs: totalDurationMs,
+        outcome: failure.outcome,
+      },
+      rawOutput,
+      ...(failure.message !== undefined ? { spawnErrorMessage: failure.message } : {}),
+    };
+  }
+
+  log.info(`${props.phase}-task verify success`, {
+    cwd: props.cwd,
+    gates: executed.length,
+    durationMs: totalDurationMs,
+  });
+  return {
+    run: {
+      phase: props.phase,
+      ranAt: startedAt,
+      command: executed.map((e) => e.command).join('; '),
+      exitCode: 0,
+      durationMs: totalDurationMs,
+      outcome: 'success',
+    },
+    rawOutput,
+  };
+};
+
+/**
+ * Concatenate per-gate output behind a `── <command> ──` separator so the single per-phase log
+ * file reads cleanly across multiple gates. A single-gate run emits the bare output with no
+ * separator — byte-for-byte identical to the legacy single-script log.
+ */
+const concatGateOutput = (executed: ReadonlyArray<{ readonly command: string; readonly output: string }>): string => {
+  if (executed.length === 0) return '';
+  if (executed.length === 1) return executed[0]?.output ?? '';
+  return executed.map((e) => `── ${e.command} ──\n${e.output}`).join('\n\n');
 };
 
 /**

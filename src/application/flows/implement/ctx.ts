@@ -4,6 +4,7 @@ import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { AttemptWarning, VerifyRunOutcome } from '@src/domain/entity/attempt.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
+import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { EvaluationSignal, LearningEntry } from '@src/domain/signal.ts';
 import type { GenEvalExit, RunTaskVerdict } from '@src/business/task/gen-eval-exit.ts';
@@ -102,6 +103,18 @@ export interface ImplementCtx {
    * the first post-task-verify of a sprint.
    */
   readonly priorPostVerifyOutcome?: { readonly cwd: AbsolutePath; readonly outcome: VerifyRunOutcome } | undefined;
+  /**
+   * Repository ids whose setup script SUCCEEDED during THIS launch's `setup-script-runner` leaf.
+   * Distinct from `SprintExecution.setupRanAt` (which persists across launches/resumes): this
+   * marker is run-scoped and lives only on ctx, so a prior launch's persisted success does NOT
+   * appear here. Set by `setup-script-runner` (it appends a repo id only when the script ran
+   * green in this invocation — NOT on the resume-skip path, where the success belongs to an
+   * earlier launch). Read by the first `pre-task-verify` of the run (per repo) to seed a green
+   * baseline without re-running the verify gate, when `harness.skipPreVerifyOnFreshSetup` is on
+   * and the tree is clean. Survives the parallel-path `forkCtx` (run-scoped, like `execution`).
+   * Undefined before setup runs / when no setup succeeded this launch.
+   */
+  readonly setupVerifiedRepoIdsThisRun?: readonly RepositoryId[] | undefined;
   readonly lastCommitSha?: string | undefined;
   readonly proposedCommitMessage?: ProposedCommitMessage | undefined;
   readonly expectedBranch?: string | undefined;

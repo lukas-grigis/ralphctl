@@ -30,3 +30,11 @@
   event-arrival from React-commit rate; fix for DEBUG-floor commit-storm OOM; + status-diff guard on useSessions/useSession
 - [project_escalation_gate_broadened.md](project_escalation_gate_broadened.md) — finalize-gen-eval now escalates on
   plateau+budget-exhausted+malformed (not just plateau); malformed = same-model retry no ladder rung; fallbackMaxAttempts wired
+- [project_attempt_scoped_ctx_reset_seam.md](project_attempt_scoped_ctx_reset_seam.md) — implement attempt-scoped ctx
+  resets split across start-attempt (entry: verdict/session) vs progress-journal (exit: GENERATOR_HINTS accumulators)
+- [project_structured_verify_gates.md](project_structured_verify_gates.md) — WS3 per-module verify gates: precedence,
+  multi-gate VerifyRun representation, gitDiffFootprint seam, fail-fast post / all-run pre asymmetry, run-ALL fallback
+- [project_detect_scripts_verify_gates_signal.md](project_detect_scripts_verify_gates_signal.md) — T9 verify-gates signal:
+  ONE signal carrying gates[] (not per-gate), .nonempty() schema, additive to verify-script, needed RepositoryUpdate wiring
+- [project_run_scoped_ctx_marker_fences.md](project_run_scoped_ctx_marker_fences.md) — a run-scoped ImplementCtx field
+  needs 3 merge-wave fence updates (\_exhaustive map + mergeImplementWave + forkCtx); T13 fresh-setup-skip marker

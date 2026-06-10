@@ -31,6 +31,7 @@ const harnessConfig: Settings['harness'] = {
   plateauThreshold: 2,
   escalateOnPlateau: false,
   escalationMap: {},
+  skipPreVerifyOnFreshSetup: false,
 };
 
 const claudeRow: AiFlowSettings = { provider: 'claude-code', model: 'claude-opus-4-8' };
