@@ -1,6 +1,7 @@
 import { Result } from '@src/domain/result.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import { ParseError } from '@src/domain/value/error/parse-error.ts';
+import { extractPlaceholders } from '@src/integration/ai/prompts/_engine/extract-placeholders.ts';
 
 /**
  * Placeholder substitution for `.md` prompt templates.
@@ -17,11 +18,17 @@ import { ParseError } from '@src/domain/value/error/parse-error.ts';
  *  - All occurrences of the same key are replaced.
  *  - Replacement values are inserted verbatim — `$&` and other regex replacement specials in
  *    the value do not trigger backreferences (we use a plain function callback, not a string
- *    replacement).
+ *    replacement). Inserted values are NEVER re-scanned: a value that happens to contain
+ *    `{{ANYTHING}}` (AI-authored journal text quoting a placeholder, a critique naming
+ *    `{{API_KEY}}`, …) passes through as inert literal text.
  *
- * `assertFullySubstituted` is the post-substitution fence. Call it at the boundary where the
- * rendered prompt is about to leave the builder so a typo or missing slot surfaces as a typed
- * error instead of silently leaking a literal `{{TOKEN}}` to the AI.
+ * `assertTemplateKeysFilled` is the TEMPLATE-side fence. It checks that every placeholder the
+ * template (and its loaded partials) declares has a value in the substitution map — a typo or
+ * missing slot surfaces as a typed error. It deliberately does NOT scan the rendered output:
+ * a post-render scan punished placeholder-shaped literals inside SUBSTITUTED VALUES, so one
+ * AI-journaled `{{TOKEN}}` quote poisoned every later prompt built from that journal — and the
+ * depth-preserving progress cap re-inlined the poison on every retry, permanently wedging the
+ * task. Template/manifest drift is what the fence is for; AI prose is not drift.
  */
 
 const PLACEHOLDER_PATTERN = /\{\{([A-Z][A-Z0-9_]*)\}\}/g;
@@ -37,20 +44,32 @@ export const substitute = (template: string, values: Readonly<Record<string, str
   });
 
 /**
- * Scan the rendered string for any leftover `{{TOKEN}}` placeholders. On a clean string the
- * input is branded as `Prompt` and returned ok. On any leftover, returns a `ParseError`
- * (subCode `'schema-mismatch'`) listing every unresolved placeholder, deduplicated and in
- * first-seen order.
+ * Assert every placeholder declared by `template` — and by each supplied partial body, since a
+ * partial's own placeholders survive the single-pass substitution as literals — has a value in
+ * `values`. On success the RENDERED string is branded as `Prompt`; on any unfilled key, returns
+ * a `ParseError` (subCode `'schema-mismatch'`) listing the missing placeholders in first-seen
+ * order. Values containing placeholder-shaped text are intentionally NOT flagged — see the
+ * module docstring.
  */
-export const assertFullySubstituted = (rendered: string, where: string): Result<Prompt, ParseError> => {
-  const matches = rendered.match(PLACEHOLDER_PATTERN);
-  if (matches === null) return Result.ok(rendered as Prompt) as Result<Prompt, ParseError>;
-  const unique = Array.from(new Set(matches));
+export const assertTemplateKeysFilled = (
+  rendered: string,
+  template: string,
+  partialBodies: readonly string[],
+  values: Readonly<Record<string, string>>,
+  where: string
+): Result<Prompt, ParseError> => {
+  const required = new Set<string>(extractPlaceholders(template));
+  for (const body of partialBodies) {
+    for (const key of extractPlaceholders(body)) required.add(key);
+  }
+  const missing = Array.from(required).filter((key) => values[key] === undefined);
+  if (missing.length === 0) return Result.ok(rendered as Prompt) as Result<Prompt, ParseError>;
   return Result.error(
     new ParseError({
       subCode: 'schema-mismatch',
       message:
-        `${where}: rendered prompt has ${String(unique.length)} unresolved placeholder(s): ${unique.join(', ')}. ` +
+        `${where}: template declares ${String(missing.length)} unfilled placeholder(s): ` +
+        `${missing.map((k) => `{{${k}}}`).join(', ')}. ` +
         `Either fill the slot in the builder's substitution map or remove the placeholder from the template.`,
     })
   );

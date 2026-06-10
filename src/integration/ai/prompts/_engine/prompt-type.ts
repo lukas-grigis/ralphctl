@@ -2,7 +2,7 @@
  * Branded string for an AI prompt that has been fully rendered: every `{{KEY}}` placeholder
  * substituted, no leftovers.
  *
- * The brand is created in `integration/ai/prompt/substitute.ts` after `assertFullySubstituted`
+ * The brand is created in `integration/ai/prompt/substitute.ts` after `assertTemplateKeysFilled`
  * passes. Domain references the type so `HeadlessAiProvider.generate(input)` can accept only validated
  * prompts at the type level — a plain string cannot reach a provider.
  *
