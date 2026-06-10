@@ -32,48 +32,64 @@ describe('settings-models / codex catalog', () => {
 });
 
 describe('settings-models / copilot catalog', () => {
-  const added = [
+  // Reconciled to GitHub's official supported-models doc (as of 2026-06-10).
+  const official = [
+    // OpenAI
+    'gpt-5-mini',
+    'gpt-5.3-codex',
+    'gpt-5.4',
+    'gpt-5.4-mini',
+    'gpt-5.4-nano',
     'gpt-5.5',
+    // Anthropic
+    'claude-haiku-4.5',
+    'claude-opus-4.5',
+    'claude-opus-4.6',
+    'claude-opus-4.6-fast',
     'claude-opus-4.7',
     'claude-opus-4.8',
-    'gemini-3.1-pro-preview',
-    'gemini-3-flash-preview',
-    'gemini-3.5-flash',
+    'claude-fable-5',
+    'claude-sonnet-4.5',
+    'claude-sonnet-4.6',
+    // Google
     'gemini-2.5-pro',
+    'gemini-3-flash',
+    'gemini-3.1-pro-preview',
+    'gemini-3.5-flash',
+    // Microsoft
     'mai-code-1-flash',
+    // Fine-tuned
     'raptor-mini-preview',
   ] as const;
 
-  it('keeps the previously-shipped entries', () => {
-    for (const m of [
-      'gpt-5-mini',
-      'gpt-5.4-mini',
-      'gpt-5.1',
-      'gpt-5.4',
-      'gpt-5.3-codex',
-      'gpt-5.2-codex',
-      'gpt-5.2',
-      'gpt-5.1-codex-max',
-      'gpt-5.1-codex',
-      'gpt-5.1-codex-mini',
-      'gpt-4.1',
-      'claude-haiku-4.5',
-      'claude-sonnet-4.6',
-      'claude-sonnet-4.5',
-      'claude-sonnet-4',
-      'claude-opus-4.6',
-      'claude-opus-4.6-fast',
-      'claude-opus-4.5',
-      'gemini-3-pro-preview',
-    ]) {
-      expect(COPILOT_MODELS).toContain(m);
+  // De-listed by GitHub — must no longer appear in the static catalog.
+  const removed = [
+    'gpt-5.1',
+    'gpt-5.2',
+    'gpt-5.2-codex',
+    'gpt-5.1-codex-max',
+    'gpt-5.1-codex',
+    'gpt-5.1-codex-mini',
+    'gpt-4.1',
+    'claude-sonnet-4',
+    'gemini-3-pro-preview',
+    'gemini-3-flash-preview',
+  ] as const;
+
+  it('contains exactly the official supported-models list', () => {
+    expect([...COPILOT_MODELS]).toEqual([...official]);
+  });
+
+  it('recognizes every official id', () => {
+    for (const m of official) {
+      expect(isCopilotModel(m)).toBe(true);
     }
   });
 
-  it('adds the copilot 1.0.60 model ids', () => {
-    for (const m of added) {
-      expect(COPILOT_MODELS).toContain(m);
-      expect(isCopilotModel(m)).toBe(true);
+  it('drops every de-listed id', () => {
+    for (const m of removed) {
+      expect(COPILOT_MODELS).not.toContain(m);
+      expect(isCopilotModel(m)).toBe(false);
     }
   });
 
