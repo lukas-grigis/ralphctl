@@ -62,8 +62,8 @@ its alt-screen behaviour differs.
 7. Press Enter to approve
 8. **Expected:** ticket 1 transitions to `approved`, sprint saved, chain moves to ticket 2
 9. Repeat for ticket 2
-10. **Expected:** session completes once all tickets done. Press Enter to pop back. Pipeline-map's Refine phase
-    is now ✓ done.
+10. **Expected:** session completes once all tickets done. Press Enter — lands on Home with the same
+    project/sprint still selected. Pipeline-map's Refine phase is now ✓ done.
 
 **Negative tests:**
 

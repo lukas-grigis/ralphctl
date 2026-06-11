@@ -110,15 +110,17 @@ command, timeoutMs? }` — supplements the legacy `verifyScript` string and wins
 
 ### Fixed
 
-- **The project/sprint combo now stays coherent as you move between flows.** The mutable global selection
-  (what launches use) and the per-run pinned context (what the execute view shows) had no path back to
-  convergence once they diverged — you could watch sprint B while `n → Flows` silently launched against
-  sprint A. Now: focusing an execute view converges the selection onto the run's pinned project/sprint;
-  `create-sprint` launched from Flows reseats onto the new sprint and never pins the previous sprint onto
-  its run; `close-sprint` refreshes the status chip to `done` without yanking a user who switched away
-  mid-run; sprint-detail's `n` makes the viewed sprint current before opening Flows (as its hint always
-  promised); the breadcrumb status chip refreshes from every fresh snapshot load and on boot, and a fresh
-  pick can no longer be clobbered by the in-flight boot probe.
+- **The project/sprint combo is the user's pick, kept until the next explicit pick.** Startup lands on Home
+  with the persisted project/sprint restored; finishing any flow (refine / plan / implement / …) and leaving
+  the execute view (`↵`/`esc`) resets to Home — previously sprint-detail — with the same selection still in
+  place. Focusing a run (Tab / Ctrl+1..9 / Sessions-open) is a _browse_: the breadcrumb shows the run's own
+  pinned context while the view is mounted, but the global selection is never mutated (an earlier iteration
+  "converged" the selection onto the focused run and persisted it — peeking at an old session could re-pin
+  its sprint as current and the next boot landed on the wrong sprint). Explicit picks are the only switches:
+  `P`/`S` pickers, Home's sprint quick-switch, sprint-detail `m`/`n`, and `create-sprint`'s reseat onto the
+  new sprint (which never pins the previous sprint onto its run); `close-sprint` refreshes the status chip to
+  `done` without yanking a user who switched away mid-run; the chip refreshes from every fresh snapshot load
+  and on boot, and a fresh pick can no longer be clobbered by the in-flight boot probe.
 
 - **Project detail's `r — sprints` key works now.** The hint (and header doc) advertised it since the
   view shipped, but no handler existed — the key was a silent no-op. It opens the Sprints list scoped
