@@ -37,7 +37,9 @@ describe('ralphctl create-pr — PATH gate for the createPr provider', () => {
   afterEach(async () => cli.cleanup());
 
   it('exits non-zero naming the missing binary and the ai.createPr.provider key when AI is on', async () => {
-    const result = await runCliCaptured(cli, ['create-pr', '--sprint', 'does-not-matter']);
+    // Well-formed (but nonexistent) sprint id: argument validation runs before the gate, so a
+    // malformed id would short-circuit with `invalid sprint id` instead of exercising the probe.
+    const result = await runCliCaptured(cli, ['create-pr', '--sprint', '01900000-0000-7000-8000-00000000aaaa']);
     // The gate fires before any sprint I/O — a missing claude CLI is surfaced first.
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain('CLI claude not on PATH');
@@ -48,7 +50,12 @@ describe('ralphctl create-pr — PATH gate for the createPr provider', () => {
 
   it('does NOT fire the PATH gate under --no-ai (template path spawns no provider)', async () => {
     detectRef.installed = new Set(); // nothing installed at all
-    const result = await runCliCaptured(cli, ['create-pr', '--sprint', 'no-such-sprint', '--no-ai']);
+    const result = await runCliCaptured(cli, [
+      'create-pr',
+      '--sprint',
+      '01900000-0000-7000-8000-00000000bbbb',
+      '--no-ai',
+    ]);
     // The gate is skipped; the run instead fails downstream on the missing sprint — never with
     // the PATH-gate message. That proves --no-ai bypasses the probe.
     expect(result.stderr).not.toContain('not on PATH');

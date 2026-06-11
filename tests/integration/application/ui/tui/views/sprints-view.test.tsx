@@ -1,5 +1,9 @@
 /**
  * Smoke tests for SprintsView. Empty state, populated row, `c` advice when no project picked.
+ *
+ * Load-settling uses `waitForViewReady` / `waitFor` (not fixed ticks): under the full parallel
+ * suite a 40–120ms tick races the async repo load, leaving assertions staring at the boot
+ * banner frame — the exact flake the harness helper exists to prevent.
  */
 
 import { describe, expect, it, vi } from 'vitest';
@@ -12,8 +16,8 @@ import type { TaskRepository } from '@src/domain/repository/task/task-repository
 import type { Task } from '@src/domain/entity/task.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
-import { END, tick } from '@tests/integration/application/ui/tui/_keys.ts';
-import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
+import { END, tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { createPromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
 import { makeDraftSprint, makeTodoTask } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
@@ -71,7 +75,7 @@ const makeSprint = (overrides: Record<string, unknown> = {}): Sprint =>
 describe('SprintsView', () => {
   it('shows the empty state when no sprints exist (no project picked)', async () => {
     const { result } = renderView(<SprintsView />, { deps: stubDeps([]), initial: { id: 'sprints' } });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('No sprints yet'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('No sprints yet');
     expect(frame).toContain('Pick a project first');
@@ -81,7 +85,7 @@ describe('SprintsView', () => {
   it('renders one row per sprint with name, status, ticket count', async () => {
     const sprint = makeSprint({ name: 'Spring Sprint', slug: 'spring' });
     const { result } = renderView(<SprintsView />, { deps: stubDeps([sprint]), initial: { id: 'sprints' } });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('Spring Sprint'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Spring Sprint');
     expect(frame).toContain('spring');
@@ -93,7 +97,7 @@ describe('SprintsView', () => {
   it('publishes c / d / r hints to the status bar', async () => {
     const sprint = makeSprint({});
     const { result } = renderView(<SprintsView />, { deps: stubDeps([sprint]), initial: { id: 'sprints' } });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('c create'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('c create');
     expect(frame).toContain('d delete');
@@ -104,7 +108,7 @@ describe('SprintsView', () => {
   it('hides the e rename hint when the focused sprint is done (rename guards status !== done)', async () => {
     const done = makeSprint({ name: 'Shipped Sprint', status: 'done' });
     const { result } = renderView(<SprintsView />, { deps: stubDeps([done]), initial: { id: 'sprints' } });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('Shipped Sprint'));
     const frame = result.lastFrame() ?? '';
     // The rename handler is a no-op on a done sprint, so the hint must hide rather than advertise
     // a dead key — hint and handler share one source of truth.
@@ -116,9 +120,9 @@ describe('SprintsView', () => {
   it("pressing 'e' on a done sprint flashes a reason instead of a silent no-op", async () => {
     const done = makeSprint({ name: 'Shipped Sprint', status: 'done' });
     const { result } = renderView(<SprintsView />, { deps: stubDeps([done]), initial: { id: 'sprints' } });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('Shipped Sprint'));
     result.stdin.write('e');
-    await tick(40);
+    await waitFor(() => (result.lastFrame() ?? '').includes("done sprints can't be renamed"));
     const frame = result.lastFrame() ?? '';
     // Someone who found `e` via `?` should learn why it's inert, not be left guessing.
     expect(frame).toContain("done sprints can't be renamed");
@@ -144,9 +148,9 @@ describe('SprintsView', () => {
     const deps = stubDeps([sprint]);
     (deps as unknown as { sprintRepo: SprintRepository }).sprintRepo = repo;
     const { result } = renderView(<SprintsView />, { deps, initial: { id: 'sprints' }, queue });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('Mispeld Sprint'));
     result.stdin.write('e');
-    await tick(40);
+    await waitFor(() => queue.head !== undefined);
     expect(queue.head?.kind).toBe('text');
     if (queue.head?.kind === 'text') {
       expect(queue.head.initial).toBe('Mispeld Sprint');
@@ -190,8 +194,9 @@ describe('SprintsView', () => {
     } as unknown as AppDeps;
 
     const { result } = renderView(<SprintsView />, { deps, initial: { id: 'sprints' } });
-    // Extra ticks: one for sprint list render, one for task fetch effect.
-    await tick(80);
+    // Two async waves settle here: the sprint list render, then the task-fetch effect that
+    // feeds the unblock hint count.
+    await waitForViewReady(result, (f) => f.includes('Broken Sprint') && f.includes('(1)'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Broken Sprint');
     // 'u unblock (1)' should appear somewhere in the status bar hints. The terminal used by
@@ -240,11 +245,11 @@ describe('SprintsView', () => {
     } as unknown as AppDeps;
 
     const { result } = renderView(<SprintsView />, { deps, initial: { id: 'sprints' } });
-    // Wait for sprint list + task fetch to settle.
-    await tick(80);
+    // Sprint list + task fetch must both settle before `u` has a stuck task to act on.
+    await waitForViewReady(result, (f) => f.includes('Recovery Sprint') && f.includes('unblock'));
     result.stdin.write('u');
-    // Let the sequential unblock loop + feedback + task refresh complete.
-    await tick(120);
+    // The sequential unblock loop + feedback + task refresh complete when the toast lands.
+    await waitFor(() => /unblocked 1 task/.test(result.lastFrame() ?? ''));
     const frame = result.lastFrame() ?? '';
     expect(updateCalls).toHaveLength(1);
     expect(updateCalls[0]?.status).toBe('todo');
@@ -290,9 +295,9 @@ describe('SprintsView', () => {
     } as unknown as AppDeps;
 
     const { result } = renderView(<SprintsView />, { deps, initial: { id: 'sprints' } });
-    await tick(80);
+    await waitForViewReady(result, (f) => f.includes('Crash Sprint') && f.includes('unblock'));
     result.stdin.write('u');
-    await tick(120);
+    await waitFor(() => updateCalls.length === 1);
     expect(updateCalls).toHaveLength(1);
     expect(updateCalls[0]?.status).toBe('todo');
     result.unmount();
@@ -305,7 +310,7 @@ describe('SprintsView', () => {
     const newer = makeSprint({ id: 'sprint-02', name: 'Newer Sprint', slug: 'newer' });
     // Pass them oldest-first, mimicking sprintRepo.list()'s ascending order.
     const { result } = renderView(<SprintsView />, { deps: stubDeps([older, newer]), initial: { id: 'sprints' } });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('Newer Sprint') && f.includes('Older Sprint'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Newer Sprint');
     expect(frame).toContain('Older Sprint');
@@ -322,7 +327,7 @@ describe('SprintsView', () => {
       initial: { id: 'sprints' },
       selection: { projectId: scopedProject },
     });
-    await tick(80);
+    await waitForViewReady(result, (f) => f.includes('Newer Scoped') && f.includes('Older Scoped'));
     const frame = result.lastFrame() ?? '';
     expect(frame.indexOf('Newer Scoped')).toBeLessThan(frame.indexOf('Older Scoped'));
     result.unmount();
@@ -331,7 +336,7 @@ describe('SprintsView', () => {
   it('renders a single sprint without error', async () => {
     const sprint = makeSprint({ id: 'sprint-01', name: 'Solo Sprint', slug: 'solo' });
     const { result } = renderView(<SprintsView />, { deps: stubDeps([sprint]), initial: { id: 'sprints' } });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('Solo Sprint'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Solo Sprint');
     expect(frame).toContain('1 sprint(s)');
@@ -347,14 +352,14 @@ describe('SprintsView', () => {
       return makeSprint({ id: `sprint-${n}`, name: `Sprint ${n}`, slug: `s-${n}` });
     });
     const { result } = renderView(<SprintsView />, { deps: stubDeps(sprints), initial: { id: 'sprints' } });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('Sprint 08'));
     const before = result.lastFrame() ?? '';
     // Newest (sprint-08) is at the top of the window; the oldest (sprint-01) is below the fold.
     expect(before).toContain('Sprint 08');
     expect(before).not.toContain('Sprint 01');
 
     result.stdin.write(END);
-    await tick(40);
+    await waitFor(() => (result.lastFrame() ?? '').includes('Sprint 01'));
     const after = result.lastFrame() ?? '';
     // After End the window has scrolled to the bottom: the previously-hidden oldest sprint shows,
     // and the newest has scrolled off the top.
@@ -370,7 +375,7 @@ describe('SprintsView', () => {
       initial: { id: 'sprints' },
       selection: { projectId: scopedProject },
     });
-    await tick(80);
+    await waitForViewReady(result, (f) => f.includes('No sprints yet'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('No sprints yet');
     result.unmount();

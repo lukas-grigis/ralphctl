@@ -46,10 +46,13 @@ describe('footerGlobalHints', () => {
       'sessions',
       'settings',
       'pick project',
-      'pick sprint',
       'help',
       'quit',
     ]);
+  });
+
+  it('keeps pick sprint out of the footer (breadcrumb [S] owns discoverability; the strip overflows 100 cols otherwise)', () => {
+    expect((globalKeys.pickSprint as KeyBinding).showInFooter).toBeUndefined();
   });
 });
 

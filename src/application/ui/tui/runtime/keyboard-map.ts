@@ -44,7 +44,10 @@ export const globalKeys = {
   progressOverlay: { keys: ['g'], label: 'show progress.md' },
   yankTask: { keys: ['y'], label: 'copy active task summary' },
   pickProject: { keys: ['P'], label: 'pick project', showInFooter: true },
-  pickSprint: { keys: ['S'], label: 'pick sprint', showInFooter: true },
+  // NOT showInFooter: with `pick sprint` added the strip overflows a 100-col terminal and the
+  // whole footer wraps. The breadcrumb's `[S]` affordance (right next to the sprint name)
+  // carries the discoverability instead.
+  pickSprint: { keys: ['S'], label: 'pick sprint' },
   help: { keys: ['?'], label: 'help', showInFooter: true },
   quit: { keys: ['q', 'ctrl+c'], label: 'quit', showInFooter: true },
 } as const satisfies Record<string, KeyBinding>;
