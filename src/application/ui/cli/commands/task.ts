@@ -1,12 +1,12 @@
 import type { Command } from 'commander';
 import type { Task } from '@src/domain/entity/task.ts';
 import { TaskId } from '@src/domain/value/id/task-id.ts';
-import { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
+import { pinFallbackNotice, resolveSprintId } from '@src/application/ui/cli/resolve-sprint-selection.ts';
 import { unblockTaskUseCase } from '@src/business/task/unblock-task.ts';
 
 interface SprintOpt {
-  readonly sprint: string;
+  readonly sprint?: string;
 }
 
 /**
@@ -15,9 +15,13 @@ interface SprintOpt {
  * tickets); manual `task add` / `task edit` are deferred until there's a concrete UX for
  * tweaking AI-generated plans.
  *
- *   ralphctl task list --sprint <id>
- *   ralphctl task show --sprint <id> <task-id>
- *   ralphctl task unblock --sprint <id> <task-id>
+ *   ralphctl task list [--sprint <id>]
+ *   ralphctl task show [--sprint <id>] <task-id>
+ *   ralphctl task unblock [--sprint <id>] <task-id>
+ *
+ * `--sprint` defaults to the pinned current sprint (`ralphctl sprint set-current <id>` or any
+ * TUI sprint pick); the fallback path prints a one-line stderr notice naming the substituted
+ * sprint so a stale pin never silently targets the wrong one.
  */
 export const registerTaskCommand = (program: Command): void => {
   const task = program.command('task').description('inspect tasks for a sprint (planning generates them)');
@@ -25,16 +29,17 @@ export const registerTaskCommand = (program: Command): void => {
   task
     .command('list')
     .description('list every task on the sprint, in order')
-    .requiredOption('-s, --sprint <id>', 'sprint id')
+    .option('-s, --sprint <id>', 'sprint id (defaults to the current sprint)')
     .action(async (opts: SprintOpt) => {
-      const sprintId = SprintId.parse(opts.sprint);
+      const { deps, storage } = await bootstrapCli();
+      const sprintId = await resolveSprintId(opts.sprint, storage.stateRoot);
       if (!sprintId.ok) {
-        process.stderr.write(`error: invalid sprint id: ${sprintId.error.message}\n`);
+        process.stderr.write(`error: ${sprintId.error.message}\n`);
         process.exit(1);
         return;
       }
-      const { deps } = await bootstrapCli();
-      const result = await deps.taskRepo.findBySprintId(sprintId.value);
+      if (sprintId.value.fromPin) process.stderr.write(pinFallbackNotice(sprintId.value.sprintId));
+      const result = await deps.taskRepo.findBySprintId(sprintId.value.sprintId);
       if (!result.ok) {
         process.stderr.write(`error: ${result.error.message}\n`);
         process.exit(1);
@@ -52,11 +57,12 @@ export const registerTaskCommand = (program: Command): void => {
   task
     .command('show <taskId>')
     .description('print a single task as JSON')
-    .requiredOption('-s, --sprint <id>', 'sprint id')
+    .option('-s, --sprint <id>', 'sprint id (defaults to the current sprint)')
     .action(async (rawTaskId: string, opts: SprintOpt) => {
-      const sprintId = SprintId.parse(opts.sprint);
+      const { deps, storage } = await bootstrapCli();
+      const sprintId = await resolveSprintId(opts.sprint, storage.stateRoot);
       if (!sprintId.ok) {
-        process.stderr.write(`error: invalid sprint id: ${sprintId.error.message}\n`);
+        process.stderr.write(`error: ${sprintId.error.message}\n`);
         process.exit(1);
         return;
       }
@@ -66,8 +72,8 @@ export const registerTaskCommand = (program: Command): void => {
         process.exit(1);
         return;
       }
-      const { deps } = await bootstrapCli();
-      const result = await deps.taskRepo.findById(sprintId.value, taskId.value);
+      if (sprintId.value.fromPin) process.stderr.write(pinFallbackNotice(sprintId.value.sprintId));
+      const result = await deps.taskRepo.findById(sprintId.value.sprintId, taskId.value);
       if (!result.ok) {
         process.stderr.write(`error: ${result.error.message}\n`);
         process.exit(1);
@@ -79,11 +85,12 @@ export const registerTaskCommand = (program: Command): void => {
   task
     .command('unblock <taskId>')
     .description('flip a blocked task back to todo so the implement loop picks it up again')
-    .requiredOption('-s, --sprint <id>', 'sprint id')
+    .option('-s, --sprint <id>', 'sprint id (defaults to the current sprint)')
     .action(async (rawTaskId: string, opts: SprintOpt) => {
-      const sprintId = SprintId.parse(opts.sprint);
+      const { deps, storage } = await bootstrapCli();
+      const sprintId = await resolveSprintId(opts.sprint, storage.stateRoot);
       if (!sprintId.ok) {
-        process.stderr.write(`error: invalid sprint id: ${sprintId.error.message}\n`);
+        process.stderr.write(`error: ${sprintId.error.message}\n`);
         process.exit(1);
         return;
       }
@@ -93,8 +100,8 @@ export const registerTaskCommand = (program: Command): void => {
         process.exit(1);
         return;
       }
-      const { deps } = await bootstrapCli();
-      const loaded = await deps.taskRepo.findById(sprintId.value, taskId.value);
+      if (sprintId.value.fromPin) process.stderr.write(pinFallbackNotice(sprintId.value.sprintId));
+      const loaded = await deps.taskRepo.findById(sprintId.value.sprintId, taskId.value);
       if (!loaded.ok) {
         process.stderr.write(`error: ${loaded.error.message}\n`);
         process.exit(1);
@@ -102,7 +109,7 @@ export const registerTaskCommand = (program: Command): void => {
       }
       const result = await unblockTaskUseCase({
         task: loaded.value,
-        sprintId: sprintId.value,
+        sprintId: sprintId.value.sprintId,
         taskRepo: deps.taskRepo,
         sprintRepo: deps.sprintRepo,
         clock: deps.clock,

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createFsSprintRepository } from '@src/integration/persistence/sprint/repository.ts';
-import { makeActiveSprint, makeDraftSprint, makeReviewSprint } from '@tests/fixtures/domain.ts';
+import { createFsProjectRepository } from '@src/integration/persistence/project/repository.ts';
+import { makeActiveSprint, makeDraftSprint, makeProject, makeReviewSprint } from '@tests/fixtures/domain.ts';
 import { type CliHome, createCliHome, runCliCaptured } from '@tests/e2e/cli/_harness.ts';
 
 describe('ralphctl sprint', () => {
@@ -64,6 +65,72 @@ describe('ralphctl sprint', () => {
 
       const listAfterRemove = await runCliCaptured(cli, ['sprint', 'list']);
       expect(listAfterRemove.stdout).toContain('no sprints yet');
+    });
+  });
+
+  describe('pinned-selection defaults', () => {
+    it('set-current pins the sprint; a bare `progress` resolves it', async () => {
+      // set-current re-loads the project to keep the persisted selection coherent, so both
+      // aggregates must exist (the fixture sprint's projectId matches the fixture project's id).
+      const projectRepo = createFsProjectRepository({ root: cli.paths.dataRoot });
+      const sprintRepo = createFsSprintRepository({ root: cli.paths.dataRoot });
+      const project = makeProject();
+      const sprint = makeDraftSprint();
+      await projectRepo.save(project);
+      await sprintRepo.save(sprint);
+
+      const pin = await runCliCaptured(cli, ['sprint', 'set-current', String(sprint.id)]);
+      expect(pin.exitCode).toBe(0);
+      expect(pin.stdout).toContain('pinned current sprint');
+
+      const progress = await runCliCaptured(cli, ['sprint', 'progress']);
+      expect(progress.exitCode).toBe(0);
+      expect(progress.stdout).toContain(sprint.name);
+      expect(progress.stdout).toContain(String(sprint.id));
+    });
+
+    it('bare `progress` with no pin exits 1 with guidance', async () => {
+      const result = await runCliCaptured(cli, ['sprint', 'progress']);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('no current sprint pinned');
+      expect(result.stderr).toContain('sprint set-current');
+    });
+
+    it('bare `show` resolves the pin', async () => {
+      const projectRepo = createFsProjectRepository({ root: cli.paths.dataRoot });
+      const sprintRepo = createFsSprintRepository({ root: cli.paths.dataRoot });
+      await projectRepo.save(makeProject());
+      const sprint = makeDraftSprint();
+      await sprintRepo.save(sprint);
+      await runCliCaptured(cli, ['sprint', 'set-current', String(sprint.id)]);
+
+      const result = await runCliCaptured(cli, ['sprint', 'show']);
+      expect(result.exitCode).toBe(0);
+      const parsed = JSON.parse(result.stdout) as { readonly id: string };
+      expect(parsed.id).toBe(String(sprint.id));
+    });
+
+    it('bare `show` with no pin exits 1 with guidance', async () => {
+      const result = await runCliCaptured(cli, ['sprint', 'show']);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('no current sprint pinned');
+    });
+
+    it('`remove` clears a dangling sprint pin (subsequent bare command exits 1)', async () => {
+      const projectRepo = createFsProjectRepository({ root: cli.paths.dataRoot });
+      const sprintRepo = createFsSprintRepository({ root: cli.paths.dataRoot });
+      await projectRepo.save(makeProject());
+      const sprint = makeDraftSprint();
+      await sprintRepo.save(sprint);
+      await runCliCaptured(cli, ['sprint', 'set-current', String(sprint.id)]);
+
+      const removed = await runCliCaptured(cli, ['sprint', 'remove', String(sprint.id)]);
+      expect(removed.exitCode).toBe(0);
+
+      // The pin no longer resolves — the default must fail with guidance, not a ghost lookup.
+      const progress = await runCliCaptured(cli, ['sprint', 'progress']);
+      expect(progress.exitCode).toBe(1);
+      expect(progress.stderr).toContain('no current sprint pinned');
     });
   });
 

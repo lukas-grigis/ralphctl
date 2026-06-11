@@ -1,13 +1,13 @@
 import type { Command } from 'commander';
 import type { Ticket } from '@src/domain/entity/ticket.ts';
 import { TicketId } from '@src/domain/value/id/ticket-id.ts';
-import { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { createTicketAddFlow } from '@src/application/flows/add-ticket/flow.ts';
 import { createTicketRemoveFlow } from '@src/application/flows/remove-ticket/flow.ts';
 import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
+import { pinFallbackNotice, resolveSprintId } from '@src/application/ui/cli/resolve-sprint-selection.ts';
 
 interface SprintOpt {
-  readonly sprint: string;
+  readonly sprint?: string;
 }
 
 interface AddOpts extends SprintOpt {
@@ -21,10 +21,16 @@ interface AddOpts extends SprintOpt {
  * repo), so list/show route through `sprintRepo.findById` directly; add/remove dispatch to
  * use-cases because they carry domain invariants (only-when-draft, conflict on duplicate id).
  *
- *   ralphctl ticket list   --sprint <id>
- *   ralphctl ticket show   --sprint <id> <ticket-id>
- *   ralphctl ticket add    --sprint <id> --title <title> [--description <text>] [--link <url>]
- *   ralphctl ticket remove --sprint <id> <ticket-id>
+ *   ralphctl ticket list   [--sprint <id>]
+ *   ralphctl ticket show   [--sprint <id>] <ticket-id>
+ *   ralphctl ticket add    [--sprint <id>] --title <title> [--description <text>] [--link <url>]
+ *   ralphctl ticket remove [--sprint <id>] <ticket-id>
+ *
+ * `--sprint` defaults to the pinned current sprint (`ralphctl sprint set-current <id>` or any
+ * TUI sprint pick); the fallback path prints a one-line stderr notice naming the substituted
+ * sprint, and the add/remove success lines always name the resolved sprint so the mutation
+ * target is never ambiguous. A stale pin fails naturally downstream (`findById` not-found /
+ * the only-when-draft invariant).
  */
 export const registerTicketCommand = (program: Command): void => {
   const ticketCmd = program.command('ticket').description('inspect and manage tickets within a sprint');
@@ -32,16 +38,17 @@ export const registerTicketCommand = (program: Command): void => {
   ticketCmd
     .command('list')
     .description('list every ticket on the sprint')
-    .requiredOption('-s, --sprint <id>', 'sprint id')
+    .option('-s, --sprint <id>', 'sprint id (defaults to the current sprint)')
     .action(async (opts: SprintOpt) => {
-      const sprintId = SprintId.parse(opts.sprint);
+      const { deps, storage } = await bootstrapCli();
+      const sprintId = await resolveSprintId(opts.sprint, storage.stateRoot);
       if (!sprintId.ok) {
-        process.stderr.write(`error: invalid sprint id: ${sprintId.error.message}\n`);
+        process.stderr.write(`error: ${sprintId.error.message}\n`);
         process.exit(1);
         return;
       }
-      const { deps } = await bootstrapCli();
-      const sprint = await deps.sprintRepo.findById(sprintId.value);
+      if (sprintId.value.fromPin) process.stderr.write(pinFallbackNotice(sprintId.value.sprintId));
+      const sprint = await deps.sprintRepo.findById(sprintId.value.sprintId);
       if (!sprint.ok) {
         process.stderr.write(`error: ${sprint.error.message}\n`);
         process.exit(1);
@@ -59,11 +66,12 @@ export const registerTicketCommand = (program: Command): void => {
   ticketCmd
     .command('show <ticketId>')
     .description('print a single ticket as JSON')
-    .requiredOption('-s, --sprint <id>', 'sprint id')
+    .option('-s, --sprint <id>', 'sprint id (defaults to the current sprint)')
     .action(async (rawTicketId: string, opts: SprintOpt) => {
-      const sprintId = SprintId.parse(opts.sprint);
+      const { deps, storage } = await bootstrapCli();
+      const sprintId = await resolveSprintId(opts.sprint, storage.stateRoot);
       if (!sprintId.ok) {
-        process.stderr.write(`error: invalid sprint id: ${sprintId.error.message}\n`);
+        process.stderr.write(`error: ${sprintId.error.message}\n`);
         process.exit(1);
         return;
       }
@@ -73,8 +81,8 @@ export const registerTicketCommand = (program: Command): void => {
         process.exit(1);
         return;
       }
-      const { deps } = await bootstrapCli();
-      const sprint = await deps.sprintRepo.findById(sprintId.value);
+      if (sprintId.value.fromPin) process.stderr.write(pinFallbackNotice(sprintId.value.sprintId));
+      const sprint = await deps.sprintRepo.findById(sprintId.value.sprintId);
       if (!sprint.ok) {
         process.stderr.write(`error: ${sprint.error.message}\n`);
         process.exit(1);
@@ -82,7 +90,7 @@ export const registerTicketCommand = (program: Command): void => {
       }
       const found = sprint.value.tickets.find((t) => t.id === ticketId.value);
       if (!found) {
-        process.stderr.write(`error: ticket ${rawTicketId} not found on sprint ${opts.sprint}\n`);
+        process.stderr.write(`error: ticket ${rawTicketId} not found on sprint ${String(sprintId.value.sprintId)}\n`);
         process.exit(1);
         return;
       }
@@ -92,22 +100,23 @@ export const registerTicketCommand = (program: Command): void => {
   ticketCmd
     .command('add')
     .description('append a pending ticket to a draft sprint')
-    .requiredOption('-s, --sprint <id>', 'sprint id')
+    .option('-s, --sprint <id>', 'sprint id (defaults to the current sprint)')
     .requiredOption('-t, --title <title>', 'ticket title')
     .option('-d, --description <text>', 'optional description')
     .option('-l, --link <url>', 'optional issue link (http/https)')
     .action(async (opts: AddOpts) => {
-      const sprintId = SprintId.parse(opts.sprint);
+      const { deps, storage } = await bootstrapCli();
+      const sprintId = await resolveSprintId(opts.sprint, storage.stateRoot);
       if (!sprintId.ok) {
-        process.stderr.write(`error: invalid sprint id: ${sprintId.error.message}\n`);
+        process.stderr.write(`error: ${sprintId.error.message}\n`);
         process.exit(1);
         return;
       }
-      const { deps } = await bootstrapCli();
+      if (sprintId.value.fromPin) process.stderr.write(pinFallbackNotice(sprintId.value.sprintId));
       const flow = createTicketAddFlow({ sprintRepo: deps.sprintRepo });
       const result = await flow.execute({
         input: {
-          sprintId: sprintId.value,
+          sprintId: sprintId.value.sprintId,
           title: opts.title,
           ...(opts.description !== undefined ? { description: opts.description } : {}),
           ...(opts.link !== undefined ? { link: opts.link } : {}),
@@ -119,17 +128,20 @@ export const registerTicketCommand = (program: Command): void => {
         return;
       }
       const ticket = result.value.ctx.output!;
-      process.stdout.write(`added ticket ${String(ticket.id)} — ${ticket.title}\n`);
+      process.stdout.write(
+        `added ticket ${String(ticket.id)} to sprint ${String(sprintId.value.sprintId)} — ${ticket.title}\n`
+      );
     });
 
   ticketCmd
     .command('remove <ticketId>')
     .description('drop a ticket from a draft sprint')
-    .requiredOption('-s, --sprint <id>', 'sprint id')
+    .option('-s, --sprint <id>', 'sprint id (defaults to the current sprint)')
     .action(async (rawTicketId: string, opts: SprintOpt) => {
-      const sprintId = SprintId.parse(opts.sprint);
+      const { deps, storage } = await bootstrapCli();
+      const sprintId = await resolveSprintId(opts.sprint, storage.stateRoot);
       if (!sprintId.ok) {
-        process.stderr.write(`error: invalid sprint id: ${sprintId.error.message}\n`);
+        process.stderr.write(`error: ${sprintId.error.message}\n`);
         process.exit(1);
         return;
       }
@@ -139,10 +151,10 @@ export const registerTicketCommand = (program: Command): void => {
         process.exit(1);
         return;
       }
-      const { deps } = await bootstrapCli();
+      if (sprintId.value.fromPin) process.stderr.write(pinFallbackNotice(sprintId.value.sprintId));
       const flow = createTicketRemoveFlow({ sprintRepo: deps.sprintRepo });
       const result = await flow.execute({
-        input: { sprintId: sprintId.value, ticketId: ticketId.value },
+        input: { sprintId: sprintId.value.sprintId, ticketId: ticketId.value },
       });
       if (!result.ok) {
         process.stderr.write(`error: ${result.error.error.message}\n`);
@@ -151,12 +163,12 @@ export const registerTicketCommand = (program: Command): void => {
       }
       const out = result.value.ctx.output!;
       if (!out.removed) {
-        process.stderr.write(`error: ticket ${rawTicketId} not found on sprint ${opts.sprint}\n`);
+        process.stderr.write(`error: ticket ${rawTicketId} not found on sprint ${String(sprintId.value.sprintId)}\n`);
         process.exit(1);
         return;
       }
       process.stdout.write(
-        `removed ticket ${rawTicketId} (${String(out.remainingTickets)} ticket${out.remainingTickets === 1 ? '' : 's'} remain)\n`
+        `removed ticket ${rawTicketId} from sprint ${String(sprintId.value.sprintId)} (${String(out.remainingTickets)} ticket${out.remainingTickets === 1 ? '' : 's'} remain)\n`
       );
     });
 };

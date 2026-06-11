@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createFsSprintRepository } from '@src/integration/persistence/sprint/repository.ts';
+import { createLastSelectionStore } from '@src/integration/persistence/selection/last-selection-store.ts';
 import { addTicket } from '@src/domain/entity/sprint.ts';
 import { makeApprovedTicket, makeDraftSprint, makePendingTicket, makePlannedSprint } from '@tests/fixtures/domain.ts';
 import { type CliHome, createCliHome, runCliCaptured } from '@tests/e2e/cli/_harness.ts';
@@ -47,6 +48,29 @@ describe('ralphctl ticket', () => {
       const result = await runCliCaptured(cli, ['ticket', 'list', '--sprint', 'not-a-uuid']);
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain('invalid sprint id');
+    });
+
+    it('defaults --sprint to the pinned current sprint (with a stderr notice)', async () => {
+      const repo = createFsSprintRepository({ root: cli.paths.dataRoot });
+      const withTicket = addTicket(makeDraftSprint(), makePendingTicket({ title: 'pinned ticket' }));
+      if (!withTicket.ok) throw new Error('fixture: addTicket failed');
+      await repo.save(withTicket.value);
+      await createLastSelectionStore(cli.paths.stateRoot).write({
+        projectId: withTicket.value.projectId,
+        sprintId: withTicket.value.id,
+      });
+
+      const result = await runCliCaptured(cli, ['ticket', 'list']);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('pinned ticket');
+      expect(result.stderr).toContain(`using current sprint ${String(withTicket.value.id)}`);
+    });
+
+    it('exits 1 with guidance when --sprint is omitted and nothing is pinned', async () => {
+      const result = await runCliCaptured(cli, ['ticket', 'list']);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('no sprint specified');
+      expect(result.stderr).toContain('sprint set-current');
     });
   });
 
@@ -104,6 +128,23 @@ describe('ralphctl ticket', () => {
       if (!reloaded.ok) return;
       expect(reloaded.value.tickets).toHaveLength(1);
       expect(reloaded.value.tickets[0]?.title).toBe('add metrics dashboard');
+    });
+
+    it('names the resolved sprint in the success line when falling back to the pin', async () => {
+      // Draft-sprint mutations from a pin must be unambiguous about their target — the
+      // success line carries the resolved sprint id, not just the ticket.
+      const repo = createFsSprintRepository({ root: cli.paths.dataRoot });
+      const sprint = makeDraftSprint();
+      await repo.save(sprint);
+      await createLastSelectionStore(cli.paths.stateRoot).write({
+        projectId: sprint.projectId,
+        sprintId: sprint.id,
+      });
+
+      const result = await runCliCaptured(cli, ['ticket', 'add', '--title', 'pin-target ticket']);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain(`to sprint ${String(sprint.id)}`);
+      expect(result.stderr).toContain(`using current sprint ${String(sprint.id)}`);
     });
 
     it('exits 1 when the sprint is not in draft status (invariant violated)', async () => {
