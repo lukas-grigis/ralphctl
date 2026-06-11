@@ -212,8 +212,10 @@ export interface AppDeps {
    */
   readonly skillsAdapter: SkillsAdapter;
   /**
-   * Source of canonical {@link Skill}s for a flow. Bundled-only in this PR; the same port
-   * will host a user-skill source in a follow-up.
+   * Source of canonical {@link Skill}s for a flow. `wire()` binds the static BUNDLED source
+   * only; the launcher composes it per launch with the project-scoped source (setup / verify
+   * skills authored via detect-skills) and the operator drop-in source — see
+   * `composeSkillSources` in `ui/shared/launcher.ts`.
    */
   readonly skillSource: SkillSource;
   /**
