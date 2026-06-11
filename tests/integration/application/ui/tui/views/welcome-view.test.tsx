@@ -13,8 +13,8 @@ import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
 import type { SettingsRepository } from '@src/domain/repository/settings/settings-repository.ts';
-import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
-import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
+import { waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { makeProject } from '@tests/fixtures/domain.ts';
 import type { ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 
@@ -65,7 +65,7 @@ describe('WelcomeView — first-run UX', () => {
       initial: { id: 'welcome' },
       onRoute: (e) => routes.push(e),
     });
-    await tick(120);
+    await waitForViewReady(result, (f) => f.includes('claude-only'));
 
     expect(saved).toHaveLength(1);
     for (const flow of ['refine', 'plan', 'readiness', 'ideate'] as const) {
@@ -94,7 +94,7 @@ describe('WelcomeView — first-run UX', () => {
     } as unknown as AppDeps;
 
     const { result } = renderView(<WelcomeView />, { deps, initial: { id: 'welcome' } });
-    await tick(120);
+    await waitForViewReady(result, (f) => f.includes('No AI CLIs detected'));
 
     expect(saved).toHaveLength(1);
     // The mixed preset routes refine → codex, implement → claude — a clean fingerprint.
@@ -121,7 +121,7 @@ describe('WelcomeView — first-run UX', () => {
     } as unknown as AppDeps;
 
     const { result } = renderView(<WelcomeView />, { deps, initial: { id: 'welcome' } });
-    await tick(120);
+    await waitForViewReady(result, (f) => f.includes('mixed'));
 
     expect(saved).toHaveLength(1);
     expect(saved[0]?.ai.refine.provider).toBe('openai-codex');
@@ -137,14 +137,15 @@ describe('WelcomeView — first-run UX', () => {
     } as unknown as AppDeps;
 
     const routes: ViewEntry[] = [];
-    renderView(<WelcomeView />, {
+    const { result: welcomeResult } = renderView(<WelcomeView />, {
       deps,
       initial: { id: 'welcome' },
       onRoute: (e) => routes.push(e),
     });
-    await tick(120);
+    await waitFor(() => routes.at(-1)?.id === 'home');
 
     expect(routes.at(-1)?.id).toBe('home');
+    welcomeResult.unmount();
   });
 
   it('surfaces a "Failed to save settings" message when persistence fails', async () => {
@@ -158,7 +159,7 @@ describe('WelcomeView — first-run UX', () => {
     } as unknown as AppDeps;
 
     const { result } = renderView(<WelcomeView />, { deps, initial: { id: 'welcome' } });
-    await tick(120);
+    await waitForViewReady(result, (f) => f.includes('Failed to save settings'));
 
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Failed to save settings');

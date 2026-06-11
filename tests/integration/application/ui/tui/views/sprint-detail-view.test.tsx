@@ -12,8 +12,8 @@ import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import type { Task } from '@src/domain/entity/task.ts';
-import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
-import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
+import { tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { createPromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
 import { makeDraftSprint, makePendingTicket, makeTodoTask } from '@tests/fixtures/domain.ts';
@@ -57,7 +57,7 @@ describe('SprintDetailView — phase workspace', () => {
   it('draft sprint with no tickets suggests "Add tickets"', async () => {
     const sprint = makeSprint({ status: 'draft', tickets: [] });
     const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, []), initial });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('Add tickets'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Next phase');
     expect(frame).toContain('Add tickets');
@@ -73,7 +73,7 @@ describe('SprintDetailView — phase workspace', () => {
       ],
     });
     const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, []), initial });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('Refine 2 pending ticket(s)'));
     expect(result.lastFrame() ?? '').toContain('Refine 2 pending ticket(s)');
     result.unmount();
   });
@@ -104,7 +104,7 @@ describe('SprintDetailView — phase workspace', () => {
       } as never,
     ];
     const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, tasks), initial });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('Implement 2 resumable task(s)'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Implement 2 resumable task(s)');
     const tasksHeader = frame.indexOf('▣ Tasks');
@@ -122,7 +122,7 @@ describe('SprintDetailView — phase workspace', () => {
       tickets: [{ id: 't1' as never, title: 'first', status: 'approved' } as never],
     });
     const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, []), initial });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('Open a pull request'));
     expect(result.lastFrame() ?? '').toContain('Open a pull request');
     result.unmount();
   });
@@ -175,13 +175,13 @@ describe('SprintDetailView — phase workspace', () => {
     } as unknown as AppDeps;
 
     const { result } = renderView(<SprintDetailView />, { deps, initial });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('wedged'));
     // Cursor starts at idx 0 (the ticket). Press 'j' once to land on the (one) task below.
     result.stdin.write('j');
-    await tick(40);
+    await waitFor(() => (result.lastFrame() ?? '').includes('unbl'));
     result.stdin.write('u');
     // Give the async use case + reload a chance to settle.
-    await tick(80);
+    await waitFor(() => (result.lastFrame() ?? '').includes('✓ unblocked'));
     const frame = result.lastFrame() ?? '';
     expect(updateCalls).toHaveLength(1);
     expect(updateCalls[0]?.status).toBe('todo');
@@ -218,20 +218,20 @@ describe('SprintDetailView — phase workspace', () => {
     const queue = createPromptQueue();
     const initialWithId = { id: 'sprint-detail', props: { sprintId: sprintWithTicket.id } };
     const { result } = renderView(<SprintDetailView />, { deps, initial: initialWithId, queue });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('Typo iin Title'));
     // Cursor starts on the ticket. Press 'e' → opens the field-picker choice.
     result.stdin.write('e');
-    await tick(40);
+    await waitFor(() => queue.head !== undefined);
     expect(queue.head?.kind).toBe('choice');
     // Pick "title" (the first option for a pending ticket).
     queue.resolveHead('title');
-    await tick(40);
+    await waitFor(() => queue.head?.kind === 'text');
     expect(queue.head?.kind).toBe('text');
     if (queue.head?.kind === 'text') {
       expect(queue.head.initial).toBe('Typo iin Title');
     }
     queue.resolveHead('Typo in Title');
-    await tick(40);
+    await waitFor(() => save.mock.calls.length === 1);
     expect(save).toHaveBeenCalledTimes(1);
     const saved = save.mock.calls[0]?.[0];
     expect(saved?.tickets?.[0]?.title).toBe('Typo in Title');
@@ -275,10 +275,10 @@ describe('SprintDetailView — phase workspace', () => {
     } as unknown as AppDeps;
 
     const { result } = renderView(<SprintDetailView />, { deps, initial });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('stuck-task'));
     // Cursor starts on the ticket; press 'j' to land on the blocked task.
     result.stdin.write('j');
-    await tick(40);
+    await waitFor(() => /unbl/.test(result.lastFrame() ?? ''));
     const frame = result.lastFrame() ?? '';
     // The 'u unblock' hint must appear in the status bar footer area. The terminal width used
     // by ink-testing-library may wrap the label across lines — match a prefix that survives
@@ -323,7 +323,7 @@ describe('SprintDetailView — phase workspace', () => {
     } as unknown as AppDeps;
 
     const { result } = renderView(<SprintDetailView />, { deps, initial });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('not-stuck'));
     // Cursor starts on the ticket; press 'j' to land on the todo task.
     result.stdin.write('j');
     await tick(40);
@@ -373,10 +373,10 @@ describe('SprintDetailView — phase workspace', () => {
     } as unknown as AppDeps;
 
     const { result } = renderView(<SprintDetailView />, { deps, initial });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('in-progress-stuck'));
     // Cursor starts on the ticket; press 'j' to land on the in_progress task.
     result.stdin.write('j');
-    await tick(40);
+    await waitFor(() => /unbl/.test(result.lastFrame() ?? ''));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('in-progress-stuck');
     // The 'u unblock' hint must appear for in_progress tasks, same as for blocked.
@@ -431,12 +431,12 @@ describe('SprintDetailView — phase workspace', () => {
     } as unknown as AppDeps;
 
     const { result } = renderView(<SprintDetailView />, { deps, initial });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('crashed-task'));
     // Cursor starts on the ticket; press 'j' to land on the in_progress task.
     result.stdin.write('j');
-    await tick(40);
+    await waitFor(() => /unbl/.test(result.lastFrame() ?? ''));
     result.stdin.write('u');
-    await tick(80);
+    await waitFor(() => (result.lastFrame() ?? '').includes('✓ unblocked'));
     const frame = result.lastFrame() ?? '';
     expect(updateCalls).toHaveLength(1);
     expect(updateCalls[0]?.status).toBe('todo');
@@ -451,7 +451,7 @@ describe('SprintDetailView — phase workspace', () => {
       tickets: [{ id: 't1' as never, title: 'first', status: 'pending' } as never],
     });
     const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, []), initial });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('add ticket'));
     const frame = result.lastFrame() ?? '';
     // The hint strip advertises the ticket add/remove chords only while they are wired up.
     expect(frame).toContain('add ticket');
@@ -465,7 +465,7 @@ describe('SprintDetailView — phase workspace', () => {
       tickets: [{ id: 't1' as never, title: 'first', status: 'approved' } as never],
     });
     const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, []), initial });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('first'));
     const frame = result.lastFrame() ?? '';
     // Ticket CRUD is draft-only; on an active sprint the chords do nothing, so the footer must
     // not advertise them — the hint shares one source of truth with the gated handler.
@@ -515,7 +515,7 @@ describe('SprintDetailView — phase workspace', () => {
     } as unknown as AppDeps;
 
     const { result } = renderView(<SprintDetailView />, { deps, initial });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('fine'));
     result.stdin.write('j');
     await tick(20);
     result.stdin.write('u');

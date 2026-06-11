@@ -11,8 +11,8 @@ import { SettingsView } from '@src/application/ui/tui/views/settings-view.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { SettingsRepository } from '@src/domain/repository/settings/settings-repository.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
-import { ENTER, RIGHT, tick } from '@tests/integration/application/ui/tui/_keys.ts';
-import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
+import { ENTER, RIGHT, tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 // Hoisted state holder — each test mutates this before rendering so the mocked
 // `detectInstalledProviders` returns the desired set. The mock targets the integration
@@ -96,7 +96,7 @@ const goToSection = async (stdin: { write: (s: string) => void }, target: (typeo
 describe('SettingsView', () => {
   it('renders the section strip and the active section after the load completes', async () => {
     const { result } = renderView(<SettingsView />, { deps, initial: { id: 'settings' } });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('Apply: Mixed'));
     const frame = result.lastFrame() ?? '';
     // Every section label is in the strip.
     for (const label of [
@@ -131,7 +131,7 @@ describe('SettingsView', () => {
 
   it('shows the storage paths card when the storage section is active', async () => {
     const { result } = renderView(<SettingsView />, { deps, initial: { id: 'settings' } });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('Apply: Mixed'));
     await goToSection(result.stdin, 'storage');
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Storage paths');
@@ -141,7 +141,7 @@ describe('SettingsView', () => {
 
   it('exposes ←/→ section, ↑/↓ navigate, ↵/e edit hints', async () => {
     const { result } = renderView(<SettingsView />, { deps, initial: { id: 'settings' } });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('section'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('section');
     expect(frame).toContain('navigate');
@@ -151,7 +151,7 @@ describe('SettingsView', () => {
 
   it('renders Implement as a parent card with indented generator and evaluator sub-rows', async () => {
     const { result } = renderView(<SettingsView />, { deps, initial: { id: 'settings' } });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('Apply: Mixed'));
     await goToSection(result.stdin, 'implement');
     const frame = result.lastFrame() ?? '';
     // The parent card carries the non-editable Implement label exactly once; the two role
@@ -203,7 +203,7 @@ describe('SettingsView', () => {
     // evaluator triple) and is the right stress-test for the ≤ ~8-row cap.
     it('caps ↓ at the Implement section last row no matter how many presses arrive', async () => {
       const { result } = renderView(<SettingsView />, { deps, initial: { id: 'settings' } });
-      await tick(40);
+      await waitForViewReady(result, (f) => f.includes('Apply: Mixed'));
       await goToSection(result.stdin, 'implement');
       // The Implement section has six fields (generator.{provider,model,effort} +
       // evaluator.{provider,model,effort}). Ten ↓ presses pin the cursor at the last row.
@@ -230,7 +230,7 @@ describe('SettingsView', () => {
 
     it('caps ↑ at the first row inside a section', async () => {
       const { result } = renderView(<SettingsView />, { deps, initial: { id: 'settings' } });
-      await tick(40);
+      await waitForViewReady(result, (f) => f.includes('Apply: Mixed'));
       await goToSection(result.stdin, 'harness');
       // Park the cursor on the last row first, then hammer ↑.
       for (let i = 0; i < 5; i += 1) {
@@ -252,14 +252,14 @@ describe('SettingsView', () => {
   describe('model field is catalog-only', () => {
     it('does not mount a TextPrompt on a model row (no free-text input affordance)', async () => {
       const { result } = renderView(<SettingsView />, { deps, initial: { id: 'settings' } });
-      await tick(40);
+      await waitForViewReady(result, (f) => f.includes('Apply: Mixed'));
       await goToSection(result.stdin, 'refine');
       // Refine section field order: 0 provider, 1 model, 2 effort. One ↓ lands on the model
       // row; ↵ opens the picker.
       result.stdin.write('j');
       await tick(20);
       result.stdin.write(ENTER);
-      await tick(40);
+      await waitForViewReady(result, (f) => f.includes('↑/↓ navigate · ↵ submit · esc cancel'));
       const frame = result.lastFrame() ?? '';
       // SelectPrompt always renders the navigation legend below its option list.
       expect(frame).toContain('↑/↓ navigate · ↵ submit · esc cancel');
@@ -288,7 +288,7 @@ describe('SettingsView', () => {
     const stub = stubRepoWith(initial);
     const stubDeps: AppDeps = { settingsRepo: stub.repo } as unknown as AppDeps;
     const { result } = renderView(<SettingsView />, { deps: stubDeps, initial: { id: 'settings' } });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('Apply: Mixed'));
     await goToSection(result.stdin, 'refine');
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain(offCatalogModel);
@@ -299,10 +299,13 @@ describe('SettingsView', () => {
     // Section ordering puts Refine third (presets → global → refine), so two RIGHT presses
     // step from the initial Presets section to Refine; ENTER on the first row (provider)
     // opens the picker.
-    const openRefineProviderPicker = async (stdin: { write: (s: string) => void }): Promise<void> => {
+    const openRefineProviderPicker = async (
+      stdin: { write: (s: string) => void },
+      lastFrame: () => string | undefined
+    ): Promise<void> => {
       await goToSection(stdin, 'refine');
       stdin.write(ENTER);
-      await tick(40);
+      await waitFor(() => (lastFrame() ?? '').includes('↑/↓ navigate · ↵ submit · esc cancel'));
     };
 
     it("labels unavailable providers as '(not installed)' in the provider picker", async () => {
@@ -310,8 +313,8 @@ describe('SettingsView', () => {
       const stub = stubRepoWith(DEFAULT_SETTINGS);
       const stubDeps: AppDeps = { settingsRepo: stub.repo } as unknown as AppDeps;
       const { result } = renderView(<SettingsView />, { deps: stubDeps, initial: { id: 'settings' } });
-      await tick(80);
-      await openRefineProviderPicker(result.stdin);
+      await waitForViewReady(result, (f) => f.includes('Apply: Mixed'));
+      await openRefineProviderPicker(result.stdin, result.lastFrame);
       const frame = result.lastFrame() ?? '';
       expect(frame).toContain('github-copilot (not installed)');
       expect(frame).toContain('openai-codex (not installed)');
@@ -325,8 +328,8 @@ describe('SettingsView', () => {
       const stub = stubRepoWith(DEFAULT_SETTINGS);
       const stubDeps: AppDeps = { settingsRepo: stub.repo } as unknown as AppDeps;
       const { result } = renderView(<SettingsView />, { deps: stubDeps, initial: { id: 'settings' } });
-      await tick(80);
-      await openRefineProviderPicker(result.stdin);
+      await waitForViewReady(result, (f) => f.includes('Apply: Mixed'));
+      await openRefineProviderPicker(result.stdin, result.lastFrame);
       // Strip the rendered frame's word-wrap whitespace before asserting — ink may break the
       // footer across multiple lines depending on terminal width, but the install command must
       // still be present as a contiguous token sequence.
@@ -346,8 +349,8 @@ describe('SettingsView', () => {
       const stub = stubRepoWith(DEFAULT_SETTINGS);
       const stubDeps: AppDeps = { settingsRepo: stub.repo } as unknown as AppDeps;
       const { result } = renderView(<SettingsView />, { deps: stubDeps, initial: { id: 'settings' } });
-      await tick(80);
-      await openRefineProviderPicker(result.stdin);
+      await waitForViewReady(result, (f) => f.includes('Apply: Mixed'));
+      await openRefineProviderPicker(result.stdin, result.lastFrame);
       const frame = result.lastFrame() ?? '';
       expect(frame).toContain('No AI provider CLI is installed.');
       expect(frame).toContain('claude-code (not installed)');

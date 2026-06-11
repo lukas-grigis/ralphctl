@@ -28,8 +28,7 @@ import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import type { Task } from '@src/domain/entity/task.ts';
-import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
-import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 
 const sizeRef = vi.hoisted(() => ({ columns: 120, rows: 40 }));
@@ -128,7 +127,7 @@ describe('SprintDetailView — ticket / task card harmony', () => {
       } as never,
     ];
     const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, tasks), initial });
-    await tick(60);
+    await waitForViewReady(result, (f) => f.includes('bravo-card-marker') && f.includes('alpha-task-marker'));
 
     const frame = stripAnsi(result.lastFrame() ?? '');
     const lines = frame.split('\n');
@@ -192,7 +191,7 @@ describe('SprintDetailView — task metadata row wrap policy', () => {
     const sprint = makeSprint([{ id: 'ticket-a' as never, title: longTicketTitle, status: 'approved' } as never]);
     const tasks: readonly Task[] = [buildMetadataHeavyTask('task-meta-wide')];
     const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, tasks), initial });
-    await tick(60);
+    await waitForViewReady(result, (f) => f.includes('· ticket:'));
 
     const frame = stripAnsi(result.lastFrame() ?? '');
     const lines = frame.split('\n');
@@ -217,7 +216,7 @@ describe('SprintDetailView — task metadata row wrap policy', () => {
     const sprint = makeSprint([{ id: 'ticket-a' as never, title: longTicketTitle, status: 'approved' } as never]);
     const tasks: readonly Task[] = [buildMetadataHeavyTask('task-meta-narrow')];
     const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, tasks), initial });
-    await tick(60);
+    await waitForViewReady(result, (f) => f.includes('ticket:'));
 
     const frame = stripAnsi(result.lastFrame() ?? '');
     const lines = frame.split('\n');

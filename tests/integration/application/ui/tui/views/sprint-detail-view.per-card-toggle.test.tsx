@@ -21,20 +21,10 @@ import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import type { Task } from '@src/domain/entity/task.ts';
-import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
-import { ESC, tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
+import { ESC, tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { makeApprovedTicket, makeDraftSprint } from '@tests/fixtures/domain.ts';
-
-type Renderable = { readonly lastFrame: () => string | undefined };
-
-const waitForFrame = async (rendered: Renderable, predicate: (frame: string) => boolean): Promise<void> => {
-  for (let i = 0; i < 50; i++) {
-    const frame = rendered.lastFrame() ?? '';
-    if (predicate(frame)) return;
-    await tick(40);
-  }
-};
 
 const FIXED_SPRINT_ID = 'sprint-fixture-id' as unknown as SprintId;
 
@@ -83,16 +73,16 @@ describe('SprintDetailView — per-card expand/collapse', () => {
       makeTicket('ticket-b', 'bravo card', 'bravo-only-marker-line-in-description'),
     ]);
     const { result } = renderView(<SprintDetailView />, { deps: stubReadOnlyDeps(sprint, []), initial });
-    await waitForFrame(result, (f) => f.includes('alpha card') && !f.includes('Loading'));
+    await waitForViewReady(result, (f) => f.includes('alpha card'));
 
     // Expand the first ticket (cursor starts at idx 0).
     result.stdin.write('o');
-    await waitForFrame(result, (f) => f.includes('requirements for alpha card'));
+    await waitFor(() => (result.lastFrame() ?? '').includes('requirements for alpha card'));
     // Move to the second ticket and expand it without collapsing the first.
     result.stdin.write('j');
     await tick(40);
     result.stdin.write('o');
-    await waitForFrame(result, (f) => f.includes('requirements for bravo card'));
+    await waitFor(() => (result.lastFrame() ?? '').includes('requirements for bravo card'));
 
     const frame = result.lastFrame() ?? '';
     // Both expanded views render their per-ticket Requirements heading; if either card
@@ -107,21 +97,21 @@ describe('SprintDetailView — per-card expand/collapse', () => {
       makeTicket('ticket-b', 'bravo card', 'bravo-only-marker-line-in-description'),
     ]);
     const { result } = renderView(<SprintDetailView />, { deps: stubReadOnlyDeps(sprint, []), initial });
-    await waitForFrame(result, (f) => f.includes('alpha card') && !f.includes('Loading'));
+    await waitForViewReady(result, (f) => f.includes('alpha card'));
 
     // Open card 0.
     result.stdin.write('o');
-    await waitForFrame(result, (f) => f.includes('requirements for alpha card'));
+    await waitFor(() => (result.lastFrame() ?? '').includes('requirements for alpha card'));
     // Move to card 1 and open it.
     result.stdin.write('j');
     await tick(40);
     result.stdin.write('o');
-    await waitForFrame(result, (f) => f.includes('requirements for bravo card'));
+    await waitFor(() => (result.lastFrame() ?? '').includes('requirements for bravo card'));
     // Move back to card 0 and toggle it closed.
     result.stdin.write('k');
     await tick(40);
     result.stdin.write('o');
-    await waitForFrame(result, (f) => !f.includes('requirements for alpha card'));
+    await tick(40);
 
     const frame = result.lastFrame() ?? '';
     // Card 0's requirements heading should be gone; card 1's must remain.
@@ -135,15 +125,15 @@ describe('SprintDetailView — per-card expand/collapse', () => {
       makeTicket('ticket-b', 'bravo card', 'bravo-only-marker-line-in-description'),
     ]);
     const { result } = renderView(<SprintDetailView />, { deps: stubReadOnlyDeps(sprint, []), initial });
-    await waitForFrame(result, (f) => f.includes('alpha card') && !f.includes('Loading'));
+    await waitForViewReady(result, (f) => f.includes('alpha card'));
 
     // Expand both cards.
     result.stdin.write('o');
-    await waitForFrame(result, (f) => f.includes('requirements for alpha card'));
+    await waitFor(() => (result.lastFrame() ?? '').includes('requirements for alpha card'));
     result.stdin.write('j');
     await tick(40);
     result.stdin.write('o');
-    await waitForFrame(result, (f) => f.includes('requirements for bravo card'));
+    await waitFor(() => (result.lastFrame() ?? '').includes('requirements for bravo card'));
 
     // Confirm pre-condition: both cards expanded.
     let frame = result.lastFrame() ?? '';
@@ -152,7 +142,7 @@ describe('SprintDetailView — per-card expand/collapse', () => {
 
     // One Esc must clear the entire openIds set.
     result.stdin.write(ESC);
-    await waitForFrame(result, (f) => !f.includes('requirements for alpha card'));
+    await tick(40);
 
     frame = result.lastFrame() ?? '';
     expect(frame).not.toContain('requirements for alpha card');
@@ -166,11 +156,11 @@ describe('SprintDetailView — per-card expand/collapse', () => {
       makeTicket('ticket-c', 'charlie card', 'charlie-only-marker-line-in-description'),
     ]);
     const { result } = renderView(<SprintDetailView />, { deps: stubReadOnlyDeps(sprint, []), initial });
-    await waitForFrame(result, (f) => f.includes('alpha card') && !f.includes('Loading'));
+    await waitForViewReady(result, (f) => f.includes('alpha card'));
 
     // Expand only the first card.
     result.stdin.write('o');
-    await waitForFrame(result, (f) => f.includes('requirements for alpha card'));
+    await waitFor(() => (result.lastFrame() ?? '').includes('requirements for alpha card'));
 
     // Navigate cursor up and down across all three cards.
     result.stdin.write('j');
@@ -233,18 +223,18 @@ describe('SprintDetailView — per-card expand/collapse', () => {
 
     const initialWithRealId = { id: 'sprint-detail', props: { sprintId: storedSprint.id } };
     const { result } = renderView(<SprintDetailView />, { deps, initial: initialWithRealId });
-    await waitForFrame(result, (f) => f.includes('alpha card') && !f.includes('Loading'));
+    await waitForViewReady(result, (f) => f.includes('alpha card'));
 
     // Open card 0 (alpha).
     result.stdin.write('o');
-    await waitForFrame(result, (f) => f.includes('requirements for alpha card'));
+    await waitFor(() => (result.lastFrame() ?? '').includes('requirements for alpha card'));
     // Move down twice to card 2 (charlie) and open it.
     result.stdin.write('j');
     await tick(40);
     result.stdin.write('j');
     await tick(40);
     result.stdin.write('o');
-    await waitForFrame(result, (f) => f.includes('requirements for charlie card'));
+    await waitFor(() => (result.lastFrame() ?? '').includes('requirements for charlie card'));
 
     // Pre-condition: alpha and charlie expanded; bravo collapsed.
     let frame = result.lastFrame() ?? '';
@@ -260,13 +250,12 @@ describe('SprintDetailView — per-card expand/collapse', () => {
     result.stdin.write('k');
     await tick(40);
     result.stdin.write('d');
-    await waitForFrame(result, (f) => f.includes('Remove ticket'));
+    await waitFor(() => (result.lastFrame() ?? '').includes('Remove ticket'));
     result.stdin.write('y');
-    await waitForFrame(
-      result,
-      (f) =>
-        f.includes('alpha card') && f.includes('charlie card') && !f.includes('bravo card') && !f.includes('Loading')
-    );
+    await waitFor(() => {
+      const f = result.lastFrame() ?? '';
+      return f.includes('alpha card') && f.includes('charlie card') && !f.includes('Loading');
+    });
 
     frame = result.lastFrame() ?? '';
     // The two surviving cards (alpha + charlie) keep their expansion; bravo is gone from the

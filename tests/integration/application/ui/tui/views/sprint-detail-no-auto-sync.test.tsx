@@ -24,7 +24,7 @@ import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repo
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
-import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
+import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { makeDraftSprint } from '@tests/fixtures/domain.ts';
 
 const FIXED_SPRINT_ID = 'sprint-no-autosync' as unknown as SprintId;
@@ -145,7 +145,7 @@ describe('SprintDetailView — no auto-sync', () => {
     const sprint = makeSprint({ status: 'draft', name: 'Visible Sprint' });
     const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint), initial });
 
-    await tick(80);
+    await waitForViewReady(result, (f) => f.includes('Visible Sprint'));
     const frame = result.lastFrame() ?? '';
 
     // The view should still render correctly (sprint name appears).
@@ -179,7 +179,7 @@ describe('SprintDetailView — setSprint is reachable via m key after redesign',
     } as unknown as AppDeps;
 
     const { result } = renderView(<SprintDetailView />, { deps, initial: initialWithId });
-    await tick(80);
+    await waitForViewReady(result, (f) => f.includes('Renderable Sprint'));
 
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Renderable Sprint');

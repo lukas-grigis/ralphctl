@@ -20,7 +20,7 @@ import type { SprintExecutionRepository } from '@src/domain/repository/sprint/sp
 import type { SettingsRepository } from '@src/domain/repository/settings/settings-repository.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
-import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 const deps: AppDeps = {
@@ -56,8 +56,10 @@ const deps: AppDeps = {
 describe('DoctorView', () => {
   it('renders the grouped probe report with a summary header', async () => {
     const { result } = renderView(<DoctorView />, { deps, initial: { id: 'doctor' } });
-    // Probes shell out to git / gh / glab; give them time to settle.
-    await tick(6000);
+    // Probes shell out to git / gh / glab; poll until they settle rather than a fixed budget.
+    await waitFor(() => /passed/.test(result.lastFrame() ?? '') && (result.lastFrame() ?? '').includes('Storage'), {
+      timeoutMs: 10000,
+    });
     const frame = result.lastFrame() ?? '';
     // Summary header is one of "passed / warnings / failures".
     expect(frame).toMatch(/passed/);
@@ -70,7 +72,7 @@ describe('DoctorView', () => {
 
   it('publishes the r reload hint', async () => {
     const { result } = renderView(<DoctorView />, { deps, initial: { id: 'doctor' } });
-    await tick(6000);
+    await waitFor(() => (result.lastFrame() ?? '').includes('reload'), { timeoutMs: 10000 });
     expect(result.lastFrame() ?? '').toContain('reload');
     result.unmount();
   });

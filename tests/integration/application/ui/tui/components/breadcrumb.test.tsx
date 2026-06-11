@@ -24,7 +24,7 @@ import { Breadcrumb } from '@src/application/ui/tui/components/breadcrumb.tsx';
 import { RouterProvider } from '@src/application/ui/tui/runtime/router.tsx';
 import { SelectionProvider, useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { UiStateProvider, useUiState, type FocusedRunCtx } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
-import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
 
 // Hoisted size control — vi.hoisted so the variable exists when the mock factory is hoisted.
 const sizeRef = vi.hoisted(() => ({ columns: 100, rows: 24 }));
@@ -105,7 +105,7 @@ describe('Breadcrumb — right-side label coalescing', () => {
     const { lastFrame, unmount } = render(
       <Harness globalProjectLabel="global-project" globalSprintLabel="stale-sprint" focusedRun={focusedRun} />
     );
-    await tick(50);
+    await waitFor(() => (lastFrame() ?? '').includes('run-project'));
 
     const frame = lastFrame() ?? '';
     // Project resolves from the focused run.
@@ -129,7 +129,7 @@ describe('Breadcrumb — right-side label coalescing', () => {
     const { lastFrame, unmount } = render(
       <Harness globalProjectLabel="global-project" globalSprintLabel="stale-sprint" focusedRun={focusedRun} />
     );
-    await tick(50);
+    await waitFor(() => (lastFrame() ?? '').includes('run-sprint'));
 
     const frame = lastFrame() ?? '';
     expect(frame).toContain('run-project');
@@ -145,7 +145,7 @@ describe('Breadcrumb — right-side label coalescing', () => {
     const { lastFrame, unmount } = render(
       <Harness globalProjectLabel="global-project" globalSprintLabel="global-sprint" />
     );
-    await tick(50);
+    await waitFor(() => (lastFrame() ?? '').includes('global-sprint'));
 
     const frame = lastFrame() ?? '';
     expect(frame).toContain('global-project');
@@ -161,7 +161,7 @@ describe('Breadcrumb — sprint status chip (audit 1-A)', () => {
     const { lastFrame, unmount } = render(
       <Harness globalProjectLabel="global-project" globalSprintLabel="global-sprint" />
     );
-    await tick(30);
+    await waitFor(() => (lastFrame() ?? '').includes('[S]'));
     const frame = lastFrame() ?? '';
     expect(frame).toContain('[P]');
     expect(frame).toContain('[S]');
@@ -173,7 +173,7 @@ describe('Breadcrumb — sprint status chip (audit 1-A)', () => {
     const { lastFrame, unmount } = render(
       <Harness globalProjectLabel="my-project" globalSprintLabel="my-sprint" globalSprintStatus="active" />
     );
-    await tick(50);
+    await waitFor(() => (lastFrame() ?? '').includes('[ACTIVE]'));
     const frame = lastFrame() ?? '';
     expect(frame).toContain('my-sprint');
     // StatusChip wraps the label in brackets and uppercases it.
@@ -186,7 +186,7 @@ describe('Breadcrumb — sprint status chip (audit 1-A)', () => {
     const { lastFrame, unmount } = render(
       <Harness globalProjectLabel="my-project" globalSprintLabel="my-sprint" globalSprintStatus="active" />
     );
-    await tick(50);
+    await waitFor(() => (lastFrame() ?? '').includes('my-sprint'));
     const frame = lastFrame() ?? '';
     expect(frame).toContain('my-sprint');
     // No chip at narrow width — avoids overflow on small terminals.
@@ -209,7 +209,7 @@ describe('Breadcrumb — sprint status chip (audit 1-A)', () => {
         focusedRun={focusedRun}
       />
     );
-    await tick(50);
+    await waitFor(() => (lastFrame() ?? '').includes('run-sprint'));
     const frame = lastFrame() ?? '';
     // The focused run's sprint label shows but the global status chip must not leak through.
     expect(frame).toContain('run-sprint');
@@ -228,7 +228,7 @@ describe('Breadcrumb — sprint status chip (audit 1-A)', () => {
       const { lastFrame, unmount } = render(
         <Harness globalProjectLabel="p" globalSprintLabel="s" globalSprintStatus={status as SprintStatus} />
       );
-      await tick(50);
+      await waitFor(() => (lastFrame() ?? '').includes(expected));
 
       expect(lastFrame() ?? '').toContain(expected);
       unmount();

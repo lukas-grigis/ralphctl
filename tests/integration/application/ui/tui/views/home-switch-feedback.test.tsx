@@ -30,7 +30,7 @@ import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { makeDraftSprint, makeProject } from '@tests/fixtures/domain.ts';
 import { ENTER, tick } from '@tests/integration/application/ui/tui/_keys.ts';
-import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
+import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 const noopVersionChecker = async (): Promise<null> => null;
 
@@ -129,7 +129,7 @@ describe('HomeView — switch feedback line', () => {
     );
 
     // Wait for async load and state updates.
-    await tick(80);
+    await waitForViewReady(result, (f) => /✓ now on Beta Sprint|now on Beta|switched to Beta/i.test(f));
 
     const frame = result.lastFrame() ?? '';
     // After switching to Beta Sprint, the feedback line must appear.
@@ -166,7 +166,7 @@ describe('HomeView — switch feedback line', () => {
       }
     );
 
-    await tick(80);
+    await waitForViewReady(result, (f) => /now on Vanish Sprint|✓.*Vanish/i.test(f));
 
     // Verify toast is visible.
     const frameBefore = result.lastFrame() ?? '';
@@ -217,7 +217,7 @@ describe('HomeView — switch feedback line', () => {
     );
 
     // Wait for async load and state updates. lastSwitch.at = BASE_TIME.
-    await tick(80);
+    await waitForViewReady(result, (f) => /now on Timer Sprint|✓.*Timer/i.test(f));
 
     // Confirm feedback is visible (Date.now() - lastSwitch.at = 0 < 3000).
     const frameBefore = result.lastFrame() ?? '';

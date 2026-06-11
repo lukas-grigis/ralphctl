@@ -20,8 +20,7 @@ import type { VersionChecker } from '@src/business/version/version-checker.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { makeProject } from '@tests/fixtures/domain.ts';
-import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
-import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
+import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 const noopVersionChecker: VersionChecker = async () => null;
 
@@ -68,8 +67,8 @@ const baseDeps = (overrides: Partial<AppDeps>): AppDeps =>
 describe('HomeView', () => {
   it('shows the create-project CTA when no projects exist', async () => {
     const { result } = renderView(<HomeView />, { deps: baseDeps({}), initial: { id: 'home' } });
-    // Doctor probes shell out, so allow time before reading the frame.
-    await tick(2500);
+    // Doctor probes shell out; waitForViewReady + waitFor handles variable durations.
+    await waitForViewReady(result, (f) => f.includes('Start by creating a project'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toMatch(/Start by creating a project/);
     expect(frame).toMatch(/create your first project/);
@@ -91,7 +90,7 @@ describe('HomeView', () => {
       initial: { id: 'home' },
       selection: { projectId: project.id, projectLabel: project.displayName },
     });
-    await tick(2500);
+    await waitForViewReady(result, (f) => f.includes('Mainline'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Mainline');
     expect(frame).toMatch(/sprint/i);

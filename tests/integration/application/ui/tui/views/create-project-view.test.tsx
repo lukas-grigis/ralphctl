@@ -16,7 +16,7 @@ import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
 import { CTRL_U, ENTER, tick } from '@tests/integration/application/ui/tui/_keys.ts';
-import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
+import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 describe('CreateProjectView — wizard e2e', () => {
   let root: string;
@@ -37,7 +37,7 @@ describe('CreateProjectView — wizard e2e', () => {
     const deps: AppDeps = { projectRepo } as unknown as AppDeps;
 
     const { result } = renderView(<CreateProjectView />, { deps, initial: { id: 'create-project' } });
-    await tick(80);
+    await waitForViewReady(result, (f) => f.includes('Display name'));
 
     // Step 1: display name.
     result.stdin.write('Mainline');

@@ -18,8 +18,8 @@ import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
-import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
-import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
+import { tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 const SPRINT_ID = 'sprint-make-current-id' as unknown as SprintId;
 
@@ -86,10 +86,10 @@ describe('SprintDetailView — m key makes current', () => {
       { deps: stubDeps(sprint), initial }
     );
 
-    await tick(80);
+    await waitForViewReady(result, (f) => f.includes('Make Current Sprint'));
 
     result.stdin.write('m');
-    await tick(40);
+    await waitFor(() => setSprint.mock.calls.length === 1);
 
     expect(setSprint).toHaveBeenCalledTimes(1);
     const [calledId, calledLabel] = setSprint.mock.calls[0] as [SprintId | undefined, string | undefined];
@@ -110,7 +110,7 @@ describe('SprintDetailView — m key makes current', () => {
       { deps: stubDeps(sprint), initial }
     );
 
-    await tick(80);
+    await waitForViewReady(result, (f) => f.includes('Other Key Sprint'));
 
     result.stdin.write('z'); // inert key — neither make-current (m) nor open-flows (n)
     await tick(40);
@@ -135,10 +135,10 @@ describe('SprintDetailView — m key makes current', () => {
       { deps: stubDeps(sprint), initial }
     );
 
-    await tick(80);
+    await waitForViewReady(result, (f) => f.includes('Scoped Sprint'));
 
     result.stdin.write('n');
-    await tick(40);
+    await waitFor(() => setSprint.mock.calls.length === 1);
 
     expect(setSprint).toHaveBeenCalledTimes(1);
     const [calledId, calledLabel] = setSprint.mock.calls[0] as [SprintId | undefined, string | undefined];
@@ -160,7 +160,7 @@ describe('SprintDetailView — m key makes current', () => {
       selection: { sprintId: SPRINT_ID, sprintLabel: 'Already Current Sprint' },
     });
 
-    await tick(80);
+    await waitForViewReady(result, (f) => f.includes('Already Current Sprint'));
 
     result.stdin.write('n');
     await tick(40);
@@ -180,7 +180,7 @@ describe('SprintDetailView — m key makes current', () => {
       selection: { sprintId: SPRINT_ID, sprintLabel: 'Selected Sprint' },
     });
 
-    await tick(80);
+    await waitForViewReady(result, (f) => /·\s*current|\(current\)|current sprint/i.test(f));
     const frame = result.lastFrame() ?? '';
 
     // The current badge must appear in the header area.
@@ -201,7 +201,7 @@ describe('SprintDetailView — m key makes current', () => {
       selection: { sprintId: OTHER_SPRINT_ID, sprintLabel: 'Other Sprint' },
     });
 
-    await tick(80);
+    await waitForViewReady(result, (f) => f.includes('Not Current Sprint'));
     const frame = result.lastFrame() ?? '';
 
     // The current badge must NOT appear when a different sprint is selected.
@@ -222,7 +222,7 @@ describe('SprintDetailView — m key makes current', () => {
       },
     });
 
-    await tick(80);
+    await waitForViewReady(result, (f) => f.includes('Local Key Sprint'));
     result.stdin.write('m');
     await tick(40);
 

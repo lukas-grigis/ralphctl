@@ -19,8 +19,8 @@ import {
 } from '@src/application/ui/tui/runtime/session-manager.ts';
 import type { Runner } from '@src/application/chain/run/runner.ts';
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
-import { DOWN, tick } from '@tests/integration/application/ui/tui/_keys.ts';
-import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
+import { DOWN, tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 const emptyDeps: AppDeps = {} as unknown as AppDeps;
 
@@ -87,7 +87,7 @@ describe('SessionsView', () => {
       initial: { id: 'sessions' },
       sessions: createSessionManager(),
     });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('No sessions yet'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('No sessions yet');
     result.unmount();
@@ -105,7 +105,7 @@ describe('SessionsView', () => {
       initial: { id: 'sessions' },
       sessions,
     });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('Refine — Demo'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Refine — Demo');
     expect(frame).toContain('refine');
@@ -125,17 +125,17 @@ describe('SessionsView', () => {
       initial: { id: 'sessions' },
       sessions: manager,
     });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('Alpha'));
 
     // Move the cursor onto the middle session (Bravo, id s-b).
     result.stdin.write(DOWN);
-    await tick(40);
+    await waitFor(() => (focusedTitle(result.lastFrame() ?? '') ?? '').includes('Bravo'));
     expect(focusedTitle(result.lastFrame() ?? '')).toContain('Bravo');
 
     // Reorder so the index that used to hold Bravo now holds a different session. The cursor
     // must follow the id (Bravo), not the old index-1 slot.
     setList([c, a, b]);
-    await tick(40);
+    await waitFor(() => (focusedTitle(result.lastFrame() ?? '') ?? '').includes('Bravo'));
     expect(focusedTitle(result.lastFrame() ?? '')).toContain('Bravo');
 
     result.unmount();
@@ -156,11 +156,11 @@ describe('SessionsView', () => {
         if (entry.id === 'execute') routed.push((entry.props as { sessionId: string }).sessionId);
       },
     });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('Alpha'));
 
     // Focus Bravo, then evict Bravo. The cursor snaps to a survivor (by prior index, clamped).
     result.stdin.write(DOWN);
-    await tick(40);
+    await waitFor(() => (focusedTitle(result.lastFrame() ?? '') ?? '').includes('Bravo'));
     expect(focusedTitle(result.lastFrame() ?? '')).toContain('Bravo');
 
     setList([a, c]);
@@ -172,7 +172,7 @@ describe('SessionsView', () => {
     // Enter must open the execute view for the session the cursor now sits on — not the evicted
     // one. The cursor landed on Charlie (prior index 1, clamped into the 2-item list).
     result.stdin.write('\r');
-    await tick(40);
+    await waitFor(() => routed.length > 0);
     expect(routed.at(-1)).toBe('s-c');
 
     result.unmount();

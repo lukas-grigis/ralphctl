@@ -17,8 +17,8 @@ import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 import { createSessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
-import { ENTER, ESC, tick } from '@tests/integration/application/ui/tui/_keys.ts';
-import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
+import { ENTER, ESC, tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 const noopEventBus: EventBus = {
   publish: vi.fn(),
@@ -52,7 +52,7 @@ describe('ExecuteView', () => {
       initial: { id: 'execute', props: { sessionId: 'r-1' } },
       sessions,
     });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('Refine — Demo'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Refine — Demo');
     expect(frame).toMatch(/running/i);
@@ -75,7 +75,7 @@ describe('ExecuteView', () => {
       initial: { id: 'execute', props: { sessionId: 'r-2' } },
       sessions,
     });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('Refine — Done'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Refine — Done');
     expect(frame).toMatch(/completed/i);
@@ -91,7 +91,7 @@ describe('ExecuteView', () => {
       deps: stubDeps(),
       initial: { id: 'execute', props: { sessionId: 'r-ghost' } },
     });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('not found in the registry'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('not found in the registry');
     result.unmount();
@@ -141,7 +141,7 @@ describe('ExecuteView', () => {
       initial: { id: 'execute', props: { sessionId: 'r-rounds' } },
       sessions,
     });
-    await tick(60);
+    await waitForViewReady(result, (f) => /round 5/.test(f));
     const frame1 = result.lastFrame() ?? '';
     expect(frame1).toMatch(/round 5/);
 
@@ -156,7 +156,7 @@ describe('ExecuteView', () => {
     // fake runner. Re-render by re-registering a new sessions object isn't right either.
     // Instead: poke the view via tick — execute-view runs a setInterval(setNow, 1000) while
     // the session is running. Advance some time so the view re-renders.
-    await tick(120);
+    await waitFor(() => /round 5/.test(result.lastFrame() ?? ''));
     const frame2 = result.lastFrame() ?? '';
     // The monotonic ref must hold the count at 5 even though only 2 generator entries remain
     // in the trace.
@@ -180,7 +180,7 @@ describe('ExecuteView', () => {
       initial: { id: 'execute', props: { sessionId: 'r-models' } },
       sessions,
     });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('claude-opus-4-8'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('claude-opus-4-8');
     expect(frame).toContain('gpt-5.5');
@@ -205,7 +205,7 @@ describe('ExecuteView', () => {
       initial: { id: 'execute', props: { sessionId: 'r-models-same' } },
       sessions,
     });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('claude-opus-4-8'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('claude-opus-4-8');
     // The arrow / (eval) tag stay hidden when the two models match — single-provider runs
@@ -232,9 +232,9 @@ describe('ExecuteView', () => {
       initial: { id: 'execute', props: { sessionId: 'r-3' } },
       sessions,
     });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('Refine — Done'));
     result.stdin.write(ENTER);
-    await tick();
+    await waitFor(() => routeIds().includes('sprint-detail'));
     expect(routeIds()).toContain('sprint-detail');
     result.unmount();
   });
@@ -262,9 +262,9 @@ describe('ExecuteView', () => {
         routeEntries.push(e);
       },
     });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('Implement — Pinned'));
     result.stdin.write(ENTER);
-    await tick();
+    await waitFor(() => routeEntries.some((e) => e.id === 'sprint-detail'));
     const sprintDetail = routeEntries.find((e) => e.id === 'sprint-detail');
     expect(sprintDetail?.props?.sprintId).toBe(sprintA);
     result.unmount();
@@ -299,7 +299,7 @@ describe('ExecuteView', () => {
       sessions,
       selection: { sprintId: sprintB, sprintLabel: 'Sprint Beta' },
     });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('Sprint Alpha'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Sprint Alpha');
     expect(frame).toContain('Project One');
@@ -344,11 +344,11 @@ describe('ExecuteView', () => {
       sessions,
       selection: { sprintId: sprintB, sprintLabel: 'Sprint B Cancel' },
     });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('Implement — Cancel'));
     result.stdin.write('c');
-    await tick();
+    await waitFor(() => (result.lastFrame() ?? '').includes('Cancel — pick a scope'));
     result.stdin.write('2');
-    await tick(50);
+    await waitFor(() => findById.mock.calls.length > 0);
     expect(findById).toHaveBeenCalledWith(sprintA, TASK as unknown as TaskId);
     result.unmount();
   });
@@ -406,14 +406,14 @@ describe('ExecuteView', () => {
       initial: { id: 'execute', props: { sessionId: 'r-cancel-mute' } },
       sessions,
     });
-    await tick(60);
+    await waitForViewReady(result, (f) => f.includes('Implement — Mute'));
     // `›` (selectMarker) sits on the first task at rest.
     const cursorOnSecond = (frame: string): boolean => /›[^\n]*Second task/.test(frame);
     expect(cursorOnSecond(result.lastFrame() ?? '')).toBe(false);
 
     // Open the overlay, then press `j` — the panel is muted, so the cursor stays put.
     result.stdin.write('c');
-    await tick();
+    await waitFor(() => (result.lastFrame() ?? '').includes('Cancel — pick a scope'));
     expect(result.lastFrame() ?? '').toContain('Cancel — pick a scope');
     result.stdin.write('j');
     await tick();
@@ -424,7 +424,7 @@ describe('ExecuteView', () => {
     await tick();
     expect(result.lastFrame() ?? '').not.toContain('Cancel — pick a scope');
     result.stdin.write('j');
-    await tick();
+    await waitFor(() => cursorOnSecond(result.lastFrame() ?? ''));
     expect(cursorOnSecond(result.lastFrame() ?? '')).toBe(true);
     result.unmount();
   });
@@ -443,7 +443,7 @@ describe('ExecuteView', () => {
       initial: { id: 'execute', props: { sessionId: 'r-stale-done' } },
       sessions,
     });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('Sprint no longer available'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Sprint no longer available');
     // BaselineHealthChip always renders the word "baseline" — when stale it must be absent.
@@ -485,7 +485,7 @@ describe('ExecuteView', () => {
         sessions,
       });
 
-      await tick(40);
+      await waitForViewReady(result, (f) => f.includes(expectedTitle));
       const frame = result.lastFrame() ?? '';
       expect(frame, `flowId="${flowId}" should show "${expectedTitle}"`).toContain(expectedTitle);
       // The old hardcoded title must not appear for non-implement flows.
@@ -509,7 +509,7 @@ describe('ExecuteView', () => {
       initial: { id: 'execute', props: { sessionId: 'r-stale-removed' } },
       sessions,
     });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('Sprint no longer available'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Sprint no longer available');
     expect(frame).not.toContain('baseline');
@@ -534,7 +534,7 @@ describe('ExecuteView', () => {
       initial: { id: 'execute', props: { sessionId: 'r-focused-ctx' } },
       sessions,
     });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('Sprint Pinned'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Sprint Pinned');
     expect(frame).toContain('Project Alpha');
