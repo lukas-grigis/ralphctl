@@ -3,14 +3,27 @@
  * with the provider-picker availability gate layered on top of the bare `SelectPrompt`.
  * Provider rows surface dimmed `(not installed)` options + an install-command footer; every
  * other select stays plain.
+ *
+ * Escalation-map fields get dedicated treatment:
+ *  - `map-entry` mounts a target picker scoped to catalogs containing the rung's from-model,
+ *    plus a `(remove this override)` choice that submits the empty string (the apply-key
+ *    grammar's delete semantic).
+ *  - `map-add` walks a two-step picker — FROM model, then TO model — and submits the pair as
+ *    `from=to`. Esc on the second step returns to the first instead of abandoning the add.
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { SelectPrompt } from '@src/application/ui/tui/prompts/select-prompt.tsx';
 import { TextPrompt } from '@src/application/ui/tui/prompts/text-prompt.tsx';
 import { primaryInstallCommand } from '@src/integration/system/detect-cli.ts';
+import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import type { AiProvider } from '@src/domain/entity/settings.ts';
-import { type EditableField, isProviderField } from '@src/application/ui/tui/views/settings-view-model.ts';
+import {
+  type EditableField,
+  escalationModelOptions,
+  escalationTargetsFor,
+  isProviderField,
+} from '@src/application/ui/tui/views/settings-view-model.ts';
 
 interface ProviderChoice {
   readonly label: string;
@@ -55,12 +68,62 @@ export interface SettingsEditorProps {
   readonly onCancel: () => void;
 }
 
+/**
+ * Two-step from/to picker for a new escalation rung. Local state holds the chosen FROM model
+ * while the TO picker is mounted; the component is remounted per edit (the orchestrator keys
+ * the editor on the active field) so the state never leaks across edits.
+ */
+const EscalationAddEditor = ({
+  onSubmit,
+  onCancel,
+}: {
+  readonly onSubmit: (value: string) => void;
+  readonly onCancel: () => void;
+}): React.JSX.Element => {
+  const [fromModel, setFromModel] = useState<string | undefined>(undefined);
+  if (fromModel === undefined) {
+    return (
+      <SelectPrompt
+        message="Escalate FROM which model? (step 1/2)"
+        options={escalationModelOptions().map((value) => ({ label: value, value }))}
+        onSubmit={(value) => setFromModel(String(value))}
+        onCancel={onCancel}
+      />
+    );
+  }
+  return (
+    <SelectPrompt
+      message={`${fromModel} ${glyphs.arrowRight} which model? (step 2/2)`}
+      options={escalationTargetsFor(fromModel).map((value) => ({ label: value, value }))}
+      footer="esc goes back to the from-model pick"
+      onSubmit={(value) => onSubmit(`${fromModel}=${String(value)}`)}
+      onCancel={() => setFromModel(undefined)}
+    />
+  );
+};
+
 export const SettingsEditor = ({
   field,
   installedProviders,
   onSubmit,
   onCancel,
 }: SettingsEditorProps): React.JSX.Element => {
+  if (field.kind === 'map-add') {
+    return <EscalationAddEditor onSubmit={onSubmit} onCancel={onCancel} />;
+  }
+  if (field.kind === 'map-entry') {
+    return (
+      <SelectPrompt
+        message={`${field.from} escalates to (current: ${field.to})`}
+        options={[
+          ...escalationTargetsFor(field.from).map((value) => ({ label: value, value })),
+          { label: '(remove this override)', value: '' },
+        ]}
+        onSubmit={(value) => onSubmit(String(value))}
+        onCancel={onCancel}
+      />
+    );
+  }
   if (field.kind === 'select') {
     if (isProviderField(field)) {
       const { choices, footer } = buildProviderOptions(field.options, installedProviders);

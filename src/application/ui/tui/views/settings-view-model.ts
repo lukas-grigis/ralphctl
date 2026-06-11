@@ -6,6 +6,8 @@
  */
 
 import { PRESET_NAMES, type PresetName } from '@src/business/settings/presets.ts';
+import { mergeEscalationMap } from '@src/business/task/escalation-map.ts';
+import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import type { AiFlowSettings, AiProvider, Settings } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
@@ -38,17 +40,29 @@ export type EditableField =
     }
   | {
       /**
-       * Read-only map display — renders `<from> → <to>` entries or a dimmed empty-state message.
-       * Activating this field (↵/e) is a no-op. The cursor still navigates through it so the
-       * hint line stays visible; `settings-view.tsx` guards against editing it via `field.kind`.
+       * Escalation-map "add a rung" action row. Activating it (↵/e) walks a two-step picker —
+       * choose the FROM model, then the model it escalates TO — and submits the pair as
+       * `from=to`; `submitField` translates that to the `harness.escalationMap.<from>` key the
+       * CLI grammar already speaks.
        */
-      readonly kind: 'readonly-map';
+      readonly kind: 'map-add';
       readonly key: string;
       readonly label: string;
-      /** Serialised representation shown as the "current value" — rendered by the row component. */
       readonly current: string;
-      /** The raw entries to render; empty map shows the empty-state message. */
-      readonly entries: ReadonlyArray<{ readonly from: string; readonly to: string }>;
+    }
+  | {
+      /**
+       * One editable escalation-map override (`harness.escalationMap.<from>`). Activating it
+       * opens a target picker pre-scoped to catalogs containing `from`, plus a
+       * `(remove this override)` choice that submits the empty string — the apply-key grammar's
+       * delete semantic.
+       */
+      readonly kind: 'map-entry';
+      readonly key: string;
+      readonly label: string;
+      readonly current: string;
+      readonly from: string;
+      readonly to: string;
     };
 
 /**
@@ -105,6 +119,70 @@ export const HARNESS_HINTS: Readonly<Record<string, string>> = {
     'Gates ALL failure-driven escalation — plateau AND budget-exhausted exits climb the model ladder; disable to always stay on the configured model.',
   'harness.skipPreVerifyOnFreshSetup':
     'Asserts your setup script verifies the tree (builds + tests); enable only when setup is a full verify gate, not just a dependency install.',
+  'harness.escalationMap':
+    'Override or extend the built-in weaker → stronger ladder — pick the from-model, then the model it escalates to.',
+};
+
+/** Hint rendered under every escalation-map override row (keys are dynamic, so not in the map above). */
+export const ESCALATION_ENTRY_HINT = 'Change the escalation target — pick (remove this override) to drop the rung.';
+
+/**
+ * Union of every provider's model catalog — the FROM options for a new escalation rung. Order:
+ * Claude, Copilot, Codex; duplicates (ids shared across catalogs) collapse to their first
+ * occurrence.
+ */
+export const escalationModelOptions = (): readonly string[] => [
+  ...new Set<string>([...CLAUDE_MODELS, ...COPILOT_MODELS, ...CODEX_MODELS]),
+];
+
+/**
+ * Target options for an escalation rung starting at `from` — the union of the catalogs that
+ * list `from`, minus `from` itself (a self-loop has no runtime effect and the schema-load path
+ * only warns). Scoping targets to the same catalog family keeps the picker from inviting
+ * cross-provider ids the generator's CLI could never spawn. A `from` no catalog knows (a
+ * custom id set via the CLI) falls back to the full union.
+ */
+export const escalationTargetsFor = (from: string): readonly string[] => {
+  const catalogs: ReadonlyArray<readonly string[]> = [CLAUDE_MODELS, COPILOT_MODELS, CODEX_MODELS];
+  const owning = catalogs.filter((c) => c.includes(from));
+  const pool = owning.length > 0 ? owning.flat() : catalogs.flat();
+  return [...new Set(pool)].filter((m) => m !== from);
+};
+
+export interface EscalationChain {
+  /** Model ids in climb order, e.g. `['claude-haiku-4-5', 'claude-sonnet-4-6', 'claude-opus-4-8']`. */
+  readonly models: readonly string[];
+  /** True when any rung on the chain comes from the user's overrides (not the built-in map). */
+  readonly customised: boolean;
+}
+
+/**
+ * The EFFECTIVE escalation ladder — user overrides merged over the built-in map — flattened
+ * into display chains. A chain starts at every model that is not itself an escalation target
+ * (a root) and follows the map until it ends or would revisit a model (user-authored cycles
+ * are cut rather than walked forever; the runtime treats cyclic rungs as top-of-ladder too).
+ */
+export const effectiveEscalationChains = (user: Readonly<Record<string, string>>): readonly EscalationChain[] => {
+  const merged = mergeEscalationMap(user);
+  const targets = new Set(Object.values(merged));
+  const chains: EscalationChain[] = [];
+  for (const root of Object.keys(merged)) {
+    if (targets.has(root)) continue;
+    const models: string[] = [root];
+    const seen = new Set<string>([root]);
+    let customised = root in user;
+    let cur = merged[root];
+    let prev = root;
+    while (cur !== undefined && !seen.has(cur)) {
+      if (user[prev] !== undefined) customised = true;
+      models.push(cur);
+      seen.add(cur);
+      prev = cur;
+      cur = merged[cur];
+    }
+    chains.push({ models, customised });
+  }
+  return chains;
 };
 
 export const modelOptionsFor = (provider: AiProvider): readonly string[] => {
@@ -189,7 +267,7 @@ export const buildSections = (
     readonly: false,
   });
 
-  const escalationMapEntries = Object.entries(s.harness.escalationMap).map(([from, to]) => ({ from, to }));
+  const escalationOverrides = Object.entries(s.harness.escalationMap);
   const harnessFields: readonly EditableField[] = [
     { kind: 'text', key: 'harness.maxTurns', label: 'Max turns', current: String(s.harness.maxTurns) },
     { kind: 'text', key: 'harness.maxAttempts', label: 'Max attempts', current: String(s.harness.maxAttempts) },
@@ -220,12 +298,27 @@ export const buildSections = (
       current: String(s.harness.skipPreVerifyOnFreshSetup),
     },
     {
-      kind: 'readonly-map',
+      kind: 'map-add',
       key: 'harness.escalationMap',
       label: 'Escalation map',
-      current: escalationMapEntries.length === 0 ? 'defaults apply' : `${String(escalationMapEntries.length)} entries`,
-      entries: escalationMapEntries,
+      current:
+        escalationOverrides.length === 0
+          ? `defaults apply ${glyphs.bullet} ↵ add rung`
+          : `${String(escalationOverrides.length)} override${escalationOverrides.length === 1 ? '' : 's'} ${glyphs.bullet} ↵ add rung`,
     },
+    // One editable row per user override, directly under the add-row so the group reads as one
+    // unit. Keys reuse the CLI grammar (`harness.escalationMap.<from>`) — submit routes through
+    // the same applySettingsKey path `settings set` uses.
+    ...escalationOverrides.map(
+      ([from, to]): EditableField => ({
+        kind: 'map-entry',
+        key: `harness.escalationMap.${from}`,
+        label: `  ${from}`,
+        current: `${glyphs.arrowRight} ${to}`,
+        from,
+        to,
+      })
+    ),
   ];
 
   const otherFields: readonly EditableField[] = [
