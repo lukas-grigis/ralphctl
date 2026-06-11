@@ -3,7 +3,8 @@
  * can switch project + sprint in one keystroke. Loads both repositories in parallel; orders
  * groups with the current project first, then alphabetical by project label; newest sprint
  * first within each group (UUIDv7 sort, reversed). `t` toggles between "all projects" (the
- * default) and "current project only".
+ * default) and "current project only"; `f` hides done sprints (default off — closed sprints
+ * stay reachable here by contract).
  *
  * Picking a sprint that belongs to a different project than the current selection calls
  * `selection.setProjectAndSprint` so both ids switch in a single state batch — chaining
@@ -72,9 +73,13 @@ export const PickSprintView = (): React.JSX.Element => {
   const storage = useStorage();
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
   const [scopeAll, setScopeAll] = useState<boolean>(true);
+  // Default OFF — closed sprints stay reachable here by contract (the Home shortcut list
+  // already filters them; this picker is the documented way back to a done sprint).
+  const [hideDone, setHideDone] = useState<boolean>(false);
   useViewHints([
     { keys: '↵', label: 'use sprint' },
     { keys: 't', label: 'toggle scope' },
+    { keys: 'f', label: hideDone ? 'show done' : 'hide done' },
     { keys: '+', label: 'create new' },
     { keys: 'r', label: 'reload' },
   ]);
@@ -102,13 +107,33 @@ export const PickSprintView = (): React.JSX.Element => {
     [state]
   );
 
-  const groups = useMemo(() => buildGroups(data, selection.projectId, scopeAll), [data, selection.projectId, scopeAll]);
+  // Shared filtered view — BOTH the group build below and the `t`-toggle cursor reseat must
+  // derive from the same list, or toggling scope would reseat the cursor against unfiltered
+  // rows while the screen renders filtered ones.
+  const visibleData: PickerData = useMemo(
+    () => (hideDone ? { ...data, sprints: data.sprints.filter((s) => s.status !== 'done') } : data),
+    [data, hideDone]
+  );
+
+  const groups = useMemo(
+    () => buildGroups(visibleData, selection.projectId, scopeAll),
+    [visibleData, selection.projectId, scopeAll]
+  );
   // Only inject the `+ Create new sprint` action row when a project is selected — without one
   // there's nothing to create the sprint against, so the synthetic row would just surface a
   // "select a project first" error on Enter. Skipping it keeps the picker honest.
   const includeCreate = selection.projectId !== undefined;
   const rows = useMemo(() => flatten(groups, includeCreate), [groups, includeCreate]);
   const sprintCount = useMemo(() => rows.reduce((acc, r) => (r.kind === 'sprint' ? acc + 1 : acc), 0), [rows]);
+
+  // Distinguish "the f filter hid everything in scope" from a genuinely empty scope so the
+  // empty state names the right escape hatch (press f vs press +). Checked against the
+  // UNfiltered data under the same project scope — `data.sprints` alone would miscount when
+  // another project's sprints exist outside the current scope.
+  const hiddenByDoneFilter = useMemo(() => {
+    if (!hideDone || sprintCount > 0) return false;
+    return flatten(buildGroups(data, selection.projectId, scopeAll), false).some((r) => r.kind === 'sprint');
+  }, [hideDone, sprintCount, data, selection.projectId, scopeAll]);
 
   // Window the rendered slice so a user with hundreds of sprints across many projects doesn't
   // pay an Ink reconciliation cost proportional to the full row list. Capacity tracks terminal
@@ -209,7 +234,7 @@ export const PickSprintView = (): React.JSX.Element => {
     setScopeAll(next);
     // Recompute the cursor: prefer the already-selected sprint, then the first sprint row,
     // then the create row (only relevant on a totally empty picker).
-    const nextRows = flatten(buildGroups(data, selection.projectId, next), includeCreate);
+    const nextRows = flatten(buildGroups(visibleData, selection.projectId, next), includeCreate);
     let idx = -1;
     if (selection.sprintId !== undefined) {
       idx = nextRows.findIndex((r) => r.kind === 'sprint' && r.sprint.id === selection.sprintId);
@@ -258,6 +283,10 @@ export const PickSprintView = (): React.JSX.Element => {
       toggleScope();
       return;
     }
+    if (input === 'f') {
+      setHideDone((v) => !v);
+      return;
+    }
     if (input === '+' || input === 'c') {
       void launchCreateSprint();
       return;
@@ -279,10 +308,19 @@ export const PickSprintView = (): React.JSX.Element => {
         </Box>
       ) : sprintCount === 0 ? (
         <Box flexDirection="column" paddingX={spacing.indent}>
-          <Text>No sprints yet.</Text>
-          <Text dimColor>
-            {scopeAll ? 'Press + to create one.' : 'Press t to show all projects, or + to create one.'}
-          </Text>
+          {hiddenByDoneFilter ? (
+            <>
+              <Text>All sprints here are done (hidden).</Text>
+              <Text dimColor>Press f to show them, or + to create a new one.</Text>
+            </>
+          ) : (
+            <>
+              <Text>No sprints yet.</Text>
+              <Text dimColor>
+                {scopeAll ? 'Press + to create one.' : 'Press t to show all projects, or + to create one.'}
+              </Text>
+            </>
+          )}
         </Box>
       ) : (
         <Box flexDirection="column">
@@ -305,8 +343,8 @@ export const PickSprintView = (): React.JSX.Element => {
           <RowWindowView rows={rows} cursor={cursor} visibleRows={visibleRows} currentSprintId={selection.sprintId} />
           <Box marginTop={spacing.section} paddingX={spacing.indent}>
             <Text dimColor>
-              {glyphs.bullet} ↵ use the highlighted sprint {glyphs.bullet} t toggle scope {glyphs.bullet} + create a new
-              one
+              {glyphs.bullet} ↵ use the highlighted sprint {glyphs.bullet} t toggle scope {glyphs.bullet} f{' '}
+              {hideDone ? 'show' : 'hide'} done {glyphs.bullet} + create a new one
             </Text>
           </Box>
           {feedback !== undefined && (

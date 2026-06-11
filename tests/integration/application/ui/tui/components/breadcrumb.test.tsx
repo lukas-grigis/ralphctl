@@ -156,6 +156,18 @@ describe('Breadcrumb — right-side label coalescing', () => {
 });
 
 describe('Breadcrumb — sprint status chip (audit 1-A)', () => {
+  it('renders the [S] picker affordance next to the sprint label (mirroring [P])', async () => {
+    sizeRef.columns = 100;
+    const { lastFrame, unmount } = render(
+      <Harness globalProjectLabel="global-project" globalSprintLabel="global-sprint" />
+    );
+    await tick(30);
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('[P]');
+    expect(frame).toContain('[S]');
+    unmount();
+  });
+
   it('renders the sprint status chip at ≥md (100 cols)', async () => {
     sizeRef.columns = 100;
     const { lastFrame, unmount } = render(

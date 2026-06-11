@@ -52,7 +52,7 @@ export const buildMenuItems = (input: BuildMenuItemsInput): readonly MenuItem[] 
     });
   }
 
-  for (const s of input.recentSprints) {
+  for (const [idx, s] of input.recentSprints.entries()) {
     const ticketsSuffix = `${String(s.tickets.length)} ticket${s.tickets.length === 1 ? '' : 's'}`;
     const description =
       s.id === input.currentSprint?.id
@@ -63,6 +63,10 @@ export const buildMenuItems = (input: BuildMenuItemsInput): readonly MenuItem[] 
       section: 'switch sprint',
       label: s.name,
       description,
+      // Digit quick-switch — recentSprints is capped at 5 (RECENT_SPRINTS_LIMIT), so 1–5
+      // always suffice. Deliberately NOT a globalHotkey: ActionMenu owns the binding, so the
+      // digits work on Home only and never collide with other views' keys.
+      hotkey: String(idx + 1),
       onSelect: (): void => {
         if (s.id === input.selectionSprintId) return;
         // setSprint updates `selection.lastSwitch`, which drives the transient toast line

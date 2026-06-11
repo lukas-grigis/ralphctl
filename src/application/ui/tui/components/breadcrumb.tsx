@@ -122,6 +122,10 @@ export const Breadcrumb = (): React.JSX.Element => {
               <Text color={inkColors.primary} bold>
                 {right[1]}
               </Text>
+              <Text dimColor> </Text>
+              <Text color={inkColors.highlight} bold>
+                [S]
+              </Text>
               {atLeast('md') && effectiveSprintStatus !== undefined && (
                 <Box marginLeft={1}>
                   <StatusChip label={effectiveSprintStatus} kind={sprintStatusKind(effectiveSprintStatus)} />

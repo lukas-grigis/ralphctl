@@ -46,6 +46,7 @@ describe('footerGlobalHints', () => {
       'sessions',
       'settings',
       'pick project',
+      'pick sprint',
       'help',
       'quit',
     ]);
