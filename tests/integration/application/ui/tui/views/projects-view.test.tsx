@@ -10,8 +10,8 @@ import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
 import { makeProject, makeRepository } from '@tests/fixtures/domain.ts';
-import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
-import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
+import { waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { createPromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
 import { ProjectId } from '@src/domain/value/id/project-id.ts';
 import { RepositoryId } from '@src/domain/value/id/repository-id.ts';
@@ -39,7 +39,7 @@ const stubDeps = (projects: readonly Project[]): AppDeps =>
 describe('ProjectsView', () => {
   it('shows the empty state when no projects exist', async () => {
     const { result } = renderView(<ProjectsView />, { deps: stubDeps([]), initial: { id: 'projects' } });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('No projects yet'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('No projects yet');
     expect(frame).toContain('Press c to create');
@@ -49,7 +49,7 @@ describe('ProjectsView', () => {
   it('renders one row per project with name + slug + repo count', async () => {
     const project = makeProject({ displayName: 'Demo Project', slug: 'demo-proj' });
     const { result } = renderView(<ProjectsView />, { deps: stubDeps([project]), initial: { id: 'projects' } });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('Demo Project'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('Demo Project');
     expect(frame).toContain('demo-proj');
@@ -62,7 +62,7 @@ describe('ProjectsView', () => {
       makeProject({ id: ProjectId.generate(), displayName: `Project ${String(i)}`, slug: `proj-${String(i)}` })
     );
     const { result } = renderView(<ProjectsView />, { deps: stubDeps(projects), initial: { id: 'projects' } });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('6 project(s)'));
     const frame = result.lastFrame() ?? '';
     // visibleRows = 4, so two projects spill past the window and the below-overflow cue appears.
     expect(frame).toContain(glyphs.moreBelow);
@@ -88,7 +88,7 @@ describe('ProjectsView', () => {
       deps: stubDeps([projectWithRepos(3)]),
       initial: { id: 'projects' },
     });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('+1 more repository'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('+1 more repository');
     expect(frame).not.toContain('repositoryies');
@@ -102,7 +102,7 @@ describe('ProjectsView', () => {
       deps: stubDeps([projectWithRepos(4)]),
       initial: { id: 'projects' },
     });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('+2 more repositories'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('+2 more repositories');
     expect(frame).not.toContain('repositoryies');
@@ -111,9 +111,9 @@ describe('ProjectsView', () => {
 
   it('c pushes the create-project route', async () => {
     const { result, routeIds } = renderView(<ProjectsView />, { deps: stubDeps([]), initial: { id: 'projects' } });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('No projects yet'));
     result.stdin.write('c');
-    await tick();
+    await waitFor(() => routeIds().includes('create-project'));
     expect(routeIds()).toContain('create-project');
     result.unmount();
   });
@@ -137,15 +137,15 @@ describe('ProjectsView', () => {
     const deps = stubDeps([project]);
     (deps as unknown as { projectRepo: ProjectRepository }).projectRepo = repo;
     const { result } = renderView(<ProjectsView />, { deps, initial: { id: 'projects' }, queue });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('Old Label'));
     result.stdin.write('e');
-    await tick(40);
+    await waitFor(() => queue.head !== undefined);
     expect(queue.head?.kind).toBe('text');
     if (queue.head?.kind === 'text') {
       expect(queue.head.initial).toBe('Old Label');
     }
     queue.resolveHead('New Label');
-    await tick(40);
+    await waitFor(() => save.mock.calls.length > 0);
     expect(save).toHaveBeenCalledTimes(1);
     expect(save.mock.calls[0]?.[0]?.displayName).toBe('New Label');
     result.unmount();

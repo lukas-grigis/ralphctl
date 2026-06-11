@@ -19,8 +19,8 @@ import type { SprintExecutionRepository } from '@src/domain/repository/sprint/sp
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { makeProject } from '@tests/fixtures/domain.ts';
-import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
-import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
+import { tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 const noopVersionChecker = async (): Promise<null> => null;
 
@@ -94,11 +94,12 @@ describe('HomeView — + hotkey', () => {
       },
     });
 
-    await tick(500);
+    // Wait for HomeView's async load to settle before sending input.
+    await waitForViewReady(result, (f) => f.includes('Hotkey Project'));
 
     // Press '+' — should launch create-sprint.
     result.stdin.write('+');
-    await tick(100);
+    await waitFor(() => routedIds.length > 0 && routedIds[routedIds.length - 1] !== 'home');
 
     // The router should have been asked to push the create-sprint execute view.
     // The implementer may route via 'execute' (after launching the runner) or navigate to
@@ -121,7 +122,8 @@ describe('HomeView — + hotkey', () => {
       },
     });
 
-    await tick(500);
+    // Wait for HomeView's async load to settle before sending input.
+    await waitForViewReady(result, (f) => f.includes('Start by creating a project'));
 
     // Before pressing + — record current route count.
     const countBefore = routedIds.length;

@@ -62,6 +62,17 @@ export const useSprintDetailShortcuts = (args: SprintDetailShortcutArgs): void =
       }
       return;
     }
+    if (input === 'n') {
+      // The view advertises `n — flows` as "scoped to this sprint", so honour it: reseat the
+      // selection onto the viewed sprint before the navigation lands. The actual route push is
+      // owned by the GLOBAL `n` handler (use-global-keys), which processes the same keystroke
+      // — this hook only fixes up the selection, so the two handlers compose instead of
+      // double-pushing the Flows view.
+      if (!args.isCurrent) {
+        args.markCurrent(sprint);
+      }
+      return;
+    }
     if ((key.downArrow || input === 'j') && args.focusList.length > 0) {
       args.moveCursor(1);
       return;

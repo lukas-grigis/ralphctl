@@ -161,7 +161,7 @@ describe('ProgressOverlay — open / close', () => {
     expect(opened).not.toContain('UNDERLYING_VIEW');
 
     stdin.write(ESC);
-    await tick(80);
+    await waitFor(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
     expect(lastFrame() ?? '').toContain('UNDERLYING_VIEW');
 
     unmount();
@@ -170,7 +170,7 @@ describe('ProgressOverlay — open / close', () => {
   it('`g` is a no-op on Home (no sprint loaded)', async () => {
     const dataRoot = await makeTmpRoot();
     const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} withSprint={false} />);
-    await tick(30);
+    await waitFor(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
     stdin.write('g');
     await tick(30);
     // No overlay — underlying view still showing, no "Progress" title.
@@ -207,7 +207,7 @@ describe('ProgressOverlay — missing / empty file', () => {
     const dataRoot = await makeTmpRoot();
     // No file written — overlay should NOT crash.
     const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} withSprint={true} />);
-    await tick(50);
+    await tick(50); // let the selection seed effect run
     stdin.write('g');
     await waitFor(() => (lastFrame() ?? '').includes('No progress file yet')); // disk read + state flush
 
@@ -221,7 +221,7 @@ describe('ProgressOverlay — missing / empty file', () => {
     const dataRoot = await makeTmpRoot();
     await writeProgressFile(dataRoot, '');
     const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} withSprint={true} />);
-    await tick(50);
+    await tick(50); // let the selection seed effect run
     stdin.write('g');
     await waitFor(() => (lastFrame() ?? '').includes('exists but is empty'));
 
@@ -248,7 +248,7 @@ describe('ProgressOverlay — scrolling', () => {
     const dataRoot = await makeTmpRoot();
     await writeProgressFile(dataRoot, buildLongFile());
     const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} withSprint={true} />);
-    await tick(50);
+    await tick(50); // let the selection seed effect run
     stdin.write('g');
     await waitFor(() => (lastFrame() ?? '').includes('HEAD-LINE'));
 

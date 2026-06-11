@@ -17,8 +17,7 @@ import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Runner } from '@src/application/chain/run/runner.ts';
 import { createSessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
-import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
-import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
+import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 // Hoisted controls — the mock factory reads from this state holder so each test can set its
 // own columns/rows before rendering. `vi.hoisted` ensures the variable exists when the mock
@@ -70,7 +69,7 @@ describe('ExecuteView width regimes', () => {
       initial: { id: 'execute', props: { sessionId: 'rw-1' } },
       sessions,
     });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('Implement — Width'));
     return { frame: result.lastFrame() ?? '', unmount: () => result.unmount() };
   };
 

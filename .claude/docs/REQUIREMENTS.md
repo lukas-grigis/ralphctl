@@ -273,8 +273,9 @@ See [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) for tokens, components, view patterns
       fit the rail column budget.
 - [x] **TUI hotkeys** — `b` banner compact ↔ full toggle; `g` progress overlay (reads `progress.md` on
       demand); `y` yank active-task summary to clipboard; `P` cross-project project picker; `S`
-      cross-project sprint picker (with `t` toggle-scope inside the picker); `j`/`k` task-card navigation;
-      `e` expand done-criteria for active card; `c` cancel-scope picker (attempt vs whole flow).
+      cross-project sprint picker (with `t` toggle-scope and `f` hide-done inside the picker); `j`/`k`
+      task-card navigation; `e` expand done-criteria for active card; `c` cancel-scope picker (attempt vs
+      whole flow).
 - [x] **Baseline-health card + chip** — `BaselineHealthCard` and `BaselineHealthChip` surface
       `SprintExecution.setupRanAt` history in the context column.
 - [x] **Token-budget card** — `TokenBudgetCard` subscribes to `TokenUsageEvent`; renders

@@ -53,6 +53,16 @@ interface SelectionApi {
   setProject(id: ProjectId | undefined, label?: string): void;
   setSprint(id: SprintId | undefined, label?: string, status?: SprintStatus): void;
   /**
+   * Toast-free status refresh for the CURRENTLY selected sprint. Flow chains transition the
+   * sprint's status on disk (plan → planned, implement → review, close-sprint → done) but the
+   * cached `sprintStatus` is only written on manual picks — so the breadcrumb chip goes stale
+   * the moment a flow completes. Views that load a fresh snapshot call this with the loaded
+   * status; the update is a no-op unless `id` still matches the selected sprint (checked
+   * against a live ref, so a stale closure can never clobber a newer pick) and deliberately
+   * does NOT touch `lastSwitch` — refreshing a chip must not replay the "✓ now on …" toast.
+   */
+  syncSprintStatus(id: SprintId, status: SprintStatus): void;
+  /**
    * Atomic project + sprint switch — used by the cross-project sprint picker so picking a
    * sprint from a different project updates both ids in a single state batch. Going through
    * `setProject` then `setSprint` would clear the sprint mid-flight (setProject zeroes the
@@ -124,6 +134,10 @@ export const SelectionProvider = ({
   // and force every memoised consumer to re-evaluate).
   const projectIdRef = useRef(projectId);
   projectIdRef.current = projectId;
+  // Same mirror for the sprint cursor — lets `syncSprintStatus` and the done-on-boot probe
+  // check "is this still the selected sprint?" at resolution time instead of capture time.
+  const sprintIdRef = useRef(sprintId);
+  sprintIdRef.current = sprintId;
 
   // Persist whenever the canonical selection changes — but skip the initial render. The launch
   // router may seed an auto-default project/sprint (first project + most-recent sprint) when
@@ -171,6 +185,15 @@ export const SelectionProvider = ({
     }
   }, []);
 
+  const syncSprintStatus = useCallback((id: SprintId, status: SprintStatus) => {
+    // Ref check (not a dep) keeps the setter identity stable AND makes the guard live: a
+    // snapshot loaded for sprint A must never restamp the chip after the user picked sprint B.
+    if (sprintIdRef.current !== id) return;
+    // Functional update so an unchanged status bails out without a re-render — callers fire
+    // this on every snapshot load.
+    setSprintStatus((prev) => (prev === status ? prev : status));
+  }, []);
+
   // Done-on-boot clear. Runs once per seeded sprint id: if `sprintRepo.findById` resolves to
   // a sprint with status `done`, drop both ids so the first paint of Home shows the empty-
   // sprint card. The hook is single-shot per (provider lifetime + seeded id) — re-running on
@@ -188,11 +211,21 @@ export const SelectionProvider = ({
       .findById(seedSprintId)
       .then((r) => {
         if (cancelled) return;
-        if (r.ok && r.value.status === 'done') {
+        // The probe races user input: if a pick landed on a different sprint while findById
+        // was in flight, the seed is no longer what's selected — clearing (or restamping)
+        // now would clobber the fresh pick AND persist the clobber. Bail via the live ref.
+        if (sprintIdRef.current !== seedSprintId) return;
+        if (!r.ok) return;
+        if (r.value.status === 'done') {
           setSprintId(undefined);
           setSprintLabel(undefined);
           setSprintStatus(undefined);
+          return;
         }
+        // Live sprint: the seed carries only ids + labels (status is never persisted), so
+        // without this the breadcrumb chip is missing after every restart until a manual
+        // re-pick. The probe already fetched the entity — keep its status.
+        setSprintStatus(r.value.status);
       })
       .catch(() => {
         // Swallow — a probe failure must never break the TUI boot. The seeded sprint stays in
@@ -227,6 +260,7 @@ export const SelectionProvider = ({
       lastSwitch,
       setProject,
       setSprint,
+      syncSprintStatus,
       setProjectAndSprint,
     }),
     [
@@ -238,6 +272,7 @@ export const SelectionProvider = ({
       lastSwitch,
       setProject,
       setSprint,
+      syncSprintStatus,
       setProjectAndSprint,
     ]
   );

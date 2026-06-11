@@ -21,7 +21,7 @@ import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import { ENTER, tick } from '@tests/integration/application/ui/tui/_keys.ts';
-import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
+import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { makeProject, makeRepository } from '@tests/fixtures/domain.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { RepositoryId } from '@src/domain/value/id/repository-id.ts';
@@ -111,7 +111,7 @@ describe('PickSprintView — + Create row', () => {
       selection: { projectId: PID_A.id, projectLabel: 'Alpha Project' },
     });
 
-    await tick(60);
+    await waitForViewReady(result, (f) => /Create new sprint|create.*sprint|\+ Create/i.test(f));
     const frame = result.lastFrame() ?? '';
 
     // The synthetic create row must appear.
@@ -175,7 +175,7 @@ describe('PickSprintView — + Create row', () => {
       },
     });
 
-    await tick(60);
+    await waitForViewReady(result, (f) => /Create new sprint|create.*sprint|\+ Create/i.test(f));
 
     // The create row is expected to be first or reachable via keyboard. Press 'k' to move
     // to the top of the list where the create row should be, then Enter.

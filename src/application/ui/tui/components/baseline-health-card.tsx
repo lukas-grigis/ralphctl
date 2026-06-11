@@ -19,10 +19,10 @@
  *  - Fluid width at `xxl`: caller passes `width` (default `CONTEXT_WIDTH`); the card never
  *    hardcodes its own width.
  *
- * The card aggregates data from the sources rather than depending on the (not-yet-wired)
- * `SprintState` projection. Once P1c wires `projectSprintState` into the TUI we can swap to
- * reading directly off that — for now we derive in-place from the entities the dashboard
- * already has access to.
+ * The card derives in-place from `SprintExecution` + `Task[]` — the entities the dashboard
+ * already has access to. The wider `SprintState` projection this once anticipated was deleted
+ * in Wave 7 (see the `tasks-projection.ts` header); there is no sprint-level verify
+ * projection, by design.
  *
  * The chip variant in {@link BaselineHealthChip} is the single-line companion that
  * sits next to the breadcrumb.

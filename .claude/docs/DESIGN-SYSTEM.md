@@ -297,8 +297,9 @@ only and are suspended while a prompt or overlay is mounted.
 | Key | Action                                             |
 | --- | -------------------------------------------------- |
 | `t` | Toggle scope — all projects ↔ current project only |
+| `f` | Toggle hide-done — hide / show `done` sprints      |
 
-The picker is opened globally via `S`; `t` is its one view-local key and is registered in `keyboard-map.ts`
+The picker is opened globally via `S`; `t` and `f` are its view-local keys and are registered in `keyboard-map.ts`
 alongside the other `pickerKeys`. Any new picker keys follow the same pattern.
 
 ### 6.3 View-local keys — published via `useViewHints`
@@ -415,7 +416,7 @@ pushes a dedicated `*-detail-view.tsx`).
 
 - `FieldList` for metadata.
 - `StatusChip` for lifecycle state.
-- No action verbs — detail views are read-only.
+- Detail views are primarily read-only browse surfaces. An explicit `m` chord is allowed to make the viewed entity current when opening the detail must not implicitly switch the selection (e.g. `ProjectsView` and `ProjectDetailView` — browsing must not clear the sprint cursor as a side effect).
 
 ### 7.4 Phase views (refine / plan / implement / review)
 
@@ -444,9 +445,11 @@ keypress-counting exercise. Three candidate fixes:
   budget), and the `←/→` idiom matches the canonical "prev/next page" vocabulary in
   [§6.3](#63-view-local-keys--published-via-useviewhints).
 
-Per-section row counts (all ≤ ~8): `Presets 4`, `Global 1`, `Refine 3`, `Plan 3`, `Implement 6`
-(generator triple + evaluator triple), `Readiness 3`, `Ideate 3`, `Create-PR 3`, `Harness 4`, `Other 2`,
-`Storage 0` (read-only). Implement is the largest and is the right stress-test for the cap.
+Per-section row counts (all ≤ ~8 static rows): `Presets 4`, `Global 1`, `Refine 3`, `Plan 3`,
+`Implement 6` (generator triple + evaluator triple), `Readiness 3`, `Ideate 3`, `Create-PR 3`,
+`Harness 7` (six scalar/select rows + one `map-add` action row; grows by one `map-entry` row per
+user-defined escalation-map override), `Other 2`, `Storage 0` (read-only). Implement is the
+largest among the fixed-size sections.
 
 **Responsive fallback.** The section strip uses `flexWrap="wrap"`, so on terminals narrower
 than the strip's natural width (the default 11 labels) the strip wraps onto a

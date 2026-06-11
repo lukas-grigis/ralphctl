@@ -67,7 +67,10 @@ or add a custom rung via `settings.harness.escalationMap`:
 
 `claude-fable-5` and its 1M-context variant `claude-fable-5[1m]` are in the Claude catalog as
 **opt-in only** — no preset, default, or built-in escalation rung references them. Select per row via
-the TUI picker or `settings set`, or add an escalationMap rung as shown above.
+the TUI picker or `settings set`, or add an escalationMap rung as shown above. Escalation-map rungs
+can also be added and removed from the TUI's **Harness** settings section: the `map-add` row walks a
+two-step from/to model picker; each existing override appears as a `map-entry` row that can be
+retargeted or removed without leaving the TUI.
 
 **`settings.harness` keys** (full list — see `PERFORMANCE.md § Iteration budget` for the gen-eval tuning knobs):
 

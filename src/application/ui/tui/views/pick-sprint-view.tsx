@@ -3,7 +3,8 @@
  * can switch project + sprint in one keystroke. Loads both repositories in parallel; orders
  * groups with the current project first, then alphabetical by project label; newest sprint
  * first within each group (UUIDv7 sort, reversed). `t` toggles between "all projects" (the
- * default) and "current project only".
+ * default) and "current project only"; `f` hides done sprints (default off — closed sprints
+ * stay reachable here by contract).
  *
  * Picking a sprint that belongs to a different project than the current selection calls
  * `selection.setProjectAndSprint` so both ids switch in a single state batch — chaining
@@ -17,7 +18,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
-import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
+import { LoadErrorRow, LoadingRow } from '@src/application/ui/tui/components/async-rows.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
@@ -25,15 +26,8 @@ import { useSelection } from '@src/application/ui/tui/runtime/selection-context.
 import { useAsyncLoad } from '@src/application/ui/tui/runtime/use-async-load.ts';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
-import { useSessionManager } from '@src/application/ui/tui/runtime/sessions-context.tsx';
-import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.tsx';
-import { createInkInteractivePrompt } from '@src/application/ui/tui/prompts/ink-interactive-prompt.ts';
-import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx';
-import { getRunInTerminal } from '@src/application/ui/tui/runtime/run-in-terminal.ts';
 import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
-import { sessionHintsFromLaunchResult } from '@src/application/ui/shared/launcher.ts';
-import { launchSprintBoundFlow } from '@src/application/ui/shared/launch/sprint-bound.ts';
-import { loadAppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
+import { useLaunchCreateSprint } from '@src/application/ui/tui/runtime/use-launch-create-sprint.ts';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
@@ -67,14 +61,15 @@ export const PickSprintView = (): React.JSX.Element => {
   const router = useRouter();
   const selection = useSelection();
   const ui = useUiState();
-  const sessions = useSessionManager();
-  const queue = usePromptQueue();
-  const storage = useStorage();
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
   const [scopeAll, setScopeAll] = useState<boolean>(true);
+  // Default OFF — closed sprints stay reachable here by contract (the Home shortcut list
+  // already filters them; this picker is the documented way back to a done sprint).
+  const [hideDone, setHideDone] = useState<boolean>(false);
   useViewHints([
     { keys: '↵', label: 'use sprint' },
     { keys: 't', label: 'toggle scope' },
+    { keys: 'f', label: hideDone ? 'show done' : 'hide done' },
     { keys: '+', label: 'create new' },
     { keys: 'r', label: 'reload' },
   ]);
@@ -102,13 +97,33 @@ export const PickSprintView = (): React.JSX.Element => {
     [state]
   );
 
-  const groups = useMemo(() => buildGroups(data, selection.projectId, scopeAll), [data, selection.projectId, scopeAll]);
+  // Shared filtered view — BOTH the group build below and the `t`-toggle cursor reseat must
+  // derive from the same list, or toggling scope would reseat the cursor against unfiltered
+  // rows while the screen renders filtered ones.
+  const visibleData: PickerData = useMemo(
+    () => (hideDone ? { ...data, sprints: data.sprints.filter((s) => s.status !== 'done') } : data),
+    [data, hideDone]
+  );
+
+  const groups = useMemo(
+    () => buildGroups(visibleData, selection.projectId, scopeAll),
+    [visibleData, selection.projectId, scopeAll]
+  );
   // Only inject the `+ Create new sprint` action row when a project is selected — without one
   // there's nothing to create the sprint against, so the synthetic row would just surface a
   // "select a project first" error on Enter. Skipping it keeps the picker honest.
   const includeCreate = selection.projectId !== undefined;
   const rows = useMemo(() => flatten(groups, includeCreate), [groups, includeCreate]);
   const sprintCount = useMemo(() => rows.reduce((acc, r) => (r.kind === 'sprint' ? acc + 1 : acc), 0), [rows]);
+
+  // Distinguish "the f filter hid everything in scope" from a genuinely empty scope so the
+  // empty state names the right escape hatch (press f vs press +). Checked against the
+  // UNfiltered data under the same project scope — `data.sprints` alone would miscount when
+  // another project's sprints exist outside the current scope.
+  const hiddenByDoneFilter = useMemo(() => {
+    if (!hideDone || sprintCount > 0) return false;
+    return flatten(buildGroups(data, selection.projectId, scopeAll), false).some((r) => r.kind === 'sprint');
+  }, [hideDone, sprintCount, data, selection.projectId, scopeAll]);
 
   // Window the rendered slice so a user with hundreds of sprints across many projects doesn't
   // pay an Ink reconciliation cost proportional to the full row list. Capacity tracks terminal
@@ -167,49 +182,17 @@ export const PickSprintView = (): React.JSX.Element => {
   // Route create-sprint through the shared sprint-bound launcher so the post-completion
   // selection reseat lives in one place (see launch/sprint-bound.ts). Failures surface inline;
   // success pushes the execute view.
-  const launchCreateSprint = async (): Promise<void> => {
-    if (selection.projectId === undefined) {
-      setFeedback('✗ select a project first');
-      return;
-    }
-    const snapshot = await loadAppStateSnapshot(
-      { projectRepo: deps.projectRepo, sprintRepo: deps.sprintRepo, taskRepo: deps.taskRepo },
-      { projectId: selection.projectId }
-    );
-    const interactive = createInkInteractivePrompt(queue);
-    const result = await launchSprintBoundFlow(
-      { app: deps, interactive, storage, runInTerminal: getRunInTerminal() },
-      'create-sprint',
-      snapshot,
-      {
-        onReseat: ({ id, name, status }) => {
-          selection.setSprint(id, name, status);
-        },
-        onSprintResolved: (runnerId, { id, name }) => {
-          sessions.setPinnedSprint(runnerId, id, name);
-        },
-      }
-    );
-    if (!result.ok) {
-      setFeedback(`✗ ${result.reason}`);
-      return;
-    }
-    sessions.register({
-      runner: result.runner,
-      flowId: 'create-sprint',
-      title: result.title,
-      ...sessionHintsFromLaunchResult(result),
-    });
-    void result.runner.start();
-    router.push({ id: 'execute', props: { sessionId: result.runner.id } });
-  };
+  const launchCreateSprint = useLaunchCreateSprint({
+    onError: setFeedback,
+    noProjectMessage: '✗ select a project first',
+  });
 
   const toggleScope = (): void => {
     const next = !scopeAll;
     setScopeAll(next);
     // Recompute the cursor: prefer the already-selected sprint, then the first sprint row,
     // then the create row (only relevant on a totally empty picker).
-    const nextRows = flatten(buildGroups(data, selection.projectId, next), includeCreate);
+    const nextRows = flatten(buildGroups(visibleData, selection.projectId, next), includeCreate);
     let idx = -1;
     if (selection.sprintId !== undefined) {
       idx = nextRows.findIndex((r) => r.kind === 'sprint' && r.sprint.id === selection.sprintId);
@@ -258,6 +241,10 @@ export const PickSprintView = (): React.JSX.Element => {
       toggleScope();
       return;
     }
+    if (input === 'f') {
+      setHideDone((v) => !v);
+      return;
+    }
     if (input === '+' || input === 'c') {
       void launchCreateSprint();
       return;
@@ -270,19 +257,24 @@ export const PickSprintView = (): React.JSX.Element => {
       {ui.helpOpen ? (
         <HelpOverlay />
       ) : state.kind === 'loading' || state.kind === 'idle' ? (
-        <Box paddingX={spacing.indent}>
-          <Spinner label="Loading sprints…" />
-        </Box>
+        <LoadingRow label="Loading sprints…" />
       ) : state.kind === 'error' ? (
-        <Box paddingX={spacing.indent}>
-          <Text color={inkColors.error}>Failed to load sprints.</Text>
-        </Box>
+        <LoadErrorRow message="Failed to load sprints." color={inkColors.error} />
       ) : sprintCount === 0 ? (
         <Box flexDirection="column" paddingX={spacing.indent}>
-          <Text>No sprints yet.</Text>
-          <Text dimColor>
-            {scopeAll ? 'Press + to create one.' : 'Press t to show all projects, or + to create one.'}
-          </Text>
+          {hiddenByDoneFilter ? (
+            <>
+              <Text>All sprints here are done (hidden).</Text>
+              <Text dimColor>Press f to show them, or + to create a new one.</Text>
+            </>
+          ) : (
+            <>
+              <Text>No sprints yet.</Text>
+              <Text dimColor>
+                {scopeAll ? 'Press + to create one.' : 'Press t to show all projects, or + to create one.'}
+              </Text>
+            </>
+          )}
         </Box>
       ) : (
         <Box flexDirection="column">
@@ -305,8 +297,8 @@ export const PickSprintView = (): React.JSX.Element => {
           <RowWindowView rows={rows} cursor={cursor} visibleRows={visibleRows} currentSprintId={selection.sprintId} />
           <Box marginTop={spacing.section} paddingX={spacing.indent}>
             <Text dimColor>
-              {glyphs.bullet} ↵ use the highlighted sprint {glyphs.bullet} t toggle scope {glyphs.bullet} + create a new
-              one
+              {glyphs.bullet} ↵ use the highlighted sprint {glyphs.bullet} t toggle scope {glyphs.bullet} f{' '}
+              {hideDone ? 'show' : 'hide'} done {glyphs.bullet} + create a new one
             </Text>
           </Box>
           {feedback !== undefined && (

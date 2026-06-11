@@ -438,7 +438,11 @@ export const launchFlow = async (
     ...(snapshot.project !== undefined
       ? { pinnedProjectId: snapshot.project.id, pinnedProjectLabel: snapshot.project.displayName }
       : {}),
-    ...(snapshot.sprint !== undefined
+    // create-sprint never pins the snapshot sprint: the run's sprint does not exist at launch
+    // time, so a sprint on the snapshot is by definition the PREVIOUS selection — pinning it
+    // would mislabel the run's execute view / breadcrumb. The sprint-bound launch wrapper pins
+    // the real one via `setPinnedSprint` once the chain resolves it.
+    ...(snapshot.sprint !== undefined && flowId !== 'create-sprint'
       ? { pinnedSprintId: snapshot.sprint.id, pinnedSprintLabel: snapshot.sprint.name }
       : {}),
   };

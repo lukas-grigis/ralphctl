@@ -44,6 +44,9 @@ export const globalKeys = {
   progressOverlay: { keys: ['g'], label: 'show progress.md' },
   yankTask: { keys: ['y'], label: 'copy active task summary' },
   pickProject: { keys: ['P'], label: 'pick project', showInFooter: true },
+  // NOT showInFooter: with `pick sprint` added the strip overflows a 100-col terminal and the
+  // whole footer wraps. The breadcrumb's `[S]` affordance (right next to the sprint name)
+  // carries the discoverability instead.
   pickSprint: { keys: ['S'], label: 'pick sprint' },
   help: { keys: ['?'], label: 'help', showInFooter: true },
   quit: { keys: ['q', 'ctrl+c'], label: 'quit', showInFooter: true },
@@ -72,6 +75,10 @@ export const footerGlobalHints: ReadonlyArray<{ readonly keys: string; readonly 
  */
 export const pickerKeys = {
   toggleScope: { keys: ['t'], label: 'toggle project scope' },
+  // `f` (filter), NOT `d`: `d` double-fires with the StatusBanner dismiss mounted inside the
+  // picker's ViewShell and means delete-with-confirm in every sibling list view. Plain `f` is
+  // unused TUI-wide.
+  hideDone: { keys: ['f'], label: 'hide done sprints' },
 } as const satisfies Record<string, KeyBinding>;
 
 /**
@@ -89,6 +96,8 @@ export const pickerKeys = {
  *
  * `+` on Home opens create-sprint (requires a project). `m` on the sprint-detail view marks the
  * opened sprint as the current selection — replaces the prior silent auto-sync on detail mount.
+ * The same chord on the projects list / project detail marks the focused (or viewed) project
+ * current — opening a project detail is a browse and never switches the selection.
  */
 export const contextualKeys = {
   editField: { keys: ['e'], label: 'edit focused field' },
@@ -96,6 +105,7 @@ export const contextualKeys = {
   bulkUnblockSprintTasks: { keys: ['u'], label: 'unblock all stuck tasks in focused sprint' },
   createSprint: { keys: ['+'], label: 'create a new sprint' },
   makeSprintCurrent: { keys: ['m'], label: 'make focused sprint current' },
+  makeProjectCurrent: { keys: ['m'], label: 'make focused project current' },
 } as const satisfies Record<string, KeyBinding>;
 
 /**

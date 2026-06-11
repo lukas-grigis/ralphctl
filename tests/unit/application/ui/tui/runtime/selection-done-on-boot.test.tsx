@@ -16,7 +16,7 @@
 
 import React from 'react';
 import { render } from 'ink-testing-library';
-import { Text } from 'ink';
+import { Text, useInput } from 'ink';
 import { describe, expect, it, vi } from 'vitest';
 import {
   SelectionProvider,
@@ -122,6 +122,87 @@ describe('SelectionProvider — done-on-boot clear', () => {
 
     // Draft sprint must survive rehydration.
     expect(r.lastFrame()).toContain(`s=${String(DRAFT_SPRINT_ID)}`);
+
+    r.unmount();
+  });
+
+  it('populates sprintStatus from the probe for a live (non-done) seeded sprint', async () => {
+    // The persisted seed carries only ids + labels — status is never written to disk. The
+    // boot probe already fetched the entity to answer "is it done?", so a live sprint must
+    // keep its status for the breadcrumb chip instead of leaving it blank until a re-pick.
+    const draftSprint = { ...makeDraftSprint(), id: DRAFT_SPRINT_ID } as unknown as Sprint;
+    const repo = makeSprintRepo(draftSprint);
+
+    const Probe = (): React.JSX.Element => {
+      const api = useSelection();
+      return <Text>status={String(api.sprintStatus)}</Text>;
+    };
+
+    const r = render(
+      <SelectionProvider
+        seed={{ sprintId: DRAFT_SPRINT_ID, sprintLabel: 'Active Sprint' }}
+        sprintRepo={repo}
+        onChange={vi.fn()}
+      >
+        <Probe />
+      </SelectionProvider>
+    );
+    await new Promise((res) => setTimeout(res, 50));
+
+    expect(r.lastFrame()).toContain('status=draft');
+
+    r.unmount();
+  });
+
+  it('does NOT clobber a fresh user pick made while the probe is still in flight', async () => {
+    // The probe races user input: seed points at a done sprint, but the user picks a
+    // different sprint before findById resolves. The late resolution must bail (live ref
+    // check) instead of clearing the fresh pick.
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((res) => {
+      release = res;
+    });
+    const doneSprint = { ...makeDoneSprint(), id: DONE_SPRINT_ID } as unknown as Sprint;
+    const repo = {
+      async findById() {
+        await gate;
+        return Result.ok(doneSprint);
+      },
+    } as unknown as SprintRepository;
+
+    const Probe = (): React.JSX.Element => {
+      const api = useSelection();
+      useInput((input) => {
+        if (input === 'p') api.setSprint(DRAFT_SPRINT_ID, 'Fresh Pick', 'draft');
+      });
+      return (
+        <Text>
+          s={String(api.sprintId)} status={String(api.sprintStatus)}
+        </Text>
+      );
+    };
+
+    const r = render(
+      <SelectionProvider
+        seed={{ sprintId: DONE_SPRINT_ID, sprintLabel: 'Closed Sprint' }}
+        sprintRepo={repo}
+        onChange={vi.fn()}
+      >
+        <Probe />
+      </SelectionProvider>
+    );
+    await new Promise((res) => setTimeout(res, 20));
+
+    // User picks another sprint while the probe is pending…
+    r.stdin.write('p');
+    await new Promise((res) => setTimeout(res, 20));
+    // …then the probe resolves with "seed sprint is done".
+    release?.();
+    await new Promise((res) => setTimeout(res, 50));
+
+    // The fresh pick (id AND status) must survive the late probe.
+    expect(r.lastFrame()).toContain(`s=${String(DRAFT_SPRINT_ID)}`);
+    expect(r.lastFrame()).toContain('status=draft');
 
     r.unmount();
   });

@@ -34,13 +34,12 @@ import { Box, Text } from 'ink';
 import { useEditField } from '@src/application/ui/tui/runtime/use-edit-field.ts';
 import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.tsx';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
-import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
-import { ConfirmPrompt } from '@src/application/ui/tui/prompts/confirm-prompt.tsx';
+import { LoadErrorRow, LoadingRow } from '@src/application/ui/tui/components/async-rows.tsx';
+import { ConfirmCard } from '@src/application/ui/tui/components/confirm-card.tsx';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { Ticket } from '@src/domain/entity/ticket.ts';
-import { spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useRouter, useViewProps } from '@src/application/ui/tui/runtime/router.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
@@ -198,13 +197,10 @@ export const SprintDetailView = (): React.JSX.Element => {
     },
   });
 
-  // Mute global keys while the confirm prompt is mounted.
-  const claimPrompt = ui.claimPrompt;
-  const claimEscape = ui.claimEscape;
-  useEffect(() => (confirmRemove !== undefined ? claimPrompt() : undefined), [confirmRemove, claimPrompt]);
-
   // Claim `esc` while the detail card is open so the local handler can close the card without
-  // the global `router.pop()` racing it and dumping the user back to the Sprints list.
+  // the global `router.pop()` racing it and dumping the user back to the Sprints list. (The
+  // confirm-remove prompt mute is owned by `ConfirmCard`, which claims on mount.)
+  const claimEscape = ui.claimEscape;
   useEffect(() => (inDetail ? claimEscape() : undefined), [inDetail, claimEscape]);
 
   const handleRemoveConfirmed = async (target: Ticket, confirmed: boolean): Promise<void> => {
@@ -233,27 +229,20 @@ export const SprintDetailView = (): React.JSX.Element => {
       {ui.helpOpen ? (
         <HelpOverlay />
       ) : state.kind === 'loading' || state.kind === 'idle' ? (
-        <Box paddingX={spacing.indent}>
-          <Spinner label="Loading…" />
-        </Box>
+        <LoadingRow label="Loading…" />
       ) : state.kind === 'error' ? (
-        <Box paddingX={spacing.indent}>
-          <Text>Failed to load sprint.</Text>
-        </Box>
+        <LoadErrorRow message="Failed to load sprint." />
       ) : confirmRemove !== undefined ? (
-        <Box flexDirection="column" paddingX={spacing.indent}>
-          <Text>
-            Remove ticket <Text bold>{confirmRemove.title}</Text> from this sprint?
-          </Text>
-          <Box marginTop={1}>
-            <ConfirmPrompt
-              message="Remove?"
-              defaultYes={false}
-              onSubmit={(value) => void handleRemoveConfirmed(confirmRemove, value)}
-              onCancel={() => setConfirmRemove(undefined)}
-            />
-          </Box>
-        </Box>
+        <ConfirmCard
+          title={
+            <Text>
+              Remove ticket <Text bold>{confirmRemove.title}</Text> from this sprint?
+            </Text>
+          }
+          message="Remove?"
+          onSubmit={(value) => void handleRemoveConfirmed(confirmRemove, value)}
+          onCancel={() => setConfirmRemove(undefined)}
+        />
       ) : (
         <Body
           bundle={state.value}

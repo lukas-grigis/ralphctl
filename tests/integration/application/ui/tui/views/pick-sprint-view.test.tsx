@@ -165,6 +165,44 @@ describe('PickSprintView', () => {
     expect(after).toContain('1 sprint');
   });
 
+  it('f key hides done sprints and shows them again on re-press', async () => {
+    const sprints = [
+      makeSprint({ id: SID_A1, projectId: PID_A, name: 'live sprint' }),
+      makeSprint({ id: SID_A2, projectId: PID_A, name: 'closed sprint', status: 'done' }),
+    ];
+    const { result } = renderView(<PickSprintView />, {
+      deps: stubDeps(sprints, [projectAlpha]),
+      initial: { id: 'pick-sprint' },
+      selection: { projectId: PID_A, projectLabel: 'Alpha Project' },
+    });
+    // Default OFF — done sprints are listed (closed sprints stay reachable here by contract).
+    await waitFor(() => expect(result.lastFrame() ?? '').toContain('closed sprint'));
+    expect(result.lastFrame() ?? '').toContain('live sprint');
+
+    result.stdin.write('f');
+    await waitFor(() => expect(result.lastFrame() ?? '').not.toContain('closed sprint'));
+    expect(result.lastFrame() ?? '').toContain('live sprint');
+    expect(result.lastFrame() ?? '').toContain('1 sprint');
+
+    result.stdin.write('f');
+    await waitFor(() => expect(result.lastFrame() ?? '').toContain('closed sprint'));
+    expect(result.lastFrame() ?? '').toContain('live sprint');
+  });
+
+  it('empty state names the f escape hatch when the filter hid every sprint in scope', async () => {
+    const sprints = [makeSprint({ id: SID_A2, projectId: PID_A, name: 'closed sprint', status: 'done' })];
+    const { result } = renderView(<PickSprintView />, {
+      deps: stubDeps(sprints, [projectAlpha]),
+      initial: { id: 'pick-sprint' },
+      selection: { projectId: PID_A, projectLabel: 'Alpha Project' },
+    });
+    await waitFor(() => expect(result.lastFrame() ?? '').toContain('closed sprint'));
+
+    result.stdin.write('f');
+    await waitFor(() => expect(result.lastFrame() ?? '').toContain('done (hidden)'));
+    expect(result.lastFrame() ?? '').toContain('Press f to show them');
+  });
+
   it('cursor j/k skips group header sentinel rows', async () => {
     const sprints = [
       makeSprint({ id: SID_A1, projectId: PID_A, name: 'alpha sprint' }),

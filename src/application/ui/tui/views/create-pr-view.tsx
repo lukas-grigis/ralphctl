@@ -50,6 +50,7 @@ export const CreatePrView = (): React.JSX.Element => {
   useViewHints([
     { keys: '↵', label: 'open PR' },
     { keys: 'a', label: 'toggle AI' },
+    { keys: 'r', label: 'retry', enabledWhen: run.kind === 'error' },
     { keys: 'esc', label: 'back' },
   ]);
 
@@ -161,6 +162,12 @@ export const CreatePrView = (): React.JSX.Element => {
     }
     if (input === 'a' && run.kind === 'idle') {
       setUseAi((prev) => !prev);
+      return;
+    }
+    if (input === 'r' && run.kind === 'error') {
+      // Back to the confirm card (re-enabling the `a` toggle) rather than re-firing directly —
+      // this view creates an upstream PR, so every attempt goes through the explicit Enter.
+      setRun({ kind: 'idle' });
     }
   });
 
@@ -209,6 +216,7 @@ export const CreatePrView = (): React.JSX.Element => {
               <Text color={inkColors.error}>
                 {glyphs.bullet} {run.message}
               </Text>
+              <Text dimColor>press r to retry</Text>
             </Card>
           )}
         </Box>

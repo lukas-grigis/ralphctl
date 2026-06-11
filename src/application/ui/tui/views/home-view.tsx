@@ -15,25 +15,17 @@
  * orchestrates state + effects + key handling.
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { ActionMenu } from '@src/application/ui/tui/components/action-menu.tsx';
 import { inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
-import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
-import { useAsyncLoad } from '@src/application/ui/tui/runtime/use-async-load.ts';
-import { type AppStateSnapshot, loadAppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
+import { useAppStateSnapshot } from '@src/application/ui/tui/runtime/use-app-state-snapshot.ts';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
-import { useSessionManager } from '@src/application/ui/tui/runtime/sessions-context.tsx';
-import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.tsx';
-import { createInkInteractivePrompt } from '@src/application/ui/tui/prompts/ink-interactive-prompt.ts';
-import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx';
-import { getRunInTerminal } from '@src/application/ui/tui/runtime/run-in-terminal.ts';
-import { sessionHintsFromLaunchResult } from '@src/application/ui/shared/launcher.ts';
-import { launchSprintBoundFlow } from '@src/application/ui/shared/launch/sprint-bound.ts';
+import { useLaunchCreateSprint } from '@src/application/ui/tui/runtime/use-launch-create-sprint.ts';
 import { StateCard } from '@src/application/ui/tui/views/home-internals/state-card.tsx';
 import { buildMenuItems } from '@src/application/ui/tui/views/home-internals/menu-items.ts';
 
@@ -47,28 +39,23 @@ const SWITCH_FEEDBACK_MS = 3000;
 
 export const HomeView = (): React.JSX.Element => {
   const router = useRouter();
-  const deps = useDeps();
   const ui = useUiState();
   const selection = useSelection();
-  const sessions = useSessionManager();
-  const queue = usePromptQueue();
-  const storage = useStorage();
 
-  const { state } = useAsyncLoad<AppStateSnapshot>(
-    () =>
-      loadAppStateSnapshot(
-        { projectRepo: deps.projectRepo, sprintRepo: deps.sprintRepo, taskRepo: deps.taskRepo },
-        {
-          ...(selection.projectId !== undefined ? { projectId: selection.projectId } : {}),
-          ...(selection.sprintId !== undefined ? { sprintId: selection.sprintId } : {}),
-        }
-      ),
-    [selection.projectId, selection.sprintId]
-  );
+  const { state } = useAppStateSnapshot();
 
   const snapshot = state.kind === 'ok' ? state.value : undefined;
   const hasProject = snapshot?.project !== undefined;
   const currentSprint = snapshot?.sprint;
+
+  // Refresh the cached breadcrumb status chip from every fresh snapshot load — flows route
+  // back to Home after a run settles, so this is where a plan/implement/close transition
+  // first becomes visible. syncSprintStatus no-ops unless the loaded sprint is still the
+  // selected one, so firing on every load is safe.
+  const syncSprintStatus = selection.syncSprintStatus;
+  useEffect(() => {
+    if (currentSprint !== undefined) syncSprintStatus(currentSprint.id, currentSprint.status);
+  }, [currentSprint, syncSprintStatus]);
   // Stabilise the empty-array fallback so downstream `useMemo`s keyed on `recentSprints` don't
   // re-run whenever this render's `??` would allocate a fresh `[]`.
   const recentSprints = useMemo(() => snapshot?.recentSprints ?? [], [snapshot?.recentSprints]);
@@ -104,7 +91,10 @@ export const HomeView = (): React.JSX.Element => {
 
   // Re-render once when the switch window expires so the toast disappears without waiting for
   // an external trigger. `+ 50ms` slack avoids edge cases where the timer fires fractionally
-  // before the freshness check resolves to "stale".
+  // before the freshness check resolves to "stale". A real reducer bump is required: an
+  // identity updater like `setLocalError((curr) => curr)` bails out of the re-render under
+  // React's Object.is check, leaving the toast painted forever on an otherwise idle Home.
+  const [, forceRender] = useReducer((n: number) => n + 1, 0);
   const lastSwitch = selection.lastSwitch;
   useEffect(() => {
     if (lastSwitch === undefined) return undefined;
@@ -112,9 +102,9 @@ export const HomeView = (): React.JSX.Element => {
     const remaining = SWITCH_FEEDBACK_MS - elapsed;
     if (remaining <= 0) return undefined;
     const id = setTimeout(() => {
-      // Re-render via a no-op state churn. The render itself reads the freshness window —
-      // there's nothing to flip on this side beyond forcing a paint.
-      setLocalError((curr) => curr);
+      // The render itself reads the freshness window — there's nothing to flip on this side
+      // beyond forcing a paint.
+      forceRender();
     }, remaining + 50);
     return (): void => clearTimeout(id);
   }, [lastSwitch]);
@@ -127,42 +117,10 @@ export const HomeView = (): React.JSX.Element => {
   // Launch create-sprint via the shared sprint-bound launcher. Reseat-on-completion fires
   // `selection.setSprint` — which writes to `lastSwitch` and feeds the toast line. Failures
   // (no project) flash a local error instead.
-  const launchCreateSprint = useCallback(async (): Promise<void> => {
-    if (selection.projectId === undefined) {
-      flashErr('✗ pick a project first (Projects → open one)');
-      return;
-    }
-    const snap = await loadAppStateSnapshot(
-      { projectRepo: deps.projectRepo, sprintRepo: deps.sprintRepo, taskRepo: deps.taskRepo },
-      { projectId: selection.projectId }
-    );
-    const interactive = createInkInteractivePrompt(queue);
-    const result = await launchSprintBoundFlow(
-      { app: deps, interactive, storage, runInTerminal: getRunInTerminal() },
-      'create-sprint',
-      snap,
-      {
-        onReseat: ({ id, name, status }) => {
-          selection.setSprint(id, name, status);
-        },
-        onSprintResolved: (runnerId, { id, name }) => {
-          sessions.setPinnedSprint(runnerId, id, name);
-        },
-      }
-    );
-    if (!result.ok) {
-      flashErr(`✗ ${result.reason}`);
-      return;
-    }
-    sessions.register({
-      runner: result.runner,
-      flowId: 'create-sprint',
-      title: result.title,
-      ...sessionHintsFromLaunchResult(result),
-    });
-    void result.runner.start();
-    router.push({ id: 'execute', props: { sessionId: result.runner.id } });
-  }, [deps, queue, storage, sessions, router, selection, flashErr]);
+  const launchCreateSprint = useLaunchCreateSprint({
+    onError: flashErr,
+    noProjectMessage: '✗ pick a project first (Projects → open one)',
+  });
 
   // Inline-shortcut + `+` hotkey. We watch for `+` outside the ActionMenu's hotkey machinery
   // because `+` is shift-bound on many keyboards (not portable as a registered MenuItem hotkey

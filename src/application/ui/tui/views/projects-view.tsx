@@ -1,16 +1,19 @@
 /**
  * Projects list — read-only enumeration of every project in storage. Selecting a row pushes
- * the project detail view and stamps the selection cursor on the row's id, so subsequent
- * sprint-related navigation stays scoped to the right project.
+ * the project detail view to BROWSE it; browsing never switches the current selection (a
+ * project switch clears the sprint cursor as a side effect, so a passive look-around must not
+ * cost the user their working sprint). Press `m` on a focused row to make it current —
+ * mirroring the sprint-detail view's explicit opt-in.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { useListWindow, OverflowRow } from '@src/application/ui/tui/components/windowed-list.tsx';
 import { EmptyState } from '@src/application/ui/tui/components/empty-state.tsx';
-import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
-import { ConfirmPrompt } from '@src/application/ui/tui/prompts/confirm-prompt.tsx';
+import { LoadErrorRow, LoadingRow } from '@src/application/ui/tui/components/async-rows.tsx';
+import { FeedbackLine } from '@src/application/ui/tui/components/feedback-line.tsx';
+import { ConfirmCard } from '@src/application/ui/tui/components/confirm-card.tsx';
 import { type Project, setProjectDisplayName } from '@src/domain/entity/project.ts';
 import { useEditField } from '@src/application/ui/tui/runtime/use-edit-field.ts';
 import { Result } from '@src/domain/result.ts';
@@ -33,6 +36,7 @@ export const ProjectsView = (): React.JSX.Element => {
   useViewHints([
     { keys: '↑/↓', label: 'move' },
     { keys: '↵', label: 'open' },
+    { keys: 'm', label: 'make current' },
     { keys: 'c', label: 'create' },
     { keys: 'e', label: 'rename' },
     { keys: 'd', label: 'delete' },
@@ -62,7 +66,8 @@ export const ProjectsView = (): React.JSX.Element => {
     visibleRows,
     active: listActive,
     onSubmit: (p) => {
-      selection.setProject(p.id, p.displayName);
+      // Browse only — opening a detail view must not switch the selection (and wipe the
+      // sprint cursor). `m` below is the explicit make-current action.
       router.push({ id: 'project-detail', props: { projectId: p.id } });
     },
   });
@@ -92,6 +97,16 @@ export const ProjectsView = (): React.JSX.Element => {
       router.push({ id: 'create-project' });
       return;
     }
+    if (input === 'm') {
+      // Explicit make-current — switching projects clears the sprint cursor by design, so
+      // this is the deliberate action, not a side effect of browsing.
+      const target = focusedItem ?? items[0];
+      if (target !== undefined && selection.projectId !== target.id) {
+        selection.setProject(target.id, target.displayName);
+        setFeedback(`✓ now on ${target.displayName}`);
+      }
+      return;
+    }
     if (input === 'e') {
       const target = focusedItem ?? items[0];
       if (target !== undefined) handleRename(target);
@@ -108,10 +123,6 @@ export const ProjectsView = (): React.JSX.Element => {
     }
   });
 
-  // Claim the global-key mute while the confirm prompt is mounted.
-  const claimPrompt = ui.claimPrompt;
-  useEffect(() => (confirmDelete !== undefined ? claimPrompt() : undefined), [confirmDelete, claimPrompt]);
-
   const handleDeleteConfirmed = async (target: Project, confirmed: boolean): Promise<void> => {
     setConfirmDelete(undefined);
     if (!confirmed) return;
@@ -126,32 +137,25 @@ export const ProjectsView = (): React.JSX.Element => {
   };
 
   return (
-    <ViewShell title="Projects" subtitle="Pick a project to make it the current selection" suppressScrollArrows>
+    <ViewShell title="Projects" subtitle="Browse projects — press m to make one current" suppressScrollArrows>
       {ui.helpOpen ? (
         <HelpOverlay />
       ) : state.kind === 'loading' || state.kind === 'idle' ? (
-        <Box paddingX={spacing.indent}>
-          <Spinner label="Loading projects…" />
-        </Box>
+        <LoadingRow label="Loading projects…" />
       ) : state.kind === 'error' ? (
-        <Box paddingX={spacing.indent}>
-          <Text>Failed to load projects.</Text>
-        </Box>
+        <LoadErrorRow message="Failed to load projects." />
       ) : confirmDelete !== undefined ? (
-        <Box flexDirection="column" paddingX={spacing.indent}>
-          <Text>
-            Remove project <Text bold>{confirmDelete.displayName}</Text>?
-          </Text>
-          <Text dimColor>Sprints and repository contents are not touched.</Text>
-          <Box marginTop={1}>
-            <ConfirmPrompt
-              message="Delete?"
-              defaultYes={false}
-              onSubmit={(value) => void handleDeleteConfirmed(confirmDelete, value)}
-              onCancel={() => setConfirmDelete(undefined)}
-            />
-          </Box>
-        </Box>
+        <ConfirmCard
+          title={
+            <Text>
+              Remove project <Text bold>{confirmDelete.displayName}</Text>?
+            </Text>
+          }
+          body={<Text dimColor>Sprints and repository contents are not touched.</Text>}
+          message="Delete?"
+          onSubmit={(value) => void handleDeleteConfirmed(confirmDelete, value)}
+          onCancel={() => setConfirmDelete(undefined)}
+        />
       ) : state.value.length === 0 ? (
         <EmptyState
           title="No projects yet"
@@ -205,16 +209,11 @@ export const ProjectsView = (): React.JSX.Element => {
           <Box paddingX={spacing.indent} marginTop={spacing.section}>
             <Text dimColor>
               {glyphs.bullet} {state.value.length} project(s) {glyphs.bullet} ↑/↓ move {glyphs.bullet} ↵ open{' '}
-              {glyphs.bullet} c create {glyphs.bullet} e rename {glyphs.bullet} d delete {glyphs.bullet} r reload
+              {glyphs.bullet} m make current {glyphs.bullet} c create {glyphs.bullet} e rename {glyphs.bullet} d delete{' '}
+              {glyphs.bullet} r reload
             </Text>
           </Box>
-          {(feedback ?? edit.feedback) !== undefined && (
-            <Box paddingX={spacing.indent} marginTop={1}>
-              <Text color={(feedback ?? edit.feedback)?.startsWith('✗') ? inkColors.error : inkColors.primary}>
-                {feedback ?? edit.feedback}
-              </Text>
-            </Box>
-          )}
+          <FeedbackLine text={feedback ?? edit.feedback} />
         </Box>
       )}
     </ViewShell>

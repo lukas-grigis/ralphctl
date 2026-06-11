@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createFsTaskRepository } from '@src/integration/persistence/task/repository.ts';
+import { createLastSelectionStore } from '@src/integration/persistence/selection/last-selection-store.ts';
 import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import { makeDoneTask, makeDraftSprint, makeTodoTask } from '@tests/fixtures/domain.ts';
 import { type CliHome, createCliHome, runCliCaptured } from '@tests/e2e/cli/_harness.ts';
@@ -39,6 +40,31 @@ describe('ralphctl task', () => {
       const result = await runCliCaptured(cli, ['task', 'list', '--sprint', 'nope']);
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain('invalid sprint id');
+    });
+
+    it('defaults --sprint to the pinned current sprint (with a stderr notice)', async () => {
+      const sprint = makeDraftSprint();
+      const repo = createFsTaskRepository({ root: cli.paths.dataRoot });
+      await repo.saveAll(sprint.id, [makeTodoTask({ name: 'pinned task', order: 1 })]);
+      await createLastSelectionStore(cli.paths.stateRoot).write({
+        projectId: sprint.projectId,
+        sprintId: sprint.id,
+      });
+
+      const result = await runCliCaptured(cli, ['task', 'list']);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('pinned task');
+      // The fallback path must announce the substituted sprint so a stale pin never
+      // silently targets the wrong one.
+      expect(result.stderr).toContain(`using current sprint ${String(sprint.id)}`);
+    });
+
+    it('exits 1 with guidance when --sprint is omitted and nothing is pinned', async () => {
+      const result = await runCliCaptured(cli, ['task', 'list']);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('no sprint specified');
+      expect(result.stderr).toContain('--sprint');
+      expect(result.stderr).toContain('sprint set-current');
     });
   });
 

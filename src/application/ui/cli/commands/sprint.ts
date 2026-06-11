@@ -2,6 +2,7 @@ import type { Command } from 'commander';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
+import { resolveSprintId } from '@src/application/ui/cli/resolve-sprint-selection.ts';
 import { activateSprintUseCase } from '@src/business/sprint/activate-sprint.ts';
 import { transitionSprintToDoneUseCase } from '@src/business/sprint/transition-sprint-to-done.ts';
 import { createLastSelectionStore } from '@src/integration/persistence/selection/last-selection-store.ts';
@@ -10,16 +11,18 @@ import { createLastSelectionStore } from '@src/integration/persistence/selection
  * Register the `sprint` command group.
  *
  *   ralphctl sprint list
- *   ralphctl sprint show <id>
+ *   ralphctl sprint show [id]
  *   ralphctl sprint remove <id>
  *   ralphctl sprint activate <id>
  *   ralphctl sprint close <id>
  *   ralphctl sprint set-current <id>
  *   ralphctl sprint progress [id]
  *
- * Read-side ops dispatch directly to `deps.sprintRepo`. Sprint creation is an interactive
- * chain flow (`flows/create-sprint`) that lives in the TUI; surfacing it via CLI would lose
- * the interactive prompts that drive its inputs.
+ * `show` and `progress` default their `[id]` to the pinned current sprint (written by
+ * `sprint set-current` and the TUI) so inspection doesn't repeat the UUID the user already
+ * pinned. Read-side ops dispatch directly to `deps.sprintRepo`. Sprint creation is an
+ * interactive chain flow (`flows/create-sprint`) that lives in the TUI; surfacing it via CLI
+ * would lose the interactive prompts that drive its inputs.
  */
 export const registerSprintCommand = (program: Command): void => {
   const sprintCmd = program.command('sprint').description('inspect and manage sprints');
@@ -45,17 +48,19 @@ export const registerSprintCommand = (program: Command): void => {
     });
 
   sprintCmd
-    .command('show <id>')
-    .description('print a single sprint as JSON')
-    .action(async (raw: string) => {
-      const id = SprintId.parse(raw);
+    .command('show [id]')
+    .description('print a single sprint as JSON (defaults to the current sprint)')
+    .action(async (raw?: string) => {
+      const { deps, storage } = await bootstrapCli();
+      const id = await resolveSprintId(raw, storage.stateRoot, {
+        missingMessage: 'no current sprint pinned — run `ralphctl sprint set-current <id>` or pass an id',
+      });
       if (!id.ok) {
-        process.stderr.write(`error: invalid sprint id: ${id.error.message}\n`);
+        process.stderr.write(`error: ${id.error.message}\n`);
         process.exit(1);
         return;
       }
-      const { deps } = await bootstrapCli();
-      const result = await deps.sprintRepo.findById(id.value);
+      const result = await deps.sprintRepo.findById(id.value.sprintId);
       if (!result.ok) {
         process.stderr.write(`error: ${result.error.message}\n`);
         process.exit(1);
@@ -74,12 +79,23 @@ export const registerSprintCommand = (program: Command): void => {
         process.exit(1);
         return;
       }
-      const { deps } = await bootstrapCli();
+      const { deps, storage } = await bootstrapCli();
       const result = await deps.sprintRepo.remove(id.value);
       if (!result.ok) {
         process.stderr.write(`error: ${result.error.message}\n`);
         process.exit(1);
         return;
+      }
+      // Clear a dangling pin: leaving the removed sprint in last-selection.json would make
+      // every defaulting command (and the next TUI boot) resolve to a ghost. The project pin
+      // survives — only the sprint slot is dropped (rest-destructure keeps
+      // exactOptionalPropertyTypes happy by omitting the key instead of assigning undefined).
+      const store = createLastSelectionStore(storage.stateRoot);
+      const cur = await store.read();
+      if (cur?.sprintId === id.value) {
+        const { sprintId: _drop, ...rest } = cur;
+        void _drop;
+        await store.write(rest);
       }
       process.stdout.write(`removed sprint ${String(id.value)}\n`);
     });
@@ -154,7 +170,9 @@ export const registerSprintCommand = (program: Command): void => {
 
   sprintCmd
     .command('set-current <id>')
-    .description("pin a sprint as the user's current selection (read by the TUI on launch)")
+    .description(
+      "pin a sprint as the user's current selection (read by the TUI on launch and used as the default sprint for CLI commands)"
+    )
     .action(async (raw: string) => {
       const id = SprintId.parse(raw);
       if (!id.ok) {
@@ -188,29 +206,32 @@ export const registerSprintCommand = (program: Command): void => {
     });
 
   sprintCmd
-    .command('progress <id>')
-    .description('print task counts, blockers, and the sprint branch for one sprint')
-    .action(async (raw: string) => {
-      const id = SprintId.parse(raw);
-      if (!id.ok) {
-        process.stderr.write(`error: invalid sprint id: ${id.error.message}\n`);
+    .command('progress [id]')
+    .description('print task counts, blockers, and the sprint branch (defaults to the current sprint)')
+    .action(async (raw?: string) => {
+      const { deps, storage } = await bootstrapCli();
+      const resolved = await resolveSprintId(raw, storage.stateRoot, {
+        missingMessage: 'no current sprint pinned — run `ralphctl sprint set-current <id>` or pass an id',
+      });
+      if (!resolved.ok) {
+        process.stderr.write(`error: ${resolved.error.message}\n`);
         process.exit(1);
         return;
       }
-      const { deps } = await bootstrapCli();
-      const sprint = await deps.sprintRepo.findById(id.value);
+      const sprintId = resolved.value.sprintId;
+      const sprint = await deps.sprintRepo.findById(sprintId);
       if (!sprint.ok) {
         process.stderr.write(`error: ${sprint.error.message}\n`);
         process.exit(1);
         return;
       }
-      const tasks = await deps.taskRepo.findBySprintId(id.value);
+      const tasks = await deps.taskRepo.findBySprintId(sprintId);
       if (!tasks.ok) {
         process.stderr.write(`error: ${tasks.error.message}\n`);
         process.exit(1);
         return;
       }
-      const execution = await deps.sprintExecutionRepo.findById(id.value);
+      const execution = await deps.sprintExecutionRepo.findById(sprintId);
       const branchLine = execution.ok
         ? execution.value.branch !== null
           ? execution.value.branch

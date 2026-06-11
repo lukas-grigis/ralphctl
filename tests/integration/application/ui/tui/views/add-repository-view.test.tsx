@@ -14,7 +14,7 @@ import type { Project } from '@src/domain/entity/project.ts';
 import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
 import { makeProject } from '@tests/fixtures/domain.ts';
 import { CTRL_U, ENTER, tick } from '@tests/integration/application/ui/tui/_keys.ts';
-import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
+import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 describe('AddRepositoryView — wizard e2e', () => {
   let root: string;
@@ -44,7 +44,7 @@ describe('AddRepositoryView — wizard e2e', () => {
       deps,
       initial: { id: 'add-repository', props: { projectId: project.id } },
     });
-    await tick(40);
+    await waitForViewReady(result, (f) => f.includes('Repository path'));
 
     // Step 1: path picker — use `t` typing overlay for determinism.
     result.stdin.write('t');
