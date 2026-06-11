@@ -1,6 +1,10 @@
 /**
  * Project detail — info card + repository roster + per-repo health (paths + scripts). Pressing
  * `r` jumps to this project's sprints; `n` opens the flow launcher with this project current.
+ *
+ * Opening the detail is a BROWSE — it never switches the current selection (a project switch
+ * clears the sprint cursor as a side effect). Press `m` to make the viewed project current,
+ * mirroring the sprint-detail view's explicit opt-in.
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -62,14 +66,21 @@ export const ProjectDetailView = (): React.JSX.Element => {
     return r.value;
   }, [projectId]);
 
-  // Once the project loads, stamp its display name into the selection cache so the status bar
-  // can show "proj: <name>" without re-loading the aggregate. Direct routes (deep links from
-  // suggestions) may not have stamped a label yet.
+  // Once the project loads, refresh the display-name label in the selection cache so the
+  // status bar can show "proj: <name>" without re-loading the aggregate — but ONLY for the
+  // project that is already current. Re-stamping a *different* project here would switch the
+  // selection (and clear the sprint cursor) as a side effect of merely browsing its detail;
+  // the explicit `m` chord below is the only path that switches.
   const selection = useSelection();
   const setProjectRef = React.useRef(selection.setProject);
   setProjectRef.current = selection.setProject;
+  const selectionProjectIdRef = React.useRef(selection.projectId);
+  selectionProjectIdRef.current = selection.projectId;
   React.useEffect(() => {
-    if (state.kind === 'ok') setProjectRef.current(state.value.id, state.value.displayName);
+    if (state.kind !== 'ok') return;
+    if (selectionProjectIdRef.current === state.value.id) {
+      setProjectRef.current(state.value.id, state.value.displayName);
+    }
   }, [state]);
 
   const [cursorIdx, setCursorIdx] = useState(0);
@@ -105,6 +116,9 @@ export const ProjectDetailView = (): React.JSX.Element => {
   useViewHints([
     { keys: '↑/↓', label: 'navigate' },
     { keys: '↵', label: 'confirm/select' },
+    // Surface the `m` chord only while the viewed project is not already current — once they
+    // match the action is a no-op and the hint adds noise (mirrors sprint-detail).
+    { keys: 'm', label: 'current', enabledWhen: project !== undefined && selection.projectId !== project.id },
     { keys: 'e', label: 'edit field', enabledWhen: focused !== undefined },
     { keys: 'a', label: 'add repo' },
     { keys: 'd', label: 'remove repo', enabledWhen: focusedRepo },
@@ -217,6 +231,15 @@ export const ProjectDetailView = (): React.JSX.Element => {
     if (ui.helpOpen || ui.promptActive || confirmRemove !== undefined || project === undefined) return;
     if (input === 'a') {
       router.push({ id: 'add-repository', props: { projectId: project.id } });
+      return;
+    }
+    if (input === 'm') {
+      // Explicit "make this project current" — the deliberate counterpart to the browse-only
+      // open. No-op if already current so re-pressing doesn't churn feedback.
+      if (selection.projectId !== project.id) {
+        selection.setProject(project.id, project.displayName);
+        setFeedback(`✓ now on ${project.displayName}`);
+      }
       return;
     }
     if (input === 'e' || key.return) {

@@ -99,7 +99,7 @@ describe('SprintDetailView — m key makes current', () => {
     result.unmount();
   });
 
-  it('does NOT call setSprint when a key other than m is pressed', async () => {
+  it('does NOT call setSprint when a key other than m/n is pressed', async () => {
     const sprint = makeSprint({ name: 'Other Key Sprint' });
     const setSprint = vi.fn<(id: SprintId | undefined, label?: string) => void>();
 
@@ -112,10 +112,60 @@ describe('SprintDetailView — m key makes current', () => {
 
     await tick(80);
 
-    result.stdin.write('n'); // 'n' opens Flows, not make-current
+    result.stdin.write('z'); // inert key — neither make-current (m) nor open-flows (n)
     await tick(40);
 
     expect(setSprint).not.toHaveBeenCalled();
+
+    result.unmount();
+  });
+
+  it('n reseats the selection onto the viewed sprint before opening Flows', async () => {
+    // The view advertises `n — flows` as "scoped to this sprint": pressing it while a
+    // DIFFERENT sprint is current must make the viewed sprint current so the Flows launch
+    // targets what the user is looking at. The route push itself is owned by the global `n`
+    // handler (not mounted in this harness), so only the reseat is asserted here.
+    const sprint = makeSprint({ name: 'Scoped Sprint' });
+    const setSprint = vi.fn<(id: SprintId | undefined, label?: string) => void>();
+
+    const { result } = renderView(
+      <MakeSpy spy={setSprint}>
+        <SprintDetailView />
+      </MakeSpy>,
+      { deps: stubDeps(sprint), initial }
+    );
+
+    await tick(80);
+
+    result.stdin.write('n');
+    await tick(40);
+
+    expect(setSprint).toHaveBeenCalledTimes(1);
+    const [calledId, calledLabel] = setSprint.mock.calls[0] as [SprintId | undefined, string | undefined];
+    expect(calledId).toBe(SPRINT_ID);
+    expect(calledLabel).toBe('Scoped Sprint');
+
+    result.unmount();
+  });
+
+  it('n does NOT reseat when the viewed sprint is already current', async () => {
+    // Seeding the selection re-memoizes the api object, which would silently drop a MakeSpy
+    // patch — so assert via the view's own "✓ now on …" feedback line instead: it renders on
+    // every reseat and must stay absent when `n` is pressed on the already-current sprint.
+    const sprint = makeSprint({ name: 'Already Current Sprint' });
+
+    const { result } = renderView(<SprintDetailView />, {
+      deps: stubDeps(sprint),
+      initial,
+      selection: { sprintId: SPRINT_ID, sprintLabel: 'Already Current Sprint' },
+    });
+
+    await tick(80);
+
+    result.stdin.write('n');
+    await tick(40);
+
+    expect(result.lastFrame() ?? '').not.toContain('✓ now on');
 
     result.unmount();
   });

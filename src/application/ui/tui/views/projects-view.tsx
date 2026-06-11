@@ -1,7 +1,9 @@
 /**
  * Projects list — read-only enumeration of every project in storage. Selecting a row pushes
- * the project detail view and stamps the selection cursor on the row's id, so subsequent
- * sprint-related navigation stays scoped to the right project.
+ * the project detail view to BROWSE it; browsing never switches the current selection (a
+ * project switch clears the sprint cursor as a side effect, so a passive look-around must not
+ * cost the user their working sprint). Press `m` on a focused row to make it current —
+ * mirroring the sprint-detail view's explicit opt-in.
  */
 
 import React, { useEffect, useState } from 'react';
@@ -33,6 +35,7 @@ export const ProjectsView = (): React.JSX.Element => {
   useViewHints([
     { keys: '↑/↓', label: 'move' },
     { keys: '↵', label: 'open' },
+    { keys: 'm', label: 'make current' },
     { keys: 'c', label: 'create' },
     { keys: 'e', label: 'rename' },
     { keys: 'd', label: 'delete' },
@@ -62,7 +65,8 @@ export const ProjectsView = (): React.JSX.Element => {
     visibleRows,
     active: listActive,
     onSubmit: (p) => {
-      selection.setProject(p.id, p.displayName);
+      // Browse only — opening a detail view must not switch the selection (and wipe the
+      // sprint cursor). `m` below is the explicit make-current action.
       router.push({ id: 'project-detail', props: { projectId: p.id } });
     },
   });
@@ -90,6 +94,16 @@ export const ProjectsView = (): React.JSX.Element => {
     if (ui.helpOpen || ui.promptActive || confirmDelete !== undefined) return;
     if (input === 'c') {
       router.push({ id: 'create-project' });
+      return;
+    }
+    if (input === 'm') {
+      // Explicit make-current — switching projects clears the sprint cursor by design, so
+      // this is the deliberate action, not a side effect of browsing.
+      const target = focusedItem ?? items[0];
+      if (target !== undefined && selection.projectId !== target.id) {
+        selection.setProject(target.id, target.displayName);
+        setFeedback(`✓ now on ${target.displayName}`);
+      }
       return;
     }
     if (input === 'e') {
@@ -126,7 +140,7 @@ export const ProjectsView = (): React.JSX.Element => {
   };
 
   return (
-    <ViewShell title="Projects" subtitle="Pick a project to make it the current selection" suppressScrollArrows>
+    <ViewShell title="Projects" subtitle="Browse projects — press m to make one current" suppressScrollArrows>
       {ui.helpOpen ? (
         <HelpOverlay />
       ) : state.kind === 'loading' || state.kind === 'idle' ? (
@@ -205,7 +219,8 @@ export const ProjectsView = (): React.JSX.Element => {
           <Box paddingX={spacing.indent} marginTop={spacing.section}>
             <Text dimColor>
               {glyphs.bullet} {state.value.length} project(s) {glyphs.bullet} ↑/↓ move {glyphs.bullet} ↵ open{' '}
-              {glyphs.bullet} c create {glyphs.bullet} e rename {glyphs.bullet} d delete {glyphs.bullet} r reload
+              {glyphs.bullet} m make current {glyphs.bullet} c create {glyphs.bullet} e rename {glyphs.bullet} d delete{' '}
+              {glyphs.bullet} r reload
             </Text>
           </Box>
           {(feedback ?? edit.feedback) !== undefined && (

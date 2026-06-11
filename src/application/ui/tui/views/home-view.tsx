@@ -15,7 +15,7 @@
  * orchestrates state + effects + key handling.
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { ActionMenu } from '@src/application/ui/tui/components/action-menu.tsx';
@@ -69,6 +69,15 @@ export const HomeView = (): React.JSX.Element => {
   const snapshot = state.kind === 'ok' ? state.value : undefined;
   const hasProject = snapshot?.project !== undefined;
   const currentSprint = snapshot?.sprint;
+
+  // Refresh the cached breadcrumb status chip from every fresh snapshot load — flows route
+  // back to Home after a run settles, so this is where a plan/implement/close transition
+  // first becomes visible. syncSprintStatus no-ops unless the loaded sprint is still the
+  // selected one, so firing on every load is safe.
+  const syncSprintStatus = selection.syncSprintStatus;
+  useEffect(() => {
+    if (currentSprint !== undefined) syncSprintStatus(currentSprint.id, currentSprint.status);
+  }, [currentSprint, syncSprintStatus]);
   // Stabilise the empty-array fallback so downstream `useMemo`s keyed on `recentSprints` don't
   // re-run whenever this render's `??` would allocate a fresh `[]`.
   const recentSprints = useMemo(() => snapshot?.recentSprints ?? [], [snapshot?.recentSprints]);
@@ -104,7 +113,10 @@ export const HomeView = (): React.JSX.Element => {
 
   // Re-render once when the switch window expires so the toast disappears without waiting for
   // an external trigger. `+ 50ms` slack avoids edge cases where the timer fires fractionally
-  // before the freshness check resolves to "stale".
+  // before the freshness check resolves to "stale". A real reducer bump is required: an
+  // identity updater like `setLocalError((curr) => curr)` bails out of the re-render under
+  // React's Object.is check, leaving the toast painted forever on an otherwise idle Home.
+  const [, forceRender] = useReducer((n: number) => n + 1, 0);
   const lastSwitch = selection.lastSwitch;
   useEffect(() => {
     if (lastSwitch === undefined) return undefined;
@@ -112,9 +124,9 @@ export const HomeView = (): React.JSX.Element => {
     const remaining = SWITCH_FEEDBACK_MS - elapsed;
     if (remaining <= 0) return undefined;
     const id = setTimeout(() => {
-      // Re-render via a no-op state churn. The render itself reads the freshness window —
-      // there's nothing to flip on this side beyond forcing a paint.
-      setLocalError((curr) => curr);
+      // The render itself reads the freshness window — there's nothing to flip on this side
+      // beyond forcing a paint.
+      forceRender();
     }, remaining + 50);
     return (): void => clearTimeout(id);
   }, [lastSwitch]);

@@ -7,7 +7,7 @@
  * the session manager, and pushes the execute view with the new session id.
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
@@ -29,6 +29,7 @@ import { createInkInteractivePrompt } from '@src/application/ui/tui/prompts/ink-
 import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx';
 import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { launchFlow, sessionHintsFromLaunchResult } from '@src/application/ui/shared/launcher.ts';
+import { launchSprintBoundFlow } from '@src/application/ui/shared/launch/sprint-bound.ts';
 import { runCustomizePicker } from '@src/application/ui/tui/views/flows-customize-picker.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { getRunInTerminal } from '@src/application/ui/tui/runtime/run-in-terminal.ts';
@@ -252,17 +253,51 @@ export const FlowsView = (): React.JSX.Element => {
                 ? getImplementRoleOverrides()
                 : undefined;
           const override = picker.kind === 'single' ? picker.override : undefined;
-          const result = await launchFlow(
-            { app: deps, interactive, storage, runInTerminal: getRunInTerminal() },
-            entry.manifest.id,
-            snapshot,
-            {
-              ...(ui.sessionRepositoryId !== undefined ? { repositoryId: ui.sessionRepositoryId } : {}),
-              ...(override !== undefined ? { override } : {}),
-              ...(implementRoleOverrides !== undefined ? { implementRoleOverrides } : {}),
-              settingsSnapshot: settings,
-            }
-          );
+          const launcherDeps = { app: deps, interactive, storage, runInTerminal: getRunInTerminal() };
+          const launchExtras = {
+            ...(ui.sessionRepositoryId !== undefined ? { repositoryId: ui.sessionRepositoryId } : {}),
+            ...(override !== undefined ? { override } : {}),
+            ...(implementRoleOverrides !== undefined ? { implementRoleOverrides } : {}),
+            settingsSnapshot: settings,
+          };
+          // create-sprint and close-sprint change which sprint (or status) the user is "on" —
+          // route them through the sprint-bound wrapper so the post-completion selection reseat
+          // happens in one place instead of leaving the global selection stale. create-sprint
+          // additionally strips the launch-time sprint from the snapshot: the new sprint doesn't
+          // exist yet, so pinning the PREVIOUS sprint onto the run's descriptor would mislabel
+          // every panel; onSprintResolved pins the real one once known.
+          const sprintBound = entry.manifest.id === 'create-sprint' || entry.manifest.id === 'close-sprint';
+          let result;
+          if (sprintBound) {
+            const { sprint: _staleSprint, ...snapshotWithoutSprint } = snapshot;
+            void _staleSprint;
+            result = await launchSprintBoundFlow(
+              launcherDeps,
+              entry.manifest.id,
+              entry.manifest.id === 'create-sprint' ? snapshotWithoutSprint : snapshot,
+              {
+                ...launchExtras,
+                onReseat: ({ id, name, status }) => {
+                  if (entry.manifest.id === 'create-sprint') {
+                    // A brand-new sprint can't collide with a mid-run switch — always reseat
+                    // (and let the "✓ now on …" toast fire via lastSwitch).
+                    selection.setSprint(id, name, status);
+                    return;
+                  }
+                  // close-sprint: the sprint stays selected but its status flipped to done on
+                  // disk — refresh the chip without replaying the switch toast. syncSprintStatus
+                  // no-ops when the user moved to a different sprint mid-run, so a late
+                  // completion never yanks them back.
+                  if (status !== undefined) selection.syncSprintStatus(id, status);
+                },
+                onSprintResolved: (runnerId, { id, name }) => {
+                  sessions.setPinnedSprint(runnerId, id, name);
+                },
+              }
+            );
+          } else {
+            result = await launchFlow(launcherDeps, entry.manifest.id, snapshot, launchExtras);
+          }
           if (!result.ok) {
             setLaunchError(`${entry.manifest.title}: ${result.reason}`);
             return;
@@ -301,7 +336,18 @@ export const FlowsView = (): React.JSX.Element => {
     // Sort by section so the action menu's section headers stay sticky (items in the same
     // category render consecutively even when registry order interleaves them).
     return [...built].sort((a, b) => sectionRank(a.section ?? 'other') - sectionRank(b.section ?? 'other'));
-  }, [state, deps, queue, storage, sessions, router, reload, showAll, ui]);
+  }, [state, deps, queue, storage, sessions, router, reload, showAll, ui, selection]);
+
+  // Refresh the cached breadcrumb status chip from every fresh snapshot load — flow chains
+  // transition the sprint's status on disk (plan → planned, implement → review, close-sprint →
+  // done) and the chip would otherwise wave the stale status until the next manual pick.
+  // syncSprintStatus no-ops unless the loaded sprint is still the selected one.
+  const syncSprintStatus = selection.syncSprintStatus;
+  useEffect(() => {
+    if (state.kind !== 'ok') return;
+    const s = state.value.sprint;
+    if (s !== undefined) syncSprintStatus(s.id, s.status);
+  }, [state, syncSprintStatus]);
 
   // `r` re-fetches the snapshot so the menu's enabled/disabled state reflects the latest
   // storage read — useful after mutating something in a detail view and coming back. `v`
