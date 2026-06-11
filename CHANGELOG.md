@@ -120,6 +120,10 @@ command, timeoutMs? }` — supplements the legacy `verifyScript` string and wins
   promised); the breadcrumb status chip refreshes from every fresh snapshot load and on boot, and a fresh
   pick can no longer be clobbered by the in-flight boot probe.
 
+- **Project detail's `r — sprints` key works now.** The hint (and header doc) advertised it since the
+  view shipped, but no handler existed — the key was a silent no-op. It opens the Sprints list scoped
+  to the current selection; `m` then `r` reaches the viewed project's sprints.
+
 - **Home's "✓ now on …" switch toast expires again.** The expiry timer forced a repaint through an
   identity state-updater, which React bails out of — on an idle Home the toast stayed painted forever.
 
