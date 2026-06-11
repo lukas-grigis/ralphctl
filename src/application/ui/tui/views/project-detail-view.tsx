@@ -13,8 +13,9 @@ import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { FieldList } from '@src/application/ui/tui/components/field-list.tsx';
-import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
-import { ConfirmPrompt } from '@src/application/ui/tui/prompts/confirm-prompt.tsx';
+import { LoadErrorRow, LoadingRow } from '@src/application/ui/tui/components/async-rows.tsx';
+import { FeedbackLine } from '@src/application/ui/tui/components/feedback-line.tsx';
+import { ConfirmCard } from '@src/application/ui/tui/components/confirm-card.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { type Project, removeRepository, setProjectDisplayName, updateRepository } from '@src/domain/entity/project.ts';
 import type { Repository } from '@src/domain/entity/repository.ts';
@@ -34,7 +35,8 @@ import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.t
 import { createInkInteractivePrompt } from '@src/application/ui/tui/prompts/ink-interactive-prompt.ts';
 import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx';
 import { getRunInTerminal } from '@src/application/ui/tui/runtime/run-in-terminal.ts';
-import { launchFlow, sessionHintsFromLaunchResult } from '@src/application/ui/shared/launcher.ts';
+import { openFlowSession } from '@src/application/ui/tui/runtime/open-flow-session.ts';
+import { launchFlow } from '@src/application/ui/shared/launcher.ts';
 import { loadAppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 
@@ -140,10 +142,7 @@ export const ProjectDetailView = (): React.JSX.Element => {
   const launchPerRepoFlow = async (flowId: 'detect-scripts' | 'detect-skills', target: Repository): Promise<void> => {
     if (project === undefined) return;
     setFeedback(undefined);
-    const snapshot = await loadAppStateSnapshot(
-      { projectRepo: deps.projectRepo, sprintRepo: deps.sprintRepo, taskRepo: deps.taskRepo },
-      { projectId: project.id }
-    );
+    const snapshot = await loadAppStateSnapshot(deps, { projectId: project.id });
     const interactive = createInkInteractivePrompt(queue);
     const result = await launchFlow(
       { app: deps, interactive, storage, runInTerminal: getRunInTerminal() },
@@ -155,14 +154,7 @@ export const ProjectDetailView = (): React.JSX.Element => {
       setFeedback(`✗ ${result.reason}`);
       return;
     }
-    sessions.register({
-      runner: result.runner,
-      flowId,
-      title: result.title,
-      ...sessionHintsFromLaunchResult(result),
-    });
-    void result.runner.start();
-    router.push({ id: 'execute', props: { sessionId: result.runner.id } });
+    openFlowSession({ sessions, router }, result, flowId);
   };
 
   const renderEditPrompt = (target: EditTarget): OpenEditPromptInput | undefined => {
@@ -275,10 +267,6 @@ export const ProjectDetailView = (): React.JSX.Element => {
     }
   });
 
-  // Claim the global-key mute while the confirm prompt is mounted.
-  const claimPrompt = ui.claimPrompt;
-  useEffect(() => (confirmRemove !== undefined ? claimPrompt() : undefined), [confirmRemove, claimPrompt]);
-
   const handleRemoveConfirmed = async (target: Repository, confirmed: boolean): Promise<void> => {
     setConfirmRemove(undefined);
     if (!confirmed || project === undefined) return;
@@ -296,28 +284,21 @@ export const ProjectDetailView = (): React.JSX.Element => {
       {ui.helpOpen ? (
         <HelpOverlay />
       ) : state.kind === 'loading' || state.kind === 'idle' ? (
-        <Box paddingX={spacing.indent}>
-          <Spinner label="Loading…" />
-        </Box>
+        <LoadingRow label="Loading…" />
       ) : state.kind === 'error' ? (
-        <Box paddingX={spacing.indent}>
-          <Text>Failed to load project.</Text>
-        </Box>
+        <LoadErrorRow message="Failed to load project." />
       ) : confirmRemove !== undefined ? (
-        <Box flexDirection="column" paddingX={spacing.indent}>
-          <Text>
-            Remove repository <Text bold>{confirmRemove.name}</Text> from this project?
-          </Text>
-          <Text dimColor>Files on disk are not touched.</Text>
-          <Box marginTop={1}>
-            <ConfirmPrompt
-              message="Remove?"
-              defaultYes={false}
-              onSubmit={(value) => void handleRemoveConfirmed(confirmRemove, value)}
-              onCancel={() => setConfirmRemove(undefined)}
-            />
-          </Box>
-        </Box>
+        <ConfirmCard
+          title={
+            <Text>
+              Remove repository <Text bold>{confirmRemove.name}</Text> from this project?
+            </Text>
+          }
+          body={<Text dimColor>Files on disk are not touched.</Text>}
+          message="Remove?"
+          onSubmit={(value) => void handleRemoveConfirmed(confirmRemove, value)}
+          onCancel={() => setConfirmRemove(undefined)}
+        />
       ) : (
         <Body project={state.value} focused={focused} feedback={feedback ?? edit.feedback} />
       )}
@@ -417,11 +398,7 @@ const Body = ({ project, focused, feedback }: BodyProps): React.JSX.Element => {
         {/* Key affordances are published through the router's hint strip (`useViewHints`), the
             single source of truth that gates the repo-only `d`/`c`/`S` chords on the focused row.
             An inline duplicate would re-advertise them ungated and contradict the gate. */}
-        {feedback !== undefined && (
-          <Box paddingX={spacing.indent} marginTop={1}>
-            <Text color={feedback.startsWith('✗') ? inkColors.error : inkColors.primary}>{feedback}</Text>
-          </Box>
-        )}
+        <FeedbackLine text={feedback} />
       </Box>
     </Box>
   );

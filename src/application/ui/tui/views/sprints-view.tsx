@@ -13,9 +13,10 @@ import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { OverflowRow, useListWindow } from '@src/application/ui/tui/components/windowed-list.tsx';
 import { EmptyState } from '@src/application/ui/tui/components/empty-state.tsx';
-import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
+import { LoadErrorRow, LoadingRow } from '@src/application/ui/tui/components/async-rows.tsx';
+import { FeedbackLine } from '@src/application/ui/tui/components/feedback-line.tsx';
 import { sprintStatusKind, StatusChip } from '@src/application/ui/tui/components/status-chip.tsx';
-import { ConfirmPrompt } from '@src/application/ui/tui/prompts/confirm-prompt.tsx';
+import { ConfirmCard } from '@src/application/ui/tui/components/confirm-card.tsx';
 import { renameSprint, type Sprint } from '@src/domain/entity/sprint.ts';
 import { useEditField } from '@src/application/ui/tui/runtime/use-edit-field.ts';
 import { Result } from '@src/domain/result.ts';
@@ -26,14 +27,7 @@ import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
-import { useSessionManager } from '@src/application/ui/tui/runtime/sessions-context.tsx';
-import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.tsx';
-import { createInkInteractivePrompt } from '@src/application/ui/tui/prompts/ink-interactive-prompt.ts';
-import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx';
-import { getRunInTerminal } from '@src/application/ui/tui/runtime/run-in-terminal.ts';
-import { sessionHintsFromLaunchResult } from '@src/application/ui/shared/launcher.ts';
-import { launchSprintBoundFlow } from '@src/application/ui/shared/launch/sprint-bound.ts';
-import { loadAppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
+import { useLaunchCreateSprint } from '@src/application/ui/tui/runtime/use-launch-create-sprint.ts';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
 import { unblockTaskUseCase } from '@src/business/task/unblock-task.ts';
@@ -45,9 +39,6 @@ export const SprintsView = (): React.JSX.Element => {
   const selection = useSelection();
   const ui = useUiState();
   const { rows } = useBreakpoint();
-  const sessions = useSessionManager();
-  const queue = usePromptQueue();
-  const storage = useStorage();
   const edit = useEditField();
 
   const { state, reload } = useAsyncLoad<readonly Sprint[]>(async () => {
@@ -122,48 +113,12 @@ export const SprintsView = (): React.JSX.Element => {
     { keys: 'u', label: `unblock (${String(stuckCount)})`, enabledWhen: stuckCount > 0 },
   ]);
 
-  // Claim the global-key mute while the confirm prompt is mounted.
-  const claimPrompt = ui.claimPrompt;
-  useEffect(() => (confirmDelete !== undefined ? claimPrompt() : undefined), [confirmDelete, claimPrompt]);
-
-  const launchCreateSprint = async (): Promise<void> => {
-    if (selection.projectId === undefined) {
-      setFeedback('✗ pick a project first (Projects → open one)');
-      return;
-    }
-    const snapshot = await loadAppStateSnapshot(
-      { projectRepo: deps.projectRepo, sprintRepo: deps.sprintRepo, taskRepo: deps.taskRepo },
-      { projectId: selection.projectId }
-    );
-    const interactive = createInkInteractivePrompt(queue);
-    // The shared sprint-bound launcher owns the post-completion `selection.setSprint` reseat
-    // — wiring it inline here would duplicate the subscriber across every sprint-bound view.
-    const result = await launchSprintBoundFlow(
-      { app: deps, interactive, storage, runInTerminal: getRunInTerminal() },
-      'create-sprint',
-      snapshot,
-      {
-        onReseat: ({ id, name, status }) => {
-          selection.setSprint(id, name, status);
-        },
-        onSprintResolved: (runnerId, { id, name }) => {
-          sessions.setPinnedSprint(runnerId, id, name);
-        },
-      }
-    );
-    if (!result.ok) {
-      setFeedback(`✗ ${result.reason}`);
-      return;
-    }
-    sessions.register({
-      runner: result.runner,
-      flowId: 'create-sprint',
-      title: result.title,
-      ...sessionHintsFromLaunchResult(result),
-    });
-    void result.runner.start();
-    router.push({ id: 'execute', props: { sessionId: result.runner.id } });
-  };
+  // The shared sprint-bound launcher owns the post-completion `selection.setSprint` reseat —
+  // wiring it inline here would duplicate the subscriber across every sprint-bound view.
+  const launchCreateSprint = useLaunchCreateSprint({
+    onError: setFeedback,
+    noProjectMessage: '✗ pick a project first (Projects → open one)',
+  });
 
   const handleRename = (target: Sprint): void => {
     setFeedback(undefined);
@@ -274,30 +229,25 @@ export const SprintsView = (): React.JSX.Element => {
       {ui.helpOpen ? (
         <HelpOverlay />
       ) : state.kind === 'loading' || state.kind === 'idle' ? (
-        <Box paddingX={spacing.indent}>
-          <Spinner label="Loading sprints…" />
-        </Box>
+        <LoadingRow label="Loading sprints…" />
       ) : state.kind === 'error' ? (
-        <Box paddingX={spacing.indent}>
-          <Text>Failed to load sprints.</Text>
-        </Box>
+        <LoadErrorRow message="Failed to load sprints." />
       ) : confirmDelete !== undefined ? (
-        <Box flexDirection="column" paddingX={spacing.indent}>
-          <Text>
-            Remove sprint <Text bold>{confirmDelete.name}</Text>?
-          </Text>
-          <Text dimColor>
-            Cascades to its execution record + tasks. Tickets stay in the sprint history if you re-create.
-          </Text>
-          <Box marginTop={1}>
-            <ConfirmPrompt
-              message="Delete?"
-              defaultYes={false}
-              onSubmit={(value) => void handleDeleteConfirmed(confirmDelete, value)}
-              onCancel={() => setConfirmDelete(undefined)}
-            />
-          </Box>
-        </Box>
+        <ConfirmCard
+          title={
+            <Text>
+              Remove sprint <Text bold>{confirmDelete.name}</Text>?
+            </Text>
+          }
+          body={
+            <Text dimColor>
+              Cascades to its execution record + tasks. Tickets stay in the sprint history if you re-create.
+            </Text>
+          }
+          message="Delete?"
+          onSubmit={(value) => void handleDeleteConfirmed(confirmDelete, value)}
+          onCancel={() => setConfirmDelete(undefined)}
+        />
       ) : state.value.length === 0 ? (
         <EmptyState
           title="No sprints yet"
@@ -368,13 +318,7 @@ export const SprintsView = (): React.JSX.Element => {
               {glyphs.bullet} {state.value.length} sprint(s)
             </Text>
           </Box>
-          {(feedback ?? edit.feedback) !== undefined && (
-            <Box paddingX={spacing.indent} marginTop={1}>
-              <Text color={(feedback ?? edit.feedback)?.startsWith('✗') ? inkColors.error : inkColors.primary}>
-                {feedback ?? edit.feedback}
-              </Text>
-            </Box>
-          )}
+          <FeedbackLine text={feedback ?? edit.feedback} />
         </Box>
       )}
     </ViewShell>

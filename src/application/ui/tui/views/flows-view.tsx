@@ -12,7 +12,7 @@ import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { ActionMenu, type MenuItem } from '@src/application/ui/tui/components/action-menu.tsx';
-import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
+import { LoadingRow } from '@src/application/ui/tui/components/async-rows.tsx';
 import { StatusChip, sprintStatusKind } from '@src/application/ui/tui/components/status-chip.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { flowRegistry } from '@src/application/registry.ts';
@@ -20,15 +20,16 @@ import { evaluateTriggers } from '@src/application/registry-triggers.ts';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
-import { useAsyncLoad } from '@src/application/ui/tui/runtime/use-async-load.ts';
-import { type AppStateSnapshot, loadAppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
+import { useAppStateSnapshot } from '@src/application/ui/tui/runtime/use-app-state-snapshot.ts';
+import type { AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
 import { useRouter, type ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSessionManager } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.tsx';
 import { createInkInteractivePrompt } from '@src/application/ui/tui/prompts/ink-interactive-prompt.ts';
 import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx';
 import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
-import { launchFlow, sessionHintsFromLaunchResult } from '@src/application/ui/shared/launcher.ts';
+import { openFlowSession } from '@src/application/ui/tui/runtime/open-flow-session.ts';
+import { launchFlow } from '@src/application/ui/shared/launcher.ts';
 import { launchSprintBoundFlow } from '@src/application/ui/shared/launch/sprint-bound.ts';
 import { runCustomizePicker } from '@src/application/ui/tui/views/flows-customize-picker.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
@@ -171,17 +172,7 @@ export const FlowsView = (): React.JSX.Element => {
     { keys: 'v', label: showAll ? 'hide inapplicable' : 'show all' },
   ]);
 
-  const { state, reload } = useAsyncLoad<AppStateSnapshot>(
-    () =>
-      loadAppStateSnapshot(
-        { projectRepo: deps.projectRepo, sprintRepo: deps.sprintRepo, taskRepo: deps.taskRepo },
-        {
-          ...(selection.projectId !== undefined ? { projectId: selection.projectId } : {}),
-          ...(selection.sprintId !== undefined ? { sprintId: selection.sprintId } : {}),
-        }
-      ),
-    [selection.projectId, selection.sprintId]
-  );
+  const { state, reload } = useAppStateSnapshot();
 
   const items = useMemo<readonly MenuItem[]>(() => {
     if (state.kind !== 'ok') return [];
@@ -318,15 +309,10 @@ export const FlowsView = (): React.JSX.Element => {
             if (ctx.repository !== undefined) ui.setSessionRepositoryId(ctx.repository.id);
             unsubRepoCapture();
           });
-          sessions.register({
-            runner: result.runner,
-            flowId: entry.manifest.id,
-            title: result.title,
-            ...sessionHintsFromLaunchResult(result),
-          });
-          // Fire-and-forget — events flow into the session manager via subscribe.
-          void result.runner.start();
-          router.replace({ id: 'execute', props: { sessionId: result.runner.id } });
+          // Register + start + route via the shared tail. `replace` (not push) so the flow menu
+          // isn't left on the stack behind the run; the trailing reload refreshes this menu's
+          // enabled/disabled state for when the user pops back.
+          openFlowSession({ sessions, router }, result, entry.manifest.id, { mode: 'replace' });
           reload();
         },
       };
@@ -364,9 +350,7 @@ export const FlowsView = (): React.JSX.Element => {
       {ui.helpOpen ? (
         <HelpOverlay />
       ) : state.kind !== 'ok' ? (
-        <Box paddingX={spacing.indent}>
-          <Spinner label="Loading state…" />
-        </Box>
+        <LoadingRow label="Loading state…" />
       ) : (
         <Box flexDirection="column">
           <SprintPipeline snapshot={state.value} />

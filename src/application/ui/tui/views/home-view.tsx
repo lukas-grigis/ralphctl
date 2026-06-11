@@ -22,18 +22,10 @@ import { ActionMenu } from '@src/application/ui/tui/components/action-menu.tsx';
 import { inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
-import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
-import { useAsyncLoad } from '@src/application/ui/tui/runtime/use-async-load.ts';
-import { type AppStateSnapshot, loadAppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
+import { useAppStateSnapshot } from '@src/application/ui/tui/runtime/use-app-state-snapshot.ts';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
-import { useSessionManager } from '@src/application/ui/tui/runtime/sessions-context.tsx';
-import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.tsx';
-import { createInkInteractivePrompt } from '@src/application/ui/tui/prompts/ink-interactive-prompt.ts';
-import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx';
-import { getRunInTerminal } from '@src/application/ui/tui/runtime/run-in-terminal.ts';
-import { sessionHintsFromLaunchResult } from '@src/application/ui/shared/launcher.ts';
-import { launchSprintBoundFlow } from '@src/application/ui/shared/launch/sprint-bound.ts';
+import { useLaunchCreateSprint } from '@src/application/ui/tui/runtime/use-launch-create-sprint.ts';
 import { StateCard } from '@src/application/ui/tui/views/home-internals/state-card.tsx';
 import { buildMenuItems } from '@src/application/ui/tui/views/home-internals/menu-items.ts';
 
@@ -47,24 +39,10 @@ const SWITCH_FEEDBACK_MS = 3000;
 
 export const HomeView = (): React.JSX.Element => {
   const router = useRouter();
-  const deps = useDeps();
   const ui = useUiState();
   const selection = useSelection();
-  const sessions = useSessionManager();
-  const queue = usePromptQueue();
-  const storage = useStorage();
 
-  const { state } = useAsyncLoad<AppStateSnapshot>(
-    () =>
-      loadAppStateSnapshot(
-        { projectRepo: deps.projectRepo, sprintRepo: deps.sprintRepo, taskRepo: deps.taskRepo },
-        {
-          ...(selection.projectId !== undefined ? { projectId: selection.projectId } : {}),
-          ...(selection.sprintId !== undefined ? { sprintId: selection.sprintId } : {}),
-        }
-      ),
-    [selection.projectId, selection.sprintId]
-  );
+  const { state } = useAppStateSnapshot();
 
   const snapshot = state.kind === 'ok' ? state.value : undefined;
   const hasProject = snapshot?.project !== undefined;
@@ -139,42 +117,10 @@ export const HomeView = (): React.JSX.Element => {
   // Launch create-sprint via the shared sprint-bound launcher. Reseat-on-completion fires
   // `selection.setSprint` — which writes to `lastSwitch` and feeds the toast line. Failures
   // (no project) flash a local error instead.
-  const launchCreateSprint = useCallback(async (): Promise<void> => {
-    if (selection.projectId === undefined) {
-      flashErr('✗ pick a project first (Projects → open one)');
-      return;
-    }
-    const snap = await loadAppStateSnapshot(
-      { projectRepo: deps.projectRepo, sprintRepo: deps.sprintRepo, taskRepo: deps.taskRepo },
-      { projectId: selection.projectId }
-    );
-    const interactive = createInkInteractivePrompt(queue);
-    const result = await launchSprintBoundFlow(
-      { app: deps, interactive, storage, runInTerminal: getRunInTerminal() },
-      'create-sprint',
-      snap,
-      {
-        onReseat: ({ id, name, status }) => {
-          selection.setSprint(id, name, status);
-        },
-        onSprintResolved: (runnerId, { id, name }) => {
-          sessions.setPinnedSprint(runnerId, id, name);
-        },
-      }
-    );
-    if (!result.ok) {
-      flashErr(`✗ ${result.reason}`);
-      return;
-    }
-    sessions.register({
-      runner: result.runner,
-      flowId: 'create-sprint',
-      title: result.title,
-      ...sessionHintsFromLaunchResult(result),
-    });
-    void result.runner.start();
-    router.push({ id: 'execute', props: { sessionId: result.runner.id } });
-  }, [deps, queue, storage, sessions, router, selection, flashErr]);
+  const launchCreateSprint = useLaunchCreateSprint({
+    onError: flashErr,
+    noProjectMessage: '✗ pick a project first (Projects → open one)',
+  });
 
   // Inline-shortcut + `+` hotkey. We watch for `+` outside the ActionMenu's hotkey machinery
   // because `+` is shift-bound on many keyboards (not portable as a registered MenuItem hotkey

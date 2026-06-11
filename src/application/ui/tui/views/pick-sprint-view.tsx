@@ -18,7 +18,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
-import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
+import { LoadErrorRow, LoadingRow } from '@src/application/ui/tui/components/async-rows.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
@@ -26,15 +26,8 @@ import { useSelection } from '@src/application/ui/tui/runtime/selection-context.
 import { useAsyncLoad } from '@src/application/ui/tui/runtime/use-async-load.ts';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
-import { useSessionManager } from '@src/application/ui/tui/runtime/sessions-context.tsx';
-import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.tsx';
-import { createInkInteractivePrompt } from '@src/application/ui/tui/prompts/ink-interactive-prompt.ts';
-import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx';
-import { getRunInTerminal } from '@src/application/ui/tui/runtime/run-in-terminal.ts';
 import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
-import { sessionHintsFromLaunchResult } from '@src/application/ui/shared/launcher.ts';
-import { launchSprintBoundFlow } from '@src/application/ui/shared/launch/sprint-bound.ts';
-import { loadAppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
+import { useLaunchCreateSprint } from '@src/application/ui/tui/runtime/use-launch-create-sprint.ts';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
@@ -68,9 +61,6 @@ export const PickSprintView = (): React.JSX.Element => {
   const router = useRouter();
   const selection = useSelection();
   const ui = useUiState();
-  const sessions = useSessionManager();
-  const queue = usePromptQueue();
-  const storage = useStorage();
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
   const [scopeAll, setScopeAll] = useState<boolean>(true);
   // Default OFF — closed sprints stay reachable here by contract (the Home shortcut list
@@ -192,42 +182,10 @@ export const PickSprintView = (): React.JSX.Element => {
   // Route create-sprint through the shared sprint-bound launcher so the post-completion
   // selection reseat lives in one place (see launch/sprint-bound.ts). Failures surface inline;
   // success pushes the execute view.
-  const launchCreateSprint = async (): Promise<void> => {
-    if (selection.projectId === undefined) {
-      setFeedback('✗ select a project first');
-      return;
-    }
-    const snapshot = await loadAppStateSnapshot(
-      { projectRepo: deps.projectRepo, sprintRepo: deps.sprintRepo, taskRepo: deps.taskRepo },
-      { projectId: selection.projectId }
-    );
-    const interactive = createInkInteractivePrompt(queue);
-    const result = await launchSprintBoundFlow(
-      { app: deps, interactive, storage, runInTerminal: getRunInTerminal() },
-      'create-sprint',
-      snapshot,
-      {
-        onReseat: ({ id, name, status }) => {
-          selection.setSprint(id, name, status);
-        },
-        onSprintResolved: (runnerId, { id, name }) => {
-          sessions.setPinnedSprint(runnerId, id, name);
-        },
-      }
-    );
-    if (!result.ok) {
-      setFeedback(`✗ ${result.reason}`);
-      return;
-    }
-    sessions.register({
-      runner: result.runner,
-      flowId: 'create-sprint',
-      title: result.title,
-      ...sessionHintsFromLaunchResult(result),
-    });
-    void result.runner.start();
-    router.push({ id: 'execute', props: { sessionId: result.runner.id } });
-  };
+  const launchCreateSprint = useLaunchCreateSprint({
+    onError: setFeedback,
+    noProjectMessage: '✗ select a project first',
+  });
 
   const toggleScope = (): void => {
     const next = !scopeAll;
@@ -299,13 +257,9 @@ export const PickSprintView = (): React.JSX.Element => {
       {ui.helpOpen ? (
         <HelpOverlay />
       ) : state.kind === 'loading' || state.kind === 'idle' ? (
-        <Box paddingX={spacing.indent}>
-          <Spinner label="Loading sprints…" />
-        </Box>
+        <LoadingRow label="Loading sprints…" />
       ) : state.kind === 'error' ? (
-        <Box paddingX={spacing.indent}>
-          <Text color={inkColors.error}>Failed to load sprints.</Text>
-        </Box>
+        <LoadErrorRow message="Failed to load sprints." color={inkColors.error} />
       ) : sprintCount === 0 ? (
         <Box flexDirection="column" paddingX={spacing.indent}>
           {hiddenByDoneFilter ? (
