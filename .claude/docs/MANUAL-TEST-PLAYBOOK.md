@@ -249,11 +249,16 @@ leaves whose `name` contains an absolute repo path).
 3. Press `t` inside the picker
 4. **Expected:** scope toggles — if the picker was showing current-project sprints, it now shows all
    sprints across every project; pressing `t` again returns to project scope.
-5. Navigate the list with `↑`/`↓`, select a sprint from a different project with `Enter`
-6. **Expected:** both the active project and active sprint update atomically — the breadcrumb reflects the
-   new project/sprint combination, and no partial state is visible mid-transition.
-7. Press `S` again from Home with NO project loaded
-8. **Expected:** picker opens in all-projects scope; `t` still toggles without crashing.
+5. Press `f` inside the picker
+6. **Expected:** done sprints are hidden (the counter and visible rows reflect only non-done sprints);
+   pressing `f` again restores them. When `f` hides everything, a "All sprints here are done (hidden)"
+   message with a "Press f to show them" hint renders in place of the list.
+7. Navigate the list with `↑`/`↓`, select a sprint from a different project with `Enter`
+8. **Expected:** both the active project and active sprint update atomically — the breadcrumb reflects the
+   new project/sprint combination (including a `[S]` affordance next to the sprint name), and no partial
+   state is visible mid-transition.
+9. Press `S` again from Home with NO project loaded
+10. **Expected:** picker opens in all-projects scope; `t` and `f` still toggle without crashing.
 
 **Negative tests:**
 
@@ -263,7 +268,32 @@ leaves whose `name` contains an absolute repo path).
 
 ---
 
-## Scenario 13 — cross-process advisory lock
+## Scenario 13 — Home digit shortcuts and Projects browse-only behaviour
+
+**Setup:** at least two sprints exist under the current project (so the "switch sprint" section of the
+Home action menu shows multiple recent-sprint rows).
+
+1. From Home, note the recent-sprint rows in the "switch sprint" section — up to five are listed
+2. Press `1`, then `2` (digit keys)
+3. **Expected:** pressing `1` selects the first recent sprint; a `✓ now on <name>` toast flashes above
+   the menu. Pressing `2` switches to the second. The breadcrumb `[S]` label updates to reflect each switch.
+4. Navigate to Projects (`p` from Home)
+5. Move the cursor over a project that is NOT the current one
+6. Press `Enter` to open its detail view
+7. **Expected:** the breadcrumb right-side still shows the original project and sprint — opening a
+   project detail is a browse and must NOT switch the current project or clear the sprint cursor.
+8. Press `m` while in the project detail view
+9. **Expected:** the project switches to the viewed one; feedback line `✓ now on <project-name>` appears;
+   the breadcrumb right-side updates.
+10. Press `Esc` back to the Projects list; press `m` on a different focused row without drilling in
+11. **Expected:** the project switches directly from the list view; same feedback and breadcrumb update.
+
+**Negative test:** press `Enter` on any project in the list (without `m`) and navigate away — the
+original project selection must be unchanged on the breadcrumb.
+
+---
+
+## Scenario 14 — cross-process advisory lock
 
 **Setup:** a sprint with at least one task remaining (`todo`). Two separate terminal tabs.
 
@@ -306,7 +336,7 @@ can't reach. Things still NOT covered:
 - Concurrency under load — the implement flow runs strictly sequential (or parallel when
   `maxParallelTasks > 1`), but cross-process lock contention (the `<stateRoot>/locks/repo-<hash>.lock/`
   directory) and the heartbeat crash-reclaim path are best tested with two real ralphctl processes
-  (see Scenario 13).
+  (see Scenario 14).
 
 If you find a class of bug that recurs, add a scenario for it here rather than fixing it once and waiting
 for the next regression.

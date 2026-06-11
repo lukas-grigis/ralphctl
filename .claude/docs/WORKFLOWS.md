@@ -122,5 +122,5 @@ Budget exhaustion still transitions to `blocked` and the commit guard independen
 reason, so red work never lands regardless of budget.
 
 **Branch management.** `resolveBranchLeaf` prompts on first run; persists on `SprintExecution.branch`;
-per-task preflight verifies the right branch. `ralphctl create-pr --sprint <id>` opens PR / MR via `gh` /
-`glab` and persists `SprintExecution.pullRequestUrl`.
+per-task preflight verifies the right branch. `ralphctl create-pr [--sprint <id>]` opens PR / MR via `gh` /
+`glab` and persists `SprintExecution.pullRequestUrl`. `--sprint` defaults to the pinned current sprint (same as `sprint show` / `sprint progress`).

@@ -46,10 +46,28 @@ command, timeoutMs? }` — supplements the legacy `verifyScript` string and wins
   "Keep default (xhigh — saved row)" / "(high — global)"), so keeping a setting is an informed choice
   rather than an invisible carryover.
 
-- **TUI settings harness section gains two new toggles and a read-only `escalationMap` display.**
+- **TUI settings harness section gains two new toggles and a fully editable `escalationMap`.**
   `escalateOnPlateau` and `skipPreVerifyOnFreshSetup` are now editable from the settings view (with
-  one-line caveats in the hints); `escalationMap` renders read-only with the CLI edit hint — every harness
-  key the CLI supports is now visible in the TUI.
+  one-line caveats in the hints). The escalation map is a first-class editable group: an add-rung row
+  walks a two-step picker (FROM model, then TO model — targets scoped to the catalogs that know the
+  from-model, self-loops excluded), each user override is a row of its own with in-place retarget or
+  `(remove this override)`, and the card renders the EFFECTIVE ladder (overrides merged over the
+  built-in map) as dim chains with customised ones marked. Every route persists through the same
+  `harness.escalationMap.<fromModel>` grammar the CLI's `settings set` speaks.
+
+- **CLI commands default to the pinned current sprint.** `ralphctl sprint set-current` (and every TUI
+  sprint pick) already persisted the selection; now the CLI reads it back: `sprint show`/`sprint progress`
+  and `project show` take an optional `[id]`, and `task list/show/unblock`, `ticket list/show/add/remove`,
+  `create-pr`, `export-context`, and `export-requirements` make `--sprint` optional — all falling back to
+  the pin with a one-line stderr notice naming the substituted sprint. Missing both exits 1 with
+  `set-current` guidance; `sprint remove` / `project remove` clear a matching dangling pin; ticket
+  add/remove success lines name the resolved sprint.
+
+- **TUI affordances: breadcrumb `[S]`, Home digit quick-switch, picker hide-done, create-PR retry.**
+  The breadcrumb sprint label now carries the `[S]` picker affordance (mirroring `[P]`); Home's
+  recent-sprint rows take digit hotkeys 1–5; the sprint picker's `f` hides done sprints (default off —
+  closed sprints stay reachable); the create-PR view's error card offers `r` to retry via the confirm
+  card instead of dead-ending.
 
 - **Model picker filtered to account-available models.** A per-provider `ModelAvailabilityProbe` (new port
   in `providers/_engine`) narrows the picker and settings-view catalogs to the models the operator's
@@ -84,6 +102,26 @@ command, timeoutMs? }` — supplements the legacy `verifyScript` string and wins
   `gpt-5.2-codex`, `gpt-4.1`, `claude-sonnet-4`, and `gemini-3-pro-preview`. The static catalog is now the
   official set rather than retaining superseded entries; the per-session availability probe is the mechanism
   for hiding models a given account can't use.
+
+- **Opening a project to browse no longer switches the selection.** The Projects list and project detail
+  are browse-only: opening a different project's detail no longer silently switches the current project
+  (which cleared the sprint cursor as a side effect). A new `m — make current` chord on both views is the
+  explicit switch, mirroring the sprint-detail opt-in.
+
+### Fixed
+
+- **The project/sprint combo now stays coherent as you move between flows.** The mutable global selection
+  (what launches use) and the per-run pinned context (what the execute view shows) had no path back to
+  convergence once they diverged — you could watch sprint B while `n → Flows` silently launched against
+  sprint A. Now: focusing an execute view converges the selection onto the run's pinned project/sprint;
+  `create-sprint` launched from Flows reseats onto the new sprint and never pins the previous sprint onto
+  its run; `close-sprint` refreshes the status chip to `done` without yanking a user who switched away
+  mid-run; sprint-detail's `n` makes the viewed sprint current before opening Flows (as its hint always
+  promised); the breadcrumb status chip refreshes from every fresh snapshot load and on boot, and a fresh
+  pick can no longer be clobbered by the in-flight boot probe.
+
+- **Home's "✓ now on …" switch toast expires again.** The expiry timer forced a repaint through an
+  identity state-updater, which React bails out of — on an idle Home the toast stayed painted forever.
 
 ## [0.11.0] - 2026-06-10
 
