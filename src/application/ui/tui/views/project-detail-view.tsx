@@ -1,10 +1,11 @@
 /**
  * Project detail — info card + repository roster + per-repo health (paths + scripts). Pressing
- * `r` jumps to this project's sprints; `n` opens the flow launcher with this project current.
+ * `r` opens the Sprints list (scoped to the current selection); `n` opens the flow launcher.
  *
  * Opening the detail is a BROWSE — it never switches the current selection (a project switch
  * clears the sprint cursor as a side effect). Press `m` to make the viewed project current,
- * mirroring the sprint-detail view's explicit opt-in.
+ * mirroring the sprint-detail view's explicit opt-in — `m` then `r` reaches the viewed
+ * project's sprints.
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -264,6 +265,13 @@ export const ProjectDetailView = (): React.JSX.Element => {
     }
     if (input === 'S' && focused?.kind === 'repo') {
       void launchPerRepoFlow('detect-skills', focused.repo);
+      return;
+    }
+    if (input === 'r') {
+      // The hint has advertised `r — sprints` since this view shipped, but no handler ever
+      // existed. Plain navigation: the Sprints list scopes to the current selection (press
+      // `m` first to scope it to the viewed project).
+      router.push({ id: 'sprints' });
     }
   });
 
