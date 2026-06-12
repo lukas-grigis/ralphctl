@@ -1,5 +1,12 @@
 # Implementer Memory
 
+- [project_chain_runner_containment_boundary.md](project_chain_runner_containment_boundary.md) — createRunner.run()
+  try/catch is the ONLY containment for non-DomainError throws from element.execute; raw AbortError must keep abort path
+- [project_ledger_unknown_field_preservation.md](project_ledger_unknown_field_preservation.md) — stamp-promoted must keep
+  non-stamped learnings.ndjson rows byte-for-byte (raw line); z.object strips future fields; don't switch to looseObject
+- [project_shared_rate_limit_retry_seam.md](project_shared_rate_limit_retry_seam.md) — one shared retry loop
+  (run-with-rate-limit-retry.ts) for all 3 headless adapters: owns backoff/banners/abort/session-resume/cold-fallback;
+  stdoutTail rate-limit detection; idleWatchdogMs harness knob wiring checklist
 - [feedback_concurrent_agent_writes.md](feedback_concurrent_agent_writes.md) — parallel agents stomp shared files;
   re-git-status before staging; recovery via git fsck unreachable blobs
 - [project_nested_runner_subchain_adapter.md](project_nested_runner_subchain_adapter.md) — compose a self-contained
@@ -38,3 +45,6 @@
   ONE signal carrying gates[] (not per-gate), .nonempty() schema, additive to verify-script, needed RepositoryUpdate wiring
 - [project_run_scoped_ctx_marker_fences.md](project_run_scoped_ctx_marker_fences.md) — a run-scoped ImplementCtx field
   needs 3 merge-wave fence updates (\_exhaustive map + mergeImplementWave + forkCtx); T13 fresh-setup-skip marker
+- [project_generator_feedforward_seams.md](project_generator_feedforward_seams.md) — two generator-prompt feed-forward
+  injections: cross-sprint prior-learnings ({{PRIOR_LEARNINGS}}, run-scoped ctx) + per-attempt dimension-trajectory
+  (rides PRIOR_CRITIQUE_SECTION, no new placeholder); both pure ctx reads in the input projection

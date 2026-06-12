@@ -159,3 +159,37 @@ line-by-line search filtering lines containing `'project:'` to find the actual g
 **`ActionMenu` cursor + UUIDv7 ordering**: `makeDraftSprint` generates time-ordered UUIDs; created later = larger UUID =
 appears first in `recentSprints` (DESC sort). `initialMenuIndex` seeds to the current sprint's row. Pressing `k` (up)
 from the current sprint's row reaches the newer sprint at index 0.
+
+### Gen-eval turn step-order fence + crash-attribution (Batch F, 2026-06-12)
+
+`tests/integration/application/flows/implement/leaves/gen-eval-loop.test.ts` — 4 tests:
+
+- Loop-entry guard: refuses to enter when ctx.lastExit already set (original test)
+- Shape fence: asserts gen-eval-turn children order = [resolve-round-num, stamp-meta-generator, stamp-role-meta-generator, generator-leaf, evaluator-guard] by name
+- Evaluator-guard body order: [stamp-meta-evaluator, stamp-role-meta-evaluator, evaluator-leaf]
+- Crash-attribution: generator spawn fails (recoverable `InvalidStateError`) → loop returns ok with `lastExit.kind==='self-blocked'` AND `rounds/1/generator/meta.json` + `role-meta.json` exist on disk
+
+**Key gotcha**: `InvalidStateError` (code='invalid-state') is treated as RECOVERABLE by `turn-error-policy.ts` — the generator error becomes `self-blocked` exit, NOT a loop `Result.error`. Use `createAtomicWriteFile()` for real file writes in behavioral tests.
+
+**Sequential composites do NOT emit their own trace entry** — only leaves emit trace entries. Assert leaf names in runner.trace, not composite names like 'implement' or 'review'.
+
+### Meta-run flow failure arcs (Batch F, 2026-06-12)
+
+`tests/e2e/meta-flows/run.test.ts` — added 2 arcs:
+
+- Implement-failure: use `makeDoneSprint()` → `loadAndAssertSprintSubChain` fails → review never starts → `feedback.md` never created, runner `status==='failed'`, trace ends with `{ elementName: 'run', status: 'failed' }`
+- Review-failure: use `passingProvider` for implement + `failingReviewProvider` (RateLimitError) + `reviewFailingInteractive` (`askTextArea` returns non-empty body) → implement succeeds, sprint reaches 'review', review-round fails → runner `status==='failed'`, `feedback.md` exists (ensureFeedbackFile ran), trace contains 'load-sprint' (implement) + 'review-round' (review failure)
+
+**`RateLimitError` is NOT Aborted** — runner.status becomes 'failed', not 'aborted'. AbortError → 'aborted'.
+
+**Review termination**: `terminatingInteractive.askTextArea` returning `''` leads to `isTerminationRound=true` → review SUCCEEDS (exit='terminated'). For review to fail, provide non-empty body AND use a provider that returns RateLimitError.
+
+### Progress-overlay flake elimination (Batch F, 2026-06-12)
+
+Pattern: add a SEEDED sentinel text to `SeedSelection` that renders only when `seeded=true` (sprint or focusedRun effect has committed). Replace `await tick(50)` with `await waitFor(() => lastFrame().includes('SEEDED'))`.
+
+The sentinel stays visible even after the overlay opens (SeedSelection is rendered outside GlobalHarness's conditional), so asserting overlay content and `not.toContain('UNDERLYING_VIEW')` still works.
+
+For scroll clamp assertions: replace final fixed tick after PgDn/PgUp loops with `waitFor(() => lastFrame().includes('TAIL-LINE'))` or `waitFor(() => lastFrame().includes('HEAD-LINE'))`.
+
+Proved: 10/10 isolated runs pass, 689/689 tui suite passes.
