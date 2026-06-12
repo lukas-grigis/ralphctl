@@ -55,8 +55,7 @@ ESLint `no-restricted-imports` (in `eslint.config.ts`) enforces every direction.
   universal cross-cutting exception is `business/observability/` — Logger and EventBus are infra-shaped ports
   every sibling consumes.
 - **Sibling-isolation in `application/flows/<flow>/`** — flows compose port-level vocabulary only; bootstrap
-  selects the concrete provider / probe / skill adapter. Meta-flows under `application/flows/_meta/` may import
-  any sibling flow.
+  selects the concrete provider / probe / skill adapter.
 - **`*Output` types are the success-side data shape**, not the `Result` envelope. Use
   `Result<FooOutput, ErrorUnion>` in the function signature.
 

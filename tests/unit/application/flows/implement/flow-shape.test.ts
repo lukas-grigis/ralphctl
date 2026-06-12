@@ -294,12 +294,11 @@ describe('createImplementFlow — serial chain shape (serial-shape byte-for-byte
     expect(allNames).toContain('implement-tasks');
   });
 
-  it('is the serial element (never the parallel orchestrator) — the meta-run caller stays serial', () => {
-    // `createImplementFlow` is what BOTH the `maxParallelTasks === 1` launcher path AND the meta-run
-    // composer (`createRunFlow`) build. The parallel orchestrator is a DIFFERENT element named
-    // `implement-parallel`, reached only via the `> 1` launcher dispatch — never here. This fence
-    // proves the meta-run caller (and the serial path) can never accidentally pick up the parallel
-    // worktree-fan-out element.
+  it('is the serial element (never the parallel orchestrator)', () => {
+    // `createImplementFlow` is what the `maxParallelTasks === 1` launcher path builds. The parallel
+    // orchestrator is a DIFFERENT element named `implement-parallel`, reached only via the `> 1`
+    // launcher dispatch — never here. This fence proves the serial path can never accidentally pick
+    // up the parallel worktree-fan-out element.
     const opts = makeOpts([makeTodoTask({ name: 'do-work' })]);
     const shape = snapshot(createImplementFlow(stubDeps(), opts));
 

@@ -12,6 +12,7 @@ import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repo
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
+import { RateLimitError } from '@src/domain/value/error/rate-limit-error.ts';
 import {
   absolutePath,
   FIXED_LATER,
@@ -504,5 +505,83 @@ describe('createReviewFlow', () => {
       'review-settle',
     ]);
     expect(runner.trace.at(-1)?.status).toBe('skipped');
+  });
+
+  it('fails cleanly when the apply-feedback provider hits a rate limit (fatal, not a per-task block)', async () => {
+    const dir = await realpath(await fs.mkdtemp(join(tmpdir(), 'ralphctl-review-')));
+    cleanupFns.push(async () => {
+      await fs.rm(dir, { recursive: true, force: true });
+    });
+    const feedbackFile = absolutePath(join(dir, 'feedback.md'));
+    const sprint = buildSprint();
+    const repo = inMemorySprintRepo(sprint);
+
+    // The apply-feedback provider returns a rate-limit error on every spawn. RateLimit is fatal
+    // (isRecoverableTurnError returns false) so it propagates through the review-round leaf and
+    // up to the review chain, surfacing as a failed run rather than degrading to a per-task block.
+    const rateLimitedProvider: HeadlessAiProvider = {
+      async generate() {
+        return Result.error(
+          new RateLimitError({ subCode: 'spawn-exit', message: 'rate limit hit — simulated for review-failure test' })
+        );
+      },
+    };
+
+    // Non-empty round body so the review-round proceeds past the empty-round termination check to
+    // the buildPrompt + callApplyFeedback step where the provider fails.
+    const interactive = scriptedInteractive(['Please fix the failing tests in module X.']);
+
+    const flow = createReviewFlow(
+      {
+        sprintRepo: repo.repo,
+        taskRepo: noopTaskRepo,
+        provider: rateLimitedProvider,
+        templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
+        signals: createInMemorySink<HarnessSignal>(),
+        eventBus: createInMemoryEventBus(),
+        logger: noopLogger,
+        clock: () => FIXED_LATER,
+        interactive,
+        gitRunner: cleanTreeRunner,
+        shellScriptRunner: noopShell,
+        fileLocker: createFileLocker(),
+        locksRoot: absolutePath(dir),
+        appendFile: createAppendFile(),
+        model: 'claude-opus-4-8',
+      },
+      {
+        sprintId: sprint.id,
+        sprintDir: absolutePath(dir),
+        reviewRoot: absolutePath(join(dir, 'review')),
+        commitCwd: FAKE_CWD,
+        additionalRoots: [FAKE_CWD],
+        repositoriesBlock: `- \`${String(FAKE_CWD)}\` (fake-cwd)`,
+        feedbackFile,
+      }
+    );
+
+    const runner = createRunner({
+      id: 'r-review-ratelimit',
+      element: flow,
+      initialCtx: { sprintId: sprint.id, distillRequested: false } satisfies ReviewCtx,
+    });
+    await runner.start();
+
+    // The review chain propagated the fatal error — the run failed, sprint stays in review.
+    expect(runner.status).toBe('failed');
+    expect(repo.current().status).toBe('review');
+    // feedback.md was created by `ensure-feedback-file` before the round failed — review DID start.
+    const feedbackExists = await fs
+      .access(feedbackFile)
+      .then(() => true)
+      .catch(() => false);
+    expect(feedbackExists, 'feedback.md must exist because review started (ensure-feedback-file ran)').toBe(true);
+    // The review-round leaf is the failing element — it appears in the trace with a failed status.
+    const roundEntry = runner.trace.find((t) => t.elementName === 'review-round');
+    expect(roundEntry, 'review-round must appear in the trace').toBeDefined();
+    expect(roundEntry?.status).toBe('failed');
+    // The settle steps never ran (round failed before any human terminal decision) — the sprint
+    // stayed in review precisely because the transition-to-done leaf was never reached.
+    expect(runner.trace.some((t) => t.elementName === 'transition-sprint-to-done')).toBe(false);
   });
 });

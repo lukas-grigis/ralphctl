@@ -353,9 +353,8 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
   };
 
   // Parallel cap: clamp `settings.concurrency.maxParallelTasks` to `[1,5]`. `=== 1` →
-  // today's serial path (the chain owns its own internal `withRepoLock`); the meta-run caller
-  // (`createRunFlow`) also stays on this path — it constructs `createImplementFlow` directly and
-  // never reaches this launcher. `> 1` → the parallel path: one held lock hoisted to the launcher
+  // today's serial path: `createImplementFlow` built directly, the chain owning its own internal
+  // `withRepoLock`. `> 1` → the parallel path: one held lock hoisted to the launcher
   // across prologue + waves + epilogue, one worktree per task, folds serialised onto the
   // single shared sprint branch → one PR.
   const maxParallel = clampParallel(effectiveSettings.concurrency.maxParallelTasks);
