@@ -62,6 +62,14 @@ export interface FlowManifest {
   readonly canBackground: boolean;
   /** Pre-launch readiness predicates — see {@link FlowTriggers}. */
   readonly triggers: FlowTriggers;
+  /**
+   * Optional factual cost/session hint shown dimmed beneath the focused row's description in the
+   * ActionMenu. Intended only for flows whose resource profile is non-obvious to the user —
+   * e.g. ideate (single session) vs implement (generator–evaluator loop). Leave absent for flows
+   * where no cost note adds clarity. Copy rules: lowercase, em-dash style, no 'prefer X over Y'
+   * framing — these are lifecycle stages, not substitutable tiers.
+   */
+  readonly costHint?: string;
 }
 
 /**

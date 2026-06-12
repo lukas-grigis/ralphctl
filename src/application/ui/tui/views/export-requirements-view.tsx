@@ -70,7 +70,7 @@ export const ExportRequirementsView = (): React.JSX.Element => {
   }, [runExport]);
 
   useInput((input) => {
-    if (ui.helpOpen || ui.promptActive) return;
+    if (ui.modalOpen) return;
     if (input === 'r') void runExport();
   });
 

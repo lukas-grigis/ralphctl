@@ -60,7 +60,7 @@ export const SprintsView = (): React.JSX.Element => {
   // Windowed cursor — owns ↑/↓ + j/k + PgUp/PgDn + Home/End + Enter; the cursor is the sprint id,
   // so a reload/reorder keeps focus on the same sprint. Enter selects (sets current + drills in).
   // Disabled while a prompt/help/confirm is up so its keys don't fight the modal.
-  const listActive = !ui.promptActive && !ui.helpOpen && confirmDelete === undefined;
+  const listActive = !ui.modalOpen && confirmDelete === undefined;
   const visibleRows = Math.max(4, Math.min(12, Math.floor(rows / 5)));
   const { window, visibleItems, focusedIndex, focusedItem } = useListWindow<Sprint>({
     items,
@@ -141,7 +141,7 @@ export const SprintsView = (): React.JSX.Element => {
   };
 
   useInput((input) => {
-    if (ui.helpOpen || ui.promptActive || confirmDelete !== undefined) return;
+    if (ui.modalOpen || confirmDelete !== undefined) return;
     if (input === 'c') {
       void launchCreateSprint();
       return;

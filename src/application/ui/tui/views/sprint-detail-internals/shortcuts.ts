@@ -15,8 +15,7 @@ import type { Ticket } from '@src/domain/entity/ticket.ts';
 import type { FocusItem } from '@src/application/ui/tui/views/sprint-detail-internals/focus-list.ts';
 
 interface SprintDetailShortcutArgs {
-  readonly helpOpen: boolean;
-  readonly promptActive: boolean;
+  readonly modalOpen: boolean;
   readonly confirmRemoveActive: boolean;
   readonly sprint: Sprint | undefined;
   readonly inDetail: boolean;
@@ -40,7 +39,7 @@ interface SprintDetailShortcutArgs {
 
 export const useSprintDetailShortcuts = (args: SprintDetailShortcutArgs): void => {
   useInput((input, key) => {
-    if (args.helpOpen || args.promptActive || args.confirmRemoveActive || args.sprint === undefined) return;
+    if (args.modalOpen || args.confirmRemoveActive || args.sprint === undefined) return;
     const sprint = args.sprint;
     // Esc/q collapses every expanded card in one action; falls through to global pop otherwise.
     if ((key.escape || input === 'q') && args.inDetail) {

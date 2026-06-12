@@ -144,14 +144,21 @@ export const Layout = ({ children }: { readonly children: React.ReactNode }): Re
   // running view at the top of the screen. Memory + chain-log banners stay at the top because
   // they signal harness-level degradations that the operator should see immediately.
   //
-  // The progress overlay is a true modal — it replaces the active view's body so no parallel
-  // ScrollRegion / list cursor races for the same keystrokes. The global handler closes it
-  // (esc / g); `selection.sprintId` gates the open.
+  // The progress overlay is a true modal — while open, the active view is hidden (`display:
+  // "none"`) so no parallel ScrollRegion / list cursor competes for keystrokes. Children
+  // remain MOUNTED (not conditionally rendered) so list cursors, expanded cards, and scroll
+  // offsets are preserved when the overlay closes. Every view-level useInput and listActive
+  // expression gates on `ui.modalOpen` (which includes progressOpen) so the hidden-but-mounted
+  // view is fully inert while the overlay is visible. The global handler closes it (esc / g);
+  // `selection.sprintId` gates the open.
   return (
     <Box flexDirection="column" height={rows}>
       <MemoryPressureBanner />
       <ChainLogDegradedBanner />
-      {ui.progressOpen ? <ProgressOverlay /> : children}
+      <Box display={ui.progressOpen ? 'none' : 'flex'} flexDirection="column" flexGrow={1}>
+        {children}
+      </Box>
+      {ui.progressOpen && <ProgressOverlay />}
     </Box>
   );
 };

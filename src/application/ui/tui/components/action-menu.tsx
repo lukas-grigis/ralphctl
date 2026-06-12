@@ -40,6 +40,12 @@ export interface MenuItem {
    * fire both handlers and push the destination view onto the router stack twice.
    */
   readonly globalHotkey?: boolean;
+  /**
+   * Optional factual cost/session hint rendered dimmed on a third line beneath the focused
+   * row's description. Only the focused row shows it — unfocused rows remain compact.
+   * Sourced from {@link FlowManifest.costHint} for flows that have one.
+   */
+  readonly costHint?: string;
 }
 
 export interface ActionMenuProps {
@@ -191,6 +197,13 @@ export const ActionMenu = ({
               {focused && it.description !== undefined && it.description.length > 0 && (
                 <Box paddingX={spacing.indent}>
                   <Text dimColor>{it.description}</Text>
+                </Box>
+              )}
+              {focused && it.costHint !== undefined && it.costHint.length > 0 && (
+                <Box paddingX={spacing.indent}>
+                  <Text color={inkColors.muted} dimColor>
+                    {glyphs.bullet} {it.costHint}
+                  </Text>
                 </Box>
               )}
               {!enabled && it.disabledReason !== undefined && (

@@ -95,7 +95,7 @@ export const ViewShell = ({
       </Box>
 
       {/* ── CONTENT ────────────────────────────────────────────────────────────────────── */}
-      <ScrollRegion disabled={ui.promptActive || ui.helpOpen} suppressArrows={suppressScrollArrows ?? false}>
+      <ScrollRegion disabled={ui.modalOpen} suppressArrows={suppressScrollArrows ?? false}>
         <SectionStamp title={title} subtitle={subtitle} right={right} />
         {children}
       </ScrollRegion>

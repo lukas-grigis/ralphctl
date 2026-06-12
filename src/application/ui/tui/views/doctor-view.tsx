@@ -64,7 +64,7 @@ export const DoctorView = (): React.JSX.Element => {
   }, [refreshDoctor, results, system.doctorLoading]);
 
   useInput((input) => {
-    if (ui.helpOpen || ui.promptActive) return;
+    if (ui.modalOpen) return;
     if (input === 'r') void system.refreshDoctor();
   });
 

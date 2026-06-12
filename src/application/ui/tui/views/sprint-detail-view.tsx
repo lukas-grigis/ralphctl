@@ -107,7 +107,7 @@ export const SprintDetailView = (): React.JSX.Element => {
         item.kind === 'ticket' ? `ticket:${String(item.ticket.id)}` : `task:${String(item.task.id)}`,
     []
   );
-  const listActive = !ui.helpOpen && !ui.promptActive;
+  const listActive = !ui.modalOpen;
   const { focusedIndex: cursorIdx } = useListWindow<FocusItem>({
     items: focusList,
     getId: getFocusItemId,
@@ -200,8 +200,7 @@ export const SprintDetailView = (): React.JSX.Element => {
   };
 
   useSprintDetailShortcuts({
-    helpOpen: ui.helpOpen,
-    promptActive: ui.promptActive,
+    modalOpen: ui.modalOpen,
     confirmRemoveActive: confirmRemove !== undefined,
     sprint,
     inDetail,

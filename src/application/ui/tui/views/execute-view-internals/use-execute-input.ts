@@ -24,8 +24,7 @@ interface UseExecuteInputDeps {
   readonly isRunning: boolean;
   readonly cancelScopeOpen: boolean;
   readonly setCancelScopeOpen: (open: boolean) => void;
-  readonly helpOpen: boolean;
-  readonly promptActive: boolean;
+  readonly modalOpen: boolean;
   readonly router: RouterApi;
 }
 
@@ -33,8 +32,7 @@ export const useExecuteInput = ({
   isRunning,
   cancelScopeOpen,
   setCancelScopeOpen,
-  helpOpen,
-  promptActive,
+  modalOpen,
   router,
 }: UseExecuteInputDeps): void => {
   useViewHints(
@@ -53,7 +51,7 @@ export const useExecuteInput = ({
   );
 
   useInput((input, key) => {
-    if (helpOpen || promptActive) return;
+    if (modalOpen) return;
     if (!isRunning) {
       // Settled run: land on Home, whatever the route stack looks like. The global selection
       // is untouched, so Home renders the user's own project/sprint card.

@@ -378,19 +378,15 @@ expense for substantially better output. Evaluator value depends on task difficu
 capability. Boundary shifts as models improve."_ Also: _"The space of interesting harness combinations
 doesn't shrink as models improve. Instead, it moves."_
 
-**ralphctl status.** `gap`
+**ralphctl status.** `applied`
 
 **Where it lives.**
 
-- `ideate`: `src/application/flows/ideate/` — single AI session, no evaluator loop
-- `implement`: `src/application/flows/implement/` — full generator-evaluator-settle loop
-- No guidance in the TUI help text or the designer agent steers the flow-surface choice toward cost-benefit
-  thinking.
-
-**Next step.** The `designer` agent owns the flow surface. When designing a new flow's TUI/CLI entry point,
-reference this section to weigh `ideate` (single session, low ceremony, lower cost) vs full `implement`
-(evaluator loop, higher confidence, higher cost). Add this framing to the designer agent's Design Principles
-and to flow help text for new flows.
+- `ideate`: `src/application/flows/ideate/manifest.ts` — `costHint: 'single AI session — fast, low token spend'`
+- `implement`: `src/application/flows/implement/manifest.ts` — `costHint: 'generator–evaluator loop per task — higher token spend, independently verified output'`
+- `review`: `src/application/flows/review/manifest.ts` — `costHint: 'one AI session per revision cycle — cost scales with the number of feedback rounds'`
+- `FlowManifest.costHint` field (`src/application/registry.ts`) — optional factual hint surfaced in the Flows menu.
+- `ActionMenu` (`src/application/ui/tui/components/action-menu.tsx`) — renders `costHint` dimmed beneath the focused row's description; unfocused rows stay compact.
 
 ---
 

@@ -50,6 +50,13 @@ interface UiStateApi {
   readonly progressOpen: boolean;
   /** `true` whenever any caller currently holds a {@link claimPrompt} release token. */
   readonly promptActive: boolean;
+  /**
+   * Derived convenience flag — `true` whenever any modal overlay or prompt is open:
+   * `progressOpen || helpOpen || promptActive`. Views and components use this single flag
+   * in `useInput` early-returns and `listActive` expressions so hidden-but-mounted views
+   * are fully inert while an overlay is shown.
+   */
+  readonly modalOpen: boolean;
   /** `true` whenever any caller currently holds a {@link claimEscape} release token. */
   readonly escapeClaimed: boolean;
   /**
@@ -210,6 +217,7 @@ export const UiStateProvider = ({ children }: { readonly children: React.ReactNo
       helpOpen,
       progressOpen,
       promptActive: claims > 0,
+      modalOpen: progressOpen || helpOpen || claims > 0,
       escapeClaimed: escapeClaims > 0,
       bannerCompact,
       toggleHelp,

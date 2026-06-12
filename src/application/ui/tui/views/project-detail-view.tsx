@@ -221,7 +221,7 @@ export const ProjectDetailView = (): React.JSX.Element => {
   };
 
   useInput((input, key) => {
-    if (ui.helpOpen || ui.promptActive || confirmRemove !== undefined || project === undefined) return;
+    if (ui.modalOpen || confirmRemove !== undefined || project === undefined) return;
     if (input === 'a') {
       router.push({ id: 'add-repository', props: { projectId: project.id } });
       return;

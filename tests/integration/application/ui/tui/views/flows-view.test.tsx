@@ -15,7 +15,7 @@ import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repo
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import { waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { DOWN, tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 const FIXED_PROJECT_ID = 'project-fixture-id' as unknown as ProjectId;
@@ -203,6 +203,43 @@ describe('FlowsView', () => {
     expect(frame).not.toContain('Select a project first');
     // Confirm the sprint name and status are on-screen (sprint-loaded regime).
     expect(frame).toContain('Fixture Sprint');
+    result.unmount();
+  });
+});
+
+describe('FlowsView — cost hints (manifest → menu threading)', () => {
+  /**
+   * Verify that `costHint` from the flow manifest reaches the rendered ActionMenu. Ideate is
+   * hidden by default (HIDDEN_BY_DEFAULT_FLOW_IDS); pressing `v` (show-all) makes it visible.
+   * We then navigate until the Ideate row is focused (cursor on it) and confirm the hint appears.
+   * The isolated ActionMenu focus-vs-unfocused behaviour is tested in action-menu.test.tsx.
+   */
+  it('threads the ideate costHint from the manifest into the rendered flows menu', async () => {
+    const deps = makeProjectSprintDeps({ id: FIXED_PROJECT_ID }, { id: FIXED_SPRINT_ID, projectId: FIXED_PROJECT_ID });
+    const { result } = renderView(<FlowsView />, {
+      deps,
+      initial: { id: 'flows' },
+      selection: { projectId: FIXED_PROJECT_ID, sprintId: FIXED_SPRINT_ID },
+    });
+    // Wait for the orientation card to settle so the view is interactive.
+    await waitFor(() => (result.lastFrame() ?? '').includes('Fixture Sprint'));
+
+    // Press `v` to show all flows — this makes Ideate visible in the menu.
+    result.stdin.write('v');
+    await waitFor(() => (result.lastFrame() ?? '').includes('Ideate'));
+
+    // Navigate down until the Ideate cost hint becomes visible (cursor lands on Ideate).
+    const IDEATE_HINT = 'single AI session';
+    let found = false;
+    for (let i = 0; i < 25; i++) {
+      if ((result.lastFrame() ?? '').includes(IDEATE_HINT)) {
+        found = true;
+        break;
+      }
+      result.stdin.write(DOWN);
+      await tick(20);
+    }
+    expect(found, 'ideate cost hint should appear when the Ideate row is focused').toBe(true);
     result.unmount();
   });
 });

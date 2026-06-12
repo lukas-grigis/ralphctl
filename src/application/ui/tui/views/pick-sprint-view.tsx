@@ -204,7 +204,7 @@ export const PickSprintView = (): React.JSX.Element => {
   };
 
   useInput((input, key) => {
-    if (ui.helpOpen || ui.promptActive) return;
+    if (ui.modalOpen) return;
     if (key.upArrow || input === 'k') {
       setCursor((c) => nextCursorableIndex(rows, c, -1));
       return;

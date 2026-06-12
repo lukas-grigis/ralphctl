@@ -213,8 +213,7 @@ export const ExecuteView = (): React.JSX.Element => {
     isRunning,
     cancelScopeOpen,
     setCancelScopeOpen,
-    helpOpen: ui.helpOpen,
-    promptActive: ui.promptActive,
+    modalOpen: ui.modalOpen,
     router,
   });
 
@@ -277,7 +276,7 @@ export const ExecuteView = (): React.JSX.Element => {
   // can't fight the help overlay (`?`), the progress overlay (`g`), a prompt, or the
   // cancel-scope picker (`c`) — the latter is rendered inline behind the modal, so without
   // this gate esc/j/k/e would double-handle the hidden panel.
-  const tasksInputActive = !ui.helpOpen && !ui.progressOpen && !ui.promptActive && !cancelScopeOpen;
+  const tasksInputActive = !ui.modalOpen && !cancelScopeOpen;
 
   // When the pinned sprint is no longer available (done or removed), blank the panels that
   // depend on it and surface a pick-a-sprint prompt so the user knows what happened.

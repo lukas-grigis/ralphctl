@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import React from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { Text } from 'ink';
+import { Box, Text, useInput } from 'ink';
 import { render } from 'ink-testing-library';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { StoragePaths } from '@src/application/bootstrap/storage-paths.ts';
@@ -96,7 +96,16 @@ const SeedSelection = ({
 const GlobalHarness = ({ children }: { readonly children: React.ReactNode }): React.JSX.Element => {
   const ui = useUiState();
   useGlobalKeys({ disabled: ui.promptActive });
-  return <>{ui.progressOpen ? <ProgressOverlay /> : children}</>;
+  // Mirror the App.tsx Layout strategy: keep children mounted (display:none when overlay is open)
+  // so list cursors, expanded cards, and scroll offsets are preserved across open/close cycles.
+  return (
+    <>
+      <Box display={ui.progressOpen ? 'none' : 'flex'} flexDirection="column">
+        {children}
+      </Box>
+      {ui.progressOpen && <ProgressOverlay />}
+    </>
+  );
 };
 
 interface HarnessOptions {
@@ -304,6 +313,110 @@ describe('ProgressOverlay — scrolling', () => {
     stdin.write('\x1b[5~');
     await waitFor(() => (lastFrame() ?? '').includes('HEAD-LINE'));
     expect(lastFrame() ?? '').toContain('HEAD-LINE');
+
+    unmount();
+  });
+});
+
+/**
+ * Cursor-preservation tests — the key behavioural contract of the mount-preserving overlay
+ * design. Children remain mounted (display:none) while the overlay is open so list cursors
+ * and other view state survive open/close cycles intact.
+ */
+
+/**
+ * A minimal child that tracks a list cursor with j/k and surfaces "CURSOR:<n>" in its output.
+ * Uses useInput gated on `ui.modalOpen` (the unified modal flag) so pressing j while the
+ * overlay is open is a no-op — the hidden view stays inert.
+ */
+const CursorChild = (): React.JSX.Element => {
+  const ui = useUiState();
+  const ITEMS = 5;
+  const [cursor, setCursor] = React.useState(0);
+  useInput(
+    (input) => {
+      if (ui.modalOpen) return;
+      if (input === 'j') setCursor((c) => Math.min(ITEMS - 1, c + 1));
+      if (input === 'k') setCursor((c) => Math.max(0, c - 1));
+    },
+    { isActive: !ui.modalOpen }
+  );
+  return <Text>CURSOR:{String(cursor)}</Text>;
+};
+
+const HarnessWithCursor = ({ dataRoot }: { readonly dataRoot: string }): React.JSX.Element => {
+  const deps = {} as unknown as AppDeps;
+  return (
+    <DepsProvider value={deps}>
+      <StorageProvider value={buildStorage(dataRoot)}>
+        <SessionsProvider value={emptyManager()}>
+          <UiStateProvider>
+            <SelectionProvider>
+              <SeedSelection withSprint={true} />
+              <RouterProvider initial={{ id: 'sprint-detail' }}>
+                {(): React.JSX.Element => (
+                  <GlobalHarness>
+                    <CursorChild />
+                  </GlobalHarness>
+                )}
+              </RouterProvider>
+            </SelectionProvider>
+          </UiStateProvider>
+        </SessionsProvider>
+      </StorageProvider>
+    </DepsProvider>
+  );
+};
+
+describe('ProgressOverlay — cursor preservation (mounted children)', () => {
+  it('list cursor is unchanged after open + close cycle', async () => {
+    const dataRoot = await makeTmpRoot();
+    await writeProgressFile(dataRoot, '# Progress\n\nSome content.');
+    const { stdin, lastFrame, unmount } = render(<HarnessWithCursor dataRoot={dataRoot} />);
+    // Wait for SEEDED sentinel before interacting.
+    await waitFor(() => (lastFrame() ?? '').includes('SEEDED'));
+
+    // Initial cursor position.
+    await waitFor(() => (lastFrame() ?? '').includes('CURSOR:0'));
+
+    // Move the cursor down twice (using 'j' — the CursorChild handles input === 'j').
+    stdin.write('j');
+    await waitFor(() => (lastFrame() ?? '').includes('CURSOR:1'));
+    stdin.write('j');
+    await waitFor(() => (lastFrame() ?? '').includes('CURSOR:2'));
+
+    // Open the overlay — underlying view should be hidden (display:none in Ink output).
+    stdin.write('g');
+    await waitFor(() => (lastFrame() ?? '').includes('Some content.'));
+    expect(lastFrame() ?? '').not.toContain('CURSOR:');
+
+    // Close the overlay — cursor must still be at 2 (view was mounted, not remounted).
+    stdin.write(ESC);
+    await waitFor(() => (lastFrame() ?? '').includes('CURSOR:'));
+    expect(lastFrame() ?? '').toContain('CURSOR:2');
+
+    unmount();
+  });
+
+  it('keystrokes while the overlay is open do not move the hidden view cursor', async () => {
+    const dataRoot = await makeTmpRoot();
+    await writeProgressFile(dataRoot, '# Progress\n\nSome content.');
+    const { stdin, lastFrame, unmount } = render(<HarnessWithCursor dataRoot={dataRoot} />);
+    await waitFor(() => (lastFrame() ?? '').includes('SEEDED'));
+    await waitFor(() => (lastFrame() ?? '').includes('CURSOR:0'));
+
+    // Open the overlay.
+    stdin.write('g');
+    await waitFor(() => (lastFrame() ?? '').includes('Some content.'));
+
+    // 'j' is a list-navigation key; the hidden view gates on ui.modalOpen so it must ignore it.
+    stdin.write('j');
+    await tick(50);
+
+    // Close the overlay — cursor should still be at 0.
+    stdin.write(ESC);
+    await waitFor(() => (lastFrame() ?? '').includes('CURSOR:'));
+    expect(lastFrame() ?? '').toContain('CURSOR:0');
 
     unmount();
   });

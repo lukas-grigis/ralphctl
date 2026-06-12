@@ -157,7 +157,7 @@ export const SettingsView = (): React.JSX.Element => {
   }, [sections, sectionIdx]);
 
   useInput((input, key) => {
-    if (ui.helpOpen || editingField !== undefined || pendingPreset !== undefined || ui.promptActive) return;
+    if (ui.modalOpen || editingField !== undefined || pendingPreset !== undefined) return;
     if (sections.length === 0) return;
     if (key.leftArrow || input === '[') {
       setSectionIdx((i) => (i - 1 + sections.length) % sections.length);

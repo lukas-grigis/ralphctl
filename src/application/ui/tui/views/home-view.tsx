@@ -128,7 +128,7 @@ export const HomeView = (): React.JSX.Element => {
   // entry points behave identically.
   useInput(
     (input) => {
-      if (ui.helpOpen || ui.promptActive) return;
+      if (ui.modalOpen) return;
       if (input !== '+') return;
       if (!hasProject) {
         flashErr(`${glyphs.cross} pick a project first (Projects ${glyphs.arrowRight} open one)`);
@@ -206,7 +206,7 @@ export const HomeView = (): React.JSX.Element => {
             </Box>
           )}
           <Box marginY={spacing.section}>
-            <ActionMenu items={items} active={!ui.promptActive} initialIndex={initialMenuIndex} />
+            <ActionMenu items={items} active={!ui.modalOpen} initialIndex={initialMenuIndex} />
           </Box>
         </Box>
       )}

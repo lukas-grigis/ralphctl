@@ -52,7 +52,7 @@ export const SessionsView = (): React.JSX.Element => {
 
   // List input is live only when no overlay / prompt is mounted; the global-key mute is claimed
   // separately while the confirm prompt is up.
-  const listActive = !ui.helpOpen && !ui.promptActive && confirmCancel === undefined;
+  const listActive = !ui.modalOpen && confirmCancel === undefined;
 
   const { window, visibleItems, focusedIndex, focusedItem } = useListWindow<SessionRecord>({
     items: sessions,
