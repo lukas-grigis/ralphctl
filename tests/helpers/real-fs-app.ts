@@ -46,6 +46,9 @@ import type { Settings } from '@src/domain/entity/settings.ts';
 import type { AppSinks } from '@src/application/bootstrap/runtime-sinks.ts';
 import { nullSink } from '@src/integration/observability/sinks/null-sink.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
+import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
+import type { InteractiveAiProvider } from '@src/integration/ai/providers/_engine/interactive-ai-provider.ts';
+import type { VersionChecker } from '@src/business/version/version-checker.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 
 export interface RealFsApp {
@@ -63,6 +66,9 @@ export interface RealFsApp {
   readonly cleanup: () => Promise<void>;
 }
 
+/** No-op version checker — never fetches npm, resolves to null immediately. */
+export const noopVersionChecker: VersionChecker = async () => null;
+
 export interface CreateRealFsAppOptions {
   /** Override settings (e.g. to switch provider). Default: `DEFAULT_SETTINGS`. */
   readonly settings?: Settings;
@@ -74,6 +80,27 @@ export interface CreateRealFsAppOptions {
    * Tests that DO exercise a provider pass their own scripted spawn here.
    */
   readonly spawn?: ProviderSpawn;
+  /**
+   * Override the headless AI provider. When set, the wired `AppDeps.provider` is replaced with
+   * this instance after wire() returns. Use when a test exercises chain logic that calls
+   * `app.deps.provider` directly (e.g. via ImplementDeps built from app.deps fields).
+   *
+   * Note: the implement LAUNCHER builds per-role providers from settings, bypassing app.deps.provider.
+   * Tests that exercise the implement flow must pass the fake directly to ImplementDeps fields
+   * (generatorProvider / evaluatorProvider) rather than relying on this override.
+   */
+  readonly providerOverride?: HeadlessAiProvider;
+  /**
+   * Override the interactive AI provider. When set, the wired `AppDeps.interactiveAi` is replaced
+   * with this instance after wire() returns. Keeps refine / plan tests hermetic.
+   */
+  readonly interactiveAiOverride?: InteractiveAiProvider;
+  /**
+   * Override the version checker. Default: a no-op that resolves to null (never fetches npm).
+   * TUI tests that mount <App> MUST pass this override (or accept the default no-op) so the
+   * version poll cannot reach the npm registry during tests.
+   */
+  readonly versionCheckerOverride?: VersionChecker;
 }
 
 /**
@@ -89,12 +116,22 @@ export const createRealFsApp = async (options: CreateRealFsAppOptions = {}): Pro
   if (!paths.ok) throw new Error(`storagePathsFromRoot failed: ${paths.error.message}`);
   await ensureStorageRoots(paths.value);
 
-  const deps = wire({
+  const wired = wire({
     storage: paths.value,
     sinks: options.sinks ?? { harness: nullSink() },
     settings: options.settings ?? DEFAULT_SETTINGS,
     spawn: options.spawn ?? noopProviderSpawn,
   });
+
+  // Apply post-wire overrides. Because AppDeps fields are plain object references we can spread-
+  // override them without touching any production wiring path — tests that set these get a hermetic
+  // graph while all other callers keep the production-wired defaults.
+  const deps: AppDeps = {
+    ...wired,
+    ...(options.providerOverride !== undefined ? { provider: options.providerOverride } : {}),
+    ...(options.interactiveAiOverride !== undefined ? { interactiveAi: options.interactiveAiOverride } : {}),
+    versionChecker: options.versionCheckerOverride ?? noopVersionChecker,
+  };
 
   return {
     home: home.value,
