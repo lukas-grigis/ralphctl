@@ -143,9 +143,11 @@ Read the mounted repositories to ground the plan:
 1. Read context files (`CLAUDE.md`, `AGENTS.md`, `.github/copilot-instructions.md`) when present.
 2. Skim manifests (`package.json`, `pyproject.toml`, `go.mod`, etc.) to identify the build system,
    test runner, and lint commands.
-3. Search for existing implementations similar to what the requirements describe — mirror the existing
+3. Run `git log --oneline -20` per repository so you don't plan tasks that re-implement
+   already-landed work.
+4. Search for existing implementations similar to what the requirements describe — mirror the existing
    patterns.
-4. Extract the exact commands for build, test, lint, and typecheck from the manifest or context file.
+5. Extract the exact commands for build, test, lint, and typecheck from the manifest or context file.
    These are the `command` values for `auto`-check verification criteria.
 
 ### Step 2.2 — Draft tasks
@@ -158,9 +160,12 @@ For each task, provide:
 - **`name`** — imperative verb phrase, short (e.g. `"Wire CSV export endpoint"`).
 - **`description`** — optional longer-form context; include only when `name` leaves important ambiguity.
 - **`projectPath`** — absolute path matching exactly one of the entries in `<repositories>`.
-- **`steps`** — concrete, ordered implementation steps. The final step MUST be the project's
-  verification command (read from the manifest or context file; chain typecheck / lint / tests with
-  `&&` and name which repository the command runs in).
+- **`steps`** — concrete, ordered implementation steps. Do NOT end steps with "run the
+  verification commands" or "run all the checks" — verification belongs in `verificationCriteria`;
+  the harness and the evaluator execute it. A final step that re-runs the full suite only duplicates
+  the post-task gate and inflates generator cost. Exception: a step MAY run a specific check when a
+  later step depends on its output (e.g. "run the migration dry-run and confirm the schema diff
+  before writing the rollback script").
 - **`verificationCriteria`** — array of structured criteria the evaluator grades PASS / FAIL:
   - `id` — stable within the task (e.g. `"C1"`); the evaluator cites it verbatim.
   - `assertion` — human-readable check.
@@ -188,6 +193,10 @@ Options:
 
 Iterate until approved. If rejected, revise and re-present from Step 2.2 — Phase 1 approval stands
 and does not need to be repeated.
+
+### Step 2.4 — Validate before output
+
+{{VALIDATION_CHECKLIST}}
 
 ---
 

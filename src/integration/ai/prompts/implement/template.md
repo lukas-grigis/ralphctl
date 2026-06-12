@@ -152,7 +152,10 @@ on the first attempt, not to discover problems after the fact.
    it for cross-task context; re-read `{{PROGRESS_FILE}}` directly only when you need the latest
    on-disk state (e.g. another task settled mid-session).
 4. **Working tree state** — inspect the working tree for uncommitted changes before writing anything.
-5. **Environment** — review `<verify_script>` and `<pre_verify_results>` above. If
+5. **Git log orientation** — run `git log --oneline -20` to see what prior tasks on this branch have
+   committed. Cross-reference with `<prior_progress>` to avoid re-implementing or conflicting with
+   their work. Changes already committed by a prior task are done — do not redo them.
+6. **Environment** — review `<verify_script>` and `<pre_verify_results>` above. If
    `<pre_verify_results>` is non-empty, the harness already verified the baseline — review those
    results instead of re-running. If `<pre_verify_results>` is empty and no verify script is
    configured, run the project's own verification commands (consult the project's AI context file
@@ -160,10 +163,10 @@ on the first attempt, not to discover problems after the fact.
    emit `task-blocked` with reason `"Pre-existing failure: [details]"`.
    If `<retry_feedback>` is non-empty, a previous attempt's harness post-verify failed — address
    that regression as the very first priority of this attempt before doing any other work.
-6. **Conventions** — read project config to understand what is enforced: lint and formatter settings,
+7. **Conventions** — read project config to understand what is enforced: lint and formatter settings,
    compiler config, test framework patterns (e.g. `*.test.ts` vs `*.spec.ts`, `__tests__/` vs
    co-located).
-7. **Existing patterns** — search for code similar to what you need to build. Matching existing
+8. **Existing patterns** — search for code similar to what you need to build. Matching existing
    patterns is the single most important feedforward control — it prevents introducing new conventions
    that conflict with neighbours.
 
@@ -196,7 +199,9 @@ In order:
    the verify script from `<verify_script>` — the harness runs it after your turn as the
    independent commit gate; running it yourself would duplicate that gate and inflate cost.
    Exception: when the task defines no `auto` criteria, run the verify script once yourself to
-   confirm no regressions before signalling completion.
+   confirm no regressions before signalling completion. When no verify script is configured either,
+   run the project's own check commands (as found during Phase 1 reconnaissance) before signalling
+   completion.
 3. **Record verification results** — emit `task-verified` with the verbatim commands and their
    combined stdout/stderr output in the `output` field.
 4. **Propose the commit message** — emit `commit-message` with a real subject and a body explaining

@@ -21,6 +21,6 @@ Before writing the JSON output, verify EVERY item:
    to `signals.json`. Do not emit the JSON array as prose or inside markdown fences — only the signal file
    is read by the harness.
 9. **Unique placeholder ids** — each task's `id` is a unique string within this array (used only for
-   `dependsOn` resolution; the harness assigns persistent ids on save).
+   `blockedBy` resolution; the harness assigns persistent ids on save).
 
 </validation-checklist>
