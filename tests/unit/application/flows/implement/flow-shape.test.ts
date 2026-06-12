@@ -7,6 +7,8 @@ import { guard } from '@src/application/chain/build/guard.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
 import { loadSprintExecutionLeaf } from '@src/application/flows/_shared/sprint/load-execution.ts';
 import { loadTasksLeaf } from '@src/application/flows/_shared/task/load.ts';
+import { loadLearningsLeaf } from '@src/application/flows/_shared/memory/load-learnings.ts';
+import { learningsLedgerPath } from '@src/application/flows/_shared/memory/ledger-path.ts';
 import { saveTasksLeaf } from '@src/application/flows/_shared/task/save.ts';
 import { loadAndAssertSprintSubChain } from '@src/application/flows/_shared/sprint/load-and-assert-sprint.ts';
 import { activateSprintLeaf } from '@src/application/flows/implement/leaves/activate-sprint.ts';
@@ -183,6 +185,17 @@ const reconstructPreRefactorSerialFlow = (
     activateSprintLeaf({ sprintRepo: deps.sprintRepo, clock: deps.clock, logger: deps.logger }),
     loadSprintExecutionLeaf<ImplementCtx>({ sprintExecutionRepo: deps.sprintExecutionRepo }),
     loadTasksLeaf<ImplementCtx>({ taskRepo: deps.taskRepo }),
+    loadLearningsLeaf<ImplementCtx>(
+      { logger: deps.logger },
+      {
+        path: () => {
+          const resolved = learningsLedgerPath(opts.memoryRoot, opts.projectId);
+          if (!resolved.ok) throw resolved.error;
+          return resolved.value;
+        },
+        output: (ctx, candidates) => ({ ...ctx, priorLearnings: candidates }),
+      }
+    ),
     resolveBranchLeaf(
       {
         gitRunner: deps.gitRunner,

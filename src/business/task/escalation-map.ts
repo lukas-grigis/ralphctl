@@ -21,7 +21,10 @@ import type { Logger } from '@src/business/observability/logger.ts';
  * Entries are seeded from the per-provider model catalogs at
  * `domain/value/settings-models/` — weakening or removing an entry here implies the
  * corresponding model is no longer in catalog, so this file and the catalog are kept in
- * lockstep by code review.
+ * lockstep by a verify-gate: `tests/unit/business/task/escalation-map.test.ts` asserts every
+ * key/value is a catalog member and fingerprints the catalogs, so a rename/de-list that strands a
+ * rung fails `pnpm verify` (and triggers the HARNESS-PRINCIPLES.md model-bump audit) rather than
+ * shipping a rung the adapter rejects at spawn time.
  *
  * Dash-form ids (`claude-haiku-4-5`) are the Claude-Code / Codex catalog ids; dot-form ids
  * (`claude-haiku-4.5`) are the Copilot catalog ids — both forms are seeded and kept in

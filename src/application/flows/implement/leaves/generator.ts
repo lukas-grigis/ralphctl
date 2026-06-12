@@ -33,6 +33,8 @@ import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts'
 import { implementSession } from '@src/application/flows/implement/leaves/implement-session.ts';
 import { generatorOutputContract } from '@src/application/flows/implement/leaves/generator.contract.ts';
 import { escalationBannerId } from '@src/business/task/escalation-policy.ts';
+import { composeDimensionTrajectory } from '@src/business/task/dimension-trajectory.ts';
+import { composePriorLearnings } from '@src/application/flows/_shared/memory/compose-prior-learnings.ts';
 import {
   readRoundSessionId,
   roundSignalsPath,
@@ -115,6 +117,13 @@ export interface GeneratorLeafDeps {
    */
   readonly maxTurns: number;
   /**
+   * Configured plateau threshold (`settings.harness.plateauThreshold`). Used by the input
+   * projection to compose the dimension-trajectory block's budget-pressure line — the loop
+   * plateau-exits after this many consecutive stalled rounds, so the generator gets the warning
+   * one round early. Matches the value the evaluator leaf feeds the plateau predicate.
+   */
+  readonly plateauThreshold: number;
+  /**
    * Best-effort reader for the trailing bytes of the harness verify-script logs under
    * `<sprintDir>/logs/verify/<taskId>/{pre,post}-attempt-<n>.log`. Used to enrich the
    * `<pre_verify_results>` (current attempt's pre-verify) and `<retry_feedback>` (prior
@@ -143,6 +152,22 @@ interface GeneratorInput {
    * reporting an id) → fresh session.
    */
   readonly priorGeneratorSessionId?: SessionId;
+  /**
+   * Pre-composed "## Dimension trajectory" feed-forward block (principles 6 + 15) — built in the
+   * input projection from `ctx.plateauHistory` via `composeDimensionTrajectory`. Empty on round 1
+   * (no trajectory to diff yet). Rides inside the generator prompt's `PRIOR_CRITIQUE_SECTION` so the
+   * generator sees which dimensions were fixed / still failing for N rounds / newly failing, plus a
+   * plateau-budget pressure line — BEFORE the loop exits and burns an escalation rung.
+   */
+  readonly dimensionTrajectory?: string;
+  /**
+   * Pre-composed "## Learnings from prior sprints" block (principle 3, read side) — built in the
+   * input projection from `ctx.priorLearnings` (the prologue's `load-learnings` loaded this
+   * project's not-yet-promoted ledger insights once). Empty when the ledger is absent / empty.
+   * Rides ONLY the FULL implement prompt (round 1 of a session thread); a resumed continuation
+   * already carries it in-conversation, so threading it again would be redundant context.
+   */
+  readonly priorLearnings?: string;
 }
 
 interface GeneratorOutput {
@@ -250,6 +275,18 @@ const buildGeneratorPrompt = async (
     readonly outputContractSection: string;
     readonly priorGeneratorSessionId: SessionId | undefined;
     /**
+     * Pre-composed dimension-trajectory block (round 2+) — threaded into the builder's
+     * `dimensionTrajectory` slot only when non-empty so the `PRIOR_CRITIQUE_SECTION` placeholder
+     * collapses cleanly on round 1.
+     */
+    readonly dimensionTrajectory: string;
+    /**
+     * Pre-composed prior-learnings block — threaded into the FULL implement prompt's
+     * `priorLearnings` slot only when non-empty. Ignored on the continuation branch (the resumed
+     * thread already carries it).
+     */
+    readonly priorLearnings: string;
+    /**
      * Pre-rendered `<pre_verify_results>` body — the current attempt's harness pre-verify run +
      * log tail (T4). Empty string when no pre-verify ran. Passed through to the builder's
      * `preVerifyOutput` slot only when non-empty so the placeholder collapses cleanly otherwise.
@@ -271,6 +308,11 @@ const buildGeneratorPrompt = async (
   // collapses the `<pre_verify_results>` / `<retry_feedback>` placeholders cleanly.
   const preVerifyCarry = args.preVerifyOutput.length > 0 ? { preVerifyOutput: args.preVerifyOutput } : {};
   const retryFeedbackCarry = args.retryFeedback.length > 0 ? { retryFeedback: args.retryFeedback } : {};
+  // Dimension trajectory rides inside PRIOR_CRITIQUE_SECTION — thread only when non-empty so the
+  // round-1 case (no trajectory to diff) collapses the section without an orphan heading.
+  const trajectoryCarry = args.dimensionTrajectory.length > 0 ? { dimensionTrajectory: args.dimensionTrajectory } : {};
+  // Prior-learnings rides ONLY the full prompt (continuation already carries it in-conversation).
+  const priorLearningsCarry = args.priorLearnings.length > 0 ? { priorLearnings: args.priorLearnings } : {};
 
   if (args.priorGeneratorSessionId === undefined) {
     return buildImplementPrompt(deps.templateLoader, {
@@ -283,6 +325,8 @@ const buildGeneratorPrompt = async (
       ...(deps.verifyScript !== undefined ? { verifyScript: deps.verifyScript } : {}),
       ...(priorCritique !== undefined ? { priorCritique } : {}),
       ...(plateauBreak ? { plateauBreak: true } : {}),
+      ...trajectoryCarry,
+      ...priorLearningsCarry,
       ...preVerifyCarry,
       ...retryFeedbackCarry,
     });
@@ -295,6 +339,7 @@ const buildGeneratorPrompt = async (
     outputContractSection: args.outputContractSection,
     ...(priorCritique !== undefined ? { priorCritique } : {}),
     ...(plateauBreak ? { plateauBreak: true } : {}),
+    ...trajectoryCarry,
     ...preVerifyCarry,
     ...retryFeedbackCarry,
   });
@@ -432,6 +477,8 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
             roundNum,
             outputContractSection,
             priorGeneratorSessionId: input.priorGeneratorSessionId,
+            dimensionTrajectory: input.dimensionTrajectory ?? '',
+            priorLearnings: input.priorLearnings ?? '',
             preVerifyOutput,
             retryFeedback,
           });
@@ -603,12 +650,27 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
           message: `generator-${String(taskId)}: ctx.currentRoundNum missing — resolve-round-num must run first`,
         });
       }
+      // Compose the dimension-trajectory feed-forward (principles 6 + 15) from the per-attempt
+      // evaluator-turn history. Pure ctx read — `composeDimensionTrajectory` returns '' until there
+      // are two turns to diff (round 1 has none), so the prompt's PRIOR_CRITIQUE_SECTION collapses
+      // cleanly on the first round.
+      const dimensionTrajectory = composeDimensionTrajectory({
+        history: ctx.plateauHistory ?? [],
+        plateauThreshold: deps.plateauThreshold,
+        roundNum: ctx.currentRoundNum,
+        maxTurns: deps.maxTurns,
+      });
+      // Cross-sprint procedural memory (principle 3) loaded once by the prologue's `load-learnings`.
+      // Pure ctx read; '' when the ledger was absent/empty so the prompt placeholder collapses.
+      const priorLearnings = composePriorLearnings(ctx.priorLearnings ?? []);
       return {
         task: ctx.currentTask,
         turn: (ctx.genEvalTurn ?? 0) + 1,
         workspaceRoot: ctx.taskWorkspaceRoot,
         roundNum: ctx.currentRoundNum,
         ...(ctx.priorGeneratorSessionId !== undefined ? { priorGeneratorSessionId: ctx.priorGeneratorSessionId } : {}),
+        ...(dimensionTrajectory.length > 0 ? { dimensionTrajectory } : {}),
+        ...(priorLearnings.length > 0 ? { priorLearnings } : {}),
       };
     },
     output: (ctx, out) => {

@@ -52,6 +52,7 @@ describe('generatorLeaf', () => {
     logger: noopLogger,
     eventBus,
     maxTurns: 5,
+    plateauThreshold: 3,
   });
 
   const baseCtx = (task: ReturnType<typeof makeInProgressTaskWithRunningAttempt>): ImplementCtx => ({
@@ -98,6 +99,58 @@ describe('generatorLeaf', () => {
     const content = await fs.readFile(promptPath, 'utf8');
     expect(content).toContain('## Prior Critique');
     expect(content).toContain('Tests fail on the empty-string boundary');
+  });
+
+  it('injects the prior-learnings block into the full prompt when ctx.priorLearnings is present', async () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    const leaf = generatorLeaf(buildDeps(), task.id);
+    const result = await leaf.execute({
+      ...baseCtx(task),
+      priorLearnings: [
+        {
+          v: 1,
+          id: 'abc123',
+          text: 'this repo runs tests via a custom harness',
+          appliesTo: 'test setup',
+          repo: '/repo',
+          repoName: 'repo',
+          taskKind: 'feature',
+          sprintId: 'sprint-prior',
+          taskId: 'task-prior',
+          timestamp: String(FIXED_NOW),
+          promotedAt: null,
+        },
+      ],
+    });
+    expect(result.ok).toBe(true);
+
+    const content = await fs.readFile(join(String(root.root), 'rounds', '1', 'generator', 'prompt.md'), 'utf8');
+    expect(content).toContain('## Learnings from prior sprints');
+    expect(content).toContain('this repo runs tests via a custom harness');
+    expect(content).toContain('(applies to test setup)');
+  });
+
+  it('injects the dimension-trajectory block into prompt.md when ctx.plateauHistory shows a still-failing dimension', async () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    const leaf = generatorLeaf(buildDeps(), task.id);
+    const failed = (dims: readonly string[]) => ({
+      evaluation: {
+        type: 'evaluation' as const,
+        status: 'failed' as const,
+        dimensions: dims.map((d) => ({ dimension: d, passed: false, finding: 'x' })),
+        timestamp: FIXED_NOW,
+      },
+    });
+    const result = await leaf.execute({
+      ...baseCtx(task),
+      currentRoundNum: 2,
+      plateauHistory: [failed(['correctness']), failed(['correctness'])],
+    });
+    expect(result.ok).toBe(true);
+
+    const content = await fs.readFile(join(String(root.root), 'rounds', '2', 'generator', 'prompt.md'), 'utf8');
+    expect(content).toContain('## Dimension trajectory');
+    expect(content).toContain('correctness: STILL FAILING');
   });
 
   it('writes prompt.md atomically — no .tmp leftover on the target dir', async () => {

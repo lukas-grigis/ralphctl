@@ -79,6 +79,7 @@ describe('generatorLeaf — audit-[09] contract', () => {
       logger: noopLogger,
       eventBus,
       maxTurns: 5,
+      plateauThreshold: 3,
     };
     return { deps, sink };
   };

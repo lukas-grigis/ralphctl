@@ -429,3 +429,18 @@ upgrade may close gaps for free. Then walk `applied` rows and ask whether any ha
 **When a `gap` closes.** Update the row's status from `gap` → `applied` (or `partial` → `applied`),
 update the "Where it lives" anchor, and remove the "Next step" line. Cross-reference the commit that closed
 it.
+
+**Model-bump audit checklist (sections 14 + 18).** The trigger is mechanized, not a ticket convention:
+`tests/unit/business/task/escalation-map.test.ts` fingerprints the three model catalogs
+(`domain/value/settings-models/{claude,codex,copilot}.ts`) and cross-checks every
+`DEFAULT_ESCALATION_MAP` key/value against them. A catalog edit fails `pnpm verify`. When it does, walk
+this checklist before updating the recorded hash:
+
+1. **Re-check orphaned rungs.** Did a catalog rename or de-list strand a `DEFAULT_ESCALATION_MAP` key or
+   destination? The lockstep assertions catch this — fix the ladder, do not just bump the hash.
+2. **Walk the `partial` / `gap` rows.** For each, ask "has the new model closed this gap unaided?" Promote
+   `gap` → `applied` where it has.
+3. **Walk the `applied` rows.** For each, ask "is this component still load-bearing against the new model, or
+   is it now overhead?" (§ 14 — remove non-load-bearing pieces one at a time, with measurement.)
+4. **Update the recorded fingerprint** in the test only after steps 1–3, so the hash bump is a deliberate
+   record that the audit ran, not a reflex to make CI green.

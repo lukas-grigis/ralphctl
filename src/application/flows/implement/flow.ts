@@ -27,6 +27,8 @@ import {
 } from '@src/application/flows/implement/leaves/sprint-repo-plan.ts';
 import { transitionSprintToReviewLeaf } from '@src/application/flows/implement/leaves/transition-sprint-to-review.ts';
 import { withRepoLock } from '@src/application/flows/_shared/with-repo-lock.ts';
+import { loadLearningsLeaf } from '@src/application/flows/_shared/memory/load-learnings.ts';
+import { learningsLedgerPath } from '@src/application/flows/_shared/memory/ledger-path.ts';
 
 export type { RepoExecConfig };
 
@@ -238,6 +240,23 @@ export const buildImplementPrologue = (deps: ImplementDeps, opts: CreateImplemen
     activateSprintLeaf({ sprintRepo: deps.sprintRepo, clock: deps.clock, logger: deps.logger }),
     loadSprintExecutionLeaf<ImplementCtx>({ sprintExecutionRepo: deps.sprintExecutionRepo }),
     loadTasksLeaf<ImplementCtx>({ taskRepo: deps.taskRepo }),
+    // Cross-sprint procedural memory (principle 3, read side). Load this project's not-yet-promoted
+    // learnings ONCE here so every per-task generator can orient on what prior sprints earned —
+    // without touching the human-gated distill flow (which stays the only write-back path). A
+    // missing ledger resolves to an empty list inside the leaf, so the block degrades cleanly.
+    loadLearningsLeaf<ImplementCtx>(
+      { logger: deps.logger },
+      {
+        path: () => {
+          const resolved = learningsLedgerPath(opts.memoryRoot, opts.projectId);
+          // The projectId is validated upstream (resolveImplementQueue); a resolve failure is a
+          // programmer error, so re-throw it as the leaf's projection contract requires.
+          if (!resolved.ok) throw resolved.error;
+          return resolved.value;
+        },
+        output: (ctx, candidates) => ({ ...ctx, priorLearnings: candidates }),
+      }
+    ),
     resolveBranchLeaf(
       {
         gitRunner: deps.gitRunner,

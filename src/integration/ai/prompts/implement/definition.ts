@@ -8,6 +8,7 @@ import {
   renderPlateauDirectiveSection,
   renderPreVerifyResultsSection,
   renderPriorCritiqueSection,
+  renderPriorLearningsSection,
   renderProjectToolingSection,
   renderRetryFeedbackSection,
   renderTaskDescriptionSection,
@@ -24,6 +25,7 @@ import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/templat
 export {
   renderVerifyScriptSection,
   renderPriorCritiqueSection,
+  renderPriorLearningsSection,
   renderPlateauDirectiveSection,
   renderPreVerifyResultsSection,
   renderProjectToolingSection,
@@ -78,6 +80,12 @@ export interface ImplementPromptParams {
    * prose handles the empty case without a per-flow special branch.
    */
   readonly priorProgress: string;
+  /**
+   * Markdown body for "## Learnings from prior sprints" — this project's not-yet-promoted ledger
+   * insights (principle 3, read side). Empty string when the ledger is absent / empty so the
+   * surrounding template prose handles the empty case without a per-flow branch.
+   */
+  readonly priorLearningsSection: string;
   /**
    * Markdown body for "## Prior Critique" — empty on turn 1, populated on every subsequent
    * turn of the gen-eval loop with the failed evaluator critique from the previous turn so
@@ -179,9 +187,15 @@ export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
       description:
         'Current body of `progress.md` substituted into the `## Prior progress` section — empty when the journal has no entries yet.',
     },
+    priorLearningsSection: {
+      placeholder: 'PRIOR_LEARNINGS',
+      description:
+        '"## Learnings from prior sprints" block — this project\'s not-yet-promoted ledger insights; empty when none recorded yet.',
+    },
     priorCritiqueSection: {
       placeholder: 'PRIOR_CRITIQUE_SECTION',
-      description: '"## Prior Critique" markdown block — empty on turn 1, the evaluator\'s failed critique on turn 2+.',
+      description:
+        '"## Prior Critique" markdown block (+ optional "## Dimension trajectory" feed-forward) — empty on turn 1, the evaluator\'s failed critique and multi-round dimension trajectory on turn 2+.',
     },
     plateauDirectiveSection: {
       placeholder: 'PLATEAU_DIRECTIVE_SECTION',
@@ -237,6 +251,12 @@ export interface BuildImplementPromptInput {
   readonly progressFile: string;
   /** Current `progress.md` body — inlined into the prompt's "## Prior progress" section. */
   readonly priorProgress: string;
+  /**
+   * Pre-composed "## Learnings from prior sprints" body — this project's not-yet-promoted ledger
+   * insights (principle 3, read side). Absent or empty → the `{{PRIOR_LEARNINGS}}` placeholder
+   * collapses cleanly. Built application-side by `composePriorLearnings` and passed in by the leaf.
+   */
+  readonly priorLearnings?: string;
   readonly projectTooling?: string;
   /**
    * Prior evaluator critique to feed back into the generator on turn 2+. Absent on turn 1
@@ -245,6 +265,13 @@ export interface BuildImplementPromptInput {
    * fix attempt sees the same dimensions the evaluator graded last.
    */
   readonly priorCritique?: string;
+  /**
+   * Pre-composed "## Dimension trajectory" block built from `ctx.plateauHistory` by
+   * `composeDimensionTrajectory` — the failed-dimension feed-forward (fixed / still-failing-for-N /
+   * newly-failing) plus the plateau-budget pressure line. Rides inside `PRIOR_CRITIQUE_SECTION` so no
+   * new placeholder is needed. Absent on round 1 (no trajectory to diff yet) or empty → not rendered.
+   */
+  readonly dimensionTrajectory?: string;
   /**
    * True on a top-of-ladder same-model nudge — the gen-eval loop stalled at the strongest rung and
    * one more attempt was granted on the SAME model. Renders the "change your approach" directive.
@@ -295,7 +322,8 @@ export const buildImplementPrompt = async (
     projectTooling: renderProjectToolingSection(input.projectTooling),
     progressFile: input.progressFile,
     priorProgress: input.priorProgress,
-    priorCritiqueSection: renderPriorCritiqueSection(input.priorCritique),
+    priorLearningsSection: renderPriorLearningsSection(input.priorLearnings),
+    priorCritiqueSection: renderPriorCritiqueSection(input.priorCritique, input.dimensionTrajectory),
     plateauDirectiveSection: renderPlateauDirectiveSection(input.plateauBreak ?? false),
     outputContractSection: input.outputContractSection,
     preVerifyResults: renderPreVerifyResultsSection(input.preVerifyOutput),
