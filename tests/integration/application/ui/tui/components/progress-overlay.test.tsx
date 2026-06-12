@@ -83,7 +83,14 @@ const SeedSelection = ({
       setFocusedRunRef.current({ projectLabel: undefined, sprintId: parseSprintId(), sprintLabel: 'pinned-run' });
     }
   }, [withSprint, withFocusedRun]);
-  return <></>;
+
+  // Render a SEEDED sentinel once the effect has committed its selection value.
+  // Tests wait for this sentinel instead of a fixed-tick sleep so the `g` keypress that follows
+  // always fires AFTER the selection state is live — eliminating the flake profile where the
+  // effect lands after the fixed tick and `g` becomes a silent no-op.
+  const seeded = withSprint ? selection.sprintId !== undefined : ui.focusedRunSprintId !== undefined;
+  if (!seeded) return <></>;
+  return <Text>SEEDED</Text>;
 };
 
 const GlobalHarness = ({ children }: { readonly children: React.ReactNode }): React.JSX.Element => {
@@ -146,7 +153,9 @@ describe('ProgressOverlay — open / close', () => {
     const dataRoot = await makeTmpRoot();
     await writeProgressFile(dataRoot, '# Progress\n\nFirst line of activity.');
     const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} withSprint={true} />);
-    await tick(50); // let the selection seed effect run
+    // Wait until the SeedSelection sentinel confirms the sprint selection effect committed.
+    // Replaces the old `tick(50)` which raced the effect under full-suite load.
+    await waitFor(() => (lastFrame() ?? '').includes('SEEDED'));
 
     expect(lastFrame() ?? '').toContain('UNDERLYING_VIEW');
 
@@ -189,7 +198,8 @@ describe('ProgressOverlay — open / close', () => {
     const { stdin, lastFrame, unmount } = render(
       <Harness dataRoot={dataRoot} withSprint={false} withFocusedRun={true} />
     );
-    await tick(50); // let the focused-run pin effect run
+    // Wait until the SeedSelection sentinel confirms the focused-run pin effect committed.
+    await waitFor(() => (lastFrame() ?? '').includes('SEEDED'));
 
     stdin.write('g');
     await waitFor(() => (lastFrame() ?? '').includes('Pinned run activity.'));
@@ -207,7 +217,8 @@ describe('ProgressOverlay — missing / empty file', () => {
     const dataRoot = await makeTmpRoot();
     // No file written — overlay should NOT crash.
     const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} withSprint={true} />);
-    await tick(50); // let the selection seed effect run
+    // Wait for the SEEDED sentinel before pressing 'g' so the effect has committed.
+    await waitFor(() => (lastFrame() ?? '').includes('SEEDED'));
     stdin.write('g');
     await waitFor(() => (lastFrame() ?? '').includes('No progress file yet')); // disk read + state flush
 
@@ -221,7 +232,8 @@ describe('ProgressOverlay — missing / empty file', () => {
     const dataRoot = await makeTmpRoot();
     await writeProgressFile(dataRoot, '');
     const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} withSprint={true} />);
-    await tick(50); // let the selection seed effect run
+    // Wait for the SEEDED sentinel before pressing 'g' so the effect has committed.
+    await waitFor(() => (lastFrame() ?? '').includes('SEEDED'));
     stdin.write('g');
     await waitFor(() => (lastFrame() ?? '').includes('exists but is empty'));
 
@@ -248,7 +260,8 @@ describe('ProgressOverlay — scrolling', () => {
     const dataRoot = await makeTmpRoot();
     await writeProgressFile(dataRoot, buildLongFile());
     const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} withSprint={true} />);
-    await tick(50); // let the selection seed effect run
+    // Wait for the SEEDED sentinel before pressing 'g' so the effect has committed.
+    await waitFor(() => (lastFrame() ?? '').includes('SEEDED'));
     stdin.write('g');
     await waitFor(() => (lastFrame() ?? '').includes('HEAD-LINE'));
 
@@ -267,11 +280,14 @@ describe('ProgressOverlay — scrolling', () => {
       // (also avoids Ink's escape-sequence disambiguation timeout race)
       await tick(15);
     }
+    // After the PgDn loop, use a condition-based wait instead of a fixed tick so slow state
+    // flushes under full-suite load cannot fail the clamp assertion.
+    await waitFor(() => (lastFrame() ?? '').includes('TAIL-LINE'));
     const bottom = lastFrame() ?? '';
     expect(bottom).toContain('TAIL-LINE');
     // Bounds clamp — the bottom frame is stable across additional PgDns.
     stdin.write('\x1b[6~');
-    await tick(30);
+    await waitFor(() => (lastFrame() ?? '').includes('TAIL-LINE'));
     const stillBottom = lastFrame() ?? '';
     expect(stillBottom).toContain('TAIL-LINE');
 
@@ -280,11 +296,13 @@ describe('ProgressOverlay — scrolling', () => {
       stdin.write('\x1b[5~'); // VT220 PgUp — ink maps this to key.pageUp
       await tick(15);
     }
+    // Same pattern: condition-based wait after the PgUp loop.
+    await waitFor(() => (lastFrame() ?? '').includes('HEAD-LINE'));
     const back = lastFrame() ?? '';
     expect(back).toContain('HEAD-LINE');
     // PgUp at the top clamps — one more press is a no-op.
     stdin.write('\x1b[5~');
-    await tick(30);
+    await waitFor(() => (lastFrame() ?? '').includes('HEAD-LINE'));
     expect(lastFrame() ?? '').toContain('HEAD-LINE');
 
     unmount();

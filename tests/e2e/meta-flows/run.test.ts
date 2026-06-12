@@ -17,12 +17,14 @@ import { createSprintExecution, setExecutionBranch } from '@src/domain/entity/sp
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
+import { RateLimitError } from '@src/domain/value/error/rate-limit-error.ts';
 import {
   absolutePath,
   FIXED_LATER,
   FIXED_REPOSITORY_ID,
   isoTimestamp,
   makeApprovedTicket,
+  makeDoneSprint,
   makePlannedSprint,
   makeTodoTask,
 } from '@tests/fixtures/domain.ts';
@@ -413,5 +415,275 @@ describe('createRunFlow', () => {
     expect(runner.status).toBe('completed');
     expect(taskRepo.tasks()[0]?.status).toBe('done');
     expect(sprintRepo.current().status).toBe('review');
+  });
+
+  it('implement-failure short-circuit: review must NOT run when implement fails', async () => {
+    // Use a done sprint — loadAndAssertSprintSubChain(['planned', 'active']) rejects it, so the
+    // implement chain fails immediately without reaching any review side effect (feedback.md
+    // creation / editor invocation).
+    const doneSprint = makeDoneSprint();
+    const ticket = makeApprovedTicket({ title: 'a-ticket' });
+    const f = await buildFixture(1);
+    cleanups.push(async () => {
+      await fs.rm(f.dir, { recursive: true, force: true });
+    });
+
+    // Override the sprint repo with the done sprint so loadAndAssertSprintSubChain fails.
+    const doneExecution = setExecutionBranch(createSprintExecution({ sprintId: doneSprint.id }), 'ralphctl/test');
+    const doneSprintRepo = inMemorySprintRepo(doneSprint);
+    const taskRepo = inMemoryTaskRepo([
+      makeTodoTask({ name: 'task-1', order: 1, ticketId: ticket.id, repositoryId: FIXED_REPOSITORY_ID }),
+    ]);
+    const eventBus = createInMemoryEventBus();
+    const harness = createInMemorySink<HarnessSignal>();
+    const locker = createFileLocker();
+    const locksRoot = absolutePath(f.dir);
+
+    const flow = createRunFlow(
+      {
+        implement: {
+          sprintRepo: doneSprintRepo.repo,
+          sprintExecutionRepo: inMemoryExecutionRepo(doneExecution),
+          taskRepo: taskRepo.repo,
+          generatorProvider: passingProvider,
+          evaluatorProvider: passingProvider,
+          templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
+          signals: harness,
+          eventBus,
+          logger: noopLogger,
+          clock: () => FIXED_LATER,
+          config: {
+            harness: {
+              maxTurns: 3,
+              maxAttempts: 3,
+              rateLimitRetries: 0,
+              plateauThreshold: 2,
+              escalateOnPlateau: false,
+              escalationMap: {},
+              skipPreVerifyOnFreshSetup: false,
+            },
+          },
+          gitRunner: cleanGit,
+          shellScriptRunner: passingShell,
+          fileLocker: locker,
+          locksRoot,
+          skillsAdapter: noopSkillsAdapter,
+          skillSource: emptySkillSource,
+          interactive: terminatingInteractive,
+          writeFile: createAtomicWriteFile(),
+          appendFile: createAppendFile(),
+        },
+        review: {
+          sprintRepo: doneSprintRepo.repo,
+          taskRepo: taskRepo.repo,
+          provider: passingProvider,
+          templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
+          signals: harness,
+          eventBus,
+          logger: noopLogger,
+          clock: () => FIXED_LATER,
+          interactive: terminatingInteractive,
+          gitRunner: cleanGit,
+          shellScriptRunner: passingShell,
+          fileLocker: locker,
+          locksRoot,
+          appendFile: createAppendFile(),
+          model: 'claude-opus-4-8',
+        },
+      },
+      {
+        sprintId: doneSprint.id,
+        todoTasks: taskRepo.tasks().slice(),
+        repositories: FAKE_REPOSITORIES,
+        reviewRoot: absolutePath(join(f.dir, 'review')),
+        commitCwd: FAKE_CWD,
+        additionalRoots: [FAKE_CWD],
+        repositoriesBlock: `- \`${String(FAKE_CWD)}\` (fake-cwd)`,
+        progressFile: absolutePath(f.progressFile),
+        sprintDir: absolutePath(f.dir),
+        feedbackFile: absolutePath(f.feedbackFile),
+        model: 'claude-opus-4-8',
+        providerId: 'claude-code',
+        memoryRoot: FAKE_MEMORY_ROOT,
+        projectId: FAKE_PROJECT_ID,
+      }
+    );
+
+    const runner = createRunner({ id: 'run-impl-fail', element: flow, initialCtx: { sprintId: doneSprint.id } });
+    await runner.start();
+
+    // Implement failed → runner is failed, not completed.
+    expect(runner.status).toBe('failed');
+
+    // The sprint never left 'done' — it was never activated or reviewed.
+    expect(doneSprintRepo.current().status).toBe('done');
+
+    // Review's first observable side effect (feedback.md creation) must NEVER have happened.
+    const feedbackExists = await fs
+      .access(f.feedbackFile)
+      .then(() => true)
+      .catch(() => false);
+    expect(feedbackExists, 'feedback.md must not exist when implement fails (review never started)').toBe(false);
+
+    // The runner's trace ends with the top-level 'run' failed entry.
+    const lastEntry = runner.trace[runner.trace.length - 1];
+    expect(lastEntry?.elementName).toBe('run');
+    expect(lastEntry?.status).toBe('failed');
+  });
+
+  it('review-failure arc: trace contains implement entries, then review failure, then final run-failed entry', async () => {
+    // Implement passes (sprint reaches 'review'). The review provider fails with a RateLimitError
+    // (fatal — not downgraded to a per-task block) so the review chain propagates an error up to
+    // the run element, which records the combined trace.
+    const f = await buildFixture(1);
+    cleanups.push(async () => {
+      await fs.rm(f.dir, { recursive: true, force: true });
+    });
+
+    // Review fails: the apply-feedback provider returns a rate-limit error on every spawn.
+    // This is fatal (isRecoverableTurnError returns false for RateLimit) and propagates through
+    // applyFeedbackUseCase → runReviewRoundUseCase → reviewRoundLeaf → review-loop → review.
+    const failingReviewProvider: HeadlessAiProvider = {
+      async generate() {
+        return Result.error(
+          new RateLimitError({ subCode: 'spawn-exit', message: 'rate limit hit — simulated for review-failure test' })
+        );
+      },
+    };
+
+    // Non-empty textarea body so the review-round proceeds past the termination-round check
+    // to the buildPrompt + callApplyFeedback step where the provider fails.
+    const reviewFailingInteractive: InteractivePrompt = {
+      async askText() {
+        throw new Error('reviewFailingInteractive: askText not used here');
+      },
+      async askTextArea() {
+        return Result.ok('Please fix the failing tests in module X.');
+      },
+      async askChoice<T>(_p: string, _options: ReadonlyArray<Choice<T>>) {
+        void _p;
+        void _options;
+        throw new Error('reviewFailingInteractive: askChoice not used here');
+      },
+      async askMultiChoice<T>(_p: string, _options: ReadonlyArray<Choice<T>>) {
+        void _p;
+        void _options;
+        throw new Error('reviewFailingInteractive: askMultiChoice not used here');
+      },
+      async askConfirm(_input: AskConfirmInput) {
+        void _input;
+        throw new Error('reviewFailingInteractive: askConfirm not used here');
+      },
+    };
+
+    const sprintRepo = inMemorySprintRepo(f.sprint);
+    const taskRepo = inMemoryTaskRepo(f.tasks);
+    const eventBus = createInMemoryEventBus();
+    const harness = createInMemorySink<HarnessSignal>();
+    const locker = createFileLocker();
+    const locksRoot = absolutePath(f.dir);
+
+    const flow = createRunFlow(
+      {
+        implement: {
+          sprintRepo: sprintRepo.repo,
+          sprintExecutionRepo: inMemoryExecutionRepo(f.execution),
+          taskRepo: taskRepo.repo,
+          generatorProvider: passingProvider,
+          evaluatorProvider: passingProvider,
+          templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
+          signals: harness,
+          eventBus,
+          logger: noopLogger,
+          clock: () => FIXED_LATER,
+          config: {
+            harness: {
+              maxTurns: 3,
+              maxAttempts: 3,
+              rateLimitRetries: 0,
+              plateauThreshold: 2,
+              escalateOnPlateau: false,
+              escalationMap: {},
+              skipPreVerifyOnFreshSetup: false,
+            },
+          },
+          gitRunner: cleanGit,
+          shellScriptRunner: passingShell,
+          fileLocker: locker,
+          locksRoot,
+          skillsAdapter: noopSkillsAdapter,
+          skillSource: emptySkillSource,
+          interactive: terminatingInteractive,
+          writeFile: createAtomicWriteFile(),
+          appendFile: createAppendFile(),
+        },
+        review: {
+          sprintRepo: sprintRepo.repo,
+          taskRepo: taskRepo.repo,
+          provider: failingReviewProvider,
+          templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
+          signals: harness,
+          eventBus,
+          logger: noopLogger,
+          clock: () => FIXED_LATER,
+          interactive: reviewFailingInteractive,
+          gitRunner: cleanGit,
+          shellScriptRunner: passingShell,
+          fileLocker: locker,
+          locksRoot,
+          appendFile: createAppendFile(),
+          model: 'claude-opus-4-8',
+        },
+      },
+      {
+        sprintId: f.sprint.id,
+        todoTasks: f.tasks,
+        repositories: FAKE_REPOSITORIES,
+        reviewRoot: absolutePath(join(f.dir, 'review')),
+        commitCwd: FAKE_CWD,
+        additionalRoots: [FAKE_CWD],
+        repositoriesBlock: `- \`${String(FAKE_CWD)}\` (fake-cwd)`,
+        progressFile: absolutePath(f.progressFile),
+        sprintDir: absolutePath(f.dir),
+        feedbackFile: absolutePath(f.feedbackFile),
+        model: 'claude-opus-4-8',
+        providerId: 'claude-code',
+        memoryRoot: FAKE_MEMORY_ROOT,
+        projectId: FAKE_PROJECT_ID,
+      }
+    );
+
+    const runner = createRunner({ id: 'run-review-fail', element: flow, initialCtx: { sprintId: f.sprint.id } });
+    await runner.start();
+
+    // The combined run failed because review failed, not implement.
+    expect(runner.status).toBe('failed');
+
+    // Implement ran successfully: task is done and sprint reached 'review'.
+    expect(taskRepo.tasks()[0]?.status).toBe('done');
+    expect(sprintRepo.current().status).toBe('review'); // never transitioned to done
+
+    // The runner trace contains:
+    //  - implement sub-chain entries (implement ran to completion)
+    //  - review sub-chain entries (the failed review-round entry)
+    //  - a final top-level 'run' failed entry
+    const traceNames = runner.trace.map((e) => e.elementName);
+    // Sequential composites don't emit their own trace entry — only leaves do. The implement
+    // sub-chain populates the trace with its internal leaf names (e.g. 'load-sprint',
+    // 'activate-sprint'…). Assert that at least one implement-prologue leaf is present.
+    expect(traceNames).toContain('load-sprint');
+    // The review sub-chain's `review-round` leaf should appear (it ran before failing).
+    expect(traceNames).toContain('review-round');
+    const lastEntry = runner.trace[runner.trace.length - 1];
+    expect(lastEntry?.elementName).toBe('run');
+    expect(lastEntry?.status).toBe('failed');
+
+    // feedback.md was created by `ensure-feedback-file` (review's early step ran before the round
+    // failed), confirming review DID start and ran past its setup step.
+    const feedbackExists = await fs
+      .access(f.feedbackFile)
+      .then(() => true)
+      .catch(() => false);
+    expect(feedbackExists, 'feedback.md must exist because review started (ensure-feedback-file ran)').toBe(true);
   });
 });
