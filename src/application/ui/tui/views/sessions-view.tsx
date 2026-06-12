@@ -20,6 +20,7 @@ import { runnerStatusKind, StatusChip } from '@src/application/ui/tui/components
 import { OverflowRow, useListWindow } from '@src/application/ui/tui/components/windowed-list.tsx';
 import { ConfirmPrompt } from '@src/application/ui/tui/prompts/confirm-prompt.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { FeedbackLine, feedback, type StructuredFeedback } from '@src/application/ui/tui/components/feedback-line.tsx';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSessionManager, useSessions } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
@@ -41,12 +42,13 @@ export const SessionsView = (): React.JSX.Element => {
   const manager = useSessionManager();
   const ui = useUiState();
   useViewHints([
+    { keys: '↑/↓', label: 'move' },
     { keys: '↵', label: 'open' },
     { keys: 'c', label: 'cancel run' },
   ]);
 
   const [confirmCancel, setConfirmCancel] = useState<SessionRecord | undefined>(undefined);
-  const [feedback, setFeedback] = useState<string | undefined>(undefined);
+  const [sessionFeedback, setSessionFeedback] = useState<StructuredFeedback | undefined>(undefined);
 
   // List input is live only when no overlay / prompt is mounted; the global-key mute is claimed
   // separately while the confirm prompt is up.
@@ -70,7 +72,7 @@ export const SessionsView = (): React.JSX.Element => {
       const target = focusedItem ?? sessions[0];
       if (target === undefined) return;
       if (target.descriptor.status !== 'running') {
-        setFeedback(`${glyphs.cross} session is ${target.descriptor.status}, nothing to cancel`);
+        setSessionFeedback(feedback('error', `session is ${target.descriptor.status}, nothing to cancel`));
         return;
       }
       setConfirmCancel(target);
@@ -81,7 +83,7 @@ export const SessionsView = (): React.JSX.Element => {
     setConfirmCancel(undefined);
     if (!confirmed) return;
     manager.abort(target.descriptor.id);
-    setFeedback(`${glyphs.check} requested cancel for ${target.descriptor.title}`);
+    setSessionFeedback(feedback('success', `requested cancel for ${target.descriptor.title}`));
   };
 
   return (
@@ -170,11 +172,7 @@ export const SessionsView = (): React.JSX.Element => {
               {glyphs.bullet} {sessions.length} session(s) {glyphs.bullet} ↵ open {glyphs.bullet} c cancel
             </Text>
           </Box>
-          {feedback !== undefined && (
-            <Box paddingX={spacing.indent} marginTop={1}>
-              <Text color={feedback.startsWith(glyphs.cross) ? inkColors.error : inkColors.primary}>{feedback}</Text>
-            </Box>
-          )}
+          <FeedbackLine text={sessionFeedback} />
         </Box>
       )}
     </ViewShell>

@@ -114,14 +114,19 @@ export const contextualKeys = {
  * `useListWindow` primitive. Four key groups: arrows (primary move), j/k (vim alias for move),
  * PgUp/PgDn (page), Home/End (jump first / last). Arrows are advertised per-view; j/k are a global
  * alias shown only here in the help overlay, not in per-view hints.
+ *
+ * NOTE: `g`/`G` vim aliases are absent — `g` is bound globally to the progress overlay (see
+ * `globalKeys.progressOverlay`). Binding `g` here would cause it to both move the cursor to the
+ * first item AND open the progress overlay on any list surface where a sprint is selected.
+ * Home/End cover the jump-to-first/last ground without the conflict.
  */
 export const listKeys = {
   up: { keys: ['↑', 'k'], label: 'up' },
   down: { keys: ['↓', 'j'], label: 'down' },
   pageUp: { keys: ['PgUp'], label: 'page up' },
   pageDown: { keys: ['PgDn'], label: 'page down' },
-  top: { keys: ['Home', 'g'], label: 'first' },
-  bottom: { keys: ['End', 'G'], label: 'last' },
+  top: { keys: ['Home'], label: 'first' },
+  bottom: { keys: ['End'], label: 'last' },
   select: { keys: ['↵'], label: 'select' },
 } as const satisfies Record<string, KeyBinding>;
 
@@ -151,6 +156,19 @@ export const tasksPanelKeys = {
   collapseCard: { keys: ['esc'], label: 'collapse expanded card' },
   criteria: { keys: ['e'], label: 'expand done criteria for active card' },
 } as const satisfies Record<string, KeyBinding>;
+
+/**
+ * The canonical `↑/↓ → move` hint for list views. Include this as the first entry in every
+ * list view's `useViewHints` so the footer consistently teaches arrow navigation. Per the
+ * windowed-list contract (DESIGN-SYSTEM §6.4), arrows are primary; `j`/`k` are documented in
+ * the help overlay's Lists section only and must not be repeated per-view.
+ *
+ * @public
+ */
+export const listMoveHint: { readonly keys: string; readonly label: string } = {
+  keys: '↑/↓',
+  label: 'move',
+};
 
 /** Key labels grouped by area — consumed by the help overlay. */
 export interface KeySection {

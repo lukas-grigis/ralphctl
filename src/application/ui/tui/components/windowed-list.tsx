@@ -78,7 +78,9 @@ export interface UseListWindowResult<T> {
  * same logical item even though its index changed.
  *
  * Keys (active gated by `active`, default true): ↑/`k` up, ↓/`j` down (arrows primary, vim
- * aliases), PageUp/PageDown by `visibleRows`, Home/`g` first, End/`G` last, Enter/Return submits.
+ * aliases), PageUp/PageDown by `visibleRows`, Home first, End last, Enter/Return submits.
+ * `g`/`G` vim aliases are intentionally absent — `g` is bound to the global progress overlay
+ * and binding it here causes a double-fire on list surfaces. Home/End cover the same ground.
  * Movement clamps at both bounds and rewrites the cursor id to the landing item's id.
  */
 export function useListWindow<T>({
@@ -137,8 +139,8 @@ export function useListWindow<T>({
       else if (key.downArrow || input === 'j') moveTo(at + 1);
       else if (key.pageUp) moveTo(at - visibleRows);
       else if (key.pageDown) moveTo(at + visibleRows);
-      else if (key.home || input === 'g') moveTo(0);
-      else if (key.end || input === 'G') moveTo(items.length - 1);
+      else if (key.home) moveTo(0);
+      else if (key.end) moveTo(items.length - 1);
       else if (key.return) {
         const item = items[at];
         if (item !== undefined) onSubmit?.(item);

@@ -180,6 +180,23 @@ export const SettingsView = (): React.JSX.Element => {
       setCursor((c) => Math.min(activeFields.length - 1, c + 1));
       return;
     }
+    if (key.pageUp) {
+      // Per-section row count is small (≤ 8) so PgUp snaps to the first field.
+      setCursor(0);
+      return;
+    }
+    if (key.pageDown) {
+      setCursor(activeFields.length - 1);
+      return;
+    }
+    if (key.home) {
+      setCursor(0);
+      return;
+    }
+    if (key.end) {
+      setCursor(activeFields.length - 1);
+      return;
+    }
     if (key.return || input === 'e') {
       const field = activeFields[cursor];
       if (field === undefined) return;

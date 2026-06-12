@@ -103,7 +103,7 @@ export const ProjectsView = (): React.JSX.Element => {
       const target = focusedItem ?? items[0];
       if (target !== undefined && selection.projectId !== target.id) {
         selection.setProject(target.id, target.displayName);
-        setFeedback(`✓ now on ${target.displayName}`);
+        setFeedback(`${glyphs.check} now on ${target.displayName}`);
       }
       return;
     }
@@ -118,7 +118,7 @@ export const ProjectsView = (): React.JSX.Element => {
       return;
     }
     if (input === 'r') {
-      setFeedback('↻ reloading…');
+      setFeedback(`${glyphs.refresh} reloading…`);
       reload();
     }
   });
@@ -128,11 +128,11 @@ export const ProjectsView = (): React.JSX.Element => {
     if (!confirmed) return;
     const r = await deps.projectRepo.remove(target.id);
     if (!r.ok) {
-      setFeedback(`✗ ${r.error.message}`);
+      setFeedback(`${glyphs.cross} ${r.error.message}`);
       return;
     }
     if (selection.projectId === target.id) selection.setProject(undefined);
-    setFeedback(`✓ removed ${target.displayName}`);
+    setFeedback(`${glyphs.check} removed ${target.displayName}`);
     reload();
   };
 

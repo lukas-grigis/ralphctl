@@ -105,6 +105,7 @@ export const SprintsView = (): React.JSX.Element => {
   // rather than advertise a no-op. `u` follows the same declarative gate on the stuck-task count.
   const focusedDone = focusedSprint?.status === 'done';
   useViewHints([
+    { keys: '↑/↓', label: 'move' },
     { keys: '↵', label: 'open' },
     { keys: 'c', label: 'create' },
     { keys: 'e', label: 'rename', enabledWhen: !focusedDone },
@@ -117,7 +118,7 @@ export const SprintsView = (): React.JSX.Element => {
   // wiring it inline here would duplicate the subscriber across every sprint-bound view.
   const launchCreateSprint = useLaunchCreateSprint({
     onError: setFeedback,
-    noProjectMessage: '✗ pick a project first (Projects → open one)',
+    noProjectMessage: `${glyphs.cross} pick a project first (Projects ${glyphs.arrowRight} open one)`,
   });
 
   const handleRename = (target: Sprint): void => {
@@ -135,7 +136,7 @@ export const SprintsView = (): React.JSX.Element => {
         reload();
         return Result.ok(undefined);
       },
-      successLabel: `✓ renamed "${target.name}"`,
+      successLabel: `${glyphs.check} renamed "${target.name}"`,
     });
   };
 
@@ -164,7 +165,7 @@ export const SprintsView = (): React.JSX.Element => {
       return;
     }
     if (input === 'r') {
-      setFeedback('↻ reloading…');
+      setFeedback(`${glyphs.refresh} reloading…`);
       reload();
     }
     if (input === 'u' && stuckCount > 0) {
@@ -199,7 +200,7 @@ export const SprintsView = (): React.JSX.Element => {
       );
     } else {
       setFeedback(
-        `${glyphs.check} unblocked ${String(succeeded)} of ${String(total)}${lastError !== undefined ? ` — ${lastError}` : ''}`
+        `${succeeded > 0 ? glyphs.check : glyphs.cross} unblocked ${String(succeeded)} of ${String(total)}${lastError !== undefined ? ` — ${lastError}` : ''}`
       );
     }
     // Refresh task list so the hint and count update immediately.
@@ -212,11 +213,11 @@ export const SprintsView = (): React.JSX.Element => {
     if (!confirmed) return;
     const r = await deps.sprintRepo.remove(target.id);
     if (!r.ok) {
-      setFeedback(`✗ ${r.error.message}`);
+      setFeedback(`${glyphs.cross} ${r.error.message}`);
       return;
     }
     if (selection.sprintId === target.id) selection.setSprint(undefined);
-    setFeedback(`✓ removed ${target.name}`);
+    setFeedback(`${glyphs.check} removed ${target.name}`);
     reload();
   };
 

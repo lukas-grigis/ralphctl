@@ -40,6 +40,7 @@ import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { Ticket } from '@src/domain/entity/ticket.ts';
+import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useRouter, useViewProps } from '@src/application/ui/tui/runtime/router.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
@@ -53,7 +54,13 @@ import { TicketsSection } from '@src/application/ui/tui/views/sprint-detail-inte
 import { TasksSection } from '@src/application/ui/tui/views/sprint-detail-internals/task-summary.tsx';
 import { ActionBar } from '@src/application/ui/tui/views/sprint-detail-internals/action-bar.tsx';
 import { useSprintDetailShortcuts } from '@src/application/ui/tui/views/sprint-detail-internals/shortcuts.ts';
-import { buildFocusList, type FocusItem } from '@src/application/ui/tui/views/sprint-detail-internals/focus-list.ts';
+import {
+  buildFocusList,
+  sectionWindowCards,
+  type FocusItem,
+} from '@src/application/ui/tui/views/sprint-detail-internals/focus-list.ts';
+import { useListWindow } from '@src/application/ui/tui/components/windowed-list.tsx';
+import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
 import { runEdit } from '@src/application/ui/tui/views/sprint-detail-internals/field-editors.ts';
 import {
   type SprintBundle,
@@ -84,7 +91,32 @@ export const SprintDetailView = (): React.JSX.Element => {
   const tasks = useMemo(() => (state.kind === 'ok' ? state.value.tasks : []), [state]);
   const focusList = useMemo(() => (sprint !== undefined ? buildFocusList(sprint, tasks) : []), [sprint, tasks]);
 
-  const [cursorIdx, setCursorIdx] = useState(0);
+  const { rows } = useBreakpoint();
+  // visibleRows for the windowed list — use the same budget the child panes use individually,
+  // doubled to cover both tickets + tasks combined. The list is split across two rendered panes
+  // but the cursor walks them as one flat list; a single generous budget ensures the cursor
+  // always appears on screen.
+  const focusVisibleRows = Math.max(8, sectionWindowCards(rows) * 2);
+
+  // Id-stable cursor over the flat focus list. Items are keyed as `ticket:<id>` / `task:<id>`
+  // matching the entity's stable domain id, so a task-list refresh or reorder keeps focus on
+  // the same logical item instead of teleporting to whatever sits at the old index.
+  const getFocusItemId = useMemo(
+    () =>
+      (item: FocusItem): string =>
+        item.kind === 'ticket' ? `ticket:${String(item.ticket.id)}` : `task:${String(item.task.id)}`,
+    []
+  );
+  const listActive = !ui.helpOpen && !ui.promptActive;
+  const { focusedIndex: cursorIdx } = useListWindow<FocusItem>({
+    items: focusList,
+    getId: getFocusItemId,
+    visibleRows: focusVisibleRows,
+    // Navigation keys (↑↓ j/k PgUp/PgDn Home/End) are owned by the hook.
+    // The shortcuts hook provides additional view-local keys (a/e/m/d/u/↵/q).
+    active: listActive && state.kind === 'ok',
+  });
+
   const [openIds, setOpenIds] = useState<ReadonlySet<string>>(() => new Set());
   const [confirmRemove, setConfirmRemove] = useState<Ticket | undefined>(undefined);
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
@@ -114,8 +146,12 @@ export const SprintDetailView = (): React.JSX.Element => {
   // non-draft sprint or the footer would advertise keys that do nothing. `m` (mark-current) and
   // `u` (unblock) follow the same declarative gate rather than conditional spreads.
   useViewHints([
+    { keys: '↑/↓', label: 'move' },
     { keys: 'n', label: 'flows' },
     { keys: '↵/o', label: inDetail ? 'expand/collapse' : 'expand' },
+    // `esc/q` collapses all expanded cards; only shown while in detail mode so the hint
+    // doesn't compete with the global `esc → back` behavior when nothing is expanded.
+    { keys: 'esc/q', label: 'collapse all', enabledWhen: inDetail },
     { keys: 'a', label: 'add ticket', enabledWhen: ticketsEditable === true },
     { keys: 'e', label: 'edit field', enabledWhen: canEdit },
     { keys: 'd', label: 'remove ticket', enabledWhen: ticketsEditable === true },
@@ -156,10 +192,10 @@ export const SprintDetailView = (): React.JSX.Element => {
       logger: deps.logger,
     });
     if (!r.ok) {
-      setFeedback(`✗ ${r.error.message}`);
+      setFeedback(`${glyphs.cross} ${r.error.message}`);
       return;
     }
-    setFeedback(`✓ unblocked "${target.name}"`);
+    setFeedback(`${glyphs.check} unblocked "${target.name}"`);
     reload();
   };
 
@@ -184,12 +220,10 @@ export const SprintDetailView = (): React.JSX.Element => {
         else next.add(id);
         return next;
       }),
-    moveCursor: (delta) =>
-      setCursorIdx((c) => (delta === 1 ? Math.min(focusList.length - 1, c + 1) : Math.max(0, c - 1))),
     beginRemove: (ticket) => setConfirmRemove(ticket),
     markCurrent: (s) => {
       selection.setSprint(s.id, s.name, s.status);
-      setFeedback(`✓ now on ${s.name}`);
+      setFeedback(`${glyphs.check} now on ${s.name}`);
     },
     handleEdit,
     handleUnblock: (task) => {
@@ -209,10 +243,10 @@ export const SprintDetailView = (): React.JSX.Element => {
     const flow = createTicketRemoveFlow({ sprintRepo: deps.sprintRepo });
     const r = await flow.execute({ input: { sprintId: sprint.id, ticketId: target.id } });
     if (!r.ok) {
-      setFeedback(`✗ ${r.error.error.message}`);
+      setFeedback(`${glyphs.cross} ${r.error.error.message}`);
       return;
     }
-    setFeedback(`✓ removed "${target.title}"`);
+    setFeedback(`${glyphs.check} removed "${target.title}"`);
     reload();
   };
 

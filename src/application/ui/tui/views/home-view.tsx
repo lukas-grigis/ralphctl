@@ -19,7 +19,7 @@ import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } 
 import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { ActionMenu } from '@src/application/ui/tui/components/action-menu.tsx';
-import { inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
@@ -119,7 +119,7 @@ export const HomeView = (): React.JSX.Element => {
   // (no project) flash a local error instead.
   const launchCreateSprint = useLaunchCreateSprint({
     onError: flashErr,
-    noProjectMessage: '✗ pick a project first (Projects → open one)',
+    noProjectMessage: `${glyphs.cross} pick a project first (Projects ${glyphs.arrowRight} open one)`,
   });
 
   // Inline-shortcut + `+` hotkey. We watch for `+` outside the ActionMenu's hotkey machinery
@@ -131,7 +131,7 @@ export const HomeView = (): React.JSX.Element => {
       if (ui.helpOpen || ui.promptActive) return;
       if (input !== '+') return;
       if (!hasProject) {
-        flashErr('✗ pick a project first (Projects → open one)');
+        flashErr(`${glyphs.cross} pick a project first (Projects ${glyphs.arrowRight} open one)`);
         return;
       }
       void launchCreateSprint();
@@ -197,7 +197,7 @@ export const HomeView = (): React.JSX.Element => {
           <StateCard state={state.kind === 'ok' ? state.value : undefined} loading={state.kind === 'loading'} />
           {switchToastVisible && lastSwitch !== undefined && (
             <Box paddingX={spacing.indent} marginTop={spacing.section}>
-              <Text color={inkColors.success}>{`✓ now on ${lastSwitch.sprintLabel}`}</Text>
+              <Text color={inkColors.success}>{`${glyphs.check} now on ${lastSwitch.sprintLabel}`}</Text>
             </Box>
           )}
           {localError !== undefined && (

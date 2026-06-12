@@ -167,6 +167,7 @@ export const FlowsView = (): React.JSX.Element => {
   const [launchError, setLaunchError] = useState<string | undefined>(undefined);
   const [showAll, setShowAll] = useState<boolean>(false);
   useViewHints([
+    { keys: '↑/↓', label: 'move' },
     { keys: '↵', label: 'launch' },
     { keys: 'r', label: 'reload state' },
     { keys: 'v', label: showAll ? 'hide inapplicable' : 'show all' },
@@ -346,7 +347,7 @@ export const FlowsView = (): React.JSX.Element => {
   });
 
   return (
-    <ViewShell title="Flows" subtitle="Pick a flow to run">
+    <ViewShell title="Flows" subtitle="Pick a flow to run" suppressScrollArrows>
       {ui.helpOpen ? (
         <HelpOverlay />
       ) : state.kind !== 'ok' ? (
