@@ -276,6 +276,15 @@ export const SettingsSchema = z.object({
         /** Adapter-side retries on `RateLimitError` before surfacing the failure (0–10). */
         rateLimitRetries: z.number().int().min(0).max(10),
         /**
+         * Stdio-silence threshold (ms) before the idle watchdog SIGTERMs a wedged headless AI
+         * child. Production sessions stream tokens continuously; a child silent past this is
+         * presumed stuck (model server hung up, CLI deadlocked, network stalled). Range
+         * 60_000–3_600_000 (1 min – 1 h), default 300_000 (5 min). Lower it on a fast network /
+         * short tasks to reclaim a hung child sooner; raise it for slow first-token models that
+         * pause mid-reasoning. Threads into every adapter's `deps.idleMs`.
+         */
+        idleWatchdogMs: z.number().int().min(60_000).max(3_600_000).default(300_000),
+        /**
          * Consecutive evaluator turns flagging the same failed-dimension set before the loop
          * exits with a `plateau` warning (2–5, default 3 — patient: the graduated remedy ladder
          * climbs cheapest-first across plateaus, so a slightly higher threshold avoids spending an

@@ -11,19 +11,13 @@ import { resolveWritableRoots } from '@src/integration/ai/providers/_engine/reso
 import type { SessionPermissions } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
-import { AbortError } from '@src/domain/value/error/abort-error.ts';
-import { RateLimitError } from '@src/domain/value/error/rate-limit-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { isCodexModel } from '@src/domain/value/settings-models/codex.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import { runHeadlessSpawn } from '@src/integration/ai/providers/_engine/run-headless-spawn.ts';
+import { runWithRateLimitRetry } from '@src/integration/ai/providers/_engine/run-with-rate-limit-retry.ts';
 import type { AttemptOutcome } from '@src/integration/ai/providers/_engine/attempt-outcome.ts';
 import { classifySpawnExit } from '@src/integration/ai/providers/_engine/classify-spawn-exit.ts';
-import {
-  DEFAULT_BACKOFF_SCHEDULE,
-  delayForRetry,
-  sleepCancellable,
-} from '@src/integration/ai/providers/_engine/rate-limit-backoff.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import { persistSessionIdFile } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
 import { contextWindowFor } from '@src/integration/ai/providers/_engine/context-window.ts';
@@ -106,7 +100,13 @@ import type { EventBus } from '@src/business/observability/event-bus.ts';
  * a port, not an implementation detail of this file.
  */
 
-const RATE_LIMIT_RE = /rate.?limit/i;
+/**
+ * Rate-limit / quota detection. Broadened past the bare `/rate.?limit/i` to also catch the word
+ * "quota" and a bare `429` — codex surfaces a throttle as "quota exceeded" / an HTTP 429 in its
+ * agent_message / error stream, neither of which contains the literal "rate limit". The haystack
+ * is stderr PLUS the agent_message tail the adapter feeds via `stdoutTail`.
+ */
+const RATE_LIMIT_RE = /rate.?limit|quota|\b429\b/i;
 
 /**
  * Map our SessionPermissions onto codex's `-s/--sandbox` policy.
@@ -224,107 +224,38 @@ export const createCodexProvider = (deps: CodexProviderDeps): HeadlessAiProvider
   return {
     async generate(session) {
       const outputFile = mkTempPath();
+      // Validate argv up front so a bad model / permission surfaces before any spawn.
       const argsResult = buildCodexArgs(session, { outputFile });
       if (!argsResult.ok) return Result.error(argsResult.error) as Result<ProviderOutput, DomainError>;
-      let args = argsResult.value;
-      // Latch so the stale-resume cold fallback fires at most once per generate() call.
-      let coldRetried = false;
 
       try {
-        const maxAttempts = deps.rateLimitRetries + 1;
-        const schedule = deps.backoffSchedule ?? DEFAULT_BACKOFF_SCHEDULE;
-        let lastRateLimit: RateLimitError | undefined;
-        for (let attempt = 0; attempt < maxAttempts; attempt++) {
-          const outcome = await spawnAttempt({ deps, spawnFn, command, args, session, readFile, outputFile });
-          if (outcome.kind === 'success') {
-            return Result.ok(outcome.output) as Result<ProviderOutput, DomainError>;
-          }
-          if (outcome.kind === 'rate-limit') {
-            lastRateLimit = outcome.error;
-            const bannerId = `rate-limit-codex-${outcome.error.sessionId ?? String(attempt + 1)}`;
-            deps.eventBus.publish({
-              type: 'log',
-              level: 'warn',
-              message: `codex-provider: rate-limit on attempt ${String(attempt + 1)}/${String(maxAttempts)}`,
-              meta: { attempt: attempt + 1, maxAttempts, subCode: outcome.error.subCode },
-              at: IsoTimestamp.now(),
+        // The shared retry seam owns the loop, backoff, banners, abort-during-backoff, the
+        // session-resume rebuild (so a 429 retry runs `exec resume <id>`), and the stale-resume
+        // cold fallback (drops resume for one cold respawn when the rollout is gone). The
+        // per-attempt closure rebuilds argv from the CURRENT session, so a resumed retry emits
+        // `exec resume` and a cold-fallback session emits the `-C cwd / -s sandbox` cold path.
+        return await runWithRateLimitRetry({
+          session,
+          rateLimitRetries: deps.rateLimitRetries,
+          ...(deps.backoffSchedule !== undefined ? { backoffSchedule: deps.backoffSchedule } : {}),
+          eventBus: deps.eventBus,
+          providerSlug: 'codex',
+          providerName: 'codex-provider',
+          resumeStaleRe: RESUME_STALE_RE,
+          attempt: async (attemptSession) => {
+            const built = buildCodexArgs(attemptSession, { outputFile });
+            if (!built.ok) return { kind: 'error', error: built.error };
+            return spawnAttempt({
+              deps,
+              spawnFn,
+              command,
+              args: built.value,
+              session: attemptSession,
+              readFile,
+              outputFile,
             });
-            if (attempt < maxAttempts - 1) {
-              const delayMs = delayForRetry(attempt + 1, schedule);
-              if (delayMs > 0) {
-                deps.eventBus.publish({
-                  type: 'log',
-                  level: 'info',
-                  message: `codex-provider: waiting ${String(delayMs)}ms before retry`,
-                  meta: { delayMs, nextAttempt: attempt + 2, maxAttempts },
-                  at: IsoTimestamp.now(),
-                });
-                deps.eventBus.publish({
-                  type: 'banner-show',
-                  id: bannerId,
-                  tier: 'info',
-                  message: `Rate limit (codex) — waiting ${Math.round(delayMs / 1000).toString()}s before retry`,
-                  cause: `attempt ${String(attempt + 1)}/${String(maxAttempts)}`,
-                  at: IsoTimestamp.now(),
-                });
-                await sleepCancellable(delayMs, session.abortSignal);
-                deps.eventBus.publish({ type: 'banner-clear', id: bannerId, at: IsoTimestamp.now() });
-                if (session.abortSignal?.aborted === true) {
-                  // User cancel during the backoff sleep must surface as AbortError — the one
-                  // error chains propagate transparently (CLAUDE.md §AbortError). InvalidStateError
-                  // is classified as a recoverable turn error and would wrongly self-block the task.
-                  // Mirrors the abort-on-exit shape in classify-spawn-exit.ts.
-                  return Result.error(
-                    new AbortError({
-                      elementName: 'codex-provider',
-                      reason: 'codex-provider: aborted by caller during rate-limit backoff',
-                    })
-                  ) as Result<ProviderOutput, DomainError>;
-                }
-              }
-            }
-            continue;
-          }
-          // Resume resilience: a `resume` spawn that fails because codex no longer has the
-          // rollout ("no rollout found", code -32600) would otherwise block the task. Fall
-          // back to a COLD spawn (no --resume) exactly once. Decrementing `attempt` keeps the
-          // fallback from consuming a rate-limit slot; the `coldRetried` latch bounds it.
-          //
-          // Exempt an aborted run explicitly: a user cancel (Ctrl-C / TUI abort) must tear the run
-          // down, not spawn fresh work a competitor may now own. Today an AbortError's message
-          // wouldn't match RESUME_STALE_RE, so this is belt-and-braces — but it keeps the abort
-          // guarantee independent of how the abort path happens to word its error.
-          if (
-            !coldRetried &&
-            session.abortSignal?.aborted !== true &&
-            session.resume !== undefined &&
-            RESUME_STALE_RE.test(outcome.error.message)
-          ) {
-            coldRetried = true;
-            deps.eventBus.publish({
-              type: 'log',
-              level: 'warn',
-              message: 'codex-provider: resume thread not found — retrying cold (dropping --resume)',
-              meta: { resume: String(session.resume) },
-              at: IsoTimestamp.now(),
-            });
-            // Drop the stale resume id so buildCodexArgs takes the cold-start path. `delete`
-            // on a spread copy (never the caller's session) — `exactOptionalPropertyTypes`
-            // forbids re-setting `resume: undefined`, so omit the key entirely.
-            const coldSession: AiSession = { ...session };
-            delete (coldSession as { resume?: unknown }).resume;
-            const coldArgs = buildCodexArgs(coldSession, { outputFile });
-            if (coldArgs.ok) {
-              args = coldArgs.value;
-              attempt--;
-              continue;
-            }
-          }
-          return Result.error(outcome.error) as Result<ProviderOutput, DomainError>;
-        }
-        return Result.error(
-          lastRateLimit ?? new RateLimitError({ subCode: 'spawn-stderr', message: 'rate-limit retries exhausted' })
-        ) as Result<ProviderOutput, DomainError>;
+          },
+        });
       } finally {
         await unlink(outputFile);
       }
@@ -514,6 +445,18 @@ const numberField = (obj: Record<string, unknown>, ...names: readonly string[]):
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
 
+/**
+ * Pull the assistant text out of a codex `{type:"item.completed", item:{type:"agent_message"}}`
+ * record. Used to feed the rate-limit classifier's haystack — codex prints a quota throttle in
+ * the agent_message body. Returns undefined for any other record shape.
+ */
+const agentMessageText = (obj: Record<string, unknown>): string | undefined => {
+  if (stringField(obj, 'type') !== 'item.completed') return undefined;
+  const item = obj['item'];
+  if (!isRecord(item) || stringField(item, 'type') !== 'agent_message') return undefined;
+  return stringField(item, 'text');
+};
+
 const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> => {
   const { deps, spawnFn, command, args, session, readFile, outputFile } = input;
   // `cwd` is set in addition to codex's argv `-C` so context-file autoload works on `exec resume`
@@ -524,6 +467,11 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
   let stderrBuf = '';
   let sessionId: string | undefined;
   let stdoutLineBuf = '';
+  // Accumulate codex's `agent_message` text so the rate-limit classifier can scan it alongside
+  // stderr — codex surfaces a quota throttle ("quota exceeded" / 429) in the agent_message body,
+  // not always on stderr. Capped to bound memory on a long session (the tail is all we need).
+  let agentMessageTail = '';
+  const AGENT_TAIL_CAP = 8192;
 
   // Bound once so onIdle's banner-show id and the classifier's banner-clear id match.
   const watchdogBannerId = `watchdog-codex-${String(child.pid ?? 'unknown')}`;
@@ -558,7 +506,15 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
           if (update.inputTokens !== undefined) inputTokens = update.inputTokens;
           if (update.outputTokens !== undefined) outputTokens = update.outputTokens;
         },
-        (obj) => publishCodexStreamLineEvents(deps.eventBus, obj)
+        (obj) => {
+          publishCodexStreamLineEvents(deps.eventBus, obj);
+          const text = agentMessageText(obj);
+          if (text !== undefined) {
+            agentMessageTail = `${agentMessageTail}${agentMessageTail.length > 0 ? '\n' : ''}${text}`.slice(
+              -AGENT_TAIL_CAP
+            );
+          }
+        }
       );
     },
     onStderr: (chunk) => {
@@ -669,6 +625,9 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
     exit: { code, signal },
     stderr: stderrBuf,
     rateLimitRe: RATE_LIMIT_RE,
+    // Codex reports a quota throttle in the agent_message body, not always on stderr. Feed the
+    // accumulated tail into the rate-limit haystack so it trips the overnight backoff.
+    ...(agentMessageTail.length > 0 ? { stdoutTail: agentMessageTail } : {}),
     ...(sessionId !== undefined ? { capturedSessionId: sessionId } : {}),
     providerName: 'codex-provider',
     eventBus: deps.eventBus,

@@ -352,6 +352,90 @@ describe('createCodexProvider', () => {
     expect(out.error.code).toBe('rate-limit');
   });
 
+  it('rate-limit on attempt 1, success on attempt 2 → ok (resumes the captured thread)', async () => {
+    // FINDING 6 — mirror the claude retry-arc. A 429 on attempt 1 must retry and, because the
+    // first attempt captured a thread id, RESUME it via `exec resume <id>` on attempt 2.
+    const cap = createCapturingBus();
+    const { spawn, calls } = makeSpawn([
+      // Attempt 1: captures thread id, then a rate-limit exit.
+      {
+        stdoutChunks: ['{"type":"thread.started","thread_id":"thread-429"}\n'],
+        stderrChunks: ['Error: rate limit exceeded\n'],
+        exitCode: 1,
+      },
+      // Attempt 2: clean run resuming the thread.
+      { stdoutChunks: ['{"type":"thread.started","thread_id":"thread-429"}\n'], exitCode: 0 },
+    ]);
+    const fsStub = stubFs('<task-complete/>');
+
+    const provider = createCodexProvider({
+      rateLimitRetries: 2,
+      eventBus: cap.bus,
+      spawn,
+      readFile: fsStub.readFile,
+      unlink: fsStub.unlink,
+      mkTempPath: fsStub.mkTempPath,
+      backoffSchedule: [0, 0, 0],
+    });
+
+    const out = await provider.generate(session());
+    expect(out.ok).toBe(true);
+    expect(calls).toHaveLength(2);
+    // Attempt 1 was a fresh `exec` (no resume).
+    expect(calls[0]?.args).not.toContain('resume');
+    // Attempt 2 resumes the captured thread.
+    expect(calls[1]?.args.slice(0, 3)).toEqual(['exec', 'resume', 'thread-429']);
+  });
+
+  it('rate-limit attempt 1, stale-resume cold fallback attempt 2, success attempt 3 with rateLimitRetries=1', async () => {
+    // FINDING 6 — the full salvage arc: a 429 burns the single retry slot (attempt 1 → attempt
+    // 2 resumes the captured thread), then the resumed spawn finds the rollout gone and the cold
+    // fallback fires WITHOUT consuming a rate-limit slot, landing a clean success on attempt 3.
+    const cap = createCapturingBus();
+    const { spawn, calls } = makeSpawn([
+      // Attempt 1 (fresh exec): captures thread id, then 429.
+      {
+        stdoutChunks: ['{"type":"thread.started","thread_id":"thread-A"}\n'],
+        stderrChunks: ['Error: rate limit exceeded\n'],
+        exitCode: 1,
+      },
+      // Attempt 2 (resume thread-A): rollout is gone → stale-resume error.
+      {
+        stderrChunks: ['Error: thread/resume failed: no rollout found for thread id thread-A (code -32600)\n'],
+        exitCode: 1,
+      },
+      // Attempt 2' (cold fallback, no resume — does NOT consume a rate-limit slot): clean success.
+      { stdoutChunks: ['{"type":"thread.started","thread_id":"thread-cold"}\n'], exitCode: 0 },
+    ]);
+    const fsStub = stubFs('<task-complete/>');
+
+    const provider = createCodexProvider({
+      // rateLimitRetries: 1 → maxAttempts 2. The cold fallback must still fire on top of the one
+      // rate-limit retry because it re-runs the same attempt index, not a new one.
+      rateLimitRetries: 1,
+      eventBus: cap.bus,
+      spawn,
+      readFile: fsStub.readFile,
+      unlink: fsStub.unlink,
+      mkTempPath: fsStub.mkTempPath,
+      backoffSchedule: [0],
+    });
+
+    const out = await provider.generate(session());
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.value.sessionId).toBe('thread-cold');
+    expect(calls).toHaveLength(3);
+    // 1: fresh exec, 2: resume thread-A, 3: cold (no resume).
+    expect(calls[0]?.args).not.toContain('resume');
+    expect(calls[1]?.args.slice(0, 3)).toEqual(['exec', 'resume', 'thread-A']);
+    expect(calls[2]?.args).not.toContain('resume');
+    expect(calls[2]?.args).toContain('-C');
+    // Both salvage events are reported to the operator.
+    expect(cap.logs.some((l) => l.level === 'warn' && /rate-limit on attempt/.test(l.message))).toBe(true);
+    expect(cap.logs.some((l) => l.level === 'warn' && /resume thread not found/i.test(l.message))).toBe(true);
+  });
+
   it('abort during rate-limit backoff: surfaces AbortError (not InvalidStateError)', async () => {
     // A user cancel that lands while the provider is sleeping between 429 retries must surface as
     // AbortError — the one error chains propagate transparently. InvalidStateError would be

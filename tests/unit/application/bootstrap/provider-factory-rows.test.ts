@@ -28,6 +28,7 @@ const harnessConfig: Settings['harness'] = {
   maxTurns: 5,
   maxAttempts: 3,
   rateLimitRetries: 2,
+  idleWatchdogMs: 300_000,
   plateauThreshold: 2,
   escalateOnPlateau: false,
   escalationMap: {},

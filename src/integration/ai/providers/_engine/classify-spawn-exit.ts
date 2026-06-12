@@ -52,10 +52,32 @@ export type ProviderName = 'claude-provider' | 'codex-provider' | 'copilot-provi
 
 export interface ClassifySpawnExitInput {
   readonly session: AiSession;
-  readonly exit: { readonly code: number | null; readonly signal: string | null };
+  readonly exit: {
+    readonly code: number | null;
+    readonly signal: string | null;
+    /**
+     * Set when the spawn raised an `'error'` event (binary missing / non-executable, or the
+     * child died before stdin drained). Surfaces as an `InvalidStateError` before any exit-code
+     * branch — a spawn error means the child never ran, so `code` / `signal` carry no signal.
+     */
+    readonly spawnError?: NodeJS.ErrnoException;
+  };
   readonly stderr: string;
-  /** Matched against `stderr` to detect rate-limit. Producer of the regex is the adapter. */
+  /**
+   * Matched against the rate-limit haystack to detect a 429 / quota throttle. The haystack is
+   * `stderr` plus any provider-parsed stdout error body the adapter passes via `stdoutTail`:
+   * Claude's `-p stream-json` mode reports quota errors in the stdout `result` envelope, not on
+   * stderr, so a stderr-only scan misses the most common real-world throttle shape. Producer of
+   * the regex is the adapter (per-provider wording differs).
+   */
   readonly rateLimitRe: RegExp;
+  /**
+   * Provider-parsed stdout error / result body, concatenated onto `stderr` before the
+   * rate-limit regex runs. Lets a provider that surfaces quota messages in its stdout JSON
+   * envelope (claude stream-json `result`, copilot/codex result records) still trip the
+   * overnight backoff. Optional — adapters whose throttle wording always lands on stderr omit it.
+   */
+  readonly stdoutTail?: string;
   /** Provider's best-effort captured session id, attached to `RateLimitError` when present. */
   readonly capturedSessionId?: string;
   readonly providerName: ProviderName;
@@ -77,8 +99,18 @@ export interface ClassifySpawnExitInput {
 }
 
 export const classifySpawnExit = async (input: ClassifySpawnExitInput): Promise<AttemptOutcome> => {
-  const { session, exit, stderr, rateLimitRe, capturedSessionId, providerName, eventBus, watchdogBannerId, onSuccess } =
-    input;
+  const {
+    session,
+    exit,
+    stderr,
+    rateLimitRe,
+    stdoutTail,
+    capturedSessionId,
+    providerName,
+    eventBus,
+    watchdogBannerId,
+    onSuccess,
+  } = input;
 
   // 1. Abort precedence. A user cancel that races a clean exit still surfaces as
   // AbortError so the chain runner can propagate it transparently per CLAUDE.md §267.
@@ -92,13 +124,34 @@ export const classifySpawnExit = async (input: ClassifySpawnExitInput): Promise<
     };
   }
 
-  // 2. Clean exit — adapter's own success block owns the data plumbing.
+  // 2. Spawn error precedence (before any exit-code branch). The child never ran — a missing /
+  // non-executable binary (ENOENT / EACCES) or a death before stdin drained. Without this the
+  // unhandled `'error'` event would have killed the whole process; runHeadlessSpawn captured it
+  // so we surface a typed, actionable failure instead.
+  if (exit.spawnError !== undefined) {
+    const errno = exit.spawnError.code ?? exit.spawnError.name;
+    return {
+      kind: 'error',
+      error: new InvalidStateError({
+        entity: providerName,
+        currentState: 'spawn-failed',
+        attemptedAction: 'spawn provider CLI',
+        message: `${providerName}: spawn failed: ${errno} — ${exit.spawnError.message}`,
+        hint: 'verify the provider CLI is installed and on PATH',
+      }),
+    };
+  }
+
+  // 3. Clean exit — adapter's own success block owns the data plumbing.
   if (exit.code === 0) {
     return await onSuccess();
   }
 
-  // 3. Rate-limit — backoff/retry takes precedence over signals-recovery.
-  if (rateLimitRe.test(stderr)) {
+  // 4. Rate-limit — backoff/retry takes precedence over signals-recovery. Scan stderr AND any
+  // provider-parsed stdout error body: claude's stream-json mode reports quota in stdout, not
+  // stderr, so a stderr-only scan misses the most common real-world throttle.
+  const rateLimitHaystack = stdoutTail !== undefined ? `${stderr}\n${stdoutTail}` : stderr;
+  if (rateLimitRe.test(rateLimitHaystack)) {
     return {
       kind: 'rate-limit',
       error: new RateLimitError({
@@ -109,7 +162,7 @@ export const classifySpawnExit = async (input: ClassifySpawnExitInput): Promise<
     };
   }
 
-  // 4. Recovery — audit-[09]: signals.json is authoritative. Existence-check only; the
+  // 5. Recovery — audit-[09]: signals.json is authoritative. Existence-check only; the
   // downstream validator catches malformed content.
   const exists = await pathExists(String(session.signalsFile));
   if (exists.ok && exists.value) {
@@ -138,7 +191,7 @@ export const classifySpawnExit = async (input: ClassifySpawnExitInput): Promise<
     return outcome;
   }
 
-  // 5. Hard fail. Mirrors the historical per-adapter exit-N error shape.
+  // 6. Hard fail. Mirrors the historical per-adapter exit-N error shape.
   return {
     kind: 'error',
     error: new InvalidStateError({

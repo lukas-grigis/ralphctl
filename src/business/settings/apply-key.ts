@@ -22,7 +22,7 @@ import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
  * explicitly via `ai.implement.generator.<field>` or `ai.implement.evaluator.<field>`.
  */
 const SETTINGS_KEY_HINT =
-  'supported keys: ai.effort, ai.{flow}.{provider,model,effort} (flow in {refine,plan,readiness,ideate,createPr}), ai.implement.{generator,evaluator}.{provider,model,effort}, harness.{maxTurns,maxAttempts,rateLimitRetries,plateauThreshold,escalateOnPlateau,skipPreVerifyOnFreshSetup}, harness.escalationMap.<fromModel>, logging.level, concurrency.maxParallelTasks, scm.postRefinementComment, ui.notifications.enabled';
+  'supported keys: ai.effort, ai.{flow}.{provider,model,effort} (flow in {refine,plan,readiness,ideate,createPr}), ai.implement.{generator,evaluator}.{provider,model,effort}, harness.{maxTurns,maxAttempts,rateLimitRetries,idleWatchdogMs,plateauThreshold,escalateOnPlateau,skipPreVerifyOnFreshSetup}, harness.escalationMap.<fromModel>, logging.level, concurrency.maxParallelTasks, scm.postRefinementComment, ui.notifications.enabled';
 
 const IMPLEMENT_ROLES: readonly AiImplementRole[] = ['generator', 'evaluator'];
 const isImplementRole = (raw: string): raw is AiImplementRole => (IMPLEMENT_ROLES as readonly string[]).includes(raw);
@@ -172,12 +172,18 @@ export const applySettingsKey = (current: Settings, key: string, raw: string): R
     case 'harness.maxTurns':
     case 'harness.maxAttempts':
     case 'harness.rateLimitRetries':
+    case 'harness.idleWatchdogMs':
     case 'harness.plateauThreshold': {
       const n = Number(raw);
       if (!Number.isFinite(n)) {
         return Result.error(new ValidationError({ field: key, value: raw, message: `'${raw}' is not a number` }));
       }
-      const which = key.split('.')[1] as 'maxTurns' | 'maxAttempts' | 'rateLimitRetries' | 'plateauThreshold';
+      const which = key.split('.')[1] as
+        | 'maxTurns'
+        | 'maxAttempts'
+        | 'rateLimitRetries'
+        | 'idleWatchdogMs'
+        | 'plateauThreshold';
       return Result.ok({ ...current, harness: { ...current.harness, [which]: n } });
     }
     case 'harness.escalateOnPlateau': {

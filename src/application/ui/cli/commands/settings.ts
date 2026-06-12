@@ -44,7 +44,7 @@ const parseProviderKey = (key: string): { readonly flow: FlowId; readonly role?:
  *      flow in {refine, plan, readiness, ideate}
  *   ai.implement.{generator|evaluator}.{provider,model,effort}
  *                                                      implement splits into a generator + evaluator pair
- *   harness.maxTurns | maxAttempts | rateLimitRetries | plateauThreshold    integer (range-checked)
+ *   harness.maxTurns | maxAttempts | rateLimitRetries | idleWatchdogMs | plateauThreshold    integer (range-checked)
  *   harness.escalateOnPlateau                          boolean (escalate generator model on plateau)
  *   harness.skipPreVerifyOnFreshSetup                  boolean (skip first pre-verify when this run's setup verified the tree)
  *   harness.escalationMap.<fromModel>                  upgraded model id; empty input clears the entry

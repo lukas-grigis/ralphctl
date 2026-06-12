@@ -65,18 +65,21 @@ export const createAiProvider = (deps: CreateAiProviderDeps): HeadlessAiProvider
     case 'claude-code':
       return createClaudeProvider({
         rateLimitRetries: deps.harnessConfig.rateLimitRetries,
+        idleMs: deps.harnessConfig.idleWatchdogMs,
         eventBus: deps.eventBus,
         ...(deps.spawn !== undefined ? { spawn: deps.spawn } : {}),
       });
     case 'github-copilot':
       return createCopilotProvider({
         rateLimitRetries: deps.harnessConfig.rateLimitRetries,
+        idleMs: deps.harnessConfig.idleWatchdogMs,
         eventBus: deps.eventBus,
         ...(deps.spawn !== undefined ? { spawn: deps.spawn } : {}),
       });
     case 'openai-codex':
       return createCodexProvider({
         rateLimitRetries: deps.harnessConfig.rateLimitRetries,
+        idleMs: deps.harnessConfig.idleWatchdogMs,
         eventBus: deps.eventBus,
         ...(deps.spawn !== undefined ? { spawn: deps.spawn } : {}),
       });

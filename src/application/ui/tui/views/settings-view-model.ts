@@ -114,6 +114,8 @@ export const HARNESS_HINTS: Readonly<Record<string, string>> = {
   'harness.maxAttempts':
     'How many times a single task may be re-attempted across separate Implement runs before it blocks.',
   'harness.rateLimitRetries': 'Auto-retries with exponential backoff when the AI provider returns a rate-limit error.',
+  'harness.idleWatchdogMs':
+    'Stdio-silence (ms) before a wedged AI child is killed — 60000-3600000, default 300000 (5 min). Raise for slow first-token models.',
   'harness.plateauThreshold': 'Consecutive evaluator turns on the same failed dimensions before the loop exits (2-5).',
   'harness.escalateOnPlateau':
     'Gates ALL failure-driven escalation — plateau AND budget-exhausted exits climb the model ladder; disable to always stay on the configured model.',
@@ -276,6 +278,12 @@ export const buildSections = (
       key: 'harness.rateLimitRetries',
       label: 'Rate-limit retries',
       current: String(s.harness.rateLimitRetries),
+    },
+    {
+      kind: 'text',
+      key: 'harness.idleWatchdogMs',
+      label: 'Idle watchdog (ms)',
+      current: String(s.harness.idleWatchdogMs),
     },
     {
       kind: 'text',
