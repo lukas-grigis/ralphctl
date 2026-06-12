@@ -24,9 +24,10 @@ import type { AppendFile } from '@src/business/io/append-file.ts';
  *
  * `clock` is injected so tests can pin the timestamps stamped on attempt transitions.
  *
- * `config` is the harness slice — the chain reads `maxTurns` to bound the gen-eval loop. The
- * chain factory derives a `readConfig` callback from this so the inner loop can re-read it
- * between iterations (lower `maxTurns` mid-run terminates early).
+ * `config` is the harness slice — the chain reads `maxTurns` to bound the gen-eval loop. It is a
+ * snapshot frozen at launch; the chain factory derives a Promise-shaped `readConfig` accessor from
+ * it (its consumers `await` the value), but the snapshot is never mutated, so a mid-run settings
+ * edit only takes effect on the next launch — not on the next iteration.
  *
  * Working-tree integrations: `gitRunner` (preflight + commit), `shellScriptRunner` (setup +
  * post-task verify), `fileLocker` + `locksRoot` (per-repository serialisation against

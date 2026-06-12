@@ -14,7 +14,12 @@ import {
   type RunReviewRoundOutput,
   runReviewRoundUseCase,
 } from '@src/business/feedback/run-review-round.ts';
-import { MARKER_COMMENT, renderEmptyRound, ROUND_SEPARATOR } from '@src/business/feedback/md-parser.ts';
+import {
+  MARKER_COMMENT,
+  parseFeedbackMd,
+  renderEmptyRound,
+  ROUND_SEPARATOR,
+} from '@src/business/feedback/md-parser.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
@@ -131,6 +136,23 @@ const appendNewRound = async (
 };
 
 /**
+ * Read the feedback file and return the index of the active round — the LAST `## Round N` heading
+ * on disk. Defaults to 1 when the file is absent or holds no parseable round (a fresh sprint whose
+ * `ensure-feedback-file` leaf has not yet run, or an empty file). Read failures other than absence
+ * also fall back to 1 rather than aborting the round — the index only drives the prompt label and
+ * the forensic dir name, so a best-effort read keeps the round running.
+ */
+const deriveActiveRoundIndex = async (feedbackFile: AbsolutePath): Promise<number> => {
+  try {
+    const raw = await fs.readFile(String(feedbackFile), 'utf8');
+    const rounds = parseFeedbackMd(raw);
+    return rounds.at(-1)?.index ?? 1;
+  } catch {
+    return 1;
+  }
+};
+
+/**
  * Insert the user-typed body underneath the LAST marker comment in the file. The marker is
  * idempotent — calling this twice on the same round body just re-inserts under the same marker.
  * Idempotency matters because the gen-eval loop may re-enter a round after a transient failure.
@@ -155,8 +177,10 @@ const writeRoundBody = async (path: AbsolutePath, body: string): Promise<Result<
     const head = content.slice(0, after);
     const tail = content.slice(after).replace(/^\n*/, ''); // strip blanks immediately after marker
     const next = `${head}\n${body.replace(/\s+$/u, '')}\n${tail}`;
-    await fs.writeFile(String(path), next, 'utf8');
-    return Result.ok(undefined);
+    // Atomic write — this is durable human-feedback history (the only copy of the review record).
+    // A plain `fs.writeFile` could leave it truncated on a crash mid-write; `writeTextAtomic`
+    // writes-temp-then-renames so a reader sees either the old or the full new content.
+    return writeTextAtomic(String(path), next);
   } catch (cause) {
     return Result.error(
       new StorageError({
@@ -215,11 +239,15 @@ export const reviewRoundLeaf = (deps: ReviewRoundLeafDeps, opts: ReviewRoundLeaf
   leaf<ReviewCtx, ReviewRoundInput, RunReviewRoundOutput>('review-round', {
     useCase: {
       execute: async (input, signal) => {
-        // Per-round dir at `<reviewRoot>/round-<N>/`. N is the round we're about to act on —
-        // `previousRound.index` is the round just settled (or undefined on round 1), so
-        // `(prev?.index ?? 0) + 1` is the active round. `mkdir -p` it now so the AI's spawn
-        // (writing signals.json into outputDir) doesn't ENOENT on a fresh sprint dir.
-        const roundIndex = (input.previousRound?.index ?? 0) + 1;
+        // Derive the active round index from the ON-DISK feedback.md, not from in-memory ctx.
+        // `previousRound` lives only in chain ctx, so on a relaunch of a sprint whose feedback.md
+        // already holds N rounds (user quit mid-review; sprint stayed in `review`), the ctx-derived
+        // index would compute 1 — mislabelling the prompt ("Feedback for round 1"), writing the
+        // body into round N+1 (writeRoundBody targets the LAST marker), and overwriting round-1's
+        // forensic dir. The harness writes the active round's `## Round N` heading as the LAST round
+        // in the file (`ensure-feedback-file` seeds Round 1; `appendNextRound` appends the next), so
+        // its index is the round we're about to act on. Default to 1 for a not-yet-seeded file.
+        const roundIndex = await deriveActiveRoundIndex(input.feedbackFile);
         const paths = allocateRoundPaths(opts.reviewRoot, roundIndex);
         if (!paths.ok) return Result.error(paths.error);
         const ensured = await ensureRoundDir(paths.value.outputDir);

@@ -35,10 +35,15 @@ export const readJson = async (path: string): Promise<Result<unknown, NotFoundEr
 };
 
 /**
- * Write text content to a file atomically: write to a sibling temp file, fsync, then rename
- * over the target. The rename is atomic on POSIX filesystems, so readers either see the old
- * content or the full new content — never a half-written file. Creates parent directories as
- * needed.
+ * Write text content to a file atomically: write to a sibling temp file, **fsync the file's data
+ * to disk**, then rename over the target. The fsync-before-rename is what makes the contract real —
+ * without it the rename can be journaled before the temp file's data blocks reach disk, leaving a
+ * zero-length or partially-written file at the target after a power loss / OS crash. Since the
+ * sprint state files (`sprint.json` / `execution.json` / `tasks.json`) are the only copy of harness
+ * state, that durability matters. The rename itself is atomic on POSIX filesystems, so readers
+ * either see the old content or the full new content — never a half-written file. Creates parent
+ * directories as needed. The parent directory is also fsync'd on POSIX (best-effort) so the rename
+ * survives a crash; this is skipped on Windows where directory fsync is unsupported.
  */
 export const writeTextAtomic = async (path: string, content: string): Promise<Result<void, StorageError>> => {
   const dir = dirname(path);
@@ -49,14 +54,40 @@ export const writeTextAtomic = async (path: string, content: string): Promise<Re
   }
   const tmp = `${path}.tmp.${String(process.pid)}.${String(Date.now())}`;
   try {
-    await fs.writeFile(tmp, content, 'utf8');
+    const handle = await fs.open(tmp, 'w');
+    try {
+      await handle.writeFile(content, 'utf8');
+      await handle.sync(); // flush data + metadata to disk before the rename makes it visible
+    } finally {
+      await handle.close();
+    }
     await fs.rename(tmp, path);
+    await fsyncDir(dir); // best-effort: persist the rename itself (POSIX only)
     return Result.ok(undefined);
   } catch (cause) {
     await fs.rm(tmp, { force: true }).catch(() => {
       // best-effort cleanup of the temp file
     });
     return Result.error(new StorageError({ subCode: 'io', message: `write failed: ${path}`, path, cause }));
+  }
+};
+
+/**
+ * fsync a directory so a rename into it is durable across a crash. POSIX-only — Windows rejects
+ * opening a directory handle, and dir-fsync is not a meaningful operation there, so a failure is
+ * swallowed rather than failing the write.
+ */
+const fsyncDir = async (dir: string): Promise<void> => {
+  let handle: Awaited<ReturnType<typeof fs.open>> | undefined;
+  try {
+    handle = await fs.open(dir, 'r');
+    await handle.sync();
+  } catch {
+    // best-effort — Windows (EISDIR/EPERM/EBADF) and exotic filesystems can't fsync a directory.
+  } finally {
+    await handle?.close().catch(() => {
+      // ignore close failures on the directory handle
+    });
   }
 };
 

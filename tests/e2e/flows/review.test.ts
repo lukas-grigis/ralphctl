@@ -443,4 +443,66 @@ describe('createReviewFlow', () => {
     ]);
     expect(repo.current().status).toBe('done');
   });
+
+  it('round-cap exhaustion leaves the sprint in review (settle steps skipped, never auto-closes)', async () => {
+    const dir = await realpath(await fs.mkdtemp(join(tmpdir(), 'ralphctl-review-')));
+    cleanupFns.push(async () => {
+      await fs.rm(dir, { recursive: true, force: true });
+    });
+    const feedbackFile = absolutePath(join(dir, 'feedback.md'));
+    const sprint = buildSprint();
+    const repo = inMemorySprintRepo(sprint);
+    const interactive = scriptedInteractive([]);
+
+    const flow = createReviewFlow(
+      {
+        sprintRepo: repo.repo,
+        taskRepo: noopTaskRepo,
+        provider: fakeProvider,
+        templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
+        signals: createInMemorySink<HarnessSignal>(),
+        eventBus: createInMemoryEventBus(),
+        logger: noopLogger,
+        clock: () => FIXED_LATER,
+        interactive,
+        gitRunner: cleanTreeRunner,
+        shellScriptRunner: noopShell,
+        fileLocker: createFileLocker(),
+        locksRoot: absolutePath(dir),
+        appendFile: createAppendFile(),
+        model: 'claude-opus-4-8',
+        distill: stubDistill(),
+      },
+      {
+        sprintId: sprint.id,
+        sprintDir: absolutePath(dir),
+        reviewRoot: absolutePath(join(dir, 'review')),
+        commitCwd: FAKE_CWD,
+        additionalRoots: [FAKE_CWD],
+        repositoriesBlock: `- \`${String(FAKE_CWD)}\` (fake-cwd)`,
+        feedbackFile,
+        // Force the round cap to fire before any round runs — simulates the UI-bug fail-safe.
+        maxRounds: 0,
+      }
+    );
+
+    const runner = createRunner({
+      id: 'r-review-cap',
+      element: flow,
+      initialCtx: { sprintId: sprint.id, distillRequested: false } satisfies ReviewCtx,
+    });
+    await runner.start();
+
+    expect(runner.status).toBe('completed');
+    // No human terminal decision (lastReviewExit undefined) → settle sub-chain is SKIPPED, the
+    // sprint stays in review, and the skip is visible in the trace.
+    expect(repo.current().status).toBe('review');
+    expect(runner.trace.map((t) => t.elementName)).toEqual([
+      'load-sprint',
+      'assert-sprint-status',
+      'ensure-feedback-file',
+      'review-settle',
+    ]);
+    expect(runner.trace.at(-1)?.status).toBe('skipped');
+  });
 });

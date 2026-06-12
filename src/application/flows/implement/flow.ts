@@ -396,9 +396,12 @@ export const planImplementWaves = (deps: ImplementDeps, opts: CreateImplementFlo
 };
 
 export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFlowOpts): Element<ImplementCtx> => {
-  // Promise-shaped accessor read by `finalize-gen-eval` and the gen-eval loop's
-  // `shouldContinue` predicate. Re-resolved per call so a mid-run config edit (lower maxTurns,
-  // toggle escalation) takes effect on the next iteration rather than requiring a restart.
+  // Promise-shaped accessor read by `finalize-gen-eval` and the gen-eval loop's `shouldContinue`
+  // predicate. It reflects the harness slice frozen at launch — `deps.config` is a plain snapshot
+  // built once per launch in the launcher, and nothing mutates it, so a mid-run settings edit does
+  // NOT take effect until the next launch. The accessor stays Promise-shaped only because its
+  // consumers `await` it (a live settings re-read would slot in here without touching them), but it
+  // must not claim a mid-run reload the wiring does not provide.
   const readConfig = (): Promise<{
     readonly maxTurns: number;
     readonly escalateOnPlateau: boolean;

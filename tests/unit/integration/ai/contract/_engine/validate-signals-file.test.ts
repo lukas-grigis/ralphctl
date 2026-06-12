@@ -27,6 +27,14 @@ const sampleContract: AiOutputContract<ChangeSignal | DecisionSignal> = {
   exampleSignals: [],
 };
 
+const v0Contract: AiOutputContract<ChangeSignal | DecisionSignal> = {
+  schemaVersion: 0,
+  signalsSchema: z.array(z.union([changeSignalSchema, decisionSignalSchema])),
+  sidecars: [],
+  migrations: {},
+  exampleSignals: [],
+};
+
 const v2Contract: AiOutputContract<ChangeSignal | DecisionSignal> = {
   schemaVersion: 2,
   signalsSchema: z.array(z.union([changeSignalSchema, decisionSignalSchema])),
@@ -85,6 +93,28 @@ describe('validateSignalsFile', () => {
     if (result.ok) return;
     expect(result.error).toBeInstanceOf(ParseError);
     expect((result.error as ParseError).subCode).toBe('invalid-json');
+  });
+
+  it('returns ParseError(schema-mismatch) on literal JSON null (never throws a TypeError)', async () => {
+    // `JSON.parse('null')` succeeds and the migration chain passes non-arrays through untouched —
+    // without the root-shape guard the property access on null throws a TypeError that escapes the
+    // Result channel and crashes the whole run. It must surface as a recoverable ParseError. Use a
+    // v0 contract so `null` reaches the root-shape guard (no migration step is needed at v0).
+    writeFileSync(join(tmp, 'signals.json'), 'null');
+    const result = await validateSignalsFile(unwrapPath(tmp), v0Contract);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBeInstanceOf(ParseError);
+    expect((result.error as ParseError).subCode).toBe('schema-mismatch');
+  });
+
+  it('returns ParseError(schema-mismatch) on a bare JSON string root (never throws)', async () => {
+    writeFileSync(join(tmp, 'signals.json'), '"oops"');
+    const result = await validateSignalsFile(unwrapPath(tmp), v0Contract);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBeInstanceOf(ParseError);
+    expect((result.error as ParseError).subCode).toBe('schema-mismatch');
   });
 
   it('returns ParseError(schema-mismatch) on a shape that fails Zod', async () => {

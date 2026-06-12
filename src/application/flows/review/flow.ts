@@ -1,6 +1,7 @@
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Element } from '@src/application/chain/element.ts';
+import { guard } from '@src/application/chain/build/guard.ts';
 import { loop } from '@src/application/chain/build/loop.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
 import { withRepoLock } from '@src/application/flows/_shared/with-repo-lock.ts';
@@ -55,8 +56,10 @@ export interface CreateReviewFlowOpts {
  *     load-and-assert-sprint(['review']),
  *     ensure-feedback-file,
  *     loop('review-loop', review-round, { shouldStop: ctx.lastReviewExit !== undefined }),
- *     distill-learnings-step,                  // opt-in; runs on the auto-done path
- *     transition-sprint-to-done,
+ *     guard('review-settled', ctx.lastReviewExit !== undefined, sequential('review-settle', [
+ *       distill-learnings-step,                // opt-in; runs on the auto-done path
+ *       transition-sprint-to-done,
+ *     ])),
  *   ])
  *
  * The review chain assumes the implement chain has already run (sprint is in `review`). The
@@ -67,6 +70,14 @@ export interface CreateReviewFlowOpts {
  * (re-runnable on a mid-distill abort) and on the SAME auto-done path the empty-round termination
  * takes. When the user opted out (`distillRequested === false`) the inner `distill-gate` guard
  * skips the body; when `deps.distill` is absent the step is omitted entirely.
+ *
+ * Both settle steps are wrapped in a `review-settled` guard on `ctx.lastReviewExit !== undefined`.
+ * The loop can also exit via its `shouldContinue` round cap (`i <= maxRounds`) — a fail-safe for a
+ * UI bug that would otherwise re-enter the round forever. On THAT exit `lastReviewExit` is still
+ * undefined (no human terminal decision was reached), so the guard skips both settle steps and the
+ * sprint stays in `review` with a visible `skipped` trace entry. The human end-of-sprint decision
+ * stays the only path to `done`, and re-running review resumes cleanly because the status never
+ * moved.
  */
 export const createReviewFlow = (deps: ReviewDeps, opts: CreateReviewFlowOpts): Element<ReviewCtx> => {
   const maxRounds = opts.maxRounds ?? DEFAULT_MAX_ROUNDS;
@@ -99,8 +110,17 @@ export const createReviewFlow = (deps: ReviewDeps, opts: CreateReviewFlowOpts): 
       shouldContinue: (_ctx, i) => i <= maxRounds,
       shouldStop: (ctx) => ctx.lastReviewExit !== undefined,
     }),
-    ...(deps.distill !== undefined ? [createDistillStep<ReviewCtx>(deps.distill.deps, deps.distill.opts)] : []),
-    transitionSprintToDoneLeaf<ReviewCtx>({ sprintRepo: deps.sprintRepo, clock: deps.clock, logger: deps.logger }),
+    // Only settle the sprint to `done` when the review loop reached a human terminal decision
+    // (`lastReviewExit` set). A round-cap exit leaves it undefined → guard skips both settle steps
+    // so a UI-bug-driven cap exhaustion never silently closes the sprint.
+    guard<ReviewCtx>(
+      'review-settled',
+      (ctx) => ctx.lastReviewExit !== undefined,
+      sequential<ReviewCtx>('review-settle', [
+        ...(deps.distill !== undefined ? [createDistillStep<ReviewCtx>(deps.distill.deps, deps.distill.opts)] : []),
+        transitionSprintToDoneLeaf<ReviewCtx>({ sprintRepo: deps.sprintRepo, clock: deps.clock, logger: deps.logger }),
+      ])
+    ),
   ]);
 
   // Hold the cross-process repo lock for the whole review run — keyed on the sprint dir, the SAME

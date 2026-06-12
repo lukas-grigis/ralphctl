@@ -337,6 +337,54 @@ describe('runVerifyGatesUseCase — multi-gate execution (T10)', () => {
     expect(run.outcome).toBe('skipped');
   });
 
+  it('scope matching respects path-segment boundaries — prefix "src" does NOT match "src2/a.ts"', async () => {
+    // Bare startsWith would run the 'src' gate against a 'src2/...' diff it never touched, failing
+    // the attempt on an unrelated (possibly pre-existing-red) gate. The catch-all still always runs.
+    const gates: readonly VerifyGate[] = [
+      { pathPrefix: 'src', command: 'gate-src' },
+      { pathPrefix: '', command: 'gate-lint' },
+    ];
+    const { shell, ran } = scriptedShell({});
+    const { run } = await runVerifyGatesUseCase({
+      ...base,
+      phase: 'post',
+      gates,
+      scope: ['src2/a.ts'],
+      mode: 'fail-fast',
+      runShellScript: shell,
+    });
+    expect(ran()).toEqual(['gate-lint']);
+    expect(run.outcome).toBe('success');
+  });
+
+  it('scope matching includes a path on a segment boundary — prefix "src" matches "src/a.ts"', async () => {
+    const gates: readonly VerifyGate[] = [{ pathPrefix: 'src', command: 'gate-src' }];
+    const { shell, ran } = scriptedShell({});
+    await runVerifyGatesUseCase({
+      ...base,
+      phase: 'post',
+      gates,
+      scope: ['src/a.ts'],
+      mode: 'fail-fast',
+      runShellScript: shell,
+    });
+    expect(ran()).toEqual(['gate-src']);
+  });
+
+  it('scope matching includes the prefix path itself — prefix "src/app" matches exactly "src/app"', async () => {
+    const gates: readonly VerifyGate[] = [{ pathPrefix: 'src/app', command: 'gate-app' }];
+    const { shell, ran } = scriptedShell({});
+    await runVerifyGatesUseCase({
+      ...base,
+      phase: 'post',
+      gates,
+      scope: ['src/app'],
+      mode: 'fail-fast',
+      runShellScript: shell,
+    });
+    expect(ran()).toEqual(['gate-app']);
+  });
+
   it('per-gate timeoutMs is threaded; falls back to defaultTimeoutMs when absent', async () => {
     const seen: Array<number | undefined> = [];
     const shell: Parameters<typeof runVerifyGatesUseCase>[0]['runShellScript'] = async (_cwd, _command, sopts) => {

@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Result } from '@src/domain/result.ts';
+import { AbortError } from '@src/domain/value/error/abort-error.ts';
+import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
@@ -199,6 +201,49 @@ describe('createRunner', () => {
     expect(runner.trace).toHaveLength(5_000);
     expect(runner.trace[0]?.elementName).toBe(`entry-${TOTAL - 5_000}`);
     expect(runner.trace.at(-1)?.elementName).toBe(`entry-${TOTAL - 1}`);
+  });
+
+  it('contains a non-DomainError throw: synthesizes a failed run instead of rejecting', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const throwingElement: Element<Ctx> = {
+      name: 'programmer-bug',
+      async execute() {
+        throw new TypeError('cannot read properties of null');
+      },
+    };
+    const events: Array<RunnerEvent<Ctx>> = [];
+    const runner = createRunner({ id: 'r-throw', element: throwingElement, initialCtx: { trail: [] } });
+    runner.subscribe((e) => events.push(e));
+
+    // The start promise must resolve (not reject) — this is the wave scheduler's invariant.
+    await expect(runner.start()).resolves.toBeUndefined();
+
+    expect(runner.status).toBe('failed');
+    const last = events.at(-1);
+    expect(last?.type).toBe('failed');
+    if (last?.type === 'failed') {
+      expect(last.error).toBeInstanceOf(InvalidStateError);
+      expect(last.error.message).toContain('cannot read properties of null');
+    }
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  it('preserves the abort path for a raw-thrown AbortError', async () => {
+    const abortThrower: Element<Ctx> = {
+      name: 'raw-abort',
+      async execute() {
+        throw new AbortError({ elementName: 'raw-abort' });
+      },
+    };
+    const events: Array<RunnerEvent<Ctx>> = [];
+    const runner = createRunner({ id: 'r-raw-abort', element: abortThrower, initialCtx: { trail: [] } });
+    runner.subscribe((e) => events.push(e));
+
+    await expect(runner.start()).resolves.toBeUndefined();
+
+    expect(runner.status).toBe('aborted');
+    expect(events.at(-1)?.type).toBe('aborted');
   });
 
   it('unsubscribe stops further events', async () => {

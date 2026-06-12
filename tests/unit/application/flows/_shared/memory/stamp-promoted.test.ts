@@ -109,6 +109,30 @@ describe('stampPromotedLeaf', () => {
     expect(byId.get('b')?.promotedAt).toBe(PROMOTED_AT);
   });
 
+  it('preserves an unknown future field on a non-stamped row when stamping a different row', async () => {
+    // A newer ralphctl version may add a field the current schema doesn't know. The schema is a
+    // plain z.object that strips unknown keys on parse, so re-serializing a parsed record would
+    // delete it. Non-stamped rows must round-trip byte-for-byte so an older pinned binary running
+    // distill against a shared ledger does not destroy data it was only meant to tolerate.
+    const futureLine = `${JSON.stringify({ ...record({ id: 'b' }), futureField: 'keep-me' })}\n`;
+    await writeLedger([serializeLearningRecord(record({ id: 'a' })), futureLine]);
+
+    const result = await makeLeaf().execute({ path: ledgerPath, acceptedIds: ['a'] });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.ctx.stampedCount).toBe(1);
+
+    const raw = await fs.readFile(String(ledgerPath), 'utf8');
+    const lines = raw.split('\n').filter((l) => l.trim().length > 0);
+    // Row 'a' was stamped (promotedAt set); row 'b' kept its raw line verbatim incl. futureField.
+    const stamped = JSON.parse(lines[0] ?? '{}') as Record<string, unknown>;
+    expect(stamped.id).toBe('a');
+    expect(stamped.promotedAt).toBe(PROMOTED_AT);
+    const preserved = JSON.parse(lines[1] ?? '{}') as Record<string, unknown>;
+    expect(preserved.id).toBe('b');
+    expect(preserved.futureField).toBe('keep-me');
+  });
+
   it('no-ops (no write, stampedCount 0) when the accepted set is empty', async () => {
     await writeLedger([serializeLearningRecord(record({ id: 'a' }))]);
     const before = await fs.readFile(String(ledgerPath), 'utf8');
