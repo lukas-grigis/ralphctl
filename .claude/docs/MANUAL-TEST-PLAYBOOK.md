@@ -121,9 +121,14 @@ its alt-screen behaviour differs.
       chip: `clean`), task transitions to `DONE`. `TokenBudgetCard` updates in the context column.
 15. Press `c` (cancel-scope picker)
 16. **Expected:** overlay appears offering "cancel attempt" vs "cancel whole flow". Press `Esc` to dismiss.
-17. Confirm cancellation via the overlay
-18. **Expected:** session aborts, status flips to `aborted`. The current task resets to `todo` so the next
-    launch can resume. On resume the attempt header reads "attempt N · resumed from aborted M at HH:MM".
+17. Confirm cancellation via the overlay — two distinct outcomes depending on which option you chose:
+18. **"Stop run now" (cancel-attempt):** the chain is aborted immediately; no repo write for the task — the
+    task stays `in_progress` (no repo write occurs). On the next Implement launch it is queued first and
+    `start-attempt` settles the aborted attempt in history, then opens a fresh attempt. The attempt header
+    reads "attempt N · resumed from aborted M at HH:MM".
+    **"Stop and mark blocked" (cancel-flow):** `cancelActiveTaskUseCase` calls `markTaskBlocked(task, 'user
+cancel', 'own')` — the task lands `blocked` and is not re-entered automatically. Re-entry requires
+    `ralphctl task unblock` (or TUI `u`). The session also aborts after the write.
 
 **Negative tests:**
 
@@ -159,8 +164,10 @@ optional `events.ndjson` step below, run that implement spawn with `RALPHCTL_DEB
 1. Force-quit ralphctl (Ctrl+C or kill the process)
 2. Re-launch `pnpm dev`
 3. Re-enter the **Implement** flow on the same sprint
-4. **Expected:** any task left in `in_progress` from the prior run has been reset to `todo` and re-enters the
-   queue (you don't see two attempts for the same task in the panel)
+4. **Expected:** any task left in `in_progress` from the prior run stays `in_progress` and is queued FIRST.
+   On its first `start-attempt` the prior `running` attempt is settled as `aborted` (cause `process-crash`,
+   visible in the per-task attempts panel) — you WILL see the aborted attempt in history. A fresh attempt
+   opens and the task resumes in place; it does not reset to `todo`.
 5. **Expected:** completed tasks stay `DONE`; planned ones stay `TODO`; no double-execution
 
 ---
@@ -307,8 +314,9 @@ original project selection must be unchanged on the breadcrumb.
 5. Wait ~30 seconds for the default crash-reclaim window (`DEFAULT_STALE_AFTER_MS`) to elapse — the
    heartbeat stops, the lock directory goes stale
 6. Re-start the Implement flow in terminal B
-7. **Expected:** terminal B acquires the lock and resumes normally (the previously `in_progress` task
-   resets to `todo` and re-enters the queue)
+7. **Expected:** terminal B acquires the lock and resumes normally — the previously `in_progress` task stays
+   `in_progress` and is queued FIRST; `start-attempt` settles the crashed `running` attempt as `aborted`
+   (kept in history) and opens a fresh attempt automatically
 
 **Negative tests:**
 

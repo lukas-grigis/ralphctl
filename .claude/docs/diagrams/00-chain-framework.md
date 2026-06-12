@@ -8,11 +8,11 @@ See `.claude/docs/KERNEL-DESIGN.md` for the typed contract.
 
 ## What's not in the framework
 
-| Concept                   | Why not                                                                         | Where it lives instead                                               |
-| ------------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| `retry`                   | Adapter-level concern.                                                          | `src/integration/ai/providers/_engine/rate-limit-backoff.ts`         |
-| `onError` / `conditional` | Branching belongs inside a use case or a `guard`.                               | A use case returns; `guard(name, predicate, body)` skips.            |
-| `parallel` / `fanOut`     | Implement runs strictly sequential (default `concurrency.maxParallelTasks: 1`). | `sequential` of per-task subchains in planner-assigned `Task.order`. |
+| Concept                   | Why not                                                                                     | Where it lives instead                                                                                                                                                                               |
+| ------------------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `retry`                   | Adapter-level concern.                                                                      | `src/integration/ai/providers/_engine/rate-limit-backoff.ts`                                                                                                                                         |
+| `onError` / `conditional` | Branching belongs inside a use case or a `guard`.                                           | A use case returns; `guard(name, predicate, body)` skips.                                                                                                                                            |
+| `parallel` / `fanOut`     | Parallelism lives above the chain, never as a primitive — the five-primitive set is closed. | `runWaves` (`src/application/chain/run/wave-scheduler.ts`) sequences per-task sub-chains in dependency waves when `maxParallelTasks > 1`; the default `1` flattens to the serial `sequential` queue. |
 
 ## One run, end to end
 

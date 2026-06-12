@@ -53,8 +53,10 @@ old single-purpose `RateLimitBanner`.
 **Idle-stdout watchdog** kills wedged headless AI children past a configurable idle threshold. A stuck Claude
 / Copilot / Codex process cannot strand the harness.
 
-**Resume of aborted Implement runs.** Tasks left in `in_progress` from a prior crash reset to `todo` on next
-launch and re-enter the queue. No double-execution.
+**Resume of aborted Implement runs.** Tasks left in `in_progress` from a prior crash stay `in_progress` and
+are queued FIRST on the next launch. The `start-attempt` leaf settles the leftover `running` attempt as
+`aborted` (cause `process-crash`, kept in `attempts[]`) then opens a fresh attempt — no manual cleanup
+required. The only path that resets a task to `todo` is `task unblock`.
 
 **Iteration budget.** `settings.harness` carries:
 

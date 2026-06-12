@@ -3,10 +3,13 @@
 > On-demand reference (split out of `CLAUDE.md`). Read when working on `settings.ai`, effort
 > resolution, presets, or the per-flow provider/model wiring.
 
-`settings.ai` is a flat record: one optional global `ai.effort` plus six per-flow rows
-`ai.{refine,plan,implement,readiness,ideate,createPr}`, each `{ provider, model, effort? }`.
-`detect-scripts` / `detect-skills` reuse the `readiness` row; `review` reuses the `implement` row — no
-dedicated settings rows. The `createPr` row drives the optional AI step inside `create-pr --ai`; settings
+`settings.ai` carries one optional global `ai.effort` plus per-flow configuration. Five flows use a flat
+`{ provider, model, effort? }` row: `ai.{refine,plan,readiness,ideate,createPr}`. The `implement` flow is a
+nested pair: `ai.implement.{ generator, evaluator }`, each its own `{ provider, model, effort? }` row —
+generator produces the change, evaluator scores it, and they may run on different providers / models /
+effort levels. `detect-scripts` and `detect-skills` reuse the `readiness` row; `review` reuses
+`ai.implement.generator` (same code-mutation profile, no dedicated row) — no dedicated settings rows for
+either. The `createPr` row drives the optional AI step inside `create-pr --ai`; settings
 files written by ralphctl ≤ 0.8.x are missing it and the load path silently seeds it from `ai.refine` (no
 `schemaVersion` bump; canonical shape lands on the next save). Per-flow `model` accepts the matching
 provider's catalog or any non-empty trimmed custom string; per-flow `effort` validates against the
