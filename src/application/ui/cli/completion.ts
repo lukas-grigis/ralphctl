@@ -1,23 +1,16 @@
 /**
- * Shell-completion script generation. Static templates per shell; the command list is
- * derived from the registered flow ids plus the CLI-only top-level commands. Output goes to
- * stdout — users redirect into their shell config (`>> ~/.bashrc` / `~/.zshrc`).
+ * Shell-completion script generation. The command list is supplied by the caller, derived from
+ * the live commander program's registered subcommands (see `registerCompletionCommand`) — so the
+ * completion stays self-maintaining as commands are added or removed and never drifts from the
+ * actual CLI surface. Output goes to stdout — users redirect into their shell config
+ * (`>> ~/.bashrc` / `~/.zshrc`).
  *
  * Subcommands and option flags are intentionally not modeled — completing the top-level verb
  * covers the common case and avoids coupling completion to commander internals. A richer
  * generator can replace this when the CLI surface stabilises.
  */
 
-import { flowRegistry } from '@src/application/registry.ts';
-
 export type Shell = 'bash' | 'zsh';
-
-const CLI_ONLY_COMMANDS = ['doctor', 'settings', 'completion'] as const;
-
-const collectCommands = (): readonly string[] => {
-  const flowIds = flowRegistry.map((entry) => entry.manifest.id);
-  return [...new Set([...flowIds, ...CLI_ONLY_COMMANDS])].sort();
-};
 
 const bashScript = (commands: readonly string[]): string => `# ralphctl bash completion — source from ~/.bashrc
 _ralphctl_complete() {
@@ -38,12 +31,12 @@ _ralphctl() {
 _ralphctl "$@"
 `;
 
-export const generateCompletion = (shell: Shell): string => {
-  const commands = collectCommands();
+export const generateCompletion = (shell: Shell, commands: readonly string[]): string => {
+  const sorted = [...new Set(commands)].sort();
   switch (shell) {
     case 'bash':
-      return bashScript(commands);
+      return bashScript(sorted);
     case 'zsh':
-      return zshScript(commands);
+      return zshScript(sorted);
   }
 };

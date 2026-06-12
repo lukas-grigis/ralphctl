@@ -21,6 +21,7 @@
  */
 import type { ReactElement } from 'react';
 import { type Instance as InkInstance, render } from 'ink';
+import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import type { RunInTerminal } from '@src/integration/io/run-in-terminal.ts';
 
 export interface InkHostDeps {
@@ -70,8 +71,18 @@ export const createInkHost = (deps: InkHostDeps): InkHost => {
     for (;;) {
       try {
         await instance.waitUntilExit();
-      } catch {
-        // waitUntilExit rejects when the app calls exit(err); treat as shutdown.
+      } catch (error) {
+        // `waitUntilExit()` rejects only when Ink tears down on a fatal error — either a deliberate
+        // `exit(err)` or an uncaught render error. A plain quit (`exit()` with no arg) RESOLVES, so
+        // reaching this catch means something actually went wrong. The old blanket `catch {}` treated
+        // every fatal as a clean shutdown, masking TUI crashes as exit 0.
+        //
+        // AbortError propagates untouched (project rule). Anything else: surface a one-line message
+        // and a non-zero exit code before returning so wrapping scripts and CI see the failure.
+        if (error instanceof AbortError) throw error;
+        const msg = error instanceof Error ? error.message : String(error);
+        process.stderr.write(`ralphctl: the TUI exited with an error — ${msg}\n`);
+        process.exitCode = 1;
         return;
       }
       if (pausing === undefined) return;

@@ -212,6 +212,20 @@ export interface LaunchTuiOptions {
 }
 
 export const launchTui = async (options: LaunchTuiOptions = {}): Promise<void> => {
+  // TTY pre-flight. Ink's raw-mode input fails *post-mount* inside its useInput effect on a
+  // non-TTY stdin (pipe / CI / cron), which bypasses bootstrap's catch and dumps ~2KB of
+  // react-reconciler frames to stdout while exiting 0. Bail before mounting with a one-line
+  // stderr hint and a non-zero exit so wrapping scripts see a real failure. (This is the named
+  // exception to the "mount is unconditional" invariant in CLAUDE.md.)
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    process.stderr.write(
+      'ralphctl: the interactive TUI requires a terminal — run inside a TTY, ' +
+        'or use a subcommand (ralphctl --help) for non-interactive use\n'
+    );
+    process.exitCode = 1;
+    return;
+  }
+
   // Reset the holder on every launch so a prior `launchTui(...)` call's overrides don't leak
   // into the next; production runs are one-shot processes but tests reuse the holder.
   setImplementRoleOverrides(options.implementRoleOverrides);

@@ -77,8 +77,10 @@ enforces every direction. Full detail in `.claude/docs/ARCHITECTURE.md`.
   independent; cross-sibling access goes through `_engine/`. Port-shaped interfaces (`*Port`, `*Adapter`,
   `*Provider`, `*Sink`, `*Loader`, `*Probe`, …) MUST live in `_engine/`.
 - **Ink TUI** at `src/application/ui/tui/`; bare `ralphctl` mounts via `launchTui` → `createInkHost`
-  (`alternateScreen: true`). The mount is unconditional. `theme/tokens.ts` is the single source of visual
-  truth — no inline hex / glyph / spacing. See `.claude/docs/DESIGN-SYSTEM.md`.
+  (`alternateScreen: true`). The mount is unconditional **except** the TTY pre-flight at the top of
+  `launchTui`: a non-TTY stdin/stdout (pipe / CI / cron) bails with a one-line stderr hint + exit 1 rather
+  than dumping Ink's raw-mode stack trace. `theme/tokens.ts` is the single source of visual truth — no inline
+  hex / glyph / spacing. See `.claude/docs/DESIGN-SYSTEM.md`.
 - **CLI** at `src/application/ui/cli/` — inspection + one-shot operations only; interactive flows
   (`refine` / `plan` / `ideate` / `implement` / `readiness` / `create-sprint`) stay TUI-only by design.
 

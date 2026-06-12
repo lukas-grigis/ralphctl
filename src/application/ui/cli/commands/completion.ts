@@ -22,6 +22,9 @@ export const registerCompletionCommand = (program: Command): void => {
         process.exit(1);
         return;
       }
-      process.stdout.write(generateCompletion(shell as Shell));
+      // Derive the completion word list from the live program's registered subcommands so it
+      // stays in lockstep with the actual CLI surface — no hand-maintained list to drift.
+      const commands = program.commands.map((c) => c.name());
+      process.stdout.write(generateCompletion(shell as Shell, commands));
     });
 };
