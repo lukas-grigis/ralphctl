@@ -13,6 +13,19 @@ import type { AiOutputContract } from '@src/integration/ai/contract/_engine/type
 const SIGNALS_FILENAME = 'signals.json';
 
 /**
+ * Hard ceiling on the signals.json body before we read/parse it. The AI provider writes this file
+ * with its own Write tool, so its size is model-controlled and otherwise unbounded — a runaway model
+ * emitting a multi-gigabyte body would OOM the process inside `fs.readFile` / `JSON.parse` long before
+ * Zod could reject it. A realistic signals file (a handful of short signal records) is well under 1 KB;
+ * 4 MB is ~4000x that upper bound, comfortably above any plausible legitimate output while still small
+ * enough to read safely. Over the cap we treat the file as malformed (ParseError → per-task block via
+ * turn-error-policy) rather than reading it.
+ *
+ * @public
+ */
+export const SIGNALS_FILE_MAX_BYTES = 4 * 1024 * 1024;
+
+/**
  * Per-spawn contract loader. Reads `<outputDir>/signals.json`, walks the migration chain
  * forward to the contract's current `schemaVersion`, then Zod-parses the final shape.
  *
@@ -35,6 +48,26 @@ export const validateSignalsFile = async <TSig extends AiSignal>(
   contract: AiOutputContract<TSig>
 ): Promise<Result<readonly TSig[], InvalidStateError | ParseError | MigrationGapError | StorageError>> => {
   const path = join(String(outputDir), SIGNALS_FILENAME);
+
+  // Bound the body before reading it. The provider writes signals.json itself, so a runaway model
+  // can emit an implausibly large file that would OOM inside readFile/JSON.parse before Zod runs.
+  // Stat first and bail over the cap WITHOUT reading. A missing file (ENOENT) falls through to the
+  // readFile branch below so the "signals-missing" InvalidStateError shape is preserved; other stat
+  // errors (EACCES, etc.) likewise fall through and surface as the StorageError from readFile.
+  try {
+    const stats = await fs.stat(path);
+    if (stats.size > SIGNALS_FILE_MAX_BYTES) {
+      return Result.error(
+        new ParseError({
+          subCode: 'schema-mismatch',
+          message: `signals-invalid (too large) at ${path}: signals.json is ${stats.size} bytes, over the ${SIGNALS_FILE_MAX_BYTES}-byte (4 MB) cap — the AI wrote an implausibly large signals file; treating as malformed`,
+          hint: 'The AI wrote a signals.json far larger than any plausible signals body. Inspect the per-spawn directory; the file was not parsed.',
+        })
+      );
+    }
+  } catch {
+    // ignore — let readFile below produce the canonical missing/IO error shapes
+  }
 
   let bytes: string;
   try {

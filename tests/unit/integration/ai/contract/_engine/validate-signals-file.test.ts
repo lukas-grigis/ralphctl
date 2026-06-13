@@ -10,7 +10,10 @@ import { ParseError } from '@src/domain/value/error/parse-error.ts';
 import { changeSignalSchema } from '@src/integration/ai/contract/_engine/signals/change/schema.ts';
 import { decisionSignalSchema } from '@src/integration/ai/contract/_engine/signals/decision/schema.ts';
 import type { AiOutputContract } from '@src/integration/ai/contract/_engine/types.ts';
-import { validateSignalsFile } from '@src/integration/ai/contract/_engine/validate-signals-file.ts';
+import {
+  SIGNALS_FILE_MAX_BYTES,
+  validateSignalsFile,
+} from '@src/integration/ai/contract/_engine/validate-signals-file.ts';
 import type { ChangeSignal, DecisionSignal } from '@src/domain/signal.ts';
 
 const unwrapPath = (s: string): AbsolutePath => {
@@ -84,6 +87,37 @@ describe('validateSignalsFile', () => {
     if (result.ok) return;
     expect(result.error).toBeInstanceOf(InvalidStateError);
     expect(result.error.message).toContain('signals-missing');
+  });
+
+  it('returns ParseError over the size cap WITHOUT reading/parsing the giant body', async () => {
+    // Write a body just over the cap whose CONTENT is invalid JSON. If the guard ever read+parsed it,
+    // we'd see an `invalid-json` subCode (or an OOM); the size guard must short-circuit to the
+    // `too-large` schema-mismatch ParseError before any read happens.
+    const path = join(tmp, 'signals.json');
+    const oversized = `${'x'.repeat(SIGNALS_FILE_MAX_BYTES + 1)}`;
+    writeFileSync(path, oversized);
+
+    const result = await validateSignalsFile(unwrapPath(tmp), sampleContract);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBeInstanceOf(ParseError);
+    expect((result.error as ParseError).subCode).toBe('schema-mismatch');
+    expect(result.error.message).toContain('too large');
+    expect(result.error.message).toContain(String(oversized.length));
+  });
+
+  it('still validates a normal small valid file (under the cap)', async () => {
+    const path = join(tmp, 'signals.json');
+    writeFileSync(
+      path,
+      JSON.stringify({
+        schemaVersion: 1,
+        signals: [{ type: 'change', text: 'small ok', timestamp: '2026-05-22T10:00:00.000Z' }],
+      })
+    );
+    const result = await validateSignalsFile(unwrapPath(tmp), sampleContract);
+    if (!result.ok) throw new Error(`expected ok: ${result.error.message}`);
+    expect(result.value).toHaveLength(1);
   });
 
   it('returns ParseError(invalid-json) on malformed JSON', async () => {
