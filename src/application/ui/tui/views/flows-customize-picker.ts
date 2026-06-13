@@ -24,6 +24,7 @@ import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
 import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
 import { COPILOT_MODELS } from '@src/domain/value/settings-models/copilot.ts';
 import { PROVIDER_EFFORT_LEVELS } from '@src/domain/value/settings-models/effort.ts';
+import { isSuspendedModel, SUSPENSION_NOTE } from '@src/domain/value/settings-models/suspended-models.ts';
 import { resolveEffortForRow } from '@src/business/settings/resolve-effort.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import type { LaunchExtras } from '@src/application/ui/shared/launcher.ts';
@@ -57,6 +58,17 @@ const resolveModelCatalog = async (
 
 /** Sentinel value returned for the `Keep default` option — never collides with a real id. */
 const KEEP = '__keep__';
+
+/**
+ * Map a model id to a picker choice — flagging temporarily-suspended models in the LABEL only.
+ * The `value` stays the bare id so a pre-pinned choice still round-trips; if the user picks it
+ * anyway, the adapter guard rejects it at launch with a clear message. Applies to both the static
+ * and account-narrowed catalogs, since both flow through `modelCatalog.map`.
+ */
+const modelChoice = (m: string): Choice<string> => ({
+  label: isSuspendedModel(m) ? `${m} (${SUSPENSION_NOTE})` : m,
+  value: m,
+});
 
 /**
  * Outcome of one picker session. `kind` discriminates:
@@ -145,11 +157,8 @@ const customizeRow = async (
   // incompatible model. Otherwise show `Keep default` first.
   const modelCatalog = await resolveModelCatalog(effectiveProvider, availableModelsFor);
   const modelOptions: ReadonlyArray<Choice<string>> = providerChanged
-    ? modelCatalog.map((m) => ({ label: m, value: m }))
-    : [
-        { label: labelKeepDefault(defaultRow.model), value: KEEP },
-        ...modelCatalog.map((m) => ({ label: m, value: m })),
-      ];
+    ? modelCatalog.map(modelChoice)
+    : [{ label: labelKeepDefault(defaultRow.model), value: KEEP }, ...modelCatalog.map(modelChoice)];
   const modelAns = await interactive.askChoice<string>(`${header}\nModel:`, modelOptions);
   if (!modelAns.ok) return undefined;
 

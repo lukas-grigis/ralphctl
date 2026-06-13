@@ -10,6 +10,7 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { isClaudeModel } from '@src/domain/value/settings-models/claude.ts';
+import { isSuspendedModel, suspendedModelMessage } from '@src/domain/value/settings-models/suspended-models.ts';
 import { createClaudeStreamParser } from '@src/integration/ai/providers/claude/parse-stream.ts';
 import type { ClaudeStreamLine } from '@src/integration/ai/providers/_engine/claude-stream.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
@@ -284,6 +285,18 @@ export const buildClaudeArgs = (session: AiSession): Result<readonly string[], I
         currentState: 'model-validation',
         attemptedAction: 'build argv',
         message: `claude-provider: '${session.model}' is not a known Claude model`,
+      })
+    );
+  }
+  // Catalog-valid but temporarily suspended server-side (see suspended-models.ts) — fail fast
+  // with a clear message rather than dispatching a --model the provider will reject opaquely.
+  if (isSuspendedModel(session.model)) {
+    return Result.error(
+      new InvalidStateError({
+        entity: 'claude-provider',
+        currentState: 'model-suspended',
+        attemptedAction: 'build argv',
+        message: suspendedModelMessage(session.model),
       })
     );
   }

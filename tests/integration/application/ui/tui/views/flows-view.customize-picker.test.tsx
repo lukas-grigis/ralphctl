@@ -28,6 +28,7 @@ import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
 import type { AiProvider, Settings } from '@src/domain/entity/settings.ts';
 import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
 import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
+import { isSuspendedModel, SUSPENSION_NOTE } from '@src/domain/value/settings-models/suspended-models.ts';
 import {
   type CustomizePickerResult,
   modelCatalogFor,
@@ -427,10 +428,56 @@ describe('runCustomizePicker — catalog source parity with settings', () => {
       settings: DEFAULT_SETTINGS,
     });
     // The first label is `Keep default (<saved model>)`; the rest must match the
-    // CLAUDE_MODELS catalog in order so a model bump or rename is caught immediately.
+    // CLAUDE_MODELS catalog in order so a model bump or rename is caught immediately. Suspended
+    // models carry a ` (suspended)` suffix on the LABEL (value stays the bare id).
     expect(modelStepOptions).toBeDefined();
     const catalogLabels = modelStepOptions!.slice(1);
-    expect(catalogLabels).toEqual([...CLAUDE_MODELS]);
+    expect(catalogLabels).toEqual(CLAUDE_MODELS.map((m) => (isSuspendedModel(m) ? `${m} (${SUSPENSION_NOTE})` : m)));
+  });
+
+  it('flags a suspended model on the LABEL only — value stays the bare id', async () => {
+    let modelStepChoices: ReadonlyArray<Choice<unknown>> | undefined;
+    const interactive: InteractivePrompt = {
+      async askText() {
+        throw new Error('not used');
+      },
+      async askTextArea() {
+        throw new Error('not used');
+      },
+      async askConfirm() {
+        throw new Error('not used');
+      },
+      async askMultiChoice() {
+        throw new Error('not used');
+      },
+      async askChoice<T>(message: string, options: ReadonlyArray<Choice<T>>) {
+        if (message.includes('What would you like to do?')) {
+          const c = options.find((o) => o.label === 'Customize for this run…');
+          return Result.ok(c!.value) as unknown as Result<T, DomainError>;
+        }
+        if (message.includes('Provider:')) {
+          const c = options.find((o) => o.label.startsWith('Keep default'));
+          return Result.ok(c!.value) as unknown as Result<T, DomainError>;
+        }
+        if (message.includes('Model:')) {
+          modelStepChoices = options;
+          return Result.error(new AbortError({ elementName: 'test', reason: 'snapshot' })) as unknown as Result<
+            T,
+            DomainError
+          >;
+        }
+        throw new Error(`unexpected prompt: ${message}`);
+      },
+    };
+    await runCustomizePicker({ interactive, flowId: 'refine', flowTitle: 'Refine', settings: DEFAULT_SETTINGS });
+    expect(modelStepChoices).toBeDefined();
+    const fable = modelStepChoices!.find((c) => c.value === 'claude-fable-5');
+    expect(fable).toBeDefined();
+    expect(fable!.label).toBe(`claude-fable-5 (${SUSPENSION_NOTE})`);
+    expect(fable!.value).toBe('claude-fable-5');
+    // A live model is unannotated.
+    const opus = modelStepChoices!.find((c) => c.value === 'claude-opus-4-8');
+    expect(opus!.label).toBe('claude-opus-4-8');
   });
 });
 
@@ -793,8 +840,12 @@ describe('runCustomizePicker — availableModelsFor gates the model step', () =>
     ]);
     await runCustomizePicker({ interactive, flowId: 'refine', flowTitle: 'refine', settings: DEFAULT_SETTINGS });
     const modelOptions = modelOptionsFromCapture(captured);
-    // Keep-default is the first option; the rest are the full catalog.
-    for (const model of fullCatalog) expect(modelOptions).toContain(model);
+    // Keep-default is the first option; the rest are the full catalog. Suspended models render
+    // with a ` (suspended)` LABEL suffix (the value stays the bare id).
+    for (const model of fullCatalog) {
+      const expectedLabel = isSuspendedModel(model) ? `${model} (${SUSPENSION_NOTE})` : model;
+      expect(modelOptions).toContain(expectedLabel);
+    }
   });
 
   it('availableModelsFor returning a subset → model step shows only the subset', async () => {

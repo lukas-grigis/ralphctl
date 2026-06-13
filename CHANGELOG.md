@@ -80,6 +80,13 @@ command, timeoutMs? }` — supplements the legacy `verifyScript` string and wins
 
 ### Changed
 
+- **`claude-fable-5` family guarded as temporarily suspended (2026-06-12 Anthropic export-control
+  directive).** Fable 5 / Mythos 5 went down server-side. The catalog entries (`claude-fable-5`,
+  `claude-fable-5[1m]`, plus the Anthropic-served Copilot `claude-fable-5`) stay in place so persisted
+  configs remain valid — but the Claude / Copilot adapters now reject these models fast at launch with a
+  clear message, and the model pickers flag them `(suspended)`. Gated on one reversible list
+  (`settings-models/suspended-models.ts`); re-enabling is a one-line revert.
+
 - **Verification division of labor — each gate runs exactly once.** The prompt templates now assign each role
   its own verify gate so the repo-wide script is never executed more than once per round: the generator runs
   each auto verification criterion once (never the full `verifyScript` — the harness post-verify is named as

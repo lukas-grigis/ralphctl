@@ -361,3 +361,10 @@ export const buildSections = (
  */
 export const isProviderField = (field: EditableField): boolean =>
   field.kind === 'select' && (field.key.endsWith('.provider') || field.key === 'ai.provider');
+
+/**
+ * `true` when `field` is a per-flow / per-role model picker — its options are model ids, so the
+ * editor flags temporarily-suspended entries. The escalation FROM/TO pickers are separate field
+ * kinds (`map-add` / `map-entry`), not `select`, so they are unaffected here.
+ */
+export const isModelField = (field: EditableField): boolean => field.kind === 'select' && field.key.endsWith('.model');

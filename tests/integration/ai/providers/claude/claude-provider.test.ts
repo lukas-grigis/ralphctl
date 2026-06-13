@@ -11,6 +11,7 @@ import { FULL_AUTO, READ_ONLY } from '@src/integration/ai/providers/_engine/sess
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
+import { isSuspendedModel } from '@src/domain/value/settings-models/suspended-models.ts';
 import { buildClaudeArgs, createClaudeProvider } from '@src/integration/ai/providers/claude/headless.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import type { TokenUsageEvent } from '@src/business/observability/events.ts';
@@ -578,7 +579,7 @@ describe('createClaudeProvider — TokenUsageEvent emission', () => {
 });
 
 describe('buildClaudeArgs — AiSession → CLI flag translation', () => {
-  it.each(CLAUDE_MODELS.map((m) => [m]))('passes through --model %s', (model) => {
+  it.each(CLAUDE_MODELS.filter((m) => !isSuspendedModel(m)).map((m) => [m]))('passes through --model %s', (model) => {
     const args = unwrapArgs(session({ model }));
     const idx = args.indexOf('--model');
     expect(idx).toBeGreaterThanOrEqual(0);
@@ -591,6 +592,24 @@ describe('buildClaudeArgs — AiSession → CLI flag translation', () => {
     if (r.ok) return;
     expect(r.error.code).toBe('invalid-state');
     expect(r.error.message).toContain("'gpt-5.4'");
+  });
+
+  it.each([['claude-fable-5'], ['claude-fable-5[1m]']])(
+    'rejects the suspended model %s with InvalidStateError(model-suspended)',
+    (model) => {
+      const r = buildClaudeArgs(session({ model }));
+      expect(r.ok).toBe(false);
+      if (r.ok) return;
+      expect(r.error.code).toBe('invalid-state');
+      expect(r.error.currentState).toBe('model-suspended');
+      expect(r.error.message).toContain('suspended');
+      expect(r.error.message).toContain(`'${model}'`);
+    }
+  );
+
+  it('still builds args for a non-suspended model (claude-opus-4-8)', () => {
+    const args = unwrapArgs(session({ model: 'claude-opus-4-8' }));
+    expect(args[args.indexOf('--model') + 1]).toBe('claude-opus-4-8');
   });
 
   it('always includes -p so claude runs in print/headless mode', () => {
