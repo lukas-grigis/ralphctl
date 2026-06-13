@@ -7,6 +7,8 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-06-13
+
 ### Added
 
 - **Expanded preset matrix — 20 presets across five families.** Two new families (`fast`, `frontier`)
