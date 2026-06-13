@@ -9,10 +9,27 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- **`claude-strong-gate` preset.** A ninth settings preset (all `claude-code`): cheap sonnet implement
-  generator behind a permanently-opus evaluator gate. The only preset that intentionally splits
-  implement generator and evaluator onto different models — the sonnet author climbs to opus on plateau
-  via the default escalation ladder, so it relies on `harness.escalateOnPlateau` (default on).
+- **Expanded preset matrix — 20 presets across five families.** Two new families (`fast`, `frontier`)
+  and three new strong-gate variants (`mixed-strong-gate`, `copilot-strong-gate`, `codex-strong-gate`)
+  join the nine presets from prior releases, for 20 total. Each family ships in `mixed` / `claude-only`
+  / `copilot-only` / `codex-only` variants:
+  - `fast` — cheapest viable tier at `low` effort; implement uses sonnet/mini (not haiku); `codex-fast`
+    uses `minimal` effort for light flows.
+  - `frontier` — flagship everywhere at `max` effort (Codex floored to `high`); tops out at opus —
+    `claude-fable-5` is excluded while export-control-suspended (one-line swap to restore).
+  - `mixed-strong-gate`, `copilot-strong-gate`, `codex-strong-gate` — cheap generator + permanently-
+    flagship evaluator gate; mirrors the existing `claude-strong-gate` pattern for the other providers.
+    Codex variant is the narrowest gap of the family (`gpt-5.4` gen → `gpt-5.5` gate).
+
+- **`applyPreset` now stamps `harness.escalateOnPlateau`.** Standard / economic / strong-gate / frontier
+  presets stamp it `true`; `fast` stamps it `false` — a plateau settles (done-with-warning) rather than
+  climbing the escalation ladder, which is what makes the fast family genuinely cheap and predictable.
+  The rest of `harness` is preserved verbatim. This also eliminates the old `claude-strong-gate` caveat
+  about assuming `escalateOnPlateau` was on — it now guarantees it.
+
+- **`claude-strong-gate` preset.** (Added in this release cycle; documented here for completeness.) All
+  `claude-code`: cheap sonnet implement generator behind a permanently-opus evaluator gate — the only
+  preset that intentionally splits implement generator and evaluator onto different models.
 
 - **Structured per-module verify gates (`Repository.verifyGates`).** A `VerifyGate[]` — `{ pathPrefix,
 command, timeoutMs? }` — supplements the legacy `verifyScript` string and wins when present and non-empty.

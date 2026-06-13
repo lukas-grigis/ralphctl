@@ -9,11 +9,46 @@ import { isCodexModel } from '@src/domain/value/settings-models/codex.ts';
 import { isCopilotModel } from '@src/domain/value/settings-models/copilot.ts';
 import { mergeEscalationMap } from '@src/business/task/escalation-map.ts';
 
+/** The exact 20-preset order — 5 families × 4 (mixed-first within each family). */
+const EXPECTED_PRESET_ORDER: readonly PresetName[] = [
+  'mixed',
+  'claude-only',
+  'copilot-only',
+  'codex-only',
+  'mixed-economic',
+  'claude-economic',
+  'copilot-economic',
+  'codex-economic',
+  'mixed-strong-gate',
+  'claude-strong-gate',
+  'copilot-strong-gate',
+  'codex-strong-gate',
+  'mixed-fast',
+  'claude-fast',
+  'copilot-fast',
+  'codex-fast',
+  'mixed-frontier',
+  'claude-frontier',
+  'copilot-frontier',
+  'codex-frontier',
+];
+
 const ECONOMIC_PRESETS: readonly PresetName[] = [
   'mixed-economic',
   'claude-economic',
   'copilot-economic',
   'codex-economic',
+];
+
+/** The four fast presets — the only family with escalateOnPlateau stamped OFF. */
+const FAST_PRESETS: readonly PresetName[] = ['mixed-fast', 'claude-fast', 'copilot-fast', 'codex-fast'];
+
+/** Strong-gate presets intentionally split generator and evaluator onto different models. */
+const STRONG_GATE_PRESETS: readonly PresetName[] = [
+  'mixed-strong-gate',
+  'claude-strong-gate',
+  'copilot-strong-gate',
+  'codex-strong-gate',
 ];
 
 /** Each economic preset and the standard preset whose implement flagship it should climb to. */
@@ -49,18 +84,9 @@ const modelGuardFor = (provider: AiProvider): ((s: string) => boolean) => {
 };
 
 describe('presets', () => {
-  it('exposes all nine equal preset names', () => {
-    expect([...PRESET_NAMES]).toEqual([
-      'mixed',
-      'claude-only',
-      'copilot-only',
-      'codex-only',
-      'mixed-economic',
-      'claude-economic',
-      'copilot-economic',
-      'codex-economic',
-      'claude-strong-gate',
-    ]);
+  it('exposes all twenty preset names in the canonical five-family order', () => {
+    expect([...PRESET_NAMES]).toEqual([...EXPECTED_PRESET_ORDER]);
+    expect(PRESET_NAMES).toHaveLength(20);
   });
 
   it('includes each economic preset in PRESET_NAMES', () => {
@@ -105,6 +131,21 @@ describe('presets', () => {
     }
   });
 
+  it('every strong-gate generator climbs the default ladder to its own evaluator model', () => {
+    // The whole strong-gate story assumes escalateOnPlateau: the cheap author must have a real
+    // default-ladder rung up to the strong evaluator model, otherwise a hard task plateau-loops
+    // on the cheap generator while the strong gate keeps rejecting it.
+    const ladder = mergeEscalationMap({});
+    for (const preset of STRONG_GATE_PRESETS) {
+      const out = applyPreset(preset, DEFAULT_SETTINGS);
+      const path = climbToLadderTop(ladder, out.ai.implement.generator.model);
+      expect(
+        path,
+        `${preset}: ${out.ai.implement.generator.model} must climb to ${out.ai.implement.evaluator.model}`
+      ).toContain(out.ai.implement.evaluator.model);
+    }
+  });
+
   it('claude-fable-5 (base + 1M variant) is in catalog but stays opt-in only — no preset row and no default ladder rung references it', () => {
     // Catalog membership is what lets a per-row pick pass the adapter boundary…
     expect(isClaudeModel('claude-fable-5')).toBe(true);
@@ -113,6 +154,7 @@ describe('presets', () => {
     // …while presets and the built-in escalation ladder deliberately do NOT reference it: the
     // catalog-top = ladder-top = preset-flagship invariant intentionally excludes the fable tier
     // until a deliberate flagship swap. Promoting it later means deleting this fence on purpose.
+    // The frontier family tops out at opus for exactly this reason (fable is export-suspended).
     for (const preset of PRESET_NAMES) {
       const out = applyPreset(preset, DEFAULT_SETTINGS);
       for (const flow of FLOW_IDS) {
@@ -146,16 +188,20 @@ describe('presets', () => {
     expect(out.ai.implement.evaluator.effort).toBe('high');
   });
 
-  it('isPresetName guards string input', () => {
-    expect(isPresetName('mixed')).toBe(true);
-    expect(isPresetName('codex-only')).toBe(true);
+  it('isPresetName accepts all twenty preset names and rejects garbage', () => {
+    for (const preset of EXPECTED_PRESET_ORDER) {
+      expect(isPresetName(preset), preset).toBe(true);
+    }
     expect(isPresetName('not-a-preset')).toBe(false);
+    expect(isPresetName('')).toBe(false);
+    expect(isPresetName('mixed-turbo')).toBe(false);
+    expect(isPresetName('claude')).toBe(false);
   });
 
   describe('applyPreset', () => {
     const sentinel: Settings = {
       ...DEFAULT_SETTINGS,
-      harness: { ...DEFAULT_SETTINGS.harness, maxTurns: 9, maxAttempts: 7 },
+      harness: { ...DEFAULT_SETTINGS.harness, maxTurns: 9, maxAttempts: 7, escalationMap: { 'foo-1': 'foo-2' } },
       logging: { level: 'debug' },
       concurrency: { maxParallelTasks: 3 },
       ui: { notifications: { enabled: false } },
@@ -163,25 +209,41 @@ describe('presets', () => {
     };
 
     for (const preset of PRESET_NAMES) {
-      it(`'${preset}' stamps a record that round-trips through SettingsSchema`, () => {
+      it(`'${preset}' stamps an ai section that round-trips through SettingsSchema`, () => {
         const out = applyPreset(preset, DEFAULT_SETTINGS);
         const parsed = SettingsSchema.safeParse(out);
-        expect(parsed.success).toBe(true);
+        // A clean parse catches any invalid per-row effort (e.g. xhigh/max on a codex row) or
+        // off-catalog model id the matrix might smuggle in.
+        expect(parsed.success, parsed.success ? '' : JSON.stringify(parsed.error.issues)).toBe(true);
       });
 
-      it(`'${preset}' preserves harness / logging / concurrency / ui / developer from current`, () => {
+      it(`'${preset}' preserves logging / concurrency / ui / developer / schemaVersion and the rest of harness from current`, () => {
         const out = applyPreset(preset, sentinel);
-        expect(out.harness).toEqual(sentinel.harness);
         expect(out.logging).toEqual(sentinel.logging);
         expect(out.concurrency).toEqual(sentinel.concurrency);
         expect(out.ui).toEqual(sentinel.ui);
         expect(out.developer).toEqual(sentinel.developer);
         expect(out.schemaVersion).toEqual(sentinel.schemaVersion);
+        // Every harness key EXCEPT escalateOnPlateau is preserved verbatim.
+        expect(out.harness.maxTurns).toBe(sentinel.harness.maxTurns);
+        expect(out.harness.maxAttempts).toBe(sentinel.harness.maxAttempts);
+        expect(out.harness.escalationMap).toEqual(sentinel.harness.escalationMap);
+        expect(out.harness.plateauThreshold).toBe(sentinel.harness.plateauThreshold);
+        expect(out.harness.rateLimitRetries).toBe(sentinel.harness.rateLimitRetries);
+        expect(out.harness.idleWatchdogMs).toBe(sentinel.harness.idleWatchdogMs);
+        expect(out.harness.skipPreVerifyOnFreshSetup).toBe(sentinel.harness.skipPreVerifyOnFreshSetup);
       });
 
-      it(`'${preset}' sets global ai.effort to 'high'`, () => {
-        const out = applyPreset(preset, DEFAULT_SETTINGS);
-        expect(out.ai.effort).toBe('high');
+      it(`'${preset}' stamps harness.escalateOnPlateau (off for fast, on otherwise)`, () => {
+        const expected = !FAST_PRESETS.includes(preset);
+        // Flip the sentinel's flag to the opposite of expected so we prove applyPreset wrote it,
+        // not that it merely inherited a matching value from current.
+        const current: Settings = {
+          ...sentinel,
+          harness: { ...sentinel.harness, escalateOnPlateau: !expected },
+        };
+        const out = applyPreset(preset, current);
+        expect(out.harness.escalateOnPlateau, preset).toBe(expected);
       });
 
       it(`'${preset}' stamps a row for every flow id`, () => {
@@ -204,14 +266,43 @@ describe('presets', () => {
         const out = applyPreset(preset, DEFAULT_SETTINGS);
         expect(out.ai.implement.generator.provider).toBe(out.ai.implement.evaluator.provider);
         // Every preset keeps generator + evaluator on the SAME provider. Sharing the same MODEL
-        // is the norm too — EXCEPT `claude-strong-gate`, which intentionally pairs a cheap sonnet
-        // generator with a permanently-opus evaluator (asserted explicitly in its own matrix
-        // block below). Excluding it here keeps the same-model invariant true for the other eight.
-        if (preset !== 'claude-strong-gate') {
+        // is the norm too — EXCEPT the strong-gate family, which intentionally pairs a cheap
+        // generator with a permanently-strong evaluator (asserted explicitly in its own block).
+        if (!STRONG_GATE_PRESETS.includes(preset)) {
           expect(out.ai.implement.generator.model).toBe(out.ai.implement.evaluator.model);
         }
       });
     }
+
+    it('the four fast presets stamp global ai.effort to low', () => {
+      for (const preset of FAST_PRESETS) {
+        const out = applyPreset(preset, DEFAULT_SETTINGS);
+        expect(out.ai.effort, preset).toBe('low');
+      }
+    });
+
+    it('the standard, economic and strong-gate presets stamp global ai.effort to high', () => {
+      const highEffort: readonly PresetName[] = [
+        'mixed',
+        'claude-only',
+        'copilot-only',
+        'codex-only',
+        ...ECONOMIC_PRESETS,
+        ...STRONG_GATE_PRESETS,
+      ];
+      for (const preset of highEffort) {
+        const out = applyPreset(preset, DEFAULT_SETTINGS);
+        expect(out.ai.effort, preset).toBe('high');
+      }
+    });
+
+    it('frontier presets stamp global ai.effort to max — except codex-frontier which floors to high', () => {
+      expect(applyPreset('mixed-frontier', DEFAULT_SETTINGS).ai.effort).toBe('max');
+      expect(applyPreset('claude-frontier', DEFAULT_SETTINGS).ai.effort).toBe('max');
+      expect(applyPreset('copilot-frontier', DEFAULT_SETTINGS).ai.effort).toBe('max');
+      // Codex has no max/xhigh effort rung, so the global stays high to avoid implying a max row.
+      expect(applyPreset('codex-frontier', DEFAULT_SETTINGS).ai.effort).toBe('high');
+    });
 
     describe("'mixed' preset matrix", () => {
       const out = applyPreset('mixed', DEFAULT_SETTINGS);
@@ -263,7 +354,7 @@ describe('presets', () => {
       });
 
       it('splits a cheap sonnet generator against a strong opus evaluator (same provider, different model)', () => {
-        // The novel property no other preset has: generator weaker than evaluator.
+        // The novel property no other family has: generator weaker than evaluator.
         expect(out.ai.implement.generator.provider).toBe(out.ai.implement.evaluator.provider);
         expect(out.ai.implement.generator.model).toBe('claude-sonnet-4-6');
         expect(out.ai.implement.evaluator.model).toBe('claude-opus-4-8');
@@ -271,14 +362,65 @@ describe('presets', () => {
         expect(out.ai.implement.generator.effort).toBe('high');
         expect(out.ai.implement.evaluator.effort).toBe('xhigh');
       });
+    });
 
-      it('generator climbs the default ladder to the evaluator model on plateau', () => {
-        // The whole preset assumes escalateOnPlateau: the cheap sonnet author must have a real
-        // default-ladder rung up to the opus evaluator model, otherwise a hard task plateau-loops
-        // on sonnet while the opus gate keeps rejecting it.
-        const ladder = mergeEscalationMap({});
-        const path = climbToLadderTop(ladder, out.ai.implement.generator.model);
-        expect(path).toContain(out.ai.implement.evaluator.model);
+    describe("'codex-strong-gate' preset matrix — the narrowest gate", () => {
+      const out = applyPreset('codex-strong-gate', DEFAULT_SETTINGS);
+
+      it('pairs a gpt-5.4 author with a gpt-5.5 evaluator one rung apart', () => {
+        expect(out.ai.implement.generator.provider).toBe('openai-codex');
+        expect(out.ai.implement.evaluator.provider).toBe('openai-codex');
+        expect(out.ai.implement.generator.model).toBe('gpt-5.4');
+        expect(out.ai.implement.evaluator.model).toBe('gpt-5.5');
+        // Codex never carries xhigh/max — both rows floor at high.
+        expect(out.ai.implement.generator.effort).toBe('high');
+        expect(out.ai.implement.evaluator.effort).toBe('high');
+      });
+    });
+
+    describe("'codex-fast' preset matrix", () => {
+      const out = applyPreset('codex-fast', DEFAULT_SETTINGS);
+
+      it('leans on minimal effort for light flows and low effort for implement', () => {
+        expect(out.ai.refine.effort).toBe('minimal');
+        expect(out.ai.readiness.effort).toBe('minimal');
+        expect(out.ai.createPr.effort).toBe('minimal');
+        expect(out.ai.implement.generator.effort).toBe('low');
+        expect(out.ai.implement.evaluator.effort).toBe('low');
+      });
+
+      it('uses the mini tier for implement rather than a coding-grade frontier model', () => {
+        expect(out.ai.implement.generator.model).toBe('gpt-5.4-mini');
+      });
+    });
+
+    describe('fast family does not use haiku / nano for implement', () => {
+      it('keeps every fast implement row on a code-capable tier (no haiku, no nano)', () => {
+        for (const preset of FAST_PRESETS) {
+          const out = applyPreset(preset, DEFAULT_SETTINGS);
+          for (const role of ['generator', 'evaluator'] as const) {
+            const model = out.ai.implement[role].model;
+            expect(model.includes('haiku'), `${preset}/${role}: ${model}`).toBe(false);
+            expect(model.includes('nano'), `${preset}/${role}: ${model}`).toBe(false);
+          }
+        }
+      });
+    });
+
+    describe('frontier family tops out at opus / gpt-5.5 (never fable)', () => {
+      it('routes implement to the provider flagship at max effort (codex floored to high)', () => {
+        const cases: ReadonlyArray<[PresetName, string, 'max' | 'high']> = [
+          ['mixed-frontier', 'claude-opus-4-8', 'max'],
+          ['claude-frontier', 'claude-opus-4-8', 'max'],
+          ['copilot-frontier', 'claude-opus-4.8', 'max'],
+          ['codex-frontier', 'gpt-5.5', 'high'],
+        ];
+        for (const [preset, model, effort] of cases) {
+          const out = applyPreset(preset, DEFAULT_SETTINGS);
+          expect(out.ai.implement.generator.model, preset).toBe(model);
+          expect(out.ai.implement.evaluator.model, preset).toBe(model);
+          expect(out.ai.implement.generator.effort, preset).toBe(effort);
+        }
       });
     });
 

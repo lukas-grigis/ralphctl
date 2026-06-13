@@ -22,9 +22,9 @@ with [GitHub Copilot](https://docs.github.com/en/copilot/github-copilot-in-the-c
 > _"I'm helping!"_ — Ralph Wiggum
 
 > [!NOTE]
-> **Active development.** New features and polish ship regularly. **0.11.0** adds four budget-conscious
-> presets (`mixed-economic`, `claude-economic`, `copilot-economic`, `codex-economic`), a binding attempt
-> cap, and refreshed model catalogs.
+> **Active development.** New features and polish ship regularly. The upcoming release expands the preset
+> matrix to 20 presets across five families (`standard`, `economic`, `strong-gate`, `fast`, `frontier`),
+> each in `mixed` / `claude-only` / `copilot-only` / `codex-only` variants.
 > Upgrades are best-effort: install the latest version, redo your config, proceed.
 > See [Upgrading](#upgrading) and [CHANGELOG](./CHANGELOG.md).
 
@@ -95,7 +95,7 @@ ralphctl export-context --sprint <id> --project <id> --output <path>
 
 # Settings
 ralphctl settings show
-ralphctl settings apply-preset claude-only     # or mixed / copilot-only / codex-only / *-economic
+ralphctl settings apply-preset claude-only     # or mixed / copilot-only / codex-only / *-economic / *-strong-gate / *-fast / *-frontier
 ralphctl settings set ai.implement.generator.provider claude-code
 ralphctl settings set ai.implement.generator.model    <model-id>
 ralphctl settings set ai.implement.generator.effort   high
@@ -164,8 +164,8 @@ provider each implement role is configured to use, under the same per-provider c
 preview provider, please [open an issue](https://github.com/lukas-grigis/ralphctl/issues).
 
 One-shot configuration for any provider: `ralphctl settings apply-preset <name>` where `<name>` is one of
-the nine presets — `mixed`, `claude-only`, `copilot-only`, `codex-only`, a `*-economic` variant, or
-`claude-strong-gate` (cheap sonnet implement generation behind an opus evaluator gate).
+20 presets across five families — `standard`, `economic`, `strong-gate`, `fast`, and `frontier`, each in
+`mixed` / `claude-only` / `copilot-only` / `codex-only` variants.
 
 ---
 
@@ -197,22 +197,41 @@ Configure via the TUI `Settings` view or one-shot CLI commands.
 **Quickest path — apply a preset:**
 
 ```bash
+# Standard — flagship model per flow
 ralphctl settings apply-preset mixed               # best-fit provider per flow
 ralphctl settings apply-preset claude-only         # every flow on Claude Code
 ralphctl settings apply-preset copilot-only        # every flow on GitHub Copilot
 ralphctl settings apply-preset codex-only          # every flow on OpenAI Codex
-ralphctl settings apply-preset mixed-economic      # best-fit + cheaper implement tier
-ralphctl settings apply-preset claude-economic     # Claude Code + cheaper implement tier
-ralphctl settings apply-preset copilot-economic    # GitHub Copilot + cheaper implement tier
-ralphctl settings apply-preset codex-economic      # OpenAI Codex + cheaper implement tier
-ralphctl settings apply-preset claude-strong-gate  # cheap sonnet generation, opus evaluator gate; climbs via plateau escalation
+
+# Economic — implement starts one tier below flagship; escalation ladder climbs only on plateau
+ralphctl settings apply-preset mixed-economic
+ralphctl settings apply-preset claude-economic
+ralphctl settings apply-preset copilot-economic
+ralphctl settings apply-preset codex-economic
+
+# Strong-gate — cheap generator, permanently-flagship evaluator gate
+ralphctl settings apply-preset mixed-strong-gate
+ralphctl settings apply-preset claude-strong-gate
+ralphctl settings apply-preset copilot-strong-gate
+ralphctl settings apply-preset codex-strong-gate
+
+# Fast — cheapest viable tier at low effort; plateau settles rather than escalating (escalateOnPlateau=false)
+ralphctl settings apply-preset mixed-fast
+ralphctl settings apply-preset claude-fast
+ralphctl settings apply-preset copilot-fast
+ralphctl settings apply-preset codex-fast
+
+# Frontier — flagship everywhere at max effort
+ralphctl settings apply-preset mixed-frontier
+ralphctl settings apply-preset claude-frontier
+ralphctl settings apply-preset copilot-frontier
+ralphctl settings apply-preset codex-frontier
 ```
 
-Eight presets ship, all equally first-class — none is marked default. The four `*-economic` variants mirror
-the standard routings but start `implement` one model tier below the flagship; the escalation ladder climbs
-to the flagship only when a task plateaus — cheaper tokens on easy tasks, same quality gate on hard ones.
-A preset stamps the entire `ai` section in one shot. On a fresh install the welcome view silently auto-seeds
-a preset based on which provider CLIs it detects on `PATH`.
+Twenty presets across five families ship, all equally first-class — none is marked default. Applying a
+preset stamps the entire `ai` section plus `harness.escalateOnPlateau` in one transaction (`fast` stamps it
+`false` so a plateau settles; all others stamp it `true`). On a fresh install the welcome view silently
+auto-seeds a preset based on which provider CLIs it detects on `PATH`.
 
 **Per-flow settings.** Each flow carries its own `{provider, model, effort?}` row: `refine`, `plan`, `readiness`,
 `ideate`, and `createPr`. The `implement` flow instead splits into a nested `generator` / `evaluator` pair
@@ -307,14 +326,14 @@ readiness / create sprint) stay TUI-only by design. The CLI exposes inspection +
 
 ### Getting Started
 
-| Command                                 | Description                                                                                                                                          |
-| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ralphctl`                              | Interactive TUI (primary surface)                                                                                                                    |
-| `ralphctl doctor`                       | Check environment health                                                                                                                             |
-| `ralphctl settings show`                | Print current settings                                                                                                                               |
-| `ralphctl settings set <key> <value>`   | Set a single settings key                                                                                                                            |
-| `ralphctl settings apply-preset <name>` | Stamp the entire `ai` section — nine presets: `mixed` / `claude-only` / `copilot-only` / `codex-only` / `*-economic` variants / `claude-strong-gate` |
-| `ralphctl completion <shell>`           | Print shell tab-completion script                                                                                                                    |
+| Command                                 | Description                                                                                                                                                                                                                    |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ralphctl`                              | Interactive TUI (primary surface)                                                                                                                                                                                              |
+| `ralphctl doctor`                       | Check environment health                                                                                                                                                                                                       |
+| `ralphctl settings show`                | Print current settings                                                                                                                                                                                                         |
+| `ralphctl settings set <key> <value>`   | Set a single settings key                                                                                                                                                                                                      |
+| `ralphctl settings apply-preset <name>` | Stamp the entire `ai` section — 20 presets across five families: `standard` / `economic` / `strong-gate` / `fast` / `frontier`, each in `mixed` / `*-only` / `*-economic` / `*-strong-gate` / `*-fast` / `*-frontier` variants |
+| `ralphctl completion <shell>`           | Print shell tab-completion script                                                                                                                                                                                              |
 
 ### Project & Sprint Inspection
 
