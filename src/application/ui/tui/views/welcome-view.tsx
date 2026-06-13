@@ -34,17 +34,6 @@ const PRESET_FOR_PROVIDER: Readonly<Record<AiProvider, PresetName>> = {
   'openai-codex': 'codex-only',
 };
 
-const PRESET_LABEL: Readonly<Record<PresetName, string>> = {
-  mixed: 'mixed',
-  'claude-only': 'claude-only',
-  'copilot-only': 'copilot-only',
-  'codex-only': 'codex-only',
-  'mixed-economic': 'mixed-economic',
-  'claude-economic': 'claude-economic',
-  'copilot-economic': 'copilot-economic',
-  'codex-economic': 'codex-economic',
-};
-
 const pickPresetForDetected = (installed: ReadonlySet<AiProvider>): PresetName => {
   if (installed.size === 1) {
     const [only] = [...installed];
@@ -105,10 +94,10 @@ export const WelcomeView = (): React.JSX.Element => {
                   <Text color={inkColors.warning}>
                     {glyphs.warningGlyph} No AI CLIs detected — install one (claude / copilot / codex) and run doctor.
                   </Text>
-                  <Text dimColor>Seeded the {PRESET_LABEL[chosenPreset]} preset as a placeholder.</Text>
+                  <Text dimColor>Seeded the {chosenPreset} preset as a placeholder.</Text>
                 </Box>
               ) : (
-                <Text>Seeded with {PRESET_LABEL[chosenPreset]} preset based on detected CLIs.</Text>
+                <Text>Seeded with {chosenPreset} preset based on detected CLIs.</Text>
               ))}
             {step === 'error' && (
               <Box flexDirection="column">

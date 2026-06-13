@@ -24,19 +24,44 @@ floored from the global value; `minimal` is reachable only via an explicit per-f
 at a different one; the launcher rebuilds the provider / interactive-AI / skills-adapter trio per launch
 keyed on the dispatched flow's row, so mixed and uniform configs traverse the same code path.
 
-**Eight presets** stamp the entire `ai` section in one shot — four standard and four economic, all equally
-first-class (none is marked default). Standard presets: `mixed` (best-fit provider per flow),
-`claude-only`, `copilot-only`, `codex-only`. Economic presets (ADDITIONAL — they do not replace the
-standard ones): `mixed-economic`, `claude-economic`, `copilot-economic`, `codex-economic`. The economic
-strategy is: start `implement` one tier below the provider's flagship at `high` effort, so most tasks
-finish on the cheaper tier; the graduated escalation ladder climbs to the flagship only when a task
-plateaus — quality is preserved, token spend is reduced on easy tasks. The effort matrix keeps the
-standard presets' shape (`plan`/`implement` heavy, `readiness` `medium`, `refine`/`ideate` inherit global
-`high`) but runs `plan`/`implement` at `high` — one tier below the standard presets' `xhigh` (Codex
-already floors `xhigh` to `high`, so its economic and standard rows match there).
-Apply via `ralphctl settings apply-preset <name>` or from the TUI settings view; the apply surface is
-unchanged — eight names are accepted, same command and same TUI flow. Re-applying overwrites every row
-in one transaction; subsequent per-key edits via `ralphctl settings set ai.<flow>.<field> <value>` stick.
+**Twenty presets across five families** stamp the entire `ai` section plus `harness.escalateOnPlateau`
+in one shot — all equally first-class (none is marked default). Each family carries four variants:
+`mixed` (best-fit provider per flow), `claude-only`, `copilot-only`, `codex-only`. The families:
+
+- **standard** (`mixed`, `claude-only`, `copilot-only`, `codex-only`) — flagship model per flow at
+  `xhigh` effort for `implement`/`plan`; `readiness` at `medium`; `refine`/`ideate` inherit global `high`.
+- **economic** (`mixed-economic`, `claude-economic`, `copilot-economic`, `codex-economic`) — same routing
+  as standard but `implement` starts one tier below the flagship at `high` effort; the escalation ladder
+  climbs to the flagship only when a task plateaus — cheaper tokens on easy tasks, same quality gate on
+  hard ones.
+- **strong-gate** (`mixed-strong-gate`, `claude-strong-gate`, `copilot-strong-gate`, `codex-strong-gate`)
+  — cheap generate tier paired with a permanently-flagship evaluator gate — the only family that
+  intentionally splits `implement.generator` and `implement.evaluator` onto different models. The generator
+  climbs to the flagship on plateau via the escalation ladder (`escalateOnPlateau` stamped `true`). The
+  Codex variant (`gpt-5.4` gen → `gpt-5.5` gate) has the narrowest gap of the family.
+- **fast** (`mixed-fast`, `claude-fast`, `copilot-fast`, `codex-fast`) — cheapest viable tier at `low`
+  effort across the board. Implement uses sonnet/mini (not haiku — too weak to author code reliably); light
+  flows drop further. This is the only family with `escalateOnPlateau` stamped **`false`** — a plateau
+  settles (done-with-warning) rather than climbing the ladder, which is what keeps the family genuinely
+  cheap and predictable. `codex-fast` uses `minimal` effort for the lightest Codex rows.
+- **frontier** (`mixed-frontier`, `claude-frontier`, `copilot-frontier`, `codex-frontier`) — flagship
+  everywhere at `max` effort. Codex is floored to `high` (its effort ceiling). Tops out at opus;
+  `claude-fable-5` is intentionally not referenced — it is export-control-suspended and would be rejected
+  at launch. Restoring fable is a one-line model swap when the suspension lifts.
+
+**`applyPreset` stamps `harness.escalateOnPlateau`** alongside the AI section. Standard / economic /
+strong-gate / frontier all stamp it `true`; fast stamps it `false`. The rest of `harness` (`maxTurns`,
+`escalationMap`, `plateauThreshold`, …) plus all other top-level settings keys are preserved verbatim.
+
+**Model-tier ordering.** The ladders each family relies on are grounded in SWE-bench rankings (June
+2026 data): Claude haiku < sonnet < opus < fable; GPT mini < 5.4 < 5.5. These orderings explain why
+the cheap-to-strong tier progressions are wired the way they are — not as guaranteed scores (OpenAI
+stopped publishing SWE-bench Verified after contamination concerns, and results swing significantly with
+scaffolding). Treat this as relative-ordering rationale, not a performance promise.
+
+Apply via `ralphctl settings apply-preset <name>` or from the TUI settings view. Re-applying overwrites
+every `ai` row plus `harness.escalateOnPlateau` in one transaction; subsequent per-key edits via
+`ralphctl settings set ai.<flow>.<field> <value>` stick.
 
 **Model catalog versions used by the presets** (as of the 0.10.x catalogs):
 

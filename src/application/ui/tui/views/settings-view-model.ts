@@ -101,6 +101,53 @@ export const PRESET_LABEL: Readonly<Record<PresetName, string>> = {
   'claude-economic': 'Apply: Claude (economic)',
   'copilot-economic': 'Apply: Copilot (economic)',
   'codex-economic': 'Apply: Codex (economic)',
+  'mixed-strong-gate': 'Apply: Mixed strong-gate',
+  'claude-strong-gate': 'Apply: Claude strong-gate',
+  'copilot-strong-gate': 'Apply: Copilot strong-gate',
+  'codex-strong-gate': 'Apply: Codex strong-gate',
+  'mixed-fast': 'Apply: Mixed (fast)',
+  'claude-fast': 'Apply: Claude (fast)',
+  'copilot-fast': 'Apply: Copilot (fast)',
+  'codex-fast': 'Apply: Codex (fast)',
+  'mixed-frontier': 'Apply: Mixed (frontier)',
+  'claude-frontier': 'Apply: Claude (frontier)',
+  'copilot-frontier': 'Apply: Copilot (frontier)',
+  'codex-frontier': 'Apply: Codex (frontier)',
+};
+
+/** Display names for the five preset families — used by the grouped preset bar. */
+export type PresetFamily = 'standard' | 'economic' | 'strong-gate' | 'fast' | 'frontier';
+
+export const PRESET_FAMILY_LABEL: Readonly<Record<PresetFamily, string>> = {
+  standard: 'Standard',
+  economic: 'Economic',
+  'strong-gate': 'Strong-gate',
+  fast: 'Fast',
+  frontier: 'Frontier',
+};
+
+/** Maps each preset to its family — single source so preset-bar and any future caller stay in sync. */
+export const PRESET_FAMILY: Readonly<Record<PresetName, PresetFamily>> = {
+  mixed: 'standard',
+  'claude-only': 'standard',
+  'copilot-only': 'standard',
+  'codex-only': 'standard',
+  'mixed-economic': 'economic',
+  'claude-economic': 'economic',
+  'copilot-economic': 'economic',
+  'codex-economic': 'economic',
+  'mixed-strong-gate': 'strong-gate',
+  'claude-strong-gate': 'strong-gate',
+  'copilot-strong-gate': 'strong-gate',
+  'codex-strong-gate': 'strong-gate',
+  'mixed-fast': 'fast',
+  'claude-fast': 'fast',
+  'copilot-fast': 'fast',
+  'codex-fast': 'fast',
+  'mixed-frontier': 'frontier',
+  'claude-frontier': 'frontier',
+  'copilot-frontier': 'frontier',
+  'codex-frontier': 'frontier',
 };
 
 export const LOG_LEVELS = ['silent', 'debug', 'info', 'warn', 'error'] as const;
