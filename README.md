@@ -164,7 +164,8 @@ provider each implement role is configured to use, under the same per-provider c
 preview provider, please [open an issue](https://github.com/lukas-grigis/ralphctl/issues).
 
 One-shot configuration for any provider: `ralphctl settings apply-preset <name>` where `<name>` is one of
-the eight presets — `mixed`, `claude-only`, `copilot-only`, `codex-only`, or a `*-economic` variant.
+the nine presets — `mixed`, `claude-only`, `copilot-only`, `codex-only`, a `*-economic` variant, or
+`claude-strong-gate` (cheap sonnet implement generation behind an opus evaluator gate).
 
 ---
 
@@ -204,6 +205,7 @@ ralphctl settings apply-preset mixed-economic      # best-fit + cheaper implemen
 ralphctl settings apply-preset claude-economic     # Claude Code + cheaper implement tier
 ralphctl settings apply-preset copilot-economic    # GitHub Copilot + cheaper implement tier
 ralphctl settings apply-preset codex-economic      # OpenAI Codex + cheaper implement tier
+ralphctl settings apply-preset claude-strong-gate  # cheap sonnet generation, opus evaluator gate; climbs via plateau escalation
 ```
 
 Eight presets ship, all equally first-class — none is marked default. The four `*-economic` variants mirror
@@ -305,14 +307,14 @@ readiness / create sprint) stay TUI-only by design. The CLI exposes inspection +
 
 ### Getting Started
 
-| Command                                 | Description                                                                                                                    |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `ralphctl`                              | Interactive TUI (primary surface)                                                                                              |
-| `ralphctl doctor`                       | Check environment health                                                                                                       |
-| `ralphctl settings show`                | Print current settings                                                                                                         |
-| `ralphctl settings set <key> <value>`   | Set a single settings key                                                                                                      |
-| `ralphctl settings apply-preset <name>` | Stamp the entire `ai` section — eight presets: `mixed` / `claude-only` / `copilot-only` / `codex-only` / `*-economic` variants |
-| `ralphctl completion <shell>`           | Print shell tab-completion script                                                                                              |
+| Command                                 | Description                                                                                                                                          |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ralphctl`                              | Interactive TUI (primary surface)                                                                                                                    |
+| `ralphctl doctor`                       | Check environment health                                                                                                                             |
+| `ralphctl settings show`                | Print current settings                                                                                                                               |
+| `ralphctl settings set <key> <value>`   | Set a single settings key                                                                                                                            |
+| `ralphctl settings apply-preset <name>` | Stamp the entire `ai` section — nine presets: `mixed` / `claude-only` / `copilot-only` / `codex-only` / `*-economic` variants / `claude-strong-gate` |
+| `ralphctl completion <shell>`           | Print shell tab-completion script                                                                                                                    |
 
 ### Project & Sprint Inspection
 

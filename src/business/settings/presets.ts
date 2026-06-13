@@ -5,12 +5,14 @@ import type { AiSettings, Settings } from '@src/domain/entity/settings.ts';
  * applying it stamps `ai.effort` plus all five per-flow rows. Preset identity is NOT
  * persisted; the next per-row edit sticks and nothing remembers which preset was applied.
  *
- * Eight shipped presets, all equally first-class — no preset is marked "recommended" or
+ * Nine shipped presets, all equally first-class — no preset is marked "recommended" or
  * "default". The four standard presets: `mixed` routes each flow to the best provider for that
  * flow's purpose; `<provider>-only` routes every flow to that one provider (the fully-supported
  * single-provider configuration). The four `*-economic` variants mirror those routings but
  * start `implement` one tier below the flagship to save tokens, leaning on the escalation
- * ladder to climb to the flagship only when a task plateaus.
+ * ladder to climb to the flagship only when a task plateaus. `claude-strong-gate` pairs a cheap
+ * sonnet implement generator with a permanently-opus evaluator — the only preset that splits
+ * generator and evaluator onto different models.
  */
 export type PresetName =
   | 'mixed'
@@ -20,7 +22,8 @@ export type PresetName =
   | 'mixed-economic'
   | 'claude-economic'
   | 'copilot-economic'
-  | 'codex-economic';
+  | 'codex-economic'
+  | 'claude-strong-gate';
 
 export const PRESET_NAMES: readonly PresetName[] = [
   'mixed',
@@ -31,6 +34,7 @@ export const PRESET_NAMES: readonly PresetName[] = [
   'claude-economic',
   'copilot-economic',
   'codex-economic',
+  'claude-strong-gate',
 ] as const;
 
 export const isPresetName = (raw: string): raw is PresetName => (PRESET_NAMES as readonly string[]).includes(raw);
@@ -180,6 +184,34 @@ const CODEX_ECONOMIC: AiSettings = {
   createPr: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
 };
 
+/**
+ * `claude-strong-gate` — "strong gate, cheap generation." Mirrors `claude-economic`'s cheap
+ * generation tiers but bumps `plan` and the implement EVALUATOR to the opus flagship: a cheap
+ * sonnet author paired with a permanently-opus critic. It is the only preset that intentionally
+ * SPLITS implement.generator and implement.evaluator onto different models (same `claude-code`
+ * provider) — every other preset stamps one shared implement row.
+ *
+ * The generator starts on sonnet and climbs sonnet→opus on plateau via the default escalation
+ * ladder, so this preset ASSUMES `settings.harness.escalateOnPlateau` (default true) is on —
+ * without it a genuinely hard task can plateau-loop on the sonnet generator while the opus gate
+ * keeps rejecting it, never escalating the author. The evaluator stays opus regardless: the gate
+ * is strong from the first round, generation is cheap until a task proves it needs more.
+ */
+const CLAUDE_STRONG_GATE: AiSettings = {
+  effort: 'high',
+  refine: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
+  plan: { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'xhigh' },
+  implement: {
+    // Cheap author: sonnet at high effort, climbs to opus on plateau via the default ladder.
+    generator: { provider: 'claude-code', model: 'claude-sonnet-4-6', effort: 'high' },
+    // Strong gate: opus from the first round, never cheapened.
+    evaluator: { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'xhigh' },
+  },
+  readiness: { provider: 'claude-code', model: 'claude-haiku-4-5', effort: 'medium' },
+  ideate: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
+  createPr: { provider: 'claude-code', model: 'claude-haiku-4-5' },
+};
+
 const PRESETS: Readonly<Record<PresetName, AiSettings>> = {
   mixed: MIXED,
   'claude-only': CLAUDE_ONLY,
@@ -189,6 +221,7 @@ const PRESETS: Readonly<Record<PresetName, AiSettings>> = {
   'claude-economic': CLAUDE_ECONOMIC,
   'copilot-economic': COPILOT_ECONOMIC,
   'codex-economic': CODEX_ECONOMIC,
+  'claude-strong-gate': CLAUDE_STRONG_GATE,
 };
 
 /**

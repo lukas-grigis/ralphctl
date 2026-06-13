@@ -49,7 +49,7 @@ const modelGuardFor = (provider: AiProvider): ((s: string) => boolean) => {
 };
 
 describe('presets', () => {
-  it('exposes all eight equal preset names', () => {
+  it('exposes all nine equal preset names', () => {
     expect([...PRESET_NAMES]).toEqual([
       'mixed',
       'claude-only',
@@ -59,6 +59,7 @@ describe('presets', () => {
       'claude-economic',
       'copilot-economic',
       'codex-economic',
+      'claude-strong-gate',
     ]);
   });
 
@@ -202,7 +203,13 @@ describe('presets', () => {
       it(`'${preset}' stamps both implement.generator and implement.evaluator with the same provider`, () => {
         const out = applyPreset(preset, DEFAULT_SETTINGS);
         expect(out.ai.implement.generator.provider).toBe(out.ai.implement.evaluator.provider);
-        expect(out.ai.implement.generator.model).toBe(out.ai.implement.evaluator.model);
+        // Every preset keeps generator + evaluator on the SAME provider. Sharing the same MODEL
+        // is the norm too — EXCEPT `claude-strong-gate`, which intentionally pairs a cheap sonnet
+        // generator with a permanently-opus evaluator (asserted explicitly in its own matrix
+        // block below). Excluding it here keeps the same-model invariant true for the other eight.
+        if (preset !== 'claude-strong-gate') {
+          expect(out.ai.implement.generator.model).toBe(out.ai.implement.evaluator.model);
+        }
       });
     }
 
@@ -225,6 +232,53 @@ describe('presets', () => {
         expect(out.ai.readiness.effort).toBe('medium');
         expect(out.ai.refine.effort).toBeUndefined();
         expect(out.ai.ideate.effort).toBeUndefined();
+      });
+    });
+
+    describe("'claude-strong-gate' preset matrix", () => {
+      const out = applyPreset('claude-strong-gate', DEFAULT_SETTINGS);
+
+      it('routes every flow to claude-code', () => {
+        for (const flow of FLOW_IDS) {
+          if (flow === 'implement') {
+            expect(out.ai.implement.generator.provider).toBe('claude-code');
+            expect(out.ai.implement.evaluator.provider).toBe('claude-code');
+            continue;
+          }
+          expect(out.ai[flow].provider).toBe('claude-code');
+        }
+      });
+
+      it('stamps the exact model + effort matrix', () => {
+        expect(out.ai.effort).toBe('high');
+        expect(out.ai.refine.model).toBe('claude-sonnet-4-6');
+        expect(out.ai.refine.effort).toBeUndefined();
+        expect(out.ai.plan.model).toBe('claude-opus-4-8');
+        expect(out.ai.plan.effort).toBe('xhigh');
+        expect(out.ai.readiness.model).toBe('claude-haiku-4-5');
+        expect(out.ai.readiness.effort).toBe('medium');
+        expect(out.ai.ideate.model).toBe('claude-sonnet-4-6');
+        expect(out.ai.ideate.effort).toBeUndefined();
+        expect(out.ai.createPr.model).toBe('claude-haiku-4-5');
+      });
+
+      it('splits a cheap sonnet generator against a strong opus evaluator (same provider, different model)', () => {
+        // The novel property no other preset has: generator weaker than evaluator.
+        expect(out.ai.implement.generator.provider).toBe(out.ai.implement.evaluator.provider);
+        expect(out.ai.implement.generator.model).toBe('claude-sonnet-4-6');
+        expect(out.ai.implement.evaluator.model).toBe('claude-opus-4-8');
+        expect(out.ai.implement.generator.model).not.toBe(out.ai.implement.evaluator.model);
+        expect(out.ai.implement.generator.effort).toBe('high');
+        expect(out.ai.implement.evaluator.effort).toBe('xhigh');
+      });
+
+      it('generator climbs the default ladder to the evaluator model on plateau', () => {
+        // The whole preset assumes escalateOnPlateau: the cheap sonnet author must have a real
+        // default-ladder rung up to the opus evaluator model, otherwise a hard task plateau-loops
+        // on sonnet while the opus gate keeps rejecting it.
+        const ladder = mergeEscalationMap({});
+        const path = climbToLadderTop(ladder, out.ai.implement.generator.model);
+        expect(path).toContain(out.ai.implement.evaluator.model);
       });
     });
 

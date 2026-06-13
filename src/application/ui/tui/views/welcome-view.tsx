@@ -43,6 +43,7 @@ const PRESET_LABEL: Readonly<Record<PresetName, string>> = {
   'claude-economic': 'claude-economic',
   'copilot-economic': 'copilot-economic',
   'codex-economic': 'codex-economic',
+  'claude-strong-gate': 'claude-strong-gate',
 };
 
 const pickPresetForDetected = (installed: ReadonlySet<AiProvider>): PresetName => {

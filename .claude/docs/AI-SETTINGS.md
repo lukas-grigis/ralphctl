@@ -24,16 +24,19 @@ floored from the global value; `minimal` is reachable only via an explicit per-f
 at a different one; the launcher rebuilds the provider / interactive-AI / skills-adapter trio per launch
 keyed on the dispatched flow's row, so mixed and uniform configs traverse the same code path.
 
-**Eight presets** stamp the entire `ai` section in one shot — four standard and four economic, all equally
-first-class (none is marked default). Standard presets: `mixed` (best-fit provider per flow),
-`claude-only`, `copilot-only`, `codex-only`. Economic presets (ADDITIONAL — they do not replace the
-standard ones): `mixed-economic`, `claude-economic`, `copilot-economic`, `codex-economic`. The economic
-strategy is: start `implement` one tier below the provider's flagship at `high` effort, so most tasks
-finish on the cheaper tier; the graduated escalation ladder climbs to the flagship only when a task
-plateaus — quality is preserved, token spend is reduced on easy tasks. The effort matrix keeps the
+**Nine presets** stamp the entire `ai` section in one shot — four standard, four economic, and one
+strong-gate, all equally first-class (none is marked default). Standard presets: `mixed` (best-fit
+provider per flow), `claude-only`, `copilot-only`, `codex-only`. Economic presets (ADDITIONAL — they do
+not replace the standard ones): `mixed-economic`, `claude-economic`, `copilot-economic`, `codex-economic`.
+The economic strategy is: start `implement` one tier below the provider's flagship at `high` effort, so
+most tasks finish on the cheaper tier; the graduated escalation ladder climbs to the flagship only when a
+task plateaus — quality is preserved, token spend is reduced on easy tasks. The effort matrix keeps the
 standard presets' shape (`plan`/`implement` heavy, `readiness` `medium`, `refine`/`ideate` inherit global
 `high`) but runs `plan`/`implement` at `high` — one tier below the standard presets' `xhigh` (Codex
-already floors `xhigh` to `high`, so its economic and standard rows match there).
+already floors `xhigh` to `high`, so its economic and standard rows match there). `claude-strong-gate`
+(all `claude-code`) pairs a cheap sonnet implement generator with a permanently-opus evaluator gate — the
+only preset that splits generator and evaluator onto different models; it relies on plateau escalation to
+climb the sonnet generator to opus on hard tasks.
 Apply via `ralphctl settings apply-preset <name>` or from the TUI settings view; the apply surface is
 unchanged — eight names are accepted, same command and same TUI flow. Re-applying overwrites every row
 in one transaction; subsequent per-key edits via `ralphctl settings set ai.<flow>.<field> <value>` stick.

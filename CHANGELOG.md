@@ -9,6 +9,11 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`claude-strong-gate` preset.** A ninth settings preset (all `claude-code`): cheap sonnet implement
+  generator behind a permanently-opus evaluator gate. The only preset that intentionally splits
+  implement generator and evaluator onto different models — the sonnet author climbs to opus on plateau
+  via the default escalation ladder, so it relies on `harness.escalateOnPlateau` (default on).
+
 - **Structured per-module verify gates (`Repository.verifyGates`).** A `VerifyGate[]` — `{ pathPrefix,
 command, timeoutMs? }` — supplements the legacy `verifyScript` string and wins when present and non-empty.
   Pre-task verify runs ALL gates (complete attribution baseline); post-task verify runs only the gates whose
