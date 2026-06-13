@@ -58,7 +58,7 @@ export const ProjectsView = (): React.JSX.Element => {
   // The windowed-list owns the single cursor (id-keyed on project id) and the keyboard nav
   // (↑/↓ + j/k + PgUp/PgDn + Home/End). Disabled whenever a prompt / overlay / confirm is up so
   // it doesn't compete for keys; Enter pushes the detail route and stamps the selection.
-  const listActive = !ui.helpOpen && !ui.promptActive && confirmDelete === undefined;
+  const listActive = !ui.modalOpen && confirmDelete === undefined;
   const visibleRows = Math.max(4, Math.min(12, Math.floor(rows / 5)));
   const { window, visibleItems, focusedItem } = useListWindow<Project>({
     items,
@@ -92,7 +92,7 @@ export const ProjectsView = (): React.JSX.Element => {
   };
 
   useInput((input) => {
-    if (ui.helpOpen || ui.promptActive || confirmDelete !== undefined) return;
+    if (ui.modalOpen || confirmDelete !== undefined) return;
     if (input === 'c') {
       router.push({ id: 'create-project' });
       return;
@@ -103,7 +103,7 @@ export const ProjectsView = (): React.JSX.Element => {
       const target = focusedItem ?? items[0];
       if (target !== undefined && selection.projectId !== target.id) {
         selection.setProject(target.id, target.displayName);
-        setFeedback(`✓ now on ${target.displayName}`);
+        setFeedback(`${glyphs.check} now on ${target.displayName}`);
       }
       return;
     }
@@ -118,7 +118,7 @@ export const ProjectsView = (): React.JSX.Element => {
       return;
     }
     if (input === 'r') {
-      setFeedback('↻ reloading…');
+      setFeedback(`${glyphs.refresh} reloading…`);
       reload();
     }
   });
@@ -128,11 +128,11 @@ export const ProjectsView = (): React.JSX.Element => {
     if (!confirmed) return;
     const r = await deps.projectRepo.remove(target.id);
     if (!r.ok) {
-      setFeedback(`✗ ${r.error.message}`);
+      setFeedback(`${glyphs.cross} ${r.error.message}`);
       return;
     }
     if (selection.projectId === target.id) selection.setProject(undefined);
-    setFeedback(`✓ removed ${target.displayName}`);
+    setFeedback(`${glyphs.check} removed ${target.displayName}`);
     reload();
   };
 

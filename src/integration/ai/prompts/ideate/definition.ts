@@ -79,6 +79,7 @@ export const ideatePromptDef: PromptDefinition<IdeatePromptParams> = {
   },
   partials: {
     HARNESS_CONTEXT: 'harness-context',
+    VALIDATION_CHECKLIST: 'validation-checklist',
   },
   expectedSignals: ['ideated-tickets', 'note', 'learning', 'decision'],
 };

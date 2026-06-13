@@ -10,6 +10,7 @@ import type { EvaluationSignal, LearningEntry } from '@src/domain/signal.ts';
 import type { GenEvalExit, RunTaskVerdict } from '@src/business/task/gen-eval-exit.ts';
 import type { ProposedCommitMessage } from '@src/business/task/run-generator-turn.ts';
 import type { PlateauTurnRecord } from '@src/business/task/plateau-detection.ts';
+import type { LearningRecord } from '@src/application/flows/_shared/memory/learning-record.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
 
 export type { GenEvalExit, RunTaskVerdict };
@@ -167,4 +168,17 @@ export interface ImplementCtx {
    * the journal leaf after the attempt settles.
    */
   readonly currentAttemptNotes?: readonly string[] | undefined;
+  /**
+   * Cross-sprint procedural memory loaded ONCE in the implement prologue (`load-prior-learnings`)
+   * from this project's append-only learnings ledger (`<memoryRoot>/<projectId>/learnings.ndjson`),
+   * filtered to the not-yet-promoted records (`promotedAt === null` — promoted ones already live in
+   * the provider's native context file). Read by every per-task `generator` leaf and rendered as a
+   * read-only "learnings from prior sprints" block in the FULL implement prompt (round 1 of a session
+   * thread) so a sprint N+1 generator does not re-discover what sprint N already earned (principle 3).
+   *
+   * Run-scoped, like `execution` / `setupVerifiedRepoIdsThisRun`: it is loaded once before the task
+   * waves and must survive both the parallel `forkCtx` (every branch reads the same memory) and the
+   * `mergeImplementWave` fan-in. Undefined before the prologue loads / when the ledger is absent.
+   */
+  readonly priorLearnings?: readonly LearningRecord[] | undefined;
 }

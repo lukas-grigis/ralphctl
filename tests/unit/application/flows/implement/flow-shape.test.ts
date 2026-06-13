@@ -7,6 +7,8 @@ import { guard } from '@src/application/chain/build/guard.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
 import { loadSprintExecutionLeaf } from '@src/application/flows/_shared/sprint/load-execution.ts';
 import { loadTasksLeaf } from '@src/application/flows/_shared/task/load.ts';
+import { loadLearningsLeaf } from '@src/application/flows/_shared/memory/load-learnings.ts';
+import { learningsLedgerPath } from '@src/application/flows/_shared/memory/ledger-path.ts';
 import { saveTasksLeaf } from '@src/application/flows/_shared/task/save.ts';
 import { loadAndAssertSprintSubChain } from '@src/application/flows/_shared/sprint/load-and-assert-sprint.ts';
 import { activateSprintLeaf } from '@src/application/flows/implement/leaves/activate-sprint.ts';
@@ -183,6 +185,17 @@ const reconstructPreRefactorSerialFlow = (
     activateSprintLeaf({ sprintRepo: deps.sprintRepo, clock: deps.clock, logger: deps.logger }),
     loadSprintExecutionLeaf<ImplementCtx>({ sprintExecutionRepo: deps.sprintExecutionRepo }),
     loadTasksLeaf<ImplementCtx>({ taskRepo: deps.taskRepo }),
+    loadLearningsLeaf<ImplementCtx>(
+      { logger: deps.logger },
+      {
+        path: () => {
+          const resolved = learningsLedgerPath(opts.memoryRoot, opts.projectId);
+          if (!resolved.ok) throw resolved.error;
+          return resolved.value;
+        },
+        output: (ctx, candidates) => ({ ...ctx, priorLearnings: candidates }),
+      }
+    ),
     resolveBranchLeaf(
       {
         gitRunner: deps.gitRunner,
@@ -281,12 +294,11 @@ describe('createImplementFlow — serial chain shape (serial-shape byte-for-byte
     expect(allNames).toContain('implement-tasks');
   });
 
-  it('is the serial element (never the parallel orchestrator) — the meta-run caller stays serial', () => {
-    // `createImplementFlow` is what BOTH the `maxParallelTasks === 1` launcher path AND the meta-run
-    // composer (`createRunFlow`) build. The parallel orchestrator is a DIFFERENT element named
-    // `implement-parallel`, reached only via the `> 1` launcher dispatch — never here. This fence
-    // proves the meta-run caller (and the serial path) can never accidentally pick up the parallel
-    // worktree-fan-out element.
+  it('is the serial element (never the parallel orchestrator)', () => {
+    // `createImplementFlow` is what the `maxParallelTasks === 1` launcher path builds. The parallel
+    // orchestrator is a DIFFERENT element named `implement-parallel`, reached only via the `> 1`
+    // launcher dispatch — never here. This fence proves the serial path can never accidentally pick
+    // up the parallel worktree-fan-out element.
     const opts = makeOpts([makeTodoTask({ name: 'do-work' })]);
     const shape = snapshot(createImplementFlow(stubDeps(), opts));
 

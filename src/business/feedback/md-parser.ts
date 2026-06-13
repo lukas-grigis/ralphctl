@@ -41,38 +41,69 @@ export interface FeedbackRound {
 }
 
 export const parseFeedbackMd = (text: string): readonly FeedbackRound[] => {
-  // Split on `---` lines that are alone on their line (no surrounding text).
-  const blocks = text.split(/^---\s*$/m);
+  // Split into rounds by the `## Round N` heading lines — NOT by `---` separators. A user's
+  // pasted feedback can legitimately contain a bare `---` line (markdown rule, YAML frontmatter,
+  // a diff hunk header): splitting on `---` would cut that round in two and silently drop the
+  // half after the rule. The heading is harness-controlled, so it is the reliable round boundary.
+  // The harness writes a trailing `---` separator after each round; we strip only that trailing
+  // separator from each block so it never leaks into the body.
+  const lines = text.split('\n');
   const rounds: FeedbackRound[] = [];
-  for (const block of blocks) {
-    const trimmedBlock = block.trim();
-    if (trimmedBlock.length === 0) continue;
-    const lines = trimmedBlock.split('\n');
-    let index: number | undefined;
-    const bodyLines: string[] = [];
-    let pastMarker = false;
-    for (const line of lines) {
-      const headingMatch = ROUND_HEADING_RE.exec(line.trim());
-      if (headingMatch !== null && index === undefined) {
-        index = Number(headingMatch[1]);
-        continue;
-      }
-      if (line.trim() === MARKER_COMMENT) {
-        pastMarker = true;
-        continue;
-      }
-      if (pastMarker) bodyLines.push(line);
-      else if (line.trim().length > 0 && index !== undefined && !line.trim().startsWith('<!--')) {
-        // Body content present BEFORE the marker comment (e.g. user edited above the marker).
-        // Treat all post-heading non-comment lines as body.
-        bodyLines.push(line);
-      }
+
+  let current: { index: number; lines: string[] } | undefined;
+  const flush = (): void => {
+    if (current === undefined) return;
+    const raw = current.lines.join('\n').trim();
+    const body = extractBody(current.lines);
+    rounds.push({ index: current.index, body, raw });
+    current = undefined;
+  };
+
+  for (const line of lines) {
+    const headingMatch = ROUND_HEADING_RE.exec(line.trim());
+    if (headingMatch !== null) {
+      flush();
+      current = { index: Number(headingMatch[1]), lines: [line] };
+      continue;
     }
-    if (index === undefined) continue;
-    const body = bodyLines.join('\n').trim();
-    rounds.push({ index, body, raw: trimmedBlock });
+    if (current !== undefined) current.lines.push(line);
   }
+  flush();
+
   return rounds;
+};
+
+/**
+ * Pull the body text out of one round's lines. The body is everything after the marker comment;
+ * if a user edited above the marker, post-heading non-comment lines also count. A single trailing
+ * harness-written `---` separator line is stripped, but a `---` line INSIDE the body is preserved
+ * verbatim (the whole point — see {@link parseFeedbackMd}).
+ */
+const extractBody = (roundLines: readonly string[]): string => {
+  // Drop a single trailing `---` separator line (plus any trailing blanks after it).
+  const lines = [...roundLines];
+  while (lines.length > 0 && lines[lines.length - 1]?.trim() === '') lines.pop();
+  if (lines.length > 0 && /^---\s*$/.test(lines[lines.length - 1] ?? '')) lines.pop();
+
+  const bodyLines: string[] = [];
+  let pastMarker = false;
+  let seenHeading = false;
+  for (const line of lines) {
+    if (!seenHeading && ROUND_HEADING_RE.test(line.trim())) {
+      seenHeading = true;
+      continue;
+    }
+    if (line.trim() === MARKER_COMMENT) {
+      pastMarker = true;
+      continue;
+    }
+    if (pastMarker) bodyLines.push(line);
+    else if (line.trim().length > 0 && seenHeading && !line.trim().startsWith('<!--')) {
+      // Body content present BEFORE the marker comment (user edited above the marker).
+      bodyLines.push(line);
+    }
+  }
+  return bodyLines.join('\n').trim();
 };
 
 /** A round is a termination round when its body is empty after trimming. */

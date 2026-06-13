@@ -212,6 +212,37 @@ describe('createCopilotProvider', () => {
     expect(out.error.code).toBe('rate-limit');
   });
 
+  it('rate-limit on attempt 1, success on attempt 2 → ok (resumes the captured session)', async () => {
+    // FINDING 6 — mirror the claude / codex retry-arc. A 429 on attempt 1 must retry and, because
+    // the first attempt captured a session id, RESUME it via `--resume <id>` on attempt 2.
+    const cap = createCapturingBus();
+    const { spawn, calls } = makeSpawn([
+      // Attempt 1: captures the session id, then a rate-limit exit.
+      {
+        stdoutChunks: ['{"session_id":"sess-429","model":"gpt-5.5"}\n'],
+        stderrChunks: ['Error: rate limit exceeded\n'],
+        exitCode: 1,
+      },
+      // Attempt 2: clean success resuming the session.
+      { stdoutChunks: ['{"session_id":"sess-429","model":"gpt-5.5"}\n', '<task-complete/>\n'], exitCode: 0 },
+    ]);
+
+    const provider = createCopilotProvider({
+      rateLimitRetries: 2,
+      eventBus: cap.bus,
+      spawn,
+      backoffSchedule: [0, 0, 0],
+    });
+
+    const out = await provider.generate(session());
+    expect(out.ok).toBe(true);
+    expect(calls).toHaveLength(2);
+    // Attempt 1 was a cold start (no --resume).
+    expect(calls[0]?.args.some((a) => a.startsWith('--resume'))).toBe(false);
+    // Attempt 2 resumes the captured session id (copilot uses the `--resume=<id>` form).
+    expect(calls[1]?.args).toContain('--resume=sess-429');
+  });
+
   it('abort during rate-limit backoff: surfaces AbortError (not InvalidStateError)', async () => {
     // A user cancel that lands while the provider is sleeping between 429 retries must surface as
     // AbortError — the one error chains propagate transparently. InvalidStateError would be

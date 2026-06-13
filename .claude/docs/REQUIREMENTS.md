@@ -143,8 +143,10 @@ Status flow: `draft → planned → active → review → done`.
       is forwarded as `timeoutMs` to both calls; absent → 5-min runner default.
 - [ ] **Branch management** — `resolveBranchLeaf` prompts on first run; persists on `SprintExecution.branch`;
       per-task preflight verifies the right branch is checked out.
-- [x] **Resume of aborted runs** — tasks left in `in_progress` from a prior crash reset to `todo` and
-      re-enter the queue on next launch. The resume-from-aborted header surfaces in the TUI as
+- [x] **Resume of aborted runs** — tasks left in `in_progress` from a prior crash stay `in_progress` and
+      are queued FIRST on relaunch; `start-attempt` settles the leftover `running` attempt as `aborted`
+      (cause `process-crash`, kept in `attempts[]`) then opens a fresh attempt. Manual `task unblock` is
+      the only reset-to-`todo` path. The resume-from-aborted header surfaces in the TUI as
       "attempt N · resumed from aborted M at HH:MM (cause)" using the `AbortCause` discriminated union.
 - [ ] **Rate-limit retry** — adapter-side exponential backoff on `RateLimitError`; capped by
       `settings.harness.rateLimitRetries`.

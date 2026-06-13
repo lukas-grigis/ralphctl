@@ -47,6 +47,14 @@ interface SettleInput {
   readonly roundNum?: number;
   readonly evaluation?: EvaluationSignal;
   readonly shouldFailAttempt?: boolean;
+  /**
+   * Generator / evaluator session ids for the just-settled round, projected from
+   * `ctx.priorGeneratorSessionId` / `ctx.priorEvaluatorSessionId` (the gen-eval leaves stamp them
+   * each round; the NEXT attempt's start-attempt clears them, so both are live at settle time).
+   * Rendered into `outcome.md` so a post-mortem reader can `--resume <session>` the exact thread.
+   */
+  readonly generatorSessionId?: string;
+  readonly evaluatorSessionId?: string;
 }
 
 /**
@@ -89,6 +97,8 @@ export const settleAttemptLeaf = (
             task: settled.value,
             verdict: deriveRoundVerdict(input.verdict, input.warning),
             ...(input.evaluation !== undefined ? { evaluation: input.evaluation } : {}),
+            ...(input.generatorSessionId !== undefined ? { generatorSessionId: input.generatorSessionId } : {}),
+            ...(input.evaluatorSessionId !== undefined ? { evaluatorSessionId: input.evaluatorSessionId } : {}),
             logger: deps.logger,
           });
         }
@@ -138,6 +148,12 @@ export const settleAttemptLeaf = (
         ...(ctx.currentRoundNum !== undefined ? { roundNum: ctx.currentRoundNum } : {}),
         ...(ctx.lastEvaluation !== undefined ? { evaluation: ctx.lastEvaluation } : {}),
         ...(ctx.lastShouldFailAttempt === true ? { shouldFailAttempt: true } : {}),
+        ...(ctx.priorGeneratorSessionId !== undefined
+          ? { generatorSessionId: String(ctx.priorGeneratorSessionId) }
+          : {}),
+        ...(ctx.priorEvaluatorSessionId !== undefined
+          ? { evaluatorSessionId: String(ctx.priorEvaluatorSessionId) }
+          : {}),
       };
     },
     output: (ctx, settled) => {
@@ -176,9 +192,10 @@ const deriveRoundVerdict = (verdict: RunTaskVerdict, warning: AttemptWarning | u
  * Render and write `<workspaceRoot>/rounds/<n>/outcome.md`. Best-effort: a failure to write
  * the audit artefact is logged and swallowed — the chain must not halt on a derived file.
  *
- * Currently sources the generator session id from `attempt.sessionId` (the attempt-level
- * field stamped by `start-attempt`). Per-round generator / evaluator session ids are not yet
- * threaded through ctx; the renderer falls back to `—` for fields it can't fill.
+ * Prefers the per-round generator session id projected from `ctx.priorGeneratorSessionId` over the
+ * attempt-level `attempt.sessionId` fallback (the latter is the FIRST round's id; the ctx field is
+ * the LATEST round's, which matches THIS outcome.md). The evaluator session id has no attempt-level
+ * fallback — it comes solely from `ctx.priorEvaluatorSessionId`. Either missing → renderer shows `—`.
  */
 const writeRoundOutcome = async (params: {
   readonly workspaceRoot: AbsolutePath;
@@ -186,6 +203,8 @@ const writeRoundOutcome = async (params: {
   readonly task: SettleAttemptOutput;
   readonly verdict: RoundVerdict;
   readonly evaluation?: EvaluationSignal;
+  readonly generatorSessionId?: string;
+  readonly evaluatorSessionId?: string;
   readonly logger: SettleAttemptProps['logger'];
 }): Promise<void> => {
   const attempt = latestAttempt(params.task);
@@ -195,13 +214,16 @@ const writeRoundOutcome = async (params: {
       .warn('no attempt recorded on task; skipping outcome.md', { taskId: String(params.task.id) });
     return;
   }
+  // Prefer the per-round ctx generator id; fall back to the attempt-level id stamped by start-attempt.
+  const generatorSessionId = params.generatorSessionId ?? attempt.sessionId;
   const content = renderRoundOutcome({
     roundN: params.roundNum,
     attemptN: attempt.n,
     attempt,
     verdict: params.verdict,
     ...(params.evaluation !== undefined ? { evaluation: params.evaluation } : {}),
-    ...(attempt.sessionId !== undefined ? { generatorSessionId: attempt.sessionId } : {}),
+    ...(generatorSessionId !== undefined ? { generatorSessionId } : {}),
+    ...(params.evaluatorSessionId !== undefined ? { evaluatorSessionId: params.evaluatorSessionId } : {}),
     ...(attemptDurationMs(attempt) !== undefined ? { durationMs: attemptDurationMs(attempt)! } : {}),
   });
   const path = join(String(params.workspaceRoot), 'rounds', String(params.roundNum), 'outcome.md');

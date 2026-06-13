@@ -193,6 +193,77 @@ describe('createClaudeProvider', () => {
     expect(warns.length).toBeGreaterThanOrEqual(2);
   });
 
+  it('detects a quota throttle reported in the stdout result body (not stderr) and retries', async () => {
+    // FINDING 3 — claude's `-p stream-json` mode reports the daily-quota throttle in the stdout
+    // `result` envelope ("usage limit reached"), NOT on stderr. The broadened regex + stdoutTail
+    // must trip the backoff; a bare `/rate.?limit/i` on stderr alone would miss it and hard-fail.
+    const cap = createCapturingBus();
+    const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-q', model: 'sonnet' });
+    const quotaResult = JSON.stringify({
+      type: 'result',
+      subtype: 'error_during_execution',
+      result: 'I have hit the usage limit reached for this 5-hour window. Please try again later.',
+      session_id: 'sess-q',
+    });
+    const okInit = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-q', model: 'sonnet' });
+    const okResult = JSON.stringify({ type: 'result', result: '<task-complete/>', session_id: 'sess-q' });
+    const { spawn } = makeSpawn([
+      // No stderr at all — the throttle is only in the stdout result body.
+      { stdoutChunks: [`${init}\n${quotaResult}\n`], exitCode: 1 },
+      { stdoutChunks: [`${okInit}\n${okResult}\n`], exitCode: 0 },
+    ]);
+
+    const provider = createClaudeProvider({
+      rateLimitRetries: 2,
+      eventBus: cap.bus,
+      spawn,
+      backoffSchedule: [0, 0, 0],
+    });
+
+    const out = await provider.generate(session());
+    expect(out.ok).toBe(true);
+    // The retry was driven by a rate-limit classification, not a hard fail.
+    expect(cap.logs.some((l) => l.level === 'warn' && /rate-limit on attempt/.test(l.message))).toBe(true);
+  });
+
+  it('passes --resume with the sessionId captured from the 429 on the retry attempt', async () => {
+    // FINDING 2/6 — a 429 retry must RESUME the interrupted session, not cold-start. The session
+    // id captured on the rate-limited attempt must reappear as `--resume <id>` on attempt 2.
+    const cap = createCapturingBus();
+    const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-resume', model: 'sonnet' });
+    const rateResult = JSON.stringify({
+      type: 'result',
+      subtype: 'error',
+      result: 'rate limit exceeded; retry later',
+      session_id: 'sess-resume',
+    });
+    const okResult = JSON.stringify({ type: 'result', result: '<task-complete/>', session_id: 'sess-resume' });
+    const { spawn, calls } = makeSpawn([
+      // Attempt 1: captures sess-resume, then 429.
+      { stdoutChunks: [`${init}\n${rateResult}\n`], exitCode: 1 },
+      // Attempt 2: clean success.
+      { stdoutChunks: [`${init}\n${okResult}\n`], exitCode: 0 },
+    ]);
+
+    const provider = createClaudeProvider({
+      rateLimitRetries: 2,
+      eventBus: cap.bus,
+      spawn,
+      backoffSchedule: [0, 0, 0],
+    });
+
+    const out = await provider.generate(session());
+    expect(out.ok).toBe(true);
+    expect(calls).toHaveLength(2);
+    // Attempt 1 had no --resume (cold start).
+    expect(calls[0]?.args).not.toContain('--resume');
+    // Attempt 2 resumes the captured session id.
+    const retryArgs = calls[1]?.args ?? [];
+    const idx = retryArgs.indexOf('--resume');
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(retryArgs[idx + 1]).toBe('sess-resume');
+  });
+
   it('rate-limit then success: returns ok after a retry succeeds', async () => {
     const cap = createCapturingBus();
     const sess = session();

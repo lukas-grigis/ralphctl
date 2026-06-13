@@ -167,6 +167,7 @@ export const FlowsView = (): React.JSX.Element => {
   const [launchError, setLaunchError] = useState<string | undefined>(undefined);
   const [showAll, setShowAll] = useState<boolean>(false);
   useViewHints([
+    { keys: '↑/↓', label: 'move' },
     { keys: '↵', label: 'launch' },
     { keys: 'r', label: 'reload state' },
     { keys: 'v', label: showAll ? 'hide inapplicable' : 'show all' },
@@ -194,6 +195,7 @@ export const FlowsView = (): React.JSX.Element => {
         section: sectionFor(entry.manifest.id),
         label: entry.manifest.title,
         description: entry.manifest.description,
+        ...(entry.manifest.costHint !== undefined ? { costHint: entry.manifest.costHint } : {}),
         onSelect: async (): Promise<void> => {
           setLaunchError(undefined);
 
@@ -340,13 +342,13 @@ export const FlowsView = (): React.JSX.Element => {
   // (visibility) toggles between the state-machine-filtered menu (default) and the full
   // registry; `s` is intentionally NOT used here because Home reserves it for Settings.
   useInput((input) => {
-    if (ui.helpOpen || ui.promptActive) return;
+    if (ui.modalOpen) return;
     if (input === 'r') reload();
     if (input === 'v') setShowAll((v) => !v);
   });
 
   return (
-    <ViewShell title="Flows" subtitle="Pick a flow to run">
+    <ViewShell title="Flows" subtitle="Pick a flow to run" suppressScrollArrows>
       {ui.helpOpen ? (
         <HelpOverlay />
       ) : state.kind !== 'ok' ? (
@@ -358,7 +360,7 @@ export const FlowsView = (): React.JSX.Element => {
             <OrientationCard snapshot={state.value} showAll={showAll} />
           </Box>
           <Box marginTop={spacing.section}>
-            <ActionMenu items={items} active={!ui.promptActive} />
+            <ActionMenu items={items} active={!ui.modalOpen} />
           </Box>
           {launchError !== undefined && (
             <Box paddingX={spacing.indent} marginTop={spacing.section}>

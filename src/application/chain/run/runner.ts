@@ -1,3 +1,5 @@
+import { ErrorCode } from '@src/domain/value/error/error-code.ts';
+import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 
 import type { Element } from '@src/application/chain/element.ts';
@@ -118,26 +120,57 @@ export const createRunner = <TCtx>(opts: RunnerOptions<TCtx>): Runner<TCtx> => {
       emit({ type: 'step', entry });
     };
 
-    const result = await runWithSession(opts.id, () => opts.element.execute(ctx, abortController.signal, onTrace));
+    // The runner is the chain's containment boundary: `leaf` deliberately re-propagates a
+    // non-DomainError throw from a ctx projection as a programmer-error signal, and no composite
+    // primitive catches it. Without this try/catch such a throw would reject `startPromise` — an
+    // unhandled rejection that (on Node 24) kills the process mid-alt-screen with the runner stuck
+    // in 'running' and no terminal event ever emitted, and would falsify the wave scheduler's
+    // "start() never rejects" invariant. We convert it into a synthesized DomainError + 'failed'
+    // event so the failure surfaces in the session instead of crashing the process — while keeping
+    // the "throws are programmer errors" contract inside the chain.
+    let error: DomainError;
+    try {
+      const result = await runWithSession(opts.id, () => opts.element.execute(ctx, abortController.signal, onTrace));
 
-    if (result.ok) {
-      ctx = result.value.ctx;
-      status = 'completed';
-      emit({ type: 'completed', ctx });
-      return;
+      if (result.ok) {
+        ctx = result.value.ctx;
+        status = 'completed';
+        emit({ type: 'completed', ctx });
+        return;
+      }
+      error = result.error.error;
+    } catch (cause) {
+      // An abort thrown raw (rather than returned as a Result) must still travel the abort path.
+      if (cause instanceof Error && (cause as { code?: unknown }).code === ErrorCode.Aborted) {
+        status = 'aborted';
+        emit({ type: 'aborted' });
+        return;
+      }
+      // Log loudly so a programmer-error throw stays visible even though it no longer crashes.
+      console.error(`[chain-runner] element '${opts.element.name}' threw a non-DomainError:`, cause);
+      const stack = cause instanceof Error ? cause.stack : undefined;
+      error = new InvalidStateError({
+        entity: `chain runner '${opts.id}'`,
+        currentState: 'running',
+        attemptedAction: `execute element '${opts.element.name}'`,
+        message:
+          `chain element '${opts.element.name}' threw a non-DomainError (programmer bug): ` +
+          (cause instanceof Error ? cause.message : String(cause)),
+        ...(stack !== undefined ? { hint: stack } : {}),
+      });
     }
 
     // Distinguish caller-driven abort from underlying failures. A user who called `abort()`
     // always gets the 'aborted' status regardless of which error code surfaced.
-    if (abortRequested || result.error.error.code === 'aborted') {
+    if (abortRequested || error.code === ErrorCode.Aborted) {
       status = 'aborted';
       emit({ type: 'aborted' });
       return;
     }
 
-    failureError = result.error.error;
+    failureError = error;
     status = 'failed';
-    emit({ type: 'failed', error: result.error.error });
+    emit({ type: 'failed', error });
   };
 
   return {

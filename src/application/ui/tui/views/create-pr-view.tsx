@@ -155,7 +155,7 @@ export const CreatePrView = (): React.JSX.Element => {
   );
 
   useInput((input, key) => {
-    if (ui.helpOpen || ui.promptActive) return;
+    if (ui.modalOpen) return;
     if (key.return && prep.kind === 'ready' && run.kind === 'idle') {
       void runCreate(prep.cwd);
       return;

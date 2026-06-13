@@ -39,8 +39,6 @@ import type { ESLint, Linter } from 'eslint';
  *                                  one switch over them is `skills/adapter-factory.ts`,
  *                                  which sits directly under skills/ and is not a sibling)
  *   application/flows/<x>       may not import from application/flows/<y>
- *   application/flows/_meta/<x> may not import from application/flows/_meta/<y>
- *                                                              (meta-flows MAY import any flows/<y>)
  *
  *   In each AI concept, the `_engine/` sub-namespace is the shared abstraction layer — every concrete
  *   sibling may import freely from its own `_engine/`. Cross-concept access goes through the other
@@ -159,8 +157,6 @@ const FLOWS = [
   'remove-ticket',
 ] as const;
 
-const META_FLOWS = ['run'] as const;
-
 const PROMPTS = [
   'apply-feedback',
   'create-pr',
@@ -258,8 +254,8 @@ const businessLayerRule: Linter.RuleEntry = [
 ];
 
 /**
- * Sub-rule for application/flows/** — chain compositions (regular flows, _meta composers, and
- * _shared Element factories). May depend freely on domain, business, ai (port level), and the
+ * Sub-rule for application/flows/** — chain compositions (regular flows and _shared Element
+ * factories). May depend freely on domain, business, ai (port level), and the
  * chain framework, but NOT on concrete provider / readiness-probe / skill-adapter impls — those
  * are picked by the composition root. Chain compositions speak only port-level vocabulary so
  * the provider can be swapped without changing flow code.
@@ -632,7 +628,7 @@ export default [
   },
 
   // ── application/flows/** — chain compositions ───────────────────────────────
-  // Flows + _meta composers + _shared Element factories. May freely use domain, business,
+  // Flows + _shared Element factories. May freely use domain, business,
   // integration (port-level), and the chain framework — but NOT concrete provider/probe/skill
   // adapters under integration/ai/. Bootstrap selects those.
   {
@@ -648,22 +644,6 @@ export default [
       files: [`src/application/flows/${active}/**/*.{ts,tsx}`],
       rules: {
         'no-restricted-imports': siblingIsolationRule('**/application/flows', active, FLOWS, [], 'flow'),
-      },
-    })
-  ),
-
-  // ── application/flows/_meta/<x>/ — sibling-meta-flow isolation ──────────────
-  ...META_FLOWS.map(
-    (active): Linter.Config => ({
-      files: [`src/application/flows/_meta/${active}/**/*.{ts,tsx}`],
-      rules: {
-        'no-restricted-imports': siblingIsolationRule(
-          '**/application/flows/_meta',
-          active,
-          META_FLOWS,
-          [],
-          'meta-flow'
-        ),
       },
     })
   ),

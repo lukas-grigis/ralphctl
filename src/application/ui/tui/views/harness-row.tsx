@@ -1,6 +1,6 @@
 /**
  * Harness section body — renders iteration budget knobs (maxTurns / maxAttempts /
- * rateLimitRetries / plateauThreshold), boolean toggles (escalateOnPlateau /
+ * rateLimitRetries / idleWatchdogMs / plateauThreshold), boolean toggles (escalateOnPlateau /
  * skipPreVerifyOnFreshSetup), and the editable escalation-map group (an add-rung action row
  * plus one row per user override), with per-field one-line hints sourced from `HARNESS_HINTS`.
  * Edits route through the orchestrator's prompt-mounting machinery.

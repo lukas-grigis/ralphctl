@@ -176,21 +176,36 @@ export const renderTicketRefsSubjectSuffix = (refs: readonly string[] | undefine
  * to know exactly which dimensions to address on the fix attempt. Absent on turn 1 (no prior
  * critique exists) and on `passed`/`malformed`/`plateau` exits (loop has already terminated).
  *
- * Renders to empty string when there's no critique so the template's placeholder collapses
- * without an orphan heading.
+ * `trajectory` is an optional pre-composed "## Dimension trajectory" block (built by
+ * `composeDimensionTrajectory` from `ctx.plateauHistory`) carrying the failed-dimension feed-forward
+ * — which dimensions were fixed / still failing for N rounds / newly failing, plus a plateau-budget
+ * pressure line. It rides INSIDE this section so no new template placeholder is needed: the generator
+ * gets both the latest critique prose AND the multi-round trajectory in one block. Empty / absent →
+ * not appended.
+ *
+ * Renders to empty string when there's neither a critique nor a trajectory so the template's
+ * placeholder collapses without an orphan heading.
  */
-export const renderPriorCritiqueSection = (critique: string | undefined): string => {
-  if (critique === undefined) return '';
-  const trimmed = critique.trim();
-  if (trimmed.length === 0) return '';
-  return [
-    '## Prior Critique',
-    '',
-    'The evaluator graded the previous attempt as **failed**. Address each dimension below before',
-    'signalling completion — the same evaluator will re-grade this turn.',
-    '',
-    trimmed,
-  ].join('\n');
+export const renderPriorCritiqueSection = (critique: string | undefined, trajectory?: string): string => {
+  const critiqueText = critique?.trim() ?? '';
+  const trajectoryText = trajectory?.trim() ?? '';
+  if (critiqueText.length === 0 && trajectoryText.length === 0) return '';
+
+  const blocks: string[] = [];
+  if (critiqueText.length > 0) {
+    blocks.push(
+      [
+        '## Prior Critique',
+        '',
+        'The evaluator graded the previous attempt as **failed**. Address each dimension below before',
+        'signalling completion — the same evaluator will re-grade this turn.',
+        '',
+        critiqueText,
+      ].join('\n')
+    );
+  }
+  if (trajectoryText.length > 0) blocks.push(trajectoryText);
+  return blocks.join('\n\n');
 };
 
 /**
@@ -231,6 +246,32 @@ export const renderGeneratorHintsSection = (hints: string | undefined): string =
 export const renderPreVerifyResultsSection = (preVerifyOutput: string | undefined): string => {
   if (preVerifyOutput === undefined) return '';
   return preVerifyOutput.trim();
+};
+
+/**
+ * Render the optional "## Learnings from prior sprints" section injected into the FULL implement
+ * prompt (principle 3, read side). The body is a pre-composed bullet list of this project's
+ * not-yet-promoted ledger insights (Insight + optional Applies-to), built application-side by
+ * `composePriorLearnings` — kept out of this integration-layer renderer so the layer boundary holds.
+ *
+ * The framing is deliberately read-only context, NOT a directive: these are observations earned by
+ * earlier sprints on this repo (the project's test runner needs X, module Y has hidden coupling Z),
+ * surfaced so the generator does not re-pay to re-discover them. Empty / absent → empty string so the
+ * `{{PRIOR_LEARNINGS}}` placeholder collapses without an orphan heading.
+ */
+export const renderPriorLearningsSection = (priorLearnings: string | undefined): string => {
+  if (priorLearnings === undefined) return '';
+  const trimmed = priorLearnings.trim();
+  if (trimmed.length === 0) return '';
+  return [
+    '## Learnings from prior sprints',
+    '',
+    'These insights were recorded by earlier sprints working on this same project — surfaced so you',
+    'do not re-discover them from scratch. Treat them as orientation, not instructions: verify before',
+    'relying on any that bear on your task.',
+    '',
+    trimmed,
+  ].join('\n');
 };
 
 /**

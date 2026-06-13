@@ -53,17 +53,17 @@ Rules:
 
 Canonical set. If a view needs a symbol not in this list, **add it to `glyphs` first** (and document it here).
 
-| Group           | Tokens                                                                   |
-| --------------- | ------------------------------------------------------------------------ |
-| Phase / status  | `phaseDone ■`, `phaseActive ◆`, `phasePending ◇`, `phaseDisabled ◌`      |
-| Cursors         | `actionCursor ▸`, `selectMarker ›`                                       |
-| Section markers | `badge ▣`, `sectionRule ━`                                               |
-| State           | `check ✓`, `cross ✗`, `warningGlyph ⚠`, `infoGlyph i`                    |
-| Bullets         | `bullet ·`, `inlineDot ·`, `emDash —`, `arrowRight →`, `activityArrow ↳` |
-| Separators      | `pipe │`                                                                 |
-| Motion          | `spinner` (braille frames `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`)                                  |
-| Clip markers    | `clipEllipsis …`, `collapseExpand ▼ more`                                |
-| Personality     | `quoteRail ┃`                                                            |
+| Group           | Tokens                                                                                |
+| --------------- | ------------------------------------------------------------------------------------- |
+| Phase / status  | `phaseDone ■`, `phaseActive ◆`, `phasePending ◇`, `phaseDisabled ◌`                   |
+| Cursors         | `actionCursor ▸`, `selectMarker ›`                                                    |
+| Section markers | `badge ▣`, `sectionRule ━`                                                            |
+| State           | `check ✓`, `cross ✗`, `warningGlyph ⚠`, `infoGlyph i`                                 |
+| Bullets         | `bullet ·`, `inlineDot ·`, `emDash —`, `arrowRight →`, `activityArrow ↳`, `refresh ↻` |
+| Separators      | `pipe │`                                                                              |
+| Motion          | `spinner` (braille frames `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`)                                               |
+| Clip markers    | `clipEllipsis …`, `collapseExpand ▼ more`                                             |
+| Personality     | `quoteRail ┃`                                                                         |
 
 Do not mix glyph families (no `✔` from one set and `✓` from another). No emoji in TUI surfaces.
 
@@ -346,7 +346,7 @@ identical on every list surface. The map of record is `listKeys` in `keyboard-ma
 | Page           | `PgUp` / `PgDn` | move by `visibleRows` |
 | Jump           | `Home` / `End`  | first / last item     |
 
-`↵` (Enter / Return) submits the focused item. `g` / `G` remain vim-style aliases for `Home` / `End`.
+`↵` (Enter / Return) submits the focused item. `g`/`G` vim aliases are absent from `useListWindow` — `g` is bound globally to the progress overlay and would double-fire on list surfaces; `Home`/`End` cover the same ground without the conflict.
 
 **Arrows are primary; `j`/`k` are a global alias.** Advertise `↑/↓` in a view's `useViewHints` when
 the view shows a nav hint. **Do not list `j`/`k` (or `PgUp`/`PgDn` / `Home`/`End`) in per-view hints**

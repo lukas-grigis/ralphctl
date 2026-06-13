@@ -335,8 +335,10 @@ Read the repositories mounted under `<repositories>` to:
 1. Read repo instruction files (`CLAUDE.md`, `AGENTS.md`, `.github/copilot-instructions.md`)
    when present.
 2. Skim project structure and manifests (`package.json`, `pyproject.toml`, etc.).
-3. Find similar implementations to mirror existing patterns.
-4. Extract verification commands (build, test, lint, typecheck).
+3. Run `git log --oneline -20` per repository so you don't plan tasks that re-implement
+   already-landed work.
+4. Find similar implementations to mirror existing patterns.
+5. Extract verification commands (build, test, lint, typecheck).
 
 Remember: you are in the per-sprint plan unit root, not inside any repository. Use the
 repository paths from `<repositories>` as the roots for all file reads and searches.

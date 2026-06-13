@@ -206,7 +206,19 @@ export const normalizeVerifyGates = (
 const gateInScope = (gate: VerifyGate, scope: readonly string[] | undefined): boolean => {
   if (scope === undefined) return true;
   if (gate.pathPrefix === '') return true;
-  return scope.some((path) => path.startsWith(gate.pathPrefix));
+  return scope.some((path) => pathUnderPrefix(path, gate.pathPrefix));
+};
+
+/**
+ * Segment-boundary prefix match. A bare `startsWith` over-matches: prefix `'src'` matches
+ * `'src2/a.ts'` and `'lib'` matches `'libs/x'`, so a gate would run against a diff it never
+ * touched — failing an attribution on an unrelated, possibly pre-existing-red, gate. Match only
+ * when `path` is the prefix exactly or sits under it on a `/` boundary.
+ */
+const pathUnderPrefix = (path: string, prefix: string): boolean => {
+  if (path === prefix) return true;
+  const boundary = prefix.endsWith('/') ? prefix : `${prefix}/`;
+  return path.startsWith(boundary);
 };
 
 /**

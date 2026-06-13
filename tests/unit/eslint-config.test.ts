@@ -36,10 +36,6 @@ describe('eslint.config.ts constants ↔ src/ directory parity', () => {
     expect(constantFromEslintConfig('FLOWS')).toEqual(directorySiblings('src/application/flows', ['_']));
   });
 
-  it('META_FLOWS matches src/application/flows/_meta/<sibling>/', () => {
-    expect(constantFromEslintConfig('META_FLOWS')).toEqual(directorySiblings('src/application/flows/_meta'));
-  });
-
   it('PROMPTS matches src/integration/ai/prompts/<sibling>/ (excluding underscore-prefixed)', () => {
     expect(constantFromEslintConfig('PROMPTS')).toEqual(directorySiblings('src/integration/ai/prompts', ['_']));
   });

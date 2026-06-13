@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import { flowRegistry } from '@src/application/registry.ts';
 import { launchTui } from '@src/application/ui/tui/launch.ts';
 import { parseImplementRoleOverrides } from '@src/application/ui/cli/parse-implement-role-overrides.ts';
 import { registerExportRequirementsCommand } from '@src/application/ui/cli/commands/export-requirements.ts';
@@ -30,6 +31,11 @@ export const runCli = async (argv: readonly string[]): Promise<void> => {
     .name('ralphctl')
     .description('ralphctl — interactive TUI and CLI')
     .version(CLI_METADATA.currentVersion, '-v, --version', 'show version')
+    // The root command accepts zero positional args (bare `ralphctl` launches the TUI). We allow
+    // excess args through commander's arity check so an unknown verb reaches the root action and we
+    // can print a helpful "unknown command" message instead of commander's opaque "too many
+    // arguments. Expected 0 arguments but got 1: <verb>".
+    .allowExcessArguments(true)
     // Per-launch implement-role overrides. Each role is a {provider, model} pair — both
     // flags must be supplied together for a role; supplying only one half errors out below.
     // Operators reach for these to A/B a single implement run against a different provider
@@ -50,7 +56,22 @@ export const runCli = async (argv: readonly string[]): Promise<void> => {
       '--implement-evaluator-model <model>',
       'override settings.ai.implement.evaluator.model for this launch (requires --implement-evaluator-provider)'
     )
-    .action(async (opts: Record<string, unknown>) => {
+    .action(async (opts: Record<string, unknown>, command: Command) => {
+      // An unrecognized first operand lands here (the root action) because there is no matching
+      // subcommand. `command.args` holds the excess positionals — reject with a clear message and a
+      // pointer to --help instead of launching the TUI. When the verb names a known interactive
+      // flow, teach the TUI-primary design rather than just rejecting.
+      const verb = command.args[0];
+      if (verb !== undefined) {
+        const isFlow = flowRegistry.some((entry) => entry.manifest.id === verb);
+        const flowHint = isFlow ? ` — '${verb}' is an interactive flow — launch the TUI with bare 'ralphctl'` : '';
+        process.stderr.write(
+          `error: unknown command '${verb}' — run 'ralphctl --help' for available commands${flowHint}\n`
+        );
+        process.exitCode = 1;
+        return;
+      }
+
       const parsed = parseImplementRoleOverrides({
         ...(typeof opts.implementGeneratorProvider === 'string'
           ? { generatorProvider: opts.implementGeneratorProvider }

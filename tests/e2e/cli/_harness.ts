@@ -74,6 +74,12 @@ export const runCliCaptured = async (cli: CliHome, argv: readonly string[]): Pro
   const previousHome = process.env[RALPHCTL_HOME_ENV];
   process.env[RALPHCTL_HOME_ENV] = String(cli.home);
 
+  // Snapshot + reset `process.exitCode` so a command that signals failure via `process.exitCode = 1`
+  // (rather than `process.exit`) is captured here and does not leak a failing exit code into the
+  // surrounding vitest process.
+  const previousExitCode = process.exitCode;
+  process.exitCode = undefined;
+
   let exitCode = 0;
   let exitCalled = false;
   let stdout = '';
@@ -107,6 +113,11 @@ export const runCliCaptured = async (cli: CliHome, argv: readonly string[]): Pro
       stderr += `${(cause as Error).message ?? String(cause)}\n`;
     }
   } finally {
+    // A command that set `process.exitCode` (no `process.exit` call) signals failure that way.
+    if (!exitCalled && typeof process.exitCode === 'number' && process.exitCode !== 0) {
+      exitCode = process.exitCode;
+    }
+    process.exitCode = previousExitCode;
     exitSpy.mockRestore();
     stdoutSpy.mockRestore();
     stderrSpy.mockRestore();

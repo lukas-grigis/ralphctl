@@ -378,19 +378,15 @@ expense for substantially better output. Evaluator value depends on task difficu
 capability. Boundary shifts as models improve."_ Also: _"The space of interesting harness combinations
 doesn't shrink as models improve. Instead, it moves."_
 
-**ralphctl status.** `gap`
+**ralphctl status.** `applied`
 
 **Where it lives.**
 
-- `ideate`: `src/application/flows/ideate/` — single AI session, no evaluator loop
-- `implement`: `src/application/flows/implement/` — full generator-evaluator-settle loop
-- No guidance in the TUI help text or the designer agent steers the flow-surface choice toward cost-benefit
-  thinking.
-
-**Next step.** The `designer` agent owns the flow surface. When designing a new flow's TUI/CLI entry point,
-reference this section to weigh `ideate` (single session, low ceremony, lower cost) vs full `implement`
-(evaluator loop, higher confidence, higher cost). Add this framing to the designer agent's Design Principles
-and to flow help text for new flows.
+- `ideate`: `src/application/flows/ideate/manifest.ts` — `costHint: 'single AI session — fast, low token spend'`
+- `implement`: `src/application/flows/implement/manifest.ts` — `costHint: 'generator–evaluator loop per task — higher token spend, independently verified output'`
+- `review`: `src/application/flows/review/manifest.ts` — `costHint: 'one AI session per revision cycle — cost scales with the number of feedback rounds'`
+- `FlowManifest.costHint` field (`src/application/registry.ts`) — optional factual hint surfaced in the Flows menu.
+- `ActionMenu` (`src/application/ui/tui/components/action-menu.tsx`) — renders `costHint` dimmed beneath the focused row's description; unfocused rows stay compact.
 
 ---
 
@@ -429,3 +425,18 @@ upgrade may close gaps for free. Then walk `applied` rows and ask whether any ha
 **When a `gap` closes.** Update the row's status from `gap` → `applied` (or `partial` → `applied`),
 update the "Where it lives" anchor, and remove the "Next step" line. Cross-reference the commit that closed
 it.
+
+**Model-bump audit checklist (sections 14 + 18).** The trigger is mechanized, not a ticket convention:
+`tests/unit/business/task/escalation-map.test.ts` fingerprints the three model catalogs
+(`domain/value/settings-models/{claude,codex,copilot}.ts`) and cross-checks every
+`DEFAULT_ESCALATION_MAP` key/value against them. A catalog edit fails `pnpm verify`. When it does, walk
+this checklist before updating the recorded hash:
+
+1. **Re-check orphaned rungs.** Did a catalog rename or de-list strand a `DEFAULT_ESCALATION_MAP` key or
+   destination? The lockstep assertions catch this — fix the ladder, do not just bump the hash.
+2. **Walk the `partial` / `gap` rows.** For each, ask "has the new model closed this gap unaided?" Promote
+   `gap` → `applied` where it has.
+3. **Walk the `applied` rows.** For each, ask "is this component still load-bearing against the new model, or
+   is it now overhead?" (§ 14 — remove non-load-bearing pieces one at a time, with measurement.)
+4. **Update the recorded fingerprint** in the test only after steps 1–3, so the hash bump is a deliberate
+   record that the audit ran, not a reflex to make CI green.

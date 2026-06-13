@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import React from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { Text } from 'ink';
+import { Box, Text, useInput } from 'ink';
 import { render } from 'ink-testing-library';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { StoragePaths } from '@src/application/bootstrap/storage-paths.ts';
@@ -83,13 +83,29 @@ const SeedSelection = ({
       setFocusedRunRef.current({ projectLabel: undefined, sprintId: parseSprintId(), sprintLabel: 'pinned-run' });
     }
   }, [withSprint, withFocusedRun]);
-  return <></>;
+
+  // Render a SEEDED sentinel once the effect has committed its selection value.
+  // Tests wait for this sentinel instead of a fixed-tick sleep so the `g` keypress that follows
+  // always fires AFTER the selection state is live — eliminating the flake profile where the
+  // effect lands after the fixed tick and `g` becomes a silent no-op.
+  const seeded = withSprint ? selection.sprintId !== undefined : ui.focusedRunSprintId !== undefined;
+  if (!seeded) return <></>;
+  return <Text>SEEDED</Text>;
 };
 
 const GlobalHarness = ({ children }: { readonly children: React.ReactNode }): React.JSX.Element => {
   const ui = useUiState();
   useGlobalKeys({ disabled: ui.promptActive });
-  return <>{ui.progressOpen ? <ProgressOverlay /> : children}</>;
+  // Mirror the App.tsx Layout strategy: keep children mounted (display:none when overlay is open)
+  // so list cursors, expanded cards, and scroll offsets are preserved across open/close cycles.
+  return (
+    <>
+      <Box display={ui.progressOpen ? 'none' : 'flex'} flexDirection="column">
+        {children}
+      </Box>
+      {ui.progressOpen && <ProgressOverlay />}
+    </>
+  );
 };
 
 interface HarnessOptions {
@@ -146,7 +162,9 @@ describe('ProgressOverlay — open / close', () => {
     const dataRoot = await makeTmpRoot();
     await writeProgressFile(dataRoot, '# Progress\n\nFirst line of activity.');
     const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} withSprint={true} />);
-    await tick(50); // let the selection seed effect run
+    // Wait until the SeedSelection sentinel confirms the sprint selection effect committed.
+    // Replaces the old `tick(50)` which raced the effect under full-suite load.
+    await waitFor(() => (lastFrame() ?? '').includes('SEEDED'));
 
     expect(lastFrame() ?? '').toContain('UNDERLYING_VIEW');
 
@@ -189,7 +207,8 @@ describe('ProgressOverlay — open / close', () => {
     const { stdin, lastFrame, unmount } = render(
       <Harness dataRoot={dataRoot} withSprint={false} withFocusedRun={true} />
     );
-    await tick(50); // let the focused-run pin effect run
+    // Wait until the SeedSelection sentinel confirms the focused-run pin effect committed.
+    await waitFor(() => (lastFrame() ?? '').includes('SEEDED'));
 
     stdin.write('g');
     await waitFor(() => (lastFrame() ?? '').includes('Pinned run activity.'));
@@ -207,7 +226,8 @@ describe('ProgressOverlay — missing / empty file', () => {
     const dataRoot = await makeTmpRoot();
     // No file written — overlay should NOT crash.
     const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} withSprint={true} />);
-    await tick(50); // let the selection seed effect run
+    // Wait for the SEEDED sentinel before pressing 'g' so the effect has committed.
+    await waitFor(() => (lastFrame() ?? '').includes('SEEDED'));
     stdin.write('g');
     await waitFor(() => (lastFrame() ?? '').includes('No progress file yet')); // disk read + state flush
 
@@ -221,7 +241,8 @@ describe('ProgressOverlay — missing / empty file', () => {
     const dataRoot = await makeTmpRoot();
     await writeProgressFile(dataRoot, '');
     const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} withSprint={true} />);
-    await tick(50); // let the selection seed effect run
+    // Wait for the SEEDED sentinel before pressing 'g' so the effect has committed.
+    await waitFor(() => (lastFrame() ?? '').includes('SEEDED'));
     stdin.write('g');
     await waitFor(() => (lastFrame() ?? '').includes('exists but is empty'));
 
@@ -248,7 +269,8 @@ describe('ProgressOverlay — scrolling', () => {
     const dataRoot = await makeTmpRoot();
     await writeProgressFile(dataRoot, buildLongFile());
     const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} withSprint={true} />);
-    await tick(50); // let the selection seed effect run
+    // Wait for the SEEDED sentinel before pressing 'g' so the effect has committed.
+    await waitFor(() => (lastFrame() ?? '').includes('SEEDED'));
     stdin.write('g');
     await waitFor(() => (lastFrame() ?? '').includes('HEAD-LINE'));
 
@@ -267,11 +289,14 @@ describe('ProgressOverlay — scrolling', () => {
       // (also avoids Ink's escape-sequence disambiguation timeout race)
       await tick(15);
     }
+    // After the PgDn loop, use a condition-based wait instead of a fixed tick so slow state
+    // flushes under full-suite load cannot fail the clamp assertion.
+    await waitFor(() => (lastFrame() ?? '').includes('TAIL-LINE'));
     const bottom = lastFrame() ?? '';
     expect(bottom).toContain('TAIL-LINE');
     // Bounds clamp — the bottom frame is stable across additional PgDns.
     stdin.write('\x1b[6~');
-    await tick(30);
+    await waitFor(() => (lastFrame() ?? '').includes('TAIL-LINE'));
     const stillBottom = lastFrame() ?? '';
     expect(stillBottom).toContain('TAIL-LINE');
 
@@ -280,12 +305,118 @@ describe('ProgressOverlay — scrolling', () => {
       stdin.write('\x1b[5~'); // VT220 PgUp — ink maps this to key.pageUp
       await tick(15);
     }
+    // Same pattern: condition-based wait after the PgUp loop.
+    await waitFor(() => (lastFrame() ?? '').includes('HEAD-LINE'));
     const back = lastFrame() ?? '';
     expect(back).toContain('HEAD-LINE');
     // PgUp at the top clamps — one more press is a no-op.
     stdin.write('\x1b[5~');
-    await tick(30);
+    await waitFor(() => (lastFrame() ?? '').includes('HEAD-LINE'));
     expect(lastFrame() ?? '').toContain('HEAD-LINE');
+
+    unmount();
+  });
+});
+
+/**
+ * Cursor-preservation tests — the key behavioural contract of the mount-preserving overlay
+ * design. Children remain mounted (display:none) while the overlay is open so list cursors
+ * and other view state survive open/close cycles intact.
+ */
+
+/**
+ * A minimal child that tracks a list cursor with j/k and surfaces "CURSOR:<n>" in its output.
+ * Uses useInput gated on `ui.modalOpen` (the unified modal flag) so pressing j while the
+ * overlay is open is a no-op — the hidden view stays inert.
+ */
+const CursorChild = (): React.JSX.Element => {
+  const ui = useUiState();
+  const ITEMS = 5;
+  const [cursor, setCursor] = React.useState(0);
+  useInput(
+    (input) => {
+      if (ui.modalOpen) return;
+      if (input === 'j') setCursor((c) => Math.min(ITEMS - 1, c + 1));
+      if (input === 'k') setCursor((c) => Math.max(0, c - 1));
+    },
+    { isActive: !ui.modalOpen }
+  );
+  return <Text>CURSOR:{String(cursor)}</Text>;
+};
+
+const HarnessWithCursor = ({ dataRoot }: { readonly dataRoot: string }): React.JSX.Element => {
+  const deps = {} as unknown as AppDeps;
+  return (
+    <DepsProvider value={deps}>
+      <StorageProvider value={buildStorage(dataRoot)}>
+        <SessionsProvider value={emptyManager()}>
+          <UiStateProvider>
+            <SelectionProvider>
+              <SeedSelection withSprint={true} />
+              <RouterProvider initial={{ id: 'sprint-detail' }}>
+                {(): React.JSX.Element => (
+                  <GlobalHarness>
+                    <CursorChild />
+                  </GlobalHarness>
+                )}
+              </RouterProvider>
+            </SelectionProvider>
+          </UiStateProvider>
+        </SessionsProvider>
+      </StorageProvider>
+    </DepsProvider>
+  );
+};
+
+describe('ProgressOverlay — cursor preservation (mounted children)', () => {
+  it('list cursor is unchanged after open + close cycle', async () => {
+    const dataRoot = await makeTmpRoot();
+    await writeProgressFile(dataRoot, '# Progress\n\nSome content.');
+    const { stdin, lastFrame, unmount } = render(<HarnessWithCursor dataRoot={dataRoot} />);
+    // Wait for SEEDED sentinel before interacting.
+    await waitFor(() => (lastFrame() ?? '').includes('SEEDED'));
+
+    // Initial cursor position.
+    await waitFor(() => (lastFrame() ?? '').includes('CURSOR:0'));
+
+    // Move the cursor down twice (using 'j' — the CursorChild handles input === 'j').
+    stdin.write('j');
+    await waitFor(() => (lastFrame() ?? '').includes('CURSOR:1'));
+    stdin.write('j');
+    await waitFor(() => (lastFrame() ?? '').includes('CURSOR:2'));
+
+    // Open the overlay — underlying view should be hidden (display:none in Ink output).
+    stdin.write('g');
+    await waitFor(() => (lastFrame() ?? '').includes('Some content.'));
+    expect(lastFrame() ?? '').not.toContain('CURSOR:');
+
+    // Close the overlay — cursor must still be at 2 (view was mounted, not remounted).
+    stdin.write(ESC);
+    await waitFor(() => (lastFrame() ?? '').includes('CURSOR:'));
+    expect(lastFrame() ?? '').toContain('CURSOR:2');
+
+    unmount();
+  });
+
+  it('keystrokes while the overlay is open do not move the hidden view cursor', async () => {
+    const dataRoot = await makeTmpRoot();
+    await writeProgressFile(dataRoot, '# Progress\n\nSome content.');
+    const { stdin, lastFrame, unmount } = render(<HarnessWithCursor dataRoot={dataRoot} />);
+    await waitFor(() => (lastFrame() ?? '').includes('SEEDED'));
+    await waitFor(() => (lastFrame() ?? '').includes('CURSOR:0'));
+
+    // Open the overlay.
+    stdin.write('g');
+    await waitFor(() => (lastFrame() ?? '').includes('Some content.'));
+
+    // 'j' is a list-navigation key; the hidden view gates on ui.modalOpen so it must ignore it.
+    stdin.write('j');
+    await tick(50);
+
+    // Close the overlay — cursor should still be at 0.
+    stdin.write(ESC);
+    await waitFor(() => (lastFrame() ?? '').includes('CURSOR:'));
+    expect(lastFrame() ?? '').toContain('CURSOR:0');
 
     unmount();
   });

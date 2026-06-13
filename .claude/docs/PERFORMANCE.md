@@ -51,16 +51,23 @@ events bridge to the EventBus; the TUI's `StatusBanner` (tiered `info` / `warn` 
 old single-purpose `RateLimitBanner`.
 
 **Idle-stdout watchdog** kills wedged headless AI children past a configurable idle threshold. A stuck Claude
-/ Copilot / Codex process cannot strand the harness.
+/ Copilot / Codex process cannot strand the harness. The threshold is `settings.harness.idleWatchdogMs`
+(60_000–3_600_000 ms, default 300_000 = 5 min), threaded into every adapter's `deps.idleMs` by
+`provider-factory.ts`. Raise it for slow first-token models that pause mid-reasoning; lower it on a fast
+network / short tasks to reclaim a hung child sooner.
 
-**Resume of aborted Implement runs.** Tasks left in `in_progress` from a prior crash reset to `todo` on next
-launch and re-enter the queue. No double-execution.
+**Resume of aborted Implement runs.** Tasks left in `in_progress` from a prior crash stay `in_progress` and
+are queued FIRST on the next launch. The `start-attempt` leaf settles the leftover `running` attempt as
+`aborted` (cause `process-crash`, kept in `attempts[]`) then opens a fresh attempt — no manual cleanup
+required. The only path that resets a task to `todo` is `task unblock`.
 
 **Iteration budget.** `settings.harness` carries:
 
 - `maxTurns` (1–10) — generator-evaluator turns budgeted per attempt
 - `maxAttempts` (1–10) — cap on attempts per task before transitioning to `blocked`
 - `rateLimitRetries` (0–10) — adapter-side 429 retries
+- `idleWatchdogMs` (60_000–3_600_000, default 300_000) — stdio-silence threshold before the idle watchdog
+  SIGTERMs a wedged headless AI child
 - `plateauThreshold` (2–5, default 3) — consecutive evaluator rounds flagging the same failed-dimension
   set before the loop exits with a plateau warning; score improvement, commit-progress, or
   critique-Jaccard shift can exempt a round from counting. The patient default (3) avoids spending an

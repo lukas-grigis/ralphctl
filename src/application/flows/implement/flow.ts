@@ -27,6 +27,8 @@ import {
 } from '@src/application/flows/implement/leaves/sprint-repo-plan.ts';
 import { transitionSprintToReviewLeaf } from '@src/application/flows/implement/leaves/transition-sprint-to-review.ts';
 import { withRepoLock } from '@src/application/flows/_shared/with-repo-lock.ts';
+import { loadLearningsLeaf } from '@src/application/flows/_shared/memory/load-learnings.ts';
+import { learningsLedgerPath } from '@src/application/flows/_shared/memory/ledger-path.ts';
 
 export type { RepoExecConfig };
 
@@ -238,6 +240,23 @@ export const buildImplementPrologue = (deps: ImplementDeps, opts: CreateImplemen
     activateSprintLeaf({ sprintRepo: deps.sprintRepo, clock: deps.clock, logger: deps.logger }),
     loadSprintExecutionLeaf<ImplementCtx>({ sprintExecutionRepo: deps.sprintExecutionRepo }),
     loadTasksLeaf<ImplementCtx>({ taskRepo: deps.taskRepo }),
+    // Cross-sprint procedural memory (principle 3, read side). Load this project's not-yet-promoted
+    // learnings ONCE here so every per-task generator can orient on what prior sprints earned —
+    // without touching the human-gated distill flow (which stays the only write-back path). A
+    // missing ledger resolves to an empty list inside the leaf, so the block degrades cleanly.
+    loadLearningsLeaf<ImplementCtx>(
+      { logger: deps.logger },
+      {
+        path: () => {
+          const resolved = learningsLedgerPath(opts.memoryRoot, opts.projectId);
+          // The projectId is validated upstream (resolveImplementQueue); a resolve failure is a
+          // programmer error, so re-throw it as the leaf's projection contract requires.
+          if (!resolved.ok) throw resolved.error;
+          return resolved.value;
+        },
+        output: (ctx, candidates) => ({ ...ctx, priorLearnings: candidates }),
+      }
+    ),
     resolveBranchLeaf(
       {
         gitRunner: deps.gitRunner,
@@ -396,9 +415,12 @@ export const planImplementWaves = (deps: ImplementDeps, opts: CreateImplementFlo
 };
 
 export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFlowOpts): Element<ImplementCtx> => {
-  // Promise-shaped accessor read by `finalize-gen-eval` and the gen-eval loop's
-  // `shouldContinue` predicate. Re-resolved per call so a mid-run config edit (lower maxTurns,
-  // toggle escalation) takes effect on the next iteration rather than requiring a restart.
+  // Promise-shaped accessor read by `finalize-gen-eval` and the gen-eval loop's `shouldContinue`
+  // predicate. It reflects the harness slice frozen at launch — `deps.config` is a plain snapshot
+  // built once per launch in the launcher, and nothing mutates it, so a mid-run settings edit does
+  // NOT take effect until the next launch. The accessor stays Promise-shaped only because its
+  // consumers `await` it (a live settings re-read would slot in here without touching them), but it
+  // must not claim a mid-run reload the wiring does not provide.
   const readConfig = (): Promise<{
     readonly maxTurns: number;
     readonly escalateOnPlateau: boolean;

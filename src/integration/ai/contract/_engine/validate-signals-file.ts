@@ -82,6 +82,23 @@ export const validateSignalsFile = async <TSig extends AiSignal>(
     current = step(current);
   }
 
+  // Guard the root shape before the property access below. `JSON.parse('null')` succeeds and the
+  // generator-contract v0 migration passes non-arrays through untouched, so a provider that writes
+  // literal `null` (a real failure mode) reaches here — a bare `wrapper.signals` access on null
+  // would throw a TypeError, which is NOT a DomainError and would escape the Result channel and
+  // crash the whole run instead of blocking the single task (turn-error-policy routes ParseError
+  // to a per-task block). Surface it as the same schema-mismatch ParseError as any other malformed
+  // signals body.
+  if (typeof current !== 'object' || current === null) {
+    return Result.error(
+      new ParseError({
+        subCode: 'schema-mismatch',
+        message: `signals-invalid (schema) at ${path}: signals.json root is not an object`,
+        hint: 'The AI wrote signals.json but its root was not a JSON object (e.g. literal `null` or a string).',
+      })
+    );
+  }
+
   const wrapper = current as { signals?: unknown };
   const inner = wrapper.signals;
   // Be lenient on `timestamp`: AIs frequently omit it on signals they think of as

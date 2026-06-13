@@ -18,4 +18,5 @@ export const reviewManifest: FlowManifest = {
     'Iterative feedback loop on an implemented sprint; closes the sprint to done. PR creation is separate and optional.',
   canBackground: true,
   triggers: { currentSprintStatus: ['review'] },
+  costHint: 'one AI session per revision cycle — cost scales with the number of feedback rounds',
 };

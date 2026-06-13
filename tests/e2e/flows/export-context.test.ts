@@ -17,8 +17,10 @@ import {
   makeDraftSprint,
   makeProject,
   makeTodoTask,
+  projectId as parseProjectId,
 } from '@tests/fixtures/domain.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
+import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { createExportContextFlow } from '@src/application/flows/export-context/flow.ts';
 
 const fakeSprintRepo = (sprint: Sprint): SprintRepository =>
@@ -80,7 +82,27 @@ describe('export-context flow — happy path', () => {
     expect(body).toContain('### 1. wire form');
   });
 
-  it('surfaces NotFoundError when the project does not exist', async () => {
+  it("defaults the project to the sprint's own projectId when no override is supplied", async () => {
+    const project = makeProject({ id: FIXED_PROJECT_ID, displayName: 'Demo' });
+    const sprint = makeDraftSprint({ projectId: project.id, tickets: [] });
+    const writer = inMemoryWriteFile();
+    const outputPath = absolutePath('/tmp/ctx.md');
+
+    const flow = createExportContextFlow({
+      sprintRepo: fakeSprintRepo(sprint),
+      projectRepo: fakeProjectRepo(project),
+      taskRepo: fakeTaskRepo([]),
+      writeFile: writer.writeFile,
+    });
+    // No projectId on the input — the flow must resolve it from the loaded sprint.
+    const result = await flow.execute({ input: { sprintId: sprint.id, outputPath } });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(writer.writes[0]?.content ?? '').toContain('### Demo');
+  });
+
+  it('rejects a project override that does not match the sprint, before any write', async () => {
     const project = makeProject({ id: FIXED_PROJECT_ID });
     const sprint = makeDraftSprint({ projectId: project.id, tickets: [] });
     const writer = inMemoryWriteFile();
@@ -94,9 +116,31 @@ describe('export-context flow — happy path', () => {
     const result = await flow.execute({
       input: {
         sprintId: sprint.id,
-        projectId: 'missing' as unknown as ProjectId,
+        projectId: parseProjectId('01900000-0000-7000-8000-000000000002'),
         outputPath: absolutePath('/tmp/x.md'),
       },
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.error).toBeInstanceOf(ValidationError);
+    expect(writer.writes).toHaveLength(0);
+  });
+
+  it("surfaces NotFoundError when the sprint's project does not exist", async () => {
+    // Sprint references a project the repo cannot resolve — the default-to-sprint path hits NotFound.
+    const presentProject = makeProject({ id: parseProjectId('01900000-0000-7000-8000-0000000000aa') });
+    const sprint = makeDraftSprint({ projectId: FIXED_PROJECT_ID, tickets: [] });
+    const writer = inMemoryWriteFile();
+
+    const flow = createExportContextFlow({
+      sprintRepo: fakeSprintRepo(sprint),
+      projectRepo: fakeProjectRepo(presentProject),
+      taskRepo: fakeTaskRepo([]),
+      writeFile: writer.writeFile,
+    });
+    const result = await flow.execute({
+      input: { sprintId: sprint.id, outputPath: absolutePath('/tmp/x.md') },
     });
 
     expect(result.ok).toBe(false);

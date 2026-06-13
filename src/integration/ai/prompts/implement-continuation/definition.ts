@@ -112,7 +112,8 @@ export const implementContinuationPromptDef: PromptDefinition<ImplementContinuat
     },
     priorCritiqueSection: {
       placeholder: 'PRIOR_CRITIQUE_SECTION',
-      description: '"## Prior Critique" markdown block — the prior round\'s failed evaluator critique, verbatim.',
+      description:
+        '"## Prior Critique" markdown block (+ optional "## Dimension trajectory" feed-forward) — the prior round\'s failed evaluator critique and the multi-round dimension trajectory.',
     },
     plateauDirectiveSection: {
       placeholder: 'PLATEAU_DIRECTIVE_SECTION',
@@ -166,6 +167,11 @@ export interface BuildImplementContinuationPromptInput {
   readonly priorProgress: string;
   /** Prior evaluator critique to feed back into the generator. */
   readonly priorCritique?: string;
+  /**
+   * Pre-composed "## Dimension trajectory" block from `ctx.plateauHistory` — rides inside
+   * `PRIOR_CRITIQUE_SECTION` (no new placeholder). Absent on round 1 or empty → not rendered.
+   */
+  readonly dimensionTrajectory?: string;
   /** True on a top-of-ladder same-model nudge — renders the "change your approach" directive. */
   readonly plateauBreak?: boolean;
   /** Pre-rendered audit-[09] output contract section for this round's generator output dir. */
@@ -195,7 +201,7 @@ export const buildImplementContinuationPrompt = async (
     contractPath: input.contractPath,
     progressFile: input.progressFile,
     priorProgress: input.priorProgress,
-    priorCritiqueSection: renderPriorCritiqueSection(input.priorCritique),
+    priorCritiqueSection: renderPriorCritiqueSection(input.priorCritique, input.dimensionTrajectory),
     plateauDirectiveSection: renderPlateauDirectiveSection(input.plateauBreak ?? false),
     outputContractSection: input.outputContractSection,
     preVerifyResults: renderPreVerifyResultsSection(input.preVerifyOutput),

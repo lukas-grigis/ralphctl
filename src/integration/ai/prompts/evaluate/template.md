@@ -39,6 +39,11 @@ terminal verdict this round — for example you graded some dimensions but a too
 (a verify command that will not run, an unreadable working tree) blocked the rest, so emitting `passed` or
 `failed` would be a guess. `malformed` means "no verdict yet," not "slightly unsure."
 
+Legitimate `malformed` triggers: the verify command dies without readable output; the working tree is
+unreadable or the mounted directory is missing required files; environment setup is broken such that no
+criterion command can run. Uncertainty about how to interpret a criterion is NOT `malformed` — name the
+failing criterion and emit `failed` with a critique.
+
 When you emit `malformed`, the harness does NOT mark the work done and does NOT block the task — it retries the
 attempt: the SAME model gets a fresh attempt while the attempt budget remains, and only when the budget is
 exhausted does the round settle with a warning. So `malformed` is honest and recoverable. Do not avoid it by

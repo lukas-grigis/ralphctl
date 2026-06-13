@@ -1,8 +1,9 @@
 # Sprint lifecycle
 
-A sprint moves through five states: `draft → planned → active → review → done`. This page shows the
-sequence of user actions that drive the transitions, not the full state machine. (`plan` flips
-`draft → planned`; `implement` activates `planned → active`.)
+A sprint moves through five states: `draft → planned → active → review → done`, plus one recovery edge
+`review → active` — unblocking a task on a `review` sprint reverts it to `active` so the unblocked task
+can be picked up on the next Implement run. (`plan` flips `draft → planned`; `implement` activates
+`planned → active`.)
 
 ## A typical sprint, end to end
 
@@ -32,7 +33,7 @@ sequenceDiagram
         CLI->>Sprint: append attempt · update task status
     end
 
-    CLI->>Sprint: every task settled (done or blocked) → status=review
+    CLI->>Sprint: every task settled AND ≥1 done → status=review (all-blocked run stays active)
 
     opt Optional feedback loop
         User->>CLI: review
@@ -58,9 +59,15 @@ sequenceDiagram
 | Review (apply feedback)    |   ✗   |    ✗    |   ✗    |   ✓    |  ✗   |
 | Close (review → done)      |   ✗   |    ✗    |   ✗    |   ✓    |  ✗   |
 | `sprint show / list`       |   ✓   |    ✓    |   ✓    |   ✓    |  ✓   |
+| `task unblock`†            |   ✗   |    ✗    |   ✗    |   ✓    |  ✗   |
 
 \*`implement` activates a `planned` sprint (`planned → active`) on first launch; an already-`active`
 sprint passes through idempotently. A draft sprint must be planned first.
+
+†`task unblock` (TUI `u` / `ralphctl task unblock`) on a `review` sprint reverts the sprint to `active`
+(`revertSprintToActive`) so the newly-`todo` task is picked up on the next Implement run. A non-`review`
+sprint passes through the reopen untouched (idempotent). An all-blocked run stays `active` — no review
+state to revert.
 
 ## On-disk shape
 

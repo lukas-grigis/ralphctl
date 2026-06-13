@@ -10,4 +10,5 @@ export const implementManifest: FlowManifest = {
   description: 'Run the generator–evaluator loop on every todo task in a planned/active sprint.',
   canBackground: true,
   triggers: { currentSprintStatus: ['planned', 'active'], minResumableTasks: 1 },
+  costHint: 'generator–evaluator loop per task — higher token spend, independently verified output',
 };

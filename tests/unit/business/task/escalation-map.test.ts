@@ -8,9 +8,13 @@
  *    leaves the input untouched.
  */
 
+import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { CURRENT_SCHEMA_VERSION, SettingsSchema } from '@src/domain/entity/settings.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
+import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
+import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
+import { COPILOT_MODELS } from '@src/domain/value/settings-models/copilot.ts';
 import {
   DEFAULT_ESCALATION_MAP,
   escalationLadderCyclicFrom,
@@ -138,6 +142,43 @@ describe('warnEscalationMapSelfLoops', () => {
     warnEscalationMapSelfLoops(parsed.data.harness.escalationMap, logger);
     expect(warn).toHaveBeenCalledTimes(1);
     expect(String(warn.mock.calls[0]?.[0])).toContain('claude-opus-4-8');
+  });
+});
+
+describe('DEFAULT_ESCALATION_MAP — catalog lockstep (mechanizes the section 14/18 model-bump audit)', () => {
+  // The union of every per-provider catalog id. A ladder rung that names an id outside this set
+  // would be stamped onto a task as `escalatedToModel`, then rejected by the adapter at spawn time
+  // with InvalidStateError — so every key AND value must be a member.
+  const catalogIds = new Set<string>([...CLAUDE_MODELS, ...CODEX_MODELS, ...COPILOT_MODELS]);
+
+  it('every ladder key is a member of some provider catalog', () => {
+    for (const from of Object.keys(DEFAULT_ESCALATION_MAP)) {
+      expect(catalogIds.has(from), `ladder key '${from}' is not in any model catalog`).toBe(true);
+    }
+  });
+
+  it('every ladder destination is a member of some provider catalog', () => {
+    for (const to of Object.values(DEFAULT_ESCALATION_MAP)) {
+      expect(catalogIds.has(to), `ladder destination '${to}' is not in any model catalog`).toBe(true);
+    }
+  });
+
+  // Fingerprint each catalog (stable hash of the sorted ids). When this test fails because a catalog
+  // changed, a model bump just landed: run the HARNESS-PRINCIPLES.md model-bump audit (walk the
+  // partial/gap rows, re-check the applied rows' load-bearing status, and confirm no DEFAULT_
+  // ESCALATION_MAP rung was orphaned by a catalog rename/de-list), THEN update the recorded hash.
+  // This converts the section 18 ritual from a ticket convention into a verify-gate failure that
+  // fires precisely when a model bump lands.
+  const fingerprint = (ids: readonly string[]): string =>
+    createHash('sha256')
+      .update([...ids].sort().join('\n'))
+      .digest('hex')
+      .slice(0, 16);
+
+  it('catalog fingerprints are unchanged — a failure means a model bump landed; run the model-bump audit', () => {
+    expect(fingerprint(CLAUDE_MODELS)).toBe('327427f07bd02409');
+    expect(fingerprint(CODEX_MODELS)).toBe('d0af18882f9e15ac');
+    expect(fingerprint(COPILOT_MODELS)).toBe('d8e91df17f49d2a8');
   });
 });
 

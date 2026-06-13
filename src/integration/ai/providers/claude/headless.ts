@@ -8,19 +8,13 @@ import { resolveWritableRoots } from '@src/integration/ai/providers/_engine/reso
 import type { SessionPermissions } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
-import { AbortError } from '@src/domain/value/error/abort-error.ts';
-import { RateLimitError } from '@src/domain/value/error/rate-limit-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { isClaudeModel } from '@src/domain/value/settings-models/claude.ts';
 import { createClaudeStreamParser } from '@src/integration/ai/providers/claude/parse-stream.ts';
 import type { ClaudeStreamLine } from '@src/integration/ai/providers/_engine/claude-stream.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import { runHeadlessSpawn } from '@src/integration/ai/providers/_engine/run-headless-spawn.ts';
-import {
-  DEFAULT_BACKOFF_SCHEDULE,
-  delayForRetry,
-  sleepCancellable,
-} from '@src/integration/ai/providers/_engine/rate-limit-backoff.ts';
+import { runWithRateLimitRetry } from '@src/integration/ai/providers/_engine/run-with-rate-limit-retry.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import { persistSessionIdFile } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
 import { contextWindowFor } from '@src/integration/ai/providers/_engine/context-window.ts';
@@ -53,8 +47,9 @@ import type { EventBus } from '@src/business/observability/event-bus.ts';
  * `signals.json` itself. When `session.bodyFile` is set, the body is mirrored there for
  * forensic capture (empty-proposal diagnostics).
  *
- * Rate-limit detection is a lean stderr regex (`/rate.?limit/i`); on match, retry up to
- * `rateLimitRetries` then surface {@link RateLimitError}. `abortSignal` propagates to SIGTERM
+ * Rate-limit detection scans stderr AND the parsed stdout `result` body against a broadened
+ * quota regex; on match the shared retry seam (`run-with-rate-limit-retry.ts`) retries up to
+ * `rateLimitRetries` then surfaces `RateLimitError`. `abortSignal` propagates to SIGTERM
  * — the harness only kills the child when the user cancels; there is no wall-clock timeout
  * because an implement session can legitimately run for hours.
  *
@@ -79,7 +74,22 @@ import type { EventBus } from '@src/business/observability/event-bus.ts';
  * a port, not an implementation detail of this file.
  */
 
-const RATE_LIMIT_RE = /rate.?limit/i;
+/**
+ * Rate-limit / quota detection. Broadened past the bare `/rate.?limit/i` because Claude reports
+ * a daily-quota throttle with wording that never contains the literal "rate limit": "usage limit
+ * reached", the "5-hour limit" window, the API's `overloaded_error` type, and a bare `429`. The
+ * haystack is stderr PLUS the parsed stdout `result` envelope body (claude's `-p stream-json`
+ * mode reports quota in the stdout result, not on stderr) — see classifySpawnExit's `stdoutTail`.
+ */
+const RATE_LIMIT_RE = /rate.?limit|usage limit reached|\b5-hour limit\b|overloaded_error|429/i;
+
+/**
+ * Cold-start fallback trigger: Claude rejects a `--resume <id>` whose session it no longer has
+ * with "No conversation found with session ID". The shared retry seam drops `--resume` for one
+ * cold respawn (latched) rather than hard-failing the round on a dead session id. Conservative —
+ * matches the canonical wording only.
+ */
+const RESUME_STALE_RE = /No conversation found with session ID/i;
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
 
@@ -312,74 +322,27 @@ export const createClaudeProvider = (deps: ClaudeProviderDeps): HeadlessAiProvid
 
   return {
     async generate(session) {
+      // The shared retry seam owns the loop, backoff, banners, abort-during-backoff, the
+      // session-resume rebuild (so a 429 retry passes `--resume <id>`), and the stale-resume
+      // cold fallback. The per-attempt closure builds argv from the CURRENT session, so a
+      // resumed retry naturally emits `--resume`. buildClaudeArgs validation surfaces up front.
       const argsResult = buildClaudeArgs(session);
       if (!argsResult.ok) return Result.error(argsResult.error) as Result<ProviderOutput, DomainError>;
-      const args = argsResult.value;
-      // attempt 0 = first try; up to `rateLimitRetries` extra attempts after a rate-limit.
-      const maxAttempts = deps.rateLimitRetries + 1;
-      const schedule = deps.backoffSchedule ?? DEFAULT_BACKOFF_SCHEDULE;
-      let lastRateLimit: RateLimitError | undefined;
-      for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        const outcome = await spawnAttempt({ deps, spawnFn, command, args, session });
-        if (outcome.kind === 'success') {
-          return Result.ok(outcome.output) as Result<ProviderOutput, DomainError>;
-        }
-        if (outcome.kind === 'rate-limit') {
-          lastRateLimit = outcome.error;
-          const bannerId = `rate-limit-claude-${outcome.error.sessionId ?? String(attempt + 1)}`;
-          deps.eventBus.publish({
-            type: 'log',
-            level: 'warn',
-            message: `claude-provider: rate-limit on attempt ${String(attempt + 1)}/${String(maxAttempts)}`,
-            meta: { attempt: attempt + 1, maxAttempts, subCode: outcome.error.subCode },
-            at: IsoTimestamp.now(),
-          });
-          // Wait before retrying — gives a daily-quota throttle a chance to reset on a fresh
-          // window. Only between attempts, not after the last one. Abort short-circuits the
-          // sleep so user-initiated cancel doesn't have to wait through a 2-hour backoff.
-          if (attempt < maxAttempts - 1) {
-            const delayMs = delayForRetry(attempt + 1, schedule);
-            if (delayMs > 0) {
-              deps.eventBus.publish({
-                type: 'log',
-                level: 'info',
-                message: `claude-provider: waiting ${String(delayMs)}ms before retry`,
-                meta: { delayMs, nextAttempt: attempt + 2, maxAttempts },
-                at: IsoTimestamp.now(),
-              });
-              deps.eventBus.publish({
-                type: 'banner-show',
-                id: bannerId,
-                tier: 'info',
-                message: `Rate limit (claude) — waiting ${Math.round(delayMs / 1000).toString()}s before retry`,
-                cause: `attempt ${String(attempt + 1)}/${String(maxAttempts)}`,
-                at: IsoTimestamp.now(),
-              });
-              await sleepCancellable(delayMs, session.abortSignal);
-              // Clear once the wait completes (either elapsed or abort fired); the next attempt
-              // re-publishes if it also hits the rate-limit.
-              deps.eventBus.publish({ type: 'banner-clear', id: bannerId, at: IsoTimestamp.now() });
-              if (session.abortSignal?.aborted === true) {
-                // User cancel during the backoff sleep must surface as AbortError — the one
-                // error chains propagate transparently (CLAUDE.md §AbortError). InvalidStateError
-                // is classified as a recoverable turn error and would wrongly self-block the task.
-                // Mirrors the abort-on-exit shape in classify-spawn-exit.ts.
-                return Result.error(
-                  new AbortError({
-                    elementName: 'claude-provider',
-                    reason: 'claude-provider: aborted by caller during rate-limit backoff',
-                  })
-                ) as Result<ProviderOutput, DomainError>;
-              }
-            }
-          }
-          continue;
-        }
-        return Result.error(outcome.error) as Result<ProviderOutput, DomainError>;
-      }
-      return Result.error(
-        lastRateLimit ?? new RateLimitError({ subCode: 'spawn-stderr', message: 'rate-limit retries exhausted' })
-      ) as Result<ProviderOutput, DomainError>;
+
+      return runWithRateLimitRetry({
+        session,
+        rateLimitRetries: deps.rateLimitRetries,
+        ...(deps.backoffSchedule !== undefined ? { backoffSchedule: deps.backoffSchedule } : {}),
+        eventBus: deps.eventBus,
+        providerSlug: 'claude',
+        providerName: 'claude-provider',
+        resumeStaleRe: RESUME_STALE_RE,
+        attempt: async (attemptSession) => {
+          const built = buildClaudeArgs(attemptSession);
+          if (!built.ok) return { kind: 'error', error: built.error };
+          return spawnAttempt({ deps, spawnFn, command, args: built.value, session: attemptSession });
+        },
+      });
     },
   };
 };
@@ -549,6 +512,10 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
     exit: { code, signal },
     stderr: stderrBuf,
     rateLimitRe: RATE_LIMIT_RE,
+    // Claude's `-p stream-json` mode reports quota errors in the stdout `result` envelope, not
+    // on stderr. Feed the parsed body into the rate-limit haystack so a real throttle trips the
+    // overnight backoff instead of hard-failing the round.
+    ...(envelope.body.length > 0 ? { stdoutTail: envelope.body } : {}),
     ...(envelope.sessionId !== undefined ? { capturedSessionId: envelope.sessionId } : {}),
     providerName: 'claude-provider',
     eventBus: deps.eventBus,

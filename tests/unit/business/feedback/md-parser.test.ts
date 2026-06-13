@@ -75,6 +75,47 @@ real feedback
     expect(rounds[0]?.body).toBe('real feedback');
   });
 
+  it('preserves a `---` line inside the feedback body verbatim (no mid-body truncation)', () => {
+    const body = `before the rule
+---
+after the rule
+
+\`\`\`diff
+--- a/foo.ts
++++ b/foo.ts
+\`\`\``;
+    const text = `## Round 1
+
+${MARKER_COMMENT}
+${body}
+---
+`;
+    const rounds = parseFeedbackMd(text);
+    expect(rounds).toHaveLength(1);
+    expect(rounds[0]?.body).toBe(body);
+  });
+
+  it('preserves a `---` line in the body across multiple rounds without bleed', () => {
+    const text = `## Round 1
+
+${MARKER_COMMENT}
+keep
+---
+this part
+---
+
+## Round 2
+
+${MARKER_COMMENT}
+second
+---
+`;
+    const rounds = parseFeedbackMd(text);
+    expect(rounds.map((r) => r.index)).toEqual([1, 2]);
+    expect(rounds[0]?.body).toBe('keep\n---\nthis part');
+    expect(rounds[1]?.body).toBe('second');
+  });
+
   it('ignores text written above the marker comment when marker is present', () => {
     const text = `## Round 1
 

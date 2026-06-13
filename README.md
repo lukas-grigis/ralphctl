@@ -22,10 +22,10 @@ with [GitHub Copilot](https://docs.github.com/en/copilot/github-copilot-in-the-c
 > _"I'm helping!"_ — Ralph Wiggum
 
 > [!NOTE]
-> **Active development.** New features and polish ship regularly. **0.9.0** adds
-> opt-in parallel task execution — independent tasks within a dependency wave run
-> concurrently, each in its own git worktree, folded back onto one branch.
-> Upgrades are simple: install the latest version, redo your config, proceed.
+> **Active development.** New features and polish ship regularly. **0.11.0** adds four budget-conscious
+> presets (`mixed-economic`, `claude-economic`, `copilot-economic`, `codex-economic`), a binding attempt
+> cap, and refreshed model catalogs.
+> Upgrades are best-effort: install the latest version, redo your config, proceed.
 > See [Upgrading](#upgrading) and [CHANGELOG](./CHANGELOG.md).
 
 ---
@@ -95,7 +95,7 @@ ralphctl export-context --sprint <id> --project <id> --output <path>
 
 # Settings
 ralphctl settings show
-ralphctl settings apply-preset claude-only     # or mixed / copilot-only / codex-only
+ralphctl settings apply-preset claude-only     # or mixed / copilot-only / codex-only / *-economic
 ralphctl settings set ai.implement.generator.provider claude-code
 ralphctl settings set ai.implement.generator.model    <model-id>
 ralphctl settings set ai.implement.generator.effort   high
@@ -163,8 +163,8 @@ scope (cwd + `--add-dir`) is the only safety envelope. Parallel execution is pro
 provider each implement role is configured to use, under the same per-provider caveats. If you hit a rough edge on a
 preview provider, please [open an issue](https://github.com/lukas-grigis/ralphctl/issues).
 
-One-shot configuration for any provider: `ralphctl settings apply-preset <name>` where `<name>` is
-`mixed`, `claude-only`, `copilot-only`, or `codex-only`.
+One-shot configuration for any provider: `ralphctl settings apply-preset <name>` where `<name>` is one of
+the eight presets — `mixed`, `claude-only`, `copilot-only`, `codex-only`, or a `*-economic` variant.
 
 ---
 
@@ -182,8 +182,8 @@ One-shot configuration for any provider: `ralphctl settings apply-preset <name>`
   provider restarts
 - **Separate the what from the how** — AI clarifies requirements first (Refine), then generates the implementation
   plan (Plan), with human approval gates between
-- **Pick up where you left off** — full state persistence; interrupted Implement runs reset in-progress tasks and
-  re-enter the queue on next launch
+- **Pick up where you left off** — full state persistence; interrupted Implement runs resume in-progress tasks
+  first — the crashed attempt is settled as aborted (kept in history) and a fresh attempt opens automatically
 - **Pair or let it run** — work alongside your AI agent interactively, or let it execute unattended
 - **Zero-memorization start** — run `ralphctl` with no args for a guided menu
 
@@ -196,14 +196,21 @@ Configure via the TUI `Settings` view or one-shot CLI commands.
 **Quickest path — apply a preset:**
 
 ```bash
-ralphctl settings apply-preset mixed          # best-fit provider per flow
-ralphctl settings apply-preset claude-only    # every flow on Claude Code
-ralphctl settings apply-preset copilot-only   # every flow on GitHub Copilot
-ralphctl settings apply-preset codex-only     # every flow on OpenAI Codex
+ralphctl settings apply-preset mixed               # best-fit provider per flow
+ralphctl settings apply-preset claude-only         # every flow on Claude Code
+ralphctl settings apply-preset copilot-only        # every flow on GitHub Copilot
+ralphctl settings apply-preset codex-only          # every flow on OpenAI Codex
+ralphctl settings apply-preset mixed-economic      # best-fit + cheaper implement tier
+ralphctl settings apply-preset claude-economic     # Claude Code + cheaper implement tier
+ralphctl settings apply-preset copilot-economic    # GitHub Copilot + cheaper implement tier
+ralphctl settings apply-preset codex-economic      # OpenAI Codex + cheaper implement tier
 ```
 
-A preset stamps the entire `ai` section in one shot. None is marked default; on a fresh install the welcome
-view silently auto-seeds a preset based on which provider CLIs it detects on `PATH`.
+Eight presets ship, all equally first-class — none is marked default. The four `*-economic` variants mirror
+the standard routings but start `implement` one model tier below the flagship; the escalation ladder climbs
+to the flagship only when a task plateaus — cheaper tokens on easy tasks, same quality gate on hard ones.
+A preset stamps the entire `ai` section in one shot. On a fresh install the welcome view silently auto-seeds
+a preset based on which provider CLIs it detects on `PATH`.
 
 **Per-flow settings.** Each flow carries its own `{provider, model, effort?}` row: `refine`, `plan`, `readiness`,
 `ideate`, and `createPr`. The `implement` flow instead splits into a nested `generator` / `evaluator` pair
@@ -298,14 +305,14 @@ readiness / create sprint) stay TUI-only by design. The CLI exposes inspection +
 
 ### Getting Started
 
-| Command                                 | Description                                                                             |
-| --------------------------------------- | --------------------------------------------------------------------------------------- |
-| `ralphctl`                              | Interactive TUI (primary surface)                                                       |
-| `ralphctl doctor`                       | Check environment health                                                                |
-| `ralphctl settings show`                | Print current settings                                                                  |
-| `ralphctl settings set <key> <value>`   | Set a single settings key                                                               |
-| `ralphctl settings apply-preset <name>` | Stamp the entire `ai` section (`mixed` / `claude-only` / `copilot-only` / `codex-only`) |
-| `ralphctl completion <shell>`           | Print shell tab-completion script                                                       |
+| Command                                 | Description                                                                                                                    |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `ralphctl`                              | Interactive TUI (primary surface)                                                                                              |
+| `ralphctl doctor`                       | Check environment health                                                                                                       |
+| `ralphctl settings show`                | Print current settings                                                                                                         |
+| `ralphctl settings set <key> <value>`   | Set a single settings key                                                                                                      |
+| `ralphctl settings apply-preset <name>` | Stamp the entire `ai` section — eight presets: `mixed` / `claude-only` / `copilot-only` / `codex-only` / `*-economic` variants |
+| `ralphctl completion <shell>`           | Print shell tab-completion script                                                                                              |
 
 ### Project & Sprint Inspection
 

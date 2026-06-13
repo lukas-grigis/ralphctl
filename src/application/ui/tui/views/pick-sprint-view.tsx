@@ -67,10 +67,11 @@ export const PickSprintView = (): React.JSX.Element => {
   // already filters them; this picker is the documented way back to a done sprint).
   const [hideDone, setHideDone] = useState<boolean>(false);
   useViewHints([
+    { keys: '↑/↓', label: 'move' },
     { keys: '↵', label: 'use sprint' },
     { keys: 't', label: 'toggle scope' },
     { keys: 'f', label: hideDone ? 'show done' : 'hide done' },
-    { keys: '+', label: 'create new' },
+    { keys: 'c/+', label: 'create new' },
     { keys: 'r', label: 'reload' },
   ]);
 
@@ -184,7 +185,7 @@ export const PickSprintView = (): React.JSX.Element => {
   // success pushes the execute view.
   const launchCreateSprint = useLaunchCreateSprint({
     onError: setFeedback,
-    noProjectMessage: '✗ select a project first',
+    noProjectMessage: `${glyphs.cross} select a project first`,
   });
 
   const toggleScope = (): void => {
@@ -203,7 +204,7 @@ export const PickSprintView = (): React.JSX.Element => {
   };
 
   useInput((input, key) => {
-    if (ui.helpOpen || ui.promptActive) return;
+    if (ui.modalOpen) return;
     if (key.upArrow || input === 'k') {
       setCursor((c) => nextCursorableIndex(rows, c, -1));
       return;

@@ -232,6 +232,61 @@ describe.each(PROVIDERS)('classifySpawnExit [%s]', (providerName) => {
     expect(outcome.kind).toBe('success');
   });
 
+  it('spawn error maps to InvalidStateError before any exit-code branch (missing binary)', async () => {
+    // FINDING 1 — a spawn `'error'` event (ENOENT / EACCES) means the child never ran; classify
+    // it as a typed, actionable failure before the clean-exit / rate-limit branches. The errno
+    // and message must surface so the operator knows the CLI is missing.
+    const session = baseSession();
+    const spawnError = Object.assign(new Error('spawn claude ENOENT'), {
+      code: 'ENOENT',
+    }) as NodeJS.ErrnoException;
+    let invoked = 0;
+    const outcome = await classifySpawnExit({
+      session,
+      exit: { code: null, signal: null, spawnError },
+      stderr: '',
+      rateLimitRe: RATE_RE,
+      providerName,
+      eventBus: createCapturingBus().bus,
+      watchdogBannerId: 'unused',
+      onSuccess: () => {
+        invoked += 1;
+        return okSuccess(session);
+      },
+    });
+    expect(invoked).toBe(0);
+    expect(outcome.kind).toBe('error');
+    if (outcome.kind === 'error') {
+      expect(outcome.error).toBeInstanceOf(InvalidStateError);
+      expect(outcome.error.message).toContain('spawn failed');
+      expect(outcome.error.message).toContain('ENOENT');
+      expect(outcome.error.message).toContain(providerName);
+    }
+  });
+
+  it('rate-limit detected in stdoutTail (not stderr) when the provider reports quota on stdout', async () => {
+    // FINDING 3 — claude's `-p stream-json` mode reports quota in the stdout result envelope, not
+    // on stderr. The classifier must scan stderr + stdoutTail so the throttle trips the backoff.
+    const session = baseSession();
+    await writeSignalsFile(String(session.signalsFile));
+    const outcome = await classifySpawnExit({
+      session,
+      exit: { code: 1, signal: null },
+      stderr: '',
+      stdoutTail: '{"type":"result","subtype":"error_max_turns","result":"usage limit reached"}',
+      rateLimitRe: /rate.?limit|usage limit reached|429/i,
+      capturedSessionId: 'sess-stdout',
+      providerName,
+      eventBus: createCapturingBus().bus,
+      watchdogBannerId: 'unused',
+      onSuccess: () => okSuccess(session),
+    });
+    expect(outcome.kind).toBe('rate-limit');
+    if (outcome.kind === 'rate-limit') {
+      expect(outcome.error.sessionId).toBe('sess-stdout');
+    }
+  });
+
   it('rate-limit in stderr wins over signals-present recovery', async () => {
     const session = baseSession();
     await writeSignalsFile(String(session.signalsFile));

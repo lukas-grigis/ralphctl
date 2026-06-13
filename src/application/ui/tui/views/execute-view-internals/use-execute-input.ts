@@ -10,33 +10,30 @@
  *   - help / prompt overlays own the keyboard — early-return when active.
  *   - while running: `c` opens the cancel-scope picker (unless already open); `D` detaches
  *     (router.reset, runner continues in background).
- *   - when settled: Enter / Esc returns to sprint-detail (when a sprint is selected) or
- *     pops the route stack.
+ *   - when settled: Enter / Esc resets to Home. ALWAYS Home — never sprint-detail or a
+ *     stack pop. A finished flow (refine / plan / implement / …) drops the user back on the
+ *     Home card with their own project/sprint selection intact, which is the one place that
+ *     summarises "what next". Browsing a run must not decide where the user "is".
  */
 
 import { useInput } from 'ink';
 import type { RouterApi } from '@src/application/ui/tui/runtime/router.tsx';
-import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 
 interface UseExecuteInputDeps {
   readonly isRunning: boolean;
   readonly cancelScopeOpen: boolean;
   readonly setCancelScopeOpen: (open: boolean) => void;
-  readonly helpOpen: boolean;
-  readonly promptActive: boolean;
+  readonly modalOpen: boolean;
   readonly router: RouterApi;
-  readonly sprintId: SprintId | undefined;
 }
 
 export const useExecuteInput = ({
   isRunning,
   cancelScopeOpen,
   setCancelScopeOpen,
-  helpOpen,
-  promptActive,
+  modalOpen,
   router,
-  sprintId,
 }: UseExecuteInputDeps): void => {
   useViewHints(
     isRunning
@@ -50,19 +47,15 @@ export const useExecuteInput = ({
             { keys: 'c', label: 'cancel' },
             { keys: 'D', label: 'detach' },
           ]
-      : [{ keys: '↵', label: 'back' }]
+      : [{ keys: '↵', label: 'home' }]
   );
 
   useInput((input, key) => {
-    if (helpOpen || promptActive) return;
+    if (modalOpen) return;
     if (!isRunning) {
-      if (key.return || key.escape) {
-        if (sprintId !== undefined) {
-          router.reset({ id: 'sprint-detail', props: { sprintId } });
-        } else {
-          router.pop();
-        }
-      }
+      // Settled run: land on Home, whatever the route stack looks like. The global selection
+      // is untouched, so Home renders the user's own project/sprint card.
+      if (key.return || key.escape) router.reset({ id: 'home' });
       return;
     }
     if (input === 'c' && !cancelScopeOpen) setCancelScopeOpen(true);

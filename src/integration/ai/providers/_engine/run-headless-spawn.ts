@@ -47,6 +47,14 @@ export interface RunHeadlessSpawnOptions {
 export interface SpawnExit {
   readonly code: number | null;
   readonly signal: NodeJS.Signals | null;
+  /**
+   * Set when the child raised an `'error'` event (the binary could not be spawned — ENOENT /
+   * EACCES — or it died before stdin drained). Mutually exclusive with a real exit: on a spawn
+   * error the child never exits, so `code` / `signal` stay `null` and this carries the cause.
+   * `classifySpawnExit` maps it to an `InvalidStateError` so a missing / upgraded CLI surfaces
+   * as a typed failure instead of crashing the whole Node process via an unhandled event.
+   */
+  readonly spawnError?: NodeJS.ErrnoException;
 }
 
 export const runHeadlessSpawn = async (opts: RunHeadlessSpawnOptions): Promise<SpawnExit> => {
@@ -64,18 +72,44 @@ export const runHeadlessSpawn = async (opts: RunHeadlessSpawnOptions): Promise<S
 
   let watchdog: ReturnType<typeof installIdleWatchdog> | undefined;
   try {
-    // stdin: send the prompt (claude/codex) or close immediately (copilot reads from argv).
-    if (stdin !== undefined) child.stdin.end(stdin);
-    else child.stdin.end();
-
-    watchdog = installIdleWatchdog(child, {
-      idleMs,
-      ...(abortSignal !== undefined ? { abortSignal } : {}),
-      ...(onIdle !== undefined ? { onIdle } : {}),
-    });
-
     return await new Promise<SpawnExit>((resolve) => {
-      child.once(resolveOn, (code, signal) => resolve({ code, signal }));
+      // A failed spawn (missing / non-executable binary, ENOENT/EACCES) or a child that dies
+      // before stdin drains raises an `'error'` event. Without a listener Node treats it as an
+      // unhandled error and kills the whole process — a single upgraded `claude` binary mid-
+      // sprint would take ralphctl down. Resolve the exit promise with the captured error so
+      // the classifier converts it to an InvalidStateError instead. Latched: an `'error'` and a
+      // real exit can both fire, but the first resolve wins.
+      let settled = false;
+      const settle = (exit: SpawnExit): void => {
+        if (settled) return;
+        settled = true;
+        resolve(exit);
+      };
+      child.once('error', (err: NodeJS.ErrnoException) => settle({ code: null, signal: null, spawnError: err }));
+      child.once(resolveOn, (code, signal) => settle({ code, signal }));
+
+      // stdin: send the prompt (claude/codex) or close immediately (copilot reads from argv).
+      // The write goes against a child that may already be dead (raced the spawn `'error'`):
+      // an unhandled EPIPE on the stdin stream is itself a process-killer, so swallow it — the
+      // `'error'` event above carries the real cause and drives the outcome. `child.stdin` is a
+      // Writable in production (always has `.on`); the optional-call guard keeps the helper
+      // resilient to minimal stdin stubs that only implement `end()`.
+      child.stdin.on?.('error', () => {
+        // EPIPE / ECONNRESET against a dead child — the spawn `'error'` path owns the failure.
+      });
+      try {
+        if (stdin !== undefined) child.stdin.end(stdin);
+        else child.stdin.end();
+      } catch {
+        // Synchronous throw from `end()` on a destroyed stream — swallow; the `'error'` event
+        // (already wired) surfaces the real spawn failure.
+      }
+
+      watchdog = installIdleWatchdog(child, {
+        idleMs,
+        ...(abortSignal !== undefined ? { abortSignal } : {}),
+        ...(onIdle !== undefined ? { onIdle } : {}),
+      });
     });
   } finally {
     watchdog?.stop();

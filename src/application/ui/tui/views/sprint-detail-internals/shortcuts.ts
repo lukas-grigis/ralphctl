@@ -15,8 +15,7 @@ import type { Ticket } from '@src/domain/entity/ticket.ts';
 import type { FocusItem } from '@src/application/ui/tui/views/sprint-detail-internals/focus-list.ts';
 
 interface SprintDetailShortcutArgs {
-  readonly helpOpen: boolean;
-  readonly promptActive: boolean;
+  readonly modalOpen: boolean;
   readonly confirmRemoveActive: boolean;
   readonly sprint: Sprint | undefined;
   readonly inDetail: boolean;
@@ -30,7 +29,8 @@ interface SprintDetailShortcutArgs {
   readonly closeAllExpanded: () => void;
   readonly openAddTicket: (sprintId: Sprint['id']) => void;
   readonly toggleExpand: (id: string) => void;
-  readonly moveCursor: (delta: 1 | -1) => void;
+  // Note: moveCursor removed — cursor navigation (↑/↓ / j/k / PgUp/PgDn / Home/End) is now
+  // owned by `useListWindow` in the orchestrator. This hook handles only view-local keys.
   readonly beginRemove: (ticket: Ticket) => void;
   readonly markCurrent: (sprint: Sprint) => void;
   readonly handleEdit: () => void;
@@ -39,7 +39,7 @@ interface SprintDetailShortcutArgs {
 
 export const useSprintDetailShortcuts = (args: SprintDetailShortcutArgs): void => {
   useInput((input, key) => {
-    if (args.helpOpen || args.promptActive || args.confirmRemoveActive || args.sprint === undefined) return;
+    if (args.modalOpen || args.confirmRemoveActive || args.sprint === undefined) return;
     const sprint = args.sprint;
     // Esc/q collapses every expanded card in one action; falls through to global pop otherwise.
     if ((key.escape || input === 'q') && args.inDetail) {
@@ -73,14 +73,8 @@ export const useSprintDetailShortcuts = (args: SprintDetailShortcutArgs): void =
       }
       return;
     }
-    if ((key.downArrow || input === 'j') && args.focusList.length > 0) {
-      args.moveCursor(1);
-      return;
-    }
-    if ((key.upArrow || input === 'k') && args.focusList.length > 0) {
-      args.moveCursor(-1);
-      return;
-    }
+    // ↑/↓/j/k/PgUp/PgDn/Home/End are handled by `useListWindow` in the orchestrator — no
+    // moveCursor calls here. We only handle view-local keys below.
     if ((key.return || input === 'o') && args.focusList.length > 0) {
       const target = args.focusList[Math.min(args.cursorIdx, args.focusList.length - 1)];
       if (target === undefined) return;

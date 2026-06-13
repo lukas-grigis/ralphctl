@@ -138,10 +138,10 @@ describe('finalizeGenEvalUseCase', () => {
     expect(result.value.shouldFailAttempt).toBeFalsy();
   });
 
-  it('plateau exit (flag-off) → verdict failed, NO warning (mapExit for plateau emits no warning), no blockedReason, no shouldFailAttempt', async () => {
-    // mapExit for plateau returns { verdict: 'failed' } — no warning. The plateau exit signals
-    // a process failure (escalation policy handles it), not a done-with-warning outcome.
-    // flag-off: escalation must NOT fire — shouldFailAttempt absent.
+  it('plateau exit (flag-off) → verdict failed, plateau warning attached, no blockedReason, no shouldFailAttempt', async () => {
+    // mapExit for plateau returns { verdict: 'failed', warning: { kind: 'plateau', dimensions } } —
+    // the warning lands on the failed attempt so a topped-out / budget-exhausted plateau settles
+    // done-with-warning instead of masquerading as a clean pass. flag-off: escalation must NOT fire.
     const task = makeInProgressTaskWithRunningAttempt();
     const result = await finalizeGenEvalUseCase({
       task,
@@ -158,9 +158,8 @@ describe('finalizeGenEvalUseCase', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.verdict).toBe('failed');
-    // plateau mapExit produces NO warning — this is intentional design: plateau is an escalation
-    // trigger, not a done-with-warning. Mutant-kill: a mutant returning 'passed' as verdict fails here.
-    expect(result.value.warning).toBeUndefined();
+    // Mutant-kill: a mutant returning 'passed' as verdict, or dropping the plateau warning, fails here.
+    expect(result.value.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'] });
     expect(result.value.blockedReason).toBeUndefined();
     expect(result.value.shouldFailAttempt).toBeFalsy();
   });
@@ -237,7 +236,7 @@ describe('finalizeGenEvalUseCase', () => {
     expect(result.value.blockedReason).toBeUndefined();
   });
 
-  it('plateau + escalateOnPlateau=false: legacy path — verdict failed, no warning, no escalation event, no blockedReason, no shouldFailAttempt', async () => {
+  it('plateau + escalateOnPlateau=false: legacy path — verdict failed, plateau warning, no escalation event, no blockedReason, no shouldFailAttempt', async () => {
     // Mutant-kill: a mutant that removes the flag-off guard would incorrectly set shouldFailAttempt.
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     const bus = newBus();
@@ -258,14 +257,14 @@ describe('finalizeGenEvalUseCase', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.verdict).toBe('failed');
-    expect(result.value.warning).toBeUndefined(); // plateau mapExit produces no warning
+    expect(result.value.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'] }); // plateau warning attached
     expect(result.value.shouldFailAttempt).toBeFalsy();
     expect(result.value.blockedReason).toBeUndefined();
     expect(result.value.task.escalatedToModel).toBeUndefined();
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
   });
 
-  it('plateau escalate: verdict failed, no warning (plateau mapExit), shouldFailAttempt=true, escalation stamps + event, no blockedReason', async () => {
+  it('plateau escalate: verdict failed, plateau warning, shouldFailAttempt=true, escalation stamps + event, no blockedReason', async () => {
     // Mutant-kill: a mutant that flips verdict→'passed' or inverts shouldFailAttempt must fail.
     // Note: plateau mapExit does NOT produce a warning — the warning field must be undefined.
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
@@ -287,7 +286,7 @@ describe('finalizeGenEvalUseCase', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.verdict).toBe('failed');
-    expect(result.value.warning).toBeUndefined(); // plateau mapExit produces no warning
+    expect(result.value.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'] }); // plateau warning attached
     expect(result.value.task.escalatedFromModel).toBe('claude-sonnet-4-6');
     expect(result.value.task.escalatedToModel).toBe('claude-opus-4-8');
     expect(result.value.shouldFailAttempt).toBe(true);
@@ -295,7 +294,7 @@ describe('finalizeGenEvalUseCase', () => {
     expect(events.some((e) => e.type === 'model-escalated')).toBe(true);
   });
 
-  it('plateau topped-out (nudged then plateaued again): verdict failed, no warning (plateau mapExit), no shouldFailAttempt, no blockedReason (preserves work)', async () => {
+  it('plateau topped-out (nudged then plateaued again): verdict failed, plateau warning, no shouldFailAttempt, no blockedReason (preserves work)', async () => {
     // Mutant-kill: a mutant that drops the topped-out guard would incorrectly set shouldFailAttempt.
     const initial = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     // Task was nudged at the top of the ladder (from === to === opus); plateauing again tops out.
@@ -320,13 +319,13 @@ describe('finalizeGenEvalUseCase', () => {
     if (!result.ok) return;
     // The ladder is exhausted: a plateau after the top-of-ladder nudge preserves the work.
     expect(result.value.verdict).toBe('failed');
-    expect(result.value.warning).toBeUndefined(); // plateau mapExit produces no warning
+    expect(result.value.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'] }); // plateau warning attached
     expect(result.value.blockedReason).toBeUndefined();
     expect(result.value.shouldFailAttempt).toBeFalsy();
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
   });
 
-  it('plateau nudge at top-of-ladder: verdict failed, no warning (plateau mapExit), shouldFailAttempt=true, same-model stamp, no blockedReason', async () => {
+  it('plateau nudge at top-of-ladder: verdict failed, plateau warning, shouldFailAttempt=true, same-model stamp, no blockedReason', async () => {
     // Mutant-kill: verdict must be 'failed' (not 'passed'); warning must be undefined.
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     const bus = newBus();
@@ -348,7 +347,7 @@ describe('finalizeGenEvalUseCase', () => {
     if (!result.ok) return;
     // Nudge: same model stamped (arms the directive + once-per-task cap), one more attempt granted.
     expect(result.value.verdict).toBe('failed');
-    expect(result.value.warning).toBeUndefined(); // plateau mapExit produces no warning
+    expect(result.value.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'] }); // plateau warning attached
     expect(result.value.task.escalatedFromModel).toBe('claude-opus-4-8');
     expect(result.value.task.escalatedToModel).toBe('claude-opus-4-8');
     expect(result.value.shouldFailAttempt).toBe(true);
@@ -356,7 +355,7 @@ describe('finalizeGenEvalUseCase', () => {
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
   });
 
-  it('plateau budget-edge (maxAttempts=1 exhausted): verdict failed, no warning (plateau mapExit), no shouldFailAttempt, no blockedReason (preserves work)', async () => {
+  it('plateau budget-edge (maxAttempts=1 exhausted): verdict failed, plateau warning, no shouldFailAttempt, no blockedReason (preserves work)', async () => {
     // Mutant-kill: a mutant that omits the attempt-budget guard would set shouldFailAttempt here.
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 1 });
     const bus = newBus();
@@ -377,7 +376,7 @@ describe('finalizeGenEvalUseCase', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.verdict).toBe('failed');
-    expect(result.value.warning).toBeUndefined(); // plateau mapExit produces no warning
+    expect(result.value.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'] }); // plateau warning attached
     expect(result.value.task.escalatedToModel).toBeUndefined();
     expect(result.value.blockedReason).toBeUndefined();
     expect(result.value.shouldFailAttempt).toBeFalsy();
@@ -594,7 +593,7 @@ describe('finalizeGenEvalUseCase', () => {
 
   // ── Legacy-task budget fallback (task.maxAttempts unset) ──────────────────────────────────────
 
-  it('legacy task (no maxAttempts) plateau escalate: verdict failed, no warning (plateau mapExit), shouldFailAttempt=true, escalation stamps set', async () => {
+  it('legacy task (no maxAttempts) plateau escalate: verdict failed, plateau warning, shouldFailAttempt=true, escalation stamps set', async () => {
     // No `maxAttempts` override → task.maxAttempts is undefined (legacy plan).
     const task = makeInProgressTaskWithRunningAttempt();
     const result = await finalizeGenEvalUseCase({
@@ -613,13 +612,13 @@ describe('finalizeGenEvalUseCase', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.verdict).toBe('failed');
-    expect(result.value.warning).toBeUndefined(); // plateau mapExit produces no warning
+    expect(result.value.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'] }); // plateau warning attached
     expect(result.value.task.escalatedToModel).toBe('claude-opus-4-8');
     expect(result.value.shouldFailAttempt).toBe(true);
     expect(result.value.blockedReason).toBeUndefined();
   });
 
-  it('legacy task (no maxAttempts) plateau fallback=1 preempts: verdict failed, no warning (plateau mapExit), no shouldFailAttempt, no escalation, no blockedReason', async () => {
+  it('legacy task (no maxAttempts) plateau fallback=1 preempts: verdict failed, plateau warning, no shouldFailAttempt, no escalation, no blockedReason', async () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const bus = newBus();
     const events: Array<{ type: string }> = [];
@@ -640,7 +639,7 @@ describe('finalizeGenEvalUseCase', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.verdict).toBe('failed');
-    expect(result.value.warning).toBeUndefined(); // plateau mapExit produces no warning
+    expect(result.value.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'] }); // plateau warning attached
     expect(result.value.task.escalatedToModel).toBeUndefined();
     expect(result.value.shouldFailAttempt).toBeFalsy();
     expect(result.value.blockedReason).toBeUndefined();

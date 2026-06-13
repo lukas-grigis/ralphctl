@@ -1,3 +1,6 @@
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
@@ -335,5 +338,42 @@ describe('settleAttemptLeaf — retry-wins precedence (composed red-verify case)
     expect(settled?.status).toBe('in_progress');
     // The attempt history reports the REAL failure mode — the evaluator's contract failure.
     expect(settled?.attempts.at(-1)?.status).toBe('malformed');
+  });
+});
+
+describe('settleAttemptLeaf — outcome.md session-id threading', () => {
+  it('threads ctx.priorGeneratorSessionId / priorEvaluatorSessionId into rounds/<N>/outcome.md', async () => {
+    const ws = await realpath(await mkdtemp(join(tmpdir(), 'ralphctl-settle-outcome-')));
+    try {
+      const ip = inProgressWithVerification();
+      const { repo } = fakeUpdateTask();
+      const leafEl = settleAttemptLeaf(
+        { taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger },
+        { cwd: absolutePath('/tmp/settle-attempt-test') },
+        ip.id
+      );
+
+      const ctx: ImplementCtx = {
+        sprintId: 'sprint-x' as SprintId,
+        tasks: [ip],
+        currentTaskId: ip.id,
+        currentTask: ip,
+        lastVerdict: 'passed',
+        taskWorkspaceRoot: absolutePath(ws),
+        currentRoundNum: 2,
+        priorGeneratorSessionId: 'gen-session-123' as ImplementCtx['priorGeneratorSessionId'],
+        priorEvaluatorSessionId: 'eval-session-456' as ImplementCtx['priorEvaluatorSessionId'],
+      };
+      const result = await leafEl.execute(ctx);
+      expect(result.ok).toBe(true);
+
+      const outcome = await readFile(join(ws, 'rounds', '2', 'outcome.md'), 'utf8');
+      // The ctx per-round generator id wins over the attempt-level fallback; the evaluator id has no
+      // fallback and was previously always '—'.
+      expect(outcome).toContain('- generator session: gen-session-123');
+      expect(outcome).toContain('- evaluator session: eval-session-456');
+    } finally {
+      await rm(ws, { recursive: true, force: true });
+    }
   });
 });

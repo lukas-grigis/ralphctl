@@ -9,11 +9,7 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
-import {
-  type LearningRecord,
-  parseLearningLine,
-  serializeLearningRecord,
-} from '@src/application/flows/_shared/memory/learning-record.ts';
+import { parseLearningLine, serializeLearningRecord } from '@src/application/flows/_shared/memory/learning-record.ts';
 import { isAbortedRead } from '@src/application/flows/_shared/memory/abort-guard.ts';
 
 const LEAF_NAME = 'stamp-promoted';
@@ -97,9 +93,11 @@ const stamp = async (
   }
 
   const promotedAt = String(deps.clock());
-  const records: LearningRecord[] = [];
+  const outLines: string[] = [];
   let stampedCount = 0;
   for (const line of raw.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue; // blank line — drop from the rewrite
     const parsed = parseLearningLine(line);
     if (!parsed.ok) {
       // A malformed line cannot be safely round-tripped through a rewrite — fail loudly rather
@@ -114,16 +112,22 @@ const stamp = async (
       );
     }
     const record = parsed.value;
-    if (record === undefined) continue; // blank line — drop from the rewrite
+    if (record === undefined) continue; // blank-after-parse (defensive) — drop from the rewrite
     if (accepted.has(record.id) && record.promotedAt === null) {
-      records.push({ ...record, promotedAt });
+      // Only a stamped row is re-serialized from the parsed (schema-projected) record.
+      outLines.push(serializeLearningRecord({ ...record, promotedAt }));
       stampedCount += 1;
     } else {
-      records.push(record);
+      // Preserve every other row BYTE-FOR-BYTE from its original line. The schema is a plain
+      // `z.object` that STRIPS unknown keys on parse, so re-serializing a non-stamped record
+      // would silently delete any field a newer ralphctl version added — destroying data an
+      // older pinned binary was only meant to tolerate (the schema's `.strict()` is omitted
+      // precisely so future fields round-trip). Keeping the raw line honours that contract.
+      outLines.push(`${trimmed}\n`);
     }
   }
 
-  const body = records.map(serializeLearningRecord).join('');
+  const body = outLines.join('');
   const written = await deps.writeFile(path, body);
   if (!written.ok) return Result.error(written.error);
 

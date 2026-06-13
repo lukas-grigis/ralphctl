@@ -150,7 +150,7 @@ export const PickProjectView = (): React.JSX.Element => {
   const projects = useMemo(() => (state.kind === 'ok' ? state.value : []), [state]);
 
   // The picker owns its list cursor, so the page ScrollRegion must not also grab the arrows.
-  const listActive = !ui.helpOpen && !ui.promptActive && projects.length > 0;
+  const listActive = !ui.modalOpen && projects.length > 0;
 
   // Each unfocused project is one row; the focused one adds a detail sub-line. Window count is
   // generous on tall terminals and clamps down on short ones so the focused row + its detail and
@@ -164,7 +164,7 @@ export const PickProjectView = (): React.JSX.Element => {
 
   // Non-navigation keys only — the windowed-list hook owns ↑/↓/j/k/PgUp/PgDn/Home/End/Enter.
   useInput((input) => {
-    if (ui.helpOpen || ui.promptActive) return;
+    if (ui.modalOpen) return;
     if (input === '+' || input === 'c') {
       router.push({ id: 'create-project' });
       return;

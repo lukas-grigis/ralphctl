@@ -43,6 +43,8 @@ const _exhaustive = {
   execution: SPRINT,
   progressFile: SPRINT,
   setupVerifiedRepoIdsThisRun: SPRINT,
+  // Loaded once in the prologue; every branch reads the same cross-sprint memory → run-scoped.
+  priorLearnings: SPRINT,
   // task list → overlay
   tasks: TASKS,
   // per-task single-slot → undefined
@@ -133,6 +135,7 @@ export const mergeImplementWave = (
     ...(base.setupVerifiedRepoIdsThisRun !== undefined
       ? { setupVerifiedRepoIdsThisRun: base.setupVerifiedRepoIdsThisRun }
       : {}),
+    ...(base.priorLearnings !== undefined ? { priorLearnings: base.priorLearnings } : {}),
     // task list → overlay
     ...(tasks !== undefined ? { tasks } : {}),
     // per-task + signal-accum classes intentionally omitted → undefined in the merged ctx.
@@ -185,6 +188,8 @@ export const forkCtx = (
     ...(base.setupVerifiedRepoIdsThisRun !== undefined
       ? { setupVerifiedRepoIdsThisRun: base.setupVerifiedRepoIdsThisRun }
       : {}),
+    // run-scoped cross-sprint memory: every branch's generator reads the same loaded ledger.
+    ...(base.priorLearnings !== undefined ? { priorLearnings: base.priorLearnings } : {}),
     // per-task + signal-accum classes cleared (omitted → undefined); `priorPostVerifyOutcome`
     // dropped (accepted cost). `expectedBranch` is intentionally NOT set here — see the docstring:
     // the branch element omits `branch-preflight`, so leaving it `undefined` is correct.

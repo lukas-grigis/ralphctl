@@ -14,7 +14,9 @@ import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Runner } from '@src/application/chain/run/runner.ts';
 import type { Trace, TraceEntry } from '@src/application/chain/trace.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
+import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
+import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import type { ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 import { createSessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
 import { ENTER, ESC, tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
@@ -81,8 +83,8 @@ describe('ExecuteView', () => {
     expect(frame).toMatch(/completed/i);
     // ResultCard renders fields including a Status row.
     expect(frame).toContain('Status');
-    // Press ↵ to return — the not-running hint.
-    expect(frame).toContain('back');
+    // Press ↵ to return — the not-running hint routes Home.
+    expect(frame).toContain('home');
     result.unmount();
   });
 
@@ -215,7 +217,7 @@ describe('ExecuteView', () => {
     result.unmount();
   });
 
-  it('Enter on a completed session routes to sprint-detail when the session has a pinned sprint', async () => {
+  it('Enter on a completed session resets to Home even when the session has a pinned sprint', async () => {
     const sessions = createSessionManager();
     const runner = fakeRunner('r-3', 'completed');
     const pinnedSprintId = 'sprint-fixture' as unknown as SprintId;
@@ -234,12 +236,16 @@ describe('ExecuteView', () => {
     });
     await waitForViewReady(result, (f) => f.includes('Refine — Done'));
     result.stdin.write(ENTER);
-    await waitFor(() => routeIds().includes('sprint-detail'));
-    expect(routeIds()).toContain('sprint-detail');
+    await waitFor(() => routeIds().includes('home'));
+    expect(routeIds()).toContain('home');
+    expect(routeIds()).not.toContain('sprint-detail');
     result.unmount();
   });
 
-  it('routes back to the pinned sprint on Enter even when the global selection drifted to a different sprint', async () => {
+  it('Enter after a run goes Home and leaves a drifted global selection untouched', async () => {
+    // The user's rule: the project/sprint combo starts from THEIR pick and only changes on an
+    // explicit pick. A settled run pinned to sprint A must route Home (not sprint-detail of A)
+    // and must not drag the selection from B back to A on the way out.
     const sessions = createSessionManager();
     const runner = fakeRunner('r-pin-nav', 'completed');
     const sprintA = 'sprint-a-nav' as unknown as SprintId;
@@ -247,26 +253,86 @@ describe('ExecuteView', () => {
       runner,
       flowId: 'implement',
       title: 'Implement — Pinned',
+      pinnedProjectId: 'project-a-nav' as unknown as ProjectId,
+      pinnedProjectLabel: 'Project A',
       pinnedSprintId: sprintA,
       pinnedSprintLabel: 'Sprint A',
     });
 
     const sprintB = 'sprint-b-nav' as unknown as SprintId;
     const routeEntries: ViewEntry[] = [];
-    const { result } = renderView(<ExecuteView />, {
-      deps: stubDeps(),
-      initial: { id: 'execute', props: { sessionId: 'r-pin-nav' } },
-      sessions,
-      selection: { sprintId: sprintB, sprintLabel: 'Sprint B' },
-      onRoute: (e) => {
-        routeEntries.push(e);
-      },
-    });
+    const seenSprintIds: Array<SprintId | undefined> = [];
+    const SelectionProbe = (): null => {
+      const sel = useSelection();
+      seenSprintIds.push(sel.sprintId);
+      return null;
+    };
+    const { result } = renderView(
+      <>
+        <ExecuteView />
+        <SelectionProbe />
+      </>,
+      {
+        deps: stubDeps(),
+        initial: { id: 'execute', props: { sessionId: 'r-pin-nav' } },
+        sessions,
+        selection: { sprintId: sprintB, sprintLabel: 'Sprint B' },
+        onRoute: (e) => {
+          routeEntries.push(e);
+        },
+      }
+    );
     await waitForViewReady(result, (f) => f.includes('Implement — Pinned'));
     result.stdin.write(ENTER);
-    await waitFor(() => routeEntries.some((e) => e.id === 'sprint-detail'));
-    const sprintDetail = routeEntries.find((e) => e.id === 'sprint-detail');
-    expect(sprintDetail?.props?.sprintId).toBe(sprintA);
+    await waitFor(() => routeEntries.some((e) => e.id === 'home'));
+    expect(routeEntries.some((e) => e.id === 'sprint-detail')).toBe(false);
+    // The selection seeded to sprint B must survive both the focus and the exit.
+    expect(seenSprintIds.at(-1)).toBe(sprintB);
+    expect(seenSprintIds).not.toContain(sprintA);
+    result.unmount();
+  });
+
+  it('focusing an execute view never converges the global selection onto the run pinned sprint', async () => {
+    // Regression fence: viewing a run (Tab / Ctrl+1..9 / Sessions-open) is a browse, not a
+    // pick. An effect that "converges" the selection onto the run's pinned project/sprint
+    // clobbers the user's pick AND persists the clobber — the next boot then lands on the
+    // wrong sprint.
+    const sessions = createSessionManager();
+    const runner = fakeRunner('r-no-converge', 'running');
+    const sprintA = 'sprint-converge-a' as unknown as SprintId;
+    sessions.register({
+      runner,
+      flowId: 'implement',
+      title: 'Implement — No Converge',
+      pinnedProjectId: 'project-converge-a' as unknown as ProjectId,
+      pinnedProjectLabel: 'Project A',
+      pinnedSprintId: sprintA,
+      pinnedSprintLabel: 'Sprint A',
+    });
+
+    const sprintB = 'sprint-converge-b' as unknown as SprintId;
+    const seenSprintIds: Array<SprintId | undefined> = [];
+    const SelectionProbe = (): null => {
+      const sel = useSelection();
+      seenSprintIds.push(sel.sprintId);
+      return null;
+    };
+    const { result } = renderView(
+      <>
+        <ExecuteView />
+        <SelectionProbe />
+      </>,
+      {
+        deps: stubDeps(),
+        initial: { id: 'execute', props: { sessionId: 'r-no-converge' } },
+        sessions,
+        selection: { sprintId: sprintB, sprintLabel: 'Sprint B' },
+      }
+    );
+    await waitForViewReady(result, (f) => f.includes('Implement — No Converge'));
+    await tick();
+    expect(seenSprintIds.at(-1)).toBe(sprintB);
+    expect(seenSprintIds).not.toContain(sprintA);
     result.unmount();
   });
 

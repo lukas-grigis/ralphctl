@@ -84,7 +84,10 @@ dirty-tree preflight — not the CLI permission gate.
 `src/integration/ai/providers/_engine/idle-watchdog.ts` kills a headless child whose stdout has been silent
 past a configurable idle threshold. Prevents a stuck Claude / Copilot / Codex process from stranding the
 harness. The watchdog timer resets on every stdout chunk; killing the child surfaces as a `RateLimitError`-
-adjacent failure that the chain's retry policy handles.
+adjacent failure that the chain's retry policy handles. The threshold is operator-configurable via
+`settings.harness.idleWatchdogMs` (60_000–3_600_000 ms, default 300_000 = 5 min); `provider-factory.ts`
+threads it into each adapter's `deps.idleMs`. Tests lower it via the `idleMs` dep override to exercise the
+watchdog path fast.
 
 ## Rate-limit retry (exponential backoff)
 
@@ -115,11 +118,11 @@ Implementation contract in `runHeadlessSpawn`:
 
 ## Known startup issues
 
-| Symptom                                  | Cause                     | Fix                                                                |
-| ---------------------------------------- | ------------------------- | ------------------------------------------------------------------ |
-| Process stuck at 0 CPU after spawn       | Stdin not closed          | Confirm `child.stdin.end()` is called after writing the prompt     |
-| First spawn takes 1–2 min instead of ~5s | Bloated `~/.claude` cache | `rm -rf ~/.claude/plugins ~/.claude/debug`                         |
-| Watchdog kills a healthy spawn           | Idle threshold too tight  | Tune via the env var the watchdog reads (check `idle-watchdog.ts`) |
+| Symptom                                  | Cause                     | Fix                                                                         |
+| ---------------------------------------- | ------------------------- | --------------------------------------------------------------------------- |
+| Process stuck at 0 CPU after spawn       | Stdin not closed          | Confirm `child.stdin.end()` is called after writing the prompt              |
+| First spawn takes 1–2 min instead of ~5s | Bloated `~/.claude` cache | `rm -rf ~/.claude/plugins ~/.claude/debug`                                  |
+| Watchdog kills a healthy spawn           | Idle threshold too tight  | Raise `settings.harness.idleWatchdogMs` (60_000–3_600_000, default 300_000) |
 
 Quick health checks:
 

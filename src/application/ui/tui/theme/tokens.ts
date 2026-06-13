@@ -55,6 +55,8 @@ export const glyphs = {
   inlineDot: '·',
   emDash: '—',
   pipe: '│',
+  // Reloading affordance (used by FeedbackLine 'info' tone for reload messages).
+  refresh: '↻',
   // Display-clip markers (audit-[03]). `clipEllipsis` is the one-char trailing marker
   // appended after a width / char-count clip; `collapseExpand` is the multi-line affordance
   // suggesting that an expand hotkey reveals the hidden tail. Both are common-Unicode and

@@ -47,7 +47,6 @@ import { useEventBusBuffer } from '@src/application/ui/tui/runtime/use-event-bus
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 import type { AppEvent } from '@src/business/observability/events.ts';
 import { useUiState, type FocusedRunCtx } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
-import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { fmtElapsed } from '@src/application/ui/tui/theme/duration.ts';
 
@@ -189,24 +188,11 @@ export const ExecuteView = (): React.JSX.Element => {
     };
   }, [pinnedProjectLabel, pinnedSprintId, pinnedSprintLabel, setFocusedRunContext]);
 
-  // Converge the mutable global selection onto the focused run's pinned context. Tab /
-  // Ctrl+1..9 / Sessions-open land the user on a run whose sprint may differ from the
-  // selection; without this, every panel shows sprint B while `n → Flows` silently launches
-  // against sprint A. Atomic setter so the project can't flicker out from under the sprint.
-  // Status is unknown here — the Home/Flows snapshot-sync effect backfills the chip.
-  const selection = useSelection();
-  const setProjectAndSprint = selection.setProjectAndSprint;
-  const sessionDescriptor = session?.descriptor;
-  React.useEffect(() => {
-    if (sessionDescriptor?.pinnedProjectId === undefined || sessionDescriptor.pinnedSprintId === undefined) return;
-    if (sessionDescriptor.pinnedSprintId === selection.sprintId) return; // already converged
-    setProjectAndSprint(
-      sessionDescriptor.pinnedProjectId,
-      sessionDescriptor.pinnedProjectLabel ?? String(sessionDescriptor.pinnedProjectId),
-      sessionDescriptor.pinnedSprintId,
-      sessionDescriptor.pinnedSprintLabel ?? String(sessionDescriptor.pinnedSprintId)
-    );
-  }, [sessionDescriptor, selection.sprintId, setProjectAndSprint]);
+  // NOTE deliberately NO selection convergence here: focusing a run (Tab / Ctrl+1..9 /
+  // Sessions-open) is a *browse*, exactly like opening a project or sprint detail — it must
+  // never mutate (or persist) the global project/sprint selection. The user's pick survives
+  // until they explicitly pick something else; the focused-run context above already scopes
+  // the breadcrumb / overlay to the run's own sprint while this view is mounted.
 
   const baselineSprintId: SprintId | undefined = pinnedSprintId;
   const { executionState, taskState } = useBaselineHealthData({
@@ -227,10 +213,8 @@ export const ExecuteView = (): React.JSX.Element => {
     isRunning,
     cancelScopeOpen,
     setCancelScopeOpen,
-    helpOpen: ui.helpOpen,
-    promptActive: ui.promptActive,
+    modalOpen: ui.modalOpen,
     router,
-    sprintId: pinnedSprintId,
   });
 
   const now = useLiveClock(isRunning);
@@ -292,7 +276,7 @@ export const ExecuteView = (): React.JSX.Element => {
   // can't fight the help overlay (`?`), the progress overlay (`g`), a prompt, or the
   // cancel-scope picker (`c`) — the latter is rendered inline behind the modal, so without
   // this gate esc/j/k/e would double-handle the hidden panel.
-  const tasksInputActive = !ui.helpOpen && !ui.progressOpen && !ui.promptActive && !cancelScopeOpen;
+  const tasksInputActive = !ui.modalOpen && !cancelScopeOpen;
 
   // When the pinned sprint is no longer available (done or removed), blank the panels that
   // depend on it and surface a pick-a-sprint prompt so the user knows what happened.
