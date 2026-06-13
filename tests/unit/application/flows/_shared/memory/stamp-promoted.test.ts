@@ -173,4 +173,102 @@ describe('stampPromotedLeaf', () => {
     if (result.ok) return;
     expect(result.error.error.code).toBe(ErrorCode.Aborted);
   });
+
+  it('promotion-suppression survives compaction: a promoted tombstone keeps suppressing a null twin', async () => {
+    // 'a' was promoted earlier; a later task re-appended a null-twin (same id, promotedAt null).
+    // Compaction must collapse the pair onto the PROMOTED winner so the loader never re-proposes it.
+    await writeLedger([
+      serializeLearningRecord(record({ id: 'a', promotedAt: '2026-05-01T00:00:00.000Z' })),
+      serializeLearningRecord(record({ id: 'a', text: 're-emitted' })), // null twin
+      serializeLearningRecord(record({ id: 'b' })),
+    ]);
+
+    const result = await makeLeaf().execute({ path: ledgerPath, acceptedIds: ['b'] });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const after = await readLedger();
+    const aRows = after.filter((r) => r.id === 'a');
+    expect(aRows).toHaveLength(1); // null twin collapsed away
+    expect(aRows[0]?.promotedAt).toBe('2026-05-01T00:00:00.000Z'); // promoted winner kept
+  });
+
+  it('preserves an unknown future field when that row is the compaction WINNER', async () => {
+    // The future-field row is a promoted tombstone AND the winner over a later null twin. It must
+    // round-trip byte-for-byte through compaction (raw line, never re-serialized).
+    const futureLine = `${JSON.stringify({
+      ...record({ id: 'w', promotedAt: '2026-05-01T00:00:00.000Z' }),
+      futureField: 'keep-me',
+    })}\n`;
+    await writeLedger([
+      futureLine,
+      serializeLearningRecord(record({ id: 'w', text: 'twin' })), // null twin, loses to promoted
+      serializeLearningRecord(record({ id: 'a' })),
+    ]);
+
+    const result = await makeLeaf().execute({ path: ledgerPath, acceptedIds: ['a'] });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const raw = await fs.readFile(String(ledgerPath), 'utf8');
+    const wLine = raw
+      .split('\n')
+      .filter((l) => l.trim().length > 0)
+      .map((l) => JSON.parse(l) as Record<string, unknown>)
+      .find((o) => o.id === 'w');
+    expect(wLine?.futureField).toBe('keep-me'); // winner's unknown field survived
+    expect(wLine?.promotedAt).toBe('2026-05-01T00:00:00.000Z');
+  });
+
+  it('dedup equivalence: rewrite collapses duplicate ids to a single promoted row', async () => {
+    // Both 'dup' rows are accepted+unpromoted, so both get stamped → both become promoted. Among
+    // multiple promoted, last-promoted-wins, so the surviving row is the SECOND. Either way the
+    // pair collapses to one promoted row — the loader will never re-propose it.
+    await writeLedger([
+      serializeLearningRecord(record({ id: 'dup', text: 'first' })),
+      serializeLearningRecord(record({ id: 'dup', text: 'second' })),
+    ]);
+
+    const result = await makeLeaf().execute({ path: ledgerPath, acceptedIds: ['dup'] });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const after = await readLedger();
+    const dups = after.filter((r) => r.id === 'dup');
+    expect(dups).toHaveLength(1);
+    expect(dups[0]?.promotedAt).toBe(PROMOTED_AT); // collapsed to a single promoted tombstone
+    expect(dups[0]?.text).toBe('second'); // last-promoted-wins among the two stamped twins
+  });
+
+  it('empty accepted set under threshold → no write (file untouched)', async () => {
+    await writeLedger([serializeLearningRecord(record({ id: 'a' }))]);
+    const before = await fs.readFile(String(ledgerPath), 'utf8');
+
+    const result = await makeLeaf().execute({ path: ledgerPath, acceptedIds: [] });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.ctx.stampedCount).toBe(0);
+    expect(await fs.readFile(String(ledgerPath), 'utf8')).toBe(before);
+  });
+
+  it('empty accepted set OVER threshold → compaction-only write reduces the ledger', async () => {
+    // Past the size threshold with a duplicate-heavy ledger: even with nothing accepted, a
+    // compaction-only pass runs and writes a smaller, de-duplicated file.
+    const lines: string[] = [];
+    for (let i = 0; i < 800; i += 1) {
+      // Each id appears twice so dedup has work to do; padded text pushes past the byte threshold.
+      lines.push(serializeLearningRecord(record({ id: `id-${i}`, text: 'x'.repeat(300) })));
+      lines.push(serializeLearningRecord(record({ id: `id-${i}`, text: 'x'.repeat(300) })));
+    }
+    await writeLedger(lines);
+    const beforeRows = (await readLedger()).length;
+
+    const result = await makeLeaf().execute({ path: ledgerPath, acceptedIds: [] });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.ctx.stampedCount).toBe(0); // nothing stamped
+
+    const afterRows = (await readLedger()).length;
+    expect(afterRows).toBeLessThan(beforeRows); // compaction-only still shrank it
+  });
 });

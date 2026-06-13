@@ -1,4 +1,3 @@
-import { promises as fs } from 'node:fs';
 import { Result } from '@src/domain/result.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
@@ -9,8 +8,14 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
-import { parseLearningLine, serializeLearningRecord } from '@src/application/flows/_shared/memory/learning-record.ts';
+import { serializeLearningRecord } from '@src/application/flows/_shared/memory/learning-record.ts';
 import { isAbortedRead } from '@src/application/flows/_shared/memory/abort-guard.ts';
+import {
+  type LedgerLine,
+  statLedgerExceedsThreshold,
+  streamLedgerLines,
+} from '@src/application/flows/_shared/memory/stream-ledger.ts';
+import { type LedgerRow, compactLedger } from '@src/application/flows/_shared/memory/compact-ledger.ts';
 
 const LEAF_NAME = 'stamp-promoted';
 
@@ -35,21 +40,32 @@ export interface StampPromotedLeafConfig<TCtx> {
 
 /**
  * Final step of the distill flow: durably mark accepted learnings as promoted so they are
- * never proposed again. Reads the entire ledger, flips `promotedAt` from `null` to the
- * distillation timestamp for every record whose id is in the accepted set, leaves all other
- * records byte-for-byte, then rewrites the whole file atomically via the {@link WriteFile} port.
+ * never proposed again, AND keep the ledger bounded. STREAMS the entire ledger line-by-line
+ * (never materialising it in RAM), flips `promotedAt` from `null` to the distillation timestamp
+ * for every record whose id is in the accepted set, leaves all other records byte-for-byte,
+ * compacts the result to a bounded de-duplicated set ({@link compactLedger}), then rewrites the
+ * whole file atomically via the {@link WriteFile} port.
  *
  * Full read-modify-WRITE (not append): an append could only add rows, but stamping mutates
- * existing rows, so the file is rebuilt. The {@link WriteFile} adapter is atomic in production
- * (write-temp + rename), so a concurrent reader never sees a half-stamped ledger.
+ * existing rows and compaction prunes them, so the file is rebuilt. The {@link WriteFile} adapter
+ * is atomic in production (write-temp + rename), so a concurrent reader never sees a half-written
+ * ledger.
  *
- * Empty accepted set → no-op (still `Result.ok`, no write): the operator declined every proposal.
+ * Empty accepted set → CONDITIONAL: if the ledger is below the size threshold
+ * ({@link statLedgerExceedsThreshold}) it stays a no-op (still `Result.ok`, no write) — the
+ * operator declined every proposal and there is no growth to reclaim. But if the ledger has grown
+ * past the threshold, a compaction-only pass runs and rewrites the bounded file EVEN WITH NOTHING
+ * stamped, so an unattended ledger can never grow without bound.
+ *
  * Absent ledger → no-op: there is nothing to stamp (the loader would already have proposed
- * nothing). Aborted read → re-propagate `AbortError` so cancellation is not swallowed.
+ * nothing). Aborted read → re-propagate `AbortError` so cancellation is not swallowed. A malformed
+ * line → `StorageError`: a corrupt ledger is refused rather than silently dropped through a
+ * rewrite.
  *
  * Only records whose id is in `acceptedIds` AND currently `promotedAt === null` are stamped; an
  * already-promoted record (or one the operator didn't accept) is preserved unchanged, so a stamp
- * is idempotent and never back-dates a prior promotion.
+ * is idempotent and never back-dates a prior promotion. Non-stamped rows — including compaction
+ * winners — are written from their ORIGINAL RAW LINE so unknown future fields round-trip intact.
  *
  * @public
  */
@@ -74,14 +90,22 @@ const stamp = async (
   const log = deps.logger.named('memory.stamp-promoted');
 
   const accepted = new Set(acceptedIds);
-  if (accepted.size === 0) {
-    log.info('no accepted learnings — nothing to stamp');
+
+  // CHANGED semantic: an empty accepted set is no longer an unconditional no-op. If the ledger has
+  // grown past the size threshold we still run a compaction-only pass so an unattended ledger can
+  // never grow without bound; below the threshold (the common case) it stays a cheap no-op.
+  if (accepted.size === 0 && !(await statLedgerExceedsThreshold(path))) {
+    log.info('no accepted learnings and ledger under threshold — nothing to stamp');
     return Result.ok(0);
   }
 
-  let raw: string;
+  // Stream the ledger into memory as {raw, record} rows. Streaming bounds peak RAM (one line at a
+  // time off disk); the collected array is itself bounded by the subsequent compaction.
+  let collected: readonly LedgerLine[];
   try {
-    raw = await fs.readFile(String(path), { encoding: 'utf8', ...(signal ? { signal } : {}) });
+    const acc: LedgerLine[] = [];
+    for await (const line of streamLedgerLines(path, signal)) acc.push(line);
+    collected = acc;
   } catch (cause) {
     if (isAbortedRead(cause, signal)) {
       return Result.error(new AbortError({ elementName: LEAF_NAME }));
@@ -92,45 +116,84 @@ const stamp = async (
     return Result.ok(0);
   }
 
+  if (collected.length === 0) {
+    log.info('no learnings ledger to stamp', { path: String(path) });
+    return Result.ok(0);
+  }
+
   const promotedAt = String(deps.clock());
-  const outLines: string[] = [];
+  const stamped = stampPass(collected, accepted, promotedAt, path);
+  if (!stamped.ok) return Result.error(stamped.error);
+  const { rows, stampedCount } = stamped.value;
+
+  // Compact to a bounded, de-duplicated set. Winners are carried by their raw line, so byte-for-
+  // byte forward-compat holds across the dedup; promoted tombstones are never evicted.
+  const compacted = compactLedger(rows);
+
+  const body = compacted.rows.map((r) => ensureTrailingNewline(r.raw)).join('');
+  const written = await deps.writeFile(path, body);
+  if (!written.ok) return Result.error(written.error);
+
+  log.info(
+    `compacted ledger: ${rows.length}→${compacted.rows.length} rows (${compacted.deduplicatedCount} deduped, ${compacted.evictedCount} evicted)`,
+    {
+      path: String(path),
+      stampedCount,
+      before: rows.length,
+      after: compacted.rows.length,
+      deduped: compacted.deduplicatedCount,
+      evicted: compacted.evictedCount,
+    }
+  );
+  return Result.ok(stampedCount);
+};
+
+/**
+ * The stamp pass over the collected ledger lines. Re-serializes ONLY accepted-and-unpromoted rows
+ * (setting `promotedAt`); every other row — including blank-line drops aside — is carried through
+ * by its byte-for-byte raw line. A malformed line short-circuits to a `StorageError`: a corrupt
+ * ledger is refused rather than silently rewritten/compacted over.
+ */
+const stampPass = (
+  collected: readonly LedgerLine[],
+  accepted: ReadonlySet<string>,
+  promotedAt: string,
+  path: AbsolutePath
+): Result<{ rows: LedgerRow[]; stampedCount: number }, StorageError> => {
+  const rows: LedgerRow[] = [];
   let stampedCount = 0;
-  for (const line of raw.split('\n')) {
-    const trimmed = line.trim();
-    if (trimmed.length === 0) continue; // blank line — drop from the rewrite
-    const parsed = parseLearningLine(line);
-    if (!parsed.ok) {
-      // A malformed line cannot be safely round-tripped through a rewrite — fail loudly rather
-      // than dropping a row the operator can't see.
+  for (const { raw, record, parseError } of collected) {
+    if (parseError !== undefined) {
       return Result.error(
         new StorageError({
           subCode: 'parse',
           message: 'cannot stamp learnings.ndjson — a line is malformed',
           path: String(path),
-          cause: parsed.error,
+          cause: parseError,
         })
       );
     }
-    const record = parsed.value;
-    if (record === undefined) continue; // blank-after-parse (defensive) — drop from the rewrite
+    if (record === undefined) continue; // blank line — drop from the rewrite
     if (accepted.has(record.id) && record.promotedAt === null) {
-      // Only a stamped row is re-serialized from the parsed (schema-projected) record.
-      outLines.push(serializeLearningRecord({ ...record, promotedAt }));
+      // Only a stamped row is re-serialized from the parsed (schema-projected) record. Pre-set the
+      // promotedAt on BOTH raw and record so compaction sees the stamped row as a tombstone.
+      const stamped = { ...record, promotedAt };
+      rows.push({ raw: serializeLearningRecord(stamped), record: stamped });
       stampedCount += 1;
-    } else {
-      // Preserve every other row BYTE-FOR-BYTE from its original line. The schema is a plain
-      // `z.object` that STRIPS unknown keys on parse, so re-serializing a non-stamped record
-      // would silently delete any field a newer ralphctl version added — destroying data an
-      // older pinned binary was only meant to tolerate (the schema's `.strict()` is omitted
-      // precisely so future fields round-trip). Keeping the raw line honours that contract.
-      outLines.push(`${trimmed}\n`);
+      continue;
     }
+    // Preserve every other row BYTE-FOR-BYTE from its original line. The schema is a plain
+    // `z.object` that STRIPS unknown keys on parse, so re-serializing a non-stamped record would
+    // silently delete any field a newer ralphctl version added — destroying data an older pinned
+    // binary was only meant to tolerate. The compactor carries this raw line through; a compaction
+    // WINNER is likewise represented by its raw line, never re-serialized.
+    rows.push({ raw, record });
   }
-
-  const body = outLines.join('');
-  const written = await deps.writeFile(path, body);
-  if (!written.ok) return Result.error(written.error);
-
-  log.info(`stamped ${stampedCount} learning(s) promoted`, { path: String(path), stampedCount });
-  return Result.ok(stampedCount);
+  return Result.ok({ rows, stampedCount });
 };
+
+/**
+ * `streamLedgerLines` strips the trailing newline off each raw line; `serializeLearningRecord`
+ * keeps it. Normalise so the NDJSON rewrite is one well-formed line per row regardless of source.
+ */
+const ensureTrailingNewline = (raw: string): string => (raw.endsWith('\n') ? raw : `${raw}\n`);

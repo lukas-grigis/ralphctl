@@ -90,6 +90,27 @@ describe('loadLearningsLeaf', () => {
     expect((result.value.ctx.candidates ?? []).map((r) => r.id)).toEqual(['good']);
   });
 
+  it('streams a large (10k-row) ledger and returns the correct candidates', async () => {
+    // Pure RAM-win smoke: half the rows are promoted (filtered out), and every id appears twice
+    // (dedup keeps the first). Candidates must be exactly the unpromoted even-id rows.
+    const lines: string[] = [];
+    for (let i = 0; i < 10_000; i += 1) {
+      const promoted = i % 2 === 1 ? '2026-05-30T12:00:00.000Z' : null;
+      lines.push(serializeLearningRecord(record({ id: `id-${i}`, promotedAt: promoted })));
+      lines.push(serializeLearningRecord(record({ id: `id-${i}`, text: 'dup', promotedAt: promoted })));
+    }
+    await writeLedger(lines);
+
+    const result = await makeLeaf().execute({ path: ledgerPath });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const candidates = result.value.ctx.candidates ?? [];
+    expect(candidates).toHaveLength(5000); // 5000 even ids, unpromoted, deduped
+    expect(candidates.every((r) => r.promotedAt === null)).toBe(true);
+    expect(candidates[0]?.id).toBe('id-0');
+    expect(candidates[0]?.text).toBe('learning text'); // first occurrence kept, not 'dup'
+  });
+
   it('proposes nothing when the ledger file is absent', async () => {
     const missing = absolutePath(join(String(root.root), 'nope', 'learnings.ndjson'));
     const result = await makeLeaf().execute({ path: missing });
