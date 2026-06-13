@@ -11,6 +11,7 @@ import { FULL_AUTO, READ_ONLY } from '@src/integration/ai/providers/_engine/sess
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import { COPILOT_MODELS } from '@src/domain/value/settings-models/copilot.ts';
+import { isSuspendedModel } from '@src/domain/value/settings-models/suspended-models.ts';
 import { buildCopilotArgs, createCopilotProvider } from '@src/integration/ai/providers/copilot/headless.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import type { TokenUsageEvent } from '@src/business/observability/events.ts';
@@ -605,7 +606,7 @@ describe('createCopilotProvider — TokenUsageEvent emission', () => {
 });
 
 describe('buildCopilotArgs — AiSession → CLI flag translation', () => {
-  it.each(COPILOT_MODELS.map((m) => [m]))('passes through --model=%s', (model) => {
+  it.each(COPILOT_MODELS.filter((m) => !isSuspendedModel(m)).map((m) => [m]))('passes through --model=%s', (model) => {
     const args = unwrapArgs(session({ model }));
     expect(args).toContain(`--model=${model}`);
     expect(args).not.toContain('--model');
@@ -617,6 +618,21 @@ describe('buildCopilotArgs — AiSession → CLI flag translation', () => {
     if (r.ok) return;
     expect(r.error.code).toBe('invalid-state');
     expect(r.error.message).toContain("'claude-haiku-4-5'");
+  });
+
+  it('rejects the suspended claude-fable-5 with InvalidStateError(model-suspended)', () => {
+    const r = buildCopilotArgs(session({ model: 'claude-fable-5' }));
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error.code).toBe('invalid-state');
+    expect(r.error.currentState).toBe('model-suspended');
+    expect(r.error.message).toContain('suspended');
+    expect(r.error.message).toContain("'claude-fable-5'");
+  });
+
+  it('still builds args for a non-suspended copilot model (claude-opus-4.8)', () => {
+    const args = unwrapArgs(session({ model: 'claude-opus-4.8' }));
+    expect(args).toContain('--model=claude-opus-4.8');
   });
 
   it('always emits --output-format=json --autopilot --silent --no-ask-user', () => {

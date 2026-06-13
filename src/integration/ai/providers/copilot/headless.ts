@@ -10,6 +10,7 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { isCopilotModel } from '@src/domain/value/settings-models/copilot.ts';
+import { isSuspendedModel, suspendedModelMessage } from '@src/domain/value/settings-models/suspended-models.ts';
 import { createCopilotStreamParser } from '@src/integration/ai/providers/copilot/parse-stream.ts';
 import type { CopilotStreamLine, CopilotUsage } from '@src/integration/ai/providers/_engine/copilot-stream.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
@@ -112,6 +113,18 @@ export const buildCopilotArgs = (session: AiSession): Result<readonly string[], 
         currentState: 'model-validation',
         attemptedAction: 'build argv',
         message: `copilot-provider: '${session.model}' is not a known Copilot model`,
+      })
+    );
+  }
+  // Catalog-valid but temporarily suspended server-side (see suspended-models.ts). For Copilot
+  // this hits the Anthropic-served claude-fable-5 entry — fail fast with a clear message.
+  if (isSuspendedModel(session.model)) {
+    return Result.error(
+      new InvalidStateError({
+        entity: 'copilot-provider',
+        currentState: 'model-suspended',
+        attemptedAction: 'build argv',
+        message: suspendedModelMessage(session.model),
       })
     );
   }

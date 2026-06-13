@@ -22,8 +22,10 @@ import {
   type EditableField,
   escalationModelOptions,
   escalationTargetsFor,
+  isModelField,
   isProviderField,
 } from '@src/application/ui/tui/views/settings-view-model.ts';
+import { isSuspendedModel, SUSPENSION_NOTE } from '@src/domain/value/settings-models/suspended-models.ts';
 
 interface ProviderChoice {
   readonly label: string;
@@ -137,10 +139,17 @@ export const SettingsEditor = ({
         />
       );
     }
+    // Model selects flag temporarily-suspended ids in the LABEL only; the value stays the bare id
+    // so a pre-pinned choice round-trips (the adapter guard rejects it at launch). Every other
+    // select (log level, booleans, …) renders plain.
+    const annotate = isModelField(field);
     return (
       <SelectPrompt
         message={`${field.label} (current: ${field.current})`}
-        options={field.options.map((value) => ({ label: value, value }))}
+        options={field.options.map((value) => ({
+          label: annotate && isSuspendedModel(value) ? `${value} (${SUSPENSION_NOTE})` : value,
+          value,
+        }))}
         onSubmit={(value) => onSubmit(String(value))}
         onCancel={onCancel}
       />

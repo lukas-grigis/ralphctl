@@ -46,7 +46,10 @@ in one transaction; subsequent per-key edits via `ralphctl settings set ai.<flow
   long-context syntax, passed through verbatim — on large repos the 1M window avoids mid-session
   compaction during deep implement runs) as **opt-in only** — no preset, default, or built-in
   escalation rung references them; pick per row or add an `'claude-opus-4-8': 'claude-fable-5'` rung
-  via `settings.harness.escalationMap`.
+  via `settings.harness.escalationMap`. **Temporarily suspended (2026-06-12 Anthropic export-control
+  directive):** the `claude-fable-5` family stays in the catalog but is currently rejected at launch
+  with a clear message and flagged `(suspended)` in the pickers; it will be restored when access
+  returns (single-list revert in `settings-models/suspended-models.ts`).
 - GitHub Copilot — adds `gpt-5.5`, `claude-opus-4.7`, `claude-opus-4.8`, Gemini 3.x family
   (`gemini-3-flash-preview`, `gemini-3-pro-preview`, `gemini-3.1-pro-preview`, `gemini-3.5-flash`),
   plus `mai-code-1-flash`, `raptor-mini-preview` (verified against Copilot CLI v1.0.60).
