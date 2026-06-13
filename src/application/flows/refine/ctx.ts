@@ -10,8 +10,9 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
  *
  * Per-ticket scratch fields (`current*`) are set by the leaves at the head of each per-ticket
  * sub-chain (fetch-issue-context, build-refine-unit, render-prompt-to-file) and consumed by
- * the interactive-session leaf. They are NOT cleared between tickets — the next ticket's
- * sub-chain overwrites them.
+ * the interactive-session leaf. `currentIssueContext` is reset on every ticket — fetch-issue-context
+ * always sets it to the freshly-fetched body or to `undefined` (no link / soft-fail), so a linkless
+ * ticket can never inherit the prior ticket's issue context.
  */
 export interface RefineCtx {
   readonly sprintId: SprintId;
@@ -20,7 +21,12 @@ export interface RefineCtx {
   readonly refinedTickets?: readonly ApprovedTicket[];
   /** Per-ticket scratch — pending ticket currently being refined. */
   readonly currentTicket?: PendingTicket;
-  /** Pre-fetched issue body (when `ticket.link` resolved) — formatted markdown ready for the prompt. */
+  /**
+   * Pre-fetched issue body (when `ticket.link` resolved) — formatted markdown ready for the prompt.
+   * fetch-issue-context resets this per ticket: set to the freshly-fetched body, or dropped (made
+   * absent) when the ticket has no resolvable issue, so a linkless ticket can never inherit the prior
+   * ticket's context under the shared sequential ctx.
+   */
   readonly currentIssueContext?: string;
   /** Per-ticket sandbox folder under `<sprintDir>/refinement/<ticket-slug>/`. */
   readonly currentUnitRoot?: AbsolutePath;

@@ -84,6 +84,20 @@ describe('fetchIssueContextLeaf', () => {
     );
   });
 
+  it('linkless ticket clears a prior ticket’s issue context (no cross-ticket bleed)', async () => {
+    // Simulate the shared sequential ctx after ticket A (link resolved) set its body. Ticket B has no
+    // link → soft-fail. currentIssueContext must be reset to absent, not inherited from A.
+    const eventBus = createInMemoryEventBus();
+    const ticketB = makePendingTicket({ title: 'no-link-B' });
+    const leaf = fetchIssueContextLeaf({ eventBus }, ticketB);
+    const ctxWithPriorBody: RefineCtx = { ...baseCtx(), currentIssueContext: "A's issue body" };
+    const out = await leaf.execute(ctxWithPriorBody);
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.value.ctx.currentTicket).toBe(ticketB);
+    expect(out.value.ctx.currentIssueContext).toBeUndefined();
+  });
+
   it('fetcher errors → soft-fail (not error), warn log', async () => {
     const eventBus = createInMemoryEventBus();
     const eventLog = captureLogEvents(eventBus);

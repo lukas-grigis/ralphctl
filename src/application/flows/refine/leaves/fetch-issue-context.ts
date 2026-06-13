@@ -61,9 +61,19 @@ export const fetchIssueContextLeaf = (deps: FetchIssueContextLeafDeps, ticket: P
       },
     },
     input: () => undefined,
-    output: (ctx, issueContext) => ({
-      ...ctx,
-      currentTicket: ticket,
-      ...(issueContext !== undefined ? { currentIssueContext: issueContext } : {}),
-    }),
+    // Reset currentIssueContext per ticket. Drop any inherited value first (omit it from the carried-
+    // forward ctx), then re-add only when this ticket actually fetched a body. Under the shared
+    // sequential ctx a conditional spread that left the prior value in place would let a linkless or
+    // soft-failing ticket inherit the previous ticket's issue context and leak it into this prompt.
+    // `currentIssueContext?: string` is optional under exactOptionalPropertyTypes, so omitting the key
+    // makes it genuinely absent — the flow's `!== undefined` guard then skips the issueContext param.
+    output: (ctx, issueContext) => {
+      const { currentIssueContext, ...rest } = ctx;
+      void currentIssueContext;
+      return {
+        ...rest,
+        currentTicket: ticket,
+        ...(issueContext !== undefined ? { currentIssueContext: issueContext } : {}),
+      };
+    },
   });
