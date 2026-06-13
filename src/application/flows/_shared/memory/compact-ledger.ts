@@ -1,5 +1,5 @@
 import type { LearningRecord } from '@src/application/flows/_shared/memory/learning-record.ts';
-import { LEDGER_MAX_ROWS } from '@src/application/flows/_shared/memory/stream-ledger.ts';
+import { LEDGER_MAX_ROWS } from '@src/application/flows/_shared/memory/read-ledger.ts';
 
 export { LEDGER_MAX_ROWS };
 

@@ -7,7 +7,7 @@ import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { LearningRecord } from '@src/application/flows/_shared/memory/learning-record.ts';
 import { isAbortedRead } from '@src/application/flows/_shared/memory/abort-guard.ts';
-import { streamLedgerLines } from '@src/application/flows/_shared/memory/stream-ledger.ts';
+import { readLedgerLines } from '@src/application/flows/_shared/memory/read-ledger.ts';
 
 const LEAF_NAME = 'load-learnings';
 
@@ -72,9 +72,11 @@ const loadCandidates = async (
   const candidates: LearningRecord[] = [];
   const seen = new Set<string>();
   try {
-    // Stream the ledger line-by-line — never materialise the whole file in RAM. An absent ledger
-    // (ENOENT) yields an empty stream, so the candidate list is simply empty.
-    for await (const { record, parseError } of streamLedgerLines(path, signal)) {
+    // Read the whole ledger and process it. An absent ledger (ENOENT) reads as an empty list, so
+    // the candidate list is simply empty. A pathologically-huge file is rotated aside by the reader
+    // and likewise yields an empty list (see readLedgerLines' byte-ceiling guard).
+    const lines = await readLedgerLines(path, log, signal);
+    for (const { record, parseError } of lines) {
       if (parseError !== undefined) {
         log.warn('skipping malformed learnings.ndjson line', { error: parseError.message });
         continue;

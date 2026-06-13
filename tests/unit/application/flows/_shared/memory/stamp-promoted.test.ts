@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ErrorCode } from '@src/domain/value/error/error-code.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
@@ -13,6 +13,7 @@ import {
   parseLearningLine,
   serializeLearningRecord,
 } from '@src/application/flows/_shared/memory/learning-record.ts';
+import { LEDGER_HARD_CEILING_BYTES } from '@src/application/flows/_shared/memory/read-ledger.ts';
 import { stampPromotedLeaf } from '@src/application/flows/_shared/memory/stamp-promoted.ts';
 
 const PROMOTED_AT = '2026-05-30T15:00:00.000Z' as IsoTimestamp;
@@ -56,6 +57,7 @@ describe('stampPromotedLeaf', () => {
     ledgerPath = absolutePath(join(String(root.root), 'learnings.ndjson'));
   });
   afterEach(async () => {
+    vi.restoreAllMocks();
     await root.cleanup();
   });
 
@@ -270,5 +272,26 @@ describe('stampPromotedLeaf', () => {
 
     const afterRows = (await readLedger()).length;
     expect(afterRows).toBeLessThan(beforeRows); // compaction-only still shrank it
+  });
+
+  it('rotates a ledger past the hard byte ceiling aside and stamps nothing', async () => {
+    // A real (small) file on disk; stat is faked to report a size just over the ceiling so the
+    // one-syscall guard fires without writing a 50 MB fixture. The oversized file is rotated to
+    // .bak and the read returns an empty list, so there is nothing to stamp (no rewrite).
+    await writeLedger([serializeLearningRecord(record({ id: 'a' }))]);
+    const realStat = fs.stat.bind(fs);
+    vi.spyOn(fs, 'stat').mockImplementation(async (p, opts) => {
+      const stats = await realStat(p as Parameters<typeof realStat>[0], opts as never);
+      return Object.assign(stats, { size: LEDGER_HARD_CEILING_BYTES + 1 });
+    });
+
+    const result = await makeLeaf().execute({ path: ledgerPath, acceptedIds: ['a'] });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.ctx.stampedCount).toBe(0); // oversized file → nothing stamped
+
+    // The original was rotated aside; the live ledger path no longer exists (no rewrite happened).
+    await expect(fs.readFile(`${String(ledgerPath)}.bak`, 'utf8')).resolves.toContain('"id":"a"');
+    await expect(fs.access(String(ledgerPath))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });

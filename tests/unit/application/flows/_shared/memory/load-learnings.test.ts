@@ -1,12 +1,13 @@
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ErrorCode } from '@src/domain/value/error/error-code.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { type LearningRecord, serializeLearningRecord } from '@src/application/flows/_shared/memory/learning-record.ts';
+import { LEDGER_HARD_CEILING_BYTES } from '@src/application/flows/_shared/memory/read-ledger.ts';
 import { loadLearningsLeaf } from '@src/application/flows/_shared/memory/load-learnings.ts';
 
 const record = (over: Partial<LearningRecord> = {}): LearningRecord => ({
@@ -46,6 +47,7 @@ describe('loadLearningsLeaf', () => {
     ledgerPath = absolutePath(join(String(root.root), 'learnings.ndjson'));
   });
   afterEach(async () => {
+    vi.restoreAllMocks();
     await root.cleanup();
   });
 
@@ -90,8 +92,8 @@ describe('loadLearningsLeaf', () => {
     expect((result.value.ctx.candidates ?? []).map((r) => r.id)).toEqual(['good']);
   });
 
-  it('streams a large (10k-row) ledger and returns the correct candidates', async () => {
-    // Pure RAM-win smoke: half the rows are promoted (filtered out), and every id appears twice
+  it('reads a large (10k-row) ledger and returns the correct candidates', async () => {
+    // Whole-file read smoke: half the rows are promoted (filtered out), and every id appears twice
     // (dedup keeps the first). Candidates must be exactly the unpromoted even-id rows.
     const lines: string[] = [];
     for (let i = 0; i < 10_000; i += 1) {
@@ -145,5 +147,26 @@ describe('loadLearningsLeaf', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.error.code).toBe(ErrorCode.Aborted);
+  });
+
+  it('rotates a ledger past the hard byte ceiling aside and reads as empty', async () => {
+    // A real (small) file on disk; stat is faked to report a size just over the ceiling so the
+    // one-syscall guard fires without writing a 50 MB fixture. The real file is then rotated to
+    // .bak by the (un-mocked) rename, and the read returns no candidates — start fresh.
+    await writeLedger([serializeLearningRecord(record({ id: 'a' }))]);
+    const realStat = fs.stat.bind(fs);
+    vi.spyOn(fs, 'stat').mockImplementation(async (p, opts) => {
+      const stats = await realStat(p as Parameters<typeof realStat>[0], opts as never);
+      return Object.assign(stats, { size: LEDGER_HARD_CEILING_BYTES + 1 });
+    });
+
+    const result = await makeLeaf().execute({ path: ledgerPath });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.ctx.candidates).toEqual([]); // oversized file → propose nothing
+
+    // The original was rotated aside; the live ledger path no longer exists.
+    await expect(fs.readFile(`${String(ledgerPath)}.bak`, 'utf8')).resolves.toContain('"id":"a"');
+    await expect(fs.access(String(ledgerPath))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });

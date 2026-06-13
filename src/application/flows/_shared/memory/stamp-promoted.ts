@@ -12,9 +12,9 @@ import { serializeLearningRecord } from '@src/application/flows/_shared/memory/l
 import { isAbortedRead } from '@src/application/flows/_shared/memory/abort-guard.ts';
 import {
   type LedgerLine,
+  readLedgerLines,
   statLedgerExceedsThreshold,
-  streamLedgerLines,
-} from '@src/application/flows/_shared/memory/stream-ledger.ts';
+} from '@src/application/flows/_shared/memory/read-ledger.ts';
 import { type LedgerRow, compactLedger } from '@src/application/flows/_shared/memory/compact-ledger.ts';
 
 const LEAF_NAME = 'stamp-promoted';
@@ -40,11 +40,12 @@ export interface StampPromotedLeafConfig<TCtx> {
 
 /**
  * Final step of the distill flow: durably mark accepted learnings as promoted so they are
- * never proposed again, AND keep the ledger bounded. STREAMS the entire ledger line-by-line
- * (never materialising it in RAM), flips `promotedAt` from `null` to the distillation timestamp
- * for every record whose id is in the accepted set, leaves all other records byte-for-byte,
- * compacts the result to a bounded de-duplicated set ({@link compactLedger}), then rewrites the
- * whole file atomically via the {@link WriteFile} port.
+ * never proposed again, AND keep the ledger bounded. Reads the entire ledger
+ * ({@link readLedgerLines} — whole-file with a one-syscall byte-ceiling safety net), flips
+ * `promotedAt` from `null` to the distillation timestamp for every record whose id is in the
+ * accepted set, leaves all other records byte-for-byte, compacts the result to a bounded
+ * de-duplicated set ({@link compactLedger}), then rewrites the whole file atomically via the
+ * {@link WriteFile} port.
  *
  * Full read-modify-WRITE (not append): an append could only add rows, but stamping mutates
  * existing rows and compaction prunes them, so the file is rebuilt. The {@link WriteFile} adapter
@@ -99,13 +100,13 @@ const stamp = async (
     return Result.ok(0);
   }
 
-  // Stream the ledger into memory as {raw, record} rows. Streaming bounds peak RAM (one line at a
-  // time off disk); the collected array is itself bounded by the subsequent compaction.
+  // Read the whole ledger into memory as {raw, record} rows, then stamp + compact. The reader's
+  // byte-ceiling guard rotates a pathologically-huge file aside (yielding an empty list) so this
+  // never loads tens of MB; below the ceiling the collected array is bounded by the subsequent
+  // compaction.
   let collected: readonly LedgerLine[];
   try {
-    const acc: LedgerLine[] = [];
-    for await (const line of streamLedgerLines(path, signal)) acc.push(line);
-    collected = acc;
+    collected = await readLedgerLines(path, log, signal);
   } catch (cause) {
     if (isAbortedRead(cause, signal)) {
       return Result.error(new AbortError({ elementName: LEAF_NAME }));
@@ -193,7 +194,8 @@ const stampPass = (
 };
 
 /**
- * `streamLedgerLines` strips the trailing newline off each raw line; `serializeLearningRecord`
- * keeps it. Normalise so the NDJSON rewrite is one well-formed line per row regardless of source.
+ * `readLedgerLines` strips the trailing newline off each raw line (`split('\n')`);
+ * `serializeLearningRecord` keeps it. Normalise so the NDJSON rewrite is one well-formed line per
+ * row regardless of source.
  */
 const ensureTrailingNewline = (raw: string): string => (raw.endsWith('\n') ? raw : `${raw}\n`);
