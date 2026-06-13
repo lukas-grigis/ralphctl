@@ -22,7 +22,7 @@ with [GitHub Copilot](https://docs.github.com/en/copilot/github-copilot-in-the-c
 > _"I'm helping!"_ — Ralph Wiggum
 
 > [!NOTE]
-> **Active development.** New features and polish ship regularly. The upcoming release expands the preset
+> **Active development.** New features and polish ship regularly. The latest release expands the preset
 > matrix to 20 presets across five families (`standard`, `economic`, `strong-gate`, `fast`, `frontier`),
 > each in `mixed` / `claude-only` / `copilot-only` / `codex-only` variants.
 > Upgrades are best-effort: install the latest version, redo your config, proceed.
