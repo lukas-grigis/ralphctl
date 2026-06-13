@@ -34,6 +34,7 @@ import { resolveInitialState } from '@src/application/ui/tui/launch-routing.ts';
 import { createLastSelectionStore } from '@src/integration/persistence/selection/last-selection-store.ts';
 import { type LogLevelGate, createLogLevelGate, passesLogLevel } from '@src/business/observability/log-level-filter.ts';
 import { startHeapWatchdog } from '@src/integration/observability/heap-watchdog.ts';
+import { writeHeapSnapshotToDir } from '@src/integration/observability/heap-snapshot.ts';
 import { createOsNotificationDispatcher } from '@src/integration/observability/os-notification-dispatcher.ts';
 import { startNotificationSubscriber } from '@src/business/observability/notification-subscriber.ts';
 
@@ -80,6 +81,44 @@ const createLogForwarder = (
   return { buffer, unsubscribe };
 };
 
+/**
+ * Build the heap-watchdog `onCritical` callback. Captured into its own factory so `bootstrap`
+ * stays lean and the post-mortem logic is testable/readable in isolation. The snapshot is the
+ * real diagnostic (it names the dominant retainer); the buffer-clear is just defensive — those
+ * buffers are small-capped so clearing them frees little. Must never throw.
+ */
+const createHeapCriticalHandler = (args: {
+  readonly logger: AppDeps['logger'];
+  readonly logForwarder: CoalescedBuffer<LogEvent>;
+  readonly harnessBus: BusSink<HarnessSignal>;
+  readonly logBus: BusSink<LogEvent>;
+}): (() => void) => {
+  const { logger, logForwarder, harnessBus, logBus } = args;
+  return () => {
+    // Best-effort heap snapshot — the actual diagnostic. v8.writeHeapSnapshot streams to disk
+    // (does not copy the heap into RAM) so it should fit in the ~5% headroom at the 0.95 ratio;
+    // it is best-effort by design (try/catch, no retries) — failing here must not crash us
+    // further. The helper never throws; we log the outcome loudly either way.
+    const snapshot = writeHeapSnapshotToDir('.diagnostics');
+    if (snapshot.ok) {
+      logger.warn(
+        `heap critical — wrote heap snapshot to ${snapshot.path}; ` +
+          'open it in Chrome DevTools › Memory to find the dominant retainer'
+      );
+    } else {
+      logger.error(`heap critical — could not write heap snapshot: ${snapshot.error}`);
+    }
+
+    // Defensive buffer-clear: cheap and harmless, but frees little (these buffers are
+    // small-capped). Drop (do NOT flush) the batch the forwarder is holding, then clear the
+    // buses. Flushing here would re-emit the held window into `logBus` immediately before we
+    // empty it — pointless churn. discard() empties the window without emitting.
+    logForwarder.discard();
+    harnessBus.clear();
+    logBus.clear();
+  };
+};
+
 const bootstrap = async (): Promise<Bootstrapped> => {
   const paths = resolveStoragePaths();
   if (!paths.ok) throw new Error(`storage-paths: ${paths.error.message}`);
@@ -120,19 +159,13 @@ const bootstrap = async (): Promise<Bootstrapped> => {
     logLevelGate
   );
 
-  // Heap watchdog gives the operator a 30-second warning before V8 SIGKILLs the harness on a
-  // long-running session. On 'critical' it dumps the TUI's in-memory buffers (which retain the
-  // bulk of process memory after the per-list render caps) so the GC has something to free.
+  // Heap watchdog gives the operator a warning before V8 SIGKILLs the harness on a long-running
+  // session. On 'critical' its real value is capturing a heap snapshot for post-mortem: the
+  // TUI's in-memory buffers are small-capped (a few MB), so clearing them frees little — the
+  // OOM recurs undiagnosed unless we name the dominant retainer. The snapshot does that.
   const heapWatchdog = startHeapWatchdog({
     eventBus: deps.eventBus,
-    onCritical: () => {
-      // Drop (do NOT flush) the batch the forwarder is holding, then clear the buses. Flushing
-      // here would re-emit the held window into `logBus` immediately before we empty it — pointless
-      // churn. discard() empties the window without emitting, so the clear below stays final.
-      logForwarder.discard();
-      harnessBus.clear();
-      logBus.clear();
-    },
+    onCritical: createHeapCriticalHandler({ logger: deps.logger, logForwarder, harnessBus, logBus }),
   });
 
   // OS-attention notifications. Wired here (not inside wire()) so tests that build wire() never
