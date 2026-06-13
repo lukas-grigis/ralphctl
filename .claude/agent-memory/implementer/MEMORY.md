@@ -2,6 +2,9 @@
 
 - [project_chain_runner_containment_boundary.md](project_chain_runner_containment_boundary.md) — createRunner.run()
   try/catch is the ONLY containment for non-DomainError throws from element.execute; raw AbortError must keep abort path
+- [project_ledger_compaction_dedup_asymmetry.md](project_ledger_compaction_dedup_asymmetry.md) — bounded ledger
+  (fix/oom-hardening): stream-ledger + compact-ledger; rewrite-side last-promoted-wins vs load-side first-wins (both OK);
+  raw-line winners, tombstones never evicted, direct node:fs reads + WriteFile port
 - [project_ledger_unknown_field_preservation.md](project_ledger_unknown_field_preservation.md) — stamp-promoted must keep
   non-stamped learnings.ndjson rows byte-for-byte (raw line); z.object strips future fields; don't switch to looseObject
 - [project_shared_rate_limit_retry_seam.md](project_shared_rate_limit_retry_seam.md) — one shared retry loop
