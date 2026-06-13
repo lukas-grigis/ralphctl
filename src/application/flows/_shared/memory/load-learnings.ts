@@ -1,4 +1,3 @@
-import { promises as fs } from 'node:fs';
 import { Result } from '@src/domain/result.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
@@ -6,8 +5,9 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
-import { type LearningRecord, parseLearningLine } from '@src/application/flows/_shared/memory/learning-record.ts';
+import type { LearningRecord } from '@src/application/flows/_shared/memory/learning-record.ts';
 import { isAbortedRead } from '@src/application/flows/_shared/memory/abort-guard.ts';
+import { readLedgerLines } from '@src/application/flows/_shared/memory/read-ledger.ts';
 
 const LEAF_NAME = 'load-learnings';
 
@@ -69,35 +69,33 @@ const loadCandidates = async (
 ): Promise<Result<readonly LearningRecord[], DomainError>> => {
   const log = deps.logger.named('memory.load-learnings');
 
-  let raw: string;
+  const candidates: LearningRecord[] = [];
+  const seen = new Set<string>();
   try {
-    raw = await fs.readFile(String(path), { encoding: 'utf8', ...(signal ? { signal } : {}) });
+    // Read the whole ledger and process it. An absent ledger (ENOENT) reads as an empty list, so
+    // the candidate list is simply empty. A pathologically-huge file is rotated aside by the reader
+    // and likewise yields an empty list (see readLedgerLines' byte-ceiling guard).
+    const lines = await readLedgerLines(path, log, signal);
+    for (const { record, parseError } of lines) {
+      if (parseError !== undefined) {
+        log.warn('skipping malformed learnings.ndjson line', { error: parseError.message });
+        continue;
+      }
+      if (record === undefined) continue; // blank line
+      if (seen.has(record.id)) continue; // dedup by stable id, keep first
+      seen.add(record.id);
+      if (record.promotedAt !== null) continue; // already promoted — not a candidate
+      candidates.push(record);
+    }
   } catch (cause) {
     // CRITICAL: a cancelled read must re-propagate `Aborted`, never collapse into "empty ledger".
     if (isAbortedRead(cause, signal)) {
       return Result.error(new AbortError({ elementName: LEAF_NAME }));
     }
-    // Absent ledger (or any other read failure) → propose nothing. A missing ledger is the
-    // common case (the project simply hasn't produced a learning); it must not block the flow.
+    // Any other stream failure → propose nothing. A missing ledger is the common case (the
+    // project simply hasn't produced a learning); it must not block the flow.
     log.info('no learnings ledger — proposing nothing', { path: String(path) });
     return Result.ok([]);
-  }
-
-  const candidates: LearningRecord[] = [];
-  const seen = new Set<string>();
-  const lines = raw.split('\n');
-  for (const line of lines) {
-    const parsed = parseLearningLine(line);
-    if (!parsed.ok) {
-      log.warn('skipping malformed learnings.ndjson line', { error: parsed.error.message });
-      continue;
-    }
-    const record = parsed.value;
-    if (record === undefined) continue; // blank line
-    if (seen.has(record.id)) continue; // dedup by stable id, keep first
-    seen.add(record.id);
-    if (record.promotedAt !== null) continue; // already promoted — not a candidate
-    candidates.push(record);
   }
 
   log.info(`loaded ${candidates.length} candidate learning(s)`, { path: String(path), count: candidates.length });

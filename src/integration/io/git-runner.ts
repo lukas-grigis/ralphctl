@@ -22,6 +22,15 @@ import { crossPlatformSpawn } from '@src/integration/io/cross-platform-spawn.ts'
 
 export const DEFAULT_GIT_TIMEOUT_MS = 30_000;
 
+/**
+ * Hard cap on buffered git command output. Git command output — notably `git diff HEAD` for the
+ * work-product fingerprint — is capped so a huge AI-generated diff can't OOM the heap; mirrors
+ * shell-script-runner's `MAX_OUTPUT_BYTES`. Once stdout exceeds this ceiling the child is killed
+ * and a truncation marker is appended; callers degrade gracefully (the fingerprint hashes the
+ * truncated diff deterministically — an exemption input, never a correctness gate).
+ */
+export const GIT_MAX_OUTPUT_BYTES = 50 * 1024 * 1024;
+
 export interface GitRunResult {
   readonly stdout: string;
   readonly stderr: string;
@@ -39,11 +48,17 @@ export interface GitRunner {
 export interface GitRunnerDeps {
   readonly spawn?: Spawn;
   readonly defaultTimeoutMs?: number;
+  /**
+   * Output-buffer cap. Defaults to {@link GIT_MAX_OUTPUT_BYTES}. Injectable so tests can drive a
+   * tiny cap instead of generating 50 MB of fake stdout.
+   */
+  readonly maxOutputBytes?: number;
 }
 
 export const createGitRunner = (deps: GitRunnerDeps = {}): GitRunner => {
   const spawn = deps.spawn ?? defaultSpawn;
   const defaultTimeoutMs = deps.defaultTimeoutMs ?? DEFAULT_GIT_TIMEOUT_MS;
+  const maxOutputBytes = deps.maxOutputBytes ?? GIT_MAX_OUTPUT_BYTES;
 
   const run = (
     cwd: AbsolutePath,
@@ -73,19 +88,50 @@ export const createGitRunner = (deps: GitRunnerDeps = {}): GitRunner => {
 
       const stdoutChunks: Buffer[] = [];
       const stderrChunks: Buffer[] = [];
+      let stdoutBytes = 0;
+      let stderrBytes = 0;
       let timedOut = false;
+      // Cap-truncation is tracked separately from `timedOut`: the SIGTERM we issue for the cap
+      // also fires the child's `close`, and that close must surface ok+marker, NOT the timeout
+      // StorageError. A shared flag would let cap-kills masquerade as timeouts.
+      let truncated = false;
       let settled = false;
 
-      child.stdout.on('data', (c: Buffer) => stdoutChunks.push(c));
-      child.stderr.on('data', (c: Buffer) => stderrChunks.push(c));
-
-      const timer = setTimeout(() => {
-        timedOut = true;
+      const killChild = (): void => {
         try {
           child.kill('SIGTERM');
         } catch {
           // already dead
         }
+      };
+
+      // Drop further chunks once the cap is hit and kill the child so git stops producing more
+      // (mirrors shell-script-runner). The kill drives `close`, which the handler below reports
+      // as cap-truncation rather than a timeout.
+      const appendStdout = (chunk: Buffer): void => {
+        if (truncated) return;
+        stdoutBytes += chunk.length;
+        if (stdoutBytes > maxOutputBytes) {
+          truncated = true;
+          killChild();
+          return;
+        }
+        stdoutChunks.push(chunk);
+      };
+      // stderr is tiny in practice; cap it too for consistency. No marker is emitted for stderr.
+      const appendStderr = (chunk: Buffer): void => {
+        if (stderrBytes > maxOutputBytes) return;
+        stderrBytes += chunk.length;
+        if (stderrBytes > maxOutputBytes) return;
+        stderrChunks.push(chunk);
+      };
+
+      child.stdout.on('data', (c: Buffer) => appendStdout(c));
+      child.stderr.on('data', (c: Buffer) => appendStderr(c));
+
+      const timer = setTimeout(() => {
+        timedOut = true;
+        killChild();
       }, timeoutMs);
 
       const finish = (result: Result<GitRunResult, StorageError>): void => {
@@ -125,9 +171,13 @@ export const createGitRunner = (deps: GitRunnerDeps = {}): GitRunner => {
         // whole process instead of surfacing through the Result envelope. Catch and map to
         // StorageError — consumers like the work-product fingerprint degrade gracefully.
         try {
+          const base = Buffer.concat(stdoutChunks).toString('utf8');
+          const stdout = truncated
+            ? `${base}\n[git output exceeded ${String(maxOutputBytes)} byte cap — truncated]`
+            : base;
           finish(
             Result.ok({
-              stdout: Buffer.concat(stdoutChunks).toString('utf8'),
+              stdout,
               stderr: Buffer.concat(stderrChunks).toString('utf8'),
               exitCode: code ?? -1,
             })

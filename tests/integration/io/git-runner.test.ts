@@ -127,6 +127,47 @@ describe('createGitRunner', () => {
     }
   });
 
+  it('caps oversized stdout: returns truncated output with marker, exits ok (not a timeout), kills the child', async () => {
+    // Drive a tiny injected cap so we exercise the byte ceiling without buffering 50 MB. Two
+    // chunks below the cap each, but cumulatively over it — the second trips truncation.
+    const { spawn } = fakeSpawn({ stdout: ['aaaa', 'bbbb', 'cccc'], exitCode: 0 });
+    let killed = false;
+    const trackedSpawn: Spawn = (command, args, options) => {
+      const child = spawn(command, args, options) as ChildProcessWithoutNullStreams & { _killed: boolean };
+      const origKill = child.kill.bind(child);
+      child.kill = ((sig?: NodeJS.Signals | number): boolean => {
+        killed = true;
+        return origKill(sig);
+      }) as typeof child.kill;
+      return child;
+    };
+    const runner = createGitRunner({ spawn: trackedSpawn, maxOutputBytes: 6 });
+    const result = await runner.run(cwd, ['diff', 'HEAD']);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.stdout).toContain('[git output exceeded 6 byte cap — truncated]');
+      // Only the chunks accepted before the cap tripped are retained; the dropped chunk is gone.
+      expect(result.value.stdout).toContain('aaaa');
+      expect(result.value.stdout).not.toContain('cccc');
+      // Cap-truncation must NOT be misreported as a timeout StorageError.
+      expect(result.error).toBeUndefined();
+    }
+    expect(killed).toBe(true);
+  });
+
+  it('does not append a marker for small output under the cap', async () => {
+    const { spawn } = fakeSpawn({ stdout: ['main\n'], exitCode: 0 });
+    const runner = createGitRunner({ spawn, maxOutputBytes: 6 });
+    const result = await runner.run(cwd, ['rev-parse', 'HEAD']);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.stdout).toBe('main\n');
+      expect(result.value.stdout).not.toContain('truncated');
+    }
+  });
+
   it('passes args verbatim — no shell, so quotes / backticks / newlines stay literal', async () => {
     const { spawn, calls } = fakeSpawn({ exitCode: 0 });
     const runner = createGitRunner({ spawn });

@@ -17,11 +17,14 @@ import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
  * can treat the latest event as the current band without de-duping. Going down
  * past the warning floor emits one `'recovered'` event so the banner clears.
  *
- * `onCritical` is the operator-side eviction hatch: the TUI uses it to drop
- * harness/log/chain in-memory buffers, freeing retained memory before the
- * kernel kills us. Fired exactly once per critical-band entry; re-arms on the
- * way down. Idempotent — if the user-supplied callback is missing or throws
- * the watchdog keeps polling.
+ * `onCritical` is the operator-side post-mortem hatch. Its PRIMARY value is
+ * capturing a heap snapshot for diagnosis: the TUI launcher uses it to dump a
+ * `.heapsnapshot` so the next near-OOM names its own dominant retainer. It also
+ * clears the harness/log/chain in-memory buffers, but those are small-capped (a
+ * few MB) so that clear frees little — the snapshot is the real diagnostic, the
+ * clear is just defensive. Fired exactly once per critical-band entry; re-arms
+ * on the way down. Idempotent — if the user-supplied callback is missing or
+ * throws the watchdog keeps polling.
  */
 
 export interface HeapReading {
@@ -39,10 +42,12 @@ export interface HeapWatchdogDeps {
   /** Ratio for the 'critical' threshold. Default 0.95. */
   readonly criticalRatio?: number;
   /**
-   * Optional eviction hatch: invoked once when severity transitions to 'critical'.
-   * The TUI launcher passes a callback that clears the harness/log/chainEvents
-   * buffers to free retained memory. Idempotent — the watchdog calls it at most
-   * once per critical-entry (re-arms after going back below critical).
+   * Optional post-mortem hatch: invoked once when severity transitions to 'critical'.
+   * The TUI launcher passes a callback that captures a heap snapshot for diagnosis
+   * (the actual value — it names the dominant retainer) and also clears the
+   * harness/log/chainEvents buffers (defensive; those buffers are small-capped so the
+   * clear frees little). Idempotent — the watchdog calls it at most once per
+   * critical-entry (re-arms after going back below critical).
    */
   readonly onCritical?: () => void;
   /** Inject for tests. Real impl uses `v8.getHeapStatistics()`. */

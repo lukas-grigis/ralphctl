@@ -15,6 +15,7 @@ import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { RunTaskVerdict } from '@src/business/task/gen-eval-exit.ts';
+import { boundVerifyExcerpt } from '@src/business/task/bound-verify-excerpt.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import { gitHasUncommittedChanges } from '@src/integration/io/git-operations.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
@@ -135,7 +136,11 @@ export const settleAttemptLeaf = (
           ? {
               kind: 'verify-failed',
               exitCode: ctx.lastVerifyResult.exitCode,
-              stderr: ctx.lastVerifyResult.stderr,
+              // Bound the excerpt persisted onto the attempt: the warning lives on the task in
+              // ctx.tasks + tasks.json for the whole sprint, so storing the full (≤50 MB) verify
+              // body here re-creates the Verification.output OOM (see bound-verify-excerpt.ts).
+              // The untruncated body is on disk at <sprintDir>/logs/verify/<task-id>/...
+              stderr: boundVerifyExcerpt(ctx.lastVerifyResult.stderr),
             }
           : ctx.lastWarning;
       return {
