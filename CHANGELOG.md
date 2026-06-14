@@ -7,6 +7,13 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-06-14
+
+### Changed
+
+- **Dependency bump.** `ink` 7.0.5 → 7.0.6 — fixes stale frames on Windows when output exactly fills
+  the terminal. Dev-tooling bumps (`@types/node`, `eslint`, `prettier`, `typescript-eslint`) ride along.
+
 ## [0.12.0] - 2026-06-13
 
 ### Added
