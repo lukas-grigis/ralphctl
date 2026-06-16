@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { resolveInitialState } from '@src/application/ui/tui/launch-routing.ts';
 import { createSprint, type Sprint } from '@src/domain/entity/sprint.ts';
+import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { ProjectId } from '@src/domain/value/id/project-id.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { makeProject } from '@tests/fixtures/domain.ts';
@@ -29,6 +30,20 @@ const makeSprint = (projectId: ProjectId, id: SprintId, name = 'a sprint'): Spri
   const r = createSprint({ id, name, projectId });
   if (!r.ok) throw new Error(`fixture sprint failed: ${r.error.message}`);
   return r.value;
+};
+
+/** A sealed `done` sprint — routing must skip it when seeding the most-recent actionable sprint. */
+const makeDoneSprint = (projectId: ProjectId, id: SprintId, name = 'a sprint'): Sprint => {
+  const ts = IsoTimestamp.parse('2026-01-01T00:00:00.000Z');
+  if (!ts.ok) throw new Error(`bad timestamp fixture: ${ts.error.message}`);
+  return {
+    ...makeSprint(projectId, id, name),
+    status: 'done',
+    plannedAt: ts.value,
+    activatedAt: ts.value,
+    reviewAt: ts.value,
+    doneAt: ts.value,
+  };
 };
 
 describe('resolveInitialState', () => {
@@ -59,16 +74,14 @@ describe('resolveInitialState', () => {
     });
   });
 
-  it('seeds the FIRST project when several exist and nothing was used last', () => {
-    // The auto-default is in-memory only — the SelectionProvider's first-run guard suppresses
-    // the initial persistence write, so it never freezes as a real user choice. Home lands on a
-    // populated project instead of a "pick a project to work on" card.
+  it('routes to home with NO selection when several projects exist and nothing was used last', () => {
+    // We must never auto-pick the alphabetically-first of several projects — that dumps the user
+    // onto an unrelated project's empty card. Home's StateCard shows the "pick a project" prompt.
     const a = makeProject({ id: ProjectId.generate(), slug: 'one', displayName: 'One' });
     const b = makeProject({ id: ProjectId.generate(), slug: 'two', displayName: 'Two' });
     const result = resolveInitialState({ settingsExist: true, projects: [a, b] });
     expect(result.initialView).toEqual({ id: 'home' });
-    expect(result.initialSelection?.projectId).toEqual(a.id);
-    expect(result.initialSelection?.projectLabel).toEqual('One');
+    expect(result.initialSelection).toBeUndefined();
   });
 
   it('honours the persisted last-selection when present', () => {
@@ -95,10 +108,9 @@ describe('resolveInitialState', () => {
     expect(result.initialSelection).toEqual({ projectId: a.id, projectLabel: 'One' });
   });
 
-  it('falls back to the FIRST project when the persisted last-selection no longer exists and several projects are present', () => {
-    // Deleted remembered project: rather than dropping the selection, default to the first
-    // project so Home lands populated. The first-run guard keeps this in-memory until the user
-    // actually picks something.
+  it('routes to home with NO selection when the persisted last-selection no longer exists and several projects are present', () => {
+    // Deleted remembered project + multiple candidates: never auto-pick the first. Home prompts
+    // the user to choose rather than silently landing them on an unrelated project.
     const a = makeProject({ id: ProjectId.generate(), slug: 'one', displayName: 'One' });
     const b = makeProject({ id: ProjectId.generate(), slug: 'two', displayName: 'Two' });
     const result = resolveInitialState({
@@ -107,8 +119,7 @@ describe('resolveInitialState', () => {
       lastProjectId: ProjectId.generate(),
     });
     expect(result.initialView).toEqual({ id: 'home' });
-    expect(result.initialSelection?.projectId).toEqual(a.id);
-    expect(result.initialSelection?.projectLabel).toEqual('One');
+    expect(result.initialSelection).toBeUndefined();
   });
 
   it('honours the persisted sprint when the project and sprint both still resolve', () => {
@@ -151,23 +162,74 @@ describe('resolveInitialState', () => {
     });
   });
 
-  it('seeds the most-recent sprint of the auto-defaulted FIRST project', () => {
-    // No persisted selection at all → first project + that project's most-recent sprint.
+  it('seeds the most-recent sprint of the single auto-seeded project', () => {
+    // Single project, no persisted selection → seed it + that project's most-recent sprint.
     const a = makeProject({ id: ProjectId.generate(), slug: 'one', displayName: 'One' });
-    const b = makeProject({ id: ProjectId.generate(), slug: 'two', displayName: 'Two' });
     const olderA = makeSprint(a.id, SID_LO);
     const newestA = makeSprint(a.id, SID_HI);
-    const sprintB = makeSprint(b.id, sprintId('01900000-0000-7000-8000-0000000000d1'));
     const result = resolveInitialState({
       settingsExist: true,
-      projects: [a, b],
-      sprints: [olderA, newestA, sprintB],
+      projects: [a],
+      sprints: [olderA, newestA],
     });
     expect(result.initialSelection).toEqual({
       projectId: a.id,
       projectLabel: 'One',
       sprintId: newestA.id,
       sprintLabel: 'a sprint',
+    });
+  });
+
+  it('seeds the most-recent NON-done sprint, skipping a more-recent done one', () => {
+    // Persisted project resolves, no persisted sprint. The newest sprint is `done`; seed the
+    // older open one so the user lands on actionable work, not a sealed sprint.
+    const a = makeProject({ id: ProjectId.generate(), slug: 'one', displayName: 'One' });
+    const openOlder = makeSprint(a.id, SID_LO, 'open one');
+    const doneNewer = makeDoneSprint(a.id, SID_HI, 'sealed one');
+    const result = resolveInitialState({
+      settingsExist: true,
+      projects: [a],
+      lastProjectId: a.id,
+      sprints: [openOlder, doneNewer],
+    });
+    expect(result.initialSelection).toEqual({
+      projectId: a.id,
+      projectLabel: 'One',
+      sprintId: openOlder.id,
+      sprintLabel: 'open one',
+    });
+  });
+
+  it('seeds no sprint when the project has only done sprints', () => {
+    // No persisted sprint and every sprint is sealed → seed no sprint (empty-sprint card).
+    const a = makeProject({ id: ProjectId.generate(), slug: 'one', displayName: 'One' });
+    const result = resolveInitialState({
+      settingsExist: true,
+      projects: [a],
+      lastProjectId: a.id,
+      sprints: [makeDoneSprint(a.id, SID_HI)],
+    });
+    expect(result.initialSelection).toEqual({ projectId: a.id, projectLabel: 'One' });
+    expect(result.initialSelection?.sprintId).toBeUndefined();
+  });
+
+  it('honours a persisted sprint even when it is now done (done-on-boot probe clears it later)', () => {
+    // The persisted pick wins regardless of status — SelectionProvider's done-on-boot probe is
+    // what clears a sealed sprint to the empty card, not this routing function.
+    const a = makeProject({ id: ProjectId.generate(), slug: 'one', displayName: 'One' });
+    const sealed = makeDoneSprint(a.id, SID_HI, 'sealed pick');
+    const result = resolveInitialState({
+      settingsExist: true,
+      projects: [a],
+      lastProjectId: a.id,
+      lastSprintId: sealed.id,
+      sprints: [sealed],
+    });
+    expect(result.initialSelection).toEqual({
+      projectId: a.id,
+      projectLabel: 'One',
+      sprintId: sealed.id,
+      sprintLabel: 'sealed pick',
     });
   });
 
