@@ -183,7 +183,7 @@ const bootstrap = async (): Promise<Bootstrapped> => {
   const queue = createPromptQueue();
 
   // The Ink prompt adapter is plumbed through deps that the launcher reads; chain factories
-  // that need an `InteractivePrompt` (create-sprint, add-tickets, readiness) get this
+  // that need an `InteractivePrompt` (create-sprint, readiness) get this
   // adapter via the launcher.
   void createInkInteractivePrompt(queue);
 

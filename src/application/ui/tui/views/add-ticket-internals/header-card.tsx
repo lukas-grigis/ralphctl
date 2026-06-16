@@ -4,20 +4,31 @@
  *  - Mid-wizard steps (`fetching` → `title` → `description`): show a "Progress" card listing
  *    fields already entered. This is the fix for "old prompts vanish so I can't see what I
  *    typed" — the data persists in the header even after each prompt unmounts.
- *  - `confirm` / `saving` / `error`: handled by the step body itself (the confirm step renders
- *    its own "Review ticket" card containing all collected fields); header collapses so the
- *    Title doesn't appear twice on the same screen.
+ *  - `confirm` / `saving` / `added` / `error`: handled by the step body itself (the confirm step
+ *    renders its own "Review ticket" card containing all collected fields; the `added` step renders
+ *    its own success line + "Add another?" confirm); header collapses so the Title doesn't appear
+ *    twice on the same screen.
+ *
+ * The running session count (`addedCount`) is shown on the `link` step once at least one ticket
+ * has been appended this session, so a user looping back to add another sees the running total.
  */
 
 import React from 'react';
 import { Box, Text } from 'ink';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { FieldList } from '@src/application/ui/tui/components/field-list.tsx';
-import { glyphs, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import type { Step } from '@src/application/ui/tui/views/add-ticket-internals/types.ts';
 
-export const HeaderCard = ({ step }: { readonly step: Step }): React.JSX.Element | null => {
+export const HeaderCard = ({
+  step,
+  addedCount = 0,
+}: {
+  readonly step: Step;
+  readonly addedCount?: number;
+}): React.JSX.Element | null => {
   if (step.kind === 'link') {
+    const plural = addedCount === 1 ? 'ticket' : 'tickets';
     return (
       <Card title="What we'll collect" tone="rule">
         <Box flexDirection="column" paddingX={spacing.indent}>
@@ -27,6 +38,11 @@ export const HeaderCard = ({ step }: { readonly step: Step }): React.JSX.Element
             {glyphs.bullet} a short title (required){'\n'}
             {glyphs.bullet} a longer description (required)
           </Text>
+          {addedCount > 0 ? (
+            <Text color={inkColors.success}>
+              {glyphs.check} {addedCount} {plural} added this session
+            </Text>
+          ) : null}
         </Box>
       </Card>
     );

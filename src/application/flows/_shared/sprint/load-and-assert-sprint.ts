@@ -14,7 +14,7 @@ export interface LoadAndAssertSprintDeps {
 
 /**
  * Sub-chain composing `loadSprintLeaf` + `assertSprintStatusLeaf` — the recurring "fetch the
- * sprint and refuse if it's in the wrong state" pattern shared by add-tickets / refine / plan /
+ * sprint and refuse if it's in the wrong state" pattern shared by refine / plan /
  * implement. Each consumer passes the status set its flow accepts (e.g. refine → `['draft']`,
  * implement → `['active']`).
  *

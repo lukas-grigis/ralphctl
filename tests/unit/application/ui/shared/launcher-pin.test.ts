@@ -118,8 +118,8 @@ const snapshot: AppStateSnapshot = {
 };
 
 describe('launchFlow — pinned project/sprint stamping', () => {
-  it('pins the snapshot sprint for a regular sprint-scoped flow (add-tickets)', async () => {
-    const result = await launchFlow(makeDeps(), 'add-tickets', snapshot);
+  it('pins the snapshot sprint for a regular sprint-scoped flow (refine)', async () => {
+    const result = await launchFlow(makeDeps(), 'refine', snapshot);
     if (!result.ok) throw new Error(`launch failed: ${result.reason}`);
 
     expect(result.pinnedProjectId).toBe(PROJECT_ID);

@@ -133,7 +133,6 @@ const siblingIsolationRule = (
 };
 
 const FLOWS = [
-  'add-tickets',
   'close-sprint',
   'create-pr',
   'create-sprint',

@@ -13,7 +13,7 @@ import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { TextPrompt } from '@src/application/ui/tui/prompts/text-prompt.tsx';
 import { TextAreaPrompt } from '@src/application/ui/tui/prompts/text-area-prompt.tsx';
 import { ConfirmPrompt } from '@src/application/ui/tui/prompts/confirm-prompt.tsx';
-import { inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import type { IssueFetcher } from '@src/business/scm/issue-fetcher.ts';
 import { backStep, type Step } from '@src/application/ui/tui/views/add-ticket-internals/types.ts';
 import { ReviewScrollableDescription } from '@src/application/ui/tui/views/add-ticket-internals/review-scrollable-description.tsx';
@@ -158,6 +158,26 @@ export const StepView = ({ step, onChange, onCancel, onSubmit }: StepViewProps):
     }
     case 'saving':
       return <Spinner label="saving sprint…" />;
+    case 'added': {
+      const plural = step.count === 1 ? 'ticket' : 'tickets';
+      return (
+        <Box flexDirection="column" paddingX={spacing.indent}>
+          <Text color={inkColors.success}>
+            {glyphs.check} added &quot;{step.title}&quot; — {step.count} {plural} added this session
+          </Text>
+          <Box marginTop={spacing.section}>
+            <ConfirmPrompt
+              message="Add another ticket?"
+              onSubmit={(value) => {
+                if (value) onChange({ kind: 'link' });
+                else onCancel();
+              }}
+              onCancel={onCancel}
+            />
+          </Box>
+        </Box>
+      );
+    }
     case 'error':
       return (
         <Box flexDirection="column" paddingX={spacing.indent}>

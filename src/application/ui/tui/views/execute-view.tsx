@@ -96,8 +96,6 @@ const flowIdToTitle = (flowId: string): string => {
       return 'Create Sprint';
     case 'close-sprint':
       return 'Close Sprint';
-    case 'add-tickets':
-      return 'Add Tickets';
     case 'add-ticket':
       return 'Add Ticket';
     case 'remove-ticket':

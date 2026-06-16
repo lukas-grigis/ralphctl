@@ -17,7 +17,7 @@ sequenceDiagram
     User->>CLI: create-sprint
     CLI->>Sprint: write sprint.json (status=draft)
 
-    User->>CLI: add-tickets / refine
+    User->>CLI: add-ticket / refine
     CLI->>Tools: AI session (refine is read-only)
     CLI->>Sprint: tickets approved (status stays draft)
 
