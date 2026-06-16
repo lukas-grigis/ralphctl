@@ -34,6 +34,11 @@ import {
 const MOUSE_WHEEL_DOWN = `${String.fromCharCode(27)}[<65;10;10M`;
 const MOUSE_WHEEL_UP = `${String.fromCharCode(27)}[<64;10;10M`;
 
+/** Wrap a payload in bracketed-paste markers (DEC mode 2004). */
+const PASTE_START = `${String.fromCharCode(27)}[200~`;
+const PASTE_END = `${String.fromCharCode(27)}[201~`;
+const bracketed = (payload: string): string => `${PASTE_START}${payload}${PASTE_END}`;
+
 describe('TextAreaPrompt', () => {
   it('appends typed characters to the buffer', async () => {
     const onSubmit = vi.fn();
@@ -457,6 +462,113 @@ describe('TextAreaPrompt', () => {
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('hi');
+    unmount();
+  });
+
+  it('inserts a multi-line bracketed paste verbatim and does NOT submit on its line breaks', async () => {
+    const onSubmit = vi.fn();
+    const { stdin, unmount } = render(
+      <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
+    );
+    stdin.write(bracketed('line1\r\nline2\r\nline3'));
+    await tick();
+    // The embedded newlines must not have triggered a submit.
+    expect(onSubmit).not.toHaveBeenCalled();
+    stdin.write(ENTER);
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith('line1\nline2\nline3');
+    unmount();
+  });
+
+  it('normalizes \\r-delimited bracketed paste to \\n', async () => {
+    const onSubmit = vi.fn();
+    const { stdin, unmount } = render(
+      <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
+    );
+    stdin.write(bracketed('a\rb\rc'));
+    await tick();
+    stdin.write(ENTER);
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith('a\nb\nc');
+    unmount();
+  });
+
+  it('never leaks bracketed-paste marker bytes into the buffer', async () => {
+    const onSubmit = vi.fn();
+    const { stdin, lastFrame, unmount } = render(
+      <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
+    );
+    stdin.write(bracketed('clean'));
+    await tick();
+    expect(lastFrame()).not.toContain('200~');
+    expect(lastFrame()).not.toContain('201~');
+    stdin.write(ENTER);
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith('clean');
+    unmount();
+  });
+
+  it('reassembles a bracketed paste split across stdin chunks', async () => {
+    const onSubmit = vi.fn();
+    const { stdin, unmount } = render(
+      <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
+    );
+    stdin.write(`${PASTE_START}first\r`);
+    await tick();
+    stdin.write('second');
+    await tick();
+    stdin.write(`\rthird${PASTE_END}`);
+    await tick();
+    // No submit despite the bare `\r` chunks that would otherwise parse as Enter.
+    expect(onSubmit).not.toHaveBeenCalled();
+    stdin.write(ENTER);
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith('first\nsecond\nthird');
+    unmount();
+  });
+
+  it('inserts a bracketed paste at the cursor position', async () => {
+    const onSubmit = vi.fn();
+    const { stdin, unmount } = render(
+      <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
+    );
+    stdin.write('ac');
+    await tick();
+    stdin.write(LEFT);
+    await tick();
+    stdin.write(bracketed('b\nx'));
+    await tick();
+    stdin.write(ENTER);
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith('ab\nxc');
+    unmount();
+  });
+
+  it('fallback: a single-chunk \\r paste (no bracketed markers) is normalized to \\n', async () => {
+    const onSubmit = vi.fn();
+    const { stdin, unmount } = render(
+      <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
+    );
+    // No markers — simulates a terminal that does not honour mode 2004 delivering one chunk.
+    stdin.write('alpha\r\nbeta');
+    await tick();
+    expect(onSubmit).not.toHaveBeenCalled();
+    stdin.write(ENTER);
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith('alpha\nbeta');
+    unmount();
+  });
+
+  it('genuine Enter still submits the buffer', async () => {
+    const onSubmit = vi.fn();
+    const { stdin, unmount } = render(
+      <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
+    );
+    stdin.write('typed');
+    await tick();
+    stdin.write(ENTER);
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith('typed');
     unmount();
   });
 });

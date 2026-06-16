@@ -13,6 +13,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { stripPasteMarkers, usePaste } from '@src/application/ui/tui/prompts/use-paste.ts';
+
+/**
+ * Flatten a pasted payload for a single-line field: collapse every run of whitespace (including
+ * the newlines a multi-line paste carries) to one space, then trim the edges. Keeps the field
+ * single-line no matter what was on the clipboard.
+ */
+const flattenToSingleLine = (text: string): string => text.replace(/\s+/gu, ' ').trim();
 
 export interface TextPromptProps {
   readonly message: string;
@@ -64,6 +72,16 @@ export const TextPrompt = ({
     });
   };
 
+  // Insert text at the cursor. Routed through updateBufAndCursor so refs stay authoritative.
+  const insertAtCursor = (text: string): void => {
+    if (text.length === 0) return;
+    updateBufAndCursor((b, c) => [b.slice(0, c) + text + b.slice(c), c + text.length]);
+  };
+
+  // Bracketed-paste channel. A single-line field flattens the payload: runs of whitespace and the
+  // newlines of a multi-line paste collapse to one space so the field stays single-line.
+  const paste = usePaste((payload) => insertAtCursor(flattenToSingleLine(payload)));
+
   // Half-second blink. The cleanup keeps the timer from leaking across remounts of the
   // wizards that key TextPrompts per step.
   useEffect(() => {
@@ -74,6 +92,9 @@ export const TextPrompt = ({
   }, []);
 
   useInput((input, key) => {
+    // Bracketed paste first — consumed before any key dispatch so marker bytes and embedded
+    // newlines never submit or land verbatim in the buffer.
+    if (paste.consume(input)) return;
     if (key.escape) {
       onCancel();
       return;
@@ -123,16 +144,18 @@ export const TextPrompt = ({
       });
       return;
     }
-    // Printable characters (including pasted multi-char input): insert at cursor.
+    // Printable characters (including pasted multi-char input): insert at cursor. Fallback for
+    // terminals that don't honour mode 2004 — a single-chunk paste arrives here. Strip stray paste
+    // markers; if the result still carries newlines (a multi-line paste), flatten it to keep the
+    // field single-line. A plain keystroke (incl. a lone space) is inserted verbatim.
     if (input.length > 0 && !key.meta && !key.ctrl && !key.tab) {
-      const ins = input;
-      updateBufAndCursor((b, c) => [b.slice(0, c) + ins + b.slice(c), c + ins.length]);
+      const stripped = stripPasteMarkers(input);
+      insertAtCursor(/[\r\n]/u.test(stripped) ? flattenToSingleLine(stripped) : stripped);
       return;
     }
     if (input.length > 0 && key.shift) {
       // shift+letter still produces a printable
-      const ins = input;
-      updateBufAndCursor((b, c) => [b.slice(0, c) + ins + b.slice(c), c + ins.length]);
+      insertAtCursor(stripPasteMarkers(input));
     }
   });
 
