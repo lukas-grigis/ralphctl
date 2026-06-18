@@ -103,14 +103,18 @@ export const useResponsiveLayout = ({ columns, rows, isRunning }: UseResponsiveL
   // tiny terminal still shows a useful handful.
   //
   // In sidebar layout (≥140 cols) the main area's vertical budget is:
-  //   rows - PAGE_CHROME_ROWS(8) - logRows - columnLabel(1) - statusBand(1) = rows - 10 - logRows.
+  //   rows - PAGE_CHROME_ROWS(10) - logRows - columnLabel(1) = rows - 11 - logRows.
   // Using ~3 rows/card (two-line collapsed + separator) gives a tighter card budget than the
   // legacy `rows - 14 / 4` formula, which was calibrated for the three-column grid (narrower
   // Tasks column with many cards collapsed to 1 row).
+  // Sidebar-layout page chrome constant — shared with the sidebar height budget below.
+  // Declared here (before tasksMaxBlocks) so both usages can reference the same value.
+  const PAGE_CHROME_ROWS = 10; // header-card + baseline chip + column labels + log chrome + footer
+
   const tasksMaxBlocks = singleColumn
     ? Math.max(2, Math.floor((rows - NARROW_FLOW_STEPS_ROWS - 10) / 4))
     : sidebarLayout
-      ? Math.max(3, Math.floor((rows - 10 - logRows) / 3))
+      ? Math.max(3, Math.floor((rows - PAGE_CHROME_ROWS - 1 - logRows) / 3))
       : Math.max(3, Math.floor((rows - 14) / 4));
 
   // The two-column branch uses the fixed `RAIL_WIDTH`; the three-column branch grows the
@@ -124,28 +128,32 @@ export const useResponsiveLayout = ({ columns, rows, isRunning }: UseResponsiveL
   // ── Sidebar height budget ──────────────────────────────────────────────────
   //
   // The redesigned wide layout (≥140 cols) stacks:
-  //   multiflow-strip(≤1) + StatusBand(1) + columnLabels(1) + [sidebar|main] + recentLog(logRows + 2 section chrome) + ResultFooter(1)
+  //   multiflow-strip(≤1) + BaselineHealthChip(1) + HeaderCard(~4) + columnLabels(1)
+  //   + [sidebar|main] + recentLog(logRows + 2 section chrome) + ResultFooter(1)
   //
-  // We treat the fixed page chrome as ~8 rows (conservative — multiflow-strip is conditional).
+  // HeaderCard: 1 title row + up to 3 body rows (flow+elapsed+tasks, model, task+step).
+  // BaselineHealthChip: 1 row. Multiflow-strip: conditional ~0–1 rows.
+  // We treat the fixed page chrome as ~10 rows (conservative).
   //
-  // The sidebar is now NAVIGATION ONLY — SprintMeta, BaselineHealthCard and TokenBudgetCard
-  // have moved to the StatusBand. The sidebar's own fixed chrome is now just:
+  // The sidebar's own fixed chrome:
   //   "Tasks" header   = 1 row
   //   marginTop gutter = 1 row
   //   "Steps" divider  = 1 row  (only when sidebarFlowStepsRows > 0)
   //   "Steps" header   = 1 row  (only when sidebarFlowStepsRows > 0)
   //   marginTop gutter = 1 row  (only when sidebarFlowStepsRows > 0)
-  //   Total fixed chrome: ~2 rows (task-nav only) or ~5 rows (with steps)
+  //   Token divider    = 1 row
+  //   Token gutter     = 1 row
+  //   TokenBudgetCard  = ~5 rows (title + 3 data lines + border)
+  //   Total fixed chrome: ~7 rows (tasks+steps) or ~10 rows (tasks+steps+token)
   //
-  // We use a conservative 5 rows so the splits are never oversubscribed.
+  // We use a conservative 10 rows so the token card is never clipped.
   //
   // The REMAINING rows (availableBodyRows) are split between task-nav and flow-steps.
   // We cap flow-steps at 10 and give the rest to task-nav (floor 4), so on a 30-row
-  // terminal: bodyRows = 30 - 8(page) - 5(chrome) - 6(log) = 11 → steps=4, taskNav=7.
-  // On a 50-row terminal: bodyRows = 50 - 8 - 5 - 6 = 31 → steps=10, taskNav=21.
+  // terminal: bodyRows = 30 - 10(page) - 10(chrome) - 6(log) = 4 → steps=1, taskNav=4.
+  // On a 50-row terminal: bodyRows = 50 - 10 - 10 - 6 = 24 → steps=8, taskNav=16.
 
-  const PAGE_CHROME_ROWS = 8; // status band + column labels + log section chrome + footer
-  const SIDEBAR_CHROME_ROWS = 5; // Tasks header + Steps header + dividers + gutters
+  const SIDEBAR_CHROME_ROWS = 10; // Tasks/Steps headers + dividers + gutters + TokenBudgetCard
   const SIDEBAR_STEPS_CAP = 10; // max rows for the flow-steps rail in sidebar
   const SIDEBAR_TASK_NAV_MIN = 4; // minimum rows for the task-nav minimap
 

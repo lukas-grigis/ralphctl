@@ -1,25 +1,25 @@
 /**
  * Behavioural tests for the redesigned Implement view: passive-minimap focus model,
- * all-completed expansion seed, Tab-blocker regression, and StatusBand meta.
+ * all-completed expansion seed, Tab-blocker regression, and TokenBudgetCard sidebar display.
  *
- * Tests 1-4: ImplementSidebar directly (component-level — navigation only, no sprint meta).
+ * Tests 1-4: ImplementSidebar directly (component-level — task minimap + steps + token card).
  * Tests 5-6: TasksPanel all-completed edge case (component-level).
  * Test 7:    Wide layout Tab-regression (smoke via ImplementLayout + useTerminalSize mock).
- * Tests 8-9: StatusBand meta (model pair, baseline, token) + height-budget checks.
+ * Tests 8-9: TokenBudgetCard in sidebar + wide-layout meta surface checks.
  *
- * Note: Since v0.7.0 layout overhaul the sidebar is NAVIGATION ONLY. Sprint meta (name,
- * elapsed, model pair, baseline health, token budget) now lives in the StatusBand. The
- * sidebar renders: task minimap + flow-steps rail.
+ * Note: Since v0.7.0 layout overhaul the sidebar carries the TokenBudgetCard at the bottom
+ * (user ask #2). Sprint meta (name, elapsed, model pair) is in the HeaderCard at the top
+ * of the wide layout (body.tsx, user ask #1). The StatusBand was removed.
  */
 
 import { render } from 'ink-testing-library';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ImplementSidebar } from '@src/application/ui/tui/views/execute-view-internals/implement-sidebar.tsx';
 import { TasksPanel } from '@src/application/ui/tui/components/tasks-panel.tsx';
-import { StatusBand } from '@src/application/ui/tui/components/status-band.tsx';
 import type { BucketedExecution, TaskBucket } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
+import type { TokenUsage } from '@src/application/ui/tui/runtime/use-token-usage.ts';
 import { ExecuteView } from '@src/application/ui/tui/views/execute-view.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
@@ -92,11 +92,12 @@ describe('ImplementSidebar — navigation only', () => {
     );
     const frame = lastFrame() ?? '';
 
-    // Section headers for navigation-only sidebar
+    // Section headers for the sidebar
     expect(frame).toContain('Tasks');
     expect(frame).toContain('Steps');
 
-    // Sprint name, elapsed, and model pair are in the StatusBand — NOT in the sidebar
+    // Sprint name, elapsed, and model pair are in the HeaderCard (body.tsx) — NOT in the sidebar.
+    // The sidebar renders: task minimap + flow-steps + TokenBudgetCard.
     expect(frame).not.toContain('1m30s');
     expect(frame).not.toContain('sprint-2026-01');
     expect(frame).not.toContain('claude-opus-4');
@@ -105,6 +106,9 @@ describe('ImplementSidebar — navigation only', () => {
     expect(frame).toContain('Add auth middleware');
     expect(frame).toContain('Update tests');
     expect(frame).toContain('Refactor service layer');
+
+    // TokenBudgetCard renders at the bottom (no usage data yet → empty-state placeholder)
+    expect(frame).toContain('Tokens');
 
     unmount();
   });
@@ -231,98 +235,87 @@ describe('ImplementSidebar — navigation only', () => {
 });
 
 // ---------------------------------------------------------------------------
-// StatusBand — glanceable meta (sprint, elapsed, model, baseline, token)
+// TokenBudgetCard in sidebar — glanceable token/context usage (user ask #2)
 // ---------------------------------------------------------------------------
 
-describe('StatusBand — meta display', () => {
-  it('renders sprint label, elapsed, model pair with proper spacing', () => {
+describe('ImplementSidebar — TokenBudgetCard at bottom', () => {
+  it('renders the empty-state token card when no usage data is supplied', () => {
     const descriptor = makeDescriptor();
     const { lastFrame, unmount } = render(
-      <StatusBand
+      <ImplementSidebar
+        sidebarWidth={36}
+        sidebarTaskNavRows={8}
+        sidebarFlowStepsRows={4}
         descriptor={descriptor}
+        bucketed={THREE_TASKS}
         isRunning={true}
-        elapsedMs={90_000}
-        pinnedSprintLabel="sprint-2026-01"
-        termColumns={180}
-        now={BASE_MS + 90_000}
+        focusedTaskId={undefined}
       />
     );
     const frame = lastFrame() ?? '';
-    // eslint-disable-next-line no-control-regex
-    const plain = frame.replace(/\x1B\[[0-9;]*m/g, '');
-
-    // Sprint label
-    expect(plain).toContain('sprint-2026-01');
-    // Elapsed (90s → 1m30s)
-    expect(plain).toContain('1m30s');
-    // Running status
-    expect(plain).toContain('RUNNING');
-    // Model pair — label separated from value
-    expect(plain).not.toMatch(/modelclaude/);
-    expect(plain).toMatch(/model\s+\S/);
-
+    // TokenBudgetCard section header renders (the card title is "Tokens · sess-<id>")
+    expect(frame).toContain('Tokens');
+    // Empty-state placeholder visible
+    expect(frame).toContain('no usage data');
     unmount();
   });
 
-  it('renders compact token summary for cumulative claude data (no absurd %)', () => {
+  it('renders cumulative token data (claude -p style) — no absurd bar', () => {
     const descriptor = makeDescriptor();
+    const cumulativeUsage: TokenUsage = {
+      provider: 'claude-code',
+      inputTokens: 21,
+      outputTokens: 7300,
+      cacheReadTokens: 2_244_000,
+      contextWindow: 200_000,
+    };
     const { lastFrame, unmount } = render(
-      <StatusBand
+      <ImplementSidebar
+        sidebarWidth={36}
+        sidebarTaskNavRows={8}
+        sidebarFlowStepsRows={4}
         descriptor={descriptor}
+        bucketed={THREE_TASKS}
         isRunning={true}
-        elapsedMs={270_000}
-        pinnedSprintLabel="sprint-2026-01"
-        termColumns={180}
-        now={BASE_MS + 270_000}
-        tokenUsage={{
-          provider: 'claude-code',
-          inputTokens: 21,
-          outputTokens: 7300,
-          cacheReadTokens: 2_244_000,
-          contextWindow: 200_000,
-        }}
+        focusedTaskId={undefined}
+        tokenUsage={cumulativeUsage}
       />
     );
     const frame = lastFrame() ?? '';
-
-    // Cumulative: totalUsed = 21 + 2_244_000 = 2_244_021 >> contextWindow 200k
-    // Should show "tok 2.2M" (NOT a "/200k 100%" bar)
-    expect(frame).toContain('tok');
-    expect(frame).toContain('2.2M');
-    // Must NOT produce a "%" context bar in the band
-    expect(frame).not.toContain('9176567%');
-    expect(frame).not.toContain('100%');
-    // Must NOT show "/200k" fraction
+    // Cumulative: totalUsed = 21 + 2_244_000 >> contextWindow → "tok: N cumul."
+    expect(frame).toContain('cumul.');
+    // Must NOT show a "/200k" context bar (the cumulative path omits it)
     expect(frame).not.toContain('/200k');
-
+    // Must NOT show an absurd context bar percentage (the cache-hit % of ~100% is legit and allowed)
+    expect(frame).not.toContain('9176567%');
+    // The context bar (filled blocks ███) must not appear for cumulative data
+    expect(frame).not.toMatch(/█{5,}/);
     unmount();
   });
 
-  it('renders context bar for plausible single-call usage', () => {
+  it('renders plausible single-call context bar (Copilot style)', () => {
     const descriptor = makeDescriptor();
+    const singleCallUsage: TokenUsage = {
+      provider: 'github-copilot',
+      inputTokens: 40_000,
+      outputTokens: 5_000,
+      contextWindow: 200_000,
+    };
     const { lastFrame, unmount } = render(
-      <StatusBand
+      <ImplementSidebar
+        sidebarWidth={36}
+        sidebarTaskNavRows={8}
+        sidebarFlowStepsRows={4}
         descriptor={descriptor}
+        bucketed={THREE_TASKS}
         isRunning={true}
-        elapsedMs={30_000}
-        termColumns={180}
-        now={BASE_MS + 30_000}
-        tokenUsage={{
-          provider: 'github-copilot',
-          inputTokens: 40_000,
-          outputTokens: 5_000,
-          contextWindow: 200_000,
-        }}
+        focusedTaskId={undefined}
+        tokenUsage={singleCallUsage}
       />
     );
     const frame = lastFrame() ?? '';
-
-    // 40k/200k = 20% — sensible percentage
-    expect(frame).toContain('ctx');
+    // 40k / 200k = 20% — renders context bar
     expect(frame).toContain('20%');
-    // No absurd values
-    expect(frame).not.toContain('9176567%');
-
     unmount();
   });
 });
@@ -441,7 +434,7 @@ describe('ImplementLayout (≥140 cols) — Tab does not toggle focus state', ()
     result.unmount();
   });
 
-  it('renders StatusBand with sprint title in the wide layout', async () => {
+  it('renders HeaderCard with sprint title in the wide layout (user ask #1: header restored)', async () => {
     const sessions = createSessionManager();
     const runner = fakeRunner('band-test-1');
     sessions.register({ runner, flowId: 'implement', title: 'Band Test Sprint' });
@@ -453,11 +446,11 @@ describe('ImplementLayout (≥140 cols) — Tab does not toggle focus state', ()
     await waitForViewReady(result, (f) => f.includes('Band Test Sprint'));
     const frame = result.lastFrame() ?? '';
 
-    // The StatusBand renders the sprint title (in wide layout it shows the title as
-    // pinnedSprintLabel is undefined — shows descriptor.title as fallback)
+    // The HeaderCard renders the sprint title at the top of the wide layout.
+    // StatusBand has been removed (user ask #1) — the HeaderCard is shown at all widths.
     expect(frame).toContain('Band Test Sprint');
-    // Running state glyph + RUNNING label
-    expect(frame).toContain('RUNNING');
+    // The TokenBudgetCard is in the sidebar (user ask #2)
+    expect(frame).toContain('Tokens');
 
     result.unmount();
   });

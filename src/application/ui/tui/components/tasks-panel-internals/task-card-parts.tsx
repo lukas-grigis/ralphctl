@@ -115,7 +115,7 @@ export const SubStepLine = ({
         {glyphs.bullet} {fmtDuration(sub.durationMs)}
       </Text>
       {sub.errorMessage !== undefined && (
-        <Box flexGrow={1} flexShrink={1}>
+        <Box flexGrow={1} flexShrink={1} minWidth={0}>
           <Text color={inkColors.error} wrap="truncate-end">
             {' '}
             {glyphs.emDash} {collapseWhitespace(sub.errorMessage)}
@@ -151,7 +151,7 @@ export const CriteriaBlock = ({
         {visible.map((b, i) => (
           <Box key={`crit-row-${String(i)}`}>
             <Text dimColor>{glyphs.bullet} </Text>
-            <Box flexGrow={1} flexShrink={1}>
+            <Box flexGrow={1} flexShrink={1} minWidth={0}>
               <Text wrap="truncate-end">{collapseWhitespace(b)}</Text>
             </Box>
           </Box>

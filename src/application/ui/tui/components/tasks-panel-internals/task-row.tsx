@@ -69,6 +69,7 @@ export const TaskBlock = ({
   blockedReason,
   warningSummary,
   taskEvaluation,
+  pendingSubSteps,
 }: {
   readonly task: TaskBucket;
   readonly running: boolean;
@@ -131,6 +132,19 @@ export const TaskBlock = ({
    * recorded yet for this task (renders "awaiting eval" while the card is active).
    */
   readonly taskEvaluation?: TaskEvaluation;
+  /**
+   * Upcoming (not-yet-run) sub-step leaf names for this task, derived from `descriptor.plannedLeaves`
+   * by filtering to this task's UUID-suffixed entries and subtracting already-executed sub-steps.
+   * Rendered as grey `◇` pending rows after the executed sub-steps so the operator sees the FULL
+   * planned sequence — not just what has run.
+   *
+   * NOTE: generator/evaluator leaves repeat an unknown number of rounds; the host skips them from
+   * the pending list. Only FIXED surrounding leaves (pre-gen-eval / post-task) are included so we
+   * never fabricate a fixed count of dynamic rounds.
+   *
+   * Absent when `descriptor.plannedLeaves` is not available (legacy sessions / non-implement flows).
+   */
+  readonly pendingSubSteps?: readonly string[];
 }): React.JSX.Element => {
   const presentation = STATUS_PRESENTATION[task.status];
   const isSpinning = task.status === 'running';
@@ -251,7 +265,7 @@ export const TaskBlock = ({
       {blockedReasonText.length > 0 && (
         // Shown collapsed OR expanded — a blocked card's reason is its most important line.
         <Box paddingLeft={2}>
-          <Box flexGrow={1} flexShrink={1}>
+          <Box flexGrow={1} flexShrink={1} minWidth={0}>
             <Text color={inkColors.warning} wrap="truncate-end">
               {glyphs.warningGlyph} {collapseWhitespace(blockedReasonText)}
             </Text>
@@ -263,7 +277,7 @@ export const TaskBlock = ({
         // operator never reads a flagged completion as a clean pass. Same warning glyph as the
         // attempt-card / blocked line; the tasks list previously showed it only for blockedReason.
         <Box paddingLeft={2}>
-          <Box flexGrow={1} flexShrink={1}>
+          <Box flexGrow={1} flexShrink={1} minWidth={0}>
             <Text color={inkColors.warning} wrap="truncate-end">
               {glyphs.warningGlyph} {collapseWhitespace(warningSummaryText)}
             </Text>
@@ -272,7 +286,7 @@ export const TaskBlock = ({
       )}
       {cardExpanded && idleSnippets.length > 0 && (
         <Box paddingLeft={2}>
-          <Box flexGrow={1} flexShrink={1}>
+          <Box flexGrow={1} flexShrink={1} minWidth={0}>
             <Text dimColor wrap="truncate-end">
               {glyphs.activityArrow} {idleSnippets.map((s) => collapseWhitespace(s)).join(`  ${glyphs.bullet}  `)}
             </Text>
@@ -295,7 +309,7 @@ export const TaskBlock = ({
           <Text color={inkColors.error}>{task.errorMessage}</Text>
         </Box>
       )}
-      {cardExpanded && subStepRows.length > 0 && (
+      {cardExpanded && (subStepRows.length > 0 || (pendingSubSteps !== undefined && pendingSubSteps.length > 0)) && (
         <Box flexDirection="column" paddingLeft={2}>
           {subStepElided > 0 && (
             <Text dimColor>{`${glyphs.clipEllipsis} ${String(subStepElided)} earlier sub-steps`}</Text>
@@ -303,6 +317,16 @@ export const TaskBlock = ({
           {subStepRows.map((s, i) => (
             <SubStepLine key={`${task.id}-sub-${String(i)}`} sub={s} running={running} />
           ))}
+          {/* Pending sub-steps from the plan — not yet executed. Grey ◇ rows, matching the Steps rail. */}
+          {pendingSubSteps !== undefined &&
+            pendingSubSteps.map((leafName) => (
+              <Box key={`${task.id}-pending-${leafName}`}>
+                <Text color={inkColors.muted}>
+                  {glyphs.activityArrow} {glyphs.phasePending}
+                </Text>
+                <Text dimColor> {leafName}</Text>
+              </Box>
+            ))}
         </Box>
       )}
       {cardExpanded && isActive && taskEvaluation === undefined && (

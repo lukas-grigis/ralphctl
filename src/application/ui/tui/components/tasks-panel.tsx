@@ -123,6 +123,18 @@ export interface TasksPanelProps {
    */
   readonly showEvaluatorFailureUI?: boolean;
   /**
+   * Optional `taskId → pending leaf names` map for upcoming (not-yet-run) sub-steps.
+   * Derived from `descriptor.plannedLeaves` by filtering to UUID-suffixed entries for each
+   * task id and subtracting already-executed leaves. Rendered as grey `◇` rows below the
+   * executed sub-steps so the operator sees the planned flow ahead, matching the Steps rail.
+   *
+   * Only FIXED surrounding leaves are included — dynamic generator/evaluator round-leaves are
+   * excluded so the pending list doesn't imply a fixed round count.
+   *
+   * Absent when `descriptor.plannedLeaves` is not available.
+   */
+  readonly pendingSubStepsByTaskId?: ReadonlyMap<string, readonly string[]>;
+  /**
    * Optional projected sprint state. When supplied the per-task header appends an ETA derived
    * from `state.tasks[i].medianRoundDurationMs * (max - currentRound)`. Absent ⇒ ETA is
    * silently omitted (the existing `round N/M` rendering is unchanged). The view is the source
@@ -157,6 +169,7 @@ export const TasksPanel = ({
   recoveringByTaskId,
   inputActive = false,
   taskCriteriaById,
+  pendingSubStepsByTaskId,
   blockedReasonById,
   warningSummaryById,
   taskEvaluationById,
@@ -357,6 +370,7 @@ export const TasksPanel = ({
         // Authoritative verdict for this task id — drives the card's eval line + the
         // EvaluatorFailurePanel visibility gate. Never the bucketed signal stream.
         const taskEvaluation = taskEvaluationById?.get(task.id);
+        const pendingSubSteps = pendingSubStepsByTaskId?.get(task.id);
         const isActive = idx === activeTaskIdx;
         return (
           <TaskBlock
@@ -383,6 +397,7 @@ export const TasksPanel = ({
             {...(blockedReason !== undefined ? { blockedReason } : {})}
             {...(warningSummary !== undefined ? { warningSummary } : {})}
             {...(taskEvaluation !== undefined ? { taskEvaluation } : {})}
+            {...(pendingSubSteps !== undefined && pendingSubSteps.length > 0 ? { pendingSubSteps } : {})}
           />
         );
       })}

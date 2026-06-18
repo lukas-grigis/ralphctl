@@ -90,7 +90,7 @@ describe('ExecuteView width regimes', () => {
     unmount();
   });
 
-  it('renders sidebar layout at 140 cols — StatusBand + "Tasks" + "Steps" headers in the sidebar', async () => {
+  it('renders sidebar layout at 140 cols — HeaderCard + "Tasks" + "Steps" headers in the sidebar', async () => {
     const { frame, unmount } = await renderAt(140);
     // The sidebar replaces the legacy "Flow steps" rail with a "Steps" section.
     // The [nav] and [tasks] column labels replace the old [sidebar]/[tasks] pair.
@@ -99,19 +99,20 @@ describe('ExecuteView width regimes', () => {
     expect(frame).toContain('Tasks');
     expect(frame).toContain('Steps');
     expect(frame).not.toContain('Flow steps');
-    // The StatusBand renders RUNNING for an active session
-    expect(frame).toContain('RUNNING');
+    // The HeaderCard renders the session title (user ask #1: header restored at all widths).
+    // The TokenBudgetCard renders in the sidebar (user ask #2).
+    expect(frame).toContain('Tokens');
     unmount();
   });
 
-  it('renders sidebar layout at 180 cols — StatusBand carries baseline info', async () => {
+  it('renders sidebar layout at 180 cols — HeaderCard + TokenBudgetCard in sidebar', async () => {
     const { frame, unmount } = await renderAt(180);
     expect(frame).toContain('[nav]');
     expect(frame).toContain('[tasks]');
     expect(frame).toContain('Tasks');
     expect(frame).toContain('Steps');
-    // The StatusBand carries baseline — it shows "baseline" label
-    expect(frame).toContain('baseline');
+    // HeaderCard renders the session title and flow meta (user ask #1).
+    expect(frame).toContain('Tokens');
     unmount();
   });
 
@@ -121,7 +122,7 @@ describe('ExecuteView width regimes', () => {
     expect(frame).toContain('[tasks]');
     expect(frame).toContain('Tasks');
     expect(frame).toContain('Steps');
-    expect(frame).toContain('baseline');
+    expect(frame).toContain('Tokens');
     unmount();
   });
 });

@@ -1,9 +1,7 @@
 /**
  * ImplementSidebar — left sidebar for the redesigned Implement view (≥140 col breakpoint).
  *
- * Navigation-only column — all glanceable meta (sprint name, elapsed, model, baseline health,
- * token budget) has moved to the {@link StatusBand} at the top of the wide layout. The sidebar
- * now contains only:
+ * Contains:
  *
  *   1. Task nav list — PASSIVE minimap: highlights the card focused in the main area. No keyboard
  *      capture — the main-area TasksPanel is the sole input owner and reports its cursor via
@@ -11,6 +9,8 @@
  *   2. Flow-steps rail — reuses `FlowStepsRail` verbatim (same component as the three-column
  *      rail; its descriptor already carries the trace). Compact/suppressed when the sidebar is
  *      narrow; capped at `sidebarFlowStepsRows`.
+ *   3. TokenBudgetCard at the bottom — shows cumulative token usage (honest claude-p style: raw
+ *      totals when cumulative, context bar when plausible single-call).
  *
  * Width is fixed at `sidebarWidth` columns — never `flexGrow`. The sidebar column height is
  * bounded by the terminal rows (managed via the windowed task-nav list and fixed component
@@ -28,9 +28,11 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { OverflowRow } from '@src/application/ui/tui/components/windowed-list.tsx';
+import { TokenBudgetCard } from '@src/application/ui/tui/components/token-budget-card.tsx';
 import { FlowStepsRail } from '@src/application/ui/tui/views/execute-view-internals/rail.tsx';
 import { SectionHeader } from '@src/application/ui/tui/views/execute-view-internals/section.tsx';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
+import type { TokenUsage } from '@src/application/ui/tui/runtime/use-token-usage.ts';
 import type {
   BucketedExecution,
   TaskBucket,
@@ -175,6 +177,12 @@ export interface ImplementSidebarProps {
    * yet (the panel auto-focuses the active task before reporting).
    */
   readonly focusedTaskId: string | undefined;
+  /**
+   * Token usage for the current session — rendered in the TokenBudgetCard at the bottom of the
+   * sidebar. Undefined until the first TokenUsageEvent fires (the card renders an empty-state
+   * placeholder so the operator sees the slot is live).
+   */
+  readonly tokenUsage?: TokenUsage;
 }
 
 // ---------------------------------------------------------------------------
@@ -189,6 +197,7 @@ export const ImplementSidebar = ({
   bucketed,
   isRunning,
   focusedTaskId,
+  tokenUsage,
 }: ImplementSidebarProps): React.JSX.Element => {
   const tasks = bucketed?.tasks ?? [];
   const nameById = descriptor.taskNames;
@@ -223,6 +232,12 @@ export const ImplementSidebar = ({
           </Box>
         </>
       )}
+
+      {/* ── 3. TokenBudgetCard — context/token usage at the sidebar bottom ── */}
+      <SidebarDivider width={sidebarWidth} />
+      <Box marginTop={spacing.gutter}>
+        <TokenBudgetCard sessionId={descriptor.id} {...(tokenUsage !== undefined ? { usage: tokenUsage } : {})} />
+      </Box>
     </Box>
   );
 };

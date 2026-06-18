@@ -4,12 +4,11 @@
  * Two regimes, derived from `layout.sidebarLayout`:
  *
  *   ≥140 cols (sidebarLayout === true):
- *     StatusBand (1 fixed row) → [ImplementSidebar | ImplementMainArea]
+ *     [ImplementSidebar | ImplementMainArea]
  *
- *     The StatusBand consolidates all glanceable meta (status, sprint name, elapsed, model pair,
- *     baseline health, token summary) into one horizontal strip at the top of the wide layout.
- *     This replaces the HeaderCard + BaselineHealthChip that `body.tsx` previously rendered above
- *     the columns. The sidebar is now navigation-only (task minimap + flow steps).
+ *     HeaderCard + BaselineHealthChip are rendered by `body.tsx` above the column row at all
+ *     widths (user ask #1). The sidebar is navigation-only (task minimap + flow steps +
+ *     TokenBudgetCard at the bottom).
  *
  *     The keyboard model is a PASSIVE MINIMAP: `ImplementMainArea` is the single input owner.
  *     The sidebar's task list is a read-only mirror that highlights whichever card is focused in
@@ -35,7 +34,6 @@ import { inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { ExecuteLayout } from '@src/application/ui/tui/views/execute-view-internals/layout.tsx';
 import { ImplementSidebar } from '@src/application/ui/tui/views/execute-view-internals/implement-sidebar.tsx';
 import { ImplementMainArea } from '@src/application/ui/tui/views/execute-view-internals/implement-main-area.tsx';
-import { StatusBand } from '@src/application/ui/tui/components/status-band.tsx';
 import type { ResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/use-responsive-layout.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
 import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
@@ -82,10 +80,6 @@ export interface ImplementLayoutProps {
   readonly layout: ResponsiveLayout;
   /** Bucketed task execution state — drives the sidebar task-nav list + ImplementMainArea. */
   readonly bucketed: BucketedExecution | undefined;
-  /** Elapsed wall-clock ms since run start — displayed in StatusBand. */
-  readonly elapsed: number;
-  /** Sprint label pinned at launch time — undefined for flows not tied to a sprint. */
-  readonly pinnedSprintLabel: string | undefined;
   /**
    * When true, keyboard input is active for this compositor and its children.
    * Gating prevents double-consumption when a cancel-scope overlay or other overlay is open.
@@ -103,12 +97,9 @@ interface WideLayoutProps {
   readonly termColumns: number;
   readonly layout: ResponsiveLayout;
   readonly bucketed: BucketedExecution | undefined;
-  readonly executionState: SprintExecution | undefined;
   readonly taskState: readonly Task[] | undefined;
   readonly now: number;
-  readonly elapsed: number;
-  readonly pinnedSprintLabel: string | undefined;
-  readonly tokenUsage: TokenUsage | undefined;
+  readonly tokenUsage?: TokenUsage;
   readonly inputActive: boolean;
 }
 
@@ -118,11 +109,8 @@ const WideLayout = ({
   termColumns,
   layout,
   bucketed,
-  executionState,
   taskState,
   now,
-  elapsed,
-  pinnedSprintLabel,
   tokenUsage,
   inputActive,
 }: WideLayoutProps): React.JSX.Element => {
@@ -135,22 +123,9 @@ const WideLayout = ({
 
   return (
     <Box flexDirection="column" width={termColumns}>
-      {/* ── STATUS BAND — fixed-height glanceable chrome ──────────────── */}
-      <StatusBand
-        descriptor={descriptor}
-        isRunning={isRunning}
-        elapsedMs={elapsed}
-        {...(executionState !== undefined ? { executionState } : {})}
-        {...(taskState !== undefined ? { taskState } : {})}
-        {...(tokenUsage !== undefined ? { tokenUsage } : {})}
-        {...(pinnedSprintLabel !== undefined ? { pinnedSprintLabel } : {})}
-        termColumns={termColumns}
-        now={now}
-      />
-
       {/* ── Column strip ─────────────────────────────────────────────── */}
       <Box flexDirection="row" marginTop={spacing.section}>
-        {/* ── Left: sidebar (passive minimap, navigation only) ─────────── */}
+        {/* ── Left: sidebar (passive minimap, navigation only + token budget) */}
         <Box flexDirection="column" width={layout.sidebarWidth} flexShrink={0}>
           <ColumnLabel label="nav" />
           <ImplementSidebar
@@ -161,6 +136,7 @@ const WideLayout = ({
             bucketed={bucketed}
             isRunning={isRunning}
             focusedTaskId={focusedTaskId}
+            {...(tokenUsage !== undefined ? { tokenUsage } : {})}
           />
         </Box>
 
@@ -191,10 +167,11 @@ const WideLayout = ({
 /**
  * Compositor that selects the correct layout regime for the Implement view.
  *
- * At ≥140 cols (`layout.sidebarLayout === true`) it renders the StatusBand + sidebar + main-area.
+ * At ≥140 cols (`layout.sidebarLayout === true`) it renders [sidebar | main-area]. The
+ * HeaderCard + BaselineHealthChip are rendered by `body.tsx` above this compositor at all widths.
  * Below 140 cols it falls back to `ExecuteLayout` unchanged.
  *
- * @public — wired by `body.tsx` once `body.tsx` is updated to pass the sidebar props.
+ * @public — wired by `body.tsx`.
  */
 export const ImplementLayout = ({
   descriptor,
@@ -211,8 +188,6 @@ export const ImplementLayout = ({
   pinnedSprintStale,
   layout,
   bucketed,
-  elapsed,
-  pinnedSprintLabel,
   inputActive,
 }: ImplementLayoutProps): React.JSX.Element => {
   if (layout.sidebarLayout) {
@@ -223,13 +198,10 @@ export const ImplementLayout = ({
         termColumns={termColumns}
         layout={layout}
         bucketed={bucketed}
-        executionState={executionState}
         taskState={taskState}
         now={now}
-        elapsed={elapsed}
-        pinnedSprintLabel={pinnedSprintLabel}
-        tokenUsage={tokenUsage}
         inputActive={inputActive}
+        {...(tokenUsage !== undefined ? { tokenUsage } : {})}
       />
     );
   }

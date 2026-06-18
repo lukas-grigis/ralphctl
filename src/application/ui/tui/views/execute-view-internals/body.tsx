@@ -35,7 +35,7 @@ export interface ExecuteBodyProps {
   readonly isRunning: boolean;
   readonly now: number;
   readonly elapsed: string;
-  /** Numeric wall-clock elapsed (ms) since run start — consumed by the redesigned sidebar layout. */
+  /** Numeric wall-clock elapsed (ms) since run start — accepted for API compat with execute-view.tsx. */
   readonly elapsedMs: number;
   readonly layout: ResponsiveLayout;
   readonly termColumns: number;
@@ -43,7 +43,10 @@ export interface ExecuteBodyProps {
   readonly termRows: number;
   /** Bucketed task execution state — feeds the sidebar task-nav list + main area. */
   readonly bucketed: BucketedExecution | undefined;
-  /** Sprint label pinned at launch time — shown in the sidebar sprint meta. */
+  /**
+   * Sprint label pinned at launch time — passed through to the ImplementLayout narrow
+   * (ExecuteLayout) fallback. Not rendered directly by body.tsx.
+   */
   readonly pinnedSprintLabel: string | undefined;
   readonly executionState: SprintExecution | undefined;
   readonly taskState: readonly Task[] | undefined;
@@ -73,12 +76,10 @@ export const ExecuteBody = ({
   isRunning,
   now,
   elapsed,
-  elapsedMs,
   layout,
   termColumns,
   termRows,
   bucketed,
-  pinnedSprintLabel,
   executionState,
   taskState,
   tokenUsage,
@@ -102,11 +103,11 @@ export const ExecuteBody = ({
     {/* Multi-flow chip strip — renders only when ≥2 sessions are running, so a single-
         flow run pays zero pixels. */}
     <MultiFlowStrip sessions={sessionList} activeId={sessionId} now={now} />
-    {/* Baseline-health chip + HeaderCard — rendered only for the narrow (<140 col) fallback
-        path. The wide sidebarLayout path has a StatusBand inside ImplementLayout that
-        consolidates all this meta into one horizontal row, making the chip + card redundant
-        (they would waste 5+ rows of vertical space). */}
-    {!layout.sidebarLayout && !pinnedSprintStale && (
+    {/* Baseline-health chip + HeaderCard — rendered at all widths. The wide sidebarLayout
+        path previously had a StatusBand that collapsed these to one horizontal row; that band
+        was removed (user ask #1) so the HeaderCard with its rich sprint/elapsed/model/tasks
+        detail is restored here at all breakpoints. */}
+    {!pinnedSprintStale && (
       <Box paddingX={spacing.indent}>
         <BaselineHealthChip
           {...(executionState !== undefined ? { execution: executionState } : {})}
@@ -115,26 +116,22 @@ export const ExecuteBody = ({
         />
       </Box>
     )}
-    {!layout.sidebarLayout && (
-      <HeaderCard
-        descriptor={descriptor}
-        isRunning={isRunning}
-        elapsed={elapsed}
-        tasksDone={tasksDone}
-        tasksTotal={tasksTotal}
-        currentTask={currentTask}
-        currentTaskIdx={currentTaskIdx}
-        currentTaskName={currentTaskName}
-        currentSubStep={currentSubStep}
-      />
-    )}
+    <HeaderCard
+      descriptor={descriptor}
+      isRunning={isRunning}
+      elapsed={elapsed}
+      tasksDone={tasksDone}
+      tasksTotal={tasksTotal}
+      currentTask={currentTask}
+      currentTaskIdx={currentTaskIdx}
+      currentTaskName={currentTaskName}
+      currentSubStep={currentSubStep}
+    />
 
     {layout.sidebarLayout ? (
       <ImplementLayout
         layout={layout}
         bucketed={bucketed}
-        elapsed={elapsedMs}
-        pinnedSprintLabel={pinnedSprintLabel}
         termRows={termRows}
         inputActive={!cancelScopeOpen}
         descriptor={descriptor}
