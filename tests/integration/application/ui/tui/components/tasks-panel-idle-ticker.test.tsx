@@ -108,9 +108,13 @@ describe('TasksPanel idle-state ticker', () => {
     };
     const r = render(<TasksPanel bucketed={bucketed} running={true} nowMs={baseMs + 60_000} />);
     const frame = r.lastFrame() ?? '';
-    // The completed card is collapsed — the note shouldn't render at all (collapsed cards
-    // suppress their signal stream).
-    expect(frame).not.toContain('stale completed note');
+    // REQ-3: when all tasks are completed the last card is auto-expanded (so its signals ARE
+    // shown). The idle ticker does NOT fire for completed tasks (isActive is false when
+    // activeTaskIdx === -1); the signal renders via the normal expanded card stream, not via the
+    // ↳ ticker row.
+    expect(frame).toContain('stale completed note');
+    // No idle-ticker glyph (↳) should prefix the snippet — it appears in the normal signal list.
+    expect(frame).not.toMatch(/↳\s.*stale completed note/);
     r.unmount();
   });
 

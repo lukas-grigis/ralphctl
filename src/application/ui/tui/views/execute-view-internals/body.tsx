@@ -20,10 +20,12 @@ import type { TokenUsage } from '@src/application/ui/tui/runtime/use-token-usage
 
 import { HeaderCard } from '@src/application/ui/tui/views/execute-view-internals/header-card.tsx';
 import { ExecuteLayout } from '@src/application/ui/tui/views/execute-view-internals/layout.tsx';
+import { ImplementLayout } from '@src/application/ui/tui/views/execute-view-internals/implement-layout.tsx';
 import { LogPanel } from '@src/application/ui/tui/views/execute-view-internals/log-panel.tsx';
 import { Section } from '@src/application/ui/tui/views/execute-view-internals/section.tsx';
 import { ResultFooter } from '@src/application/ui/tui/views/execute-view-internals/result-footer.tsx';
 import type { ResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/use-responsive-layout.ts';
+import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { LogEvent } from '@src/business/observability/events.ts';
 
 export interface ExecuteBodyProps {
@@ -33,8 +35,16 @@ export interface ExecuteBodyProps {
   readonly isRunning: boolean;
   readonly now: number;
   readonly elapsed: string;
+  /** Numeric wall-clock elapsed (ms) since run start — consumed by the redesigned sidebar layout. */
+  readonly elapsedMs: number;
   readonly layout: ResponsiveLayout;
   readonly termColumns: number;
+  /** Raw terminal row count — needed by the wide sidebar (ImplementLayout) path. */
+  readonly termRows: number;
+  /** Bucketed task execution state — feeds the sidebar task-nav list + main area. */
+  readonly bucketed: BucketedExecution | undefined;
+  /** Sprint label pinned at launch time — shown in the sidebar sprint meta. */
+  readonly pinnedSprintLabel: string | undefined;
   readonly executionState: SprintExecution | undefined;
   readonly taskState: readonly Task[] | undefined;
   readonly tokenUsage: TokenUsage | undefined;
@@ -63,8 +73,12 @@ export const ExecuteBody = ({
   isRunning,
   now,
   elapsed,
+  elapsedMs,
   layout,
   termColumns,
+  termRows,
+  bucketed,
+  pinnedSprintLabel,
   executionState,
   taskState,
   tokenUsage,
@@ -88,9 +102,11 @@ export const ExecuteBody = ({
     {/* Multi-flow chip strip — renders only when ≥2 sessions are running, so a single-
         flow run pays zero pixels. */}
     <MultiFlowStrip sessions={sessionList} activeId={sessionId} now={now} />
-    {/* Baseline-health chip — dropped when the run's pinned sprint is no longer available
-        so stale baseline data is never shown alongside the pick-a-sprint fallback. */}
-    {!pinnedSprintStale && (
+    {/* Baseline-health chip + HeaderCard — rendered only for the narrow (<140 col) fallback
+        path. The wide sidebarLayout path has a StatusBand inside ImplementLayout that
+        consolidates all this meta into one horizontal row, making the chip + card redundant
+        (they would waste 5+ rows of vertical space). */}
+    {!layout.sidebarLayout && !pinnedSprintStale && (
       <Box paddingX={spacing.indent}>
         <BaselineHealthChip
           {...(executionState !== undefined ? { execution: executionState } : {})}
@@ -99,37 +115,60 @@ export const ExecuteBody = ({
         />
       </Box>
     )}
-    <HeaderCard
-      descriptor={descriptor}
-      isRunning={isRunning}
-      elapsed={elapsed}
-      tasksDone={tasksDone}
-      tasksTotal={tasksTotal}
-      currentTask={currentTask}
-      currentTaskIdx={currentTaskIdx}
-      currentTaskName={currentTaskName}
-      currentSubStep={currentSubStep}
-    />
+    {!layout.sidebarLayout && (
+      <HeaderCard
+        descriptor={descriptor}
+        isRunning={isRunning}
+        elapsed={elapsed}
+        tasksDone={tasksDone}
+        tasksTotal={tasksTotal}
+        currentTask={currentTask}
+        currentTaskIdx={currentTaskIdx}
+        currentTaskName={currentTaskName}
+        currentSubStep={currentSubStep}
+      />
+    )}
 
-    <ExecuteLayout
-      descriptor={descriptor}
-      isRunning={isRunning}
-      sessionId={sessionId}
-      termColumns={termColumns}
-      flowStepsRows={layout.flowStepsRows}
-      threeColRailWidth={layout.threeColRailWidth}
-      labelledRailWidth={layout.labelledRailWidth}
-      contextWidth={layout.contextWidth}
-      threeColumn={layout.threeColumn}
-      twoColumn={layout.twoColumn}
-      compactTwoColumn={layout.compactTwoColumn}
-      tasksPanel={tasksPanel}
-      executionState={executionState}
-      taskState={taskState}
-      now={now}
-      tokenUsage={tokenUsage}
-      pinnedSprintStale={pinnedSprintStale}
-    />
+    {layout.sidebarLayout ? (
+      <ImplementLayout
+        layout={layout}
+        bucketed={bucketed}
+        elapsed={elapsedMs}
+        pinnedSprintLabel={pinnedSprintLabel}
+        termRows={termRows}
+        inputActive={!cancelScopeOpen}
+        descriptor={descriptor}
+        isRunning={isRunning}
+        sessionId={sessionId}
+        termColumns={termColumns}
+        tasksPanel={tasksPanel}
+        executionState={executionState}
+        taskState={taskState}
+        now={now}
+        tokenUsage={tokenUsage}
+        pinnedSprintStale={pinnedSprintStale}
+      />
+    ) : (
+      <ExecuteLayout
+        descriptor={descriptor}
+        isRunning={isRunning}
+        sessionId={sessionId}
+        termColumns={termColumns}
+        flowStepsRows={layout.flowStepsRows}
+        threeColRailWidth={layout.threeColRailWidth}
+        labelledRailWidth={layout.labelledRailWidth}
+        contextWidth={layout.contextWidth}
+        threeColumn={layout.threeColumn}
+        twoColumn={layout.twoColumn}
+        compactTwoColumn={layout.compactTwoColumn}
+        tasksPanel={tasksPanel}
+        executionState={executionState}
+        taskState={taskState}
+        now={now}
+        tokenUsage={tokenUsage}
+        pinnedSprintStale={pinnedSprintStale}
+      />
+    )}
 
     <Section title="Recent log">
       <LogPanel entries={logEntries} maxRows={layout.logRows} />

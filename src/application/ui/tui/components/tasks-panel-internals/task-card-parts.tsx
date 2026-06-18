@@ -68,6 +68,33 @@ export const RecoveryLine = ({
   );
 };
 
+/**
+ * Two-item gen-eval activity indicator for the expanded active-task card. The currently-busy
+ * role renders bright (`inkColors.info`); the idle role stays dim. When `role` is `undefined`
+ * (the tail sub-step names neither role — e.g. a commit leaf, or a pre-attempt empty trace)
+ * both render dim so the line reads as a neutral "no role active" state rather than implying
+ * one side is working.
+ */
+export const BusyIndicator = ({
+  role,
+}: {
+  readonly role: 'generator' | 'evaluator' | undefined;
+}): React.JSX.Element => (
+  <Box paddingLeft={2}>
+    {role === 'generator' ? (
+      <Text color={inkColors.info}>generator {glyphs.busyDot}</Text>
+    ) : (
+      <Text dimColor>generator {glyphs.busyDot}</Text>
+    )}
+    <Text> </Text>
+    {role === 'evaluator' ? (
+      <Text color={inkColors.info}>evaluator {glyphs.busyDot}</Text>
+    ) : (
+      <Text dimColor>evaluator {glyphs.busyDot}</Text>
+    )}
+  </Box>
+);
+
 export const SubStepLine = ({
   sub,
   running,

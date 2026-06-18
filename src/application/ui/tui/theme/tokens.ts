@@ -34,6 +34,10 @@ export const glyphs = {
   actionCursor: '▸',
   selectMarker: '›',
   bullet: '·',
+  // Filled circle for the gen-eval busy indicator — the small `bullet` reads as a separator,
+  // so the busy role needs a heavier dot to register as an activity affordance. Common-Unicode;
+  // renders on vt220-class emulators.
+  busyDot: '●',
   arrowRight: '→',
   activityArrow: '↳',
   // Section markers
@@ -172,10 +176,13 @@ export const PROMPT_VISIBLE_ROWS = 8;
  *     breakpoint; the Flow Steps list collapses to status icons only, no labels.
  *   - {@link CONTEXT_WIDTH} — right context column; baseline health (P1k), token meter
  *     (P2b), and ETA (P3a) cards stack here at ≥180 cols.
+ *   - {@link SIDEBAR_WIDTH} — left sidebar baseline width for the redesigned Implement view;
+ *     grown fluidly with the terminal by `useResponsiveLayout`.
  */
 export const RAIL_WIDTH = 28;
 export const COMPACT_RAIL_WIDTH = 6;
 export const CONTEXT_WIDTH = 28;
+export const SIDEBAR_WIDTH = 28;
 
 /**
  * Fluid Execute-view rail width — grows with terminal width at the `xl` breakpoint and above

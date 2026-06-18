@@ -15,6 +15,7 @@ import React, { useMemo } from 'react';
 import { TasksPanel } from '@src/application/ui/tui/components/tasks-panel.tsx';
 import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
+import type { TaskEvaluation } from '@src/application/ui/tui/components/tasks-panel-internals/evaluation-row.tsx';
 import type { AttemptWarning } from '@src/domain/entity/attempt.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 
@@ -44,6 +45,8 @@ interface TasksPanelHostProps {
   readonly inputActive: boolean;
   readonly now: number;
   readonly taskState: readonly Task[] | undefined;
+  /** Optional callback — fired (deduped) when the focused card id changes. See `TasksPanel`. */
+  readonly onFocusedCardChange?: (taskId: string | undefined) => void;
 }
 
 export const TasksPanelHost = ({
@@ -55,6 +58,7 @@ export const TasksPanelHost = ({
   inputActive,
   now,
   taskState,
+  onFocusedCardChange,
 }: TasksPanelHostProps): React.JSX.Element | null => {
   const taskCriteriaById = useMemo<ReadonlyMap<string, readonly string[]> | undefined>(() => {
     if (taskState === undefined) return undefined;
@@ -96,6 +100,30 @@ export const TasksPanelHost = ({
     return m.size > 0 ? m : undefined;
   }, [taskState]);
 
+  // taskId → AUTHORITATIVE evaluation verdict, sourced from the task entity's attempts (keyed
+  // by task id, so there is no cross-task / stale-window leak). The card renders THIS verdict —
+  // never the timestamp-bucketed signal stream, which mis-attributes evaluator signals under
+  // parallel/wave sprints where task windows overlap. We prefer the LAST attempt's evaluation;
+  // if the last attempt has none yet, fall back to the most recent attempt that does. Undefined
+  // when no task has settled an evaluation (clean prop diff, mirroring the sibling maps).
+  const taskEvaluationById = useMemo<ReadonlyMap<string, TaskEvaluation> | undefined>(() => {
+    if (taskState === undefined) return undefined;
+    const m = new Map<string, TaskEvaluation>();
+    for (const t of taskState) {
+      for (let i = t.attempts.length - 1; i >= 0; i -= 1) {
+        const att = t.attempts[i];
+        if (att?.evaluation === undefined) continue;
+        m.set(String(t.id), {
+          status: att.evaluation.status,
+          attemptN: att.n,
+          ...(att.finishedAt !== null ? { finishedAt: att.finishedAt } : {}),
+        });
+        break;
+      }
+    }
+    return m.size > 0 ? m : undefined;
+  }, [taskState]);
+
   if (bucketed === undefined) return null;
 
   return (
@@ -106,11 +134,13 @@ export const TasksPanelHost = ({
       maxTasks={maxTasks}
       inputActive={inputActive}
       nowMs={now}
+      {...(onFocusedCardChange !== undefined ? { onFocusedCardChange } : {})}
       {...(descriptor.taskNames !== undefined ? { nameById: descriptor.taskNames } : {})}
       {...(descriptor.taskRecovering !== undefined ? { recoveringByTaskId: descriptor.taskRecovering } : {})}
       {...(taskCriteriaById !== undefined ? { taskCriteriaById } : {})}
       {...(blockedReasonById !== undefined ? { blockedReasonById } : {})}
       {...(warningSummaryById !== undefined ? { warningSummaryById } : {})}
+      {...(taskEvaluationById !== undefined ? { taskEvaluationById } : {})}
     />
   );
 };

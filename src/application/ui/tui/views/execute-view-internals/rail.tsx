@@ -30,6 +30,11 @@ interface RailProps {
   readonly railWidth: number;
 }
 
+// Threshold below which the meta tail (duration / trailing label / error) is suppressed so
+// the step name can use the full text budget without being concatenated with status text.
+// At ≥32 cols there is room for a short duration like " · 42s" (6 chars) after a truncated name.
+const NARROW_RAIL_SUPPRESS_META_THRESHOLD = 32;
+
 export const FlowStepsRail = ({ descriptor, isRunning, maxRows, railWidth }: RailProps): React.JSX.Element => (
   <StepTrace
     trace={descriptor.trace}
@@ -37,6 +42,7 @@ export const FlowStepsRail = ({ descriptor, isRunning, maxRows, railWidth }: Rai
     filter={outerFlowFilter}
     maxRows={maxRows}
     railWidth={railWidth}
+    suppressMeta={railWidth < NARROW_RAIL_SUPPRESS_META_THRESHOLD}
     {...(descriptor.plannedLeaves !== undefined ? { plan: descriptor.plannedLeaves } : {})}
     {...(descriptor.planLabelByName !== undefined ? { labelByName: descriptor.planLabelByName } : {})}
     {...(isRunning && descriptor.plannedLeaves === undefined ? { inFlightLabel: 'awaiting next step…' } : {})}

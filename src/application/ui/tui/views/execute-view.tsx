@@ -267,7 +267,12 @@ export const ExecuteView = (): React.JSX.Element => {
     );
   }
 
-  const elapsed = fmtElapsed(descriptor.startedAt, descriptor.finishedAt ?? now);
+  // Wall-clock elapsed since the run started. The string form drives the header / footer;
+  // the numeric form (ms) feeds the redesigned sidebar layout. Both share one end-time so
+  // they never disagree by a tick.
+  const endedAt = descriptor.finishedAt ?? now;
+  const elapsed = fmtElapsed(descriptor.startedAt, endedAt);
+  const elapsedMs = Math.max(0, endedAt - descriptor.startedAt);
 
   // TasksPanel claims input for the signal-row cursor (j/k or ↑/↓ to move, Enter / Space to
   // expand a commit-message row). Disabled while any modal owns the keyboard so the cursor
@@ -317,8 +322,12 @@ export const ExecuteView = (): React.JSX.Element => {
           isRunning={isRunning}
           now={now}
           elapsed={elapsed}
+          elapsedMs={elapsedMs}
           layout={layout}
           termColumns={term.columns}
+          termRows={term.rows}
+          bucketed={bucketed}
+          pinnedSprintLabel={pinnedSprintLabel}
           executionState={effectiveExecutionState}
           taskState={effectiveTaskState}
           tokenUsage={tokenUsage}

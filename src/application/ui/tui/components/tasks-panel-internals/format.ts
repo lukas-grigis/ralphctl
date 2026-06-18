@@ -158,3 +158,34 @@ export const latestIdleSnippets = (signals: readonly HarnessSignal[]): readonly 
  * `e` reveals the rest.
  */
 export const CRITERIA_COLLAPSED_LINES = 3;
+
+/**
+ * Which gen-eval role is currently busy, derived from the task's sub-step trace.
+ *
+ * The chain trace is TERMINAL-only: an entry is recorded when a leaf COMPLETES, not when it
+ * starts — a leaf that is still running is absent from `subSteps`. So the tail entry names the
+ * last leaf to *finish*, not the one in flight. Reading it still resolves the live role during
+ * the gen-eval loop because each AI role leaf is immediately preceded by a `stamp-role-meta-*`
+ * sidecar leaf that lands first: while the generator runs, the tail reads
+ * `stamp-role-meta-generator`; while the evaluator runs, `stamp-role-meta-evaluator` (hence the
+ * `.includes` match — it is intentional and load-bearing, not a loose substring test).
+ *
+ * Known limitation (epilogue lag): after `evaluator` completes, the per-attempt epilogue
+ * (finalize-gen-eval → post-task-verify → commit → settle) runs while the task is still active,
+ * but no role leaf is in flight. The tail stays on the last role leaf (`evaluator`) until the
+ * next non-role leaf (`finalize-gen-eval`) completes, so the indicator can briefly show
+ * "evaluator ●" with no AI role actually running. Fixing this needs a live harness signal for
+ * "leaf started" rather than the terminal trace; out of scope here — the heuristic is kept.
+ *
+ * Returns `undefined` when the tail names neither role (e.g. a `commit-task` / `setup` leaf, or
+ * an empty trace before the first attempt) so the busy indicator can fall back to a neutral state.
+ */
+export const resolveActiveRole = (
+  subSteps: ReadonlyArray<{ readonly leafName: string }>
+): 'generator' | 'evaluator' | undefined => {
+  const last = subSteps[subSteps.length - 1];
+  if (last === undefined) return undefined;
+  if (last.leafName.includes('generator')) return 'generator';
+  if (last.leafName.includes('evaluator')) return 'evaluator';
+  return undefined;
+};
