@@ -30,6 +30,7 @@ import { setRunInTerminal } from '@src/application/ui/tui/runtime/run-in-termina
 import { setImplementRoleOverrides } from '@src/application/ui/tui/runtime/implement-role-overrides.ts';
 import type { LaunchExtras } from '@src/application/ui/shared/launcher.ts';
 import { App } from '@src/application/ui/tui/App.tsx';
+import type { SelectionSeed } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { resolveInitialState } from '@src/application/ui/tui/launch-routing.ts';
 import { createLastSelectionStore } from '@src/integration/persistence/selection/last-selection-store.ts';
 import { type LogLevelGate, createLogLevelGate, passesLogLevel } from '@src/business/observability/log-level-filter.ts';
@@ -289,8 +290,22 @@ export const launchTui = async (options: LaunchTuiOptions = {}): Promise<void> =
     return;
   }
 
-  const appElement = React.createElement(App, booted.app);
-  const host = createInkHost({ appElement });
+  // Live in-memory holder for the current selection, seeded from the launch-time persisted value.
+  // Each interactive-flow pause unmounts the React tree and remounts it via `renderElement()`;
+  // SelectionProvider re-seeds from this holder, so an in-session sprint switch survives the
+  // remount instead of snapping back to the stale launch-time `initialSelection`.
+  let liveSelection = booted.app.initialSelection;
+  const onSelectionChange = (next: SelectionSeed): void => {
+    liveSelection = next;
+    booted.app.onSelectionChange?.(next);
+  };
+  const renderElement = (): React.ReactElement =>
+    React.createElement(App, {
+      ...booted.app,
+      onSelectionChange,
+      ...(liveSelection !== undefined ? { initialSelection: liveSelection } : {}),
+    });
+  const host = createInkHost({ renderElement });
   setRunInTerminal(host.runInTerminal);
   try {
     await host.waitForShutdown();

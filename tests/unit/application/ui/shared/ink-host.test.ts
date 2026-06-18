@@ -42,7 +42,7 @@ describe('createInkHost waitForShutdown', () => {
     process.exitCode = originalExitCode;
   });
 
-  const makeHost = () => createInkHost({ appElement: React.createElement(React.Fragment) });
+  const makeHost = () => createInkHost({ renderElement: () => React.createElement(React.Fragment) });
 
   it('resolves cleanly on a normal quit and leaves the exit code untouched', async () => {
     mockInstance.waitUntilExit.mockResolvedValueOnce(undefined);
@@ -70,5 +70,38 @@ describe('createInkHost waitForShutdown', () => {
 
     await expect(host.waitForShutdown()).rejects.toBeInstanceOf(AbortError);
     expect(process.exitCode).toBeUndefined();
+  });
+});
+
+/**
+ * The host must rebuild the App element on every pause/resume — not replay a frozen element — so
+ * the remounted tree picks up live state (e.g. the user's in-session sprint selection). This pins
+ * that `renderElement` is invoked again on resume: one `runInTerminal` cycle ⇒ factory called
+ * twice (initial mount + resume remount).
+ */
+describe('createInkHost rebuilds the element on resume', () => {
+  beforeEach(() => {
+    mockInstance.waitUntilExit.mockReset();
+    mockInstance.unmount.mockReset();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('calls renderElement again on each runInTerminal resume', async () => {
+    // The pause path unmounts the current instance and awaits its exit before running `fn`.
+    mockInstance.waitUntilExit.mockResolvedValue(undefined);
+
+    const renderElement = vi.fn(() => React.createElement(React.Fragment));
+    const host = createInkHost({ renderElement });
+
+    // Initial mount built one element.
+    expect(renderElement).toHaveBeenCalledTimes(1);
+
+    await host.runInTerminal(async () => 'done');
+
+    // Resume remounted a freshly built element rather than reusing the first.
+    expect(renderElement).toHaveBeenCalledTimes(2);
   });
 });
