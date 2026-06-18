@@ -12,13 +12,7 @@
  * composition rather than width arithmetic.
  */
 
-import {
-  CONTEXT_WIDTH,
-  fluid,
-  RAIL_WIDTH,
-  resolveRailWidth,
-  SIDEBAR_WIDTH,
-} from '@src/application/ui/tui/theme/tokens.ts';
+import { CONTEXT_WIDTH, fluid, RAIL_WIDTH, resolveRailWidth } from '@src/application/ui/tui/theme/tokens.ts';
 
 const TWO_COL_BREAKPOINT = 140;
 const THREE_COL_BREAKPOINT = 180;
@@ -52,7 +46,7 @@ export interface ResponsiveLayout {
   readonly contextWidth: number;
   /** True at ≥140 cols — the redesigned Implement view renders its left sidebar. */
   readonly sidebarLayout: boolean;
-  /** Fluid sidebar width — grows with the terminal, clamped to [{@link SIDEBAR_WIDTH}, 36]. */
+  /** Fluid sidebar width — grows with the terminal, clamped to [34, 48]. */
   readonly sidebarWidth: number;
   /**
    * Visible task-nav rows in the sidebar minimap. Derived from a shared `availableBodyRows`
@@ -95,7 +89,11 @@ export const useResponsiveLayout = ({ columns, rows, isRunning }: UseResponsiveL
   // column grid). This is the accepted behaviour for the v0.7.0 redesign gate — do not add a
   // sidebar-only collapse mode for the 100-139 col band without a new design decision.
   const sidebarLayout = columns >= TWO_COL_BREAKPOINT;
-  const sidebarWidth = Math.min(36, Math.max(SIDEBAR_WIDTH, Math.round(columns * 0.18)));
+  // Wider than the original 28→36: the nav task names + flow-step labels need room to breathe,
+  // and the main area (flexGrow) still keeps the lion's share at wide terminals. Floor 34 so
+  // labels are legible even at the 140-col entry point; cap 48 so it never dominates a 240-col
+  // screen. ~0.24 of width tracks the terminal in between.
+  const sidebarWidth = Math.min(48, Math.max(34, Math.round(columns * 0.24)));
 
   // Card budget for the Tasks column. In single-column the stack also carries the (narrow)
   // Flow-steps + Recent-log, so the Tasks slice is tighter; in multi-column the Tasks column

@@ -218,6 +218,7 @@ export const ImplementSidebar = ({
               isRunning={isRunning}
               maxRows={sidebarFlowStepsRows}
               railWidth={sidebarWidth - spacing.indent}
+              suppressMeta
             />
           </Box>
         </>

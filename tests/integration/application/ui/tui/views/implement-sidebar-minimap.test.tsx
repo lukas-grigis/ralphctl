@@ -186,6 +186,48 @@ describe('ImplementSidebar — navigation only', () => {
 
     unmount();
   });
+
+  it('renders steps compact — never leaks a failed step error/meta into the narrow column', () => {
+    const descriptor: SessionDescriptor = {
+      ...makeDescriptor(),
+      trace: [
+        { elementName: 'load-tasks', status: 'completed', durationMs: 1 },
+        {
+          elementName: 'working-tree-clean',
+          status: 'failed',
+          durationMs: 4,
+          error: {
+            message:
+              'working-tree-dirty at /Users/grigis/Workzone/github/lukas-grigis/mindvaults (3 uncommitted change(s))',
+          },
+        },
+        { elementName: 'setup-script', status: 'skipped', durationMs: 0 },
+      ] as unknown as SessionDescriptor['trace'],
+    };
+    const { lastFrame, unmount } = render(
+      <ImplementSidebar
+        sidebarWidth={36}
+        sidebarTaskNavRows={8}
+        sidebarFlowStepsRows={8}
+        descriptor={descriptor}
+        bucketed={THREE_TASKS}
+        isRunning={true}
+        focusedTaskId={undefined}
+      />
+    );
+    const frame = lastFrame() ?? '';
+
+    // The step name still renders…
+    expect(frame).toContain('working-tree-clean');
+    // …but the failed step's error message is NEVER shown in the compact sidebar steps
+    // (it would wrap across many lines in the narrow column — it lives in the log/footer).
+    expect(frame).not.toContain('uncommitted');
+    expect(frame).not.toContain('mindvaults');
+    // …and the duration / trailing status word are suppressed too.
+    expect(frame).not.toContain('skipped');
+
+    unmount();
+  });
 });
 
 // ---------------------------------------------------------------------------
