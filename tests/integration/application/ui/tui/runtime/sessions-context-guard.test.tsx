@@ -68,6 +68,7 @@ const createFakeManager = (id: string) => {
     register: () => recordOf(),
     abort: () => undefined,
     remove: () => undefined,
+    shedTerminal: () => 0,
     setPinnedSprint: (_runnerId, sprintId, sprintLabel): void => {
       pinnedSprintId = sprintId;
       pinnedSprintLabel = sprintLabel;

@@ -255,5 +255,68 @@ describe('session-manager', () => {
         expect(sessions.get(`r-${i}`)).toBeDefined();
       }
     });
+
+    it('emergency-bounds the map by shedding the oldest RUNNING records past the hard ceiling', () => {
+      const RUNNING_CEILING = 200;
+      const clock = makeFakeClock();
+      const sessions = createSessionManager({ clock: clock.now });
+
+      // Register well past the ceiling, one ms apart so startedAt ordering is deterministic. The
+      // emergency tier fires on each register()'s pre-insert sweep, keeping the map bounded (at most
+      // ceiling + 1: one fresh insert can sit above the cap until the next sweep) instead of growing
+      // unboundedly with never-terminating runs (the leak pathology).
+      const total = RUNNING_CEILING + 25;
+      for (let i = 0; i < total; i++) {
+        registerRunning(sessions, `live-${i}`);
+        clock.advance(1);
+      }
+
+      // Map is bounded — the running overflow was shed, not retained.
+      expect(sessions.list().length).toBeLessThanOrEqual(RUNNING_CEILING + 1);
+      // The oldest running records were the ones shed; the newest survive.
+      expect(sessions.get('live-0')).toBeUndefined();
+      expect(sessions.get(`live-${total - 1}`)).toBeDefined();
+    });
+  });
+
+  describe('terminal memory hygiene', () => {
+    it('drops the heavy runner ctx reference on the terminal transition (keeps trace + status)', async () => {
+      const sessions = createSessionManager();
+      const flow: Element<Ctx> = sequential<Ctx>('flow', [okLeaf('one')]);
+      const runner = createRunner({ id: 'r-ctx', element: flow, initialCtx: {} });
+
+      sessions.register({ runner, flowId: 'implement', title: 'Implement' });
+      await runner.start();
+
+      const rec = sessions.get('r-ctx');
+      expect(rec?.descriptor.status).toBe('completed');
+      // The record's runner is now a terminal stub: it no longer holds the live ctx, but the
+      // trace + identity the UI reads survive.
+      expect(rec?.runner.ctx).toBeUndefined();
+      expect(rec?.runner.id).toBe('r-ctx');
+      expect(rec?.runner.trace).toBe(rec?.descriptor.trace);
+      // abort() on a terminal stub is a no-op (never throws).
+      expect(() => rec?.runner.abort()).not.toThrow();
+    });
+
+    it('shedTerminal drops every terminal record and leaves running ones untouched', async () => {
+      const sessions = createSessionManager();
+
+      // Two terminal runs.
+      for (const id of ['done-1', 'done-2']) {
+        const r = createRunner({ id, element: sequential<Ctx>(id, [okLeaf('one')]), initialCtx: {} });
+        sessions.register({ runner: r, flowId: 'demo', title: id });
+        await r.start();
+      }
+      // One running run (never started → stays non-terminal).
+      const live = createRunner({ id: 'live', element: sequential<Ctx>('live', [okLeaf('one')]), initialCtx: {} });
+      sessions.register({ runner: live, flowId: 'demo', title: 'live' });
+
+      const dropped = sessions.shedTerminal();
+      expect(dropped).toBe(2);
+      expect(sessions.get('done-1')).toBeUndefined();
+      expect(sessions.get('done-2')).toBeUndefined();
+      expect(sessions.get('live')).toBeDefined();
+    });
   });
 });

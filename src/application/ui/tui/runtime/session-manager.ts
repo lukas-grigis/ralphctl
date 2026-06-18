@@ -21,13 +21,56 @@ import type { Runner, RunnerStatus } from '@src/application/chain/run/runner.ts'
  */
 const SESSION_RECORD_TTL_MS = 30 * 60 * 1000;
 /**
- * Hard cap on the descriptor map. Only terminal records are dropped to honour the cap; running
- * and queued records are kept regardless of pressure so the operator never loses the live view.
+ * Soft cap on the descriptor map. Only terminal records are dropped to honour it; running and
+ * queued records are kept regardless of pressure so the operator never loses the live view. The
+ * hard {@link SESSION_RUNNING_CEILING} is the emergency relief that CAN drop running records.
  */
 const SESSION_LRU_CAP = 50;
 
+/**
+ * Hard ceiling — the emergency-relief tier. The soft {@link SESSION_LRU_CAP} only sheds terminal
+ * records, so a pathological burst of never-terminating runs (the long-session leak signature)
+ * could grow the map unboundedly while every record reports `running`. Once the map exceeds THIS
+ * ceiling we drop the OLDEST running records too, oldest-first, as last-resort memory relief.
+ * Sized comfortably above the soft cap so it only ever fires under genuine pathology — a healthy
+ * session never has 200 concurrent live runs.
+ */
+const SESSION_RUNNING_CEILING = 200;
+
 const isTerminal = (status: RunnerStatus): boolean =>
   status === 'completed' || status === 'failed' || status === 'aborted';
+
+/**
+ * Replace a terminal record's live {@link Runner} with a frozen stub that preserves the identity +
+ * status + trace the UI reads, but drops the strong reference to the live runner closure — whose
+ * captured `ctx` is the heavy forked `ImplementCtx` (worktree paths, task list, accumulators) that
+ * would otherwise be pinned until the record's TTL / LRU eviction. The descriptor already snapshots
+ * the trace, and no UI path reads `record.runner.ctx` after terminal; `abort()` is a no-op once
+ * terminal and `subscribe()` replays the (already-captured) trace + terminal event, so the stub is
+ * behaviourally indistinguishable to every consumer while freeing the dominant retainer at terminal.
+ */
+const terminalRunnerStub = (
+  id: string,
+  status: RunnerStatus,
+  trace: Trace,
+  error: DomainError | undefined
+): Runner<unknown> => ({
+  id,
+  status,
+  ctx: undefined,
+  trace,
+  start: () => Promise.resolve(),
+  abort: () => {},
+  subscribe: (listener) => {
+    // Late-attach replay: hand the captured trace + matching terminal event to the new listener,
+    // mirroring the live runner's late-subscriber contract. Nothing further is ever emitted.
+    for (const entry of trace) listener({ type: 'step', entry });
+    if (status === 'completed') listener({ type: 'completed', ctx: undefined });
+    else if (status === 'failed' && error !== undefined) listener({ type: 'failed', error });
+    else if (status === 'aborted' || status === 'failed') listener({ type: 'aborted' });
+    return () => {};
+  },
+});
 
 export interface SessionDescriptor {
   readonly id: string;
@@ -139,6 +182,14 @@ export interface SessionManager {
   /** Drop a session from the registry. Used after the user dismisses a finished run. */
   remove(id: string): void;
   /**
+   * Emergency memory relief: drop EVERY terminal record immediately, ignoring TTL / LRU. Returns
+   * the number dropped. Invoked by the heap-critical handler when the heap crosses the critical
+   * band — terminal records (with their trace snapshots) are the largest sheddable retainer the
+   * app root can reach without disturbing any live run. Running / queued records are untouched, so
+   * a healthy in-flight run is never aborted.
+   */
+  shedTerminal(): number;
+  /**
    * Retroactively pin the sprint on an existing descriptor. Called by sprint-bound launchers
    * when the sprint is created mid-run (e.g. create-sprint) so the descriptor's pinned sprint
    * fields are updated once the id/name become known. No-op if the runner id is not found.
@@ -170,38 +221,83 @@ export const createSessionManager = (opts?: { readonly clock?: () => number }): 
   // instead of becoming an un-evictable leak.
   const ageKey = (rec: SessionRecord): number => rec.descriptor.finishedAt ?? rec.descriptor.startedAt;
 
-  const evict = (now: number): boolean => {
+  // TTL pass: drop terminal records older than the window.
+  const evictExpiredTerminals = (now: number): boolean => {
     let removed = false;
-    // TTL pass: drop terminal records older than the window.
     for (const [id, rec] of records) {
-      const { status } = rec.descriptor;
-      if (isTerminal(status) && now - ageKey(rec) > SESSION_RECORD_TTL_MS) {
+      if (isTerminal(rec.descriptor.status) && now - ageKey(rec) > SESSION_RECORD_TTL_MS) {
         records.delete(id);
-        removed = true;
-      }
-    }
-    // LRU pass: while above cap, drop the oldest terminal record (by ageKey asc). Running /
-    // queued records are never evicted — the cap is best-effort under that constraint.
-    if (records.size > SESSION_LRU_CAP) {
-      const terminals = [...records.values()]
-        .filter((rec) => isTerminal(rec.descriptor.status))
-        .sort((a, b) => ageKey(a) - ageKey(b));
-      for (const rec of terminals) {
-        if (records.size <= SESSION_LRU_CAP) break;
-        records.delete(rec.descriptor.id);
         removed = true;
       }
     }
     return removed;
   };
 
+  // While above `cap`, drop the oldest record matching `pick`, ordered ascending by `order`.
+  const evictOldestWhileOverCap = (
+    cap: number,
+    pick: (rec: SessionRecord) => boolean,
+    order: (rec: SessionRecord) => number
+  ): boolean => {
+    if (records.size <= cap) return false;
+    let removed = false;
+    const candidates = [...records.values()].filter(pick).sort((a, b) => order(a) - order(b));
+    for (const rec of candidates) {
+      if (records.size <= cap) break;
+      records.delete(rec.descriptor.id);
+      removed = true;
+    }
+    return removed;
+  };
+
+  const evict = (now: number): boolean => {
+    let removed = evictExpiredTerminals(now);
+    // Soft LRU: shed the oldest TERMINAL records (running / queued are protected).
+    removed = evictOldestWhileOverCap(SESSION_LRU_CAP, (r) => isTerminal(r.descriptor.status), ageKey) || removed;
+    // Emergency relief: if STILL over the hard ceiling, terminal records are exhausted and the
+    // overflow is live runs (the leak pathology). Shed the oldest RUNNING records as last resort —
+    // a healthy session never reaches the ceiling; their runners keep running detached.
+    removed =
+      evictOldestWhileOverCap(
+        SESSION_RUNNING_CEILING,
+        (r) => !isTerminal(r.descriptor.status),
+        (r) => r.descriptor.startedAt
+      ) || removed;
+    return removed;
+  };
+
   const update = (id: string, patch: Partial<SessionDescriptor>): void => {
     const cur = records.get(id);
     if (!cur) return;
-    records.set(id, { ...cur, descriptor: { ...cur.descriptor, ...patch } });
-    if (patch.status !== undefined && isTerminal(patch.status)) {
-      evict(clock());
-    }
+    const descriptor = { ...cur.descriptor, ...patch };
+    const goingTerminal = patch.status !== undefined && isTerminal(patch.status);
+    // On the terminal transition, swap the live runner for a frozen stub that keeps id/status/trace
+    // but drops the strong reference to the heavy forked ctx (the implement worktree ctx). The
+    // descriptor already snapshots the trace; nothing reads `runner.ctx` after terminal. This frees
+    // the dominant retainer AT terminal instead of waiting for TTL / LRU eviction. The original
+    // runner is no longer needed — its `abort()` is a no-op once terminal.
+    const runner = goingTerminal
+      ? terminalRunnerStub(cur.runner.id, patch.status!, descriptor.trace, descriptor.error)
+      : cur.runner;
+    records.set(id, { descriptor, runner });
+    if (goingTerminal) evict(clock());
+    notify();
+  };
+
+  /**
+   * Trace-only "step" wakeup. The descriptor's `trace` field already points at the runner's
+   * shared-mutable trace array from `register()` (the runner never reassigns it — see runner.ts),
+   * so a `step` mutates that array IN PLACE and the descriptor needs NO rebuild. We therefore notify
+   * subscribers WITHOUT spreading a fresh descriptor / record. This kills the per-step amplifier:
+   * previously every `step` allocated a new descriptor object, which invalidated the execute view's
+   * `useBucketedTasks` memo (keyed on the descriptor reference) and re-ran `bucketTaskSignals` over
+   * the whole trace on every leaf step of every task. Status-gated consumers (`useSessions` /
+   * `useSession` / `use-sprint-bundle`) already ignore step notifies; the live flow-steps rail stays
+   * current via the shared-mutable trace array + the sibling chainEvents re-render, exactly as the
+   * sigOf comment in sessions-context.tsx documents.
+   */
+  const touchTrace = (id: string): void => {
+    if (!records.has(id)) return;
     notify();
   };
 
@@ -278,7 +374,7 @@ export const createSessionManager = (opts?: { readonly clock?: () => number }): 
             update(runner.id, { status: 'running' });
             return;
           case 'step':
-            update(runner.id, { trace: runner.trace });
+            touchTrace(runner.id); // trace-only wakeup, no descriptor rebuild — see touchTrace
             return;
           case 'completed':
             update(runner.id, { status: 'completed', finishedAt: clock(), trace: runner.trace });
@@ -311,6 +407,17 @@ export const createSessionManager = (opts?: { readonly clock?: () => number }): 
     },
     remove(id: string): void {
       if (records.delete(id)) notify();
+    },
+    shedTerminal(): number {
+      let dropped = 0;
+      for (const [id, rec] of records) {
+        if (isTerminal(rec.descriptor.status)) {
+          records.delete(id);
+          dropped += 1;
+        }
+      }
+      if (dropped > 0) notify();
+      return dropped;
     },
     setPinnedSprint(runnerId: string, sprintId: SprintId, sprintLabel: string): void {
       update(runnerId, { pinnedSprintId: sprintId, pinnedSprintLabel: sprintLabel });

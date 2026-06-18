@@ -22,7 +22,7 @@ import { type AppDeps, wire } from '@src/application/bootstrap/wire.ts';
 import { broadcastSink } from '@src/integration/observability/sinks/broadcast-sink.ts';
 import { type BusSink, createBusSink } from '@src/application/ui/tui/runtime/sinks-bus.ts';
 import { type CoalescedBuffer, createCoalescedBuffer } from '@src/application/ui/tui/runtime/coalesced-buffer.ts';
-import { createSessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
+import { createSessionManager, type SessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
 import { createPromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
 import { createInkInteractivePrompt } from '@src/application/ui/tui/prompts/ink-interactive-prompt.ts';
 import { createInkHost } from '@src/application/ui/shared/ink-host.ts';
@@ -92,8 +92,9 @@ const createHeapCriticalHandler = (args: {
   readonly logForwarder: CoalescedBuffer<LogEvent>;
   readonly harnessBus: BusSink<HarnessSignal>;
   readonly logBus: BusSink<LogEvent>;
+  readonly sessions: SessionManager;
 }): (() => void) => {
-  const { logger, logForwarder, harnessBus, logBus } = args;
+  const { logger, logForwarder, harnessBus, logBus, sessions } = args;
   return () => {
     // Defensive buffer-clear: synchronous, fast in-memory ops — run these first so memory is
     // reclaimed immediately (before the snapshot write steals time). Drop (do NOT flush) the
@@ -102,6 +103,14 @@ const createHeapCriticalHandler = (args: {
     logForwarder.discard();
     harnessBus.clear();
     logBus.clear();
+
+    // Shed the dominant reachable retainer: drop EVERY terminal SessionRecord (with its trace
+    // snapshot). The small-capped buffers above free little; completed/aborted/failed run records
+    // accumulated across a long session are the real weight the app root can reach. shedTerminal
+    // never touches a running record, so a healthy in-flight run is never disturbed — this only
+    // sheds memory from work that is already done.
+    const dropped = sessions.shedTerminal();
+    if (dropped > 0) logger.warn(`heap critical — shed ${dropped} finished session record(s) for memory relief`);
 
     // Heap snapshot deferred off the hot path via setImmediate. v8.writeHeapSnapshot() is a
     // synchronous V8 operation that blocks the Node.js event loop for several seconds on large
@@ -163,13 +172,18 @@ const bootstrap = async (): Promise<Bootstrapped> => {
     logLevelGate
   );
 
+  // Session manager is created BEFORE the heap watchdog so the critical handler can reach it to
+  // shed finished SessionRecords (the dominant app-root-reachable retainer) under memory pressure.
+  const sessions = createSessionManager();
+
   // Heap watchdog gives the operator a warning before V8 SIGKILLs the harness on a long-running
-  // session. On 'critical' its real value is capturing a heap snapshot for post-mortem: the
-  // TUI's in-memory buffers are small-capped (a few MB), so clearing them frees little — the
-  // OOM recurs undiagnosed unless we name the dominant retainer. The snapshot does that.
+  // session. On 'critical' it (a) sheds finished session records via `sessions.shedTerminal()` —
+  // the real reachable weight — and (b) captures a heap snapshot for post-mortem (names the
+  // dominant retainer if the shed was not enough). The small-capped in-memory buffers it also
+  // clears free little; the session shed + snapshot are the load-bearing actions.
   const heapWatchdog = startHeapWatchdog({
     eventBus: deps.eventBus,
-    onCritical: createHeapCriticalHandler({ logger: deps.logger, logForwarder, harnessBus, logBus }),
+    onCritical: createHeapCriticalHandler({ logger: deps.logger, logForwarder, harnessBus, logBus, sessions }),
   });
 
   // OS-attention notifications. Wired here (not inside wire()) so tests that build wire() never
@@ -183,7 +197,6 @@ const bootstrap = async (): Promise<Bootstrapped> => {
     disabled: () => settings.value.ui.notifications.enabled === false,
   });
 
-  const sessions = createSessionManager();
   const queue = createPromptQueue();
 
   // The Ink prompt adapter is plumbed through deps that the launcher reads; chain factories
