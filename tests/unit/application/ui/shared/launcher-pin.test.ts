@@ -80,7 +80,10 @@ const makeAppDeps = (): AppDeps =>
 
 const makeDeps = (): LauncherDeps => ({
   app: makeAppDeps(),
-  interactive: {} as InteractivePrompt,
+  interactive: {
+    // close-sprint calls askConfirm twice at launch time; returning true lets construction proceed.
+    askConfirm: async () => Result.ok(true as boolean),
+  } as unknown as InteractivePrompt,
   storage: storage(),
   runInTerminal: passthroughRunInTerminal,
 });
@@ -118,8 +121,8 @@ const snapshot: AppStateSnapshot = {
 };
 
 describe('launchFlow — pinned project/sprint stamping', () => {
-  it('pins the snapshot sprint for a regular sprint-scoped flow (refine)', async () => {
-    const result = await launchFlow(makeDeps(), 'refine', snapshot);
+  it('pins the snapshot sprint for a regular sprint-scoped flow (close-sprint)', async () => {
+    const result = await launchFlow(makeDeps(), 'close-sprint', snapshot);
     if (!result.ok) throw new Error(`launch failed: ${result.reason}`);
 
     expect(result.pinnedProjectId).toBe(PROJECT_ID);
