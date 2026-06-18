@@ -77,30 +77,37 @@ const makeDescriptor = (): SessionDescriptor => ({
 // ---------------------------------------------------------------------------
 
 describe('ImplementSidebar — navigation only', () => {
-  it('renders task minimap section headers (Tasks + Steps) — no sprint meta', () => {
+  it('renders section headers (Baseline, Steps, Tasks) + model meta in sidebar', () => {
     const descriptor = makeDescriptor();
     const { lastFrame, unmount } = render(
       <ImplementSidebar
-        sidebarWidth={36}
+        sidebarWidth={40}
         sidebarTaskNavRows={8}
         sidebarFlowStepsRows={8}
         descriptor={descriptor}
         bucketed={THREE_TASKS}
         isRunning={true}
         focusedTaskId={undefined}
+        now={BASE_MS}
       />
     );
     const frame = lastFrame() ?? '';
 
-    // Section headers for the sidebar
+    // Section headers for the sidebar (order: Baseline → Steps → Tasks)
+    expect(frame).toContain('Baseline');
     expect(frame).toContain('Tasks');
     expect(frame).toContain('Steps');
 
-    // Sprint name, elapsed, and model pair are in the HeaderCard (body.tsx) — NOT in the sidebar.
-    // The sidebar renders: task minimap + flow-steps + TokenBudgetCard.
+    // Sidebar now shows the generator + evaluator model in the model-meta block.
+    // They differ so both lines appear: "generator claude-opus-4" + "evaluator claude-sonnet-4-6".
+    expect(frame).toContain('generator');
+    expect(frame).toContain('claude-opus-4');
+    expect(frame).toContain('evaluator');
+    expect(frame).toContain('claude-sonnet-4-6');
+
+    // Sprint name and elapsed remain in the HeaderCard (body.tsx) — NOT in the sidebar.
     expect(frame).not.toContain('1m30s');
     expect(frame).not.toContain('sprint-2026-01');
-    expect(frame).not.toContain('claude-opus-4');
 
     // Task names should appear in the minimap
     expect(frame).toContain('Add auth middleware');
@@ -124,6 +131,7 @@ describe('ImplementSidebar — navigation only', () => {
         bucketed={THREE_TASKS}
         isRunning={true}
         focusedTaskId="task-bbb"
+        now={BASE_MS}
       />
     );
     const frame = lastFrame() ?? '';
@@ -150,6 +158,7 @@ describe('ImplementSidebar — navigation only', () => {
         bucketed={THREE_TASKS}
         isRunning={true}
         focusedTaskId="task-ccc"
+        now={BASE_MS}
       />
     );
     const frame = lastFrame() ?? '';
@@ -177,6 +186,7 @@ describe('ImplementSidebar — navigation only', () => {
         bucketed={THREE_TASKS}
         isRunning={true}
         focusedTaskId="task-aaa"
+        now={BASE_MS}
       />
     );
     const frameBefore = lastFrame() ?? '';
@@ -217,6 +227,7 @@ describe('ImplementSidebar — navigation only', () => {
         bucketed={THREE_TASKS}
         isRunning={true}
         focusedTaskId={undefined}
+        now={BASE_MS}
       />
     );
     const frame = lastFrame() ?? '';
@@ -250,6 +261,7 @@ describe('ImplementSidebar — TokenBudgetCard at bottom', () => {
         bucketed={THREE_TASKS}
         isRunning={true}
         focusedTaskId={undefined}
+        now={BASE_MS}
       />
     );
     const frame = lastFrame() ?? '';
@@ -279,11 +291,12 @@ describe('ImplementSidebar — TokenBudgetCard at bottom', () => {
         isRunning={true}
         focusedTaskId={undefined}
         tokenUsage={cumulativeUsage}
+        now={BASE_MS}
       />
     );
     const frame = lastFrame() ?? '';
-    // Cumulative: totalUsed = 21 + 2_244_000 >> contextWindow → "tok: N cumul."
-    expect(frame).toContain('cumul.');
+    // Cumulative: totalUsed = 21 + 2_244_000 >> contextWindow → "session: N (cumulative)"
+    expect(frame).toContain('cumulative');
     // Must NOT show a "/200k" context bar (the cumulative path omits it)
     expect(frame).not.toContain('/200k');
     // Must NOT show an absurd context bar percentage (the cache-hit % of ~100% is legit and allowed)
@@ -311,6 +324,7 @@ describe('ImplementSidebar — TokenBudgetCard at bottom', () => {
         isRunning={true}
         focusedTaskId={undefined}
         tokenUsage={singleCallUsage}
+        now={BASE_MS}
       />
     );
     const frame = lastFrame() ?? '';
@@ -407,7 +421,7 @@ describe('ImplementLayout (≥140 cols) — Tab does not toggle focus state', ()
     sizeRef.rows = 40;
   });
 
-  it('renders nav + tasks column labels without active/inactive focus toggle', async () => {
+  it('renders sidebar sections without [nav]/[tasks] column labels (user ask #4)', async () => {
     const sessions = createSessionManager();
     const runner = fakeRunner('tab-reg-1');
     sessions.register({ runner, flowId: 'implement', title: 'Tab Reg Sprint' });
@@ -419,17 +433,22 @@ describe('ImplementLayout (≥140 cols) — Tab does not toggle focus state', ()
     await waitForViewReady(result, (f) => f.includes('Tab Reg Sprint'));
     const frame = result.lastFrame() ?? '';
 
-    // The passive minimap design uses static dim labels: [nav] and [tasks].
-    expect(frame).toContain('[nav]');
-    expect(frame).toContain('[tasks]');
+    // Column labels [nav] and [tasks] have been removed (user ask #4).
+    // The sidebar's self-labelled section headers (Baseline, Steps, Tasks) replace them.
+    expect(frame).not.toContain('[nav]');
+    expect(frame).not.toContain('[tasks]');
+    expect(frame).toContain('Baseline');
+    expect(frame).toContain('Steps');
+    expect(frame).toContain('Tasks');
 
-    // REQ: No focusSide concept — pressing Tab should not change the column labels.
+    // REQ: No focusSide concept — pressing Tab should not change the layout.
     const frameBefore = result.lastFrame() ?? '';
     result.stdin?.write('\t');
     const frameAfter = result.lastFrame() ?? '';
-    expect(frameAfter).toContain('[nav]');
-    expect(frameAfter).toContain('[tasks]');
-    expect(frameBefore.includes('[nav]')).toBe(frameAfter.includes('[nav]'));
+    // Column labels must remain absent after Tab
+    expect(frameAfter).not.toContain('[nav]');
+    expect(frameAfter).not.toContain('[tasks]');
+    expect(frameBefore.includes('Baseline')).toBe(frameAfter.includes('Baseline'));
 
     result.unmount();
   });

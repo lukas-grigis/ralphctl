@@ -8,10 +8,8 @@
 
 import React from 'react';
 import { Box } from 'ink';
-import { BaselineHealthChip } from '@src/application/ui/tui/components/baseline-health-chip.tsx';
 import { MultiFlowStrip } from '@src/application/ui/tui/components/multi-flow-strip.tsx';
 import { CancelScopeOverlay } from '@src/application/ui/tui/components/cancel-scope-overlay.tsx';
-import { spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import type { SessionDescriptor, SessionRecord } from '@src/application/ui/tui/runtime/session-manager.ts';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import type { Task } from '@src/domain/entity/task.ts';
@@ -103,19 +101,9 @@ export const ExecuteBody = ({
     {/* Multi-flow chip strip — renders only when ≥2 sessions are running, so a single-
         flow run pays zero pixels. */}
     <MultiFlowStrip sessions={sessionList} activeId={sessionId} now={now} />
-    {/* Baseline-health chip + HeaderCard — rendered at all widths. The wide sidebarLayout
-        path previously had a StatusBand that collapsed these to one horizontal row; that band
-        was removed (user ask #1) so the HeaderCard with its rich sprint/elapsed/model/tasks
-        detail is restored here at all breakpoints. */}
-    {!pinnedSprintStale && (
-      <Box paddingX={spacing.indent}>
-        <BaselineHealthChip
-          {...(executionState !== undefined ? { execution: executionState } : {})}
-          {...(taskState !== undefined ? { tasks: taskState } : {})}
-          now={now}
-        />
-      </Box>
-    )}
+    {/* HeaderCard — rendered at all widths. At ≥140 cols the BaselineHealthCard lives in the
+        sidebar (user ask #1); at <140 cols it appears in the narrow layout via ExecuteLayout.
+        The baseline chip that used to appear here has been removed. */}
     <HeaderCard
       descriptor={descriptor}
       isRunning={isRunning}

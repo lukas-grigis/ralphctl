@@ -117,7 +117,9 @@ describe('TokenBudgetCard', () => {
     );
     const frame = lastFrame() ?? '';
     // Cumulative marker present; no absurd percentage.
-    expect(frame).toContain('cumul.');
+    // Label format: "session: 240k (cumulative)" — makes the accounting mode explicit.
+    // Use 'cumulative' as the stable string (the colon may be swallowed by Ink's ANSI wrapping).
+    expect(frame).toContain('cumulative');
     expect(frame).toContain('240k');
     // No context-bar artefacts — the bar must not appear for cumulative data.
     expect(frame).not.toContain('100%');

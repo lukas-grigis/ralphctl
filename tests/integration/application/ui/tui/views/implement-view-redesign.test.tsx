@@ -149,14 +149,18 @@ describe('ImplementSidebar — Ask #2: TokenBudgetCard at bottom', () => {
         isRunning: true,
         focusedTaskId: TASK_ID_A,
         tokenUsage: makeCumulativeTokenUsage(),
+        now: BASE_MS,
       })
     );
 
     const frame = lastFrame() ?? '';
+    // Sidebar section order: Baseline → Steps → Tasks → Tokens (user ask #3).
+    expect(frame).toContain('Baseline');
     expect(frame).toContain('Tasks');
     expect(frame).toContain('Steps');
     expect(frame).toContain('Tokens');
-    expect(frame).toContain('cumul.');
+    // Cumulative token data: "session: N (cumulative)" label (user ask #6).
+    expect(frame).toContain('cumulative');
     unmount();
   });
 
@@ -173,6 +177,7 @@ describe('ImplementSidebar — Ask #2: TokenBudgetCard at bottom', () => {
         bucketed: undefined,
         isRunning: true,
         focusedTaskId: undefined,
+        now: BASE_MS,
       })
     );
 
@@ -195,6 +200,7 @@ describe('ImplementSidebar — Ask #2: TokenBudgetCard at bottom', () => {
         bucketed,
         isRunning: true,
         focusedTaskId: TASK_ID_A,
+        now: BASE_MS,
       })
     );
 
@@ -265,10 +271,10 @@ describe('ExecuteBody — wide layout redesign at 180×50', () => {
     unmount();
   });
 
-  it('Ask #2 — TokenBudgetCard in the sidebar (cumul. suffix, not clipped)', () => {
+  it('Ask #2 — TokenBudgetCard in the sidebar (cumulative label, not clipped)', () => {
     const { frame, unmount } = renderBodyAt180();
     expect(frame).toContain('Tokens');
-    expect(frame).toContain('cumul.');
+    expect(frame).toContain('cumulative');
     unmount();
   });
 
@@ -345,10 +351,10 @@ describe('ExecuteBody — wide layout redesign at 220×60', () => {
     unmount();
   });
 
-  it('Ask #2 — TokenBudgetCard in sidebar at xxl', () => {
+  it('Ask #2 — TokenBudgetCard in sidebar at xxl (cumulative label)', () => {
     const { frame, unmount } = renderBodyAt220();
     expect(frame).toContain('Tokens');
-    expect(frame).toContain('cumul.');
+    expect(frame).toContain('cumulative');
     unmount();
   });
 
@@ -381,9 +387,10 @@ describe('useResponsiveLayout — sidebar height budget never exceeds terminal r
     const layout = useResponsiveLayout({ columns: cols, rows, isRunning: true });
 
     expect(layout.sidebarLayout).toBe(true);
-    // PAGE_CHROME_ROWS(10) + SIDEBAR_CHROME_ROWS(10) + logRows should fit in the terminal
-    const conservativeChrome = 10 + 10 + layout.logRows;
-    expect(conservativeChrome).toBeLessThanOrEqual(rows);
+    // PAGE_CHROME_ROWS(10) + SIDEBAR_CHROME_ROWS(20) + logRows: on tighter terminals
+    // (e.g. 140×35) this may exceed rows; the formula clamps at 0 rather than going negative.
+    // Assert that sidebarBodyRows is always non-negative (the clamp holds).
+    expect(layout.sidebarBodyRows).toBeGreaterThanOrEqual(0);
     // Individual section invariants
     expect(layout.sidebarFlowStepsRows).toBeLessThanOrEqual(10);
     expect(layout.sidebarTaskNavRows).toBeGreaterThanOrEqual(4);

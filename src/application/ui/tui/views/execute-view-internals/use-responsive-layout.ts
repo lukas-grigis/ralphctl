@@ -89,11 +89,11 @@ export const useResponsiveLayout = ({ columns, rows, isRunning }: UseResponsiveL
   // column grid). This is the accepted behaviour for the v0.7.0 redesign gate — do not add a
   // sidebar-only collapse mode for the 100-139 col band without a new design decision.
   const sidebarLayout = columns >= TWO_COL_BREAKPOINT;
-  // Wider than the original 28→36: the nav task names + flow-step labels need room to breathe,
-  // and the main area (flexGrow) still keeps the lion's share at wide terminals. Floor 34 so
-  // labels are legible even at the 140-col entry point; cap 48 so it never dominates a 240-col
-  // screen. ~0.24 of width tracks the terminal in between.
-  const sidebarWidth = Math.min(48, Math.max(34, Math.round(columns * 0.24)));
+  // 2/5 of terminal width — gives the sidebar room for the baseline card (which can be wide),
+  // task names, and flow-step labels; the main area (flexGrow) keeps the remaining 3/5.
+  // Floor at 34 so the sidebar remains legible at the 140-col entry point. No upper cap —
+  // at 200 cols the sidebar grows to 80 which is exactly the desired 2/5 split.
+  const sidebarWidth = Math.max(34, Math.round(columns * 0.4));
 
   // Card budget for the Tasks column. In single-column the stack also carries the (narrow)
   // Flow-steps + Recent-log, so the Tasks slice is tighter; in multi-column the Tasks column
@@ -109,12 +109,14 @@ export const useResponsiveLayout = ({ columns, rows, isRunning }: UseResponsiveL
   // Tasks column with many cards collapsed to 1 row).
   // Sidebar-layout page chrome constant — shared with the sidebar height budget below.
   // Declared here (before tasksMaxBlocks) so both usages can reference the same value.
-  const PAGE_CHROME_ROWS = 10; // header-card + baseline chip + column labels + log chrome + footer
+  // BaselineHealthChip removed from page (now in sidebar card); column labels removed.
+  // Header card ~4 + ViewShell banner ~2 + log section chrome ~2 + ResultFooter ~1 + margins ~1.
+  const PAGE_CHROME_ROWS = 10; // header-card + ViewShell + log chrome + footer
 
   const tasksMaxBlocks = singleColumn
     ? Math.max(2, Math.floor((rows - NARROW_FLOW_STEPS_ROWS - 10) / 4))
     : sidebarLayout
-      ? Math.max(3, Math.floor((rows - PAGE_CHROME_ROWS - 1 - logRows) / 3))
+      ? Math.max(3, Math.floor((rows - PAGE_CHROME_ROWS - logRows) / 3))
       : Math.max(3, Math.floor((rows - 14) / 4));
 
   // The two-column branch uses the fixed `RAIL_WIDTH`; the three-column branch grows the
@@ -128,32 +130,37 @@ export const useResponsiveLayout = ({ columns, rows, isRunning }: UseResponsiveL
   // ── Sidebar height budget ──────────────────────────────────────────────────
   //
   // The redesigned wide layout (≥140 cols) stacks:
-  //   multiflow-strip(≤1) + BaselineHealthChip(1) + HeaderCard(~4) + columnLabels(1)
+  //   multiflow-strip(≤1) + HeaderCard(~4)
   //   + [sidebar|main] + recentLog(logRows + 2 section chrome) + ResultFooter(1)
   //
-  // HeaderCard: 1 title row + up to 3 body rows (flow+elapsed+tasks, model, task+step).
-  // BaselineHealthChip: 1 row. Multiflow-strip: conditional ~0–1 rows.
-  // We treat the fixed page chrome as ~10 rows (conservative).
+  // BaselineHealthChip removed from page — it is now the full BaselineHealthCard at the
+  // TOP of the sidebar. Column labels ([nav]/[tasks]) also removed.
   //
-  // The sidebar's own fixed chrome:
-  //   "Tasks" header   = 1 row
-  //   marginTop gutter = 1 row
-  //   "Steps" divider  = 1 row  (only when sidebarFlowStepsRows > 0)
-  //   "Steps" header   = 1 row  (only when sidebarFlowStepsRows > 0)
-  //   marginTop gutter = 1 row  (only when sidebarFlowStepsRows > 0)
-  //   Token divider    = 1 row
-  //   Token gutter     = 1 row
-  //   TokenBudgetCard  = ~5 rows (title + 3 data lines + border)
-  //   Total fixed chrome: ~7 rows (tasks+steps) or ~10 rows (tasks+steps+token)
+  // Sidebar section order (top → bottom):
+  //   1. BaselineHealthCard (bordered card: border+title+content ≈ 6–8 rows)
+  //   2. Steps rail (compact, suppressMeta, capped at SIDEBAR_STEPS_CAP)
+  //   3. Task-nav minimap (flexible, minimum SIDEBAR_TASK_NAV_MIN rows)
+  //   4. TokenBudgetCard (bottom-pinned, ~5 rows)
   //
-  // We use a conservative 10 rows so the token card is never clipped.
+  // Fixed chrome rows (sidebar):
+  //   BaselineHealthCard ≈ 7 rows (border top+bottom + title + 4 content lines; all-pending
+  //                                is just 1 content line but we budget for expanded form)
+  //   Baseline divider   = 1 row
+  //   "Steps" header     = 1 row  (when sidebarFlowStepsRows > 0)
+  //   "Steps" divider    = 1 row  (when sidebarFlowStepsRows > 0)
+  //   Steps gutter       = 1 row  (when sidebarFlowStepsRows > 0)
+  //   "Tasks" header     = 1 row
+  //   Tasks gutter       = 1 row
+  //   Token divider      = 1 row
+  //   Token gutter       = 1 row
+  //   TokenBudgetCard    = ~5 rows (border + title + 3 data lines)
+  //   Total fixed chrome ≈ 20 rows
   //
-  // The REMAINING rows (availableBodyRows) are split between task-nav and flow-steps.
-  // We cap flow-steps at 10 and give the rest to task-nav (floor 4), so on a 30-row
-  // terminal: bodyRows = 30 - 10(page) - 10(chrome) - 6(log) = 4 → steps=1, taskNav=4.
-  // On a 50-row terminal: bodyRows = 50 - 10 - 10 - 6 = 24 → steps=8, taskNav=16.
+  // The REMAINING rows (sidebarBodyRows) are split between task-nav and flow-steps.
+  // On a 50-row terminal: bodyRows = 50 - 10(page) - 20(chrome) - 6(log) = 14 → steps=4, taskNav=10.
+  // On a 60-row terminal: bodyRows = 60 - 10 - 20 - 6 = 24 → steps=8, taskNav=16.
 
-  const SIDEBAR_CHROME_ROWS = 10; // Tasks/Steps headers + dividers + gutters + TokenBudgetCard
+  const SIDEBAR_CHROME_ROWS = 20; // BaselineCard + Steps/Tasks headers + dividers + gutters + TokenBudgetCard
   const SIDEBAR_STEPS_CAP = 10; // max rows for the flow-steps rail in sidebar
   const SIDEBAR_TASK_NAV_MIN = 4; // minimum rows for the task-nav minimap
 

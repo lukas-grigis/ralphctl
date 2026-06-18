@@ -1,15 +1,17 @@
 /**
  * ImplementSidebar — left sidebar for the redesigned Implement view (≥140 col breakpoint).
  *
- * Contains:
+ * Section order (top → bottom):
  *
- *   1. Task nav list — PASSIVE minimap: highlights the card focused in the main area. No keyboard
+ *   1. BaselineHealthCard — bordered card at the top of the sidebar (not a chip). Shows the
+ *      harness verify-gate data (setup, pre/post verify, attribution) PLUS the generator and
+ *      evaluator model labels as a small meta block below the card.
+ *   2. Flow-steps rail — reuses `FlowStepsRail` verbatim. Compact/suppressed (`suppressMeta`)
+ *      when the sidebar is narrow; capped at `sidebarFlowStepsRows`.
+ *   3. Task nav list — PASSIVE minimap: highlights the card focused in the main area. No keyboard
  *      capture — the main-area TasksPanel is the sole input owner and reports its cursor via
  *      `focusedTaskId`. The list scrolls to keep the highlighted row visible.
- *   2. Flow-steps rail — reuses `FlowStepsRail` verbatim (same component as the three-column
- *      rail; its descriptor already carries the trace). Compact/suppressed when the sidebar is
- *      narrow; capped at `sidebarFlowStepsRows`.
- *   3. TokenBudgetCard at the bottom — shows cumulative token usage (honest claude-p style: raw
+ *   4. TokenBudgetCard at the bottom — shows cumulative token usage (honest claude-p style: raw
  *      totals when cumulative, context bar when plausible single-call).
  *
  * Width is fixed at `sidebarWidth` columns — never `flexGrow`. The sidebar column height is
@@ -29,10 +31,13 @@ import { Box, Text } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { OverflowRow } from '@src/application/ui/tui/components/windowed-list.tsx';
 import { TokenBudgetCard } from '@src/application/ui/tui/components/token-budget-card.tsx';
+import { BaselineHealthCard } from '@src/application/ui/tui/components/baseline-health-card.tsx';
 import { FlowStepsRail } from '@src/application/ui/tui/views/execute-view-internals/rail.tsx';
 import { SectionHeader } from '@src/application/ui/tui/views/execute-view-internals/section.tsx';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
 import type { TokenUsage } from '@src/application/ui/tui/runtime/use-token-usage.ts';
+import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
+import type { Task } from '@src/domain/entity/task.ts';
 import type {
   BucketedExecution,
   TaskBucket,
@@ -183,7 +188,77 @@ export interface ImplementSidebarProps {
    * placeholder so the operator sees the slot is live).
    */
   readonly tokenUsage?: TokenUsage;
+  /**
+   * Sprint execution state — feeds the BaselineHealthCard at the top of the sidebar.
+   * Undefined when the pinned sprint is stale or not yet loaded.
+   */
+  readonly executionState?: SprintExecution;
+  /**
+   * Task list — feeds the BaselineHealthCard (verify-run derivation + attribution counts).
+   * Undefined until the first baseline-health poll resolves.
+   */
+  readonly taskState?: readonly Task[];
+  /** Wall-clock timestamp — passed to the BaselineHealthCard for "N ago" labels. */
+  readonly now: number;
 }
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Model meta block — generator + evaluator model labels
+// ---------------------------------------------------------------------------
+
+/**
+ * Renders the generator and evaluator model names below the BaselineHealthCard.
+ *
+ * Rules:
+ *   - When both are defined and EQUAL → single `model <x>` line.
+ *   - When they differ → two lines: `generator <x>` + `evaluator <y>`.
+ *   - When a model is undefined → omit that line.
+ *   - Uses explicit `<Text> </Text>` separators — Ink collapses trailing spaces.
+ */
+const ModelMeta = ({
+  generatorModel,
+  evaluatorModel,
+}: {
+  readonly generatorModel: string | undefined;
+  readonly evaluatorModel: string | undefined;
+}): React.JSX.Element | null => {
+  if (generatorModel === undefined && evaluatorModel === undefined) return null;
+
+  const sameModel = generatorModel !== undefined && generatorModel === evaluatorModel;
+
+  return (
+    <Box flexDirection="column" paddingX={spacing.indent} marginTop={spacing.gutter}>
+      {sameModel ? (
+        <Box>
+          <Text dimColor>model</Text>
+          <Text> </Text>
+          <Text>{generatorModel}</Text>
+        </Box>
+      ) : (
+        <>
+          {generatorModel !== undefined && (
+            <Box>
+              <Text dimColor>generator</Text>
+              <Text> </Text>
+              <Text>{generatorModel}</Text>
+            </Box>
+          )}
+          {evaluatorModel !== undefined && (
+            <Box>
+              <Text dimColor>evaluator</Text>
+              <Text> </Text>
+              <Text>{evaluatorModel}</Text>
+            </Box>
+          )}
+        </>
+      )}
+    </Box>
+  );
+};
 
 // ---------------------------------------------------------------------------
 // Component
@@ -198,23 +273,25 @@ export const ImplementSidebar = ({
   isRunning,
   focusedTaskId,
   tokenUsage,
+  executionState,
+  taskState,
+  now,
 }: ImplementSidebarProps): React.JSX.Element => {
   const tasks = bucketed?.tasks ?? [];
   const nameById = descriptor.taskNames;
 
   return (
     <Box flexDirection="column" width={sidebarWidth} flexShrink={0}>
-      {/* ── 1. Task nav list (passive minimap) ───────────────────────────── */}
-      <SectionHeader title="Tasks" />
+      {/* ── 1. BaselineHealthCard — bordered card at the top of the sidebar ── */}
       <Box marginTop={spacing.gutter}>
-        <TaskNavList
-          tasks={tasks}
-          nameById={nameById}
-          visibleRows={sidebarTaskNavRows}
-          focusedTaskId={focusedTaskId}
-          sidebarWidth={sidebarWidth}
+        <BaselineHealthCard
+          {...(executionState !== undefined ? { execution: executionState } : {})}
+          {...(taskState !== undefined ? { tasks: taskState } : {})}
+          now={now}
+          width={sidebarWidth - spacing.indent}
         />
       </Box>
+      <ModelMeta generatorModel={descriptor.generatorModel} evaluatorModel={descriptor.evaluatorModel} />
 
       {/* ── 2. Flow-steps rail ───────────────────────────────────────────── */}
       {sidebarFlowStepsRows > 0 && (
@@ -233,7 +310,20 @@ export const ImplementSidebar = ({
         </>
       )}
 
-      {/* ── 3. TokenBudgetCard — context/token usage at the sidebar bottom ── */}
+      {/* ── 3. Task nav list (passive minimap) ───────────────────────────── */}
+      <SidebarDivider width={sidebarWidth} />
+      <SectionHeader title="Tasks" />
+      <Box marginTop={spacing.gutter}>
+        <TaskNavList
+          tasks={tasks}
+          nameById={nameById}
+          visibleRows={sidebarTaskNavRows}
+          focusedTaskId={focusedTaskId}
+          sidebarWidth={sidebarWidth}
+        />
+      </Box>
+
+      {/* ── 4. TokenBudgetCard — context/token usage at the sidebar bottom ── */}
       <SidebarDivider width={sidebarWidth} />
       <Box marginTop={spacing.gutter}>
         <TokenBudgetCard sessionId={descriptor.id} {...(tokenUsage !== undefined ? { usage: tokenUsage } : {})} />

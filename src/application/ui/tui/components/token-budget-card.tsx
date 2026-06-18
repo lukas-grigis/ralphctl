@@ -151,13 +151,14 @@ export const TokenBudgetCard = ({ sessionId, usage }: TokenBudgetCardProps): Rea
           )}
           <Box marginTop={spacing.gutter}>
             {isCumulative ? (
-              // Cumulative data: raw totals plainly; no "/window" or "N% bar".
-              // The claude -p provider reports spawn-total cacheRead that can hugely
-              // exceed the context window — a "100%" bar would be actively misleading.
+              // Cumulative data: raw totals labelled as session-cumulative; no "/window" or
+              // "N% bar". The claude -p provider reports spawn-total cacheRead that grows
+              // without bound — a "2.2M / 200k 100%" bar would be actively misleading.
+              // Inline Text node: "session: 240k (cumulative)" makes the accounting mode clear.
               <Text>
-                <Text dimColor>tok:</Text>
-                {` ${fmtTokens(totalUsed)}`}
-                <Text dimColor> cumul.</Text>
+                <Text dimColor>session:</Text>
+                {` ${fmtTokens(totalUsed)} `}
+                <Text dimColor>(cumulative)</Text>
               </Text>
             ) : (
               <Text>

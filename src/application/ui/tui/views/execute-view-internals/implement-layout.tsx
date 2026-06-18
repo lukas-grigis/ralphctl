@@ -29,8 +29,8 @@
  */
 
 import React, { useCallback, useState } from 'react';
-import { Box, Text } from 'ink';
-import { inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { Box } from 'ink';
+import { spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { ExecuteLayout } from '@src/application/ui/tui/views/execute-view-internals/layout.tsx';
 import { ImplementSidebar } from '@src/application/ui/tui/views/execute-view-internals/implement-sidebar.tsx';
 import { ImplementMainArea } from '@src/application/ui/tui/views/execute-view-internals/implement-main-area.tsx';
@@ -40,16 +40,6 @@ import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-t
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { TokenUsage } from '@src/application/ui/tui/runtime/use-token-usage.ts';
-
-// ---------------------------------------------------------------------------
-// Static dim column label (no focus state — there is only one cursor)
-// ---------------------------------------------------------------------------
-
-const ColumnLabel = ({ label }: { readonly label: string }): React.JSX.Element => (
-  <Box paddingX={spacing.indent}>
-    <Text color={inkColors.muted}>[{label}]</Text>
-  </Box>
-);
 
 // ---------------------------------------------------------------------------
 // Props
@@ -97,6 +87,7 @@ interface WideLayoutProps {
   readonly termColumns: number;
   readonly layout: ResponsiveLayout;
   readonly bucketed: BucketedExecution | undefined;
+  readonly executionState: SprintExecution | undefined;
   readonly taskState: readonly Task[] | undefined;
   readonly now: number;
   readonly tokenUsage?: TokenUsage;
@@ -109,6 +100,7 @@ const WideLayout = ({
   termColumns,
   layout,
   bucketed,
+  executionState,
   taskState,
   now,
   tokenUsage,
@@ -123,11 +115,10 @@ const WideLayout = ({
 
   return (
     <Box flexDirection="column" width={termColumns}>
-      {/* ── Column strip ─────────────────────────────────────────────── */}
+      {/* ── Column strip (no column labels — sections are self-labelled) ─── */}
       <Box flexDirection="row" marginTop={spacing.section}>
-        {/* ── Left: sidebar (passive minimap, navigation only + token budget) */}
+        {/* ── Left: sidebar (baseline card + steps + task-nav + token budget) */}
         <Box flexDirection="column" width={layout.sidebarWidth} flexShrink={0}>
-          <ColumnLabel label="nav" />
           <ImplementSidebar
             sidebarWidth={layout.sidebarWidth}
             sidebarTaskNavRows={layout.sidebarTaskNavRows}
@@ -136,13 +127,15 @@ const WideLayout = ({
             bucketed={bucketed}
             isRunning={isRunning}
             focusedTaskId={focusedTaskId}
+            now={now}
+            {...(executionState !== undefined ? { executionState } : {})}
+            {...(taskState !== undefined ? { taskState } : {})}
             {...(tokenUsage !== undefined ? { tokenUsage } : {})}
           />
         </Box>
 
         {/* ── Right: main area (sole input owner) ───────────────────────── */}
         <Box flexDirection="column" flexGrow={1} flexBasis={0} minWidth={0}>
-          <ColumnLabel label="tasks" />
           <ImplementMainArea
             bucketed={bucketed}
             descriptor={descriptor}
@@ -198,6 +191,7 @@ export const ImplementLayout = ({
         termColumns={termColumns}
         layout={layout}
         bucketed={bucketed}
+        executionState={executionState}
         taskState={taskState}
         now={now}
         inputActive={inputActive}

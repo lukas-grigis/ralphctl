@@ -90,36 +90,49 @@ describe('ExecuteView width regimes', () => {
     unmount();
   });
 
-  it('renders sidebar layout at 140 cols — HeaderCard + "Tasks" + "Steps" headers in the sidebar', async () => {
+  it('renders sidebar layout at 140 cols — sidebar order: Baseline → Steps → Tasks → Tokens, no column labels', async () => {
     const { frame, unmount } = await renderAt(140);
-    // The sidebar replaces the legacy "Flow steps" rail with a "Steps" section.
-    // The [nav] and [tasks] column labels replace the old [sidebar]/[tasks] pair.
-    expect(frame).toContain('[nav]');
-    expect(frame).toContain('[tasks]');
+    // The sidebar replaces the legacy "Flow steps" rail with "Steps" section.
+    // [nav] and [tasks] column labels have been removed (user ask #4).
+    expect(frame).not.toContain('[nav]');
+    expect(frame).not.toContain('[tasks]');
+    // Section headers present in sidebar (Baseline card title + Steps + Tasks sections).
+    expect(frame).toContain('Baseline');
     expect(frame).toContain('Tasks');
     expect(frame).toContain('Steps');
     expect(frame).not.toContain('Flow steps');
-    // The HeaderCard renders the session title (user ask #1: header restored at all widths).
-    // The TokenBudgetCard renders in the sidebar (user ask #2).
+    // TokenBudgetCard renders at sidebar bottom (user ask #3).
     expect(frame).toContain('Tokens');
+    // Sidebar order check using unambiguous markers:
+    //   Baseline → Steps → Tokens (all exclusively in the sidebar column).
+    //   "Tasks" is NOT used for the order check here because the TasksPanel empty-state
+    //   ("· Tasks panel empty") also contains "Tasks" and appears in the MAIN column at an
+    //   earlier row in the character stream — indexOf('Tasks') would find the wrong occurrence.
+    const baselineIdx = frame.indexOf('Baseline');
+    const stepsIdx = frame.indexOf('Steps');
+    const tokensIdx = frame.indexOf('Tokens');
+    expect(baselineIdx).toBeLessThan(stepsIdx);
+    expect(stepsIdx).toBeLessThan(tokensIdx);
     unmount();
   });
 
-  it('renders sidebar layout at 180 cols — HeaderCard + TokenBudgetCard in sidebar', async () => {
+  it('renders sidebar layout at 180 cols — no column labels, Baseline card present', async () => {
     const { frame, unmount } = await renderAt(180);
-    expect(frame).toContain('[nav]');
-    expect(frame).toContain('[tasks]');
+    expect(frame).not.toContain('[nav]');
+    expect(frame).not.toContain('[tasks]');
+    expect(frame).toContain('Baseline');
     expect(frame).toContain('Tasks');
     expect(frame).toContain('Steps');
-    // HeaderCard renders the session title and flow meta (user ask #1).
+    // HeaderCard renders the session title and flow meta.
     expect(frame).toContain('Tokens');
     unmount();
   });
 
-  it('renders sidebar layout at 240 cols (xxl breakpoint) without crashing', async () => {
+  it('renders sidebar layout at 240 cols (xxl breakpoint) — sidebar ~2/5 wide, no column labels', async () => {
     const { frame, unmount } = await renderAt(240);
-    expect(frame).toContain('[nav]');
-    expect(frame).toContain('[tasks]');
+    expect(frame).not.toContain('[nav]');
+    expect(frame).not.toContain('[tasks]');
+    expect(frame).toContain('Baseline');
     expect(frame).toContain('Tasks');
     expect(frame).toContain('Steps');
     expect(frame).toContain('Tokens');
