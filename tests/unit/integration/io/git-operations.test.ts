@@ -12,6 +12,8 @@ import {
   gitHasUncommittedChanges,
   gitResetHard,
   gitRevParseHead,
+  gitStashList,
+  gitStashPop,
   gitStashPush,
   gitStatusPorcelain,
 } from '@src/integration/io/git-operations.ts';
@@ -245,6 +247,76 @@ describe('gitStashPush', () => {
     const result = await gitStashPush(runner, cwd, 'preflight-stash');
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.value.stashed).toBe(true);
+  });
+});
+
+describe('gitStashList', () => {
+  it('returns empty list on an empty stash', async () => {
+    const { runner } = scriptRunner([{ args: ['stash', 'list', '--format=%s'], result: ok('') }]);
+    const result = await gitStashList(runner, cwd);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value).toEqual([]);
+  });
+
+  it('returns subjects in order, dropping the trailing blank line', async () => {
+    const { runner } = scriptRunner([{ args: ['stash', 'list', '--format=%s'], result: ok('msg1\nmsg2\n') }]);
+    const result = await gitStashList(runner, cwd);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value).toEqual(['msg1', 'msg2']);
+  });
+
+  it('surfaces non-zero exit as StorageError', async () => {
+    const { runner } = scriptRunner([
+      { args: ['stash', 'list', '--format=%s'], result: ok('', 128, 'fatal: not a git repository') },
+    ]);
+    const result = await gitStashList(runner, cwd);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain('not a git repository');
+  });
+});
+
+describe('gitStashPop', () => {
+  it('no-ops with popped:false when the message is not in the stash', async () => {
+    const { runner, received } = scriptRunner([
+      { args: ['stash', 'list', '--format=%s'], result: ok('other-stash\n') },
+    ]);
+    const result = await gitStashPop(runner, cwd, 'ralphctl-blocked-diff');
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.popped).toBe(false);
+    // Only the list call was issued — no pop.
+    expect(received).toHaveLength(1);
+  });
+
+  it('pops the entry at index 0', async () => {
+    const { runner, received } = scriptRunner([
+      { args: ['stash', 'list', '--format=%s'], result: ok('ralphctl-blocked-diff\nother\n') },
+      { args: ['stash', 'pop', 'stash@{0}'], result: ok() },
+    ]);
+    const result = await gitStashPop(runner, cwd, 'ralphctl-blocked-diff');
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.popped).toBe(true);
+    expect(received[1]?.args).toEqual(['stash', 'pop', 'stash@{0}']);
+  });
+
+  it('pops the entry at index 2 (third stash entry)', async () => {
+    const { runner, received } = scriptRunner([
+      { args: ['stash', 'list', '--format=%s'], result: ok('a\nb\nralphctl-blocked-diff\n') },
+      { args: ['stash', 'pop', 'stash@{2}'], result: ok() },
+    ]);
+    const result = await gitStashPop(runner, cwd, 'ralphctl-blocked-diff');
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.popped).toBe(true);
+    expect(received[1]?.args).toEqual(['stash', 'pop', 'stash@{2}']);
+  });
+
+  it('surfaces a non-zero pop exit as StorageError', async () => {
+    const { runner } = scriptRunner([
+      { args: ['stash', 'list', '--format=%s'], result: ok('ralphctl-blocked-diff\n') },
+      { args: ['stash', 'pop', 'stash@{0}'], result: ok('', 1, 'CONFLICT: merge conflict') },
+    ]);
+    const result = await gitStashPop(runner, cwd, 'ralphctl-blocked-diff');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain('CONFLICT');
   });
 });
 

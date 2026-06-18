@@ -231,6 +231,9 @@ const commitCapturingGit = (taskCount: number): CommitCapturingGit => {
       // --porcelain` (handled above — dirty for the just-blocked task) then `stash push -u -m …`.
       // Report success so the quarantine leaf records its pointer and the run proceeds.
       if (args[0] === 'stash' && args[1] === 'push') return okGit('Saved working directory\n', 0);
+      // restore-blocked-diff runs `stash list --format=%s` at the START of each attempt. No prior
+      // task was quarantined-then-retried in these tests → empty list → the leaf is a clean no-op.
+      if (args[0] === 'stash' && args[1] === 'list') return okGit('', 0);
       if (args[0] === 'commit' && args[1] === '-m') {
         messages.push(args[2] ?? '');
         cleanAfterCommit = true;
@@ -2064,6 +2067,8 @@ describe('createImplementFlow — gen-eval loop', () => {
         }
         if (args[0] === 'add' && args[1] === '-A') return okGit('', 0);
         if (args[0] === 'commit' && args[1] === '-m') return okGit('', 0);
+        // restore-blocked-diff runs `stash list` per attempt — empty here (no prior quarantine).
+        if (args[0] === 'stash' && args[1] === 'list') return okGit('', 0);
         if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
           return okGit('0000000000000000000000000000000000000000\n', 0);
         }

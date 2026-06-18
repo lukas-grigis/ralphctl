@@ -245,6 +245,54 @@ export const gitStashPush = async (
   return Result.ok({ stashed: true });
 };
 
+/**
+ * List stash entry subjects in the same order as `git stash list`. An empty stash yields
+ * `Result.ok([])`. Bubbles a non-zero exit (e.g. not a git repo) as StorageError so callers
+ * don't mistake a transport failure for an empty stash.
+ */
+export const gitStashList = async (runner: GitRunner, cwd: AbsolutePath): Promise<Result<string[], StorageError>> => {
+  const result = await runner.run(cwd, ['stash', 'list', '--format=%s']);
+  if (!result.ok) return Result.error(result.error);
+  if (result.value.exitCode !== 0) {
+    return Result.error(
+      new StorageError({
+        subCode: 'io',
+        message: `git stash list failed: ${(result.value.stderr || result.value.stdout).trim()}`,
+      })
+    );
+  }
+  return Result.ok(result.value.stdout.split('\n').filter((line) => line.length > 0));
+};
+
+/**
+ * Pop the first stash entry whose subject matches `message` exactly. Returns
+ * `{ popped: false }` (a no-op) when no entry matches — callers treat a missing stash as
+ * "nothing to restore", not an error.
+ */
+export const gitStashPop = async (
+  runner: GitRunner,
+  cwd: AbsolutePath,
+  message: string
+): Promise<Result<{ readonly popped: boolean }, StorageError>> => {
+  const list = await gitStashList(runner, cwd);
+  if (!list.ok) return Result.error(list.error);
+
+  const index = list.value.findIndex((entry) => entry === message);
+  if (index === -1) return Result.ok({ popped: false });
+
+  const pop = await runner.run(cwd, ['stash', 'pop', `stash@{${String(index)}}`]);
+  if (!pop.ok) return Result.error(pop.error);
+  if (pop.value.exitCode !== 0) {
+    return Result.error(
+      new StorageError({
+        subCode: 'io',
+        message: `git stash pop failed: ${(pop.value.stderr || pop.value.stdout).trim()}`,
+      })
+    );
+  }
+  return Result.ok({ popped: true });
+};
+
 /** `git reset --hard HEAD` followed by `git clean -fd`. Wipes uncommitted + untracked. */
 export const gitResetHard = async (runner: GitRunner, cwd: AbsolutePath): Promise<Result<void, StorageError>> => {
   const reset = await runner.run(cwd, ['reset', '--hard', 'HEAD']);

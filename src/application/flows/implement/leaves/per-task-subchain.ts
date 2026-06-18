@@ -28,6 +28,7 @@ import {
   quarantineRetryDiffLeaf,
 } from '@src/application/flows/implement/leaves/quarantine-retry-diff.ts';
 import { progressJournalLeaf } from '@src/application/flows/implement/leaves/progress-journal.ts';
+import { restoreBlockedDiffLeaf } from '@src/application/flows/implement/leaves/restore-blocked-diff.ts';
 import type { RepoExecConfig } from '@src/application/flows/implement/leaves/resolve-repo.ts';
 import { settleAttemptLeaf } from '@src/application/flows/implement/leaves/settle-attempt.ts';
 import { startAttemptLeaf } from '@src/application/flows/implement/leaves/start-attempt.ts';
@@ -227,6 +228,12 @@ export const createPerTaskSubchain = (
           `task-attempts-${String(taskId)}`,
           sequential<ImplementCtx>(`task-attempt-body-${String(taskId)}`, [
             startAttemptLeaf({ taskRepo: deps.taskRepo, clock: deps.clock, logger: deps.logger }, taskId),
+            // Restore a prior blocked diff (if any) at the START of each attempt so an escalation /
+            // retry continues from the prior AI work plus the evaluator critique instead of from a
+            // clean tree. A no-op when no matching stash exists (the common case); the quarantine
+            // stash is keyed on (sprintId, taskId) and shared across git worktrees, so this is safe
+            // on BOTH the serial and parallel paths — no conditional spread.
+            restoreBlockedDiffLeaf({ gitRunner: deps.gitRunner, logger: deps.logger }, { cwd: repo.path }, taskId),
             // PRE-task verify — captures the baseline state of the working tree BEFORE the AI runs
             // so the post-task-verify can attribute correctly: a red post on a green pre means the
             // AI regressed; a red post on a red pre is a pre-existing failure (don't blame the AI).

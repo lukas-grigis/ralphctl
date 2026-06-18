@@ -64,6 +64,16 @@ For the complete history — older than the excerpt above — read `{{PROGRESS_F
 {{GENERATOR_HINTS_SECTION}}
 
 <protocol>
+**Checkpoint write — do this first, before re-grading**
+
+If you have not already written a checkpoint `signals.json` for this round, write one now before
+continuing. Use `status: "failed"`, all four floor dimensions present, each set to
+`passed: false` with `finding: "assessment in progress"`. Use the path named in the output
+contract section at the bottom of this prompt. This placeholder is valid against the schema the
+harness validates — it ensures a recoverable file exists on disk if this session exhausts its
+token budget before you reach your final verdict. You will overwrite it after completing all steps
+below.
+
 Re-grade this round the same way you graded the first:
 
 1. Re-run each `auto` criterion's command directly and record the verbatim output. Do NOT run the

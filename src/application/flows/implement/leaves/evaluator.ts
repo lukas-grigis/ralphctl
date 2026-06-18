@@ -442,7 +442,11 @@ export const evaluatorLeaf = (deps: EvaluatorLeafDeps, taskId: TaskId): Element<
         ...ctx,
         currentTask: out.task,
         tasks,
-        ...(out.evaluation !== undefined ? { lastEvaluation: out.evaluation } : {}),
+        // Direct assignment (NOT a conditional spread): a self-blocked / signals-missing turn
+        // returns `out.evaluation === undefined`, and we must CLEAR `ctx.lastEvaluation` so
+        // `settle-attempt` never writes the prior round's verdict into this round's `outcome.md`.
+        // `ctx.ts` types `lastEvaluation?` so assigning `undefined` is valid + explicit.
+        lastEvaluation: out.evaluation,
         ...(nextHistory !== undefined ? { plateauHistory: nextHistory } : {}),
         ...sessionCarry,
       };

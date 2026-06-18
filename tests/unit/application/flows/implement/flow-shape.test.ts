@@ -382,6 +382,12 @@ describe('createPerTaskSubchain — quarantine-blocked-diff placement (serial-pa
     return body?.children ?? [];
   };
 
+  // The per-attempt segment is `task-attempt-body-<id>`, nested inside the `task-attempts-<id>` loop.
+  const attemptBodyChildren = (shape: ShapeNode): readonly ShapeNode[] => {
+    const body = findByName(shape, shape.name.replace('task-', 'task-attempt-body-'));
+    return body?.children ?? [];
+  };
+
   it('keeps the terminal uninstall-skills leaf as the LAST element on the serial path', () => {
     const children = taskBodyChildren(buildSubchain(true));
     const last = children[children.length - 1];
@@ -398,6 +404,14 @@ describe('createPerTaskSubchain — quarantine-blocked-diff placement (serial-pa
     // And the guard wraps the leaf itself (so it skips on a non-blocked task).
     const guardNode = children[quarantineIdx];
     expect(guardNode?.children?.[0]?.name).toMatch(/^quarantine-blocked-diff-/);
+  });
+
+  it('splices restore-blocked-diff as the second element of the attempt body (serial and parallel)', () => {
+    for (const serial of [true, false]) {
+      const body = attemptBodyChildren(buildSubchain(serial));
+      expect(body[0]?.name).toMatch(/^start-attempt-/);
+      expect(body[1]?.name).toMatch(/^restore-blocked-diff-/);
+    }
   });
 
   it('OMITS the quarantine leaf on the parallel path (includeBranchPreflight === false)', () => {
