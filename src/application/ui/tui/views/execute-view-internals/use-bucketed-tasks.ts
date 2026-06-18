@@ -51,6 +51,15 @@ export const useBucketedTasks = ({
   signals,
   eventBus,
 }: UseBucketedInput): BucketedDerivation => {
+  // Stable array of known task ids — only recomputed when the task set itself changes, not on
+  // every chain-event or signal flush. Hoisted out of rawBucketed so the [...keys()] spread
+  // does not produce a new array reference on every bucketTaskSignals call.
+  const knownTaskIds = useMemo(
+    () => (descriptor?.taskNames !== undefined ? [...descriptor.taskNames.keys()] : undefined),
+
+    [descriptor?.taskNames]
+  );
+
   const rawBucketed = useMemo(
     () =>
       descriptor
@@ -64,10 +73,15 @@ export const useBucketedTasks = ({
             // makes pending rows appear in the panel even when the chain failed before per-task
             // work started (e.g. setup-script-runner abort). Without this, a sprint with real
             // tasks renders the misleading "panel empty · Run plan" empty state.
-            ...(descriptor.taskNames !== undefined ? { knownTaskIds: [...descriptor.taskNames.keys()] } : {}),
+            ...(knownTaskIds !== undefined ? { knownTaskIds } : {}),
           })
         : undefined,
-    [descriptor, chainEvents, signals]
+    // Use chainEvents.length and signals.length (not the array references themselves) so this
+    // memo only re-runs when events are actually added or the oldest is evicted — not on every
+    // 60 ms coalescer flush that replaces the array reference with the same logical content.
+    // The closure still captures the latest chainEvents / signals values at execution time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [descriptor, chainEvents.length, signals.length, knownTaskIds]
   );
 
   const taskRounds = useTaskRoundTracker(eventBus);

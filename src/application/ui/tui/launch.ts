@@ -95,27 +95,31 @@ const createHeapCriticalHandler = (args: {
 }): (() => void) => {
   const { logger, logForwarder, harnessBus, logBus } = args;
   return () => {
-    // Best-effort heap snapshot — the actual diagnostic. v8.writeHeapSnapshot streams to disk
-    // (does not copy the heap into RAM) so it should fit in the ~5% headroom at the 0.95 ratio;
-    // it is best-effort by design (try/catch, no retries) — failing here must not crash us
-    // further. The helper never throws; we log the outcome loudly either way.
-    const snapshot = writeHeapSnapshotToDir('.diagnostics');
-    if (snapshot.ok) {
-      logger.warn(
-        `heap critical — wrote heap snapshot to ${snapshot.path}; ` +
-          'open it in Chrome DevTools › Memory to find the dominant retainer'
-      );
-    } else {
-      logger.error(`heap critical — could not write heap snapshot: ${snapshot.error}`);
-    }
-
-    // Defensive buffer-clear: cheap and harmless, but frees little (these buffers are
-    // small-capped). Drop (do NOT flush) the batch the forwarder is holding, then clear the
-    // buses. Flushing here would re-emit the held window into `logBus` immediately before we
-    // empty it — pointless churn. discard() empties the window without emitting.
+    // Defensive buffer-clear: synchronous, fast in-memory ops — run these first so memory is
+    // reclaimed immediately (before the snapshot write steals time). Drop (do NOT flush) the
+    // batch the forwarder is holding; flushing would re-emit into `logBus` immediately before
+    // we empty it — pointless churn. discard() empties the window without emitting.
     logForwarder.discard();
     harnessBus.clear();
     logBus.clear();
+
+    // Heap snapshot deferred off the hot path via setImmediate. v8.writeHeapSnapshot() is a
+    // synchronous V8 operation that blocks the Node.js event loop for several seconds on large
+    // heaps — manifesting as a complete TUI freeze if called here synchronously. Deferring with
+    // setImmediate gives the event loop one turn to process any pending work (re-render, GC
+    // from the buffer clears above) before we block it. The snapshot is purely diagnostic; a
+    // one-tick delay has no operational impact.
+    setImmediate(() => {
+      const snapshot = writeHeapSnapshotToDir('.diagnostics');
+      if (snapshot.ok) {
+        logger.warn(
+          `heap critical — wrote heap snapshot to ${snapshot.path}; ` +
+            'open it in Chrome DevTools › Memory to find the dominant retainer'
+        );
+      } else {
+        logger.error(`heap critical — could not write heap snapshot: ${snapshot.error}`);
+      }
+    });
   };
 };
 
