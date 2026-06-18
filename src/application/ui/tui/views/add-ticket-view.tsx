@@ -2,15 +2,21 @@
  * Add-ticket view — interactive wizard that funnels through the `ticket-add` use case so the
  * TUI and CLI share one append path. Walks: link → (fetch + prefill, when an `IssueFetcher`
  * is wired and the URL is non-empty) → title → description → confirm. Mirrors the chain-side
- * `interactive-add-loop` ordering so the URL becomes the source of truth: enter a GitHub /
- * GitLab issue URL and we pre-fill title + description from the issue body, so the user
- * doesn't copy-paste them by hand. Empty URL skips the fetch and falls back to manual entry.
+ * ordering so the URL becomes the source of truth: enter a GitHub / GitLab issue URL and we
+ * pre-fill title + description from the issue body, so the user doesn't copy-paste them by
+ * hand. Empty URL skips the fetch and falls back to manual entry.
+ *
+ * This is the ONE canonical "add tickets to a sprint" path (the redundant `add-tickets` chain
+ * flow was removed). To keep the user in the flow of adding things, a successful save no longer
+ * pops the view immediately: it lands on an `added` step that shows a brief acknowledgement plus
+ * a running session count and an "Add another ticket?" confirm. Answering YES resets the machine
+ * to a fresh `link` step (preserving the incremented count); answering NO pops the view.
  *
  * The sprint must be in `draft` (the use case enforces this) — non-draft sprints surface as
  * an error step.
  *
  * Step machine + per-step prompt views + the review scroll viewport all live under
- * `add-ticket-internals/`; this file owns the side-effects (fetcher dispatch, submit).
+ * `add-ticket-internals/`; this file owns the side-effects (fetcher dispatch, submit, count).
  */
 
 import React, { useEffect, useState } from 'react';
@@ -36,6 +42,9 @@ export const AddTicketView = (): React.JSX.Element => {
   const ui = useUiState();
   const { sprintId } = useViewProps<AddTicketProps>();
   const [step, setStep] = useState<Step>({ kind: 'link' });
+  // Tickets successfully appended during this view session. Drives the success-line counter and
+  // survives the `added` → fresh-`link` loop so each round shows the running total.
+  const [addedCount, setAddedCount] = useState(0);
 
   const claimPrompt = ui.claimPrompt;
   useEffect(() => claimPrompt(), [claimPrompt]);
@@ -80,13 +89,21 @@ export const AddTicketView = (): React.JSX.Element => {
       setStep({ kind: 'error', message: result.error.error.message });
       return;
     }
-    router.pop();
+    // Stay in the flow: increment the session count and land on the `added` step, which offers
+    // "Add another ticket?". YES resets the machine to a fresh `link` (handled in StepView); NO
+    // pops the view. The count is read back via the functional updater so concurrent saves can't
+    // race a stale closure value.
+    setAddedCount((prev) => {
+      const next = prev + 1;
+      setStep({ kind: 'added', title: s.title.trim(), count: next });
+      return next;
+    });
   };
 
   return (
     <ViewShell title="Add ticket" subtitle="Append a pending ticket to the current sprint.">
       <Box flexDirection="column">
-        <HeaderCard step={step} />
+        <HeaderCard step={step} addedCount={addedCount} />
         <Box marginTop={spacing.section} flexDirection="column">
           <StepView step={step} onChange={setStep} onCancel={cancel} onSubmit={submit} />
         </Box>

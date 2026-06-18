@@ -22,6 +22,11 @@ import {
   tick,
 } from '@tests/integration/application/ui/tui/_keys.ts';
 
+/** Wrap a payload in bracketed-paste markers (DEC mode 2004). */
+const PASTE_START = `${String.fromCharCode(27)}[200~`;
+const PASTE_END = `${String.fromCharCode(27)}[201~`;
+const bracketed = (payload: string): string => `${PASTE_START}${payload}${PASTE_END}`;
+
 describe('TextPrompt', () => {
   it('appends typed characters to the buffer', async () => {
     const onSubmit = vi.fn();
@@ -208,6 +213,86 @@ describe('TextPrompt', () => {
     stdin.write(ENTER);
     await tick();
     expect(onSubmit).toHaveBeenCalledWith('hi!');
+    unmount();
+  });
+
+  it('flattens a multi-line bracketed paste to a single line and does NOT submit', async () => {
+    const onSubmit = vi.fn();
+    const { stdin, unmount } = render(<TextPrompt message="Name" onSubmit={onSubmit} onCancel={() => undefined} />);
+    stdin.write(bracketed('first line\r\nsecond line'));
+    await tick();
+    expect(onSubmit).not.toHaveBeenCalled();
+    stdin.write(ENTER);
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith('first line second line');
+    unmount();
+  });
+
+  it('never leaks bracketed-paste marker bytes into a single-line field', async () => {
+    const onSubmit = vi.fn();
+    const { stdin, lastFrame, unmount } = render(
+      <TextPrompt message="Name" onSubmit={onSubmit} onCancel={() => undefined} />
+    );
+    stdin.write(bracketed('clean'));
+    await tick();
+    expect(lastFrame()).not.toContain('200~');
+    expect(lastFrame()).not.toContain('201~');
+    stdin.write(ENTER);
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith('clean');
+    unmount();
+  });
+
+  it('inserts a flattened bracketed paste at the cursor position', async () => {
+    const onSubmit = vi.fn();
+    const { stdin, unmount } = render(<TextPrompt message="Name" onSubmit={onSubmit} onCancel={() => undefined} />);
+    stdin.write('ac');
+    await tick();
+    stdin.write(LEFT);
+    await tick();
+    stdin.write(bracketed('b1\nb2'));
+    await tick();
+    stdin.write(ENTER);
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith('ab1 b2c');
+    unmount();
+  });
+
+  it('fallback: a single-chunk multi-line paste (no markers) is flattened to spaces', async () => {
+    const onSubmit = vi.fn();
+    const { stdin, unmount } = render(<TextPrompt message="Name" onSubmit={onSubmit} onCancel={() => undefined} />);
+    stdin.write('alpha\r\nbeta');
+    await tick();
+    expect(onSubmit).not.toHaveBeenCalled();
+    stdin.write(ENTER);
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith('alpha beta');
+    unmount();
+  });
+
+  it('still inserts a typed space verbatim (not collapsed by the paste fallback)', async () => {
+    const onSubmit = vi.fn();
+    const { stdin, unmount } = render(<TextPrompt message="Name" onSubmit={onSubmit} onCancel={() => undefined} />);
+    stdin.write('a');
+    await tick();
+    stdin.write(' ');
+    await tick();
+    stdin.write('b');
+    await tick();
+    stdin.write(ENTER);
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith('a b');
+    unmount();
+  });
+
+  it('genuine Enter still submits', async () => {
+    const onSubmit = vi.fn();
+    const { stdin, unmount } = render(<TextPrompt message="Name" onSubmit={onSubmit} onCancel={() => undefined} />);
+    stdin.write('typed');
+    await tick();
+    stdin.write(ENTER);
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith('typed');
     unmount();
   });
 });

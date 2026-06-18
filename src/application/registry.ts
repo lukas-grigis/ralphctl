@@ -1,7 +1,6 @@
 import type { SprintStatus } from '@src/domain/entity/sprint.ts';
 import { createSprintManifest } from '@src/application/flows/create-sprint/manifest.ts';
 import { refineManifest } from '@src/application/flows/refine/manifest.ts';
-import { addTicketsManifest } from '@src/application/flows/add-tickets/manifest.ts';
 import { planManifest } from '@src/application/flows/plan/manifest.ts';
 import { readinessManifest } from '@src/application/flows/readiness/manifest.ts';
 import { detectScriptsManifest } from '@src/application/flows/detect-scripts/manifest.ts';
@@ -89,7 +88,6 @@ export const flowRegistry: readonly FlowEntry[] = [
   { manifest: createSprintManifest },
   { manifest: ideateManifest },
   { manifest: refineManifest },
-  { manifest: addTicketsManifest },
   { manifest: planManifest },
   { manifest: readinessManifest },
   { manifest: detectScriptsManifest },

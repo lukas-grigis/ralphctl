@@ -3,7 +3,7 @@
  * returns the set of flow ids that should be visible.
  *
  * Sprint-scoped flows are gated by `sprint.status`:
- *  - `draft`   → refine, add-tickets, plan, ticket-remove
+ *  - `draft`   → refine, plan, ticket-remove
  *  - `planned` → implement, remove-ticket
  *  - `active`  → implement
  *  - `review`  → review, close-sprint
@@ -25,7 +25,6 @@ import type { SprintStatus } from '@src/domain/entity/sprint.ts';
 /** Sprint-scoped flow ids — only meaningful when a sprint is selected. */
 export const SPRINT_SCOPED_FLOW_IDS: readonly string[] = [
   'refine',
-  'add-tickets',
   'plan',
   'implement',
   'review',
@@ -69,7 +68,7 @@ const HIDDEN_SET: ReadonlySet<string> = new Set(HIDDEN_BY_DEFAULT_FLOW_IDS);
  * `showAll` is on).
  */
 const ALLOWED_BY_STATUS: Readonly<Record<SprintStatus, ReadonlySet<string>>> = {
-  draft: new Set(['refine', 'add-tickets', 'plan', 'remove-ticket']),
+  draft: new Set(['refine', 'plan', 'remove-ticket']),
   planned: new Set(['implement', 'remove-ticket']),
   active: new Set(['implement']),
   review: new Set(['review', 'close-sprint']),

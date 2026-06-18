@@ -19,10 +19,9 @@ describe('visibleFlowsFor', () => {
     for (const id of SPRINT_SCOPED_FLOW_IDS) expect(visible.has(id)).toBe(false);
   });
 
-  it('draft sprint: refine + add-tickets + plan + ticket-remove are visible; ticket-add is not', () => {
+  it('draft sprint: refine + plan + ticket-remove are visible; ticket-add is not', () => {
     const visible = visibleFlowsFor({ hasProject: true, sprintStatus: 'draft', showAll: false });
     expect(visible.has('refine')).toBe(true);
-    expect(visible.has('add-tickets')).toBe(true);
     expect(visible.has('plan')).toBe(true);
     expect(visible.has('remove-ticket')).toBe(true);
     expect(visible.has('add-ticket')).toBe(false);
@@ -51,7 +50,7 @@ describe('visibleFlowsFor', () => {
     const visible = visibleFlowsFor({ hasProject: true, sprintStatus: 'review', showAll: false });
     expect(visible.has('review')).toBe(true);
     expect(visible.has('close-sprint')).toBe(true);
-    for (const id of ['refine', 'plan', 'implement', 'add-tickets', 'create-pr']) {
+    for (const id of ['refine', 'plan', 'implement', 'create-pr']) {
       expect(visible.has(id)).toBe(false);
     }
   });

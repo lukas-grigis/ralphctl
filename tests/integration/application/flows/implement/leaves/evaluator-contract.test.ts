@@ -505,4 +505,34 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
     // Original + exactly one corrective retry — never loops.
     expect(mock.invocations).toHaveLength(2);
   });
+
+  // ── Stale-clear: a self-blocked round must CLEAR a prior round's lastEvaluation ──
+  // Regression guard: the output projection used to spread `lastEvaluation` conditionally, so a
+  // signals-missing (self-blocked) round left the PRIOR round's verdict on `ctx.lastEvaluation`.
+  // `settle-attempt` then wrote `outcome.md` attributing a stale verdict to the failing round.
+  // The fix assigns `lastEvaluation: out.evaluation` directly, clearing it to `undefined`.
+  it('self-blocked round clears the prior round lastEvaluation (no stale verdict carried)', async () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    // Round 1 succeeds against rounds/1/...; round 2 returns signals-missing against rounds/2/...
+    const round1Signals = join(String(root.root), 'rounds', '1', 'evaluator', 'signals.json');
+    const round2Signals = join(String(root.root), 'rounds', '2', 'evaluator', 'signals.json');
+    const fixtures = new Map<string, SpawnFixture>([
+      [round1Signals, { kind: 'ok', payload: { schemaVersion: 1, signals: [passedEvaluation] } }],
+      [round2Signals, { kind: 'ok-missing' }],
+    ]);
+    const leaf = evaluatorLeaf(buildDeps(fixtures).deps, task.id);
+
+    // Round 1 — verdict lands on ctx.lastEvaluation.
+    const round1 = await leaf.execute(baseCtx(task));
+    expect(round1.ok).toBe(true);
+    if (!round1.ok) return;
+    expect(round1.value.ctx.lastEvaluation?.status).toBe('passed');
+
+    // Round 2 — self-blocked, runs against the SAME threaded ctx with the round bumped.
+    const round2 = await leaf.execute({ ...round1.value.ctx, currentRoundNum: 2 });
+    expectSelfBlock(round2, 'signals-missing');
+    if (!round2.ok) return;
+    // The prior round's verdict MUST NOT survive into the failing round.
+    expect(round2.value.ctx.lastEvaluation).toBeUndefined();
+  });
 });

@@ -32,6 +32,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
+import { normalizePasteNewlines, stripPasteMarkers, usePaste } from '@src/application/ui/tui/prompts/use-paste.ts';
 
 export interface TextAreaPromptProps {
   readonly message: string;
@@ -142,6 +143,19 @@ export const TextAreaPrompt = ({
     setCursor(value);
   };
 
+  // Insert literal pasted text at the cursor, newlines preserved. A pasted newline is never a
+  // submit — that ambiguity is exactly why bracketed paste exists. Routed through the same
+  // updateBufAndCursor seam so the refs stay the synchronous source of truth.
+  const insertAtCursor = (text: string): void => {
+    if (text.length === 0) return;
+    updateBufAndCursor((b, c) => [b.slice(0, c) + text + b.slice(c), c + text.length]);
+    desiredColRef.current = null;
+  };
+
+  // Bracketed-paste channel: the controller buffers chunks across keystrokes and delivers the
+  // whole payload here once the closing marker arrives (markers stripped, newlines normalized).
+  const paste = usePaste(insertAtCursor);
+
   useEffect(() => {
     const id = setInterval(() => setCaretOn((v) => !v), 500);
     return () => {
@@ -164,6 +178,9 @@ export const TextAreaPrompt = ({
   }, [firstVisible, windowStart]);
 
   useInput((input, key) => {
+    // Bracketed paste first: a start marker (or a chunk mid-paste) is consumed here so its bytes
+    // and embedded line breaks never reach the key-dispatch branches below — no premature submit.
+    if (paste.consume(input)) return;
     if (key.escape) {
       onCancel();
       return;
@@ -292,12 +309,13 @@ export const TextAreaPrompt = ({
       desiredColRef.current = null;
       return;
     }
-    // Printable characters incl. pasted text. Paste may include `\n`; keep it. Mouse SGR reports
-    // are rejected — the field is keyboard-only and a leaked wheel event must not type stray bytes.
+    // Printable characters incl. pasted text. Mouse SGR reports are rejected — the field is
+    // keyboard-only and a leaked wheel event must not type stray bytes. Fallback for terminals
+    // that don't honour mode 2004: a single-chunk paste lands here, so strip any stray paste
+    // markers and normalize `\r\n`/`\r` → `\n` before inserting (kept multi-line, never submit).
     if (input.length > 0 && !key.meta && !key.ctrl && !key.tab && !isMouseReport(input)) {
-      const ins = input;
-      updateBufAndCursor((b, c) => [b.slice(0, c) + ins + b.slice(c), c + ins.length]);
-      desiredColRef.current = null;
+      const ins = normalizePasteNewlines(stripPasteMarkers(input));
+      insertAtCursor(ins);
     }
   });
 

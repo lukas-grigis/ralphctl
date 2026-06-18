@@ -33,7 +33,6 @@ import { resolveEffort } from '@src/business/settings/resolve-effort.ts';
 import type { RunInTerminal } from '@src/application/ui/shared/run-in-terminal.ts';
 import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts';
 import { launchCreateSprint } from '@src/application/ui/shared/launch/create-sprint.ts';
-import { launchAddTickets } from '@src/application/ui/shared/launch/add-tickets.ts';
 import { launchRefine } from '@src/application/ui/shared/launch/refine.ts';
 import { launchPlan } from '@src/application/ui/shared/launch/plan.ts';
 import { launchImplement } from '@src/application/ui/shared/launch/implement.ts';
@@ -406,8 +405,6 @@ export const launchFlow = async (
     switch (flowId) {
       case 'create-sprint':
         return launchCreateSprint(ctx);
-      case 'add-tickets':
-        return launchAddTickets(ctx);
       case 'refine':
         return launchRefine(ctx);
       case 'plan':

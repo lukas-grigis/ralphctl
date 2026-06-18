@@ -532,7 +532,6 @@ describe('ExecuteView', () => {
       ['detect-skills', 'Detect Skills'],
       ['create-sprint', 'Create Sprint'],
       ['close-sprint', 'Close Sprint'],
-      ['add-tickets', 'Add Tickets'],
       ['add-ticket', 'Add Ticket'],
       ['remove-ticket', 'Remove Ticket'],
       ['export-context', 'Export Context'],

@@ -407,7 +407,7 @@ export const replaceTicket = (
 /**
  * Guard: assert the sprint is in one of the allowed statuses. Returns ok when satisfied,
  * `InvalidStateError` with the structured detail when not. Used by chain guard leaves to
- * gate flow entry (`'planned'|'active'` for implement, `'draft'` for add-tickets, etc.).
+ * gate flow entry (`'planned'|'active'` for implement, `'draft'` for add-ticket, etc.).
  */
 export const assertSprintStatus = (
   sprint: Sprint,

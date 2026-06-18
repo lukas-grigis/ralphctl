@@ -24,6 +24,26 @@ import { type Instance as InkInstance, render } from 'ink';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import type { RunInTerminal } from '@src/integration/io/run-in-terminal.ts';
 
+/**
+ * DEC private mode 2004 — bracketed paste. With it on, the terminal wraps pasted content in
+ * `ESC[200~` … `ESC[201~` so the prompts can tell a paste apart from typed keystrokes (without
+ * it, pasted line breaks arrive as bare `\r` and Ink reports them as Enter → premature submit and
+ * collapsed multi-line input). Enabled on mount, disabled on teardown so the mode never leaks into
+ * the user's shell. Best-effort + TTY-guarded: a non-TTY (pipe / CI) writes nothing.
+ */
+const BRACKETED_PASTE_ON = '\x1b[?2004h';
+const BRACKETED_PASTE_OFF = '\x1b[?2004l';
+
+const setBracketedPaste = (enabled: boolean): void => {
+  if (!process.stdout.isTTY) return;
+  try {
+    process.stdout.write(enabled ? BRACKETED_PASTE_ON : BRACKETED_PASTE_OFF);
+  } catch {
+    // Best-effort: a closed/erroring stdout must not crash the host. The prompts keep a
+    // normalization fallback for terminals that never honoured the mode anyway.
+  }
+};
+
 export interface InkHostDeps {
   readonly appElement: ReactElement;
   /**
@@ -45,7 +65,12 @@ export interface InkHost {
 
 export const createInkHost = (deps: InkHostDeps): InkHost => {
   const alternateScreen = deps.alternateScreen ?? true;
-  const renderOnce = (): InkInstance => render(deps.appElement, { alternateScreen });
+  const renderOnce = (): InkInstance => {
+    // Enable bracketed paste alongside the mount; disabled on every unmount path below so it does
+    // not bleed into a paused AI session or the user's shell after shutdown.
+    setBracketedPaste(true);
+    return render(deps.appElement, { alternateScreen });
+  };
 
   let instance: InkInstance = renderOnce();
   let pausing: Promise<void> | undefined;
@@ -58,6 +83,9 @@ export const createInkHost = (deps: InkHostDeps): InkHost => {
     const current = instance;
     current.unmount();
     await current.waitUntilExit();
+    // The user owns the terminal while `fn` runs — turn bracketed paste off so a paste into the
+    // AI session isn't wrapped in markers. `renderOnce()` re-enables it when the TUI remounts.
+    setBracketedPaste(false);
     try {
       return await fn();
     } finally {
@@ -68,6 +96,16 @@ export const createInkHost = (deps: InkHostDeps): InkHost => {
   };
 
   const waitForShutdown = async (): Promise<void> => {
+    try {
+      return await runShutdownLoop();
+    } finally {
+      // Whatever exit path we leave on (clean quit, fatal error, AbortError re-throw), disable
+      // bracketed paste so the mode never leaks into the user's shell after the TUI is gone.
+      setBracketedPaste(false);
+    }
+  };
+
+  const runShutdownLoop = async (): Promise<void> => {
     for (;;) {
       try {
         await instance.waitUntilExit();

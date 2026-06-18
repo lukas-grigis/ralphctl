@@ -136,6 +136,39 @@ from the task description, (3) plan which shell commands to run first.
 
 ## Review protocol
 
+### Phase 0 — Checkpoint write (do this first, before any verification)
+
+Write `signals.json` now with placeholder verdicts — `status: "failed"`, all four floor dimensions
+present, each set to `passed: false` with `finding: "assessment in progress"`. Use the schema and
+path shown in the output contract section at the bottom of this prompt.
+
+This preliminary write is NOT your final verdict. You will overwrite the file with the real verdict
+after Phase 4. Writing it first ensures the harness can recover via corrective retry if this session
+exhausts its token budget mid-analysis — a session that runs out during Phases 1–3 leaves a valid
+`signals.json` on disk rather than a missing one, allowing the harness to prompt a cheaper follow-up
+rather than restarting from scratch.
+
+```json
+{
+  "schemaVersion": 1,
+  "signals": [
+    {
+      "type": "evaluation",
+      "status": "failed",
+      "dimensions": [
+        { "dimension": "correctness", "passed": false, "finding": "assessment in progress" },
+        { "dimension": "completeness", "passed": false, "finding": "assessment in progress" },
+        { "dimension": "safety", "passed": false, "finding": "assessment in progress" },
+        { "dimension": "consistency", "passed": false, "finding": "assessment in progress" }
+      ],
+      "timestamp": "<ISO-8601 timestamp>"
+    }
+  ]
+}
+```
+
+Write this file, then proceed to Phase 1.
+
 ### Phase 1 — Computational verification
 
 Open with a thinking block: list the criteria you will grade and any red flags from the task description.

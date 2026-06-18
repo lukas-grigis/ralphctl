@@ -44,7 +44,7 @@ const emptyDeps: AppDeps = {
  * snapshot several sprint-scoped flows are visible but gated:
  *   - Refine: dimmed — Requires at least 1 pending ticket(s) (have 0).
  *   - Plan:   dimmed — Requires at least 1 approved ticket(s) (have 0).
- *   - Add tickets, Ticket add/remove: enabled (no extra trigger beyond draft status).
+ *   - Remove ticket: enabled (no extra trigger beyond draft status).
  */
 const makeProjectSprintDeps = (
   project: Partial<Project> & { readonly id: ProjectId },
@@ -161,7 +161,7 @@ describe('FlowsView', () => {
     // Draft sprint with zero tickets → Refine and Plan are visible but gated. Their trigger
     // reasons should appear in the rendered frame regardless of which row has the cursor. Both
     // reasons must be present because ActionMenu now annotates every disabled row, not just the
-    // focused one. The cursor will land on the first eligible row (Add tickets), so Refine and
+    // focused one. The cursor will land on the first eligible row (Remove ticket), so Refine and
     // Plan are non-focused — this asserts that the "not focused" path renders the reason too.
     const deps = makeProjectSprintDeps({ id: FIXED_PROJECT_ID }, { id: FIXED_SPRINT_ID, projectId: FIXED_PROJECT_ID });
     const { result } = renderView(<FlowsView />, {
@@ -182,21 +182,22 @@ describe('FlowsView', () => {
   });
 
   it('does not render a trigger reason next to an eligible flow', async () => {
-    // "Add tickets" has only `currentSprintStatus: ['draft']` as a trigger — fully satisfied.
-    // With a draft sprint selected it must appear without any reason annotation.
+    // "Remove ticket" has only `currentSprintStatus: ['draft']` as a trigger — fully satisfied.
+    // With a draft sprint selected it must appear without any reason annotation. (The old
+    // `add-tickets` flow used here was removed; tickets are now added via the `a` shortcut wizard.)
     const deps = makeProjectSprintDeps({ id: FIXED_PROJECT_ID }, { id: FIXED_SPRINT_ID, projectId: FIXED_PROJECT_ID });
     const { result } = renderView(<FlowsView />, {
       deps,
       initial: { id: 'flows' },
       selection: { projectId: FIXED_PROJECT_ID, sprintId: FIXED_SPRINT_ID },
     });
-    // Wait for the async project + sprint load to settle so the sprint-scoped "Add tickets" row
+    // Wait for the async project + sprint load to settle so the sprint-scoped "Remove ticket" row
     // is rendered. This was the flake source: a fixed tick(40) under coverage instrumentation
-    // could capture the frame before the load resolved, so "Add tickets" was absent.
-    await waitFor(() => (result.lastFrame() ?? '').includes('Add tickets'));
+    // could capture the frame before the load resolved, so the row was absent.
+    await waitFor(() => (result.lastFrame() ?? '').includes('Remove ticket'));
     const frame = result.lastFrame() ?? '';
-    // The "Add tickets" row should appear.
-    expect(frame).toContain('Add tickets');
+    // The "Remove ticket" row should appear.
+    expect(frame).toContain('Remove ticket');
     // An eligible row must not carry any project-missing reason (new copy: "Select a project
     // first"). Verify the orientation card wording is distinct from flow disabled reasons.
     expect(frame).not.toContain('No project is loaded.');
