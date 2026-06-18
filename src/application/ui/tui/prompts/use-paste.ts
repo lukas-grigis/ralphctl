@@ -25,7 +25,7 @@
  * inside one chunk is also tolerated.
  */
 
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 
 const ESC = String.fromCharCode(27);
 /** `ESC[200~` and the bare `[200~` Ink leaves after stripping a leading ESC. */
@@ -71,13 +71,52 @@ export interface PasteController {
  * Build a paste controller bound to `onPaste`. The pending-buffer lives in a ref so it survives
  * across `useInput` invocations (Ink fires one per stdin chunk) without forcing a re-render.
  */
+/**
+ * Max time (ms) to wait for the closing `[201~` marker after the opening one arrives.
+ * Large pastes can be split across stdin reads; the OS typically delivers all chunks within
+ * a single event-loop tick, but give a 150 ms window to be safe. If the marker never arrives
+ * (e.g. the terminal sent a malformed sequence), the watchdog flushes whatever was buffered so
+ * the prompt is never permanently locked out of scroll/key input.
+ */
+const PASTE_WATCHDOG_MS = 150;
+
 export const usePaste = (onPaste: (payload: string) => void): PasteController => {
   // `undefined` = not currently inside a paste. A string (possibly empty) = accumulating body.
   const pending = useRef<string | undefined>(undefined);
+  // Hold the timer ID so it can be cancelled when the end marker arrives normally.
+  const watchdog = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // Stable ref so the timer callback always calls the latest onPaste (avoids stale-closure bugs
+  // when the parent re-renders with a new insertAtCursor closure between chunks).
+  const onPasteRef = useRef(onPaste);
+  onPasteRef.current = onPaste;
+
+  const cancelWatchdog = (): void => {
+    if (watchdog.current !== undefined) {
+      clearTimeout(watchdog.current);
+      watchdog.current = undefined;
+    }
+  };
+
+  // Arm (or reset) the watchdog. Called each time we enter or extend a pending paste.
+  const armWatchdog = (): void => {
+    cancelWatchdog();
+    watchdog.current = setTimeout(() => {
+      watchdog.current = undefined;
+      if (pending.current !== undefined) {
+        const payload = pending.current;
+        pending.current = undefined;
+        onPasteRef.current(normalizePasteNewlines(stripPasteMarkers(payload)));
+      }
+    }, PASTE_WATCHDOG_MS);
+  };
 
   const flush = (raw: string): void => {
-    onPaste(normalizePasteNewlines(stripPasteMarkers(raw)));
+    cancelWatchdog();
+    onPasteRef.current(normalizePasteNewlines(stripPasteMarkers(raw)));
   };
+
+  // Clear any pending timer on unmount so it cannot fire into an unmounted component.
+  useEffect(() => () => cancelWatchdog(), []);
 
   const consume = (input: string): boolean => {
     if (pending.current !== undefined) {
@@ -85,6 +124,7 @@ export const usePaste = (onPaste: (payload: string) => void): PasteController =>
       const end = firstMarker(input, END_MARKERS);
       if (end === undefined) {
         pending.current += input;
+        armWatchdog(); // reset the deadline on each arriving chunk
         return true;
       }
       const payload = pending.current + input.slice(0, end.index);
@@ -102,6 +142,7 @@ export const usePaste = (onPaste: (payload: string) => void): PasteController =>
     const end = firstMarker(afterStart, END_MARKERS);
     if (end === undefined) {
       pending.current = afterStart;
+      armWatchdog(); // arm watchdog: close marker must arrive within PASTE_WATCHDOG_MS
       return true;
     }
     flush(afterStart.slice(0, end.index));

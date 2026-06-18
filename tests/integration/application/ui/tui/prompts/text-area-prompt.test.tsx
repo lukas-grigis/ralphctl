@@ -527,6 +527,22 @@ describe('TextAreaPrompt', () => {
     unmount();
   });
 
+  it('inserts a large bracketed paste (single chunk) and accepts Enter to submit', async () => {
+    // Ink's inputParser assembles the full paste payload before emitting an event, so a large paste
+    // that includes both PASTE_START and PASTE_END in one write is delivered as a single text block.
+    const onSubmit = vi.fn();
+    const { stdin, unmount } = render(
+      <TextAreaPrompt message="Description" onSubmit={onSubmit} onCancel={() => undefined} />
+    );
+    const bigBody = 'x'.repeat(1024); // 1 KB — verifies large content is inserted, not truncated
+    stdin.write(bracketed(bigBody));
+    await tick();
+    stdin.write(ENTER);
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith(bigBody);
+    unmount();
+  });
+
   it('inserts a bracketed paste at the cursor position', async () => {
     const onSubmit = vi.fn();
     const { stdin, unmount } = render(
