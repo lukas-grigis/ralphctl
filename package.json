@@ -38,6 +38,7 @@
     "build": "tsup && tsx scripts/build-assets.ts",
     "prepublishOnly": "pnpm build",
     "dev": "NODE_OPTIONS=--max-old-space-size=8192 tsx src/index.ts",
+    "mock": "tsx scripts/seed-mock.ts",
     "dev:heap-snapshot": "mkdir -p .diagnostics && NODE_OPTIONS='--max-old-space-size=8192 --heapsnapshot-near-heap-limit=2 --diagnostic-dir=.diagnostics' tsx src/index.ts",
     "start": "NODE_OPTIONS=--max-old-space-size=8192 tsx src/index.ts",
     "typecheck": "tsc",
