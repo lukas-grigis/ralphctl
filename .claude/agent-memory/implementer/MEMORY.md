@@ -1,5 +1,7 @@
 # Implementer Memory
 
+- [project_eventbus_branch_listener_leak.md](project_eventbus_branch_listener_leak.md) — long-session OOM root cause:
+  uncapped EventBus + discarded parallel-branch unsubs + retained terminal SessionRecord runner ctx; the 5 fix seams
 - [project_chain_runner_containment_boundary.md](project_chain_runner_containment_boundary.md) — createRunner.run()
   try/catch is the ONLY containment for non-DomainError throws from element.execute; raw AbortError must keep abort path
 - [project_ledger_compaction_dedup_asymmetry.md](project_ledger_compaction_dedup_asymmetry.md) — bounded ledger
