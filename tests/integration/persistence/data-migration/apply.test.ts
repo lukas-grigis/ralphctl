@@ -289,6 +289,46 @@ describe('apply — crash safety', () => {
   });
 });
 
+describe('apply — backfill guards (OOM + symlink)', () => {
+  it('skips backfilling a learnings.md when the ledger exceeds the byte ceiling (no heap abort)', async () => {
+    const pid = freshId();
+    // A fully-slugged memory dir (already migrated) with a ledger but no learnings.md → backfill target.
+    await seedNewMemory(dataRoot, pid, 'alpha', '{"v":1,"id":"a","text":"x","promotedAt":null}\n');
+    const ledger = join(dataRoot, 'memory', `${pid}--alpha`, 'learnings.ndjson');
+    // Balloon it past the 50 MB ceiling with a sparse truncate (cheap — no real 50 MB written).
+    await fs.truncate(ledger, 50 * 1024 * 1024 + 1);
+
+    const result = await runFull();
+    expect(result.kind).toBe('ok');
+
+    // The oversized ledger was NOT read/rendered: no learnings.md write was recorded for that dir.
+    const mdPath = absolutePath(join(dataRoot, 'memory', `${pid}--alpha`, 'learnings.md'));
+    expect(writer.read(mdPath)).toBeUndefined();
+  });
+
+  it('skips a memory entry whose name is neither a uuid nor a slugged uuid (symlink redirect guard)', async () => {
+    const pid = freshId();
+    // A legitimate slugged dir that SHOULD be backfilled.
+    await seedNewMemory(dataRoot, pid, 'alpha', '{"v":1,"id":"a","text":"x","promotedAt":null}\n');
+    // A planted untrusted entry: a symlink whose name is not a uuid/slugged-uuid, pointing elsewhere.
+    const outside = join(appRoot, 'outside-target');
+    await fs.mkdir(outside, { recursive: true });
+    await fs.writeFile(join(outside, 'learnings.ndjson'), '{"v":1,"id":"z","text":"evil","promotedAt":null}\n', 'utf8');
+    await fs.symlink(outside, join(dataRoot, 'memory', 'not-a-uuid'), 'dir');
+
+    const result = await runFull();
+    expect(result.kind).toBe('ok');
+
+    // The trusted slugged dir was backfilled…
+    expect(writer.read(absolutePath(join(dataRoot, 'memory', `${pid}--alpha`, 'learnings.md')))).toContain(
+      '# Learnings'
+    );
+    // …but the untrusted symlinked entry was skipped — no write through it.
+    expect(writer.read(absolutePath(join(dataRoot, 'memory', 'not-a-uuid', 'learnings.md')))).toBeUndefined();
+    expect(writer.read(absolutePath(join(outside, 'learnings.md')))).toBeUndefined();
+  });
+});
+
 describe('apply — scope', () => {
   it('config/ and state/ are byte-identical before and after a full apply', async () => {
     await seedLegacySprint(dataRoot, freshId(), 'beta');

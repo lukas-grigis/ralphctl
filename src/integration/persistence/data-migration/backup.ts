@@ -41,6 +41,12 @@ export const backupDataDir = async (
   try {
     await fs.cp(src, dest, {
       recursive: true,
+      // Follow symlinks so the backup captures their real CONTENT, not a dangling node. The default
+      // (`dereference: false`) copies a symlink as a link, which would leave the backup incomplete for
+      // any symlinked file in data/ — defeating the "full backup" safety contract. The filter below
+      // still keys on `basename(source)`, which dereference does not change, so the backup-sibling
+      // exclusion is unaffected.
+      dereference: true,
       // Skip any nested backup dir (defensive — backups live as SIBLINGS of data/, not inside it,
       // but a misplaced one must never be recursively re-copied) and the destination itself.
       filter: (source) => {

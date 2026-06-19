@@ -84,7 +84,7 @@ describe('createInMemoryEventBus', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const seen: number[] = [];
 
-    // Subscribe far past the guardrail (threshold is a few hundred). Every subscriber must still
+    // Subscribe far past the guardrail (threshold is 150). Every subscriber must still
     // receive events — the cap is a forcing-function warning, not a functional limit.
     for (let i = 0; i < 320; i++) {
       bus.subscribe(() => seen.push(i));

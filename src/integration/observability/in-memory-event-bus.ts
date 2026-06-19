@@ -11,7 +11,7 @@ import type { EventBus } from '@src/business/observability/event-bus.ts';
  * only ever trips on a real listener leak (subscribers added per task × wave × round whose
  * unsubscribe was discarded), never on legitimate concurrency.
  */
-const LISTENER_LEAK_THRESHOLD = 300;
+const LISTENER_LEAK_THRESHOLD = 150;
 
 /**
  * Default {@link EventBus} adapter. Synchronous fan-out, no buffering, no

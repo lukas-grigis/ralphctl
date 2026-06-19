@@ -120,9 +120,13 @@ export const MigrationGate = (props: MigrationGateProps): React.JSX.Element => {
   useEffect(() => {
     if (scannedRef.current) return;
     scannedRef.current = true;
+    // Codebase-standard cancellation guard (cf. progress-overlay.tsx): a `setState` / `onResolve`
+    // must never fire after the gate unmounts, so every resume re-checks `cancelled` first.
+    let cancelled = false;
     const scan = async (): Promise<void> => {
       try {
         const report = await engine.dryRun(dataRoot);
+        if (cancelled) return;
         if (report.problems.length > 0) {
           setState({ kind: 'dry-run-blocked', issues: report.problems.map((p) => `${p.name} — ${p.reason}`) });
           return;
@@ -132,11 +136,13 @@ export const MigrationGate = (props: MigrationGateProps): React.JSX.Element => {
         // the marker to CURRENT and proceed straight into the app — a new user never sees the splash.
         if (report.planned.length === 0 && report.merges.length === 0) {
           await engine.stampCurrent(dataRoot, appVersion);
+          if (cancelled) return;
           onResolve('migrated');
           return;
         }
         setState({ kind: 'consent', report, action: 'migrate' });
       } catch (err) {
+        if (cancelled) return;
         // A dry-run that threw is treated like a blocking problem: surface it, do NOT apply, proceed
         // on the tolerant readers. The dry-run touches nothing, so a throw here left disk untouched.
         const msg = err instanceof Error ? err.message : String(err);
@@ -144,6 +150,9 @@ export const MigrationGate = (props: MigrationGateProps): React.JSX.Element => {
       }
     };
     void scan();
+    return () => {
+      cancelled = true;
+    };
   }, [engine, dataRoot]);
 
   const runApply = async (report: DryRunReport): Promise<void> => {

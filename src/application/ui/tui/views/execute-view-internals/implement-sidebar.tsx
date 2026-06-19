@@ -25,7 +25,7 @@
  *     `section.tsx`.
  */
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
 import { CONTEXT_WIDTH, glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { OverflowRow } from '@src/application/ui/tui/components/windowed-list.tsx';
@@ -225,7 +225,10 @@ export const ImplementSidebar = ({
   taskState,
   now,
 }: ImplementSidebarProps): React.JSX.Element => {
-  const tasks = bucketed?.tasks ?? [];
+  // Stabilize the array reference: a fresh `[]` (or even the same tasks behind a new `bucketed`) each
+  // render would defeat TaskNavList's memoization. Keyed on `bucketed` so it only churns when the
+  // bucketed snapshot actually changes.
+  const tasks = useMemo(() => bucketed?.tasks ?? [], [bucketed]);
   const nameById = descriptor.taskNames;
 
   // Each card gets CONTEXT_WIDTH cols in the side-by-side row. In the stacked layout the

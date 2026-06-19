@@ -13,6 +13,7 @@ import {
   serializeLearningRecord,
 } from '@src/application/flows/_shared/memory/learning-record.ts';
 import { renderLearningsMd } from '@src/application/flows/_shared/memory/render-learnings-md.ts';
+import { LEDGER_HARD_CEILING_BYTES } from '@src/application/flows/_shared/memory/read-ledger.ts';
 
 /** Sibling `learnings.md` mirror name for a `learnings.ndjson` ledger path. */
 const LEARNINGS_MD = 'learnings.md';
@@ -58,12 +59,44 @@ export const mirrorLearningsMd = async (
 };
 
 /**
+ * Sentinel returned by {@link readAllRecords} when the on-disk ledger is past
+ * {@link LEDGER_HARD_CEILING_BYTES} and was NOT read. Distinct from an empty record array (which
+ * legitimately renders an empty mirror): the caller MUST skip the mirror write entirely on this
+ * sentinel so a real `learnings.md` is never overwritten with "no learnings". The append to the
+ * ndjson ledger — the source of truth — still happens; the stale mirror heals once compaction
+ * brings the file back under the ceiling.
+ */
+const OVER_CEILING = Symbol('learnings-ledger-over-ceiling');
+
+/**
  * Read + parse the full ledger off disk into a record set, dropping blank and malformed lines (a
  * malformed line is logged at warn — the mirror is a best-effort view, so one bad row should not
  * abort the regeneration). An absent ledger yields an empty set. Used by the append path, which only
  * holds the just-appended records and must reread to render the WHOLE ledger.
+ *
+ * Byte-ceiling guard: a single cheap `fs.stat` runs before the read. If the file is larger than
+ * {@link LEDGER_HARD_CEILING_BYTES} — far past anything compaction ever produces — it is NOT loaded
+ * (the load path applies the same ceiling; bypassing it here is exactly the OOM this guards). The
+ * {@link OVER_CEILING} sentinel is returned so the caller skips the mirror rather than rendering `[]`.
  */
-const readAllRecords = async (ledgerPath: AbsolutePath, log: Logger): Promise<readonly LearningRecord[]> => {
+const readAllRecords = async (
+  ledgerPath: AbsolutePath,
+  log: Logger
+): Promise<readonly LearningRecord[] | typeof OVER_CEILING> => {
+  try {
+    const { size } = await fs.stat(String(ledgerPath));
+    if (size > LEDGER_HARD_CEILING_BYTES) {
+      log.warn('learnings.md mirror skipped — ledger exceeds the byte ceiling; mirror stays stale until compaction', {
+        path: String(ledgerPath),
+        size,
+        ceiling: LEDGER_HARD_CEILING_BYTES,
+      });
+      return OVER_CEILING;
+    }
+  } catch {
+    // absent / unreadable on stat → fall through to read, which renders an empty mirror on ENOENT
+  }
+
   let body: string;
   try {
     body = await fs.readFile(String(ledgerPath), 'utf8');
@@ -103,6 +136,10 @@ export const appendLearningsAndMirror = async (
     if (!appended.ok) return Result.error(appended.error);
   }
   const all = await readAllRecords(ledgerPath, deps.log);
-  await mirrorLearningsMd(ledgerPath, all, deps.writeFile, deps.log);
+  // Over-ceiling: the ndjson append above already landed (source of truth). SKIP the mirror — do NOT
+  // call mirrorLearningsMd with `[]`, which would overwrite a real learnings.md with an empty view.
+  if (all !== OVER_CEILING) {
+    await mirrorLearningsMd(ledgerPath, all, deps.writeFile, deps.log);
+  }
   return Result.ok(undefined) as Result<void, StorageError>;
 };

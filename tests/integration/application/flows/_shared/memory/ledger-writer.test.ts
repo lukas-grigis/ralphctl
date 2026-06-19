@@ -62,6 +62,34 @@ describe('appendLearningsAndMirror', () => {
     expect(md).toContain('second insight');
   });
 
+  it('over the byte ceiling: still appends the ndjson line but does NOT rewrite (or empty) learnings.md', async () => {
+    const deps = { appendFile: createAppendFile(), writeFile: createAtomicWriteFile(), log: noopLogger };
+
+    // Plant a real mirror that must survive untouched — the OOM guard must SKIP the mirror write, not
+    // overwrite a genuine learnings.md with an empty "no learnings" view.
+    const mdFile = join(dir, 'learnings.md');
+    await fs.writeFile(mdFile, '# Real learnings\n\n- a genuine prior insight\n', 'utf8');
+
+    // One real ledger line, then balloon the file past the 50 MB hard ceiling with a sparse truncate
+    // (cheap — no 50 MB of bytes actually written) so the stat sees an over-ceiling size.
+    const ledgerFile = join(dir, 'learnings.ndjson');
+    await appendLearningsAndMirror(ledgerPath(), [rec('seed')], deps);
+    await fs.writeFile(mdFile, '# Real learnings\n\n- a genuine prior insight\n', 'utf8'); // restore after seed mirror
+    await fs.truncate(ledgerFile, 50 * 1024 * 1024 + 1);
+
+    const res = await appendLearningsAndMirror(ledgerPath(), [rec('over-ceiling insight')], deps);
+    expect(res.ok).toBe(true);
+
+    // The ndjson append (source of truth) DID land past the seed line.
+    const ndjson = await fs.readFile(ledgerFile, 'utf8');
+    expect(ndjson).toContain('over-ceiling insight');
+
+    // The mirror was NOT rewritten — it still holds the genuine prior content and was not emptied.
+    const md = await fs.readFile(mdFile, 'utf8');
+    expect(md).toContain('a genuine prior insight');
+    expect(md).not.toContain('over-ceiling insight');
+  });
+
   it('an append failure is returned as an error', async () => {
     const failing = async () => {
       const { Result } = await import('@src/domain/result.ts');

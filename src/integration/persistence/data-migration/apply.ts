@@ -3,7 +3,9 @@ import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
+import { isUuidv7 } from '@src/domain/value/uuid7.ts';
 import { listDir, removeDir, renamePath } from '@src/integration/io/fs.ts';
+import { parseIdFromName, NAME_SEPARATOR } from '@src/integration/persistence/storage.ts';
 import { CURRENT_DATA_VERSION, writeDataVersion } from '@src/integration/persistence/data-migration/version-marker.ts';
 import { backupDataDir } from '@src/integration/persistence/data-migration/backup.ts';
 import { anyLockHeld } from '@src/integration/persistence/data-migration/lock-guard.ts';
@@ -12,6 +14,24 @@ import type { DryRunReport, MemoryMergePlan, RenamePlan } from '@src/integration
 const MEMORY_DIR = 'memory';
 const LEARNINGS_NDJSON = 'learnings.ndjson';
 const LEARNINGS_MD = 'learnings.md';
+
+/**
+ * Byte ceiling for the backfill ledger read — the integration-layer twin of the application layer's
+ * `LEDGER_HARD_CEILING_BYTES` (50 MB). The application constant lives in a layer the integration code
+ * cannot import, so the value is inlined here. A ledger past this is NOT read: a heap abort mid-backfill
+ * must never be possible, and the runtime mirror (which applies the same ceiling) heals it on the next
+ * append once compaction brings the file back under the limit.
+ */
+const MIRROR_BACKFILL_CEILING_BYTES = 50 * 1024 * 1024;
+
+/**
+ * Whether a `memory/` entry name is a trusted, in-tree entry the backfill may follow: either a bare
+ * legacy `<uuidv7>` dir or an already-migrated `<uuidv7>--<slug>` dir. Any other name (e.g. a planted
+ * symlink that is neither) is skipped so a backfill write can never be redirected outside the tree —
+ * the same UUID/slugged-prefix gate the dry-run / `classifyMemoryEntry` applies.
+ */
+const isTrustedMemoryEntry = (name: string): boolean =>
+  isUuidv7(name) || (name.includes(NAME_SEPARATOR) && isUuidv7(parseIdFromName(name)));
 
 /**
  * Renderer for the `learnings.md` mirror, injected by the caller. The pure renderer lives in the
@@ -253,6 +273,13 @@ const readTextOrEmpty = async (path: string): Promise<string> => {
  * `learnings.ndjson` but no `learnings.md`, render the markdown from the ledger body and write it.
  * Best-effort throughout — an empty render, an unreadable ledger, or a failed write is swallowed and
  * never fails the migration; the runtime mirror heals it on the next append/promote.
+ *
+ * Two guards combine in the same loop:
+ *  - SECURITY: only trusted in-tree entries ({@link isTrustedMemoryEntry} — a bare `<uuid>` or a
+ *    slugged `<uuid>--<slug>`) are followed. A planted symlink whose name is neither is skipped, so a
+ *    backfill write can never be redirected outside the data tree.
+ *  - OOM: a single `fs.stat` precedes each read; a ledger past {@link MIRROR_BACKFILL_CEILING_BYTES}
+ *    is skipped (never read), so a heap abort mid-backfill is impossible. The runtime mirror heals it.
  */
 const backfillLearningsMd = async (dataRoot: AbsolutePath, ctx: ApplyCtx): Promise<void> => {
   const memoryRoot = join(String(dataRoot), MEMORY_DIR);
@@ -260,8 +287,10 @@ const backfillLearningsMd = async (dataRoot: AbsolutePath, ctx: ApplyCtx): Promi
   if (!dirs.ok) return;
 
   for (const dir of dirs.value) {
+    if (!isTrustedMemoryEntry(dir)) continue; // untrusted name (possible symlink redirect) — skip
     const ledgerPath = join(memoryRoot, dir, LEARNINGS_NDJSON);
     const mdPath = join(memoryRoot, dir, LEARNINGS_MD);
+    if (await ledgerExceedsCeiling(ledgerPath)) continue; // oversized — runtime mirror heals it
     if (!(await pathPresent(ledgerPath))) continue;
     if (await pathPresent(mdPath)) continue; // already has a mirror — leave it
 
@@ -276,6 +305,16 @@ const backfillLearningsMd = async (dataRoot: AbsolutePath, ctx: ApplyCtx): Promi
     const parsed = AbsolutePath.parse(mdPath);
     if (!parsed.ok) continue;
     await ctx.writeFile(parsed.value, md); // best-effort — ignore the result
+  }
+};
+
+/** `fs.stat` the ledger; `true` when it is past the byte ceiling (so the caller skips the read). */
+const ledgerExceedsCeiling = async (ledgerPath: string): Promise<boolean> => {
+  try {
+    const { size } = await fs.stat(ledgerPath);
+    return size > MIRROR_BACKFILL_CEILING_BYTES;
+  } catch {
+    return false; // absent / unreadable → the read below handles it
   }
 };
 

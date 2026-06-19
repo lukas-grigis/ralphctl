@@ -39,9 +39,11 @@ export const anyLockHeld = async (stateRoot: AbsolutePath): Promise<boolean> => 
     if (!name.endsWith('.lock')) continue;
     let mtimeMs: number;
     try {
-      ({ mtimeMs } = await fs.stat(join(locksDir, name)));
+      // `lstat`, not `stat`: read the entry itself rather than following it, so a symlinked lock entry
+      // cannot masquerade as a fresh lock by pointing at a recently-touched file elsewhere.
+      ({ mtimeMs } = await fs.lstat(join(locksDir, name)));
     } catch {
-      continue; // vanished between listdir and stat — not held
+      continue; // vanished between listdir and lstat — not held
     }
     if (now - mtimeMs <= HELD_WITHIN_MS) return true;
   }

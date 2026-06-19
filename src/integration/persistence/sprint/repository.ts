@@ -46,19 +46,34 @@ export interface FsSprintRepositoryDeps {
  * durable state). Best-effort: any failure is swallowed and the canonical write proceeds — the
  * tolerant reader still resolves whichever dir exists.
  */
+/**
+ * Process-lifetime memo of sprint dirs already reconciled onto their canonical name, keyed by
+ * `<id>::<canonicalDir>`. Steady state, `save` runs many times per sprint with the SAME canonical
+ * dir; the first reconcile is the only one that can find a stale sibling, so subsequent saves can
+ * skip the O(N_sprints) `listDir` scan. The canonical dir is part of the key, so a slug rename
+ * (which changes the canonical name) is a fresh key and re-triggers a full reconcile — correctness is
+ * preserved, only the redundant steady-state rescan is dropped. Best-effort: only marked done after a
+ * scan that found no stale sibling AND confirmed the canonical dir exists.
+ */
+const reconciledDirs = new Set<string>();
+
 const reconcileSprintDir = async (root: AbsolutePath, id: string, canonicalDir: string): Promise<void> => {
   // NOTE: no advisory-lock check here (deferred, plan §1.4). ralphctl is single-session by design — a
   // flow holds the cross-process lock for the whole run, so a slug rename can never land mid-flight
   // against a running implement. If concurrent sessions are ever introduced, gate this on `anyLockHeld`.
+  const memoKey = `${id}::${canonicalDir}`;
+  if (reconciledDirs.has(memoKey)) return; // already reconciled this canonical dir this process — skip the scan
   const dir = sprintsDir(root);
   const entries = await listDir(dir);
   if (!entries.ok) return;
   // Resolve once whether the canonical dir already exists — it decides rename-vs-leave below.
   const canonicalExists = await pathExists(canonicalDir);
+  let foundStale = false;
   for (const entry of entries.value) {
     const fullPath = join(dir, entry);
     if (fullPath === canonicalDir) continue;
     if (parseIdFromName(entry) !== id) continue;
+    foundStale = true;
     // A stale dir for the same id: promote it to the canonical name with an atomic rename. If the
     // canonical dir already exists the rename would clobber it, so remove the now-redundant stale dir
     // instead. CRITICAL: only remove when the canonical dir is actually present — if it is NOT, this
@@ -68,6 +83,12 @@ const reconcileSprintDir = async (root: AbsolutePath, id: string, canonicalDir: 
     if (!renamed.ok && (canonicalExists.ok ? canonicalExists.value : false)) {
       await removeDir(fullPath); // best-effort cleanup — canonical confirmed present, stale is redundant
     }
+  }
+  // Memoize only when the scan was clean (no stale sibling) and the canonical dir is present, so the
+  // next save of this id skips the rescan. A scan that found+reconciled a stale dir is NOT memoized —
+  // the next save re-verifies (cheap once the tree is settled, and a re-scan then finds nothing).
+  if (!foundStale && canonicalExists.ok && canonicalExists.value) {
+    reconciledDirs.add(memoKey);
   }
 };
 
