@@ -14,7 +14,7 @@ import { Box, Text } from 'ink';
 import type { TaskBucketStatus, TaskSubStep } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
 import { glyphs, inkColors } from '@src/application/ui/tui/theme/tokens.ts';
-import { fmtDuration } from '@src/application/ui/tui/theme/duration.ts';
+import { fmtDuration, fmtIsoHHMM } from '@src/application/ui/tui/theme/duration.ts';
 import {
   abortCauseLabel,
   collapseWhitespace,
@@ -48,10 +48,10 @@ export const RecoveryLine = ({
   readonly attemptN: number;
   readonly context: RecoveryContext;
 }): React.JSX.Element => {
-  // HH:MM from the ISO timestamp — keep `fmtIsoTime` for the seconds-precise variant; the
-  // resume banner shows wall-clock at minute granularity to match what a user sees on a
-  // sprint header (we don't need to know that the abort settled at 19:41:07.123).
-  const hhmm = String(context.abortedAt).slice(11, 16);
+  // HH:MM from the ISO timestamp in local time — keep `fmtIsoTime` for the seconds-precise
+  // variant; the resume banner shows wall-clock at minute granularity to match what a user
+  // sees on a sprint header (we don't need second precision).
+  const hhmm = fmtIsoHHMM(String(context.abortedAt));
   const label = abortCauseLabel(context.cause);
   return (
     <Box paddingLeft={2}>

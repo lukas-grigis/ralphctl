@@ -12,7 +12,7 @@
  */
 
 import { render } from 'ink-testing-library';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { TasksPanel } from '@src/application/ui/tui/components/tasks-panel.tsx';
 import type { BucketedExecution, TaskSubStep } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
@@ -61,6 +61,9 @@ describe('TasksPanel render caps', () => {
   });
 
   it('renders the resume-from-aborted banner under the header when recovering is set', () => {
+    // Pin TZ=UTC so fmtIsoHHMM converts the UTC timestamp to local HH:MM deterministically
+    // across dev and CI environments.
+    vi.stubEnv('TZ', 'UTC');
     const bucketed: BucketedExecution = {
       tasks: [
         {
@@ -92,10 +95,12 @@ describe('TasksPanel render caps', () => {
     // The new attempt N+1 = 4 — the running attempt that just opened after settling N=3.
     expect(frame).toContain('attempt 4');
     expect(frame).toContain('resumed from aborted 3');
+    // With TZ=UTC, local time == UTC time → 19:41.
     expect(frame).toContain('19:41');
     expect(frame).toContain('(SIGTERM)');
 
     r.unmount();
+    vi.unstubAllEnvs();
   });
 
   it('omits the resume-from-aborted banner when recoveringByTaskId is absent', () => {

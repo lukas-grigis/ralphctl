@@ -171,7 +171,8 @@ describe('useResponsiveLayout — sidebar height budget never exceeds terminal r
   });
 
   it('tasksMaxBlocks in sidebar layout grows with terminal height without exceeding it', () => {
-    // At 50 rows, running=true (logRows=6): mainBodyRows = 50 - 10 - 6 = 34. Budget = 34/3 = 11.
+    // At 50 rows, running=true: logRows = max(6, min(16, 50-38)) = 12.
+    // mainBodyRows = 50 - 10 - 12 = 28. Budget = floor(28/3) = 9.
     const layout = useResponsiveLayout({ columns: 180, rows: 50, isRunning: true });
     expect(layout.tasksMaxBlocks).toBeGreaterThanOrEqual(3);
     // Must not exceed a reasonable fraction of terminal rows (not the whole screen)

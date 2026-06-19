@@ -96,7 +96,15 @@ export const useResponsiveLayout = ({ columns, rows, isRunning }: UseResponsiveL
   const baseFlowStepsRows = isRunning ? Math.max(8, rows - 22) : 16;
   const flowStepsRows = singleColumn ? NARROW_FLOW_STEPS_ROWS : baseFlowStepsRows;
   const tasksMaxSignals = isRunning ? 6 : 12;
-  const logRows = isRunning ? 6 : 10;
+  // Scale logRows with terminal height so the Recent-events panel fills available space
+  // rather than leaving a large empty gap on tall terminals.  A floor of 6 keeps small
+  // terminals safe; the cap (16 while running, 18 settled) prevents the log from starving
+  // the task-nav / steps budgets above it.
+  //
+  //   rows=30: running → 6, settled → 6   (floor applies)
+  //   rows=50: running → 12, settled → 14
+  //   rows=60: running → 16, settled → 18  (cap applies)
+  const logRows = isRunning ? Math.max(6, Math.min(16, rows - 38)) : Math.max(6, Math.min(18, rows - 36));
 
   // Sidebar layout gate — same ≥140 threshold as the two-column rail.
   // NOTE: <140 cols intentionally falls back to the legacy ExecuteLayout (three/two/compact/single
@@ -171,8 +179,8 @@ export const useResponsiveLayout = ({ columns, rows, isRunning }: UseResponsiveL
   //   Total fixed chrome ≈ 20 rows
   //
   // The REMAINING rows (sidebarBodyRows) are split between task-nav and flow-steps.
-  // On a 50-row terminal: bodyRows = 50 - 10(page) - 20(chrome) - 6(log) = 14 → steps=4, taskNav=10.
-  // On a 60-row terminal: bodyRows = 60 - 10 - 20 - 6 = 24 → steps=8, taskNav=16.
+  // On a 50-row terminal: bodyRows = 50 - 10(page) - 20(chrome) - 12(log) = 8 → steps=2, taskNav=6.
+  // On a 60-row terminal: bodyRows = 60 - 10 - 20 - 16 = 14 → steps=4, taskNav=10.
 
   const SIDEBAR_CHROME_ROWS = 20; // BaselineCard + Steps/Tasks headers + dividers + gutters + TokenBudgetCard
   const SIDEBAR_STEPS_CAP = 10; // max rows for the flow-steps rail in sidebar
