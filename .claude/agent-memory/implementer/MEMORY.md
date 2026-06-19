@@ -57,3 +57,6 @@
 - [project_generator_feedforward_seams.md](project_generator_feedforward_seams.md) — two generator-prompt feed-forward
   injections: cross-sprint prior-learnings ({{PRIOR_LEARNINGS}}, run-scoped ctx) + per-attempt dimension-trajectory
   (rides PRIOR_CRITIQUE_SECTION, no new placeholder); both pure ctx reads in the input projection
+- [project_migration_consent_gate_wiring.md](project_migration_consent_gate_wiring.md) — Wave 2b TTY migration consent
+  gate: MigrationGate pre-app Ink route (props not context), launch.ts shouldShowMigrationGate seam + closure-flag
+  resolve, renderLearnings adapter in app/UI layer, failure-screen downgrade fallback, CLI skips migration entirely

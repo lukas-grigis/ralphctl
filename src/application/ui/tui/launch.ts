@@ -11,6 +11,7 @@
  */
 
 import React from 'react';
+import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
 import type { LogEvent } from '@src/business/observability/events.ts';
 import type { HarnessSignalSink } from '@src/business/observability/harness-signal-sink.ts';
@@ -30,6 +31,12 @@ import { setRunInTerminal } from '@src/application/ui/tui/runtime/run-in-termina
 import { setImplementRoleOverrides } from '@src/application/ui/tui/runtime/implement-role-overrides.ts';
 import type { LaunchExtras } from '@src/application/ui/shared/launcher.ts';
 import { App } from '@src/application/ui/tui/App.tsx';
+import { MigrationRoute } from '@src/application/ui/tui/migration/migration-route.tsx';
+import {
+  createDataMigrationEngine,
+  type DataMigrationEngine,
+} from '@src/integration/persistence/data-migration/run-data-migration.ts';
+import { CLI_METADATA } from '@src/business/version/cli-metadata.ts';
 import type { SelectionSeed } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { resolveInitialState } from '@src/application/ui/tui/launch-routing.ts';
 import { createLastSelectionStore } from '@src/integration/persistence/selection/last-selection-store.ts';
@@ -42,6 +49,20 @@ import { startNotificationSubscriber } from '@src/business/observability/notific
 interface Bootstrapped {
   readonly app: Parameters<typeof App>[0];
   readonly drain: () => void;
+  /**
+   * Pending-migration pre-flight. When `pending` is true, `launchTui` routes the
+   * {@link MigrationRoute} consent gate before the App on the initial mount. Absent (`pending`
+   * false) ⇒ the App mounts directly. The engine + ctx ingredients are carried so the render thunk
+   * can build the gate without re-resolving them.
+   */
+  readonly migration: {
+    readonly pending: boolean;
+    readonly engine: DataMigrationEngine;
+    readonly dataRoot: AbsolutePath;
+    readonly stateRoot: AbsolutePath;
+    readonly now: () => string;
+    readonly writeFile: AppDeps['writeFile'];
+  };
 }
 
 /**
@@ -220,6 +241,14 @@ const bootstrap = async (): Promise<Bootstrapped> => {
     ...(lastSelection?.sprintId !== undefined ? { lastSprintId: lastSelection.sprintId } : {}),
   });
 
+  // Pending-migration pre-flight. Runs AFTER ensureStorageRoots, BEFORE the App mount. The engine
+  // is a pure factory; `needsMigration` only reads the marker file (absent ⇒ pending). When pending,
+  // launchTui routes the consent gate first. The TUI is already TTY-gated at the top of launchTui, so
+  // this is always interactive — no separate non-TTY branch is needed here (the CLI bootstrap, which
+  // CAN run headless, deliberately skips migration entirely; the TUI owns consent).
+  const migrationEngine = createDataMigrationEngine();
+  const migrationPending = await migrationEngine.needsMigration(paths.value.dataRoot);
+
   return {
     app: {
       deps,
@@ -249,8 +278,27 @@ const bootstrap = async (): Promise<Bootstrapped> => {
       heapWatchdog.stop();
       unsubNotifications();
     },
+    migration: {
+      pending: migrationPending,
+      engine: migrationEngine,
+      dataRoot: paths.value.dataRoot,
+      stateRoot: paths.value.stateRoot,
+      now: () => String(deps.clock()),
+      writeFile: deps.writeFile,
+    },
   };
 };
+
+/**
+ * Decide whether the initial Ink mount routes the {@link MigrationRoute} consent gate (vs. the App
+ * directly). The gate shows ONLY when a migration is pending AND it has not already resolved this
+ * session — once resolved, a later pause/resume remount renders the App directly so an AI-session
+ * pause never re-shows the consent screen. Pure so the launch wiring is unit-testable without a
+ * full bootstrap.
+ *
+ * @public
+ */
+export const shouldShowMigrationGate = (pending: boolean, gateResolved: boolean): boolean => pending && !gateResolved;
 
 export interface LaunchTuiOptions {
   /**
@@ -299,12 +347,36 @@ export const launchTui = async (options: LaunchTuiOptions = {}): Promise<void> =
     liveSelection = next;
     booted.app.onSelectionChange?.(next);
   };
-  const renderElement = (): React.ReactElement =>
-    React.createElement(App, {
-      ...booted.app,
-      onSelectionChange,
-      ...(liveSelection !== undefined ? { initialSelection: liveSelection } : {}),
-    });
+
+  // Migration consent gate. Routed ONLY on the initial mount while a migration is pending and has
+  // not yet resolved. `gateResolved` is a launch-closure flag (not React state, which is lost on the
+  // pause/resume remount): once the gate resolves, every later remount renders the App directly so a
+  // mid-session AI-session pause never re-shows the consent screen.
+  let gateResolved = false;
+  const appProps = (): Parameters<typeof App>[0] => ({
+    ...booted.app,
+    onSelectionChange,
+    ...(liveSelection !== undefined ? { initialSelection: liveSelection } : {}),
+  });
+  const renderElement = (): React.ReactElement => {
+    if (shouldShowMigrationGate(booted.migration.pending, gateResolved)) {
+      return React.createElement(MigrationRoute, {
+        gate: {
+          engine: booted.migration.engine,
+          dataRoot: booted.migration.dataRoot,
+          stateRoot: booted.migration.stateRoot,
+          appVersion: CLI_METADATA.currentVersion,
+          now: booted.migration.now,
+          writeFile: booted.migration.writeFile,
+        },
+        app: appProps(),
+        onResolved: (): void => {
+          gateResolved = true;
+        },
+      });
+    }
+    return React.createElement(App, appProps());
+  };
   const host = createInkHost({ renderElement });
   setRunInTerminal(host.runInTerminal);
   try {
