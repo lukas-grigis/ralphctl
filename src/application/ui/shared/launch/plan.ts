@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { sprintDir as buildSprintDir } from '@src/integration/persistence/storage.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { createRunner, type Runner } from '@src/application/chain/run/runner.ts';
 import { createPlanFlow } from '@src/application/flows/plan/flow.ts';
@@ -47,8 +48,9 @@ export const launchPlan = async (ctx: LaunchContext): Promise<LaunchResult> => {
   // (`<sprintDir>/plan/<run-slug>/`), and every project repository is mounted as an equal
   // `--add-dir` source. If `repositories` is empty the chain surfaces a clearer error from
   // inside (e.g. the planner producing a `projectPath` mismatch) than an opaque pre-flight reject.
+  // Subpath of the canonical `<id>--<slug>/` sprint dir, direct-built from the sprint entity.
   const planRoot = AbsolutePath.parse(
-    join(String(deps.storage.dataRoot), 'sprints', String(snapshot.sprint.id), 'plan')
+    join(buildSprintDir(deps.storage.dataRoot, snapshot.sprint.id, snapshot.sprint.slug), 'plan')
   );
   if (!planRoot.ok) return { ok: false, reason: planRoot.error.message };
   // HITL approval — same shape as refine: the AI's proposed task list is summarised, the user

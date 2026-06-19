@@ -9,6 +9,7 @@ import { addTicket, type Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import { createFsSprintRepository } from '@src/integration/persistence/sprint/repository.ts';
+import { resolveSprintDir } from '@src/integration/persistence/storage.ts';
 import type { PendingTicket } from '@src/domain/entity/ticket.ts';
 import { readSprintDir } from '@tests/helpers/sprint-dir-snapshot.ts';
 import type {
@@ -144,7 +145,9 @@ describe('createRefineFlow — interactive', () => {
     root: AbsolutePath,
     sprintId: SprintId
   ): Promise<ReadonlyArray<{ readonly title: string; readonly status: string; readonly requirements?: string }>> => {
-    const snap = await readSprintDir(join(String(root), 'sprints', String(sprintId)));
+    // The repo `save` writes the canonical `<id>--<slug>/` dir name; resolve it tolerantly.
+    const sprintDirPath = (await resolveSprintDir(root, sprintId)) ?? join(String(root), 'sprints', String(sprintId));
+    const snap = await readSprintDir(sprintDirPath);
     const json = snap.json<{ tickets: ReadonlyArray<{ title: string; status: string; requirements?: string }> }>(
       'sprint.json'
     );

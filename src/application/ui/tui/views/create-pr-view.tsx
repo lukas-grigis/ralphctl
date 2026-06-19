@@ -10,7 +10,6 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { join } from 'node:path';
 import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
@@ -24,6 +23,7 @@ import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens
 import { createCreatePrFlow } from '@src/application/flows/create-pr/flow.ts';
 import { createAiProvider } from '@src/application/bootstrap/provider-factory.ts';
 import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
+import { resolveSprintDir } from '@src/integration/persistence/storage.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 
 const DEFAULT_BASE = 'main';
@@ -92,21 +92,28 @@ export const CreatePrView = (): React.JSX.Element => {
         setRun({ kind: 'error', message: 'No sprint selected.' });
         return;
       }
-      const sprintDir = AbsolutePath.parse(join(String(deps.storage.dataRoot), 'sprints', String(selection.sprintId)));
-      if (!sprintDir.ok) {
-        setRun({ kind: 'error', message: `sprint dir: ${sprintDir.error.message}` });
-        return;
-      }
-      // PATH-gate the AI step: the create-pr AI session spawns the `createPr` row's provider
-      // CLI. Probe for it before firing so a missing binary surfaces the same actionable
-      // "binary not found" message every other AI flow gives, instead of an opaque spawn
-      // failure mid-run. Only relevant when AI authoring is on — the template path spawns no AI.
+      // PATH-gate the AI step FIRST: the create-pr AI session spawns the `createPr` row's provider
+      // CLI. Probe for it before any sprint I/O so a missing binary surfaces the same actionable
+      // "binary not found" message every other AI flow gives, instead of an opaque spawn failure
+      // mid-run. Only relevant when AI authoring is on — the template path spawns no AI.
       if (useAi) {
         const gate = await checkCli('create-pr', deps.settings);
         if (gate !== undefined && !gate.ok) {
           setRun({ kind: 'error', message: gate.reason });
           return;
         }
+      }
+      // Resolve the sprint dir via the tolerant id-prefix resolver (both `<id>--<slug>/` and the
+      // legacy bare `<id>/`); the view only holds the sprint id, not the entity.
+      const resolvedDir = await resolveSprintDir(deps.storage.dataRoot, selection.sprintId);
+      if (resolvedDir === undefined) {
+        setRun({ kind: 'error', message: 'sprint dir: not found on disk' });
+        return;
+      }
+      const sprintDir = AbsolutePath.parse(resolvedDir);
+      if (!sprintDir.ok) {
+        setRun({ kind: 'error', message: `sprint dir: ${sprintDir.error.message}` });
+        return;
       }
       setRun({ kind: 'running' });
       // Rebuild the provider from the `createPr` settings row. `deps.provider` is the wire-time

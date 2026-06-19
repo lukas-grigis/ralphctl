@@ -72,6 +72,7 @@ import {
   makeApprovedTicket,
   makePlannedSprint,
   makeTodoTask,
+  slug,
 } from '@tests/fixtures/domain.ts';
 
 // ─── skip on Windows — real file-system + git tests are posix-heavy ──────────
@@ -87,6 +88,7 @@ function runTests(): void {
   // ─── Constants ─────────────────────────────────────────────────────────────
   const SPRINT_BRANCH = 'ralphctl/full-stack-test';
   const FAKE_PROJECT_ID = 'proj-fullstack-e2e';
+  const FAKE_PROJECT_SLUG = slug('proj-fullstack-e2e');
 
   // ─── Signal builders ───────────────────────────────────────────────────────
   const taskVerified = (output: string): HarnessSignal => ({ type: 'task-verified', output, timestamp: FIXED_NOW });
@@ -355,6 +357,7 @@ function runTests(): void {
       evaluatorModel: 'claude-opus-4-8',
       memoryRoot: fixture.app.paths.memoryRoot,
       projectId: FAKE_PROJECT_ID,
+      projectSlug: FAKE_PROJECT_SLUG,
       dirtyTreePolicy: 'cancel',
     });
 

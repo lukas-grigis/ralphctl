@@ -1,5 +1,6 @@
 import type { Task } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
+import type { Slug } from '@src/domain/value/slug.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { guard } from '@src/application/chain/build/guard.ts';
@@ -124,6 +125,8 @@ export interface PerTaskSubchainOpts {
   readonly memoryRoot: AbsolutePath;
   /** Owning project's id — selects the per-project learnings ledger subdirectory. */
   readonly projectId: string;
+  /** Owning project's slug — builds the human-readable `<id>--<slug>/` ledger subdirectory. */
+  readonly projectSlug: Slug;
   /**
    * Whether the per-task prologue includes the `branch-preflight-<taskId>` leaf. Default `true`
    * (the serial implement path: every per-task sub-chain re-asserts the working tree is on the
@@ -366,7 +369,13 @@ export const createPerTaskSubchain = (
             // only (the read side dedups by stable id); best-effort (a failed append logs + proceeds).
             appendLearningsLeaf(
               { appendFile: deps.appendFile, clock: deps.clock, logger: deps.logger },
-              { memoryRoot: opts.memoryRoot, projectId: opts.projectId, repoPath: repo.path, repoName: repo.name },
+              {
+                memoryRoot: opts.memoryRoot,
+                projectId: opts.projectId,
+                projectSlug: opts.projectSlug,
+                repoPath: repo.path,
+                repoName: repo.name,
+              },
               taskId
             ),
             // Append the per-attempt journal section to `<sprintDir>/progress.md`. Records the

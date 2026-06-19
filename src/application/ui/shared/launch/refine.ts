@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { sprintDir as buildSprintDir } from '@src/integration/persistence/storage.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { createRunner, type Runner } from '@src/application/chain/run/runner.ts';
 import { createRefineFlow } from '@src/application/flows/refine/flow.ts';
@@ -17,8 +18,9 @@ export const launchRefine = async (ctx: LaunchContext): Promise<LaunchResult> =>
   // per-ticket unit folder (`<sprintDir>/refinement/<ticket-slug>/`), not the repo, because
   // refinement is implementation-agnostic.
   const pending = snapshot.sprint.tickets.filter((t) => t.status === 'pending');
+  // Subpath of the canonical `<id>--<slug>/` sprint dir, direct-built from the sprint entity.
   const refinementRoot = AbsolutePath.parse(
-    join(String(deps.storage.dataRoot), 'sprints', String(snapshot.sprint.id), 'refinement')
+    join(buildSprintDir(deps.storage.dataRoot, snapshot.sprint.id, snapshot.sprint.slug), 'refinement')
   );
   if (!refinementRoot.ok) return { ok: false, reason: refinementRoot.error.message };
   // The refine flow only ever posts the refined requirements as a comment on the ticket's

@@ -8,6 +8,7 @@ import {
   absolutePath,
   FIXED_LATER,
   FIXED_PROJECT_ID,
+  FIXED_PROJECT_SLUG,
   isoTimestamp,
   makePlannedSprint,
   makeRepository,
@@ -42,6 +43,7 @@ const stubDistill = (): NonNullable<CloseSprintDeps['distill']> => ({
   } as never,
   opts: {
     projectId: FIXED_PROJECT_ID,
+    projectSlug: FIXED_PROJECT_SLUG,
     memoryRoot: absolutePath('/tmp/memory'),
     distillRoot: absolutePath('/tmp/distill'),
     repository: makeRepository(),

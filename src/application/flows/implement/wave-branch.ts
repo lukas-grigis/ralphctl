@@ -537,6 +537,7 @@ const buildOneBranch = (
     },
     memoryRoot: opts.memoryRoot,
     projectId: opts.projectId,
+    projectSlug: opts.projectSlug,
     includeBranchPreflight: false,
   };
 

@@ -26,15 +26,18 @@ import { recordingAppendFile } from '@tests/fixtures/recording-append-file.ts';
 import { appendLearningsLeaf } from '@src/application/flows/implement/leaves/append-learnings.ts';
 import { progressJournalLeaf } from '@src/application/flows/implement/leaves/progress-journal.ts';
 import { loadLearningsLeaf } from '@src/application/flows/_shared/memory/load-learnings.ts';
-import { LEARNINGS_LEDGER_FILE, learningsLedgerPath } from '@src/application/flows/_shared/memory/ledger-path.ts';
+import { LEARNINGS_LEDGER_FILE, learningsLedgerPathDirect } from '@src/application/flows/_shared/memory/ledger-path.ts';
 import { type LearningRecord, parseLearningLine } from '@src/application/flows/_shared/memory/learning-record.ts';
+import { buildSluggedName } from '@src/integration/persistence/storage.ts';
 import { createAppendFile } from '@src/integration/io/append-file-adapter.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
+import { slug } from '@tests/fixtures/domain.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
 const MEMORY_ROOT = absolutePath('/tmp/ralph/memory');
 const PROJECT_ID = 'proj-append-learnings';
+const PROJECT_SLUG = slug('proj-append-learnings');
 const REPO_PATH = absolutePath('/tmp/ralph/repo');
 const REPO_NAME = 'demo-repo';
 const PROGRESS_FILE = absolutePath('/tmp/ralph/sprint/progress.md');
@@ -45,7 +48,7 @@ const SPRINT_ID = (() => {
 })();
 
 const ledgerPath = (() => {
-  const p = learningsLedgerPath(MEMORY_ROOT, PROJECT_ID);
+  const p = learningsLedgerPathDirect(MEMORY_ROOT, PROJECT_ID, PROJECT_SLUG);
   if (!p.ok) throw p.error;
   return p.value;
 })();
@@ -67,7 +70,13 @@ describe('appendLearningsLeaf', () => {
     const task = makeDoneTask({ name: 'add export feature' }); // → taskKind 'feature'
     const leaf = appendLearningsLeaf(
       { appendFile: append.fn, clock: () => FIXED_NOW, logger: noopLogger },
-      { memoryRoot: MEMORY_ROOT, projectId: PROJECT_ID, repoPath: REPO_PATH, repoName: REPO_NAME },
+      {
+        memoryRoot: MEMORY_ROOT,
+        projectId: PROJECT_ID,
+        projectSlug: PROJECT_SLUG,
+        repoPath: REPO_PATH,
+        repoName: REPO_NAME,
+      },
       task.id
     );
     const ctx: ImplementCtx = {
@@ -99,7 +108,13 @@ describe('appendLearningsLeaf', () => {
     const task = makeDoneTask({ name: 'refactor the loader' });
     const leaf = appendLearningsLeaf(
       { appendFile: append.fn, clock: () => FIXED_NOW, logger: noopLogger },
-      { memoryRoot: MEMORY_ROOT, projectId: PROJECT_ID, repoPath: REPO_PATH, repoName: REPO_NAME },
+      {
+        memoryRoot: MEMORY_ROOT,
+        projectId: PROJECT_ID,
+        projectSlug: PROJECT_SLUG,
+        repoPath: REPO_PATH,
+        repoName: REPO_NAME,
+      },
       task.id
     );
     const ctx: ImplementCtx = {
@@ -119,7 +134,13 @@ describe('appendLearningsLeaf', () => {
     const task = makeDoneTask({ name: 'fix the crash' }); // → 'bugfix'
     const leaf = appendLearningsLeaf(
       { appendFile: failingAppend, clock: () => FIXED_NOW, logger: noopLogger },
-      { memoryRoot: MEMORY_ROOT, projectId: PROJECT_ID, repoPath: REPO_PATH, repoName: REPO_NAME },
+      {
+        memoryRoot: MEMORY_ROOT,
+        projectId: PROJECT_ID,
+        projectSlug: PROJECT_SLUG,
+        repoPath: REPO_PATH,
+        repoName: REPO_NAME,
+      },
       task.id
     );
     const result = await leaf.execute({
@@ -135,7 +156,13 @@ describe('appendLearningsLeaf', () => {
     const task = makeDoneTask({ name: 'docs pass' });
     const leaf = appendLearningsLeaf(
       { appendFile: append.fn, clock: () => FIXED_NOW, logger: noopLogger },
-      { memoryRoot: MEMORY_ROOT, projectId: PROJECT_ID, repoPath: REPO_PATH, repoName: REPO_NAME },
+      {
+        memoryRoot: MEMORY_ROOT,
+        projectId: PROJECT_ID,
+        projectSlug: PROJECT_SLUG,
+        repoPath: REPO_PATH,
+        repoName: REPO_NAME,
+      },
       task.id
     );
     const result = await leaf.execute({ sprintId: SPRINT_ID, tasks: [task] });
@@ -150,7 +177,13 @@ describe('appendLearningsLeaf', () => {
     const task = makeDoneTask({ name: 'chore bump' });
     const leaf = appendLearningsLeaf(
       { appendFile: append.fn, clock: () => FIXED_NOW, logger: noopLogger },
-      { memoryRoot: MEMORY_ROOT, projectId: PROJECT_ID, repoPath: REPO_PATH, repoName: REPO_NAME },
+      {
+        memoryRoot: MEMORY_ROOT,
+        projectId: PROJECT_ID,
+        projectSlug: PROJECT_SLUG,
+        repoPath: REPO_PATH,
+        repoName: REPO_NAME,
+      },
       task.id
     );
     const result = await leaf.execute({
@@ -172,7 +205,13 @@ describe('appendLearningsLeaf', () => {
 
     const appendLeaf = appendLearningsLeaf(
       { appendFile: append.fn, clock: () => FIXED_NOW, logger: noopLogger },
-      { memoryRoot: MEMORY_ROOT, projectId: PROJECT_ID, repoPath: REPO_PATH, repoName: REPO_NAME },
+      {
+        memoryRoot: MEMORY_ROOT,
+        projectId: PROJECT_ID,
+        projectSlug: PROJECT_SLUG,
+        repoPath: REPO_PATH,
+        repoName: REPO_NAME,
+      },
       task.id
     );
     const journalLeaf = progressJournalLeaf(
@@ -208,7 +247,13 @@ describe('appendLearningsLeaf', () => {
     const task = makeDoneTask({ name: 'phantom' });
     const leaf = appendLearningsLeaf(
       { appendFile: append.fn, clock: () => FIXED_NOW, logger: noopLogger },
-      { memoryRoot: MEMORY_ROOT, projectId: PROJECT_ID, repoPath: REPO_PATH, repoName: REPO_NAME },
+      {
+        memoryRoot: MEMORY_ROOT,
+        projectId: PROJECT_ID,
+        projectSlug: PROJECT_SLUG,
+        repoPath: REPO_PATH,
+        repoName: REPO_NAME,
+      },
       task.id
     );
     const result = await leaf.execute({ sprintId: SPRINT_ID, tasks: [], currentAttemptLearnings: [{ text: 'x' }] });
@@ -230,12 +275,12 @@ describe('appendLearningsLeaf', () => {
     it('a re-emitted identical learning collapses to ONE candidate through loadLearningsLeaf', async () => {
       const realAppend = createAppendFile();
       const task = makeDoneTask({ name: 'add the thing' });
-      const realLedgerPath = learningsLedgerPath(memoryRoot, PROJECT_ID);
+      const realLedgerPath = learningsLedgerPathDirect(memoryRoot, PROJECT_ID, PROJECT_SLUG);
       if (!realLedgerPath.ok) throw realLedgerPath.error;
 
       const leaf = appendLearningsLeaf(
         { appendFile: realAppend, clock: () => FIXED_NOW, logger: noopLogger },
-        { memoryRoot, projectId: PROJECT_ID, repoPath: REPO_PATH, repoName: REPO_NAME },
+        { memoryRoot, projectId: PROJECT_ID, projectSlug: PROJECT_SLUG, repoPath: REPO_PATH, repoName: REPO_NAME },
         task.id
       );
 
@@ -255,7 +300,10 @@ describe('appendLearningsLeaf', () => {
       expect(attempt2.ok).toBe(true);
 
       // Two lines physically on disk.
-      const raw = await fs.readFile(join(dir, PROJECT_ID, LEARNINGS_LEDGER_FILE), 'utf8');
+      const raw = await fs.readFile(
+        join(dir, buildSluggedName(PROJECT_ID, String(PROJECT_SLUG)), LEARNINGS_LEDGER_FILE),
+        'utf8'
+      );
       expect(raw.split('\n').filter((l) => l.trim().length > 0)).toHaveLength(2);
 
       // The READ side dedups by the stable id and collapses them to ONE candidate.

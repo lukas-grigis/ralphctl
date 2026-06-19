@@ -1,6 +1,6 @@
-import { join } from 'node:path';
 import type { Command } from 'commander';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import { resolveSprintDir } from '@src/integration/persistence/storage.ts';
 import { createCreatePrFlow } from '@src/application/flows/create-pr/flow.ts';
 import { createAiProvider } from '@src/application/bootstrap/provider-factory.ts';
 import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
@@ -61,20 +61,29 @@ export const registerCreatePrCommand = (program: Command): void => {
       // Opening a PR is a write to the upstream — always disambiguate a pin-derived target.
       if (resolved.value.fromPin) process.stderr.write(pinFallbackNotice(resolved.value.sprintId));
       const sprintId = resolved.value.sprintId;
-      const sprintDir = AbsolutePath.parse(join(String(storage.dataRoot), 'sprints', String(sprintId)));
-      if (!sprintDir.ok) {
-        process.stderr.write(`error: sprint dir: ${sprintDir.error.message}\n`);
-        process.exit(1);
-      }
-      // PATH-gate the AI step: when `--ai` is on (the default), the create-pr AI session spawns
-      // the `createPr` row's provider CLI. Probe for it first so a missing binary fails fast with
-      // the actionable "binary not found" guidance, matching every other AI flow.
+      // PATH-gate the AI step FIRST: when `--ai` is on (the default), the create-pr AI session
+      // spawns the `createPr` row's provider CLI. Probe for it before any sprint I/O so a missing
+      // binary fails fast with the actionable "binary not found" guidance, matching every other
+      // AI flow (and so the gate cannot be masked by a not-yet-materialised sprint dir).
       if (opts.ai) {
         const gate = await checkCli('create-pr', deps.settings);
         if (gate !== undefined && !gate.ok) {
           process.stderr.write(`error: ${gate.reason}\n`);
           process.exit(1);
         }
+      }
+      // Resolve the sprint dir via the tolerant id-prefix resolver (both `<id>--<slug>/` and the
+      // legacy bare `<id>/`); the command only holds the sprint id, not the entity.
+      const resolvedDir = await resolveSprintDir(storage.dataRoot, sprintId);
+      if (resolvedDir === undefined) {
+        process.stderr.write('error: sprint dir: not found on disk\n');
+        process.exit(1);
+        return;
+      }
+      const sprintDir = AbsolutePath.parse(resolvedDir);
+      if (!sprintDir.ok) {
+        process.stderr.write(`error: sprint dir: ${sprintDir.error.message}\n`);
+        process.exit(1);
       }
       // Rebuild the provider from the `createPr` settings row — `deps.provider` is wired from the
       // `implement` row at boot, which mismatches the createPr model in a mixed-provider config.

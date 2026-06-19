@@ -62,6 +62,8 @@ export const FIXED_LATEST = isoTimestamp('2026-05-08T12:00:00.000Z');
 /** Stable UUIDv7s for tests that need deterministic equality across runs. */
 export const FIXED_PROJECT_ID = projectId('01900000-0000-7000-8000-000000000001');
 export const FIXED_REPOSITORY_ID = repositoryId('01900000-0000-7000-8000-000000000002');
+/** Stable slug paired with {@link FIXED_PROJECT_ID} for slugged-path (`<id>--<slug>`) tests. */
+export const FIXED_PROJECT_SLUG = slug('demo-project');
 
 /**
  * Per-process repo path for the default fixture. Randomised at module load so a stale

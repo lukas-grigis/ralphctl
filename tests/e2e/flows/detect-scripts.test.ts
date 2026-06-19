@@ -552,7 +552,7 @@ describe('createDetectScriptsFlow — real on-disk persistence', () => {
     expect(runner.status).toBe('completed');
 
     // The project file exists on disk.
-    const filePath = projectFile(dataRoot, project.id);
+    const filePath = projectFile(dataRoot, project.id, project.slug);
     const onDisk = JSON.parse(await fs.readFile(filePath, 'utf8')) as {
       readonly repositories: ReadonlyArray<Record<string, unknown>>;
     };

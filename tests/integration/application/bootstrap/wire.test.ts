@@ -62,8 +62,9 @@ describe('wire', () => {
     expect(loadedSprint.ok).toBe(true);
     expect(loadedExec.ok).toBe(true);
 
-    // The data lives under the injected dataRoot — proof that nothing touched the real home.
-    const projectFile = `${String(paths.value.dataRoot)}/projects/${String(project.id)}.json`;
+    // The data lives under the injected dataRoot — proof that nothing touched the real home. The
+    // repo writes the human-readable `<id>--<slug>.json` name, so build it from the project's slug.
+    const projectFile = `${String(paths.value.dataRoot)}/projects/${String(project.id)}--${String(project.slug)}.json`;
     const stat = await fs.stat(projectFile);
     expect(stat.isFile()).toBe(true);
   });

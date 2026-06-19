@@ -131,6 +131,29 @@ export const removeDir = async (path: string): Promise<Result<void, NotFoundErro
 };
 
 /**
+ * Atomically rename a path (file or directory) to a new name on the SAME filesystem. Used by the
+ * sprint repository's reconcile-on-save to upgrade a legacy `<id>/` dir (or a stale
+ * `<id>--<oldSlug>/` dir) to the canonical `<id>--<slug>/` name in one move — `fs.rename` moves the
+ * whole subtree atomically, so the three sub-files (`sprint.json` / `execution.json` /
+ * `tasks.json`) never appear split between two dirs. Returns `NotFoundError` if the source is
+ * absent; `StorageError` for other I/O issues (e.g. a cross-device rename, which the caller treats
+ * as best-effort and leaves the source in place).
+ */
+export const renamePath = async (from: string, to: string): Promise<Result<void, NotFoundError | StorageError>> => {
+  try {
+    await fs.rename(from, to);
+    return Result.ok(undefined);
+  } catch (cause) {
+    if (isNodeErrnoCode(cause, 'ENOENT')) {
+      return Result.error(new NotFoundError({ entity: 'path', id: from, message: `path not found: ${from}` }));
+    }
+    return Result.error(
+      new StorageError({ subCode: 'io', message: `rename failed: ${from} → ${to}`, path: from, cause })
+    );
+  }
+};
+
+/**
  * List the immediate entries of a directory. A missing directory returns an empty list (not an
  * error) — callers treat "no entries yet" the same as "directory absent."
  */

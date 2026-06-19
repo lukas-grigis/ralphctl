@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { sprintDir } from '@src/integration/persistence/storage.ts';
 import { type Element, flattenLeaves } from '@src/application/chain/element.ts';
 import { createRunner, type Runner } from '@src/application/chain/run/runner.ts';
 import {
@@ -243,7 +244,10 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
   if (!queue.ok) return { ok: false, reason: queue.error };
   const todoTasks = queue.value;
   if (todoTasks.length === 0) return { ok: false, reason: 'No tasks to implement or resume.' };
-  const sprintDirPath = AbsolutePath.parse(join(String(deps.storage.dataRoot), 'sprints', String(snapshot.sprint.id)));
+  // Direct-build the canonical `<id>--<slug>/` sprint dir — the launcher holds the full sprint
+  // entity, so no async resolver scan is needed. Building the bare `<id>` path here would
+  // split-brain against a slug-renamed dir the repos converge on.
+  const sprintDirPath = AbsolutePath.parse(sprintDir(deps.storage.dataRoot, snapshot.sprint.id, snapshot.sprint.slug));
   if (!sprintDirPath.ok) return { ok: false, reason: sprintDirPath.error.message };
   const progressPath = AbsolutePath.parse(join(String(sprintDirPath.value), 'progress.md'));
   if (!progressPath.ok) return { ok: false, reason: progressPath.error.message };
@@ -350,6 +354,7 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
     ...(evaluatorEffort !== undefined ? { evaluatorEffort } : {}),
     memoryRoot: deps.storage.memoryRoot,
     projectId: String(snapshot.project.id),
+    projectSlug: snapshot.project.slug,
   };
 
   // Parallel cap: clamp `settings.concurrency.maxParallelTasks` to `[1,5]`. `=== 1` →

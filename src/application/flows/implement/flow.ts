@@ -2,6 +2,7 @@ import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { scheduleIntoWaves } from '@src/domain/entity/task-graph.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
+import type { Slug } from '@src/domain/value/slug.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { guard } from '@src/application/chain/build/guard.ts';
@@ -28,7 +29,7 @@ import {
 import { transitionSprintToReviewLeaf } from '@src/application/flows/implement/leaves/transition-sprint-to-review.ts';
 import { withRepoLock } from '@src/application/flows/_shared/with-repo-lock.ts';
 import { loadLearningsLeaf } from '@src/application/flows/_shared/memory/load-learnings.ts';
-import { learningsLedgerPath } from '@src/application/flows/_shared/memory/ledger-path.ts';
+import { learningsLedgerPathDirect } from '@src/application/flows/_shared/memory/ledger-path.ts';
 
 export type { RepoExecConfig };
 
@@ -104,6 +105,8 @@ export interface CreateImplementFlowOpts {
   readonly memoryRoot: AbsolutePath;
   /** Owning project's id — selects the per-project learnings ledger subdirectory. */
   readonly projectId: string;
+  /** Owning project's slug — builds the human-readable `<id>--<slug>/` ledger subdirectory. */
+  readonly projectSlug: Slug;
 }
 
 /**
@@ -248,7 +251,7 @@ export const buildImplementPrologue = (deps: ImplementDeps, opts: CreateImplemen
       { logger: deps.logger },
       {
         path: () => {
-          const resolved = learningsLedgerPath(opts.memoryRoot, opts.projectId);
+          const resolved = learningsLedgerPathDirect(opts.memoryRoot, opts.projectId, opts.projectSlug);
           // The projectId is validated upstream (resolveImplementQueue); a resolve failure is a
           // programmer error, so re-throw it as the leaf's projection contract requires.
           if (!resolved.ok) throw resolved.error;
@@ -453,6 +456,7 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
         },
         memoryRoot: opts.memoryRoot,
         projectId: opts.projectId,
+        projectSlug: opts.projectSlug,
       },
       task,
       resolveRepoOrThrow(opts.repositories, task),

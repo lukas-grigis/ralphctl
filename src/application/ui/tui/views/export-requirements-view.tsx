@@ -21,6 +21,7 @@ import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { createExportRequirementsFlow } from '@src/application/flows/export-requirements/flow.ts';
+import { resolveSprintDir } from '@src/integration/persistence/storage.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 
 type RunState =
@@ -42,9 +43,14 @@ export const ExportRequirementsView = (): React.JSX.Element => {
       setRun({ kind: 'error', message: 'No sprint selected.' });
       return;
     }
-    const outputPath = AbsolutePath.parse(
-      join(String(storage.dataRoot), 'sprints', String(selection.sprintId), 'requirements.md')
-    );
+    // Resolve the sprint dir via the tolerant id-prefix resolver (both `<id>--<slug>/` and the
+    // legacy bare `<id>/`); the view only holds the sprint id, not the entity.
+    const sprintDir = await resolveSprintDir(storage.dataRoot, selection.sprintId);
+    if (sprintDir === undefined) {
+      setRun({ kind: 'error', message: 'Sprint directory not found on disk.' });
+      return;
+    }
+    const outputPath = AbsolutePath.parse(join(sprintDir, 'requirements.md'));
     if (!outputPath.ok) {
       setRun({ kind: 'error', message: outputPath.error.message });
       return;

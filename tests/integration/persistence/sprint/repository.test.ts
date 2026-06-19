@@ -7,9 +7,14 @@ import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { makeDraftSprintBundle } from '@tests/fixtures/domain.ts';
 import { Slug } from '@src/domain/value/slug.ts';
+import { join } from 'node:path';
 import { createFsSprintRepository } from '@src/integration/persistence/sprint/repository.ts';
-import { sprintFile } from '@src/integration/persistence/storage.ts';
+import { toJsonSprint } from '@src/integration/persistence/sprint/sprint.schema.ts';
+import { buildSluggedName, sprintDir, sprintFile, sprintsDir } from '@src/integration/persistence/storage.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
+
+/** Serialise a sprint to its on-disk JSON shape (for hand-writing legacy-named fixtures). */
+const toJsonForTest = toJsonSprint;
 
 const slugUnchecked = (s: string) => {
   const r = Slug.parse(s);
@@ -136,10 +141,82 @@ describe('createFsSprintRepository', () => {
     if (!removed.ok) expect(removed.error).toBeInstanceOf(NotFoundError);
   });
 
+  it('save writes the new <id>--<slug>/ dir name on disk', async () => {
+    const repo = createFsSprintRepository({ root });
+    const { sprint } = makeDraftSprintBundle({ slug: 'cool-sprint' });
+    await repo.save(sprint);
+
+    const slugged = sprintDir(root, sprint.id, sprint.slug);
+    const stat = await fs.stat(join(slugged, 'sprint.json'));
+    expect(stat.isFile()).toBe(true);
+  });
+
+  it('findById resolves a legacy bare <id>/ dir written by a pre-slug install', async () => {
+    const repo = createFsSprintRepository({ root });
+    const { sprint } = makeDraftSprintBundle();
+    // Hand-write the sprint under the LEGACY bare-id dir name.
+    const legacyDir = join(sprintsDir(root), String(sprint.id));
+    await fs.mkdir(legacyDir, { recursive: true });
+    await fs.writeFile(join(legacyDir, 'sprint.json'), JSON.stringify(toJsonForTest(sprint)), 'utf8');
+
+    const loaded = await repo.findById(sprint.id);
+    expect(loaded.ok).toBe(true);
+    if (loaded.ok) expect(loaded.value.id).toBe(sprint.id);
+  });
+
+  it('reconcile-on-save: renames a legacy <id>/ dir to <id>--<slug>/ (sub-files move with it)', async () => {
+    const repo = createFsSprintRepository({ root });
+    const { sprint } = makeDraftSprintBundle({ slug: 'cool-sprint' });
+    const legacyDir = join(sprintsDir(root), String(sprint.id));
+    await fs.mkdir(legacyDir, { recursive: true });
+    await fs.writeFile(join(legacyDir, 'sprint.json'), JSON.stringify(toJsonForTest(sprint)), 'utf8');
+    // A sibling sub-file the rename must carry across atomically.
+    await fs.writeFile(join(legacyDir, 'execution.json'), '{"marker":true}', 'utf8');
+
+    await repo.save(sprint);
+
+    const slugged = sprintDir(root, sprint.id, sprint.slug);
+    // New dir holds BOTH the sprint and the carried-over execution; old bare dir is gone.
+    expect((await fs.stat(join(slugged, 'sprint.json'))).isFile()).toBe(true);
+    expect((await fs.stat(join(slugged, 'execution.json'))).isFile()).toBe(true);
+    await expect(fs.stat(legacyDir)).rejects.toThrow();
+  });
+
+  it('reconcile-on-save: removes a stale <id>--<oldSlug>/ dir after a slug rename', async () => {
+    const repo = createFsSprintRepository({ root });
+    const { sprint } = makeDraftSprintBundle({ slug: 'old-slug' });
+    await repo.save(sprint);
+    const oldDir = sprintDir(root, sprint.id, sprint.slug);
+    expect((await fs.stat(oldDir)).isDirectory()).toBe(true);
+
+    const renamed = { ...sprint, slug: slugUnchecked('new-slug') };
+    await repo.save(renamed);
+
+    const newDir = join(sprintsDir(root), buildSluggedName(String(sprint.id), 'new-slug'));
+    expect((await fs.stat(join(newDir, 'sprint.json'))).isFile()).toBe(true);
+    await expect(fs.stat(oldDir)).rejects.toThrow();
+  });
+
+  it('list parses the id from the leading --segment of a mixed (legacy + slugged) dir set', async () => {
+    const repo = createFsSprintRepository({ root });
+    const a = makeDraftSprintBundle({ slug: 'a' }).sprint;
+    await new Promise((r) => setTimeout(r, 5));
+    const b = makeDraftSprintBundle({ slug: 'b' }).sprint;
+    // a → new slugged dir (via save); b → legacy bare dir (hand-written).
+    await repo.save(a);
+    const legacyDir = join(sprintsDir(root), String(b.id));
+    await fs.mkdir(legacyDir, { recursive: true });
+    await fs.writeFile(join(legacyDir, 'sprint.json'), JSON.stringify(toJsonForTest(b)), 'utf8');
+
+    const all = await repo.list();
+    if (!all.ok) throw new Error('list failed');
+    expect(all.value.map((s) => s.id)).toEqual([a.id, b.id]);
+  });
+
   it('surfaces invalid JSON on disk as StorageError(parse)', async () => {
     const repo = createFsSprintRepository({ root });
     const { sprint } = makeDraftSprintBundle();
-    const path = sprintFile(root, sprint.id);
+    const path = sprintFile(root, sprint.id, sprint.slug);
     await fs.mkdir(path.replace(/sprint\.json$/, ''), { recursive: true });
     await fs.writeFile(path, '{ "broken": ');
 

@@ -15,7 +15,8 @@ import {
   type LearningRecord,
   serializeLearningRecord,
 } from '@src/application/flows/_shared/memory/learning-record.ts';
-import { learningsLedgerPath } from '@src/application/flows/_shared/memory/ledger-path.ts';
+import { learningsLedgerPathDirect } from '@src/application/flows/_shared/memory/ledger-path.ts';
+import type { Slug } from '@src/domain/value/slug.ts';
 import { dedupeLearnings } from '@src/application/flows/implement/leaves/_shared/dedupe-learnings.ts';
 import type { LearningEntry } from '@src/domain/signal.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
@@ -63,6 +64,8 @@ export interface AppendLearningsLeafOpts {
   readonly memoryRoot: AbsolutePath;
   /** The owning project's id — selects the per-project ledger subdirectory. */
   readonly projectId: string;
+  /** The owning project's slug — builds the human-readable `<id>--<slug>/` ledger subdirectory. */
+  readonly projectSlug: Slug;
   /** Absolute path of the repository the task ran against (the ledger's `repo` field). */
   readonly repoPath: AbsolutePath;
   /** Human-friendly repository name (the ledger's `repoName` field). */
@@ -150,7 +153,7 @@ export const appendLearningsLeaf = (
           message: `append-learnings-${String(taskId)}: task missing from ctx.tasks — settle-attempt must run first`,
         });
       }
-      const ledgerResult = learningsLedgerPath(opts.memoryRoot, opts.projectId);
+      const ledgerResult = learningsLedgerPathDirect(opts.memoryRoot, opts.projectId, opts.projectSlug);
       if (!ledgerResult.ok) {
         throw new InvalidStateError({
           entity: 'chain',

@@ -8,7 +8,7 @@ import { sequential } from '@src/application/chain/build/sequential.ts';
 import { loadSprintExecutionLeaf } from '@src/application/flows/_shared/sprint/load-execution.ts';
 import { loadTasksLeaf } from '@src/application/flows/_shared/task/load.ts';
 import { loadLearningsLeaf } from '@src/application/flows/_shared/memory/load-learnings.ts';
-import { learningsLedgerPath } from '@src/application/flows/_shared/memory/ledger-path.ts';
+import { learningsLedgerPathDirect } from '@src/application/flows/_shared/memory/ledger-path.ts';
 import { saveTasksLeaf } from '@src/application/flows/_shared/task/save.ts';
 import { loadAndAssertSprintSubChain } from '@src/application/flows/_shared/sprint/load-and-assert-sprint.ts';
 import { activateSprintLeaf } from '@src/application/flows/implement/leaves/activate-sprint.ts';
@@ -38,7 +38,7 @@ import {
   type RepoExecConfig,
 } from '@src/application/flows/implement/flow.ts';
 
-import { absolutePath, FIXED_REPOSITORY_ID, makeTodoTask } from '@tests/fixtures/domain.ts';
+import { absolutePath, FIXED_REPOSITORY_ID, makeTodoTask, slug } from '@tests/fixtures/domain.ts';
 
 /**
  * A serialisable snapshot of an element tree: name + optional label + recursively-snapshotted
@@ -109,6 +109,7 @@ const makeOpts = (todoTasks: readonly Task[]): CreateImplementFlowOpts => {
     evaluatorModel: 'gpt-5.5',
     memoryRoot: absolutePath('/data/memory'),
     projectId: 'proj-1',
+    projectSlug: slug('proj-1'),
   };
 };
 
@@ -162,6 +163,7 @@ const reconstructPreRefactorSerialFlow = (
         },
         memoryRoot: opts.memoryRoot,
         projectId: opts.projectId,
+        projectSlug: opts.projectSlug,
       },
       task,
       resolveRepoOrThrow(opts.repositories, task),
@@ -189,7 +191,7 @@ const reconstructPreRefactorSerialFlow = (
       { logger: deps.logger },
       {
         path: () => {
-          const resolved = learningsLedgerPath(opts.memoryRoot, opts.projectId);
+          const resolved = learningsLedgerPathDirect(opts.memoryRoot, opts.projectId, opts.projectSlug);
           if (!resolved.ok) throw resolved.error;
           return resolved.value;
         },
@@ -367,6 +369,7 @@ describe('createPerTaskSubchain — quarantine-blocked-diff placement (serial-pa
         evaluator: { providerId: opts.evaluatorProviderId, model: opts.evaluatorModel },
         memoryRoot: opts.memoryRoot,
         projectId: opts.projectId,
+        projectSlug: opts.projectSlug,
         includeBranchPreflight,
       },
       task,
