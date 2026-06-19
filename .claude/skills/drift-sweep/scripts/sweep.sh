@@ -43,7 +43,13 @@ echo "#     High signal — a referenced file/dir that is gone is almost always 
   grep -rhoE "${MD[@]}" "(src|tests|scripts|dist)/[A-Za-z0-9_./-]+\.(ts|tsx|md|json|mjs|sh)" "${SCOPE[@]}" 2>/dev/null
   grep -rhoE "${MD[@]}" "(src|tests|scripts)/[A-Za-z0-9_./-]+/" "${SCOPE[@]}" 2>/dev/null
 } | sort -u | while IFS= read -r ref; do
-  [ -e "$ref" ] || echo "  MISSING: $ref"
+  [ -e "$ref" ] && continue
+  # Tolerate relative / nested refs: a path captured mid-string (e.g. 'scripts/foo.sh'
+  # inside '.../skills/x/scripts/foo.sh', or 'scripts/t.md' inside 'detect-scripts/t.md')
+  # is a real file written with a partial prefix, not drift. Only a ref that matches NO
+  # tracked path anywhere is genuinely missing.
+  git ls-files 2>/dev/null | grep -qF "$ref" && continue
+  echo "  MISSING: $ref"
 done
 echo
 
