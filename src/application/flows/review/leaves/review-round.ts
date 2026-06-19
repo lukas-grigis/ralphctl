@@ -9,6 +9,7 @@ import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts'
 import { FULL_AUTO } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
+import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import {
   renderReviewCommitMessage,
   type RunReviewRoundOutput,
@@ -73,6 +74,12 @@ export interface ReviewRoundLeafDeps {
   readonly signals: Sink<HarnessSignal>;
   readonly eventBus: EventBus;
   readonly logger: Logger;
+  /**
+   * Wall-clock source for the `feedback-round-applied` event timestamp — injected (not
+   * `new Date()`) so the bus event timeline stays deterministic under test, matching how the
+   * implement leaves stamp their `task-round-started` events.
+   */
+  readonly clock: () => IsoTimestamp;
   readonly gitRunner: GitRunner;
   readonly shellScriptRunner: ShellScriptRunner;
   readonly appendFile: AppendFile;
@@ -111,6 +118,11 @@ export interface ReviewRoundLeafOpts {
 
 interface ReviewRoundInput {
   readonly sprint: Sprint;
+  /**
+   * Sprint id sourced from ctx (always present) rather than `sprint.id` (optional on the
+   * entity) — used as the stable correlation key on the `feedback-round-applied` event.
+   */
+  readonly sprintId: ReviewCtx['sprintId'];
   readonly feedbackFile: AbsolutePath;
   readonly progressFile?: AbsolutePath;
   readonly previousRound?: ReviewCtx['previousRound'];
@@ -254,7 +266,7 @@ export const reviewRoundLeaf = (deps: ReviewRoundLeafDeps, opts: ReviewRoundLeaf
         if (!ensured.ok) return Result.error(ensured.error);
         let prompt: Prompt | undefined;
 
-        return runReviewRoundUseCase({
+        const outcome = await runReviewRoundUseCase({
           sprint: input.sprint,
           ...(input.previousRound !== undefined ? { previousRound: input.previousRound } : {}),
 
@@ -359,6 +371,22 @@ export const reviewRoundLeaf = (deps: ReviewRoundLeafDeps, opts: ReviewRoundLeaf
           appendNextRound: (nextIndex) => appendNewRound(deps.appendFile, input.feedbackFile, nextIndex),
           logger: deps.logger,
         });
+
+        // Publish ONCE per round the use case actually applied (committed) — mirrors the
+        // implement leaf's per-round `task-round-started` emit. The round number is the parsed
+        // round's `index` (1-based) when available, falling back to the on-disk active index.
+        // The leaf's `output` projection bumps `roundsApplied` on the same `applied` flag, so
+        // this event and that counter stay in lockstep.
+        if (outcome.ok && outcome.value.applied) {
+          deps.eventBus.publish({
+            type: 'feedback-round-applied',
+            sprintId: String(input.sprintId),
+            round: outcome.value.currentRound?.index ?? roundIndex,
+            at: deps.clock(),
+          });
+        }
+
+        return outcome;
       },
     },
     input: (ctx) => {
@@ -380,6 +408,7 @@ export const reviewRoundLeaf = (deps: ReviewRoundLeafDeps, opts: ReviewRoundLeaf
       }
       return {
         sprint: ctx.sprint,
+        sprintId: ctx.sprintId,
         feedbackFile: ctx.feedbackFile,
         ...(ctx.progressFile !== undefined ? { progressFile: ctx.progressFile } : {}),
         ...(ctx.previousRound !== undefined ? { previousRound: ctx.previousRound } : {}),

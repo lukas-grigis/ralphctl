@@ -4,6 +4,15 @@ Distilled from the two Anthropic harness articles and the Martin Fowler structur
 principle below carries a **ralphctl status** (`applied` / `partial` / `gap`) and a **code anchor** — the
 exact path where the principle is exercised today. `partial` and `gap` rows each name a concrete next step.
 
+## Sources
+
+The inline **Source.** labels throughout this doc map to these canonical references — open the original when
+a principle's rationale needs its full framing:
+
+- **Anthropic — Harness Design** → [Harness Design for Long-Running Application Development](https://www.anthropic.com/engineering/harness-design-long-running-apps)
+- **Anthropic — Effective Harnesses** → [Effective Harnesses for Long-Running Agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents)
+- **Martin Fowler — Structured Prompt Driven** → [Structured-Prompt-Driven Development (SPDD)](https://martinfowler.com/articles/structured-prompt-driven/) — companion piece: [Harness Engineering for Coding Agent Users](https://martinfowler.com/articles/harness-engineering.html)
+
 **When to read this doc:**
 
 1. Before any structural change to `src/application/chain/`, `src/application/flows/<flow>/`,

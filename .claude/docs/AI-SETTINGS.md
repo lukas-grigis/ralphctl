@@ -63,7 +63,7 @@ Apply via `ralphctl settings apply-preset <name>` or from the TUI settings view.
 every `ai` row plus `harness.escalateOnPlateau` in one transaction; subsequent per-key edits via
 `ralphctl settings set ai.<flow>.<field> <value>` stick.
 
-**Model catalog versions used by the presets** (as of the 0.10.x catalogs):
+**Model catalog versions used by the presets** (verified against the tool versions noted per row):
 
 - Claude Code — `claude-haiku-4-5` / `claude-sonnet-4-6` / `claude-opus-4-8` (verified against Claude
   Code v2.1.169). The catalog additionally lists the frontier tier `claude-fable-5` plus the 1M-context
@@ -75,8 +75,8 @@ every `ai` row plus `harness.escalateOnPlateau` in one transaction; subsequent p
   directive):** the `claude-fable-5` family stays in the catalog but is currently rejected at launch
   with a clear message and flagged `(suspended)` in the pickers; it will be restored when access
   returns (single-list revert in `settings-models/suspended-models.ts`).
-- GitHub Copilot — adds `gpt-5.5`, `claude-opus-4.7`, `claude-opus-4.8`, Gemini 3.x family
-  (`gemini-3-flash-preview`, `gemini-3-pro-preview`, `gemini-3.1-pro-preview`, `gemini-3.5-flash`),
+- GitHub Copilot — adds `gpt-5.5`, `claude-opus-4.7`, `claude-opus-4.8`, the Gemini family
+  (`gemini-2.5-pro`, `gemini-3-flash`, `gemini-3.1-pro-preview`, `gemini-3.5-flash`),
   plus `mai-code-1-flash`, `raptor-mini-preview` (verified against Copilot CLI v1.0.60).
 - OpenAI Codex — adds `gpt-5.3-codex-spark` (text-only research preview, ChatGPT Pro only);
   `gpt-5.2` and `gpt-5.3-codex` are deprecated for ChatGPT sign-in but kept in the allowlist because

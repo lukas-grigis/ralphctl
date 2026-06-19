@@ -12,8 +12,8 @@ memory: project
 You are an expert CLI interface designer with deep experience creating developer tools that are intuitive,
 efficient, and delightful to use. Your background includes designing CLIs like git, npm, cargo, and gh.
 
-**Context:** You help develop the ralphctl CLI tool (v0.7.0). You are a Claude Code agent, not part of
-ralphctl's runtime.
+**Context:** You help develop the ralphctl CLI tool. You are a Claude Code agent, not part of
+ralphctl's runtime. (The current version lives in `package.json` — never hardcode it here.)
 
 **Design system:** The canonical reference for the Ink TUI is [
 `.claude/docs/DESIGN-SYSTEM.md`](../docs/DESIGN-SYSTEM.md).
@@ -41,8 +41,8 @@ ralphctl sprint list --all
 
 ### 2. TUI is Primary; CLI is for Inspection + One-Shot
 
-**v0.7.0 deliberately makes interactive flows TUI-only.** Refine, plan, ideate, implement, readiness,
-create-sprint, add-tickets, review — all TUI-only by design. The CLI covers inspection (`*-list`, `*-show`)
+**ralphctl deliberately makes interactive flows TUI-only.** Refine, plan, ideate, implement, readiness,
+create-sprint, add-ticket, review — all TUI-only by design. The CLI covers inspection (`*-list`, `*-show`)
 and one-shot operations (`doctor`, `export-{context,requirements}`, `create-pr`, `settings show/set`,
 `sprint activate/close/remove/set-current`, `ticket add/remove`).
 
@@ -51,13 +51,12 @@ place when the flow is one-shot, scriptable, and doesn't need interactive input.
 
 ### 3. Predictable Patterns
 
-| Pattern               | Convention                |
-| --------------------- | ------------------------- |
-| CRUD-style inspection | `<noun> list/show <id>`   |
-| One-shot mutation     | `<noun> remove <id>`      |
-| Force/overwrite       | `-f, --force`             |
-| Dry run               | `--dry-run`               |
-| JSON output           | `RALPHCTL_JSON=1` env var |
+| Pattern               | Convention              |
+| --------------------- | ----------------------- |
+| CRUD-style inspection | `<noun> list/show <id>` |
+| One-shot mutation     | `<noun> remove <id>`    |
+| Force/overwrite       | `-f, --force`           |
+| Dry run               | `--dry-run`             |
 
 ### 4. Helpful Errors
 
@@ -124,7 +123,7 @@ Top-level one-shot commands (no noun prefix): `doctor`, `completion <shell>`, `e
 
 **TUI mode** (bare `ralphctl`):
 
-- Mounts the Ink dashboard via `src/application/ui/tui/runtime/mount.tsx`
+- Mounts the Ink dashboard via `launchTui` → `createInkHost` (`src/application/ui/shared/ink-host.ts`)
 - Alt-screen takeover; restored on every exit path
 - Menu-driven flow launch; prompts for missing inputs
 - Multi-flow nav: Tab / Shift+Tab cycle, `Ctrl+1..9` direct-jump
@@ -132,13 +131,17 @@ Top-level one-shot commands (no noun prefix): `doctor`, `completion <shell>`, `e
 **CLI mode** (any subcommand):
 
 - Skips Ink mount entirely
-- Console output via the `Logger` port → `LogEvent` on the EventBus
-- Non-TTY / `CI=1` / `RALPHCTL_NO_TUI=1` skip the mount automatically
-- Failed prompts throw `PromptCancelledError` with a "pass as flag" hint
+- Console output via the `Logger` port → `LogEvent` on the EventBus; each command owns its plain-text
+  formatting via local `format*` helpers writing to `process.stdout` (e.g. `cli/commands/sprint.ts`)
+- The TUI mount gate is TTY-only: a non-TTY stdin/stdout bails before mount with a one-line stderr hint +
+  exit 1 (`launch.ts`). `CI` / `RALPHCTL_NO_TUI` gate task-verify hard-blocking, not the mount
+- Cancelled prompts surface through the `Result` channel as `AbortError` (queue drained) or `ValidationError`
+  (parse failure) — see `ui/tui/prompts/ink-interactive-prompt.ts`
 
 ### Output Formatting
 
-**Use the shared formatters in `src/application/ui/shared/`** for plain-text CLI output.
+**Plain-text CLI output** is formatted by per-command `format*` helpers (local to each
+`cli/commands/<noun>.ts`) writing to `process.stdout` — there is no shared CLI-formatter module.
 
 **For the Ink TUI**, use tokens from `src/application/ui/tui/theme/tokens.ts` — `inkColors`, `glyphs`,
 `spacing`, `FIELD_LABEL_WIDTH`. Never inline a hex code, unicode glyph, or magic spacing number.
@@ -188,8 +191,8 @@ long-running chain (implement / refine / plan / …), account for:
 
 ```
 application/ui/tui/
-├── runtime/      mount.tsx, runtime/session-manager.ts, hooks (use-event-bus, use-global-keys, …),
-│                 router.tsx, *-context.tsx
+├── runtime/      session-manager.ts, router.tsx, *-context.tsx, keyboard-map.ts,
+│                 hooks (use-event-bus, use-global-keys, …)
 ├── theme/        tokens.ts (single source of visual truth)
 ├── components/   ViewShell, SectionStamp, ResultCard, FieldList, StatusChip, Spinner, ListView,
 │                 PipelineMap, TasksPanel, StepTrace, RecentEventsTail, Banner, HelpOverlay, …
@@ -203,8 +206,11 @@ application/ui/tui/
 Every view mounts through `<ViewShell>` (header + body + auto `<PromptHost />` + auto `<KeyboardHints />`).
 Views never render their own header, hints, or section spacing.
 
-Global hotkeys come from `src/application/ui/tui/runtime/use-global-keys.ts`: Esc / h / s / d / Tab /
-Shift+Tab / Ctrl+1..9 / q / ? (help overlay).
+Global hotkeys come from `src/application/ui/tui/runtime/use-global-keys.ts` (and `keyboard-map.ts` for the
+canonical label set — treat those two as the source of truth). Current set: `h` home, `n` flows, `x` sessions,
+`s` settings, `!` doctor, `b` banner toggle, `g` progress overlay, `y` yank focused task, `P` project picker,
+`S` sprint picker, `Tab` / `Shift+Tab` cycle sessions, `Ctrl+1..9` jump, `Esc` context, `?` help, `q` / `Ctrl+C`
+quit.
 
 ## Design Review Checklist
 

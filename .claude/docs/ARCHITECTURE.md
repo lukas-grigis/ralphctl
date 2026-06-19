@@ -19,10 +19,10 @@ is no scattered index file or per-flow boilerplate fork.
 src/
 ├── domain/        ← entities, value objects, errors, repository interfaces, signal types
 ├── business/      ← use cases (function factories) + observability + SCM + version ports
-├── integration/   ← adapters: AI providers / prompts / signals / skills / readiness probes,
+├── integration/   ← adapters: AI providers / prompts / contract / evaluation / skills / readiness probes,
 │                    persistence, observability sinks, SCM (gh/glab), version-check, IO helpers
 └── application/   ← composition root, chain framework, flow registry + flows, runner + session,
-                     CLI + Ink TUI
+                     observability (chain-runner-bridge), CLI + Ink TUI
 ```
 
 Strict layering — dependencies point one way:
@@ -533,10 +533,11 @@ application/ui/
 ├── shared/
 │   └── launch/<flow>.ts             ← chain launcher (creates runner, tees events.ndjson)
 └── tui/
-    ├── runtime/                     ← mount.tsx (alt-screen takeover) + use-event-bus.ts subscriber
+    ├── runtime/                     ← session-manager, router, *-context, use-* hooks (use-event-bus,
+    │                                  use-global-keys, …); alt-screen mount is launchTui → createInkHost (ui/shared/)
     ├── theme/                       ← tokens.ts (single source of visual truth)
     ├── components/                  ← ViewShell, SectionStamp, ResultCard, FieldList, Spinner, …
-    ├── prompts/                     ← InkPromptAdapter + per-kind components
+    ├── prompts/                     ← InkInteractivePrompt + per-kind components
     └── views/                       ← Home, Sprints, Sprint detail, Projects, Settings, Doctor,
                                        Sessions, Execute, Welcome, browse/, crud/
 ```

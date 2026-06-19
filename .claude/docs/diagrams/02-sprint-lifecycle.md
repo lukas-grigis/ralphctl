@@ -72,7 +72,7 @@ state to revert.
 ## On-disk shape
 
 ```
-<dataRoot>/sprints/<sprint-id>/
+<dataRoot>/sprints/<id>--<slug>/
 ├── sprint.json          ← planning aggregate (tickets, status, project ref)
 ├── execution.json       ← runtime audit (branch, PR URL, per-repo setupRanAt)
 ├── tasks.json           ← task list with status + attempts

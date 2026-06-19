@@ -9,7 +9,7 @@ when_to_use: 'When touching a provider adapter, the shared `_engine/`, or a read
 Covers what is **not** in `CLAUDE.md` or `.claude/docs/ARCHITECTURE.md`. For harness signals, exit codes,
 sequential task execution, and check-script gating — see `CLAUDE.md`.
 
-**Source of truth (v0.7.0):**
+**Source of truth:**
 
 - Provider adapters: `src/integration/ai/providers/{claude,copilot,codex}/` — one folder per tool, sibling-
   isolated. Each owns `headless.ts` and `interactive.ts` entries (Claude also has `parse-stream.ts` for
@@ -45,10 +45,10 @@ import type { InteractiveAiProvider } from '@src/integration/ai/providers/_engin
 
 ## File-based provider contract
 
-v0.7.0 does NOT parse stdout for signals or session IDs. Instead, every spawn passes paths to two files:
+ralphctl does NOT parse stdout for signals or session IDs. Instead, every spawn passes paths to two files:
 
 - `signals.json` — structured JSON the adapter (or the AI's wrapper) writes during the run. The harness
-  reads it back post-spawn via `readSignalsFile(...)` and dispatches to the parser registry.
+  reads it back post-spawn via `validateSignalsFile(...)` and dispatches to the parser registry.
 - `sessionId` — a single-line text file containing the provider's session id. The harness reads it
   post-spawn and persists on `Task.attempts[]` for resume.
 
@@ -109,7 +109,7 @@ claude -p --resume "<session-id>" --permission-mode bypassPermissions < followup
 
 Implementation contract in `runHeadlessSpawn`:
 
-- Post-spawn, `readSignalsFile(...)` + the sessionId file's contents are returned as part of the spawn
+- Post-spawn, `validateSignalsFile(...)` + the sessionId file's contents are returned as part of the spawn
   result.
 - `RateLimitError` carries the captured `sessionId` so the retry pass passes `--resume <id>` on the next
   attempt.

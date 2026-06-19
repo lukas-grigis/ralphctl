@@ -109,7 +109,7 @@ Semantics:
 - Emits one trace entry per child element. Composites never report a self-entry.
 
 The implement chain uses a `sequential` of bridge leaves to iterate per-task subchains in topological order
-(serial path, `maxParallelTasks === 1`). Concurrent fan-out within a dependency level ships in 0.9.0 via the
+(serial path, `maxParallelTasks === 1`). Concurrent fan-out within a dependency level shipped in 0.9.0 via the
 **above-the-chain** orchestrator `runWaves` (`src/application/chain/run/wave-scheduler.ts`), which sequences
 whole sub-chains above the primitives — deliberately not a sixth primitive. The five-primitive set
 (`element` / `leaf` / `sequential` / `loop` / `guard`) is unchanged; `runWaves` never implements `Element`
@@ -255,6 +255,11 @@ sequential('refine', [
 ```
 
 ### implementFlow (per-task gen-eval loop)
+
+> Simplified for readability. The live topology in
+> `src/application/flows/implement/leaves/per-task-subchain.ts` additionally wraps the task body in a
+> dependency-gate `guard` and adds restore / quarantine diff leaves. This sketch shows the loop / guard
+> skeleton, not every leaf.
 
 ```ts
 const perTask = sequential('task-<id>', [

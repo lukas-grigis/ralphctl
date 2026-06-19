@@ -89,24 +89,24 @@ enforces every direction. Full detail in `.claude/docs/ARCHITECTURE.md`.
 
 ## Implementation style
 
-- **Result types** — every business operation returns `Result<T, DomainError>`. Import from
-  `@src/domain/result.ts` (the only file allowed to import the underlying `typescript-result` library).
+Lint/type rules — layer direction, no `class` outside `domain/value/error/`, no barrels, no direct
+`typescript-result` / `fs.writeFile` / `node:child_process.spawn` / `@inquirer/prompts` imports — are
+ESLint-fenced; `pnpm lint` catches them, so they are not restated here. What the linter cannot enforce:
+
+- **Result types** — every business operation returns `Result<T, DomainError>` from `@src/domain/result.ts`;
+  the success type goes _inside_ the envelope (`Result<FooOutput, FooError>`), never `type Foo = Result<…>`.
   Throws are reserved for programmer errors (ctx-shape violations inside leaf projections).
-- **Output types are success-side, not Result envelopes.** Use `Result<FooOutput, FooError>` in the
-  signature, not `type FooOutput = Result<…>`.
-- **No barrel files anywhere under `src/`** — `export *` is banned. Every import names what it pulls in.
-- **`@public` JSDoc tag whitelist** — symbols intentionally exported are tagged `@public`; `knip.json`
-  whitelists them. `pnpm deadcode` exits 0 on a clean tree.
-- **No hardcoded provider logic outside `src/integration/ai/providers/<tool>/`** — call through
-  `HeadlessAiProvider` / `InteractiveAiProvider` from `providers/_engine/`.
-- **No `@inquirer/prompts` imports** — call through the injected `PromptPort` (`InkPromptAdapter` only).
-- **No direct use-case calls from CLI commands or TUI views** — use flow factories from
-  `src/application/flows/<flow>/` and the `createRunner` chain runner.
-- **Atomic file writes** via `business/io/write-file.ts` for all persisted state; direct `fs.writeFile` is
-  fenced from business code.
-- **Cross-platform spawning** via `integration/io/cross-platform-spawn.ts` for every external-CLI binary;
-  never call `node:child_process.spawn` directly (see `.claude/docs/SECURITY.md` for the one exception).
 - **`AbortError` propagates transparently** — any guard / fallback that catches errors MUST exempt it.
+- **`@public`-tag** any export you intentionally keep after dead-code cleanup (`knip.json` whitelists it;
+  `pnpm deadcode` exits 0 on a clean tree).
+
+Repository seams — reach for these rather than rolling your own:
+
+- Prompts → the injected `InteractivePrompt` port (`createInkInteractivePrompt` is the only impl).
+- CLI / TUI → flow factories in `application/flows/<flow>/` + the `createRunner` chain runner, not use cases directly.
+- Persisted writes → `business/io/write-file.ts` (atomic). External-CLI spawns →
+  `integration/io/cross-platform-spawn.ts` (`.claude/docs/SECURITY.md` names the one exception).
+- Provider logic → `providers/<tool>` via `HeadlessAiProvider` / `InteractiveAiProvider` from `providers/_engine/`.
 
 ### Prompt templates
 
