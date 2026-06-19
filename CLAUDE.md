@@ -99,7 +99,8 @@ enforces every direction. Full detail in `.claude/docs/ARCHITECTURE.md`.
   whitelists them. `pnpm deadcode` exits 0 on a clean tree.
 - **No hardcoded provider logic outside `src/integration/ai/providers/<tool>/`** — call through
   `HeadlessAiProvider` / `InteractiveAiProvider` from `providers/_engine/`.
-- **No `@inquirer/prompts` imports** — call through the injected `PromptPort` (`InkPromptAdapter` only).
+- **No `@inquirer/prompts` imports** — call through the injected `InteractivePrompt` port
+  (`createInkInteractivePrompt` is the only impl).
 - **No direct use-case calls from CLI commands or TUI views** — use flow factories from
   `src/application/flows/<flow>/` and the `createRunner` chain runner.
 - **Atomic file writes** via `business/io/write-file.ts` for all persisted state; direct `fs.writeFile` is
