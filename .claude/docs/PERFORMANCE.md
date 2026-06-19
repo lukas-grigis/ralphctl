@@ -187,7 +187,7 @@ implement ctx (`ctx.currentAttempt{Changes,Decisions,Learnings,Notes}`) as the g
 single-line bullets for changes, decisions, and notes.
 
 **Procedural memory (learning ledger).** Per-attempt `<learning>` signals are also appended to a
-project-scoped append-only NDJSON ledger at `<dataRoot>/memory/<projectId>/learnings.ndjson` by
+project-scoped append-only NDJSON ledger at `<dataRoot>/memory/<projectId>--<slug>/learnings.ndjson` by
 `appendLearningsLeaf` (inserted immediately before `progress-journal` in the attempt-loop body;
 best-effort — a write failure is logged, never fatal). Each `LearningRecord` (the single source of
 truth at `src/application/flows/_shared/memory/learning-record.ts`) carries `{ v, id, text, context?, appliesTo?, repo,
@@ -195,9 +195,14 @@ repoName, taskKind, sprintId, taskId, timestamp, promotedAt }`; `id` is a stable
 `sha1(repo|taskKind|normalize(text))[:16]` dedup key and `promotedAt` is `null` on write.
 `text` is the Insight (required); `context` (when/why it arose) and `appliesTo` (where it applies) are optional and
 render as indented `Context:` / `Applies to:` sub-bullets in `progress.md` and the distilled `## Learnings (ralphctl)`
-section. At sprint
-close — BOTH the explicit `close-sprint` flow and the `review` flow's auto-done path — an opt-in,
-human-gated **distill** step (defaults to No) promotes curated, not-yet-promoted learnings into each
+section. A **`learnings.md` human-readable mirror** is written alongside the NDJSON ledger on every append and
+promote (`appendLearningsAndMirror` in `ledger-writer.ts`); `stamp-promoted` also regenerates it after
+compaction. The mirror is best-effort — a write failure is logged, the NDJSON append already landed, and the
+mirror self-heals on the next write. A one-syscall byte-ceiling guard (`LEDGER_HARD_CEILING_BYTES = 50 MB`,
+`ledgerExceedsCeiling` in `read-ledger.ts`) prevents loading a pathologically large ledger — an over-ceiling
+file is rotated to `.bak` and the mirror render is skipped rather than overwriting a real `learnings.md` with
+an empty view. At sprint close — BOTH the explicit `close-sprint` flow and the `review` flow's auto-done path —
+an opt-in, human-gated **distill** step (defaults to No) promotes curated, not-yet-promoted learnings into each
 provider's native context file via the same per-distinct-provider fan-out as `readiness` (one file
 per provider, no symlinks), then stamps the accepted ids `promotedAt` so they are never re-proposed.
 The self-contained distill sub-chain runs while the sprint is still `review`, so a mid-distill abort
