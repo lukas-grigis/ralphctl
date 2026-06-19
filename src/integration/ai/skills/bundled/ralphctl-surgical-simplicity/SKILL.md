@@ -5,8 +5,10 @@ description: Execute-phase skill — write the minimum code the task needs and t
 
 # Surgical Simplicity
 
-> Distilled from Andrej Karpathy's public guidance on LLM coding — his January 2026 X post on coding
-> pitfalls and the "Software Is Changing" / Software 3.0 talk. Clean-room — concepts only, not copied text.
+> Distilled from Andrej Karpathy's public guidance on LLM coding — his January 2026 [X post on coding
+> pitfalls](https://x.com/karpathy/status/2015883857489522876) and the ["Software Is Changing" / Software 3.0
+> talk](https://www.ycombinator.com/library/MW-andrej-karpathy-software-is-changing-again). Clean-room —
+> concepts only, not copied text.
 
 The two failure modes that make AI-generated diffs hard to review are opposite in feel but identical in
 cost: writing too much (speculative code that nobody asked for) and touching too much (sweeping the

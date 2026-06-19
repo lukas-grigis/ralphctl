@@ -10,7 +10,7 @@ description: Cross-phase skill — question every harness component on every mod
 > Remove one component at a time when simplifying. Re-examine entire harness when new model releases; strip
 > non-load-bearing pieces."
 >
-> — Anthropic, _Harness Design for Long-Running Apps_
+> — Anthropic, [_Harness Design for Long-Running Application Development_](https://www.anthropic.com/engineering/harness-design-long-running-apps)
 
 Harness complexity drifts upward. Each component that solves a real problem at the time of its addition
 becomes a permanent fixture — even after the model capability that made it necessary has improved past the
