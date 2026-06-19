@@ -15,6 +15,14 @@ FILE="$(node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{pro
 
 [ -n "$FILE" ] && [ -f "$FILE" ] || exit 0
 
+# Only format files inside this project — never reach out to edited files elsewhere
+# (e.g. a global memory file or a sibling repo). prettier's own project resolution
+# would no-op on outsiders anyway, but this makes the intent explicit and skips the spawn.
+case "$FILE" in
+  "$PROJECT_DIR"/*) ;;
+  *) exit 0 ;;
+esac
+
 case "$FILE" in
   *.ts | *.tsx | *.js | *.jsx | *.mjs | *.cjs | *.json | *.md | *.yml | *.yaml | *.css)
     PRETTIER="$PROJECT_DIR/node_modules/.bin/prettier"
