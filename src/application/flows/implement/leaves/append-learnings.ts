@@ -2,6 +2,7 @@ import { Result } from '@src/domain/result.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { AppendFile } from '@src/business/io/append-file.ts';
+import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
@@ -10,12 +11,9 @@ import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { deriveTaskKind } from '@src/business/task/derive-task-kind.ts';
-import {
-  deriveLearningId,
-  type LearningRecord,
-  serializeLearningRecord,
-} from '@src/application/flows/_shared/memory/learning-record.ts';
+import { deriveLearningId, type LearningRecord } from '@src/application/flows/_shared/memory/learning-record.ts';
 import { learningsLedgerPathDirect } from '@src/application/flows/_shared/memory/ledger-path.ts';
+import { appendLearningsAndMirror } from '@src/application/flows/_shared/memory/ledger-writer.ts';
 import type { Slug } from '@src/domain/value/slug.ts';
 import { dedupeLearnings } from '@src/application/flows/implement/leaves/_shared/dedupe-learnings.ts';
 import type { LearningEntry } from '@src/domain/signal.ts';
@@ -55,6 +53,8 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
  */
 export interface AppendLearningsLeafDeps {
   readonly appendFile: AppendFile;
+  /** Atomic writer for the derived `learnings.md` mirror, regenerated after every append. */
+  readonly writeFile: WriteFile;
   readonly clock: () => IsoTimestamp;
   readonly logger: Logger;
 }
@@ -128,17 +128,20 @@ export const appendLearningsLeaf = (
         if (input.records.length === 0) return Result.ok(undefined) as Result<void, StorageError>;
 
         const log = deps.logger.named('implement.append-learnings');
-        for (const record of input.records) {
-          const result = await deps.appendFile(input.ledgerPath, serializeLearningRecord(record));
-          if (!result.ok) {
-            // Best-effort: log and keep going. A partial append (some lines written, one failed)
-            // is harmless — the read side dedups by id, so an orphaned earlier line just re-appears
-            // as the same candidate next time.
-            log.warn(`append-learnings-${String(taskId)} append failed`, {
-              path: String(input.ledgerPath),
-              error: result.error.message,
-            });
-          }
+        // Append every record, then regenerate the human-readable learnings.md mirror from the full
+        // ledger. Best-effort: an append failure is logged and the leaf still returns ok — a ledger
+        // hiccup must never block the attempt (the read side dedups by id, so an orphaned earlier
+        // line re-appears as the same candidate next time). The mirror regeneration never fails.
+        const result = await appendLearningsAndMirror(input.ledgerPath, input.records, {
+          appendFile: deps.appendFile,
+          writeFile: deps.writeFile,
+          log,
+        });
+        if (!result.ok) {
+          log.warn(`append-learnings-${String(taskId)} append failed`, {
+            path: String(input.ledgerPath),
+            error: result.error.message,
+          });
         }
         return Result.ok(undefined) as Result<void, StorageError>;
       },

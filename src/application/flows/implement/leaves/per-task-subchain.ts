@@ -368,7 +368,7 @@ export const createPerTaskSubchain = (
             // BEFORE `progress-journal` — the journal clears that accumulator after it renders. Append
             // only (the read side dedups by stable id); best-effort (a failed append logs + proceeds).
             appendLearningsLeaf(
-              { appendFile: deps.appendFile, clock: deps.clock, logger: deps.logger },
+              { appendFile: deps.appendFile, writeFile: deps.writeFile, clock: deps.clock, logger: deps.logger },
               {
                 memoryRoot: opts.memoryRoot,
                 projectId: opts.projectId,

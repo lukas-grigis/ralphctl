@@ -23,6 +23,7 @@ import { Result } from '@src/domain/result.ts';
 import { absolutePath, FIXED_NOW, makeDoneTask } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { recordingAppendFile } from '@tests/fixtures/recording-append-file.ts';
+import { recordingWriteFile } from '@tests/fixtures/recording-write-file.ts';
 import { appendLearningsLeaf } from '@src/application/flows/implement/leaves/append-learnings.ts';
 import { progressJournalLeaf } from '@src/application/flows/implement/leaves/progress-journal.ts';
 import { loadLearningsLeaf } from '@src/application/flows/_shared/memory/load-learnings.ts';
@@ -69,7 +70,7 @@ describe('appendLearningsLeaf', () => {
     const append = recordingAppendFile();
     const task = makeDoneTask({ name: 'add export feature' }); // → taskKind 'feature'
     const leaf = appendLearningsLeaf(
-      { appendFile: append.fn, clock: () => FIXED_NOW, logger: noopLogger },
+      { appendFile: append.fn, writeFile: recordingWriteFile().fn, clock: () => FIXED_NOW, logger: noopLogger },
       {
         memoryRoot: MEMORY_ROOT,
         projectId: PROJECT_ID,
@@ -107,7 +108,7 @@ describe('appendLearningsLeaf', () => {
     const append = recordingAppendFile();
     const task = makeDoneTask({ name: 'refactor the loader' });
     const leaf = appendLearningsLeaf(
-      { appendFile: append.fn, clock: () => FIXED_NOW, logger: noopLogger },
+      { appendFile: append.fn, writeFile: recordingWriteFile().fn, clock: () => FIXED_NOW, logger: noopLogger },
       {
         memoryRoot: MEMORY_ROOT,
         projectId: PROJECT_ID,
@@ -133,7 +134,7 @@ describe('appendLearningsLeaf', () => {
       Result.error(Object.assign(new Error('disk full'), { message: 'disk full' })) as never;
     const task = makeDoneTask({ name: 'fix the crash' }); // → 'bugfix'
     const leaf = appendLearningsLeaf(
-      { appendFile: failingAppend, clock: () => FIXED_NOW, logger: noopLogger },
+      { appendFile: failingAppend, writeFile: recordingWriteFile().fn, clock: () => FIXED_NOW, logger: noopLogger },
       {
         memoryRoot: MEMORY_ROOT,
         projectId: PROJECT_ID,
@@ -155,7 +156,7 @@ describe('appendLearningsLeaf', () => {
     const append = recordingAppendFile();
     const task = makeDoneTask({ name: 'docs pass' });
     const leaf = appendLearningsLeaf(
-      { appendFile: append.fn, clock: () => FIXED_NOW, logger: noopLogger },
+      { appendFile: append.fn, writeFile: recordingWriteFile().fn, clock: () => FIXED_NOW, logger: noopLogger },
       {
         memoryRoot: MEMORY_ROOT,
         projectId: PROJECT_ID,
@@ -176,7 +177,7 @@ describe('appendLearningsLeaf', () => {
     const append = recordingAppendFile();
     const task = makeDoneTask({ name: 'chore bump' });
     const leaf = appendLearningsLeaf(
-      { appendFile: append.fn, clock: () => FIXED_NOW, logger: noopLogger },
+      { appendFile: append.fn, writeFile: recordingWriteFile().fn, clock: () => FIXED_NOW, logger: noopLogger },
       {
         memoryRoot: MEMORY_ROOT,
         projectId: PROJECT_ID,
@@ -204,7 +205,7 @@ describe('appendLearningsLeaf', () => {
     const task = makeDoneTask({ name: 'add caching' });
 
     const appendLeaf = appendLearningsLeaf(
-      { appendFile: append.fn, clock: () => FIXED_NOW, logger: noopLogger },
+      { appendFile: append.fn, writeFile: recordingWriteFile().fn, clock: () => FIXED_NOW, logger: noopLogger },
       {
         memoryRoot: MEMORY_ROOT,
         projectId: PROJECT_ID,
@@ -246,7 +247,7 @@ describe('appendLearningsLeaf', () => {
     const append = recordingAppendFile();
     const task = makeDoneTask({ name: 'phantom' });
     const leaf = appendLearningsLeaf(
-      { appendFile: append.fn, clock: () => FIXED_NOW, logger: noopLogger },
+      { appendFile: append.fn, writeFile: recordingWriteFile().fn, clock: () => FIXED_NOW, logger: noopLogger },
       {
         memoryRoot: MEMORY_ROOT,
         projectId: PROJECT_ID,
@@ -279,7 +280,7 @@ describe('appendLearningsLeaf', () => {
       if (!realLedgerPath.ok) throw realLedgerPath.error;
 
       const leaf = appendLearningsLeaf(
-        { appendFile: realAppend, clock: () => FIXED_NOW, logger: noopLogger },
+        { appendFile: realAppend, writeFile: recordingWriteFile().fn, clock: () => FIXED_NOW, logger: noopLogger },
         { memoryRoot, projectId: PROJECT_ID, projectSlug: PROJECT_SLUG, repoPath: REPO_PATH, repoName: REPO_NAME },
         task.id
       );
