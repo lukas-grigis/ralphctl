@@ -7,8 +7,9 @@
  *     fresh buffer; on unmount Ink automatically restores the user's original screen.
  *   - `runInTerminal(fn)` performs a *real* unmount before invoking `fn`: the React tree is
  *     torn down, the alternate screen is exited, and `fn` runs against the user's primary
- *     terminal. When `fn` resolves we re-`render()` the same App element (a fresh tree, the
- *     stateful TUI gets re-mounted from scratch).
+ *     terminal. When `fn` resolves we `render()` a *freshly built* App element — `renderElement()`
+ *     is called again so the new tree mounts with the latest seed (e.g. the in-session sprint
+ *     selection), not a frozen launch-time element.
  *   - `waitForShutdown()` keeps the launcher alive across these pause/resume cycles. Each
  *     pause unmounts the current Ink instance, which would normally resolve
  *     `waitUntilExit()` and let the process drop the TUI; the host loop instead checks
@@ -45,7 +46,13 @@ const setBracketedPaste = (enabled: boolean): void => {
 };
 
 export interface InkHostDeps {
-  readonly appElement: ReactElement;
+  /**
+   * Factory that builds the App element to mount. Invoked on the initial mount *and* on every
+   * pause/resume cycle, so a fresh element is rebuilt each time — letting the caller re-seed the
+   * tree from live state (e.g. the user's current sprint selection) rather than replaying a frozen
+   * launch-time element.
+   */
+  readonly renderElement: () => ReactElement;
   /**
    * Override whether Ink uses the terminal's alternate-screen buffer. Defaults to `true` so
    * starting ralphctl gives the operator a clean screen and exiting restores their scrollback.
@@ -69,7 +76,7 @@ export const createInkHost = (deps: InkHostDeps): InkHost => {
     // Enable bracketed paste alongside the mount; disabled on every unmount path below so it does
     // not bleed into a paused AI session or the user's shell after shutdown.
     setBracketedPaste(true);
-    return render(deps.appElement, { alternateScreen });
+    return render(deps.renderElement(), { alternateScreen });
   };
 
   let instance: InkInstance = renderOnce();

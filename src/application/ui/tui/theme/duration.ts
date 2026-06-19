@@ -27,15 +27,40 @@ export const fmtElapsed = (startedAt: number, end: number): string => {
 };
 
 /**
- * Time-of-day slice from an ISO timestamp string. `2025-05-16T17:07:42.123Z` → `17:07:42`.
- * Pure string slicing — never goes through `Date` to avoid timezone surprises and per-call
- * `Date` allocation on hot render paths (the log tail formats a row per log entry per render).
+ * Pads a number to two digits (zero-fill).
  */
-export const fmtIsoTime = (iso: string): string => iso.slice(11, 19);
+const pad2 = (n: number): string => String(n).padStart(2, '0');
 
 /**
- * Absolute date+time slice from an ISO timestamp string for the sprint header.
- * `2025-05-16T17:07:42.123Z` → `2025-05-16 17:07`. Same rationale as {@link fmtIsoTime} —
- * we never need second precision in header chrome and we want to avoid `Date` allocation.
+ * Time-of-day from an ISO timestamp string rendered in the user's LOCAL timezone.
+ * `2025-05-16T10:07:42.123Z` → `12:07:42` (UTC+2). Falls back to the raw ISO slice when
+ * the string cannot be parsed so a malformed value never throws or renders "NaN".
  */
-export const fmtIsoAbsolute = (iso: string): string => iso.slice(0, 16).replace('T', ' ');
+export const fmtIsoTime = (iso: string): string => {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso.slice(11, 19);
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+};
+
+/**
+ * HH:MM (local timezone) from an ISO timestamp string — minute granularity for banners and
+ * resume lines where second precision is visual noise.
+ * `2025-05-16T10:07:42.123Z` → `12:07` (UTC+2). Falls back to the raw ISO slice on parse
+ * failure.
+ */
+export const fmtIsoHHMM = (iso: string): string => {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso.slice(11, 16);
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+};
+
+/**
+ * Absolute date+time from an ISO timestamp string rendered in the user's LOCAL timezone.
+ * `2025-05-16T10:07:42.123Z` → `2025-05-16 12:07` (UTC+2). Falls back to the raw ISO
+ * slice on parse failure so a malformed timestamp never throws or renders "NaN".
+ */
+export const fmtIsoAbsolute = (iso: string): string => {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso.slice(0, 16).replace('T', ' ');
+  return `${String(d.getFullYear())}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+};

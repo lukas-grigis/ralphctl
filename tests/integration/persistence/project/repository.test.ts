@@ -5,9 +5,16 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { makeProject, makeRepository } from '@tests/fixtures/domain.ts';
+import { join } from 'node:path';
 import { createFsProjectRepository } from '@src/integration/persistence/project/repository.ts';
 import { projectFile, projectsDir } from '@src/integration/persistence/storage.ts';
+import { toJsonProject } from '@src/integration/persistence/project/project.schema.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
+import type { ProjectId as ProjectIdType } from '@src/domain/value/id/project-id.ts';
+
+/** Legacy bare-`<id>.json` project file path — pre-slug installs wrote this; the resolver tolerates it. */
+const legacyProjectFile = (root: AbsolutePath, id: ProjectIdType): string =>
+  join(projectsDir(root), `${String(id)}.json`);
 
 describe('createFsProjectRepository', () => {
   let root: AbsolutePath;
@@ -87,6 +94,21 @@ describe('createFsProjectRepository', () => {
     }
   });
 
+  it('list dedupes by id when a legacy <id>.json and slugged <id>--<slug>.json transiently coexist', async () => {
+    const repo = createFsProjectRepository({ root });
+    const project = makeProject();
+    // Hand-write BOTH a slugged (canonical) file and a legacy bare file for the SAME id — a crash-left
+    // pair (save wrote the new file but the stale-sibling cleanup did not finish).
+    await fs.mkdir(projectsDir(root), { recursive: true });
+    await fs.writeFile(projectFile(root, project.id, project.slug), JSON.stringify(toJsonProject(project)), 'utf8');
+    await fs.writeFile(legacyProjectFile(root, project.id), JSON.stringify(toJsonProject(project)), 'utf8');
+
+    const all = await repo.list();
+    if (!all.ok) throw new Error('list failed');
+    // The project appears EXACTLY once, not twice.
+    expect(all.value.filter((p) => p.id === project.id)).toHaveLength(1);
+  });
+
   it('save overwrites an existing project (upsert)', async () => {
     const repo = createFsProjectRepository({ root });
     const original = makeProject({ displayName: 'old name' });
@@ -149,7 +171,7 @@ describe('createFsProjectRepository', () => {
     await fs.mkdir(projectsDir(root), { recursive: true });
     const onDisk = JSON.parse(JSON.stringify(project)) as Record<string, unknown>;
     expect((onDisk.repositories as Array<Record<string, unknown>>)[0]).not.toHaveProperty('verifyGates');
-    await fs.writeFile(projectFile(root, project.id), JSON.stringify(onDisk), 'utf8');
+    await fs.writeFile(legacyProjectFile(root, project.id), JSON.stringify(onDisk), 'utf8');
 
     const loaded = await repo.findById(project.id);
     expect(loaded.ok).toBe(true);
@@ -164,17 +186,65 @@ describe('createFsProjectRepository', () => {
     await fs.mkdir(projectsDir(root), { recursive: true });
     const onDisk = JSON.parse(JSON.stringify(project)) as Record<string, unknown>;
     expect((onDisk.repositories as Array<Record<string, unknown>>)[0]).not.toHaveProperty('suggestedSkills');
-    await fs.writeFile(projectFile(root, project.id), JSON.stringify(onDisk), 'utf8');
+    await fs.writeFile(legacyProjectFile(root, project.id), JSON.stringify(onDisk), 'utf8');
 
     const loaded = await repo.findById(project.id);
     expect(loaded.ok).toBe(true);
     if (loaded.ok) expect(loaded.value.repositories[0]?.suggestedSkills).toBeUndefined();
   });
 
+  it('save writes the new <id>--<slug>.json name on disk', async () => {
+    const repo = createFsProjectRepository({ root });
+    const project = makeProject({ slug: 'cool-project' });
+    await repo.save(project);
+
+    const slugged = projectFile(root, project.id, project.slug);
+    expect((await fs.stat(slugged)).isFile()).toBe(true);
+  });
+
+  it('findById resolves a legacy bare <id>.json written by a pre-slug install', async () => {
+    const repo = createFsProjectRepository({ root });
+    const project = makeProject();
+    await fs.mkdir(projectsDir(root), { recursive: true });
+    await fs.writeFile(legacyProjectFile(root, project.id), JSON.stringify(toJsonProject(project)), 'utf8');
+
+    const loaded = await repo.findById(project.id);
+    expect(loaded.ok).toBe(true);
+    if (loaded.ok) expect(loaded.value.id).toBe(project.id);
+  });
+
+  it('reconcile-on-save: removes a legacy bare <id>.json after writing the slugged name', async () => {
+    const repo = createFsProjectRepository({ root });
+    const project = makeProject({ slug: 'cool-project' });
+    await fs.mkdir(projectsDir(root), { recursive: true });
+    await fs.writeFile(legacyProjectFile(root, project.id), JSON.stringify(toJsonProject(project)), 'utf8');
+
+    await repo.save(project);
+
+    const slugged = projectFile(root, project.id, project.slug);
+    expect((await fs.stat(slugged)).isFile()).toBe(true);
+    await expect(fs.stat(legacyProjectFile(root, project.id))).rejects.toThrow();
+  });
+
+  it('reconcile-on-save: removes a stale <id>--<oldSlug>.json after a slug rename', async () => {
+    const repo = createFsProjectRepository({ root });
+    const project = makeProject({ slug: 'old-slug' });
+    await repo.save(project);
+    const oldFile = projectFile(root, project.id, project.slug);
+    expect((await fs.stat(oldFile)).isFile()).toBe(true);
+
+    const other = makeProject({ id: project.id, slug: 'new-slug', repositories: project.repositories as never });
+    await repo.save(other);
+
+    const newFile = projectFile(root, other.id, other.slug);
+    expect((await fs.stat(newFile)).isFile()).toBe(true);
+    await expect(fs.stat(oldFile)).rejects.toThrow();
+  });
+
   it('surfaces invalid JSON on disk as StorageError(parse)', async () => {
     const repo = createFsProjectRepository({ root });
     const project = makeProject();
-    const path = projectFile(root, project.id);
+    const path = legacyProjectFile(root, project.id);
     await fs.mkdir(projectsDir(root), { recursive: true });
     await fs.writeFile(path, 'not json {{');
 

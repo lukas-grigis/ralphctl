@@ -7,6 +7,56 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Human-readable data layout (`<id>--<slug>` naming).** Project files, sprint directories, and
+  per-project memory directories are now written as `<id>--<slug>` (e.g.
+  `01j…--my-project.json`) — chronologically sortable yet immediately readable without an
+  id-lookup. Resolvers tolerate both the new slugged form and the legacy bare `<id>` form, so existing
+  data directories continue to work without manual intervention.
+
+- **Versioned auto-migration with consent splash.** On the first TUI launch after upgrading, a
+  one-time consent screen explains what will change, runs a dry-run summary, takes a full backup of
+  `data/` before touching anything, performs atomic renames, and writes a version stamp
+  (`data/.ralphctl-data-version.json`). The migration is idempotent and crash-safe; a failure or
+  rollback screen appears if anything goes wrong. CLI (non-TTY) invocations skip the gate entirely
+  — usage is never blocked.
+
+- **`learnings.md` human-readable mirror.** Every `learnings.ndjson` ledger now has a
+  `learnings.md` sibling written alongside it on each append and promote. The mirror renders all
+  learning records as readable Markdown so the ledger can be browsed without tooling. The `.ndjson`
+  file remains the source of truth; the mirror is best-effort and self-heals on the next write. A
+  per-append byte-ceiling guard prevents the mirror render from reading a pathologically large
+  ledger.
+
+- **Monotonic `uuidv7()` ids.** All newly created entity ids use `uuidv7` (time-ordered UUIDs),
+  so same-millisecond ids now sort correctly.
+
+- **`pnpm mock` seed helper.** Development convenience script to seed mock data for the
+  `refine` / `plan` / `implement` flows, removing the need to step through the full sprint setup
+  manually during UI work.
+
+### Changed
+
+- **Token card split into Usage + Context.** The sidebar token display now shows two cards:
+  **Usage** (cumulative API tokens consumed this session) and **Context** (live window occupancy
+  from the most recent assistant turn). Previously the single card inflated the context percentage
+  by including cumulative cache-reads in the numerator.
+
+- **Header shows generator + evaluator model and effort.** The implement execute view header now
+  displays the generator model, evaluator model, and effort level together; the redundant
+  standalone model line was removed.
+
+- **Denser baseline card and bordered log card.** The Baseline health card is collapsed to one
+  indicator per line. Baseline and Tokens render side-by-side at `xl` width. The recent-signal log
+  is wrapped in a bordered card. The redundant bottom "running…" spinner was removed; log height
+  scales with terminal height. Signal timestamps now render in local timezone (previously UTC).
+
+- **Implement execute view redesign.** The execute view gained a status band above the tasks
+  panel and a focused-task detail area. The sidebar was widened; step entries are force-compact.
+  A sticky-sprint reset bug (the Ink host re-rendered a frozen launch-time seed after returning from
+  a flow) was fixed via a render-thunk + live seed holder.
+
 ## [0.12.1] - 2026-06-14
 
 ### Changed

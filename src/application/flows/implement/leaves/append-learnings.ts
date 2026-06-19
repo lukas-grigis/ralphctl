@@ -2,20 +2,20 @@ import { Result } from '@src/domain/result.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { AppendFile } from '@src/business/io/append-file.ts';
+import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
+import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { deriveTaskKind } from '@src/business/task/derive-task-kind.ts';
-import {
-  deriveLearningId,
-  type LearningRecord,
-  serializeLearningRecord,
-} from '@src/application/flows/_shared/memory/learning-record.ts';
-import { learningsLedgerPath } from '@src/application/flows/_shared/memory/ledger-path.ts';
+import { deriveLearningId, type LearningRecord } from '@src/application/flows/_shared/memory/learning-record.ts';
+import { resolveWritableLearningsLedgerPath } from '@src/application/flows/_shared/memory/ledger-path.ts';
+import { appendLearningsAndMirror } from '@src/application/flows/_shared/memory/ledger-writer.ts';
+import type { Slug } from '@src/domain/value/slug.ts';
 import { dedupeLearnings } from '@src/application/flows/implement/leaves/_shared/dedupe-learnings.ts';
 import type { LearningEntry } from '@src/domain/signal.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
@@ -54,6 +54,8 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
  */
 export interface AppendLearningsLeafDeps {
   readonly appendFile: AppendFile;
+  /** Atomic writer for the derived `learnings.md` mirror, regenerated after every append. */
+  readonly writeFile: WriteFile;
   readonly clock: () => IsoTimestamp;
   readonly logger: Logger;
 }
@@ -63,6 +65,8 @@ export interface AppendLearningsLeafOpts {
   readonly memoryRoot: AbsolutePath;
   /** The owning project's id — selects the per-project ledger subdirectory. */
   readonly projectId: string;
+  /** The owning project's slug — builds the human-readable `<id>--<slug>/` ledger subdirectory. */
+  readonly projectSlug: Slug;
   /** Absolute path of the repository the task ran against (the ledger's `repo` field). */
   readonly repoPath: AbsolutePath;
   /** Human-friendly repository name (the ledger's `repoName` field). */
@@ -70,7 +74,8 @@ export interface AppendLearningsLeafOpts {
 }
 
 interface AppendLearningsInput {
-  readonly ledgerPath: AbsolutePath;
+  /** Resolve the ledger path at execute time (tolerant write-side resolver — never splits the dir). */
+  readonly ledgerPath: () => Promise<Result<AbsolutePath, DomainError>>;
   readonly records: readonly LearningRecord[];
 }
 
@@ -125,17 +130,30 @@ export const appendLearningsLeaf = (
         if (input.records.length === 0) return Result.ok(undefined) as Result<void, StorageError>;
 
         const log = deps.logger.named('implement.append-learnings');
-        for (const record of input.records) {
-          const result = await deps.appendFile(input.ledgerPath, serializeLearningRecord(record));
-          if (!result.ok) {
-            // Best-effort: log and keep going. A partial append (some lines written, one failed)
-            // is harmless — the read side dedups by id, so an orphaned earlier line just re-appears
-            // as the same candidate next time.
-            log.warn(`append-learnings-${String(taskId)} append failed`, {
-              path: String(input.ledgerPath),
-              error: result.error.message,
-            });
-          }
+        // Resolve the WRITE path tolerantly: append into the EXISTING memory dir (slugged or legacy
+        // bare) when one is present, only creating the slugged dir when neither exists. This is what
+        // stops a declined-migration user's legacy learnings from being stranded in a second dir.
+        const resolved = await input.ledgerPath();
+        if (!resolved.ok) {
+          log.warn(`append-learnings-${String(taskId)} could not resolve ledger path`, {
+            error: resolved.error.message,
+          });
+          return Result.ok(undefined) as Result<void, StorageError>;
+        }
+        // Append every record, then regenerate the human-readable learnings.md mirror from the full
+        // ledger. Best-effort: an append failure is logged and the leaf still returns ok — a ledger
+        // hiccup must never block the attempt (the read side dedups by id, so an orphaned earlier
+        // line re-appears as the same candidate next time). The mirror regeneration never fails.
+        const result = await appendLearningsAndMirror(resolved.value, input.records, {
+          appendFile: deps.appendFile,
+          writeFile: deps.writeFile,
+          log,
+        });
+        if (!result.ok) {
+          log.warn(`append-learnings-${String(taskId)} append failed`, {
+            path: String(resolved.value),
+            error: result.error.message,
+          });
         }
         return Result.ok(undefined) as Result<void, StorageError>;
       },
@@ -150,20 +168,16 @@ export const appendLearningsLeaf = (
           message: `append-learnings-${String(taskId)}: task missing from ctx.tasks — settle-attempt must run first`,
         });
       }
-      const ledgerResult = learningsLedgerPath(opts.memoryRoot, opts.projectId);
-      if (!ledgerResult.ok) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: 'pre-append-learnings',
-          attemptedAction: `append-learnings-${String(taskId)}`,
-          message: `append-learnings-${String(taskId)}: could not resolve ledger path — ${ledgerResult.error.message}`,
-        });
-      }
       // Read the STILL-POPULATED accumulator (progress-journal clears it AFTER us). Dedupe so an
       // identical learning emitted twice in one attempt produces one row.
       const learnings = dedupeLearnings(ctx.currentAttemptLearnings ?? []);
       const records = buildRecords(deps, opts, task, String(ctx.sprintId), learnings);
-      return { ledgerPath: ledgerResult.value, records };
+      // The path is resolved at execute time (async tolerant write-side resolver), so the still-sync
+      // input projection just threads the resolver thunk through.
+      return {
+        ledgerPath: () => resolveWritableLearningsLedgerPath(opts.memoryRoot, opts.projectId, opts.projectSlug),
+        records,
+      };
     },
     // Deliberately leaves the accumulators intact — the downstream `progress-journal` leaf reads
     // and clears `currentAttemptLearnings`. Returning ctx unchanged preserves that contract.

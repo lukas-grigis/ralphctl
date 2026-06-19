@@ -214,7 +214,9 @@ describe('persistence — legacy (v0) sprint dir migration round-trip', () => {
     await app.deps.sprintExecutionRepo.save(execLoad.value);
     await app.deps.taskRepo.saveAll(sprintId as unknown as never, tasksLoad.value);
 
-    const after = await readSprintDir(sprintDir);
+    // After re-save the repo reconciles the legacy bare dir onto the canonical `<id>--<slug>/`
+    // name, so read the RESOLVED dir (not the original bare path) for the canonical-shape assert.
+    const after = await readSprintDir(await app.resolveSprintDir(sprintId as unknown as never));
     const persistedSprint = after.json<{ schemaVersion: number }>('sprint.json');
     const persistedExec = after.json<{
       schemaVersion: number;

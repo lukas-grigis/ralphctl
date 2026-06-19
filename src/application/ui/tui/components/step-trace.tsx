@@ -50,6 +50,13 @@ export interface StepTraceProps {
    */
   readonly compact?: boolean;
   /**
+   * When `true`, each row renders `glyph + name` only — duration, trailing status label, and
+   * error message are suppressed. Use this for narrow sidebar rails (railWidth < 32) where
+   * appending the meta tail would overflow or wrap into the name. The name is still truncated to
+   * `textBudget` so the row stays within the column. Default `false`.
+   */
+  readonly suppressMeta?: boolean;
+  /**
    * Optional rail-column width (in characters). When provided, displayed labels longer than the
    * available text budget (`railWidth - 4` to leave room for the leading glyph, padding, and an
    * ellipsis) are mid-truncated with an `…` suffix so a single long name can't push the rail
@@ -193,6 +200,7 @@ export const StepTrace = ({
   plan,
   labelByName,
   compact = false,
+  suppressMeta = false,
   railWidth,
 }: StepTraceProps): React.JSX.Element => {
   // Memoize the plan/trace merge — `mergePlanWithTrace` walks the entire trace to build a
@@ -253,19 +261,19 @@ export const StepTrace = ({
             {!compact && (
               <>
                 <Text dimColor={dimRow}> {shownName}</Text>
-                {row.durationMs !== undefined && (
+                {!suppressMeta && row.durationMs !== undefined && (
                   <Text dimColor>
                     {' '}
                     {glyphs.bullet} {fmtDuration(row.durationMs)}
                   </Text>
                 )}
-                {trailing !== undefined && (
+                {!suppressMeta && trailing !== undefined && (
                   <Text color={instruction.color}>
                     {'  '}
                     {glyphs.emDash} {trailing}
                   </Text>
                 )}
-                {row.errorMessage !== undefined && (
+                {!suppressMeta && row.errorMessage !== undefined && (
                   <Text color={inkColors.error}>
                     {'  '}
                     {glyphs.emDash} {row.errorMessage}

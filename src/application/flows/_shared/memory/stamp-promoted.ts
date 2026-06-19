@@ -16,6 +16,7 @@ import {
   statLedgerExceedsThreshold,
 } from '@src/application/flows/_shared/memory/read-ledger.ts';
 import { type LedgerRow, compactLedger } from '@src/application/flows/_shared/memory/compact-ledger.ts';
+import { mirrorLearningsMd } from '@src/application/flows/_shared/memory/ledger-writer.ts';
 
 const LEAF_NAME = 'stamp-promoted';
 
@@ -134,6 +135,13 @@ const stamp = async (
   const body = compacted.rows.map((r) => ensureTrailingNewline(r.raw)).join('');
   const written = await deps.writeFile(path, body);
   if (!written.ok) return Result.error(written.error);
+
+  // Regenerate the human-readable learnings.md mirror from the post-compaction record set so the
+  // promote/dedup is reflected in the browsable view. Best-effort — a mirror failure never fails the
+  // stamp (the NDJSON ledger is authoritative). Rows whose parse was dropped on a blank line carry
+  // no record; the compactor only retains real records, so every retained row has one.
+  const mirrorRecords = compacted.rows.flatMap((r) => (r.record === undefined ? [] : [r.record]));
+  await mirrorLearningsMd(path, mirrorRecords, deps.writeFile, log);
 
   log.info(
     `compacted ledger: ${rows.length}→${compacted.rows.length} rows (${compacted.deduplicatedCount} deduped, ${compacted.evictedCount} evicted)`,

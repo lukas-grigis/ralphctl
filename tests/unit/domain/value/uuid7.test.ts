@@ -23,6 +23,21 @@ describe('uuidv7', () => {
     expect(first < second).toBe(true);
   });
 
+  it('is monotonic within a millisecond — 1000 IDs in a tight loop sort strictly ascending', () => {
+    const ids: string[] = [];
+    for (let i = 0; i < 1000; i++) ids.push(uuidv7());
+    for (let i = 1; i < ids.length; i++) {
+      // Strictly ascending: no two consecutive IDs may be equal or inverted, even same-ms.
+      expect(ids[i - 1]! < ids[i]!).toBe(true);
+    }
+  });
+
+  it('keeps the UUIDv7 shape after the monotonic-counter change (every same-ms id is valid)', () => {
+    for (let i = 0; i < 1000; i++) {
+      expect(UUIDV7_REGEX.test(uuidv7())).toBe(true);
+    }
+  });
+
   it('rejects non-UUIDv7 strings', () => {
     expect(isUuidv7('')).toBe(false);
     expect(isUuidv7('not-a-uuid')).toBe(false);

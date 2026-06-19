@@ -166,7 +166,7 @@ describe('ExecuteView', () => {
     result.unmount();
   });
 
-  it('renders the gen → eval (eval) model line when the two implement models differ', async () => {
+  it('renders explicit generator + evaluator lines when the two implement models differ', async () => {
     const sessions = createSessionManager();
     const runner = fakeRunner('r-models', 'running');
     sessions.register({
@@ -184,14 +184,17 @@ describe('ExecuteView', () => {
     });
     await waitForViewReady(result, (f) => f.includes('claude-opus-4-8'));
     const frame = result.lastFrame() ?? '';
+    // Both models appear on separate labelled lines.
     expect(frame).toContain('claude-opus-4-8');
     expect(frame).toContain('gpt-5.5');
-    expect(frame).toContain('→');
-    expect(frame).toContain('(eval)');
+    // New two-line format: "generator <model>" / "evaluator <model>" — no arrow or (eval) tag.
+    expect(frame).toContain('generator');
+    expect(frame).toContain('evaluator');
+    expect(frame).not.toContain('(eval)');
     result.unmount();
   });
 
-  it('collapses the model line to a single name when both implement models match', async () => {
+  it('renders explicit generator + evaluator lines even when both implement models match', async () => {
     const sessions = createSessionManager();
     const runner = fakeRunner('r-models-same', 'running');
     sessions.register({
@@ -210,8 +213,10 @@ describe('ExecuteView', () => {
     await waitForViewReady(result, (f) => f.includes('claude-opus-4-8'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('claude-opus-4-8');
-    // The arrow / (eval) tag stay hidden when the two models match — single-provider runs
-    // shouldn't pay the visual cost of an arrow that points at the same name.
+    // Even when the models are the same, both labelled lines appear — the operator needs
+    // explicit visibility of both roles. No old-format arrow or (eval) tag.
+    expect(frame).toContain('generator');
+    expect(frame).toContain('evaluator');
     expect(frame).not.toContain('→');
     expect(frame).not.toContain('(eval)');
     result.unmount();

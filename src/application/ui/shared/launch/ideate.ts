@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { sprintDir as buildSprintDir } from '@src/integration/persistence/storage.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { createRunner, type Runner } from '@src/application/chain/run/runner.ts';
 import { createIdeateFlow } from '@src/application/flows/ideate/flow.ts';
@@ -19,8 +20,9 @@ export const launchIdeate = async (ctx: LaunchContext): Promise<LaunchResult> =>
   if (!titleAns.ok) return { ok: false, reason: titleAns.error.message };
   const bodyAns = await deps.interactive.askText('Idea description (paste or type)');
   if (!bodyAns.ok) return { ok: false, reason: bodyAns.error.message };
+  // Subpath of the canonical `<id>--<slug>/` sprint dir, direct-built from the sprint entity.
   const ideateRoot = AbsolutePath.parse(
-    join(String(deps.storage.dataRoot), 'sprints', String(snapshot.sprint.id), 'ideate')
+    join(buildSprintDir(deps.storage.dataRoot, snapshot.sprint.id, snapshot.sprint.slug), 'ideate')
   );
   if (!ideateRoot.ok) return { ok: false, reason: ideateRoot.error.message };
   const element: Element<IdeateCtx> = createIdeateFlow(

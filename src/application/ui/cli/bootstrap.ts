@@ -42,6 +42,11 @@ export const bootstrapCli = async (): Promise<CliBootstrap> => {
   const ensured = await ensureStorageRoots(paths.value);
   if (!ensured.ok) throw new Error(`ensure-roots: ${ensured.error.message}`);
 
+  // No data-migration splash here and NO auto-migrate: CLI one-shots can run headless (CI / pipes)
+  // and the migration is gated on explicit interactive consent. The Wave-1 tolerant readers serve a
+  // legacy or half-migrated tree fine, so a CLI command works unchanged on un-migrated data; the
+  // interactive TUI (`tui/launch.ts`) owns the consent gate and is the only path that may mutate.
+
   const settingsRepo = createJsonSettingsRepository({ configRoot: paths.value.configRoot });
   const settings = await settingsRepo.load();
   if (!settings.ok) throw new Error(`settings: ${settings.error.message}`);

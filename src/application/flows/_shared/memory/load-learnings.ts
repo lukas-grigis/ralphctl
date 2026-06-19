@@ -21,8 +21,12 @@ export interface LoadLearningsLeafDeps {
  * the result back, and may map a read failure however the surrounding flow needs.
  */
 export interface LoadLearningsLeafConfig<TCtx> {
-  /** Resolve the absolute ledger path at execute time. */
-  readonly path: (ctx: TCtx) => AbsolutePath;
+  /**
+   * Resolve the absolute ledger path at execute time. May be async so callers can use the tolerant
+   * `resolveLearningsLedgerPath` reader (which scans the memory root to pick the slugged dir, the
+   * legacy bare dir, or the fallback) without splitting the ledger.
+   */
+  readonly path: (ctx: TCtx) => AbsolutePath | Promise<AbsolutePath>;
   /** Merge the loaded, de-duplicated, not-yet-promoted candidate learnings into ctx. */
   readonly output: (ctx: TCtx, candidates: readonly LearningRecord[]) => TCtx;
 }
@@ -54,9 +58,9 @@ export const loadLearningsLeaf = <TCtx>(
   deps: LoadLearningsLeafDeps,
   config: LoadLearningsLeafConfig<TCtx>
 ): Element<TCtx> =>
-  leaf<TCtx, { readonly path: AbsolutePath }, readonly LearningRecord[]>(LEAF_NAME, {
+  leaf<TCtx, { readonly path: AbsolutePath | Promise<AbsolutePath> }, readonly LearningRecord[]>(LEAF_NAME, {
     useCase: {
-      execute: async (input, signal) => loadCandidates(deps, input.path, signal),
+      execute: async (input, signal) => loadCandidates(deps, await input.path, signal),
     },
     input: (ctx) => ({ path: config.path(ctx) }),
     output: (ctx, candidates) => config.output(ctx, candidates),

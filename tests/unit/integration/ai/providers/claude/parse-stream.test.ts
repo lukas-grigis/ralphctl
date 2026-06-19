@@ -135,4 +135,75 @@ describe('createClaudeStreamParser', () => {
     expect(envelope.sessionId).toBe('4074df74-053f-4ef7-ae4b-f10c3999cb14');
     expect(envelope.model).toBe('claude-sonnet-4-6');
   });
+
+  it('liveUsage = LAST assistant turn message.usage; cumulative result.usage captured separately', () => {
+    const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-live', model: 'm' });
+    const turn1 = JSON.stringify({
+      type: 'assistant',
+      message: {
+        content: 'turn 1',
+        usage: { input_tokens: 1000, cache_read_input_tokens: 40000, cache_creation_input_tokens: 2000 },
+      },
+      session_id: 'sess-live',
+    });
+    const turn2 = JSON.stringify({
+      type: 'assistant',
+      message: {
+        content: 'turn 2',
+        usage: { input_tokens: 1500, cache_read_input_tokens: 53000, cache_creation_input_tokens: 500 },
+      },
+      session_id: 'sess-live',
+    });
+    // Cumulative result.usage is much larger than any single turn (sum across turns).
+    const resultEvt = JSON.stringify({
+      type: 'result',
+      subtype: 'success',
+      result: 'done',
+      session_id: 'sess-live',
+      usage: {
+        input_tokens: 2500,
+        output_tokens: 800,
+        cache_read_input_tokens: 187000,
+        cache_creation_input_tokens: 2500,
+      },
+    });
+    const { envelope } = drive([`${init}\n${turn1}\n${turn2}\n${resultEvt}\n`]);
+
+    // Live = LAST assistant turn (turn2), not turn1 and not the cumulative result.
+    expect(envelope.liveUsage).toEqual({
+      inputTokens: 1500,
+      cacheReadTokens: 53000,
+      cacheCreationTokens: 500,
+    });
+    // Cumulative result.usage captured separately and untouched by the live path.
+    expect(envelope.usage).toEqual({
+      inputTokens: 2500,
+      outputTokens: 800,
+      cacheReadTokens: 187000,
+      cacheCreationTokens: 2500,
+    });
+  });
+
+  it('usage-less assistant events do not clobber a captured liveUsage', () => {
+    const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-clob', model: 'm' });
+    const withUsage = JSON.stringify({
+      type: 'assistant',
+      message: { content: 'has usage', usage: { input_tokens: 700, cache_read_input_tokens: 30000 } },
+      session_id: 'sess-clob',
+    });
+    // Subsequent content-only delta carries no usage — must NOT reset liveUsage.
+    const noUsage = JSON.stringify({ type: 'assistant', message: { content: 'no usage' }, session_id: 'sess-clob' });
+    const resultEvt = JSON.stringify({ type: 'result', result: 'ok', session_id: 'sess-clob' });
+    const { envelope } = drive([`${init}\n${withUsage}\n${noUsage}\n${resultEvt}\n`]);
+
+    expect(envelope.liveUsage).toEqual({ inputTokens: 700, cacheReadTokens: 30000 });
+  });
+
+  it('no assistant usage anywhere → liveUsage stays empty', () => {
+    const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-none', model: 'm' });
+    const delta = JSON.stringify({ type: 'assistant', message: { content: 'plain' }, session_id: 'sess-none' });
+    const resultEvt = JSON.stringify({ type: 'result', result: 'ok', session_id: 'sess-none' });
+    const { envelope } = drive([`${init}\n${delta}\n${resultEvt}\n`]);
+    expect(envelope.liveUsage).toEqual({});
+  });
 });

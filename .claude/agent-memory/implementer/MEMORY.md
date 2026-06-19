@@ -1,5 +1,11 @@
 # Implementer Memory
 
+- [project_slugged_data_layout_resolver.md](project_slugged_data_layout_resolver.md) — human-readable `<id>--<slug>`
+  data/ layout: one tolerant id-prefix resolver in storage.ts; direct-build (entity-in-hand) vs resolver (id-only);
+  reconcile-on-save (project write-then-delete, sprint rename-then-write); projectSlug threaded for memory ledger;
+  uuid7 monotonic counter; PATH-gate-before-resolver fail-fast gotcha
+- [project_eventbus_branch_listener_leak.md](project_eventbus_branch_listener_leak.md) — long-session OOM root cause:
+  uncapped EventBus + discarded parallel-branch unsubs + retained terminal SessionRecord runner ctx; the 5 fix seams
 - [project_chain_runner_containment_boundary.md](project_chain_runner_containment_boundary.md) — createRunner.run()
   try/catch is the ONLY containment for non-DomainError throws from element.execute; raw AbortError must keep abort path
 - [project_ledger_compaction_dedup_asymmetry.md](project_ledger_compaction_dedup_asymmetry.md) — bounded ledger
@@ -51,3 +57,6 @@
 - [project_generator_feedforward_seams.md](project_generator_feedforward_seams.md) — two generator-prompt feed-forward
   injections: cross-sprint prior-learnings ({{PRIOR_LEARNINGS}}, run-scoped ctx) + per-attempt dimension-trajectory
   (rides PRIOR_CRITIQUE_SECTION, no new placeholder); both pure ctx reads in the input projection
+- [project_migration_consent_gate_wiring.md](project_migration_consent_gate_wiring.md) — Wave 2b TTY migration consent
+  gate: MigrationGate pre-app Ink route (props not context), launch.ts shouldShowMigrationGate seam + closure-flag
+  resolve, renderLearnings adapter in app/UI layer, failure-screen downgrade fallback, CLI skips migration entirely

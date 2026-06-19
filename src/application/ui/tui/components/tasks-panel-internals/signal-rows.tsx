@@ -122,11 +122,12 @@ const SignalLine = ({
   // empty string for kinds whose label already self-discriminates (`done`, `script`, …).
   const shapeGlyph = noColor ? glyphFor(row.label as SignalKind) : '';
   // Layout: fixed timestamp + fixed label column + flex-grow body that ellides on the
-  // terminal's actual width via Ink's `wrap="truncate-end"`. The body is a row that may
-  // shrink (so long messages don't push the layout); the label box is fixed-width and never
-  // shrinks. Collapsing whitespace on the body line keeps multi-line payloads readable as a
-  // single ellided row — for `commit-message` the full body + trailer is reached via the
-  // separate {@link CommitSignalLine} collapsible variant.
+  // terminal's actual width via Ink's `wrap="truncate-end"`. The body Box must have
+  // `minWidth={0}` so Ink's flex algorithm allows it to shrink below its intrinsic width
+  // — without that, long text in a `flexGrow` ancestor that lacks an explicit pixel width
+  // (e.g. the main column in the wide layout: `flexGrow={1} flexBasis={0} minWidth={0}`)
+  // does not reach the body Box with a bounded constraint, and the text overflows instead
+  // of ellipsing. Adding `minWidth={0}` on the body Box opts it into the bounded layout.
   return (
     <Box>
       <Text color={focused ? inkColors.highlight : inkColors.muted} bold={focused}>
@@ -137,7 +138,7 @@ const SignalLine = ({
         {'  '}
         {shapeGlyph !== '' ? `${shapeGlyph} ${padLabel(row.label)}` : padLabel(row.label)}
       </Text>
-      <Box flexGrow={1} flexShrink={1}>
+      <Box flexGrow={1} flexShrink={1} minWidth={0}>
         <Text bold={row.bold ?? false} wrap="truncate-end">
           {collapseWhitespace(row.text)}
         </Text>
@@ -197,7 +198,7 @@ const CommitSignalLine = ({
         <Text color={color} bold>
           {disclosure} {padLabel('commit')}
         </Text>
-        <Box flexGrow={1} flexShrink={1}>
+        <Box flexGrow={1} flexShrink={1} minWidth={0}>
           <Text wrap="truncate-end">{collapseWhitespace(headline)}</Text>
         </Box>
       </Box>
@@ -210,7 +211,7 @@ const CommitSignalLine = ({
         <Box flexDirection="column" paddingLeft={spacing.indent * 4}>
           {tailLines.map((line, i) => (
             <Box key={`tail-${String(i)}`}>
-              <Box flexGrow={1} flexShrink={1}>
+              <Box flexGrow={1} flexShrink={1} minWidth={0}>
                 <Text dimColor={line.trim() === ''} wrap="truncate-end">
                   {line.length === 0 ? ' ' : line}
                 </Text>
@@ -246,7 +247,7 @@ const CompactionMarker = ({ signal }: { readonly signal: ContextCompactedSignal 
         {glyphs.bullet} {glyphs.bullet} {glyphs.bullet} context compacted
       </Text>
       {detail !== undefined && (
-        <Box flexGrow={1} flexShrink={1}>
+        <Box flexGrow={1} flexShrink={1} minWidth={0}>
           <Text color={inkColors.muted} wrap="truncate-end">
             {' ('}
             {detail}

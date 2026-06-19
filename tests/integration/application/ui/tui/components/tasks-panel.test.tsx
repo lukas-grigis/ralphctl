@@ -1,18 +1,21 @@
 /**
  * TasksPanel render caps — regression for the OOM mode where long gen-eval loops appended
- * hundreds of sub-steps and dozens of evaluations per task. Without per-list slicing every
- * spinner heartbeat re-reconciled an unbounded child array; V8 walked off the heap after ~1h.
+ * hundreds of sub-steps per task. Without per-list slicing every spinner heartbeat re-reconciled
+ * an unbounded child array; V8 walked off the heap after ~1h.
  *
- * These tests pin the caps + the elision row wording so a future "just render everything"
+ * The card no longer renders the bucketed evaluation signal stream at all (the verdict is sourced
+ * from the authoritative per-task `taskEvaluationById` map — one line, no unbounded list), so
+ * there is no eval-cap regression to pin here any more.
+ *
+ * These tests pin the sub-step cap + the elision row wording so a future "just render everything"
  * regression fails loudly.
  */
 
 import { render } from 'ink-testing-library';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { TasksPanel } from '@src/application/ui/tui/components/tasks-panel.tsx';
 import type { BucketedExecution, TaskSubStep } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
-import type { EvaluationSignal } from '@src/domain/signal.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 
 const ts = (n: number): IsoTimestamp => new Date(Date.UTC(2026, 0, 1, 0, 0, n)).toISOString() as IsoTimestamp;
@@ -21,13 +24,6 @@ const subStep = (i: number): TaskSubStep => ({
   leafName: `leaf-${String(i).padStart(3, '0')}`,
   status: 'completed',
   durationMs: 1,
-});
-
-const evaluation = (i: number): EvaluationSignal => ({
-  type: 'evaluation',
-  status: 'passed',
-  dimensions: [],
-  timestamp: ts(i),
 });
 
 describe('TasksPanel render caps', () => {
@@ -65,6 +61,9 @@ describe('TasksPanel render caps', () => {
   });
 
   it('renders the resume-from-aborted banner under the header when recovering is set', () => {
+    // Pin TZ=UTC so fmtIsoHHMM converts the UTC timestamp to local HH:MM deterministically
+    // across dev and CI environments.
+    vi.stubEnv('TZ', 'UTC');
     const bucketed: BucketedExecution = {
       tasks: [
         {
@@ -96,10 +95,12 @@ describe('TasksPanel render caps', () => {
     // The new attempt N+1 = 4 — the running attempt that just opened after settling N=3.
     expect(frame).toContain('attempt 4');
     expect(frame).toContain('resumed from aborted 3');
+    // With TZ=UTC, local time == UTC time → 19:41.
     expect(frame).toContain('19:41');
     expect(frame).toContain('(SIGTERM)');
 
     r.unmount();
+    vi.unstubAllEnvs();
   });
 
   it('omits the resume-from-aborted banner when recoveringByTaskId is absent', () => {
@@ -153,36 +154,6 @@ describe('TasksPanel render caps', () => {
     const frame = r.lastFrame() ?? '';
     expect(frame).toContain('resumed from aborted 1');
     expect(frame).not.toContain('(unknown)');
-    r.unmount();
-  });
-
-  it('renders only the last maxEvaluationsPerTask evaluations with an elision row above', () => {
-    const evaluations: EvaluationSignal[] = Array.from({ length: 50 }, (_, i) => evaluation(i));
-    const bucketed: BucketedExecution = {
-      tasks: [
-        {
-          id: 'task-1',
-          status: 'running',
-          subSteps: [],
-          evaluations,
-          signals: [],
-          genEvalRound: 0,
-        },
-      ],
-      orphanSignals: [],
-    };
-
-    const r = render(<TasksPanel bucketed={bucketed} running={true} />);
-    const frame = r.lastFrame() ?? '';
-
-    // Default cap is 6 → 50 - 6 = 44 elided.
-    expect(frame).toContain('… 44 earlier evaluations');
-
-    // Each rendered evaluation shows its status as "passed" — exactly 6 should appear under
-    // the new PASS / FAIL rubric (no numeric score row).
-    const passedCount = frame.split('passed').length - 1;
-    expect(passedCount).toBe(6);
-
     r.unmount();
   });
 });

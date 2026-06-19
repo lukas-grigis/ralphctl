@@ -14,7 +14,7 @@ import { Box, Text } from 'ink';
 import type { TaskBucketStatus, TaskSubStep } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
 import { glyphs, inkColors } from '@src/application/ui/tui/theme/tokens.ts';
-import { fmtDuration } from '@src/application/ui/tui/theme/duration.ts';
+import { fmtDuration, fmtIsoHHMM } from '@src/application/ui/tui/theme/duration.ts';
 import {
   abortCauseLabel,
   collapseWhitespace,
@@ -48,10 +48,10 @@ export const RecoveryLine = ({
   readonly attemptN: number;
   readonly context: RecoveryContext;
 }): React.JSX.Element => {
-  // HH:MM from the ISO timestamp — keep `fmtIsoTime` for the seconds-precise variant; the
-  // resume banner shows wall-clock at minute granularity to match what a user sees on a
-  // sprint header (we don't need to know that the abort settled at 19:41:07.123).
-  const hhmm = String(context.abortedAt).slice(11, 16);
+  // HH:MM from the ISO timestamp in local time — keep `fmtIsoTime` for the seconds-precise
+  // variant; the resume banner shows wall-clock at minute granularity to match what a user
+  // sees on a sprint header (we don't need second precision).
+  const hhmm = fmtIsoHHMM(String(context.abortedAt));
   const label = abortCauseLabel(context.cause);
   return (
     <Box paddingLeft={2}>
@@ -67,6 +67,33 @@ export const RecoveryLine = ({
     </Box>
   );
 };
+
+/**
+ * Two-item gen-eval activity indicator for the expanded active-task card. The currently-busy
+ * role renders bright (`inkColors.info`); the idle role stays dim. When `role` is `undefined`
+ * (the tail sub-step names neither role — e.g. a commit leaf, or a pre-attempt empty trace)
+ * both render dim so the line reads as a neutral "no role active" state rather than implying
+ * one side is working.
+ */
+export const BusyIndicator = ({
+  role,
+}: {
+  readonly role: 'generator' | 'evaluator' | undefined;
+}): React.JSX.Element => (
+  <Box paddingLeft={2}>
+    {role === 'generator' ? (
+      <Text color={inkColors.info}>generator {glyphs.busyDot}</Text>
+    ) : (
+      <Text dimColor>generator {glyphs.busyDot}</Text>
+    )}
+    <Text> </Text>
+    {role === 'evaluator' ? (
+      <Text color={inkColors.info}>evaluator {glyphs.busyDot}</Text>
+    ) : (
+      <Text dimColor>evaluator {glyphs.busyDot}</Text>
+    )}
+  </Box>
+);
 
 export const SubStepLine = ({
   sub,
@@ -88,7 +115,7 @@ export const SubStepLine = ({
         {glyphs.bullet} {fmtDuration(sub.durationMs)}
       </Text>
       {sub.errorMessage !== undefined && (
-        <Box flexGrow={1} flexShrink={1}>
+        <Box flexGrow={1} flexShrink={1} minWidth={0}>
           <Text color={inkColors.error} wrap="truncate-end">
             {' '}
             {glyphs.emDash} {collapseWhitespace(sub.errorMessage)}
@@ -124,7 +151,7 @@ export const CriteriaBlock = ({
         {visible.map((b, i) => (
           <Box key={`crit-row-${String(i)}`}>
             <Text dimColor>{glyphs.bullet} </Text>
-            <Box flexGrow={1} flexShrink={1}>
+            <Box flexGrow={1} flexShrink={1} minWidth={0}>
               <Text wrap="truncate-end">{collapseWhitespace(b)}</Text>
             </Box>
           </Box>

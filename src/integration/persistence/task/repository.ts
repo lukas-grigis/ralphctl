@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { Task } from '@src/domain/entity/task.ts';
@@ -7,12 +8,12 @@ import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { fromJsonTasksFile, toJsonTasksFile } from '@src/integration/persistence/task/task.schema.ts';
 import { readJson, writeJsonAtomic } from '@src/integration/io/fs.ts';
-import { tasksFile } from '@src/integration/persistence/storage.ts';
+import { resolveSprintDir, sprintsDir } from '@src/integration/persistence/storage.ts';
 import { decode } from '@src/integration/persistence/shared/decode.ts';
 import type { FileLocker } from '@src/integration/io/file-locker.ts';
 
 export interface FsTaskRepositoryDeps {
-  /** Root of the on-disk layout. Each sprint's task set lives at `<root>/sprints/<id>/tasks.json`. */
+  /** Root of the on-disk layout. Each sprint's task set lives at `<root>/sprints/<id>--<slug>/tasks.json`. */
   readonly root: AbsolutePath;
   /**
    * Optional file lock used to serialise read-modify-write inside `update()`. The implement
@@ -26,8 +27,13 @@ export interface FsTaskRepositoryDeps {
 
 /**
  * Filesystem-backed `TaskRepository`. The full task set for a sprint is one JSON array at
- * `<root>/sprints/<sprint-id>/tasks.json`. `saveAll` rewrites the whole file atomically;
+ * `<root>/sprints/<sprint-id>--<slug>/tasks.json`. `saveAll` rewrites the whole file atomically;
  * `update` reads + replaces + saves under the same atomic-write semantics.
+ *
+ * The task aggregate carries only a `sprintId` (no slug), so the tasks-file path goes through the
+ * tolerant {@link resolveSprintDir} resolver. On a write where the sprint dir does not yet exist
+ * (`saveAll` before any sprint save) the path falls back to the bare `<id>/` dir, which the next
+ * sprint save reconciles onto the canonical name.
  *
  * `findById` walks the array in memory — task sets are bounded (a sprint's task list is
  * planned up front) so a linear scan is cheap. `findBySprintId` returns the array sorted by
@@ -37,8 +43,14 @@ export interface FsTaskRepositoryDeps {
  * and `findById` returns `NotFoundError`. The first `saveAll` materialises the file.
  */
 export const createFsTaskRepository = (deps: FsTaskRepositoryDeps): TaskRepository => {
+  /** Resolve the existing sprint dir, falling back to the bare `<id>/` path for first writes. */
+  const dirFor = async (sprintId: SprintId): Promise<string> =>
+    (await resolveSprintDir(deps.root, sprintId)) ?? join(sprintsDir(deps.root), String(sprintId));
+
+  const tasksPathFor = async (sprintId: SprintId): Promise<string> => join(await dirFor(sprintId), 'tasks.json');
+
   const readAll = async (sprintId: SprintId): Promise<Result<readonly Task[], StorageError>> => {
-    const path = tasksFile(deps.root, sprintId);
+    const path = await tasksPathFor(sprintId);
     const json = await readJson(path);
     if (!json.ok) {
       if (json.error instanceof NotFoundError)
@@ -49,7 +61,7 @@ export const createFsTaskRepository = (deps: FsTaskRepositoryDeps): TaskReposito
   };
 
   const writeAll = async (sprintId: SprintId, tasks: readonly Task[]): Promise<Result<void, StorageError>> =>
-    writeJsonAtomic(tasksFile(deps.root, sprintId), toJsonTasksFile(tasks));
+    writeJsonAtomic(await tasksPathFor(sprintId), toJsonTasksFile(tasks));
 
   return {
     async findById(sprintId, taskId) {
@@ -79,9 +91,9 @@ export const createFsTaskRepository = (deps: FsTaskRepositoryDeps): TaskReposito
       const doWriteAll = async (): Promise<Result<void, StorageError>> => writeAll(sprintId, tasks);
 
       if (deps.fileLocker === undefined) return doWriteAll();
-      const path = String(tasksFile(deps.root, sprintId));
+      const path = await tasksPathFor(sprintId);
       const lockPath = AbsolutePath.parse(`${path}.lock`);
-      if (!lockPath.ok) return doWriteAll(); // path was valid for `tasksFile`; this can't fail.
+      if (!lockPath.ok) return doWriteAll(); // path was valid for the tasks file; this can't fail.
       // Take the same per-file lock as `update()` so a wholesale rewrite (e.g. the cascade-unblock
       // read-modify-writeAll in `unblock-task`) can't interleave with a concurrent `update()` and
       // clobber its write. The lock path is built identically to `update()`.
@@ -110,9 +122,9 @@ export const createFsTaskRepository = (deps: FsTaskRepositoryDeps): TaskReposito
       };
 
       if (deps.fileLocker === undefined) return doUpdate();
-      const path = String(tasksFile(deps.root, sprintId));
+      const path = await tasksPathFor(sprintId);
       const lockPath = AbsolutePath.parse(`${path}.lock`);
-      if (!lockPath.ok) return doUpdate(); // path was valid for `tasksFile`; this can't fail.
+      if (!lockPath.ok) return doUpdate(); // path was valid for the tasks file; this can't fail.
       // The lock serialises read-modify-write so a concurrent writer can't slip in between our
       // `readAll` and `writeAll`. Note we hold the lock only for the update itself; reads
       // remain unlocked because they're safe on an atomically-written file.

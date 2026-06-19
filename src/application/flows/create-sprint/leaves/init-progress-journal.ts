@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
+import { sprintDir } from '@src/integration/persistence/storage.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
@@ -71,8 +72,10 @@ export const initProgressJournalLeaf = (
           message: 'init-progress-journal: ctx.sprint is undefined — create-sprint must run first',
         });
       }
+      // Direct-build the canonical `<id>--<slug>/` sprint dir — `ctx.sprint` is the freshly-saved
+      // entity here, so its slug is in hand and no async resolver scan is needed.
       const progressFile = AbsolutePath.parse(
-        join(String(opts.dataRoot), 'sprints', String(ctx.sprint.id), 'progress.md')
+        join(sprintDir(opts.dataRoot, ctx.sprint.id, ctx.sprint.slug), 'progress.md')
       );
       if (!progressFile.ok) throw progressFile.error;
       return {

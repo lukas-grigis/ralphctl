@@ -1,13 +1,15 @@
 /**
- * Header card for the execute view — flow id, elapsed, task counter, optional model line,
+ * Header card for the execute view — flow id, elapsed, task counter, optional model lines,
  * and active-task focus row (task index, current substep, gen-eval round). Extracted from
  * the orchestrator so the long JSX block isn't competing for visual attention with the
  * layout / column switching code.
  *
- * Model line semantics (implement runs only): when generator and evaluator differ the row
- * renders `<gen> → <eval> (eval)` so the operator can tell which model produces vs which
- * model judges. When they match (single-provider, single-model runs) the row collapses to
- * the bare model name — the arrow would be noise.
+ * Model line semantics (implement runs only): when `generatorModel` / `evaluatorModel` are
+ * set on the descriptor the card renders TWO explicit lines — `generator <model> · <effort>`
+ * and `evaluator <model> · <effort>` — even when the two models are the same. This gives the
+ * operator unambiguous visibility into both roles. The effort suffix is omitted when undefined.
+ * Non-implement flows (no gen/eval split) keep a single `model <name>` line if either field
+ * happens to be set by their launcher; in practice those flows leave both undefined.
  *
  * Round counter: `TaskBucket.genEvalRound` is monotonic across the whole task (the `rounds/`
  * dir is shared by every attempt), while `genEvalMaxRounds` (`maxTurns`) caps a single attempt.
@@ -37,6 +39,71 @@ interface HeaderCardProps {
   readonly currentSubStep: string | undefined;
 }
 
+/**
+ * Renders the model + effort lines inside the HeaderCard.
+ *
+ * Implement runs (both `generatorModel` and `evaluatorModel` set): two explicit lines so the
+ * operator can clearly see each role, even when generator === evaluator.
+ *
+ *   ↳ generator  claude-opus-4-8 · high
+ *   ↳ evaluator  gpt-5.5 · medium
+ *
+ * Non-implement flows (at most one model set): single `model <name>` line.
+ * When neither model is set: nothing rendered.
+ */
+const ModelLines = ({
+  generatorModel,
+  evaluatorModel,
+  generatorEffort,
+  evaluatorEffort,
+}: {
+  readonly generatorModel: string | undefined;
+  readonly evaluatorModel: string | undefined;
+  readonly generatorEffort: string | undefined;
+  readonly evaluatorEffort: string | undefined;
+}): React.JSX.Element | null => {
+  // Implement runs: both roles explicitly set — render two labelled lines.
+  if (generatorModel !== undefined && evaluatorModel !== undefined) {
+    return (
+      <Box flexDirection="column">
+        <Box>
+          <Text dimColor>{glyphs.activityArrow} generator </Text>
+          <Text color={inkColors.highlight}>{generatorModel}</Text>
+          {generatorEffort !== undefined && (
+            <>
+              <Text dimColor> {glyphs.bullet} </Text>
+              <Text dimColor>{generatorEffort}</Text>
+            </>
+          )}
+        </Box>
+        <Box>
+          <Text dimColor>{glyphs.activityArrow} evaluator </Text>
+          <Text color={inkColors.highlight}>{evaluatorModel}</Text>
+          {evaluatorEffort !== undefined && (
+            <>
+              <Text dimColor> {glyphs.bullet} </Text>
+              <Text dimColor>{evaluatorEffort}</Text>
+            </>
+          )}
+        </Box>
+      </Box>
+    );
+  }
+
+  // Non-implement flows: single model line (whichever is set).
+  const model = generatorModel ?? evaluatorModel;
+  if (model !== undefined) {
+    return (
+      <Box>
+        <Text dimColor>{glyphs.activityArrow} model </Text>
+        <Text color={inkColors.highlight}>{model}</Text>
+      </Box>
+    );
+  }
+
+  return null;
+};
+
 export const HeaderCard = ({
   descriptor,
   isRunning,
@@ -48,13 +115,6 @@ export const HeaderCard = ({
   currentTaskName,
   currentSubStep,
 }: HeaderCardProps): React.JSX.Element => {
-  const modelLine =
-    descriptor.generatorModel !== undefined && descriptor.evaluatorModel !== undefined
-      ? descriptor.generatorModel === descriptor.evaluatorModel
-        ? descriptor.generatorModel
-        : `${descriptor.generatorModel} ${glyphs.arrowRight} ${descriptor.evaluatorModel} (eval)`
-      : undefined;
-
   return (
     <Card title={descriptor.title} tone={isRunning ? 'info' : descriptor.status === 'completed' ? 'success' : 'rule'}>
       <Box flexDirection="column">
@@ -83,12 +143,12 @@ export const HeaderCard = ({
             </Box>
           )}
         </Box>
-        {modelLine !== undefined && (
-          <Box>
-            <Text dimColor>{glyphs.activityArrow} model </Text>
-            <Text color={inkColors.highlight}>{modelLine}</Text>
-          </Box>
-        )}
+        <ModelLines
+          generatorModel={descriptor.generatorModel}
+          evaluatorModel={descriptor.evaluatorModel}
+          generatorEffort={descriptor.generatorEffort}
+          evaluatorEffort={descriptor.evaluatorEffort}
+        />
         {currentTask !== undefined && currentTaskName !== undefined && (
           <Box>
             <Text dimColor>{glyphs.activityArrow} task </Text>

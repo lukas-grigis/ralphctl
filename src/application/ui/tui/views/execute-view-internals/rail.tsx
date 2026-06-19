@@ -28,15 +28,34 @@ interface RailProps {
   readonly isRunning: boolean;
   readonly maxRows: number;
   readonly railWidth: number;
+  /**
+   * Force the meta tail (duration / trailing status label / error message) off regardless of
+   * width. The sidebar steps list passes this so a failed step's long error (e.g. a filesystem
+   * path) can never wrap across the narrow column — the error already shows in the Recent-log
+   * and result footer. When omitted, suppression is derived from `railWidth`.
+   */
+  readonly suppressMeta?: boolean;
 }
 
-export const FlowStepsRail = ({ descriptor, isRunning, maxRows, railWidth }: RailProps): React.JSX.Element => (
+// Threshold below which the meta tail (duration / trailing label / error) is suppressed so
+// the step name can use the full text budget without being concatenated with status text.
+// At ≥32 cols there is room for a short duration like " · 42s" (6 chars) after a truncated name.
+const NARROW_RAIL_SUPPRESS_META_THRESHOLD = 32;
+
+export const FlowStepsRail = ({
+  descriptor,
+  isRunning,
+  maxRows,
+  railWidth,
+  suppressMeta,
+}: RailProps): React.JSX.Element => (
   <StepTrace
     trace={descriptor.trace}
     running={isRunning}
     filter={outerFlowFilter}
     maxRows={maxRows}
     railWidth={railWidth}
+    suppressMeta={suppressMeta ?? railWidth < NARROW_RAIL_SUPPRESS_META_THRESHOLD}
     {...(descriptor.plannedLeaves !== undefined ? { plan: descriptor.plannedLeaves } : {})}
     {...(descriptor.planLabelByName !== undefined ? { labelByName: descriptor.planLabelByName } : {})}
     {...(isRunning && descriptor.plannedLeaves === undefined ? { inFlightLabel: 'awaiting next step…' } : {})}

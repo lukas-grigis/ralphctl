@@ -53,9 +53,9 @@ const bucketedWith = (evaluation: EvaluationSignal): BucketedExecution => ({
 
 describe('TasksPanel — showEvaluatorFailureUI prop wiring', () => {
   // These tests pin the gate: TasksPanel accepts the prop and threads it to its TaskBlock
-  // children. The per-row swap (canonical vs. panel) is exercised in the focused tests below
-  // because Bundle A's task-card collapse means evaluation rows only render when the operator
-  // expands the per-task card — orthogonal to the dev-flag gate this bundle owns.
+  // children. The dev-flagged panel's VISIBILITY is now driven by the AUTHORITATIVE per-task
+  // verdict (`taskEvaluationById`), never the bucketed FAILED signal — a leaked failed signal on
+  // a passed task must NOT surface the failure panel.
   it('accepts the flag without throwing', () => {
     const r = render(
       <TasksPanel bucketed={bucketedWith(failingEvaluation())} running={true} showEvaluatorFailureUI={false} />
@@ -71,6 +71,39 @@ describe('TasksPanel — showEvaluatorFailureUI prop wiring', () => {
     );
     const frame = r.lastFrame() ?? '';
     expect(frame).toContain('task-1');
+    r.unmount();
+  });
+
+  it('renders the per-dimension failure panel when the AUTHORITATIVE verdict is failed', () => {
+    const r = render(
+      <TasksPanel
+        bucketed={bucketedWith(failingEvaluation())}
+        running={true}
+        showEvaluatorFailureUI={true}
+        taskEvaluationById={new Map([['task-1', { status: 'failed' as const, attemptN: 1 }]])}
+      />
+    );
+    const frame = r.lastFrame() ?? '';
+    // Per-dimension findings only the failure panel exposes.
+    expect(frame).toContain('completeness: fail');
+    expect(frame).toContain('missing edge case');
+    r.unmount();
+  });
+
+  it('does NOT render the failure panel for an authoritatively passed task with a leaked failed signal', () => {
+    const r = render(
+      <TasksPanel
+        bucketed={bucketedWith(failingEvaluation())}
+        running={true}
+        showEvaluatorFailureUI={true}
+        taskEvaluationById={new Map([['task-1', { status: 'passed' as const, attemptN: 1 }]])}
+      />
+    );
+    const frame = r.lastFrame() ?? '';
+    // Authoritative passed — the leaked failed signal's per-dimension detail must not surface.
+    expect(frame).toContain('passed');
+    expect(frame).not.toContain('completeness: fail');
+    expect(frame).not.toContain('missing edge case');
     r.unmount();
   });
 });
@@ -91,13 +124,11 @@ describe('EvaluatorFailurePanel — unflagged vs flagged render contrast', () =>
     r.unmount();
   });
 
-  it('unflagged canonical summary still surfaces every dimension on a single indented row', () => {
-    // The canonical summary is what tasks-panel renders when the dev flag is off. The shape
-    // is one line: `correctness: 5/5 ✓  ·  completeness: 2/5 ✗  ·  …`. We exercise it via
-    // the same EvaluationSignal so the contrast with the flagged render is the layout only,
-    // not the input data.
+  it('exposes the per-dimension fixture the failure panel renders (data-shape sanity check)', () => {
+    // The card no longer renders a signal-sourced per-dimension summary at all — the verdict is
+    // the authoritative single line, and per-dimension detail surfaces ONLY in the dev-flagged
+    // EvaluatorFailurePanel. Sanity-check the fixture we feed that panel.
     const evaluation = failingEvaluation();
-    // EvaluationLine is internal to tasks-panel; sanity-check the data we feed both panels.
     expect(evaluation.dimensions).toHaveLength(4);
     expect(evaluation.dimensions.filter((d) => !d.passed)).toHaveLength(2);
   });

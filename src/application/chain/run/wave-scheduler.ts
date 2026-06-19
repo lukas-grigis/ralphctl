@@ -279,10 +279,21 @@ const createWavePool = <TCtx>(
       const traces: Trace[] = [];
       // On an abort short-circuit we never fold branch outcomes — the AbortError returns verbatim.
       const abortedFatal = fatal !== null && fatal.code === 'aborted';
-      for (const run of runs) {
+      for (let i = 0; i < runs.length; i += 1) {
+        const run = runs[i];
         if (run === undefined) continue;
+        // Extract everything the caller needs from this completed branch runner FIRST: its trace
+        // ring and its terminal outcome (which reads `runner.ctx`).
         traces.push(run.runner.trace);
         if (!abortedFatal) outcomes.push(toOutcome(run));
+        // Then drop the slot's reference to the runner. A completed branch runner pins its forked
+        // ctx + trace ring; without this null the whole `runs[]` array (every settled branch of
+        // this wave) survives until the entire `runWaves` call returns — i.e. across EVERY later
+        // wave. Nulling here makes each settled branch runner GC-eligible the moment its wave
+        // drains. Note: `run.runner.trace` above hands the caller the SAME array instance the
+        // runner held, so the trace itself is retained by the returned `WaveResult` exactly as
+        // long as the caller keeps it — only the runner wrapper (+ its forked ctx) is freed.
+        runs[i] = undefined;
       }
       return { outcomes, traces, fatal };
     },

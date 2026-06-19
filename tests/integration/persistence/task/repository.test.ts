@@ -7,9 +7,13 @@ import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { makeInProgressTaskWithRunningAttempt, makeTodoTask } from '@tests/fixtures/domain.ts';
 import { recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
+import { join } from 'node:path';
 import { createFsTaskRepository } from '@src/integration/persistence/task/repository.ts';
-import { tasksFile } from '@src/integration/persistence/storage.ts';
+import { sprintsDir } from '@src/integration/persistence/storage.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
+
+/** Legacy bare-`<id>/tasks.json` path — pre-slug installs wrote this; the resolver tolerates it. */
+const legacyTasksFile = (root: AbsolutePath, id: SprintId): string => join(sprintsDir(root), String(id), 'tasks.json');
 
 describe('createFsTaskRepository', () => {
   let root: AbsolutePath;
@@ -117,7 +121,7 @@ describe('createFsTaskRepository', () => {
 
   it('surfaces a non-array tasks file as StorageError(parse)', async () => {
     const repo = createFsTaskRepository({ root });
-    const path = tasksFile(root, sprintId);
+    const path = legacyTasksFile(root, sprintId);
     await fs.mkdir(path.replace(/tasks\.json$/, ''), { recursive: true });
     await fs.writeFile(path, '{ "not": "an array" }');
 

@@ -1,13 +1,17 @@
 import { mkdir, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { makeDraftSprintBundle } from '@tests/fixtures/domain.ts';
 import { createFsSprintExecutionRepository } from '@src/integration/persistence/sprint-execution/repository.ts';
-import { executionFile } from '@src/integration/persistence/storage.ts';
+import { sprintsDir } from '@src/integration/persistence/storage.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
+
+/** Legacy bare-`<id>/execution.json` path — what pre-slug installs wrote; the resolver tolerates it. */
+const legacyExecutionFile = (root: AbsolutePath, id: SprintId): string =>
+  join(sprintsDir(root), String(id), 'execution.json');
 
 describe('createFsSprintExecutionRepository', () => {
   let root: AbsolutePath;
@@ -73,7 +77,7 @@ describe('createFsSprintExecutionRepository', () => {
   it('decodes a legacy execution.json that omits `id` (fills from `sprintId`)', async () => {
     const repo = createFsSprintExecutionRepository({ root });
     const sprintId = SprintId.generate();
-    const legacyPath = executionFile(root, sprintId);
+    const legacyPath = legacyExecutionFile(root, sprintId);
     await mkdir(dirname(legacyPath), { recursive: true });
     await writeFile(
       legacyPath,
@@ -99,7 +103,7 @@ describe('createFsSprintExecutionRepository', () => {
     // this is a one-way migration that self-heals on next save.
     const repo = createFsSprintExecutionRepository({ root });
     const sprintId = SprintId.generate();
-    const legacyPath = executionFile(root, sprintId);
+    const legacyPath = legacyExecutionFile(root, sprintId);
     await mkdir(dirname(legacyPath), { recursive: true });
     const legacyRepoId = '01900000-0000-7000-8000-00000000abcd';
     const legacyRanAt = '2025-12-01T08:00:00.000Z';
@@ -136,7 +140,7 @@ describe('createFsSprintExecutionRepository', () => {
     // accepts the absence as `undefined` and no schemaVersion bump is required.
     const repo = createFsSprintExecutionRepository({ root });
     const sprintId = SprintId.generate();
-    const legacyPath = executionFile(root, sprintId);
+    const legacyPath = legacyExecutionFile(root, sprintId);
     await mkdir(dirname(legacyPath), { recursive: true });
     await writeFile(
       legacyPath,

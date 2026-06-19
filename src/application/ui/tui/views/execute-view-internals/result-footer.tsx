@@ -1,14 +1,14 @@
 /**
- * Footer of the execute view — renders either a settled-run `ResultCard` (completed /
- * aborted / failed) or, while the run is still live, a `running…` spinner. Pure
- * presentational; the orchestrator decides which descriptor / counts / elapsed string to
- * feed in.
+ * Footer of the execute view — renders a settled-run `ResultCard` (completed / aborted /
+ * failed) once the session is no longer live. While the run is still running the footer
+ * renders nothing — the header card already shows `[RUNNING]` with its own live spinner.
+ * Pure presentational; the orchestrator decides which descriptor / counts / elapsed string
+ * to feed in.
  */
 
 import React from 'react';
 import { Box } from 'ink';
 import { ResultCard } from '@src/application/ui/tui/components/result-card.tsx';
-import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
 
@@ -26,13 +26,10 @@ export const ResultFooter = ({
   tasksDone,
   tasksTotal,
   elapsed,
-}: ResultFooterProps): React.JSX.Element => {
+}: ResultFooterProps): React.JSX.Element | null => {
   if (isRunning) {
-    return (
-      <Box paddingX={spacing.indent} marginTop={spacing.section}>
-        <Spinner label="running…" />
-      </Box>
-    );
+    // Header card already shows [RUNNING] + live spinner — no redundant footer needed.
+    return null;
   }
   return (
     <Box marginTop={spacing.section}>

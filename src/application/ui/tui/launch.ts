@@ -11,6 +11,7 @@
  */
 
 import React from 'react';
+import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
 import type { LogEvent } from '@src/business/observability/events.ts';
 import type { HarnessSignalSink } from '@src/business/observability/harness-signal-sink.ts';
@@ -22,7 +23,7 @@ import { type AppDeps, wire } from '@src/application/bootstrap/wire.ts';
 import { broadcastSink } from '@src/integration/observability/sinks/broadcast-sink.ts';
 import { type BusSink, createBusSink } from '@src/application/ui/tui/runtime/sinks-bus.ts';
 import { type CoalescedBuffer, createCoalescedBuffer } from '@src/application/ui/tui/runtime/coalesced-buffer.ts';
-import { createSessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
+import { createSessionManager, type SessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
 import { createPromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
 import { createInkInteractivePrompt } from '@src/application/ui/tui/prompts/ink-interactive-prompt.ts';
 import { createInkHost } from '@src/application/ui/shared/ink-host.ts';
@@ -30,6 +31,13 @@ import { setRunInTerminal } from '@src/application/ui/tui/runtime/run-in-termina
 import { setImplementRoleOverrides } from '@src/application/ui/tui/runtime/implement-role-overrides.ts';
 import type { LaunchExtras } from '@src/application/ui/shared/launcher.ts';
 import { App } from '@src/application/ui/tui/App.tsx';
+import { MigrationRoute } from '@src/application/ui/tui/migration/migration-route.tsx';
+import {
+  createDataMigrationEngine,
+  type DataMigrationEngine,
+} from '@src/integration/persistence/data-migration/run-data-migration.ts';
+import { CLI_METADATA } from '@src/business/version/cli-metadata.ts';
+import type { SelectionSeed } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { resolveInitialState } from '@src/application/ui/tui/launch-routing.ts';
 import { createLastSelectionStore } from '@src/integration/persistence/selection/last-selection-store.ts';
 import { type LogLevelGate, createLogLevelGate, passesLogLevel } from '@src/business/observability/log-level-filter.ts';
@@ -41,6 +49,20 @@ import { startNotificationSubscriber } from '@src/business/observability/notific
 interface Bootstrapped {
   readonly app: Parameters<typeof App>[0];
   readonly drain: () => void;
+  /**
+   * Pending-migration pre-flight. When `pending` is true, `launchTui` routes the
+   * {@link MigrationRoute} consent gate before the App on the initial mount. Absent (`pending`
+   * false) ⇒ the App mounts directly. The engine + ctx ingredients are carried so the render thunk
+   * can build the gate without re-resolving them.
+   */
+  readonly migration: {
+    readonly pending: boolean;
+    readonly engine: DataMigrationEngine;
+    readonly dataRoot: AbsolutePath;
+    readonly stateRoot: AbsolutePath;
+    readonly now: () => string;
+    readonly writeFile: AppDeps['writeFile'];
+  };
 }
 
 /**
@@ -92,8 +114,9 @@ const createHeapCriticalHandler = (args: {
   readonly logForwarder: CoalescedBuffer<LogEvent>;
   readonly harnessBus: BusSink<HarnessSignal>;
   readonly logBus: BusSink<LogEvent>;
+  readonly sessions: SessionManager;
 }): (() => void) => {
-  const { logger, logForwarder, harnessBus, logBus } = args;
+  const { logger, logForwarder, harnessBus, logBus, sessions } = args;
   return () => {
     // Defensive buffer-clear: synchronous, fast in-memory ops — run these first so memory is
     // reclaimed immediately (before the snapshot write steals time). Drop (do NOT flush) the
@@ -102,6 +125,14 @@ const createHeapCriticalHandler = (args: {
     logForwarder.discard();
     harnessBus.clear();
     logBus.clear();
+
+    // Shed the dominant reachable retainer: drop EVERY terminal SessionRecord (with its trace
+    // snapshot). The small-capped buffers above free little; completed/aborted/failed run records
+    // accumulated across a long session are the real weight the app root can reach. shedTerminal
+    // never touches a running record, so a healthy in-flight run is never disturbed — this only
+    // sheds memory from work that is already done.
+    const dropped = sessions.shedTerminal();
+    if (dropped > 0) logger.warn(`heap critical — shed ${dropped} finished session record(s) for memory relief`);
 
     // Heap snapshot deferred off the hot path via setImmediate. v8.writeHeapSnapshot() is a
     // synchronous V8 operation that blocks the Node.js event loop for several seconds on large
@@ -163,13 +194,18 @@ const bootstrap = async (): Promise<Bootstrapped> => {
     logLevelGate
   );
 
+  // Session manager is created BEFORE the heap watchdog so the critical handler can reach it to
+  // shed finished SessionRecords (the dominant app-root-reachable retainer) under memory pressure.
+  const sessions = createSessionManager();
+
   // Heap watchdog gives the operator a warning before V8 SIGKILLs the harness on a long-running
-  // session. On 'critical' its real value is capturing a heap snapshot for post-mortem: the
-  // TUI's in-memory buffers are small-capped (a few MB), so clearing them frees little — the
-  // OOM recurs undiagnosed unless we name the dominant retainer. The snapshot does that.
+  // session. On 'critical' it (a) sheds finished session records via `sessions.shedTerminal()` —
+  // the real reachable weight — and (b) captures a heap snapshot for post-mortem (names the
+  // dominant retainer if the shed was not enough). The small-capped in-memory buffers it also
+  // clears free little; the session shed + snapshot are the load-bearing actions.
   const heapWatchdog = startHeapWatchdog({
     eventBus: deps.eventBus,
-    onCritical: createHeapCriticalHandler({ logger: deps.logger, logForwarder, harnessBus, logBus }),
+    onCritical: createHeapCriticalHandler({ logger: deps.logger, logForwarder, harnessBus, logBus, sessions }),
   });
 
   // OS-attention notifications. Wired here (not inside wire()) so tests that build wire() never
@@ -183,7 +219,6 @@ const bootstrap = async (): Promise<Bootstrapped> => {
     disabled: () => settings.value.ui.notifications.enabled === false,
   });
 
-  const sessions = createSessionManager();
   const queue = createPromptQueue();
 
   // The Ink prompt adapter is plumbed through deps that the launcher reads; chain factories
@@ -205,6 +240,14 @@ const bootstrap = async (): Promise<Bootstrapped> => {
     ...(lastSelection !== undefined ? { lastProjectId: lastSelection.projectId } : {}),
     ...(lastSelection?.sprintId !== undefined ? { lastSprintId: lastSelection.sprintId } : {}),
   });
+
+  // Pending-migration pre-flight. Runs AFTER ensureStorageRoots, BEFORE the App mount. The engine
+  // is a pure factory; `needsMigration` only reads the marker file (absent ⇒ pending). When pending,
+  // launchTui routes the consent gate first. The TUI is already TTY-gated at the top of launchTui, so
+  // this is always interactive — no separate non-TTY branch is needed here (the CLI bootstrap, which
+  // CAN run headless, deliberately skips migration entirely; the TUI owns consent).
+  const migrationEngine = createDataMigrationEngine();
+  const migrationPending = await migrationEngine.needsMigration(paths.value.dataRoot);
 
   return {
     app: {
@@ -235,8 +278,27 @@ const bootstrap = async (): Promise<Bootstrapped> => {
       heapWatchdog.stop();
       unsubNotifications();
     },
+    migration: {
+      pending: migrationPending,
+      engine: migrationEngine,
+      dataRoot: paths.value.dataRoot,
+      stateRoot: paths.value.stateRoot,
+      now: () => String(deps.clock()),
+      writeFile: deps.writeFile,
+    },
   };
 };
+
+/**
+ * Decide whether the initial Ink mount routes the {@link MigrationRoute} consent gate (vs. the App
+ * directly). The gate shows ONLY when a migration is pending AND it has not already resolved this
+ * session — once resolved, a later pause/resume remount renders the App directly so an AI-session
+ * pause never re-shows the consent screen. Pure so the launch wiring is unit-testable without a
+ * full bootstrap.
+ *
+ * @public
+ */
+export const shouldShowMigrationGate = (pending: boolean, gateResolved: boolean): boolean => pending && !gateResolved;
 
 export interface LaunchTuiOptions {
   /**
@@ -276,8 +338,46 @@ export const launchTui = async (options: LaunchTuiOptions = {}): Promise<void> =
     return;
   }
 
-  const appElement = React.createElement(App, booted.app);
-  const host = createInkHost({ appElement });
+  // Live in-memory holder for the current selection, seeded from the launch-time persisted value.
+  // Each interactive-flow pause unmounts the React tree and remounts it via `renderElement()`;
+  // SelectionProvider re-seeds from this holder, so an in-session sprint switch survives the
+  // remount instead of snapping back to the stale launch-time `initialSelection`.
+  let liveSelection = booted.app.initialSelection;
+  const onSelectionChange = (next: SelectionSeed): void => {
+    liveSelection = next;
+    booted.app.onSelectionChange?.(next);
+  };
+
+  // Migration consent gate. Routed ONLY on the initial mount while a migration is pending and has
+  // not yet resolved. `gateResolved` is a launch-closure flag (not React state, which is lost on the
+  // pause/resume remount): once the gate resolves, every later remount renders the App directly so a
+  // mid-session AI-session pause never re-shows the consent screen.
+  let gateResolved = false;
+  const appProps = (): Parameters<typeof App>[0] => ({
+    ...booted.app,
+    onSelectionChange,
+    ...(liveSelection !== undefined ? { initialSelection: liveSelection } : {}),
+  });
+  const renderElement = (): React.ReactElement => {
+    if (shouldShowMigrationGate(booted.migration.pending, gateResolved)) {
+      return React.createElement(MigrationRoute, {
+        gate: {
+          engine: booted.migration.engine,
+          dataRoot: booted.migration.dataRoot,
+          stateRoot: booted.migration.stateRoot,
+          appVersion: CLI_METADATA.currentVersion,
+          now: booted.migration.now,
+          writeFile: booted.migration.writeFile,
+        },
+        app: appProps(),
+        onResolved: (): void => {
+          gateResolved = true;
+        },
+      });
+    }
+    return React.createElement(App, appProps());
+  };
+  const host = createInkHost({ renderElement });
   setRunInTerminal(host.runInTerminal);
   try {
     await host.waitForShutdown();

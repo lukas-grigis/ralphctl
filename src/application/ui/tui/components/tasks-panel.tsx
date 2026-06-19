@@ -4,8 +4,7 @@
  *   ✓ <id-short> · <duration> · <status>
  *     ↳ <sub-step name>          <duration>
  *     …
- *     eval passed  5.0/5.0
- *     correctness: 5/5 ✓  completeness: 5/5 ✓  …
+ *     eval passed · attempt 2
  *     signals
  *       09:19  chng  added canvas-confetti …
  *       09:19  lern  useLocation + global side-effect …
@@ -24,6 +23,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Text } from 'ink';
 import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { SprintState, TaskProjection } from '@src/application/ui/tui/components/tasks-projection.ts';
+import type { TaskEvaluation } from '@src/application/ui/tui/components/tasks-panel-internals/evaluation-row.tsx';
 import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
 import { glyphs, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { computeAnchoredWindow } from '@src/application/ui/tui/components/windowed-anchor.ts';
@@ -73,8 +73,6 @@ export interface TasksPanelProps {
    * preventing the OOM mode where unbounded child lists thrash the V8 heap every spinner tick.
    */
   readonly maxSubStepsPerTask?: number;
-  /** Max evaluation rows per task to render; same elision treatment as sub-steps. */
-  readonly maxEvaluationsPerTask?: number;
   /**
    * Optional `taskId → RecoveryContext` map for tasks the launcher detected as resuming a
    * prior aborted attempt. When set for a given task id the active-task header gets a second
@@ -107,6 +105,15 @@ export interface TasksPanelProps {
    */
   readonly warningSummaryById?: ReadonlyMap<string, string>;
   /**
+   * Optional `taskId → authoritative evaluation verdict` map sourced from the polled task
+   * entities (the LAST attempt's `evaluation.status`, keyed by task id). The card renders THIS
+   * verdict — never the timestamp-bucketed `TaskBucket.evaluations` signal stream, which mis-
+   * attributes evaluator signals to the wrong task under parallel/wave sprints (overlapping
+   * windows + AI-fabricated timestamps). Absent / no key for a task ⇒ "awaiting eval" while the
+   * card is active, or no verdict line otherwise.
+   */
+  readonly taskEvaluationById?: ReadonlyMap<string, TaskEvaluation>;
+  /**
    * Dev-only flag — when `true`, failing evaluator rows render via
    * `<EvaluatorFailurePanel>` (per-dimension colour-coded view + critique excerpt with
    * expand affordance) instead of the canonical single-line summary. Defaults `false` so
@@ -115,6 +122,18 @@ export interface TasksPanelProps {
    * .showEvaluatorFailureUI` by the launcher.
    */
   readonly showEvaluatorFailureUI?: boolean;
+  /**
+   * Optional `taskId → pending leaf names` map for upcoming (not-yet-run) sub-steps.
+   * Derived from `descriptor.plannedLeaves` by filtering to UUID-suffixed entries for each
+   * task id and subtracting already-executed leaves. Rendered as grey `◇` rows below the
+   * executed sub-steps so the operator sees the planned flow ahead, matching the Steps rail.
+   *
+   * Only FIXED surrounding leaves are included — dynamic generator/evaluator round-leaves are
+   * excluded so the pending list doesn't imply a fixed round count.
+   *
+   * Absent when `descriptor.plannedLeaves` is not available.
+   */
+  readonly pendingSubStepsByTaskId?: ReadonlyMap<string, readonly string[]>;
   /**
    * Optional projected sprint state. When supplied the per-task header appends an ETA derived
    * from `state.tasks[i].medianRoundDurationMs * (max - currentRound)`. Absent ⇒ ETA is
@@ -130,6 +149,13 @@ export interface TasksPanelProps {
    * isolated unit renders work without explicit wiring (no ticker fires without elapsed gap).
    */
   readonly nowMs?: number;
+  /**
+   * Optional callback fired when the panel's focused card id changes (deduplicated — only called
+   * when the id value is different from the previous call). The sidebar minimap uses this to keep
+   * its highlight in sync with the main-area cursor without owning any input itself. Absent ⇒
+   * the panel is fully self-contained (existing callers are unaffected).
+   */
+  readonly onFocusedCardChange?: (taskId: string | undefined) => void;
 }
 
 export const TasksPanel = ({
@@ -140,15 +166,17 @@ export const TasksPanel = ({
   maxTasks,
   maxOrphanSignals = 6,
   maxSubStepsPerTask = 12,
-  maxEvaluationsPerTask = 6,
   recoveringByTaskId,
   inputActive = false,
   taskCriteriaById,
+  pendingSubStepsByTaskId,
   blockedReasonById,
   warningSummaryById,
+  taskEvaluationById,
   showEvaluatorFailureUI = false,
   sprintState,
   nowMs,
+  onFocusedCardChange,
 }: TasksPanelProps): React.JSX.Element => {
   // Render-time fallback for the idle-ticker clock. The execute view passes a polled `now` so
   // the ticker can re-evaluate on each heartbeat; isolated unit renders fall through to this
@@ -183,8 +211,12 @@ export const TasksPanel = ({
   // Enter just like any other card. Other cards default collapsed to a one-line summary.
   // Initial state seeds the active task on mount so the very first paint already shows the
   // live stream (no `useEffect`-induced flicker).
+  // REQ-3 edge case: when ALL tasks are completed, activeTaskId is undefined — seed with the
+  // last task so the operator sees a non-empty expanded card on first render.
+  const lastTaskId = bucketed.tasks.length > 0 ? bucketed.tasks[bucketed.tasks.length - 1]?.id : undefined;
+  const seedId = activeTaskId ?? lastTaskId;
   const [expandedTaskIds, setExpandedTaskIds] = useState<ReadonlySet<string>>(
-    () => new Set(activeTaskId !== undefined ? [activeTaskId] : [])
+    () => new Set(seedId !== undefined ? [seedId] : [])
   );
   // Card cursor — index into `bucketed.tasks`. Default `undefined` means "no manual focus
   // yet"; the panel anchors on the active task on first interaction.
@@ -194,17 +226,29 @@ export const TasksPanel = ({
   // transitions only — mount itself is handled by the lazy initial state). This gives the
   // auto-expand-on-activation UX without making the expansion permanent: once the active id is
   // in the set, Esc / Enter on it works the same as on any manually-expanded card.
+  // REQ-3: when the run transitions to all-completed (activeTaskId becomes undefined), ensure
+  // the last task card remains expanded so the operator sees a completion summary.
   const prevActiveTaskIdRef = useRef<string | undefined>(activeTaskId);
   useEffect(() => {
-    if (activeTaskId !== undefined && prevActiveTaskIdRef.current !== activeTaskId) {
+    const prevId = prevActiveTaskIdRef.current;
+    prevActiveTaskIdRef.current = activeTaskId;
+    if (activeTaskId !== undefined && prevId !== activeTaskId) {
       setExpandedTaskIds((prev) => {
         if (prev.has(activeTaskId)) return prev;
         const next = new Set(prev);
         next.add(activeTaskId);
         return next;
       });
+    } else if (activeTaskId === undefined && prevId !== undefined && lastTaskId !== undefined) {
+      // Transitioned to all-completed — expand the last task as the completion summary.
+      setExpandedTaskIds((prev) => {
+        if (prev.has(lastTaskId)) return prev;
+        const next = new Set(prev);
+        next.add(lastTaskId);
+        return next;
+      });
     }
-    prevActiveTaskIdRef.current = activeTaskId;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- lastTaskId is derived from bucketed.tasks; re-running on every task append would fight the guard (prevId check ensures we only act on activeTaskId transitions, not task additions).
   }, [activeTaskId]);
 
   const isCardExpanded = (taskId: string): boolean => expandedTaskIds.has(taskId);
@@ -222,6 +266,19 @@ export const TasksPanel = ({
 
   const focusedIndex = focusedKey !== undefined ? flatKeys.indexOf(focusedKey) : -1;
   const effectiveFocusedKey = focusedIndex >= 0 ? focusedKey : undefined;
+
+  // Report focused card id upward (passive sidebar minimap). Deduped — only fires when the id
+  // changes. Uses a ref for the callback so a non-memoised caller doesn't cause an extra effect
+  // run on every render; the ref is kept current on every render before the effect fires.
+  const prevFocusedCardIdRef = useRef<string | undefined>(focusedCardId);
+  const onFocusedCardChangeRef = useRef(onFocusedCardChange);
+  onFocusedCardChangeRef.current = onFocusedCardChange;
+  useEffect(() => {
+    if (focusedCardId !== prevFocusedCardIdRef.current) {
+      prevFocusedCardIdRef.current = focusedCardId;
+      onFocusedCardChangeRef.current?.(focusedCardId);
+    }
+  });
 
   useTasksPanelInput({
     inputActive,
@@ -300,8 +357,8 @@ export const TasksPanel = ({
         const sliceLen = Math.min(task.signals.length, maxSignalsPerTask);
         const sliceStart = task.signals.length - sliceLen;
         // Read criteria synchronously from props (audit [05]). Empty arrays / missing keys
-        // suppress the block entirely; non-empty arrays drive both the collapsed summary and
-        // the per-criterion verdict alignment with evaluator dimensions.
+        // suppress the block entirely; non-empty arrays render the "definition of done" criteria
+        // (collapsed 3-line summary, expandable via `e`) — un-marked, no per-criterion verdict.
         const criteriaBullets = taskCriteriaById?.get(task.id);
         const taskCriteria = criteriaBullets !== undefined && criteriaBullets.length > 0 ? criteriaBullets : undefined;
         // Match by id when a projection is supplied so the order of `sprintState.tasks`
@@ -310,6 +367,10 @@ export const TasksPanel = ({
         const taskProjection = sprintState?.tasks.find((t: TaskProjection) => t.id === task.id);
         const blockedReason = blockedReasonById?.get(task.id);
         const warningSummary = warningSummaryById?.get(task.id);
+        // Authoritative verdict for this task id — drives the card's eval line + the
+        // EvaluatorFailurePanel visibility gate. Never the bucketed signal stream.
+        const taskEvaluation = taskEvaluationById?.get(task.id);
+        const pendingSubSteps = pendingSubStepsByTaskId?.get(task.id);
         const isActive = idx === activeTaskIdx;
         return (
           <TaskBlock
@@ -319,7 +380,6 @@ export const TasksPanel = ({
             display={display}
             maxSignals={maxSignalsPerTask}
             maxSubSteps={maxSubStepsPerTask}
-            maxEvaluations={maxEvaluationsPerTask}
             focusedKey={effectiveFocusedKey}
             expandedKeys={expandedKeys}
             scopeId={task.id}
@@ -336,6 +396,8 @@ export const TasksPanel = ({
             {...(taskProjection !== undefined ? { taskProjection } : {})}
             {...(blockedReason !== undefined ? { blockedReason } : {})}
             {...(warningSummary !== undefined ? { warningSummary } : {})}
+            {...(taskEvaluation !== undefined ? { taskEvaluation } : {})}
+            {...(pendingSubSteps !== undefined && pendingSubSteps.length > 0 ? { pendingSubSteps } : {})}
           />
         );
       })}

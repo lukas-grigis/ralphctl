@@ -53,7 +53,7 @@ describe('AddTicketView — disk round-trip', () => {
     expect(initialSave.ok).toBe(true);
 
     // Confirm the precondition: sprint.json exists with zero tickets.
-    const before = await readSprintDir(app.sprintDir(sprint.id));
+    const before = await readSprintDir(await app.resolveSprintDir(sprint.id));
     expect(before.tree).toContain('sprint.json');
     const beforeSprint = before.json<PersistedSprint>('sprint.json');
     expect(beforeSprint.schemaVersion).toBe(1);
@@ -87,13 +87,13 @@ describe('AddTicketView — disk round-trip', () => {
     // Wait until disk reflects the appended ticket — the save is async + we don't get a
     // synchronous "save complete" event from the view.
     await waitFor(async () => {
-      const snap = await readSprintDir(app.sprintDir(sprint.id));
+      const snap = await readSprintDir(await app.resolveSprintDir(sprint.id));
       const persisted = snap.json<PersistedSprint>('sprint.json');
       expect(persisted.tickets).toHaveLength(1);
     });
 
     // Full assertions on what landed on disk.
-    const after = await readSprintDir(app.sprintDir(sprint.id));
+    const after = await readSprintDir(await app.resolveSprintDir(sprint.id));
     const persisted = after.json<PersistedSprint>('sprint.json');
     expect(persisted.schemaVersion).toBe(1);
     expect(persisted.id).toBe(String(sprint.id));
@@ -126,7 +126,7 @@ describe('AddTicketView — disk round-trip', () => {
       await waitFor(() => expect(result.lastFrame()).toContain('Add this ticket?'));
       result.stdin.write(ENTER);
       await waitFor(async () => {
-        const snap = await readSprintDir(app.sprintDir(sprint.id));
+        const snap = await readSprintDir(await app.resolveSprintDir(sprint.id));
         expect(snap.json<PersistedSprint>('sprint.json').tickets).toHaveLength(1);
       });
     }
@@ -148,12 +148,12 @@ describe('AddTicketView — disk round-trip', () => {
       await waitFor(() => expect(result.lastFrame()).toContain('Add this ticket?'));
       result.stdin.write(ENTER);
       await waitFor(async () => {
-        const snap = await readSprintDir(app.sprintDir(sprint.id));
+        const snap = await readSprintDir(await app.resolveSprintDir(sprint.id));
         expect(snap.json<PersistedSprint>('sprint.json').tickets).toHaveLength(2);
       });
     }
 
-    const final = await readSprintDir(app.sprintDir(sprint.id));
+    const final = await readSprintDir(await app.resolveSprintDir(sprint.id));
     const persisted = final.json<PersistedSprint>('sprint.json');
     expect(persisted.tickets.map((t) => t.title)).toEqual(['Ticket one', 'Ticket two']);
     expect(persisted.tickets.map((t) => t.description)).toEqual(['first description', 'second description']);
@@ -163,7 +163,7 @@ describe('AddTicketView — disk round-trip', () => {
     const sprint = makeDraftSprint();
     await app.deps.sprintRepo.save(sprint);
 
-    const before = await readSprintDir(app.sprintDir(sprint.id));
+    const before = await readSprintDir(await app.resolveSprintDir(sprint.id));
     const beforeMtime = before.files['sprint.json'];
 
     const { result } = renderView(<AddTicketView />, {
@@ -182,7 +182,7 @@ describe('AddTicketView — disk round-trip', () => {
     // Give the (non-)save a tick to happen if it would.
     await new Promise((r) => setTimeout(r, 30));
 
-    const after = await readSprintDir(app.sprintDir(sprint.id));
+    const after = await readSprintDir(await app.resolveSprintDir(sprint.id));
     // Same content — no save happened. Catches a regression where the wizard silently
     // commits with an empty description because the required-check was dropped.
     expect(after.files['sprint.json']).toBe(beforeMtime);

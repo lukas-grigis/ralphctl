@@ -24,6 +24,7 @@
  */
 
 import type {
+  ClaudeLiveUsage,
   ClaudeStreamLine,
   ClaudeStreamParser,
   ClaudeUsage,
@@ -56,6 +57,10 @@ export const createClaudeStreamParser = (): ClaudeStreamParser => {
   let sessionId: string | undefined;
   let model: string | undefined;
   let usage: ClaudeUsage = {};
+  // Per-turn (live) usage: latest-wins from each `assistant` event's `message.usage`. The LAST
+  // assistant turn's input + cacheRead + cacheCreation IS the current context-window occupancy,
+  // unlike the cumulative `result.usage` above. Stays `{}` if no assistant carried usage.
+  let liveUsage: ClaudeLiveUsage = {};
 
   const emit = (raw: string, onLine: (line: ClaudeStreamLine) => void): void => {
     if (raw.length === 0) return;
@@ -87,6 +92,25 @@ export const createClaudeStreamParser = (): ClaudeStreamParser => {
     if (type === 'system' && model === undefined) {
       const m = stringField(json, 'model');
       if (m !== undefined) model = m;
+    }
+    if (type === 'assistant') {
+      // Per-turn usage lives on `message.usage` (same nested field names the result path uses).
+      // Defensive: content-only assistant deltas carry no usage — only update when a usage record
+      // is present, so a usage-less delta never clobbers a captured live snapshot.
+      const message = json['message'];
+      if (isRecord(message)) {
+        const u = message['usage'];
+        if (isRecord(u)) {
+          const i = numberField(u, 'input_tokens', 'inputTokens');
+          const cr = numberField(u, 'cache_read_input_tokens', 'cacheReadInputTokens');
+          const cc = numberField(u, 'cache_creation_input_tokens', 'cacheCreationInputTokens');
+          liveUsage = {
+            ...(i !== undefined ? { inputTokens: i } : {}),
+            ...(cr !== undefined ? { cacheReadTokens: cr } : {}),
+            ...(cc !== undefined ? { cacheCreationTokens: cc } : {}),
+          };
+        }
+      }
     }
     if (type === 'result') {
       const r = stringField(json, 'result');
@@ -130,7 +154,7 @@ export const createClaudeStreamParser = (): ClaudeStreamParser => {
     },
     ingest,
     snapshot() {
-      return { body, sessionId, model, usage };
+      return { body, sessionId, model, usage, liveUsage };
     },
   };
 };

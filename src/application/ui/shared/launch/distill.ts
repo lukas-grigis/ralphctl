@@ -46,6 +46,7 @@ export const resolveDistillComposition = (
   };
   const opts: DistillStepOpts = {
     projectId: project.id,
+    projectSlug: project.slug,
     memoryRoot: deps.storage.memoryRoot,
     distillRoot: distillRoot.value,
     repository,

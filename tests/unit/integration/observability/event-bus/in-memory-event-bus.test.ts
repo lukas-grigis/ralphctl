@@ -78,4 +78,32 @@ describe('createInMemoryEventBus', () => {
     // the handler set before iterating.
     expect(collected).toEqual([logEvent('hello')]);
   });
+
+  it('warns ONCE when the live subscriber count crosses the leak threshold, never dropping events', () => {
+    const bus = createInMemoryEventBus();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const seen: number[] = [];
+
+    // Subscribe far past the guardrail (threshold is 150). Every subscriber must still
+    // receive events — the cap is a forcing-function warning, not a functional limit.
+    for (let i = 0; i < 320; i++) {
+      bus.subscribe(() => seen.push(i));
+    }
+    bus.publish(logEvent('after-leak'));
+    expect(seen.length).toBe(320); // no event silently dropped
+
+    // The leak warning fired, and exactly once (subsequent over-threshold subscribes do not re-warn).
+    const leakWarnings = warn.mock.calls.filter((c) => String(c[0]).includes('live subscriber count crossed'));
+    expect(leakWarnings.length).toBe(1);
+    warn.mockRestore();
+  });
+
+  it('does not warn at a healthy steady-state subscriber count', () => {
+    const bus = createInMemoryEventBus();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    for (let i = 0; i < 50; i++) bus.subscribe(() => {});
+    const leakWarnings = warn.mock.calls.filter((c) => String(c[0]).includes('live subscriber count crossed'));
+    expect(leakWarnings.length).toBe(0);
+    warn.mockRestore();
+  });
 });

@@ -39,7 +39,16 @@ files become hotspots. Symptoms I saw on the P1j+P1k pair:
    `git log -p <file>` confirms your edits never landed. Mitigation: keep each commit's working-tree footprint small,
    stage incrementally, and `git status` immediately after every commit to detect a silent rollback. The lost edits ARE
    recoverable via `git fsck --unreachable` (same recipe as above).
-8. **Pre-stash sibling work explicitly before committing.** When `git status` shows shared/sibling files modified that
+8. **Full-tree stash + reset recovery (work lives IN the stash, not unreachable blobs).** A second variant of the
+   trap: the harness (or a peer) ran `git stash` capturing the WHOLE in-flight tree (all agents' modified files) then
+   `git reset --hard`/`reset: moving to HEAD`, leaving every owned file clean against HEAD — my edits AND the original
+   feature code I was polishing both vanished. Detect via `git stash list` (a `WIP on <branch>` entry) +
+   `git reflog -3` (a `reset: moving to HEAD`). Recover ONLY your owned files without disturbing peers' in-flight work:
+   `git checkout stash@{0} -- <your files...>` (NOT `git stash pop`, which would touch every file in the stash and risk
+   conflicts on surfaces you don't own). Confirm with `grep` for your symbols afterward. The stash is the canonical
+   in-flight branch state here — peer additions (e.g. an unrelated `SIDEBAR_WIDTH` export riding along in a shared
+   tokens file) are NOT yours to revert; leave them and verify the consumers still typecheck.
+9. **Pre-stash sibling work explicitly before committing.** When `git status` shows shared/sibling files modified that
    you don't want in your commit, `git stash push --keep-index -m "sibling-work" <files...>` BEFORE running
    `git commit`. lint-staged will only run hooks on truly-staged content; the stash restore at the end is a clean
    replay (no merge). Without pre-stashing, lint-staged's own backup stash will include those sibling files in the "

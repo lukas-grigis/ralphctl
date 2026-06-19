@@ -140,20 +140,41 @@ const runUnderLock = async (
   const durablyFolded = new Map<TaskId, Task>();
   const waves = config.buildWaves();
 
-  const wavesResult = await runWaves<ImplementCtx>(
-    waves,
-    prologueCtx,
-    {
-      maxConcurrency: config.maxConcurrency,
-      merge: mergeImplementWave,
-      onFatal: 'drain',
-      onBranchRunner: (runner) => {
-        bridgeRunnerToEventBus(runner as Runner<unknown>, config.eventBus, { flowId: config.flowId });
-        captureDurableFold(runner, durablyFolded);
+  // GUARANTEED-teardown registry. Every per-branch EventBus subscription (the bus bridge AND the
+  // durable-fold capture) is captured here so a `finally` can force-detach the lot when the wave
+  // call resolves — even if a branch never delivered a clean terminal (rate-limit drain, fatal-
+  // sibling kill race, mid-wave abort). The per-listener self-detach still fires on a clean
+  // terminal; this is the belt to that braces. Without it, a branch that does NOT self-detach
+  // leaves its closure permanently on the process-wide EventBus, pinning its runner → forked
+  // ImplementCtx → trace ring for the whole TUI session (THE primary leak).
+  const branchUnsubs = new Set<() => void>();
+
+  let wavesResult: Awaited<ReturnType<typeof runWaves<ImplementCtx>>>;
+  try {
+    wavesResult = await runWaves<ImplementCtx>(
+      waves,
+      prologueCtx,
+      {
+        maxConcurrency: config.maxConcurrency,
+        merge: mergeImplementWave,
+        onFatal: 'drain',
+        onBranchRunner: (runner) => {
+          branchUnsubs.add(
+            bridgeRunnerToEventBus(runner as Runner<unknown>, config.eventBus, { flowId: config.flowId })
+          );
+          branchUnsubs.add(captureDurableFold(runner, durablyFolded));
+        },
       },
-    },
-    signal
-  );
+      signal
+    );
+  } finally {
+    // Force-detach every per-branch subscription. Detach is idempotent (each unsub is a Set.delete
+    // that no-ops once already removed), so calling it after a branch already self-detached is safe.
+    // This runs on success, failure, AND abort/throw — re-throw (if any) propagates unchanged, so
+    // an AbortError is never swallowed here.
+    for (const unsub of branchUnsubs) unsub();
+    branchUnsubs.clear();
+  }
 
   // ── Epilogue (ALWAYS — the B4 durability gate) ────────────────────────────────────────────────
   // On success: persist `runWaves`'s fully-merged ctx. On abort/fatal: persist the prologue ctx
@@ -178,8 +199,12 @@ const runUnderLock = async (
  * branch ran its fold step to the end, so its task either folded (`done`) or fold-conflicted
  * (`blocked`) — either way the transition is durable. An `aborted` / `failed` branch is skipped so
  * its task falls back to `base` (resets to `todo` and re-runs).
+ *
+ * Returns the runner-subscription unsub so the wave-level guaranteed teardown can force-detach it
+ * if the branch never delivered a terminal event. The listener self-detaches on a clean terminal;
+ * the returned unsub is the belt to that braces (idempotent — calling it twice is a no-op).
  */
-const captureDurableFold = (runner: Runner<ImplementCtx>, into: Map<TaskId, Task>): void => {
+const captureDurableFold = (runner: Runner<ImplementCtx>, into: Map<TaskId, Task>): (() => void) => {
   const unsub = runner.subscribe((event) => {
     if (event.type !== 'completed') {
       if (event.type === 'failed' || event.type === 'aborted') unsub();
@@ -188,6 +213,7 @@ const captureDurableFold = (runner: Runner<ImplementCtx>, into: Map<TaskId, Task
     for (const task of event.ctx.tasks ?? []) into.set(task.id, task);
     unsub();
   });
+  return unsub;
 };
 
 /** Overlay the durably-folded task copies onto a base ctx's `tasks` by id (the abort-path epilogue ctx). */
@@ -215,7 +241,11 @@ const runSubElement = async (
   onTrace: OnTrace | undefined
 ): Promise<ElementResult<ImplementCtx>> => {
   const runner = createRunner<ImplementCtx>({ id: config.sessionId(), element, initialCtx });
-  bridgeRunnerToEventBus(runner as Runner<unknown>, config.eventBus, { flowId: config.flowId });
+  // Capture the bridge unsub (previously discarded — the sub-runner leak). The bridge self-detaches
+  // on the sub-runner's own terminal, but if `runner.start()` throws (programmer-error path) the
+  // self-detach never fires; the `finally` below force-detaches both subscriptions so neither the
+  // bridge nor the trace listener lingers on the EventBus / runner.
+  const unsubBridge = bridgeRunnerToEventBus(runner as Runner<unknown>, config.eventBus, { flowId: config.flowId });
   // Re-emit every sub-step through the host onTrace so the host trace stays continuous, and capture
   // a `failed` event's error off the stream (the runner does not expose its failure error directly).
   const captured: TraceEntry[] = [];
@@ -233,9 +263,16 @@ const runSubElement = async (
   if (signal?.aborted) runner.abort('host-aborted');
   else signal?.addEventListener('abort', onAbort, { once: true });
 
-  await runner.start();
-  signal?.removeEventListener('abort', onAbort);
-  unsubTrace();
+  try {
+    await runner.start();
+  } finally {
+    // Guaranteed teardown — runs on resolve, reject, and abort. Detach is idempotent, so this is
+    // safe even after the bridge already self-detached on terminal. AbortError (if `start()` ever
+    // rethrew one) is never caught here, so it propagates unchanged.
+    signal?.removeEventListener('abort', onAbort);
+    unsubTrace();
+    unsubBridge();
+  }
 
   if (runner.status === 'completed') return Result.ok({ ctx: runner.ctx, trace: captured });
   // Aborted or failed: synthesise the failure result. `aborted` → AbortError (propagated verbatim

@@ -46,3 +46,15 @@
 
 - [feedback_baseline_card_row_pattern.md](feedback_baseline_card_row_pattern.md) — One row pattern for status cards:
   status always on sub-line; compact all-clean variant as single string; title accent rules
+
+## Implement View Height Budget
+
+- [project_implement_view_height_budget.md](project_implement_view_height_budget.md) — Sidebar height-budget model: shared sidebarBodyRows formula, suppressMeta for narrow rails, label+space pattern (Jun 2026)
+
+## Implement View Band Layout
+
+- [project_implement_view_band_layout.md](project_implement_view_band_layout.md) — Status band + nav sidebar: component tree, where meta lives, height budget, token honesty rules (Jun 2026)
+
+## Implement Header + Sidebar Layout
+
+- [project_implement_header_effort_sidebyside.md](project_implement_header_effort_sidebyside.md) — HeaderCard two-line gen/eval model+effort; side-by-side Baseline+Token at ≥xl (sidebarContextSideBySide); threading chain (Jun 2026)

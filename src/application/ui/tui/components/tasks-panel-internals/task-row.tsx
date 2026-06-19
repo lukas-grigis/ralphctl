@@ -1,13 +1,17 @@
 /**
  * Per-task block + cross-task notes pin for the Tasks panel:
  *
- *   - {@link TaskBlock}     — one task card (header, criteria, sub-steps, evaluations, signals)
+ *   - {@link TaskBlock}     — one task card (header, criteria, sub-steps, eval verdict, signals)
  *   - {@link OrphanSignals} — cross-task notes pinned above the per-task blocks
  *
  * Smaller card parts (status / sub-step presentation maps, {@link RecoveryLine},
  * {@link SubStepLine}, {@link CriteriaBlock}) live in `task-card-parts.tsx` so this file stays
- * focused on header layout + the four signal-stream sub-sections (criteria / sub-steps /
- * evaluations / signals).
+ * focused on header layout + the card sub-sections (criteria / sub-steps / eval verdict / signals).
+ *
+ * The eval verdict is sourced from the AUTHORITATIVE per-task `taskEvaluation` prop (the task
+ * entity's last attempt, keyed by task id) — never the timestamp-bucketed `TaskBucket.evaluations`
+ * signal stream, which mis-attributes evaluator signals to the wrong task under parallel/wave
+ * sprints (overlapping windows + AI-fabricated timestamps).
  */
 
 import React, { useMemo } from 'react';
@@ -26,11 +30,16 @@ import {
   formatEtaChip,
   IDLE_TICKER_THRESHOLD_MS,
   latestIdleSnippets,
+  resolveActiveRole,
 } from '@src/application/ui/tui/components/tasks-panel-internals/format.ts';
 import { focusKey } from '@src/application/ui/tui/components/tasks-panel-internals/focus-keys.ts';
-import { EvaluationLine } from '@src/application/ui/tui/components/tasks-panel-internals/evaluation-row.tsx';
+import {
+  EvaluationLine,
+  type TaskEvaluation,
+} from '@src/application/ui/tui/components/tasks-panel-internals/evaluation-row.tsx';
 import { StreamSignalRow } from '@src/application/ui/tui/components/tasks-panel-internals/signal-rows.tsx';
 import {
+  BusyIndicator,
   CriteriaBlock,
   RecoveryLine,
   STATUS_PRESENTATION,
@@ -43,7 +52,6 @@ export const TaskBlock = ({
   display,
   maxSignals,
   maxSubSteps,
-  maxEvaluations,
   recovering,
   focusedKey,
   expandedKeys,
@@ -60,13 +68,14 @@ export const TaskBlock = ({
   nowMs,
   blockedReason,
   warningSummary,
+  taskEvaluation,
+  pendingSubSteps,
 }: {
   readonly task: TaskBucket;
   readonly running: boolean;
   readonly display: string;
   readonly maxSignals: number;
   readonly maxSubSteps: number;
-  readonly maxEvaluations: number;
   readonly recovering?: RecoveryContext;
   readonly focusedKey: string | undefined;
   readonly expandedKeys: ReadonlySet<string>;
@@ -114,6 +123,28 @@ export const TaskBlock = ({
    * flagged completion is not a clean pass. Absent for clean / non-done tasks.
    */
   readonly warningSummary?: string;
+  /**
+   * AUTHORITATIVE per-task evaluation verdict — the LAST attempt's `evaluation.status`, keyed by
+   * task id by the host. Drives the card's eval line AND the EvaluatorFailurePanel visibility
+   * gate. We deliberately do NOT render the bucketed `TaskBucket.evaluations` signal stream as the
+   * verdict: it attributes evaluator signals by timestamp window, which mis-attributes under
+   * parallel/wave sprints (overlapping windows + AI-fabricated timestamps). Absent ⇒ no verdict
+   * recorded yet for this task (renders "awaiting eval" while the card is active).
+   */
+  readonly taskEvaluation?: TaskEvaluation;
+  /**
+   * Upcoming (not-yet-run) sub-step leaf names for this task, derived from `descriptor.plannedLeaves`
+   * by filtering to this task's UUID-suffixed entries and subtracting already-executed sub-steps.
+   * Rendered as grey `◇` pending rows after the executed sub-steps so the operator sees the FULL
+   * planned sequence — not just what has run.
+   *
+   * NOTE: generator/evaluator leaves repeat an unknown number of rounds; the host skips them from
+   * the pending list. Only FIXED surrounding leaves (pre-gen-eval / post-task) are included so we
+   * never fabricate a fixed count of dynamic rounds.
+   *
+   * Absent when `descriptor.plannedLeaves` is not available (legacy sessions / non-implement flows).
+   */
+  readonly pendingSubSteps?: readonly string[];
 }): React.JSX.Element => {
   const presentation = STATUS_PRESENTATION[task.status];
   const isSpinning = task.status === 'running';
@@ -121,8 +152,6 @@ export const TaskBlock = ({
   const signalsElided = task.signals.length - signalRows.length;
   const subStepRows = task.subSteps.slice(-maxSubSteps);
   const subStepElided = task.subSteps.length - subStepRows.length;
-  const evalRows = task.evaluations.slice(-maxEvaluations);
-  const evalElided = task.evaluations.length - evalRows.length;
   const criteriaBullets = taskCriteria;
   // Guard an empty / whitespace-only blockedReason (both `BlockedTask.blockedReason` and the
   // task-blocked signal permit ''): without this an AI that self-blocks with a blank reason
@@ -232,10 +261,11 @@ export const TaskBlock = ({
             return <Text dimColor> {eta}</Text>;
           })()}
       </Box>
+      {cardExpanded && isActive && isSpinning && <BusyIndicator role={resolveActiveRole(task.subSteps)} />}
       {blockedReasonText.length > 0 && (
         // Shown collapsed OR expanded — a blocked card's reason is its most important line.
         <Box paddingLeft={2}>
-          <Box flexGrow={1} flexShrink={1}>
+          <Box flexGrow={1} flexShrink={1} minWidth={0}>
             <Text color={inkColors.warning} wrap="truncate-end">
               {glyphs.warningGlyph} {collapseWhitespace(blockedReasonText)}
             </Text>
@@ -247,7 +277,7 @@ export const TaskBlock = ({
         // operator never reads a flagged completion as a clean pass. Same warning glyph as the
         // attempt-card / blocked line; the tasks list previously showed it only for blockedReason.
         <Box paddingLeft={2}>
-          <Box flexGrow={1} flexShrink={1}>
+          <Box flexGrow={1} flexShrink={1} minWidth={0}>
             <Text color={inkColors.warning} wrap="truncate-end">
               {glyphs.warningGlyph} {collapseWhitespace(warningSummaryText)}
             </Text>
@@ -256,7 +286,7 @@ export const TaskBlock = ({
       )}
       {cardExpanded && idleSnippets.length > 0 && (
         <Box paddingLeft={2}>
-          <Box flexGrow={1} flexShrink={1}>
+          <Box flexGrow={1} flexShrink={1} minWidth={0}>
             <Text dimColor wrap="truncate-end">
               {glyphs.activityArrow} {idleSnippets.map((s) => collapseWhitespace(s)).join(`  ${glyphs.bullet}  `)}
             </Text>
@@ -279,7 +309,7 @@ export const TaskBlock = ({
           <Text color={inkColors.error}>{task.errorMessage}</Text>
         </Box>
       )}
-      {cardExpanded && subStepRows.length > 0 && (
+      {cardExpanded && (subStepRows.length > 0 || (pendingSubSteps !== undefined && pendingSubSteps.length > 0)) && (
         <Box flexDirection="column" paddingLeft={2}>
           {subStepElided > 0 && (
             <Text dimColor>{`${glyphs.clipEllipsis} ${String(subStepElided)} earlier sub-steps`}</Text>
@@ -287,38 +317,54 @@ export const TaskBlock = ({
           {subStepRows.map((s, i) => (
             <SubStepLine key={`${task.id}-sub-${String(i)}`} sub={s} running={running} />
           ))}
+          {/* Pending sub-steps from the plan — not yet executed. Grey ◇ rows, matching the Steps rail. */}
+          {pendingSubSteps !== undefined &&
+            pendingSubSteps.map((leafName) => (
+              <Box key={`${task.id}-pending-${leafName}`}>
+                <Text color={inkColors.muted}>
+                  {glyphs.activityArrow} {glyphs.phasePending}
+                </Text>
+                <Text dimColor> {leafName}</Text>
+              </Box>
+            ))}
         </Box>
       )}
-      {cardExpanded && evalRows.length > 0 && (
-        <Box flexDirection="column" paddingLeft={2} marginTop={1}>
-          {evalElided > 0 && <Text dimColor>{`${glyphs.clipEllipsis} ${String(evalElided)} earlier evaluations`}</Text>}
-          {evalRows.map((e, i) => {
-            // Dev-gated: failed evaluations render via the dedicated per-dimension panel when
-            // the flag is on. Anything else (passed / malformed) keeps the canonical compact
-            // line so we don't disrupt the existing layout. `isFinalRound` is approximated as
-            // "this is the latest evaluation row AND the task is still running" — only then
-            // will the harness feed the critique into another round.
-            const isLatest = i === evalRows.length - 1;
-            const willGetAnotherRound = isLatest && task.status === 'running';
-            if (showEvaluatorFailureUI && e.status === 'failed') {
+      {cardExpanded && isActive && taskEvaluation === undefined && (
+        // An active card with no AUTHORITATIVE evaluation yet — surface a single dim placeholder
+        // so the operator sees the eval slot is live-but-empty rather than missing. We gate on the
+        // ABSENCE of an authoritative verdict (not the bucketed signal stream, which can mis-
+        // attribute a stale signal). `activityArrow` matches the other indented continuation lines.
+        <Box paddingLeft={2} marginTop={1}>
+          <Text dimColor>{glyphs.activityArrow} awaiting eval</Text>
+        </Box>
+      )}
+      {cardExpanded &&
+        taskEvaluation !== undefined &&
+        (() => {
+          // Dev-gated per-dimension panel. Its VISIBILITY is driven by the AUTHORITATIVE verdict
+          // (or a failed/blocked task status) — never by a bucketed FAILED signal, which can leak
+          // from another lane onto a passed task's card. When it does render it may read the most
+          // recent matching bucketed FAILED signal for dimension/critique DISPLAY detail; if none
+          // exists we render the compact authoritative line instead.
+          const authoritativeFailed =
+            taskEvaluation.status === 'failed' || task.status === 'failed' || task.status === 'aborted';
+          if (showEvaluatorFailureUI && authoritativeFailed) {
+            const failureSignal = [...task.evaluations].reverse().find((e) => e.status === 'failed');
+            if (failureSignal !== undefined) {
+              // Still running ⇒ the harness will feed the critique into another round.
               return (
-                <EvaluatorFailurePanel
-                  key={`${task.id}-eval-${String(i)}`}
-                  evaluation={e}
-                  isFinalRound={!willGetAnotherRound}
-                />
+                <Box flexDirection="column" paddingLeft={2} marginTop={1}>
+                  <EvaluatorFailurePanel evaluation={failureSignal} isFinalRound={task.status !== 'running'} />
+                </Box>
               );
             }
-            return (
-              <EvaluationLine
-                key={`${task.id}-eval-${String(i)}`}
-                evaluation={e}
-                {...(criteriaBullets !== undefined ? { criteria: criteriaBullets } : {})}
-              />
-            );
-          })}
-        </Box>
-      )}
+          }
+          return (
+            <Box flexDirection="column" paddingLeft={2} marginTop={1}>
+              <EvaluationLine evaluation={taskEvaluation} />
+            </Box>
+          );
+        })()}
       {cardExpanded && signalRows.length > 0 && (
         <Box flexDirection="column" paddingLeft={2} marginTop={1}>
           <Text dimColor>signals</Text>

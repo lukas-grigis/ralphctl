@@ -64,11 +64,16 @@ import {
   makeRepository,
   makeReviewSprint,
   projectId,
+  slug,
 } from '@tests/fixtures/domain.ts';
 import { recordingAppendFile } from '@tests/fixtures/recording-append-file.ts';
+import { buildSluggedName } from '@src/integration/persistence/storage.ts';
 
 const FIXED_NOW = isoTimestamp('2026-05-30T10:00:00.000Z');
 const PROJECT_ID = projectId('01900000-0000-7000-8000-0000000000aa');
+const PROJECT_SLUG = slug('demo-project');
+/** The slugged per-project memory dir distill now writes/reads via the direct-build path. */
+const MEMORY_DIR = buildSluggedName(String(PROJECT_ID), String(PROJECT_SLUG));
 
 const record = (over: Partial<LearningRecord> = {}): LearningRecord => ({
   v: 1,
@@ -188,8 +193,8 @@ describe('createDistillStep composed into the close paths', () => {
     distillRoot = absolutePath(join(String(root.root), 'distill'));
     repoPath = join(String(root.root), 'repo');
     await fs.mkdir(repoPath, { recursive: true });
-    ledgerPath = join(String(memoryRoot), String(PROJECT_ID), 'learnings.ndjson');
-    await fs.mkdir(join(String(memoryRoot), String(PROJECT_ID)), { recursive: true });
+    ledgerPath = join(String(memoryRoot), MEMORY_DIR, 'learnings.ndjson');
+    await fs.mkdir(join(String(memoryRoot), MEMORY_DIR), { recursive: true });
     await fs.writeFile(ledgerPath, serializeLearningRecord(record({ id: 'a' })), 'utf8');
   });
 
@@ -211,6 +216,7 @@ describe('createDistillStep composed into the close paths', () => {
     },
     opts: {
       projectId: PROJECT_ID,
+      projectSlug: PROJECT_SLUG,
       memoryRoot,
       distillRoot,
       repository: makeRepository({ path: repoPath, name: 'repo' }),
@@ -432,9 +438,9 @@ describe('createDistillStep on the review auto-done path', () => {
     feedbackFile = absolutePath(join(String(root.root), 'feedback.md'));
     repoPath = join(String(root.root), 'repo');
     await fs.mkdir(repoPath, { recursive: true });
-    await fs.mkdir(join(String(memoryRoot), String(PROJECT_ID)), { recursive: true });
+    await fs.mkdir(join(String(memoryRoot), MEMORY_DIR), { recursive: true });
     await fs.writeFile(
-      join(String(memoryRoot), String(PROJECT_ID), 'learnings.ndjson'),
+      join(String(memoryRoot), MEMORY_DIR, 'learnings.ndjson'),
       serializeLearningRecord(record({ id: 'a' })),
       'utf8'
     );
@@ -456,6 +462,7 @@ describe('createDistillStep on the review auto-done path', () => {
     },
     opts: {
       projectId: PROJECT_ID,
+      projectSlug: PROJECT_SLUG,
       memoryRoot,
       distillRoot,
       repository: makeRepository({ path: repoPath, name: 'repo' }),

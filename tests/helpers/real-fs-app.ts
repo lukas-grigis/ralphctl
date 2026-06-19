@@ -32,6 +32,7 @@ import { realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
+import { resolveSprintDir } from '@src/integration/persistence/storage.ts';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import {
@@ -58,8 +59,17 @@ export interface RealFsApp {
   readonly paths: StoragePaths;
   /** Production-wired AppDeps pointed at the tmp tree. */
   readonly deps: AppDeps;
-  /** Absolute path to a sprint's directory: `<dataRoot>/sprints/<sprintId>/`. */
+  /**
+   * Absolute path to a sprint's LEGACY bare directory: `<dataRoot>/sprints/<sprintId>/`. Use only
+   * for hand-writing pre-slug fixtures. To READ a sprint dir after a repo `save` (which writes the
+   * `<id>--<slug>/` name), use {@link resolveSprintDir} — the tolerant resolver finds either form.
+   */
   readonly sprintDir: (id: SprintId) => string;
+  /**
+   * Tolerant resolver for a sprint's on-disk directory — finds both the new `<id>--<slug>/` name
+   * and the legacy bare `<id>/`. Falls back to the bare path when neither exists yet.
+   */
+  readonly resolveSprintDir: (id: SprintId) => Promise<string>;
   /** Absolute path to `<dataRoot>/projects/`. */
   readonly projectsDir: string;
   /** Recursive `rm -rf` of the tmp tree. Idempotent. Call in `afterEach`. */
@@ -138,6 +148,8 @@ export const createRealFsApp = async (options: CreateRealFsAppOptions = {}): Pro
     paths: paths.value,
     deps,
     sprintDir: (id: SprintId) => join(String(paths.value.dataRoot), 'sprints', String(id)),
+    resolveSprintDir: async (id: SprintId) =>
+      (await resolveSprintDir(paths.value.dataRoot, id)) ?? join(String(paths.value.dataRoot), 'sprints', String(id)),
     projectsDir: join(String(paths.value.dataRoot), 'projects'),
     cleanup: async () => {
       await fs.rm(resolved, { recursive: true, force: true });

@@ -14,9 +14,17 @@
 import React, { useMemo } from 'react';
 import { TasksPanel } from '@src/application/ui/tui/components/tasks-panel.tsx';
 import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
+import { UUID_SUFFIX_REGEX } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
+import type { TaskEvaluation } from '@src/application/ui/tui/components/tasks-panel-internals/evaluation-row.tsx';
 import type { AttemptWarning } from '@src/domain/entity/attempt.ts';
 import type { Task } from '@src/domain/entity/task.ts';
+
+/**
+ * Dynamic gen-eval leaf names that repeat an unknown number of rounds. These are excluded from
+ * the pending-sub-steps list so we never fabricate a fixed count of future rounds.
+ */
+const DYNAMIC_LEAF_NAMES = new Set(['generator', 'evaluator']);
 
 /** One-line summary for a flagged completion shown under the task card. Kind-specific prose. */
 const warningSummaryFor = (w: AttemptWarning): string => {
@@ -44,6 +52,8 @@ interface TasksPanelHostProps {
   readonly inputActive: boolean;
   readonly now: number;
   readonly taskState: readonly Task[] | undefined;
+  /** Optional callback — fired (deduped) when the focused card id changes. See `TasksPanel`. */
+  readonly onFocusedCardChange?: (taskId: string | undefined) => void;
 }
 
 export const TasksPanelHost = ({
@@ -55,6 +65,7 @@ export const TasksPanelHost = ({
   inputActive,
   now,
   taskState,
+  onFocusedCardChange,
 }: TasksPanelHostProps): React.JSX.Element | null => {
   const taskCriteriaById = useMemo<ReadonlyMap<string, readonly string[]> | undefined>(() => {
     if (taskState === undefined) return undefined;
@@ -96,6 +107,69 @@ export const TasksPanelHost = ({
     return m.size > 0 ? m : undefined;
   }, [taskState]);
 
+  // taskId → AUTHORITATIVE evaluation verdict, sourced from the task entity's attempts (keyed
+  // by task id, so there is no cross-task / stale-window leak). The card renders THIS verdict —
+  // never the timestamp-bucketed signal stream, which mis-attributes evaluator signals under
+  // parallel/wave sprints where task windows overlap. We prefer the LAST attempt's evaluation;
+  // if the last attempt has none yet, fall back to the most recent attempt that does. Undefined
+  // when no task has settled an evaluation (clean prop diff, mirroring the sibling maps).
+  const taskEvaluationById = useMemo<ReadonlyMap<string, TaskEvaluation> | undefined>(() => {
+    if (taskState === undefined) return undefined;
+    const m = new Map<string, TaskEvaluation>();
+    for (const t of taskState) {
+      for (let i = t.attempts.length - 1; i >= 0; i -= 1) {
+        const att = t.attempts[i];
+        if (att?.evaluation === undefined) continue;
+        m.set(String(t.id), {
+          status: att.evaluation.status,
+          attemptN: att.n,
+          ...(att.finishedAt !== null ? { finishedAt: att.finishedAt } : {}),
+        });
+        break;
+      }
+    }
+    return m.size > 0 ? m : undefined;
+  }, [taskState]);
+
+  // Derive pending (not-yet-executed) sub-step leaf names per task from the planned leaves.
+  // `descriptor.plannedLeaves` contains ALL planned leaf names including UUID-suffixed per-task
+  // ones (e.g. `generator-<taskId>`, `commit-task-<taskId>`, `uninstall-skills-<taskId>`).
+  //
+  // Algorithm:
+  //   1. For each task id, collect all planned leaf names that carry that task's UUID suffix.
+  //   2. Strip the `-<taskId>` suffix to get the `leafName` (matching TaskSubStep.leafName).
+  //   3. Subtract already-executed leaf names (from task.subSteps) so only future steps show.
+  //   4. Exclude dynamic generator/evaluator leaves — they repeat unknown rounds; showing them
+  //      as pending would fabricate a fixed count of future rounds.
+  //
+  // Absent when `plannedLeaves` is not available (legacy sessions / non-implement flows).
+  const pendingSubStepsByTaskId = useMemo<ReadonlyMap<string, readonly string[]> | undefined>(() => {
+    if (bucketed === undefined || descriptor.plannedLeaves === undefined) return undefined;
+    const plan = descriptor.plannedLeaves;
+    const result = new Map<string, string[]>();
+
+    for (const task of bucketed.tasks) {
+      const taskId = task.id;
+      const tail = `-${taskId}`;
+      // Collect planned leaf names for this task (UUID-suffixed → strip suffix)
+      const plannedForTask: string[] = [];
+      for (const leaf of plan) {
+        if (leaf.endsWith(tail) && UUID_SUFFIX_REGEX.test(leaf)) {
+          plannedForTask.push(leaf.slice(0, -tail.length));
+        }
+      }
+      if (plannedForTask.length === 0) continue;
+
+      // Build set of already-executed leaf names for this task (deduped for gen-eval multi-run)
+      const executed = new Set<string>(task.subSteps.map((s) => s.leafName));
+
+      // Keep leaves that haven't executed yet and are not dynamic (generator/evaluator)
+      const pending = plannedForTask.filter((leafName) => !executed.has(leafName) && !DYNAMIC_LEAF_NAMES.has(leafName));
+      if (pending.length > 0) result.set(taskId, pending);
+    }
+    return result.size > 0 ? result : undefined;
+  }, [bucketed, descriptor.plannedLeaves]);
+
   if (bucketed === undefined) return null;
 
   return (
@@ -106,11 +180,14 @@ export const TasksPanelHost = ({
       maxTasks={maxTasks}
       inputActive={inputActive}
       nowMs={now}
+      {...(onFocusedCardChange !== undefined ? { onFocusedCardChange } : {})}
       {...(descriptor.taskNames !== undefined ? { nameById: descriptor.taskNames } : {})}
       {...(descriptor.taskRecovering !== undefined ? { recoveringByTaskId: descriptor.taskRecovering } : {})}
       {...(taskCriteriaById !== undefined ? { taskCriteriaById } : {})}
       {...(blockedReasonById !== undefined ? { blockedReasonById } : {})}
       {...(warningSummaryById !== undefined ? { warningSummaryById } : {})}
+      {...(taskEvaluationById !== undefined ? { taskEvaluationById } : {})}
+      {...(pendingSubStepsByTaskId !== undefined ? { pendingSubStepsByTaskId } : {})}
     />
   );
 };

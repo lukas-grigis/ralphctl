@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { sprintDir as buildSprintDir } from '@src/integration/persistence/storage.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { createRunner, type Runner } from '@src/application/chain/run/runner.ts';
@@ -29,7 +30,8 @@ export const launchCloseSprint = async (ctx: LaunchContext): Promise<LaunchResul
   if (!distillConfirm.ok) return { ok: false, reason: 'Cancelled.' };
   const distillRequested = distillConfirm.value === true;
 
-  const sprintDir = join(String(deps.storage.dataRoot), 'sprints', String(snapshot.sprint.id));
+  // Direct-build the canonical `<id>--<slug>/` sprint dir from the loaded sprint entity.
+  const sprintDir = buildSprintDir(deps.storage.dataRoot, snapshot.sprint.id, snapshot.sprint.slug);
   const progressPath = AbsolutePath.parse(join(sprintDir, 'progress.md'));
   if (!progressPath.ok) return { ok: false, reason: progressPath.error.message };
 

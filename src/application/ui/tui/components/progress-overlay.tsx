@@ -18,7 +18,8 @@
 
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { resolveSprintDir } from '@src/integration/persistence/storage.ts';
 import { Box, Text, useInput } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
@@ -71,21 +72,26 @@ export const ProgressOverlay = (): React.JSX.Element => {
   // When an Execute view is focused, prefer its pinned sprint so `g` opens the run's own
   // progress file rather than whatever the global selection happens to be.
   const sprintId = ui.focusedRunSprintId ?? selection.sprintId;
-  const progressPath = useMemo(() => {
-    if (sprintId === undefined) return undefined;
-    return join(String(storage.dataRoot), 'sprints', String(sprintId), 'progress.md');
-  }, [sprintId, storage.dataRoot]);
 
   // Re-read on mount. The harness's progress-file-sink is the writer; we don't tail. A
-  // re-open (close + `g` again) gets the latest snapshot.
+  // re-open (close + `g` again) gets the latest snapshot. The sprint dir is resolved via the
+  // tolerant id-prefix resolver so both the new `<id>--<slug>/` and legacy bare `<id>/` names
+  // are found — building the bare path here would split-brain against a slug-renamed dir.
   useEffect(() => {
     let cancelled = false;
-    if (progressPath === undefined) {
+    if (sprintId === undefined) {
       setState({ kind: 'missing' });
       return undefined;
     }
     const load = async (): Promise<void> => {
       try {
+        const dir = await resolveSprintDir(storage.dataRoot, sprintId);
+        if (cancelled) return;
+        if (dir === undefined) {
+          setState({ kind: 'missing' });
+          return;
+        }
+        const progressPath = join(dir, 'progress.md');
         const [stat, content] = await Promise.all([fs.stat(progressPath), fs.readFile(progressPath, 'utf8')]);
         if (cancelled) return;
         const modifiedAtMs = stat.mtimeMs;
@@ -111,7 +117,7 @@ export const ProgressOverlay = (): React.JSX.Element => {
     return () => {
       cancelled = true;
     };
-  }, [progressPath]);
+  }, [sprintId, storage.dataRoot]);
 
   // Reset offset whenever the underlying line count changes (e.g. re-open of a longer file).
   const lineCount = state.kind === 'ok' ? state.lines.length : 0;

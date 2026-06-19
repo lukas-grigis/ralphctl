@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { sprintDir as buildSprintDir } from '@src/integration/persistence/storage.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { createRunner, type Runner } from '@src/application/chain/run/runner.ts';
 import { createReviewFlow } from '@src/application/flows/review/flow.ts';
@@ -49,7 +50,8 @@ export const launchReview = async (ctx: LaunchContext): Promise<LaunchResult> =>
   });
   if (!distillConfirm.ok) return { ok: false, reason: 'Cancelled.' };
   const distillRequested = distillConfirm.value === true;
-  const sprintDir = AbsolutePath.parse(join(String(deps.storage.dataRoot), 'sprints', String(snapshot.sprint.id)));
+  // Direct-build the canonical `<id>--<slug>/` sprint dir from the loaded sprint entity.
+  const sprintDir = AbsolutePath.parse(buildSprintDir(deps.storage.dataRoot, snapshot.sprint.id, snapshot.sprint.slug));
   if (!sprintDir.ok) return { ok: false, reason: sprintDir.error.message };
   const feedbackPath = AbsolutePath.parse(join(String(sprintDir.value), 'feedback.md'));
   if (!feedbackPath.ok) return { ok: false, reason: feedbackPath.error.message };

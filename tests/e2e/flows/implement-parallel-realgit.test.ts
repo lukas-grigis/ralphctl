@@ -70,6 +70,7 @@ import {
   makeApprovedTicket,
   makePlannedSprint,
   makeTodoTask,
+  slug,
 } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { createInMemorySink } from '@tests/fixtures/in-memory-sink.ts';
@@ -89,6 +90,7 @@ function runTests(): void {
   // ─── Shared constants ──────────────────────────────────────────────────────
   const SPRINT_BRANCH = 'ralphctl/test-sprint';
   const FAKE_PROJECT_ID = 'proj-parallel-realgit';
+  const FAKE_PROJECT_SLUG = slug('proj-parallel-realgit');
 
   // ─── In-memory repository fakes ───────────────────────────────────────────
   const inMemorySprintRepo = (initial: Sprint): { repo: SprintRepository; current: () => Sprint } => {
@@ -545,6 +547,7 @@ function runTests(): void {
         evaluatorModel: 'claude-opus-4-8',
         memoryRoot: ap(fixture.memoryRoot),
         projectId: FAKE_PROJECT_ID,
+        projectSlug: FAKE_PROJECT_SLUG,
         // Skip the interactive dirty-tree menu — we own the repo and it's clean.
         dirtyTreePolicy: 'cancel' as const,
       };
@@ -790,6 +793,7 @@ function runTests(): void {
         evaluatorModel: 'claude-opus-4-8',
         memoryRoot: ap(fixture.memoryRoot),
         projectId: FAKE_PROJECT_ID,
+        projectSlug: FAKE_PROJECT_SLUG,
         dirtyTreePolicy: 'cancel' as const,
       };
 
@@ -971,6 +975,7 @@ function runTests(): void {
         evaluatorModel: 'claude-opus-4-8',
         memoryRoot: ap(fixture.memoryRoot),
         projectId: FAKE_PROJECT_ID,
+        projectSlug: FAKE_PROJECT_SLUG,
         dirtyTreePolicy: 'cancel' as const,
       };
 

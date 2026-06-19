@@ -3,6 +3,7 @@ import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { ErrorCode } from '@src/domain/value/error/error-code.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
+import type { Slug } from '@src/domain/value/slug.ts';
 import type { AiSettings } from '@src/domain/entity/settings.ts';
 import type { Repository } from '@src/domain/entity/repository.ts';
 import { checkAborted, type Element, type ElementResult } from '@src/application/chain/element.ts';
@@ -30,8 +31,10 @@ export interface DistillRequestedCtx {
  * that does NOT vary across the host ctx. The host ctx only contributes `distillRequested`.
  */
 export interface DistillStepOpts {
-  /** Project whose learnings ledger is read — `<memoryRoot>/<projectId>/learnings.ndjson`. */
+  /** Project whose learnings ledger is read — `<memoryRoot>/<projectId>--<projectSlug>/learnings.ndjson`. */
   readonly projectId: ProjectId;
+  /** Project slug — builds the human-readable `<id>--<slug>/` ledger subdirectory (direct-build). */
+  readonly projectSlug: Slug;
   /** Storage root for the per-project learnings ledger (`<dataRoot>/memory`). */
   readonly memoryRoot: AbsolutePath;
   /** Per-provider sandbox root under which each provider's prompt + output file round-trip. */
@@ -82,8 +85,9 @@ export const createDistillStep = <TCtx extends DistillRequestedCtx>(
 
     const log = deps.logger.named('memory.distill-step');
 
-    const subChain = createDistillLearningsSubChain(deps, {
+    const subChain = await createDistillLearningsSubChain(deps, {
       projectId: opts.projectId,
+      projectSlug: opts.projectSlug,
       memoryRoot: opts.memoryRoot,
       distillRoot: opts.distillRoot,
       ai: opts.ai,

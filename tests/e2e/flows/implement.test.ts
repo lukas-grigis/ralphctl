@@ -31,6 +31,7 @@ import {
   makePlannedSprint,
   makeTodoTask,
   repositoryId,
+  slug,
 } from '@tests/fixtures/domain.ts';
 import { startNextAttempt } from '@src/domain/entity/task-attempts.ts';
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
@@ -56,6 +57,7 @@ const FAKE_REPOSITORIES = new Map([[FIXED_REPOSITORY_ID, { path: FAKE_CWD, name:
 // collide on a shared `/tmp` path; torn down in afterAll.
 const FAKE_MEMORY_ROOT = absolutePath(mkdtempSync(join(tmpdir(), 'ralphctl-implement-e2e-memory-')));
 const FAKE_PROJECT_ID = 'proj-implement-e2e';
+const FAKE_PROJECT_SLUG = slug('proj-implement-e2e');
 afterAll(() => rmSync(String(FAKE_MEMORY_ROOT), { recursive: true, force: true }));
 
 const inMemorySprintRepo = (initial: Sprint): { repo: SprintRepository; current: () => Sprint } => {
@@ -463,6 +465,7 @@ describe('createImplementFlow — gen-eval loop', () => {
         sprintDir: absolutePath(f.dir),
         memoryRoot: FAKE_MEMORY_ROOT,
         projectId: FAKE_PROJECT_ID,
+        projectSlug: FAKE_PROJECT_SLUG,
       }
     );
 
@@ -512,6 +515,7 @@ describe('createImplementFlow — gen-eval loop', () => {
         sprintDir: absolutePath(f.dir),
         memoryRoot: FAKE_MEMORY_ROOT,
         projectId: FAKE_PROJECT_ID,
+        projectSlug: FAKE_PROJECT_SLUG,
       }
     );
 
@@ -575,6 +579,7 @@ describe('createImplementFlow — gen-eval loop', () => {
       sprintDir: absolutePath(f.dir),
       memoryRoot: FAKE_MEMORY_ROOT,
       projectId: FAKE_PROJECT_ID,
+      projectSlug: FAKE_PROJECT_SLUG,
     });
     const runner = createRunner({
       id: 'r-impl-per-role',
@@ -668,6 +673,7 @@ describe('createImplementFlow — gen-eval loop', () => {
       sprintDir: absolutePath(f.dir),
       memoryRoot: FAKE_MEMORY_ROOT,
       projectId: FAKE_PROJECT_ID,
+      projectSlug: FAKE_PROJECT_SLUG,
     });
     const runner = createRunner({
       id: 'r-impl-token-roles',
@@ -719,6 +725,7 @@ describe('createImplementFlow — gen-eval loop', () => {
         sprintDir: absolutePath(f.dir),
         memoryRoot: FAKE_MEMORY_ROOT,
         projectId: FAKE_PROJECT_ID,
+        projectSlug: FAKE_PROJECT_SLUG,
       }
     );
 
@@ -796,6 +803,7 @@ describe('createImplementFlow — gen-eval loop', () => {
       sprintDir: absolutePath(f.dir),
       memoryRoot: FAKE_MEMORY_ROOT,
       projectId: FAKE_PROJECT_ID,
+      projectSlug: FAKE_PROJECT_SLUG,
     });
 
     const runner = createRunner({
@@ -851,6 +859,7 @@ describe('createImplementFlow — gen-eval loop', () => {
         sprintDir: absolutePath(f.dir),
         memoryRoot: FAKE_MEMORY_ROOT,
         projectId: FAKE_PROJECT_ID,
+        projectSlug: FAKE_PROJECT_SLUG,
       }
     );
 
@@ -909,6 +918,7 @@ describe('createImplementFlow — gen-eval loop', () => {
         sprintDir: absolutePath(f.dir),
         memoryRoot: FAKE_MEMORY_ROOT,
         projectId: FAKE_PROJECT_ID,
+        projectSlug: FAKE_PROJECT_SLUG,
       }
     );
 
@@ -1015,6 +1025,7 @@ describe('createImplementFlow — gen-eval loop', () => {
       sprintDir: absolutePath(f.dir),
       memoryRoot: FAKE_MEMORY_ROOT,
       projectId: FAKE_PROJECT_ID,
+      projectSlug: FAKE_PROJECT_SLUG,
     });
 
     const runner = createRunner({
@@ -1072,6 +1083,7 @@ describe('createImplementFlow — gen-eval loop', () => {
         sprintDir: absolutePath(f.dir),
         memoryRoot: FAKE_MEMORY_ROOT,
         projectId: FAKE_PROJECT_ID,
+        projectSlug: FAKE_PROJECT_SLUG,
       }
     );
 
@@ -1116,6 +1128,7 @@ describe('createImplementFlow — gen-eval loop', () => {
         sprintDir: absolutePath(f.dir),
         memoryRoot: FAKE_MEMORY_ROOT,
         projectId: FAKE_PROJECT_ID,
+        projectSlug: FAKE_PROJECT_SLUG,
       }
     );
 
@@ -1164,6 +1177,7 @@ describe('createImplementFlow — gen-eval loop', () => {
         sprintDir: absolutePath(f.dir),
         memoryRoot: FAKE_MEMORY_ROOT,
         projectId: FAKE_PROJECT_ID,
+        projectSlug: FAKE_PROJECT_SLUG,
       }
     );
 
@@ -1243,6 +1257,7 @@ describe('createImplementFlow — gen-eval loop', () => {
         sprintDir: absolutePath(f.dir),
         memoryRoot: FAKE_MEMORY_ROOT,
         projectId: FAKE_PROJECT_ID,
+        projectSlug: FAKE_PROJECT_SLUG,
       }
     );
 
@@ -1303,6 +1318,7 @@ describe('createImplementFlow — gen-eval loop', () => {
         sprintDir: absolutePath(f.dir),
         memoryRoot: FAKE_MEMORY_ROOT,
         projectId: FAKE_PROJECT_ID,
+        projectSlug: FAKE_PROJECT_SLUG,
       }
     );
 
@@ -1429,6 +1445,7 @@ describe('createImplementFlow — gen-eval loop', () => {
         sprintDir: absolutePath(f.dir),
         memoryRoot: FAKE_MEMORY_ROOT,
         projectId: FAKE_PROJECT_ID,
+        projectSlug: FAKE_PROJECT_SLUG,
       }
     );
 
@@ -1497,6 +1514,7 @@ describe('createImplementFlow — gen-eval loop', () => {
         sprintDir: absolutePath(f.dir),
         memoryRoot: FAKE_MEMORY_ROOT,
         projectId: FAKE_PROJECT_ID,
+        projectSlug: FAKE_PROJECT_SLUG,
       }
     );
 
@@ -1564,6 +1582,7 @@ describe('createImplementFlow — gen-eval loop', () => {
         sprintDir: absolutePath(f.dir),
         memoryRoot: FAKE_MEMORY_ROOT,
         projectId: FAKE_PROJECT_ID,
+        projectSlug: FAKE_PROJECT_SLUG,
       }
     );
 
@@ -1650,6 +1669,7 @@ describe('createImplementFlow — gen-eval loop', () => {
       sprintDir: absolutePath(f.dir),
       memoryRoot: FAKE_MEMORY_ROOT,
       projectId: FAKE_PROJECT_ID,
+      projectSlug: FAKE_PROJECT_SLUG,
     });
     const runner = createRunner({
       id: 'r-impl-verify-failed',
@@ -1788,6 +1808,7 @@ describe('createImplementFlow — gen-eval loop', () => {
       sprintDir: absolutePath(f.dir),
       memoryRoot: FAKE_MEMORY_ROOT,
       projectId: FAKE_PROJECT_ID,
+      projectSlug: FAKE_PROJECT_SLUG,
     });
     const runner = createRunner({
       id: 'r-impl-red-post-verify-retry',
@@ -1884,6 +1905,7 @@ describe('createImplementFlow — gen-eval loop', () => {
       sprintDir: absolutePath(f.dir),
       memoryRoot: FAKE_MEMORY_ROOT,
       projectId: FAKE_PROJECT_ID,
+      projectSlug: FAKE_PROJECT_SLUG,
     });
     const runner = createRunner({
       id: 'r-impl-baseline-broken',
@@ -1958,6 +1980,7 @@ describe('createImplementFlow — gen-eval loop', () => {
       sprintDir: absolutePath(f.dir),
       memoryRoot: FAKE_MEMORY_ROOT,
       projectId: FAKE_PROJECT_ID,
+      projectSlug: FAKE_PROJECT_SLUG,
     });
     const runner = createRunner({
       id: 'r-impl-silent-ai',
@@ -2113,6 +2136,7 @@ describe('createImplementFlow — gen-eval loop', () => {
       sprintDir: absolutePath(dir),
       memoryRoot: FAKE_MEMORY_ROOT,
       projectId: FAKE_PROJECT_ID,
+      projectSlug: FAKE_PROJECT_SLUG,
     });
     const runner = createRunner({
       id: 'r-impl-multi-repo',
@@ -2231,6 +2255,7 @@ describe('createImplementFlow — gen-eval loop', () => {
         sprintDir: absolutePath(dir),
         memoryRoot: FAKE_MEMORY_ROOT,
         projectId: FAKE_PROJECT_ID,
+        projectSlug: FAKE_PROJECT_SLUG,
       }
     );
     const runner = createRunner({
@@ -2329,6 +2354,7 @@ describe('createImplementFlow — gen-eval loop', () => {
       sprintDir: absolutePath(f.dir),
       memoryRoot: FAKE_MEMORY_ROOT,
       projectId: FAKE_PROJECT_ID,
+      projectSlug: FAKE_PROJECT_SLUG,
     });
 
     const runner = createRunner({
@@ -2416,6 +2442,7 @@ describe('createImplementFlow — gen-eval loop', () => {
       sprintDir: absolutePath(f.dir),
       memoryRoot: FAKE_MEMORY_ROOT,
       projectId: FAKE_PROJECT_ID,
+      projectSlug: FAKE_PROJECT_SLUG,
     });
 
     const runner = createRunner({
@@ -2504,6 +2531,7 @@ describe('createImplementFlow — gen-eval loop', () => {
       sprintDir: absolutePath(f.dir),
       memoryRoot: FAKE_MEMORY_ROOT,
       projectId: FAKE_PROJECT_ID,
+      projectSlug: FAKE_PROJECT_SLUG,
     });
 
     const runner = createRunner({

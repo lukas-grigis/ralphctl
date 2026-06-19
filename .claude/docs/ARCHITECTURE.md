@@ -61,19 +61,26 @@ ESLint `no-restricted-imports` (in `eslint.config.ts`) enforces every direction.
 
 ## Bounded contexts (aggregates)
 
-| Aggregate root      | Sub-files on disk             | Repository interface        |
-| ------------------- | ----------------------------- | --------------------------- |
-| **Project**         | `projects/<id>.json`          | `ProjectRepository`         |
-| **Sprint**          | `sprints/<id>/sprint.json`    | `SprintRepository`          |
-| **SprintExecution** | `sprints/<id>/execution.json` | `SprintExecutionRepository` |
-| **Task** (set)      | `sprints/<id>/tasks.json`     | `TaskRepository`            |
-| **Settings**        | `config/settings.json`        | `SettingsRepository`        |
+| Aggregate root      | Sub-files on disk                     | Repository interface        |
+| ------------------- | ------------------------------------- | --------------------------- |
+| **Project**         | `projects/<id>--<slug>.json`          | `ProjectRepository`         |
+| **Sprint**          | `sprints/<id>--<slug>/sprint.json`    | `SprintRepository`          |
+| **SprintExecution** | `sprints/<id>--<slug>/execution.json` | `SprintExecutionRepository` |
+| **Task** (set)      | `sprints/<id>--<slug>/tasks.json`     | `TaskRepository`            |
+| **Settings**        | `config/settings.json`                | `SettingsRepository`        |
 
 `Sprint` is split into three sibling on-disk files. `sprint.json` is the planning aggregate (tickets,
 requirements, status, project reference). `execution.json` carries the runtime audit — branch name, PR URL,
 per-repo setup-script timestamps. `tasks.json` is the canonical task list — the file the chain runner rewrites
 on every settlement. The split keeps planning mutations isolated from execution-time writes; corrupting the task
 list does not lose the sprint plan.
+
+**`<id>--<slug>` naming.** Entity directories and files are named `<id>--<slug>` (a uuidv7 prefix followed by
+a double-hyphen and a kebab handle) — human-readable and still chronologically sortable. Resolvers are
+tolerant: `resolveProjectFile`, `resolveSprintDir`, and `resolveMemoryDir` in
+`src/integration/persistence/storage.ts` scan the parent directory and prefer the slugged form over a legacy
+bare `<id>` form, so old data directories continue to work without manual intervention. Write-side path builders
+always produce the canonical `<id>--<slug>` name.
 
 `Repository` is **nested inside `Project`** as a value object — not its own aggregate. Project carries an array
 of repositories (each with `setupScript`, `verifyScript`, `verifyTimeout`, optional `verifyGates` (`VerifyGate[]` —
@@ -354,13 +361,15 @@ of the stack — the leaf or use-case wrapping them catches and converts to `Res
 │   ├── copilot/<name>/SKILL.md
 │   └── codex/<name>/SKILL.md
 ├── data/
+│   ├── .ralphctl-data-version.json  ← version stamp written after auto-migration; compared on launch to detect pending migrations
 │   ├── projects/
-│   │   └── <project-id>.json
+│   │   └── <project-id>--<slug>.json
 │   ├── memory/
-│   │   └── <project-id>/
-│   │       └── learnings.ndjson     ← append-only per-attempt learning ledger (procedural memory); each LearningRecord carries { v, id, text, context?, appliesTo?, repo, repoName, taskKind, sprintId, taskId, timestamp, promotedAt }
+│   │   └── <project-id>--<slug>/
+│   │       ├── learnings.ndjson     ← append-only per-attempt learning ledger (procedural memory); each LearningRecord carries { v, id, text, context?, appliesTo?, repo, repoName, taskKind, sprintId, taskId, timestamp, promotedAt }
+│   │       └── learnings.md         ← human-readable mirror of learnings.ndjson; regenerated on every append/promote; best-effort (ndjson is authoritative)
 │   └── sprints/
-│       └── <sprint-id>/
+│       └── <sprint-id>--<slug>/
 │           ├── sprint.json          ← planning: tickets, requirements, status, project ref
 │           ├── execution.json       ← runtime audit: branch, PR URL, structured setup-run history
 │           ├── tasks.json           ← task list with status, attempts, evaluations

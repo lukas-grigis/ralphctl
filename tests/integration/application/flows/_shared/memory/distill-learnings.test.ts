@@ -42,10 +42,14 @@ import {
 import type { DistillLearningsCtx } from '@src/application/flows/_shared/memory/distill-ctx.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
-import { absolutePath, isoTimestamp, makeRepository, projectId } from '@tests/fixtures/domain.ts';
+import { absolutePath, isoTimestamp, makeRepository, projectId, slug } from '@tests/fixtures/domain.ts';
+import { buildSluggedName } from '@src/integration/persistence/storage.ts';
 
 const FIXED_NOW = isoTimestamp('2026-05-30T10:00:00.000Z');
 const PROJECT_ID = projectId('01900000-0000-7000-8000-0000000000aa');
+const PROJECT_SLUG = slug('demo-project');
+/** The slugged per-project memory dir name distill now writes/reads via the direct-build path. */
+const MEMORY_DIR = buildSluggedName(String(PROJECT_ID), String(PROJECT_SLUG));
 
 const record = (over: Partial<LearningRecord> = {}): LearningRecord => ({
   v: 1,
@@ -156,8 +160,8 @@ describe('createDistillLearningsSubChain', () => {
     distillRoot = absolutePath(join(String(root.root), 'distill'));
     repoPath = join(String(root.root), 'repo');
     await fs.mkdir(repoPath, { recursive: true });
-    ledgerPath = join(String(memoryRoot), String(PROJECT_ID), 'learnings.ndjson');
-    await fs.mkdir(join(String(memoryRoot), String(PROJECT_ID)), { recursive: true });
+    ledgerPath = join(String(memoryRoot), MEMORY_DIR, 'learnings.ndjson');
+    await fs.mkdir(join(String(memoryRoot), MEMORY_DIR), { recursive: true });
   });
 
   afterEach(async () => {
@@ -185,7 +189,7 @@ describe('createDistillLearningsSubChain', () => {
     entries: {},
   });
 
-  const run = async (chain: ReturnType<typeof createDistillLearningsSubChain>, ctx: DistillLearningsCtx) => {
+  const run = async (chain: Awaited<ReturnType<typeof createDistillLearningsSubChain>>, ctx: DistillLearningsCtx) => {
     expect(chain.ok).toBe(true);
     if (!chain.ok) throw new Error('sub-chain build failed');
     const runner = createRunner({ id: 'r-distill', element: chain.value, initialCtx: ctx });
@@ -199,12 +203,12 @@ describe('createDistillLearningsSubChain', () => {
 
     const calls: InteractiveAiProviderInput[] = [];
     const confirms = scriptedConfirms([]);
-    const chain = createDistillLearningsSubChain(
+    const chain = await createDistillLearningsSubChain(
       buildDeps({
         interactiveAiFor: () => fakeInteractiveAi({ calls }),
         interactive: confirms.prompt,
       }),
-      { projectId: PROJECT_ID, memoryRoot, distillRoot, ai: allClaude }
+      { projectId: PROJECT_ID, projectSlug: PROJECT_SLUG, memoryRoot, distillRoot, ai: allClaude }
     );
 
     const runner = await run(chain, initialCtx(false));
@@ -239,13 +243,13 @@ describe('createDistillLearningsSubChain', () => {
       named: () => warnLogger,
     } as unknown as DistillLearningsDeps['logger'];
 
-    const chain = createDistillLearningsSubChain(
+    const chain = await createDistillLearningsSubChain(
       buildDeps({
         interactiveAiFor: () => fakeInteractiveAi({ calls }),
         interactive: confirms.prompt,
         logger: warnLogger,
       }),
-      { projectId: PROJECT_ID, memoryRoot, distillRoot, ai: allClaude }
+      { projectId: PROJECT_ID, projectSlug: PROJECT_SLUG, memoryRoot, distillRoot, ai: allClaude }
     );
 
     const runner = await run(chain, initialCtx(true));
@@ -266,12 +270,12 @@ describe('createDistillLearningsSubChain', () => {
     await seedLedger([serializeLearningRecord(record({ id: 'a' })), serializeLearningRecord(record({ id: 'b' }))]);
 
     const calls: InteractiveAiProviderInput[] = [];
-    const chain = createDistillLearningsSubChain(
+    const chain = await createDistillLearningsSubChain(
       buildDeps({
         interactiveAiFor: () => fakeInteractiveAi({ calls }),
         interactive: scriptedConfirms([true]).prompt,
       }),
-      { projectId: PROJECT_ID, memoryRoot, distillRoot, ai: allClaude }
+      { projectId: PROJECT_ID, projectSlug: PROJECT_SLUG, memoryRoot, distillRoot, ai: allClaude }
     );
 
     const runner = await run(chain, initialCtx(true));
@@ -307,9 +311,9 @@ describe('createDistillLearningsSubChain', () => {
       ideate: 'github-copilot',
     });
 
-    const chain = createDistillLearningsSubChain(
+    const chain = await createDistillLearningsSubChain(
       buildDeps({ interactiveAiFor, interactive: scriptedConfirms([true, true, true]).prompt }),
-      { projectId: PROJECT_ID, memoryRoot, distillRoot, ai }
+      { projectId: PROJECT_ID, projectSlug: PROJECT_SLUG, memoryRoot, distillRoot, ai }
     );
 
     const runner = await run(chain, initialCtx(true));
@@ -344,9 +348,9 @@ describe('createDistillLearningsSubChain', () => {
     // Abort on the 2nd AI spawn overall (the second distinct provider's propose).
     const interactiveAiFor = (): InteractiveAiProvider => fakeInteractiveAi({ calls: allCalls, abortOnCall: 2 });
 
-    const chain = createDistillLearningsSubChain(
+    const chain = await createDistillLearningsSubChain(
       buildDeps({ interactiveAiFor, interactive: scriptedConfirms([true, true]).prompt }),
-      { projectId: PROJECT_ID, memoryRoot, distillRoot, ai }
+      { projectId: PROJECT_ID, projectSlug: PROJECT_SLUG, memoryRoot, distillRoot, ai }
     );
 
     const runner = await run(chain, initialCtx(true));

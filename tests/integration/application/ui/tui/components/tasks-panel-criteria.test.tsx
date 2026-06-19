@@ -98,43 +98,11 @@ describe('TasksPanel verification-criteria summary', () => {
     r.unmount();
   });
 
-  it('per-criterion verdict mapping pairs criterion bullets with evaluator dimensions when counts match', async () => {
-    const evaluation: EvaluationSignal = {
-      type: 'evaluation',
-      status: 'passed',
-      timestamp: ts(10),
-      dimensions: [
-        { dimension: 'correctness', passed: true, finding: 'ok' },
-        { dimension: 'completeness', passed: true, finding: 'ok' },
-        { dimension: 'style', passed: true, finding: 'ok' },
-        { dimension: 'tests', passed: true, finding: 'ok' },
-      ],
-    };
-
-    const r = render(
-      <TasksPanel
-        bucketed={baseBucket({ evaluations: [evaluation] })}
-        running={true}
-        taskCriteriaById={criteria([
-          'Correctness criterion',
-          'Completeness criterion',
-          'Style criterion',
-          'Tests criterion',
-        ])}
-      />
-    );
-    await tick(40);
-    const frame = r.lastFrame() ?? '';
-
-    expect(frame).toContain('Correctness criterion');
-    expect(frame).toContain('Tests criterion');
-    // No numeric score is rendered any more — the PASS / FAIL rubric replaced it.
-    expect(frame).not.toMatch(/5\/5/);
-
-    r.unmount();
-  });
-
-  it('falls back to the per-dimension row rendering when criterion count and dimension count disagree', async () => {
+  it('does NOT fabricate per-criterion attribution when criterion count equals dimension count', async () => {
+    // The old positional-fusion trigger: 3 criteria + 3 dimensions (all visible in the collapsed
+    // 3-line summary). There is NO per-criterion verdict in the data — the criteria render
+    // un-marked as the "definition of done", and the verdict is the single AUTHORITATIVE status.
+    // A leaked / bucketed `failed` signal does NOT mark the criteria and does NOT become the verdict.
     const evaluation: EvaluationSignal = {
       type: 'evaluation',
       status: 'failed',
@@ -143,7 +111,6 @@ describe('TasksPanel verification-criteria summary', () => {
         { dimension: 'correctness', passed: true, finding: 'ok' },
         { dimension: 'completeness', passed: false, finding: 'gap' },
         { dimension: 'style', passed: true, finding: 'ok' },
-        { dimension: 'tests', passed: true, finding: 'ok' },
       ],
     };
 
@@ -151,15 +118,22 @@ describe('TasksPanel verification-criteria summary', () => {
       <TasksPanel
         bucketed={baseBucket({ evaluations: [evaluation] })}
         running={true}
-        taskCriteriaById={criteria(['Only one criterion'])}
+        taskCriteriaById={criteria(['Correctness criterion', 'Completeness criterion', 'Style criterion'])}
+        taskEvaluationById={new Map([['task-1', { status: 'passed' as const, attemptN: 1 }]])}
       />
     );
     await tick(40);
     const frame = r.lastFrame() ?? '';
 
-    // Per-dimension fallback row carries dimension name + PASS / FAIL glyph (no score).
-    expect(frame).toMatch(/correctness:/);
-    expect(frame).toMatch(/completeness:/);
+    // All 3 criteria render (definition of done) but carry NO ✗/✓ verdict glyph.
+    expect(frame).toContain('Correctness criterion');
+    expect(frame).toContain('Completeness criterion');
+    expect(frame).toContain('Style criterion');
+    expect(frame).not.toContain('✗');
+    expect(frame).not.toContain('✓');
+    // The verdict is the single authoritative status — never the leaked bucketed `failed` signal.
+    expect(frame).toContain('passed');
+    expect(frame).not.toMatch(/eval\s+failed/);
     r.unmount();
   });
 });

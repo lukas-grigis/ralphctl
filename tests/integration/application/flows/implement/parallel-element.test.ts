@@ -374,6 +374,47 @@ describe('createParallelImplementElement — no EventBus subscriber leak after w
     // self-detached on terminal — zero net listeners left over.
     expect(liveListeners).toBe(0);
   });
+
+  it('returns live-listener count to baseline (0 net) even when the wave is ABORTED mid-flight', async () => {
+    // The leak the guaranteed-teardown fix targets: a branch killed by an outer abort that does not
+    // deliver a clean terminal must STILL have its bridge + durable-fold subscriptions force-detached
+    // by the wave-level finally. Without it, each aborted branch leaves a permanent EventBus closure
+    // pinning its runner + forked ctx + trace ring for the whole TUI session.
+    const t1 = makeTodoTask({ name: 't1' });
+    const t2 = makeTodoTask({ name: 't2' });
+    const log: string[] = [];
+    const cleanups: string[] = [];
+    const persisted: Persisted = { tasks: undefined };
+    const ac = new AbortController();
+
+    let liveListeners = 0;
+    const countingBus: EventBus = {
+      publish: () => {},
+      subscribe: () => {
+        liveListeners++;
+        let active = true;
+        return () => {
+          if (active) {
+            active = false;
+            liveListeners--;
+          }
+        };
+      },
+    };
+
+    // t1 completes then trips the abort; t2 hangs until killed (never a clean terminal of its own
+    // before the kill). After execute() resolves, every per-branch + sub-runner listener must be gone.
+    const branches = [[completeThenAbort(t1, log, ac), hangingBranch(t2, log, cleanups)]];
+
+    const element = createParallelImplementElement(
+      plan(tagElement('implement-prologue', log), recordingEpilogue(log, persisted), [[t1, t2]]),
+      baseConfig({ buildWaves: () => branches, maxConcurrency: 2 }, recordingLocker([]), countingBus)
+    );
+    const result = await element.execute(ctxWith([t1, t2]), ac.signal);
+
+    expect(result.ok).toBe(false);
+    expect(liveListeners).toBe(0);
+  });
 });
 
 describe('createParallelImplementElement — 2-wave durable fold survives abort of wave 1', () => {

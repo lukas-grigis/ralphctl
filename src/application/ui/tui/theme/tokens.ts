@@ -34,6 +34,10 @@ export const glyphs = {
   actionCursor: '▸',
   selectMarker: '›',
   bullet: '·',
+  // Filled circle for the gen-eval busy indicator — the small `bullet` reads as a separator,
+  // so the busy role needs a heavier dot to register as an activity affordance. Common-Unicode;
+  // renders on vt220-class emulators.
+  busyDot: '●',
   arrowRight: '→',
   activityArrow: '↳',
   // Section markers

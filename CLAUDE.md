@@ -59,8 +59,11 @@ enforces every direction. Full detail in `.claude/docs/ARCHITECTURE.md`.
 - **Per-aggregate repositories** under `src/domain/repository/<aggregate>/`. Business code consumes **slim
   sub-ports** from `domain/repository/_base/` (`FindById`, `Save`, `Remove`); the composition root wires the
   composite. Importing composite `*Repository` types from business code is fenced.
-- **Sprint splits into three on-disk files** at `<dataRoot>/sprints/<sprint-id>/`: `sprint.json` (planning),
-  `execution.json` (branch / PR URL / setup audit), `tasks.json` (task list).
+- **Sprint splits into three on-disk files** at `<dataRoot>/sprints/<id>--<slug>/`: `sprint.json` (planning),
+  `execution.json` (branch / PR URL / setup audit), `tasks.json` (task list). Project files live at
+  `<dataRoot>/projects/<id>--<slug>.json`; memory dirs at `<dataRoot>/memory/<id>--<slug>/`. Resolvers tolerate
+  the legacy bare `<id>` form. A `data/.ralphctl-data-version.json` stamp tracks migration state; the TUI
+  shows a one-time consent splash + backup before renaming existing entries.
 - **Chain primitives** in `src/application/chain/`: `element` / `leaf` / `sequential` / `loop` / `guard`
   (factory functions). **No `retry` or `onError`** — retry-on-429 is an adapter concern; branching belongs
   inside a use case or a `guard`. `leaf(name, config, { label? })` — `name` is the canonical identifier;
