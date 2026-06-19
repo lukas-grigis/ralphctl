@@ -4,11 +4,12 @@ description:
   Cut a new release of ralphctl — bumps `package.json`, promotes the `## [Unreleased]` CHANGELOG section to a dated `## [X.Y.Z]`, opens a `chore(release): X.Y.Z` PR, defers to `merge-pr` to wait for CI and merge with admin bypass, then tags the merge commit and pushes the tag (which fires the `release.yml` workflow → npm publish + GitHub Release). Use when the user says "/release X.Y.Z", "release X.Y.Z", "ship 1.2.3", "cut a new version", or otherwise asks to publish a new version of ralphctl.
 when_to_use: When the user explicitly asks to ship a release. Requires the version arg in semver form (e.g. `0.4.5`, no `v` prefix). Pre-conditions checked at runtime — clean working tree on `main`, no other release branch in flight, `## [Unreleased]` has content worth releasing.
 allowed-tools: Bash, Read, Edit
+disable-model-invocation: true
 ---
 
 # Release
 
-End-to-end release flow for `lukas-grigis/ralphctl`. Mirrors the established pattern (v0.4.2 / v0.4.3 / v0.4.4):
+End-to-end release flow for `lukas-grigis/ralphctl`. Mirrors the established release pattern:
 branch → bump → changelog → PR → CI → merge → tag → workflow.
 
 ## Arg
