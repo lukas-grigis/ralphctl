@@ -39,6 +39,11 @@ echo
 
 echo "## [2] Referenced src/ tests/ scripts/ paths that DO NOT exist on disk"
 echo "#     High signal — a referenced file/dir that is gone is almost always real drift."
+# All tracked paths, once. Used for substring tolerance below — read into a var and
+# matched with bash `case` rather than `git ls-files | grep -q`, because under the
+# script's `set -o pipefail` a `grep -q` early-exit SIGPIPEs `git ls-files` and the
+# pipeline reports failure even on a match (a real false-MISSING bug).
+TRACKED="$(git ls-files 2>/dev/null || true)"
 {
   grep -rhoE "${MD[@]}" "(src|tests|scripts|dist)/[A-Za-z0-9_./-]+\.(ts|tsx|md|json|mjs|sh)" "${SCOPE[@]}" 2>/dev/null
   grep -rhoE "${MD[@]}" "(src|tests|scripts)/[A-Za-z0-9_./-]+/" "${SCOPE[@]}" 2>/dev/null
@@ -46,9 +51,9 @@ echo "#     High signal — a referenced file/dir that is gone is almost always 
   [ -e "$ref" ] && continue
   # Tolerate relative / nested refs: a path captured mid-string (e.g. 'scripts/foo.sh'
   # inside '.../skills/x/scripts/foo.sh', or 'scripts/t.md' inside 'detect-scripts/t.md')
-  # is a real file written with a partial prefix, not drift. Only a ref that matches NO
-  # tracked path anywhere is genuinely missing.
-  git ls-files 2>/dev/null | grep -qF "$ref" && continue
+  # is a real file written with a partial prefix, not drift. Only a ref that is a substring
+  # of NO tracked path is genuinely missing.
+  case "$TRACKED" in *"$ref"*) continue ;; esac
   echo "  MISSING: $ref"
 done
 echo
