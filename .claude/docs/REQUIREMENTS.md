@@ -224,21 +224,19 @@ Status flow: `draft → planned → active → review → done`.
 - [x] **`ralphctl doctor`** runs every check; per-check rows with status (`pass` / `warn` / `fail`); an
       aggregate result card at the bottom.
 - [x] **TUI doctor hotkey** (`!`) opens the same view from anywhere.
-- [ ] **Onboarding-status check** reports per-(project, repo) onboarding state. _Not implemented: the doctor
-      probe list has no per-(project, repo) onboarding-state probe._
 
 ## Settings
 
-- [ ] **Schema-driven settings panel** — TUI rows are built from a hand-authored section/field model in
-      `settings-view-model.ts` (not by introspecting `SettingsSchema`); each field declares its prompt `kind`
-      (`select` / `text` / `preset` / `map-add` / `map-entry`) explicitly. Edits save immediately via the
-      `settings-set` flow → `SettingsRepository.save()`. _Left unticked pending a decision on whether
-      schema-introspection is still a goal; the save-immediately half is fully wired._
+- [x] **Hand-authored settings panel** — TUI rows are built from an explicit section/field model in
+      `settings-view-model.ts` (`buildSections` / `buildFlowFields`), not by introspecting `SettingsSchema`:
+      each field declares its prompt `kind` (`select` / `text` / `preset` / `map-add` / `map-entry`) that the
+      Zod type cannot express. Edits save immediately via the `settings-set` flow → `SettingsRepository.save()`.
 - [x] **CLI parity** — `ralphctl settings show` prints the current settings; `ralphctl settings set <key> <value>`
       sets a single key (plus `settings apply-preset`).
 - [ ] **Schema validation on read** — corrupt or v0.6.x-shaped `settings.json` files surface a typed
-      `ParseError` (subCode `schema-mismatch`) from the persistence boundary. _The `ralphctl settings` re-run
-      hint is not attached today — `ParseError.hint` is left unset on settings-parse failures._
+      `ParseError` (subCode `schema-mismatch`) from the persistence boundary. _Re-run hint not attached yet:
+      `ParseError.hint` is left unset on settings-parse failures (`json-settings-repository.ts`), though the CLI
+      render path already prints `.hint` when present (`settings.ts:108`) — only populating it remains._
 - [x] **`schemaVersion`** — written on every save; migration path runs before validation if the on-disk shape
       changes in a future version.
 
@@ -252,10 +250,14 @@ Status flow: `draft → planned → active → review → done`.
       `ticket {list,show,add,remove}`, `task {list,show,unblock}`,
       `runs {list,prune}`.
 - [ ] **Each one-shot command** has a `tests/e2e/cli/<name>.test.ts` pinning the success-path stdout.
-      _Mostly done; `export-requirements` and `create-pr` are covered only at the flow level, not by a
-      stdout-pinning `tests/e2e/cli/` test._
-- [ ] **Exit codes** — `0` success, `1` error. _`130`-on-interrupt is not wired: there is no SIGINT handler
-      that sets `process.exitCode = 130`._
+      _Most are covered (completion, doctor, export-context, project, runs, settings, sprint, task, ticket).
+      TODO: `create-pr` and `export-requirements` are covered only by flow-level tests
+      (`tests/e2e/flows/{create-pr,export-requirements}.test.ts`) — add the two stdout-pinning
+      `tests/e2e/cli/` tests to close the standard._
+- [x] **Exit codes** — `0` success, `1` error. Set via `process.exitCode = 1` (`cli.ts`) / `process.exit(1)`
+      (`bootstrap.ts`, `launch.ts`); `0` by default. _`130`-on-interrupt is intentionally not distinguished —
+      the thin one-shot CLI commands print and return with no long-running loop where a Ctrl-C state is
+      meaningful; SIGINT handling is the TUI's concern (alt-screen restoration), not an exit code._
 
 ## TUI
 
@@ -277,9 +279,6 @@ See [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) for tokens, components, view patterns
       or overlay is mounted.
 - [x] **Live execute view** — `ExecuteView` subscribes to the EventBus; renders `StepTrace` + `TasksPanel` +
       `RecentEventsTail`. Late attach is lossless (synthetic replay).
-- [ ] **Prompt transcript** — resolved prompts render dim above the live prompt; history clears when the
-      prompt queue idles past `SEQUENCE_IDLE_MS`. _Not implemented: `prompt-host.tsx` renders only the head
-      prompt; there is no resolved-prompt transcript and no `SEQUENCE_IDLE_MS` constant._
 - [x] **Form retry loop** — create-project / add-ticket / add-repository views retry on validation
       errors (an `error` step with esc-to-go-back) instead of popping back to home.
 - [x] **Windowed-list primitive** — all long, scrollable, homogeneous lists mount through
@@ -316,9 +315,6 @@ See [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) for tokens, components, view patterns
       bundled skills into `dist/{prompts,skills}/` and writes `dist/manifest.json`.
 - [x] **Dual-mode loading** — `FsTemplateLoader` and `bundledSkillSource` detect bundled mode via
       `import.meta.url`. Dev reads from `src/`; bundled reads from `dist/`.
-- [ ] **Asset verification** — a missing template / skill surfaces a generic `StorageError` at load time
-      (`fs-template-loader.ts` / `bundled/source.ts`). _Not implemented: `dist/manifest.json` is write-only —
-      there is no startup integrity check against it and no repair hint._
 - [x] **CI tarball smoke** — `pnpm pack` + `npm install` into a tmp dir + `ralphctl --version` from arbitrary
       cwd exits 0 and prints the version from `package.json`.
 - [x] **`--provenance`** flag on npm publish.
@@ -351,6 +347,19 @@ See [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) for tokens, components, view patterns
 - **Real-provider e2e tests** — every Claude / Copilot / Codex provider test uses a fake `spawn`.
 - **Bundle-mode detection robustness** — `import.meta.url.endsWith('/cli.mjs')` is a fragile detection; a
   follow-up should switch to `existsSync(<here>/manifest.json)`.
+- **Onboarding-status doctor probe** — no per-(project, repo) "onboarding state" is modeled in the domain
+  (`Project` / `Repository` carry no onboarding field), so doctor reports none. Per-(project, repo) health is
+  instead covered by the `integrity` probes (repo-path resolution, default-branch resolution, sprint/execution
+  pairing). A dedicated onboarding probe is deferred until the concept exists.
+- **Prompt transcript (dim resolved-prompt history)** — `prompt-host.tsx` renders only the head prompt; the
+  queue (`prompt-queue.ts`) is a strict serial mutex that shifts resolved prompts off and discards them. A
+  transcript keeping resolved prompts visible (dim, clearing after an idle window) was specced but never built
+  and runs counter to the modal-queue design; deferred.
+- **Asset-integrity check** — `scripts/build-assets.ts` writes `dist/manifest.json` as a build-completeness
+  record, but no runtime code reads it: a missing template / skill surfaces only a generic `StorageError` from
+  the loaders, with no manifest cross-check and no repair hint. A startup integrity pass against the manifest
+  (with a "reinstall the package" hint) is deferred — it pairs with the bundle-mode item above (both would give
+  the write-only manifest a runtime role).
 
 ## Procedural memory
 
