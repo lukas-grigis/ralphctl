@@ -47,11 +47,13 @@ echo "#     High signal — a referenced file/dir that is gone is almost always 
 done
 echo
 
-echo "## [3] RALPHCTL_* env vars named in docs but never read in src/ (unshipped or removed)"
-echo "#     Cross-checks each documented env var against an actual read in non-test src."
+echo "## [3] RALPHCTL_* env vars named in docs but never READ in src/ (unshipped or removed)"
+echo "#     Matches REAL access — \`process.env.VAR\` or the name as a quoted string literal (constant"
+echo "#     def / env[...] lookup) — NOT bare mentions, so a var that only survives in code COMMENTS"
+echo "#     (e.g. 'see RALPHCTL_LOG_LEVEL=debug') is correctly flagged as unread, not falsely cleared."
 grep -rhoE "${MD[@]}" "RALPHCTL_[A-Z_]+" "${SCOPE[@]}" 2>/dev/null | sort -u | while IFS= read -r v; do
-  hits="$(grep -rl "$v" src 2>/dev/null | grep -vc '\.test\.' || true)"
-  [ "${hits:-0}" -eq 0 ] && echo "  UNREAD: $v (0 non-test reads in src/)"
+  hits="$(grep -rlE "process\.env\.${v}\b|['\"]${v}['\"]" src 2>/dev/null | grep -vc '\.test\.' || true)"
+  [ "${hits:-0}" -eq 0 ] && echo "  UNREAD: $v (no real env access in src/ — comment-only or removed)"
 done
 echo
 

@@ -219,15 +219,14 @@ Resolution uses the `SkillSource.getByName` lookup on the bundled source.
 
 ## Environment variables
 
-| Variable                     | Default        | Range / values                         | Purpose                                                                        |
-| ---------------------------- | -------------- | -------------------------------------- | ------------------------------------------------------------------------------ |
-| `RALPHCTL_HOME`              | `~/.ralphctl/` | absolute path                          | Override application root (data + config + state)                              |
-| `RALPHCTL_SKIP_LEGACY_CHECK` | unset          | any truthy value                       | Bypass the v0.6.x legacy-layout detector at boot                               |
-| `RALPHCTL_DEBUG_TRACE`       | unset          | any truthy value                       | Enable `<sprintDir>/events.ndjson` debug sink (no-op when unset)               |
-| `RALPHCTL_NO_TUI`            | unset          | any truthy value                       | Suppress implicit interactive prompts inside the implement flow                |
-| `RALPHCTL_LOG_LEVEL`         | `info`         | `debug` \| `info` \| `warn` \| `error` | Console / `chain.log` verbosity floor (`debug` surfaces provider stream lines) |
-| `NO_COLOR`                   | unset          | any truthy value                       | Suppress ANSI colors                                                           |
-| `CI`                         | auto-detected  | any truthy value                       | Suppress implicit interactive prompts inside the implement flow                |
+| Variable                     | Default        | Range / values   | Purpose                                                          |
+| ---------------------------- | -------------- | ---------------- | ---------------------------------------------------------------- |
+| `RALPHCTL_HOME`              | `~/.ralphctl/` | absolute path    | Override application root (data + config + state)                |
+| `RALPHCTL_SKIP_LEGACY_CHECK` | unset          | any truthy value | Bypass the v0.6.x legacy-layout detector at boot                 |
+| `RALPHCTL_DEBUG_TRACE`       | unset          | any truthy value | Enable `<sprintDir>/events.ndjson` debug sink (no-op when unset) |
+| `RALPHCTL_NO_TUI`            | unset          | any truthy value | Suppress implicit interactive prompts inside the implement flow  |
+| `NO_COLOR`                   | unset          | any truthy value | Suppress ANSI colors                                             |
+| `CI`                         | auto-detected  | any truthy value | Suppress implicit interactive prompts inside the implement flow  |
 
 ## Diagnosing an OOM (heap snapshot)
 
