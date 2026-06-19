@@ -425,6 +425,8 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
   // settings read.
   const generatorModel = implementPair.generator.model;
   const evaluatorModel = implementPair.evaluator.model;
+  const generatorProviderId = implementPair.generator.provider;
+  const evaluatorProviderId = implementPair.evaluator.provider;
   return {
     ok: true,
     runner: bridge(runner) as Runner<unknown>,
@@ -438,6 +440,8 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
     ...(taskRecovering.size > 0 ? { taskRecovering } : {}),
     generatorModel,
     evaluatorModel,
+    generatorProvider: generatorProviderId,
+    evaluatorProvider: evaluatorProviderId,
     ...(generatorEffort !== undefined ? { generatorEffort } : {}),
     ...(evaluatorEffort !== undefined ? { evaluatorEffort } : {}),
   };

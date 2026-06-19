@@ -43,22 +43,58 @@ interface HeaderCardProps {
  * Renders the model + effort lines inside the HeaderCard.
  *
  * Implement runs (both `generatorModel` and `evaluatorModel` set): two explicit lines so the
- * operator can clearly see each role, even when generator === evaluator.
+ * operator can clearly see each role, even when generator === evaluator. When the role's provider
+ * id is known it renders dim before the model (secondary context) — model stays highlighted.
  *
- *   ↳ generator  claude-opus-4-8 · high
- *   ↳ evaluator  gpt-5.5 · medium
+ *   ↳ generator  github-copilot · claude-opus-4-8 · high
+ *   ↳ evaluator  openai-codex · gpt-5.5 · medium
  *
- * Non-implement flows (at most one model set): single `model <name>` line.
- * When neither model is set: nothing rendered.
+ * Non-implement flows (at most one model set): single `model <name>` line, optionally prefixed
+ * with the provider when one is available. When neither model is set: nothing rendered.
  */
+const RoleLine = ({
+  role,
+  provider,
+  model,
+  effort,
+}: {
+  readonly role: string;
+  readonly provider: string | undefined;
+  readonly model: string;
+  readonly effort: string | undefined;
+}): React.JSX.Element => (
+  <Box>
+    <Text dimColor>
+      {glyphs.activityArrow} {role}{' '}
+    </Text>
+    {provider !== undefined && (
+      <>
+        <Text dimColor>{provider}</Text>
+        <Text dimColor> {glyphs.bullet} </Text>
+      </>
+    )}
+    <Text color={inkColors.highlight}>{model}</Text>
+    {effort !== undefined && (
+      <>
+        <Text dimColor> {glyphs.bullet} </Text>
+        <Text dimColor>{effort}</Text>
+      </>
+    )}
+  </Box>
+);
+
 const ModelLines = ({
   generatorModel,
   evaluatorModel,
+  generatorProvider,
+  evaluatorProvider,
   generatorEffort,
   evaluatorEffort,
 }: {
   readonly generatorModel: string | undefined;
   readonly evaluatorModel: string | undefined;
+  readonly generatorProvider: string | undefined;
+  readonly evaluatorProvider: string | undefined;
   readonly generatorEffort: string | undefined;
   readonly evaluatorEffort: string | undefined;
 }): React.JSX.Element | null => {
@@ -66,36 +102,25 @@ const ModelLines = ({
   if (generatorModel !== undefined && evaluatorModel !== undefined) {
     return (
       <Box flexDirection="column">
-        <Box>
-          <Text dimColor>{glyphs.activityArrow} generator </Text>
-          <Text color={inkColors.highlight}>{generatorModel}</Text>
-          {generatorEffort !== undefined && (
-            <>
-              <Text dimColor> {glyphs.bullet} </Text>
-              <Text dimColor>{generatorEffort}</Text>
-            </>
-          )}
-        </Box>
-        <Box>
-          <Text dimColor>{glyphs.activityArrow} evaluator </Text>
-          <Text color={inkColors.highlight}>{evaluatorModel}</Text>
-          {evaluatorEffort !== undefined && (
-            <>
-              <Text dimColor> {glyphs.bullet} </Text>
-              <Text dimColor>{evaluatorEffort}</Text>
-            </>
-          )}
-        </Box>
+        <RoleLine role="generator" provider={generatorProvider} model={generatorModel} effort={generatorEffort} />
+        <RoleLine role="evaluator" provider={evaluatorProvider} model={evaluatorModel} effort={evaluatorEffort} />
       </Box>
     );
   }
 
-  // Non-implement flows: single model line (whichever is set).
+  // Non-implement flows: single model line (whichever is set), with its provider when available.
   const model = generatorModel ?? evaluatorModel;
+  const provider = generatorProvider ?? evaluatorProvider;
   if (model !== undefined) {
     return (
       <Box>
         <Text dimColor>{glyphs.activityArrow} model </Text>
+        {provider !== undefined && (
+          <>
+            <Text dimColor>{provider}</Text>
+            <Text dimColor> {glyphs.bullet} </Text>
+          </>
+        )}
         <Text color={inkColors.highlight}>{model}</Text>
       </Box>
     );
@@ -146,6 +171,8 @@ export const HeaderCard = ({
         <ModelLines
           generatorModel={descriptor.generatorModel}
           evaluatorModel={descriptor.evaluatorModel}
+          generatorProvider={descriptor.generatorProvider}
+          evaluatorProvider={descriptor.evaluatorProvider}
           generatorEffort={descriptor.generatorEffort}
           evaluatorEffort={descriptor.evaluatorEffort}
         />

@@ -9,6 +9,7 @@
  */
 
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
+import type { AiProvider } from '@src/domain/entity/settings.ts';
 import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -131,6 +132,13 @@ export interface SessionDescriptor {
   readonly generatorModel?: string;
   readonly evaluatorModel?: string;
   /**
+   * Provider id backing each implement role (`claude-code` / `github-copilot` / `openai-codex`).
+   * The HeaderCard renders it dim before the model name so the operator sees which backend each
+   * role runs on. Only set for the implement flow; every other flow leaves these undefined.
+   */
+  readonly generatorProvider?: AiProvider;
+  readonly evaluatorProvider?: AiProvider;
+  /**
    * Resolved effort strings for each implement role (`low|medium|high|xhigh|max`). Displayed
    * alongside the model name in the HeaderCard so the operator can see the effort at a glance.
    * Only set for the implement flow; every other flow leaves these undefined.
@@ -179,6 +187,8 @@ export interface SessionManager {
     readonly taskRecovering?: ReadonlyMap<string, RecoveryContext>;
     readonly generatorModel?: string;
     readonly evaluatorModel?: string;
+    readonly generatorProvider?: AiProvider;
+    readonly evaluatorProvider?: AiProvider;
     readonly generatorEffort?: string;
     readonly evaluatorEffort?: string;
     readonly pinnedProjectId?: ProjectId;
@@ -330,6 +340,8 @@ export const createSessionManager = (opts?: { readonly clock?: () => number }): 
       taskRecovering,
       generatorModel,
       evaluatorModel,
+      generatorProvider,
+      evaluatorProvider,
       generatorEffort,
       evaluatorEffort,
       pinnedProjectId,
@@ -354,6 +366,8 @@ export const createSessionManager = (opts?: { readonly clock?: () => number }): 
         ...(taskRecovering !== undefined ? { taskRecovering } : {}),
         ...(generatorModel !== undefined ? { generatorModel } : {}),
         ...(evaluatorModel !== undefined ? { evaluatorModel } : {}),
+        ...(generatorProvider !== undefined ? { generatorProvider } : {}),
+        ...(evaluatorProvider !== undefined ? { evaluatorProvider } : {}),
         ...(generatorEffort !== undefined ? { generatorEffort } : {}),
         ...(evaluatorEffort !== undefined ? { evaluatorEffort } : {}),
         ...(pinnedProjectId !== undefined ? { pinnedProjectId } : {}),

@@ -287,6 +287,119 @@ describe.each(PROVIDERS)('classifySpawnExit [%s]', (providerName) => {
     }
   });
 
+  // Representative model-unavailable stderr strings observed across the three real CLIs.
+  const MODEL_UNAVAILABLE_STDERR: readonly string[] = [
+    'Error: Model "gpt-5.4-nano" from --model flag is not available.',
+    'model claude-opus-9 not found',
+    'unknown model: o5-mega',
+    'unsupported model requested',
+  ];
+
+  it.each(MODEL_UNAVAILABLE_STDERR)(
+    'model-unavailable stderr maps to InvalidStateError with actionable hint (%s)',
+    async (stderr) => {
+      const session = baseSession();
+      // No signals.json — and even if there were one, the model branch wins over recovery.
+      let invoked = 0;
+      const outcome = await classifySpawnExit({
+        session,
+        exit: { code: 1, signal: null },
+        stderr,
+        rateLimitRe: RATE_RE,
+        providerName,
+        eventBus: createCapturingBus().bus,
+        watchdogBannerId: 'unused',
+        onSuccess: () => {
+          invoked += 1;
+          return okSuccess(session);
+        },
+      });
+      expect(invoked).toBe(0);
+      expect(outcome.kind).toBe('error');
+      if (outcome.kind === 'error') {
+        expect(outcome.error).toBeInstanceOf(InvalidStateError);
+        // Raw stderr detail is preserved …
+        expect(outcome.error.message).toContain(stderr);
+        // … alongside the actionable hint, folded into `.message` so it survives to the UI.
+        expect(outcome.error.message).toContain('model not available');
+        expect(outcome.error.message).toContain('pick another model in settings');
+        // Separate `.hint` field is also populated.
+        expect((outcome.error as InvalidStateError).hint).toContain('pick another model in settings');
+      }
+    }
+  );
+
+  it('model-unavailable wins over signals-present recovery (config error, not recoverable work)', async () => {
+    const session = baseSession();
+    await writeSignalsFile(String(session.signalsFile));
+    let invoked = 0;
+    const outcome = await classifySpawnExit({
+      session,
+      exit: { code: 1, signal: null },
+      stderr: 'Error: Model "gpt-5.4-nano" from --model flag is not available.',
+      rateLimitRe: RATE_RE,
+      providerName,
+      eventBus: createCapturingBus().bus,
+      watchdogBannerId: 'unused',
+      onSuccess: () => {
+        invoked += 1;
+        return okSuccess(session);
+      },
+    });
+    expect(invoked).toBe(0);
+    expect(outcome.kind).toBe('error');
+    if (outcome.kind === 'error') {
+      expect(outcome.error).toBeInstanceOf(InvalidStateError);
+      expect(outcome.error.message).toContain('model not available');
+    }
+  });
+
+  it('model-unavailable wording ONLY in stdoutTail does NOT classify as model-unavailable (false-positive guard)', async () => {
+    // stdoutTail carries assistant-generated task output, where benign phrases like "the model is
+    // not available in TensorFlow" appear in NORMAL responses. The model-unavailable branch scans
+    // stderr ONLY — a model-availability phrase that lands solely in stdoutTail (with a generic
+    // non-zero exit and unrelated stderr) must fall through to the generic hard-fail branch, NOT be
+    // misclassified as a config failure. All three CLIs report real model errors on stderr.
+    const session = baseSession();
+    const outcome = await classifySpawnExit({
+      session,
+      exit: { code: 1, signal: null },
+      stderr: '',
+      stdoutTail: '{"type":"result","result":"the model is not available in TensorFlow yet"}',
+      rateLimitRe: RATE_RE,
+      providerName,
+      eventBus: createCapturingBus().bus,
+      watchdogBannerId: 'unused',
+      onSuccess: () => okSuccess(session),
+    });
+    expect(outcome.kind).toBe('error');
+    if (outcome.kind === 'error') {
+      expect(outcome.error).toBeInstanceOf(InvalidStateError);
+      // Falls through to generic hard-fail — the model hint must NOT appear.
+      expect(outcome.error.message).not.toContain('pick another model in settings');
+      expect(outcome.error.message).toContain('process exited with code 1');
+    }
+  });
+
+  it('generic non-zero failure (not model-related) does NOT trip the model hint', async () => {
+    const session = baseSession();
+    const outcome = await classifySpawnExit({
+      session,
+      exit: { code: 2, signal: null },
+      stderr: 'TypeError: cannot read property of undefined',
+      rateLimitRe: RATE_RE,
+      providerName,
+      eventBus: createCapturingBus().bus,
+      watchdogBannerId: 'unused',
+      onSuccess: () => okSuccess(session),
+    });
+    expect(outcome.kind).toBe('error');
+    if (outcome.kind === 'error') {
+      expect(outcome.error).toBeInstanceOf(InvalidStateError);
+      expect(outcome.error.message).not.toContain('pick another model in settings');
+    }
+  });
+
   it('rate-limit in stderr wins over signals-present recovery', async () => {
     const session = baseSession();
     await writeSignalsFile(String(session.signalsFile));
