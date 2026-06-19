@@ -14,7 +14,7 @@ import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
 import { guard } from '@src/application/chain/build/guard.ts';
-import { learningsLedgerPathDirect } from '@src/application/flows/_shared/memory/ledger-path.ts';
+import { resolveWritableLearningsLedgerPath } from '@src/application/flows/_shared/memory/ledger-path.ts';
 import type { Slug } from '@src/domain/value/slug.ts';
 import { loadLearningsLeaf } from '@src/application/flows/_shared/memory/load-learnings.ts';
 import { stampPromotedLeaf } from '@src/application/flows/_shared/memory/stamp-promoted.ts';
@@ -159,11 +159,18 @@ const buildPerProviderSegment = (
  *
  * @public
  */
-export const createDistillLearningsSubChain = (
+export const createDistillLearningsSubChain = async (
   deps: DistillLearningsDeps,
   opts: CreateDistillLearningsOpts
-): Result<Element<DistillLearningsCtx>, ValidationError> => {
-  const ledgerPath = learningsLedgerPathDirect(opts.memoryRoot, String(opts.projectId), opts.projectSlug);
+): Promise<Result<Element<DistillLearningsCtx>, ValidationError>> => {
+  // Resolve the ledger path tolerantly: distill READS candidates then WRITES the promotion stamp to
+  // the SAME ledger, so it must operate on whatever dir already exists (slugged or legacy bare) and
+  // never split a second dir. Only a brand-new project lands on the freshly-built slugged name.
+  const ledgerPath = await resolveWritableLearningsLedgerPath(
+    opts.memoryRoot,
+    String(opts.projectId),
+    opts.projectSlug
+  );
   if (!ledgerPath.ok) return Result.error(ledgerPath.error);
   const path = ledgerPath.value;
 

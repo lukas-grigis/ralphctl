@@ -7,7 +7,7 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { type StorageError } from '@src/domain/value/error/storage-error.ts';
 import { fromJsonSprint, toJsonSprint } from '@src/integration/persistence/sprint/sprint.schema.ts';
-import { listDir, readJson, removeDir, renamePath, writeJsonAtomic } from '@src/integration/io/fs.ts';
+import { listDir, pathExists, readJson, removeDir, renamePath, writeJsonAtomic } from '@src/integration/io/fs.ts';
 import {
   parseIdFromName,
   resolveSprintDir,
@@ -47,17 +47,27 @@ export interface FsSprintRepositoryDeps {
  * tolerant reader still resolves whichever dir exists.
  */
 const reconcileSprintDir = async (root: AbsolutePath, id: string, canonicalDir: string): Promise<void> => {
+  // NOTE: no advisory-lock check here (deferred, plan §1.4). ralphctl is single-session by design — a
+  // flow holds the cross-process lock for the whole run, so a slug rename can never land mid-flight
+  // against a running implement. If concurrent sessions are ever introduced, gate this on `anyLockHeld`.
   const dir = sprintsDir(root);
   const entries = await listDir(dir);
   if (!entries.ok) return;
+  // Resolve once whether the canonical dir already exists — it decides rename-vs-leave below.
+  const canonicalExists = await pathExists(canonicalDir);
   for (const entry of entries.value) {
     const fullPath = join(dir, entry);
     if (fullPath === canonicalDir) continue;
     if (parseIdFromName(entry) !== id) continue;
-    // A stale dir for the same id: try to promote it to the canonical name. If the canonical dir
-    // already exists, the rename would clobber it — remove the stale dir instead.
+    // A stale dir for the same id: promote it to the canonical name with an atomic rename. If the
+    // canonical dir already exists the rename would clobber it, so remove the now-redundant stale dir
+    // instead. CRITICAL: only remove when the canonical dir is actually present — if it is NOT, this
+    // stale dir is the ONLY copy of execution.json / tasks.json, so a removeDir here would lose them.
+    // Leave it in place; the tolerant reader still resolves it.
     const renamed = await renamePath(fullPath, canonicalDir);
-    if (!renamed.ok) await removeDir(fullPath); // best-effort cleanup of the now-redundant stale dir
+    if (!renamed.ok && (canonicalExists.ok ? canonicalExists.value : false)) {
+      await removeDir(fullPath); // best-effort cleanup — canonical confirmed present, stale is redundant
+    }
   }
 };
 
@@ -71,6 +81,11 @@ export const createFsSprintRepository = (deps: FsSprintRepositoryDeps): SprintRe
     // suffix — a `<id>--zzz` dir must still sort by its id, not the whole name.
     const sortedEntries = [...entries.value].sort((a, b) => parseIdFromName(a).localeCompare(parseIdFromName(b)));
     const items: Sprint[] = [];
+    // Dedupe by sprint id: if a legacy bare `<id>/` and a slugged `<id>--<slug>/` dir transiently
+    // coexist (a crash between reconcile's rename + cleanup), the list must not show the sprint twice.
+    // The slugged (canonical) entry wins — it sorts AFTER the bare one for the same id (the `--`
+    // separator is > end-of-string), so a later same-id read overwrites the earlier one by id.
+    const byId = new Map<string, Sprint>();
     for (const entry of sortedEntries) {
       const path = `${dir}/${entry}/sprint.json`;
       const json = await readJson(path);
@@ -80,8 +95,9 @@ export const createFsSprintRepository = (deps: FsSprintRepositoryDeps): SprintRe
       }
       const decoded = decode((input) => fromJsonSprint(input, path), json.value, { entity: 'sprint', path });
       if (!decoded.ok) return Result.error(decoded.error);
-      items.push(decoded.value);
+      byId.set(String(decoded.value.id), decoded.value);
     }
+    items.push(...byId.values());
     return Result.ok(items);
   };
 

@@ -50,6 +50,11 @@ export const createFsProjectRepository = (deps: FsProjectRepositoryDeps): Projec
 
     const jsonFiles = entries.value.filter((f) => f.endsWith('.json')).sort();
     const items: Project[] = [];
+    // Dedupe by project id: if a legacy bare `<id>.json` and a slugged `<id>--<slug>.json` transiently
+    // coexist (a crash between save's write + stale-sibling cleanup), the list must not show the project
+    // twice. The sorted scan reads the bare name before the slugged one for the same id (`.json` <
+    // `--<slug>.json`), so a later same-id read overwrites the earlier — the slugged (canonical) wins.
+    const byId = new Map<string, Project>();
     for (const file of jsonFiles) {
       const path = `${dir}/${file}`;
       const json = await readJson(path);
@@ -59,8 +64,9 @@ export const createFsProjectRepository = (deps: FsProjectRepositoryDeps): Projec
       }
       const decoded = decode(fromJsonProject, json.value, { entity: 'project', path });
       if (!decoded.ok) return Result.error(decoded.error);
-      items.push(decoded.value);
+      byId.set(String(decoded.value.id), decoded.value);
     }
+    items.push(...byId.values());
     return Result.ok(items);
   };
 

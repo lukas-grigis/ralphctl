@@ -189,7 +189,7 @@ describe('createDistillLearningsSubChain', () => {
     entries: {},
   });
 
-  const run = async (chain: ReturnType<typeof createDistillLearningsSubChain>, ctx: DistillLearningsCtx) => {
+  const run = async (chain: Awaited<ReturnType<typeof createDistillLearningsSubChain>>, ctx: DistillLearningsCtx) => {
     expect(chain.ok).toBe(true);
     if (!chain.ok) throw new Error('sub-chain build failed');
     const runner = createRunner({ id: 'r-distill', element: chain.value, initialCtx: ctx });
@@ -203,7 +203,7 @@ describe('createDistillLearningsSubChain', () => {
 
     const calls: InteractiveAiProviderInput[] = [];
     const confirms = scriptedConfirms([]);
-    const chain = createDistillLearningsSubChain(
+    const chain = await createDistillLearningsSubChain(
       buildDeps({
         interactiveAiFor: () => fakeInteractiveAi({ calls }),
         interactive: confirms.prompt,
@@ -243,7 +243,7 @@ describe('createDistillLearningsSubChain', () => {
       named: () => warnLogger,
     } as unknown as DistillLearningsDeps['logger'];
 
-    const chain = createDistillLearningsSubChain(
+    const chain = await createDistillLearningsSubChain(
       buildDeps({
         interactiveAiFor: () => fakeInteractiveAi({ calls }),
         interactive: confirms.prompt,
@@ -270,7 +270,7 @@ describe('createDistillLearningsSubChain', () => {
     await seedLedger([serializeLearningRecord(record({ id: 'a' })), serializeLearningRecord(record({ id: 'b' }))]);
 
     const calls: InteractiveAiProviderInput[] = [];
-    const chain = createDistillLearningsSubChain(
+    const chain = await createDistillLearningsSubChain(
       buildDeps({
         interactiveAiFor: () => fakeInteractiveAi({ calls }),
         interactive: scriptedConfirms([true]).prompt,
@@ -311,7 +311,7 @@ describe('createDistillLearningsSubChain', () => {
       ideate: 'github-copilot',
     });
 
-    const chain = createDistillLearningsSubChain(
+    const chain = await createDistillLearningsSubChain(
       buildDeps({ interactiveAiFor, interactive: scriptedConfirms([true, true, true]).prompt }),
       { projectId: PROJECT_ID, projectSlug: PROJECT_SLUG, memoryRoot, distillRoot, ai }
     );
@@ -348,7 +348,7 @@ describe('createDistillLearningsSubChain', () => {
     // Abort on the 2nd AI spawn overall (the second distinct provider's propose).
     const interactiveAiFor = (): InteractiveAiProvider => fakeInteractiveAi({ calls: allCalls, abortOnCall: 2 });
 
-    const chain = createDistillLearningsSubChain(
+    const chain = await createDistillLearningsSubChain(
       buildDeps({ interactiveAiFor, interactive: scriptedConfirms([true, true]).prompt }),
       { projectId: PROJECT_ID, projectSlug: PROJECT_SLUG, memoryRoot, distillRoot, ai }
     );

@@ -30,7 +30,10 @@ import type { DryRunReport } from '@src/integration/persistence/data-migration/t
 import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { Banner } from '@src/application/ui/tui/components/banner.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
-import { createLearningsBackfillRenderer } from '@src/application/ui/tui/migration/learnings-backfill-adapter.ts';
+import {
+  createLearningsBackfillRenderer,
+  createLearningsMerger,
+} from '@src/application/ui/tui/migration/learnings-backfill-adapter.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 
 /**
@@ -72,10 +75,17 @@ type GateState =
   | { readonly kind: 'applying' }
   | { readonly kind: 'lock-held' }
   | { readonly kind: 'dry-run-blocked'; readonly issues: readonly string[] }
-  | { readonly kind: 'failed'; readonly backupPath: string | undefined; readonly downgradeVersion: string };
-
-/** Fallback version named in the downgrade hint when the marker carries no `lastWrittenByAppVersion`. */
-const PRIOR_VERSION_FALLBACK = '0.6.0';
+  | {
+      readonly kind: 'failed';
+      readonly backupPath: string | undefined;
+      /**
+       * A real prior app version sourced from the marker's `lastWrittenByAppVersion`, or `undefined`
+       * when none is recorded. We NEVER guess: on an apply failure the marker is unstamped, so the
+       * data is still readable by the CURRENT version — printing a wrong downgrade command would be
+       * actively harmful. When undefined the failure screen omits the version-specific install line.
+       */
+      readonly downgradeVersion: string | undefined;
+    };
 
 /** Outcome reused across every "decline / proceed on tolerant readers" path. */
 const SKIPPED: MigrationGateOutcome = 'skipped';
@@ -117,6 +127,14 @@ export const MigrationGate = (props: MigrationGateProps): React.JSX.Element => {
           setState({ kind: 'dry-run-blocked', issues: report.problems.map((p) => `${p.name} — ${p.reason}`) });
           return;
         }
+        // No-op migration (brand-new install, or everything already reconciled): there is nothing to
+        // rename or merge and no problems, so the consent prompt would be pointless. Silently stamp
+        // the marker to CURRENT and proceed straight into the app — a new user never sees the splash.
+        if (report.planned.length === 0 && report.merges.length === 0) {
+          await engine.stampCurrent(dataRoot, appVersion);
+          onResolve('migrated');
+          return;
+        }
         setState({ kind: 'consent', report, action: 'migrate' });
       } catch (err) {
         // A dry-run that threw is treated like a blocking problem: surface it, do NOT apply, proceed
@@ -135,6 +153,7 @@ export const MigrationGate = (props: MigrationGateProps): React.JSX.Element => {
       appVersion,
       stateRoot,
       renderLearnings: createLearningsBackfillRenderer(),
+      mergeLearnings: createLearningsMerger(),
       writeFile,
     });
     if (result.kind === 'ok') {
@@ -145,10 +164,16 @@ export const MigrationGate = (props: MigrationGateProps): React.JSX.Element => {
       setState({ kind: 'lock-held' });
       return;
     }
-    // On a failure the marker is (by design) unstamped — it is written ONLY on full success — so the
-    // exact prior version is not recorded under `lastWrittenByAppVersion`. The downgrade hint names
-    // the prior-release fallback, which is the safe, honest direction.
-    setState({ kind: 'failed', backupPath: result.backupPath, downgradeVersion: PRIOR_VERSION_FALLBACK });
+    // On a failure the marker was NOT stamped (it is written ONLY on full success), so the CURRENT
+    // version still reads the data via the tolerant readers. Only name a downgrade version if the
+    // marker actually records a prior `lastWrittenByAppVersion`; otherwise omit it rather than guess.
+    const marker = await engine.readMarker(dataRoot);
+    const prior = marker.lastWrittenByAppVersion.trim();
+    setState({
+      kind: 'failed',
+      backupPath: result.backupPath,
+      downgradeVersion: prior.length > 0 ? prior : undefined,
+    });
   };
 
   const handleConsentInput = (consent: GateState & { kind: 'consent' }, input: string, key: KeyFlags): void => {
@@ -309,21 +334,21 @@ const FailureBody = ({
   downgradeVersion,
 }: {
   readonly backupPath: string | undefined;
-  readonly downgradeVersion: string;
+  readonly downgradeVersion: string | undefined;
 }): React.JSX.Element => (
   <Card title="Your data is safe" tone="error">
     <Text color={inkColors.success}>
-      {glyphs.check} Nothing was lost — we stopped and kept a full backup before changing anything.
+      {glyphs.check} Nothing was lost — we stopped before finishing and your current version still reads your data.
     </Text>
     {backupPath !== undefined && (
       <Box marginTop={spacing.section}>
         <Text>
-          Backup: <Text bold>{backupPath}</Text>
+          A full backup is at <Text bold>{backupPath}</Text>
         </Text>
       </Box>
     )}
     <Box flexDirection="column" marginTop={spacing.section}>
-      <Text dimColor>To restore the previous state:</Text>
+      <Text dimColor>You can keep using ralphctl as-is. If you&apos;d rather roll back:</Text>
       {backupPath !== undefined ? (
         <Text dimColor>
           {glyphs.bullet} move <Text bold>{backupPath}</Text> back to your <Text bold>data/</Text> folder
@@ -331,9 +356,12 @@ const FailureBody = ({
       ) : (
         <Text dimColor>{glyphs.bullet} your data folder was not modified</Text>
       )}
-      <Text dimColor>
-        {glyphs.bullet} to go back to the previous version: <Text bold>npm install -g ralphctl@{downgradeVersion}</Text>
-      </Text>
+      {downgradeVersion !== undefined && (
+        <Text dimColor>
+          {glyphs.bullet} to go back to the previous version:{' '}
+          <Text bold>npm install -g ralphctl@{downgradeVersion}</Text>
+        </Text>
+      )}
     </Box>
     <Box marginTop={spacing.actionBreak}>
       <Text dimColor>

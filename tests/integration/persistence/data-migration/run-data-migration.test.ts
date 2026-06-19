@@ -47,11 +47,22 @@ describe('createDataMigrationEngine', () => {
       appVersion: '0.12.1',
       stateRoot: absolutePath(stateRoot),
       renderLearnings: () => undefined,
+      mergeLearnings: () => ({ ndjson: '', md: undefined }),
       writeFile: recordingWriteFile().fn,
     });
     expect(result.kind).toBe('ok');
 
     expect(await engine.needsMigration(absolutePath(dataRoot))).toBe(false);
     expect((await readDataVersion(absolutePath(dataRoot))).dataVersion).toBe(2);
+  });
+
+  it('stampCurrent advances the marker to CURRENT without any rename', async () => {
+    const engine = createDataMigrationEngine();
+    const stamped = await engine.stampCurrent(absolutePath(dataRoot), '0.12.1');
+    expect(stamped.ok).toBe(true);
+    expect(await engine.needsMigration(absolutePath(dataRoot))).toBe(false);
+    const marker = await engine.readMarker(absolutePath(dataRoot));
+    expect(marker.dataVersion).toBe(2);
+    expect(marker.lastWrittenByAppVersion).toBe('0.12.1');
   });
 });

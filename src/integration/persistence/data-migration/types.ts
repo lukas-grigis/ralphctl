@@ -54,13 +54,34 @@ export interface MigrationProblem {
 }
 
 /**
- * The full result of a dry-run scan. `planned` is the set of safe renames; `skipped` and `problems`
- * are the informational/blocked entries. Touches NOTHING on disk — it is purely a read-side scan.
+ * A planned MERGE of a legacy bare-`<projectId>/` memory dir into its already-present
+ * `<projectId>--<projectSlug>/` sibling. This arises only for memory dirs (learnings ledgers are
+ * append-only and de-dup by record `id`, so two dirs can be safely unioned) — a both-dirs state that
+ * for projects / sprints is a blocking collision. After Wave-2 write-side hardening the writer never
+ * creates a second dir, so this state can only originate from an INTERRUPTED prior migration; apply
+ * must still resolve it cleanly: union the legacy ledger records into the slugged ledger (dedup by
+ * `id`), regenerate `learnings.md`, then remove the legacy dir.
+ *
+ * @public
+ */
+export interface MemoryMergePlan {
+  readonly projectId: string;
+  /** The legacy bare `<projectId>/` dir — removed after its records are merged in. */
+  readonly legacyDir: AbsolutePath;
+  /** The canonical `<projectId>--<projectSlug>/` dir whose ledger absorbs the legacy records. */
+  readonly sluggedDir: AbsolutePath;
+}
+
+/**
+ * The full result of a dry-run scan. `planned` is the set of safe renames; `merges` is the set of
+ * memory both-dirs unions; `skipped` and `problems` are the informational/blocked entries. Touches
+ * NOTHING on disk — it is purely a read-side scan.
  *
  * @public
  */
 export interface DryRunReport {
   readonly planned: readonly RenamePlan[];
+  readonly merges: readonly MemoryMergePlan[];
   readonly skipped: readonly SkippedEntry[];
   readonly problems: readonly MigrationProblem[];
 }

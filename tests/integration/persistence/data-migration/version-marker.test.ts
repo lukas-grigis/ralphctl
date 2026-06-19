@@ -62,6 +62,14 @@ describe('readDataVersion / needsMigration', () => {
     await fs.writeFile(join(root, DATA_VERSION_FILENAME), JSON.stringify({ dataVersion: 'two' }), 'utf8');
     expect(await readDataVersion(dataRoot())).toEqual({ dataVersion: 1, lastWrittenByAppVersion: '' });
   });
+
+  it('zero-byte marker (interrupted write) → degrades to v1, never crashes', async () => {
+    // A torn write can leave an empty file: empty string is not valid JSON, so it must read back as
+    // v1 (re-offer the migration) rather than throwing.
+    await fs.writeFile(join(root, DATA_VERSION_FILENAME), '', 'utf8');
+    expect(await readDataVersion(dataRoot())).toEqual({ dataVersion: 1, lastWrittenByAppVersion: '' });
+    expect(await needsMigration(dataRoot())).toBe(true);
+  });
 });
 
 describe('writeDataVersion', () => {

@@ -74,7 +74,42 @@ export const backupDataDir = async (
     );
   }
 
+  // Existence alone is not enough — a disk-full / interrupted `fs.cp` can leave a dir that exists but
+  // is partial. Compare the top-level entry counts (excluding the backup siblings the filter dropped
+  // from the source): the destination must have at LEAST as many entries as the source did, or the
+  // copy is incomplete and a rename on top of the originals would be unsafe. Abort BEFORE any rename.
+  const verified = await verifyEntryCount(src, dest);
+  if (!verified.ok) return Result.error(verified.error);
+
   return Result.ok(dest);
+};
+
+/**
+ * Verify the backup copied every top-level entry. Counts the source's immediate children (excluding
+ * any `data.backup-*` siblings, which the `fs.cp` filter deliberately skips) and the destination's,
+ * and fails when the destination has FEWER — the signature of a disk-full / interrupted copy. We
+ * compare only the top level: a partial copy almost always truncates there first, and a full
+ * recursive re-walk on every migration would be costly on a large tree.
+ */
+const verifyEntryCount = async (src: string, dest: string): Promise<Result<void, StorageError>> => {
+  try {
+    const srcEntries = (await fs.readdir(src)).filter((name) => !name.startsWith(BACKUP_DIR_PREFIX));
+    const destEntries = await fs.readdir(dest);
+    if (destEntries.length < srcEntries.length) {
+      return Result.error(
+        new StorageError({
+          subCode: 'io',
+          message: `backup verify failed: ${dest} has ${String(destEntries.length)} top-level entries but source has ${String(srcEntries.length)} — copy is incomplete`,
+          path: dest,
+        })
+      );
+    }
+    return Result.ok(undefined);
+  } catch (cause) {
+    return Result.error(
+      new StorageError({ subCode: 'io', message: `backup verify failed: could not read ${dest}`, path: dest, cause })
+    );
+  }
 };
 
 /** Replace filesystem-hostile characters (`:`) in an ISO timestamp so the dir name is portable. */

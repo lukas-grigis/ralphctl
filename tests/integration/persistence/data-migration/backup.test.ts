@@ -7,7 +7,7 @@
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import { backupDataDir, backupDirName } from '@src/integration/persistence/data-migration/backup.ts';
 
@@ -49,6 +49,26 @@ describe('backupDataDir', () => {
     expect(a.value).not.toBe(b.value);
     await expect(fs.stat(a.value)).resolves.toBeTruthy();
     await expect(fs.stat(b.value)).resolves.toBeTruthy();
+  });
+
+  it('fails when the copy is incomplete (fewer top-level entries than source) — caught BEFORE any rename', async () => {
+    // Seed a second top-level family so the source has 2 entries; the partial copy will land only 1.
+    await fs.mkdir(join(dataRoot, 'sprints'), { recursive: true });
+    await fs.writeFile(join(dataRoot, 'sprints', 's.json'), '{}', 'utf8');
+
+    // Model a disk-full / interrupted `fs.cp`: it creates the destination but only copies ONE of the
+    // two top-level dirs, then resolves (no throw) — exactly the silent-partial case the verify guards.
+    const spy = vi.spyOn(fs, 'cp').mockImplementation(async (_src, dest) => {
+      await fs.mkdir(join(String(dest), 'projects'), { recursive: true });
+    });
+    try {
+      const res = await backupDataDir(absolutePath(dataRoot), 1, '2026-06-19T13:00:00.000Z');
+      expect(res.ok).toBe(false);
+      if (res.ok) return;
+      expect(res.error.message).toContain('incomplete');
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('does not copy existing data.backup-* siblings into the new backup', async () => {

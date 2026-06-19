@@ -26,6 +26,7 @@ import {
   seedLegacyMemory,
   seedLegacyProject,
   seedLegacySprint,
+  seedNewMemory,
   snapshotContents,
 } from '@tests/integration/persistence/data-migration/_seed.ts';
 
@@ -53,12 +54,38 @@ afterEach(async () => {
   await fs.rm(appRoot, { recursive: true, force: true });
 });
 
+/**
+ * Test merger: union two NDJSON bodies, dedup by the JSON `id` field (slugged rows win), and render a
+ * trivial md. Mirrors the real `createLearningsMerger` contract without pulling the application layer
+ * into an integration test.
+ */
+const testMerge = (sluggedBody: string, legacyBody: string): { ndjson: string; md: string | undefined } => {
+  const seen = new Set<string>();
+  const lines: string[] = [];
+  for (const line of [...sluggedBody.split('\n'), ...legacyBody.split('\n')]) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    let id: string;
+    try {
+      id = String((JSON.parse(trimmed) as { id?: unknown }).id);
+    } catch {
+      continue;
+    }
+    if (seen.has(id)) continue;
+    seen.add(id);
+    lines.push(trimmed);
+  }
+  const ndjson = lines.length > 0 ? `${lines.join('\n')}\n` : '';
+  return { ndjson, md: lines.length > 0 ? `# Learnings\n\n${ndjson}` : undefined };
+};
+
 const ctx = (): ApplyCtx => ({
   timestamp: '2026-06-19T10:00:00.000Z',
   appVersion: '0.12.1',
   stateRoot: absolutePath(stateRoot),
   // Trivial renderer: any non-empty ledger body produces a one-line md so the backfill writes.
   renderLearnings: (body) => (body.trim().length > 0 ? `# Learnings\n\n${body}` : '# Learnings\n\n_empty_'),
+  mergeLearnings: testMerge,
   writeFile: writer.fn,
 });
 
@@ -128,6 +155,63 @@ describe('apply — happy path', () => {
     // After: the SAME ids resolve to the new slugged names.
     expect(await resolveProjectPath(absolutePath(dataRoot), projectId.value)).toContain(`${pid}--alpha.json`);
     expect(await resolveSprintDir(absolutePath(dataRoot), sprintId.value)).toContain(`${sid}--beta`);
+  });
+});
+
+describe('apply — memory both-dirs merge (never blocks)', () => {
+  // Helper: a learnings.ndjson row with a given id + text.
+  const row = (id: string, text: string): string => `${JSON.stringify({ v: 1, id, text, promotedAt: null })}\n`;
+
+  it('merges the legacy ledger into the slugged one (union, deduped by id), removes the legacy dir, stamps ok', async () => {
+    const pid = freshId();
+    await seedLegacyProject(dataRoot, pid, 'alpha');
+    // BOTH dirs present (interrupted prior migration): slugged has A+B, legacy has B(dup)+C.
+    await seedNewMemory(dataRoot, pid, 'alpha', `${row('a', 'from slugged A')}${row('b', 'shared B')}`);
+    await seedLegacyMemory(dataRoot, pid, `${row('b', 'shared B legacy copy')}${row('c', 'from legacy C')}`);
+
+    // The dry-run must classify this as a MERGE, never a blocking problem.
+    const report = await dryRun(absolutePath(dataRoot));
+    expect(report.problems).toEqual([]);
+    expect(report.merges).toHaveLength(1);
+
+    const result = await apply(absolutePath(dataRoot), report, ctx());
+    expect(result.kind).toBe('ok');
+
+    // The merged ledger was written to the SLUGGED dir, union of ids (a, b, c) with b deduped to one.
+    const ledgerPath = absolutePath(join(dataRoot, 'memory', `${pid}--alpha`, 'learnings.ndjson'));
+    const merged = writer.read(ledgerPath) ?? '';
+    const ids = merged
+      .split('\n')
+      .filter((l) => l.trim().length > 0)
+      .map((l) => (JSON.parse(l) as { id: string }).id);
+    expect(ids.sort()).toEqual(['a', 'b', 'c']);
+    // The slugged copy of the shared id wins (dedup keeps the slugged row's text).
+    expect(merged).toContain('shared B');
+    expect(merged).not.toContain('shared B legacy copy');
+
+    // The legacy dir is gone; only the slugged dir remains.
+    await expect(fs.stat(join(dataRoot, 'memory', pid))).rejects.toThrow();
+    await expect(fs.stat(join(dataRoot, 'memory', `${pid}--alpha`))).resolves.toBeTruthy();
+
+    // Marker stamped — the gate is NOT blocked by the both-dirs case.
+    expect((await readDataVersion(absolutePath(dataRoot))).dataVersion).toBe(2);
+  });
+
+  it('is idempotent: a re-run after the legacy dir is gone is a clean no-op merge', async () => {
+    const pid = freshId();
+    await seedLegacyProject(dataRoot, pid, 'alpha');
+    await seedNewMemory(dataRoot, pid, 'alpha', row('a', 'A'));
+    await seedLegacyMemory(dataRoot, pid, row('c', 'C'));
+
+    const first = await apply(absolutePath(dataRoot), await dryRun(absolutePath(dataRoot)), ctx());
+    expect(first.kind).toBe('ok');
+
+    // Second dry-run sees no legacy dir (it was removed) → no merges, no problems.
+    const report2 = await dryRun(absolutePath(dataRoot));
+    expect(report2.merges).toEqual([]);
+    expect(report2.problems).toEqual([]);
+    const second = await apply(absolutePath(dataRoot), report2, ctx());
+    expect(second.kind).toBe('ok');
   });
 });
 

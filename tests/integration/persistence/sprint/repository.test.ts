@@ -1,5 +1,5 @@
 import { promises as fs } from 'node:fs';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
@@ -195,6 +195,50 @@ describe('createFsSprintRepository', () => {
     const newDir = join(sprintsDir(root), buildSluggedName(String(sprint.id), 'new-slug'));
     expect((await fs.stat(join(newDir, 'sprint.json'))).isFile()).toBe(true);
     await expect(fs.stat(oldDir)).rejects.toThrow();
+  });
+
+  it('reconcile-on-save: a rename FAILURE with NO canonical present leaves the stale dir intact (no data loss)', async () => {
+    // Safety guard (fix #3): when the rename can't promote the legacy dir AND the canonical dir does
+    // not yet exist, the stale dir is the ONLY copy of execution.json / tasks.json — it must be LEFT
+    // in place, never removed. We force the rename to fail by stubbing `fs.rename` to throw, with no
+    // canonical dir on disk, and assert the legacy dir (and its sub-files) survive the save.
+    const repo = createFsSprintRepository({ root });
+    const { sprint } = makeDraftSprintBundle({ slug: 'cool-sprint' });
+    const legacyDir = join(sprintsDir(root), String(sprint.id));
+    await fs.mkdir(legacyDir, { recursive: true });
+    await fs.writeFile(join(legacyDir, 'sprint.json'), JSON.stringify(toJsonForTest(sprint)), 'utf8');
+    await fs.writeFile(join(legacyDir, 'execution.json'), '{"only-copy":true}', 'utf8');
+    await fs.writeFile(join(legacyDir, 'tasks.json'), '{"tasks":[]}', 'utf8');
+
+    const renameSpy = vi
+      .spyOn(fs, 'rename')
+      .mockRejectedValue(Object.assign(new Error('EXDEV: cross-device link not permitted'), { code: 'EXDEV' }));
+    try {
+      await repo.save(sprint); // the sprint.json write still lands in the canonical dir via writeJsonAtomic
+    } finally {
+      renameSpy.mockRestore();
+    }
+
+    // CRITICAL: the legacy dir was NOT removed — its only-copy sub-files are still on disk.
+    expect((await fs.stat(join(legacyDir, 'execution.json'))).isFile()).toBe(true);
+    expect((await fs.stat(join(legacyDir, 'tasks.json'))).isFile()).toBe(true);
+  });
+
+  it('list dedupes by id when a legacy <id>/ and slugged <id>--<slug>/ transiently coexist', async () => {
+    const repo = createFsSprintRepository({ root });
+    const { sprint } = makeDraftSprintBundle({ slug: 'cool-sprint' });
+    // Write BOTH a slugged (canonical) dir and a legacy bare dir for the SAME id — a crash-left pair.
+    const slugged = sprintDir(root, sprint.id, sprint.slug);
+    await fs.mkdir(slugged, { recursive: true });
+    await fs.writeFile(join(slugged, 'sprint.json'), JSON.stringify(toJsonForTest(sprint)), 'utf8');
+    const legacyDir = join(sprintsDir(root), String(sprint.id));
+    await fs.mkdir(legacyDir, { recursive: true });
+    await fs.writeFile(join(legacyDir, 'sprint.json'), JSON.stringify(toJsonForTest(sprint)), 'utf8');
+
+    const all = await repo.list();
+    if (!all.ok) throw new Error('list failed');
+    // The sprint appears EXACTLY once, not twice.
+    expect(all.value.filter((s) => s.id === sprint.id)).toHaveLength(1);
   });
 
   it('list parses the id from the leading --segment of a mixed (legacy + slugged) dir set', async () => {

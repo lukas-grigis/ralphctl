@@ -1,5 +1,13 @@
+import type { Result } from '@src/domain/result.ts';
+import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import { needsMigration as markerNeedsMigration } from '@src/integration/persistence/data-migration/version-marker.ts';
+import {
+  CURRENT_DATA_VERSION,
+  type DataVersionMarker,
+  needsMigration as markerNeedsMigration,
+  readDataVersion,
+  writeDataVersion,
+} from '@src/integration/persistence/data-migration/version-marker.ts';
 import { dryRun as scanDryRun } from '@src/integration/persistence/data-migration/dry-run.ts';
 import {
   apply as applyMigration,
@@ -29,6 +37,19 @@ export interface DataMigrationEngine {
   readonly needsMigration: (dataRoot: AbsolutePath) => Promise<boolean>;
   readonly dryRun: (dataRoot: AbsolutePath) => Promise<DryRunReport>;
   readonly apply: (dataRoot: AbsolutePath, report: DryRunReport, ctx: ApplyCtx) => Promise<ApplyResult>;
+  /**
+   * Stamp the marker to CURRENT without any rename / backup. The gate calls this for a NO-OP dry-run
+   * (nothing planned, nothing to merge, no problems — e.g. a brand-new install or an already-reconciled
+   * tree) so a new user never sees a pointless "migrate" prompt: the marker simply advances and the app
+   * boots straight through.
+   */
+  readonly stampCurrent: (dataRoot: AbsolutePath, appVersion: string) => Promise<Result<void, StorageError>>;
+  /**
+   * Read the on-disk version marker. The failure screen uses `lastWrittenByAppVersion` to decide
+   * whether it can honestly name a downgrade version — an absent / empty value means it must NOT
+   * print a version-specific install command (the current version still reads the data).
+   */
+  readonly readMarker: (dataRoot: AbsolutePath) => Promise<DataVersionMarker>;
 }
 
 /**
@@ -41,4 +62,7 @@ export const createDataMigrationEngine = (): DataMigrationEngine => ({
   needsMigration: markerNeedsMigration,
   dryRun: scanDryRun,
   apply: applyMigration,
+  stampCurrent: (dataRoot, appVersion) =>
+    writeDataVersion(dataRoot, { dataVersion: CURRENT_DATA_VERSION, lastWrittenByAppVersion: appVersion }),
+  readMarker: readDataVersion,
 });

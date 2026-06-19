@@ -29,7 +29,7 @@ import {
 import { transitionSprintToReviewLeaf } from '@src/application/flows/implement/leaves/transition-sprint-to-review.ts';
 import { withRepoLock } from '@src/application/flows/_shared/with-repo-lock.ts';
 import { loadLearningsLeaf } from '@src/application/flows/_shared/memory/load-learnings.ts';
-import { learningsLedgerPathDirect } from '@src/application/flows/_shared/memory/ledger-path.ts';
+import { resolveLearningsLedgerPath } from '@src/application/flows/_shared/memory/ledger-path.ts';
 
 export type { RepoExecConfig };
 
@@ -250,8 +250,11 @@ export const buildImplementPrologue = (deps: ImplementDeps, opts: CreateImplemen
     loadLearningsLeaf<ImplementCtx>(
       { logger: deps.logger },
       {
-        path: () => {
-          const resolved = learningsLedgerPathDirect(opts.memoryRoot, opts.projectId, opts.projectSlug);
+        // Tolerant READ resolver — prefers the slugged `<id>--<slug>/` dir, falls back to the
+        // legacy bare `<id>/` dir, so a user who declined the migration still reads the learnings
+        // their prior sprints earned (no stranding). Async; the leaf awaits it at execute time.
+        path: async () => {
+          const resolved = await resolveLearningsLedgerPath(opts.memoryRoot, opts.projectId);
           // The projectId is validated upstream (resolveImplementQueue); a resolve failure is a
           // programmer error, so re-throw it as the leaf's projection contract requires.
           if (!resolved.ok) throw resolved.error;

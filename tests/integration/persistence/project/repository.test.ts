@@ -94,6 +94,21 @@ describe('createFsProjectRepository', () => {
     }
   });
 
+  it('list dedupes by id when a legacy <id>.json and slugged <id>--<slug>.json transiently coexist', async () => {
+    const repo = createFsProjectRepository({ root });
+    const project = makeProject();
+    // Hand-write BOTH a slugged (canonical) file and a legacy bare file for the SAME id — a crash-left
+    // pair (save wrote the new file but the stale-sibling cleanup did not finish).
+    await fs.mkdir(projectsDir(root), { recursive: true });
+    await fs.writeFile(projectFile(root, project.id, project.slug), JSON.stringify(toJsonProject(project)), 'utf8');
+    await fs.writeFile(legacyProjectFile(root, project.id), JSON.stringify(toJsonProject(project)), 'utf8');
+
+    const all = await repo.list();
+    if (!all.ok) throw new Error('list failed');
+    // The project appears EXACTLY once, not twice.
+    expect(all.value.filter((p) => p.id === project.id)).toHaveLength(1);
+  });
+
   it('save overwrites an existing project (upsert)', async () => {
     const repo = createFsProjectRepository({ root });
     const original = makeProject({ displayName: 'old name' });

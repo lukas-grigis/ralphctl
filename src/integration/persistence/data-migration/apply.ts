@@ -3,11 +3,11 @@ import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
-import { listDir, renamePath } from '@src/integration/io/fs.ts';
+import { listDir, removeDir, renamePath } from '@src/integration/io/fs.ts';
 import { CURRENT_DATA_VERSION, writeDataVersion } from '@src/integration/persistence/data-migration/version-marker.ts';
 import { backupDataDir } from '@src/integration/persistence/data-migration/backup.ts';
 import { anyLockHeld } from '@src/integration/persistence/data-migration/lock-guard.ts';
-import type { DryRunReport, RenamePlan } from '@src/integration/persistence/data-migration/types.ts';
+import type { DryRunReport, MemoryMergePlan, RenamePlan } from '@src/integration/persistence/data-migration/types.ts';
 
 const MEMORY_DIR = 'memory';
 const LEARNINGS_NDJSON = 'learnings.ndjson';
@@ -22,6 +22,21 @@ const LEARNINGS_MD = 'learnings.md';
  * @public
  */
 export type LearningsBackfillRenderer = (ndjsonBody: string) => string | undefined;
+
+/**
+ * Merge two raw NDJSON learnings-ledger bodies into one, de-duplicating by record `id`, and render
+ * the accompanying `learnings.md`. Injected (like {@link LearningsBackfillRenderer}) because the
+ * record parser / serializer / markdown renderer live in the APPLICATION layer the engine cannot
+ * import. The adapter parses both bodies tolerantly (dropping blank / malformed rows), unions by id,
+ * and returns the serialized ledger plus its markdown mirror (`md` is `undefined` when the union has
+ * no renderable records). Pure — no I/O.
+ *
+ * @public
+ */
+export type LearningsMerger = (
+  sluggedBody: string,
+  legacyBody: string
+) => { readonly ndjson: string; readonly md: string | undefined };
 
 /** Atomic write port, injected so the engine stays free of a hard dependency on a concrete writer. */
 export type ApplyWriteFile = (path: AbsolutePath, content: string) => Promise<Result<void, StorageError>>;
@@ -42,6 +57,8 @@ export interface ApplyCtx {
   readonly stateRoot: AbsolutePath;
   /** Renders `learnings.md` from an NDJSON body during backfill. */
   readonly renderLearnings: LearningsBackfillRenderer;
+  /** Unions two ledger bodies (dedup by `id`) + renders the mirror — for the memory both-dirs merge. */
+  readonly mergeLearnings: LearningsMerger;
   /** Atomic file writer for the backfilled `learnings.md`. */
   readonly writeFile: ApplyWriteFile;
 }
@@ -88,9 +105,12 @@ export type ApplyResult =
  *     already exists or the source is already gone, record `skipped` and continue. A rename that
  *     THROWS a real I/O fault STOPS the run: return `failed` carrying the backup path WITHOUT
  *     stamping the marker, so the next launch resumes cleanly (already-done renames skip).
- *  4. BACKFILL — for every memory dir with a `learnings.ndjson` but no `learnings.md`, render and
+ *  4. MERGES — for every memory both-dirs case, union the legacy ledger into the slugged one
+ *     (dedup by record `id`), regenerate `learnings.md`, then remove the legacy dir. Like renames,
+ *     a real I/O fault STOPS before the stamp (re-run resumes — the union is idempotent).
+ *  5. BACKFILL — for every memory dir with a `learnings.ndjson` but no `learnings.md`, render and
  *     write the mirror. Best-effort: a backfill miss never fails the run.
- *  5. STAMP — write the version marker to {@link CURRENT_DATA_VERSION} with `lastWrittenByAppVersion`.
+ *  6. STAMP — write the version marker to {@link CURRENT_DATA_VERSION} with `lastWrittenByAppVersion`.
  *     Written ONLY after every rename succeeded, so it is the single commit point of the migration.
  *
  * Skips and problems from the dry-run never abort the run — only a thrown rename or a failed
@@ -118,6 +138,16 @@ export const apply = async (dataRoot: AbsolutePath, report: DryRunReport, ctx: A
       return { kind: 'failed', backupPath, error: outcome.error, applied };
     }
     applied.push(outcome.value);
+  }
+
+  // Memory both-dirs merges: union each legacy ledger into its slugged sibling (dedup by id), then
+  // remove the legacy dir. Idempotent (an already-merged legacy dir is simply gone next run) and
+  // gating like renames — a real I/O fault STOPS before the stamp so a re-run resumes safely.
+  for (const merge of report.merges) {
+    const outcome = await mergeOne(merge, ctx);
+    if (!outcome.ok) {
+      return { kind: 'failed', backupPath, error: outcome.error, applied };
+    }
   }
 
   await backfillLearningsMd(dataRoot, ctx);
@@ -166,6 +196,57 @@ const skipped = (plan: RenamePlan): AppliedRename => ({
   toName: plan.toName,
   status: 'skipped',
 });
+
+/**
+ * Resolve ONE memory both-dirs merge idempotently. Reads the legacy `learnings.ndjson` and the
+ * slugged one, unions them (dedup by record `id`, via the injected {@link LearningsMerger}), writes
+ * the merged ledger + regenerated `learnings.md` into the slugged dir, then removes the legacy dir.
+ *
+ * Idempotent: if the legacy dir is already gone (a prior run finished this merge), it is a no-op
+ * success. A genuine I/O fault on the slugged write surfaces as a `StorageError` that stops the run
+ * BEFORE the stamp; the legacy dir is removed only AFTER the merged ledger is durably written, so a
+ * crash between the two leaves the legacy records still on disk and the next run re-merges them.
+ */
+const mergeOne = async (merge: MemoryMergePlan, ctx: ApplyCtx): Promise<Result<void, StorageError>> => {
+  const legacyLedger = join(String(merge.legacyDir), LEARNINGS_NDJSON);
+  if (!(await pathPresent(legacyLedger))) {
+    // Legacy dir/ledger already gone (idempotent re-run) — nothing to merge. Drop any empty leftover.
+    await removeDir(String(merge.legacyDir));
+    return Result.ok(undefined) as Result<void, StorageError>;
+  }
+
+  const legacyBody = await readTextOrEmpty(legacyLedger);
+  const sluggedLedger = join(String(merge.sluggedDir), LEARNINGS_NDJSON);
+  const sluggedBody = await readTextOrEmpty(sluggedLedger);
+
+  const { ndjson, md } = ctx.mergeLearnings(sluggedBody, legacyBody);
+
+  const sluggedLedgerPath = AbsolutePath.parse(sluggedLedger);
+  if (!sluggedLedgerPath.ok) {
+    return Result.error(new StorageError({ subCode: 'io', message: `bad ledger path: ${sluggedLedger}` }));
+  }
+  const wrote = await ctx.writeFile(sluggedLedgerPath.value, ndjson);
+  if (!wrote.ok) return Result.error(wrote.error);
+
+  if (md !== undefined) {
+    const mdPath = AbsolutePath.parse(join(String(merge.sluggedDir), LEARNINGS_MD));
+    if (mdPath.ok) await ctx.writeFile(mdPath.value, md); // best-effort mirror; never blocks the merge
+  }
+
+  // Only NOW remove the legacy dir — the merged ledger is durably written, so a crash here just
+  // re-merges (the union is idempotent: dedup by id collapses the re-added rows).
+  const removed = await removeDir(String(merge.legacyDir));
+  if (!removed.ok && removed.error instanceof StorageError) return Result.error(removed.error);
+  return Result.ok(undefined) as Result<void, StorageError>;
+};
+
+const readTextOrEmpty = async (path: string): Promise<string> => {
+  try {
+    return await fs.readFile(path, 'utf8');
+  } catch {
+    return '';
+  }
+};
 
 /**
  * One-time backfill of `learnings.md` across all memory dirs. For each `<memory>/<dir>/` that has a

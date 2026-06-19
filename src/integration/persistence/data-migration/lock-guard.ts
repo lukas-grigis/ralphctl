@@ -11,6 +11,10 @@ const LOCKS_SUBDIR = 'locks';
  * mtime within the stale window. A crashed holder stops heartbeating and its mtime ages past it; we
  * deliberately use a generous window (matching the file-locker default) so we never start a migration
  * that races a long-running implement flow, while still ignoring a stale crash-leftover lock.
+ *
+ * MUST stay in sync with `DEFAULT_STALE_AFTER_MS` in `integration/io/file-locker.ts` (currently 30_000):
+ * if the locker's stale window changes, this one must move with it, or the migration's notion of "held"
+ * diverges from the locker's notion of "live".
  */
 const HELD_WITHIN_MS = 30_000;
 

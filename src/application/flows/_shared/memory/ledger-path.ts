@@ -30,15 +30,31 @@ export const resolveLearningsLedgerPath = async (
 };
 
 /**
- * WRITE-side builder: the canonical `<memoryRoot>/<projectId>--<projectSlug>/learnings.ndjson`
- * path. Use when the project entity (and thus its slug) is in scope — no async scan needed, and
- * the slugged directory is created on first append by the atomic-write helper. Pure.
+ * WRITE-side resolver: the learnings ledger path the appender should write to, picking the EXISTING
+ * memory dir when one is present rather than unconditionally building the slugged name. This is the
+ * critical anti-stranding rule — a user with a legacy bare `<projectId>/` dir (e.g. one who declined
+ * the migration) keeps appending to THAT one dir instead of having a second `<id>--<slug>/` dir
+ * created beside it (which would strand the legacy learnings AND permanently block the migration's
+ * dry-run on a both-dirs collision).
+ *
+ * Resolution order:
+ *  1. an existing `<projectId>--<projectSlug>/` (or any `<projectId>--<…>/`) dir wins;
+ *  2. else an existing legacy bare `<projectId>/` dir is used (keep appending there);
+ *  3. else NEITHER exists — build (and let the atomic writer create) the canonical
+ *     `<projectId>--<projectSlug>/` dir, so a brand-new project lands on the human-readable name.
+ *
+ * The consented migration is the only thing that renames a legacy dir onto the slugged name; until
+ * then the writer never splits. Async because it scans the memory root — these leaves are already
+ * async, so the scan is free. Use this on the WRITE side in place of the old pure direct-build.
  *
  * @public
  */
-export const learningsLedgerPathDirect = (
+export const resolveWritableLearningsLedgerPath = async (
   memoryRoot: AbsolutePath,
   projectId: string,
   projectSlug: Slug
-): Result<AbsolutePath, ValidationError> =>
-  AbsolutePath.parse(join(String(memoryRoot), buildSluggedName(projectId, String(projectSlug)), LEARNINGS_LEDGER_FILE));
+): Promise<Result<AbsolutePath, ValidationError>> => {
+  const existing = await resolveMemoryDir(memoryRoot, projectId);
+  const dir = existing ?? join(String(memoryRoot), buildSluggedName(projectId, String(projectSlug)));
+  return AbsolutePath.parse(join(dir, LEARNINGS_LEDGER_FILE));
+};

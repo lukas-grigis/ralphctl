@@ -37,6 +37,7 @@ const plan = (kind: RenamePlan['kind'], id: string): RenamePlan => ({
 
 const reportWith = (overrides: Partial<DryRunReport> = {}): DryRunReport => ({
   planned: [],
+  merges: [],
   skipped: [],
   problems: [],
   ...overrides,
@@ -45,6 +46,7 @@ const reportWith = (overrides: Partial<DryRunReport> = {}): DryRunReport => ({
 interface Harness {
   readonly engine: DataMigrationEngine;
   readonly apply: ReturnType<typeof vi.fn>;
+  readonly stampCurrent: ReturnType<typeof vi.fn>;
   readonly resolved: MigrationGateOutcome[];
   readonly quit: ReturnType<typeof vi.fn>;
 }
@@ -52,14 +54,19 @@ interface Harness {
 const mount = (opts: {
   readonly dryRun: () => Promise<DryRunReport>;
   readonly applyResult?: ApplyResult;
+  /** Prior version the failure screen sources from the marker — defaults to none (no npm line). */
+  readonly priorAppVersion?: string;
 }): { readonly h: Harness; readonly r: ReturnType<typeof render> } => {
   const apply = vi.fn(
     async (): Promise<ApplyResult> => opts.applyResult ?? { kind: 'ok', backupPath: '/bk', applied: [] }
   );
+  const stampCurrent = vi.fn(async (): Promise<Result<void, StorageError>> => Result.ok(undefined));
   const engine: DataMigrationEngine = {
     needsMigration: async (): Promise<boolean> => true,
     dryRun: opts.dryRun,
     apply,
+    stampCurrent,
+    readMarker: async () => ({ dataVersion: 1, lastWrittenByAppVersion: opts.priorAppVersion ?? '' }),
   };
   const resolved: MigrationGateOutcome[] = [];
   const quit = vi.fn();
@@ -77,7 +84,7 @@ const mount = (opts: {
       onQuit={quit}
     />
   );
-  return { h: { engine, apply, resolved, quit }, r };
+  return { h: { engine, apply, stampCurrent, resolved, quit }, r };
 };
 
 describe('MigrationGate', () => {
@@ -144,22 +151,54 @@ describe('MigrationGate', () => {
     r.unmount();
   });
 
-  it("'failed' renders the backup path and the npm downgrade line; continuing resolves failed-continue", async () => {
+  it("'failed' names the downgrade version ONLY when the marker records one; continuing resolves failed-continue", async () => {
     const err = new StorageError({ subCode: 'io', message: 'rename blew up', path: '/x' });
     const { h, r } = mount({
       dryRun: async (): Promise<DryRunReport> => reportWith({ planned: [plan('sprint', 's1')] }),
       applyResult: { kind: 'failed', backupPath: '/home/me/.ralphctl/data.backup-v1-2026', error: err, applied: [] },
+      priorAppVersion: '0.11.4', // a real recorded prior version → the npm line is honest to print
     });
     await waitFor(() => r.lastFrame()?.includes('renamed for readability') === true);
     r.stdin.write('m');
     await waitFor(() => r.lastFrame()?.includes('Your data is safe') === true);
     const frame = r.lastFrame() ?? '';
     expect(frame).toContain('/home/me/.ralphctl/data.backup-v1-2026');
-    expect(frame).toContain('npm install -g ralphctl@');
+    expect(frame).toContain('npm install -g ralphctl@0.11.4');
+    expect(frame).toContain('your current version still reads');
     // Continue (Enter) → proceed into the app on the tolerant readers.
     r.stdin.write(ENTER);
     await waitFor(() => h.resolved.length > 0);
     expect(h.resolved).toEqual(['failed-continue']);
+    r.unmount();
+  });
+
+  it("'failed' OMITS the npm downgrade line when no prior version is recorded (never guesses)", async () => {
+    const err = new StorageError({ subCode: 'io', message: 'rename blew up', path: '/x' });
+    const { r } = mount({
+      dryRun: async (): Promise<DryRunReport> => reportWith({ planned: [plan('sprint', 's1')] }),
+      applyResult: { kind: 'failed', backupPath: '/bk', error: err, applied: [] },
+      // priorAppVersion omitted → marker carries no lastWrittenByAppVersion (the v1→v2 first run).
+    });
+    await waitFor(() => r.lastFrame()?.includes('renamed for readability') === true);
+    r.stdin.write('m');
+    await waitFor(() => r.lastFrame()?.includes('Your data is safe') === true);
+    const frame = r.lastFrame() ?? '';
+    // A wrong downgrade command would be actively harmful — the line must be absent entirely.
+    expect(frame).not.toContain('npm install -g ralphctl@');
+    expect(frame).toContain('/bk');
+    r.unmount();
+  });
+
+  it('NO-OP dry-run (nothing planned, nothing to merge) silently stamps + resolves migrated — no splash', async () => {
+    const { h, r } = mount({
+      dryRun: async (): Promise<DryRunReport> => reportWith(), // empty: brand-new install / already reconciled
+    });
+    await waitFor(() => h.resolved.length > 0);
+    // The consent splash never rendered — the marker was stamped and the gate resolved straight through.
+    expect(h.stampCurrent).toHaveBeenCalledOnce();
+    expect(h.apply).not.toHaveBeenCalled();
+    expect(h.resolved).toEqual(['migrated']);
+    expect(r.lastFrame() ?? '').not.toContain('renamed for readability');
     r.unmount();
   });
 

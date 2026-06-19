@@ -85,7 +85,7 @@ export const createDistillStep = <TCtx extends DistillRequestedCtx>(
 
     const log = deps.logger.named('memory.distill-step');
 
-    const subChain = createDistillLearningsSubChain(deps, {
+    const subChain = await createDistillLearningsSubChain(deps, {
       projectId: opts.projectId,
       projectSlug: opts.projectSlug,
       memoryRoot: opts.memoryRoot,

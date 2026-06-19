@@ -8,6 +8,7 @@ import { buildSluggedName, NAME_SEPARATOR } from '@src/integration/persistence/s
 import { DATA_VERSION_FILENAME } from '@src/integration/persistence/data-migration/version-marker.ts';
 import type {
   DryRunReport,
+  MemoryMergePlan,
   MigrationEntryKind,
   MigrationProblem,
   RenamePlan,
@@ -24,6 +25,7 @@ const SPRINT_JSON = 'sprint.json';
  */
 interface Accumulator {
   readonly planned: RenamePlan[];
+  readonly merges: MemoryMergePlan[];
   readonly skipped: SkippedEntry[];
   readonly problems: MigrationProblem[];
 }
@@ -45,7 +47,7 @@ interface Accumulator {
  * @public
  */
 export const dryRun = async (dataRoot: AbsolutePath): Promise<DryRunReport> => {
-  const acc: Accumulator = { planned: [], skipped: [], problems: [] };
+  const acc: Accumulator = { planned: [], merges: [], skipped: [], problems: [] };
 
   // A single shared problem if the backup target is unwritable — the whole migration would fail at
   // apply time, so flag it once up front rather than per-entry.
@@ -53,9 +55,11 @@ export const dryRun = async (dataRoot: AbsolutePath): Promise<DryRunReport> => {
 
   await scanFileFamily(dataRoot, PROJECTS_DIR, 'project', readProjectSlug, acc);
   await scanDirFamily(dataRoot, SPRINTS_DIR, 'sprint', (entryDir) => readSprintSlug(entryDir), acc);
-  await scanDirFamily(dataRoot, MEMORY_DIR, 'memory', (_entryDir, id) => readProjectSlugForId(dataRoot, id), acc);
+  // Memory has its OWN scan: a legacy bare `<id>/` whose slugged sibling already exists is a MERGE
+  // (append-only ledgers union cleanly), never the blocking collision a project/sprint both-dirs is.
+  await scanMemoryFamily(dataRoot, acc);
 
-  return { planned: acc.planned, skipped: acc.skipped, problems: acc.problems };
+  return { planned: acc.planned, merges: acc.merges, skipped: acc.skipped, problems: acc.problems };
 };
 
 /**
@@ -155,6 +159,59 @@ const scanDirFamily = async (
     }
     await planRename(parent, name, buildSluggedName(name, slug), name, slug, kind, acc);
   }
+};
+
+/**
+ * Scan the `memory/` family. Like {@link scanDirFamily} for the simple bare-`<id>` → `<id>--<slug>`
+ * rename, EXCEPT the both-dirs case: when a legacy bare `<projectId>/` dir's slugged target ALREADY
+ * exists, this is a MERGE (record a {@link MemoryMergePlan}), not a blocking collision. Learnings
+ * ledgers are append-only and de-dup by record `id`, so the two dirs union cleanly — and treating it
+ * as a problem would permanently `dry-run-block` the gate for any user who ever had a split dir.
+ */
+const scanMemoryFamily = async (dataRoot: AbsolutePath, acc: Accumulator): Promise<void> => {
+  const parent = join(String(dataRoot), MEMORY_DIR);
+  const entries = await listDir(parent);
+  if (!entries.ok) return;
+  for (const name of entries.value) {
+    await classifyMemoryEntry(dataRoot, parent, name, acc);
+  }
+};
+
+/**
+ * Classify ONE `memory/` entry: skip non-dirs / already-migrated / the marker, flag malformed or
+ * slug-less dirs, and for a legacy bare `<id>/` either record a MERGE (slugged sibling already
+ * present) or a plain rename. Split out of {@link scanMemoryFamily} to keep each function's branching
+ * shallow.
+ */
+const classifyMemoryEntry = async (
+  dataRoot: AbsolutePath,
+  parent: string,
+  name: string,
+  acc: Accumulator
+): Promise<void> => {
+  if (name === DATA_VERSION_FILENAME) return void acc.skipped.push({ name, reason: 'version marker' });
+  const full = join(parent, name);
+  if (!(await isDirectory(full))) return void acc.skipped.push({ name, reason: 'not a directory' });
+  if (name.includes(NAME_SEPARATOR)) {
+    return void acc.skipped.push({ name, reason: 'already migrated (slugged name)' });
+  }
+  if (!isUuidv7(name)) return void acc.problems.push({ name, reason: 'malformed name — not a uuidv7 id' });
+
+  const slug = await readProjectSlugForId(dataRoot, name);
+  if (slug === undefined) return void acc.problems.push({ name, reason: 'missing or unreadable slug' });
+
+  const toName = buildSluggedName(name, slug);
+  const toFull = join(parent, toName);
+  if (await pathPresent(toFull)) {
+    // Both dirs present → MERGE the legacy ledger into the slugged one (apply unions + dedups by id).
+    const legacy = AbsolutePath.parse(full);
+    const slugged = AbsolutePath.parse(toFull);
+    if (!legacy.ok || !slugged.ok) {
+      return void acc.problems.push({ name, reason: 'could not build absolute paths for the memory merge' });
+    }
+    return void acc.merges.push({ projectId: name, legacyDir: legacy.value, sluggedDir: slugged.value });
+  }
+  await planRename(parent, name, toName, name, slug, 'memory', acc);
 };
 
 /**

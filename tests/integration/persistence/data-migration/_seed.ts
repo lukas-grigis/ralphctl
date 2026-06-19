@@ -53,6 +53,16 @@ export const seedLegacyMemory = async (dataRoot: string, projectId: string, ndjs
   await fs.writeFile(join(dir, 'learnings.ndjson'), ndjson, 'utf8');
 };
 
+/**
+ * Write a slugged memory dir `<projectId>--<projectSlug>/` with a `learnings.ndjson`. Used alongside
+ * {@link seedLegacyMemory} to construct the both-dirs MERGE case the apply step must resolve.
+ */
+export const seedNewMemory = async (dataRoot: string, projectId: string, slug: string, ndjson = ''): Promise<void> => {
+  const dir = join(dataRoot, 'memory', `${projectId}--${slug}`);
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(join(dir, 'learnings.ndjson'), ndjson, 'utf8');
+};
+
 /** Recursively list every file path under a directory, relative to it, sorted — for tree snapshots. */
 export const snapshotTree = async (root: string): Promise<readonly string[]> => {
   const out: string[] = [];

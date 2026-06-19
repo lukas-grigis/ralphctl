@@ -18,6 +18,7 @@ import {
   seedLegacyMemory,
   seedLegacyProject,
   seedLegacySprint,
+  seedNewMemory,
   seedNewProject,
   seedNewSprint,
   snapshotContents,
@@ -84,6 +85,22 @@ describe('dryRun', () => {
     const report = await dryRun(dataRoot());
     expect(report.planned).toEqual([]);
     expect(report.problems.some((p) => p.reason.includes('collision'))).toBe(true);
+  });
+
+  it('memory both-dirs is a MERGE, never a blocking collision', async () => {
+    const pid = freshId();
+    await seedLegacyProject(root, pid, 'alpha'); // owning project supplies the slug
+    // Both the legacy bare and the slugged memory dir exist (interrupted prior migration).
+    await seedLegacyMemory(root, pid, '{"id":"a"}\n');
+    await seedNewMemory(root, pid, 'alpha', '{"id":"b"}\n');
+
+    const report = await dryRun(dataRoot());
+    // NOT a collision problem — the gate must not be `dry-run-blocked` by a split memory dir.
+    expect(report.problems).toEqual([]);
+    expect(report.merges).toHaveLength(1);
+    expect(report.merges[0]?.projectId).toBe(pid);
+    expect(String(report.merges[0]?.legacyDir)).toContain(`/memory/${pid}`);
+    expect(String(report.merges[0]?.sluggedDir)).toContain(`/memory/${pid}--alpha`);
   });
 
   it('flags a malformed (non-uuid) directory name', async () => {
