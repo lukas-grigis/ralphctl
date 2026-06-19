@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
+import type { AppEvent } from '@src/business/observability/events.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
 import type { ReviewSprint, Sprint } from '@src/domain/entity/sprint.ts';
@@ -198,6 +199,11 @@ describe('createReviewFlow', () => {
     // empty → termination round → loop exits cleanly.
     const interactive = scriptedInteractive(['fix the foo bar in baz.ts']);
 
+    // Capture every bus event so we can assert the per-round `feedback-round-applied` telemetry.
+    const eventBus = createInMemoryEventBus();
+    const published: AppEvent[] = [];
+    eventBus.subscribe((e) => published.push(e));
+
     const flow = createReviewFlow(
       {
         sprintRepo: repo.repo,
@@ -205,7 +211,7 @@ describe('createReviewFlow', () => {
         provider: fakeProvider,
         templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
         signals: createInMemorySink<HarnessSignal>(),
-        eventBus: createInMemoryEventBus(),
+        eventBus,
         logger: noopLogger,
         clock: () => FIXED_LATER,
         interactive,
@@ -236,6 +242,18 @@ describe('createReviewFlow', () => {
 
     expect(runner.status).toBe('completed');
     expect(repo.current().status).toBe('done');
+
+    // Exactly one round was applied (committed) → exactly one `feedback-round-applied` event,
+    // keyed by the sprint id and carrying the 1-based round number. The empty round-2 that ends
+    // the loop is NOT applied, so it emits nothing here.
+    const applied = published.filter((e) => e.type === 'feedback-round-applied');
+    expect(applied).toHaveLength(1);
+    expect(applied[0]).toMatchObject({
+      type: 'feedback-round-applied',
+      sprintId: String(sprint.id),
+      round: 1,
+      at: FIXED_LATER,
+    });
   });
 
   it('exits without transition when the user aborts via editor non-zero', async () => {

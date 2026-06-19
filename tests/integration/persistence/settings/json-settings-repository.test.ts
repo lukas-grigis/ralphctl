@@ -208,6 +208,9 @@ describe('JsonSettingsRepository', () => {
     if (!result.ok) {
       expect(result.error).toBeInstanceOf(ParseError);
       expect((result.error as ParseError).subCode).toBe('schema-mismatch');
+      // The read-path error carries an actionable re-run hint — the CLI prints `.hint` after the
+      // message, so a user with a corrupt settings file is told how to recover.
+      expect((result.error as ParseError).hint).toMatch(/settings\.json/);
     }
   });
 
@@ -346,6 +349,8 @@ describe('JsonSettingsRepository', () => {
     if (!loaded.ok) {
       expect(loaded.error).toBeInstanceOf(ParseError);
       expect(loaded.error.message).toContain('newer ralphctl');
+      // Future-version files get an upgrade-or-reset hint surfaced through the CLI.
+      expect((loaded.error as ParseError).hint).toMatch(/upgrade ralphctl/);
     }
   });
 });

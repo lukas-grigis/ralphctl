@@ -12,6 +12,15 @@ import type { SettingsRepository } from '@src/domain/repository/settings/setting
 
 const SETTINGS_FILE = 'settings.json';
 
+/**
+ * Re-run hint attached to every read-path `ParseError` — the CLI surfaces `.hint` in parentheses
+ * after the message (see `application/ui/cli/commands/settings.ts`). A corrupt / un-migratable
+ * `settings.json` blocks the read-modify-write `settings set` path too (it loads first), so the
+ * actionable repair is to fix or remove the on-disk file and let the next launch fall back to
+ * defaults — not to re-run a mutating command.
+ */
+const REPAIR_HINT = 'fix or delete settings.json and re-run; a missing file falls back to defaults';
+
 export interface JsonSettingsRepositoryDeps {
   /** Directory where the JSON file lives. Production: `<appRoot>/config/`. Tests: a tmp dir. */
   readonly configRoot: AbsolutePath;
@@ -53,6 +62,7 @@ export const createJsonSettingsRepository = (deps: JsonSettingsRepositoryDeps): 
           new ParseError({
             subCode: 'schema-mismatch',
             message: `settings at ${path} are from a newer ralphctl (schemaVersion=${String(sourceVersion)}, expected ${String(CURRENT_SCHEMA_VERSION)}). Upgrade ralphctl.`,
+            hint: 'upgrade ralphctl, or fix/delete settings.json to start from defaults',
           })
         );
       }
@@ -65,6 +75,7 @@ export const createJsonSettingsRepository = (deps: JsonSettingsRepositoryDeps): 
           new ParseError({
             subCode: 'schema-mismatch',
             message: `settings at ${path} cannot be migrated: no chain from v${String(outcome.fromVersion)} to v${String(CURRENT_SCHEMA_VERSION)} (stopped at v${String(outcome.toVersion)}).`,
+            hint: REPAIR_HINT,
           })
         );
       }
@@ -76,6 +87,7 @@ export const createJsonSettingsRepository = (deps: JsonSettingsRepositoryDeps): 
             subCode: 'schema-mismatch',
             message: `settings at ${path} are invalid: ${parsed.error.message}`,
             cause: parsed.error,
+            hint: REPAIR_HINT,
           })
         );
       }

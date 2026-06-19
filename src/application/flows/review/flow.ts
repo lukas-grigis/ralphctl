@@ -89,6 +89,7 @@ export const createReviewFlow = (deps: ReviewDeps, opts: CreateReviewFlowOpts): 
       signals: deps.signals,
       eventBus: deps.eventBus,
       logger: deps.logger,
+      clock: deps.clock,
       gitRunner: deps.gitRunner,
       shellScriptRunner: deps.shellScriptRunner,
       appendFile: deps.appendFile,

@@ -178,9 +178,9 @@ Status flow: `draft → planned → active → review → done`.
 - [x] **Free-form feedback** — multi-line editor prompt; empty submission terminates the loop.
 - [x] **AI session resumes via session id** — the harness reads back the per-task `session-id.txt` file from
       `<sprintDir>/implement/<unit>/rounds/<N>/generator/session-id.txt` and resumes the relevant task's session.
-- [ ] **EventBus emits `FeedbackRoundApplied`** per round. _Not yet wired: the `FeedbackRoundAppliedEvent`
-      type is defined in `events.ts` and in the `AppEvent` union, but `review-round.ts` never publishes it
-      (only `ai-signal` events are emitted)._
+- [x] **EventBus emits `FeedbackRoundApplied`** per applied review round — `review-round.ts` publishes
+      `{ type: 'feedback-round-applied', sprintId, round, at }` for each round the use case marks `applied`
+      (timestamp from the injected clock); asserted on the in-memory bus in `tests/e2e/flows/review.test.ts`.
 
 ## AI provider integration
 
@@ -233,10 +233,9 @@ Status flow: `draft → planned → active → review → done`.
       Zod type cannot express. Edits save immediately via the `settings-set` flow → `SettingsRepository.save()`.
 - [x] **CLI parity** — `ralphctl settings show` prints the current settings; `ralphctl settings set <key> <value>`
       sets a single key (plus `settings apply-preset`).
-- [ ] **Schema validation on read** — corrupt or v0.6.x-shaped `settings.json` files surface a typed
-      `ParseError` (subCode `schema-mismatch`) from the persistence boundary. _Re-run hint not attached yet:
-      `ParseError.hint` is left unset on settings-parse failures (`json-settings-repository.ts`), though the CLI
-      render path already prints `.hint` when present (`settings.ts:108`) — only populating it remains._
+- [x] **Schema validation on read** — corrupt or v0.6.x-shaped `settings.json` files surface a typed
+      `ParseError` (subCode `schema-mismatch`) from the persistence boundary, now carrying a repair `hint`
+      (`json-settings-repository.ts`) that the CLI renders (`settings.ts:108`).
 - [x] **`schemaVersion`** — written on every save; migration path runs before validation if the on-disk shape
       changes in a future version.
 
@@ -249,11 +248,8 @@ Status flow: `draft → planned → active → review → done`.
       `sprint {list,show,set-current,activate,close,remove,progress}`,
       `ticket {list,show,add,remove}`, `task {list,show,unblock}`,
       `runs {list,prune}`.
-- [ ] **Each one-shot command** has a `tests/e2e/cli/<name>.test.ts` pinning the success-path stdout.
-      _Most are covered (completion, doctor, export-context, project, runs, settings, sprint, task, ticket).
-      TODO: `create-pr` and `export-requirements` are covered only by flow-level tests
-      (`tests/e2e/flows/{create-pr,export-requirements}.test.ts`) — add the two stdout-pinning
-      `tests/e2e/cli/` tests to close the standard._
+- [x] **Each one-shot command** has a `tests/e2e/cli/<name>.test.ts` pinning the success-path stdout —
+      including `create-pr` and `export-requirements` (help shape + validation/error stdout), closing the set.
 - [x] **Exit codes** — `0` success, `1` error. Set via `process.exitCode = 1` (`cli.ts`) / `process.exit(1)`
       (`bootstrap.ts`, `launch.ts`); `0` by default. _`130`-on-interrupt is intentionally not distinguished —
       the thin one-shot CLI commands print and return with no long-running loop where a Ctrl-C state is
