@@ -95,6 +95,14 @@ export type LaunchResult =
       readonly generatorModel?: string;
       readonly evaluatorModel?: string;
       /**
+       * Provider id backing each implement role (`claude-code` / `github-copilot` / `openai-codex`),
+       * rendered dim before the model name in the HeaderCard so the operator can see which backend
+       * each role runs on. Only the implement launcher sets these; every other flow leaves them
+       * undefined and the HeaderCard omits the provider segment.
+       */
+      readonly generatorProvider?: AiProvider;
+      readonly evaluatorProvider?: AiProvider;
+      /**
        * Resolved effort strings for each implement role (`low|medium|high|xhigh|max`). Displayed
        * alongside the model name in the HeaderCard so the operator can see the effort at a glance.
        * Only the implement launcher sets these; every other flow leaves them undefined.
@@ -197,6 +205,8 @@ export const sessionHintsFromLaunchResult = (
   readonly taskRecovering?: ReadonlyMap<string, RecoveryContext>;
   readonly generatorModel?: string;
   readonly evaluatorModel?: string;
+  readonly generatorProvider?: AiProvider;
+  readonly evaluatorProvider?: AiProvider;
   readonly generatorEffort?: string;
   readonly evaluatorEffort?: string;
   readonly pinnedProjectId?: ProjectId;
@@ -213,6 +223,8 @@ export const sessionHintsFromLaunchResult = (
   ...(result.taskRecovering !== undefined ? { taskRecovering: result.taskRecovering } : {}),
   ...(result.generatorModel !== undefined ? { generatorModel: result.generatorModel } : {}),
   ...(result.evaluatorModel !== undefined ? { evaluatorModel: result.evaluatorModel } : {}),
+  ...(result.generatorProvider !== undefined ? { generatorProvider: result.generatorProvider } : {}),
+  ...(result.evaluatorProvider !== undefined ? { evaluatorProvider: result.evaluatorProvider } : {}),
   ...(result.generatorEffort !== undefined ? { generatorEffort: result.generatorEffort } : {}),
   ...(result.evaluatorEffort !== undefined ? { evaluatorEffort: result.evaluatorEffort } : {}),
   ...(result.pinnedProjectId !== undefined ? { pinnedProjectId: result.pinnedProjectId } : {}),

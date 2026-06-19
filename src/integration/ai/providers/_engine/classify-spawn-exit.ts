@@ -50,6 +50,20 @@ import type { AttemptOutcome } from '@src/integration/ai/providers/_engine/attem
  */
 export type ProviderName = 'claude-provider' | 'codex-provider' | 'copilot-provider';
 
+/**
+ * Matches the provider-CLI "the selected model isn't available" failure across the three
+ * backends. Real-world wordings observed:
+ *  - copilot: `Error: Model "gpt-5.4-nano" from --model flag is not available.`
+ *  - codex:   `model not found`
+ *  - claude:  `unknown model`
+ * Broad enough to catch phrasing drift (`model ... is not available`, `model not found`,
+ * `unknown model`, `unsupported model`) yet anchored on the word `model` so it can't trip on
+ * unrelated "not available" lines. Abort is classified first, so this regex never sees an
+ * abort message even though it couldn't match one anyway.
+ */
+const MODEL_UNAVAILABLE_RE =
+  /\bmodel\b[^\n]*\b(?:is\s+not\s+available|not\s+available|not\s+found)|\b(?:unknown|unsupported|invalid)\s+model\b/i;
+
 export interface ClassifySpawnExitInput {
   readonly session: AiSession;
   readonly exit: {
@@ -162,7 +176,34 @@ export const classifySpawnExit = async (input: ClassifySpawnExitInput): Promise<
     };
   }
 
-  // 5. Recovery — audit-[09]: signals.json is authoritative. Existence-check only; the
+  // 5. Model unavailable — a configuration failure, not recoverable work. It wins over
+  // signals-recovery because a model-not-available exit means the run never produced valid work
+  // for this model; a stale signals.json must not mask the real cause. The actionable hint is
+  // folded into `.message` (not just the separate `.hint` field) so it survives unchanged through
+  // `run-generator-turn`'s blockedReason string and into the TUI without touching the render layer.
+  //
+  // **stderr ONLY (unlike rate-limit).** All three provider CLIs report model-availability errors
+  // on stderr. Scanning `stdoutTail` here would be a false-positive hazard: stdoutTail carries
+  // assistant-generated task output (Claude envelope body / Copilot event text / Codex agent
+  // message), where benign phrases like "the model is not available in TensorFlow" or "the model
+  // checkpoint was not found" appear in NORMAL responses and would be misclassified as a config
+  // failure. The rate-limit branch above legitimately needs stdoutTail (claude reports quota in
+  // its stream-json result envelope); model-availability has no such stdout-only case.
+  if (MODEL_UNAVAILABLE_RE.test(stderr)) {
+    const hint = 'model not available — it may not be on your plan or CLI version; pick another model in settings';
+    return {
+      kind: 'error',
+      error: new InvalidStateError({
+        entity: providerName,
+        currentState: `exit-${String(exit.code ?? 'null')}`,
+        attemptedAction: 'complete generation',
+        message: `${providerName}: process exited with code ${String(exit.code)}${exit.signal !== null ? ` (signal=${exit.signal})` : ''}: ${stderr.trim() || '<empty stderr>'} — ${hint}`,
+        hint,
+      }),
+    };
+  }
+
+  // 6. Recovery — audit-[09]: signals.json is authoritative. Existence-check only; the
   // downstream validator catches malformed content.
   const exists = await pathExists(String(session.signalsFile));
   if (exists.ok && exists.value) {
@@ -191,7 +232,7 @@ export const classifySpawnExit = async (input: ClassifySpawnExitInput): Promise<
     return outcome;
   }
 
-  // 6. Hard fail. Mirrors the historical per-adapter exit-N error shape.
+  // 7. Hard fail. Mirrors the historical per-adapter exit-N error shape.
   return {
     kind: 'error',
     error: new InvalidStateError({
