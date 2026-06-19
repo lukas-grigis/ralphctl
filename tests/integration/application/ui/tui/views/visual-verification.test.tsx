@@ -4,7 +4,7 @@
  * Renders the sidebar at 50×200 and 60×240 with a populated fixture and verifies:
  *   (a) sidebar is ~2/5 width
  *   (b) sidebar order: Baseline → Steps → Tasks → Tokens
- *   (c) baseline card shows BOTH generator and evaluator models
+ *   (c) model labels NOT in sidebar (ModelMeta removed — they live in HeaderCard)
  *   (d) no [nav] / [tasks] labels anywhere
  *   (e) token card reads as cumulative (not a fake window bar)
  *   (f) token card not clipped (Tokens present in frame)
@@ -122,6 +122,7 @@ const renderSidebar = (cols: number, rows: number): SidebarRender => {
       sidebarWidth: layout.sidebarWidth,
       sidebarTaskNavRows: layout.sidebarTaskNavRows,
       sidebarFlowStepsRows: layout.sidebarFlowStepsRows,
+      sidebarContextSideBySide: layout.sidebarContextSideBySide,
       descriptor,
       bucketed,
       isRunning: true,
@@ -158,7 +159,9 @@ describe('ImplementSidebar visual verification at 200×50', () => {
     expect(sidebarWidth).toBe(80);
   });
 
-  it('(b) sidebar order: Baseline → Steps → Tokens (unambiguous markers)', () => {
+  it('(b) sidebar order: Baseline + Tokens side-by-side row, then Steps (≥xl side-by-side layout)', () => {
+    // At 200 cols (≥xl) Baseline and Tokens are rendered side-by-side in the top row.
+    // Both appear BEFORE Steps in the character stream.
     const baselineIdx = frame.indexOf('Baseline');
     const stepsIdx = frame.indexOf('Steps');
     const tokensIdx = frame.indexOf('Tokens');
@@ -167,22 +170,21 @@ describe('ImplementSidebar visual verification at 200×50', () => {
     expect(stepsIdx).toBeGreaterThan(-1);
     expect(tokensIdx).toBeGreaterThan(-1);
 
+    // Baseline before Steps (always true — Baseline is at the top of the sidebar).
     expect(baselineIdx).toBeLessThan(stepsIdx);
-    expect(stepsIdx).toBeLessThan(tokensIdx);
+    // In side-by-side layout, Tokens is in the same top row as Baseline — before Steps.
+    expect(tokensIdx).toBeLessThan(stepsIdx);
   });
 
   it('(b) Tasks section present in sidebar', () => {
     expect(frame).toContain('Tasks');
   });
 
-  it('(c) baseline card shows generator model label', () => {
-    expect(frame).toContain('generator');
-    expect(frame).toContain(GENERATOR_MODEL);
-  });
-
-  it('(c) baseline card shows evaluator model label (models differ → two lines)', () => {
-    expect(frame).toContain('evaluator');
-    expect(frame).toContain(EVALUATOR_MODEL);
+  it('(c) model labels absent from sidebar (ModelMeta removed — lives in HeaderCard)', () => {
+    // generator / evaluator labels are now rendered exclusively by HeaderCard (body.tsx).
+    // The sidebar carries only Baseline, Steps, Tasks, and Tokens sections.
+    expect(frame).not.toContain('generator');
+    expect(frame).not.toContain('evaluator');
   });
 
   it('(d) no [nav] column label', () => {
@@ -237,7 +239,9 @@ describe('ImplementSidebar visual verification at 240×60', () => {
     expect(sidebarWidth).toBe(96);
   });
 
-  it('(b) sidebar order: Baseline → Steps → Tokens (unambiguous markers)', () => {
+  it('(b) sidebar order: Baseline + Tokens side-by-side row, then Steps (≥xl side-by-side layout)', () => {
+    // At 240 cols (≥xl) Baseline and Tokens are rendered side-by-side in the top row.
+    // Both appear BEFORE Steps in the character stream.
     const baselineIdx = frame.indexOf('Baseline');
     const stepsIdx = frame.indexOf('Steps');
     const tokensIdx = frame.indexOf('Tokens');
@@ -246,15 +250,17 @@ describe('ImplementSidebar visual verification at 240×60', () => {
     expect(stepsIdx).toBeGreaterThan(-1);
     expect(tokensIdx).toBeGreaterThan(-1);
 
+    // Baseline before Steps (always true — Baseline is at the top of the sidebar).
     expect(baselineIdx).toBeLessThan(stepsIdx);
-    expect(stepsIdx).toBeLessThan(tokensIdx);
+    // In side-by-side layout, Tokens is in the same top row as Baseline — before Steps.
+    expect(tokensIdx).toBeLessThan(stepsIdx);
   });
 
-  it('(c) baseline card shows both generator and evaluator models', () => {
-    expect(frame).toContain('generator');
-    expect(frame).toContain(GENERATOR_MODEL);
-    expect(frame).toContain('evaluator');
-    expect(frame).toContain(EVALUATOR_MODEL);
+  it('(c) model labels absent from sidebar (ModelMeta removed — lives in HeaderCard)', () => {
+    // generator / evaluator labels are now rendered exclusively by HeaderCard (body.tsx).
+    // The sidebar carries only Baseline, Steps, Tasks, and Tokens sections.
+    expect(frame).not.toContain('generator');
+    expect(frame).not.toContain('evaluator');
   });
 
   it('(d) no [nav] or [tasks] column labels', () => {

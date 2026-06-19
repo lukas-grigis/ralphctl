@@ -123,6 +123,7 @@ const WideLayout = ({
             sidebarWidth={layout.sidebarWidth}
             sidebarTaskNavRows={layout.sidebarTaskNavRows}
             sidebarFlowStepsRows={layout.sidebarFlowStepsRows}
+            sidebarContextSideBySide={layout.sidebarContextSideBySide}
             descriptor={descriptor}
             bucketed={bucketed}
             isRunning={isRunning}

@@ -21,6 +21,22 @@ export interface ClaudeUsage {
   readonly cacheCreationTokens?: number;
 }
 
+/**
+ * Per-TURN token counts pulled from the LATEST `{type:"assistant"}` event's `message.usage`
+ * object (latest-wins as assistant events stream). Unlike {@link ClaudeUsage} (cumulative across
+ * all internal turns of a `-p` spawn), this is a single-turn snapshot. The last assistant turn's
+ * `inputTokens + cacheReadTokens + cacheCreationTokens` is the TRUE current context-window
+ * occupancy — correct by construction regardless of how the cumulative `result.usage` aggregates.
+ *
+ * Every field is optional: assistant events may carry no `usage` at all (e.g. content-only
+ * deltas), and individual cache counters are omitted rather than reported as `0`.
+ */
+export interface ClaudeLiveUsage {
+  readonly inputTokens?: number;
+  readonly cacheReadTokens?: number;
+  readonly cacheCreationTokens?: number;
+}
+
 export interface ClaudeEnvelope {
   /** Assistant body — `.result` from the `{type:"result"}` event, or `''` if none arrived. */
   readonly body: string;
@@ -28,8 +44,14 @@ export interface ClaudeEnvelope {
   readonly sessionId: string | undefined;
   /** Model name from the `system` init event, when present. */
   readonly model: string | undefined;
-  /** Token counts from the final `result` event's `usage` object, when present. */
+  /** Cumulative token counts from the final `result` event's `usage` object, when present. */
   readonly usage: ClaudeUsage;
+  /**
+   * Per-turn token counts from the LATEST `assistant` event's `message.usage`, when any assistant
+   * turn carried usage. Empty `{}` when no assistant usage was seen. Reflects current context-window
+   * occupancy, not cumulative throughput — see {@link ClaudeLiveUsage}.
+   */
+  readonly liveUsage: ClaudeLiveUsage;
 }
 
 export interface ClaudeStreamLine {

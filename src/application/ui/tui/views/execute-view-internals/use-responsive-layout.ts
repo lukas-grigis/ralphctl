@@ -12,7 +12,13 @@
  * composition rather than width arithmetic.
  */
 
-import { CONTEXT_WIDTH, fluid, RAIL_WIDTH, resolveRailWidth } from '@src/application/ui/tui/theme/tokens.ts';
+import {
+  breakpoints,
+  CONTEXT_WIDTH,
+  fluid,
+  RAIL_WIDTH,
+  resolveRailWidth,
+} from '@src/application/ui/tui/theme/tokens.ts';
 
 const TWO_COL_BREAKPOINT = 140;
 const THREE_COL_BREAKPOINT = 180;
@@ -65,6 +71,14 @@ export interface ResponsiveLayout {
    * fixed chrome rows. Exposed so ImplementSidebar can enforce a hard height cap on its Box.
    */
   readonly sidebarBodyRows: number;
+  /**
+   * True when the sidebar is wide enough to render `BaselineHealthCard` and `TokenBudgetCard`
+   * side by side (each `CONTEXT_WIDTH` cols wide). Only true at ≥xl (180 cols) where the sidebar
+   * grows to ~2/5 * 180 = 72 cols, giving each card 28 cols with room to spare. Below xl the
+   * sidebar is at 56 cols (lg entry point) — the two cards fit exactly but with no gutter, so
+   * stacking is preferred. The reclaimed vertical row goes to the log panel.
+   */
+  readonly sidebarContextSideBySide: boolean;
 }
 
 interface UseResponsiveLayoutInput {
@@ -169,6 +183,11 @@ export const useResponsiveLayout = ({ columns, rows, isRunning }: UseResponsiveL
   const sidebarFlowStepsRows = Math.min(SIDEBAR_STEPS_CAP, Math.max(0, Math.floor(sidebarBodyRows * 0.35)));
   const sidebarTaskNavRows = Math.max(SIDEBAR_TASK_NAV_MIN, sidebarBodyRows - sidebarFlowStepsRows);
 
+  // Side-by-side context cards: true at ≥xl (180 cols) where sidebarWidth ≥ 72, giving each
+  // CONTEXT_WIDTH (28) card 28 cols with room to spare. At lg (140 cols, sidebarWidth = 56)
+  // the two cards fit exactly but with no gutter, so stacking is safer.
+  const sidebarContextSideBySide = columns >= breakpoints.xl;
+
   return {
     threeColumn,
     twoColumn,
@@ -186,5 +205,6 @@ export const useResponsiveLayout = ({ columns, rows, isRunning }: UseResponsiveL
     sidebarTaskNavRows,
     sidebarFlowStepsRows,
     sidebarBodyRows,
+    sidebarContextSideBySide,
   };
 };

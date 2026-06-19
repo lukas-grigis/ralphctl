@@ -9,7 +9,7 @@
  *
  * Note: Since v0.7.0 layout overhaul the sidebar carries the TokenBudgetCard at the bottom
  * (user ask #2). Sprint meta (name, elapsed, model pair) is in the HeaderCard at the top
- * of the wide layout (body.tsx, user ask #1). The StatusBand was removed.
+ * of the wide layout (body.tsx, user ask #1). The StatusBand and ModelMeta block were removed.
  */
 
 import { render } from 'ink-testing-library';
@@ -77,13 +77,14 @@ const makeDescriptor = (): SessionDescriptor => ({
 // ---------------------------------------------------------------------------
 
 describe('ImplementSidebar — navigation only', () => {
-  it('renders section headers (Baseline, Steps, Tasks) + model meta in sidebar', () => {
+  it('renders section headers (Baseline, Steps, Tasks) in sidebar — model meta removed', () => {
     const descriptor = makeDescriptor();
     const { lastFrame, unmount } = render(
       <ImplementSidebar
         sidebarWidth={40}
         sidebarTaskNavRows={8}
         sidebarFlowStepsRows={8}
+        sidebarContextSideBySide={false}
         descriptor={descriptor}
         bucketed={THREE_TASKS}
         isRunning={true}
@@ -98,12 +99,10 @@ describe('ImplementSidebar — navigation only', () => {
     expect(frame).toContain('Tasks');
     expect(frame).toContain('Steps');
 
-    // Sidebar now shows the generator + evaluator model in the model-meta block.
-    // They differ so both lines appear: "generator claude-opus-4" + "evaluator claude-sonnet-4-6".
-    expect(frame).toContain('generator');
-    expect(frame).toContain('claude-opus-4');
-    expect(frame).toContain('evaluator');
-    expect(frame).toContain('claude-sonnet-4-6');
+    // Model meta block has been removed from the sidebar — model info lives in the
+    // HeaderCard (body.tsx) which already renders "generator <model>" + "evaluator <model>".
+    expect(frame).not.toContain('generator');
+    expect(frame).not.toContain('evaluator');
 
     // Sprint name and elapsed remain in the HeaderCard (body.tsx) — NOT in the sidebar.
     expect(frame).not.toContain('1m30s');
@@ -127,6 +126,7 @@ describe('ImplementSidebar — navigation only', () => {
         sidebarWidth={36}
         sidebarTaskNavRows={8}
         sidebarFlowStepsRows={8}
+        sidebarContextSideBySide={false}
         descriptor={descriptor}
         bucketed={THREE_TASKS}
         isRunning={true}
@@ -154,6 +154,7 @@ describe('ImplementSidebar — navigation only', () => {
         sidebarWidth={36}
         sidebarTaskNavRows={8}
         sidebarFlowStepsRows={8}
+        sidebarContextSideBySide={false}
         descriptor={descriptor}
         bucketed={THREE_TASKS}
         isRunning={true}
@@ -182,6 +183,7 @@ describe('ImplementSidebar — navigation only', () => {
         sidebarWidth={36}
         sidebarTaskNavRows={8}
         sidebarFlowStepsRows={8}
+        sidebarContextSideBySide={false}
         descriptor={descriptor}
         bucketed={THREE_TASKS}
         isRunning={true}
@@ -223,6 +225,7 @@ describe('ImplementSidebar — navigation only', () => {
         sidebarWidth={36}
         sidebarTaskNavRows={8}
         sidebarFlowStepsRows={8}
+        sidebarContextSideBySide={false}
         descriptor={descriptor}
         bucketed={THREE_TASKS}
         isRunning={true}
@@ -257,6 +260,7 @@ describe('ImplementSidebar — TokenBudgetCard at bottom', () => {
         sidebarWidth={36}
         sidebarTaskNavRows={8}
         sidebarFlowStepsRows={4}
+        sidebarContextSideBySide={false}
         descriptor={descriptor}
         bucketed={THREE_TASKS}
         isRunning={true}
@@ -286,6 +290,7 @@ describe('ImplementSidebar — TokenBudgetCard at bottom', () => {
         sidebarWidth={36}
         sidebarTaskNavRows={8}
         sidebarFlowStepsRows={4}
+        sidebarContextSideBySide={false}
         descriptor={descriptor}
         bucketed={THREE_TASKS}
         isRunning={true}
@@ -319,6 +324,7 @@ describe('ImplementSidebar — TokenBudgetCard at bottom', () => {
         sidebarWidth={36}
         sidebarTaskNavRows={8}
         sidebarFlowStepsRows={4}
+        sidebarContextSideBySide={false}
         descriptor={descriptor}
         bucketed={THREE_TASKS}
         isRunning={true}

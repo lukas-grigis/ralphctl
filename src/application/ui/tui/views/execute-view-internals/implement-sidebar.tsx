@@ -4,8 +4,7 @@
  * Section order (top → bottom):
  *
  *   1. BaselineHealthCard — bordered card at the top of the sidebar (not a chip). Shows the
- *      harness verify-gate data (setup, pre/post verify, attribution) PLUS the generator and
- *      evaluator model labels as a small meta block below the card.
+ *      harness verify-gate data (setup, pre/post verify, attribution).
  *   2. Flow-steps rail — reuses `FlowStepsRail` verbatim. Compact/suppressed (`suppressMeta`)
  *      when the sidebar is narrow; capped at `sidebarFlowStepsRows`.
  *   3. Task nav list — PASSIVE minimap: highlights the card focused in the main area. No keyboard
@@ -28,7 +27,7 @@
 
 import React from 'react';
 import { Box, Text } from 'ink';
-import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { CONTEXT_WIDTH, glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { OverflowRow } from '@src/application/ui/tui/components/windowed-list.tsx';
 import { TokenBudgetCard } from '@src/application/ui/tui/components/token-budget-card.tsx';
 import { BaselineHealthCard } from '@src/application/ui/tui/components/baseline-health-card.tsx';
@@ -170,6 +169,12 @@ export interface ImplementSidebarProps {
   readonly sidebarTaskNavRows: number;
   /** Max rows for the flow-steps rail — derived from terminal height. */
   readonly sidebarFlowStepsRows: number;
+  /**
+   * When true, render BaselineHealthCard and TokenBudgetCard side by side in one horizontal
+   * row instead of stacking them. True at ≥xl (180 cols) — the sidebar is wide enough to fit
+   * two CONTEXT_WIDTH (28) cards with room to spare. Reclaims vertical space for the log panel.
+   */
+  readonly sidebarContextSideBySide: boolean;
   /** Session / sprint / model info from the session manager. */
   readonly descriptor: SessionDescriptor;
   /** Bucketed task execution state — undefined while the harness hasn't emitted any events. */
@@ -206,68 +211,11 @@ export interface ImplementSidebarProps {
 // Component
 // ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// Model meta block — generator + evaluator model labels
-// ---------------------------------------------------------------------------
-
-/**
- * Renders the generator and evaluator model names below the BaselineHealthCard.
- *
- * Rules:
- *   - When both are defined and EQUAL → single `model <x>` line.
- *   - When they differ → two lines: `generator <x>` + `evaluator <y>`.
- *   - When a model is undefined → omit that line.
- *   - Uses explicit `<Text> </Text>` separators — Ink collapses trailing spaces.
- */
-const ModelMeta = ({
-  generatorModel,
-  evaluatorModel,
-}: {
-  readonly generatorModel: string | undefined;
-  readonly evaluatorModel: string | undefined;
-}): React.JSX.Element | null => {
-  if (generatorModel === undefined && evaluatorModel === undefined) return null;
-
-  const sameModel = generatorModel !== undefined && generatorModel === evaluatorModel;
-
-  return (
-    <Box flexDirection="column" paddingX={spacing.indent} marginTop={spacing.gutter}>
-      {sameModel ? (
-        <Box>
-          <Text dimColor>model</Text>
-          <Text> </Text>
-          <Text>{generatorModel}</Text>
-        </Box>
-      ) : (
-        <>
-          {generatorModel !== undefined && (
-            <Box>
-              <Text dimColor>generator</Text>
-              <Text> </Text>
-              <Text>{generatorModel}</Text>
-            </Box>
-          )}
-          {evaluatorModel !== undefined && (
-            <Box>
-              <Text dimColor>evaluator</Text>
-              <Text> </Text>
-              <Text>{evaluatorModel}</Text>
-            </Box>
-          )}
-        </>
-      )}
-    </Box>
-  );
-};
-
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
-
 export const ImplementSidebar = ({
   sidebarWidth,
   sidebarTaskNavRows,
   sidebarFlowStepsRows,
+  sidebarContextSideBySide,
   descriptor,
   bucketed,
   isRunning,
@@ -280,18 +228,37 @@ export const ImplementSidebar = ({
   const tasks = bucketed?.tasks ?? [];
   const nameById = descriptor.taskNames;
 
+  // Each card gets CONTEXT_WIDTH cols in the side-by-side row. In the stacked layout the
+  // baseline card fills the sidebar width minus the inner padding.
+  const baselineCardWidth = sidebarContextSideBySide ? CONTEXT_WIDTH : sidebarWidth - spacing.indent;
+
   return (
     <Box flexDirection="column" width={sidebarWidth} flexShrink={0}>
-      {/* ── 1. BaselineHealthCard — bordered card at the top of the sidebar ── */}
-      <Box marginTop={spacing.gutter}>
-        <BaselineHealthCard
-          {...(executionState !== undefined ? { execution: executionState } : {})}
-          {...(taskState !== undefined ? { tasks: taskState } : {})}
-          now={now}
-          width={sidebarWidth - spacing.indent}
-        />
-      </Box>
-      <ModelMeta generatorModel={descriptor.generatorModel} evaluatorModel={descriptor.evaluatorModel} />
+      {/* ── 1. Baseline + Token cards — side-by-side at ≥xl, stacked below ─ */}
+      {sidebarContextSideBySide ? (
+        /* Side-by-side row: Baseline | Token — each CONTEXT_WIDTH cols wide. */
+        <Box flexDirection="row" marginTop={spacing.gutter}>
+          <BaselineHealthCard
+            {...(executionState !== undefined ? { execution: executionState } : {})}
+            {...(taskState !== undefined ? { tasks: taskState } : {})}
+            now={now}
+            width={baselineCardWidth}
+          />
+          <Box marginLeft={spacing.gutter}>
+            <TokenBudgetCard sessionId={descriptor.id} {...(tokenUsage !== undefined ? { usage: tokenUsage } : {})} />
+          </Box>
+        </Box>
+      ) : (
+        /* Stacked layout: Baseline on top, Token at the bottom after Steps + Tasks. */
+        <Box marginTop={spacing.gutter}>
+          <BaselineHealthCard
+            {...(executionState !== undefined ? { execution: executionState } : {})}
+            {...(taskState !== undefined ? { tasks: taskState } : {})}
+            now={now}
+            width={baselineCardWidth}
+          />
+        </Box>
+      )}
 
       {/* ── 2. Flow-steps rail ───────────────────────────────────────────── */}
       {sidebarFlowStepsRows > 0 && (
@@ -323,11 +290,15 @@ export const ImplementSidebar = ({
         />
       </Box>
 
-      {/* ── 4. TokenBudgetCard — context/token usage at the sidebar bottom ── */}
-      <SidebarDivider width={sidebarWidth} />
-      <Box marginTop={spacing.gutter}>
-        <TokenBudgetCard sessionId={descriptor.id} {...(tokenUsage !== undefined ? { usage: tokenUsage } : {})} />
-      </Box>
+      {/* ── 4. TokenBudgetCard — stacked layout only (side-by-side handles it above) ── */}
+      {!sidebarContextSideBySide && (
+        <>
+          <SidebarDivider width={sidebarWidth} />
+          <Box marginTop={spacing.gutter}>
+            <TokenBudgetCard sessionId={descriptor.id} {...(tokenUsage !== undefined ? { usage: tokenUsage } : {})} />
+          </Box>
+        </>
+      )}
     </Box>
   );
 };

@@ -433,5 +433,7 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
     ...(taskRecovering.size > 0 ? { taskRecovering } : {}),
     generatorModel,
     evaluatorModel,
+    ...(generatorEffort !== undefined ? { generatorEffort } : {}),
+    ...(evaluatorEffort !== undefined ? { evaluatorEffort } : {}),
   };
 };

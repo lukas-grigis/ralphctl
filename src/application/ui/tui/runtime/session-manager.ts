@@ -131,6 +131,13 @@ export interface SessionDescriptor {
   readonly generatorModel?: string;
   readonly evaluatorModel?: string;
   /**
+   * Resolved effort strings for each implement role (`low|medium|high|xhigh|max`). Displayed
+   * alongside the model name in the HeaderCard so the operator can see the effort at a glance.
+   * Only set for the implement flow; every other flow leaves these undefined.
+   */
+  readonly generatorEffort?: string;
+  readonly evaluatorEffort?: string;
+  /**
    * Project and sprint the run was launched against, pinned at launch time for the run's
    * lifetime. The execute view reads these to identify the run's own sprint independently of
    * the mutable global selection. Undefined when the flow was not launched against a project
@@ -172,6 +179,8 @@ export interface SessionManager {
     readonly taskRecovering?: ReadonlyMap<string, RecoveryContext>;
     readonly generatorModel?: string;
     readonly evaluatorModel?: string;
+    readonly generatorEffort?: string;
+    readonly evaluatorEffort?: string;
     readonly pinnedProjectId?: ProjectId;
     readonly pinnedProjectLabel?: string;
     readonly pinnedSprintId?: SprintId;
@@ -321,6 +330,8 @@ export const createSessionManager = (opts?: { readonly clock?: () => number }): 
       taskRecovering,
       generatorModel,
       evaluatorModel,
+      generatorEffort,
+      evaluatorEffort,
       pinnedProjectId,
       pinnedProjectLabel,
       pinnedSprintId,
@@ -343,6 +354,8 @@ export const createSessionManager = (opts?: { readonly clock?: () => number }): 
         ...(taskRecovering !== undefined ? { taskRecovering } : {}),
         ...(generatorModel !== undefined ? { generatorModel } : {}),
         ...(evaluatorModel !== undefined ? { evaluatorModel } : {}),
+        ...(generatorEffort !== undefined ? { generatorEffort } : {}),
+        ...(evaluatorEffort !== undefined ? { evaluatorEffort } : {}),
         ...(pinnedProjectId !== undefined ? { pinnedProjectId } : {}),
         ...(pinnedProjectLabel !== undefined ? { pinnedProjectLabel } : {}),
         ...(pinnedSprintId !== undefined ? { pinnedSprintId } : {}),

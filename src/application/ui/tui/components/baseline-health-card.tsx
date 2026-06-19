@@ -34,7 +34,7 @@ import type { SetupRun, SprintExecution } from '@src/domain/entity/sprint-execut
 import type { VerifyRun } from '@src/domain/entity/attempt.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
-import { CONTEXT_WIDTH, glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { CONTEXT_WIDTH, glyphs, inkColors } from '@src/application/ui/tui/theme/tokens.ts';
 import { fmtElapsed } from '@src/application/ui/tui/theme/duration.ts';
 import {
   type AttributionCounts,
@@ -94,12 +94,16 @@ interface RowData {
   /** Visual tier drives glyph + color. */
   readonly tier: Tier;
   /**
-   * Short status phrase that appears as the FIRST dim sub-line, before any
-   * elapsed/count details. Omitted when the tier alone communicates success.
-   * Keeping it on a sub-line (not inline) avoids wrap at narrow card widths.
+   * Short status phrase shown inline after the label (e.g. "failed", "not run yet").
+   * For `error`/`warning`/`pending` rows this is the primary detail token.
+   * For `ok` rows the first `subline` (elapsed) takes priority.
    */
   readonly status?: string;
-  /** Additional dim secondary lines — elapsed time, count, repo name, etc. */
+  /**
+   * Secondary detail tokens — elapsed time, count, repo name, etc.
+   * For `ok` rows the first entry is shown inline; for other tiers `status` takes priority.
+   * Only the first entry is ever rendered (single-line constraint).
+   */
   readonly sublines?: readonly string[];
 }
 
@@ -256,48 +260,47 @@ const titleSuffix = (rows: readonly RowData[], tier: BaselineTier): string | und
 // ---------------------------------------------------------------------------
 
 /**
- * Single indicator row. Consistent shape throughout the card:
+ * Single indicator row — compact inline variant for the expanded (mixed) state.
  *
- *   `<glyph> <label>`                  ← line 1; label bold on error
- *   `  <status>`                        ← dim sub-line (when status present)
- *   `  <detail…>`                       ← dim sub-lines (elapsed, counts, etc.)
+ * Layout: `<glyph> <label>  <detail>`  — everything on one line.
  *
- * Status lives on a sub-line (not inline after the label) so the row never wraps
- * at narrow card widths — the label is always a clean single line.
+ * Detail selection (fits in the ~11 chars remaining after glyph + label at 24 usable cols):
+ *  - `error` / `warning`: status phrase (e.g. "failed", "spawn error"), bold on error.
+ *  - `ok`: first subline (elapsed "Xm ago").
+ *  - `pending`: status phrase (e.g. "not run yet", "no script").
  *
  * When `tier` is `error` the label is bold so the actionable signal is dominant.
+ * No multi-line stacking — terseness wins over completeness at this width.
  */
 const BaselineRow = ({ row }: { readonly row: RowData }): React.JSX.Element => {
   const color = tierColor(row.tier);
   const glyph = tierGlyph(row.tier);
   const isError = row.tier === 'error';
+
+  // Pick the single most important detail token to show inline.
+  // error/warning: status phrase is more actionable than elapsed.
+  // ok: elapsed (first subline); status is absent for ok rows.
+  // pending: status phrase ("not run yet", "no script", etc.).
+  const detail: string | undefined =
+    (row.tier === 'ok' ? (row.sublines?.[0] ?? row.status) : row.status) ?? row.sublines?.[0];
+
   return (
-    <Box flexDirection="column">
-      {/* Headline: glyph + label */}
-      <Box>
-        <Text color={color}>{glyph}</Text>
-        <Text> </Text>
-        <Text bold={isError}>{row.label}</Text>
-      </Box>
-      {/* Status sub-line (e.g. "failed", "not run yet", "spawn error") */}
-      {row.status !== undefined && (
-        <Box paddingLeft={spacing.indent}>
+    <Box>
+      <Text color={color}>{glyph}</Text>
+      <Text> </Text>
+      <Text bold={isError}>{row.label}</Text>
+      {detail !== undefined && (
+        <>
+          <Text> </Text>
           {isError ? (
             <Text color={color} bold>
-              {row.status}
+              {detail}
             </Text>
           ) : (
-            <Text dimColor>{row.status}</Text>
+            <Text dimColor>{detail}</Text>
           )}
-        </Box>
+        </>
       )}
-      {/* Detail sub-lines (elapsed, counts, etc.) */}
-      {row.sublines !== undefined &&
-        row.sublines.map((line) => (
-          <Box key={line} paddingLeft={spacing.indent}>
-            <Text dimColor>{line}</Text>
-          </Box>
-        ))}
     </Box>
   );
 };
@@ -391,18 +394,12 @@ export const BaselineHealthCard = ({ execution, tasks, now, width }: BaselineHea
           // Compact all-clean variant — minimal vertical footprint.
           <CompactCleanRow rows={rows} />
         ) : (
-          // Expanded variant — one row per indicator with sub-lines.
+          // Expanded variant — one compact line per indicator, no inter-row gutters.
           <Box flexDirection="column">
             <BaselineRow row={setupData} />
-            <Box marginTop={spacing.gutter}>
-              <BaselineRow row={preData} />
-            </Box>
-            <Box marginTop={spacing.gutter}>
-              <BaselineRow row={postData} />
-            </Box>
-            <Box marginTop={spacing.gutter}>
-              <BaselineRow row={attribData} />
-            </Box>
+            <BaselineRow row={preData} />
+            <BaselineRow row={postData} />
+            <BaselineRow row={attribData} />
           </Box>
         )}
       </Card>

@@ -20,7 +20,6 @@ import { HeaderCard } from '@src/application/ui/tui/views/execute-view-internals
 import { ExecuteLayout } from '@src/application/ui/tui/views/execute-view-internals/layout.tsx';
 import { ImplementLayout } from '@src/application/ui/tui/views/execute-view-internals/implement-layout.tsx';
 import { LogPanel } from '@src/application/ui/tui/views/execute-view-internals/log-panel.tsx';
-import { Section } from '@src/application/ui/tui/views/execute-view-internals/section.tsx';
 import { ResultFooter } from '@src/application/ui/tui/views/execute-view-internals/result-footer.tsx';
 import type { ResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/use-responsive-layout.ts';
 import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
@@ -155,9 +154,7 @@ export const ExecuteBody = ({
       />
     )}
 
-    <Section title="Recent log">
-      <LogPanel entries={logEntries} maxRows={layout.logRows} />
-    </Section>
+    <LogPanel entries={logEntries} maxRows={layout.logRows} />
 
     <ResultFooter
       descriptor={descriptor}

@@ -95,6 +95,13 @@ export type LaunchResult =
       readonly generatorModel?: string;
       readonly evaluatorModel?: string;
       /**
+       * Resolved effort strings for each implement role (`low|medium|high|xhigh|max`). Displayed
+       * alongside the model name in the HeaderCard so the operator can see the effort at a glance.
+       * Only the implement launcher sets these; every other flow leaves them undefined.
+       */
+      readonly generatorEffort?: string;
+      readonly evaluatorEffort?: string;
+      /**
        * Project and sprint the run was launched against, pinned at launch time for the run's
        * lifetime. Populated from the launch snapshot so every flow launched against a sprint
        * pins it; flows started without a sprint (e.g. create-sprint) leave the sprint fields
@@ -190,6 +197,8 @@ export const sessionHintsFromLaunchResult = (
   readonly taskRecovering?: ReadonlyMap<string, RecoveryContext>;
   readonly generatorModel?: string;
   readonly evaluatorModel?: string;
+  readonly generatorEffort?: string;
+  readonly evaluatorEffort?: string;
   readonly pinnedProjectId?: ProjectId;
   readonly pinnedProjectLabel?: string;
   readonly pinnedSprintId?: SprintId;
@@ -204,6 +213,8 @@ export const sessionHintsFromLaunchResult = (
   ...(result.taskRecovering !== undefined ? { taskRecovering: result.taskRecovering } : {}),
   ...(result.generatorModel !== undefined ? { generatorModel: result.generatorModel } : {}),
   ...(result.evaluatorModel !== undefined ? { evaluatorModel: result.evaluatorModel } : {}),
+  ...(result.generatorEffort !== undefined ? { generatorEffort: result.generatorEffort } : {}),
+  ...(result.evaluatorEffort !== undefined ? { evaluatorEffort: result.evaluatorEffort } : {}),
   ...(result.pinnedProjectId !== undefined ? { pinnedProjectId: result.pinnedProjectId } : {}),
   ...(result.pinnedProjectLabel !== undefined ? { pinnedProjectLabel: result.pinnedProjectLabel } : {}),
   ...(result.pinnedSprintId !== undefined ? { pinnedSprintId: result.pinnedSprintId } : {}),

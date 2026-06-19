@@ -194,10 +194,25 @@ export interface TokenUsageEvent {
   readonly chainSessionId?: string;
   readonly provider: 'claude-code' | 'github-copilot' | 'openai-codex';
   readonly model?: string;
+  /**
+   * CUMULATIVE token counts for the whole spawn — these are throughput / billing figures. For
+   * Claude `-p` they sum across every internal turn of the spawn, so `cacheReadTokens` can dwarf
+   * the context window after many turns. Do NOT compute context-window occupancy from these.
+   */
   readonly inputTokens?: number;
   readonly outputTokens?: number;
   readonly cacheReadTokens?: number;
   readonly cacheCreationTokens?: number;
+  /**
+   * LIVE per-turn token counts — a single-call snapshot from the LAST assistant turn of the spawn.
+   * `liveInputTokens + liveCacheReadTokens + liveCacheCreationTokens` is the true current
+   * context-window occupancy, correct regardless of how the cumulative figures above aggregate.
+   * Claude `-p` only; absent for copilot/codex (which don't stream per-turn usage) and for spawns
+   * where no assistant event carried usage. Subscribers render the context bar from these.
+   */
+  readonly liveInputTokens?: number;
+  readonly liveCacheReadTokens?: number;
+  readonly liveCacheCreationTokens?: number;
   readonly contextWindow?: number;
   /**
    * Implement-flow gen-eval role the spawn ran under. Stamped on the event by the provider

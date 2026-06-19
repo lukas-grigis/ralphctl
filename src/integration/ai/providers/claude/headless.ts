@@ -475,6 +475,16 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
         ...(envelope.usage.cacheCreationTokens !== undefined
           ? { cacheCreationTokens: envelope.usage.cacheCreationTokens }
           : {}),
+        // Live/per-turn snapshot from the LAST assistant turn — true current context-window
+        // occupancy, distinct from the cumulative `*Tokens` above. Absent on copilot/codex and
+        // on spawns where no assistant event carried usage.
+        ...(envelope.liveUsage.inputTokens !== undefined ? { liveInputTokens: envelope.liveUsage.inputTokens } : {}),
+        ...(envelope.liveUsage.cacheReadTokens !== undefined
+          ? { liveCacheReadTokens: envelope.liveUsage.cacheReadTokens }
+          : {}),
+        ...(envelope.liveUsage.cacheCreationTokens !== undefined
+          ? { liveCacheCreationTokens: envelope.liveUsage.cacheCreationTokens }
+          : {}),
         ...(window !== undefined ? { contextWindow: window } : {}),
         ...(session.role !== undefined ? { role: session.role } : {}),
         at: IsoTimestamp.now(),

@@ -68,6 +68,39 @@ describe('useTokenUsage', () => {
     r.unmount();
   });
 
+  it('maps the live per-turn fields through alongside the cumulative ones', async () => {
+    const bus = createInMemoryEventBus();
+    let last: ReadonlyMap<string, TokenUsage> = new Map();
+    const r = render(<Probe bus={bus} onState={(u) => (last = u)} />);
+
+    bus.publish({
+      type: 'token-usage',
+      sessionId: 'sess-live',
+      provider: 'claude-code',
+      inputTokens: 2000,
+      outputTokens: 900,
+      cacheReadTokens: 187000,
+      liveInputTokens: 1200,
+      liveCacheReadTokens: 52000,
+      liveCacheCreationTokens: 400,
+      contextWindow: 200000,
+      at: NOW,
+    });
+    await new Promise((res) => setTimeout(res, 5));
+
+    expect(last.get('sess-live')).toEqual({
+      provider: 'claude-code',
+      inputTokens: 2000,
+      outputTokens: 900,
+      cacheReadTokens: 187000,
+      liveInputTokens: 1200,
+      liveCacheReadTokens: 52000,
+      liveCacheCreationTokens: 400,
+      contextWindow: 200000,
+    });
+    r.unmount();
+  });
+
   it('replaces prior usage for the same session (latest event wins)', async () => {
     const bus = createInMemoryEventBus();
     let last: ReadonlyMap<string, TokenUsage> = new Map();

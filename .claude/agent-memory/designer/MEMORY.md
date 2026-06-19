@@ -54,3 +54,7 @@
 ## Implement View Band Layout
 
 - [project_implement_view_band_layout.md](project_implement_view_band_layout.md) — Status band + nav sidebar: component tree, where meta lives, height budget, token honesty rules (Jun 2026)
+
+## Implement Header + Sidebar Layout
+
+- [project_implement_header_effort_sidebyside.md](project_implement_header_effort_sidebyside.md) — HeaderCard two-line gen/eval model+effort; side-by-side Baseline+Token at ≥xl (sidebarContextSideBySide); threading chain (Jun 2026)

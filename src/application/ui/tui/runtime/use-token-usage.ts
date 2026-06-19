@@ -39,10 +39,15 @@ const TOKEN_USAGE_SESSION_CAP = 100;
 export interface TokenUsage {
   readonly provider: TokenUsageEvent['provider'];
   readonly model?: string;
+  // Cumulative throughput / billing figures (sum across all turns of a claude -p spawn).
   readonly inputTokens?: number;
   readonly outputTokens?: number;
   readonly cacheReadTokens?: number;
   readonly cacheCreationTokens?: number;
+  // Live per-turn snapshot (last assistant turn) — true current context-window occupancy.
+  readonly liveInputTokens?: number;
+  readonly liveCacheReadTokens?: number;
+  readonly liveCacheCreationTokens?: number;
   readonly contextWindow?: number;
 }
 
@@ -55,6 +60,9 @@ const toUsage = (e: TokenUsageEvent): TokenUsage => ({
   ...(e.outputTokens !== undefined ? { outputTokens: e.outputTokens } : {}),
   ...(e.cacheReadTokens !== undefined ? { cacheReadTokens: e.cacheReadTokens } : {}),
   ...(e.cacheCreationTokens !== undefined ? { cacheCreationTokens: e.cacheCreationTokens } : {}),
+  ...(e.liveInputTokens !== undefined ? { liveInputTokens: e.liveInputTokens } : {}),
+  ...(e.liveCacheReadTokens !== undefined ? { liveCacheReadTokens: e.liveCacheReadTokens } : {}),
+  ...(e.liveCacheCreationTokens !== undefined ? { liveCacheCreationTokens: e.liveCacheCreationTokens } : {}),
   ...(e.contextWindow !== undefined ? { contextWindow: e.contextWindow } : {}),
 });
 

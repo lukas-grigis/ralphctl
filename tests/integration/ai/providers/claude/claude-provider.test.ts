@@ -445,6 +445,82 @@ describe('createClaudeProvider — TokenUsageEvent emission', () => {
     expect(evt.contextWindow).toBe(200_000);
   });
 
+  it('forwards live per-turn usage from the LAST assistant turn alongside cumulative figures', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+
+    const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-lu', model: 'claude-opus-4-8' });
+    const turn1 = JSON.stringify({
+      type: 'assistant',
+      message: {
+        content: 't1',
+        usage: { input_tokens: 800, cache_read_input_tokens: 30000, cache_creation_input_tokens: 1000 },
+      },
+      session_id: 'sess-lu',
+    });
+    const turn2 = JSON.stringify({
+      type: 'assistant',
+      message: {
+        content: 't2',
+        usage: { input_tokens: 1200, cache_read_input_tokens: 52000, cache_creation_input_tokens: 400 },
+      },
+      session_id: 'sess-lu',
+    });
+    // Cumulative result.usage is the spawn-total — much larger than any single turn.
+    const resultEvt = JSON.stringify({
+      type: 'result',
+      subtype: 'success',
+      result: '<task-complete/>',
+      session_id: 'sess-lu',
+      usage: {
+        input_tokens: 2000,
+        output_tokens: 900,
+        cache_read_input_tokens: 187000,
+        cache_creation_input_tokens: 1400,
+      },
+    });
+    const { spawn } = makeSpawn([{ stdoutChunks: [`${init}\n${turn1}\n${turn2}\n${resultEvt}\n`], exitCode: 0 }]);
+
+    const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+
+    const tokenEvents = cap.events.filter((e): e is TokenUsageEvent => e.type === 'token-usage');
+    expect(tokenEvents).toHaveLength(1);
+    const evt = tokenEvents[0]!;
+    // Cumulative throughput figures.
+    expect(evt.inputTokens).toBe(2000);
+    expect(evt.cacheReadTokens).toBe(187000);
+    // Live = last turn only — the true current window occupancy.
+    expect(evt.liveInputTokens).toBe(1200);
+    expect(evt.liveCacheReadTokens).toBe(52000);
+    expect(evt.liveCacheCreationTokens).toBe(400);
+  });
+
+  it('omits live fields when no assistant event carried usage', async () => {
+    const cap = createCapturingBus();
+    const sess = session();
+    const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-nl', model: 'claude-opus-4-8' });
+    const delta = JSON.stringify({ type: 'assistant', message: { content: 'plain' }, session_id: 'sess-nl' });
+    const resultEvt = JSON.stringify({
+      type: 'result',
+      result: '<task-complete/>',
+      session_id: 'sess-nl',
+      usage: { input_tokens: 100, output_tokens: 50 },
+    });
+    const { spawn } = makeSpawn([{ stdoutChunks: [`${init}\n${delta}\n${resultEvt}\n`], exitCode: 0 }]);
+
+    const provider = createClaudeProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    await provider.generate(sess);
+
+    const tokenEvents = cap.events.filter((e): e is TokenUsageEvent => e.type === 'token-usage');
+    expect(tokenEvents).toHaveLength(1);
+    const evt = tokenEvents[0]!;
+    expect(evt.liveInputTokens).toBeUndefined();
+    expect(evt.liveCacheReadTokens).toBeUndefined();
+    expect(evt.liveCacheCreationTokens).toBeUndefined();
+  });
+
   it('omits contextWindow when the model is unknown to the lookup table', async () => {
     const cap = createCapturingBus();
     const sess = session();

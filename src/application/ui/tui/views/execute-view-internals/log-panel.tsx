@@ -9,10 +9,25 @@
  * entries — `use-task-round-tracker.ts` carries the in-view monotonic high-water that
  * survives ring eviction. This panel is downstream of that and only renders whatever the
  * log bus has delivered.
+ *
+ * Visual treatment: the panel is wrapped in a bordered `Card` (tone "rule") so it reads
+ * as a distinct region from the Steps / Tasks sections above it, matching the styling of
+ * the BaselineHealthCard and TokenBudgetCard in the sidebar. The Card title ("Recent log")
+ * replaces the outer `<Section>` heading that `body.tsx` previously supplied.
+ *
+ * Scroll: NOT added. Although the in-state buffer is already bounded at LOG_TAIL_LIMIT
+ * (1 000 entries) and `RecentEventsTail` further slices to `maxRows`, adding ↑/↓ scroll
+ * here requires a `useInput` handler that would race the global TUI hotkeys (Tab / Esc /
+ * j / k are all consumed by the global key layer without `isActive` gating at the body
+ * level). The visual separation is the primary ask; scroll is deferred until the global
+ * input model exposes a focus-lane for this panel.
  */
 
 import React from 'react';
+import { Box } from 'ink';
+import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { RecentEventsTail } from '@src/application/ui/tui/components/recent-events-tail.tsx';
+import { spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import type { LogEvent } from '@src/business/observability/events.ts';
 
 /**
@@ -27,5 +42,9 @@ interface LogPanelProps {
 }
 
 export const LogPanel = ({ entries, maxRows }: LogPanelProps): React.JSX.Element => (
-  <RecentEventsTail entries={entries} maxRows={maxRows} />
+  <Box marginTop={spacing.section}>
+    <Card title="Recent log">
+      <RecentEventsTail entries={entries} maxRows={maxRows} />
+    </Card>
+  </Box>
 );
