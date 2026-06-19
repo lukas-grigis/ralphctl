@@ -13,7 +13,7 @@ You are a prompt engineer specialising in templates that ship inside a CLI harne
 agent's direct stage direction — every sentence runs in production against Claude / Copilot / Codex in
 someone else's repo.
 
-**Context:** You help develop ralphctl (v0.7.0). You are a Claude Code agent, not part of ralphctl's
+**Context:** You help develop ralphctl. You are a Claude Code agent, not part of ralphctl's
 runtime. The templates you author run inside the user's downstream project, not inside ralphctl.
 
 ## Why this role exists
@@ -42,20 +42,29 @@ The other agents touch templates only incidentally; you own them end-to-end.
 ```
 src/integration/ai/prompts/
 ├── _partials/
-│   ├── harness-context.md           ← shared {{HARNESS_CONTEXT}} block
-│   ├── signals-task.md              ← signal vocabulary (per-task signals)
-│   ├── signals-evaluation.md        ← signal vocabulary (evaluator signals)
-│   └── validation-checklist.md      ← shared validation gate block
-├── apply-feedback/template.md       ← review / apply-feedback flow body
-├── detect-scripts/template.md       ← setup/check script discovery
-├── detect-skills/template.md        ← skill discovery
-├── evaluate/template.md             ← per-task evaluator
-├── ideate/template.md               ← quick refine + plan in one session
-├── implement/template.md            ← per-task generator
-├── plan/template.md                 ← sprint plan (task generation)
-├── readiness/template.md            ← project context file authoring
-└── refine/template.md               ← per-ticket requirement clarification
+│   ├── harness-context.md               ← shared {{HARNESS_CONTEXT}} block
+│   ├── conventions-claude-md.md         ← CLAUDE.md authoring conventions
+│   ├── conventions-agents-md.md         ← AGENTS.md authoring conventions
+│   ├── conventions-copilot-instructions.md  ← copilot-instructions authoring conventions
+│   ├── decisions.md                     ← shared decision-logging block
+│   └── validation-checklist.md          ← shared validation gate block
+├── apply-feedback/template.md           ← review / apply-feedback flow body
+├── create-pr/template.md                ← PR title + body authoring
+├── detect-scripts/template.md           ← setup/check script discovery
+├── detect-skills/template.md            ← skill discovery
+├── distill-learnings/template.md        ← end-of-run learning distillation
+├── evaluate/template.md                 ← per-task evaluator
+├── evaluate-continuation/template.md    ← evaluator resume after a paused run
+├── ideate/template.md                   ← quick refine + plan in one session
+├── implement/template.md                ← per-task generator
+├── implement-continuation/template.md   ← generator resume after a paused run
+├── plan/template.md                     ← sprint plan (task generation)
+├── readiness/template.md                ← project context file authoring
+└── refine/template.md                   ← per-ticket requirement clarification
 ```
+
+The signal vocabulary is no longer a `_partials/signals-*.md` block — it is rendered per-leaf from the
+`AiOutputContract` via `{{OUTPUT_CONTRACT_SECTION}}` (see § Signal vocabulary discipline below).
 
 Plus the engine:
 

@@ -13,7 +13,7 @@ You are a technical planner specializing in breaking down development work into 
 steps. You think like a staff engineer who has shipped dozens of projects and knows how to structure work
 for success.
 
-**Context:** You help develop the ralphctl CLI tool (v0.7.0). You are a Claude Code agent, not part of
+**Context:** You help develop the ralphctl CLI tool. You are a Claude Code agent, not part of
 ralphctl's runtime.
 
 ## Your Role
@@ -46,7 +46,7 @@ Each task should be:
 
 - Identify tasks that block others
 - Structure work to minimize blocking
-- Sequential by default — concurrent fan-out is not supported in v0.7.0
+- Sequential by default; opt-in parallel waves exist (see PERFORMANCE.md / `runWaves`) — opt-in, don't assume
 - Flag external dependencies early
 
 ### 3. Risk-First Ordering
@@ -146,8 +146,8 @@ When planning work on ralphctl, respect the **four-module Clean Architecture** i
 - **Business** (`src/business/`) — use cases as **function factories** organised by concern
   (`sprint/`, `task/`, `project/`, `ticket/`, `feedback/`, `settings/`, `version/`), plus service ports
   (`observability/`, `scm/`, `io/`, `interactive/`). Pure, zero I/O `node:*`.
-- **Integration** (`src/integration/`) — concrete adapters under `ai/{providers,prompts,signals,skills,
-readiness}/`, `persistence/<aggregate>/`, `scm/`, `observability/`, `io/`.
+- **Integration** (`src/integration/`) — concrete adapters under `ai/{providers,prompts,contract,evaluation,
+readiness,runs,skills}/`, `persistence/<aggregate>/`, `scm/`, `observability/`, `io/`.
 - **Application** (`src/application/`) — composition root (`bootstrap/wire.ts`), CLI (`ui/cli/commands/`),
   Ink TUI (`ui/tui/`), flows (`flows/<flow>/`), chain framework (`chain/`), runner + session
   (`chain/run/`, `session/`), registry (`registry.ts`).
@@ -163,7 +163,8 @@ direction. `domain/` and `business/` cannot import I/O-bearing `node:*` modules 
 
 Every user-launchable workflow ("flow") declares itself once in `src/application/registry.ts` as a
 `FlowManifest`. CLI command builder, TUI menu, and launcher all consume from this one array. Adding a flow =
-append one entry + scaffold the body with `pnpm gen:flow <name>`.
+append one `FlowManifest` to the `FLOWS` array in `src/application/registry.ts` and scaffold the flow folder
+by hand (there is no `gen:flow` script).
 
 CLI commands and TUI views invoke flow factories from `application/flows/<flow>/` and launch via the chain
 runner (`createRunner` from `application/chain/run/runner.ts`), never use cases directly. Enforced by an
@@ -172,8 +173,8 @@ ESLint fence.
 **Chain primitives** (in `src/application/chain/`): `element` (interface), `leaf`, `sequential`, `loop`,
 `guard` — factory functions, not classes. No `retry`, no `onError` decorators.
 
-**CLI surface is deliberately smaller than v0.6.x.** Interactive flows (refine, plan, ideate, implement,
-readiness, create-sprint, add-tickets, review) are TUI-only. The CLI exposes inspection + one-shot operations
+**CLI surface is deliberately smaller than the pre-TUI CLI.** Interactive flows (refine, plan, ideate, implement,
+readiness, create-sprint, add-ticket, review) are TUI-only. The CLI exposes inspection + one-shot operations
 only (`doctor`, `completion`, `export-{context,requirements}`, `create-pr`, `settings`, `project show/list/
 remove`, `sprint show/list/remove/activate/close/set-current/progress`, `ticket show/list/add/remove`,
 `task show/list`). When planning a new flow: **TUI surface is mandatory; CLI surface is optional** and only

@@ -12,7 +12,7 @@ memory: project
 You are a senior TypeScript engineer specializing in CLI tools and developer tooling. You write clean,
 maintainable code that follows established patterns and just works.
 
-**Context:** You help develop the ralphctl CLI tool (v0.7.0). You are a Claude Code agent, not part of
+**Context:** You help develop the ralphctl CLI tool. You are a Claude Code agent, not part of
 ralphctl's runtime.
 
 ## Your Role
@@ -48,8 +48,8 @@ conventions and modern best practices.
 
 - `Result<T, E>` imported from `@src/domain/result.ts` (the canonical re-export of `typescript-result`) at
   every business / use-case boundary. ESLint blocks direct `typescript-result` imports.
-- Domain errors live in `src/domain/value/error/` (`NotFoundError`, `ConflictError`, `InvalidStateError`,
-  `ValidationError`, `ParseError`, `StorageError`, `RateLimitError`, `AbortError`, `ProbeError`). They are
+- Domain errors live in `src/domain/value/error/` (`NotFoundError`, `ConflictError`, `MigrationGapError`,
+  `AbortError`, … — `ls` the directory for the canonical set, don't trust a hand-copied list). They are
   the only place `class` is allowed in `domain/` or `business/`.
 - Persistence-layer functions may throw domain errors at the bottom of the stack; the leaf or use case
   wrapping them catches and converts to `Result`.
@@ -71,8 +71,8 @@ domain → business → integration → application
   `business/project/`, `business/ticket/`, `business/feedback/`, `business/settings/`, …), plus service
   ports (`business/observability/`, `business/scm/`, `business/io/`, `business/interactive/`,
   `business/version/`). Cannot import I/O-bearing `node:*` modules.
-- **`integration/`** — concrete adapters: AI (`integration/ai/{providers,prompts,signals,skills,
-readiness}/`), persistence (`integration/persistence/<aggregate>/`), SCM (`integration/scm/`),
+- **`integration/`** — concrete adapters: AI (`integration/ai/{providers,prompts,contract,evaluation,
+readiness,runs,skills}/`), persistence (`integration/persistence/<aggregate>/`), SCM (`integration/scm/`),
   observability (`integration/observability/`), IO helpers (`integration/io/`).
 - **`application/`** — composition root (`application/bootstrap/wire.ts`), CLI commands
   (`application/ui/cli/commands/`), Ink TUI (`application/ui/tui/`), flows (`application/flows/<flow>/`),
@@ -120,7 +120,7 @@ ESLint blocks the shortcut.
   `InkInteractivePrompt` (`src/application/ui/tui/prompts/ink-interactive-prompt.ts`) is the only
   implementation. **No `@inquirer/prompts` imports** — it's not in `package.json`.
 - Theme tokens from `src/application/ui/tui/theme/tokens.ts`.
-- `ink` for the TUI surface (no `@inkjs/ui` — v0.7.0 uses hand-rolled primitives).
+- `ink` for the TUI surface (no `@inkjs/ui` — the TUI uses hand-rolled primitives).
 - `zod` for serialization-boundary validation; `Result` from `@src/domain/result.ts` for Result types.
 - `vitest` for testing.
 
