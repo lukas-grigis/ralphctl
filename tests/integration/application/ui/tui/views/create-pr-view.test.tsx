@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import type * as ProviderFactoryModule from '@src/application/bootstrap/provider-factory.ts';
 import type * as DetectCliModule from '@src/integration/system/detect-cli.ts';
+import type * as StorageModule from '@src/integration/persistence/storage.ts';
 import type { AiProvider } from '@src/domain/entity/settings.ts';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Project } from '@src/domain/entity/project.ts';
@@ -60,6 +61,20 @@ vi.mock('@src/integration/system/detect-cli.ts', async () => {
     ...actual,
     detectInstalledProviders: async (): Promise<ReadonlySet<AiProvider>> =>
       new Set(detectRef.installed) as ReadonlySet<AiProvider>,
+  };
+});
+
+// `resolveSprintDir` scans the real `<dataRoot>/sprints/` on disk. This view test stubs the repos and
+// never materialises a sprint dir, so on a clean checkout the scan returns undefined and the view bails
+// before the provider rebuild + PATH gate under test (it only passed locally when a stale
+// /tmp/data/sprints/s-1 happened to linger — CI's fresh tree exposed it). Stub the resolver to a fixed
+// path so this test isolates the view's provider/PATH logic; the id-prefix resolver itself is covered in
+// tests/integration/persistence/storage.test.ts.
+vi.mock('@src/integration/persistence/storage.ts', async () => {
+  const actual = await vi.importActual<typeof StorageModule>('@src/integration/persistence/storage.ts');
+  return {
+    ...actual,
+    resolveSprintDir: async (): Promise<string> => '/tmp/data/sprints/s-1',
   };
 });
 
