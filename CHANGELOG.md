@@ -7,6 +7,8 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-06-20
+
 ### Added
 
 - **Human-readable data layout (`<id>--<slug>` naming).** Project files, sprint directories, and
