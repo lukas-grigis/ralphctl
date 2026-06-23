@@ -7,6 +7,14 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-06-23
+
+### Changed
+
+- **Dependency maintenance.** Bumped the all-dependencies group — dev tooling and lockfile
+  resolutions, including `@types/node` 25 → 26 and a within-range `ink` 7.0.x → 7.1.0 update. No
+  runtime API or behavior changes.
+
 ## [0.13.0] - 2026-06-20
 
 ### Added
