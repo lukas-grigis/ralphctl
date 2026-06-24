@@ -27,7 +27,7 @@ import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { AgentsMdProposalSignal, SkillSuggestionsSignal } from '@src/domain/signal.ts';
-import type { AiSettings } from '@src/domain/entity/settings.ts';
+import type { AiProvider, AiSettings } from '@src/domain/entity/settings.ts';
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
 import type { Skill } from '@src/integration/ai/skills/_engine/skill.ts';
 import { absolutePath, FIXED_NOW, isoTimestamp, makeProject, makeRepository } from '@tests/fixtures/domain.ts';
@@ -612,5 +612,76 @@ describe('readiness fan-out across unique providers', () => {
     expect(bareInstalls).toHaveLength(0);
     // persist-suggested-skills is a no-op when there are zero suggestions — no save fires.
     expect(saved).toHaveLength(0);
+  });
+});
+
+/**
+ * Provider-scoping fan-out: the `providers` opt scopes the per-tool sub-chains the chain builds.
+ * These tests inspect the static element tree (`flow.children`) rather than running the chain —
+ * the per-tool sub-chains are the top-level `sequential('readiness', …)` children named
+ * `tool-<tool>`, so the set of those names is exactly the scoped fan-out.
+ */
+describe('readiness fan-out provider scoping', () => {
+  const buildFlow = (ai: AiSettings, opts: { readonly providers?: readonly AiProvider[] }) => {
+    const project = makeProject({ repositories: [makeRepository({ name: 'repo-a' })] });
+    return createReadinessFlow(
+      {
+        projectRepo: fakeProjectRepo(project).repo,
+        probes: universalAbsentProbes(),
+        providerFor: () => createFakeAiProvider({ signals: { readiness: [] } }),
+        skillsAdapterFor: () => noopSkillsAdapter,
+        templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
+        eventBus: createInMemoryEventBus(),
+        logger: createEventBusLogger({
+          eventBus: createInMemoryEventBus(),
+          clock: () => isoTimestamp('2026-05-09T10:00:00.000Z'),
+        }),
+        interactive: scriptedInteractive({}),
+        writeFile: recordingWriteFile().write,
+        clock: () => isoTimestamp('2026-05-09T10:00:00.000Z'),
+        skillSource: emptySkillSource,
+        runsRoot: absolutePath('/tmp/ralphctl-readiness-scope/runs'),
+      },
+      {
+        projectId: project.id,
+        cwd: FAKE_CWD,
+        ai,
+        ...(opts.providers !== undefined ? { providers: opts.providers } : {}),
+      }
+    );
+  };
+
+  /** Names of the per-tool sub-chain children of the top-level `sequential('readiness', …)`. */
+  const toolSubchainNames = (flow: ReturnType<typeof buildFlow>): readonly string[] =>
+    (flow.children ?? []).map((c) => c.name).filter((n) => n.startsWith('tool-'));
+
+  it('providers scoped to one provider → exactly that provider tool sub-chain is built', () => {
+    // Settings reference three providers; scope to github-copilot only.
+    const ai = buildAi({
+      refine: 'github-copilot',
+      plan: 'openai-codex',
+      implement: 'claude-code',
+      readiness: 'claude-code',
+      ideate: 'github-copilot',
+    });
+
+    const flow = buildFlow(ai, { providers: ['github-copilot'] });
+
+    expect(toolSubchainNames(flow)).toEqual(['tool-copilot']);
+  });
+
+  it('providers omitted → unchanged all-unique-providers fan-out (one sub-chain per unique provider)', () => {
+    const ai = buildAi({
+      refine: 'github-copilot',
+      plan: 'openai-codex',
+      implement: 'claude-code',
+      readiness: 'claude-code',
+      ideate: 'github-copilot',
+    });
+
+    const flow = buildFlow(ai, {});
+
+    // Order follows FLOW_IDS first-appearance: refine(copilot) → plan(codex) → implement(claude).
+    expect(toolSubchainNames(flow)).toEqual(['tool-copilot', 'tool-codex', 'tool-claude-code']);
   });
 });

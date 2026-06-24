@@ -41,6 +41,15 @@ export interface CreateReadinessFlowOpts {
    * and to pick a model + effort for each tool's AI session.
    */
   readonly ai: AiSettings;
+  /**
+   * Scope the fan-out to a subset of providers. When omitted the flow falls back to
+   * {@link uniqueProvidersFromAi}(ai) — the historical "set up every configured provider"
+   * behavior. The launcher passes a single-element list when the operator picks one provider at
+   * launch, or every unique provider when they pick "All providers". Each entry must appear in
+   * `ai` so `pickRowForProvider` can resolve a model + effort for it; the launcher derives the
+   * list from the same settings, so that invariant always holds.
+   */
+  readonly providers?: readonly AiProvider[];
 }
 
 /**
@@ -152,7 +161,8 @@ const buildPerToolSubchain = (
 };
 
 /**
- * Build the readiness chain — fans out to every uniquely referenced provider in `settings.ai`.
+ * Build the readiness chain — fans out to `opts.providers` when supplied, otherwise to every
+ * uniquely referenced provider in `settings.ai`.
  *
  * Shape:
  *
@@ -173,7 +183,10 @@ const buildPerToolSubchain = (
  * from the per-flow row whose provider matches (readiness row preferred when it does).
  */
 export const createReadinessFlow = (deps: SetupReadinessDeps, opts: CreateReadinessFlowOpts): Element<ReadinessCtx> => {
-  const providers = uniqueProvidersFromAi(opts.ai);
+  // Default to every uniquely-referenced provider (historical behavior); a launcher-supplied
+  // `providers` list scopes the fan-out to the operator's pick. Per-provider model resolution
+  // still reads the full `opts.ai`, so any provider in the list resolves correctly.
+  const providers = opts.providers ?? uniqueProvidersFromAi(opts.ai);
   const perToolSubchains = providers.map((provider) =>
     buildPerToolSubchain(deps, opts, provider, toolForProvider(provider))
   );
