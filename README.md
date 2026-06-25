@@ -11,10 +11,12 @@
 [![Built with Donuts](https://img.shields.io/badge/%F0%9F%8D%A9-Built_with_Donuts-ff6f00?style=flat)](https://github.com/lukas-grigis/ralphctl)
 
 <p align="center">
-  <img src="./.github/assets/home.png" alt="ralphctl home screen — Ralph donut banner with 'The pointy kitty took it!' tagline, demo project tile, WORK / OBSERVE / SYSTEM menus with keybindings, bottom footer" width="900" />
+  <img src="./.github/assets/home.png" alt="ralphctl home screen — Ralph donut banner with 'The pointy kitty took it!' tagline, WORK / OBSERVE / SYSTEM menus with keybindings, bottom footer" width="900" />
 </p>
 
-**Agent harness for long-running AI coding tasks —
+# ralphctl
+
+**A ralph harness for long-running AI coding tasks — a hardened ralph loop that
 orchestrates [Claude Code](https://docs.anthropic.com/en/docs/claude-code) across repositories,
 with [GitHub Copilot](https://docs.github.com/en/copilot/github-copilot-in-the-cli) and
 [OpenAI Codex](https://github.com/openai/codex) available in preview.**
@@ -27,6 +29,17 @@ with [GitHub Copilot](https://docs.github.com/en/copilot/github-copilot-in-the-c
 > each in `mixed` / `claude-only` / `copilot-only` / `codex-only` variants.
 > Upgrades are best-effort: install the latest version, redo your config, proceed.
 > See [Upgrading](#upgrading) and [CHANGELOG](./CHANGELOG.md).
+
+---
+
+## What is a ralph harness?
+
+The "Ralph" technique comes from Geoffrey Huntley's [Ralph Wiggum as a software engineer](https://ghuntley.com/ralph/):
+point a coding agent at a task and run it in a loop until the work is done. The bare version
+(`while :; do cat PROMPT.md | claude-code; done`) loops blindly — it re-runs the same prompt and hopes each pass lands.
+ralphctl is a ralph harness around that idea: instead of blind repetition it runs a generator-evaluator loop, where one
+pass writes the change and a second independent pass reviews it against the task spec before the loop advances. Same
+loop, with a verification gate on every step.
 
 ---
 
@@ -49,8 +62,16 @@ You describe what to build. ralphctl handles the rest — or works alongside you
 npm install -g ralphctl
 ```
 
-Install [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (or a preview provider — see below), authenticate
-it, then:
+> Needs [Node.js](https://nodejs.org/) ≥ 24 — `mise use node@24` or `nvm install 24`.
+
+Install [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (or a preview provider — see below) and
+authenticate it, then confirm ralphctl can see it:
+
+```bash
+ralphctl doctor    # verifies your provider CLI is installed + authenticated — the #1 first-run failure
+```
+
+When `doctor` is green, launch:
 
 ```bash
 ralphctl
@@ -194,7 +215,11 @@ One-shot configuration for any provider: `ralphctl settings apply-preset <name>`
 
 Configure via the TUI `Settings` view or one-shot CLI commands.
 
-**Quickest path — apply a preset:**
+**Quickest path — apply a preset.** Presets auto-seed from your detected CLIs on first run; override later with
+`apply-preset`.
+
+<details>
+<summary>All 20 presets across five families</summary>
 
 ```bash
 # Standard — flagship model per flow
@@ -232,6 +257,8 @@ Twenty presets across five families ship, all equally first-class — none is ma
 preset stamps the entire `ai` section plus `harness.escalateOnPlateau` in one transaction (`fast` stamps it
 `false` so a plateau settles; all others stamp it `true`). On a fresh install the welcome view silently
 auto-seeds a preset based on which provider CLIs it detects on `PATH`.
+
+</details>
 
 **Per-flow settings.** Each flow carries its own `{provider, model, effort?}` row: `refine`, `plan`, `readiness`,
 `ideate`, and `createPr`. The `implement` flow instead splits into a nested `generator` / `evaluator` pair
@@ -383,16 +410,17 @@ Run `ralphctl <command> --help` for flag-level detail.
 
 ## Documentation
 
-| Resource                                       | Description                                       |
-| ---------------------------------------------- | ------------------------------------------------- |
-| [Architecture](./.claude/docs/ARCHITECTURE.md) | Data models, file storage, error reference        |
-| [Requirements](./.claude/docs/REQUIREMENTS.md) | Acceptance criteria and feature checklist         |
-| [Contributing](./CONTRIBUTING.md)              | Dev setup, code style, PR process                 |
-| [Migration](./MIGRATION.md)                    | Per-version upgrade context for big version jumps |
-| [Changelog](./CHANGELOG.md)                    | Version history                                   |
+| Resource                                         | Description                                              |
+| ------------------------------------------------ | -------------------------------------------------------- |
+| [Architecture](./ARCHITECTURE.md)                | Data models, harness loop, file storage, error reference |
+| [Adding a provider](./docs/adding-a-provider.md) | Extension guide: wire a new AI CLI into the harness      |
+| [Requirements](./.claude/docs/REQUIREMENTS.md)   | Acceptance criteria and feature checklist                |
+| [Contributing](./CONTRIBUTING.md)                | Dev setup, code style, PR process                        |
+| [Migration](./MIGRATION.md)                      | Per-version upgrade context for big version jumps        |
+| [Changelog](./CHANGELOG.md)                      | Version history                                          |
 
 **Blog posts:** [Building ralphctl](https://lukasgrigis.dev/blog/building-ralphctl) (
-backstory) | [From task CLI to agent harness](https://lukasgrigis.dev/blog/ralphctl-agent-harness/) (evaluator
+backstory) | [From task CLI to ralph harness](https://lukasgrigis.dev/blog/ralphctl-agent-harness/) (evaluator
 deep-dive)
 
 **Further reading:
