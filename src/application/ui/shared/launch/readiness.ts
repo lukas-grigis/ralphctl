@@ -91,10 +91,21 @@ const flowIdForProvider = (settings: LaunchContext['settings'], provider: AiProv
 };
 
 export const launchReadiness = async (ctx: LaunchContext): Promise<LaunchResult> => {
-  const { deps, snapshot, settings, cwd, bridge, sessionId } = ctx;
+  const { deps, snapshot, settings, bridge, sessionId } = ctx;
   const missing = await checkCli('readiness', settings, { override: ctx.extras.override });
   if (missing !== undefined) return missing;
   if (!snapshot.project) return { ok: false, reason: 'No project loaded.' };
+
+  // Resolve the repository readiness should set up: the operator's pre-launch pick when present
+  // and still on the project, otherwise the first repository (today's fallback). Deriving `cwd`
+  // from the SAME repo keeps the AI session's working dir aligned with the repo `pickRepositoryLeaf`
+  // resolves to in-chain — the pre-launch `repositoryId` also auto-selects it, avoiding a second prompt.
+  const targetRepo =
+    ctx.extras.repositoryId !== undefined
+      ? snapshot.project.repositories.find((r) => r.id === ctx.extras.repositoryId)
+      : undefined;
+  const resolvedRepo = targetRepo ?? snapshot.project.repositories[0];
+  const cwd = resolvedRepo?.path;
   if (!cwd) return { ok: false, reason: 'No repository path resolvable from the project.' };
 
   // Skills / native context files are provider-specific, so let the operator scope readiness to
@@ -151,6 +162,7 @@ export const launchReadiness = async (ctx: LaunchContext): Promise<LaunchResult>
     },
     {
       projectId: snapshot.project.id,
+      ...(resolvedRepo?.id !== undefined ? { repositoryId: resolvedRepo.id } : {}),
       cwd,
       ai: settings.ai,
       providers: scopedProviders,
@@ -160,7 +172,12 @@ export const launchReadiness = async (ctx: LaunchContext): Promise<LaunchResult>
   const runner = createRunner<ReadinessCtx>({
     id: sessionId(),
     element,
-    initialCtx: { projectId: snapshot.project.id, tools, entries: {} },
+    initialCtx: {
+      projectId: snapshot.project.id,
+      tools,
+      entries: {},
+      ...(resolvedRepo?.id !== undefined ? { repositoryId: resolvedRepo.id } : {}),
+    },
   });
   return {
     ok: true,

@@ -1,4 +1,5 @@
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
+import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import {
   type AiProvider,
@@ -30,6 +31,13 @@ import { FLOW_IDS } from '@src/domain/value/flow-id.ts';
 
 export interface CreateReadinessFlowOpts {
   readonly projectId: ProjectId;
+  /**
+   * Optional pre-selected repository. When supplied (the operator picked a repo at the
+   * pre-launch picker), `pickRepositoryLeaf` auto-resolves without prompting; when omitted it
+   * auto-selects a single-repo project or prompts on a multi-repo one. The launcher derives
+   * `cwd` from the same repository so the AI session inventories the repo the chain picks.
+   */
+  readonly repositoryId?: RepositoryId;
   /**
    * Working directory passed to each per-tool AI session. Captured at chain-construction;
    * switching repositories mid-run is out of scope — one chain run sets up readiness for one
@@ -197,6 +205,7 @@ export const createReadinessFlow = (deps: SetupReadinessDeps, opts: CreateReadin
       {
         promptMessage: 'Which repository do you want to set up readiness for?',
         emptyVerb: 'set up readiness for',
+        preselectedFromCtx: (ctx) => ctx.repositoryId,
       }
     ),
     ...perToolSubchains,

@@ -2,6 +2,7 @@ import type { ReadinessState } from '@src/integration/ai/readiness/_engine/state
 import type { AssistantTool } from '@src/integration/ai/readiness/_engine/tool.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
+import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import type { Repository } from '@src/domain/entity/repository.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 
@@ -59,11 +60,15 @@ export interface ReadinessToolEntry {
  * Context flowing through the readiness chain.
  *
  * Inputs supplied at chain construction:
- *  - `projectId` — the project whose repo is having readiness set up.
- *  - `tools`     — the unique {@link AssistantTool} set derived from `settings.ai`'s per-flow
- *                  provider rows. The chain iterates this list, running one per-tool sub-chain
- *                  per entry (probe → install-skills → propose → uninstall-skills → confirm →
- *                  write → offer-skill-suggestions → install-readiness-skills).
+ *  - `projectId`    — the project whose repo is having readiness set up.
+ *  - `repositoryId` — optional pre-selection. When the operator picked a repository at the
+ *                     pre-launch picker, the launcher threads it here and `pickRepositoryLeaf`
+ *                     auto-resolves; when unset, the leaf auto-selects a single-repo project or
+ *                     prompts on a multi-repo one.
+ *  - `tools`        — the unique {@link AssistantTool} set derived from `settings.ai`'s per-flow
+ *                     provider rows. The chain iterates this list, running one per-tool sub-chain
+ *                     per entry (probe → install-skills → propose → uninstall-skills → confirm →
+ *                     write → offer-skill-suggestions → install-readiness-skills).
  *
  * Slots populated by upstream leaves:
  *  - `project`    — by `loadProjectLeaf`.
@@ -72,6 +77,7 @@ export interface ReadinessToolEntry {
  */
 export interface ReadinessCtx {
   readonly projectId: ProjectId;
+  readonly repositoryId?: RepositoryId;
   readonly project?: Project;
   readonly repository?: Repository;
   readonly tools: readonly AssistantTool[];
