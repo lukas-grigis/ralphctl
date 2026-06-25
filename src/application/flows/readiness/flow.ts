@@ -1,4 +1,5 @@
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
+import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import {
   type AiProvider,
@@ -31,6 +32,13 @@ import { FLOW_IDS } from '@src/domain/value/flow-id.ts';
 export interface CreateReadinessFlowOpts {
   readonly projectId: ProjectId;
   /**
+   * Optional pre-selected repository. When supplied (the operator picked a repo at the
+   * pre-launch picker), `pickRepositoryLeaf` auto-resolves without prompting; when omitted it
+   * auto-selects a single-repo project or prompts on a multi-repo one. The launcher derives
+   * `cwd` from the same repository so the AI session inventories the repo the chain picks.
+   */
+  readonly repositoryId?: RepositoryId;
+  /**
    * Working directory passed to each per-tool AI session. Captured at chain-construction;
    * switching repositories mid-run is out of scope — one chain run sets up readiness for one
    * repository.
@@ -41,6 +49,15 @@ export interface CreateReadinessFlowOpts {
    * and to pick a model + effort for each tool's AI session.
    */
   readonly ai: AiSettings;
+  /**
+   * Scope the fan-out to a subset of providers. When omitted the flow falls back to
+   * {@link uniqueProvidersFromAi}(ai) — the historical "set up every configured provider"
+   * behavior. The launcher passes a single-element list when the operator picks one provider at
+   * launch, or every unique provider when they pick "All providers". Each entry must appear in
+   * `ai` so `pickRowForProvider` can resolve a model + effort for it; the launcher derives the
+   * list from the same settings, so that invariant always holds.
+   */
+  readonly providers?: readonly AiProvider[];
 }
 
 /**
@@ -152,7 +169,8 @@ const buildPerToolSubchain = (
 };
 
 /**
- * Build the readiness chain — fans out to every uniquely referenced provider in `settings.ai`.
+ * Build the readiness chain — fans out to `opts.providers` when supplied, otherwise to every
+ * uniquely referenced provider in `settings.ai`.
  *
  * Shape:
  *
@@ -173,7 +191,10 @@ const buildPerToolSubchain = (
  * from the per-flow row whose provider matches (readiness row preferred when it does).
  */
 export const createReadinessFlow = (deps: SetupReadinessDeps, opts: CreateReadinessFlowOpts): Element<ReadinessCtx> => {
-  const providers = uniqueProvidersFromAi(opts.ai);
+  // Default to every uniquely-referenced provider (historical behavior); a launcher-supplied
+  // `providers` list scopes the fan-out to the operator's pick. Per-provider model resolution
+  // still reads the full `opts.ai`, so any provider in the list resolves correctly.
+  const providers = opts.providers ?? uniqueProvidersFromAi(opts.ai);
   const perToolSubchains = providers.map((provider) =>
     buildPerToolSubchain(deps, opts, provider, toolForProvider(provider))
   );
@@ -184,6 +205,7 @@ export const createReadinessFlow = (deps: SetupReadinessDeps, opts: CreateReadin
       {
         promptMessage: 'Which repository do you want to set up readiness for?',
         emptyVerb: 'set up readiness for',
+        preselectedFromCtx: (ctx) => ctx.repositoryId,
       }
     ),
     ...perToolSubchains,

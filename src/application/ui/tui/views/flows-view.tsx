@@ -32,6 +32,7 @@ import { openFlowSession } from '@src/application/ui/tui/runtime/open-flow-sessi
 import { launchFlow } from '@src/application/ui/shared/launcher.ts';
 import { launchSprintBoundFlow } from '@src/application/ui/shared/launch/sprint-bound.ts';
 import { runCustomizePicker } from '@src/application/ui/tui/views/flows-customize-picker.ts';
+import { runRepositorySelection } from '@src/application/ui/tui/views/flows-repository-picker.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { getRunInTerminal } from '@src/application/ui/tui/runtime/run-in-terminal.ts';
 import { getImplementRoleOverrides } from '@src/application/ui/tui/runtime/implement-role-overrides.ts';
@@ -215,6 +216,27 @@ export const FlowsView = (): React.JSX.Element => {
           const freshSettings = await deps.settingsRepo.load();
           const settings = freshSettings.ok ? freshSettings.value : deps.settings;
 
+          // Pre-launch repository selection — for repo-selecting flows (detect-scripts /
+          // detect-skills / readiness) against a multi-repo project, ask which repository the
+          // run targets BEFORE the provider picker (the sequence reads "pick repo, then
+          // customize provider"). The session-pinned repo (`ui.sessionRepositoryId`) is offered
+          // first as a SOFT default — re-pickable every launch — rather than a HARD lock that
+          // would make `pickRepositoryLeaf` skip its prompt forever. Single-repo projects and
+          // non-repo flows return `kind: 'skip'` (no prompt); the chain's own `pickRepositoryLeaf`
+          // auto-selects the lone repo / handles the empty-project error.
+          const repoSelection = await runRepositorySelection({
+            interactive,
+            flowId: entry.manifest.id,
+            flowTitle: entry.manifest.title,
+            project: snapshot.project,
+            pinnedRepositoryId: ui.sessionRepositoryId,
+          });
+          if (repoSelection.kind === 'cancel') return;
+          const chosenRepositoryId = repoSelection.kind === 'selected' ? repoSelection.repositoryId : undefined;
+          // Re-pin immediately so the new choice is the default on the next launch and the
+          // post-completion capture below just re-affirms it (no conflict / double-prompt).
+          if (chosenRepositoryId !== undefined) ui.setSessionRepositoryId(chosenRepositoryId);
+
           // Pre-launch customize picker — for AI-driven flows the user gets Start /
           // Customize / Cancel. Customize walks provider → model → effort for each row
           // (implement walks generator then evaluator). Settings are never mutated; per-launch
@@ -231,10 +253,11 @@ export const FlowsView = (): React.JSX.Element => {
           });
           if (picker.kind === 'cancel') return;
 
-          // Thread the session-pinned repository id as a pre-selection so flows that pick a
-          // repo (detect-scripts / detect-skills / readiness) skip the prompt after the first
-          // pick of the session. First launch leaves extras empty → the user picks → the
-          // runner emits `completed` with the chosen `ctx.repository` and we record it below.
+          // Thread the resolved repository id as a pre-selection. When the repo-selection step
+          // above ran, `chosenRepositoryId` is the user's fresh pick; otherwise (single-repo /
+          // non-repo flows) it falls back to the session pin so the flow's own
+          // `pickRepositoryLeaf` still pre-selects the lone / previously-chosen repo. The runner
+          // emits `completed` with the chosen `ctx.repository` and we re-affirm the pin below.
           // Implement role overrides come from the picker when the user customized; otherwise
           // they fall back to the CLI-derived module holder (parsed from
           // `--implement-{generator,evaluator}-{provider,model}` on the bare `ralphctl`
@@ -247,8 +270,9 @@ export const FlowsView = (): React.JSX.Element => {
                 : undefined;
           const override = picker.kind === 'single' ? picker.override : undefined;
           const launcherDeps = { app: deps, interactive, storage, runInTerminal: getRunInTerminal() };
+          const repositoryId = chosenRepositoryId ?? ui.sessionRepositoryId;
           const launchExtras = {
-            ...(ui.sessionRepositoryId !== undefined ? { repositoryId: ui.sessionRepositoryId } : {}),
+            ...(repositoryId !== undefined ? { repositoryId } : {}),
             ...(override !== undefined ? { override } : {}),
             ...(implementRoleOverrides !== undefined ? { implementRoleOverrides } : {}),
             settingsSnapshot: settings,

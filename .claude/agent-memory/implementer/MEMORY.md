@@ -60,3 +60,6 @@
 - [project_migration_consent_gate_wiring.md](project_migration_consent_gate_wiring.md) — Wave 2b TTY migration consent
   gate: MigrationGate pre-app Ink route (props not context), launch.ts shouldShowMigrationGate seam + closure-flag
   resolve, renderLearnings adapter in app/UI layer, failure-screen downgrade fallback, CLI skips migration entirely
+- [project_flows_view_soft_repo_default.md](project_flows_view_soft_repo_default.md) — flows-view launch handler runs a
+  dedicated repo-selection step (flows-repository-picker.ts) BEFORE the customize picker; sessionRepositoryId is a
+  re-pickable soft default not a hard lock; gate on explicit 3-flow allowlist (detect-scripts/detect-skills/readiness)
