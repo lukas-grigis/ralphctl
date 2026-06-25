@@ -132,7 +132,13 @@ const createHeapCriticalHandler = (args: {
     // never touches a running record, so a healthy in-flight run is never disturbed — this only
     // sheds memory from work that is already done.
     const dropped = sessions.shedTerminal();
-    if (dropped > 0) logger.warn(`heap critical — shed ${dropped} finished session record(s) for memory relief`);
+    if (dropped > 0) {
+      logger.warn(`heap critical — shed ${dropped} finished session record(s) for memory relief`);
+    } else {
+      logger.warn(
+        'heap critical — no terminal records to shed; dominant retainer is the live session trace or chainEvents buffer'
+      );
+    }
 
     // Heap snapshot deferred off the hot path via setImmediate. v8.writeHeapSnapshot() is a
     // synchronous V8 operation that blocks the Node.js event loop for several seconds on large

@@ -1,10 +1,9 @@
 /**
  * Stats consumed by the `CancelScopeOverlay`:
  *
- *   - `attemptElapsedMs`: time since the most recent `task-attempt-started` event for the
- *     active task. Drives the overlay's "estimated wasted output" hint. Undefined when no
- *     attempt has started yet (e.g. preflight phase) — the overlay renders without the
- *     hint in that case.
+ *   - `attemptStartedAt`: wall-clock ms of the most recent `task-attempt-started` event for the
+ *     active task. The caller computes elapsed from `now - attemptStartedAt` so this memo does
+ *     not re-scan chainEvents on every clock tick. Undefined when no attempt has started yet.
  *   - `remainingTaskCount`: count of non-completed buckets, including the in-flight one.
  *     Surfaced as "N other tasks still queued" on the flow-cancel option.
  */
@@ -17,11 +16,10 @@ interface UseCancelScopeStatsInput {
   readonly chainEvents: readonly AppEvent[];
   readonly currentTask: TaskBucket | undefined;
   readonly bucketed: BucketedExecution | undefined;
-  readonly now: number;
 }
 
 export interface CancelScopeStats {
-  readonly attemptElapsedMs: number | undefined;
+  readonly attemptStartedAt: number | undefined;
   readonly remainingTaskCount: number;
 }
 
@@ -29,9 +27,8 @@ export const useCancelScopeStats = ({
   chainEvents,
   currentTask,
   bucketed,
-  now,
 }: UseCancelScopeStatsInput): CancelScopeStats => {
-  const attemptElapsedMs = useMemo<number | undefined>(() => {
+  const attemptStartedAt = useMemo<number | undefined>(() => {
     if (currentTask === undefined) return undefined;
     let latestStartMs: number | undefined;
     for (const ev of chainEvents) {
@@ -40,13 +37,13 @@ export const useCancelScopeStats = ({
       const ms = new Date(String(ev.at)).getTime();
       if (latestStartMs === undefined || ms > latestStartMs) latestStartMs = ms;
     }
-    return latestStartMs !== undefined ? Math.max(0, now - latestStartMs) : undefined;
-  }, [chainEvents, currentTask, now]);
+    return latestStartMs;
+  }, [chainEvents, currentTask]);
 
   const remainingTaskCount = useMemo<number>(() => {
     if (bucketed === undefined) return 0;
     return bucketed.tasks.reduce((n, t) => (t.status === 'completed' ? n : n + 1), 0);
   }, [bucketed]);
 
-  return { attemptElapsedMs, remainingTaskCount };
+  return { attemptStartedAt, remainingTaskCount };
 };

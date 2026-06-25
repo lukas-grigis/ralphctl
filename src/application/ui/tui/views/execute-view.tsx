@@ -230,12 +230,17 @@ export const ExecuteView = (): React.JSX.Element => {
   const setActiveTaskSummaryProvider = ui.setActiveTaskSummaryProvider;
   useActiveTaskSummary({ currentTask, currentTaskName, setActiveTaskSummaryProvider });
 
-  const { attemptElapsedMs, remainingTaskCount } = useCancelScopeStats({
+  const { attemptStartedAt, remainingTaskCount } = useCancelScopeStats({
     chainEvents,
     currentTask,
     bucketed,
-    now,
   });
+  // Elapsed is derived here (not inside the memo) so the O(chainEvents) scan that produces
+  // `attemptStartedAt` does not re-run on every 1 Hz `useLiveClock` tick — only this cheap
+  // subtraction does. Math.max guards the initial render: `now` (useLiveClock's Date.now() seed)
+  // can be fractionally behind an attempt timestamp parsed in the same tick, yielding a small
+  // negative delta we clamp to 0.
+  const attemptElapsedMs = attemptStartedAt !== undefined ? Math.max(0, now - attemptStartedAt) : undefined;
 
   const {
     onCancelAttempt,
