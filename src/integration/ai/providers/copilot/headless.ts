@@ -279,11 +279,15 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
         // Copilot echoes the prompt as `user.message`, which carries literal harness tags.
         events.push({ assistant: false, text: line.raw });
       }
+      // Truncate the raw line like every other stream-originated debug field (see truncateField):
+      // at the debug floor this fires per stdout line, so an untruncated raw envelope would bloat
+      // each capped log-bus entry. The full raw stream is still captured in bodyFile when set.
+      const rawLine = truncateField(line.raw);
       deps.eventBus.publish({
         type: 'log',
         level: 'debug',
         message: 'copilot-provider: stdout json line',
-        meta: { raw: line.raw },
+        ...(rawLine !== undefined ? { meta: { raw: rawLine } } : {}),
         at: IsoTimestamp.now(),
       });
       return;
