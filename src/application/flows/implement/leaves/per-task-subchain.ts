@@ -340,7 +340,6 @@ export const createPerTaskSubchain = (
                 {
                   gitRunner: deps.gitRunner,
                   taskRepo: deps.taskRepo,
-                  clock: deps.clock,
                   logger: deps.logger,
                 },
                 { cwd: repo.path },

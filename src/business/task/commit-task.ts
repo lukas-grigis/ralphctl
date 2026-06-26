@@ -10,7 +10,6 @@ import type { InvalidStateError } from '@src/domain/value/error/invalid-state-er
 import type { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { ValidationError } from '@src/domain/value/error/validation-error.ts';
-import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 
 /**
  * Commit every change the gen-eval inner loop produced for the current task. Policy:
@@ -39,7 +38,6 @@ export interface CommitTaskProps {
   readonly cwd: AbsolutePath;
   readonly gitCommit: (cwd: AbsolutePath, message: string) => Promise<Result<CommitResult, StorageError>>;
   readonly taskRepo: UpdateTask;
-  readonly clock: () => IsoTimestamp;
   readonly logger: Logger;
 }
 

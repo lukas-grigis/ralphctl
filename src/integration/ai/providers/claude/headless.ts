@@ -1,7 +1,7 @@
-import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-import { crossPlatformSpawn } from '@src/integration/io/cross-platform-spawn.ts';
 import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider, ProviderOutput } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
+import { STDERR_TAIL_CAP, createBoundedTail } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
+import { isRecord } from '@src/integration/ai/providers/_engine/json-field.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { ClaudeProviderDeps } from '@src/integration/ai/providers/_engine/claude-provider-deps.ts';
 import { resolveWritableRoots } from '@src/integration/ai/providers/_engine/resolve-roots.ts';
@@ -13,7 +13,7 @@ import { isClaudeModel } from '@src/domain/value/settings-models/claude.ts';
 import { isSuspendedModel, suspendedModelMessage } from '@src/domain/value/settings-models/suspended-models.ts';
 import { createClaudeStreamParser } from '@src/integration/ai/providers/claude/parse-stream.ts';
 import type { ClaudeStreamLine } from '@src/integration/ai/providers/_engine/claude-stream.ts';
-import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
+import { type ProviderSpawn, defaultProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import { runHeadlessSpawn } from '@src/integration/ai/providers/_engine/run-headless-spawn.ts';
 import { runWithRateLimitRetry } from '@src/integration/ai/providers/_engine/run-with-rate-limit-retry.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
@@ -91,8 +91,6 @@ const RATE_LIMIT_RE = /rate.?limit|usage limit reached|\b5-hour limit\b|overload
  * matches the canonical wording only.
  */
 const RESUME_STALE_RE = /No conversation found with session ID/i;
-
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
 
 const asString = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
 
@@ -330,7 +328,7 @@ export const buildClaudeArgs = (session: AiSession): Result<readonly string[], I
 };
 
 export const createClaudeProvider = (deps: ClaudeProviderDeps): HeadlessAiProvider => {
-  const spawnFn: ProviderSpawn = deps.spawn ?? defaultSpawn;
+  const spawnFn: ProviderSpawn = deps.spawn ?? defaultProviderSpawn;
   const command = deps.command ?? 'claude';
 
   return {
@@ -392,7 +390,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
     cwd: String(session.cwd),
   });
   const parser = createClaudeStreamParser();
-  let stderrBuf = '';
+  const stderrTail = createBoundedTail(STDERR_TAIL_CAP);
 
   const onLine = (line: ClaudeStreamLine): void => {
     parser.ingest(line);
@@ -417,7 +415,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
     child,
     onStdout: (chunk) => parser.feed(chunk, onLine),
     onStderr: (chunk) => {
-      stderrBuf += chunk;
+      stderrTail.append(chunk);
     },
     stdin: session.prompt,
     resolveOn: 'close',
@@ -533,7 +531,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
   return classifySpawnExit({
     session,
     exit: { code, signal },
-    stderr: stderrBuf,
+    stderr: stderrTail.value(),
     rateLimitRe: RATE_LIMIT_RE,
     // Claude's `-p stream-json` mode reports quota errors in the stdout `result` envelope, not
     // on stderr. Feed the parsed body into the rate-limit haystack so a real throttle trips the
@@ -546,9 +544,3 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
     onSuccess,
   });
 };
-
-const defaultSpawn: ProviderSpawn = (command, args, options) =>
-  crossPlatformSpawn(command, args, {
-    stdio: [...options.stdio],
-    ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
-  }) as ChildProcessWithoutNullStreams;

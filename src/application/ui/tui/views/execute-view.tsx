@@ -230,12 +230,17 @@ export const ExecuteView = (): React.JSX.Element => {
   const setActiveTaskSummaryProvider = ui.setActiveTaskSummaryProvider;
   useActiveTaskSummary({ currentTask, currentTaskName, setActiveTaskSummaryProvider });
 
-  const { attemptElapsedMs, remainingTaskCount } = useCancelScopeStats({
+  const { attemptStartedAt, remainingTaskCount } = useCancelScopeStats({
     chainEvents,
     currentTask,
     bucketed,
-    now,
   });
+  // Elapsed is derived here (not inside the memo) so the O(chainEvents) scan that produces
+  // `attemptStartedAt` does not re-run on every 1 Hz `useLiveClock` tick — only this cheap
+  // subtraction does. Math.max guards the initial render: `now` (useLiveClock's Date.now() seed)
+  // can be fractionally behind an attempt timestamp parsed in the same tick, yielding a small
+  // negative delta we clamp to 0.
+  const attemptElapsedMs = attemptStartedAt !== undefined ? Math.max(0, now - attemptStartedAt) : undefined;
 
   const {
     onCancelAttempt,
@@ -267,12 +272,9 @@ export const ExecuteView = (): React.JSX.Element => {
     );
   }
 
-  // Wall-clock elapsed since the run started. The string form drives the header / footer;
-  // the numeric form (ms) feeds the redesigned sidebar layout. Both share one end-time so
-  // they never disagree by a tick.
+  // Wall-clock elapsed since the run started — a display string for the header / footer.
   const endedAt = descriptor.finishedAt ?? now;
   const elapsed = fmtElapsed(descriptor.startedAt, endedAt);
-  const elapsedMs = Math.max(0, endedAt - descriptor.startedAt);
 
   // TasksPanel claims input for the signal-row cursor (j/k or ↑/↓ to move, Enter / Space to
   // expand a commit-message row). Disabled while any modal owns the keyboard so the cursor
@@ -322,12 +324,10 @@ export const ExecuteView = (): React.JSX.Element => {
           isRunning={isRunning}
           now={now}
           elapsed={elapsed}
-          elapsedMs={elapsedMs}
           layout={layout}
           termColumns={term.columns}
           termRows={term.rows}
           bucketed={bucketed}
-          pinnedSprintLabel={pinnedSprintLabel}
           executionState={effectiveExecutionState}
           taskState={effectiveTaskState}
           tokenUsage={tokenUsage}

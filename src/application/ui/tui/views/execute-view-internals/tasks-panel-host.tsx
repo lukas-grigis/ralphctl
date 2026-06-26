@@ -42,7 +42,7 @@ const warningSummaryFor = (w: AttemptWarning): string => {
   }
 };
 
-interface TasksPanelHostProps {
+export interface TasksPanelHostProps {
   readonly bucketed: BucketedExecution | undefined;
   readonly descriptor: SessionDescriptor;
   readonly isRunning: boolean;

@@ -1,4 +1,5 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
+import { crossPlatformSpawn } from '@src/integration/io/cross-platform-spawn.ts';
 
 /**
  * Narrowed signature of `node:child_process.spawn` shared by every provider adapter.
@@ -18,3 +19,14 @@ export type ProviderSpawn = (
   args: readonly string[],
   options: { readonly stdio: readonly ['pipe', 'pipe', 'pipe']; readonly cwd?: string }
 ) => ChildProcessWithoutNullStreams;
+
+/**
+ * Default `ProviderSpawn` backed by `crossPlatformSpawn`. Each headless adapter carried a
+ * byte-identical local copy as its `deps.spawn ?? defaultSpawn` fallback; this is the one shared
+ * impl. Tests still inject a fake `spawn` to avoid launching a real binary.
+ */
+export const defaultProviderSpawn: ProviderSpawn = (command, args, options) =>
+  crossPlatformSpawn(command, args, {
+    stdio: [...options.stdio],
+    ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
+  }) as ChildProcessWithoutNullStreams;

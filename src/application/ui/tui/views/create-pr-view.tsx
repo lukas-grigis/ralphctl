@@ -57,12 +57,17 @@ export const CreatePrView = (): React.JSX.Element => {
   // Resolve cwd (project's first repo path) and branch (sprint-execution.branch) up front,
   // so the confirm card can show concrete values rather than spinning twice.
   useEffect(() => {
+    // Guard every setPrep behind a `cancelled` flag: if the selection changes (a new load
+    // starts) or the view unmounts while the two findById awaits are in flight, the stale run
+    // must not write state — matches the cancelled-flag idiom used across the other async views.
+    let cancelled = false;
     const load = async (): Promise<void> => {
       if (selection.projectId === undefined || selection.sprintId === undefined) {
-        setPrep({ kind: 'error', message: 'No project or sprint selected.' });
+        if (!cancelled) setPrep({ kind: 'error', message: 'No project or sprint selected.' });
         return;
       }
       const project = await deps.projectRepo.findById(selection.projectId);
+      if (cancelled) return;
       if (!project.ok) {
         setPrep({ kind: 'error', message: project.error.message });
         return;
@@ -73,6 +78,7 @@ export const CreatePrView = (): React.JSX.Element => {
         return;
       }
       const execution = await deps.sprintExecutionRepo.findById(selection.sprintId);
+      if (cancelled) return;
       if (!execution.ok) {
         setPrep({ kind: 'error', message: execution.error.message });
         return;
@@ -84,6 +90,9 @@ export const CreatePrView = (): React.JSX.Element => {
       setPrep({ kind: 'ready', cwd, branch: execution.value.branch });
     };
     void load();
+    return () => {
+      cancelled = true;
+    };
   }, [deps, selection.projectId, selection.sprintId]);
 
   const runCreate = useCallback(

@@ -1,14 +1,16 @@
-import { promises as fs } from 'node:fs';
 import { type ChildProcess } from 'node:child_process';
 import { dirname } from 'node:path';
-import { crossPlatformSpawn } from '@src/integration/io/cross-platform-spawn.ts';
 import { Result } from '@src/domain/result.ts';
 import type {
   InteractiveAiProvider,
   InteractiveAiProviderInput,
 } from '@src/integration/ai/providers/_engine/interactive-ai-provider.ts';
 import type { InteractiveClaudeDeps } from '@src/integration/ai/providers/_engine/claude-interactive-deps.ts';
-import type { InteractiveSpawn } from '@src/integration/ai/providers/_engine/interactive-spawn.ts';
+import {
+  type InteractiveSpawn,
+  defaultInteractiveSpawn,
+  defaultReadFile,
+} from '@src/integration/ai/providers/_engine/interactive-spawn.ts';
 import { persistSessionIdFile } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
@@ -56,16 +58,8 @@ import { uuidv7 } from '@src/domain/value/uuid7.ts';
  * `--permission-mode acceptEdits`, `--add-dir`, `--model`).
  */
 
-const defaultSpawn: InteractiveSpawn = (command, args, options) =>
-  // Route through the shared cross-platform primitive so `claude.cmd` shims resolve on
-  // Windows and the positional prompt argument (which may contain spaces or shell
-  // metacharacters) is escaped correctly — without a shell. See cross-platform-spawn.ts.
-  crossPlatformSpawn(command, args, { stdio: options.stdio, cwd: options.cwd });
-
-const defaultReadFile = (path: string): Promise<string> => fs.readFile(path, 'utf8');
-
 export const createInteractiveClaudeProvider = (deps: InteractiveClaudeDeps): InteractiveAiProvider => {
-  const spawnFn: InteractiveSpawn = deps.spawn ?? defaultSpawn;
+  const spawnFn: InteractiveSpawn = deps.spawn ?? defaultInteractiveSpawn;
   const command = deps.command ?? 'claude';
   const readFile = deps.readFile ?? defaultReadFile;
   const newSessionId = deps.newSessionId ?? uuidv7;

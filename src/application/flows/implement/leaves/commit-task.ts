@@ -6,7 +6,6 @@ import { type InProgressTask, type Task } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import { type AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
-import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { gitCommitWithMessage } from '@src/integration/io/git-operations.ts';
@@ -19,7 +18,6 @@ export type CommitMessageFactory = (input: { readonly task: Task }) => string;
 export interface CommitTaskLeafDeps {
   readonly gitRunner: GitRunner;
   readonly taskRepo: UpdateTask;
-  readonly clock: () => IsoTimestamp;
   readonly logger: Logger;
 }
 
@@ -94,7 +92,6 @@ export const commitTaskLeaf = (
           cwd: opts.cwd,
           gitCommit,
           taskRepo: deps.taskRepo,
-          clock: deps.clock,
           logger: deps.logger,
         }),
     },
