@@ -3,6 +3,7 @@ import { crossPlatformSpawn } from '@src/integration/io/cross-platform-spawn.ts'
 import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider, ProviderOutput } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import { STDERR_TAIL_CAP, createBoundedTail } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
+import { isRecord } from '@src/integration/ai/providers/_engine/json-field.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { ClaudeProviderDeps } from '@src/integration/ai/providers/_engine/claude-provider-deps.ts';
 import { resolveWritableRoots } from '@src/integration/ai/providers/_engine/resolve-roots.ts';
@@ -92,8 +93,6 @@ const RATE_LIMIT_RE = /rate.?limit|usage limit reached|\b5-hour limit\b|overload
  * matches the canonical wording only.
  */
 const RESUME_STALE_RE = /No conversation found with session ID/i;
-
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
 
 const asString = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
 

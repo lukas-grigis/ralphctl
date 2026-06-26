@@ -15,24 +15,7 @@ import type {
   CopilotStreamParser,
   CopilotUsage,
 } from '@src/integration/ai/providers/_engine/copilot-stream.ts';
-
-const stringField = (obj: Record<string, unknown>, ...names: readonly string[]): string | undefined => {
-  for (const name of names) {
-    const v = obj[name];
-    if (typeof v === 'string') return v;
-  }
-  return undefined;
-};
-
-const numberField = (obj: Record<string, unknown>, ...names: readonly string[]): number | undefined => {
-  for (const name of names) {
-    const v = obj[name];
-    if (typeof v === 'number' && Number.isFinite(v)) return v;
-  }
-  return undefined;
-};
-
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
+import { isRecord, numberField, stringField } from '@src/integration/ai/providers/_engine/json-field.ts';
 
 const extractUsage = (json: Record<string, unknown>): CopilotUsage | undefined => {
   // Two shapes seen in the wild across CLI versions: top-level `input_tokens` / `output_tokens`,

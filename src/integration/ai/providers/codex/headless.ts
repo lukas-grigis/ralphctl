@@ -5,7 +5,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider, ProviderOutput } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
-import { STDERR_TAIL_CAP, createBoundedTail } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
+import {
+  RATE_LIMIT_SCAN_TAIL_CAP,
+  STDERR_TAIL_CAP,
+  createBoundedTail,
+} from '@src/integration/ai/providers/_engine/bounded-tail.ts';
+import { isRecord, numberField, stringField } from '@src/integration/ai/providers/_engine/json-field.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { CodexProviderDeps } from '@src/integration/ai/providers/_engine/codex-provider-deps.ts';
 import { resolveWritableRoots } from '@src/integration/ai/providers/_engine/resolve-roots.ts';
@@ -18,7 +23,7 @@ import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.
 import { runHeadlessSpawn } from '@src/integration/ai/providers/_engine/run-headless-spawn.ts';
 import { runWithRateLimitRetry } from '@src/integration/ai/providers/_engine/run-with-rate-limit-retry.ts';
 import type { AttemptOutcome } from '@src/integration/ai/providers/_engine/attempt-outcome.ts';
-import { classifySpawnExit } from '@src/integration/ai/providers/_engine/classify-spawn-exit.ts';
+import { DEFAULT_RATE_LIMIT_RE, classifySpawnExit } from '@src/integration/ai/providers/_engine/classify-spawn-exit.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import { persistSessionIdFile } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
 import { contextWindowFor } from '@src/integration/ai/providers/_engine/context-window.ts';
@@ -100,14 +105,6 @@ import type { EventBus } from '@src/business/observability/event-bus.ts';
  * Composition-root inputs ({@link CodexProviderDeps}) live in `_engine/` so the contract is
  * a port, not an implementation detail of this file.
  */
-
-/**
- * Rate-limit / quota detection. Broadened past the bare `/rate.?limit/i` to also catch the word
- * "quota" and a bare `429` — codex surfaces a throttle as "quota exceeded" / an HTTP 429 in its
- * agent_message / error stream, neither of which contains the literal "rate limit". The haystack
- * is stderr PLUS the agent_message tail the adapter feeds via `stdoutTail`.
- */
-const RATE_LIMIT_RE = /rate.?limit|quota|\b429\b/i;
 
 /**
  * Map our SessionPermissions onto codex's `-s/--sandbox` policy.
@@ -428,24 +425,6 @@ const safeJson = (v: unknown): string | undefined => {
   }
 };
 
-const stringField = (obj: Record<string, unknown>, ...names: readonly string[]): string | undefined => {
-  for (const name of names) {
-    const v = obj[name];
-    if (typeof v === 'string') return v;
-  }
-  return undefined;
-};
-
-const numberField = (obj: Record<string, unknown>, ...names: readonly string[]): number | undefined => {
-  for (const name of names) {
-    const v = obj[name];
-    if (typeof v === 'number' && Number.isFinite(v)) return v;
-  }
-  return undefined;
-};
-
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
-
 /**
  * Pull the assistant text out of a codex `{type:"item.completed", item:{type:"agent_message"}}`
  * record. Used to feed the rate-limit classifier's haystack — codex prints a quota throttle in
@@ -472,7 +451,6 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
   // stderr — codex surfaces a quota throttle ("quota exceeded" / 429) in the agent_message body,
   // not always on stderr. Capped to bound memory on a long session (the tail is all we need).
   let agentMessageTail = '';
-  const AGENT_TAIL_CAP = 8192;
 
   // Bound once so onIdle's banner-show id and the classifier's banner-clear id match.
   const watchdogBannerId = `watchdog-codex-${String(child.pid ?? 'unknown')}`;
@@ -512,7 +490,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
           const text = agentMessageText(obj);
           if (text !== undefined) {
             agentMessageTail = `${agentMessageTail}${agentMessageTail.length > 0 ? '\n' : ''}${text}`.slice(
-              -AGENT_TAIL_CAP
+              -RATE_LIMIT_SCAN_TAIL_CAP
             );
           }
         }
@@ -625,7 +603,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
     session,
     exit: { code, signal },
     stderr: stderrTail.value(),
-    rateLimitRe: RATE_LIMIT_RE,
+    rateLimitRe: DEFAULT_RATE_LIMIT_RE,
     // Codex reports a quota throttle in the agent_message body, not always on stderr. Feed the
     // accumulated tail into the rate-limit haystack so it trips the overnight backoff.
     ...(agentMessageTail.length > 0 ? { stdoutTail: agentMessageTail } : {}),

@@ -8,6 +8,16 @@ import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session
 import type { AttemptOutcome } from '@src/integration/ai/providers/_engine/attempt-outcome.ts';
 
 /**
+ * Default rate-limit / quota detection pattern shared by the copilot + codex adapters. Broadened
+ * past a bare `/rate.?limit/i` to also catch "quota" and a bare `429` — both CLIs surface a
+ * throttle as "quota exceeded" / an HTTP 429 in their result text, neither of which contains the
+ * literal "rate limit". The haystack is stderr PLUS the stdout body tail the adapter feeds via
+ * `stdoutTail`. (claude keeps its own override — its wording differs: "usage limit reached", the
+ * 5-hour window, `overloaded_error`.)
+ */
+export const DEFAULT_RATE_LIMIT_RE = /rate.?limit|quota|\b429\b/i;
+
+/**
  * Shared post-spawn classifier for the three headless AI provider adapters
  * (claude / codex / copilot). Inspects the child's exit, the abort signal, stderr, and the
  * presence of `signals.json`, and decides whether the attempt is a success, a rate-limit

@@ -21,6 +21,14 @@
  */
 export const STDERR_TAIL_CAP = 16_384;
 
+/**
+ * Retained-tail size for the assistant/agent STDOUT body fed to the rate-limit classifier. The
+ * classifier scans only the tail for rate-limit / model-unavailable markers, so this bounds the
+ * per-spawn stdout scan window. Unified here from the byte-identical local `RATE_LIMIT_TAIL_CAP`
+ * (copilot) / `AGENT_TAIL_CAP` (codex) constants so the siblings can't drift.
+ */
+export const RATE_LIMIT_SCAN_TAIL_CAP = 8192;
+
 /** @public */
 export interface BoundedTail {
   /** Append a chunk, trimming the retained window back to the cap when it overflows. */
