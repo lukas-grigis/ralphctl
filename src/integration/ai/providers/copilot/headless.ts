@@ -1,5 +1,3 @@
-import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-import { crossPlatformSpawn } from '@src/integration/io/cross-platform-spawn.ts';
 import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider, ProviderOutput } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import {
@@ -18,7 +16,7 @@ import { isCopilotModel } from '@src/domain/value/settings-models/copilot.ts';
 import { isSuspendedModel, suspendedModelMessage } from '@src/domain/value/settings-models/suspended-models.ts';
 import { createCopilotStreamParser } from '@src/integration/ai/providers/copilot/parse-stream.ts';
 import type { CopilotStreamLine, CopilotUsage } from '@src/integration/ai/providers/_engine/copilot-stream.ts';
-import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
+import { type ProviderSpawn, defaultProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import { runHeadlessSpawn } from '@src/integration/ai/providers/_engine/run-headless-spawn.ts';
 import { runWithRateLimitRetry } from '@src/integration/ai/providers/_engine/run-with-rate-limit-retry.ts';
 import type { AttemptOutcome } from '@src/integration/ai/providers/_engine/attempt-outcome.ts';
@@ -173,7 +171,7 @@ export const buildCopilotArgs = (session: AiSession): Result<readonly string[], 
 };
 
 export const createCopilotProvider = (deps: CopilotProviderDeps): HeadlessAiProvider => {
-  const spawnFn: ProviderSpawn = deps.spawn ?? defaultSpawn;
+  const spawnFn: ProviderSpawn = deps.spawn ?? defaultProviderSpawn;
   const command = deps.command ?? 'copilot';
 
   return {
@@ -411,9 +409,3 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
     onSuccess,
   });
 };
-
-const defaultSpawn: ProviderSpawn = (command, args, options) =>
-  crossPlatformSpawn(command, args, {
-    stdio: [...options.stdio],
-    ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
-  }) as ChildProcessWithoutNullStreams;

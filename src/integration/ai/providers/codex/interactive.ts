@@ -1,14 +1,16 @@
-import { promises as fs } from 'node:fs';
 import { type ChildProcess } from 'node:child_process';
 import { dirname } from 'node:path';
-import { crossPlatformSpawn } from '@src/integration/io/cross-platform-spawn.ts';
 import { Result } from '@src/domain/result.ts';
 import type {
   InteractiveAiProvider,
   InteractiveAiProviderInput,
 } from '@src/integration/ai/providers/_engine/interactive-ai-provider.ts';
 import type { InteractiveCodexDeps } from '@src/integration/ai/providers/_engine/codex-interactive-deps.ts';
-import type { InteractiveSpawn } from '@src/integration/ai/providers/_engine/interactive-spawn.ts';
+import {
+  type InteractiveSpawn,
+  defaultInteractiveSpawn,
+  defaultReadFile,
+} from '@src/integration/ai/providers/_engine/interactive-spawn.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
@@ -50,16 +52,8 @@ import { isCodexModel } from '@src/domain/value/settings-models/codex.ts';
  * Docs: https://developers.openai.com/codex/cli/reference (top-level `codex` flags).
  */
 
-const defaultSpawn: InteractiveSpawn = (command, args, options) =>
-  // Route through the shared cross-platform primitive so `codex.cmd` shims resolve on
-  // Windows and the positional prompt argument is escaped correctly — without a shell.
-  // See cross-platform-spawn.ts.
-  crossPlatformSpawn(command, args, { stdio: options.stdio, cwd: options.cwd });
-
-const defaultReadFile = (path: string): Promise<string> => fs.readFile(path, 'utf8');
-
 export const createInteractiveCodexProvider = (deps: InteractiveCodexDeps): InteractiveAiProvider => {
-  const spawnFn: InteractiveSpawn = deps.spawn ?? defaultSpawn;
+  const spawnFn: InteractiveSpawn = deps.spawn ?? defaultInteractiveSpawn;
   const command = deps.command ?? 'codex';
   const readFile = deps.readFile ?? defaultReadFile;
 

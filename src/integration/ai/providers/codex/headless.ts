@@ -1,6 +1,4 @@
-import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { promises as fs } from 'node:fs';
-import { crossPlatformSpawn } from '@src/integration/io/cross-platform-spawn.ts';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
@@ -19,7 +17,7 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { isCodexModel } from '@src/domain/value/settings-models/codex.ts';
-import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
+import { type ProviderSpawn, defaultProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import { runHeadlessSpawn } from '@src/integration/ai/providers/_engine/run-headless-spawn.ts';
 import { runWithRateLimitRetry } from '@src/integration/ai/providers/_engine/run-with-rate-limit-retry.ts';
 import type { AttemptOutcome } from '@src/integration/ai/providers/_engine/attempt-outcome.ts';
@@ -207,7 +205,7 @@ const defaultMkTempPath = (): string => {
 };
 
 export const createCodexProvider = (deps: CodexProviderDeps): HeadlessAiProvider => {
-  const spawnFn: ProviderSpawn = deps.spawn ?? defaultSpawn;
+  const spawnFn: ProviderSpawn = deps.spawn ?? defaultProviderSpawn;
   const command = deps.command ?? 'codex';
   const readFile = deps.readFile ?? ((path) => fs.readFile(path, 'utf8'));
   const unlink =
@@ -614,9 +612,3 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
     onSuccess,
   });
 };
-
-const defaultSpawn: ProviderSpawn = (command, args, options) =>
-  crossPlatformSpawn(command, args, {
-    stdio: [...options.stdio],
-    ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
-  }) as ChildProcessWithoutNullStreams;

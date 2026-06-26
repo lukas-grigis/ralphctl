@@ -1,14 +1,16 @@
-import { promises as fs } from 'node:fs';
 import { type ChildProcess } from 'node:child_process';
 import { dirname } from 'node:path';
-import { crossPlatformSpawn } from '@src/integration/io/cross-platform-spawn.ts';
 import { Result } from '@src/domain/result.ts';
 import type {
   InteractiveAiProvider,
   InteractiveAiProviderInput,
 } from '@src/integration/ai/providers/_engine/interactive-ai-provider.ts';
 import type { InteractiveCopilotDeps } from '@src/integration/ai/providers/_engine/copilot-interactive-deps.ts';
-import type { InteractiveSpawn } from '@src/integration/ai/providers/_engine/interactive-spawn.ts';
+import {
+  type InteractiveSpawn,
+  defaultInteractiveSpawn,
+  defaultReadFile,
+} from '@src/integration/ai/providers/_engine/interactive-spawn.ts';
 import { persistSessionIdFile } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
@@ -45,16 +47,8 @@ import { uuidv7 } from '@src/domain/value/uuid7.ts';
  * Docs: https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference
  */
 
-const defaultSpawn: InteractiveSpawn = (command, args, options) =>
-  // Route through the shared cross-platform primitive so `copilot.cmd` shims resolve on
-  // Windows and the seeded prompt argument is escaped correctly — without a shell.
-  // See cross-platform-spawn.ts.
-  crossPlatformSpawn(command, args, { stdio: options.stdio, cwd: options.cwd });
-
-const defaultReadFile = (path: string): Promise<string> => fs.readFile(path, 'utf8');
-
 export const createInteractiveCopilotProvider = (deps: InteractiveCopilotDeps): InteractiveAiProvider => {
-  const spawnFn: InteractiveSpawn = deps.spawn ?? defaultSpawn;
+  const spawnFn: InteractiveSpawn = deps.spawn ?? defaultInteractiveSpawn;
   const command = deps.command ?? 'copilot';
   const readFile = deps.readFile ?? defaultReadFile;
   const newSessionId = deps.newSessionId ?? uuidv7;

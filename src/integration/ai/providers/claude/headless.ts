@@ -1,5 +1,3 @@
-import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-import { crossPlatformSpawn } from '@src/integration/io/cross-platform-spawn.ts';
 import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider, ProviderOutput } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import { STDERR_TAIL_CAP, createBoundedTail } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
@@ -15,7 +13,7 @@ import { isClaudeModel } from '@src/domain/value/settings-models/claude.ts';
 import { isSuspendedModel, suspendedModelMessage } from '@src/domain/value/settings-models/suspended-models.ts';
 import { createClaudeStreamParser } from '@src/integration/ai/providers/claude/parse-stream.ts';
 import type { ClaudeStreamLine } from '@src/integration/ai/providers/_engine/claude-stream.ts';
-import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
+import { type ProviderSpawn, defaultProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import { runHeadlessSpawn } from '@src/integration/ai/providers/_engine/run-headless-spawn.ts';
 import { runWithRateLimitRetry } from '@src/integration/ai/providers/_engine/run-with-rate-limit-retry.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
@@ -330,7 +328,7 @@ export const buildClaudeArgs = (session: AiSession): Result<readonly string[], I
 };
 
 export const createClaudeProvider = (deps: ClaudeProviderDeps): HeadlessAiProvider => {
-  const spawnFn: ProviderSpawn = deps.spawn ?? defaultSpawn;
+  const spawnFn: ProviderSpawn = deps.spawn ?? defaultProviderSpawn;
   const command = deps.command ?? 'claude';
 
   return {
@@ -546,9 +544,3 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
     onSuccess,
   });
 };
-
-const defaultSpawn: ProviderSpawn = (command, args, options) =>
-  crossPlatformSpawn(command, args, {
-    stdio: [...options.stdio],
-    ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
-  }) as ChildProcessWithoutNullStreams;
