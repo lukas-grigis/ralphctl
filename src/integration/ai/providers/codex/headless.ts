@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider, ProviderOutput } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
+import { STDERR_TAIL_CAP, createBoundedTail } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { CodexProviderDeps } from '@src/integration/ai/providers/_engine/codex-provider-deps.ts';
 import { resolveWritableRoots } from '@src/integration/ai/providers/_engine/resolve-roots.ts';
@@ -464,7 +465,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
   // See CLAUDE.md §Security — "Cwd is the repo because Claude / Copilot / Codex only
   // auto-discover their context file from cwd."
   const child = spawnFn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] as const, cwd: String(session.cwd) });
-  let stderrBuf = '';
+  const stderrTail = createBoundedTail(STDERR_TAIL_CAP);
   let sessionId: string | undefined;
   let stdoutLineBuf = '';
   // Accumulate codex's `agent_message` text so the rate-limit classifier can scan it alongside
@@ -518,7 +519,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
       );
     },
     onStderr: (chunk) => {
-      stderrBuf += chunk;
+      stderrTail.append(chunk);
     },
     stdin: session.prompt,
     resolveOn: 'exit',
@@ -623,7 +624,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
   return classifySpawnExit({
     session,
     exit: { code, signal },
-    stderr: stderrBuf,
+    stderr: stderrTail.value(),
     rateLimitRe: RATE_LIMIT_RE,
     // Codex reports a quota throttle in the agent_message body, not always on stderr. Feed the
     // accumulated tail into the rate-limit haystack so it trips the overnight backoff.

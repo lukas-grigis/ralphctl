@@ -2,6 +2,7 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { crossPlatformSpawn } from '@src/integration/io/cross-platform-spawn.ts';
 import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider, ProviderOutput } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
+import { STDERR_TAIL_CAP, createBoundedTail } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { ClaudeProviderDeps } from '@src/integration/ai/providers/_engine/claude-provider-deps.ts';
 import { resolveWritableRoots } from '@src/integration/ai/providers/_engine/resolve-roots.ts';
@@ -392,7 +393,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
     cwd: String(session.cwd),
   });
   const parser = createClaudeStreamParser();
-  let stderrBuf = '';
+  const stderrTail = createBoundedTail(STDERR_TAIL_CAP);
 
   const onLine = (line: ClaudeStreamLine): void => {
     parser.ingest(line);
@@ -417,7 +418,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
     child,
     onStdout: (chunk) => parser.feed(chunk, onLine),
     onStderr: (chunk) => {
-      stderrBuf += chunk;
+      stderrTail.append(chunk);
     },
     stdin: session.prompt,
     resolveOn: 'close',
@@ -533,7 +534,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
   return classifySpawnExit({
     session,
     exit: { code, signal },
-    stderr: stderrBuf,
+    stderr: stderrTail.value(),
     rateLimitRe: RATE_LIMIT_RE,
     // Claude's `-p stream-json` mode reports quota errors in the stdout `result` envelope, not
     // on stderr. Feed the parsed body into the rate-limit haystack so a real throttle trips the

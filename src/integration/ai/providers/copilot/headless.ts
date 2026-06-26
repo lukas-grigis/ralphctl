@@ -2,6 +2,7 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { crossPlatformSpawn } from '@src/integration/io/cross-platform-spawn.ts';
 import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider, ProviderOutput } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
+import { STDERR_TAIL_CAP, createBoundedTail } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { CopilotProviderDeps } from '@src/integration/ai/providers/_engine/copilot-provider-deps.ts';
 import { resolveWritableRoots } from '@src/integration/ai/providers/_engine/resolve-roots.ts';
@@ -233,7 +234,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
   let sessionId: string | undefined;
   let model: string | undefined;
   let usage: CopilotUsage = {};
-  let stderrBuf = '';
+  const stderrTail = createBoundedTail(STDERR_TAIL_CAP);
 
   // Bound once so onIdle's banner-show id and the classifier's banner-clear id match.
   const watchdogBannerId = `watchdog-copilot-${String(child.pid ?? 'unknown')}`;
@@ -297,7 +298,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
     child,
     onStdout: (chunk) => parser.feed(chunk, onLine),
     onStderr: (chunk) => {
-      stderrBuf += chunk;
+      stderrTail.append(chunk);
     },
     resolveOn: 'exit',
     ...(deps.idleMs !== undefined ? { idleMs: deps.idleMs } : {}),
@@ -401,7 +402,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
   return classifySpawnExit({
     session,
     exit: { code, signal },
-    stderr: stderrBuf,
+    stderr: stderrTail.value(),
     rateLimitRe: RATE_LIMIT_RE,
     ...(stdoutTail.length > 0 ? { stdoutTail } : {}),
     ...(sessionId !== undefined ? { capturedSessionId: sessionId } : {}),
