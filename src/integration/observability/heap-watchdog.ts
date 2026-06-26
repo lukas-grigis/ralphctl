@@ -17,13 +17,19 @@ import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
  * can treat the latest event as the current band without de-duping. Going down
  * past the warning floor emits one `'recovered'` event so the banner clears.
  *
+ * `onWarning` is the early-relief hatch: fired once when severity transitions
+ * INTO 'warning' (0.80). The TUI launcher passes a callback that sheds finished
+ * session records — cheap and non-disruptive (no log-panel clear, no blocking
+ * heap snapshot) — so GC can reclaim headroom BEFORE pressure reaches critical,
+ * rather than waiting until the kernel is seconds from SIGKILL.
+ *
  * `onCritical` is the operator-side post-mortem hatch. Its PRIMARY value is
  * capturing a heap snapshot for diagnosis: the TUI launcher uses it to dump a
  * `.heapsnapshot` so the next near-OOM names its own dominant retainer. It also
  * clears the harness/log/chain in-memory buffers, but those are small-capped (a
  * few MB) so that clear frees little — the snapshot is the real diagnostic, the
  * clear is just defensive. Fired exactly once per critical-band entry; re-arms
- * on the way down. Idempotent — if the user-supplied callback is missing or
+ * on the way down. Idempotent — if a user-supplied callback is missing or
  * throws the watchdog keeps polling.
  */
 
@@ -41,6 +47,13 @@ export interface HeapWatchdogDeps {
   readonly warningRatio?: number;
   /** Ratio for the 'critical' threshold. Default 0.95. */
   readonly criticalRatio?: number;
+  /**
+   * Optional early-relief hatch: invoked once when severity transitions INTO 'warning'.
+   * The TUI launcher passes a callback that sheds finished session records — non-disruptive
+   * (no log-panel clear, no blocking heap snapshot), so GC reclaims headroom before pressure
+   * reaches critical. Idempotent — called at most once per warning-entry (re-arms on band change).
+   */
+  readonly onWarning?: () => void;
   /**
    * Optional post-mortem hatch: invoked once when severity transitions to 'critical'.
    * The TUI launcher passes a callback that captures a heap snapshot for diagnosis
@@ -105,8 +118,14 @@ export const startHeapWatchdog = (deps: HeapWatchdogDeps): HeapWatchdog => {
     const band = classify(ratio, warning, critical);
     if (band === previousBand) return;
 
-    if (band === 'warning') emit('warning', reading, ratio);
-    else if (band === 'critical') {
+    if (band === 'warning') {
+      emit('warning', reading, ratio);
+      try {
+        deps.onWarning?.();
+      } catch (err) {
+        console.warn('[heap-watchdog] onWarning threw:', err);
+      }
+    } else if (band === 'critical') {
       emit('critical', reading, ratio);
       try {
         deps.onCritical?.();

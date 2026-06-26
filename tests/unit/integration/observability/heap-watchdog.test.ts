@@ -16,7 +16,7 @@ const readingForRatio = (ratio: number): HeapReading => ({
  * Test harness: build a watchdog with an injected ratio queue. Each call to
  * advanceOnce() steps fake timers by intervalMs so setInterval fires exactly once.
  */
-const createHarness = (opts: { readonly onCritical?: () => void } = {}) => {
+const createHarness = (opts: { readonly onCritical?: () => void; readonly onWarning?: () => void } = {}) => {
   const ratios: number[] = [];
   const bus = createInMemoryEventBus();
   const events: MemoryPressureEvent[] = [];
@@ -38,6 +38,7 @@ const createHarness = (opts: { readonly onCritical?: () => void } = {}) => {
     criticalRatio: 0.95,
     readHeap,
     ...(opts.onCritical !== undefined ? { onCritical: opts.onCritical } : {}),
+    ...(opts.onWarning !== undefined ? { onWarning: opts.onWarning } : {}),
   });
 
   return {
@@ -95,6 +96,49 @@ describe('startHeapWatchdog', () => {
 
     expect(h.events).toHaveLength(1);
     expect(h.events[0]?.severity).toBe('critical');
+    h.watchdog.stop();
+  });
+
+  it('fires onWarning exactly once when severity enters the warning band', () => {
+    const onWarning = vi.fn();
+    const h = createHarness({ onWarning });
+    h.queueRatios(0.5, 0.85, 0.86, 0.9);
+    h.advanceOnce(); // ok
+    h.advanceOnce(); // warning → fires onWarning
+    h.advanceOnce(); // still warning, no transition
+    h.advanceOnce(); // still warning, no transition
+
+    expect(onWarning).toHaveBeenCalledTimes(1);
+    h.watchdog.stop();
+  });
+
+  it('re-arms onWarning when the band drops from critical back to warning', () => {
+    const onWarning = vi.fn();
+    const h = createHarness({ onWarning });
+    h.queueRatios(0.5, 0.85, 0.96, 0.85);
+    h.advanceOnce(); // ok
+    h.advanceOnce(); // warning → onWarning 1
+    h.advanceOnce(); // critical (no onWarning)
+    h.advanceOnce(); // warning again → onWarning 2
+
+    expect(onWarning).toHaveBeenCalledTimes(2);
+    h.watchdog.stop();
+  });
+
+  it('swallows a throwing onWarning and continues polling', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const onWarning = vi.fn(() => {
+      throw new Error('boom');
+    });
+    const h = createHarness({ onWarning });
+    h.queueRatios(0.5, 0.85, 0.96);
+    h.advanceOnce(); // ok
+    h.advanceOnce(); // warning → onWarning throws but watchdog continues
+    h.advanceOnce(); // critical still emitted
+
+    expect(h.events.map((e) => e.severity)).toEqual(['warning', 'critical']);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
     h.watchdog.stop();
   });
 

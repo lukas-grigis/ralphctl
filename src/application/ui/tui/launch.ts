@@ -104,6 +104,26 @@ const createLogForwarder = (
 };
 
 /**
+ * Build the heap-watchdog `onWarning` callback — early, non-disruptive relief on entering the
+ * 0.80 band. Sheds finished SessionRecords (the dominant app-root-reachable retainer) so GC
+ * reclaims headroom BEFORE pressure reaches critical. Unlike the critical handler it does NOT
+ * clear the live log/harness buffers (the operator keeps their log panel) and writes no heap
+ * snapshot (no event-loop stall). `shedTerminal` never touches a running record. Must never throw.
+ */
+const createHeapWarningHandler = (args: {
+  readonly logger: AppDeps['logger'];
+  readonly sessions: SessionManager;
+}): (() => void) => {
+  const { logger, sessions } = args;
+  return () => {
+    const dropped = sessions.shedTerminal();
+    if (dropped > 0) {
+      logger.warn(`heap warning — shed ${dropped} finished session record(s) early to relieve pressure`);
+    }
+  };
+};
+
+/**
  * Build the heap-watchdog `onCritical` callback. Captured into its own factory so `bootstrap`
  * stays lean and the post-mortem logic is testable/readable in isolation. The snapshot is the
  * real diagnostic (it names the dominant retainer); the buffer-clear is just defensive — those
@@ -205,12 +225,14 @@ const bootstrap = async (): Promise<Bootstrapped> => {
   const sessions = createSessionManager();
 
   // Heap watchdog gives the operator a warning before V8 SIGKILLs the harness on a long-running
-  // session. On 'critical' it (a) sheds finished session records via `sessions.shedTerminal()` —
-  // the real reachable weight — and (b) captures a heap snapshot for post-mortem (names the
-  // dominant retainer if the shed was not enough). The small-capped in-memory buffers it also
-  // clears free little; the session shed + snapshot are the load-bearing actions.
+  // session. Two-tier relief: on 'warning' (0.80) it sheds finished session records EARLY and
+  // non-disruptively (no buffer clear, no snapshot) so GC reclaims headroom before pressure peaks;
+  // on 'critical' it sheds again, clears the small-capped in-memory buffers, and captures a heap
+  // snapshot for post-mortem (names the dominant retainer if the shed was not enough). The session
+  // shed + snapshot are the load-bearing actions; the buffer clear is defensive.
   const heapWatchdog = startHeapWatchdog({
     eventBus: deps.eventBus,
+    onWarning: createHeapWarningHandler({ logger: deps.logger, sessions }),
     onCritical: createHeapCriticalHandler({ logger: deps.logger, logForwarder, harnessBus, logBus, sessions }),
   });
 
