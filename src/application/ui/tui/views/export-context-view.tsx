@@ -8,7 +8,7 @@
  *   `<dataRoot>/sprints/<sprintId>/context.md`
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { join } from 'node:path';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
@@ -37,9 +37,15 @@ export const ExportContextView = (): React.JSX.Element => {
   const selection = useSelection();
   const ui = useUiState();
   const [run, setRun] = useState<RunState>({ kind: 'idle' });
+  // Monotonic run token: a later run (selection change, unmount, or `r` retry) bumps this so an
+  // earlier in-flight run's post-await setRun calls become no-ops — no setState-after-unmount and
+  // no stale run clobbering a newer one.
+  const runGenRef = useRef(0);
   useViewHints([{ keys: 'r', label: 'rerun' }]);
 
   const runExport = useCallback(async (): Promise<void> => {
+    const gen = (runGenRef.current += 1);
+    const live = (): boolean => runGenRef.current === gen;
     if (selection.projectId === undefined || selection.sprintId === undefined) {
       setRun({ kind: 'error', message: 'No project or sprint selected.' });
       return;
@@ -47,6 +53,7 @@ export const ExportContextView = (): React.JSX.Element => {
     // Resolve the sprint dir via the tolerant id-prefix resolver (both `<id>--<slug>/` and the
     // legacy bare `<id>/`); the view only holds the sprint id, not the entity.
     const sprintDir = await resolveSprintDir(storage.dataRoot, selection.sprintId);
+    if (!live()) return;
     if (sprintDir === undefined) {
       setRun({ kind: 'error', message: 'Sprint directory not found on disk.' });
       return;
@@ -66,6 +73,7 @@ export const ExportContextView = (): React.JSX.Element => {
     const result = await flow.execute({
       input: { sprintId: selection.sprintId, projectId: selection.projectId, outputPath: outputPath.value },
     });
+    if (!live()) return;
     if (!result.ok) {
       setRun({ kind: 'error', message: result.error.error.message });
       return;
@@ -76,6 +84,10 @@ export const ExportContextView = (): React.JSX.Element => {
 
   useEffect(() => {
     void runExport();
+    // Teardown (selection change → new runExport, or unmount) invalidates any in-flight run.
+    return () => {
+      runGenRef.current += 1;
+    };
   }, [runExport]);
 
   useInput((input) => {
