@@ -7,6 +7,19 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **TUI out-of-memory on long implement runs.** Long sprints (80+ min) could exhaust the V8 heap
+  and crash the TUI. A second round of the commit-storm fix coalesces the remaining hot event-bus
+  hooks — per-task gen-eval rounds and per-spawn token usage now batch their React updates like the
+  log stream already did — and the cancel-scope overlay no longer re-scans the chain event log on
+  every one-second clock tick. Child-process stderr is now capped to a bounded tail instead of
+  accumulating for the whole spawn, and the heap watchdog sheds finished session records earlier (at
+  the 0.80 warning band, non-disruptively) so memory is reclaimed before pressure turns critical.
+- **Stale state writes in one-shot views.** The create-PR and export-context/-requirements views no
+  longer write state from a superseded or unmounted async run (a selection change or quick back-out
+  mid-load could otherwise clobber the view with an outdated result).
+
 ## [0.13.1] - 2026-06-23
 
 ### Changed
