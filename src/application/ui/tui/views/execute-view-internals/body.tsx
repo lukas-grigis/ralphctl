@@ -32,19 +32,12 @@ export interface ExecuteBodyProps {
   readonly isRunning: boolean;
   readonly now: number;
   readonly elapsed: string;
-  /** Numeric wall-clock elapsed (ms) since run start — accepted for API compat with execute-view.tsx. */
-  readonly elapsedMs: number;
   readonly layout: ResponsiveLayout;
   readonly termColumns: number;
   /** Raw terminal row count — needed by the wide sidebar (ImplementLayout) path. */
   readonly termRows: number;
   /** Bucketed task execution state — feeds the sidebar task-nav list + main area. */
   readonly bucketed: BucketedExecution | undefined;
-  /**
-   * Sprint label pinned at launch time — passed through to the ImplementLayout narrow
-   * (ExecuteLayout) fallback. Not rendered directly by body.tsx.
-   */
-  readonly pinnedSprintLabel: string | undefined;
   readonly executionState: SprintExecution | undefined;
   readonly taskState: readonly Task[] | undefined;
   readonly tokenUsage: TokenUsage | undefined;

@@ -70,11 +70,7 @@ describe('commitTaskLeaf', () => {
     const repo = fakeRepo();
     const task = makeInProgressTaskWithRunningAttempt();
     const runner = scriptedRunner([{ args: ['status', '--porcelain'], result: ok('') }]);
-    const leaf = commitTaskLeaf(
-      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger },
-      { cwd: CWD },
-      task.id
-    );
+    const leaf = commitTaskLeaf({ gitRunner: runner, taskRepo: repo, logger: noopLogger }, { cwd: CWD }, task.id);
     const out = await leaf.execute(baseCtx(task));
     expect(out.ok).toBe(true);
     expect(repo.calls).toBe(0);
@@ -92,11 +88,7 @@ describe('commitTaskLeaf', () => {
       { args: ['commit', '-m', message], result: ok() },
       { args: ['rev-parse', 'HEAD'], result: ok(`${sha}\n`) },
     ]);
-    const leaf = commitTaskLeaf(
-      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger },
-      { cwd: CWD },
-      task.id
-    );
+    const leaf = commitTaskLeaf({ gitRunner: runner, taskRepo: repo, logger: noopLogger }, { cwd: CWD }, task.id);
     const out = await leaf.execute(baseCtx(task));
     expect(out.ok).toBe(true);
     if (out.ok) {
@@ -124,7 +116,7 @@ describe('commitTaskLeaf', () => {
       { args: ['status', '--porcelain'], result: ok('M  file\n') },
       { args: ['commit', '-m', message], result: ok('hook rejected', 1) },
     ]);
-    const leaf = commitTaskLeaf({ gitRunner: runner, taskRepo: repo, clock: () => NOW, logger }, { cwd: CWD }, task.id);
+    const leaf = commitTaskLeaf({ gitRunner: runner, taskRepo: repo, logger }, { cwd: CWD }, task.id);
     const out = await leaf.execute(baseCtx(task));
     expect(out.ok).toBe(false);
     if (!out.ok) {
@@ -148,7 +140,7 @@ describe('commitTaskLeaf', () => {
       { args: ['rev-parse', 'HEAD'], result: ok(`${sha}\n`) },
     ]);
     const leaf = commitTaskLeaf(
-      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger },
+      { gitRunner: runner, taskRepo: repo, logger: noopLogger },
       { cwd: CWD, messageFactory: () => message },
       task.id
     );
@@ -173,11 +165,7 @@ describe('commitTaskLeaf', () => {
         throw new Error('unhandled');
       },
     };
-    const leaf = commitTaskLeaf(
-      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger },
-      { cwd: CWD },
-      task.id
-    );
+    const leaf = commitTaskLeaf({ gitRunner: runner, taskRepo: repo, logger: noopLogger }, { cwd: CWD }, task.id);
     const ctx: ImplementCtx = {
       ...baseCtx(task),
       proposedCommitMessage: { subject: 'add user-id index', body: 'Speeds up the session lookup hot path.' },
@@ -203,11 +191,7 @@ describe('commitTaskLeaf', () => {
         throw new Error('unhandled');
       },
     };
-    const leaf = commitTaskLeaf(
-      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger },
-      { cwd: CWD },
-      task.id
-    );
+    const leaf = commitTaskLeaf({ gitRunner: runner, taskRepo: repo, logger: noopLogger }, { cwd: CWD }, task.id);
     const ctx: ImplementCtx = {
       ...baseCtx(task),
       proposedCommitMessage: { subject: 'one-line message' },
@@ -241,11 +225,7 @@ describe('commitTaskLeaf', () => {
         throw new Error('unhandled');
       },
     };
-    const leaf = commitTaskLeaf(
-      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger },
-      { cwd: CWD },
-      task.id
-    );
+    const leaf = commitTaskLeaf({ gitRunner: runner, taskRepo: repo, logger: noopLogger }, { cwd: CWD }, task.id);
     const out = await leaf.execute(baseCtx(task));
     expect(out.ok).toBe(true);
     expect(observedMessage).toBeDefined();
@@ -271,11 +251,7 @@ describe('commitTaskLeaf', () => {
         throw new Error('unhandled');
       },
     };
-    const leaf = commitTaskLeaf(
-      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger },
-      { cwd: CWD },
-      task.id
-    );
+    const leaf = commitTaskLeaf({ gitRunner: runner, taskRepo: repo, logger: noopLogger }, { cwd: CWD }, task.id);
     const longBody = 'x'.repeat(2000);
     const ctx: ImplementCtx = {
       ...baseCtx(task),
@@ -308,11 +284,7 @@ describe('commitTaskLeaf', () => {
         throw new Error('unhandled');
       },
     };
-    const leaf = commitTaskLeaf(
-      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger },
-      { cwd: CWD },
-      task.id
-    );
+    const leaf = commitTaskLeaf({ gitRunner: runner, taskRepo: repo, logger: noopLogger }, { cwd: CWD }, task.id);
     const ctx: ImplementCtx = {
       ...baseCtx(task),
       proposedCommitMessage: { subject: 'feat(auth): rotate refresh tokens', body: 'WHY this matters' },
@@ -343,11 +315,7 @@ describe('commitTaskLeaf', () => {
         throw new Error('unhandled');
       },
     };
-    const leaf = commitTaskLeaf(
-      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger },
-      { cwd: CWD },
-      task.id
-    );
+    const leaf = commitTaskLeaf({ gitRunner: runner, taskRepo: repo, logger: noopLogger }, { cwd: CWD }, task.id);
     // No proposed message → default factory + suffix append.
     await leaf.execute(baseCtx(task));
     expect(observedMessage).toBeDefined();
@@ -373,11 +341,7 @@ describe('commitTaskLeaf', () => {
         throw new Error('unhandled');
       },
     };
-    const leaf = commitTaskLeaf(
-      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger },
-      { cwd: CWD },
-      task.id
-    );
+    const leaf = commitTaskLeaf({ gitRunner: runner, taskRepo: repo, logger: noopLogger }, { cwd: CWD }, task.id);
     const ctx: ImplementCtx = {
       ...baseCtx(task),
       proposedCommitMessage: { subject: 'chore: nothing fancy', body: 'no suffix please' },
@@ -409,11 +373,7 @@ describe('commitTaskLeaf', () => {
         throw new Error('unhandled');
       },
     };
-    const leaf = commitTaskLeaf(
-      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger },
-      { cwd: CWD },
-      task.id
-    );
+    const leaf = commitTaskLeaf({ gitRunner: runner, taskRepo: repo, logger: noopLogger }, { cwd: CWD }, task.id);
     const subject = 'feat(auth): switch session lookup to user-id index';
     const body = 'x'.repeat(2000);
     const ctx: ImplementCtx = {
@@ -452,11 +412,7 @@ describe('commitTaskLeaf', () => {
         throw new Error('unhandled');
       },
     };
-    const leaf = commitTaskLeaf(
-      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger },
-      { cwd: CWD },
-      task.id
-    );
+    const leaf = commitTaskLeaf({ gitRunner: runner, taskRepo: repo, logger: noopLogger }, { cwd: CWD }, task.id);
     const ctx: ImplementCtx = {
       ...baseCtx(task),
       proposedCommitMessage: { subject: 'feat(tui): show full commit message', body: 'Why this matters.' },
@@ -486,11 +442,7 @@ describe('commitTaskLeaf', () => {
         throw new Error('unhandled');
       },
     };
-    const leaf = commitTaskLeaf(
-      { gitRunner: runner, taskRepo: repo, clock: () => NOW, logger: noopLogger },
-      { cwd: CWD },
-      task.id
-    );
+    const leaf = commitTaskLeaf({ gitRunner: runner, taskRepo: repo, logger: noopLogger }, { cwd: CWD }, task.id);
     const ctx: ImplementCtx = {
       ...baseCtx(task),
       // Generator hand-authored the ref already — leaf must not double up.
