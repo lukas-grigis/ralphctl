@@ -37,12 +37,20 @@ every ticket `approved`; repo selection runs inside the chain and persists on `S
 (absolute paths); AI generates `tasks.json` atomically and the sprint transitions `draft → planned`.
 **Ideate** combines both in a single AI session for low-stakes work.
 
-**Per-task generator-evaluator** inside `implement` uses the `loop` primitive. The gen-eval loop body is
-`generator-leaf → evaluator-leaf` (looped up to `maxTurns` per attempt, stopping when the evaluator sets
-`ctx.lastExit`). Each attempt then runs `settle-attempt` (which records the verdict) plus `append-learnings`
-and `progress-journal`; the outer attempt loop re-enters up to `maxAttempts` times per task and transitions
-the task to `blocked` once that budget is exhausted. A single launch now runs the outer attempt loop up to
-`maxAttempts` times per task — `maxAttempts === 1` is byte-for-byte the prior single-attempt behaviour.
+**Per-task generator-evaluator** inside `implement` uses the `loop` primitive. Each gen-eval turn runs
+`generator-leaf` then — if the generator did not already set `ctx.lastExit` — the guarded
+`evaluator-step`, a `sequential` of `evaluatorLeaf → loop-diversity-check → entropy-check`. The two
+plateau-check leaves each emit a `plateau` exit on ctx without waiting for the full `plateauThreshold`
+count: `loop-diversity-check` fires when the failed-dimension fingerprint repeats for 3 consecutive
+turns; `entropy-check` fires when the normalised Shannon entropy over the generator's per-turn signal-kind
+distribution (decision / change / learning / note) falls below 0.25 — a heuristic proxy for approach
+stagnation, not raw tool-use entropy. Both respect the turn-budget-precedence guard so neither
+pre-empts the final budgeted turn. The loop exits when any leaf sets `ctx.lastExit` or the `maxTurns`
+budget is reached. Each attempt then runs `settle-attempt` (which records the verdict) plus
+`append-learnings` and `progress-journal`; the outer attempt loop re-enters up to `maxAttempts` times
+per task and transitions the task to `blocked` once that budget is exhausted. A single launch runs the
+outer attempt loop up to `maxAttempts` times per task — `maxAttempts === 1` is byte-for-byte the prior
+single-attempt behaviour.
 `settings.ai.implement` is a nested
 `{ generator, evaluator }` pair — each role carries its own `{ provider, model, effort? }` row, so
 the two sessions can run on different providers / models / effort levels (effort resolution rules
