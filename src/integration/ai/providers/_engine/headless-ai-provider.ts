@@ -2,10 +2,35 @@ import type { Result } from '@src/domain/result.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
+import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
+
+/**
+ * Per-call input to {@link HeadlessAiProvider.generate}. Extends {@link AiSession} with
+ * adapter-level hooks that do not belong on the session descriptor itself.
+ *
+ * `promptTransform` — optional per-provider prompt rewrite hook applied at the
+ * {@link HeadlessAiProvider} boundary, before the prompt reaches the spawn layer.
+ * Lets each adapter tune its preamble (e.g. system-message injection, model-specific
+ * prefixes) without breaking the port contract. Callers that do not need a transform
+ * simply omit the field; implementations apply it as:
+ *
+ *   const effectivePrompt = input.promptTransform
+ *     ? input.promptTransform(input.prompt as Prompt)
+ *     : input.prompt;
+ */
+export interface HeadlessAiProviderInput extends AiSession {
+  /**
+   * Optional prompt rewrite applied before the session is spawned. Receives the
+   * fully-rendered {@link Prompt} and must return a valid {@link Prompt}. Absent →
+   * the original prompt is used unchanged. No per-provider transforms are wired yet;
+   * the field is reserved for future cross-harness provider tuning (AgencyBench R7).
+   */
+  readonly promptTransform?: (prompt: Prompt) => Prompt;
+}
 
 /**
  * AI provider port — runs one headless coding-assistant session against the caller's
- * {@link AiSession} descriptor and returns a structured-output handle:
+ * {@link HeadlessAiProviderInput} descriptor and returns a structured-output handle:
  *
  *   { signalsFile, sessionId?, exitCode }
  *
@@ -20,7 +45,7 @@ import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session
  * codex's JSONL meta event, copilot's stream meta line. Absence is never an error.
  */
 export interface HeadlessAiProvider {
-  generate(session: AiSession): Promise<Result<ProviderOutput, DomainError>>;
+  generate(input: HeadlessAiProviderInput): Promise<Result<ProviderOutput, DomainError>>;
 }
 
 export interface ProviderOutput {

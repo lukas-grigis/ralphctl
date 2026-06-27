@@ -459,40 +459,40 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
   let model: string | undefined;
   let inputTokens: number | undefined;
   let outputTokens: number | undefined;
+
+  const onMeta = (update: CodexMetaUpdate): void => {
+    if (update.sessionId !== undefined && sessionId === undefined) {
+      sessionId = update.sessionId;
+      deps.eventBus.publish({
+        type: 'log',
+        level: 'debug',
+        message: 'codex-provider: session id captured',
+        meta: { sessionId: update.sessionId },
+        at: IsoTimestamp.now(),
+      });
+    }
+    if (update.model !== undefined && model === undefined) {
+      model = update.model;
+    }
+    // Last-write-wins on usage — codex's `turn.completed` record carries the cumulative
+    // figure; earlier records (thread.started / streaming chunks) report partials or nothing.
+    if (update.inputTokens !== undefined) inputTokens = update.inputTokens;
+    if (update.outputTokens !== undefined) outputTokens = update.outputTokens;
+  };
+  const onLine = (obj: Record<string, unknown>): void => {
+    publishCodexStreamLineEvents(deps.eventBus, obj);
+    const text = agentMessageText(obj);
+    if (text !== undefined) {
+      agentMessageTail = `${agentMessageTail}${agentMessageTail.length > 0 ? '\n' : ''}${text}`.slice(
+        -RATE_LIMIT_SCAN_TAIL_CAP
+      );
+    }
+  };
+
   const { code, signal } = await runHeadlessSpawn({
     child,
     onStdout: (chunk) => {
-      stdoutLineBuf = consumeMetaLines(
-        stdoutLineBuf + chunk,
-        (update) => {
-          if (update.sessionId !== undefined && sessionId === undefined) {
-            sessionId = update.sessionId;
-            deps.eventBus.publish({
-              type: 'log',
-              level: 'debug',
-              message: 'codex-provider: session id captured',
-              meta: { sessionId: update.sessionId },
-              at: IsoTimestamp.now(),
-            });
-          }
-          if (update.model !== undefined && model === undefined) {
-            model = update.model;
-          }
-          // Last-write-wins on usage — codex's `turn.completed` record carries the cumulative
-          // figure; earlier records (thread.started / streaming chunks) report partials or nothing.
-          if (update.inputTokens !== undefined) inputTokens = update.inputTokens;
-          if (update.outputTokens !== undefined) outputTokens = update.outputTokens;
-        },
-        (obj) => {
-          publishCodexStreamLineEvents(deps.eventBus, obj);
-          const text = agentMessageText(obj);
-          if (text !== undefined) {
-            agentMessageTail = `${agentMessageTail}${agentMessageTail.length > 0 ? '\n' : ''}${text}`.slice(
-              -RATE_LIMIT_SCAN_TAIL_CAP
-            );
-          }
-        }
-      );
+      stdoutLineBuf = consumeMetaLines(stdoutLineBuf + chunk, onMeta, onLine);
     },
     onStderr: (chunk) => {
       stderrTail.append(chunk);
@@ -519,6 +519,13 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
       });
     },
   });
+
+  // Flush any partial line remaining in the line buffer — codex may terminate without a
+  // trailing newline. Appending a synthetic '\n' forces the partial through the parser,
+  // matching the parser.flush(onLine) convention used in the claude and copilot adapters.
+  if (stdoutLineBuf.length > 0) {
+    consumeMetaLines(stdoutLineBuf + '\n', onMeta, onLine);
+  }
 
   const onSuccess = async (): Promise<AttemptOutcome> => {
     let body: string;
