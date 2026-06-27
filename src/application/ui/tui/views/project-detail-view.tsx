@@ -8,7 +8,7 @@
  * project's sprints.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
@@ -90,6 +90,18 @@ export const ProjectDetailView = (): React.JSX.Element => {
   const [confirmRemove, setConfirmRemove] = useState<Repository | undefined>(undefined);
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
 
+  // Mounted-ref guard for the async remove-repo handler: dismissing the confirm overlay unblocks the
+  // router, so the operator can navigate away (unmounting this view) before the awaited save resolves.
+  // The guard skips the post-await view-local writes (setFeedback / reload) so they never fire into an
+  // unmounted tree. Mirrors the guard in `useEditField`.
+  const mountedRef = useRef(true);
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+    },
+    []
+  );
+
   const project = state.kind === 'ok' ? state.value : undefined;
 
   // Flat field cursor — every editable row gets one stable index. Top-to-bottom order matches
@@ -112,12 +124,12 @@ export const ProjectDetailView = (): React.JSX.Element => {
   const focused = fields[Math.min(cursorIdx, Math.max(0, fields.length - 1))];
 
   // Hints share one source of truth with their handlers. The view drives a flat field cursor
-  // (`↑/↓`) and edits the focused row (`e` / `↵`), plus the per-repo CRUD chords. `e edit field`
-  // gates on there being an editable focused row, so the footer never advertises a no-op edit on
-  // an empty field list. `d`/`c`/`S` act on the focused row only when it is a repo.
+  // (`↑/↓` / `j/k`) and edits the focused row (`e` / `↵`), plus the per-repo CRUD chords. `e edit
+  // field` gates on there being an editable focused row, so the footer never advertises a no-op
+  // edit on an empty field list. `d`/`c`/`S` act on the focused row only when it is a repo.
   const focusedRepo = focused?.kind === 'repo';
   useViewHints([
-    { keys: '↑/↓', label: 'navigate' },
+    { keys: '↑/↓/j/k', label: 'navigate' },
     { keys: '↵', label: 'confirm/select' },
     // Surface the `m` chord only while the viewed project is not already current — once they
     // match the action is a no-op and the hint adds noise (mirrors sprint-detail).
@@ -150,6 +162,11 @@ export const ProjectDetailView = (): React.JSX.Element => {
       snapshot,
       { repositoryId: target.id }
     );
+    // `c`/`S` don't claim the global key-mute, so the operator can navigate away (unmounting this
+    // view) while the launcher resolves. Skip consuming the result once unmounted — both the
+    // view-local `setFeedback` and the session/router open — so neither fires into an unmounted
+    // tree. Mirrors `handleRemoveConfirmed`.
+    if (!mountedRef.current) return;
     if (!result.ok) {
       setFeedback(`✗ ${result.reason}`);
       return;
@@ -272,9 +289,10 @@ export const ProjectDetailView = (): React.JSX.Element => {
     if (!confirmed || project === undefined) return;
     const removeResult = await removeRepoFromProject(project, target.id, deps.projectRepo);
     if (!removeResult.ok) {
-      setFeedback(`✗ ${removeResult.error}`);
+      if (mountedRef.current) setFeedback(`✗ ${removeResult.error}`);
       return;
     }
+    if (!mountedRef.current) return;
     setFeedback(`✓ removed ${target.name}`);
     reload();
   };

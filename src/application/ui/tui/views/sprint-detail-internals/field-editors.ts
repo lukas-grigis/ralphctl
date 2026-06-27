@@ -10,6 +10,7 @@
  */
 
 import { Result } from '@src/domain/result.ts';
+import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import { replaceTicket } from '@src/domain/entity/sprint.ts';
 import type { Ticket } from '@src/domain/entity/ticket.ts';
@@ -141,7 +142,10 @@ export const runEdit = (args: RunEditArgs): void => {
         const cfg = buildTicketEdit({ sprint, ticket: focusedTicket, field, sprintRepo, reload });
         if (cfg !== undefined) void openEditPrompt(cfg);
       })
-      .catch(() => undefined);
+      .catch((cause: unknown) => {
+        if (cause instanceof AbortError) throw cause;
+        return undefined;
+      });
     return;
   }
   if (focusedTodoTask !== undefined) {
@@ -156,6 +160,9 @@ export const runEdit = (args: RunEditArgs): void => {
         const cfg = buildTaskEdit({ sprint, task: focusedTodoTask, field, taskRepo, reload });
         if (cfg !== undefined) void openEditPrompt(cfg);
       })
-      .catch(() => undefined);
+      .catch((cause: unknown) => {
+        if (cause instanceof AbortError) throw cause;
+        return undefined;
+      });
   }
 };

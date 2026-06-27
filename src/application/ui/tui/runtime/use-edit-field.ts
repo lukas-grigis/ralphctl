@@ -18,6 +18,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Result } from '@src/domain/result.ts';
+import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { PendingPromptInput, PromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
 import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.tsx';
@@ -108,11 +109,18 @@ export const useEditField = (): UseEditFieldState => {
           return;
         }
         setFeedback(input.successLabel ?? '✓ saved');
-      } catch {
-        // Promise rejection from the queue means the user cancelled (esc). No feedback —
-        // cancellation is its own UI signal (the prompt disappears) and adding a "cancelled"
-        // chip on every esc is noisy. Pre-existing feedback (from a previous edit) is cleared
-        // so the view doesn't carry stale state.
+      } catch (cause) {
+        // AbortError is operator cancellation propagating up through the chain runtime — it must
+        // pass through transparently (the run-abort path depends on it surfacing). This blanket
+        // catch is the only seam between the prompt queue and the void'd callers in
+        // `field-editors.ts`, so swallowing it here would strand the abort. `release()` in the
+        // `finally` still runs before the re-throw.
+        if (cause instanceof AbortError) throw cause;
+        // Any other rejection means the user cancelled THIS prompt (esc — the queue rejects with a
+        // plain `Error('cancelled by user')`, never an AbortError). No feedback: cancellation is
+        // its own UI signal (the prompt disappears) and a "cancelled" chip on every esc is noisy.
+        // Pre-existing feedback (from a previous edit) is cleared so the view doesn't carry stale
+        // state.
         setFeedback(undefined);
       } finally {
         release();
