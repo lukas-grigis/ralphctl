@@ -143,6 +143,27 @@ export const decideEscalation = (props: DecideEscalationProps): EscalationDecisi
  */
 export const escalationBannerId = (taskId: string): string => `model-escalation-${taskId}`;
 
+/**
+ * Pure predicate — returns `true` when the last `windowSize` entries in `history` are all
+ * identical (the gen-eval loop is repeating the same failure fingerprint without progress).
+ * Returns `false` when `history` has fewer than `windowSize` entries (insufficient data) or
+ * when the tail is diverse.
+ *
+ * Implements the TIDE diversity break condition (arXiv 2602.02196): plateaus stem from
+ * recursive looping on the same error repeated, not reasoning incapacity. Detecting low
+ * action diversity is the reliable exit signal.
+ *
+ * `windowSize` is clamped to ≥ 2 defensively — a window of 1 would fire after every single
+ * turn, which is not useful.
+ */
+export const detectRepetitiveLoop = (history: readonly string[], windowSize: number): boolean => {
+  const effective = Math.max(2, Math.trunc(windowSize));
+  if (history.length < effective) return false;
+  const tail = history.slice(-effective);
+  const first = tail[0];
+  return tail.every((f) => f === first);
+};
+
 export interface ApplyEscalationProps {
   readonly task: InProgressTask;
   readonly decision: EscalationDecision;

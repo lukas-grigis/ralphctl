@@ -198,7 +198,7 @@ describe('createGenEvalLoop — gen-eval-turn child order (step-order fence)', (
     ]);
   });
 
-  it('evaluator-guard body is [stamp-meta-evaluator, stamp-role-meta-evaluator, evaluator-leaf] in that order', () => {
+  it('evaluator-guard body is [stamp-meta-evaluator, stamp-role-meta-evaluator, evaluator-leaf, loop-diversity-check] in that order', () => {
     const { loop, task } = buildLoopShape();
     const id = String(task.id);
 
@@ -214,7 +214,12 @@ describe('createGenEvalLoop — gen-eval-turn child order (step-order fence)', (
     const evalChildren = evalStep?.children ?? [];
     const names = evalChildren.map((c) => c.name);
 
-    expect(names).toStrictEqual([`stamp-meta-evaluator-${id}`, `stamp-role-meta-evaluator-${id}`, `evaluator-${id}`]);
+    expect(names).toStrictEqual([
+      `stamp-meta-evaluator-${id}`,
+      `stamp-role-meta-evaluator-${id}`,
+      `evaluator-${id}`,
+      `loop-diversity-check-${id}`,
+    ]);
   });
 });
 

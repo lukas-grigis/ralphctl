@@ -1,3 +1,4 @@
+import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { HarnessSignalSink } from '@src/business/observability/harness-signal-sink.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
@@ -10,8 +11,12 @@ import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { guard } from '@src/application/chain/build/guard.ts';
+import { leaf } from '@src/application/chain/build/leaf.ts';
 import { loop } from '@src/application/chain/build/loop.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
+import { detectRepetitiveLoop } from '@src/business/task/escalation-policy.ts';
+import { failedDimensions } from '@src/business/task/plateau-detection.ts';
+import type { PlateauTurnRecord } from '@src/business/task/plateau-detection.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import { evaluatorLeaf } from '@src/application/flows/implement/leaves/evaluator.ts';
 import { generatorLeaf } from '@src/application/flows/implement/leaves/generator.ts';
@@ -123,6 +128,111 @@ export const createGenEvalLoop = (
     ...(opts.evaluator.effort !== undefined ? { effort: opts.evaluator.effort } : {}),
   };
 
+  // ---------------------------------------------------------------------------
+  // Loop-diversity guard (TIDE arXiv 2602.02196)
+  //
+  // Tracks a rolling fingerprint of each evaluator turn's failed-dimension set.
+  // When the last DIVERSITY_WINDOW_SIZE fingerprints are all identical the loop is
+  // repeating the same approach without progress — exit via a plateau exit so the
+  // escalation policy can climb the model ladder or apply a change-of-approach nudge.
+  //
+  // State is closure-scoped to this element instance; `lastAttemptCount` resets the
+  // history at each new attempt boundary so fingerprints don't leak across attempts.
+  // ---------------------------------------------------------------------------
+  const DIVERSITY_WINDOW_SIZE = 3;
+  let lastAttemptCount = -1;
+  const diversityHistory: string[] = [];
+
+  interface DiversityCheckInput {
+    readonly latestRecord: PlateauTurnRecord | undefined;
+    readonly alreadyExiting: boolean;
+    readonly attemptCount: number;
+    /** Turn just completed (`ctx.genEvalTurn`) — compared against the budget so the guard never pre-empts the final turn. */
+    readonly turnsUsed: number;
+  }
+
+  interface DiversityCheckOutput {
+    readonly shouldExit: boolean;
+    readonly dimensions?: readonly string[];
+  }
+
+  const loopDiversityCheckLeaf = leaf<ImplementCtx, DiversityCheckInput, DiversityCheckOutput>(
+    `loop-diversity-check-${String(taskId)}`,
+    {
+      useCase: {
+        execute: async (input) => {
+          // Reset per attempt so history from a prior attempt doesn't carry over.
+          if (input.attemptCount !== lastAttemptCount) {
+            lastAttemptCount = input.attemptCount;
+            diversityHistory.length = 0;
+          }
+
+          // Skip when the evaluator already set a terminal exit this turn, or when the
+          // evaluator did not run (generator self-blocked — latestRecord is undefined).
+          if (input.alreadyExiting || input.latestRecord === undefined) {
+            return Result.ok({ shouldExit: false });
+          }
+
+          // Fingerprint = sorted set of currently-failed dimension names joined by '|'.
+          // A passing evaluation (all dimensions green) has no failed dimensions → no
+          // fingerprint → no diversity record (the loop would exit via 'passed' anyway).
+          const failed = failedDimensions(input.latestRecord.evaluation);
+          if (failed.size === 0) return Result.ok({ shouldExit: false });
+
+          const fingerprint = [...failed].sort().join('|');
+          diversityHistory.push(fingerprint);
+          if (diversityHistory.length > DIVERSITY_WINDOW_SIZE * 2) {
+            diversityHistory.splice(0, diversityHistory.length - DIVERSITY_WINDOW_SIZE * 2);
+          }
+
+          if (!detectRepetitiveLoop(diversityHistory, DIVERSITY_WINDOW_SIZE)) {
+            return Result.ok({ shouldExit: false });
+          }
+
+          // Budget exhaustion takes precedence. When this was the final turn the loop would run
+          // anyway (turnsUsed === budget), there is no remaining budget for an early escalation
+          // to reclaim — the truthful terminal state is `budget-exhausted`, so let `finalize`
+          // synthesise it instead of pre-empting it with a `plateau`. This preserves the
+          // invariant that a run where every turn fails from the very start (never any progress)
+          // always exits as `budget-exhausted`. Read the same `readConfig` budget the loop's
+          // `shouldContinue` uses so a runtime config change can't diverge the two.
+          const { maxTurns } = await deps.readConfig();
+          if (input.turnsUsed >= Math.max(1, maxTurns)) {
+            return Result.ok({ shouldExit: false });
+          }
+
+          // Diversity collapsed — the generator has repeated the exact same failure pattern
+          // for the last DIVERSITY_WINDOW_SIZE turns without any approach change. Surface a
+          // warn banner and exit the loop so the escalation ladder can intervene.
+          deps.eventBus.publish({
+            type: 'banner-show',
+            id: `loop-diversity-${String(taskId)}`,
+            tier: 'warn',
+            message: 'Generator is repeating the same approach — escalating',
+            cause: 'loop-diversity-exhausted',
+            at: deps.clock(),
+          });
+
+          return Result.ok({ shouldExit: true, dimensions: [...failed] });
+        },
+      },
+      input: (ctx) => {
+        const history = ctx.plateauHistory;
+        const latestRecord = history !== undefined && history.length > 0 ? history[history.length - 1] : undefined;
+        return {
+          latestRecord,
+          alreadyExiting: ctx.lastExit !== undefined,
+          attemptCount: ctx.currentTask?.attempts.length ?? 0,
+          turnsUsed: ctx.genEvalTurn ?? 0,
+        };
+      },
+      output: (ctx, out) => {
+        if (!out.shouldExit || out.dimensions === undefined) return ctx;
+        return { ...ctx, lastExit: { kind: 'plateau', dimensions: out.dimensions } };
+      },
+    }
+  );
+
   return loop<ImplementCtx>(
     `gen-eval-${String(taskId)}`,
     sequential<ImplementCtx>(`gen-eval-turn-${String(taskId)}`, [
@@ -169,6 +279,7 @@ export const createGenEvalLoop = (
             taskId
           ),
           evaluatorLeaf(evaluatorLeafDeps, taskId),
+          loopDiversityCheckLeaf,
         ])
       ),
     ]),
