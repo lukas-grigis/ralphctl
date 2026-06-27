@@ -7,7 +7,7 @@ Your job is to integrate them cleanly, not to invent new ones.
 </role>
 
 <goal>
-Update `{{TARGET_FILENAME}}` so that it carries an up-to-date `## Learnings (ralphctl)` section containing
+Update `{{TARGET_FILENAME}}` so that it carries an up-to-date `## {{LEARNINGS_SECTION_HEADING}}` section containing
 the candidate learnings below — folded in idempotently, preserving everything else in the file verbatim.
 </goal>
 
@@ -26,15 +26,15 @@ the candidate learnings below — folded in idempotently, preserving everything 
 {{HARNESS_CONTEXT}}
 
 <owned_section>
-You own exactly one section of `{{TARGET_FILENAME}}` — the one headed `## Learnings (ralphctl)`. This is
+You own exactly one section of `{{TARGET_FILENAME}}` — the one headed `## {{LEARNINGS_SECTION_HEADING}}`. This is
 the only part of the file you may add, reorder, or rewrite. Everything outside that section is
 hand-authored or owned by another tool — preserve it byte-for-byte.
 
-- When the file already contains a `## Learnings (ralphctl)` section, treat its current bullets as the
+- When the file already contains a `## {{LEARNINGS_SECTION_HEADING}}` section, treat its current bullets as the
   prior state and reconcile the candidates against them (see the idempotency rule below).
 - When the file has no such section yet, append one at the end of the file — after the last existing
   section, separated by a single blank line.
-- Never create a second `## Learnings (ralphctl)` section — there must be exactly one.
+- Never create a second `## {{LEARNINGS_SECTION_HEADING}}` section — there must be exactly one.
   </owned_section>
 
 <idempotency_rule>
@@ -87,7 +87,7 @@ as "when present"; many repositories do not have one, and a learning must not as
 
 <output_contract>
 
-1. Read the existing context file body above and locate the `## Learnings (ralphctl)` section, if any.
+1. Read the existing context file body above and locate the `## {{LEARNINGS_SECTION_HEADING}}` section, if any.
 2. Reconcile the candidate learnings against the owned section per the idempotency rule.
 3. Write the COMPLETE, updated `{{TARGET_FILENAME}}` back to disk at its original path — the full file, not
    a diff and not only the section. Everything outside the owned section must be unchanged.
