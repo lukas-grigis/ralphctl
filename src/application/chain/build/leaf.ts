@@ -56,6 +56,11 @@ export const leaf = <TCtx, UInput, UOutput>(
       } catch (cause) {
         if (!isDomainError(cause)) throw cause;
         const durationMs = performance.now() - start;
+        if (cause instanceof AbortError) {
+          const entry: TraceEntry = { elementName: name, ...labelExt, status: 'aborted', durationMs, error: cause };
+          onTrace?.(entry);
+          return Result.error({ error: cause, trace: [entry] });
+        }
         const entry: TraceEntry = { elementName: name, ...labelExt, status: 'failed', durationMs, error: cause };
         onTrace?.(entry);
         return Result.error({ error: cause, trace: [entry] });

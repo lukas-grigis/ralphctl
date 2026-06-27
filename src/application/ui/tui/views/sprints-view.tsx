@@ -118,7 +118,7 @@ export const SprintsView = (): React.JSX.Element => {
   // rather than advertise a no-op. `u` follows the same declarative gate on the stuck-task count.
   const focusedDone = focusedSprint?.status === 'done';
   useViewHints([
-    { keys: '↑/↓', label: 'move' },
+    { keys: '↑/↓/j/k', label: 'move' },
     { keys: '↵', label: 'open' },
     { keys: 'c', label: 'create' },
     { keys: 'e', label: 'rename', enabledWhen: !focusedDone },

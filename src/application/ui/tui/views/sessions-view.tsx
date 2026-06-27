@@ -28,8 +28,10 @@ import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import type { SessionRecord } from '@src/application/ui/tui/runtime/session-manager.ts';
 import { fmtElapsed } from '@src/application/ui/tui/theme/duration.ts';
+import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
 
-const VISIBLE_ROWS = 10;
+/** Non-list rows consumed by ViewShell chrome + column header + overflow rows + summary + feedback. */
+const CHROME_ROWS = 9;
 const FLOW_COL_WIDTH = 16;
 const STATUS_COL_WIDTH = 14;
 const ELAPSED_COL_WIDTH = 10;
@@ -41,8 +43,10 @@ export const SessionsView = (): React.JSX.Element => {
   const sessions = useSessions();
   const manager = useSessionManager();
   const ui = useUiState();
+  const { rows } = useBreakpoint();
+  const VISIBLE_ROWS = Math.max(5, Math.min(15, rows - CHROME_ROWS));
   useViewHints([
-    { keys: '↑/↓', label: 'move' },
+    { keys: '↑/↓/j/k', label: 'move' },
     { keys: '↵', label: 'open' },
     { keys: 'c', label: 'cancel run' },
   ]);

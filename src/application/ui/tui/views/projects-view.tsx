@@ -34,7 +34,7 @@ export const ProjectsView = (): React.JSX.Element => {
   const ui = useUiState();
   const { rows } = useBreakpoint();
   useViewHints([
-    { keys: '↑/↓', label: 'move' },
+    { keys: '↑/↓/j/k', label: 'move' },
     { keys: '↵', label: 'open' },
     { keys: 'm', label: 'make current' },
     { keys: 'c', label: 'create' },
