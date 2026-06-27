@@ -1,6 +1,7 @@
 import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider, ProviderOutput } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import {
+  FORENSIC_BODY_TAIL_CAP,
   RATE_LIMIT_SCAN_TAIL_CAP,
   STDERR_TAIL_CAP,
   createBoundedTail,
@@ -218,13 +219,21 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
   // auto-discover their context file from cwd."
   const child = spawnFn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] as const, cwd: String(session.cwd) });
   const parser = createCopilotStreamParser();
-  // Two buffers, one tagged event log: assistant body text feeds signal parsing; the
-  // forensic body.txt mirrors every assistant + unrecognised-event line in stream order.
-  // Splitting matters because Copilot echoes the prompt as a `user.message` event whose raw
-  // JSONL would otherwise be matched by the harness signal regexes (literal `<task-blocked>`
-  // inside the prompt → fake signal). Order preservation: derive both views from one tagged
-  // event list rather than two parallel arrays.
-  const events: Array<{ readonly assistant: boolean; readonly text: string }> = [];
+  // Two BOUNDED tails fed in stream order — replaces a formerly-unbounded `events[]` that
+  // retained every stdout line for the whole spawn (an OOM-class accumulation on a chatty
+  // multi-hour session — same root cause as the PR #229 TUI render-path leak). `forensicTail`
+  // backs `body.txt`; `rateLimitTail` is the classifier's scan haystack. Both drop their oldest
+  // bytes once full, so the per-spawn stdout footprint is pinned regardless of child verbosity.
+  // The prior per-line `assistant` tag is gone: neither consumer ever filtered on it (signals
+  // land in `signals.json` via the file-based audit-[09] contract, not by re-parsing the body),
+  // and the prompt-echo leak it once guarded is moot since both views were already derived from
+  // every recorded line.
+  const forensicTail = createBoundedTail(FORENSIC_BODY_TAIL_CAP);
+  const rateLimitTail = createBoundedTail(RATE_LIMIT_SCAN_TAIL_CAP);
+  const recordLine = (text: string): void => {
+    forensicTail.append(`${text}\n`);
+    rateLimitTail.append(`${text}\n`);
+  };
   let sessionId: string | undefined;
   let model: string | undefined;
   let usage: CopilotUsage = {};
@@ -254,7 +263,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
         usage = line.usage;
       }
       if (line.bodyText !== undefined && line.bodyText.length > 0) {
-        events.push({ assistant: true, text: line.bodyText });
+        recordLine(line.bodyText);
         // Per-line assistant debug event. The bus → logger consumer drops debug events at
         // the default `info` floor; only `RALPHCTL_LOG_LEVEL=debug` operators see them.
         const text = truncateField(line.bodyText);
@@ -271,7 +280,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
         // Unrecognised JSON event — keep the raw form so `body.txt` (when bodyFile is set)
         // captures Copilot's actual stream shapes. NEVER feed this to the signal parser:
         // Copilot echoes the prompt as `user.message`, which carries literal harness tags.
-        events.push({ assistant: false, text: line.raw });
+        recordLine(line.raw);
       }
       // Truncate the raw line like every other stream-originated debug field (see truncateField):
       // at the debug floor this fires per stdout line, so an untruncated raw envelope would bloat
@@ -287,7 +296,7 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
       return;
     }
     // Non-JSON lines (banner/status); preserve in body.txt but keep out of signal parsing.
-    events.push({ assistant: false, text: line.raw });
+    recordLine(line.raw);
   };
 
   // Copilot reads the prompt from -p argv (no stdin payload). Tokens stream to stdout via the
@@ -326,9 +335,9 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
     // `session.outputDir`; the harness validates it post-spawn. The provider never writes
     // signals.json itself. The forensic body buffer below stays — operators inspect it when
     // a proposal comes back empty to decide whether the prompt, the AI, or the validator is
-    // at fault. On SIGTERM-recovery `events[]` may be partial; the join still produces a
-    // useful snapshot of what the model emitted before the watchdog stepped in.
-    const forensicBody = events.map((e) => e.text).join('\n');
+    // at fault. On SIGTERM-recovery the tail may be partial; it still produces a useful snapshot
+    // of what the model emitted before the watchdog stepped in (bounded to its most recent window).
+    const forensicBody = forensicTail.value();
     // Mirror raw body for diagnostic capture. Best-effort: a write failure here is logged but
     // does not fail the session. Critically, the body is captured even when the AI emits no
     // signals, so operators can see what the model actually produced.
@@ -389,12 +398,9 @@ const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> =>
   };
 
   // Feed the stream body tail into the rate-limit haystack — Copilot reports a quota throttle in
-  // its result-record text (captured as a raw `events[]` line), not on stderr. Capped so a long
-  // session doesn't build a multi-MB scan string.
-  const stdoutTail = events
-    .map((e) => e.text)
-    .join('\n')
-    .slice(-RATE_LIMIT_SCAN_TAIL_CAP);
+  // its result-record text (recorded as a stream line), not on stderr. `rateLimitTail` is already
+  // bounded to RATE_LIMIT_SCAN_TAIL_CAP, so a long session can't build a multi-MB scan string.
+  const stdoutTail = rateLimitTail.value();
 
   return classifySpawnExit({
     session,
