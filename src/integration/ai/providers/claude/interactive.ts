@@ -12,6 +12,7 @@ import {
   defaultReadFile,
 } from '@src/integration/ai/providers/_engine/interactive-spawn.ts';
 import { persistSessionIdFile } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
+import { DEFAULT_GRACE_MS } from '@src/integration/ai/providers/_engine/idle-watchdog.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
@@ -155,10 +156,17 @@ export const createInteractiveClaudeProvider = (deps: InteractiveClaudeDeps): In
         );
       }
 
+      // A `stdio: 'inherit'` child is unreachable once spawned (the harness keeps no reference
+      // past `run`), so a TUI-side cancel can't stop it. Wire the caller's abort signal to a
+      // SIGTERM → grace → SIGKILL kill ladder; the cleanup runs on normal exit so a reused
+      // AbortController never fires kill against the dead pid.
+      const stopAbortKill = attachAbortKill(child, input.abortSignal);
+
       const exitCode = await new Promise<number | null>((resolve) => {
         child.on('close', (code) => resolve(code));
         child.on('error', () => resolve(-1));
       });
+      stopAbortKill();
 
       deps.eventBus.publish({
         type: 'log',
@@ -197,3 +205,36 @@ export const createInteractiveClaudeProvider = (deps: InteractiveClaudeDeps): In
 };
 
 const stringifyError = (cause: unknown): string => (cause instanceof Error ? cause.message : String(cause));
+
+/**
+ * Wire a caller {@link AbortSignal} to a SIGTERM → grace → SIGKILL kill ladder for a
+ * `stdio: 'inherit'` child (mirrors `installIdleWatchdog`'s abort path, minus idle detection).
+ * Returns a cleanup fn the caller MUST invoke once the child has exited — it cancels the pending
+ * SIGKILL escalation and drops the abort listener so a reused AbortController never fires kill
+ * against the now-dead pid. A signal already aborted when called kills the child immediately.
+ */
+const attachAbortKill = (child: ChildProcess, abortSignal: AbortSignal | undefined): (() => void) => {
+  let graceTimer: NodeJS.Timeout | null = null;
+  const kill = (): void => {
+    try {
+      child.kill('SIGTERM');
+    } catch {
+      // Child may already be dead (ESRCH) — best-effort.
+    }
+    graceTimer = setTimeout(() => {
+      try {
+        child.kill('SIGKILL');
+      } catch {
+        // Already dead — best-effort.
+      }
+    }, DEFAULT_GRACE_MS);
+  };
+  const cleanup = (): void => {
+    if (graceTimer !== null) clearTimeout(graceTimer);
+    abortSignal?.removeEventListener('abort', kill);
+  };
+  if (abortSignal === undefined) return cleanup;
+  if (abortSignal.aborted) kill();
+  else abortSignal.addEventListener('abort', kill, { once: true });
+  return cleanup;
+};
