@@ -29,6 +29,29 @@ export const STDERR_TAIL_CAP = 16_384;
  */
 export const RATE_LIMIT_SCAN_TAIL_CAP = 8192;
 
+/**
+ * Hard ceiling on the in-flight NDJSON line-parse accumulator in the stdout stream parsers
+ * (`claude/parse-stream.ts`, `copilot/parse-stream.ts`). Those parsers grow `buffer += chunk`
+ * until a newline terminates the current line; a single record embedding a large file-read or
+ * bash tool result can inflate one line to tens of MB before the newline clears it, which is an
+ * OOM-class accumulation (same root cause as the TUI render-path leak). When the unterminated
+ * line crosses this cap the parser drops the OLDEST bytes back to the cap and keeps draining —
+ * 512 KiB leaves ample room for any legitimate JSONL record while pinning the worst-case
+ * per-line footprint regardless of how large a tool result the child streams.
+ */
+export const STDOUT_LINE_PARSE_CAP = 524_288;
+
+/**
+ * Retained-tail size for the Copilot forensic body mirror (`body.txt` when `session.bodyFile` is
+ * set). The adapter formerly retained EVERY stdout line for the whole spawn in an unbounded
+ * `events[]` array — an OOM-class accumulation on a multi-hour, chatty session. A bounded tail
+ * caps that footprint while keeping the most recent ~256 KiB, which is the diagnostic window an
+ * operator actually inspects when a proposal comes back empty (older lines rarely matter for that
+ * post-mortem). Larger than {@link RATE_LIMIT_SCAN_TAIL_CAP} because forensic capture wants more
+ * context than the narrow rate-limit marker scan.
+ */
+export const FORENSIC_BODY_TAIL_CAP = 262_144;
+
 /** @public */
 export interface BoundedTail {
   /** Append a chunk, trimming the retained window back to the cap when it overflows. */
