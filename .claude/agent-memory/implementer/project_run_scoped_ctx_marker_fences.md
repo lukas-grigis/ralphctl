@@ -20,6 +20,16 @@ fails. There are THREE coupled sites:
 silently skip the merge/fork projection. Miss site 2 or 3 and the field is silently dropped in parallel mode
 even though typecheck passed (the guard only forces classification, not correct carry).
 
+**Classification decides how many sites you touch.** Only `SPRINT` (run-scoped) fields need all THREE sites
+(the merge/fork bodies must explicitly carry/spread them). A `PER_TASK` or `SIGNAL_ACCUM` field needs ONLY
+site 1 (the `_exhaustive` map entry) — `mergeImplementWave` and `forkCtx` intentionally OMIT those classes
+(reset to undefined between waves / cleared on fork), so adding the map entry is the whole edit. Example
+(feature/audit-research-xl R2): `lastTurnActionCounts?: ReadonlyMap<string,number>` (per-turn generator
+signal-kind distribution, stamped every generator turn, read by the entropy-plateau guard) → `PER_TASK` → one
+line in the `_exhaustive` map and done. Heads-up: this still forces a touch of `merge-wave.ts` even when your
+task's owned-file list excludes it — adding ANY ctx field breaks the `satisfies` check, so flag it to the
+integrator.
+
 **How to apply:** T13 (feat/gen-eval-speed) added `setupVerifiedRepoIdsThisRun` (run-scoped set of repo ids
 whose setup ran green THIS launch). Set by `setup-script-runner` output projection (only on the fresh green-run
 path — NOT resume-skip, NOT no-script-skip; those successes belong to a prior launch / validate nothing). Read

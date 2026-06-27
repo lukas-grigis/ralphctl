@@ -1,5 +1,8 @@
 # Implementer Memory
 
+- [project_prompt_queue_cancel_vs_abort.md](project_prompt_queue_cancel_vs_abort.md) — TUI prompt-queue esc-cancel
+  & shutdown reject with PLAIN Error (never AbortError), so a blanket `.catch` around prompt promises can safely
+  re-throw AbortError; edit text-prompt seam (use-edit-field) vs field-picker seam (field-editors) are independent
 - [project_slugged_data_layout_resolver.md](project_slugged_data_layout_resolver.md) — human-readable `<id>--<slug>`
   data/ layout: one tolerant id-prefix resolver in storage.ts; direct-build (entity-in-hand) vs resolver (id-only);
   reconcile-on-save (project write-then-delete, sprint rename-then-write); projectSlug threaded for memory ledger;
@@ -63,3 +66,9 @@
 - [project_flows_view_soft_repo_default.md](project_flows_view_soft_repo_default.md) — flows-view launch handler runs a
   dedicated repo-selection step (flows-repository-picker.ts) BEFORE the customize picker; sessionRepositoryId is a
   re-pickable soft default not a hard lock; gate on explicit 3-flow allowlist (detect-scripts/detect-skills/readiness)
+- [project_loop_diversity_budget_precedence.md](project_loop_diversity_budget_precedence.md) — gen-eval loop-diversity
+  guard must not pre-empt the final budgeted turn; budget-exhausted wins over plateau when turnsUsed >= maxTurns (reads
+  readConfig budget, not a captured const)
+- [project_plateau_predicate_count_based.md](project_plateau_predicate_count_based.md) — plateau predicate is
+  failed-dim-COUNT based (not identical-set); critique-shift (Jaccard<0.5) is the lever to keep a multi-turn loop test
+  running; R2 entropy guard reads ctx.lastTurnActionCounts (signal-kind proxy) stamped by generator every turn
