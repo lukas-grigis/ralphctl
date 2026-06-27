@@ -8,7 +8,7 @@
  * project's sprints.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
@@ -89,6 +89,18 @@ export const ProjectDetailView = (): React.JSX.Element => {
   const [cursorIdx, setCursorIdx] = useState(0);
   const [confirmRemove, setConfirmRemove] = useState<Repository | undefined>(undefined);
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
+
+  // Mounted-ref guard for the async remove-repo handler: dismissing the confirm overlay unblocks the
+  // router, so the operator can navigate away (unmounting this view) before the awaited save resolves.
+  // The guard skips the post-await view-local writes (setFeedback / reload) so they never fire into an
+  // unmounted tree. Mirrors the guard in `useEditField`.
+  const mountedRef = useRef(true);
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+    },
+    []
+  );
 
   const project = state.kind === 'ok' ? state.value : undefined;
 
@@ -272,9 +284,10 @@ export const ProjectDetailView = (): React.JSX.Element => {
     if (!confirmed || project === undefined) return;
     const removeResult = await removeRepoFromProject(project, target.id, deps.projectRepo);
     if (!removeResult.ok) {
-      setFeedback(`✗ ${removeResult.error}`);
+      if (mountedRef.current) setFeedback(`✗ ${removeResult.error}`);
       return;
     }
+    if (!mountedRef.current) return;
     setFeedback(`✓ removed ${target.name}`);
     reload();
   };

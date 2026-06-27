@@ -6,7 +6,7 @@
  * mirroring the sprint-detail view's explicit opt-in.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { useListWindow, OverflowRow } from '@src/application/ui/tui/components/windowed-list.tsx';
@@ -46,6 +46,18 @@ export const ProjectsView = (): React.JSX.Element => {
 
   const [confirmDelete, setConfirmDelete] = useState<Project | undefined>(undefined);
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
+
+  // Mounted-ref guard for the async delete handler: dismissing the confirm overlay unblocks the
+  // router, so the operator can navigate away (unmounting this view) before `projectRepo.remove`
+  // resolves. The guard skips the post-await view-local writes (setFeedback / reload) so they never
+  // fire into an unmounted tree. Mirrors the guard in `useEditField`.
+  const mountedRef = useRef(true);
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+    },
+    []
+  );
 
   const { state, reload } = useAsyncLoad<readonly Project[]>(async () => {
     const r = await deps.projectRepo.list();
@@ -128,10 +140,13 @@ export const ProjectsView = (): React.JSX.Element => {
     if (!confirmed) return;
     const r = await deps.projectRepo.remove(target.id);
     if (!r.ok) {
-      setFeedback(`${glyphs.cross} ${r.error.message}`);
+      if (mountedRef.current) setFeedback(`${glyphs.cross} ${r.error.message}`);
       return;
     }
+    // Clearing the deleted project's selection targets the always-mounted SelectionProvider, so it
+    // runs unconditionally — the stale cursor must drop even if the operator navigated away mid-delete.
     if (selection.projectId === target.id) selection.setProject(undefined);
+    if (!mountedRef.current) return;
     setFeedback(`${glyphs.check} removed ${target.displayName}`);
     reload();
   };
