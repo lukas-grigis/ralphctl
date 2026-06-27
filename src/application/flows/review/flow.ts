@@ -1,5 +1,6 @@
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { guard } from '@src/application/chain/build/guard.ts';
 import { loop } from '@src/application/chain/build/loop.ts';
@@ -75,9 +76,10 @@ export interface CreateReviewFlowOpts {
  * The loop can also exit via its `shouldContinue` round cap (`i <= maxRounds`) — a fail-safe for a
  * UI bug that would otherwise re-enter the round forever. On THAT exit `lastReviewExit` is still
  * undefined (no human terminal decision was reached), so the guard skips both settle steps and the
- * sprint stays in `review` with a visible `skipped` trace entry. The human end-of-sprint decision
- * stays the only path to `done`, and re-running review resumes cleanly because the status never
- * moved.
+ * sprint stays in `review` with a visible `skipped` trace entry. The cap exit also publishes a warn
+ * banner from inside `shouldContinue` (off-trace, so the happy path stays clean) explaining WHY the
+ * sprint stayed in `review`. The human end-of-sprint decision stays the only path to `done`, and
+ * re-running review resumes cleanly because the status never moved.
  */
 export const createReviewFlow = (deps: ReviewDeps, opts: CreateReviewFlowOpts): Element<ReviewCtx> => {
   const maxRounds = opts.maxRounds ?? DEFAULT_MAX_ROUNDS;
@@ -108,12 +110,32 @@ export const createReviewFlow = (deps: ReviewDeps, opts: CreateReviewFlowOpts): 
     loadAndAssertSprintSubChain<ReviewCtx>({ sprintRepo: deps.sprintRepo }, ['review']),
     ensureFeedbackFileLeaf(opts.feedbackFile),
     loop<ReviewCtx>('review-loop', reviewRound, {
-      shouldContinue: (_ctx, i) => i <= maxRounds,
+      // Pre-iteration round cap. `i > maxRounds` exits the loop without running another round.
+      // When the cap is the reason we stop — no human terminal decision reached, `lastReviewExit`
+      // still undefined — publish a warn banner from HERE so the operator knows WHY the sprint
+      // stayed in 'review'. Emitting from `shouldContinue` keeps the banner OFF the trace: a
+      // normal terminal exit makes `shouldStop` fire first, so this branch is never reached on
+      // the happy path and the trace stays clean. Re-running review resumes cleanly (status never
+      // moved).
+      shouldContinue: (ctx, i) => {
+        if (i <= maxRounds) return true;
+        if (ctx.lastReviewExit === undefined) {
+          deps.eventBus.publish({
+            type: 'banner-show',
+            id: 'review-cap-exhausted',
+            tier: 'warn',
+            message: `Review round cap (${maxRounds}) reached — sprint remains in 'review'. Re-run the review flow to continue.`,
+            at: IsoTimestamp.now(),
+          });
+        }
+        return false;
+      },
       shouldStop: (ctx) => ctx.lastReviewExit !== undefined,
     }),
     // Only settle the sprint to `done` when the review loop reached a human terminal decision
     // (`lastReviewExit` set). A round-cap exit leaves it undefined → guard skips both settle steps
-    // so a UI-bug-driven cap exhaustion never silently closes the sprint.
+    // (a visible `skipped` trace entry) so a UI-bug-driven cap exhaustion never silently closes the
+    // sprint. The human end-of-sprint decision stays the only path to `done`.
     guard<ReviewCtx>(
       'review-settled',
       (ctx) => ctx.lastReviewExit !== undefined,

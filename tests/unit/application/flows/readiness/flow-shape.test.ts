@@ -50,6 +50,9 @@ describe('createReadinessFlow — chain-shape fence', () => {
       'readiness',
       'load-project',
       'pick-repository',
+      // Each per-provider sub-chain is wrapped in a continue-on-error guard (skips the provider
+      // on a provider-specific infra failure); the guard exposes the sub-chain as its child.
+      'continue-on-error(tool-claude-code)',
       'tool-claude-code',
       'probe-claude-code',
       'install-skills-claude-code',
@@ -70,7 +73,8 @@ describe('createReadinessFlow — chain-shape fence', () => {
     expect((top.children ?? []).map((c) => c.name)).toStrictEqual([
       'load-project',
       'pick-repository',
-      'tool-claude-code',
+      // The per-provider sub-chain is wrapped in a continue-on-error guard at the top level.
+      'continue-on-error(tool-claude-code)',
       'persist-suggested-skills',
     ]);
   });

@@ -710,8 +710,9 @@ describe('readiness fan-out across unique providers', () => {
 /**
  * Provider-scoping fan-out: the `providers` opt scopes the per-tool sub-chains the chain builds.
  * These tests inspect the static element tree (`flow.children`) rather than running the chain —
- * the per-tool sub-chains are the top-level `sequential('readiness', …)` children named
- * `tool-<tool>`, so the set of those names is exactly the scoped fan-out.
+ * each per-tool sub-chain (`sequential('tool-<tool>', …)`) is wrapped in a continue-on-error
+ * guard and sits among the top-level `sequential('readiness', …)` children, so unwrapping the
+ * guards and collecting the `tool-<tool>` names yields exactly the scoped fan-out.
  */
 describe('readiness fan-out provider scoping', () => {
   const buildFlow = (ai: AiSettings, opts: { readonly providers?: readonly AiProvider[] }) => {
@@ -743,9 +744,15 @@ describe('readiness fan-out provider scoping', () => {
     );
   };
 
-  /** Names of the per-tool sub-chain children of the top-level `sequential('readiness', …)`. */
+  /**
+   * Names of the per-tool sub-chains, unwrapping the per-provider continue-on-error guard each
+   * one is nested under (`continue-on-error(tool-<tool>)` → child `tool-<tool>`).
+   */
   const toolSubchainNames = (flow: ReturnType<typeof buildFlow>): readonly string[] =>
-    (flow.children ?? []).map((c) => c.name).filter((n) => n.startsWith('tool-'));
+    (flow.children ?? [])
+      .flatMap((c) => [c, ...(c.children ?? [])])
+      .map((c) => c.name)
+      .filter((n) => n.startsWith('tool-'));
 
   it('providers scoped to one provider → exactly that provider tool sub-chain is built', () => {
     // Settings reference three providers; scope to github-copilot only.
