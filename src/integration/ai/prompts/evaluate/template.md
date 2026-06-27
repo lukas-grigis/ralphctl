@@ -92,6 +92,30 @@ The block below mirrors that file for in-context reference.
 
 </task_specification>
 
+<reasoning_protocol>
+Before emitting your evaluation signal, write your step-by-step assessment inside
+<evaluation_thinking>…</evaluation_thinking> tags. The harness ignores these tags — they are
+for your reasoning only. Structure the block as:
+
+- Review each acceptance criterion against the evidence collected in Phases 1–2.
+- Identify what specifically changed vs. what the specification required.
+- Decide the verdict for each floor dimension with explicit reasoning.
+- THEN write the final `signals.json` with your concluded verdict.
+
+</reasoning_protocol>
+
+<checkpoint_protocol>
+After reviewing each acceptance criterion — before moving to the next — emit a one-line interim
+verdict inside a self-closing tag:
+
+<criterion_checkpoint criterion="N" verdict="pass|fail|partial">one-line observation</criterion_checkpoint>
+
+These tags are for your own mid-review tracking — the harness ignores them entirely. When you
+write the final <evaluation_thinking> block, note whether any checkpoint changed verdict mid-review
+— a changed checkpoint is evidence of genuine investigation, not a defect. The final `signals.json`
+remains the only machine-readable output and must come last.
+</checkpoint_protocol>
+
 <inputs>
   <project_path>{{PROJECT_PATH}}</project_path>
   <verify_script>{{VERIFY_SCRIPT_SECTION}}</verify_script>

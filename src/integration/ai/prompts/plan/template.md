@@ -140,7 +140,7 @@ implemented in a single session, and verified end-to-end against its criteria.
 
 **Do not split when:**
 
-- A utility and its first caller would be separated — create-and-use is always one task.
+- A utility and its first caller would be separated — create-and-use is always one task, unless the utility already exists in the codebase or a prior task in this plan produces it.
 - A feature and its tests would be separated.
 - The same pattern applies across N call sites — it is one refactor, not N tasks.
 

@@ -1,7 +1,9 @@
 /**
  * `distill-learnings` prompt: one-shot documentation edit that folds a curated set of
- * machine-collected learnings into an existing project context file's own idempotent
- * `## Learnings (ralphctl)` section.
+ * machine-collected learnings into an existing project context file's own idempotent learnings
+ * section. The section heading is a parameter ({@link DistillLearningsPromptParams.learningsSectionHeading})
+ * so the generic template never hardcodes a brand — it runs on downstream user projects, not just
+ * this one.
  *
  * The AI is an editor, not a researcher — every learning was produced and reviewed by an earlier
  * session and confirmed by the operator before this call. The prompt instructs the AI to write
@@ -21,11 +23,19 @@ import { buildPrompt, type BuildPromptError } from '@src/integration/ai/prompts/
 import type { PromptDefinition } from '@src/integration/ai/prompts/_engine/definition.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 
+/**
+ * Default H2 heading text for the section this prompt owns (without the leading `## `). Generic and
+ * brand-free so the template stays portable across downstream user projects. Callers that want a
+ * project-specific heading pass {@link DistillLearningsPromptParams.learningsSectionHeading}.
+ */
+const DEFAULT_LEARNINGS_SECTION_HEADING = 'Learnings (AI sessions)';
+
 export interface DistillLearningsPromptParams {
   /**
    * Existing context-file body wrapped for prompting, or an explicit "no existing file" line. The
-   * AI reconciles the candidate learnings against this file's current `## Learnings (ralphctl)`
-   * section and writes the full updated file back.
+   * AI reconciles the candidate learnings against this file's current learnings section (the one
+   * headed by {@link DistillLearningsPromptParams.learningsSectionHeading}) and writes the full
+   * updated file back.
    */
   readonly existingContextFile: string;
   /**
@@ -45,6 +55,13 @@ export interface DistillLearningsPromptParams {
    * this section so the prompt copy never hardcodes a specific ecosystem's commands.
    */
   readonly projectTooling: string;
+  /**
+   * H2 heading text for the section this prompt owns (without the leading `## `). Optional — omit it
+   * to fall back to a generic, brand-free default ({@link DEFAULT_LEARNINGS_SECTION_HEADING}). The
+   * template is generic and runs on downstream user projects, so the heading must never hardcode a
+   * brand; callers that want a project-specific heading pass it here.
+   */
+  readonly learningsSectionHeading?: string;
 }
 
 const requireNonEmpty =
@@ -55,7 +72,7 @@ const requireNonEmpty =
 export const distillLearningsPromptDef: PromptDefinition<DistillLearningsPromptParams> = {
   templateName: 'distill-learnings',
   description:
-    'One-shot documentation edit that folds curated learnings into an existing project context file’s own idempotent `## Learnings (ralphctl)` section.',
+    'One-shot documentation edit that folds curated learnings into an existing project context file’s own idempotent learnings section (heading configurable, brand-free by default).',
   parameters: {
     existingContextFile: {
       placeholder: 'EXISTING_CONTEXT_FILE',
@@ -77,6 +94,12 @@ export const distillLearningsPromptDef: PromptDefinition<DistillLearningsPromptP
       description:
         'Detected build/test/task tooling, or "(none detected)". The only place package-manager commands may appear.',
     },
+    learningsSectionHeading: {
+      placeholder: 'LEARNINGS_SECTION_HEADING',
+      description:
+        'H2 heading text for the owned learnings section (without the leading `## `). Brand-free generic default applied by the builder when the caller omits it.',
+      optional: true,
+    },
   },
   partials: {
     HARNESS_CONTEXT: 'harness-context',
@@ -90,6 +113,8 @@ export interface BuildDistillLearningsPromptInput {
   readonly candidateLearnings: string;
   readonly targetFilename: string;
   readonly projectTooling: string;
+  /** Optional H2 heading for the owned section; falls back to the brand-free default when omitted. */
+  readonly learningsSectionHeading?: string;
 }
 
 /**
@@ -107,4 +132,5 @@ export const buildDistillLearningsPrompt = async (
     candidateLearnings: input.candidateLearnings,
     targetFilename: input.targetFilename,
     projectTooling: input.projectTooling,
+    learningsSectionHeading: input.learningsSectionHeading ?? DEFAULT_LEARNINGS_SECTION_HEADING,
   });

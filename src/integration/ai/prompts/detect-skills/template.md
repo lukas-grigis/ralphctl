@@ -25,7 +25,7 @@ covers that responsibility for this repo.
 
 <inputs>
 <repository_path>{{REPOSITORY_PATH}}</repository_path>
-<skills_convention>{{SKILLS_CONVENTION}}</skills_convention>
+<skills_convention>See the full skills convention in the constraints section below.</skills_convention>
 </inputs>
 
 {{HARNESS_CONTEXT}}
