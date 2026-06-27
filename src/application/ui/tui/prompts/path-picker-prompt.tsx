@@ -75,9 +75,11 @@ export const PathPickerPrompt = ({
   const [typing, setTyping] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     const load = async (): Promise<void> => {
       try {
         const items = await fs.readdir(cwd, { withFileTypes: true });
+        if (cancelled) return;
         const filtered = items
           .filter((d) => showHidden || !d.name.startsWith('.'))
           .filter((d) => d.isDirectory())
@@ -86,11 +88,15 @@ export const PathPickerPrompt = ({
         setEntries(filtered);
         setError(undefined);
       } catch (err) {
+        if (cancelled) return;
         setEntries([]);
         setError(err instanceof Error ? err.message : String(err));
       }
     };
     void load();
+    return () => {
+      cancelled = true;
+    };
   }, [cwd, showHidden]);
 
   // Synthetic rows: parent (..) → [Select this directory] → directory entries.

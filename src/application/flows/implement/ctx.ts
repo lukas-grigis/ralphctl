@@ -72,6 +72,16 @@ export interface ImplementCtx {
    * Reset implicitly per task: a fresh `currentTask` starts with an empty array.
    */
   readonly plateauHistory?: readonly PlateauTurnRecord[] | undefined;
+  /**
+   * Per-turn distribution of generator-emitted signal kinds (`decision` / `change` / `learning` /
+   * `note`) for the turn just completed — only kinds with a non-zero count are present. Stamped by
+   * the generator leaf on every turn and consumed by the entropy-plateau heuristic in the
+   * gen-eval loop (`entropy-check-<id>`) as a SIGNAL-KIND-DISTRIBUTION proxy for action entropy:
+   * the harness never sees the AI's raw tool-use, so the spread of reported signal kinds stands in
+   * for "action diversity". Run-scoped to the CURRENT turn (overwritten every generator turn), so it
+   * never accumulates across turns. A secondary/softer signal to the fingerprint-repetition guard.
+   */
+  readonly lastTurnActionCounts?: ReadonlyMap<string, number> | undefined;
   readonly lastExit?: GenEvalExit | undefined;
   readonly lastVerdict?: RunTaskVerdict | undefined;
   readonly lastBlockReason?: string | undefined;

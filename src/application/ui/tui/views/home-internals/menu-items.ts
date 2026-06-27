@@ -11,6 +11,7 @@ import type { MenuItem } from '@src/application/ui/tui/components/action-menu.ts
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
+import { ticketAddManifest } from '@src/application/flows/add-ticket/manifest.ts';
 
 export interface BuildMenuItemsInput {
   readonly hasProject: boolean;
@@ -120,10 +121,10 @@ export const buildMenuItems = (input: BuildMenuItemsInput): readonly MenuItem[] 
       onSelect: (): void => input.onPushHome('pick-sprint'),
     },
     {
-      id: 'add-ticket',
+      id: ticketAddManifest.id,
       section: 'work',
-      label: 'Add ticket',
-      description: 'Append a pending ticket to the current sprint.',
+      label: ticketAddManifest.title,
+      description: ticketAddManifest.description,
       hotkey: 'a',
       ...(input.addTicketDisabled !== undefined ? { disabledReason: input.addTicketDisabled } : {}),
       onSelect: (): void => {

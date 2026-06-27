@@ -186,7 +186,7 @@ const BUSINESS_SIBLINGS = [
   'version',
 ] as const;
 
-const REPOSITORY_SIBLINGS = ['project', 'settings', 'sprint', 'task'] as const;
+const REPOSITORY_SIBLINGS = ['episode', 'project', 'settings', 'sprint', 'task'] as const;
 
 const PROVIDERS = ['claude', 'codex', 'copilot'] as const;
 

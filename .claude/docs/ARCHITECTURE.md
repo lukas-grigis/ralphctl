@@ -162,7 +162,9 @@ business/
 ├── sprint/            ← createSprint, planSprint, transitionToReview, transitionToDone, …
 ├── sprint/views/      ← read-only views: sprint progress, requirements export, context export
 ├── ticket/            ← addTicket, refineTicket, removeTicket, …
-├── task/              ← createTasks, updateTask, markBlocked, recordEvaluation, …
+├── task/              ← createTasks, updateTask, markBlocked, recordEvaluation,
+│                       escalation-policy (decideEscalation / applyEscalation / computeActionEntropy / detectLowEntropy),
+│                       loop-diversity (createLoopDiversityTracker), composeTaskEpisodes, summariseEpisodes, …
 ├── feedback/          ← applyFeedback (review flow body)
 ├── settings/          ← loadSettings, updateSettings
 ├── version/           ← cli-metadata, version-check, version-checker (npm poll)
@@ -191,6 +193,22 @@ in `domain/repository/<aggregate>/`.
 | `WriteFile` (port) + `FileLocker` (adapter)           | `business/io/` / `integration/io/`  | atomic write helper / `createFileLocker`                                                                                                                                    |
 | `IssueFetcher` / `IssuePusher` / `PullRequestCreator` | `business/scm/`                     | `gh` / `glab` shell wrappers under `integration/scm/`                                                                                                                       |
 | `VersionChecker`                                      | `business/version/`                 | `createNpmVersionChecker` (`integration/version/`)                                                                                                                          |
+
+Shared engine-level helpers (not ports — no interface boundary, but architecturally significant):
+
+- **`attachAbortKill`** (`providers/_engine/abort-kill.ts`) — wires a caller `AbortSignal` to a
+  SIGTERM → grace → SIGKILL kill ladder for `stdio: 'inherit'` (interactive) child processes. Shared
+  by all three interactive adapters so a TUI cancel consistently terminates the AI child regardless of
+  provider.
+- **`BoundedTail` / `createBoundedTail`** (`providers/_engine/bounded-tail.ts`) — rolling tail
+  accumulator with a configurable byte cap. Used by all headless adapters for stderr
+  (`STDERR_TAIL_CAP` = 16 KiB), rate-limit scan windows (`RATE_LIMIT_SCAN_TAIL_CAP` = 8 KiB), and
+  forensic body mirrors (`FORENSIC_BODY_TAIL_CAP` = 256 KiB). The NDJSON line-parse accumulator in
+  the Claude / Copilot stream parsers is also bounded (`STDOUT_LINE_PARSE_CAP` = 512 KiB) — a
+  single large tool-result line can otherwise inflate to tens of MB before a newline clears it.
+- **`compressSection`** (`prompts/_engine/compress-section.ts`) — tail-compresses oversized prompt
+  sections (`PRIOR_PROGRESS` / `PRIOR_LEARNINGS` / `PRIOR_EPISODES`) to at most `SECTION_CHAR_CAP`
+  (4,000) characters, keeping the most-recent tail and prepending a truncation notice.
 
 ## Repository interfaces (`src/domain/repository/`)
 
@@ -300,26 +318,26 @@ are imported by the launcher (`application/ui/shared/launch/<flow>.ts`) or the C
 
 ### Flows and their nature
 
-| Flow id                    | Shape    | CLI command                   | Notes                                                                                        |
-| -------------------------- | -------- | ----------------------------- | -------------------------------------------------------------------------------------------- |
-| `create-sprint`            | chain    | no                            | Interactive prompts; TUI only                                                                |
-| `refine`                   | chain    | no                            | Hands the terminal to the AI CLI; TUI only                                                   |
-| `plan`                     | chain    | no                            | Interactive AI handoff; TUI only                                                             |
-| `ideate`                   | chain    | no                            | Interactive AI handoff; TUI only                                                             |
-| `readiness`                | chain    | no                            | Multi-step with confirm gates; TUI only                                                      |
-| `detect-scripts`           | chain    | no                            | Setup/verify script discovery; TUI only                                                      |
-| `detect-skills`            | chain    | no                            | Skill discovery; TUI only                                                                    |
-| `implement`                | chain    | no                            | Genuinely needs the chain (gen-eval + retry)                                                 |
-| `review`                   | chain    | no                            | Apply-feedback loop; TUI only                                                                |
-| `close-sprint`             | use-case | yes (`sprint close`)          | review → done transition                                                                     |
-| `export-context`           | use-case | yes                           | Render harness-context markdown                                                              |
-| `export-requirements`      | use-case | yes                           | Render approved-ticket requirements markdown                                                 |
-| `create-pr`                | use-case | yes                           | Open PR via `gh` / `glab`, persist URL on execution                                          |
-| `doctor`                   | use-case | yes                           | Environment health check                                                                     |
-| `settings`                 | use-case | yes (`settings show` / `set`) | Per-key read/write                                                                           |
-| `remove-ticket`            | use-case | yes (`ticket remove`)         | Routes via `sprint-detail` view when launched from Flows                                     |
-| `add-ticket` (no registry) | use-case | yes (`ticket add`)            | Sole add-tickets path: CLI + `a` shortcut → `add-ticket` looping wizard; no Flows menu entry |
-| —                          | CLI-only | `runs list` / `runs prune`    | Inspect and prune per-run forensic artifacts                                                 |
+| Flow id               | Shape    | CLI command                   | Notes                                                                                             |
+| --------------------- | -------- | ----------------------------- | ------------------------------------------------------------------------------------------------- |
+| `create-sprint`       | chain    | no                            | Interactive prompts; TUI only                                                                     |
+| `refine`              | chain    | no                            | Hands the terminal to the AI CLI; TUI only                                                        |
+| `plan`                | chain    | no                            | Interactive AI handoff; TUI only                                                                  |
+| `ideate`              | chain    | no                            | Interactive AI handoff; TUI only                                                                  |
+| `readiness`           | chain    | no                            | Multi-step with confirm gates; TUI only                                                           |
+| `detect-scripts`      | chain    | no                            | Setup/verify script discovery; TUI only                                                           |
+| `detect-skills`       | chain    | no                            | Skill discovery; TUI only                                                                         |
+| `implement`           | chain    | no                            | Genuinely needs the chain (gen-eval + retry)                                                      |
+| `review`              | chain    | no                            | Apply-feedback loop; TUI only                                                                     |
+| `close-sprint`        | use-case | yes (`sprint close`)          | review → done transition                                                                          |
+| `export-context`      | use-case | yes                           | Render harness-context markdown                                                                   |
+| `export-requirements` | use-case | yes                           | Render approved-ticket requirements markdown                                                      |
+| `create-pr`           | use-case | yes                           | Open PR via `gh` / `glab`, persist URL on execution                                               |
+| `doctor`              | use-case | yes                           | Environment health check                                                                          |
+| `settings`            | use-case | yes (`settings show` / `set`) | Per-key read/write                                                                                |
+| `remove-ticket`       | use-case | yes (`ticket remove`)         | Routes via `sprint-detail` view when launched from Flows                                          |
+| `add-ticket`          | use-case | yes (`ticket add`)            | TUI Flows menu (draft sprints) + `a` shortcut (Home / sprint detail); backs `ralphctl ticket add` |
+| —                     | CLI-only | `runs list` / `runs prune`    | Inspect and prune per-run forensic artifacts                                                      |
 
 CLI surface is deliberately smaller than v0.6.x — the interactive chains stay TUI-only by design. Run
 `ralphctl <command> --help` for flag-level detail on the CLI commands.
@@ -445,6 +463,13 @@ and the non-obvious mutators.
   planner's per-task grading rubric beyond the four floor dimensions (Correctness / Completeness / Safety /
   Consistency). Optional `maxAttempts` overrides the global cap. Optional `escalatedFromModel` /
   `escalatedToModel` are stamped on first plateau-escalation.
+- **`TaskEpisode`** (`src/domain/repository/episode/episode-types.ts`) — an in-memory value type (no
+  on-disk persistence in this release) capturing the outcome of one settled task: `taskId`, `sprintId`,
+  `goal`, `outcome` (`success | partial | blocked | abandoned`), `keyLearnings`, `timestamp`. Derived
+  in-memory from settled siblings by `composeTaskEpisodes` (`business/task/`) and rendered to a compact
+  markdown bullet list by `summariseEpisodes`; the result populates `{{PRIOR_EPISODES}}` in the
+  implement prompt so a later task can orient on what an earlier sprint task solved or got blocked on.
+  Cross-sprint persistence is explicitly future work.
 - **`Settings`** — declared by `SettingsSchema` in `domain/entity/settings.ts`. Top-level fields:
   `schemaVersion` (currently `2`), `ai`,
   `harness: { maxTurns, maxAttempts, rateLimitRetries, plateauThreshold, escalateOnPlateau, escalationMap, skipPreVerifyOnFreshSetup }`,

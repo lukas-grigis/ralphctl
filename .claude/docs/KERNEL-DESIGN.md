@@ -138,10 +138,14 @@ Semantics:
 - Body failure (`Result.isErr`) ends the loop with the failure wrapped.
 
 `loop` is used twice in the implement flow. The inner `loop('gen-eval-<id>')` body is a `sequential` of
-`generator-leaf → guarded evaluator-leaf`; it continues until the generator/evaluator sets a terminal exit on
-ctx (`ctx.lastExit`) or the `maxTurns` budget is reached. An outer `loop('task-attempts-<id>')` re-runs the
-whole attempt segment (`start-attempt → … → settle-attempt → progress-journal`) until the task settles
-`done`/`blocked` or `task.maxAttempts` fires.
+`generator-leaf → guarded evaluator-step`; the evaluator step is itself a `sequential` of
+`evaluatorLeaf → loopDiversityCheckLeaf → entropyCheckLeaf`. The two check leaves each emit a `plateau`
+exit on ctx when they detect stagnation — `loop-diversity-check` when the failed-dimension fingerprint
+repeats for `DIVERSITY_WINDOW_SIZE` (3) consecutive turns, `entropy-check` when the normalised Shannon
+entropy over the generator's per-turn signal-kind distribution collapses below a threshold (secondary,
+softer signal). The loop exits when any leaf sets `ctx.lastExit` or the `maxTurns` budget is reached.
+An outer `loop('task-attempts-<id>')` re-runs the whole attempt segment (`start-attempt → … →
+settle-attempt → progress-journal`) until the task settles `done`/`blocked` or `task.maxAttempts` fires.
 
 ## guard — predicate-skipped body
 
@@ -278,10 +282,18 @@ const perTask = sequential('task-<id>', [
         'gen-eval-<id>',
         sequential('gen-eval-turn-<id>', [
           generatorLeaf, // writes rounds/<N>/generator/prompt.md before spawn
-          guard('evaluator-guard-<id>', (ctx) => ctx.lastExit === undefined, evaluatorLeaf),
-        ]), // evaluator writes rounds/<N>/evaluator/prompt.md before spawn
+          guard(
+            'evaluator-guard-<id>',
+            (ctx) => ctx.lastExit === undefined,
+            sequential('evaluator-step-<id>', [
+              evaluatorLeaf, // writes rounds/<N>/evaluator/prompt.md before spawn
+              loopDiversityCheckLeaf, // exits 'plateau' when failed-dimension fingerprint repeats
+              entropyCheckLeaf, // exits 'plateau' when signal-kind entropy collapses (secondary)
+            ])
+          ),
+        ]),
         {
-          shouldContinue: (ctx, i) => i <= settings.harness.maxTurns, // re-read each turn so a mid-run edit applies
+          shouldContinue: (ctx, i) => ctx.lastExit === undefined && i <= settings.harness.maxTurns,
           shouldStop: (ctx) => ctx.lastExit !== undefined,
         }
       ),

@@ -142,6 +142,7 @@ export const implementContinuationPromptDef: PromptDefinition<ImplementContinuat
   },
   partials: {
     HARNESS_CONTEXT: 'harness-context',
+    DECISIONS_GUIDANCE: 'decisions',
   },
   // Same accepted signal union as the full implement prompt — a continuation turn is still a
   // generator turn and may emit the full narrative + lifecycle set.

@@ -29,7 +29,7 @@
  * helpers, footer hints, keymap) live in `sprint-detail-internals/`.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Text } from 'ink';
 import { useEditField } from '@src/application/ui/tui/runtime/use-edit-field.ts';
 import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.tsx';
@@ -121,6 +121,18 @@ export const SprintDetailView = (): React.JSX.Element => {
   const [confirmRemove, setConfirmRemove] = useState<Ticket | undefined>(undefined);
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
 
+  // Mounted-ref guard for the async unblock / remove-ticket handlers: dismissing the confirm overlay
+  // (or firing `u`) unblocks the router, so the operator can navigate away (unmounting this view)
+  // before the awaited use-case / flow resolves. The guard skips the post-await view-local writes
+  // (setFeedback / reload) so they never fire into an unmounted tree. Mirrors the guard in `useEditField`.
+  const mountedRef = useRef(true);
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+    },
+    []
+  );
+
   // Ticket CRUD is only meaningful in draft. Detail-mode disables hot keys other than esc.
   const ticketsEditable = sprint?.status === 'draft';
   const inDetail = openIds.size > 0;
@@ -146,7 +158,7 @@ export const SprintDetailView = (): React.JSX.Element => {
   // non-draft sprint or the footer would advertise keys that do nothing. `m` (mark-current) and
   // `u` (unblock) follow the same declarative gate rather than conditional spreads.
   useViewHints([
-    { keys: '↑/↓', label: 'move' },
+    { keys: '↑/↓/j/k', label: 'move' },
     { keys: 'n', label: 'flows' },
     { keys: '↵/o', label: inDetail ? 'expand/collapse' : 'expand' },
     // `esc/q` collapses all expanded cards; only shown while in detail mode so the hint
@@ -192,9 +204,10 @@ export const SprintDetailView = (): React.JSX.Element => {
       logger: deps.logger,
     });
     if (!r.ok) {
-      setFeedback(`${glyphs.cross} ${r.error.message}`);
+      if (mountedRef.current) setFeedback(`${glyphs.cross} ${r.error.message}`);
       return;
     }
+    if (!mountedRef.current) return;
     setFeedback(`${glyphs.check} unblocked "${target.name}"`);
     reload();
   };
@@ -242,9 +255,10 @@ export const SprintDetailView = (): React.JSX.Element => {
     const flow = createTicketRemoveFlow({ sprintRepo: deps.sprintRepo });
     const r = await flow.execute({ input: { sprintId: sprint.id, ticketId: target.id } });
     if (!r.ok) {
-      setFeedback(`${glyphs.cross} ${r.error.error.message}`);
+      if (mountedRef.current) setFeedback(`${glyphs.cross} ${r.error.error.message}`);
       return;
     }
+    if (!mountedRef.current) return;
     setFeedback(`${glyphs.check} removed "${target.title}"`);
     reload();
   };

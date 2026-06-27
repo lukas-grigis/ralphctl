@@ -156,11 +156,11 @@ export const runWithRateLimitRetry = async (
             cause: `attempt ${String(attemptIdx + 1)}/${String(maxAttempts)}`,
             at: IsoTimestamp.now(),
           });
-          await sleepCancellable(delayMs, opts.session.abortSignal);
+          await sleepCancellable(delayMs, session.abortSignal);
           // Clear once the wait completes (either elapsed or abort fired); the next attempt
           // re-publishes if it also hits the rate-limit.
           eventBus.publish({ type: 'banner-clear', id: bannerId, at: IsoTimestamp.now() });
-          if (opts.session.abortSignal?.aborted === true) {
+          if (session.abortSignal?.aborted === true) {
             // User cancel during the backoff sleep must surface as AbortError — the one error
             // chains propagate transparently (CLAUDE.md §AbortError). InvalidStateError is
             // classified as a recoverable turn error and would wrongly self-block the task.
@@ -186,7 +186,7 @@ export const runWithRateLimitRetry = async (
     if (
       resumeStaleRe !== undefined &&
       !coldRetried &&
-      opts.session.abortSignal?.aborted !== true &&
+      session.abortSignal?.aborted !== true &&
       session.resume !== undefined &&
       resumeStaleRe.test(outcome.error.message)
     ) {

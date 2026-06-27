@@ -61,10 +61,26 @@ Based on the P0–P4 harness overhaul audit (2026-05-21), sections that had the 
 **Why:** These areas cluster around the observability/TUI surface, the chain framework primitives,
 and the implement-flow — all of which evolve in every sprint. Items 14–18 specifically from the
 `feat/parallelism-wiring-memory` drop (2026-05-30); items 19–23 from the `ui-ux-stabilization` drop
-(2026-06-03).
+(2026-06-03); items 24–28 from `feature/audit-research-xl` (2026-06-27).
+
+24. **KERNEL-DESIGN.md § implementFlow — gen-eval inner loop body** — each sprint that touches
+    gen-eval-loop.ts will change the evaluator-step sequential. The fence test at
+    `tests/integration/application/flows/implement/leaves/gen-eval-loop.test.ts` is authoritative;
+    always read it before updating the doc.
+25. **WORKFLOWS.md § Per-task generator-evaluator** — prose description of the loop body lags the
+    code. Re-read whenever gen-eval-loop.ts or the evaluator guard changes.
+26. **PERFORMANCE.md § Escalation on plateau** — the plateau signals list grew from 1 to 3 this
+    sprint (count-based + loop-diversity + entropy). Will grow again if new guards are added.
+27. **ARCHITECTURE.md § Flows-and-their-nature table** — `add-ticket` was marked "(no registry)"
+    until the manifest landed. Flow registry rows change when a new flow adds a manifest or an
+    existing flow's triggers change; always diff `registry.ts` before closing.
+28. **ARCHITECTURE.md § business/task layout** — new business-task modules (escalation-policy,
+    loop-diversity, episode composition) added without doc update. Grep `src/business/task/` after
+    any implement-flow or plateau feature.
 
 **How to apply:** On the next feature drop, check these sections first before reading git log. In
 particular, always grep `events.ts` for the AppEvent union (compare to every doc that lists it),
 diff `element.ts` + `trace.ts` against KERNEL-DESIGN.md, re-read CLAUDE.md § Performance &
 Limits after any implement-flow structural change, and grep `StoragePaths` type for new fields after
-any storage-paths change.
+any storage-paths change. Also read the step-order fence test in gen-eval-loop.test.ts before
+updating any gen-eval step-trace description.

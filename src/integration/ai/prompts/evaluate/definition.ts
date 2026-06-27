@@ -193,6 +193,17 @@ export interface BuildEvaluatePromptInput {
  * Top-level builder — accepts domain types, renders the param strings, calls `buildPrompt`.
  * The chain leaf consumes this via function injection. `task.extraDimensions` is threaded into
  * the rubric automatically; the rendered section is empty when the field is unset.
+ *
+ * The template includes a `<reasoning_protocol>` section instructing the evaluator to write its
+ * step-by-step assessment inside `<evaluation_thinking>` tags before emitting the verdict signal —
+ * externalising the reasoning reduces premature verdict commitment (a prompt-engineering
+ * approximation of an explicit think step).
+ *
+ * The template also includes a `<checkpoint_protocol>` section (R3) instructing the evaluator to
+ * emit a `<criterion_checkpoint criterion="N" verdict="pass|fail|partial">` tag after reviewing
+ * each acceptance criterion — before moving to the next. The tags are model-internal tracking only
+ * (the harness ignores them) and give the final `<evaluation_thinking>` block explicit per-criterion
+ * anchors to reference. Neither protocol requires changes to the headless provider layer.
  */
 export const buildEvaluatePrompt = async (
   deps: TemplateLoader,

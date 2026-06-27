@@ -8,7 +8,7 @@
  *   ↵   open the sprint's detail view.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { OverflowRow, useListWindow } from '@src/application/ui/tui/components/windowed-list.tsx';
@@ -56,6 +56,19 @@ export const SprintsView = (): React.JSX.Element => {
 
   const [confirmDelete, setConfirmDelete] = useState<Sprint | undefined>(undefined);
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
+
+  // Mounted-ref guard for the async bulk-unblock / delete handlers: dismissing the confirm overlay
+  // (or firing `u`) unblocks the router, so the operator can navigate away (unmounting this view)
+  // before the awaited repo writes resolve. The guard skips the post-await view-local writes
+  // (setFeedback / reload / setFocusedSprintTasks) so they never fire into an unmounted tree.
+  // Mirrors the guard in `useEditField`.
+  const mountedRef = useRef(true);
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+    },
+    []
+  );
 
   // Windowed cursor — owns ↑/↓ + j/k + PgUp/PgDn + Home/End + Enter; the cursor is the sprint id,
   // so a reload/reorder keeps focus on the same sprint. Enter selects (sets current + drills in).
@@ -105,7 +118,7 @@ export const SprintsView = (): React.JSX.Element => {
   // rather than advertise a no-op. `u` follows the same declarative gate on the stuck-task count.
   const focusedDone = focusedSprint?.status === 'done';
   useViewHints([
-    { keys: '↑/↓', label: 'move' },
+    { keys: '↑/↓/j/k', label: 'move' },
     { keys: '↵', label: 'open' },
     { keys: 'c', label: 'create' },
     { keys: 'e', label: 'rename', enabledWhen: !focusedDone },
@@ -194,6 +207,7 @@ export const SprintsView = (): React.JSX.Element => {
       }
     }
     const total = stuckTasks.length;
+    if (!mountedRef.current) return;
     if (succeeded === total) {
       setFeedback(
         `${glyphs.check} unblocked ${String(succeeded)} task${succeeded === 1 ? '' : 's'} in "${focusedSprint.name}"`
@@ -205,7 +219,7 @@ export const SprintsView = (): React.JSX.Element => {
     }
     // Refresh task list so the hint and count update immediately.
     const refreshed = await deps.taskRepo.findBySprintId(focusedSprint.id);
-    if (refreshed.ok) setFocusedSprintTasks(refreshed.value);
+    if (mountedRef.current && refreshed.ok) setFocusedSprintTasks(refreshed.value);
   };
 
   const handleDeleteConfirmed = async (target: Sprint, confirmed: boolean): Promise<void> => {
@@ -213,10 +227,13 @@ export const SprintsView = (): React.JSX.Element => {
     if (!confirmed) return;
     const r = await deps.sprintRepo.remove(target.id);
     if (!r.ok) {
-      setFeedback(`${glyphs.cross} ${r.error.message}`);
+      if (mountedRef.current) setFeedback(`${glyphs.cross} ${r.error.message}`);
       return;
     }
+    // Clearing the deleted sprint's selection targets the always-mounted SelectionProvider, so it
+    // runs unconditionally — the stale cursor must drop even if the operator navigated away mid-delete.
     if (selection.sprintId === target.id) selection.setSprint(undefined);
+    if (!mountedRef.current) return;
     setFeedback(`${glyphs.check} removed ${target.name}`);
     reload();
   };

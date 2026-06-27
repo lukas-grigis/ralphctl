@@ -12,6 +12,7 @@ import {
   defaultReadFile,
 } from '@src/integration/ai/providers/_engine/interactive-spawn.ts';
 import { persistSessionIdFile } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
+import { attachAbortKill } from '@src/integration/ai/providers/_engine/abort-kill.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
@@ -155,10 +156,17 @@ export const createInteractiveClaudeProvider = (deps: InteractiveClaudeDeps): In
         );
       }
 
+      // A `stdio: 'inherit'` child is unreachable once spawned (the harness keeps no reference
+      // past `run`), so a TUI-side cancel can't stop it. Wire the caller's abort signal to a
+      // SIGTERM → grace → SIGKILL kill ladder; the cleanup runs on normal exit so a reused
+      // AbortController never fires kill against the dead pid.
+      const stopAbortKill = attachAbortKill(child, input.abortSignal);
+
       const exitCode = await new Promise<number | null>((resolve) => {
         child.on('close', (code) => resolve(code));
         child.on('error', () => resolve(-1));
       });
+      stopAbortKill();
 
       deps.eventBus.publish({
         type: 'log',

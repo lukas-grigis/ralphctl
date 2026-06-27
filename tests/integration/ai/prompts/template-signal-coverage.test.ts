@@ -7,8 +7,10 @@ import { applyFeedbackPromptDef } from '@src/integration/ai/prompts/apply-feedba
 import { createPrPromptDef } from '@src/integration/ai/prompts/create-pr/definition.ts';
 import { detectScriptsPromptDef } from '@src/integration/ai/prompts/detect-scripts/definition.ts';
 import { detectSkillsPromptDef } from '@src/integration/ai/prompts/detect-skills/definition.ts';
+import { evaluateContinuationPromptDef } from '@src/integration/ai/prompts/evaluate-continuation/definition.ts';
 import { evaluatePromptDef } from '@src/integration/ai/prompts/evaluate/definition.ts';
 import { ideatePromptDef } from '@src/integration/ai/prompts/ideate/definition.ts';
+import { implementContinuationPromptDef } from '@src/integration/ai/prompts/implement-continuation/definition.ts';
 import { implementPromptDef } from '@src/integration/ai/prompts/implement/definition.ts';
 import { planPromptDef } from '@src/integration/ai/prompts/plan/definition.ts';
 import { readinessPromptDef } from '@src/integration/ai/prompts/readiness/definition.ts';
@@ -22,8 +24,8 @@ import { refinePromptDef } from '@src/integration/ai/prompts/refine/definition.t
  *
  * Mention forms recognised:
  *   - Backticked signal name:   `task-complete`
- *   - Inline tag form:          <task-complete>...</task-complete>
- *   - Header / list reference:  task-complete (when it appears as a discrete token)
+ *   - Inline tag form:          <task-complete>...</task-complete> (open, close, or with attributes)
+ *   - Backticked tag form:      `<task-complete>`
  *
  * The check is a substring scan against the rendered template plus its `_partials/` includes;
  * the auto-rendered `{{OUTPUT_CONTRACT_SECTION}}` block is composed at runtime by the contract
@@ -40,7 +42,9 @@ const FLOWS: ReadonlyArray<{ readonly name: string; readonly def: PromptDefiniti
   { name: 'plan', def: planPromptDef as PromptDefinition<never> },
   { name: 'ideate', def: ideatePromptDef as PromptDefinition<never> },
   { name: 'implement', def: implementPromptDef as PromptDefinition<never> },
+  { name: 'implement-continuation', def: implementContinuationPromptDef as PromptDefinition<never> },
   { name: 'evaluate', def: evaluatePromptDef as PromptDefinition<never> },
+  { name: 'evaluate-continuation', def: evaluateContinuationPromptDef as PromptDefinition<never> },
   { name: 'readiness', def: readinessPromptDef as PromptDefinition<never> },
   { name: 'detect-scripts', def: detectScriptsPromptDef as PromptDefinition<never> },
   { name: 'detect-skills', def: detectSkillsPromptDef as PromptDefinition<never> },
@@ -73,7 +77,7 @@ describe('prompt template signal coverage', () => {
       const missing: string[] = [];
       for (const signal of def.expectedSignals) {
         if (ignored.has(signal)) continue;
-        // Match the signal name as a backticked token, an XML-tag form, or a discrete word.
+        // Match the signal name as a backticked token or an XML-tag form (open, close, or with attributes).
         const patterns = [`\`${signal}\``, `<${signal}>`, `<${signal} `, `</${signal}>`, `\`<${signal}>\``];
         const found = patterns.some((p) => body.includes(p));
         if (!found) missing.push(signal);

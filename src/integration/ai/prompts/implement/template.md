@@ -11,6 +11,8 @@ lifecycle and context compaction.
 
 {{HARNESS_CONTEXT}}
 
+{{PRIOR_EPISODES}}
+
 <goal>
 Complete every declared implementation step for the task defined below. Write `signals.json` to the
 path specified in the Output contract section at the bottom of this prompt. Emit `task-complete`

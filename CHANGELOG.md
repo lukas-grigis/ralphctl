@@ -7,7 +7,65 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Two earlier-exit plateau signals in the gen-eval loop.** The inner generator-evaluator loop now
+  has two additional plateau guard leaves that fire without waiting for the full `plateauThreshold`
+  count. `loop-diversity-check` exits with `plateau` when the failed-dimension fingerprint repeats
+  for 3 consecutive turns — a more reliable break signal than the turn budget alone. `entropy-check`
+  exits when the normalised Shannon entropy over the generator's per-turn signal-kind distribution
+  (decision / change / learning / note) collapses below 0.25 — a heuristic proxy for approach
+  stagnation. Both guards respect the turn-budget-precedence invariant (they never pre-empt the
+  final budgeted turn) and route through the same escalation ladder as the existing plateau signal.
+
+- **Episodic task memory in the implement prompt.** Earlier settled tasks within the same sprint now
+  populate `{{PRIOR_EPISODES}}` in the generator prompt. The harness derives these in-memory from
+  the settled siblings already in `tasks.json` — no new persistence — and renders them as a compact
+  bullet list (up to 5 most recent) so a later task can orient on what an earlier task already
+  solved or got blocked on. In-sprint only in this release; cross-sprint persistence is future work.
+
+- **`add-ticket` flow registered in the flow registry.** The add-ticket wizard is now a first-class
+  `FlowManifest` entry wired into `flowRegistry`, so it appears in the TUI Flows menu for draft
+  sprints. The `a` shortcut (Home / sprint detail) and `ralphctl ticket add` CLI command are
+  unchanged.
+
+- **Oversized prior-context section compression.** `PRIOR_PROGRESS`, `PRIOR_LEARNINGS`, and
+  `PRIOR_EPISODES` are tail-compressed to at most 4,000 characters each before prompt substitution,
+  keeping the most-recent content. A one-line truncation notice is prepended at the boundary so
+  the model sees where content was omitted.
+
+- **Evaluator reasoning phase and per-criterion checkpoint protocol.** The evaluate prompt now
+  opens with a structured reasoning phase and steps the model through each criterion with an
+  explicit checkpoint before producing its verdict, improving grading consistency and reducing
+  ungrounded pass/fail decisions.
+
 ### Fixed
+
+- **Provider stdout parse-buffer OOM caps.** A single large tool-result line embedded in the AI's
+  NDJSON output stream could inflate the in-flight line-parse accumulator to tens of MB before
+  a newline cleared it — an OOM-class accumulation on long-running sessions. The Claude and Copilot
+  stream parsers now trim the oldest bytes back to 512 KiB when the unterminated line crosses that
+  cap. Forensic body mirrors (Copilot's `body.txt`) are bounded to 256 KiB per spawn.
+
+- **AbortSignal kill path wired to all interactive AI sessions.** The three interactive adapters
+  (claude / copilot / codex) now share `attachAbortKill`, which hooks the caller's `AbortSignal` to
+  a SIGTERM → grace → SIGKILL ladder for `stdio: 'inherit'` children. Previously a TUI cancel had
+  no lever against an interactive session once `run()` returned — the child continued until natural
+  completion, stranding the repo lock.
+
+- **`AbortError` surfaces as `'aborted'` trace status in the chain leaf.** A thrown `AbortError`
+  from inside a leaf's `useCase.execute()` now produces a `TraceEntry` with `status: 'aborted'`
+  (and propagates as a chain error) rather than `'failed'`, so the TUI and trace consumers can
+  distinguish user-initiated cancellation from genuine failures.
+
+- **Readiness continue-on-error for provider-specific failures.** A readiness probe filesystem
+  error or a CLI rate-limit exhaustion for one provider now emits a warn banner and lets the
+  remaining providers complete their setup. Domain contract errors, global I/O failures, and
+  operator `AbortError` still propagate and fail the run.
+
+- **Review round-cap banner.** When the review loop exhausts its `maxRounds` (50) failsafe without
+  a human terminal decision, it now publishes a warn banner explaining why the sprint stayed in
+  `review` and how to resume, rather than stopping silently.
 
 - **TUI out-of-memory on long implement runs.** Long sprints (80+ min) could exhaust the V8 heap
   and crash the TUI. A second round of the commit-storm fix coalesces the remaining hot event-bus

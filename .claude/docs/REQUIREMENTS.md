@@ -161,6 +161,13 @@ Status flow: `draft → planned → active → review → done`.
       loop with a plateau warning after `settings.harness.plateauThreshold` (2–5, default 3) rounds.
       A critique-Jaccard shift or a genuine work-product (changed-files-hash) change exempts a round; a
       commit-subject-only reword of an unchanged work-product no longer softens the plateau.
+      Two additional plateau signals fire inside each gen-eval turn without waiting for the threshold count:
+      (a) `loop-diversity-check` exits with `plateau` when the failed-dimension fingerprint repeats for
+      `DIVERSITY_WINDOW_SIZE` (3) consecutive turns (`business/task/loop-diversity.ts`); (b) `entropy-check`
+      exits with `plateau` when the normalised Shannon entropy over the generator's per-turn signal-kind
+      distribution (decision / change / learning / note counts) falls below 0.25 — a signal-kind-distribution
+      proxy for approach stagnation, not raw tool-use entropy. Both guards respect the turn-budget-precedence
+      invariant and only fire when no other exit is already pending.
 - [x] **Token-usage event** — `TokenUsageEvent` emitted once per spawn (model, context window,
       input/output, cache tokens). TUI `TokenBudgetCard` subscribes.
 - [x] **Per-round artifacts** — generator and evaluator prompts written to
@@ -169,6 +176,10 @@ Status flow: `draft → planned → active → review → done`.
 - [x] **Decision capture** — AI-emitted `<decision>` tags accumulate per-attempt on the implement ctx and
       render as the `### Decisions` subsection of each `progress.md` journal entry (audit-[07] retired the
       standalone `decisions.log` sink).
+- [x] **Episodic task memory** — earlier settled siblings (done / blocked) within the same sprint populate
+      `{{PRIOR_EPISODES}}` in the generator prompt via `composeTaskEpisodes` (derives in-memory from
+      `tasks.json`, no new persistence) and `summariseEpisodes` (compact markdown bullet list, up to 5 most
+      recent). In-sprint only in this release; cross-sprint persistence is future work.
 - [x] **Notifications** — terminal bell + macOS `osascript` fire on attention events when
       `settings.ui.notifications.enabled` is `true` (default).
 

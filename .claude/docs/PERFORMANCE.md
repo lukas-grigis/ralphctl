@@ -78,6 +78,25 @@ required. The only path that resets a task to `todo` is `task unblock`.
   `maxTurns` 1–2 was valid before the invariant, and a parse failure would brick the TUI and the
   `settings set` repair command on upgrade.
 
+Two additional plateau signals fire _inside_ each gen-eval turn via dedicated guard leaves, without
+waiting for the `plateauThreshold` count:
+
+- **`loop-diversity-check`** (`src/business/task/loop-diversity.ts`) — tracks a rolling window of
+  failed-dimension fingerprints (sorted set of failing dimension names joined by `|`). When the last
+  `DIVERSITY_WINDOW_SIZE` (3) fingerprints are identical the loop exits with `plateau`, letting the
+  escalation ladder intervene earlier than the count-based predicate would. Tracker state resets at
+  each new attempt so fingerprints do not leak across attempts.
+- **`entropy-check`** — computes normalised Shannon entropy (`H = -Σ(p·log₂p)/log₂K`) over the
+  generator's per-turn signal-kind distribution (decision / change / learning / note counts stamped
+  on `ctx.lastTurnActionCounts` by the generator leaf). When `H < 0.25` (the agent concentrated
+  its actions on one kind), the loop exits with `plateau`. **Honesty:** this is a
+  _signal-kind-distribution proxy_ for action diversity — the harness never sees raw tool-use, so
+  the spread of reported signal kinds stands in for "action variety." It is a secondary, softer signal
+  to the fingerprint guard and does not fire on the first `DIVERSITY_WINDOW_SIZE` turns or when
+  another exit is already pending. Both guards respect the budget-precedence invariant: when the
+  current turn is the final budgeted turn, `finalize` synthesises the terminal state rather than an
+  early plateau pre-empting it.
+
 Mirrored on `IterationConfig` (`src/application/chain/run/iteration-config.ts`); the chain `loop` predicates
 and the headless provider adapter read it.
 
@@ -175,6 +194,15 @@ and the next attempt's append heals the file.
 
 **Per-round artifacts.** Generator and evaluator prompts land at `rounds/<N>/{generator,evaluator}/prompt.md`
 before each spawn; `settle-attempt-leaf` writes `rounds/<N>/outcome.md` after settlement.
+
+**Oversized prior-context section compression.** `PRIOR_PROGRESS`, `PRIOR_LEARNINGS`, and `PRIOR_EPISODES`
+are tail-compressed to at most `SECTION_CHAR_CAP` (4,000) characters each before prompt substitution
+(`src/integration/ai/prompts/_engine/compress-section.ts`). When a section overflows, the oldest bytes are
+dropped and a one-line notice is prepended at the truncation boundary so the model sees where content was
+omitted. Keeping the _most-recent_ tail follows the "Lost in the Middle" finding (Liu et al.,
+arXiv 2307.03172): LLMs attend poorly to content placed in the middle of long contexts, so
+pushing task-critical sections (goal, success-criteria, output contract) toward the middle is the
+failure mode being avoided. The harness already applies the same principle to stderr via `BoundedTail`.
 
 **AI signal routing.** `<change>` / `<decision>` / `<learning>` / `<note>` signals accumulate per-attempt on the
 implement ctx (`ctx.currentAttempt{Changes,Decisions,Learnings,Notes}`) as the generator / evaluator leaves parse them;

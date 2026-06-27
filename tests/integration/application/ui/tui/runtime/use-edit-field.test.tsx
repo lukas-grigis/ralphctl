@@ -9,6 +9,7 @@ import { Text } from 'ink';
 import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
+import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { createPromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
 import { PromptQueueProvider } from '@src/application/ui/tui/prompts/prompt-context.tsx';
 import { UiStateProvider } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
@@ -144,6 +145,49 @@ describe('useEditField', () => {
     queue.rejectHead(new Error('cancelled by user'));
     await flush();
     expect(latest?.feedback).toBeUndefined();
+    r.unmount();
+  });
+
+  it('re-throws an AbortError instead of silent-cancelling — operator cancellation must propagate', async () => {
+    // Both edit paths (single-option fast path and field-picker multi-option path) funnel through
+    // `openEditPrompt`, so proving the hook re-throws AbortError covers both. The blanket catch
+    // swallows a plain-Error esc-cancel (above) but must NOT swallow an AbortError, or the
+    // chain-runtime abort would be stranded at this seam.
+    const queue = createPromptQueue();
+    let captured: UseEditFieldState | undefined;
+    const Capture = (): React.JSX.Element => {
+      captured = useEditField();
+      return <Text>probe</Text>;
+    };
+    const r = render(
+      <UiStateProvider>
+        <PromptQueueProvider value={queue}>
+          <Capture />
+        </PromptQueueProvider>
+      </UiStateProvider>
+    );
+    await flush();
+    if (captured === undefined) throw new Error('useEditField api not captured');
+
+    // Drive the prompt directly so we can observe the returned promise's rejection.
+    let rejection: unknown;
+    const settled = captured
+      .openEditPrompt({
+        title: 'Edit name',
+        kind: 'short',
+        currentValue: 'old',
+        onSave: async () => Result.ok(undefined),
+      })
+      .catch((cause: unknown) => {
+        rejection = cause;
+      });
+    await flush();
+    queue.rejectHead(new AbortError({ elementName: 'edit' }));
+    await settled;
+
+    expect(rejection).toBeInstanceOf(AbortError);
+    // No "cancelled" feedback chip on a propagated abort — it is not a user esc-cancel.
+    expect(captured.feedback).toBeUndefined();
     r.unmount();
   });
 

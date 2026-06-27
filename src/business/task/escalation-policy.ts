@@ -143,6 +143,73 @@ export const decideEscalation = (props: DecideEscalationProps): EscalationDecisi
  */
 export const escalationBannerId = (taskId: string): string => `model-escalation-${taskId}`;
 
+/**
+ * Normalised Shannon entropy over the distribution of action kinds seen in a single gen-eval
+ * turn. Rationale: a turn that concentrates its reported actions on a single kind round after
+ * round has plateaued — the agent keeps choosing the same kind of move rather than exploring —
+ * so low action entropy is a useful break signal independent of the turn budget.
+ *
+ * Formula: H = -Σ(p · log₂ p) / log₂ K, where K = number of distinct action kinds.
+ *
+ * Returns 0 for a single-kind distribution (zero diversity — the agent chose only one action
+ * type). Returns 1 for a uniform distribution (maximum diversity). Returns 1 when
+ * `actionCounts` is empty (no data yet → no evidence of plateau).
+ */
+export const computeActionEntropy = (actionCounts: Map<string, number>): number => {
+  const K = actionCounts.size;
+  if (K === 0) return 1; // no data → assume max diversity, no plateau
+  if (K === 1) return 0; // single kind → zero diversity
+
+  let total = 0;
+  for (const count of actionCounts.values()) total += count;
+  if (total === 0) return 1; // all zero counts → treat as no data
+
+  let H = 0;
+  for (const count of actionCounts.values()) {
+    if (count === 0) continue;
+    const p = count / total;
+    H -= p * Math.log2(p);
+  }
+  return H / Math.log2(K);
+};
+
+/**
+ * Returns `true` when `entropy` falls below `threshold`, indicating that the agent is
+ * concentrating on too few action kinds — a leading indicator of algorithmic stasis.
+ *
+ * `threshold` defaults to 0.25 (calibrated: an agent using only 1 of 4 tools scores 0.0;
+ * 2 of 4 tools uniformly scores 0.5; the default catches the most degenerate cases while
+ * avoiding false positives on mildly skewed but still progressing runs).
+ *
+ * `threshold` is clamped to [0.1, 0.5] to prevent misconfiguration from either
+ * silencing the signal entirely or triggering on every turn.
+ */
+export const detectLowEntropy = (entropy: number, threshold = 0.25): boolean => {
+  const effective = Math.max(0.1, Math.min(0.5, threshold));
+  return entropy < effective;
+};
+
+/**
+ * Pure predicate — returns `true` when the last `windowSize` entries in `history` are all
+ * identical (the gen-eval loop is repeating the same failure fingerprint without progress).
+ * Returns `false` when `history` has fewer than `windowSize` entries (insufficient data) or
+ * when the tail is diverse.
+ *
+ * Rationale: a gen-eval loop that re-emits the identical failure fingerprint round after round
+ * has plateaued; detecting that repetition is a more reliable break signal than waiting out the
+ * turn budget.
+ *
+ * `windowSize` is clamped to ≥ 2 defensively — a window of 1 would fire after every single
+ * turn, which is not useful.
+ */
+export const detectRepetitiveLoop = (history: readonly string[], windowSize: number): boolean => {
+  const effective = Math.max(2, Math.trunc(windowSize));
+  if (history.length < effective) return false;
+  const tail = history.slice(-effective);
+  const first = tail[0];
+  return tail.every((f) => f === first);
+};
+
 export interface ApplyEscalationProps {
   readonly task: InProgressTask;
   readonly decision: EscalationDecision;

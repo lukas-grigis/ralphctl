@@ -67,7 +67,7 @@ export const PickSprintView = (): React.JSX.Element => {
   // already filters them; this picker is the documented way back to a done sprint).
   const [hideDone, setHideDone] = useState<boolean>(false);
   useViewHints([
-    { keys: '↑/↓', label: 'move' },
+    { keys: '↑/↓/j/k', label: 'move' },
     { keys: '↵', label: 'use sprint' },
     { keys: 't', label: 'toggle scope' },
     { keys: 'f', label: hideDone ? 'show done' : 'hide done' },

@@ -42,6 +42,8 @@ context to apply.
 For the complete history — older than the excerpt above — read `{{PROGRESS_FILE}}` on disk.
 </prior_progress>
 
+{{DECISIONS_GUIDANCE}}
+
 <goal>
 Address every dimension the evaluator flagged in `<prior_critique>`, then run each `auto`
 criterion's command once. Do NOT run the verify script — the harness runs it after your turn as
@@ -51,7 +53,8 @@ script once yourself. Emit `task-verified` with the verbatim command output, pro
 dimension is resolved and every criterion command passes. Removing or disabling a test to make
 verify pass counts as task failure — fix the implementation, not the test. When a flagged item is
 genuinely blocked (missing dependency, contradictory input, unresolvable ambiguity), emit
-`task-blocked` with the concrete reason instead of guessing.
+`task-blocked` with the concrete reason instead of guessing. Emit `change`, `learning`, and
+`note` signals as applicable — the harness records them in the sprint journal.
 </goal>
 
 {{OUTPUT_CONTRACT_SECTION}}

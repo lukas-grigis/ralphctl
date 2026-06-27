@@ -63,16 +63,49 @@ For the complete history — older than the excerpt above — read `{{PROGRESS_F
 
 {{GENERATOR_HINTS_SECTION}}
 
+<checkpoint_protocol>
+After reviewing each acceptance criterion — before moving to the next — emit a one-line interim
+verdict inside a self-closing tag:
+
+<criterion_checkpoint criterion="N" verdict="pass|fail|partial">one-line observation</criterion_checkpoint>
+
+These tags are for your own mid-review tracking — the harness ignores them entirely. Before
+emitting your final verdict, write your step-by-step assessment inside
+<evaluation_thinking>…</evaluation_thinking> tags (the harness ignores them too — for your reasoning
+only). In that block, note whether any checkpoint changed verdict mid-review — a changed checkpoint
+is evidence of genuine investigation, not a defect. The final `signals.json` remains the only
+machine-readable output and must come last.
+</checkpoint_protocol>
+
 <protocol>
 **Checkpoint write — do this first, before re-grading**
 
-If you have not already written a checkpoint `signals.json` for this round, write one now before
-continuing. Use `status: "failed"`, all four floor dimensions present, each set to
-`passed: false` with `finding: "assessment in progress"`. Use the path named in the output
+If you have not already written a checkpoint `signals.json` for this round, write an `evaluation`
+signal now before continuing. Use `status: "failed"`, all four floor dimensions present, each set
+to `passed: false` with `finding: "assessment in progress"`. Use the path named in the output
 contract section at the bottom of this prompt. This placeholder is valid against the schema the
 harness validates — it ensures a recoverable file exists on disk if this session exhausts its
 token budget before you reach your final verdict. You will overwrite it after completing all steps
 below.
+
+```json
+{
+  "schemaVersion": 1,
+  "signals": [
+    {
+      "type": "evaluation",
+      "status": "failed",
+      "dimensions": [
+        { "dimension": "correctness", "passed": false, "finding": "assessment in progress" },
+        { "dimension": "completeness", "passed": false, "finding": "assessment in progress" },
+        { "dimension": "safety", "passed": false, "finding": "assessment in progress" },
+        { "dimension": "consistency", "passed": false, "finding": "assessment in progress" }
+      ],
+      "timestamp": "<ISO-8601 timestamp>"
+    }
+  ]
+}
+```
 
 Re-grade this round the same way you graded the first:
 
