@@ -2,6 +2,7 @@ import { Result } from '@src/domain/result.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import { ParseError } from '@src/domain/value/error/parse-error.ts';
 import { extractPlaceholders } from '@src/integration/ai/prompts/_engine/extract-placeholders.ts';
+import { compressSection, SECTION_CHAR_CAP } from '@src/integration/ai/prompts/_engine/compress-section.ts';
 
 /**
  * Placeholder substitution for `.md` prompt templates.
@@ -33,6 +34,15 @@ import { extractPlaceholders } from '@src/integration/ai/prompts/_engine/extract
 
 const PLACEHOLDER_PATTERN = /\{\{([A-Z][A-Z0-9_]*)\}\}/g;
 
+/**
+ * Keys whose substituted values are tail-compressed when they exceed {@link SECTION_CHAR_CAP}.
+ * These are large dynamic sections (progress journals, learning ledgers, episode history) that
+ * grow unboundedly over a long sprint. Keeping the tail (most recent content) follows the
+ * "Lost in the Middle" guidance — older entries are less useful and pushing them into the middle
+ * of the context degrades model attention on the task-critical sections that follow.
+ */
+const COMPRESSIBLE_KEYS = new Set(['PRIOR_PROGRESS', 'PRIOR_LEARNINGS', 'PRIOR_EPISODES']);
+
 export const substitute = (template: string, values: Readonly<Record<string, string>>): string =>
   template.replace(PLACEHOLDER_PATTERN, (match, key: string) => {
     if (!Object.prototype.hasOwnProperty.call(values, key)) return match;
@@ -40,7 +50,11 @@ export const substitute = (template: string, values: Readonly<Record<string, str
     // constructed from looser sources. Treat that the same as "absent" so we don't render
     // the literal "undefined".
     const value = values[key];
-    return value !== undefined ? value : match;
+    if (value === undefined) return match;
+    if (COMPRESSIBLE_KEYS.has(key) && value.length > SECTION_CHAR_CAP) {
+      return compressSection(value);
+    }
+    return value;
   });
 
 /**

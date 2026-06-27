@@ -34,6 +34,8 @@ import { implementSession } from '@src/application/flows/implement/leaves/implem
 import { generatorOutputContract } from '@src/application/flows/implement/leaves/generator.contract.ts';
 import { escalationBannerId } from '@src/business/task/escalation-policy.ts';
 import { composeDimensionTrajectory } from '@src/business/task/dimension-trajectory.ts';
+import { composeTaskEpisodes } from '@src/business/task/compose-task-episodes.ts';
+import { summariseEpisodes } from '@src/business/task/episode-summary.ts';
 import { composePriorLearnings } from '@src/application/flows/_shared/memory/compose-prior-learnings.ts';
 import {
   readRoundSessionId,
@@ -168,6 +170,14 @@ interface GeneratorInput {
    * already carries it in-conversation, so threading it again would be redundant context.
    */
   readonly priorLearnings?: string;
+  /**
+   * Pre-composed `<prior_task_episodes>` block (R4, read side) — a compact summary of this sprint's
+   * already-settled sibling tasks (done / blocked), built in the input projection from `ctx.tasks`
+   * via `composeTaskEpisodes` + `summariseEpisodes`. Mirrors {@link priorLearnings}: rides ONLY the
+   * FULL implement prompt (round 1 of a session thread); a resumed continuation already carries it
+   * in-conversation. Empty when no sibling task has settled yet → the prompt slot collapses cleanly.
+   */
+  readonly priorEpisodes?: string;
 }
 
 interface GeneratorOutput {
@@ -209,6 +219,21 @@ interface GeneratorOutput {
    */
   readonly notesEmitted: readonly string[];
 }
+
+/**
+ * Per-turn signal-kind distribution (R2) for the entropy-plateau heuristic — only kinds the
+ * generator actually emitted this turn (count > 0). Built fresh from the turn's accumulators so the
+ * stamped map reflects ONLY the current turn, never an accumulation across turns. The harness never
+ * sees the AI's raw tool-use, so this signal-kind spread is the proxy the entropy guard reads.
+ */
+const countTurnActionKinds = (out: GeneratorOutput): Map<string, number> => {
+  const counts = new Map<string, number>();
+  if (out.decisionsEmitted.length > 0) counts.set('decision', out.decisionsEmitted.length);
+  if (out.changesEmitted.length > 0) counts.set('change', out.changesEmitted.length);
+  if (out.learningsEmitted.length > 0) counts.set('learning', out.learningsEmitted.length);
+  if (out.notesEmitted.length > 0) counts.set('note', out.notesEmitted.length);
+  return counts;
+};
 
 /**
  * Read the current `progress.md` body to inline into the prompt, CAPPED to the sprint header,
@@ -287,6 +312,12 @@ const buildGeneratorPrompt = async (
      */
     readonly priorLearnings: string;
     /**
+     * Pre-composed prior-episodes block (R4) — threaded into the FULL implement prompt's
+     * `priorEpisodes` slot only when non-empty. Ignored on the continuation branch (the resumed
+     * thread already carries it), exactly like `priorLearnings`.
+     */
+    readonly priorEpisodes: string;
+    /**
      * Pre-rendered `<pre_verify_results>` body — the current attempt's harness pre-verify run +
      * log tail (T4). Empty string when no pre-verify ran. Passed through to the builder's
      * `preVerifyOutput` slot only when non-empty so the placeholder collapses cleanly otherwise.
@@ -313,6 +344,8 @@ const buildGeneratorPrompt = async (
   const trajectoryCarry = args.dimensionTrajectory.length > 0 ? { dimensionTrajectory: args.dimensionTrajectory } : {};
   // Prior-learnings rides ONLY the full prompt (continuation already carries it in-conversation).
   const priorLearningsCarry = args.priorLearnings.length > 0 ? { priorLearnings: args.priorLearnings } : {};
+  // Prior-episodes (R4) rides ONLY the full prompt — same rule as prior-learnings.
+  const priorEpisodesCarry = args.priorEpisodes.length > 0 ? { priorEpisodes: args.priorEpisodes } : {};
 
   if (args.priorGeneratorSessionId === undefined) {
     return buildImplementPrompt(deps.templateLoader, {
@@ -327,6 +360,7 @@ const buildGeneratorPrompt = async (
       ...(plateauBreak ? { plateauBreak: true } : {}),
       ...trajectoryCarry,
       ...priorLearningsCarry,
+      ...priorEpisodesCarry,
       ...preVerifyCarry,
       ...retryFeedbackCarry,
     });
@@ -479,6 +513,7 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
             priorGeneratorSessionId: input.priorGeneratorSessionId,
             dimensionTrajectory: input.dimensionTrajectory ?? '',
             priorLearnings: input.priorLearnings ?? '',
+            priorEpisodes: input.priorEpisodes ?? '',
             preVerifyOutput,
             retryFeedback,
           });
@@ -663,6 +698,9 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
       // Cross-sprint procedural memory (principle 3) loaded once by the prologue's `load-learnings`.
       // Pure ctx read; '' when the ledger was absent/empty so the prompt placeholder collapses.
       const priorLearnings = composePriorLearnings(ctx.priorLearnings ?? []);
+      // Episodic memory (R4) derived from this sprint's already-settled sibling tasks. Pure ctx
+      // read; '' until a sibling has settled (done/blocked) so the prompt placeholder collapses.
+      const priorEpisodes = summariseEpisodes(composeTaskEpisodes(ctx.tasks ?? [], taskId, ctx.sprintId));
       return {
         task: ctx.currentTask,
         turn: (ctx.genEvalTurn ?? 0) + 1,
@@ -671,6 +709,7 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
         ...(ctx.priorGeneratorSessionId !== undefined ? { priorGeneratorSessionId: ctx.priorGeneratorSessionId } : {}),
         ...(dimensionTrajectory.length > 0 ? { dimensionTrajectory } : {}),
         ...(priorLearnings.length > 0 ? { priorLearnings } : {}),
+        ...(priorEpisodes.length > 0 ? { priorEpisodes } : {}),
       };
     },
     output: (ctx, out) => {
@@ -702,6 +741,10 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
         out.notesEmitted.length > 0
           ? { currentAttemptNotes: [...(ctx.currentAttemptNotes ?? []), ...out.notesEmitted] }
           : {};
+      // Per-turn signal-kind distribution (R2) — stamped fresh every turn (overwrites the prior
+      // turn's map) so the entropy-plateau heuristic in the gen-eval loop sees the current turn's
+      // action diversity, never an accumulation across turns.
+      const actionCountsCarry = { lastTurnActionCounts: countTurnActionKinds(out) };
       if (out.exit !== undefined) {
         return {
           ...ctx,
@@ -717,6 +760,7 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
           ...changesCarry,
           ...learningsCarry,
           ...notesCarry,
+          ...actionCountsCarry,
         };
       }
       return {
@@ -731,6 +775,7 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
         ...changesCarry,
         ...learningsCarry,
         ...notesCarry,
+        ...actionCountsCarry,
       };
     },
   });

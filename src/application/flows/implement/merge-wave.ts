@@ -55,6 +55,9 @@ const _exhaustive = {
   currentRoundNum: PER_TASK,
   lastEvaluation: PER_TASK,
   plateauHistory: PER_TASK,
+  // Per-turn signal-kind distribution for the in-flight task's current gen-eval turn — meaningless
+  // between waves (each branch carries its own), reset to undefined in the merged ctx.
+  lastTurnActionCounts: PER_TASK,
   lastExit: PER_TASK,
   lastVerdict: PER_TASK,
   lastBlockReason: PER_TASK,

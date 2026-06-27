@@ -119,6 +119,13 @@ export interface ImplementPromptParams {
    * string on a first attempt or when the prior post-verify passed.
    */
   readonly retryFeedbackSection: string;
+  /**
+   * Compact bullet list of prior task episodes for this sprint — each line is
+   * `- [goal excerpt] → outcome (keyLearnings)`. Built by `summariseEpisodes` from the
+   * sprint's episode log. Absent or empty → `{{PRIOR_EPISODES}}` collapses cleanly
+   * (no `<prior_task_episodes>` block is emitted). Default undefined (empty).
+   */
+  readonly priorEpisodesSection?: string;
 }
 
 const requireNonEmpty =
@@ -221,6 +228,13 @@ export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
       description:
         'Failing post-verify command + output tail from the previous attempt — empty on a first attempt or when the prior post-verify passed.',
     },
+    priorEpisodesSection: {
+      placeholder: 'PRIOR_EPISODES',
+      optional: true,
+      description:
+        'Compact bullet list of prior task episodes for this sprint rendered by `summariseEpisodes`. ' +
+        'Empty → `{{PRIOR_EPISODES}}` collapses (the renderer omits the `<prior_task_episodes>` wrapper).',
+    },
   },
   partials: {
     HARNESS_CONTEXT: 'harness-context',
@@ -300,7 +314,24 @@ export interface BuildImplementPromptInput {
    * placeholder collapses inside `<retry_feedback>…</retry_feedback>`.
    */
   readonly retryFeedback?: string;
+  /**
+   * Pre-composed episode summary built by `summariseEpisodes` from the sprint's episode log.
+   * Absent or empty → `{{PRIOR_EPISODES}}` collapses (no `<prior_task_episodes>` block emitted).
+   */
+  readonly priorEpisodes?: string;
 }
+
+/**
+ * Render the optional `<prior_task_episodes>` block. Returns the full tagged block when the
+ * summary is non-empty so `{{PRIOR_EPISODES}}` collapses cleanly to nothing when episodes is
+ * empty — no XML wrapper is emitted.
+ */
+const renderPriorEpisodesSection = (summary: string | undefined): string => {
+  if (summary === undefined) return '';
+  const trimmed = summary.trim();
+  if (trimmed.length === 0) return '';
+  return ['<prior_task_episodes>', trimmed, '</prior_task_episodes>'].join('\n');
+};
 
 /**
  * Top-level builder — accepts domain types, renders the param strings, calls `buildPrompt`.
@@ -328,4 +359,5 @@ export const buildImplementPrompt = async (
     outputContractSection: input.outputContractSection,
     preVerifyResults: renderPreVerifyResultsSection(input.preVerifyOutput),
     retryFeedbackSection: renderRetryFeedbackSection(input.retryFeedback),
+    priorEpisodesSection: renderPriorEpisodesSection(input.priorEpisodes),
   });
