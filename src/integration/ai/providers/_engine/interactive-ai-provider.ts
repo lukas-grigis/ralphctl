@@ -46,6 +46,14 @@ export interface InteractiveAiProviderInput {
    * of `AiSession.effort` on the headless port.
    */
   readonly effort?: string;
+  /**
+   * Caller-controlled abort (Ctrl-C / TUI cancel). When it fires, the adapter tears the child
+   * down with a SIGTERM → grace → SIGKILL kill ladder — without it a `stdio: 'inherit'` child
+   * is unreachable once spawned (the harness holds no reference past `run`) and keeps running
+   * indefinitely after a cancel. A signal already aborted when `run` is called kills the child
+   * immediately. Sibling of `AiSession.abortSignal` on the headless port.
+   */
+  readonly abortSignal?: AbortSignal;
 }
 
 export interface InteractiveAiProviderOutput {
