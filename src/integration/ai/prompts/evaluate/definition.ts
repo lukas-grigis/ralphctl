@@ -193,6 +193,12 @@ export interface BuildEvaluatePromptInput {
  * Top-level builder — accepts domain types, renders the param strings, calls `buildPrompt`.
  * The chain leaf consumes this via function injection. `task.extraDimensions` is threaded into
  * the rubric automatically; the rendered section is empty when the field is unset.
+ *
+ * The template includes a `<reasoning_protocol>` section instructing the evaluator to write its
+ * step-by-step assessment inside `<evaluation_thinking>` tags before emitting the verdict signal.
+ * This approximates the think-tool effect via prompt engineering — research (TIDE/τ-Bench) shows
+ * a 57% improvement on sequential decision chains when models externalise intermediate reasoning
+ * before committing to output.
  */
 export const buildEvaluatePrompt = async (
   deps: TemplateLoader,

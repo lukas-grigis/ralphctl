@@ -92,6 +92,17 @@ The block below mirrors that file for in-context reference.
 
 </task_specification>
 
+<reasoning_protocol>
+Before emitting your evaluation signal, write your step-by-step assessment inside
+<evaluation_thinking>…</evaluation_thinking> tags. The harness ignores these tags — they are
+for your reasoning only. Structure the block as:
+
+- Review each acceptance criterion against the evidence collected in Phases 1–2.
+- Identify what specifically changed vs. what the specification required.
+- Decide the verdict for each floor dimension with explicit reasoning.
+- THEN write the final `signals.json` with your concluded verdict.
+  </reasoning_protocol>
+
 <inputs>
   <project_path>{{PROJECT_PATH}}</project_path>
   <verify_script>{{VERIFY_SCRIPT_SECTION}}</verify_script>

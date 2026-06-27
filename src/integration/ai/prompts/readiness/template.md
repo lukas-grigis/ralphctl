@@ -33,8 +33,9 @@ warranted. Write all signals to the `signals.json` path described in `<output_co
 <target_file_conventions>
 {{TARGET_FILE_CONVENTIONS}}
 </target_file_conventions>
-{{HARNESS_CONTEXT}}
 </inputs>
+
+{{HARNESS_CONTEXT}}
 
 <constraints>
 
