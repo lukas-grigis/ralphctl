@@ -7,6 +7,8 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-06-27
+
 ### Added
 
 - **Two earlier-exit plateau signals in the gen-eval loop.** The inner generator-evaluator loop now
