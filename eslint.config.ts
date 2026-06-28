@@ -453,68 +453,60 @@ export default [
 
   // ── integration/ai/prompts/<x>/ — sibling-prompt isolation ───────────────────
   // Each prompt is independent. Shared machinery lives under prompts/_engine/.
-  ...PROMPTS.map(
-    (active): Linter.Config => ({
-      files: [`src/integration/ai/prompts/${active}/**/*.{ts,tsx}`],
-      rules: {
-        'no-restricted-imports': siblingIsolationRule(
-          '**/integration/ai/prompts',
-          active,
-          PROMPTS,
-          ['_engine', '_partials'],
-          'prompt'
-        ),
-      },
-    })
-  ),
+  ...PROMPTS.map((active): Linter.Config => ({
+    files: [`src/integration/ai/prompts/${active}/**/*.{ts,tsx}`],
+    rules: {
+      'no-restricted-imports': siblingIsolationRule(
+        '**/integration/ai/prompts',
+        active,
+        PROMPTS,
+        ['_engine', '_partials'],
+        'prompt'
+      ),
+    },
+  })),
 
   // ── integration/ai/providers/<x>/ — sibling-provider isolation ───────────────
   // Each tool adapter is independent. Cross-tool sharing goes through providers/_engine/.
-  ...PROVIDERS.map(
-    (active): Linter.Config => ({
-      files: [`src/integration/ai/providers/${active}/**/*.{ts,tsx}`],
-      rules: {
-        'no-restricted-imports': siblingIsolationRule(
-          '**/integration/ai/providers',
-          active,
-          PROVIDERS,
-          ['_engine'],
-          'provider'
-        ),
-      },
-    })
-  ),
+  ...PROVIDERS.map((active): Linter.Config => ({
+    files: [`src/integration/ai/providers/${active}/**/*.{ts,tsx}`],
+    rules: {
+      'no-restricted-imports': siblingIsolationRule(
+        '**/integration/ai/providers',
+        active,
+        PROVIDERS,
+        ['_engine'],
+        'provider'
+      ),
+    },
+  })),
 
   // ── integration/ai/readiness/<x>/ — sibling-readiness-probe isolation ────────
   // Each per-tool readiness probe is independent. Cross-tool sharing goes through readiness/_engine/.
-  ...READINESS_PROVIDERS.map(
-    (active): Linter.Config => ({
-      files: [`src/integration/ai/readiness/${active}/**/*.{ts,tsx}`],
-      rules: {
-        'no-restricted-imports': siblingIsolationRule(
-          '**/integration/ai/readiness',
-          active,
-          READINESS_PROVIDERS,
-          ['_engine'],
-          'readiness probe'
-        ),
-      },
-    })
-  ),
+  ...READINESS_PROVIDERS.map((active): Linter.Config => ({
+    files: [`src/integration/ai/readiness/${active}/**/*.{ts,tsx}`],
+    rules: {
+      'no-restricted-imports': siblingIsolationRule(
+        '**/integration/ai/readiness',
+        active,
+        READINESS_PROVIDERS,
+        ['_engine'],
+        'readiness probe'
+      ),
+    },
+  })),
 
   // ── integration/ai/skills/<x>/ — sibling-skill isolation ─────────────────────
   // Per-tool adapter directories (claude/codex/copilot) and skill-source directories
   // (bundled/project) are all independent siblings. Cross-sibling sharing goes through
   // skills/_engine/. The composition switch over the per-tool adapters lives at
   // skills/adapter-factory.ts (directly under skills/, outside the sibling glob).
-  ...SKILLS.map(
-    (active): Linter.Config => ({
-      files: [`src/integration/ai/skills/${active}/**/*.{ts,tsx}`],
-      rules: {
-        'no-restricted-imports': siblingIsolationRule('**/integration/ai/skills', active, SKILLS, ['_engine'], 'skill'),
-      },
-    })
-  ),
+  ...SKILLS.map((active): Linter.Config => ({
+    files: [`src/integration/ai/skills/${active}/**/*.{ts,tsx}`],
+    rules: {
+      'no-restricted-imports': siblingIsolationRule('**/integration/ai/skills', active, SKILLS, ['_engine'], 'skill'),
+    },
+  })),
 
   // ── integration/ai/** — port declarations must live in _engine/ ──────────────
   // Port-shaped names (`*Port`, `*Adapter`, `*Provider`, `*Sink`, `*Loader`, `*Probe`,
@@ -573,37 +565,33 @@ export default [
   // cross-cutting target — Logger and the event bus are infra-shaped ports every
   // sibling consumes — so it is on the allow-list. Future shared abstractions
   // should live under `_engine/` or `_shared/`.
-  ...BUSINESS_SIBLINGS.map(
-    (active): Linter.Config => ({
-      files: [`src/business/${active}/**/*.{ts,tsx}`],
-      rules: {
-        'no-restricted-imports': siblingIsolationRule(
-          '**/business',
-          active,
-          BUSINESS_SIBLINGS,
-          ['_engine', '_shared', 'observability'],
-          'business module'
-        ),
-      },
-    })
-  ),
+  ...BUSINESS_SIBLINGS.map((active): Linter.Config => ({
+    files: [`src/business/${active}/**/*.{ts,tsx}`],
+    rules: {
+      'no-restricted-imports': siblingIsolationRule(
+        '**/business',
+        active,
+        BUSINESS_SIBLINGS,
+        ['_engine', '_shared', 'observability'],
+        'business module'
+      ),
+    },
+  })),
 
   // ── src/domain/repository/<x>/ — sibling-repository isolation ────────────────
   // Each repository contract is per-aggregate. Shared abstractions live under `_base/`.
-  ...REPOSITORY_SIBLINGS.map(
-    (active): Linter.Config => ({
-      files: [`src/domain/repository/${active}/**/*.{ts,tsx}`],
-      rules: {
-        'no-restricted-imports': siblingIsolationRule(
-          '**/domain/repository',
-          active,
-          REPOSITORY_SIBLINGS,
-          ['_base'],
-          'repository module'
-        ),
-      },
-    })
-  ),
+  ...REPOSITORY_SIBLINGS.map((active): Linter.Config => ({
+    files: [`src/domain/repository/${active}/**/*.{ts,tsx}`],
+    rules: {
+      'no-restricted-imports': siblingIsolationRule(
+        '**/domain/repository',
+        active,
+        REPOSITORY_SIBLINGS,
+        ['_base'],
+        'repository module'
+      ),
+    },
+  })),
 
   // ── integration ──────────────────────────────────────────────────────────────
   // Concrete impls of business / ai ports + low-level I/O / shell wrappers. May depend on
@@ -638,14 +626,12 @@ export default [
   },
 
   // ── application/flows/<x>/ — sibling-flow isolation ──────────────────────────
-  ...FLOWS.map(
-    (active): Linter.Config => ({
-      files: [`src/application/flows/${active}/**/*.{ts,tsx}`],
-      rules: {
-        'no-restricted-imports': siblingIsolationRule('**/application/flows', active, FLOWS, [], 'flow'),
-      },
-    })
-  ),
+  ...FLOWS.map((active): Linter.Config => ({
+    files: [`src/application/flows/${active}/**/*.{ts,tsx}`],
+    rules: {
+      'no-restricted-imports': siblingIsolationRule('**/application/flows', active, FLOWS, [], 'flow'),
+    },
+  })),
 
   // ── tests ────────────────────────────────────────────────────────────────────
   // Tests wire every layer together — only the typescript-result rule applies.

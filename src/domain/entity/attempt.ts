@@ -67,12 +67,7 @@ export type AttemptWarning =
  * (`(SIGTERM)`, `(rate limit)`, etc.).
  */
 export type AbortCause =
-  | 'user-cancel'
-  | 'sigterm'
-  | 'watchdog-killed'
-  | 'rate-limit-exhausted'
-  | 'process-crash'
-  | 'unknown';
+  'user-cancel' | 'sigterm' | 'watchdog-killed' | 'rate-limit-exhausted' | 'process-crash' | 'unknown';
 
 /**
  * Context attached to a `RunningAttempt` when it was opened as a resume of a prior aborted

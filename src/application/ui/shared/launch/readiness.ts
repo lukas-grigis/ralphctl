@@ -32,8 +32,7 @@ const ALL_PROVIDERS = '__all__' as const;
  * cancelled prompt, without conflating it with a (never-empty) provider scope.
  */
 type ProviderSelection =
-  | { readonly cancelled: true }
-  | { readonly cancelled: false; readonly providers: readonly AiProvider[] };
+  { readonly cancelled: true } | { readonly cancelled: false; readonly providers: readonly AiProvider[] };
 
 /**
  * Resolve which provider(s) readiness should set up. Skills / native context files are

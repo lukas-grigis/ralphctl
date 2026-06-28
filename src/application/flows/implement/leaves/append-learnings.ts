@@ -94,22 +94,20 @@ const buildRecords = (
   const taskKind = deriveTaskKind(task);
   const repo = String(opts.repoPath);
   const timestamp = String(deps.clock());
-  return learnings.map(
-    (entry): LearningRecord => ({
-      v: 1,
-      id: deriveLearningId(repo, taskKind, entry.text),
-      text: entry.text,
-      ...(entry.context !== undefined ? { context: entry.context } : {}),
-      ...(entry.appliesTo !== undefined ? { appliesTo: entry.appliesTo } : {}),
-      repo,
-      repoName: opts.repoName,
-      taskKind,
-      sprintId,
-      taskId: String(task.id),
-      timestamp,
-      promotedAt: null,
-    })
-  );
+  return learnings.map((entry): LearningRecord => ({
+    v: 1,
+    id: deriveLearningId(repo, taskKind, entry.text),
+    text: entry.text,
+    ...(entry.context !== undefined ? { context: entry.context } : {}),
+    ...(entry.appliesTo !== undefined ? { appliesTo: entry.appliesTo } : {}),
+    repo,
+    repoName: opts.repoName,
+    taskKind,
+    sprintId,
+    taskId: String(task.id),
+    timestamp,
+    promotedAt: null,
+  }));
 };
 
 /**

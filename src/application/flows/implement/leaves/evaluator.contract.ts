@@ -47,12 +47,7 @@ import type { AiOutputContract, SidecarRule } from '@src/integration/ai/contract
  */
 
 type EvaluatorSignal =
-  | ChangeSignal
-  | LearningSignal
-  | NoteSignal
-  | TaskVerifiedSignal
-  | TaskBlockedSignal
-  | EvaluationSignal;
+  ChangeSignal | LearningSignal | NoteSignal | TaskVerifiedSignal | TaskBlockedSignal | EvaluationSignal;
 
 const exactlyOneEvaluation = (signals: ReadonlyArray<{ readonly type: string }>): boolean =>
   signals.filter((s) => s.type === 'evaluation').length === 1;

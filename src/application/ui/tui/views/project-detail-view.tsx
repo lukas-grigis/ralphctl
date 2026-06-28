@@ -50,8 +50,7 @@ type Field =
   | { readonly kind: 'repo'; readonly field: RepoFieldKey; readonly repo: Repository };
 
 type EditTarget =
-  | { readonly kind: 'project' }
-  | { readonly kind: 'repo'; readonly field: RepoFieldKey; readonly repo: Repository };
+  { readonly kind: 'project' } | { readonly kind: 'repo'; readonly field: RepoFieldKey; readonly repo: Repository };
 
 export const ProjectDetailView = (): React.JSX.Element => {
   const deps = useDeps();

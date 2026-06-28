@@ -85,8 +85,7 @@ const attachReseatSubscriber = (
   runner: Runner<unknown>,
   fallbackLabel: string | undefined,
   onReseat:
-    | ((info: { readonly id: SprintId; readonly name: string; readonly status?: SprintStatus }) => void)
-    | undefined,
+    ((info: { readonly id: SprintId; readonly name: string; readonly status?: SprintStatus }) => void) | undefined,
   onSprintResolved:
     | ((
         runnerId: string,

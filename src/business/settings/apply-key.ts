@@ -179,11 +179,7 @@ export const applySettingsKey = (current: Settings, key: string, raw: string): R
         return Result.error(new ValidationError({ field: key, value: raw, message: `'${raw}' is not a number` }));
       }
       const which = key.split('.')[1] as
-        | 'maxTurns'
-        | 'maxAttempts'
-        | 'rateLimitRetries'
-        | 'idleWatchdogMs'
-        | 'plateauThreshold';
+        'maxTurns' | 'maxAttempts' | 'rateLimitRetries' | 'idleWatchdogMs' | 'plateauThreshold';
       return Result.ok({ ...current, harness: { ...current.harness, [which]: n } });
     }
     case 'harness.escalateOnPlateau': {
