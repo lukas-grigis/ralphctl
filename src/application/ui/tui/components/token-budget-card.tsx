@@ -39,8 +39,9 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
-import { CONTEXT_WIDTH, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { CONTEXT_WIDTH, glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import type { TokenUsage } from '@src/application/ui/tui/runtime/use-token-usage.ts';
+import { contextWindowLabel } from '@src/domain/value/settings-models/context-window.ts';
 
 /** @public */
 export interface TokenBudgetCardProps {
@@ -52,12 +53,18 @@ export interface TokenBudgetCardProps {
 const BAR_WIDTH = 10;
 
 /**
- * Compact a token count for display: `200000` → `200k`, `12400` → `12.4k`, `120` → `120`. The
- * context column is narrow; truncating to a one-or-two-char `k` suffix keeps every row scannable.
+ * Compact a token count for display: `200000` → `200k`, `12400` → `12.4k`, `120` → `120`,
+ * `1000000` → `1M`, `1200000` → `1.2M`. The context column is narrow; single-char suffixes
+ * keep every row scannable. Values ≥ 1M use the `M` suffix so a 1M context-window renders
+ * as `1M`, not `1000k`.
  */
 const fmtTokens = (n: number): string => {
   if (!Number.isFinite(n) || n < 0) return String(n);
   if (n < 1000) return String(Math.round(n));
+  if (n >= 1_000_000) {
+    const m = n / 1_000_000;
+    return `${m.toFixed(1).replace(/\.0$/, '')}M`;
+  }
   const k = n / 1000;
   return k >= 100 ? `${String(Math.round(k))}k` : `${k.toFixed(1).replace(/\.0$/, '')}k`;
 };
@@ -159,6 +166,9 @@ export const TokenBudgetCard = ({ sessionId, usage }: TokenBudgetCardProps): Rea
     usage.liveCacheCreationTokens !== undefined;
   const hasUsageData = usage.inputTokens !== undefined || output !== undefined || hasLive;
   const ctx = computeContext(usage);
+  // Model descriptor for the Context group — shown as a dim sub-label so the denominator
+  // (e.g. `53.6k / 200k`) is self-explanatory without needing to cross-reference the header.
+  const modelWindowLabel = contextWindowLabel(usage.model);
 
   return (
     <Box width={CONTEXT_WIDTH} flexDirection="column">
@@ -198,6 +208,20 @@ export const TokenBudgetCard = ({ sessionId, usage }: TokenBudgetCardProps): Rea
               <Text dimColor bold>
                 Context
               </Text>
+              {/* Model descriptor: shows which model's window is the denominator. Omitted when
+                  the model is unknown so the card degrades cleanly for providers that don't
+                  report a model name. */}
+              {usage.model !== undefined && (
+                <Box>
+                  <Text dimColor>{usage.model}</Text>
+                  {modelWindowLabel !== undefined && (
+                    <>
+                      <Text dimColor> {glyphs.bullet} </Text>
+                      <Text dimColor>{modelWindowLabel}</Text>
+                    </>
+                  )}
+                </Box>
+              )}
               {ctx.showCumulativeNote ? (
                 // Cumulative data over the window: raw total labelled as session-cumulative; no
                 // "/window" denominator and no % bar — a "2.2M / 200k 100%" bar would mislead.

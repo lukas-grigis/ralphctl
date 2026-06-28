@@ -29,6 +29,7 @@ import type { AiProvider, Settings } from '@src/domain/entity/settings.ts';
 import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
 import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
 import { isSuspendedModel, SUSPENSION_NOTE } from '@src/domain/value/settings-models/suspended-models.ts';
+import { contextWindowLabel } from '@src/domain/value/settings-models/context-window.ts';
 import {
   type CustomizePickerResult,
   modelCatalogFor,
@@ -103,6 +104,17 @@ const buildScriptedPrompt = (
     },
   };
   return { interactive, captured };
+};
+
+/**
+ * Mirrors the `modelChoice` label logic in `flows-customize-picker.ts` so the expected labels in
+ * these tests update automatically when the annotation format changes.
+ */
+const buildExpectedModelLabel = (model: string): string => {
+  const windowPart = contextWindowLabel(model);
+  const suspendedPart = isSuspendedModel(model) ? `(${SUSPENSION_NOTE})` : undefined;
+  const annotations = [windowPart, suspendedPart].filter((s): s is string => s !== undefined);
+  return annotations.length > 0 ? `${model}  ·  ${annotations.join('  ')}` : model;
 };
 
 const driveSettings = (overrides: Partial<Settings['ai']> = {}): Settings => ({
@@ -428,11 +440,11 @@ describe('runCustomizePicker — catalog source parity with settings', () => {
       settings: DEFAULT_SETTINGS,
     });
     // The first label is `Keep default (<saved model>)`; the rest must match the
-    // CLAUDE_MODELS catalog in order so a model bump or rename is caught immediately. Suspended
-    // models carry a ` (suspended)` suffix on the LABEL (value stays the bare id).
+    // CLAUDE_MODELS catalog in order so a model bump or rename is caught immediately. Each
+    // option label includes the context-window size and (when applicable) the suspension note.
     expect(modelStepOptions).toBeDefined();
     const catalogLabels = modelStepOptions!.slice(1);
-    expect(catalogLabels).toEqual(CLAUDE_MODELS.map((m) => (isSuspendedModel(m) ? `${m} (${SUSPENSION_NOTE})` : m)));
+    expect(catalogLabels).toEqual(CLAUDE_MODELS.map((m) => buildExpectedModelLabel(m)));
   });
 
   it('flags a suspended model on the LABEL only — value stays the bare id', async () => {
@@ -473,11 +485,12 @@ describe('runCustomizePicker — catalog source parity with settings', () => {
     expect(modelStepChoices).toBeDefined();
     const fable = modelStepChoices!.find((c) => c.value === 'claude-fable-5');
     expect(fable).toBeDefined();
-    expect(fable!.label).toBe(`claude-fable-5 (${SUSPENSION_NOTE})`);
+    // Suspended model: no window label (base fable-5 has none), but carries the suspension note.
+    expect(fable!.label).toBe(buildExpectedModelLabel('claude-fable-5'));
     expect(fable!.value).toBe('claude-fable-5');
-    // A live model is unannotated.
+    // A live model with a known window is annotated with the window label.
     const opus = modelStepChoices!.find((c) => c.value === 'claude-opus-4-8');
-    expect(opus!.label).toBe('claude-opus-4-8');
+    expect(opus!.label).toBe(buildExpectedModelLabel('claude-opus-4-8'));
   });
 });
 
@@ -641,7 +654,7 @@ describe('runCustomizePicker — effort-inheritance visibility (T14)', () => {
           return Result.ok(c!.value) as unknown as Result<T, DomainError>;
         }
         if (message.includes('Model:')) {
-          const c = options.find((o) => o.label === otherModel);
+          const c = options.find((o) => o.value === otherModel);
           return Result.ok(c!.value) as unknown as Result<T, DomainError>;
         }
         if (message.includes('Effort:')) {
@@ -697,7 +710,7 @@ describe('runCustomizePicker — effort-inheritance visibility (T14)', () => {
           return Result.ok(c!.value) as unknown as Result<T, DomainError>;
         }
         if (message.includes('Model:')) {
-          const c = options.find((o) => o.label === otherModel);
+          const c = options.find((o) => o.value === otherModel);
           return Result.ok(c!.value) as unknown as Result<T, DomainError>;
         }
         if (message.includes('Effort:')) {
@@ -840,11 +853,10 @@ describe('runCustomizePicker — availableModelsFor gates the model step', () =>
     ]);
     await runCustomizePicker({ interactive, flowId: 'refine', flowTitle: 'refine', settings: DEFAULT_SETTINGS });
     const modelOptions = modelOptionsFromCapture(captured);
-    // Keep-default is the first option; the rest are the full catalog. Suspended models render
-    // with a ` (suspended)` LABEL suffix (the value stays the bare id).
+    // Keep-default is the first option; the rest are the full catalog. Each label includes the
+    // context-window size and (when applicable) the suspension note.
     for (const model of fullCatalog) {
-      const expectedLabel = isSuspendedModel(model) ? `${model} (${SUSPENSION_NOTE})` : model;
-      expect(modelOptions).toContain(expectedLabel);
+      expect(modelOptions).toContain(buildExpectedModelLabel(model));
     }
   });
 
@@ -872,7 +884,7 @@ describe('runCustomizePicker — availableModelsFor gates the model step', () =>
       availableModelsFor,
     });
     const modelOptions = modelOptionsFromCapture(captured);
-    for (const model of subset) expect(modelOptions).toContain(model);
-    for (const model of excluded) expect(modelOptions).not.toContain(model);
+    for (const model of subset) expect(modelOptions).toContain(buildExpectedModelLabel(model));
+    for (const model of excluded) expect(modelOptions).not.toContain(buildExpectedModelLabel(model));
   });
 });
