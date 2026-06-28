@@ -58,3 +58,7 @@
 ## Implement Header + Sidebar Layout
 
 - [project_implement_header_effort_sidebyside.md](project_implement_header_effort_sidebyside.md) — HeaderCard two-line gen/eval model+effort; side-by-side Baseline+Token at ≥xl (sidebarContextSideBySide); threading chain (Jun 2026)
+
+## Context-Window Visibility
+
+- [project_context_window_visibility.md](project_context_window_visibility.md) — 200K/1M label in every model selector + execution surface; domain helper at settings-models/context-window.ts mirrors integration adapter pending #226 (Jun 2026)
