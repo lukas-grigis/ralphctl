@@ -12,8 +12,7 @@ import type { Task } from '@src/domain/entity/task.ts';
 import type { Ticket } from '@src/domain/entity/ticket.ts';
 
 export type FocusItem =
-  | { readonly kind: 'ticket'; readonly ticket: Ticket }
-  | { readonly kind: 'task'; readonly task: Task };
+  { readonly kind: 'ticket'; readonly ticket: Ticket } | { readonly kind: 'task'; readonly task: Task };
 
 export const buildFocusList = (sprint: Sprint, tasks: readonly Task[]): readonly FocusItem[] => [
   ...sprint.tickets.map((ticket) => ({ kind: 'ticket' as const, ticket })),

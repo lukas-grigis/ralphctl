@@ -325,9 +325,7 @@ const orderedTasks = [...tasks].sort((a, b) => (a.status === b.status ? 0 : a.st
 // path holds the same lock key directly in parallel-element.ts (spanning prologue + waves + epilogue).
 sequential('implement', [
   withRepoLock(
-    {
-      /* sprint-dir lock */
-    },
+    {/* sprint-dir lock */},
     sequential('implement-locked', [
       loadAndAssertSprint(['planned', 'active']), // load-sprint + assert-sprint-status
       activateSprintLeaf,

@@ -48,9 +48,7 @@ interface Entry {
 }
 
 type Row =
-  | { readonly kind: 'parent' }
-  | { readonly kind: 'select' }
-  | { readonly kind: 'entry'; readonly entry: Entry };
+  { readonly kind: 'parent' } | { readonly kind: 'select' } | { readonly kind: 'entry'; readonly entry: Entry };
 
 const VISIBLE_ROWS = 12;
 const clamp = (n: number, min: number, max: number): number => Math.max(min, Math.min(max, n));
