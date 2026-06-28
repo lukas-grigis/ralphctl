@@ -39,6 +39,14 @@ to [Semantic Versioning](https://semver.org/).
   explicit checkpoint before producing its verdict, improving grading consistency and reducing
   ungrounded pass/fail decisions.
 
+### Changed
+
+- **Lint warning ceiling added.** The `lint` script is now `eslint . --max-warnings 342`, capping
+  the accepted warning count at the baseline observed after the provider-engine refactor. Any future
+  increase above that count fails CI. The `lint:fix` script is left without the flag so local
+  autofix is not blocked. Maintainers may lower the ceiling incrementally as existing warnings are
+  resolved.
+
 ### Fixed
 
 - **Provider stdout parse-buffer OOM caps.** A single large tool-result line embedded in the AI's
