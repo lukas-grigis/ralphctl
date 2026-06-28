@@ -1,12 +1,10 @@
 import { Result } from '@src/domain/result.ts';
-import type { HeadlessAiProvider, ProviderOutput } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
-import { STDERR_TAIL_CAP, createBoundedTail } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
+import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import { isRecord } from '@src/integration/ai/providers/_engine/json-field.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { ClaudeProviderDeps } from '@src/integration/ai/providers/_engine/claude-provider-deps.ts';
 import { resolveWritableRoots } from '@src/integration/ai/providers/_engine/resolve-roots.ts';
 import type { SessionPermissions } from '@src/integration/ai/providers/_engine/session-permissions.ts';
-import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { isClaudeModel } from '@src/domain/value/settings-models/claude.ts';
@@ -14,15 +12,13 @@ import { isSuspendedModel, suspendedModelMessage } from '@src/domain/value/setti
 import { createClaudeStreamParser } from '@src/integration/ai/providers/claude/parse-stream.ts';
 import type { ClaudeStreamLine } from '@src/integration/ai/providers/_engine/claude-stream.ts';
 import { type ProviderSpawn, defaultProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
-import { runHeadlessSpawn } from '@src/integration/ai/providers/_engine/run-headless-spawn.ts';
-import { runWithRateLimitRetry } from '@src/integration/ai/providers/_engine/run-with-rate-limit-retry.ts';
-import { writeTextAtomic } from '@src/integration/io/fs.ts';
-import { persistSessionIdFile } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
-import { contextWindowFor } from '@src/integration/ai/providers/_engine/context-window.ts';
 import { truncateField } from '@src/integration/ai/providers/_engine/truncate-debug-field.ts';
-import type { AttemptOutcome } from '@src/integration/ai/providers/_engine/attempt-outcome.ts';
-import { classifySpawnExit } from '@src/integration/ai/providers/_engine/classify-spawn-exit.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
+import {
+  createHeadlessProvider,
+  emitTokenUsage,
+  runProviderAttempt,
+} from '@src/integration/ai/providers/_engine/run-provider-attempt.ts';
 
 /**
  * Real {@link HeadlessAiProvider} backed by the Claude Code CLI.
@@ -331,216 +327,87 @@ export const createClaudeProvider = (deps: ClaudeProviderDeps): HeadlessAiProvid
   const spawnFn: ProviderSpawn = deps.spawn ?? defaultProviderSpawn;
   const command = deps.command ?? 'claude';
 
-  return {
-    async generate(session) {
-      // The shared retry seam owns the loop, backoff, banners, abort-during-backoff, the
-      // session-resume rebuild (so a 429 retry passes `--resume <id>`), and the stale-resume
-      // cold fallback. The per-attempt closure builds argv from the CURRENT session, so a
-      // resumed retry naturally emits `--resume`. buildClaudeArgs validation surfaces up front.
-      const argsResult = buildClaudeArgs(session);
-      if (!argsResult.ok) return Result.error(argsResult.error) as Result<ProviderOutput, DomainError>;
-
-      return runWithRateLimitRetry({
-        session,
-        rateLimitRetries: deps.rateLimitRetries,
-        ...(deps.backoffSchedule !== undefined ? { backoffSchedule: deps.backoffSchedule } : {}),
-        eventBus: deps.eventBus,
-        providerSlug: 'claude',
-        providerName: 'claude-provider',
-        resumeStaleRe: RESUME_STALE_RE,
-        attempt: async (attemptSession) => {
-          const built = buildClaudeArgs(attemptSession);
-          if (!built.ok) return { kind: 'error', error: built.error };
-          return spawnAttempt({ deps, spawnFn, command, args: built.value, session: attemptSession });
-        },
-      });
-    },
-  };
-};
-
-interface SpawnAttemptArgs {
-  readonly deps: ClaudeProviderDeps;
-  readonly spawnFn: ProviderSpawn;
-  readonly command: string;
-  readonly args: readonly string[];
-  readonly session: AiSession;
-}
-
-/**
- * One spawn attempt: launch `claude`, write prompt, stream stdout JSONL through the
- * stream-json parser, then delegate exit classification to `classifySpawnExit` (decides
- * success / rate-limit / abort / signals-recovery / hard-fail uniformly across the three
- * adapters). Per-provider success block (token-usage publish, persistSessionIdFile,
- * optional bodyFile mirror) lives in the `onSuccess` closure passed to the classifier —
- * the closure runs on `code === 0` AND on signals-present recovery, so a watchdog SIGTERM
- * that landed after the AI completed its work still produces a success.
- *
- * The `envelope.body` string goes out of scope at function return — never retained on a
- * domain entity.
- */
-const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> => {
-  const { deps, spawnFn, command, args, session } = input;
-  // `cwd` is critical — the Claude Code CLI only auto-discovers `CLAUDE.md`, skills, agents,
-  // and `.mcp.json` from the child's `process.cwd()`. Without this, the native context-file
-  // pipeline silently misses and the AI runs without project guidance.
-  // See CLAUDE.md §Security — "Cwd is the repo because Claude / Copilot / Codex only
-  // auto-discover their context file from cwd."
-  const child = spawnFn(command, args, {
-    stdio: ['pipe', 'pipe', 'pipe'] as const,
-    cwd: String(session.cwd),
-  });
-  const parser = createClaudeStreamParser();
-  const stderrTail = createBoundedTail(STDERR_TAIL_CAP);
-
-  const onLine = (line: ClaudeStreamLine): void => {
-    parser.ingest(line);
-    // Per-line debug fan-out, published DIRECTLY to the EventBus — no gate at this site. The
-    // UI-floor filter lives in launch.ts's coalescing forwarder (applied at ingest against the
-    // live log-level gate); the persistent events.ndjson sink records every event regardless of
-    // that floor. `createEventBusLogger` is a producer, not a filter, and drops nothing here.
-    publishStreamLineEvents(deps.eventBus, line);
-  };
-
-  // Bound once so the onIdle banner-show id and the classifier's banner-clear id match.
-  const watchdogBannerId = `watchdog-claude-${String(child.pid ?? 'unknown')}`;
-
-  // Wait for the child to fully `'close'` — NOT just `'exit'`. `'exit'` can fire before the
-  // final stdout chunk has been delivered to our listener; `'close'` guarantees the streams
-  // have flushed. v1 uses the same event for the same reason.
-  //
-  // No wall-clock timeout: implement sessions can legitimately run for hours. The idle-stdout
-  // watchdog (installed inside runHeadlessSpawn) handles the "stuck child" failure mode, and
-  // `session.abortSignal` (Ctrl-C / TUI) threads through the same kill ladder.
-  const { code, signal } = await runHeadlessSpawn({
-    child,
-    onStdout: (chunk) => parser.feed(chunk, onLine),
-    onStderr: (chunk) => {
-      stderrTail.append(chunk);
-    },
-    stdin: session.prompt,
-    resolveOn: 'close',
-    ...(deps.idleMs !== undefined ? { idleMs: deps.idleMs } : {}),
-    ...(session.abortSignal !== undefined ? { abortSignal: session.abortSignal } : {}),
-    onIdle: () => {
-      const idleMs = deps.idleMs ?? undefined;
-      deps.eventBus.publish({
-        type: 'log',
-        level: 'warn',
-        message: `claude-provider: no stdio activity${idleMs !== undefined ? ` for ${String(idleMs)}ms` : ''} — killing wedged child`,
-        ...(idleMs !== undefined ? { meta: { idleMs } } : {}),
-        at: IsoTimestamp.now(),
-      });
-      deps.eventBus.publish({
-        type: 'banner-show',
-        id: watchdogBannerId,
-        tier: 'warn',
-        message: `Watchdog killed stuck claude process${idleMs !== undefined ? ` (${String(Math.round(idleMs / 1000))}s idle)` : ''}`,
-        at: IsoTimestamp.now(),
-      });
-    },
-  });
-  parser.flush(onLine);
-
-  // `envelope.body` is sourced from `parser.snapshot()` in O(1) — the parser holds a single
-  // string reassigned from the latest `result` event. No per-line concatenation in this
-  // adapter; preserve that invariant.
-  const envelope = parser.snapshot();
-
-  const onSuccess = async (): Promise<AttemptOutcome> => {
-    if (envelope.sessionId !== undefined) {
-      deps.eventBus.publish({
-        type: 'log',
-        level: 'debug',
-        message: 'claude-provider: session id captured',
-        meta: { sessionId: envelope.sessionId },
-        at: IsoTimestamp.now(),
-      });
-      // Emit one TokenUsageEvent per success spawn — only when we have a sessionId
-      // (downstream subscribers correlate by it). Absence of usage counters is honest: the
-      // result event may carry zero usage subkeys on degenerate spawns or when the spawn
-      // was SIGTERM-recovered before the final result event landed.
-      const window = contextWindowFor(envelope.model);
-      const chainSessionId = session.chainSessionId;
-      deps.eventBus.publish({
-        type: 'token-usage',
-        sessionId: envelope.sessionId,
-        ...(chainSessionId !== undefined ? { chainSessionId } : {}),
-        provider: 'claude-code',
-        ...(envelope.model !== undefined ? { model: envelope.model } : {}),
-        ...(envelope.usage.inputTokens !== undefined ? { inputTokens: envelope.usage.inputTokens } : {}),
-        ...(envelope.usage.outputTokens !== undefined ? { outputTokens: envelope.usage.outputTokens } : {}),
-        ...(envelope.usage.cacheReadTokens !== undefined ? { cacheReadTokens: envelope.usage.cacheReadTokens } : {}),
-        ...(envelope.usage.cacheCreationTokens !== undefined
-          ? { cacheCreationTokens: envelope.usage.cacheCreationTokens }
-          : {}),
-        // Live/per-turn snapshot from the LAST assistant turn — true current context-window
-        // occupancy, distinct from the cumulative `*Tokens` above. Absent on copilot/codex and
-        // on spawns where no assistant event carried usage.
-        ...(envelope.liveUsage.inputTokens !== undefined ? { liveInputTokens: envelope.liveUsage.inputTokens } : {}),
-        ...(envelope.liveUsage.cacheReadTokens !== undefined
-          ? { liveCacheReadTokens: envelope.liveUsage.cacheReadTokens }
-          : {}),
-        ...(envelope.liveUsage.cacheCreationTokens !== undefined
-          ? { liveCacheCreationTokens: envelope.liveUsage.cacheCreationTokens }
-          : {}),
-        ...(window !== undefined ? { contextWindow: window } : {}),
-        ...(session.role !== undefined ? { role: session.role } : {}),
-        at: IsoTimestamp.now(),
-      });
-    }
-    // audit-[09]: the AI writes `signals.json` directly via its Write tool into
-    // `session.outputDir`; the harness validates it post-spawn. The provider never writes
-    // signals.json itself — every leaf consumes the contract path.
-    // Persist captured session id as a sibling `sessionId` file so `--resume` / forensic
-    // re-attach works without parsing chain.log. Skipped when the stream never carried an id
-    // (process crashed mid-init) — see persistSessionIdFile for the contract.
-    const sidWrote = await persistSessionIdFile(session.signalsFile, envelope.sessionId);
-    if (sidWrote !== undefined && !sidWrote.ok) {
-      deps.eventBus.publish({
-        type: 'log',
-        level: 'warn',
-        message: `claude-provider: failed to write sessionId file — resume re-attach may need log parsing`,
-        meta: { error: sidWrote.error.message },
-        at: IsoTimestamp.now(),
-      });
-    }
-    // Mirror raw body for diagnostic capture (detect-scripts / detect-skills empty-proposal
-    // debugging). Best-effort: a write failure here is logged but does not fail the session.
-    if (session.bodyFile !== undefined) {
-      const bodyWrote = await writeTextAtomic(String(session.bodyFile), envelope.body);
-      if (!bodyWrote.ok) {
-        deps.eventBus.publish({
-          type: 'log',
-          level: 'warn',
-          message: `claude-provider: failed to write body file — diagnostic capture skipped`,
-          meta: { bodyFile: String(session.bodyFile), error: bodyWrote.error.message },
-          at: IsoTimestamp.now(),
-        });
-      }
-    }
-    return {
-      kind: 'success',
-      output: {
-        signalsFile: session.signalsFile,
-        exitCode: code ?? 0,
-        ...(envelope.sessionId !== undefined ? { sessionId: envelope.sessionId } : {}),
-      },
-    };
-  };
-
-  return classifySpawnExit({
-    session,
-    exit: { code, signal },
-    stderr: stderrTail.value(),
-    rateLimitRe: RATE_LIMIT_RE,
-    // Claude's `-p stream-json` mode reports quota errors in the stdout `result` envelope, not
-    // on stderr. Feed the parsed body into the rate-limit haystack so a real throttle trips the
-    // overnight backoff instead of hard-failing the round.
-    ...(envelope.body.length > 0 ? { stdoutTail: envelope.body } : {}),
-    ...(envelope.sessionId !== undefined ? { capturedSessionId: envelope.sessionId } : {}),
+  return createHeadlessProvider({
+    providerSlug: 'claude',
     providerName: 'claude-provider',
+    resumeStaleRe: RESUME_STALE_RE,
+    rateLimitRetries: deps.rateLimitRetries,
     eventBus: deps.eventBus,
-    watchdogBannerId,
-    onSuccess,
+    ...(deps.backoffSchedule !== undefined ? { backoffSchedule: deps.backoffSchedule } : {}),
+    createGenerateContext: () => ({
+      attempt: async (attemptSession) => {
+        const built = buildClaudeArgs(attemptSession);
+        if (!built.ok) return { kind: 'error', error: built.error };
+
+        const parser = createClaudeStreamParser();
+        const onLine = (line: ClaudeStreamLine): void => {
+          parser.ingest(line);
+          // Per-line debug fan-out, published DIRECTLY to the EventBus — no gate at this site. The
+          // UI-floor filter lives in launch.ts's coalescing forwarder (applied at ingest against the
+          // live log-level gate); the persistent events.ndjson sink records every event regardless of
+          // that floor. `createEventBusLogger` is a producer, not a filter, and drops nothing here.
+          publishStreamLineEvents(deps.eventBus, line);
+        };
+
+        return runProviderAttempt({
+          spawnFn,
+          command,
+          args: built.value,
+          session: attemptSession,
+          resolveOn: 'close',
+          // `cwd` is critical — the Claude Code CLI only auto-discovers `CLAUDE.md`, skills, agents,
+          // and `.mcp.json` from the child's `process.cwd()`. Without this, the native context-file
+          // pipeline silently misses and the AI runs without project guidance. See CLAUDE.md §Security.
+          stdin: attemptSession.prompt,
+          rateLimitRe: RATE_LIMIT_RE,
+          onStdoutChunk: (chunk) => {
+            parser.feed(chunk, onLine);
+          },
+          flush: () => {
+            parser.flush(onLine);
+          },
+          getSessionId: () => parser.snapshot().sessionId,
+          // Claude's `-p stream-json` mode reports quota errors in the stdout `result` envelope, not
+          // on stderr. Feed the parsed body into the rate-limit haystack so a real throttle trips the
+          // overnight backoff instead of hard-failing the round.
+          getStdoutTail: () => {
+            const body = parser.snapshot().body;
+            return body.length > 0 ? body : undefined;
+          },
+          // `envelope.body` is sourced from `parser.snapshot()` in O(1) — the parser holds a single
+          // string reassigned from the latest `result` event. No per-line concatenation in this adapter.
+          getBody: () => Promise.resolve(Result.ok(parser.snapshot().body)),
+          emitProviderTokenUsage: (sessionId) => {
+            const env = parser.snapshot();
+            // Absence of usage counters is honest: the result event may carry zero usage subkeys on
+            // degenerate spawns or when the spawn was SIGTERM-recovered before the final result event.
+            emitTokenUsage(deps.eventBus, attemptSession, sessionId, {
+              provider: 'claude-code',
+              ...(env.model !== undefined ? { model: env.model } : {}),
+              ...(env.usage.inputTokens !== undefined ? { inputTokens: env.usage.inputTokens } : {}),
+              ...(env.usage.outputTokens !== undefined ? { outputTokens: env.usage.outputTokens } : {}),
+              ...(env.usage.cacheReadTokens !== undefined ? { cacheReadTokens: env.usage.cacheReadTokens } : {}),
+              ...(env.usage.cacheCreationTokens !== undefined
+                ? { cacheCreationTokens: env.usage.cacheCreationTokens }
+                : {}),
+              // Live/per-turn snapshot from the LAST assistant turn — true current context-window
+              // occupancy, distinct from the cumulative `*Tokens` above. Absent on codex/copilot and
+              // on spawns where no assistant event carried usage.
+              ...(env.liveUsage.inputTokens !== undefined ? { liveInputTokens: env.liveUsage.inputTokens } : {}),
+              ...(env.liveUsage.cacheReadTokens !== undefined
+                ? { liveCacheReadTokens: env.liveUsage.cacheReadTokens }
+                : {}),
+              ...(env.liveUsage.cacheCreationTokens !== undefined
+                ? { liveCacheCreationTokens: env.liveUsage.cacheCreationTokens }
+                : {}),
+            });
+          },
+          providerName: 'claude-provider',
+          providerSlug: 'claude',
+          eventBus: deps.eventBus,
+          ...(deps.idleMs !== undefined ? { idleMs: deps.idleMs } : {}),
+        });
+      },
+    }),
   });
 };
