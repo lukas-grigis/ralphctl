@@ -1,13 +1,16 @@
+import { promises as fs } from 'node:fs';
 import { Result } from '@src/domain/result.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
-import type { AppendFile } from '@src/business/io/append-file.ts';
+import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
+import type { Sprint } from '@src/domain/entity/sprint.ts';
+import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { Attempt, AttemptWarning } from '@src/domain/entity/attempt.ts';
 import {
@@ -16,24 +19,35 @@ import {
   type JournalVerdict,
   type JournalWarning,
 } from '@src/business/sprint/render-journal-entry.ts';
+import { renderSectionHeader } from '@src/business/sprint/journal-structure.ts';
+import { renderSprintStateHeader, type SprintStateTask } from '@src/business/sprint/render-sprint-state-header.ts';
+import { parseJournalCreatedAt, regenerateJournal } from '@src/business/sprint/regenerate-journal-header.ts';
 import { dedupeLearnings } from '@src/application/flows/implement/leaves/_shared/dedupe-learnings.ts';
 import type { LearningEntry } from '@src/domain/signal.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
 /**
- * Append one task-attempt section to `<sprintDir>/progress.md` (audit-[07]).
+ * Write the just-settled task-attempt section into `<sprintDir>/progress.md` (audit-[07]) and
+ * regenerate the DERIVED sprint-state header band in place.
  *
- * Runs immediately after `settle-attempt-<taskId>` so the just-settled attempt's facts
- * (commit sha, verdict, attempt count, duration) are available on ctx without re-deriving
- * from chain.log. Reads no log files — the journal is the sole writer; the canonical state
- * lives in `tasks.json` / `execution.json` already.
+ * Runs immediately after `settle-attempt-<taskId>` so the attempt's facts (commit sha, verdict,
+ * attempt count, duration) are available on ctx without re-deriving from chain.log. Reads no log
+ * files — the canonical state lives in `tasks.json` / `execution.json` already.
  *
- * Best-effort by contract: a write failure is logged and the chain proceeds. The journal is
- * a derived artefact; blocking sprint progress to refresh it would be worse than letting
- * the next attempt's append heal the file.
+ * Write path (NOT a blind append): read the file, split the always-kept header band from the
+ * append-only attempt sections, regenerate the header band from canonical data (sprint + tasks +
+ * execution), append the new attempt section, and write the whole file atomically. The header band
+ * stays an accurate machine-derived snapshot; the attempt sections are never rewritten.
+ *
+ * FAIL-LOUD / self-healing for the section write: the per-attempt section is the NEXT attempt's
+ * memory, so a dropped write silently removes a warning/escalation the next session must honour. A
+ * failed write is retried once; if it still fails, a VISIBLE in-file gap marker is written instead so
+ * the loss is detectable, and the failure is logged at ERROR level. The chain still proceeds — the
+ * loudness is the marker + error log, not a halt.
  */
 export interface ProgressJournalLeafDeps {
-  readonly appendFile: AppendFile;
+  /** Atomic whole-file writer — the regenerated journal is written via temp+rename. */
+  readonly writeFile: WriteFile;
   readonly clock: () => IsoTimestamp;
   readonly logger: Logger;
 }
@@ -51,6 +65,12 @@ interface JournalInput {
   readonly decisions: readonly string[];
   readonly learnings: readonly LearningEntry[];
   readonly notes: readonly string[];
+  /** Canonical sprint identity + lifecycle, for the derived state header. Undefined → identity is preserved from the file. */
+  readonly sprint?: Sprint | undefined;
+  /** Branch / PR url for the derived state header. */
+  readonly execution?: SprintExecution | undefined;
+  /** Every task in the sprint — drives the per-task table, blockers, and stale lists. */
+  readonly allTasks: readonly Task[];
 }
 
 /**
@@ -166,9 +186,123 @@ const attemptDurationMs = (attempt: Attempt | undefined): number | undefined => 
   return new Date(attempt.finishedAt).getTime() - new Date(attempt.startedAt).getTime();
 };
 
+/** Project one domain task into the derived-header row shape (status + pass-count + blocker reason). */
+const projectStateTask = (task: Task): SprintStateTask => ({
+  name: task.name,
+  status: task.status,
+  // "Passes" = attempts that cleared verification (status 'verified') — the harness's own green.
+  passCount: task.attempts.filter((a) => a.status === 'verified').length,
+  attemptCount: task.attempts.length,
+  ...(task.status === 'blocked' ? { blockedReason: task.blockedReason } : {}),
+});
+
+/** Identity line `# Sprint: <name>` from an existing header band — fallback when ctx.sprint is absent. */
+const parseSprintName = (existing: string): string | undefined => /^# Sprint: (.+)$/m.exec(existing)?.[1]?.trim();
+
+/**
+ * Render the derived state header from canonical ctx data. `created` is carried forward from the
+ * existing file (stable across regenerations) and falls back to the clock for a brand-new journal;
+ * identity / status degrade gracefully when `ctx.sprint` is absent so the leaf never throws on a
+ * derived artefact.
+ */
+const buildStateHeader = (input: JournalInput, existing: string, clock: () => IsoTimestamp): string =>
+  renderSprintStateHeader({
+    sprintName: input.sprint?.name ?? parseSprintName(existing) ?? String(input.task.id),
+    sprintId: input.sprint !== undefined ? String(input.sprint.id) : String(input.task.id),
+    createdAt: (parseJournalCreatedAt(existing) ?? String(clock())) as IsoTimestamp,
+    status: input.sprint?.status ?? 'active',
+    branch: input.execution?.branch ?? null,
+    pullRequestUrl: input.execution?.pullRequestUrl !== undefined ? String(input.execution.pullRequestUrl) : null,
+    tasks: input.allTasks.map(projectStateTask),
+  });
+
+/**
+ * Render this attempt's journal section. The warning / escalation fields are projected only when they
+ * exist, so the clean-pass entry stays byte-identical to the pre-widening output (no `### Outcome
+ * detail`). The model-ladder transition rides the `escalated` / `pass-with-warning` entry EXCEPT when
+ * the exit was `malformed` — that retry bypasses the ladder, so any stamp is a stale prior climb.
+ */
+const buildAttemptSection = (input: JournalInput, totalRounds: number, clock: () => IsoTimestamp): string => {
+  const attempt = latestAttempt(input.task);
+  const verdict = deriveVerdict(input.task, attempt);
+  const warning = attempt?.warning !== undefined ? toJournalWarning(attempt.warning) : undefined;
+  const escalation =
+    (verdict === 'escalated' || verdict === 'pass-with-warning') && attempt?.warning?.kind !== 'malformed'
+      ? toJournalEscalation(input.task)
+      : undefined;
+  const durationMs = attemptDurationMs(attempt);
+  return renderJournalEntry({
+    taskName: input.task.name,
+    taskId: String(input.task.id),
+    attemptN: input.task.attempts.length,
+    verdict,
+    outcome: renderOutcomeParagraph(input.task, attempt),
+    roundN: input.roundN,
+    totalRounds,
+    ...(durationMs !== undefined ? { durationMs } : {}),
+    ...(warning !== undefined ? { warning } : {}),
+    ...(escalation !== undefined ? { escalation } : {}),
+    changes: input.changes,
+    decisions: input.decisions,
+    learnings: input.learnings,
+    notes: input.notes,
+    ...(attempt?.commitSha !== undefined ? { commitSha: String(attempt.commitSha) } : {}),
+    timestamp: clock(),
+  });
+};
+
+/** Best-effort read of the current journal file — absent / unreadable resolves to the empty string. */
+const readExisting = async (path: AbsolutePath): Promise<string> => {
+  try {
+    return await fs.readFile(String(path), 'utf8');
+  } catch {
+    return '';
+  }
+};
+
+/**
+ * Write the regenerated journal, FAIL-LOUD for the section: retry once on failure (self-heal), then
+ * fall back to a visible in-file gap marker so the dropped section is detectable, logging at ERROR
+ * level. Never halts the chain — the journal is a derived artefact, but the loss is now loud.
+ */
+const writeJournalFailLoud = async (
+  deps: ProgressJournalLeafDeps,
+  taskId: TaskId,
+  progressFile: AbsolutePath,
+  content: string,
+  markerContent: string
+): Promise<void> => {
+  const log = deps.logger.named('implement.progress-journal');
+  const first = await deps.writeFile(progressFile, content);
+  if (first.ok) return;
+
+  const retry = await deps.writeFile(progressFile, content);
+  if (retry.ok) {
+    log.warn(`progress-journal-${String(taskId)} section write failed once, self-healed on retry`, {
+      path: String(progressFile),
+      error: first.error.message,
+    });
+    return;
+  }
+
+  const marker = await deps.writeFile(progressFile, markerContent);
+  if (marker.ok) {
+    log.error(`progress-journal-${String(taskId)} section write failed — wrote a visible gap marker instead`, {
+      path: String(progressFile),
+      error: retry.error.message,
+    });
+    return;
+  }
+  log.error(`progress-journal-${String(taskId)} section write failed and the gap marker could not be written`, {
+    path: String(progressFile),
+    error: marker.error.message,
+  });
+};
+
 /**
  * Factory — `progress-journal-<taskId>`. Reads ctx.tasks to find the just-settled task by id
- * (settle-attempt clears `currentTask` so we look up by the captured taskId), then appends.
+ * (settle-attempt clears `currentTask` so we look up by the captured taskId), regenerates the
+ * derived header from canonical ctx state, appends the attempt section, and writes atomically.
  */
 export const progressJournalLeaf = (
   deps: ProgressJournalLeafDeps,
@@ -178,49 +312,27 @@ export const progressJournalLeaf = (
   leaf<ImplementCtx, JournalInput, void>(`progress-journal-${String(taskId)}`, {
     useCase: {
       execute: async (input) => {
-        const attempt = latestAttempt(input.task);
-        const verdict = deriveVerdict(input.task, attempt);
-        // The warning / escalation fields are projected only when they exist, so the clean-pass
-        // entry stays byte-identical to the pre-widening output (no `### Outcome detail`).
-        const warning = attempt?.warning !== undefined ? toJournalWarning(attempt.warning) : undefined;
-        // Surface the model-ladder transition on the failing-then-retrying (`escalated`) entry and
-        // on a `pass-with-warning` whose prior climb is still stamped on the task — EXCEPT when
-        // this attempt's exit was `malformed`: that retry bypasses the ladder by design, so any
-        // stamp on the task is a stale prior climb, not this attempt's remedy.
-        const escalation =
-          (verdict === 'escalated' || verdict === 'pass-with-warning') && attempt?.warning?.kind !== 'malformed'
-            ? toJournalEscalation(input.task)
-            : undefined;
-        const text = renderJournalEntry({
-          taskName: input.task.name,
-          attemptN: input.task.attempts.length,
-          verdict,
-          outcome: renderOutcomeParagraph(input.task, attempt),
-          roundN: input.roundN,
-          totalRounds: opts.totalRounds,
-          ...(attemptDurationMs(attempt) !== undefined ? { durationMs: attemptDurationMs(attempt)! } : {}),
-          ...(warning !== undefined ? { warning } : {}),
-          ...(escalation !== undefined ? { escalation } : {}),
-          changes: input.changes,
-          decisions: input.decisions,
-          learnings: input.learnings,
-          notes: input.notes,
-          ...(attempt?.commitSha !== undefined ? { commitSha: String(attempt.commitSha) } : {}),
-          timestamp: deps.clock(),
-        });
-        const result = await deps.appendFile(input.progressFile, text);
-        if (!result.ok) {
-          deps.logger.named('implement.progress-journal').warn(`progress-journal-${String(taskId)} append failed`, {
-            path: String(input.progressFile),
-            error: result.error.message,
-          });
-        }
-        // Best-effort: never halt the chain on a journal-write hiccup.
+        const newSection = buildAttemptSection(input, opts.totalRounds, deps.clock);
+
+        // Regenerate the always-kept header band from canonical state, then append this attempt
+        // section. The existing file's append-only sections ride through verbatim.
+        const existing = await readExisting(input.progressFile);
+        const stateHeader = buildStateHeader(input, existing, deps.clock);
+        const content = regenerateJournal({ existing, stateHeader, newSection });
+
+        // Fallback payload if the section write keeps failing: a forgery-safe section header (so the
+        // delimiter + id token still parse for the next attempt) with a visible gap marker body.
+        const markerSection = `\n${renderSectionHeader(input.task.name, input.task.attempts.length, String(input.task.id))}\n\n_section for the latest attempt is missing — see signals.json / git log_\n`;
+        const markerContent = regenerateJournal({ existing, stateHeader, newSection: markerSection });
+
+        await writeJournalFailLoud(deps, taskId, input.progressFile, content, markerContent);
+        // The journal is a derived artefact — never halt the chain; fail-loud surfaced any loss.
         return Result.ok(undefined) as Result<void, StorageError | InvalidStateError>;
       },
     },
     input: (ctx) => {
-      const task = (ctx.tasks ?? []).find((t) => t.id === taskId);
+      const allTasks = ctx.tasks ?? [];
+      const task = allTasks.find((t) => t.id === taskId);
       if (task === undefined) {
         throw new InvalidStateError({
           entity: 'chain',
@@ -238,6 +350,9 @@ export const progressJournalLeaf = (
         decisions: dedupeTexts(ctx.currentAttemptDecisions),
         learnings: dedupeLearnings(ctx.currentAttemptLearnings ?? []),
         notes: dedupeTexts(ctx.currentAttemptNotes),
+        sprint: ctx.sprint,
+        execution: ctx.execution,
+        allTasks,
       };
     },
     // settle-attempt clears its own per-attempt fields but leaves the signal accumulators for

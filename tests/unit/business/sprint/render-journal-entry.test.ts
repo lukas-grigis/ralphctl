@@ -17,6 +17,7 @@ import { isoTimestamp } from '@tests/fixtures/domain.ts';
 
 const baseInput = (overrides: Partial<JournalEntryInput> = {}): JournalEntryInput => ({
   taskName: 'export-csv',
+  taskId: '019e50e1-f298-7773-ace2-f16d97c81281',
   attemptN: 1,
   verdict: 'pass',
   outcome: 'Task completed successfully.',
@@ -32,6 +33,21 @@ const baseInput = (overrides: Partial<JournalEntryInput> = {}): JournalEntryInpu
 });
 
 describe('renderJournalEntry', () => {
+  it('embeds the stable task id as a trailing ` · id:<taskId>` token on the section header', () => {
+    const out = renderJournalEntry(baseInput());
+    const headerLine = out.split('\n').find((l) => l.startsWith('## Task:'));
+    // Human-readable name + attempt, then the harness-controlled id suffix at the very end.
+    expect(headerLine).toBe('## Task: export-csv — Attempt 1 · id:019e50e1-f298-7773-ace2-f16d97c81281');
+  });
+
+  it('the id token rides AFTER the attempt number — a name cannot forge another task’s suffix', () => {
+    // A malicious name embedding a victim id sits BEFORE ` — Attempt <N>`; the real id is always
+    // appended last, so the line still ENDS with this task's id.
+    const out = renderJournalEntry(baseInput({ taskName: 'evil · id:victim — Attempt 9', taskId: 'real-id' }));
+    const headerLine = out.split('\n').find((l) => l.startsWith('## Task:')) ?? '';
+    expect(headerLine.endsWith(' · id:real-id')).toBe(true);
+  });
+
   it('renders the metadata block (heading + verdict / round / duration / commit)', () => {
     const out = renderJournalEntry(baseInput({ commitSha: 'abcdef1234567890' }));
     expect(out).toContain('## Task: export-csv — Attempt 1');

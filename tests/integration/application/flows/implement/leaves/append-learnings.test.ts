@@ -212,7 +212,7 @@ describe('appendLearningsLeaf', () => {
     // reads the SAME accumulator to render its `### Learnings` subsection and clears it. If the
     // append leaf cleared the accumulator, the journal would lose the subsection.
     const append = recordingAppendFile();
-    const journalAppend = recordingAppendFile();
+    const journalWrite = recordingWriteFile();
     const task = makeDoneTask({ name: 'add caching' });
 
     const appendLeaf = appendLearningsLeaf(
@@ -227,7 +227,7 @@ describe('appendLearningsLeaf', () => {
       task.id
     );
     const journalLeaf = progressJournalLeaf(
-      { appendFile: journalAppend.fn, clock: () => FIXED_NOW, logger: noopLogger },
+      { writeFile: journalWrite.fn, clock: () => FIXED_NOW, logger: noopLogger },
       { progressFile: PROGRESS_FILE, totalRounds: 5 },
       task.id
     );
@@ -250,7 +250,7 @@ describe('appendLearningsLeaf', () => {
     // Journal runs next on the (still-populated) ctx and renders + clears the learnings.
     const afterJournal = await journalLeaf.execute(afterAppend.value.ctx);
     if (!afterJournal.ok) throw afterJournal.error;
-    expect(journalAppend.read(PROGRESS_FILE) ?? '').toContain('- **ordering matters here**');
+    expect(journalWrite.read(PROGRESS_FILE) ?? '').toContain('- **ordering matters here**');
     expect(afterJournal.value.ctx.currentAttemptLearnings).toBeUndefined();
   });
 

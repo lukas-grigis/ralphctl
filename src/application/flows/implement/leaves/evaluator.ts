@@ -39,10 +39,7 @@ import {
   roundSignalsPath,
   writeRoundPrompt,
 } from '@src/application/flows/implement/leaves/round-artifacts.ts';
-import {
-  capProgressBody,
-  RECENT_ATTEMPT_SECTIONS,
-} from '@src/application/flows/implement/leaves/_shared/cap-progress.ts';
+import { capProgressBody, progressCapBudgetForModel } from '@src/application/flows/_shared/progress/cap-progress.ts';
 import {
   composeGeneratorHints,
   type GeneratorHintsInput,
@@ -170,11 +167,16 @@ interface EvaluatorOutput {
  * Mirrors the generator-leaf helper so both sides of the gen-eval loop see the same journal body.
  *
  * Best-effort: a missing / unreadable file returns the empty string so the template's
- * surrounding prose handles the empty case without a per-flow special branch.
+ * surrounding prose handles the empty case without a per-flow special branch. The current task's
+ * own history is matched on its STABLE id (not its name); the sibling breadth bound scales to the
+ * configured evaluator model's context window.
  */
-const readCappedProgress = async (path: string, currentTaskName: string): Promise<string> => {
+const readCappedProgress = async (path: string, currentTaskId: string, model: string): Promise<string> => {
   try {
-    return capProgressBody(await fs.readFile(path, 'utf8'), RECENT_ATTEMPT_SECTIONS, currentTaskName);
+    return capProgressBody(await fs.readFile(path, 'utf8'), {
+      currentTaskId,
+      recentBudgetTokens: progressCapBudgetForModel(model),
+    });
   } catch {
     return '';
   }
@@ -192,7 +194,7 @@ const readCappedProgress = async (path: string, currentTaskName: string): Promis
  * prompt automatically — the discriminant is the same field `--resume` consumes.
  */
 const buildEvaluatorPrompt = async (
-  deps: Pick<EvaluatorLeafDeps, 'templateLoader' | 'cwd' | 'progressFile' | 'verifyScript'>,
+  deps: Pick<EvaluatorLeafDeps, 'templateLoader' | 'cwd' | 'progressFile' | 'verifyScript' | 'model'>,
   args: {
     readonly task: InProgressTask;
     readonly workspaceRoot: AbsolutePath;
@@ -206,7 +208,7 @@ const buildEvaluatorPrompt = async (
     readonly generatorHints: string;
   }
 ): Promise<Result<Prompt, BuildPromptError>> => {
-  const priorProgress = await readCappedProgress(String(deps.progressFile), args.task.name);
+  const priorProgress = await readCappedProgress(String(deps.progressFile), String(args.task.id), deps.model);
   const contractPath = join(String(args.workspaceRoot), 'contract.md');
   const hintsCarry = args.generatorHints.length > 0 ? { generatorHints: args.generatorHints } : {};
 

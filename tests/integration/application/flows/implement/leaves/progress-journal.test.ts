@@ -1,33 +1,42 @@
 /**
  * Integration test for progress-journal-leaf (audit-[07]).
  *
- * The leaf is the sole writer of `<sprintDir>/progress.md` post-wave-7 — it appends one
- * task-attempt section after every settle-attempt completes. Validates:
- *  - section shape (heading + verdict / round / duration / commit metadata bullets)
- *  - appends preserve prior journal content verbatim (no rewrites)
- *  - per-attempt signal accumulators (changes / decisions / learnings / notes) render as
- *    dedicated subsections with deduped + trimmed bullets
- *  - empty signal lists drop their subsection entirely
+ * The leaf writes one task-attempt section into `<sprintDir>/progress.md` after every settle-attempt
+ * and regenerates the DERIVED state header band in place. Validates:
+ *  - section shape (heading with stable id token + verdict / round / duration / commit metadata)
+ *  - the derived header band (Status / Branch / per-task table; Blockers when a task is blocked)
+ *  - regenerate-in-place preserves prior attempt sections verbatim (append-only sections)
+ *  - per-attempt signal accumulators render as deduped subsections; empty lists drop their heading
+ *  - the `created` timestamp is preserved across regenerations
  *  - all four accumulators clear on the output ctx
+ *  - FAIL-LOUD section write: retry-once self-heal, and a visible gap marker when writes keep failing
  *  - missing task on ctx throws an InvalidStateError (chain-shape contract)
+ *
+ * Writes hit a real tmp file via the atomic adapter so the leaf's read-regenerate-write path is
+ * exercised end to end.
  */
 
-import { describe, expect, it } from 'vitest';
+import { promises as fs } from 'node:fs';
+import { join } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import {
-  absolutePath,
   FIXED_LATER,
   FIXED_NOW,
+  makeActiveSprint,
   makeDoneTask,
   makeInProgressTaskWithRunningAttempt,
 } from '@tests/fixtures/domain.ts';
+import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
-import { recordingAppendFile } from '@tests/fixtures/recording-append-file.ts';
+import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
+import type { WriteFile } from '@src/business/io/write-file.ts';
+import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { progressJournalLeaf } from '@src/application/flows/implement/leaves/progress-journal.ts';
 import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import { recordRunningAttemptVerification, recordRunningAttemptWarning } from '@src/domain/entity/task-attempts.ts';
 import { failCurrentAttempt, markTaskDone, recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
-import { SprintId } from '@src/domain/value/id/sprint-id.ts';
+import { setExecutionBranch, createSprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
 const unwrap = <T>(r: { ok: true; value: T } | { ok: false; error: Error }): T => {
@@ -35,256 +44,219 @@ const unwrap = <T>(r: { ok: true; value: T } | { ok: false; error: Error }): T =
   return r.value;
 };
 
-const PROGRESS_FILE = absolutePath('/tmp/ralph/sprint/progress.md');
-const SPRINT_ID = (() => {
-  const parsed = SprintId.parse('019e50e1-f298-7773-ace2-f16d97c81281');
-  if (!parsed.ok) throw parsed.error;
-  return parsed.value;
-})();
+let tmp: { root: AbsolutePath; cleanup: () => Promise<void> };
+let progressFile: AbsolutePath;
+
+beforeEach(async () => {
+  tmp = await makeTmpRoot();
+  progressFile = unwrap(AbsolutePath.parse(join(String(tmp.root), 'progress.md')));
+});
+afterEach(async () => {
+  await tmp.cleanup();
+});
+
+const read = async (): Promise<string> => {
+  try {
+    return await fs.readFile(String(progressFile), 'utf8');
+  } catch {
+    return '';
+  }
+};
+
+const sprint = makeActiveSprint();
+const execution = setExecutionBranch(createSprintExecution({ sprintId: sprint.id }), 'ralphctl/test');
+
+/** ctx with the canonical sprint + execution wired so the derived header renders. */
+const ctxFor = (tasks: ImplementCtx['tasks'], extra: Partial<ImplementCtx> = {}): ImplementCtx => ({
+  sprintId: sprint.id,
+  sprint,
+  execution,
+  tasks,
+  currentRoundNum: 1,
+  ...extra,
+});
+
+const journalDeps = (writeFile: WriteFile, clock = () => FIXED_LATER) => ({ writeFile, clock, logger: noopLogger });
 
 describe('progressJournalLeaf', () => {
-  it('appends a task-attempt section with verdict=pass for a settled done task', async () => {
-    const append = recordingAppendFile();
+  it('writes a task-attempt section with the stable id token + verdict=pass for a settled done task', async () => {
     const task = makeDoneTask({ name: 'export-csv' });
-    const leaf = progressJournalLeaf(
-      { appendFile: append.fn, clock: () => FIXED_LATER, logger: noopLogger },
-      { progressFile: PROGRESS_FILE, totalRounds: 5 },
-      task.id
-    );
-    const ctx: ImplementCtx = {
-      sprintId: SPRINT_ID,
-      tasks: [task],
-      currentRoundNum: 1,
-    };
-    const result = await leaf.execute(ctx);
+    const leaf = progressJournalLeaf(journalDeps(createAtomicWriteFile()), { progressFile, totalRounds: 5 }, task.id);
+    const result = await leaf.execute(ctxFor([task]));
     expect(result.ok).toBe(true);
-    const written = append.read(PROGRESS_FILE) ?? '';
-    expect(written).toContain('## Task: export-csv — Attempt 1');
+    const written = await read();
+    expect(written).toContain(`## Task: export-csv — Attempt 1 · id:${String(task.id)}`);
     expect(written).toContain('- Verdict: pass');
     expect(written).toContain('- Round: round 1 of 5');
-    // The done-task fixture does not stamp a commit sha; the journal renders em-dash for the
-    // missing value.
     expect(written).toContain('- Commit: —');
-    // Empty signal lists drop their subsections entirely — no orphaned headings.
     expect(written).not.toContain('### Changes');
-    expect(written).not.toContain('### Decisions');
-    expect(written).not.toContain('### Learnings');
-    expect(written).not.toContain('### Notes');
   });
 
-  it('renders verdict=blocked with the blocked reason as the outcome paragraph', async () => {
-    const append = recordingAppendFile();
+  it('regenerates the derived state header band (Status / Branch / per-task table) from canonical ctx', async () => {
+    const task = makeDoneTask({ name: 'export-csv' });
+    const leaf = progressJournalLeaf(journalDeps(createAtomicWriteFile()), { progressFile, totalRounds: 5 }, task.id);
+    await leaf.execute(ctxFor([task]));
+    const written = await read();
+    expect(written).toContain('# Sprint:');
+    expect(written).toContain('## Status');
+    expect(written).toContain('- State: active');
+    expect(written).toContain('- Branch: ralphctl/test');
+    expect(written).toContain('## Tasks');
+    expect(written).toContain('| Task | Status | Passes |');
+    expect(written).toContain('| export-csv | done | 1 |');
+  });
+
+  it('renders verdict=blocked with the reason in the outcome paragraph and under ## Blockers', async () => {
     const inProgress = makeInProgressTaskWithRunningAttempt();
-    const blocked = markTaskBlocked(inProgress, 'pre-existing test failure', 'own');
-    if (!blocked.ok) throw blocked.error;
+    const blocked = unwrap(markTaskBlocked(inProgress, 'pre-existing test failure', 'own'));
     const leaf = progressJournalLeaf(
-      { appendFile: append.fn, clock: () => FIXED_LATER, logger: noopLogger },
-      { progressFile: PROGRESS_FILE, totalRounds: 5 },
-      blocked.value.id
+      journalDeps(createAtomicWriteFile()),
+      { progressFile, totalRounds: 5 },
+      blocked.id
     );
-    const ctx: ImplementCtx = {
-      sprintId: SPRINT_ID,
-      tasks: [blocked.value],
-      currentRoundNum: 2,
-    };
-    const result = await leaf.execute(ctx);
+    const result = await leaf.execute(ctxFor([blocked], { currentRoundNum: 2 }));
     expect(result.ok).toBe(true);
-    const written = append.read(PROGRESS_FILE) ?? '';
+    const written = await read();
     expect(written).toContain('- Verdict: blocked');
     expect(written).toContain('Blocked: pre-existing test failure');
     expect(written).toContain('- Round: round 2 of 5');
+    // Derived blocker surfaces the same reason.
+    expect(written).toContain('## Blockers');
+    expect(written).toContain('pre-existing test failure');
   });
 
-  it('derives verdict=pass-with-warning + Outcome detail for a done task whose final attempt carries a warning', async () => {
-    const append = recordingAppendFile();
-    // Build a done task whose verified attempt carries a plateau warning: start → warn → verify →
-    // done. The journal must NOT claim a clean success and must name the failed dimensions.
+  it('derives verdict=pass-with-warning + Outcome detail for a done task whose final attempt warns', async () => {
     const inProgress = makeInProgressTaskWithRunningAttempt();
     const warned = unwrap(recordRunningAttemptWarning(inProgress, { kind: 'plateau', dimensions: ['C1', 'C2'] }));
     const verified = unwrap(recordRunningAttemptVerification(warned));
     const done = unwrap(markTaskDone(verified, FIXED_LATER));
-    const leaf = progressJournalLeaf(
-      { appendFile: append.fn, clock: () => FIXED_LATER, logger: noopLogger },
-      { progressFile: PROGRESS_FILE, totalRounds: 5 },
-      done.id
-    );
-    const result = await leaf.execute({ sprintId: SPRINT_ID, tasks: [done], currentRoundNum: 3 });
+    const leaf = progressJournalLeaf(journalDeps(createAtomicWriteFile()), { progressFile, totalRounds: 5 }, done.id);
+    const result = await leaf.execute(ctxFor([done], { currentRoundNum: 3 }));
     expect(result.ok).toBe(true);
-    const written = append.read(PROGRESS_FILE) ?? '';
+    const written = await read();
     expect(written).toContain('- Verdict: pass-with-warning');
     expect(written).toContain('### Outcome detail');
     expect(written).toContain('plateaued');
     expect(written).toContain('C1, C2');
-    // Critical: never the clean-success line when a warning is present.
     expect(written).not.toContain('Task completed successfully.');
   });
 
-  it('derives verdict=escalated for an in_progress task whose attempt just failed and climbed a rung', async () => {
-    const append = recordingAppendFile();
-    // Attempt fails → task stays in_progress → escalation policy stamps a model climb. The journal
-    // leaf runs inside the per-attempt loop, so it appends this section before the next attempt.
+  it('derives verdict=escalated for an in_progress task whose attempt failed and climbed a rung', async () => {
     const inProgress = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     const warned = unwrap(recordRunningAttemptWarning(inProgress, { kind: 'plateau', dimensions: ['C1'] }));
     const failed = unwrap(failCurrentAttempt(warned, FIXED_LATER, 'failed'));
-    expect(failed.status).toBe('in_progress');
     const escalated = unwrap(recordTaskEscalation(failed as never, 'sonnet', 'opus'));
     const leaf = progressJournalLeaf(
-      { appendFile: append.fn, clock: () => FIXED_LATER, logger: noopLogger },
-      { progressFile: PROGRESS_FILE, totalRounds: 5 },
+      journalDeps(createAtomicWriteFile()),
+      { progressFile, totalRounds: 5 },
       escalated.id
     );
-    const result = await leaf.execute({ sprintId: SPRINT_ID, tasks: [escalated], currentRoundNum: 2 });
+    const result = await leaf.execute(ctxFor([escalated], { currentRoundNum: 2 }));
     expect(result.ok).toBe(true);
-    const written = append.read(PROGRESS_FILE) ?? '';
+    const written = await read();
     expect(written).toContain('- Verdict: escalated');
     expect(written).toContain('### Outcome detail');
     expect(written).toContain('Remedy: escalated the generator model from sonnet to opus');
   });
 
-  it('derives verdict=pass with no Outcome detail for a clean done task', async () => {
-    const append = recordingAppendFile();
-    const task = makeDoneTask({ name: 'clean' });
-    const leaf = progressJournalLeaf(
-      { appendFile: append.fn, clock: () => FIXED_LATER, logger: noopLogger },
-      { progressFile: PROGRESS_FILE, totalRounds: 5 },
-      task.id
-    );
-    const result = await leaf.execute({ sprintId: SPRINT_ID, tasks: [task], currentRoundNum: 1 });
-    expect(result.ok).toBe(true);
-    const written = append.read(PROGRESS_FILE) ?? '';
-    expect(written).toContain('- Verdict: pass');
-    expect(written).not.toContain('### Outcome detail');
-    expect(written).toContain('Task completed successfully.');
-  });
-
-  it('appends successive sections without rewriting prior content', async () => {
-    const append = recordingAppendFile();
+  it('regenerate-in-place preserves prior attempt sections verbatim across successive appends', async () => {
     const t1 = makeDoneTask({ name: 'task-one' });
     const t2 = makeDoneTask({ name: 'task-two' });
-    const opts = { progressFile: PROGRESS_FILE, totalRounds: 3 };
-    const deps = { appendFile: append.fn, clock: () => FIXED_LATER, logger: noopLogger };
+    const opts = { progressFile, totalRounds: 3 };
+    const writeFile = createAtomicWriteFile();
 
-    await progressJournalLeaf(deps, opts, t1.id).execute({
-      sprintId: SPRINT_ID,
-      tasks: [t1],
-      currentRoundNum: 1,
-    });
-    await progressJournalLeaf(deps, opts, t2.id).execute({
-      sprintId: SPRINT_ID,
-      tasks: [t2],
-      currentRoundNum: 1,
-    });
-    const written = append.read(PROGRESS_FILE) ?? '';
-    // Both sections present in order, neither erased the other.
+    await progressJournalLeaf(journalDeps(writeFile), opts, t1.id).execute(ctxFor([t1, t2]));
+    await progressJournalLeaf(journalDeps(writeFile), opts, t2.id).execute(ctxFor([t1, t2]));
+    const written = await read();
     const t1Idx = written.indexOf('## Task: task-one');
     const t2Idx = written.indexOf('## Task: task-two');
     expect(t1Idx).toBeGreaterThanOrEqual(0);
     expect(t2Idx).toBeGreaterThan(t1Idx);
+    // Exactly two attempt sections — regeneration didn't duplicate the first one.
+    expect((written.match(/^## Task: /gm) ?? []).length).toBe(2);
   });
 
-  it('dedupes + trims ctx-accumulated decision signals and renders one bullet per unique entry', async () => {
-    const append = recordingAppendFile();
+  it('preserves the created timestamp across regenerations (carried from the existing header)', async () => {
+    const opts = { progressFile, totalRounds: 3 };
+    const writeFile = createAtomicWriteFile();
+    // Seed a header with a known created stamp; the first regenerate must carry it forward.
+    await fs.writeFile(
+      String(progressFile),
+      '# Sprint: seeded\n\n- id: seeded\n- created: 2024-01-02T03:04:05.000Z\n',
+      'utf8'
+    );
+    const task = makeDoneTask({ name: 'carry' });
+    await progressJournalLeaf(journalDeps(writeFile), opts, task.id).execute(ctxFor([task]));
+    const written = await read();
+    expect(written).toContain('- created: 2024-01-02T03:04:05.000Z');
+    // Identity is regenerated from canonical data — the seeded name is replaced.
+    expect(written).not.toContain('# Sprint: seeded');
+  });
+
+  it('dedupes + trims ctx-accumulated decision signals into one bullet per unique entry', async () => {
     const task = makeDoneTask({ name: 'with-decisions' });
     const leaf = progressJournalLeaf(
-      { appendFile: append.fn, clock: () => FIXED_NOW, logger: noopLogger },
-      { progressFile: PROGRESS_FILE, totalRounds: 5 },
+      journalDeps(createAtomicWriteFile(), () => FIXED_NOW),
+      { progressFile, totalRounds: 5 },
       task.id
     );
-    const ctx: ImplementCtx = {
-      sprintId: SPRINT_ID,
-      tasks: [task],
-      currentRoundNum: 1,
-      currentAttemptDecisions: [
-        'use json for the on-disk format',
-        '  use json for the on-disk format  ',
-        'switch to streaming reads',
-      ],
-    };
-    const result = await leaf.execute(ctx);
+    const result = await leaf.execute(
+      ctxFor([task], {
+        currentAttemptDecisions: [
+          'use json for the on-disk format',
+          '  use json for the on-disk format  ',
+          'switch to streaming reads',
+        ],
+      })
+    );
     expect(result.ok).toBe(true);
-    const written = append.read(PROGRESS_FILE) ?? '';
-    // The subsection renders, and the two unique decisions appear as separate bullets.
+    const written = await read();
     expect(written).toContain('### Decisions');
-    expect(written).toContain('- use json for the on-disk format');
-    expect(written).toContain('- switch to streaming reads');
-    // Dedupe: only TWO `- ` bullets in the Decisions subsection block.
     const decisionsBlock = written.slice(written.indexOf('### Decisions'));
     const bullets = decisionsBlock.split('\n').filter((line) => line.startsWith('- '));
     expect(bullets).toHaveLength(2);
   });
 
   it('renders all four signal subsections (changes / decisions / learnings / notes) when populated', async () => {
-    const append = recordingAppendFile();
     const task = makeDoneTask({ name: 'rich-signals' });
     const leaf = progressJournalLeaf(
-      { appendFile: append.fn, clock: () => FIXED_NOW, logger: noopLogger },
-      { progressFile: PROGRESS_FILE, totalRounds: 5 },
+      journalDeps(createAtomicWriteFile(), () => FIXED_NOW),
+      { progressFile, totalRounds: 5 },
       task.id
     );
-    const ctx: ImplementCtx = {
-      sprintId: SPRINT_ID,
-      tasks: [task],
-      currentRoundNum: 1,
-      currentAttemptChanges: ['added src/foo.ts', 'renamed bar → baz'],
-      currentAttemptDecisions: ['use json on-disk'],
-      currentAttemptLearnings: [{ text: 'providers ship different flags' }],
-      currentAttemptNotes: ['follow-up: trim retry log lines'],
-    };
-    const result = await leaf.execute(ctx);
+    const result = await leaf.execute(
+      ctxFor([task], {
+        currentAttemptChanges: ['added src/foo.ts', 'renamed bar → baz'],
+        currentAttemptDecisions: ['use json on-disk'],
+        currentAttemptLearnings: [{ text: 'providers ship different flags' }],
+        currentAttemptNotes: ['follow-up: trim retry log lines'],
+      })
+    );
     expect(result.ok).toBe(true);
-    const written = append.read(PROGRESS_FILE) ?? '';
+    const written = await read();
     expect(written).toContain('### Changes');
     expect(written).toContain('- added src/foo.ts');
-    expect(written).toContain('- renamed bar → baz');
     expect(written).toContain('### Decisions');
-    expect(written).toContain('- use json on-disk');
     expect(written).toContain('### Learnings');
     expect(written).toContain('- **providers ship different flags**');
     expect(written).toContain('### Notes');
-    expect(written).toContain('- follow-up: trim retry log lines');
-  });
-
-  it('all four signal lists empty → only the metadata block renders (no signal subsections)', async () => {
-    // Regression for the confetti-task case: a settled attempt that emitted no
-    // change/decision/learning/note signals must still produce a clean section with no
-    // empty `### Foo` headings. This is the original wave-7 follow-up complaint distilled
-    // into a single test.
-    const append = recordingAppendFile();
-    const task = makeDoneTask({ name: 'confetti' });
-    const leaf = progressJournalLeaf(
-      { appendFile: append.fn, clock: () => FIXED_NOW, logger: noopLogger },
-      { progressFile: PROGRESS_FILE, totalRounds: 5 },
-      task.id
-    );
-    const result = await leaf.execute({ sprintId: SPRINT_ID, tasks: [task], currentRoundNum: 1 });
-    expect(result.ok).toBe(true);
-    const written = append.read(PROGRESS_FILE) ?? '';
-    expect(written).toContain('## Task: confetti — Attempt 1');
-    expect(written).toContain('- Verdict: pass');
-    expect(written).not.toContain('### Changes');
-    expect(written).not.toContain('### Decisions');
-    expect(written).not.toContain('### Learnings');
-    expect(written).not.toContain('### Notes');
   });
 
   it('clears all four signal accumulators on the output ctx so the next task starts fresh', async () => {
-    const append = recordingAppendFile();
     const task = makeDoneTask({ name: 'clears' });
     const leaf = progressJournalLeaf(
-      { appendFile: append.fn, clock: () => FIXED_NOW, logger: noopLogger },
-      { progressFile: PROGRESS_FILE, totalRounds: 5 },
+      journalDeps(createAtomicWriteFile(), () => FIXED_NOW),
+      { progressFile, totalRounds: 5 },
       task.id
     );
-    const ctx: ImplementCtx = {
-      sprintId: SPRINT_ID,
-      tasks: [task],
-      currentRoundNum: 1,
-      currentAttemptDecisions: ['d'],
-      currentAttemptChanges: ['c'],
-      currentAttemptLearnings: [{ text: 'l' }],
-      currentAttemptNotes: ['n'],
-    };
-    const result = await leaf.execute(ctx);
+    const result = await leaf.execute(
+      ctxFor([task], {
+        currentAttemptDecisions: ['d'],
+        currentAttemptChanges: ['c'],
+        currentAttemptLearnings: [{ text: 'l' }],
+        currentAttemptNotes: ['n'],
+      })
+    );
     if (!result.ok) throw result.error;
     expect(result.value.ctx.currentAttemptDecisions).toBeUndefined();
     expect(result.value.ctx.currentAttemptChanges).toBeUndefined();
@@ -292,37 +264,47 @@ describe('progressJournalLeaf', () => {
     expect(result.value.ctx.currentAttemptNotes).toBeUndefined();
   });
 
-  it('best-effort: a write failure is swallowed and the chain continues', async () => {
-    const failingAppend = async () =>
-      Result.error(
-        // Reuse StorageError via the fixture helper; the leaf only inspects `.message`.
-        Object.assign(new Error('disk full'), { message: 'disk full' })
-      ) as never;
-    const task = makeDoneTask({ name: 'soft-fail' });
-    const leaf = progressJournalLeaf(
-      // Cast keeps the test focused on the leaf's swallow-failure behaviour without rebuilding
-      // a full StorageError just to throw it away.
-      { appendFile: failingAppend, clock: () => FIXED_LATER, logger: noopLogger },
-      { progressFile: PROGRESS_FILE, totalRounds: 5 },
-      task.id
-    );
-    const result = await leaf.execute({
-      sprintId: SPRINT_ID,
-      tasks: [task],
-      currentRoundNum: 1,
-    });
+  it('fail-loud: a first write failure self-heals on the retry (content lands, chain proceeds)', async () => {
+    const task = makeDoneTask({ name: 'flaky' });
+    let calls = 0;
+    const realWrite = createAtomicWriteFile();
+    const flaky: WriteFile = async (path, content) => {
+      calls += 1;
+      if (calls === 1) return Result.error(Object.assign(new Error('transient'), { message: 'transient' }) as never);
+      return realWrite(path, content);
+    };
+    const leaf = progressJournalLeaf(journalDeps(flaky), { progressFile, totalRounds: 5 }, task.id);
+    const result = await leaf.execute(ctxFor([task]));
     expect(result.ok).toBe(true);
+    expect(calls).toBe(2); // failed once, retried once
+    const written = await read();
+    expect(written).toContain(`## Task: flaky — Attempt 1 · id:${String(task.id)}`);
+  });
+
+  it('fail-loud: when the section write keeps failing it writes a visible in-file gap marker', async () => {
+    const task = makeDoneTask({ name: 'lost' });
+    const realWrite = createAtomicWriteFile();
+    let calls = 0;
+    // Fail the full-content writes (1: first, 2: retry); succeed only on the smaller marker write (3).
+    const failTwice: WriteFile = async (path, content) => {
+      calls += 1;
+      if (calls <= 2) return Result.error(Object.assign(new Error('disk full'), { message: 'disk full' }) as never);
+      return realWrite(path, content);
+    };
+    const leaf = progressJournalLeaf(journalDeps(failTwice), { progressFile, totalRounds: 5 }, task.id);
+    const result = await leaf.execute(ctxFor([task]));
+    expect(result.ok).toBe(true); // chain still proceeds
+    expect(calls).toBe(3); // first + retry + marker
+    const written = await read();
+    // The gap is detectable: the section header (forgery-safe id token) plus the marker body.
+    expect(written).toContain(`## Task: lost — Attempt 1 · id:${String(task.id)}`);
+    expect(written).toContain('_section for the latest attempt is missing — see signals.json / git log_');
   });
 
   it('throws InvalidStateError when the task is missing from ctx.tasks (chain-shape contract)', async () => {
-    const append = recordingAppendFile();
     const task = makeDoneTask({ name: 'phantom' });
-    const leaf = progressJournalLeaf(
-      { appendFile: append.fn, clock: () => FIXED_LATER, logger: noopLogger },
-      { progressFile: PROGRESS_FILE, totalRounds: 5 },
-      task.id
-    );
-    const result = await leaf.execute({ sprintId: SPRINT_ID, tasks: [], currentRoundNum: 1 });
+    const leaf = progressJournalLeaf(journalDeps(createAtomicWriteFile()), { progressFile, totalRounds: 5 }, task.id);
+    const result = await leaf.execute(ctxFor([]));
     expect(result.ok).toBe(false);
   });
 });

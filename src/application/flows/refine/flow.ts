@@ -16,6 +16,7 @@ import type { RefineDeps } from '@src/application/flows/refine/deps.ts';
 import { fetchIssueContextLeaf } from '@src/application/flows/refine/leaves/fetch-issue-context.ts';
 import { refineTicketInteractiveLeaf } from '@src/application/flows/refine/leaves/refine-ticket-interactive.ts';
 import { buildRefinePrompt } from '@src/integration/ai/prompts/refine/definition.ts';
+import { capProgressBody, progressCapBudgetForModel } from '@src/application/flows/_shared/progress/cap-progress.ts';
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
 import { refineOutputContract } from '@src/application/flows/refine/leaves/refine.contract.ts';
 import { installSkillsLeaf } from '@src/application/flows/_shared/skills/install-skills.ts';
@@ -65,15 +66,18 @@ export interface CreateRefineFlowOpts {
  * after the session exits.
  */
 /**
- * Read `<sprintDir>/progress.md` for the inline `## Prior progress` section (audit-[07]).
- * Refinement runs under `<sprintDir>/refinement/<ticket-slug>/`, so the sprint dir is the
- * parent of the supplied refinement root. Best-effort: a missing or unreadable file degrades
- * to the empty string.
+ * Read `<sprintDir>/progress.md` for the inline `## Prior progress` section (audit-[07]), CAPPED to
+ * the same token budget the implement gen-eval loop uses so a long sprint's journal doesn't blow up
+ * the refine-prompt token cost. No "current task" in refine, so only the recent-siblings bound
+ * applies; short journals pass through unchanged. Refinement runs under
+ * `<sprintDir>/refinement/<ticket-slug>/`, so the sprint dir is the parent of the supplied
+ * refinement root. Best-effort: a missing or unreadable file degrades to the empty string.
  */
-const readSprintProgress = async (refinementRoot: AbsolutePath): Promise<string> => {
+const readSprintProgress = async (refinementRoot: AbsolutePath, model: string): Promise<string> => {
   const sprintDir = dirname(String(refinementRoot));
   try {
-    return await fs.readFile(join(sprintDir, 'progress.md'), 'utf8');
+    const raw = await fs.readFile(join(sprintDir, 'progress.md'), 'utf8');
+    return capProgressBody(raw, { recentBudgetTokens: progressCapBudgetForModel(model) });
   } catch {
     return '';
   }
@@ -128,7 +132,7 @@ export const createRefineFlow = (deps: RefineDeps, opts: CreateRefineFlowOpts): 
           },
           buildPrompt: async (ctx) => {
             if (ctx.currentUnitRoot === undefined) throw new Error('currentUnitRoot missing');
-            const priorProgress = await readSprintProgress(opts.refinementRoot);
+            const priorProgress = await readSprintProgress(opts.refinementRoot, opts.model);
             return buildRefinePrompt(deps.templateLoader, {
               ticket,
               outputContractSection: renderContractSectionFor(refineOutputContract, ctx.currentUnitRoot),

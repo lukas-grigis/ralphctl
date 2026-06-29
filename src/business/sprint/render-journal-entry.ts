@@ -1,5 +1,7 @@
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { LearningEntry } from '@src/domain/signal.ts';
+import { neutralizeProseHeadings } from '@src/business/sprint/journal-sanitize.ts';
+import { renderSectionHeader } from '@src/business/sprint/journal-structure.ts';
 
 /**
  * Verdict the journal records for a settled task-attempt. Widened beyond the original
@@ -57,7 +59,7 @@ export interface JournalEscalation {
  * glance; below it, one subsection per non-empty signal kind surfaces the actual signal text.
  * Empty subsections are dropped entirely (no heading-with-no-bullets):
  *
- *   ## Task: <task name> — Attempt <N>
+ *   ## Task: <task name> — Attempt <N> · id:<task id>
  *
  *   _<iso timestamp>_
  *
@@ -91,6 +93,12 @@ export interface JournalEscalation {
  */
 export interface JournalEntryInput {
   readonly taskName: string;
+  /**
+   * Stable task id, embedded in the section header as ` · id:<taskId>`. The cap matches the
+   * "current task" depth guarantee on THIS id, not the name — so identical task names can't
+   * collide and a mid-sprint rename can't orphan a task's earlier sections.
+   */
+  readonly taskId: string;
   readonly attemptN: number;
   readonly verdict: JournalVerdict;
   /** Free-text reason or short prose paragraph. */
@@ -148,29 +156,6 @@ const formatDuration = (ms: number | undefined): string => {
 };
 
 const SHA_DISPLAY_LENGTH = 7;
-
-/**
- * Collapse newlines / control characters in a single-line slot (the section-header task name).
- * The `## Task: <name> — Attempt <N>` line is the STRUCTURAL delimiter `capProgressBody` splits
- * and attributes on — a newline-bearing name would let AI- or planner-authored text fabricate or
- * break section boundaries, defeating the depth guarantee for the task's own history.
- */
-const sanitizeInline = (text: string): string => text.replace(/[\r\n\t\v\f]+/g, ' ').trim();
-
-/**
- * Neutralize AI-controlled prose so no line can start a Markdown heading at column 0. The
- * journal's `## Task:` lines are load-bearing structure (cap-progress's section delimiter, the
- * next generator's cross-attempt memory) — a critique or signal body quoting
- * `## Task: other — Attempt 1` verbatim would otherwise FORGE a section boundary, fabricating a
- * verdict for later prompts and splitting the real section so its tail gets mis-attributed and
- * elided. Heading-shaped lines are indented two spaces, which renders fine as prose and makes a
- * structural match at `^##` impossible.
- */
-const neutralizeProseHeadings = (text: string): string =>
-  text
-    .split('\n')
-    .map((line) => (line.startsWith('#') ? `  ${line}` : line))
-    .join('\n');
 
 /**
  * Append a `### <heading>` subsection with one bullet per entry. No-op when the list is empty
@@ -296,7 +281,7 @@ export const renderJournalEntry = (input: JournalEntryInput): string => {
     input.outcome.trim().length > 0 ? neutralizeProseHeadings(input.outcome.trim()) : '_(no outcome paragraph)_';
   const lines: string[] = [];
   lines.push('');
-  lines.push(`## Task: ${sanitizeInline(input.taskName)} — Attempt ${String(input.attemptN)}`);
+  lines.push(renderSectionHeader(input.taskName, input.attemptN, input.taskId));
   lines.push('');
   lines.push(`_${String(input.timestamp)}_`);
   lines.push('');
