@@ -24,9 +24,10 @@ only after every declared step is done and every verification command passes.
 - Every declared implementation step has been executed in the stated order.
 - Every `auto` verification criterion's command exits 0 (or, when no `auto` criteria are defined,
   the project's own check commands pass).
-- `task-verified` has been emitted with the verbatim command output.
+- `task-verified` has been emitted with the verbatim command output and, when a run-path was
+  exercised in step 3, the direct end-to-end observation.
 - `commit-message` has been emitted with a subject and a WHY-focused body — except for a pure
-  investigation task that wrote no files, where the signal may be omitted (see Phase 3 step 4).
+  investigation task that wrote no files, where the signal may be omitted (see Phase 3 step 5).
 - `task-complete` has been emitted.
 - No test has been removed or disabled to achieve a passing verify run.
 - No file outside the declared implementation steps has been modified — except for the project's
@@ -206,14 +207,39 @@ In order:
    confirm no regressions before signalling completion. When no verify script is configured either,
    run the project's own check commands (as found during Phase 1 reconnaissance) before signalling
    completion.
-3. **Record verification results** — emit `task-verified` with the verbatim commands and their
-   combined stdout/stderr output in the `output` field.
-4. **Propose the commit message** — emit `commit-message` with a real subject and a body explaining
+3. **End-to-end exercise — required when a run-path exists.** Before recording verification
+   results, check `<project_tooling>` for a way to start or invoke the product: a dev-server
+   start command, application entry point, CLI invocation, or end-to-end / smoke suite. Consult
+   `.claude/` when that directory exists for additional run instructions. When a run-path is
+   present, start the product and exercise the changed behaviour AS A USER:
+
+   - **Web app or UI**: start the dev server, navigate to the changed path, and confirm the
+     behaviour from the user's perspective.
+   - **CLI tool**: invoke the affected command with representative input and observe the output
+     directly.
+   - **Service or API**: call the affected endpoint and inspect the response.
+   - **E2E or smoke suite**: run it and confirm it reaches and passes the changed behaviour path.
+
+   Record the invocation command(s) and your direct observation — what you actually saw, not what
+   you expected — in the `output` field of your `task-verified` signal alongside the step 2 output.
+
+   When `<project_tooling>` carries no runnable-product capability — a library, a pure type or
+   schema package, or only static analysis tooling listed — skip this step and state the reason in
+   one sentence in `task-verified` so the evaluator does not treat the absence as an oversight.
+
+   If starting the product fails due to an environment failure (missing dependency, port
+   unavailable, runtime not found), emit `task-blocked` with the failure details — do not skip
+   silently. A deliberate skip (no run-path declared) does not warrant `task-blocked`.
+
+4. **Record verification results** — emit `task-verified` with the verbatim commands and their
+   combined stdout/stderr output from step 2, plus the end-to-end observation from step 3 when
+   it ran, all in the `output` field.
+5. **Propose the commit message** — emit `commit-message` with a real subject and a body explaining
    WHY the change exists, what alternatives you weighed, and any follow-ups a reviewer should know.
    The harness commits after this turn using your wording verbatim. The fallback when you omit the
    signal is just the task name and description paragraph — thin context. Emit it on every task that
    touched any file. Omit only when the task was a pure investigation that wrote nothing.
-5. **Signal completion** — emit `task-complete` ONLY after all the above steps pass.
+6. **Signal completion** — emit `task-complete` ONLY after all the above steps pass.
 
 ## Failure modes
 

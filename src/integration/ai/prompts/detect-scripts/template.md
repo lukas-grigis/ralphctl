@@ -21,6 +21,10 @@ module — so the harness can scope verification to the part of the tree a task 
 - If no evidence exists for a script class, that signal is absent rather than fabricated.
 - Per-module verify gates appear only when the repository has distinct module roots — a
   single-module repository proposes the verify script alone and no gates.
+- When the project's documented contract names a command for starting the product in a running
+  state (a dev-server start script, application entry point, or end-to-end / smoke suite), a
+  `note` signal describes it: the exact invocation, what it starts, and any declared port or
+  environment prerequisite.
 
 </success_criteria>
 
@@ -244,6 +248,12 @@ Before writing any output, cover, in order:
 3. The shape of the repo: single-stack, single-language monorepo, or polyglot monorepo. For
    polyglot layouts, name each sub-tree's path and toolchain.
 4. The candidate setup / verify commands, each with the file that documents it.
+5. The candidate run command — the command that starts the product in a running state for
+   interactive or end-to-end use (for example, a dev-server start script, an application
+   entry point, or an integration / smoke test runner). A run command is distinct from the
+   verify script: the verify script confirms correctness after a change; a run command starts
+   the live product so it can be exercised as a real user would. List the command and the file
+   that documents it.
 
 Only `signals.json` is read by the harness; all other session output is forensic and not persisted as data.
 
@@ -256,6 +266,11 @@ For each candidate command, confirm the file that documents it. When a context f
 both name the same command, the context file wins (it's deliberate author intent). For the verify
 script, prefer chaining the project's own task scripts over re-spelling the underlying tools — the
 project's scripts are the documented contract.
+
+When a run command was found in Phase 1 step 5, document it in a `note` signal: include the exact
+invocation, what it starts (dev server at which port, CLI binary, or e2e suite), and any
+environment prerequisite the project's own files declare. Omit the note when the project's files
+name no run command — do not fabricate one from inference.
 
 ### Phase 3 — Output
 

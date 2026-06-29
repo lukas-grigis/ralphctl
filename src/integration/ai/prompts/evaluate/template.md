@@ -208,16 +208,31 @@ observation — file path, line number, function name, tool output, or quoted sn
 1. Read the changed files in full — understand the implementation, not just the diff.
 2. Read surrounding code — check whether the change follows existing patterns. Cite a specific sibling file
    or function when the comparison matters.
-3. Run extended verification when cheap and deterministic:
-   - UI / frontend tasks — when no `auto` criterion already exercises the changed UI, run targeted test
-     scenarios against it (console errors, layout, interactive behaviour) when a test runner or browser
-     capability is available. Skip when an `auto` criterion covers the same surface — running it again
-     would duplicate work already done in Phase 1.
-   - API tasks — make a targeted request to the endpoint when a local server is running.
+3. Run end-to-end verification against the running product when a capability is declared. Check
+   `<project_tooling>` for a run-path — a dev-server start command, application entry point, CLI
+   invocation, or end-to-end / smoke suite. Note that `<project_tooling>` and any generator-provided
+   hints give you CONTEXT about where to look — they are never a substitute for your own direct
+   observation; the information they carry is unverified until you exercise the path yourself.
+
+   **When a run-path is declared in `<project_tooling>`**, you MUST exercise the changed behaviour
+   directly before settling your verdict:
+   - **Web app or UI**: start the server, navigate to the changed path, and record what you
+     observed. Skip when an `auto` criterion in Phase 1 already covered the same path.
+   - **CLI tool**: invoke the affected command with representative input and record the exact
+     output.
+   - **Service or API**: call the affected endpoint when a local server is running; inspect and
+     record the response.
+   - **E2E or smoke suite**: run it when declared in `<project_tooling>` and confirm it reaches
+     the changed behaviour path.
+     Cite the run command and verbatim observation as evidence in the Correctness dimension finding.
+     Absence of a run observation when a run-path was declared is a Completeness failure.
+
+   **When `<project_tooling>` carries no runnable-product capability** (a library, a pure type or
+   schema package, or only static analysis tooling listed):
    - Library or module tasks — run the relevant test file directly when the change is small.
    - CLI tasks — run the affected command with representative input and verify the output.
-   - Skip only when the project has no runnable verification tooling or the task is purely structural (types,
-     schemas, config).
+   - Structural tasks (types, schemas, config only) — skip; Phase 1 and Phase 2 checks are
+     sufficient evidence.
 
 ### Phase 4 — Dimension assessment
 
