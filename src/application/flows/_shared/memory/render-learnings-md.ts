@@ -1,4 +1,4 @@
-import type { LearningRecord } from '@src/application/flows/_shared/memory/learning-record.ts';
+import { type LearningRecord, isDecision } from '@src/application/flows/_shared/memory/learning-record.ts';
 
 const PENDING_MARKER = '○ pending';
 const PROMOTED_MARKER = '● promoted';
@@ -66,7 +66,10 @@ export const renderLearningsMd = (records: readonly LearningRecord[]): string =>
 
 /** Render one record as a markdown bullet block: marker + insight, then context / applies-to / when. */
 const renderRecord = (record: LearningRecord): readonly string[] => {
-  const marker = record.promotedAt === null ? PENDING_MARKER : PROMOTED_MARKER;
+  const status = record.promotedAt === null ? PENDING_MARKER : PROMOTED_MARKER;
+  // Decisions share the file with learnings — tag them so a human reading the mirror can tell a
+  // deliberate architectural choice from an earned observation. Learnings render byte-unchanged.
+  const marker = isDecision(record) ? `${status} · decision` : status;
   const out: string[] = [`- **${marker}** ${oneLine(record.text)}`];
   if (record.context !== undefined && record.context.trim().length > 0) {
     out.push(`  - _Context:_ ${oneLine(record.context)}`);

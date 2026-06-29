@@ -1,5 +1,14 @@
-import type { LearningRecord } from '@src/application/flows/_shared/memory/learning-record.ts';
+import { type LearningRecord, isRetired } from '@src/application/flows/_shared/memory/learning-record.ts';
 import { LEDGER_MAX_ROWS } from '@src/application/flows/_shared/memory/read-ledger.ts';
+
+/**
+ * A record is SETTLED — a tombstone that is never evicted and always wins a dedup tie — once it has
+ * reached a terminal disposition: PROMOTED into a native context file (`promotedAt !== null`) or
+ * durably RETIRED (the operator declined it). Both must survive compaction so their suppression of a
+ * re-emitted duplicate persists: a promoted learning is already in the project's context file, and a
+ * retired one must never be re-proposed.
+ */
+const isSettled = (record: LearningRecord): boolean => record.promotedAt !== null || isRetired(record);
 
 export { LEDGER_MAX_ROWS };
 
@@ -48,14 +57,14 @@ interface Candidate {
  * Steps:
  *  1. Drop blank rows (`record === undefined`).
  *  2. Group by id and pick ONE winner per id (invariant: dedup semantics):
- *     - if any occurrence is promoted (`promotedAt !== null`), the LAST promoted wins;
- *     - otherwise the FIRST unpromoted wins.
+ *     - if any occurrence is SETTLED (promoted OR retired), the LAST settled wins;
+ *     - otherwise the FIRST unsettled wins.
  *     The winner is represented by its RAW LINE (invariant: byte-for-byte forward-compat) —
  *     compaction NEVER re-serializes a record.
- *  3. Split winners into promoted tombstones and pending rows.
+ *  3. Split winners into settled tombstones (promoted / retired) and pending rows.
  *  4. Cap pending at {@link LEDGER_MAX_PENDING_ROWS}, evicting the OLDEST by original position.
- *  5. Cap the total at {@link LEDGER_MAX_ROWS}, evicting PENDING first — promoted tombstones are
- *     NEVER evicted (invariant: promotion-suppression survives compaction).
+ *  5. Cap the total at {@link LEDGER_MAX_ROWS}, evicting PENDING first — settled tombstones are
+ *     NEVER evicted (invariant: promotion/retirement-suppression survives compaction).
  *  6. Emit survivors in their original relative order.
  *
  * @public
@@ -84,9 +93,9 @@ export const compactLedger = (rows: readonly LedgerRow[]): CompactionResult => {
   // Winners in their original relative order (by first-seen position of the WINNING row).
   const winners = [...winnerByid.values()].sort((a, b) => a.position - b.position);
 
-  // 3. Split winners into tombstones (promoted — never evicted) and pending.
-  const tombstones = winners.filter((c) => c.record.promotedAt !== null);
-  let pending = winners.filter((c) => c.record.promotedAt === null);
+  // 3. Split winners into tombstones (settled = promoted / retired — never evicted) and pending.
+  const tombstones = winners.filter((c) => isSettled(c.record));
+  let pending = winners.filter((c) => !isSettled(c.record));
 
   let evictedCount = 0;
 
@@ -98,8 +107,8 @@ export const compactLedger = (rows: readonly LedgerRow[]): CompactionResult => {
     evictedCount += overflow;
   }
 
-  // 5. Cap the total — tombstones are inviolable, so only pending can be shed here. Evict the
-  //    oldest pending until the total fits (or pending is exhausted).
+  // 5. Cap the total — settled tombstones are inviolable, so only pending can be shed here. Evict
+  //    the oldest pending until the total fits (or pending is exhausted).
   const total = tombstones.length + pending.length;
   if (total > LEDGER_MAX_ROWS) {
     const overflow = Math.min(total - LEDGER_MAX_ROWS, pending.length);
@@ -119,15 +128,16 @@ export const compactLedger = (rows: readonly LedgerRow[]): CompactionResult => {
 
 /**
  * Pick the surviving row between two same-id candidates seen in stream order (`existing` came
- * first). Promoted always beats unpromoted; between two promoted the LATER one wins; between two
- * unpromoted the EARLIER (`existing`) wins.
+ * first). A SETTLED row (promoted or retired) always beats an unsettled one; between two settled the
+ * LATER one wins (a promotion/retirement stamped later is the current disposition); between two
+ * unsettled the EARLIER (`existing`) wins.
  */
 const pickWinner = (existing: Candidate, next: Candidate): Candidate => {
-  const existingPromoted = existing.record.promotedAt !== null;
-  const nextPromoted = next.record.promotedAt !== null;
+  const existingSettled = isSettled(existing.record);
+  const nextSettled = isSettled(next.record);
 
-  if (existingPromoted && nextPromoted) return next; // last-promoted-wins
-  if (nextPromoted) return next; // promoted-wins-over-unpromoted
-  if (existingPromoted) return existing; // keep promoted over a later unpromoted
-  return existing; // first-occurrence-wins among unpromoted
+  if (existingSettled && nextSettled) return next; // last-settled-wins
+  if (nextSettled) return next; // settled-wins-over-unsettled
+  if (existingSettled) return existing; // keep settled over a later unsettled
+  return existing; // first-occurrence-wins among unsettled
 };

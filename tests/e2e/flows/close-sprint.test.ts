@@ -20,6 +20,7 @@ import { createCloseSprintFlow } from '@src/application/flows/close-sprint/flow.
 import type { CloseSprintCtx } from '@src/application/flows/close-sprint/ctx.ts';
 import type { CloseSprintDeps } from '@src/application/flows/close-sprint/deps.ts';
 import { recordingAppendFile } from '@tests/fixtures/recording-append-file.ts';
+import { recordingWriteFile } from '@tests/fixtures/recording-write-file.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
 
 const NOW = isoTimestamp('2026-05-09T10:00:00.000Z');
@@ -104,6 +105,46 @@ describe('createCloseSprintFlow', () => {
       const done: DoneSprint = final;
       expect(done.doneAt).toBe(FIXED_LATER);
     }
+  });
+
+  it('runs the always-on memory-mirror refresh immediately before the gated distill', async () => {
+    const sprint = makeReviewSprint();
+    const sprintRepo = inMemorySprintRepo(sprint);
+
+    const append = recordingAppendFile();
+    const flow = createCloseSprintFlow({
+      sprintRepo: sprintRepo.repo,
+      clock: () => FIXED_LATER,
+      logger: noopLogger,
+      appendFile: append.fn,
+      progressFile: absolutePath('/tmp/progress.md'),
+      // No ledger on disk → the refresh leaf is a no-op, but it still appears in the trace.
+      memoryMirror: {
+        writeFile: recordingWriteFile().fn,
+        memoryRoot: absolutePath('/tmp/memory'),
+        projectId: FIXED_PROJECT_ID,
+      },
+      distill: stubDistill(),
+    });
+    const runner = createRunner<CloseSprintCtx>({
+      id: 'r-close-mirror',
+      element: flow,
+      initialCtx: { sprintId: sprint.id, distillRequested: false },
+    });
+    await runner.start();
+
+    expect(runner.status).toBe('completed');
+    // Step-order fence — the always-on `refresh-memory-mirror` sits AFTER the load/assert and BEFORE
+    // the gated `distill-learnings`, which itself stays immediately before the transition.
+    expect(runner.trace.map((t) => t.elementName)).toEqual([
+      'load-sprint',
+      'assert-sprint-status',
+      'refresh-memory-mirror',
+      'distill-learnings',
+      'transition-sprint-to-done',
+      'progress-journal-close',
+    ]);
+    expect(sprintRepo.current().status).toBe('done');
   });
 
   it('refuses to close a sprint that is not in review (assert-status rejects)', async () => {

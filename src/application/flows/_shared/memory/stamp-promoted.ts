@@ -8,7 +8,7 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
-import { serializeLearningRecord } from '@src/application/flows/_shared/memory/learning-record.ts';
+import { type LearningRecord, serializeLearningRecord } from '@src/application/flows/_shared/memory/learning-record.ts';
 import { isAbortedRead } from '@src/application/flows/_shared/memory/abort-guard.ts';
 import {
   type LedgerLine,
@@ -35,7 +35,14 @@ export interface StampPromotedLeafConfig<TCtx> {
   readonly path: (ctx: TCtx) => AbsolutePath;
   /** Ids of the learnings the operator accepted — only these are stamped `promotedAt`. */
   readonly acceptedIds: (ctx: TCtx) => readonly string[];
-  /** Merge the stamp outcome (count of records stamped) into ctx. */
+  /**
+   * Ids of the learnings the operator was shown but did NOT accept — stamped `retiredAt` so they
+   * durably leave the candidate pool and are never re-proposed. Optional (a flow with no decline
+   * path omits it). A retired id wins over accepted-and-retired only as a programmer error;
+   * callers MUST pass disjoint sets (accepted = proposed ∩ confirmed, retired = proposed − confirmed).
+   */
+  readonly retiredIds?: (ctx: TCtx) => readonly string[];
+  /** Merge the stamp outcome (count of records stamped `promotedAt`) into ctx. */
   readonly output: (ctx: TCtx, stampedCount: number) => TCtx;
 }
 
@@ -53,21 +60,26 @@ export interface StampPromotedLeafConfig<TCtx> {
  * is atomic in production (write-temp + rename), so a concurrent reader never sees a half-written
  * ledger.
  *
- * Empty accepted set → CONDITIONAL: if the ledger is below the size threshold
- * ({@link statLedgerExceedsThreshold}) it stays a no-op (still `Result.ok`, no write) — the
- * operator declined every proposal and there is no growth to reclaim. But if the ledger has grown
- * past the threshold, a compaction-only pass runs and rewrites the bounded file EVEN WITH NOTHING
- * stamped, so an unattended ledger can never grow without bound.
+ * Also stamps `retiredAt` (the durable rejection state) on every id in `retiredIds` — the candidates
+ * the operator was shown but did NOT accept — so a declined learning permanently leaves the prompt
+ * candidate pool and is never re-proposed, instead of riding `{{PRIOR_LEARNINGS}}` indefinitely.
+ *
+ * Empty accepted+retired set → CONDITIONAL: if the ledger is below the size threshold
+ * ({@link statLedgerExceedsThreshold}) it stays a no-op (still `Result.ok`, no write) — there is no
+ * disposition to record and no growth to reclaim. But if the ledger has grown past the threshold, a
+ * compaction-only pass runs and rewrites the bounded file EVEN WITH NOTHING stamped, so an
+ * unattended ledger can never grow without bound.
  *
  * Absent ledger → no-op: there is nothing to stamp (the loader would already have proposed
  * nothing). Aborted read → re-propagate `AbortError` so cancellation is not swallowed. A malformed
  * line → `StorageError`: a corrupt ledger is refused rather than silently dropped through a
  * rewrite.
  *
- * Only records whose id is in `acceptedIds` AND currently `promotedAt === null` are stamped; an
- * already-promoted record (or one the operator didn't accept) is preserved unchanged, so a stamp
- * is idempotent and never back-dates a prior promotion. Non-stamped rows — including compaction
- * winners — are written from their ORIGINAL RAW LINE so unknown future fields round-trip intact.
+ * Only records whose id is in `acceptedIds`/`retiredIds` AND currently `promotedAt === null` (and,
+ * for retirement, not already retired) are stamped; an already-settled record (or one the operator
+ * neither accepted nor declined) is preserved unchanged, so a stamp is idempotent and never
+ * back-dates a prior disposition. Non-stamped rows — including compaction winners — are written from
+ * their ORIGINAL RAW LINE so unknown future fields round-trip intact.
  *
  * @public
  */
@@ -75,11 +87,19 @@ export const stampPromotedLeaf = <TCtx>(
   deps: StampPromotedLeafDeps,
   config: StampPromotedLeafConfig<TCtx>
 ): Element<TCtx> =>
-  leaf<TCtx, { readonly path: AbsolutePath; readonly acceptedIds: readonly string[] }, number>(LEAF_NAME, {
+  leaf<
+    TCtx,
+    { readonly path: AbsolutePath; readonly acceptedIds: readonly string[]; readonly retiredIds: readonly string[] },
+    number
+  >(LEAF_NAME, {
     useCase: {
-      execute: async (input, signal) => stamp(deps, input.path, input.acceptedIds, signal),
+      execute: async (input, signal) => stamp(deps, input.path, input.acceptedIds, input.retiredIds, signal),
     },
-    input: (ctx) => ({ path: config.path(ctx), acceptedIds: config.acceptedIds(ctx) }),
+    input: (ctx) => ({
+      path: config.path(ctx),
+      acceptedIds: config.acceptedIds(ctx),
+      retiredIds: config.retiredIds?.(ctx) ?? [],
+    }),
     output: (ctx, stampedCount) => config.output(ctx, stampedCount),
   });
 
@@ -87,17 +107,21 @@ const stamp = async (
   deps: StampPromotedLeafDeps,
   path: AbsolutePath,
   acceptedIds: readonly string[],
+  retiredIds: readonly string[],
   signal: AbortSignal | undefined
 ): Promise<Result<number, DomainError>> => {
   const log = deps.logger.named('memory.stamp-promoted');
 
   const accepted = new Set(acceptedIds);
+  // A declined id that is ALSO accepted (shouldn't happen — callers pass disjoint sets) defers to
+  // promotion, so subtract the accepted set defensively.
+  const retired = new Set([...retiredIds].filter((id) => !accepted.has(id)));
 
-  // CHANGED semantic: an empty accepted set is no longer an unconditional no-op. If the ledger has
-  // grown past the size threshold we still run a compaction-only pass so an unattended ledger can
-  // never grow without bound; below the threshold (the common case) it stays a cheap no-op.
-  if (accepted.size === 0 && !(await statLedgerExceedsThreshold(path))) {
-    log.info('no accepted learnings and ledger under threshold — nothing to stamp');
+  // CHANGED semantic: an empty accepted+retired set is no longer an unconditional no-op. If the
+  // ledger has grown past the size threshold we still run a compaction-only pass so an unattended
+  // ledger can never grow without bound; below the threshold (the common case) it stays a cheap no-op.
+  if (accepted.size === 0 && retired.size === 0 && !(await statLedgerExceedsThreshold(path))) {
+    log.info('no accepted/retired learnings and ledger under threshold — nothing to stamp');
     return Result.ok(0);
   }
 
@@ -123,8 +147,8 @@ const stamp = async (
     return Result.ok(0);
   }
 
-  const promotedAt = String(deps.clock());
-  const stamped = stampPass(collected, accepted, promotedAt, path);
+  const stampTime = String(deps.clock());
+  const stamped = stampPass(collected, accepted, retired, stampTime, path);
   if (!stamped.ok) return Result.error(stamped.error);
   const { rows, stampedCount } = stamped.value;
 
@@ -158,15 +182,21 @@ const stamp = async (
 };
 
 /**
- * The stamp pass over the collected ledger lines. Re-serializes ONLY accepted-and-unpromoted rows
- * (setting `promotedAt`); every other row — including blank-line drops aside — is carried through
- * by its byte-for-byte raw line. A malformed line short-circuits to a `StorageError`: a corrupt
- * ledger is refused rather than silently rewritten/compacted over.
+ * The stamp pass over the collected ledger lines. Re-serializes ONLY rows that change disposition
+ * this pass: an accepted-and-unpromoted row gets `promotedAt`, a declined-and-still-live row gets
+ * `retiredAt`. Every other row — including blank-line drops aside — is carried through by its
+ * byte-for-byte raw line. A malformed line short-circuits to a `StorageError`: a corrupt ledger is
+ * refused rather than silently rewritten/compacted over.
+ *
+ * Promotion wins over retirement for the same id (the accepted check runs first), but callers pass
+ * disjoint sets so this only matters defensively. `stampedCount` counts PROMOTIONS only (the leaf's
+ * historical contract); retirements are a side effect of the same pass.
  */
 const stampPass = (
   collected: readonly LedgerLine[],
   accepted: ReadonlySet<string>,
-  promotedAt: string,
+  retired: ReadonlySet<string>,
+  stampTime: string,
   path: AbsolutePath
 ): Result<{ rows: LedgerRow[]; stampedCount: number }, StorageError> => {
   const rows: LedgerRow[] = [];
@@ -186,9 +216,16 @@ const stampPass = (
     if (accepted.has(record.id) && record.promotedAt === null) {
       // Only a stamped row is re-serialized from the parsed (schema-projected) record. Pre-set the
       // promotedAt on BOTH raw and record so compaction sees the stamped row as a tombstone.
-      const stamped = { ...record, promotedAt };
+      const stamped = { ...record, promotedAt: stampTime };
       rows.push({ raw: serializeLearningRecord(stamped), record: stamped });
       stampedCount += 1;
+      continue;
+    }
+    if (retired.has(record.id) && record.promotedAt === null && isLive(record)) {
+      // Durable rejection: stamp `retiredAt` so the row leaves the candidate pool for good. Like a
+      // promotion it is re-serialized from the parsed record and becomes a compaction tombstone.
+      const stamped = { ...record, retiredAt: stampTime };
+      rows.push({ raw: serializeLearningRecord(stamped), record: stamped });
       continue;
     }
     // Preserve every other row BYTE-FOR-BYTE from its original line. The schema is a plain
@@ -200,6 +237,9 @@ const stampPass = (
   }
   return Result.ok({ rows, stampedCount });
 };
+
+/** Not already retired (so a second decline never re-serializes / re-dates an existing tombstone). */
+const isLive = (record: LearningRecord): boolean => record.retiredAt === undefined || record.retiredAt === null;
 
 /**
  * `readLedgerLines` strips the trailing newline off each raw line (`split('\n')`);

@@ -16,6 +16,7 @@ import { sequential } from '@src/application/chain/build/sequential.ts';
 import { guard } from '@src/application/chain/build/guard.ts';
 import { resolveWritableLearningsLedgerPath } from '@src/application/flows/_shared/memory/ledger-path.ts';
 import type { Slug } from '@src/domain/value/slug.ts';
+import { isLearning } from '@src/application/flows/_shared/memory/learning-record.ts';
 import { loadLearningsLeaf } from '@src/application/flows/_shared/memory/load-learnings.ts';
 import { stampPromotedLeaf } from '@src/application/flows/_shared/memory/stamp-promoted.ts';
 import { distillProposeLeaf } from '@src/application/flows/_shared/memory/distill-propose.ts';
@@ -184,6 +185,12 @@ export const createDistillLearningsSubChain = async (
     {
       path: () => path,
       acceptedIds: (ctx) => ctx.acceptedIds ?? [],
+      // Every candidate the operator was shown but did NOT accept is durably RETIRED so it never
+      // rides `{{PRIOR_LEARNINGS}}` again. proposed (= ctx.candidates) − accepted = declined.
+      retiredIds: (ctx) => {
+        const accepted = new Set(ctx.acceptedIds ?? []);
+        return (ctx.candidates ?? []).map((c) => c.id).filter((id) => !accepted.has(id));
+      },
       output: (ctx) => ctx,
     }
   );
@@ -191,7 +198,9 @@ export const createDistillLearningsSubChain = async (
   const body = sequential<DistillLearningsCtx>('distill-learnings', [
     loadLearningsLeaf<DistillLearningsCtx>(
       { logger: deps.logger },
-      { path: () => path, output: (ctx, candidates) => ({ ...ctx, candidates }) }
+      // The distill flow folds learnings into the provider-native context file — NEVER decisions.
+      // The shared ledger holds both kinds, so narrow the candidate set to `learning` here.
+      { path: () => path, output: (ctx, candidates) => ({ ...ctx, candidates: candidates.filter(isLearning) }) }
     ),
     // An empty / absent ledger leaves `ctx.candidates` empty. Skip the per-provider fold AND the
     // stamp in that case: the distill prompt's `CANDIDATE_LEARNINGS` placeholder requires a

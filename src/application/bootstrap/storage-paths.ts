@@ -58,9 +58,11 @@ export interface StoragePaths {
    */
   readonly runsRoot: AbsolutePath;
   /**
-   * `<dataRoot>/memory` — durable, project-scoped learning ledger. Each project keeps its
-   * append-only NDJSON at `<dataRoot>/memory/<projectId>/learnings.ndjson`. Under `dataRoot`
-   * (not `state`) because distilled learnings survive across sprints; user-managed lifecycle.
+   * `<dataRoot>/memory` — durable, project-scoped memory ledger. Each project keeps its append-only
+   * NDJSON at `<dataRoot>/memory/<projectId>/learnings.ndjson`, holding BOTH `<learning>` and
+   * `<decision>` records (discriminated by the row's `kind` tag) plus a derived, human-browsable
+   * `learnings.md` mirror. Under `dataRoot` (not `state`) because this memory survives across
+   * sprints; user-managed lifecycle.
    */
   readonly memoryRoot: AbsolutePath;
   /**

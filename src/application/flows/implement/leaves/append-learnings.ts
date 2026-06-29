@@ -12,18 +12,25 @@ import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { deriveTaskKind } from '@src/business/task/derive-task-kind.ts';
-import { deriveLearningId, type LearningRecord } from '@src/application/flows/_shared/memory/learning-record.ts';
+import {
+  deriveDecisionId,
+  deriveLearningId,
+  type LearningRecord,
+} from '@src/application/flows/_shared/memory/learning-record.ts';
 import { resolveWritableLearningsLedgerPath } from '@src/application/flows/_shared/memory/ledger-path.ts';
-import { appendLearningsAndMirror } from '@src/application/flows/_shared/memory/ledger-writer.ts';
+import { appendMemoryRecords } from '@src/application/flows/_shared/memory/ledger-writer.ts';
 import type { Slug } from '@src/domain/value/slug.ts';
 import { dedupeLearnings } from '@src/application/flows/implement/leaves/_shared/dedupe-learnings.ts';
 import type { LearningEntry } from '@src/domain/signal.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
 /**
- * WRITE side of the procedural-memory learnings pipeline. Persists the `<learning>` signals the
- * just-settled attempt produced to the project's append-only NDJSON ledger at
- * `<memoryRoot>/<projectId>/learnings.ndjson`, one line per learning.
+ * WRITE side of the procedural-memory pipeline. Persists the `<learning>` AND `<decision>` signals
+ * the just-settled attempt produced to the project's append-only NDJSON ledger at
+ * `<memoryRoot>/<projectId>/learnings.ndjson`, one line per signal. Both kinds share the file,
+ * discriminated by the record's `kind` tag — a learning rides as `kind: 'learning'` (and may carry a
+ * native-file distillation later), a decision as `kind: 'decision'` (durable cross-sprint memory that
+ * is surfaced read-only to a later generator but never auto-curated into a context file).
  *
  * ## Ordering — MUST run before `progress-journal-<taskId>`
  *
@@ -54,7 +61,12 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
  */
 export interface AppendLearningsLeafDeps {
   readonly appendFile: AppendFile;
-  /** Atomic writer for the derived `learnings.md` mirror, regenerated after every append. */
+  /**
+   * Atomic writer used ONLY by the always-on size-bounding compaction the append path runs when the
+   * ledger grows past its threshold (`appendMemoryRecords` → `boundLedgerIfNeeded`). The hot path no
+   * longer regenerates the `learnings.md` mirror — that lazy render moved off the gen-eval critical
+   * path to distill / sprint close.
+   */
   readonly writeFile: WriteFile;
   readonly clock: () => IsoTimestamp;
   readonly logger: Logger;
@@ -80,41 +92,67 @@ interface AppendLearningsInput {
 }
 
 /**
- * Build one {@link LearningRecord} per deduped learning text. The record `id` is the stable
- * `deriveLearningId(repo, taskKind, text)` so the read side dedups a re-emitted learning onto one
- * row; `promotedAt` is always `null` on write (the distill flow stamps it later).
+ * Build one {@link LearningRecord} per deduped learning AND one per deduped decision text. A
+ * learning's `id` is `deriveLearningId` (byte-identical to its pre-decision id, so a re-emitted
+ * learning still dedups onto one row); a decision's `id` is `deriveDecisionId` (distinct namespace,
+ * so an identical sentence emitted as both kinds stays two rows). `promotedAt` is always `null` on
+ * write; decisions stay `null` for life (they are never distilled).
  */
 const buildRecords = (
   deps: AppendLearningsLeafDeps,
   opts: AppendLearningsLeafOpts,
   task: Task,
   sprintId: string,
-  learnings: readonly LearningEntry[]
+  learnings: readonly LearningEntry[],
+  decisions: readonly string[]
 ): readonly LearningRecord[] => {
   const taskKind = deriveTaskKind(task);
   const repo = String(opts.repoPath);
   const timestamp = String(deps.clock());
-  return learnings.map((entry): LearningRecord => ({
+  const base = { repo, repoName: opts.repoName, taskKind, sprintId, taskId: String(task.id), timestamp };
+
+  const learningRecords = learnings.map((entry): LearningRecord => ({
     v: 1,
+    kind: 'learning',
     id: deriveLearningId(repo, taskKind, entry.text),
     text: entry.text,
     ...(entry.context !== undefined ? { context: entry.context } : {}),
     ...(entry.appliesTo !== undefined ? { appliesTo: entry.appliesTo } : {}),
-    repo,
-    repoName: opts.repoName,
-    taskKind,
-    sprintId,
-    taskId: String(task.id),
-    timestamp,
+    ...base,
     promotedAt: null,
   }));
+
+  const decisionRecords = decisions.map((text): LearningRecord => ({
+    v: 1,
+    kind: 'decision',
+    id: deriveDecisionId(repo, taskKind, text),
+    text,
+    ...base,
+    promotedAt: null,
+  }));
+
+  return [...learningRecords, ...decisionRecords];
+};
+
+/** Trim + dedupe a per-attempt decision-text accumulator (first-seen order); drops empties. */
+const dedupeDecisions = (texts: readonly string[]): readonly string[] => {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const t of texts) {
+    const trimmed = t.trim();
+    if (trimmed.length === 0 || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+  return out;
 };
 
 /**
  * Factory — `append-learnings-<taskId>`. Looks up the just-settled task by id (settle-attempt
- * clears `currentTask`), builds one {@link LearningRecord} per deduped learning, and appends them
- * to the project ledger. Inserted BEFORE `progress-journal-<taskId>` so the still-populated
- * `currentAttemptLearnings` accumulator is read before the journal clears it.
+ * clears `currentTask`), builds one {@link LearningRecord} per deduped learning AND per deduped
+ * decision, and appends them to the project ledger. Inserted BEFORE `progress-journal-<taskId>` so
+ * the still-populated `currentAttemptLearnings` / `currentAttemptDecisions` accumulators are read
+ * before the journal clears them.
  */
 export const appendLearningsLeaf = (
   deps: AppendLearningsLeafDeps,
@@ -124,7 +162,7 @@ export const appendLearningsLeaf = (
   leaf<ImplementCtx, AppendLearningsInput, void>(`append-learnings-${String(taskId)}`, {
     useCase: {
       execute: async (input) => {
-        // No learnings this attempt → nothing to append. Skip the I/O entirely.
+        // No learnings AND no decisions this attempt → nothing to append. Skip the I/O entirely.
         if (input.records.length === 0) return Result.ok(undefined) as Result<void, StorageError>;
 
         const log = deps.logger.named('implement.append-learnings');
@@ -138,11 +176,12 @@ export const appendLearningsLeaf = (
           });
           return Result.ok(undefined) as Result<void, StorageError>;
         }
-        // Append every record, then regenerate the human-readable learnings.md mirror from the full
-        // ledger. Best-effort: an append failure is logged and the leaf still returns ok — a ledger
-        // hiccup must never block the attempt (the read side dedups by id, so an orphaned earlier
-        // line re-appears as the same candidate next time). The mirror regeneration never fails.
-        const result = await appendLearningsAndMirror(resolved.value, input.records, {
+        // Append every record (crash-safe), then bound the ledger if it grew past the size
+        // threshold — NO eager learnings.md mirror (that moved off the hot path). Best-effort: an
+        // append failure is logged and the leaf still returns ok — a ledger hiccup must never block
+        // the attempt (the read side dedups by id, so an orphaned earlier line re-appears as the
+        // same candidate next time). The bound never fails the call.
+        const result = await appendMemoryRecords(resolved.value, input.records, {
           appendFile: deps.appendFile,
           writeFile: deps.writeFile,
           log,
@@ -166,10 +205,11 @@ export const appendLearningsLeaf = (
           message: `append-learnings-${String(taskId)}: task missing from ctx.tasks — settle-attempt must run first`,
         });
       }
-      // Read the STILL-POPULATED accumulator (progress-journal clears it AFTER us). Dedupe so an
-      // identical learning emitted twice in one attempt produces one row.
+      // Read the STILL-POPULATED accumulators (progress-journal clears them AFTER us). Dedupe so an
+      // identical signal emitted twice in one attempt produces one row.
       const learnings = dedupeLearnings(ctx.currentAttemptLearnings ?? []);
-      const records = buildRecords(deps, opts, task, String(ctx.sprintId), learnings);
+      const decisions = dedupeDecisions(ctx.currentAttemptDecisions ?? []);
+      const records = buildRecords(deps, opts, task, String(ctx.sprintId), learnings, decisions);
       // The path is resolved at execute time (async tolerant write-side resolver), so the still-sync
       // input projection just threads the resolver thunk through.
       return {
@@ -178,6 +218,7 @@ export const appendLearningsLeaf = (
       };
     },
     // Deliberately leaves the accumulators intact — the downstream `progress-journal` leaf reads
-    // and clears `currentAttemptLearnings`. Returning ctx unchanged preserves that contract.
+    // and clears `currentAttemptLearnings` / `currentAttemptDecisions`. Returning ctx unchanged
+    // preserves that contract.
     output: (ctx) => ctx,
   });

@@ -4,6 +4,7 @@ import { loadAndAssertSprintSubChain } from '@src/application/flows/_shared/spri
 import { transitionSprintToDoneLeaf } from '@src/application/flows/_shared/sprint/transition-to-done.ts';
 import { appendJournalSeparatorLeaf } from '@src/application/flows/_shared/progress/append-journal-separator.ts';
 import { createDistillStep } from '@src/application/flows/_shared/memory/distill-step.ts';
+import { refreshMemoryMirrorLeaf } from '@src/application/flows/_shared/memory/refresh-memory-mirror.ts';
 import type { CloseSprintCtx } from '@src/application/flows/close-sprint/ctx.ts';
 import type { CloseSprintDeps } from '@src/application/flows/close-sprint/deps.ts';
 
@@ -13,6 +14,7 @@ import type { CloseSprintDeps } from '@src/application/flows/close-sprint/deps.t
  *
  *   sequential('close-sprint', [
  *     load-and-assert-sprint(['review']),     // refuses any other status
+ *     refresh-memory-mirror,                  // always-on; durable narrative-tier (learnings.md) refresh
  *     distill-learnings-step,                 // opt-in; runs while sprint still `review`
  *     transition-sprint-to-done,              // review → done; persists internally
  *   ])
@@ -29,14 +31,24 @@ import type { CloseSprintDeps } from '@src/application/flows/close-sprint/deps.t
  * `sprintId` enters via the runner's `initialCtx` (matching how `remove-ticket` is launched);
  * no opts bag is needed at the factory boundary.
  *
- * The distill step runs BEFORE the transition so the sprint is still `review` while it
- * works — a mid-distill abort leaves it un-closed and re-runnable. When the operator declined the
- * opt-in gate (`distillRequested === false`) the step's inner `distill-gate` guard skips the body;
- * when `deps.distill` is absent the step is omitted from the chain entirely.
+ * The memory-mirror refresh + distill step both run BEFORE the transition so the sprint is still
+ * `review` while they work — a mid-distill abort leaves it un-closed and re-runnable. The mirror
+ * refresh is ALWAYS-ON (it only reads the ledger + rewrites the derived `learnings.md`, independent
+ * of the distill opt-in); the distill step is gated — when the operator declined the opt-in
+ * (`distillRequested === false`) its inner `distill-gate` guard skips the body, and when
+ * `deps.distill` / `deps.memoryMirror` are absent the respective step is omitted entirely.
  */
 export const createCloseSprintFlow = (deps: CloseSprintDeps): Element<CloseSprintCtx> =>
   sequential<CloseSprintCtx>('close-sprint', [
     loadAndAssertSprintSubChain<CloseSprintCtx>({ sprintRepo: deps.sprintRepo }, ['review']),
+    ...(deps.memoryMirror !== undefined
+      ? [
+          refreshMemoryMirrorLeaf<CloseSprintCtx>(
+            { writeFile: deps.memoryMirror.writeFile, logger: deps.logger },
+            { memoryRoot: deps.memoryMirror.memoryRoot, projectId: deps.memoryMirror.projectId }
+          ),
+        ]
+      : []),
     ...(deps.distill !== undefined ? [createDistillStep<CloseSprintCtx>(deps.distill.deps, deps.distill.opts)] : []),
     transitionSprintToDoneLeaf<CloseSprintCtx>({ sprintRepo: deps.sprintRepo, clock: deps.clock, logger: deps.logger }),
     appendJournalSeparatorLeaf<CloseSprintCtx>(
