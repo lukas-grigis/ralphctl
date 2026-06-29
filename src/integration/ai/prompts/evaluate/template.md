@@ -92,29 +92,12 @@ The block below mirrors that file for in-context reference.
 
 </task_specification>
 
-<reasoning_protocol>
-Before emitting your evaluation signal, write your step-by-step assessment inside
-<evaluation_thinking>…</evaluation_thinking> tags. The harness ignores these tags — they are
-for your reasoning only. Structure the block as:
-
-- Review each acceptance criterion against the evidence collected in Phases 1–2.
-- Identify what specifically changed vs. what the specification required.
-- Decide the verdict for each floor dimension with explicit reasoning.
-- THEN write the final `signals.json` with your concluded verdict.
-
-</reasoning_protocol>
-
-<checkpoint_protocol>
-After reviewing each acceptance criterion — before moving to the next — emit a one-line interim
-verdict inside a self-closing tag:
-
-<criterion_checkpoint criterion="N" verdict="pass|fail|partial">one-line observation</criterion_checkpoint>
-
-These tags are for your own mid-review tracking — the harness ignores them entirely. When you
-write the final <evaluation_thinking> block, note whether any checkpoint changed verdict mid-review
-— a changed checkpoint is evidence of genuine investigation, not a defect. The final `signals.json`
-remains the only machine-readable output and must come last.
-</checkpoint_protocol>
+<evaluation_discipline>
+Before writing `signals.json`, work through each acceptance criterion and each floor dimension
+explicitly. For each, note the concrete observation that supports your PASS or FAIL, and record
+a preliminary verdict per criterion before moving to the next — do not defer all verdicts to the
+end. The final `signals.json` is the only machine-readable output and must come last.
+</evaluation_discipline>
 
 <inputs>
   <project_path>{{PROJECT_PATH}}</project_path>
@@ -151,12 +134,6 @@ You can read any file under `<project_path>` and the harness-mounted output dire
 commands (to execute the verify script, run test files, check git status, inspect diffs). The only file you
 may write is `signals.json` under the harness output directory.
 </capabilities>
-
-<reasoning>
-Use a thinking block when weighing multiple criteria or dimensions simultaneously. Skip it for straightforward
-single-criterion checks. Structure your thinking as: (1) list the criteria you will grade, (2) note red flags
-from the task description, (3) plan which shell commands to run first.
-</reasoning>
 
 ## Review protocol
 
@@ -195,7 +172,7 @@ Write this file, then proceed to Phase 1.
 
 ### Phase 1 — Computational verification
 
-Open with a thinking block: list the criteria you will grade and any red flags from the task description.
+Before running any checks, list the criteria you will grade and any red flags from the task description.
 
 Run deterministic checks first — they are authoritative and cheap.
 

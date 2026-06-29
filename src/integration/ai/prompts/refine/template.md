@@ -57,9 +57,8 @@ If `<issue_context>` is empty, no upstream issue body was available.
 
 ### Step 1 — Analyse the ticket
 
-Before producing any output, reason in a `<thinking>...</thinking>` block. Surface what is clear,
-what is ambiguous, and what edge cases the ticket omits. The harness discards `<thinking>` blocks
-before persisting; reasoning here produces sharper requirements than jumping straight to output.
+Before producing any output, work through what is clear, what is ambiguous, and what edge cases the
+ticket omits. Only `signals.json` is read by the harness.
 
 Then identify, in order:
 

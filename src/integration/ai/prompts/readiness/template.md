@@ -118,7 +118,7 @@ A short, accurate file beats a long, padded one.
 
 ### Phase 1 — Inspection
 
-Outline your plan in a thinking block: list which artefacts from `<detected_artefacts>` you will actually
+Before reading files, outline your plan: list which artefacts from `<detected_artefacts>` you will actually
 read, the project's apparent shape (language, package manager, monorepo vs single repo), and the candidate
 sections you would consider including.
 

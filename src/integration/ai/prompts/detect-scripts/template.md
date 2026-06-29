@@ -235,7 +235,7 @@ point:
 
 ### Phase 1 — Inspection
 
-Open with a `<thinking>...</thinking>` block. Cover, in order:
+Before writing any output, cover, in order:
 
 1. The coding-agent context files you found and the commands they explicitly name. These are your
    primary evidence source — list them before anything else.
@@ -245,7 +245,7 @@ Open with a `<thinking>...</thinking>` block. Cover, in order:
    polyglot layouts, name each sub-tree's path and toolchain.
 4. The candidate setup / verify commands, each with the file that documents it.
 
-The harness strips thinking blocks before persisting; explicit reasoning produces sharper proposals.
+Only `signals.json` is read by the harness; all other session output is forensic and not persisted as data.
 
 Then read only the configuration and metadata files in scope above. Do NOT read source trees,
 tests, vendored directories, or generated output.

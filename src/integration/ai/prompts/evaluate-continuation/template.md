@@ -63,19 +63,12 @@ For the complete history — older than the excerpt above — read `{{PROGRESS_F
 
 {{GENERATOR_HINTS_SECTION}}
 
-<checkpoint_protocol>
-After reviewing each acceptance criterion — before moving to the next — emit a one-line interim
-verdict inside a self-closing tag:
-
-<criterion_checkpoint criterion="N" verdict="pass|fail|partial">one-line observation</criterion_checkpoint>
-
-These tags are for your own mid-review tracking — the harness ignores them entirely. Before
-emitting your final verdict, write your step-by-step assessment inside
-<evaluation_thinking>…</evaluation_thinking> tags (the harness ignores them too — for your reasoning
-only). In that block, note whether any checkpoint changed verdict mid-review — a changed checkpoint
-is evidence of genuine investigation, not a defect. The final `signals.json` remains the only
-machine-readable output and must come last.
-</checkpoint_protocol>
+<evaluation_discipline>
+Before writing `signals.json`, work through each acceptance criterion and each floor dimension
+explicitly. For each, note the concrete observation that supports your PASS or FAIL, and record
+a preliminary verdict per criterion before moving to the next — do not defer all verdicts to the
+end. The final `signals.json` is the only machine-readable output and must come last.
+</evaluation_discipline>
 
 <protocol>
 **Checkpoint write — do this first, before re-grading**

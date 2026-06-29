@@ -83,8 +83,8 @@ Focus: clarify WHAT needs to be built. Implementation-agnostic — no repo explo
 
 ### Step 1.0 — Think first
 
-Before interviewing: write a `<thinking>` block surfacing what the idea makes clear vs what it leaves
-ambiguous. Work through these dimensions before formulating questions:
+Before interviewing: work through what the idea makes clear vs what it leaves ambiguous. Cover these
+dimensions before formulating questions:
 
 - Problem statement and affected users
 - Functional behaviour observable as user-visible outcomes
@@ -132,9 +132,9 @@ Begin only after Phase 1 approval is confirmed.
 
 ### Step 2.0 — Think first
 
-Write a `<thinking>` block. Map the approved requirements onto the repositories. Identify task
-boundaries, dependencies, and risks before exploring. Think about: which repo owns each concern,
-what ordering is forced by dependencies, and what the riskiest unknowns are.
+Map the approved requirements onto the repositories. Identify task boundaries, dependencies, and
+risks before exploring. Work through: which repo owns each concern, what ordering is forced by
+dependencies, and what the riskiest unknowns are.
 
 ### Step 2.1 — Explore repositories
 

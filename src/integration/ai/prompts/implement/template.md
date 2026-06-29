@@ -135,29 +135,23 @@ create files under the project path. Write `signals.json` to the output director
 `<output_contract>`.
 </capabilities>
 
-<reasoning>
-Use a `<thinking>` block when: opening Phase 1 (walk declared steps + risks); deciding between
-competing implementation approaches; or weighing whether a pre-existing failure is your fault.
-Respond directly for routine file edits and command runs — do not pad short actions with thinking.
-</reasoning>
-
 ## Protocol
 
 ### Phase 1 — Reconnaissance
 
-Open with a `<thinking>` block: walk through the prior critique (if any), the declared steps, the
+Before starting Phase 1, work through the prior critique (if any), the declared steps, the
 verification criteria, and risks you can already see (file conflicts, ambiguous scope, edges the
 steps do not cover). Addressing the prior critique's dimensions comes before any new implementation
-work.
+work. Proceed directly for routine file edits and command runs.
 
 Then perform these checks before writing any code. The goal is to steer the implementation correctly
 on the first attempt, not to discover problems after the fact.
 
 1. **Confirm your working directory** — verify you are in the expected project path (`{{PROJECT_PATH}}`).
-2. **Prior critique first (rounds 2+)** — if `<prior_critique>` above is non-empty, list each
-   failed dimension in your `<thinking>` block and plan how you will address it before starting new
-   work. If this task was escalated to a stronger model, the prior critique identifies exactly what
-   the previous model missed — address those dimensions specifically.
+2. **Prior critique first (rounds 2+)** — if `<prior_critique>` above is non-empty, work through
+   each failed dimension and plan how you will address it before starting new work. If this task
+   was escalated to a stronger model, the prior critique identifies exactly what the previous model
+   missed — address those dimensions specifically.
 3. **Prior progress** — the `<prior_progress>` block above carries the journal body in-context. Read
    it for cross-task context; re-read `{{PROGRESS_FILE}}` directly only when you need the latest
    on-disk state (e.g. another task settled mid-session).
