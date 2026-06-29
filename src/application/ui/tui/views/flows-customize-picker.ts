@@ -25,6 +25,8 @@ import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
 import { COPILOT_MODELS } from '@src/domain/value/settings-models/copilot.ts';
 import { PROVIDER_EFFORT_LEVELS } from '@src/domain/value/settings-models/effort.ts';
 import { isSuspendedModel, SUSPENSION_NOTE } from '@src/domain/value/settings-models/suspended-models.ts';
+import { contextWindowLabel } from '@src/domain/value/settings-models/context-window.ts';
+import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import { resolveEffortForRow } from '@src/business/settings/resolve-effort.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import type { LaunchExtras } from '@src/application/ui/shared/launcher.ts';
@@ -60,15 +62,22 @@ const resolveModelCatalog = async (
 const KEEP = '__keep__';
 
 /**
- * Map a model id to a picker choice — flagging temporarily-suspended models in the LABEL only.
- * The `value` stays the bare id so a pre-pinned choice still round-trips; if the user picks it
- * anyway, the adapter guard rejects it at launch with a clear message. Applies to both the static
- * and account-narrowed catalogs, since both flow through `modelCatalog.map`.
+ * Map a model id to a picker choice. Appends the context-window size and (when applicable) the
+ * suspension note to the LABEL only — the `value` stays the bare id so a pre-pinned choice still
+ * round-trips; if the user picks a suspended model, the adapter guard rejects it at launch.
+ * Applies to both the static and account-narrowed catalogs.
+ *
+ *   'claude-sonnet-4-6'    →  'claude-sonnet-4-6  ·  200K'
+ *   'claude-opus-4-8[1m]' →  'claude-opus-4-8[1m]  ·  1M'
+ *   'gpt-5.5'             →  'gpt-5.5'   (no window known — no annotation)
  */
-const modelChoice = (m: string): Choice<string> => ({
-  label: isSuspendedModel(m) ? `${m} (${SUSPENSION_NOTE})` : m,
-  value: m,
-});
+const modelChoice = (m: string): Choice<string> => {
+  const windowPart = contextWindowLabel(m);
+  const suspendedPart = isSuspendedModel(m) ? `(${SUSPENSION_NOTE})` : undefined;
+  const annotations = [windowPart, suspendedPart].filter((s): s is string => s !== undefined);
+  const label = annotations.length > 0 ? `${m}  ${glyphs.bullet}  ${annotations.join('  ')}` : m;
+  return { label, value: m };
+};
 
 /**
  * Outcome of one picker session. `kind` discriminates:

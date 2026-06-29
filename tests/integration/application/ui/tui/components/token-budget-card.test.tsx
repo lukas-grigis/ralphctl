@@ -151,4 +151,65 @@ describe('TokenBudgetCard', () => {
     expect(frame).not.toContain('cumulative');
     expect(frame).not.toContain('cache hit');
   });
+
+  it('renders the model name and window label in the Context group when model is known', () => {
+    const { lastFrame } = render(
+      <TokenBudgetCard
+        sessionId={SESSION}
+        usage={{
+          provider: 'claude-code',
+          model: 'claude-sonnet-4-6',
+          inputTokens: 53600,
+          outputTokens: 5000,
+          contextWindow: 200000,
+        }}
+      />
+    );
+    const frame = lastFrame() ?? '';
+    // Model descriptor appears in Context section.
+    expect(frame).toContain('claude-sonnet-4-6');
+    // Window label is rendered alongside the model name.
+    expect(frame).toContain('200K');
+    // Usage figures still render correctly (the denominator is also 200k via fmtTokens).
+    expect(frame).toContain('53.6k');
+  });
+
+  it('renders model name without window label for providers with unknown window size', () => {
+    const { lastFrame } = render(
+      <TokenBudgetCard
+        sessionId={SESSION}
+        usage={{
+          provider: 'github-copilot',
+          model: 'gpt-5.5',
+          inputTokens: 10000,
+          outputTokens: 2000,
+          contextWindow: 128000,
+        }}
+      />
+    );
+    const frame = lastFrame() ?? '';
+    // Model name is shown even when contextWindowLabel returns undefined.
+    expect(frame).toContain('gpt-5.5');
+  });
+
+  it('renders a 1M context window as "1M" not "1000k"', () => {
+    const { lastFrame } = render(
+      <TokenBudgetCard
+        sessionId={SESSION}
+        usage={{
+          provider: 'claude-code',
+          model: 'claude-opus-4-8[1m]',
+          liveInputTokens: 50000,
+          liveCacheReadTokens: 0,
+          contextWindow: 1_000_000,
+        }}
+      />
+    );
+    const frame = lastFrame() ?? '';
+    // The denominator must render as "1M", not "1000k".
+    expect(frame).toContain('1M');
+    expect(frame).not.toContain('1000k');
+    // Window label from the model id.
+    expect(frame).toContain('claude-opus-4-8[1m]');
+  });
 });

@@ -100,7 +100,6 @@ jobs:
   coverage:
     name: Coverage report
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
 
     steps:
       - uses: actions/checkout@v6
@@ -117,11 +116,19 @@ jobs:
       - name: Run tests with coverage
         run: pnpm coverage
 
+      - name: Upload to Codecov
+        if: always()
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/lcov.info
+          fail_ci_if_error: false
+
       - name: Upload coverage artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-${{ github.event.pull_request.number }}
+          name: coverage-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.sha }}
           path: coverage/
           retention-days: 14
           if-no-files-found: error

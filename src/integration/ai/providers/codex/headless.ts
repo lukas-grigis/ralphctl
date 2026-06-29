@@ -2,31 +2,25 @@ import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
-import type { HeadlessAiProvider, ProviderOutput } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
-import {
-  RATE_LIMIT_SCAN_TAIL_CAP,
-  STDERR_TAIL_CAP,
-  createBoundedTail,
-} from '@src/integration/ai/providers/_engine/bounded-tail.ts';
+import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
+import { RATE_LIMIT_SCAN_TAIL_CAP } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
 import { isRecord, numberField, stringField } from '@src/integration/ai/providers/_engine/json-field.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { CodexProviderDeps } from '@src/integration/ai/providers/_engine/codex-provider-deps.ts';
 import { resolveWritableRoots } from '@src/integration/ai/providers/_engine/resolve-roots.ts';
 import type { SessionPermissions } from '@src/integration/ai/providers/_engine/session-permissions.ts';
-import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { isCodexModel } from '@src/domain/value/settings-models/codex.ts';
 import { type ProviderSpawn, defaultProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
-import { runHeadlessSpawn } from '@src/integration/ai/providers/_engine/run-headless-spawn.ts';
-import { runWithRateLimitRetry } from '@src/integration/ai/providers/_engine/run-with-rate-limit-retry.ts';
-import type { AttemptOutcome } from '@src/integration/ai/providers/_engine/attempt-outcome.ts';
-import { DEFAULT_RATE_LIMIT_RE, classifySpawnExit } from '@src/integration/ai/providers/_engine/classify-spawn-exit.ts';
-import { writeTextAtomic } from '@src/integration/io/fs.ts';
-import { persistSessionIdFile } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
-import { contextWindowFor } from '@src/integration/ai/providers/_engine/context-window.ts';
+import { DEFAULT_RATE_LIMIT_RE } from '@src/integration/ai/providers/_engine/classify-spawn-exit.ts';
 import { truncateField } from '@src/integration/ai/providers/_engine/truncate-debug-field.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
+import {
+  createHeadlessProvider,
+  emitTokenUsage,
+  runProviderAttempt,
+} from '@src/integration/ai/providers/_engine/run-provider-attempt.ts';
 
 /**
  * {@link HeadlessAiProvider} backed by the OpenAI Codex CLI (`codex` v0.130.0+).
@@ -204,71 +198,6 @@ const defaultMkTempPath = (): string => {
   return join(tmpdir(), `ralphctl-codex-${String(process.pid)}-${String(Date.now())}-${String(tempCounter)}.txt`);
 };
 
-export const createCodexProvider = (deps: CodexProviderDeps): HeadlessAiProvider => {
-  const spawnFn: ProviderSpawn = deps.spawn ?? defaultProviderSpawn;
-  const command = deps.command ?? 'codex';
-  const readFile = deps.readFile ?? ((path) => fs.readFile(path, 'utf8'));
-  const unlink =
-    deps.unlink ??
-    (async (path: string): Promise<void> => {
-      await fs.unlink(path).catch(() => {
-        // best-effort cleanup; orphan tempfiles are bounded by os.tmpdir() rotation
-      });
-    });
-  const mkTempPath = deps.mkTempPath ?? defaultMkTempPath;
-
-  return {
-    async generate(session) {
-      const outputFile = mkTempPath();
-      // Validate argv up front so a bad model / permission surfaces before any spawn.
-      const argsResult = buildCodexArgs(session, { outputFile });
-      if (!argsResult.ok) return Result.error(argsResult.error) as Result<ProviderOutput, DomainError>;
-
-      try {
-        // The shared retry seam owns the loop, backoff, banners, abort-during-backoff, the
-        // session-resume rebuild (so a 429 retry runs `exec resume <id>`), and the stale-resume
-        // cold fallback (drops resume for one cold respawn when the rollout is gone). The
-        // per-attempt closure rebuilds argv from the CURRENT session, so a resumed retry emits
-        // `exec resume` and a cold-fallback session emits the `-C cwd / -s sandbox` cold path.
-        return await runWithRateLimitRetry({
-          session,
-          rateLimitRetries: deps.rateLimitRetries,
-          ...(deps.backoffSchedule !== undefined ? { backoffSchedule: deps.backoffSchedule } : {}),
-          eventBus: deps.eventBus,
-          providerSlug: 'codex',
-          providerName: 'codex-provider',
-          resumeStaleRe: RESUME_STALE_RE,
-          attempt: async (attemptSession) => {
-            const built = buildCodexArgs(attemptSession, { outputFile });
-            if (!built.ok) return { kind: 'error', error: built.error };
-            return spawnAttempt({
-              deps,
-              spawnFn,
-              command,
-              args: built.value,
-              session: attemptSession,
-              readFile,
-              outputFile,
-            });
-          },
-        });
-      } finally {
-        await unlink(outputFile);
-      }
-    },
-  };
-};
-
-interface SpawnAttemptArgs {
-  readonly deps: CodexProviderDeps;
-  readonly spawnFn: ProviderSpawn;
-  readonly command: string;
-  readonly args: readonly string[];
-  readonly session: AiSession;
-  readonly readFile: (path: string) => Promise<string>;
-  readonly outputFile: string;
-}
-
 interface CodexMetaUpdate {
   readonly sessionId?: string;
   readonly model?: string;
@@ -435,187 +364,127 @@ const agentMessageText = (obj: Record<string, unknown>): string | undefined => {
   return stringField(item, 'text');
 };
 
-const spawnAttempt = async (input: SpawnAttemptArgs): Promise<AttemptOutcome> => {
-  const { deps, spawnFn, command, args, session, readFile, outputFile } = input;
-  // `cwd` is set in addition to codex's argv `-C` so context-file autoload works on `exec resume`
-  // (which does not accept `-C`) and is consistent with the other two adapters.
-  // See CLAUDE.md §Security — "Cwd is the repo because Claude / Copilot / Codex only
-  // auto-discover their context file from cwd."
-  const child = spawnFn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] as const, cwd: String(session.cwd) });
-  const stderrTail = createBoundedTail(STDERR_TAIL_CAP);
-  let sessionId: string | undefined;
-  let stdoutLineBuf = '';
-  // Accumulate codex's `agent_message` text so the rate-limit classifier can scan it alongside
-  // stderr — codex surfaces a quota throttle ("quota exceeded" / 429) in the agent_message body,
-  // not always on stderr. Capped to bound memory on a long session (the tail is all we need).
-  let agentMessageTail = '';
-
-  // Bound once so onIdle's banner-show id and the classifier's banner-clear id match.
-  const watchdogBannerId = `watchdog-codex-${String(child.pid ?? 'unknown')}`;
-
-  // Codex `exec` reads the prompt from stdin; codex streams tokens to stdout so we attach a
-  // line-buffering session-id sniffer and wait for `'exit'` (no need to wait for streams to
-  // flush after exit — the session id is captured inline).
-  let model: string | undefined;
-  let inputTokens: number | undefined;
-  let outputTokens: number | undefined;
-
-  const onMeta = (update: CodexMetaUpdate): void => {
-    if (update.sessionId !== undefined && sessionId === undefined) {
-      sessionId = update.sessionId;
-      deps.eventBus.publish({
-        type: 'log',
-        level: 'debug',
-        message: 'codex-provider: session id captured',
-        meta: { sessionId: update.sessionId },
-        at: IsoTimestamp.now(),
+export const createCodexProvider = (deps: CodexProviderDeps): HeadlessAiProvider => {
+  const spawnFn: ProviderSpawn = deps.spawn ?? defaultProviderSpawn;
+  const command = deps.command ?? 'codex';
+  const readFile = deps.readFile ?? ((path) => fs.readFile(path, 'utf8'));
+  const unlink =
+    deps.unlink ??
+    (async (path: string): Promise<void> => {
+      await fs.unlink(path).catch(() => {
+        // best-effort cleanup; orphan tempfiles are bounded by os.tmpdir() rotation
       });
-    }
-    if (update.model !== undefined && model === undefined) {
-      model = update.model;
-    }
-    // Last-write-wins on usage — codex's `turn.completed` record carries the cumulative
-    // figure; earlier records (thread.started / streaming chunks) report partials or nothing.
-    if (update.inputTokens !== undefined) inputTokens = update.inputTokens;
-    if (update.outputTokens !== undefined) outputTokens = update.outputTokens;
-  };
-  const onLine = (obj: Record<string, unknown>): void => {
-    publishCodexStreamLineEvents(deps.eventBus, obj);
-    const text = agentMessageText(obj);
-    if (text !== undefined) {
-      agentMessageTail = `${agentMessageTail}${agentMessageTail.length > 0 ? '\n' : ''}${text}`.slice(
-        -RATE_LIMIT_SCAN_TAIL_CAP
-      );
-    }
-  };
+    });
+  const mkTempPath = deps.mkTempPath ?? defaultMkTempPath;
 
-  const { code, signal } = await runHeadlessSpawn({
-    child,
-    onStdout: (chunk) => {
-      stdoutLineBuf = consumeMetaLines(stdoutLineBuf + chunk, onMeta, onLine);
-    },
-    onStderr: (chunk) => {
-      stderrTail.append(chunk);
-    },
-    stdin: session.prompt,
-    resolveOn: 'exit',
-    ...(deps.idleMs !== undefined ? { idleMs: deps.idleMs } : {}),
-    ...(session.abortSignal !== undefined ? { abortSignal: session.abortSignal } : {}),
-    onIdle: () => {
-      const idleMs = deps.idleMs ?? undefined;
-      deps.eventBus.publish({
-        type: 'log',
-        level: 'warn',
-        message: `codex-provider: no stdio activity${idleMs !== undefined ? ` for ${String(idleMs)}ms` : ''} — killing wedged child`,
-        ...(idleMs !== undefined ? { meta: { idleMs } } : {}),
-        at: IsoTimestamp.now(),
-      });
-      deps.eventBus.publish({
-        type: 'banner-show',
-        id: watchdogBannerId,
-        tier: 'warn',
-        message: `Watchdog killed stuck codex process${idleMs !== undefined ? ` (${String(Math.round(idleMs / 1000))}s idle)` : ''}`,
-        at: IsoTimestamp.now(),
-      });
-    },
-  });
-
-  // Flush any partial line remaining in the line buffer — codex may terminate without a
-  // trailing newline. Appending a synthetic '\n' forces the partial through the parser,
-  // matching the parser.flush(onLine) convention used in the claude and copilot adapters.
-  if (stdoutLineBuf.length > 0) {
-    consumeMetaLines(stdoutLineBuf + '\n', onMeta, onLine);
-  }
-
-  const onSuccess = async (): Promise<AttemptOutcome> => {
-    let body: string;
-    try {
-      // Single-shot read of the codex output tempfile — no per-line in-process accumulation.
-      // Preserve that: any future streaming variant must use an O(N) accumulator (see the
-      // `bodyLines.push` + `.join('\n')` pattern in copilot/headless.ts). On SIGTERM-recovery
-      // the tempfile may be partial or empty; bodyFile mirror simply writes what we have.
-      body = await readFile(outputFile);
-    } catch (err) {
-      return {
-        kind: 'error',
-        error: new InvalidStateError({
-          entity: 'codex-provider',
-          currentState: 'output-capture',
-          attemptedAction: 'read tempfile',
-          message: `codex-provider: failed to read output tempfile: ${err instanceof Error ? err.message : String(err)}`,
-        }),
-      };
-    }
-    // audit-[09]: the AI writes `signals.json` directly via its Write tool into
-    // `session.outputDir`; the harness validates it post-spawn. The provider never writes
-    // signals.json itself. The codex output tempfile body remains the forensic source for
-    // `session.bodyFile` mirroring below.
-    // Persist captured session id as a sibling `sessionId` file. Codex emits the id as
-    // `thread_id` on the leading `thread.started` JSONL record; missing → skip (no empty
-    // marker). See persistSessionIdFile.
-    const sidWrote = await persistSessionIdFile(session.signalsFile, sessionId);
-    if (sidWrote !== undefined && !sidWrote.ok) {
-      deps.eventBus.publish({
-        type: 'log',
-        level: 'warn',
-        message: `codex-provider: failed to write sessionId file — resume re-attach may need log parsing`,
-        meta: { error: sidWrote.error.message },
-        at: IsoTimestamp.now(),
-      });
-    }
-    if (session.bodyFile !== undefined) {
-      const bodyWrote = await writeTextAtomic(String(session.bodyFile), body);
-      if (!bodyWrote.ok) {
-        deps.eventBus.publish({
-          type: 'log',
-          level: 'warn',
-          message: `codex-provider: failed to write body file — diagnostic capture skipped`,
-          meta: { bodyFile: String(session.bodyFile), error: bodyWrote.error.message },
-          at: IsoTimestamp.now(),
-        });
-      }
-    }
-    if (sessionId !== undefined) {
-      // Emit one TokenUsageEvent per success spawn. Codex commonly omits token counts
-      // from the JSONL records on v0.130.x; the event still fires so subscribers can correlate
-      // sessionId → provider without inferring success from token-field absence.
-      const window = contextWindowFor(model);
-      const chainSessionId = session.chainSessionId;
-      deps.eventBus.publish({
-        type: 'token-usage',
-        sessionId,
-        ...(chainSessionId !== undefined ? { chainSessionId } : {}),
-        provider: 'openai-codex',
-        ...(model !== undefined ? { model } : {}),
-        ...(inputTokens !== undefined ? { inputTokens } : {}),
-        ...(outputTokens !== undefined ? { outputTokens } : {}),
-        ...(window !== undefined ? { contextWindow: window } : {}),
-        ...(session.role !== undefined ? { role: session.role } : {}),
-        at: IsoTimestamp.now(),
-      });
-    }
-    return {
-      kind: 'success',
-      output: {
-        signalsFile: session.signalsFile,
-        exitCode: code ?? 0,
-        ...(sessionId !== undefined ? { sessionId } : {}),
-      },
-    };
-  };
-
-  return classifySpawnExit({
-    session,
-    exit: { code, signal },
-    stderr: stderrTail.value(),
-    rateLimitRe: DEFAULT_RATE_LIMIT_RE,
-    // Codex reports a quota throttle in the agent_message body, not always on stderr. Feed the
-    // accumulated tail into the rate-limit haystack so it trips the overnight backoff.
-    ...(agentMessageTail.length > 0 ? { stdoutTail: agentMessageTail } : {}),
-    ...(sessionId !== undefined ? { capturedSessionId: sessionId } : {}),
+  return createHeadlessProvider({
+    providerSlug: 'codex',
     providerName: 'codex-provider',
+    resumeStaleRe: RESUME_STALE_RE,
+    rateLimitRetries: deps.rateLimitRetries,
     eventBus: deps.eventBus,
-    watchdogBannerId,
-    onSuccess,
+    ...(deps.backoffSchedule !== undefined ? { backoffSchedule: deps.backoffSchedule } : {}),
+    createGenerateContext: () => {
+      // One tempfile per generate() call, shared across all retry attempts so a rate-limit
+      // retry reuses the same -o path without leaving orphan files. Cleaned up in cleanup().
+      const outputFile = mkTempPath();
+      return {
+        attempt: async (attemptSession) => {
+          const built = buildCodexArgs(attemptSession, { outputFile });
+          if (!built.ok) return { kind: 'error', error: built.error };
+
+          let sessionId: string | undefined;
+          let model: string | undefined;
+          let inputTokens: number | undefined;
+          let outputTokens: number | undefined;
+          // Accumulate codex's `agent_message` text so the rate-limit classifier can scan it
+          // alongside stderr — codex surfaces a quota throttle in the agent_message body,
+          // not always on stderr. Capped to bound memory on a long session.
+          let agentMessageTail = '';
+          let stdoutLineBuf = '';
+
+          const onMeta = (update: CodexMetaUpdate): void => {
+            if (update.sessionId !== undefined && sessionId === undefined) {
+              sessionId = update.sessionId;
+            }
+            if (update.model !== undefined && model === undefined) {
+              model = update.model;
+            }
+            // Last-write-wins on usage — codex's `turn.completed` record carries the cumulative
+            // figure; earlier records (thread.started / streaming chunks) report partials or nothing.
+            if (update.inputTokens !== undefined) inputTokens = update.inputTokens;
+            if (update.outputTokens !== undefined) outputTokens = update.outputTokens;
+          };
+          const onLine = (obj: Record<string, unknown>): void => {
+            publishCodexStreamLineEvents(deps.eventBus, obj);
+            const text = agentMessageText(obj);
+            if (text !== undefined) {
+              agentMessageTail = `${agentMessageTail}${agentMessageTail.length > 0 ? '\n' : ''}${text}`.slice(
+                -RATE_LIMIT_SCAN_TAIL_CAP
+              );
+            }
+          };
+
+          return runProviderAttempt({
+            spawnFn,
+            command,
+            args: built.value,
+            session: attemptSession,
+            resolveOn: 'exit',
+            // `cwd` is set in addition to codex's argv `-C` so context-file autoload works on
+            // `exec resume` (which does not accept `-C`) and is consistent with the other adapters.
+            // See CLAUDE.md §Security.
+            stdin: attemptSession.prompt,
+            rateLimitRe: DEFAULT_RATE_LIMIT_RE,
+            onStdoutChunk: (chunk) => {
+              stdoutLineBuf = consumeMetaLines(stdoutLineBuf + chunk, onMeta, onLine);
+            },
+            // Flush any partial line remaining in the buffer — codex may terminate without a
+            // trailing newline. Appending a synthetic '\n' forces the partial through the parser.
+            flush: () => {
+              if (stdoutLineBuf.length > 0) {
+                consumeMetaLines(stdoutLineBuf + '\n', onMeta, onLine);
+              }
+            },
+            getSessionId: () => sessionId,
+            // Codex reports a quota throttle in the agent_message body, not always on stderr.
+            // Feed the accumulated tail into the rate-limit haystack so it trips the backoff.
+            getStdoutTail: () => (agentMessageTail.length > 0 ? agentMessageTail : undefined),
+            // Single-shot read of the codex output tempfile — no per-line in-process accumulation.
+            // On SIGTERM-recovery the tempfile may be partial or empty.
+            getBody: async () => {
+              try {
+                return Result.ok(await readFile(outputFile));
+              } catch (err) {
+                return Result.error(
+                  new InvalidStateError({
+                    entity: 'codex-provider',
+                    currentState: 'output-capture',
+                    attemptedAction: 'read tempfile',
+                    message: `codex-provider: failed to read output tempfile: ${err instanceof Error ? err.message : String(err)}`,
+                  })
+                );
+              }
+            },
+            emitProviderTokenUsage: (sessionId_) => {
+              // Codex commonly omits token counts from the JSONL records on v0.130.x; the event
+              // still fires so subscribers can correlate sessionId → provider without inferring
+              // success from token-field absence.
+              emitTokenUsage(deps.eventBus, attemptSession, sessionId_, {
+                provider: 'openai-codex',
+                ...(model !== undefined ? { model } : {}),
+                ...(inputTokens !== undefined ? { inputTokens } : {}),
+                ...(outputTokens !== undefined ? { outputTokens } : {}),
+              });
+            },
+            providerName: 'codex-provider',
+            providerSlug: 'codex',
+            eventBus: deps.eventBus,
+            ...(deps.idleMs !== undefined ? { idleMs: deps.idleMs } : {}),
+          });
+        },
+        cleanup: () => unlink(outputFile),
+      };
+    },
   });
 };

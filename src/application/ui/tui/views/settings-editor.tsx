@@ -26,6 +26,25 @@ import {
   isProviderField,
 } from '@src/application/ui/tui/views/settings-view-model.ts';
 import { isSuspendedModel, SUSPENSION_NOTE } from '@src/domain/value/settings-models/suspended-models.ts';
+import { contextWindowLabel } from '@src/domain/value/settings-models/context-window.ts';
+
+/**
+ * Build the display label for a model picker option. Appends the context-window size and (when
+ * applicable) the suspension note — both are additive so the bare model id is always visible.
+ *
+ *   'claude-sonnet-4-6'    →  'claude-sonnet-4-6  ·  200K'
+ *   'claude-opus-4-8[1m]' →  'claude-opus-4-8[1m]  ·  1M'
+ *   'claude-fable-5[1m]'  →  'claude-fable-5[1m]  ·  1M  (suspended)'
+ *   'claude-fable-5'      →  'claude-fable-5  ·  (suspended)'
+ *   'gpt-5.5'             →  'gpt-5.5'   (no window known — no annotation)
+ */
+const annotateModelLabel = (model: string): string => {
+  const windowPart = contextWindowLabel(model);
+  const suspendedPart = isSuspendedModel(model) ? `(${SUSPENSION_NOTE})` : undefined;
+  const annotations = [windowPart, suspendedPart].filter((s): s is string => s !== undefined);
+  if (annotations.length === 0) return model;
+  return `${model}  ${glyphs.bullet}  ${annotations.join('  ')}`;
+};
 
 interface ProviderChoice {
   readonly label: string;
@@ -87,7 +106,7 @@ const EscalationAddEditor = ({
     return (
       <SelectPrompt
         message="Escalate FROM which model? (step 1/2)"
-        options={escalationModelOptions().map((value) => ({ label: value, value }))}
+        options={escalationModelOptions().map((value) => ({ label: annotateModelLabel(value), value }))}
         onSubmit={(value) => setFromModel(String(value))}
         onCancel={onCancel}
       />
@@ -96,7 +115,7 @@ const EscalationAddEditor = ({
   return (
     <SelectPrompt
       message={`${fromModel} ${glyphs.arrowRight} which model? (step 2/2)`}
-      options={escalationTargetsFor(fromModel).map((value) => ({ label: value, value }))}
+      options={escalationTargetsFor(fromModel).map((value) => ({ label: annotateModelLabel(value), value }))}
       footer="esc goes back to the from-model pick"
       onSubmit={(value) => onSubmit(`${fromModel}=${String(value)}`)}
       onCancel={() => setFromModel(undefined)}
@@ -118,7 +137,7 @@ export const SettingsEditor = ({
       <SelectPrompt
         message={`${field.from} escalates to (current: ${field.to})`}
         options={[
-          ...escalationTargetsFor(field.from).map((value) => ({ label: value, value })),
+          ...escalationTargetsFor(field.from).map((value) => ({ label: annotateModelLabel(value), value })),
           { label: '(remove this override)', value: '' },
         ]}
         onSubmit={(value) => onSubmit(String(value))}
@@ -139,15 +158,16 @@ export const SettingsEditor = ({
         />
       );
     }
-    // Model selects flag temporarily-suspended ids in the LABEL only; the value stays the bare id
-    // so a pre-pinned choice round-trips (the adapter guard rejects it at launch). Every other
-    // select (log level, booleans, …) renders plain.
+    // Model selects annotate each option with its context-window size and (when applicable) the
+    // suspension note — labels only; the value stays the bare id so a pre-pinned choice
+    // round-trips and the adapter guard remains the single rejection point.
+    // Every other select (log level, booleans, …) renders plain.
     const annotate = isModelField(field);
     return (
       <SelectPrompt
         message={`${field.label} (current: ${field.current})`}
         options={field.options.map((value) => ({
-          label: annotate && isSuspendedModel(value) ? `${value} (${SUSPENSION_NOTE})` : value,
+          label: annotate ? annotateModelLabel(value) : value,
           value,
         }))}
         onSubmit={(value) => onSubmit(String(value))}

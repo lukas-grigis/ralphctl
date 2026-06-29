@@ -26,6 +26,7 @@ import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { glyphs, inkColors } from '@src/application/ui/tui/theme/tokens.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
 import { perAttemptRound, type TaskBucket } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
+import { contextWindowLabel } from '@src/domain/value/settings-models/context-window.ts';
 
 interface HeaderCardProps {
   readonly descriptor: SessionDescriptor;
@@ -62,26 +63,35 @@ const RoleLine = ({
   readonly provider: string | undefined;
   readonly model: string;
   readonly effort: string | undefined;
-}): React.JSX.Element => (
-  <Box>
-    <Text dimColor>
-      {glyphs.activityArrow} {role}{' '}
-    </Text>
-    {provider !== undefined && (
-      <>
-        <Text dimColor>{provider}</Text>
-        <Text dimColor> {glyphs.bullet} </Text>
-      </>
-    )}
-    <Text color={inkColors.highlight}>{model}</Text>
-    {effort !== undefined && (
-      <>
-        <Text dimColor> {glyphs.bullet} </Text>
-        <Text dimColor>{effort}</Text>
-      </>
-    )}
-  </Box>
-);
+}): React.JSX.Element => {
+  const ctxWindow = contextWindowLabel(model);
+  return (
+    <Box>
+      <Text dimColor>
+        {glyphs.activityArrow} {role}{' '}
+      </Text>
+      {provider !== undefined && (
+        <>
+          <Text dimColor>{provider}</Text>
+          <Text dimColor> {glyphs.bullet} </Text>
+        </>
+      )}
+      <Text color={inkColors.highlight}>{model}</Text>
+      {ctxWindow !== undefined && (
+        <>
+          <Text dimColor> {glyphs.bullet} </Text>
+          <Text dimColor>{ctxWindow}</Text>
+        </>
+      )}
+      {effort !== undefined && (
+        <>
+          <Text dimColor> {glyphs.bullet} </Text>
+          <Text dimColor>{effort}</Text>
+        </>
+      )}
+    </Box>
+  );
+};
 
 const ModelLines = ({
   generatorModel,
@@ -108,10 +118,11 @@ const ModelLines = ({
     );
   }
 
-  // Non-implement flows: single model line (whichever is set), with its provider when available.
+  // Non-implement flows: single model line (whichever is set), with its provider + window when available.
   const model = generatorModel ?? evaluatorModel;
   const provider = generatorProvider ?? evaluatorProvider;
   if (model !== undefined) {
+    const ctxWindow = contextWindowLabel(model);
     return (
       <Box>
         <Text dimColor>{glyphs.activityArrow} model </Text>
@@ -122,6 +133,12 @@ const ModelLines = ({
           </>
         )}
         <Text color={inkColors.highlight}>{model}</Text>
+        {ctxWindow !== undefined && (
+          <>
+            <Text dimColor> {glyphs.bullet} </Text>
+            <Text dimColor>{ctxWindow}</Text>
+          </>
+        )}
       </Box>
     );
   }

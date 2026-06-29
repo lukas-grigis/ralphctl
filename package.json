@@ -56,7 +56,7 @@
     "coverage:unused": "tsx scripts/find-unused.ts",
     "deadcode": "knip",
     "skills:update": "tsx scripts/sync-skills.ts",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings 342",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
