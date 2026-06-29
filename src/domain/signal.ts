@@ -51,16 +51,42 @@ export interface DimensionScore {
 export const FLOOR_DIMENSIONS = ['correctness', 'completeness', 'safety', 'consistency'] as const;
 
 /**
+ * One structured per-criterion verdict the evaluator emits, keyed by {@link VerificationCriterion.id}
+ * (`C1`, `C2`, …). Orthogonal to {@link DimensionScore}: dimensions grade the always-present floor
+ * rubric (correctness / completeness / safety / consistency), whereas `criteria` records the
+ * machine-readable PASS / FAIL of each task-specific acceptance criterion the planner authored — the
+ * grading the evaluator already does in prose (`Phase 2 — Per-criterion assessment`), now carried as
+ * data so the harness can persist a durable k-of-N checklist instead of collapsing many criteria to
+ * one binary status.
+ *
+ *  - `id` — the criterion id verbatim from the contract.
+ *  - `passed` — the evaluator's binary verdict for that criterion this round.
+ *  - `evidence` — optional one-line citation (command tail, `path:line`) backing the verdict.
+ */
+export interface CriterionVerdict {
+  readonly id: string;
+  readonly passed: boolean;
+  readonly evidence?: string;
+}
+
+/**
  * Outcome of an evaluator run. The signal carries a PASS / FAIL verdict (`status`), the
- * per-dimension findings (`dimensions`), and an optional `critique` the generator reads on
- * the next round. Per the evaluator-rubric redesign, no numeric score field is persisted —
- * `passed` is the only verdict on each dimension and `status: 'passed'` requires every
- * dimension to pass.
+ * per-dimension findings (`dimensions`), an optional structured per-criterion verdict array
+ * (`criteria`), and an optional `critique` the generator reads on the next round. Per the
+ * evaluator-rubric redesign, no numeric score field is persisted — `passed` is the only verdict on
+ * each dimension and `status: 'passed'` requires every dimension to pass.
+ *
+ * `criteria` is ADDITIVE and orthogonal to `dimensions`: dimensions are the floor rubric; `criteria`
+ * keys the verdict by {@link VerificationCriterion.id} so a multi-criterion task resumes against a
+ * k-of-N checklist rather than a single binary status. Optional at the schema layer (legacy
+ * evaluator output predates it); a `status: 'passed'` signal that DOES list criteria must have every
+ * listed criterion `passed: true` (enforced by the persistence-layer Zod refinement).
  */
 export interface EvaluationSignal {
   readonly type: 'evaluation';
   readonly status: 'passed' | 'failed' | 'malformed';
   readonly dimensions: readonly DimensionScore[];
+  readonly criteria?: readonly CriterionVerdict[];
   readonly critique?: string;
   readonly timestamp: IsoTimestamp;
 }

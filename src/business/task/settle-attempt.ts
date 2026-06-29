@@ -6,7 +6,9 @@ import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import type { BlockedTask, DoneTask, InProgressTask } from '@src/domain/entity/task.ts';
 import { recordRunningAttemptWarning } from '@src/domain/entity/task-attempts.ts';
 import { failCurrentAttempt, markTaskDone } from '@src/domain/entity/task-settle.ts';
+import { applyCriteriaVerdicts } from '@src/domain/entity/task-criteria.ts';
 import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
+import type { CriterionVerdict } from '@src/domain/signal.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { type InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
@@ -53,6 +55,13 @@ export interface SettleAttemptProps {
    * when `blockedReason` is set (the block path already settles the attempt as aborted).
    */
   readonly shouldFailAttempt?: boolean;
+  /**
+   * Structured per-criterion verdicts the evaluator graded THIS round, projected from
+   * `ctx.lastEvaluation.criteria`. Folded onto the settled task's harness-owned
+   * `criteriaVerdicts` (ids not graded this round keep their prior verdict). HARNESS-authored,
+   * derived from the evaluator's structured signal — never from agent prose. Absent → no fold.
+   */
+  readonly criteria?: readonly CriterionVerdict[];
   readonly taskRepo: UpdateTask;
   readonly clock: () => IsoTimestamp;
   readonly logger: Logger;
@@ -158,17 +167,22 @@ export const settleAttemptUseCase = async (
     return Result.error(settled.error);
   }
 
-  const persisted = await props.taskRepo.update(props.sprintId, settled.value);
+  // Fold this round's structured per-criterion verdicts onto the settled task's durable
+  // `criteriaVerdicts` BEFORE persisting. Harness-authored from the evaluator's structured signal —
+  // settleTask already carried any prior verdicts through, so the fold only overlays this round.
+  const folded = props.criteria !== undefined ? applyCriteriaVerdicts(settled.value, props.criteria) : settled.value;
+
+  const persisted = await props.taskRepo.update(props.sprintId, folded);
   if (!persisted.ok) {
-    log.error('persist failed', { taskId: settled.value.id, error: persisted.error.message });
+    log.error('persist failed', { taskId: folded.id, error: persisted.error.message });
     return Result.error(persisted.error);
   }
 
-  log.info(`settled task → ${settled.value.status}`, {
+  log.info(`settled task → ${folded.status}`, {
     taskId: props.task.id,
     verdict: props.verdict,
-    finalStatus: settled.value.status,
+    finalStatus: folded.status,
     ...(props.blockedReason !== undefined ? { blockedReason: props.blockedReason } : {}),
   });
-  return Result.ok(settled.value);
+  return Result.ok(folded);
 };

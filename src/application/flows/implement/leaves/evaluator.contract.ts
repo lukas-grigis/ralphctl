@@ -106,8 +106,10 @@ const EXAMPLE_TS = '2026-05-22T10:00:00.000Z' as IsoTimestamp;
 /**
  * Representative evaluator payload showing the PASS / FAIL rubric in the FAIL branch. One
  * `auto` criterion's command output lands in `executionEvidence`; the failing dimension
- * carries a concrete file:line citation in `finding`. The Zod refine enforces exactly one
- * `evaluation`; the prompt unit test round-trips this example through the schema.
+ * carries a concrete file:line citation in `finding`. The structured `criteria` array mirrors
+ * the prose per-criterion grading — C1 failed, C2 passed — so the harness can fold a durable
+ * k-of-N verdict onto the task. The Zod refine enforces exactly one `evaluation`; the prompt unit
+ * test round-trips this example through the schema.
  */
 const evaluatorExampleSignals: readonly EvaluatorSignal[] = [
   {
@@ -123,6 +125,10 @@ const evaluatorExampleSignals: readonly EvaluatorSignal[] = [
       { dimension: 'completeness', passed: true, finding: 'all declared steps shipped' },
       { dimension: 'safety', passed: true, finding: 'inputs validated at the request boundary' },
       { dimension: 'consistency', passed: true, finding: 'matches sibling code at src/bar.ts' },
+    ],
+    criteria: [
+      { id: 'C1', passed: false, evidence: 'npm test exited 1 — empty-input case failed at src/foo.ts:23' },
+      { id: 'C2', passed: true, evidence: 'request boundary validates input at src/foo.ts:11' },
     ],
     critique: 'Correctness: add edge-case handling for empty input at src/foo.ts:23.',
     timestamp: EXAMPLE_TS,

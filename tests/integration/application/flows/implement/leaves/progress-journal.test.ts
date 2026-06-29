@@ -34,6 +34,7 @@ import type { WriteFile } from '@src/business/io/write-file.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { progressJournalLeaf } from '@src/application/flows/implement/leaves/progress-journal.ts';
 import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
+import { applyCriteriaVerdicts } from '@src/domain/entity/task-criteria.ts';
 import { recordRunningAttemptVerification, recordRunningAttemptWarning } from '@src/domain/entity/task-attempts.ts';
 import { failCurrentAttempt, markTaskDone, recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
 import { setExecutionBranch, createSprintExecution } from '@src/domain/entity/sprint-execution.ts';
@@ -93,7 +94,9 @@ describe('progressJournalLeaf', () => {
   });
 
   it('regenerates the derived state header band (Status / Branch / per-task table) from canonical ctx', async () => {
-    const task = makeDoneTask({ name: 'export-csv' });
+    // Fold a passed verdict for the task's lone criterion (C1) so the Passes column shows the
+    // durable k-of-N count derived from criteriaVerdicts.
+    const task = applyCriteriaVerdicts(makeDoneTask({ name: 'export-csv' }), [{ id: 'C1', passed: true }]);
     const leaf = progressJournalLeaf(journalDeps(createAtomicWriteFile()), { progressFile, totalRounds: 5 }, task.id);
     await leaf.execute(ctxFor([task]));
     const written = await read();
@@ -103,7 +106,7 @@ describe('progressJournalLeaf', () => {
     expect(written).toContain('- Branch: ralphctl/test');
     expect(written).toContain('## Tasks');
     expect(written).toContain('| Task | Status | Passes |');
-    expect(written).toContain('| export-csv | done | 1 |');
+    expect(written).toContain('| export-csv | done | 1/1 |');
   });
 
   it('renders verdict=blocked with the reason in the outcome paragraph and under ## Blockers', async () => {

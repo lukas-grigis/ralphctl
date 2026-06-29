@@ -109,7 +109,10 @@ Re-grade this round the same way you graded the first:
 2. Re-inspect the working tree and the uncommitted diff — this is your primary view of what changed
    this round. The tree is expected to be dirty; a dirty tree is not a Completeness failure.
 3. Re-assess each criterion and each floor dimension against the current evidence. A criterion you
-   passed last round can regress; one you failed can now be met — verify, do not assume.
+   passed last round can regress; one you failed can now be met — verify, do not assume. Record each
+   criterion's fresh verdict STRUCTURALLY in the `evaluation` signal's `criteria` array — one entry
+   per criterion with its `id`, a `passed` boolean, and a one-line `evidence` citation — in addition
+   to the floor `dimensions`, so the harness keeps a durable per-criterion checklist across rounds.
 4. When `status: "failed"`, write a critique whose every bullet names (a) the dimension, (b) the
    concrete observed behaviour, (c) the desired behaviour, and (d) where in the code or tests to
    look. A bullet missing (d) is itself a Completeness failure on re-evaluation.

@@ -186,15 +186,20 @@ const attemptDurationMs = (attempt: Attempt | undefined): number | undefined => 
   return new Date(attempt.finishedAt).getTime() - new Date(attempt.startedAt).getTime();
 };
 
-/** Project one domain task into the derived-header row shape (status + pass-count + blocker reason). */
-const projectStateTask = (task: Task): SprintStateTask => ({
-  name: task.name,
-  status: task.status,
-  // "Passes" = attempts that cleared verification (status 'verified') — the harness's own green.
-  passCount: task.attempts.filter((a) => a.status === 'verified').length,
-  attemptCount: task.attempts.length,
-  ...(task.status === 'blocked' ? { blockedReason: task.blockedReason } : {}),
-});
+/** Project one domain task into the derived-header row shape (status + k/N criteria + blocker reason). */
+const projectStateTask = (task: Task): SprintStateTask => {
+  const verdicts = task.criteriaVerdicts ?? {};
+  return {
+    name: task.name,
+    status: task.status,
+    // "Passes" = verification criteria the harness graded `passed` over the task's total criteria —
+    // the durable k-of-N checklist folded from the evaluator's structured per-criterion verdicts.
+    criteriaPassed: task.verificationCriteria.filter((c) => verdicts[c.id] === 'passed').length,
+    criteriaTotal: task.verificationCriteria.length,
+    attemptCount: task.attempts.length,
+    ...(task.status === 'blocked' ? { blockedReason: task.blockedReason } : {}),
+  };
+};
 
 /** Identity line `# Sprint: <name>` from an existing header band — fallback when ctx.sprint is absent. */
 const parseSprintName = (existing: string): string | undefined => /^# Sprint: (.+)$/m.exec(existing)?.[1]?.trim();

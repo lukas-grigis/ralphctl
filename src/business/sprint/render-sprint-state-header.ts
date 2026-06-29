@@ -12,7 +12,8 @@ import { neutralizeProseHeadings, sanitizeInline } from '@src/business/sprint/jo
  *
  * Subsumes the one-time creation header (`renderJournalSprintHeader`): it re-emits the same sprint
  * identity block (`# Sprint:` / id / created) and adds Status, Branch & PR, open Blockers, Stale
- * tasks, and a per-task status + pass-count table.
+ * tasks, and a per-task status table whose `Passes` column is the k-of-N count of verification
+ * criteria the harness has graded `passed` (k passed / N total criteria).
  *
  * Forgery-safe: task names and blocked reasons are AI-/planner-authored, so they are collapsed to a
  * single line and heading-neutralized — a `## Task:`-shaped name can never forge a section boundary
@@ -26,8 +27,10 @@ import { neutralizeProseHeadings, sanitizeInline } from '@src/business/sprint/jo
 export interface SprintStateTask {
   readonly name: string;
   readonly status: TaskStatus;
-  /** Attempts whose evaluation passed — the per-task "pass count". */
-  readonly passCount: number;
+  /** Verification criteria the harness has graded `passed` — the `k` in the `Passes` column. */
+  readonly criteriaPassed: number;
+  /** Total verification criteria on the task — the `N` in the `Passes` column. */
+  readonly criteriaTotal: number;
   /** Total attempts recorded for the task. */
   readonly attemptCount: number;
   /** Present only on a `blocked` task — the reason, surfaced under `## Blockers`. */
@@ -100,10 +103,17 @@ const renderStale = (tasks: readonly SprintStateTask[]): string[] => {
   return ['## Stale tasks', '', ...bullets, ''];
 };
 
-/** `## Tasks` block — per-task status + pass-count table, or a placeholder when none are planned. */
+/**
+ * `k/N` criteria-passed cell for the `Passes` column, or an em-dash when the task declares no
+ * verification criteria (nothing to count) — the graceful fallback before any verdict is folded.
+ */
+const passesCell = (task: SprintStateTask): string =>
+  task.criteriaTotal === 0 ? EM_DASH : `${String(task.criteriaPassed)}/${String(task.criteriaTotal)}`;
+
+/** `## Tasks` block — per-task status + k/N criteria-pass table, or a placeholder when none are planned. */
 const renderTaskTable = (tasks: readonly SprintStateTask[]): string[] => {
   if (tasks.length === 0) return ['## Tasks', '', '_No tasks planned yet._', ''];
-  const rows = tasks.map((t) => `| ${cell(t.name)} | ${t.status} | ${String(t.passCount)} |`);
+  const rows = tasks.map((t) => `| ${cell(t.name)} | ${t.status} | ${passesCell(t)} |`);
   return ['## Tasks', '', '| Task | Status | Passes |', '| --- | --- | --- |', ...rows, ''];
 };
 

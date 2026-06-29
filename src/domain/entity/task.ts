@@ -36,11 +36,35 @@ export interface VerificationCriterion {
   readonly command?: string;
 }
 
+/**
+ * Durable per-criterion verdict the HARNESS owns. `unknown` is the slot for a criterion that has
+ * a place on the checklist but no graded verdict yet (never evaluated, or not graded this round).
+ * @public
+ */
+export type CriterionStatus = 'passed' | 'failed' | 'unknown';
+
+/**
+ * Harness-owned map of {@link VerificationCriterion.id} → {@link CriterionStatus}. Folded at settle
+ * time from the evaluator's structured `criteria` signal (`domain/signal.ts`) — NEVER derived from
+ * agent prose. Lets a task with many criteria resume against a k-of-N checklist instead of
+ * collapsing to one binary status. Absent until the first evaluator round folds a verdict on.
+ * @public
+ */
+export type CriteriaVerdicts = Readonly<Record<string, CriterionStatus>>;
+
 interface TaskBase extends Entity<TaskId> {
   readonly name: string;
   readonly description?: string;
   readonly steps: readonly string[];
   readonly verificationCriteria: readonly VerificationCriterion[];
+  /**
+   * Durable per-criterion PASS / FAIL state, HARNESS-owned. Folded at settle time from the
+   * evaluator's structured `criteria` signal (keyed by {@link VerificationCriterion.id}); ids not
+   * graded a given round keep their prior verdict. Absent until the first evaluator round folds.
+   * Never planner- or operator-authored — it is excluded from {@link TaskCreateInput} /
+   * {@link TaskUpdateInput} on purpose.
+   */
+  readonly criteriaVerdicts?: CriteriaVerdicts;
   readonly order: number;
   /** Required: every task is born from refining a ticket. */
   readonly ticketId: TicketId;

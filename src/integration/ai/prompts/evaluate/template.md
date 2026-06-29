@@ -72,6 +72,10 @@ output contract section at the bottom of this prompt.
 - Every `auto` criterion in `<task_specification>` run via shell command; verbatim output in
   `executionEvidence` field of the matching dimension.
 - Every `manual` criterion graded with a `path:line` citation or equivalent behavioural evidence.
+- Every criterion recorded in the structured `criteria` array of the `evaluation` signal — its `id`,
+  a `passed` boolean, and a one-line `evidence` citation — so the harness persists a durable
+  per-criterion checklist, not only prose. This is in ADDITION to the floor `dimensions`, not a
+  replacement.
 - A FAIL on any dimension or criterion sets `status: "failed"`.
 - The critique (when `status: "failed"`) names each failed item using the (a/b/c/d) format defined in
   `<constraints>`.
@@ -199,6 +203,12 @@ For every criterion in the contract:
   evidence demonstrably satisfies the assertion. "Looks good" / "appears correct" are not evidence.
 
 Grade each criterion PASS or FAIL — no middle ground. Any single criterion FAIL forces `status: "failed"`.
+
+Record each criterion's verdict STRUCTURALLY in the `evaluation` signal's `criteria` array — one entry
+per criterion with its `id`, a `passed` boolean, and a one-line `evidence` citation. This is the same
+grading you just did in prose; the array carries it as data so the harness can persist a durable
+per-criterion checklist across rounds. Grade every criterion you can; omit one only when you genuinely
+could not assess it this round.
 
 ### Phase 3 — Inferential investigation
 
@@ -328,6 +338,10 @@ Signals:
           "finding": "follows existing endpoint patterns in src/routes/; uses the shared error format from src/lib/errors.ts"
         }
       ],
+      "criteria": [
+        { "id": "C1", "passed": true, "evidence": "test command exited 0 — 12/12 green" },
+        { "id": "C2", "passed": true, "evidence": "returns 400 at src/routes/exports.ts:42" }
+      ],
       "timestamp": "2026-01-01T00:00:00.000Z"
     }
   ]
@@ -405,6 +419,14 @@ Signals:
           "dimension": "consistency",
           "passed": true,
           "finding": "controller structure follows existing patterns; pagination helper used correctly"
+        }
+      ],
+      "criteria": [
+        { "id": "C1", "passed": true, "evidence": "test command exited 0 — 8/8 green" },
+        {
+          "id": "C2",
+          "passed": false,
+          "evidence": "src/controllers/users.ts:47 returns 500 on non-numeric page (expected 400)"
         }
       ],
       "critique": "[Correctness · C2] (a) correctness, (b) parseInt(page) at src/controllers/users.ts:47 returns NaN for non-numeric input causing 500, (c) validate page before use so invalid input returns 400, (d) src/controllers/users.ts:47. [Safety] (a) safety, (b) WHERE name LIKE '%${query}%' at src/repositories/users.ts:23 interpolates user input into SQL, (c) use a parameterised query, (d) src/repositories/users.ts:23.",
