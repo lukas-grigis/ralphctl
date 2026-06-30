@@ -132,9 +132,10 @@ agent a clean slate, which means context anxiety can still persist. A reset prov
 cost of the handoff artifact having enough state for the next agent to pick up the work cleanly."_
 
 The choice is **model-dependent**. _"Context anxiety"_ = models _"wrapping up work prematurely as they
-approach what they believe is their context limit."_ Sonnet 4.5 showed it strongly enough that resets were
-essential; Opus 4.5/4.6 largely removed it, so the build ran as one continuous session with automatic
-compaction — and the reset machinery (orchestration complexity, token overhead, latency) could be dropped.
+approach what they believe is their context limit."_ Opus 4.5 had strong context anxiety, enough that
+resets were essential; Opus 4.6 largely eliminated it, so the build could run as one continuous session
+with automatic compaction — and the reset machinery (orchestration complexity, token overhead, latency)
+could be dropped.
 
 ## 7. Every component encodes a model-capability assumption — stress-test and prune
 

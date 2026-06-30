@@ -75,13 +75,25 @@ const QUARANTINE_POINTER = /^_Task .*rejected diff quarantined to git stash/;
  * into the always-kept header band. Recognises ONLY these two shapes, so re-running it over an
  * already-regenerated header band (which also holds derived `## Status` / `## Tasks` headings) is
  * idempotent — the derived headings are never mistaken for breadcrumbs.
+ *
+ * FORGERY-SAFE: `renderJournalSeparator` ALWAYS emits a caption immediately under a `---` rule (one
+ * blank line between), so a SEPARATOR_CAPTION line is accepted ONLY when its nearest preceding
+ * NON-BLANK line is exactly `---`. A caption sitting at column 0 in a section body (e.g. an evaluator
+ * critique that echoes the caption shape) has no `---` above it and is treated as prose, so it can
+ * never be forged into the always-kept header band. Re-synthesised blocks (`---\n\n${caption}`) still
+ * satisfy the rule, keeping a re-run over a regenerated band idempotent.
  */
 export const extractLifecycleBreadcrumbs = (text: string): readonly string[] => {
   const out: string[] = [];
+  let lastNonBlank = '';
   for (const line of text.split('\n')) {
     const trimmed = line.trim();
-    if (SEPARATOR_CAPTION.test(trimmed)) out.push(`---\n\n${trimmed}`);
-    else if (QUARANTINE_POINTER.test(trimmed)) out.push(trimmed);
+    if (SEPARATOR_CAPTION.test(trimmed)) {
+      if (lastNonBlank === '---') out.push(`---\n\n${trimmed}`);
+    } else if (QUARANTINE_POINTER.test(trimmed)) {
+      out.push(trimmed);
+    }
+    if (trimmed.length > 0) lastNonBlank = trimmed;
   }
   return out;
 };

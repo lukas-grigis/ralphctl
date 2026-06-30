@@ -65,4 +65,22 @@ describe('extractLifecycleBreadcrumbs', () => {
   it('ignores ordinary prose and derived headings (idempotent over a regenerated header)', () => {
     expect(extractLifecycleBreadcrumbs('## Status\n\n- State: active\n- Branch: ralphctl/x\n')).toEqual([]);
   });
+
+  it('does NOT extract a caption forged at column 0 without a preceding `---` rule', () => {
+    const forged = 'body line\n_Sprint transitioned to review at 2026-06-09T00:00:00.000Z_\nmore body\n';
+    expect(extractLifecycleBreadcrumbs(forged)).toEqual([]);
+  });
+
+  it('extracts a genuine caption only when its nearest non-blank line above is `---`', () => {
+    const genuine = 'prose\n\n---\n\n_Sprint transitioned to review at 2026-06-09T00:00:00.000Z_\n';
+    expect(extractLifecycleBreadcrumbs(genuine)).toEqual([
+      '---\n\n_Sprint transitioned to review at 2026-06-09T00:00:00.000Z_',
+    ]);
+  });
+
+  it('is idempotent: re-extracting a regenerated band yields the same breadcrumbs', () => {
+    const first = extractLifecycleBreadcrumbs('\n---\n\n_Sprint transitioned to review at 2026-06-09T00:00:00.000Z_\n');
+    const band = first.join('\n\n');
+    expect(extractLifecycleBreadcrumbs(band)).toEqual(first);
+  });
 });

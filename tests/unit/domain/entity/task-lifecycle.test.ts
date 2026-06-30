@@ -6,6 +6,7 @@ import {
   unblockTask,
 } from '@src/domain/entity/task-lifecycle.ts';
 import { recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
+import { applyCriteriaVerdicts } from '@src/domain/entity/task-criteria.ts';
 import type { BlockedTask } from '@src/domain/entity/task.ts';
 import { makeInProgressTaskWithRunningAttempt, makeTodoTask } from '@tests/fixtures/domain.ts';
 
@@ -82,5 +83,24 @@ describe('unblockTask — clean restart (drops block fields, resets budget + esc
     expect((back.value as unknown as Record<string, unknown>)['escalatedToModel']).toBeUndefined();
     // The cap itself (a planning field) survives — only the consumed budget resets.
     expect(back.value.maxAttempts).toBe(3);
+  });
+
+  it('drops criteriaVerdicts so stale k-of-N verdicts do not mislead the next run', () => {
+    // Arrange: build an in-progress task that carries a graded verdict map.
+    const inProgress = makeInProgressTaskWithRunningAttempt();
+    const withVerdicts = applyCriteriaVerdicts(inProgress, [{ id: 'C1', passed: true }]);
+    expect(withVerdicts.criteriaVerdicts).toBeDefined(); // precondition: verdicts are set
+
+    const blocked = markTaskBlocked(withVerdicts, 'eval failed', 'own');
+    if (!blocked.ok) throw blocked.error;
+    expect(blocked.value.criteriaVerdicts).toBeDefined(); // precondition: verdicts survive onto blocked task
+
+    // Act
+    const back = unblockTask(blocked.value);
+
+    // Assert: clean restart must shed the stale verdict map.
+    expect(back.ok).toBe(true);
+    if (!back.ok) return;
+    expect((back.value as unknown as Record<string, unknown>)['criteriaVerdicts']).toBeUndefined();
   });
 });

@@ -294,13 +294,15 @@ const writeJournalFailLoud = async (
   if (marker.ok) {
     log.error(`progress-journal-${String(taskId)} section write failed — wrote a visible gap marker instead`, {
       path: String(progressFile),
-      error: retry.error.message,
+      firstError: first.error.message,
+      retryError: retry.error.message,
     });
     return;
   }
   log.error(`progress-journal-${String(taskId)} section write failed and the gap marker could not be written`, {
     path: String(progressFile),
-    error: marker.error.message,
+    retryError: retry.error.message,
+    markerError: marker.error.message,
   });
 };
 

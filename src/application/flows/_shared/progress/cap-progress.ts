@@ -81,15 +81,6 @@ interface CapProgressOptions {
 }
 
 /**
- * Cap `body` to its header band, ALL sections of `currentTaskId` (when supplied), and the most-recent
- * OTHER-task sections that fit `recentBudgetTokens`. Empty / whitespace-only input returns the empty
- * string. A body already within the cap is returned unchanged. Each elided run of sections is replaced
- * in place by a one-line note naming the omitted count, and any lifecycle / recovery breadcrumb in a
- * dropped section is pinned into the header band.
- *
- * @public
- */
-/**
  * Indexes of the OTHER-task sections to keep: walk most-recent-first, keeping a contiguous run while
  * it fits the token budget. The single most-recent sibling always rides even if it alone exceeds the
  * budget, so the generator never loses the latest cross-task context.
@@ -135,6 +126,15 @@ const reassemble = (headerBand: string, sections: readonly string[], keep: (i: n
   return parts.join('');
 };
 
+/**
+ * Cap `body` to its header band, ALL sections of `currentTaskId` (when supplied), and the most-recent
+ * OTHER-task sections that fit `recentBudgetTokens`. Empty / whitespace-only input returns the empty
+ * string. A body already within the cap is returned unchanged. Each elided run of sections is replaced
+ * in place by a one-line note naming the omitted count, and any lifecycle / recovery breadcrumb in a
+ * dropped section is pinned into the header band.
+ *
+ * @public
+ */
 export const capProgressBody = (body: string, options: CapProgressOptions = {}): string => {
   if (body.trim().length === 0) return '';
 

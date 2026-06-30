@@ -69,6 +69,18 @@ describe('loadLearningsLeaf', () => {
     expect(ids).toEqual(['a', 'c']);
   });
 
+  it('excludes durably-retired records, keeping only the live ones', async () => {
+    await writeLedger([
+      serializeLearningRecord(record({ id: 'retired', retiredAt: '2026-05-30T13:00:00.000Z' })),
+      serializeLearningRecord(record({ id: 'live' })),
+    ]);
+
+    const result = await makeLeaf().execute({ path: ledgerPath });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect((result.value.ctx.candidates ?? []).map((r) => r.id)).toEqual(['live']);
+  });
+
   it('dedups by record id, keeping the first occurrence', async () => {
     await writeLedger([
       serializeLearningRecord(record({ id: 'dup', text: 'first' })),
