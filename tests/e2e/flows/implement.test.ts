@@ -1415,10 +1415,10 @@ describe('createImplementFlow — gen-eval loop', () => {
     expect(idxStampEval).toBeLessThan(idxEval);
   });
 
-  it('progress.md grows append-only — one task-attempt section per settled attempt plus a status separator on review', async () => {
-    // Audit-[07]: progress.md is the sole writer for the sprint's chronological journal. The
-    // implement chain appends one section per settled attempt (via progress-journal-leaf) and
-    // a separator line when the sprint transitions to review.
+  it('progress.md keeps append-only sections under a regenerated derived state header, plus a review separator', async () => {
+    // Audit-[07]: progress.md carries a DERIVED state header band (regenerated in place from
+    // canonical data on every per-attempt append) followed by append-only attempt sections, and a
+    // separator line when the sprint transitions to review.
     const f = await buildFixture(1);
     tracking(f);
     const sprintRepo = inMemorySprintRepo(f.sprint);
@@ -1458,13 +1458,13 @@ describe('createImplementFlow — gen-eval loop', () => {
     expect(runner.status).toBe('completed');
 
     const md = await fs.readFile(f.progressFile, 'utf8');
-    // Append-only journal shape: activation separator, then a task-attempt section, then the
-    // review-transition separator. No `## Status`, no `## Tasks` table — the canonical entity
-    // state lives in `tasks.json` / `sprint.json`.
-    expect(md).not.toContain('## Status');
-    expect(md).not.toContain('## Tasks');
+    // Derived state header (regenerated from canonical data) + an attempt section + the
+    // review-transition separator. The activation separator is pinned into the header band as a
+    // lifecycle breadcrumb; the review separator is appended after the last section at the epilogue.
+    expect(md).toContain('## Status');
+    expect(md).toContain('## Tasks');
     expect(md).toContain('_Sprint activated at');
-    expect(md).toMatch(/## Task: .* — Attempt 1/);
+    expect(md).toMatch(/## Task: .* — Attempt 1 · id:/);
     expect(md).toContain('- Verdict: pass');
     expect(md).toContain('_Sprint transitioned to review at');
     // The AI-emitted learning signal lands in the round's signals.json (audit-[09]), not the journal.
@@ -1477,7 +1477,7 @@ describe('createImplementFlow — gen-eval loop', () => {
     expect(JSON.parse(signals).some((s: { type: string }) => s.type === 'learning')).toBe(true);
   });
 
-  it('resume preserves prior round artifacts and grows the journal — prior progress.md content is kept verbatim', async () => {
+  it('resume preserves prior round artifacts and grows the journal — append-only sections kept, header regenerated', async () => {
     const f = await buildFixture(1);
     tracking(f);
     const sprintRepo = inMemorySprintRepo(f.sprint);
@@ -1533,10 +1533,13 @@ describe('createImplementFlow — gen-eval loop', () => {
       await fs.readFile(join(workspace, 'rounds', '2', 'generator', 'signals.json'), 'utf8')
     );
     expect(round2Signals.some((s: { type: string; text?: string }) => s.type === 'learning')).toBe(true);
-    // progress.md APPENDS — the seeded header is preserved and the new run's separator +
-    // attempt section grow underneath it.
+    // progress.md: the append-only attempt sections grow under a REGENERATED header band. The
+    // seeded `created` stamp is carried forward (stable identity), but the seeded `# Sprint: kept`
+    // name is replaced by the canonical sprint name derived from `sprint.json`.
     const md = await fs.readFile(f.progressFile, 'utf8');
-    expect(md).toContain('# Sprint: kept');
+    expect(md).toContain('# Sprint:');
+    expect(md).not.toContain('# Sprint: kept');
+    expect(md).toContain('- created: 2026-05-13T00:00:00.000Z');
     expect(md).toContain('## Task:');
     expect(md).toContain('_Sprint activated at');
   });

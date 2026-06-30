@@ -42,10 +42,7 @@ import {
   roundSignalsPath,
   writeRoundPrompt,
 } from '@src/application/flows/implement/leaves/round-artifacts.ts';
-import {
-  capProgressBody,
-  RECENT_ATTEMPT_SECTIONS,
-} from '@src/application/flows/implement/leaves/_shared/cap-progress.ts';
+import { capProgressBody, progressCapBudgetForModel } from '@src/application/flows/_shared/progress/cap-progress.ts';
 import {
   formatPreVerifyResults,
   formatRetryFeedback,
@@ -247,11 +244,16 @@ const countTurnActionKinds = (out: GeneratorOutput): Map<string, number> => {
  * to both the full implement prompt (round 1 / fresh session) and the continuation prompt.
  *
  * Best-effort: a missing / unreadable file returns the empty string so the template's
- * surrounding prose handles the empty case without a per-flow special branch.
+ * surrounding prose handles the empty case without a per-flow special branch. The current task's
+ * own history is matched on its STABLE id (not its name); the sibling breadth bound scales to the
+ * configured generator model's context window.
  */
-const readCappedProgress = async (path: string, currentTaskName: string): Promise<string> => {
+const readCappedProgress = async (path: string, currentTaskId: string, model: string): Promise<string> => {
   try {
-    return capProgressBody(await fs.readFile(path, 'utf8'), RECENT_ATTEMPT_SECTIONS, currentTaskName);
+    return capProgressBody(await fs.readFile(path, 'utf8'), {
+      currentTaskId,
+      recentBudgetTokens: progressCapBudgetForModel(model),
+    });
   } catch {
     return '';
   }
@@ -292,7 +294,7 @@ const isPlateauBreakAttempt = (task: InProgressTask): boolean => {
  *    (best-effort log reads) and passed in as `preVerifyOutput` / `retryFeedback`.
  */
 const buildGeneratorPrompt = async (
-  deps: Pick<GeneratorLeafDeps, 'templateLoader' | 'cwd' | 'progressFile' | 'verifyScript'>,
+  deps: Pick<GeneratorLeafDeps, 'templateLoader' | 'cwd' | 'progressFile' | 'verifyScript' | 'model'>,
   args: {
     readonly task: InProgressTask;
     readonly workspaceRoot: AbsolutePath;
@@ -331,7 +333,7 @@ const buildGeneratorPrompt = async (
   }
 ): Promise<Result<Prompt, BuildPromptError>> => {
   const priorCritique = latestCritique(args.task);
-  const priorProgress = await readCappedProgress(String(deps.progressFile), args.task.name);
+  const priorProgress = await readCappedProgress(String(deps.progressFile), String(args.task.id), deps.model);
   const contractPath = join(String(args.workspaceRoot), 'contract.md');
   const plateauBreak = isPlateauBreakAttempt(args.task);
 

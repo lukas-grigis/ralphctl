@@ -9,7 +9,7 @@ import type { InProgressTask, Task } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import type { EvaluationSignal } from '@src/domain/signal.ts';
+import type { CriterionVerdict, EvaluationSignal } from '@src/domain/signal.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
@@ -47,6 +47,12 @@ interface SettleInput {
   readonly workspaceRoot?: AbsolutePath;
   readonly roundNum?: number;
   readonly evaluation?: EvaluationSignal;
+  /**
+   * Structured per-criterion verdicts from this round's evaluation — folded onto the task's durable
+   * `criteriaVerdicts` by `settleAttemptUseCase`. Projected from `ctx.lastEvaluation.criteria`;
+   * harness-authored, never from agent prose.
+   */
+  readonly criteria?: readonly CriterionVerdict[];
   readonly shouldFailAttempt?: boolean;
   /**
    * Generator / evaluator session ids for the just-settled round, projected from
@@ -152,6 +158,7 @@ export const settleAttemptLeaf = (
         ...(ctx.taskWorkspaceRoot !== undefined ? { workspaceRoot: ctx.taskWorkspaceRoot } : {}),
         ...(ctx.currentRoundNum !== undefined ? { roundNum: ctx.currentRoundNum } : {}),
         ...(ctx.lastEvaluation !== undefined ? { evaluation: ctx.lastEvaluation } : {}),
+        ...(ctx.lastEvaluation?.criteria !== undefined ? { criteria: ctx.lastEvaluation.criteria } : {}),
         ...(ctx.lastShouldFailAttempt === true ? { shouldFailAttempt: true } : {}),
         ...(ctx.priorGeneratorSessionId !== undefined
           ? { generatorSessionId: String(ctx.priorGeneratorSessionId) }

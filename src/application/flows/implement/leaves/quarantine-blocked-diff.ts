@@ -13,6 +13,7 @@ import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { gitStashPush } from '@src/integration/io/git-operations.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
+import { renderQuarantineBreadcrumb } from '@src/business/sprint/journal-structure.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
 /**
@@ -137,8 +138,9 @@ export const quarantineBlockedDiffLeaf = (
           return Result.ok(undefined);
         }
         // Durable pointer: blockedReason is stripped by an operator unblock (clean restart), so
-        // the journal carries the recovery handle too. Best-effort like everything here.
-        const journalLine = `\n_Task ${recorded.value.name}: rejected diff quarantined to git stash — recover via \`git stash list\` (message: \`${message}\`)._\n`;
+        // the journal carries the recovery handle too. Shared renderer keeps the breadcrumb in the
+        // exact shape the inline cap recognises and pins. Best-effort like everything here.
+        const journalLine = renderQuarantineBreadcrumb(recorded.value.name, message);
         const appended = await deps.appendFile(opts.progressFile, journalLine);
         if (!appended.ok) {
           log.warn('quarantine pointer journal append failed', {

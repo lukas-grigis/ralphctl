@@ -319,14 +319,10 @@ If `<prior_progress>` is empty, no prior progress has been recorded on this spri
 
 </inputs>
 
-<reasoning>
-Use a thinking block before producing any output. Map each ticket onto repositories,
-identify natural task boundaries, and sequence dependencies. Explicit reasoning produces
-sharper plans than jumping straight to JSON. The harness strips thinking blocks before
-persisting.
-</reasoning>
-
 ## Protocol
+
+Before producing any output, map each ticket onto repositories, identify natural task boundaries,
+and sequence dependencies.
 
 ### Step 1 — Explore the repositories
 
@@ -351,7 +347,7 @@ For each approved ticket, decide:
 - Where the natural task boundaries are.
 - Which tasks must complete before others (`blockedBy`).
 
-Build the plan in a thinking block first — do not write JSON yet.
+Draft the plan first, before writing JSON.
 
 ### Step 3 — Interview the user
 

@@ -36,12 +36,24 @@ export const launchCloseSprint = async (ctx: LaunchContext): Promise<LaunchResul
   if (!progressPath.ok) return { ok: false, reason: progressPath.error.message };
 
   const distill = resolveDistillComposition(ctx, sprintDir);
+  // Always-on durable narrative-tier refresh: regenerate `learnings.md` from the per-project ledger
+  // at close, even when the operator declines the heavyweight distill. Available whenever a project
+  // is loaded (its id selects the per-project ledger dir).
+  const memoryMirror =
+    snapshot.project !== undefined
+      ? {
+          writeFile: deps.app.writeFile,
+          memoryRoot: deps.storage.memoryRoot,
+          projectId: String(snapshot.project.id),
+        }
+      : undefined;
   const element: Element<CloseSprintCtx> = createCloseSprintFlow({
     sprintRepo: deps.app.sprintRepo,
     clock: deps.app.clock,
     logger: deps.app.logger,
     appendFile: deps.app.appendFile,
     progressFile: progressPath.value,
+    ...(memoryMirror !== undefined ? { memoryMirror } : {}),
     ...(distill !== undefined ? { distill } : {}),
   });
   const runner = createRunner<CloseSprintCtx>({

@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { ParseError } from '@src/domain/value/error/parse-error.ts';
 import {
+  deriveDecisionId,
   deriveLearningId,
+  isDecision,
+  isLearning,
+  isRetired,
   learningRecordSchema,
   type LearningRecord,
   parseLearningLine,
+  recordKind,
   serializeLearningRecord,
 } from '@src/application/flows/_shared/memory/learning-record.ts';
 
@@ -134,5 +139,74 @@ describe('deriveLearningId', () => {
     expect(deriveLearningId('/repos/other', 'feature', 'The build emits ESM only.')).not.toBe(base);
     expect(deriveLearningId('/repos/app', 'bugfix', 'The build emits ESM only.')).not.toBe(base);
     expect(deriveLearningId('/repos/app', 'feature', 'A different insight entirely.')).not.toBe(base);
+  });
+});
+
+describe('deriveDecisionId', () => {
+  it('is a deterministic 16-char hex digest in its own namespace', () => {
+    const id = deriveDecisionId('/repos/app', 'feature', 'Adopt hexagonal layering.');
+    expect(id).toMatch(/^[0-9a-f]{16}$/);
+    expect(deriveDecisionId('/repos/app', 'feature', 'Adopt hexagonal layering.')).toBe(id);
+  });
+
+  it('keeps an identical sentence distinct from its learning id (so the shared ledger never collapses them)', () => {
+    const text = 'The build emits ESM only.';
+    expect(deriveDecisionId('/repos/app', 'feature', text)).not.toBe(deriveLearningId('/repos/app', 'feature', text));
+  });
+});
+
+describe('kind + retire helpers', () => {
+  it('recordKind defaults a legacy (no-kind) row to learning', () => {
+    expect(recordKind(record())).toBe('learning');
+    expect(recordKind(record({ kind: 'learning' }))).toBe('learning');
+    expect(recordKind(record({ kind: 'decision' }))).toBe('decision');
+  });
+
+  it('isLearning / isDecision partition by kind, legacy rows counting as learnings', () => {
+    expect(isLearning(record())).toBe(true);
+    expect(isDecision(record())).toBe(false);
+    expect(isDecision(record({ kind: 'decision' }))).toBe(true);
+    expect(isLearning(record({ kind: 'decision' }))).toBe(false);
+  });
+
+  it('isRetired treats absent / null as live, an ISO stamp as retired', () => {
+    expect(isRetired(record())).toBe(false);
+    expect(isRetired(record({ retiredAt: null }))).toBe(false);
+    expect(isRetired(record({ retiredAt: '2026-06-29T00:00:00.000Z' }))).toBe(true);
+  });
+
+  it('round-trips a decision row with kind through parse/serialize', () => {
+    const decision = record({ kind: 'decision', text: 'one bus per wire' });
+    const parsed = parseLearningLine(serializeLearningRecord(decision));
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.value?.kind).toBe('decision');
+  });
+
+  it('parses a retired row and a legacy row with no kind/retiredAt', () => {
+    const retired = parseLearningLine(serializeLearningRecord(record({ retiredAt: '2026-06-29T00:00:00.000Z' })));
+    expect(retired.ok).toBe(true);
+    if (retired.ok) expect(isRetired(retired.value as LearningRecord)).toBe(true);
+
+    // A legacy line that predates both fields still validates.
+    const legacy = parseLearningLine(
+      JSON.stringify({
+        v: 1,
+        id: 'legacy',
+        text: 'legacy insight',
+        repo: '/repos/app',
+        repoName: 'app',
+        taskKind: 'feature',
+        sprintId: 's',
+        taskId: 't',
+        timestamp: '2026-05-30T10:00:00.000Z',
+        promotedAt: null,
+      })
+    );
+    expect(legacy.ok).toBe(true);
+    if (legacy.ok) {
+      expect(recordKind(legacy.value as LearningRecord)).toBe('learning');
+      expect(isRetired(legacy.value as LearningRecord)).toBe(false);
+    }
   });
 });

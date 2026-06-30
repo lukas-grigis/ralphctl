@@ -63,19 +63,12 @@ For the complete history — older than the excerpt above — read `{{PROGRESS_F
 
 {{GENERATOR_HINTS_SECTION}}
 
-<checkpoint_protocol>
-After reviewing each acceptance criterion — before moving to the next — emit a one-line interim
-verdict inside a self-closing tag:
-
-<criterion_checkpoint criterion="N" verdict="pass|fail|partial">one-line observation</criterion_checkpoint>
-
-These tags are for your own mid-review tracking — the harness ignores them entirely. Before
-emitting your final verdict, write your step-by-step assessment inside
-<evaluation_thinking>…</evaluation_thinking> tags (the harness ignores them too — for your reasoning
-only). In that block, note whether any checkpoint changed verdict mid-review — a changed checkpoint
-is evidence of genuine investigation, not a defect. The final `signals.json` remains the only
-machine-readable output and must come last.
-</checkpoint_protocol>
+<evaluation_discipline>
+Before writing `signals.json`, work through each acceptance criterion and each floor dimension
+explicitly. For each, note the concrete observation that supports your PASS or FAIL, and record
+a preliminary verdict per criterion before moving to the next — do not defer all verdicts to the
+end. The final `signals.json` is the only machine-readable output and must come last.
+</evaluation_discipline>
 
 <protocol>
 **Checkpoint write — do this first, before re-grading**
@@ -116,7 +109,10 @@ Re-grade this round the same way you graded the first:
 2. Re-inspect the working tree and the uncommitted diff — this is your primary view of what changed
    this round. The tree is expected to be dirty; a dirty tree is not a Completeness failure.
 3. Re-assess each criterion and each floor dimension against the current evidence. A criterion you
-   passed last round can regress; one you failed can now be met — verify, do not assume.
+   passed last round can regress; one you failed can now be met — verify, do not assume. Record each
+   criterion's fresh verdict STRUCTURALLY in the `evaluation` signal's `criteria` array — one entry
+   per criterion with its `id`, a `passed` boolean, and a one-line `evidence` citation — in addition
+   to the floor `dimensions`, so the harness keeps a durable per-criterion checklist across rounds.
 4. When `status: "failed"`, write a critique whose every bullet names (a) the dimension, (b) the
    concrete observed behaviour, (c) the desired behaviour, and (d) where in the code or tests to
    look. A bullet missing (d) is itself a Completeness failure on re-evaluation.

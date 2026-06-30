@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import { FLOOR_DIMENSIONS, type DimensionScore, type EvaluationSignal } from '@src/domain/signal.ts';
+import {
+  FLOOR_DIMENSIONS,
+  type CriterionVerdict,
+  type DimensionScore,
+  type EvaluationSignal,
+} from '@src/domain/signal.ts';
 import { IsoTimestampSchema } from '@src/integration/persistence/shared/value-schemas.ts';
 import type { Compatible } from '@src/integration/persistence/shared/codec-internal.ts';
 
@@ -36,6 +41,21 @@ const _dimensionTypeCheck: Compatible<z.infer<typeof dimensionScoreSchema>, Dime
 void _dimensionTypeCheck;
 
 /**
+ * Structured per-criterion verdict — the machine-readable PASS / FAIL of one task-specific
+ * acceptance criterion, keyed by its contract id. `evidence` is schema-optional (a one-line
+ * citation backing the verdict); the prompt asks for it, the schema does not force it so a terse
+ * evaluator emission still validates.
+ */
+const criterionVerdictSchema = z.object({
+  id: z.string().min(1),
+  passed: z.boolean(),
+  evidence: z.string().optional(),
+});
+
+const _criterionTypeCheck: Compatible<z.infer<typeof criterionVerdictSchema>, CriterionVerdict> = true;
+void _criterionTypeCheck;
+
+/**
  * Zod schema for the `evaluation` AI signal — the evaluator's verdict + per-dimension
  * findings. PASS / FAIL only (no numeric score, no `overallScore`).
  *
@@ -50,17 +70,38 @@ void _dimensionTypeCheck;
  *  - `status: 'malformed'` is the escape hatch the harness uses when the AI emits dimension
  *     rows but no terminal verdict; no consistency or coverage check applies — the harness
  *     retries the attempt (see `prompts/evaluate/template.md`).
+ *
+ * The `criteria` array is ADDITIVE — structured per-criterion verdicts keyed by contract id,
+ * orthogonal to the floor `dimensions`. Optional so legacy evaluator output still validates; when a
+ * `status: 'passed'` signal lists criteria, EVERY listed criterion must be `passed: true` (a
+ * "passed but a criterion failed" payload is internally inconsistent and is rejected here).
  */
 export const evaluationSignalSchema = z
   .object({
     type: z.literal('evaluation'),
     status: z.union([z.literal('passed'), z.literal('failed'), z.literal('malformed')]),
     dimensions: z.array(dimensionScoreSchema).readonly(),
+    criteria: z.array(criterionVerdictSchema).readonly().optional(),
     critique: z.string().optional(),
     timestamp: IsoTimestampSchema,
   })
   .superRefine((s, ctx) => {
     if (s.status === 'malformed') return;
+
+    // A terminal `passed` cannot coexist with a failing listed criterion — the per-criterion
+    // verdicts and the overall status would contradict each other. (An unlisted criterion is
+    // simply ungraded this round, so coverage is NOT forced here — only consistency of what IS
+    // listed.)
+    if (s.status === 'passed' && s.criteria !== undefined) {
+      const failedCriterionIndex = s.criteria.findIndex((c) => !c.passed);
+      if (failedCriterionIndex !== -1) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'status is "passed" but at least one listed criterion is marked failed',
+          path: ['criteria', failedCriterionIndex, 'passed'],
+        });
+      }
+    }
 
     // Floor-dimension coverage applies to BOTH terminal verdicts. The names are matched
     // case-/whitespace-insensitively, mirroring `failedDimensions` in the plateau predicate.

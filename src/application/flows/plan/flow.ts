@@ -15,6 +15,7 @@ import { saveTasksLeaf } from '@src/application/flows/_shared/task/save.ts';
 import { buildUnitLeaf } from '@src/application/flows/_shared/build-unit.ts';
 import { renderPromptToFileLeaf } from '@src/application/flows/_shared/render-prompt-to-file.ts';
 import { buildPlanPrompt } from '@src/integration/ai/prompts/plan/definition.ts';
+import { capProgressBody, progressCapBudgetForModel } from '@src/application/flows/_shared/progress/cap-progress.ts';
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
 import { planOutputContract } from '@src/application/flows/plan/leaves/plan.contract.ts';
 import type { PlanCtx } from '@src/application/flows/plan/ctx.ts';
@@ -74,14 +75,18 @@ export interface CreatePlanFlowOpts {
  * `draft` even if the tasks already landed; the next plan run is idempotent.
  */
 /**
- * Read `<sprintDir>/progress.md` for the inline `## Prior progress` section (audit-[07]).
- * Plan runs under `<sprintDir>/plan/<run-slug>/`, so the sprint dir is the parent of the
- * supplied plan root. Best-effort: missing or unreadable degrades to empty string.
+ * Read `<sprintDir>/progress.md` for the inline `## Prior progress` section (audit-[07]), CAPPED to
+ * the same token budget the implement gen-eval loop uses so a long sprint's journal doesn't blow up
+ * the planning-prompt token cost. There is no "current task" in planning, so only the recent-siblings
+ * bound applies; short journals pass through unchanged. Plan runs under `<sprintDir>/plan/<run-slug>/`,
+ * so the sprint dir is the parent of the supplied plan root. Best-effort: missing or unreadable
+ * degrades to empty string.
  */
-const readSprintProgress = async (planRoot: AbsolutePath): Promise<string> => {
+const readSprintProgress = async (planRoot: AbsolutePath, model: string): Promise<string> => {
   const sprintDir = dirname(String(planRoot));
   try {
-    return await fs.readFile(join(sprintDir, 'progress.md'), 'utf8');
+    const raw = await fs.readFile(join(sprintDir, 'progress.md'), 'utf8');
+    return capProgressBody(raw, { recentBudgetTokens: progressCapBudgetForModel(model) });
   } catch {
     return '';
   }
@@ -126,7 +131,7 @@ export const createPlanFlow = (deps: PlanDeps, opts: CreatePlanFlowOpts): Elemen
           if (ctx.sprint === undefined) throw new Error('sprint missing');
           if (ctx.project === undefined) throw new Error('project missing');
           if (ctx.currentUnitRoot === undefined) throw new Error('currentUnitRoot missing');
-          const priorProgress = await readSprintProgress(opts.planRoot);
+          const priorProgress = await readSprintProgress(opts.planRoot, opts.model);
           return buildPlanPrompt(deps.templateLoader, {
             sprint: ctx.sprint,
             project: ctx.project,

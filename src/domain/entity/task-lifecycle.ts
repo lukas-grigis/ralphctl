@@ -61,12 +61,16 @@ export const unblockTask = (task: Task): Result<TodoTask, InvalidStateError> => 
     blockKind: _kind,
     escalatedFromModel: _from,
     escalatedToModel: _to,
+    // A clean restart drops the prior run's per-criterion verdicts too — a freshly-planned task
+    // carries no k-of-N history; stale verdicts would mislead the next run's checklist.
+    criteriaVerdicts: _verdicts,
     ...rest
   } = guard.value;
   void _reason;
   void _kind;
   void _from;
   void _to;
+  void _verdicts;
   return Result.ok({ ...rest, status: 'todo', attempts: [] });
 };
 

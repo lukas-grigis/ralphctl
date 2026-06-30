@@ -73,6 +73,10 @@ export const markTaskDone = (task: Task, now: IsoTimestamp): Result<DoneTask, In
     ...(guard.value.description !== undefined ? { description: guard.value.description } : {}),
     steps: guard.value.steps,
     verificationCriteria: guard.value.verificationCriteria,
+    // Carry the harness-owned per-criterion verdicts so a prior round's fold survives the
+    // todo/in_progress → done reconstruction; the settle use case overlays THIS round's verdicts
+    // on top of the done task afterwards.
+    ...(guard.value.criteriaVerdicts !== undefined ? { criteriaVerdicts: guard.value.criteriaVerdicts } : {}),
     order: guard.value.order,
     ticketId: guard.value.ticketId,
     dependsOn: guard.value.dependsOn,

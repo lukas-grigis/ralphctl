@@ -194,16 +194,18 @@ export interface BuildEvaluatePromptInput {
  * The chain leaf consumes this via function injection. `task.extraDimensions` is threaded into
  * the rubric automatically; the rendered section is empty when the field is unset.
  *
- * The template includes a `<reasoning_protocol>` section instructing the evaluator to write its
- * step-by-step assessment inside `<evaluation_thinking>` tags before emitting the verdict signal —
- * externalising the reasoning reduces premature verdict commitment (a prompt-engineering
- * approximation of an explicit think step).
- *
- * The template also includes a `<checkpoint_protocol>` section (R3) instructing the evaluator to
- * emit a `<criterion_checkpoint criterion="N" verdict="pass|fail|partial">` tag after reviewing
- * each acceptance criterion — before moving to the next. The tags are model-internal tracking only
- * (the harness ignores them) and give the final `<evaluation_thinking>` block explicit per-criterion
- * anchors to reference. Neither protocol requires changes to the headless provider layer.
+ * The template follows a four-phase protocol. Phase 0 writes a placeholder `signals.json`
+ * immediately as a recovery checkpoint — if the session exhausts its token budget mid-analysis the
+ * harness can prompt a cheaper follow-up rather than restarting from scratch. Phase 1 runs
+ * deterministic checks: each `auto` criterion's command directly (not the verify script). Phase 2
+ * grades every criterion and records each verdict structurally in the `evaluation` signal's `criteria`
+ * array (id + passed boolean + one-line evidence citation) in addition to prose assessment. Phase 3
+ * applies inferential investigation to what deterministic checks cannot catch, including end-to-end
+ * product exercise when a run-path is declared in `<project_tooling>`. Phase 4 assesses the four
+ * floor dimensions (correctness, completeness, safety, consistency) plus any task-specific extras
+ * injected via `{{EXTRA_DIMENSIONS_SECTION}}`. An `<evaluation_discipline>` block instructs the
+ * evaluator to work through each criterion and floor dimension explicitly — recording a preliminary
+ * verdict per criterion before moving to the next — to reduce premature verdict commitment.
  */
 export const buildEvaluatePrompt = async (
   deps: TemplateLoader,

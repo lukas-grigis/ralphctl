@@ -74,8 +74,8 @@ export interface ImplementDeps {
    */
   readonly writeFile: WriteFile;
   /**
-   * Append-only writer — used by `progress-journal-leaf` and `append-journal-separator-leaf`
-   * to grow `<sprintDir>/progress.md` (audit-[07]).
+   * Append-only writer — used by `append-journal-separator-leaf` to grow `<sprintDir>/progress.md`
+   * (audit-[07]). The `progress-journal-leaf` uses {@link writeFile} instead (read-regenerate-write).
    */
   readonly appendFile: AppendFile;
 }

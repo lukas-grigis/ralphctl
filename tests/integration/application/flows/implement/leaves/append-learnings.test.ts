@@ -140,6 +140,71 @@ describe('appendLearningsLeaf', () => {
     expect(records.map((r) => r.text)).toEqual(['same insight', 'distinct insight']);
   });
 
+  it('captures decisions as kind:decision rows alongside learnings, in one ledger', async () => {
+    const append = recordingAppendFile();
+    const task = makeDoneTask({ name: 'add export feature' });
+    const leaf = appendLearningsLeaf(
+      { appendFile: append.fn, writeFile: recordingWriteFile().fn, clock: () => FIXED_NOW, logger: noopLogger },
+      {
+        memoryRoot: MEMORY_ROOT,
+        projectId: PROJECT_ID,
+        projectSlug: PROJECT_SLUG,
+        repoPath: REPO_PATH,
+        repoName: REPO_NAME,
+      },
+      task.id
+    );
+    const result = await leaf.execute({
+      sprintId: SPRINT_ID,
+      tasks: [task],
+      currentAttemptLearnings: [{ text: 'a learning' }],
+      currentAttemptDecisions: [
+        'use one event bus per wire',
+        '  use one event bus per wire  ',
+        'adopt hexagonal layering',
+      ],
+    });
+    expect(result.ok).toBe(true);
+
+    const records = parseLedger(append.read(ledgerPath));
+    const learnings = records.filter((r) => (r.kind ?? 'learning') === 'learning');
+    const decisions = records.filter((r) => r.kind === 'decision');
+    expect(learnings.map((r) => r.text)).toEqual(['a learning']);
+    // Decisions are deduped (trim-equal) and stamped kind:decision with promotedAt null.
+    expect(decisions.map((r) => r.text)).toEqual(['use one event bus per wire', 'adopt hexagonal layering']);
+    for (const d of decisions) {
+      expect(d.promotedAt).toBeNull();
+      expect(d.taskKind).toBe('feature');
+      expect(d.id).toHaveLength(16);
+    }
+  });
+
+  it('appends decisions even when the attempt produced no learnings', async () => {
+    const append = recordingAppendFile();
+    const task = makeDoneTask({ name: 'refactor the loader' });
+    const leaf = appendLearningsLeaf(
+      { appendFile: append.fn, writeFile: recordingWriteFile().fn, clock: () => FIXED_NOW, logger: noopLogger },
+      {
+        memoryRoot: MEMORY_ROOT,
+        projectId: PROJECT_ID,
+        projectSlug: PROJECT_SLUG,
+        repoPath: REPO_PATH,
+        repoName: REPO_NAME,
+      },
+      task.id
+    );
+    const result = await leaf.execute({
+      sprintId: SPRINT_ID,
+      tasks: [task],
+      currentAttemptDecisions: ['split the module'],
+    });
+    expect(result.ok).toBe(true);
+    const records = parseLedger(append.read(ledgerPath));
+    expect(records).toHaveLength(1);
+    expect(records[0]?.kind).toBe('decision');
+    expect(records[0]?.text).toBe('split the module');
+  });
+
   it('best-effort: an append failure is swallowed and the attempt proceeds (Result.ok)', async () => {
     const failingAppend = async () =>
       Result.error(Object.assign(new Error('disk full'), { message: 'disk full' })) as never;
@@ -212,7 +277,7 @@ describe('appendLearningsLeaf', () => {
     // reads the SAME accumulator to render its `### Learnings` subsection and clears it. If the
     // append leaf cleared the accumulator, the journal would lose the subsection.
     const append = recordingAppendFile();
-    const journalAppend = recordingAppendFile();
+    const journalWrite = recordingWriteFile();
     const task = makeDoneTask({ name: 'add caching' });
 
     const appendLeaf = appendLearningsLeaf(
@@ -227,7 +292,7 @@ describe('appendLearningsLeaf', () => {
       task.id
     );
     const journalLeaf = progressJournalLeaf(
-      { appendFile: journalAppend.fn, clock: () => FIXED_NOW, logger: noopLogger },
+      { writeFile: journalWrite.fn, clock: () => FIXED_NOW, logger: noopLogger },
       { progressFile: PROGRESS_FILE, totalRounds: 5 },
       task.id
     );
@@ -250,7 +315,7 @@ describe('appendLearningsLeaf', () => {
     // Journal runs next on the (still-populated) ctx and renders + clears the learnings.
     const afterJournal = await journalLeaf.execute(afterAppend.value.ctx);
     if (!afterJournal.ok) throw afterJournal.error;
-    expect(journalAppend.read(PROGRESS_FILE) ?? '').toContain('- **ordering matters here**');
+    expect(journalWrite.read(PROGRESS_FILE) ?? '').toContain('- **ordering matters here**');
     expect(afterJournal.value.ctx.currentAttemptLearnings).toBeUndefined();
   });
 

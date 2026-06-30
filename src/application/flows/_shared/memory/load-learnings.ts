@@ -5,7 +5,7 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
-import type { LearningRecord } from '@src/application/flows/_shared/memory/learning-record.ts';
+import { type LearningRecord, isRetired } from '@src/application/flows/_shared/memory/learning-record.ts';
 import { isAbortedRead } from '@src/application/flows/_shared/memory/abort-guard.ts';
 import { readLedgerLines } from '@src/application/flows/_shared/memory/read-ledger.ts';
 
@@ -36,8 +36,10 @@ export interface LoadLearningsLeafConfig<TCtx> {
  * de-dups by record `id` (keeping the FIRST occurrence — the write side stamps a stable
  * `deriveLearningId` id, `sha1(repo|taskKind|normalize(text))[:16]`, so a re-emitted learning
  * collapses onto one row), and filters to
- * the records still awaiting promotion (`promotedAt === null`). Those are the candidates the
- * distill flow proposes to the operator.
+ * the records still awaiting promotion (`promotedAt === null`) that have NOT been durably retired
+ * (the operator declined them at a prior distill gate). Those are the candidates the distill flow
+ * proposes to the operator and the generator reads as cross-sprint memory. Both kinds — `learning`
+ * and `decision` — survive this filter; the distill consumer narrows to `learning` itself.
  *
  * Two non-fatal read outcomes BOTH resolve to "propose nothing" (an empty candidate list):
  *  - the ledger file is ABSENT (`ENOENT`) — the project never produced a learning yet;
@@ -89,6 +91,7 @@ const loadCandidates = async (
       if (seen.has(record.id)) continue; // dedup by stable id, keep first
       seen.add(record.id);
       if (record.promotedAt !== null) continue; // already promoted — not a candidate
+      if (isRetired(record)) continue; // durably retired (operator declined) — never re-propose
       candidates.push(record);
     }
   } catch (cause) {

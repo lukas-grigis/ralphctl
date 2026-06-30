@@ -1,7 +1,9 @@
 /**
- * Integration tests for the ledger writer (Wave 2, Task 8). `appendLearningsAndMirror` appends NDJSON
- * line(s) then regenerates the human-readable `learnings.md` from the FULL ledger so the mirror stays
- * current on every write. Uses a real tmpdir so the mirror's reread-from-disk path is exercised.
+ * Integration tests for the ledger writer. `appendMemoryRecords` appends crash-safe NDJSON line(s)
+ * and bounds the file when it grows past the size threshold — but DELIBERATELY does NOT regenerate
+ * the `learnings.md` mirror (that O(n) read+reparse+rewrite moved off the hot gen-eval path; the
+ * mirror is rendered lazily at distill / sprint close). Uses a real tmpdir so the on-disk paths are
+ * exercised end to end.
  */
 
 import { promises as fs } from 'node:fs';
@@ -12,8 +14,14 @@ import { absolutePath } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { createAppendFile } from '@src/integration/io/append-file-adapter.ts';
 import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
-import type { LearningRecord } from '@src/application/flows/_shared/memory/learning-record.ts';
-import { appendLearningsAndMirror, learningsMdPath } from '@src/application/flows/_shared/memory/ledger-writer.ts';
+import { type LearningRecord, serializeLearningRecord } from '@src/application/flows/_shared/memory/learning-record.ts';
+import {
+  appendMemoryRecords,
+  boundLedgerIfNeeded,
+  learningsMdPath,
+  mirrorLearningsMd,
+} from '@src/application/flows/_shared/memory/ledger-writer.ts';
+import { LEDGER_MAX_PENDING_ROWS } from '@src/application/flows/_shared/memory/compact-ledger.ts';
 
 let dir: string;
 
@@ -27,67 +35,52 @@ afterEach(async () => {
 
 const ledgerPath = () => absolutePath(join(dir, 'learnings.ndjson'));
 
-const rec = (text: string, promotedAt: string | null = null): LearningRecord => ({
+const rec = (over: Partial<LearningRecord> & { text: string; id: string }): LearningRecord => ({
   v: 1,
-  id: text,
-  text,
   repo: '/repo',
   repoName: 'demo',
   taskKind: 'feature',
   sprintId: 's1',
   taskId: 't1',
   timestamp: '2026-06-19T10:00:00.000Z',
-  promotedAt,
+  promotedAt: null,
+  ...over,
 });
 
-describe('appendLearningsAndMirror', () => {
-  it('appends NDJSON line(s) AND regenerates learnings.md from the full ledger', async () => {
+const nonBlankLines = (raw: string): readonly string[] => raw.split('\n').filter((l) => l.trim().length > 0);
+
+describe('appendMemoryRecords', () => {
+  it('appends NDJSON line(s) and does NOT regenerate learnings.md on the hot path', async () => {
     const deps = { appendFile: createAppendFile(), writeFile: createAtomicWriteFile(), log: noopLogger };
 
-    const r1 = await appendLearningsAndMirror(ledgerPath(), [rec('first insight')], deps);
+    const r1 = await appendMemoryRecords(ledgerPath(), [rec({ id: 'a', text: 'first insight' })], deps);
     expect(r1.ok).toBe(true);
-
-    const r2 = await appendLearningsAndMirror(ledgerPath(), [rec('second insight')], deps);
+    const r2 = await appendMemoryRecords(ledgerPath(), [rec({ id: 'b', text: 'second insight' })], deps);
     expect(r2.ok).toBe(true);
 
-    // The ledger has both lines.
+    // The ledger has both lines (crash-safe append).
     const ndjson = await fs.readFile(join(dir, 'learnings.ndjson'), 'utf8');
-    expect(ndjson.trim().split('\n')).toHaveLength(2);
+    expect(nonBlankLines(ndjson)).toHaveLength(2);
 
-    // The mirror reflects the WHOLE ledger (not just the last append).
-    const mdPath = learningsMdPath(ledgerPath());
-    expect(mdPath).toBeTruthy();
-    const md = await fs.readFile(join(dir, 'learnings.md'), 'utf8');
-    expect(md).toContain('first insight');
-    expect(md).toContain('second insight');
+    // The mirror is LAZY — no learnings.md was written on the append path.
+    await expect(fs.access(join(dir, 'learnings.md'))).rejects.toBeTruthy();
   });
 
-  it('over the byte ceiling: still appends the ndjson line but does NOT rewrite (or empty) learnings.md', async () => {
+  it('appends learning + decision rows side by side (kind discriminator)', async () => {
     const deps = { appendFile: createAppendFile(), writeFile: createAtomicWriteFile(), log: noopLogger };
-
-    // Plant a real mirror that must survive untouched — the OOM guard must SKIP the mirror write, not
-    // overwrite a genuine learnings.md with an empty "no learnings" view.
-    const mdFile = join(dir, 'learnings.md');
-    await fs.writeFile(mdFile, '# Real learnings\n\n- a genuine prior insight\n', 'utf8');
-
-    // One real ledger line, then balloon the file past the 50 MB hard ceiling with a sparse truncate
-    // (cheap — no 50 MB of bytes actually written) so the stat sees an over-ceiling size.
-    const ledgerFile = join(dir, 'learnings.ndjson');
-    await appendLearningsAndMirror(ledgerPath(), [rec('seed')], deps);
-    await fs.writeFile(mdFile, '# Real learnings\n\n- a genuine prior insight\n', 'utf8'); // restore after seed mirror
-    await fs.truncate(ledgerFile, 50 * 1024 * 1024 + 1);
-
-    const res = await appendLearningsAndMirror(ledgerPath(), [rec('over-ceiling insight')], deps);
+    const res = await appendMemoryRecords(
+      ledgerPath(),
+      [
+        rec({ id: 'l1', text: 'a learning', kind: 'learning' }),
+        rec({ id: 'd1', text: 'a decision', kind: 'decision' }),
+      ],
+      deps
+    );
     expect(res.ok).toBe(true);
-
-    // The ndjson append (source of truth) DID land past the seed line.
-    const ndjson = await fs.readFile(ledgerFile, 'utf8');
-    expect(ndjson).toContain('over-ceiling insight');
-
-    // The mirror was NOT rewritten — it still holds the genuine prior content and was not emptied.
-    const md = await fs.readFile(mdFile, 'utf8');
-    expect(md).toContain('a genuine prior insight');
-    expect(md).not.toContain('over-ceiling insight');
+    const lines = nonBlankLines(await fs.readFile(join(dir, 'learnings.ndjson'), 'utf8')).map(
+      (l) => JSON.parse(l) as LearningRecord
+    );
+    expect(lines.map((r) => r.kind)).toEqual(['learning', 'decision']);
   });
 
   it('an append failure is returned as an error', async () => {
@@ -97,7 +90,59 @@ describe('appendLearningsAndMirror', () => {
       return Result.error(new StorageError({ subCode: 'io', message: 'disk full' }));
     };
     const deps = { appendFile: failing, writeFile: createAtomicWriteFile(), log: noopLogger };
-    const res = await appendLearningsAndMirror(ledgerPath(), [rec('x')], deps);
+    const res = await appendMemoryRecords(ledgerPath(), [rec({ id: 'x', text: 'x' })], deps);
     expect(res.ok).toBe(false);
+  });
+});
+
+describe('boundLedgerIfNeeded (always-on size bounding)', () => {
+  // A line wide enough that a few hundred rows clear the size threshold (size / 300 >= 450).
+  const wide = (i: number): LearningRecord =>
+    rec({ id: `id-${String(i)}`, text: `insight ${String(i)} ${'x'.repeat(280)}` });
+
+  it('is a no-op when the ledger is under the size threshold', async () => {
+    const before = [
+      serializeLearningRecord(rec({ id: 'a', text: 'a' })),
+      serializeLearningRecord(rec({ id: 'b', text: 'b' })),
+    ].join('');
+    await fs.writeFile(join(dir, 'learnings.ndjson'), before, 'utf8');
+
+    const res = await boundLedgerIfNeeded(ledgerPath(), { writeFile: createAtomicWriteFile(), log: noopLogger });
+    expect(res.ok).toBe(true);
+    // Byte-for-byte untouched — no rewrite under the threshold.
+    expect(await fs.readFile(join(dir, 'learnings.ndjson'), 'utf8')).toBe(before);
+  });
+
+  it('compacts an over-threshold ledger, evicting the oldest pending past the cap', async () => {
+    // Enough distinct pending rows to BOTH exceed the byte threshold and overflow the pending cap.
+    const total = LEDGER_MAX_PENDING_ROWS + 150;
+    const body = Array.from({ length: total }, (_, i) => serializeLearningRecord(wide(i))).join('');
+    await fs.writeFile(join(dir, 'learnings.ndjson'), body, 'utf8');
+
+    const res = await boundLedgerIfNeeded(ledgerPath(), { writeFile: createAtomicWriteFile(), log: noopLogger });
+    expect(res.ok).toBe(true);
+
+    const after = nonBlankLines(await fs.readFile(join(dir, 'learnings.ndjson'), 'utf8'));
+    // Pending capped at LEDGER_MAX_PENDING_ROWS; the OLDEST were evicted (newest survive).
+    expect(after).toHaveLength(LEDGER_MAX_PENDING_ROWS);
+    const survivingIds = after.map((l) => (JSON.parse(l) as LearningRecord).id);
+    expect(survivingIds).toContain(`id-${String(total - 1)}`); // newest survives
+    expect(survivingIds).not.toContain('id-0'); // oldest evicted
+  });
+});
+
+describe('mirrorLearningsMd (lazy render)', () => {
+  it('renders learnings.md next to the ledger from a parsed record set', async () => {
+    const mdPath = learningsMdPath(ledgerPath());
+    expect(mdPath).toBeTruthy();
+    await mirrorLearningsMd(
+      ledgerPath(),
+      [rec({ id: 'a', text: 'first insight' }), rec({ id: 'b', text: 'second insight' })],
+      createAtomicWriteFile(),
+      noopLogger
+    );
+    const md = await fs.readFile(join(dir, 'learnings.md'), 'utf8');
+    expect(md).toContain('first insight');
+    expect(md).toContain('second insight');
   });
 });

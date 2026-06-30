@@ -46,8 +46,29 @@ describe('renderLearningsMd', () => {
     expect(md).toContain('promoted one');
     expect(md).toMatch(/pending.*pending one|pending one/);
     expect(md).toContain('promoted');
-    // The summary line counts both.
-    expect(md).toContain('1 promoted, 1 pending');
+    // The summary line counts each bucket separately.
+    expect(md).toContain('1 promoted, 0 declined, 1 pending');
+  });
+
+  it('renders a retired record with the declined marker + its retiredAt, never pending', () => {
+    const md = renderLearningsMd([
+      rec({ id: 'r', text: 'declined one', promotedAt: null, retiredAt: '2026-06-20T08:30:00.000Z' }),
+    ]);
+    expect(md).toContain('declined one');
+    expect(md).toContain('⊘ declined');
+    // A retired row has promotedAt: null but must NOT be mislabeled as pending.
+    expect(md).not.toContain('○ pending');
+    // The retiredAt timestamp is surfaced under a Declined label (TZ pinned to UTC).
+    expect(md).toContain('Declined');
+    expect(md).toContain('2026-06-20 08:30');
+    // The summary counts it as declined, not pending.
+    expect(md).toContain('0 promoted, 1 declined, 0 pending');
+  });
+
+  it('annotates a decision-kind record so it reads distinctly from a learning', () => {
+    const md = renderLearningsMd([rec({ id: 'd', kind: 'decision', text: 'use ndjson for the ledger' })]);
+    expect(md).toContain('use ndjson for the ledger');
+    expect(md).toContain('· decision');
   });
 
   it('renders context + applies-to when present', () => {

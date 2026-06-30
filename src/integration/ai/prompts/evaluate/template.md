@@ -72,6 +72,10 @@ output contract section at the bottom of this prompt.
 - Every `auto` criterion in `<task_specification>` run via shell command; verbatim output in
   `executionEvidence` field of the matching dimension.
 - Every `manual` criterion graded with a `path:line` citation or equivalent behavioural evidence.
+- Every criterion recorded in the structured `criteria` array of the `evaluation` signal — its `id`,
+  a `passed` boolean, and a one-line `evidence` citation — so the harness persists a durable
+  per-criterion checklist, not only prose. This is in ADDITION to the floor `dimensions`, not a
+  replacement.
 - A FAIL on any dimension or criterion sets `status: "failed"`.
 - The critique (when `status: "failed"`) names each failed item using the (a/b/c/d) format defined in
   `<constraints>`.
@@ -92,29 +96,12 @@ The block below mirrors that file for in-context reference.
 
 </task_specification>
 
-<reasoning_protocol>
-Before emitting your evaluation signal, write your step-by-step assessment inside
-<evaluation_thinking>…</evaluation_thinking> tags. The harness ignores these tags — they are
-for your reasoning only. Structure the block as:
-
-- Review each acceptance criterion against the evidence collected in Phases 1–2.
-- Identify what specifically changed vs. what the specification required.
-- Decide the verdict for each floor dimension with explicit reasoning.
-- THEN write the final `signals.json` with your concluded verdict.
-
-</reasoning_protocol>
-
-<checkpoint_protocol>
-After reviewing each acceptance criterion — before moving to the next — emit a one-line interim
-verdict inside a self-closing tag:
-
-<criterion_checkpoint criterion="N" verdict="pass|fail|partial">one-line observation</criterion_checkpoint>
-
-These tags are for your own mid-review tracking — the harness ignores them entirely. When you
-write the final <evaluation_thinking> block, note whether any checkpoint changed verdict mid-review
-— a changed checkpoint is evidence of genuine investigation, not a defect. The final `signals.json`
-remains the only machine-readable output and must come last.
-</checkpoint_protocol>
+<evaluation_discipline>
+Before writing `signals.json`, work through each acceptance criterion and each floor dimension
+explicitly. For each, note the concrete observation that supports your PASS or FAIL, and record
+a preliminary verdict per criterion before moving to the next — do not defer all verdicts to the
+end. The final `signals.json` is the only machine-readable output and must come last.
+</evaluation_discipline>
 
 <inputs>
   <project_path>{{PROJECT_PATH}}</project_path>
@@ -151,12 +138,6 @@ You can read any file under `<project_path>` and the harness-mounted output dire
 commands (to execute the verify script, run test files, check git status, inspect diffs). The only file you
 may write is `signals.json` under the harness output directory.
 </capabilities>
-
-<reasoning>
-Use a thinking block when weighing multiple criteria or dimensions simultaneously. Skip it for straightforward
-single-criterion checks. Structure your thinking as: (1) list the criteria you will grade, (2) note red flags
-from the task description, (3) plan which shell commands to run first.
-</reasoning>
 
 ## Review protocol
 
@@ -195,7 +176,7 @@ Write this file, then proceed to Phase 1.
 
 ### Phase 1 — Computational verification
 
-Open with a thinking block: list the criteria you will grade and any red flags from the task description.
+Before running any checks, list the criteria you will grade and any red flags from the task description.
 
 Run deterministic checks first — they are authoritative and cheap.
 
@@ -223,6 +204,12 @@ For every criterion in the contract:
 
 Grade each criterion PASS or FAIL — no middle ground. Any single criterion FAIL forces `status: "failed"`.
 
+Record each criterion's verdict STRUCTURALLY in the `evaluation` signal's `criteria` array — one entry
+per criterion with its `id`, a `passed` boolean, and a one-line `evidence` citation. This is the same
+grading you just did in prose; the array carries it as data so the harness can persist a durable
+per-criterion checklist across rounds. Grade every criterion you can; omit one only when you genuinely
+could not assess it this round.
+
 ### Phase 3 — Inferential investigation
 
 Apply semantic judgment to what the computational checks cannot catch. Every finding MUST trace to a concrete
@@ -231,16 +218,31 @@ observation — file path, line number, function name, tool output, or quoted sn
 1. Read the changed files in full — understand the implementation, not just the diff.
 2. Read surrounding code — check whether the change follows existing patterns. Cite a specific sibling file
    or function when the comparison matters.
-3. Run extended verification when cheap and deterministic:
-   - UI / frontend tasks — when no `auto` criterion already exercises the changed UI, run targeted test
-     scenarios against it (console errors, layout, interactive behaviour) when a test runner or browser
-     capability is available. Skip when an `auto` criterion covers the same surface — running it again
-     would duplicate work already done in Phase 1.
-   - API tasks — make a targeted request to the endpoint when a local server is running.
+3. Run end-to-end verification against the running product when a capability is declared. Check
+   `<project_tooling>` for a run-path — a dev-server start command, application entry point, CLI
+   invocation, or end-to-end / smoke suite. Note that `<project_tooling>` and any generator-provided
+   hints give you CONTEXT about where to look — they are never a substitute for your own direct
+   observation; the information they carry is unverified until you exercise the path yourself.
+
+   **When a run-path is declared in `<project_tooling>`**, you MUST exercise the changed behaviour
+   directly before settling your verdict:
+   - **Web app or UI**: start the server, navigate to the changed path, and record what you
+     observed. Skip when an `auto` criterion in Phase 1 already covered the same path.
+   - **CLI tool**: invoke the affected command with representative input and record the exact
+     output.
+   - **Service or API**: call the affected endpoint when a local server is running; inspect and
+     record the response.
+   - **E2E or smoke suite**: run it when declared in `<project_tooling>` and confirm it reaches
+     the changed behaviour path.
+     Cite the run command and verbatim observation as evidence in the Correctness dimension finding.
+     Absence of a run observation when a run-path was declared is a Completeness failure.
+
+   **When `<project_tooling>` carries no runnable-product capability** (a library, a pure type or
+   schema package, or only static analysis tooling listed):
    - Library or module tasks — run the relevant test file directly when the change is small.
    - CLI tasks — run the affected command with representative input and verify the output.
-   - Skip only when the project has no runnable verification tooling or the task is purely structural (types,
-     schemas, config).
+   - Structural tasks (types, schemas, config only) — skip; Phase 1 and Phase 2 checks are
+     sufficient evidence.
 
 ### Phase 4 — Dimension assessment
 
@@ -336,6 +338,10 @@ Signals:
           "finding": "follows existing endpoint patterns in src/routes/; uses the shared error format from src/lib/errors.ts"
         }
       ],
+      "criteria": [
+        { "id": "C1", "passed": true, "evidence": "test command exited 0 — 12/12 green" },
+        { "id": "C2", "passed": true, "evidence": "returns 400 at src/routes/exports.ts:42" }
+      ],
       "timestamp": "2026-01-01T00:00:00.000Z"
     }
   ]
@@ -413,6 +419,14 @@ Signals:
           "dimension": "consistency",
           "passed": true,
           "finding": "controller structure follows existing patterns; pagination helper used correctly"
+        }
+      ],
+      "criteria": [
+        { "id": "C1", "passed": true, "evidence": "test command exited 0 — 8/8 green" },
+        {
+          "id": "C2",
+          "passed": false,
+          "evidence": "src/controllers/users.ts:47 returns 500 on non-numeric page (expected 400)"
         }
       ],
       "critique": "[Correctness · C2] (a) correctness, (b) parseInt(page) at src/controllers/users.ts:47 returns NaN for non-numeric input causing 500, (c) validate page before use so invalid input returns 400, (d) src/controllers/users.ts:47. [Safety] (a) safety, (b) WHERE name LIKE '%${query}%' at src/repositories/users.ts:23 interpolates user input into SQL, (c) use a parameterised query, (d) src/repositories/users.ts:23.",

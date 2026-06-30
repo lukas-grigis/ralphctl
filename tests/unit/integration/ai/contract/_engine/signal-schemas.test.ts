@@ -125,6 +125,53 @@ describe('signal schemas (happy-path parses)', () => {
     ).toBe(true);
   });
 
+  it('evaluation: accepts a structured per-criterion `criteria` array alongside the dimensions', () => {
+    const r = evaluationSignalSchema.safeParse({
+      type: 'evaluation',
+      status: 'failed',
+      dimensions: [{ dimension: 'correctness', passed: false, finding: 'C2 unmet' }, ...floorRest],
+      criteria: [
+        { id: 'C1', passed: true, evidence: 'test green' },
+        { id: 'C2', passed: false, evidence: 'returns 500 at src/foo.ts:47' },
+      ],
+      critique: 'fix C2',
+      timestamp: ts,
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.criteria).toEqual([
+        { id: 'C1', passed: true, evidence: 'test green' },
+        { id: 'C2', passed: false, evidence: 'returns 500 at src/foo.ts:47' },
+      ]);
+    }
+  });
+
+  it('evaluation: a PASS verdict may carry criteria when every listed criterion passed', () => {
+    expect(
+      evaluationSignalSchema.safeParse({
+        type: 'evaluation',
+        status: 'passed',
+        dimensions: [{ dimension: 'correctness', passed: true, finding: '' }, ...floorRest],
+        criteria: [{ id: 'C1', passed: true }],
+        timestamp: ts,
+      }).success
+    ).toBe(true);
+  });
+
+  it('evaluation: rejects a PASS verdict that lists a failing criterion (status/criteria contradiction)', () => {
+    const r = evaluationSignalSchema.safeParse({
+      type: 'evaluation',
+      status: 'passed',
+      dimensions: [{ dimension: 'correctness', passed: true, finding: '' }, ...floorRest],
+      criteria: [
+        { id: 'C1', passed: true },
+        { id: 'C2', passed: false },
+      ],
+      timestamp: ts,
+    });
+    expect(r.success).toBe(false);
+  });
+
   it('evaluation: silently strips the legacy `score` field on a dimension', () => {
     const r = evaluationSignalSchema.safeParse({
       type: 'evaluation',

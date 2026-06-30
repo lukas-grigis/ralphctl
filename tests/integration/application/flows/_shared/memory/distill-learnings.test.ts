@@ -292,6 +292,49 @@ describe('createDistillLearningsSubChain', () => {
     expect(promotedCount).toBe(2);
   });
 
+  it('excludes decisions from the curated candidate set — a decision row is never promoted', async () => {
+    await seedLedger([
+      serializeLearningRecord(record({ id: 'l', text: 'a learning', kind: 'learning' })),
+      serializeLearningRecord(record({ id: 'd', text: 'a decision', kind: 'decision' })),
+    ]);
+
+    const chain = await createDistillLearningsSubChain(
+      buildDeps({
+        interactiveAiFor: () => fakeInteractiveAi({ calls: [] }),
+        interactive: scriptedConfirms([true]).prompt,
+      }),
+      { projectId: PROJECT_ID, projectSlug: PROJECT_SLUG, memoryRoot, distillRoot, ai: allClaude }
+    );
+    const runner = await run(chain, initialCtx(true));
+    expect(runner.status).toBe('completed');
+
+    const byId = new Map((await readRecords(ledgerPath)).map((r) => [r.id, r]));
+    // The learning was promoted; the decision was NOT folded into the native file and stays live.
+    expect(byId.get('l')?.promotedAt).toBe(FIXED_NOW);
+    expect(byId.get('d')?.promotedAt).toBeNull();
+    expect(byId.get('d')?.retiredAt ?? null).toBeNull();
+  });
+
+  it('declining the proposal durably RETIRES the proposed learnings (never re-proposed)', async () => {
+    await seedLedger([serializeLearningRecord(record({ id: 'a', text: 'a learning' }))]);
+
+    const chain = await createDistillLearningsSubChain(
+      buildDeps({
+        interactiveAiFor: () => fakeInteractiveAi({ calls: [] }),
+        interactive: scriptedConfirms([false]).prompt, // operator declines the whole proposal
+      }),
+      { projectId: PROJECT_ID, projectSlug: PROJECT_SLUG, memoryRoot, distillRoot, ai: allClaude }
+    );
+    const runner = await run(chain, initialCtx(true));
+    expect(runner.status).toBe('completed');
+
+    // Nothing promoted (no native-file write), but the declined learning is durably retired.
+    expect(await countPromoted(ledgerPath)).toBe(0);
+    const byId = new Map((await readRecords(ledgerPath)).map((r) => [r.id, r]));
+    expect(byId.get('a')?.retiredAt).toBe(FIXED_NOW);
+    expect(byId.get('a')?.promotedAt).toBeNull();
+  });
+
   it('mixed-provider config → one native context file per distinct provider', async () => {
     await seedLedger([serializeLearningRecord(record({ id: 'a' }))]);
 
@@ -387,4 +430,15 @@ const countPromoted = async (path: string): Promise<number> => {
     if (parsed.value.promotedAt !== null) promoted += 1;
   }
   return promoted;
+};
+
+/** Parse every non-blank record off the ledger (for promoted/retired/kind assertions). */
+const readRecords = async (path: string): Promise<LearningRecord[]> => {
+  const raw = await fs.readFile(path, 'utf8');
+  const out: LearningRecord[] = [];
+  for (const line of raw.split('\n')) {
+    const parsed = parseLearningLine(line);
+    if (parsed.ok && parsed.value !== undefined) out.push(parsed.value);
+  }
+  return out;
 };

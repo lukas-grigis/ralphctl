@@ -62,12 +62,23 @@ const VerificationCriteriaSchema = z.array(z.union([z.string().min(1), Verificat
   })
 );
 
+/**
+ * Harness-owned per-criterion verdict map — keyed by criterion id, valued by the durable
+ * PASS / FAIL / UNKNOWN state. Optional on read so `tasks.json` files written before the field
+ * existed still load (a missing value heals to `undefined`); folded at settle time, never set by
+ * the planner.
+ */
+const CriteriaVerdictsSchema = z
+  .record(z.string(), z.union([z.literal('passed'), z.literal('failed'), z.literal('unknown')]))
+  .optional();
+
 const TaskBaseShape = {
   id: TaskIdSchema,
   name: z.string(),
   description: z.string().optional(),
   steps: z.array(z.string()).readonly(),
   verificationCriteria: VerificationCriteriaSchema,
+  criteriaVerdicts: CriteriaVerdictsSchema,
   order: z.number(),
   ticketId: TicketIdSchema,
   dependsOn: z.array(TaskIdSchema).readonly(),

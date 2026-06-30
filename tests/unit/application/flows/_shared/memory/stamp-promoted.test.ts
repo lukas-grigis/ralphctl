@@ -35,6 +35,7 @@ const record = (over: Partial<LearningRecord> = {}): LearningRecord => ({
 interface TestCtx {
   readonly path: AbsolutePath;
   readonly acceptedIds: readonly string[];
+  readonly retiredIds?: readonly string[];
   readonly stampedCount?: number;
 }
 
@@ -44,6 +45,7 @@ const makeLeaf = () =>
     {
       path: (ctx) => ctx.path,
       acceptedIds: (ctx) => ctx.acceptedIds,
+      retiredIds: (ctx) => ctx.retiredIds ?? [],
       output: (ctx, stampedCount) => ({ ...ctx, stampedCount }),
     }
   );
@@ -293,5 +295,55 @@ describe('stampPromotedLeaf', () => {
     // The original was rotated aside; the live ledger path no longer exists (no rewrite happened).
     await expect(fs.readFile(`${String(ledgerPath)}.bak`, 'utf8')).resolves.toContain('"id":"a"');
     await expect(fs.access(String(ledgerPath))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  describe('durable retire-state (declined learnings)', () => {
+    it('stamps retiredAt on declined ids while promoting accepted ones', async () => {
+      await writeLedger([
+        serializeLearningRecord(record({ id: 'keep' })),
+        serializeLearningRecord(record({ id: 'drop' })),
+      ]);
+
+      const result = await makeLeaf().execute({ path: ledgerPath, acceptedIds: ['keep'], retiredIds: ['drop'] });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.value.ctx.stampedCount).toBe(1); // only promotions counted
+
+      const byId = new Map((await readLedger()).map((r) => [r.id, r]));
+      expect(byId.get('keep')?.promotedAt).toBe(PROMOTED_AT);
+      expect(byId.get('keep')?.retiredAt ?? null).toBeNull();
+      // The declined row carries a durable retiredAt and stays promotedAt null (never distilled).
+      expect(byId.get('drop')?.retiredAt).toBe(PROMOTED_AT);
+      expect(byId.get('drop')?.promotedAt).toBeNull();
+    });
+
+    it('retires with an empty accepted set (operator declined the whole proposal)', async () => {
+      await writeLedger([serializeLearningRecord(record({ id: 'a' })), serializeLearningRecord(record({ id: 'b' }))]);
+
+      const result = await makeLeaf().execute({ path: ledgerPath, acceptedIds: [], retiredIds: ['a', 'b'] });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.value.ctx.stampedCount).toBe(0);
+
+      const after = await readLedger();
+      expect(after.every((r) => r.retiredAt === PROMOTED_AT)).toBe(true);
+    });
+
+    it('does not re-date an already-retired row (idempotent)', async () => {
+      await writeLedger([serializeLearningRecord(record({ id: 'a', retiredAt: '2026-05-01T00:00:00.000Z' }))]);
+      const result = await makeLeaf().execute({ path: ledgerPath, acceptedIds: [], retiredIds: ['a'] });
+      expect(result.ok).toBe(true);
+      const byId = new Map((await readLedger()).map((r) => [r.id, r]));
+      expect(byId.get('a')?.retiredAt).toBe('2026-05-01T00:00:00.000Z');
+    });
+
+    it('promotion wins over retirement for the same id (defensive — callers pass disjoint sets)', async () => {
+      await writeLedger([serializeLearningRecord(record({ id: 'a' }))]);
+      const result = await makeLeaf().execute({ path: ledgerPath, acceptedIds: ['a'], retiredIds: ['a'] });
+      expect(result.ok).toBe(true);
+      const byId = new Map((await readLedger()).map((r) => [r.id, r]));
+      expect(byId.get('a')?.promotedAt).toBe(PROMOTED_AT);
+      expect(byId.get('a')?.retiredAt ?? null).toBeNull();
+    });
   });
 });

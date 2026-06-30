@@ -2,6 +2,7 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { AppendFile } from '@src/business/io/append-file.ts';
+import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { DistillLearningsDeps } from '@src/application/flows/_shared/memory/distill-learnings.ts';
 import type { DistillStepOpts } from '@src/application/flows/_shared/memory/distill-step.ts';
@@ -26,6 +27,17 @@ export interface CloseSprintDeps {
   readonly appendFile: AppendFile;
   /** Absolute path to `<sprintDir>/progress.md` for the closing separator. */
   readonly progressFile: AbsolutePath;
+  /**
+   * Always-on durable narrative-tier refresh: regenerates the project's `learnings.md` mirror from
+   * the per-project ledger at sprint close, independent of the human-gated distill. Optional because
+   * the close path stays usable without a project / memory context (a degenerate sprint with no
+   * resolvable project); when absent the refresh leaf is omitted.
+   */
+  readonly memoryMirror?: {
+    readonly writeFile: WriteFile;
+    readonly memoryRoot: AbsolutePath;
+    readonly projectId: string;
+  };
   /** Pre-transition distill composition (deps + static opts). Absent → distill step is skipped. */
   readonly distill?: { readonly deps: DistillLearningsDeps; readonly opts: DistillStepOpts };
 }

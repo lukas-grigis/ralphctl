@@ -61,6 +61,43 @@ describe('settleAttemptLeaf', () => {
     expect(result.value.ctx.lastVerdict).toBeUndefined();
   });
 
+  it('folds ctx.lastEvaluation.criteria onto the persisted task`s criteriaVerdicts', async () => {
+    const ip = inProgressWithVerification();
+    const { repo, calls } = fakeUpdateTask();
+    const leafEl = settleAttemptLeaf(
+      { taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger },
+      { cwd: absolutePath('/tmp/settle-attempt-test') },
+      ip.id
+    );
+
+    const ctx: ImplementCtx = {
+      sprintId: 'sprint-x' as SprintId,
+      tasks: [ip],
+      currentTaskId: ip.id,
+      currentTask: ip,
+      lastVerdict: 'passed',
+      lastEvaluation: {
+        type: 'evaluation',
+        status: 'passed',
+        dimensions: [
+          { dimension: 'correctness', passed: true, finding: 'ok' },
+          { dimension: 'completeness', passed: true, finding: 'ok' },
+          { dimension: 'safety', passed: true, finding: 'ok' },
+          { dimension: 'consistency', passed: true, finding: 'ok' },
+        ],
+        criteria: [{ id: 'C1', passed: true, evidence: 'src/foo.ts:1' }],
+        timestamp: FIXED_LATER,
+      },
+    };
+    const result = await leafEl.execute(ctx);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(calls[0]?.task.status).toBe('done');
+    // The harness-owned per-criterion verdict was folded from the structured signal, not prose.
+    expect(calls[0]?.task.criteriaVerdicts).toEqual({ C1: 'passed' });
+  });
+
   it('failed verdict with budget-exhausted warning → markTaskDone with warning attached', async () => {
     const ip = inProgressWithVerification(1);
     const { repo, calls } = fakeUpdateTask();

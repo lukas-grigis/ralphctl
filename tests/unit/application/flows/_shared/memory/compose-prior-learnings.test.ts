@@ -55,4 +55,26 @@ describe('composePriorLearnings', () => {
     const out = composePriorLearnings([record({ text: 'a\n  multi\tline   insight' })]);
     expect(out).toBe('- a multi line insight');
   });
+
+  it('renders decisions under a sub-heading within the same block', () => {
+    const out = composePriorLearnings([
+      record({ text: 'tests need a real DB', kind: 'learning' }),
+      record({ text: 'adopt hexagonal layering', kind: 'decision' }),
+      record({ text: 'use one event bus per wire', kind: 'decision' }),
+    ]);
+    expect(out).toBe(
+      '- tests need a real DB\n\nDecisions from prior sprints:\n- adopt hexagonal layering\n- use one event bus per wire'
+    );
+  });
+
+  it('renders ONLY a decisions block when there are no learnings', () => {
+    const out = composePriorLearnings([record({ text: 'adopt hexagonal layering', kind: 'decision' })]);
+    expect(out).toBe('Decisions from prior sprints:\n- adopt hexagonal layering');
+  });
+
+  it('treats a legacy row with no kind as a learning (not a decision)', () => {
+    const out = composePriorLearnings([record({ text: 'legacy insight' })]);
+    expect(out).toBe('- legacy insight');
+    expect(out).not.toContain('Decisions from prior sprints');
+  });
 });

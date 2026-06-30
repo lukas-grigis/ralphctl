@@ -135,6 +135,31 @@ describe('compactLedger', () => {
     expect(pendingCount).toBe(5); // only headroom-many pending kept
   });
 
+  it('treats a RETIRED row as an inviolable tombstone (never evicted, suppresses a re-emitted twin)', () => {
+    // A retired learning must keep suppressing a later null-twin so the operator's decline sticks.
+    const out = compactLedger([
+      row({ id: 'r', retiredAt: '2026-06-29T00:00:00.000Z' }),
+      row({ id: 'r', text: 're-emitted by a later task' }), // null twin, loses to the retired tombstone
+      row({ id: 'p' }),
+    ]);
+    const rRows = out.rows.filter((r) => r.record?.id === 'r');
+    expect(rRows).toHaveLength(1);
+    expect(rRows[0]?.record?.retiredAt).toBe('2026-06-29T00:00:00.000Z');
+  });
+
+  it('never evicts retired tombstones under the total cap, shedding pending first', () => {
+    const retired = Array.from({ length: LEDGER_MAX_ROWS - 3 }, (_, i) =>
+      row({ id: `r-${i}`, retiredAt: '2026-06-29T00:00:00.000Z' })
+    );
+    const pending = Array.from({ length: 40 }, (_, i) => row({ id: `p-${i}` }));
+    const out = compactLedger([...retired, ...pending]);
+    expect(out.rows).toHaveLength(LEDGER_MAX_ROWS);
+    const retiredKept = out.rows.filter(
+      (r) => r.record?.retiredAt !== null && r.record?.retiredAt !== undefined
+    ).length;
+    expect(retiredKept).toBe(LEDGER_MAX_ROWS - 3); // every retired tombstone survives
+  });
+
   it('is idempotent — compacting compacted output is a no-op', () => {
     const rows = [
       row({ id: 'dup', text: 'first' }),

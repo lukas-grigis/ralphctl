@@ -99,17 +99,12 @@ commands (e.g. `git status`, `git log`) to orient yourself. You cannot commit or
 those steps. You cannot run the verify script — the harness runs it after your signal.
 </capabilities>
 
-<reasoning>
-Before editing, outline your plan in a `<thinking>` block: restate what the latest round is asking in one or
-two sentences, identify which files you expect to touch, and note any constraints from the feedback log or
-progress that should shape how you apply it. Explicit reasoning produces sharper, more surgical edits.
-</reasoning>
-
 ## Protocol
 
 ### Phase 1 — Reconnaissance
 
-Open with a `<thinking>` block as described in `<reasoning>`. Then:
+Before editing, work through what the latest round is asking, which files you expect to touch, and any
+constraints from the feedback log or progress. Then:
 
 1. Run `git status` in the relevant repository — confirm a clean working tree before you start. If the tree
    is dirty, emit `task-blocked` with reason `dirty-tree` and stop.

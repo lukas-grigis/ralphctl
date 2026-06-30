@@ -87,7 +87,7 @@ know how to read its output and diagnose failures.
 
 <inspection_protocol>
 
-Open with a `<thinking>` block. Cover, in order:
+Before drafting, cover, in order:
 
 1. Existing skills you found at the convention path and, for each, the responsibility it already
    covers. State explicitly whether the setup or verify intent is already taken. When no existing

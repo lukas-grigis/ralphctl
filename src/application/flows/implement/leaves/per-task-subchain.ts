@@ -377,11 +377,12 @@ export const createPerTaskSubchain = (
               },
               taskId
             ),
-            // Append the per-attempt journal section to `<sprintDir>/progress.md`. Records the
-            // verdict, attempt count, round info, duration, and the deduped decision count for the
-            // just-settled attempt. Best-effort — the leaf logs and swallows failures.
+            // Write the per-attempt journal section to `<sprintDir>/progress.md` and regenerate the
+            // derived state header band in place. Records the verdict, attempt count, round info,
+            // duration, and the deduped signals for the just-settled attempt. Fail-loud / self-healing:
+            // a failed section write retries once, then writes a visible gap marker + logs at error level.
             progressJournalLeaf(
-              { appendFile: deps.appendFile, clock: deps.clock, logger: deps.logger },
+              { writeFile: deps.writeFile, clock: deps.clock, logger: deps.logger },
               { progressFile: opts.progressFile, totalRounds: deps.config.harness.maxTurns },
               taskId
             ),
