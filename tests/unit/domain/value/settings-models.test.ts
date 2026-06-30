@@ -51,6 +51,7 @@ describe('settings-models / copilot catalog', () => {
     'claude-fable-5',
     'claude-sonnet-4.5',
     'claude-sonnet-4.6',
+    'claude-sonnet-5',
     // Google
     'gemini-2.5-pro',
     'gemini-3-flash',

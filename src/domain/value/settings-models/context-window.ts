@@ -19,7 +19,10 @@
  *
  *  - **Claude (Anthropic)** — 200 000 for the 4.x line (Haiku 4.5 / Sonnet 4.6 / Opus 4.8).
  *    The `[1m]` suffix IS Claude Code's 1M-token long-context selector — the figure comes from
- *    the id itself, not a model card.
+ *    the id itself, not a model card. Sonnet 5 (`claude-sonnet-5`) is the exception: it has NO
+ *    `[1m]` variant because on the Anthropic API it ALWAYS runs at its native 1 000 000 window in
+ *    Claude Code — so the 1M figure is keyed on the bare id, the first base id (not a `[1m]`
+ *    selector) to carry a 1M window here.
  *  - **Copilot / Codex** — omitted; the CLIs do not surface per-model window sizes.
  *
  * Pure domain — no `node:*` I/O.
@@ -30,6 +33,9 @@ const CONTEXT_WINDOW: Readonly<Record<string, number>> = {
   'claude-haiku-4-5': 200_000,
   'claude-sonnet-4-6': 200_000,
   'claude-opus-4-8': 200_000,
+  // Sonnet 5 always runs at its native 1M window on the Anthropic API — no `[1m]` selector, so
+  // the bare id carries the 1M figure directly.
+  'claude-sonnet-5': 1_000_000,
   // `[1m]` is Claude Code's 1M-token long-context selector — the window IS the id suffix.
   'claude-opus-4-8[1m]': 1_000_000,
   'claude-fable-5[1m]': 1_000_000,

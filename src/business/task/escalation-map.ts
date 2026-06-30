@@ -29,12 +29,22 @@ import type { Logger } from '@src/business/observability/logger.ts';
  * Dash-form ids (`claude-haiku-4-5`) are the Claude-Code / Codex catalog ids; dot-form ids
  * (`claude-haiku-4.5`) are the Copilot catalog ids — both forms are seeded and kept in
  * lockstep with `domain/value/settings-models/`.
+ *
+ * Sonnet 5 is the default Sonnet for the dash-form (Claude-Code) ladder: Haiku climbs to
+ * `claude-sonnet-5`, which climbs to `claude-opus-4-8`. The legacy `claude-sonnet-4-6` rung is
+ * RETAINED so configs explicitly pinned to Sonnet 4.6 still climb to Opus. The Copilot dot-form
+ * ladder deliberately stays on `claude-sonnet-4.6`: Sonnet 5's slug carries no dot/date, so its
+ * Copilot id is the SAME string (`claude-sonnet-5`) as the Claude-Code id — a flat map has one
+ * value per key, and the dash form (the primary provider) wins it pointing at `claude-opus-4-8`.
+ * A Copilot row pinned to `claude-sonnet-5` therefore has no dot-form Opus rung; that edge is
+ * accepted rather than mis-routing the Claude-Code climb to a dot-form Opus id Claude Code rejects.
  */
 export const DEFAULT_ESCALATION_MAP: Readonly<Record<string, string>> = {
-  // Claude (Claude-Code / Codex dash-form) — Haiku → Sonnet → Opus.
-  'claude-haiku-4-5': 'claude-sonnet-4-6',
+  // Claude (Claude-Code / Codex dash-form) — Haiku → Sonnet 5 → Opus; Sonnet 4.6 still climbs.
+  'claude-haiku-4-5': 'claude-sonnet-5',
+  'claude-sonnet-5': 'claude-opus-4-8',
   'claude-sonnet-4-6': 'claude-opus-4-8',
-  // Claude (Copilot dot-form) — Haiku → Sonnet → Opus.
+  // Claude (Copilot dot-form) — Haiku → Sonnet 4.6 → Opus (Sonnet 5 shares the dash-form key above).
   'claude-haiku-4.5': 'claude-sonnet-4.6',
   'claude-sonnet-4.6': 'claude-opus-4.8',
   // Copilot/Codex GPT — mini variants step up to their full-tier frontier, and the

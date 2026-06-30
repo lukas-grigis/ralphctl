@@ -11,7 +11,9 @@
  *  - **Claude (Anthropic)** — the public model cards on https://www.anthropic.com/news
  *    list 200 000 tokens for the 4.x line (Haiku 4.5 / Sonnet 4.6 / Opus 4.8). The `[1m]`
  *    variants are 1 000 000 by definition — the suffix IS Claude Code's selector for the
- *    1M-token window, so the figure comes from the id itself, not a model card. The BASE
+ *    1M-token window, so the figure comes from the id itself, not a model card. Sonnet 5
+ *    (`claude-sonnet-5`) is the exception: it has NO `[1m]` variant and always runs at its
+ *    native 1 000 000 window on the Anthropic API, so the bare id carries 1M directly. The BASE
  *    fable-5 id has no published window figure yet — omitted, so the TUI renders raw counts
  *    until Anthropic documents it.
  *  - **Copilot** — model windows vary by upstream; the Copilot CLI does not surface the
@@ -29,6 +31,8 @@ const CONTEXT_WINDOW: Readonly<Record<string, number>> = {
   'claude-haiku-4-5': 200_000,
   'claude-sonnet-4-6': 200_000,
   'claude-opus-4-8': 200_000,
+  // Sonnet 5 has no `[1m]` variant — it always runs at its native 1M window on the Anthropic API.
+  'claude-sonnet-5': 1_000_000,
   // `[1m]` is Claude Code's 1M-token long-context selector — the window is part of the id.
   'claude-opus-4-8[1m]': 1_000_000,
   'claude-fable-5[1m]': 1_000_000,

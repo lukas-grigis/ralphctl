@@ -50,8 +50,12 @@ describe('DEFAULT_ESCALATION_MAP', () => {
     expect(DEFAULT_ESCALATION_MAP['claude-sonnet-4.6']).toBe('claude-opus-4.8');
   });
 
-  it('keeps the dash-form Claude-Code/Codex Claude rungs (haiku → sonnet → opus)', () => {
-    expect(DEFAULT_ESCALATION_MAP['claude-haiku-4-5']).toBe('claude-sonnet-4-6');
+  it('climbs the dash-form Claude-Code/Codex ladder via Sonnet 5 (haiku → sonnet-5 → opus)', () => {
+    expect(DEFAULT_ESCALATION_MAP['claude-haiku-4-5']).toBe('claude-sonnet-5');
+    expect(DEFAULT_ESCALATION_MAP['claude-sonnet-5']).toBe('claude-opus-4-8');
+  });
+
+  it('retains the legacy claude-sonnet-4-6 → claude-opus-4-8 rung so pinned 4.6 configs still climb', () => {
     expect(DEFAULT_ESCALATION_MAP['claude-sonnet-4-6']).toBe('claude-opus-4-8');
   });
 });
@@ -176,9 +180,9 @@ describe('DEFAULT_ESCALATION_MAP — catalog lockstep (mechanizes the section 14
       .slice(0, 16);
 
   it('catalog fingerprints are unchanged — a failure means a model bump landed; run the model-bump audit', () => {
-    expect(fingerprint(CLAUDE_MODELS)).toBe('327427f07bd02409');
+    expect(fingerprint(CLAUDE_MODELS)).toBe('f49667dc324c37cc');
     expect(fingerprint(CODEX_MODELS)).toBe('d0af18882f9e15ac');
-    expect(fingerprint(COPILOT_MODELS)).toBe('d8e91df17f49d2a8');
+    expect(fingerprint(COPILOT_MODELS)).toBe('1f51a63b2cbf93f0');
   });
 });
 

@@ -77,14 +77,14 @@ describe('effectiveEscalationChains', () => {
   it('renders the built-in haiku→sonnet→opus chain uncustomised with no overrides', () => {
     const chains = effectiveEscalationChains({});
     const claude = chains.find((c) => c.models[0] === 'claude-haiku-4-5');
-    expect(claude?.models).toEqual(['claude-haiku-4-5', 'claude-sonnet-4-6', 'claude-opus-4-8']);
+    expect(claude?.models).toEqual(['claude-haiku-4-5', 'claude-sonnet-5', 'claude-opus-4-8']);
     expect(claude?.customised).toBe(false);
   });
 
   it('extends a chain through a user rung and marks it customised', () => {
     const chains = effectiveEscalationChains({ 'claude-opus-4-8': 'claude-fable-5' });
     const claude = chains.find((c) => c.models[0] === 'claude-haiku-4-5');
-    expect(claude?.models).toEqual(['claude-haiku-4-5', 'claude-sonnet-4-6', 'claude-opus-4-8', 'claude-fable-5']);
+    expect(claude?.models).toEqual(['claude-haiku-4-5', 'claude-sonnet-5', 'claude-opus-4-8', 'claude-fable-5']);
     expect(claude?.customised).toBe(true);
   });
 

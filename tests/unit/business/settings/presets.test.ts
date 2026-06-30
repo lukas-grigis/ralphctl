@@ -342,13 +342,13 @@ describe('presets', () => {
 
       it('stamps the exact model + effort matrix', () => {
         expect(out.ai.effort).toBe('high');
-        expect(out.ai.refine.model).toBe('claude-sonnet-4-6');
+        expect(out.ai.refine.model).toBe('claude-sonnet-5');
         expect(out.ai.refine.effort).toBeUndefined();
         expect(out.ai.plan.model).toBe('claude-opus-4-8');
         expect(out.ai.plan.effort).toBe('xhigh');
         expect(out.ai.readiness.model).toBe('claude-haiku-4-5');
         expect(out.ai.readiness.effort).toBe('medium');
-        expect(out.ai.ideate.model).toBe('claude-sonnet-4-6');
+        expect(out.ai.ideate.model).toBe('claude-sonnet-5');
         expect(out.ai.ideate.effort).toBeUndefined();
         expect(out.ai.createPr.model).toBe('claude-haiku-4-5');
       });
@@ -356,7 +356,7 @@ describe('presets', () => {
       it('splits a cheap sonnet generator against a strong opus evaluator (same provider, different model)', () => {
         // The novel property no other family has: generator weaker than evaluator.
         expect(out.ai.implement.generator.provider).toBe(out.ai.implement.evaluator.provider);
-        expect(out.ai.implement.generator.model).toBe('claude-sonnet-4-6');
+        expect(out.ai.implement.generator.model).toBe('claude-sonnet-5');
         expect(out.ai.implement.evaluator.model).toBe('claude-opus-4-8');
         expect(out.ai.implement.generator.model).not.toBe(out.ai.implement.evaluator.model);
         expect(out.ai.implement.generator.effort).toBe('high');
