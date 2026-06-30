@@ -6,6 +6,13 @@ import {
 } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 
+// Model identifiers referenced more than once below, hoisted to named constants so each literal
+// appears once. The dash spelling (`claude-…-4-6`) is the claude-code catalog form.
+const CLAUDE_SONNET = 'claude-sonnet-4-6';
+const CLAUDE_OPUS = 'claude-opus-4-8';
+const GPT_5_MINI = 'gpt-5-mini';
+const GPT_5_4_MINI = 'gpt-5.4-mini';
+
 /**
  * Per-provider, per-flow default model picks. Used by the welcome flow when the user picks a
  * provider on first run, by `settings-set-provider` when the user re-aligns one flow's
@@ -16,33 +23,33 @@ import type { FlowId } from '@src/domain/value/flow-id.ts';
  */
 const DEFAULT_MODELS_BY_PROVIDER: Readonly<Record<AiProvider, Readonly<Record<FlowId, string>>>> = {
   'claude-code': {
-    refine: 'claude-sonnet-4-6',
-    plan: 'claude-opus-4-8',
-    implement: 'claude-opus-4-8',
-    readiness: 'claude-sonnet-4-6',
-    ideate: 'claude-opus-4-8',
+    refine: CLAUDE_SONNET,
+    plan: CLAUDE_OPUS,
+    implement: CLAUDE_OPUS,
+    readiness: CLAUDE_SONNET,
+    ideate: CLAUDE_OPUS,
     // PR-content drafting is a single-shot summarisation task — Sonnet matches refine's
     // light reasoning profile and avoids the Opus premium for a few-paragraph diff write-up.
-    createPr: 'claude-sonnet-4-6',
+    createPr: CLAUDE_SONNET,
   },
   'github-copilot': {
-    refine: 'gpt-5-mini',
+    refine: GPT_5_MINI,
     plan: 'gpt-5.4',
     implement: 'gpt-5.4',
-    readiness: 'gpt-5-mini',
+    readiness: GPT_5_MINI,
     ideate: 'gpt-5.4',
-    createPr: 'gpt-5-mini',
+    createPr: GPT_5_MINI,
   },
   'openai-codex': {
-    refine: 'gpt-5.4-mini',
+    refine: GPT_5_4_MINI,
     plan: 'gpt-5.5',
     // `gpt-5.3-codex` is deprecated for ChatGPT sign-in — the "reset implement to Codex" path
     // rides the frontier default `gpt-5.5` instead, matching the CODEX_ONLY preset decision so
     // the everyday autonomous loop works under ChatGPT auth and sits at the top of the ladder.
     implement: 'gpt-5.5',
-    readiness: 'gpt-5.4-mini',
+    readiness: GPT_5_4_MINI,
     ideate: 'gpt-5.5',
-    createPr: 'gpt-5.4-mini',
+    createPr: GPT_5_4_MINI,
   },
 };
 
@@ -86,7 +93,7 @@ export const DEFAULT_SETTINGS: Settings = {
   ai: {
     ...defaultAiSettingsForProvider('claude-code'),
     implement: {
-      generator: { provider: 'claude-code', model: 'claude-opus-4-8' },
+      generator: { provider: 'claude-code', model: CLAUDE_OPUS },
       evaluator: { provider: 'openai-codex', model: 'gpt-5.5' },
     },
   },

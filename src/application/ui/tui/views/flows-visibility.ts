@@ -22,6 +22,9 @@
 
 import type { SprintStatus } from '@src/domain/entity/sprint.ts';
 
+/** Flow id surfaced in both the sprint-scoped list and several per-status allow-lists. */
+const REMOVE_TICKET = 'remove-ticket';
+
 /** Sprint-scoped flow ids — only meaningful when a sprint is selected. */
 export const SPRINT_SCOPED_FLOW_IDS: readonly string[] = [
   'refine',
@@ -30,7 +33,7 @@ export const SPRINT_SCOPED_FLOW_IDS: readonly string[] = [
   'review',
   'close-sprint',
   'create-pr',
-  'remove-ticket',
+  REMOVE_TICKET,
 ];
 
 /**
@@ -68,8 +71,8 @@ const HIDDEN_SET: ReadonlySet<string> = new Set(HIDDEN_BY_DEFAULT_FLOW_IDS);
  * `showAll` is on).
  */
 const ALLOWED_BY_STATUS: Readonly<Record<SprintStatus, ReadonlySet<string>>> = {
-  draft: new Set(['refine', 'plan', 'remove-ticket']),
-  planned: new Set(['implement', 'remove-ticket']),
+  draft: new Set(['refine', 'plan', REMOVE_TICKET]),
+  planned: new Set(['implement', REMOVE_TICKET]),
   active: new Set(['implement']),
   review: new Set(['review', 'close-sprint']),
   done: new Set(['create-pr']),

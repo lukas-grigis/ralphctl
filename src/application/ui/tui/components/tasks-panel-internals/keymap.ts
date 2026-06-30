@@ -84,13 +84,11 @@ export const useTasksPanelInput = ({
       //     between cards without first clicking into a row).
       const rowCursorActive = focusedCardExpanded && flatKeys.length > 0 && focusedIndex >= 0;
       if (key.downArrow || input === 'j') {
-        if (rowCursorActive) {
-          if (focusedIndex < flatKeys.length - 1) {
-            setFocusedKey(flatKeys[focusedIndex + 1]);
-            return;
-          }
-          // Row cursor at the bottom — fall through to the card cursor.
+        if (rowCursorActive && focusedIndex < flatKeys.length - 1) {
+          setFocusedKey(flatKeys[focusedIndex + 1]);
+          return;
         }
+        // Row cursor at the bottom — fall through to the card cursor.
         const next = Math.min(bucketed.tasks.length - 1, effectiveCardCursor + 1);
         setCardCursor(next);
         // Reset the row cursor so the next expanded card starts un-anchored.
@@ -98,13 +96,11 @@ export const useTasksPanelInput = ({
         return;
       }
       if (key.upArrow || input === 'k') {
-        if (rowCursorActive) {
-          if (focusedIndex > 0) {
-            setFocusedKey(flatKeys[focusedIndex - 1]);
-            return;
-          }
-          // Row cursor at the top — fall through to the card cursor.
+        if (rowCursorActive && focusedIndex > 0) {
+          setFocusedKey(flatKeys[focusedIndex - 1]);
+          return;
         }
+        // Row cursor at the top — fall through to the card cursor.
         const next = Math.max(0, effectiveCardCursor - 1);
         setCardCursor(next);
         setFocusedKey(undefined);

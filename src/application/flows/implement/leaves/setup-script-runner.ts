@@ -133,6 +133,7 @@ export const setupScriptRunnerLeaf = (
     {
       useCase: {
         execute: async (input, signal): Promise<Result<LeafOutput, DomainError>> => {
+          const BANNER_SHOW = 'banner-show';
           let execution = input.execution;
           // Repos whose setup ran green in THIS invocation. Seeds the
           // `skipPreVerifyOnFreshSetup` fast path on the first pre-task-verify. The resume-skip
@@ -189,7 +190,7 @@ export const setupScriptRunnerLeaf = (
                 at: deps.clock(),
               });
               deps.eventBus.publish({
-                type: 'banner-show',
+                type: BANNER_SHOW,
                 id: `setup-script-skipped-${String(repo.repositoryId)}`,
                 tier: 'warn',
                 message: `No setup script configured for ${String(repo.path)} — nothing was validated before implement`,
@@ -238,7 +239,7 @@ export const setupScriptRunnerLeaf = (
                 at: deps.clock(),
               });
               deps.eventBus.publish({
-                type: 'banner-show',
+                type: BANNER_SHOW,
                 id: `setup-script-${String(repo.repositoryId)}`,
                 tier: 'error',
                 message: `Setup script failed for ${String(repo.path)}: ${command}`,
@@ -357,7 +358,7 @@ export const setupScriptRunnerLeaf = (
               });
             }
             deps.eventBus.publish({
-              type: 'banner-show',
+              type: BANNER_SHOW,
               id: `setup-script-${String(repo.repositoryId)}`,
               tier: 'error',
               message: `Setup script failed for ${String(repo.path)}: ${command}`,

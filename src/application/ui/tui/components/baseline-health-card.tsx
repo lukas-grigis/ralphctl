@@ -50,6 +50,9 @@ import {
  */
 type Tier = 'ok' | 'warning' | 'error' | 'pending';
 
+/** Shared `outcome` discriminant for setup + verify runs that spawn a child process. */
+const SPAWN_ERROR_OUTCOME = 'spawn-error';
+
 /** @public */
 export interface BaselineHealthCardProps {
   readonly execution?: SprintExecution;
@@ -129,7 +132,7 @@ const setupTier = (rows: readonly SetupRun[]): Tier => {
   for (const row of rows) {
     if (row.outcome !== 'skipped') allSkipped = false;
     if (row.outcome === 'failed') hasFailed = true;
-    if (row.outcome === 'spawn-error') hasSpawnError = true;
+    if (row.outcome === SPAWN_ERROR_OUTCOME) hasSpawnError = true;
   }
   if (hasFailed || hasSpawnError) return 'error';
   if (allSkipped) return 'pending';
@@ -154,7 +157,7 @@ const setupRowData = (execution: SprintExecution | undefined, now: number): RowD
     return { label: 'Setup', tier, sublines: [`${repoLabel} · ${ago} ago`] };
   }
   if (tier === 'error') {
-    const failedCount = latest.filter((r) => r.outcome === 'failed' || r.outcome === 'spawn-error').length;
+    const failedCount = latest.filter((r) => r.outcome === 'failed' || r.outcome === SPAWN_ERROR_OUTCOME).length;
     return {
       label: 'Setup',
       tier,
@@ -191,7 +194,7 @@ const verifyRowData = (run: VerifyRun | undefined, now: number, shortLabel: stri
       sublines: [`exit ${String(run.exitCode)} · ${ago} ago`],
     };
   }
-  if (run.outcome === 'spawn-error') {
+  if (run.outcome === SPAWN_ERROR_OUTCOME) {
     return { label: shortLabel, tier: 'warning', status: 'spawn error', sublines: [`${ago} ago`] };
   }
   return { label: shortLabel, tier: 'pending', status: 'skipped', sublines: [`${ago} ago`] };

@@ -24,6 +24,8 @@ import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
 const SETTINGS_KEY_HINT =
   'supported keys: ai.effort, ai.{flow}.{provider,model,effort} (flow in {refine,plan,readiness,ideate,createPr}), ai.implement.{generator,evaluator}.{provider,model,effort}, harness.{maxTurns,maxAttempts,rateLimitRetries,idleWatchdogMs,plateauThreshold,escalateOnPlateau,skipPreVerifyOnFreshSetup}, harness.escalationMap.<fromModel>, logging.level, concurrency.maxParallelTasks, scm.postRefinementComment, ui.notifications.enabled';
 
+const BOOLEAN_VALUE_HINT = "use 'true' or 'false'";
+
 const IMPLEMENT_ROLES: readonly AiImplementRole[] = ['generator', 'evaluator'];
 const isImplementRole = (raw: string): raw is AiImplementRole => (IMPLEMENT_ROLES as readonly string[]).includes(raw);
 
@@ -190,7 +192,7 @@ export const applySettingsKey = (current: Settings, key: string, raw: string): R
             field: key,
             value: raw,
             message: `'${raw}' is not a boolean`,
-            hint: "use 'true' or 'false'",
+            hint: BOOLEAN_VALUE_HINT,
           })
         );
       }
@@ -204,7 +206,7 @@ export const applySettingsKey = (current: Settings, key: string, raw: string): R
             field: key,
             value: raw,
             message: `'${raw}' is not a boolean`,
-            hint: "use 'true' or 'false'",
+            hint: BOOLEAN_VALUE_HINT,
           })
         );
       }
@@ -228,7 +230,7 @@ export const applySettingsKey = (current: Settings, key: string, raw: string): R
             field: key,
             value: raw,
             message: `'${raw}' is not a boolean`,
-            hint: "use 'true' or 'false'",
+            hint: BOOLEAN_VALUE_HINT,
           })
         );
       }
@@ -242,7 +244,7 @@ export const applySettingsKey = (current: Settings, key: string, raw: string): R
             field: key,
             value: raw,
             message: `'${raw}' is not a boolean`,
-            hint: "use 'true' or 'false'",
+            hint: BOOLEAN_VALUE_HINT,
           })
         );
       }

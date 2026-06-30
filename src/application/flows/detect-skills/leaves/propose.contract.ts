@@ -29,6 +29,9 @@ import type { AiOutputContract, SidecarRule } from '@src/integration/ai/contract
 
 type DetectSkillsSignal = SetupSkillProposalSignal | VerifySkillProposalSignal | NoteSignal;
 
+const SETUP_SKILL_PROPOSAL = 'setup-skill-proposal';
+const VERIFY_SKILL_PROPOSAL = 'verify-skill-proposal';
+
 const atMostOneOf =
   (kind: string) =>
   (signals: ReadonlyArray<{ readonly type: string }>): boolean =>
@@ -36,8 +39,8 @@ const atMostOneOf =
 
 const signalsArraySchemaRaw = z
   .array(z.union([setupSkillProposalSignalSchema, verifySkillProposalSignalSchema, noteSignalSchema]))
-  .refine(atMostOneOf('setup-skill-proposal'), 'at most one setup-skill-proposal per detect-skills spawn')
-  .refine(atMostOneOf('verify-skill-proposal'), 'at most one verify-skill-proposal per detect-skills spawn');
+  .refine(atMostOneOf(SETUP_SKILL_PROPOSAL), 'at most one setup-skill-proposal per detect-skills spawn')
+  .refine(atMostOneOf(VERIFY_SKILL_PROPOSAL), 'at most one verify-skill-proposal per detect-skills spawn');
 
 /**
  * Cast bridge between Zod's inferred shape (optional fields widened to `T | undefined`
@@ -62,13 +65,13 @@ const EXAMPLE_TS = '2026-05-22T10:00:00.000Z' as IsoTimestamp;
 
 const EXAMPLE_SIGNALS: readonly DetectSkillsSignal[] = [
   {
-    type: 'setup-skill-proposal',
+    type: SETUP_SKILL_PROPOSAL,
     content:
       'This repo pins tool versions with mise. Before editing anything, run mise install to activate the exact versions declared in mise.toml. Then run the project install command documented in CLAUDE.md to hydrate the dependency tree.',
     timestamp: EXAMPLE_TS,
   },
   {
-    type: 'verify-skill-proposal',
+    type: VERIFY_SKILL_PROPOSAL,
     content:
       'Verification runs three gates in sequence documented in CLAUDE.md: typecheck, lint, then tests. A failure in any gate stops the chain; read the first failing gate output — later gates have not run yet.',
     timestamp: EXAMPLE_TS,
@@ -81,14 +84,14 @@ const EXAMPLE_SIGNALS: readonly DetectSkillsSignal[] = [
 ];
 
 const setupSkillSidecar: SidecarRule<'setup-skill-proposal'> = {
-  signalKind: 'setup-skill-proposal',
+  signalKind: SETUP_SKILL_PROPOSAL,
   filename: 'setup-skill.md',
   multiplicity: 'optional',
   extract: (signal) => signal.content,
 };
 
 const verifySkillSidecar: SidecarRule<'verify-skill-proposal'> = {
-  signalKind: 'verify-skill-proposal',
+  signalKind: VERIFY_SKILL_PROPOSAL,
   filename: 'verify-skill.md',
   multiplicity: 'optional',
   extract: (signal) => signal.content,

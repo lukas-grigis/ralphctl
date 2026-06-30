@@ -69,6 +69,21 @@ export const PRESET_NAMES: readonly PresetName[] = [
 
 export const isPresetName = (raw: string): raw is PresetName => (PRESET_NAMES as readonly string[]).includes(raw);
 
+// Provider and model identifiers referenced across the preset matrices below, hoisted so each
+// literal appears once. The dash vs dot spelling is provider-specific and load-bearing:
+// claude-code uses `claude-…-4-8` (dashes → OPUS / SONNET / HAIKU) while github-copilot uses
+// `claude-…-4.8` (dots → COPILOT_OPUS / COPILOT_SONNET). Do not normalise one into the other.
+const CLAUDE = 'claude-code';
+const COPILOT = 'github-copilot';
+const CODEX = 'openai-codex';
+const OPUS = 'claude-opus-4-8';
+const SONNET = 'claude-sonnet-4-6';
+const HAIKU = 'claude-haiku-4-5';
+const COPILOT_OPUS = 'claude-opus-4.8';
+const COPILOT_SONNET = 'claude-sonnet-4.6';
+const GPT_5_MINI = 'gpt-5-mini';
+const GPT_5_4_MINI = 'gpt-5.4-mini';
+
 /**
  * The `mixed` preset matrix — best-of-breed across the three providers. Effort pattern:
  * `implement` and `plan` at `xhigh` for the deeper-reasoning autonomous flows; `readiness`
@@ -80,17 +95,17 @@ export const isPresetName = (raw: string): raw is PresetName => (PRESET_NAMES as
  */
 const MIXED: AiSettings = {
   effort: 'high',
-  refine: { provider: 'openai-codex', model: 'gpt-5.5' },
-  plan: { provider: 'github-copilot', model: 'claude-sonnet-4.6', effort: 'xhigh' },
+  refine: { provider: CODEX, model: 'gpt-5.5' },
+  plan: { provider: COPILOT, model: COPILOT_SONNET, effort: 'xhigh' },
   implement: {
-    generator: { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'xhigh' },
-    evaluator: { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'xhigh' },
+    generator: { provider: CLAUDE, model: OPUS, effort: 'xhigh' },
+    evaluator: { provider: CLAUDE, model: OPUS, effort: 'xhigh' },
   },
-  readiness: { provider: 'github-copilot', model: 'gpt-5-mini', effort: 'medium' },
-  ideate: { provider: 'claude-code', model: 'claude-opus-4-8' },
+  readiness: { provider: COPILOT, model: GPT_5_MINI, effort: 'medium' },
+  ideate: { provider: CLAUDE, model: OPUS },
   // PR content drafting mirrors refine's "light summary" reasoning profile — a fast Codex
   // model is fine, no need to pay for Opus tokens just to summarise a diff.
-  createPr: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
+  createPr: { provider: CODEX, model: GPT_5_4_MINI },
 };
 
 /**
@@ -107,43 +122,43 @@ const MIXED: AiSettings = {
  */
 const CLAUDE_ONLY: AiSettings = {
   effort: 'high',
-  refine: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
-  plan: { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'xhigh' },
+  refine: { provider: CLAUDE, model: SONNET },
+  plan: { provider: CLAUDE, model: OPUS, effort: 'xhigh' },
   implement: {
-    generator: { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'xhigh' },
-    evaluator: { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'xhigh' },
+    generator: { provider: CLAUDE, model: OPUS, effort: 'xhigh' },
+    evaluator: { provider: CLAUDE, model: OPUS, effort: 'xhigh' },
   },
-  readiness: { provider: 'claude-code', model: 'claude-haiku-4-5', effort: 'medium' },
-  ideate: { provider: 'claude-code', model: 'claude-opus-4-8' },
-  createPr: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
+  readiness: { provider: CLAUDE, model: HAIKU, effort: 'medium' },
+  ideate: { provider: CLAUDE, model: OPUS },
+  createPr: { provider: CLAUDE, model: SONNET },
 };
 
 const COPILOT_ONLY: AiSettings = {
   effort: 'high',
-  refine: { provider: 'github-copilot', model: 'claude-sonnet-4.6' },
-  plan: { provider: 'github-copilot', model: 'claude-opus-4.8', effort: 'xhigh' },
+  refine: { provider: COPILOT, model: COPILOT_SONNET },
+  plan: { provider: COPILOT, model: COPILOT_OPUS, effort: 'xhigh' },
   implement: {
-    generator: { provider: 'github-copilot', model: 'claude-opus-4.8', effort: 'xhigh' },
-    evaluator: { provider: 'github-copilot', model: 'claude-opus-4.8', effort: 'xhigh' },
+    generator: { provider: COPILOT, model: COPILOT_OPUS, effort: 'xhigh' },
+    evaluator: { provider: COPILOT, model: COPILOT_OPUS, effort: 'xhigh' },
   },
-  readiness: { provider: 'github-copilot', model: 'gpt-5-mini', effort: 'medium' },
-  ideate: { provider: 'github-copilot', model: 'claude-opus-4.8' },
-  createPr: { provider: 'github-copilot', model: 'gpt-5-mini' },
+  readiness: { provider: COPILOT, model: GPT_5_MINI, effort: 'medium' },
+  ideate: { provider: COPILOT, model: COPILOT_OPUS },
+  createPr: { provider: COPILOT, model: GPT_5_MINI },
 };
 
 const CODEX_ONLY: AiSettings = {
   effort: 'high',
-  refine: { provider: 'openai-codex', model: 'gpt-5.4' },
-  plan: { provider: 'openai-codex', model: 'gpt-5.5', effort: 'high' },
+  refine: { provider: CODEX, model: 'gpt-5.4' },
+  plan: { provider: CODEX, model: 'gpt-5.5', effort: 'high' },
   implement: {
     // gpt-5.3-codex is deprecated for ChatGPT sign-in — implement now rides the frontier
     // default so the everyday autonomous loop keeps working under ChatGPT auth.
-    generator: { provider: 'openai-codex', model: 'gpt-5.5', effort: 'high' },
-    evaluator: { provider: 'openai-codex', model: 'gpt-5.5', effort: 'high' },
+    generator: { provider: CODEX, model: 'gpt-5.5', effort: 'high' },
+    evaluator: { provider: CODEX, model: 'gpt-5.5', effort: 'high' },
   },
-  readiness: { provider: 'openai-codex', model: 'gpt-5.4-mini', effort: 'medium' },
-  ideate: { provider: 'openai-codex', model: 'gpt-5.5' },
-  createPr: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
+  readiness: { provider: CODEX, model: GPT_5_4_MINI, effort: 'medium' },
+  ideate: { provider: CODEX, model: 'gpt-5.5' },
+  createPr: { provider: CODEX, model: GPT_5_4_MINI },
 };
 
 /**
@@ -164,54 +179,54 @@ const CODEX_ONLY: AiSettings = {
  */
 const MIXED_ECONOMIC: AiSettings = {
   effort: 'high',
-  refine: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
-  plan: { provider: 'github-copilot', model: 'claude-sonnet-4.6', effort: 'high' },
+  refine: { provider: CODEX, model: GPT_5_4_MINI },
+  plan: { provider: COPILOT, model: COPILOT_SONNET, effort: 'high' },
   implement: {
-    generator: { provider: 'claude-code', model: 'claude-sonnet-4-6', effort: 'high' },
-    evaluator: { provider: 'claude-code', model: 'claude-sonnet-4-6', effort: 'high' },
+    generator: { provider: CLAUDE, model: SONNET, effort: 'high' },
+    evaluator: { provider: CLAUDE, model: SONNET, effort: 'high' },
   },
-  readiness: { provider: 'github-copilot', model: 'gpt-5-mini', effort: 'medium' },
-  ideate: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
-  createPr: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
+  readiness: { provider: COPILOT, model: GPT_5_MINI, effort: 'medium' },
+  ideate: { provider: CLAUDE, model: SONNET },
+  createPr: { provider: CODEX, model: GPT_5_4_MINI },
 };
 
 const CLAUDE_ECONOMIC: AiSettings = {
   effort: 'high',
-  refine: { provider: 'claude-code', model: 'claude-haiku-4-5' },
-  plan: { provider: 'claude-code', model: 'claude-sonnet-4-6', effort: 'high' },
+  refine: { provider: CLAUDE, model: HAIKU },
+  plan: { provider: CLAUDE, model: SONNET, effort: 'high' },
   implement: {
-    generator: { provider: 'claude-code', model: 'claude-sonnet-4-6', effort: 'high' },
-    evaluator: { provider: 'claude-code', model: 'claude-sonnet-4-6', effort: 'high' },
+    generator: { provider: CLAUDE, model: SONNET, effort: 'high' },
+    evaluator: { provider: CLAUDE, model: SONNET, effort: 'high' },
   },
-  readiness: { provider: 'claude-code', model: 'claude-haiku-4-5', effort: 'medium' },
-  ideate: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
-  createPr: { provider: 'claude-code', model: 'claude-haiku-4-5' },
+  readiness: { provider: CLAUDE, model: HAIKU, effort: 'medium' },
+  ideate: { provider: CLAUDE, model: SONNET },
+  createPr: { provider: CLAUDE, model: HAIKU },
 };
 
 const COPILOT_ECONOMIC: AiSettings = {
   effort: 'high',
-  refine: { provider: 'github-copilot', model: 'gpt-5.4-mini' },
-  plan: { provider: 'github-copilot', model: 'claude-sonnet-4.6', effort: 'high' },
+  refine: { provider: COPILOT, model: GPT_5_4_MINI },
+  plan: { provider: COPILOT, model: COPILOT_SONNET, effort: 'high' },
   implement: {
-    generator: { provider: 'github-copilot', model: 'claude-sonnet-4.6', effort: 'high' },
-    evaluator: { provider: 'github-copilot', model: 'claude-sonnet-4.6', effort: 'high' },
+    generator: { provider: COPILOT, model: COPILOT_SONNET, effort: 'high' },
+    evaluator: { provider: COPILOT, model: COPILOT_SONNET, effort: 'high' },
   },
-  readiness: { provider: 'github-copilot', model: 'gpt-5-mini', effort: 'medium' },
-  ideate: { provider: 'github-copilot', model: 'claude-sonnet-4.6' },
-  createPr: { provider: 'github-copilot', model: 'gpt-5-mini' },
+  readiness: { provider: COPILOT, model: GPT_5_MINI, effort: 'medium' },
+  ideate: { provider: COPILOT, model: COPILOT_SONNET },
+  createPr: { provider: COPILOT, model: GPT_5_MINI },
 };
 
 const CODEX_ECONOMIC: AiSettings = {
   effort: 'high',
-  refine: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
-  plan: { provider: 'openai-codex', model: 'gpt-5.4', effort: 'high' },
+  refine: { provider: CODEX, model: GPT_5_4_MINI },
+  plan: { provider: CODEX, model: 'gpt-5.4', effort: 'high' },
   implement: {
-    generator: { provider: 'openai-codex', model: 'gpt-5.4', effort: 'high' },
-    evaluator: { provider: 'openai-codex', model: 'gpt-5.4', effort: 'high' },
+    generator: { provider: CODEX, model: 'gpt-5.4', effort: 'high' },
+    evaluator: { provider: CODEX, model: 'gpt-5.4', effort: 'high' },
   },
-  readiness: { provider: 'openai-codex', model: 'gpt-5.4-mini', effort: 'medium' },
-  ideate: { provider: 'openai-codex', model: 'gpt-5.5' },
-  createPr: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
+  readiness: { provider: CODEX, model: GPT_5_4_MINI, effort: 'medium' },
+  ideate: { provider: CODEX, model: 'gpt-5.5' },
+  createPr: { provider: CODEX, model: GPT_5_4_MINI },
 };
 
 /**
@@ -229,17 +244,17 @@ const CODEX_ECONOMIC: AiSettings = {
  */
 const CLAUDE_STRONG_GATE: AiSettings = {
   effort: 'high',
-  refine: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
-  plan: { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'xhigh' },
+  refine: { provider: CLAUDE, model: SONNET },
+  plan: { provider: CLAUDE, model: OPUS, effort: 'xhigh' },
   implement: {
     // Cheap author: sonnet at high effort, climbs to opus on plateau via the default ladder.
-    generator: { provider: 'claude-code', model: 'claude-sonnet-4-6', effort: 'high' },
+    generator: { provider: CLAUDE, model: SONNET, effort: 'high' },
     // Strong gate: opus from the first round, never cheapened.
-    evaluator: { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'xhigh' },
+    evaluator: { provider: CLAUDE, model: OPUS, effort: 'xhigh' },
   },
-  readiness: { provider: 'claude-code', model: 'claude-haiku-4-5', effort: 'medium' },
-  ideate: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
-  createPr: { provider: 'claude-code', model: 'claude-haiku-4-5' },
+  readiness: { provider: CLAUDE, model: HAIKU, effort: 'medium' },
+  ideate: { provider: CLAUDE, model: SONNET },
+  createPr: { provider: CLAUDE, model: HAIKU },
 };
 
 /**
@@ -260,42 +275,42 @@ const CLAUDE_STRONG_GATE: AiSettings = {
  */
 const MIXED_STRONG_GATE: AiSettings = {
   effort: 'high',
-  refine: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
-  plan: { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'xhigh' },
+  refine: { provider: CODEX, model: GPT_5_4_MINI },
+  plan: { provider: CLAUDE, model: OPUS, effort: 'xhigh' },
   implement: {
-    generator: { provider: 'claude-code', model: 'claude-sonnet-4-6', effort: 'high' },
-    evaluator: { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'xhigh' },
+    generator: { provider: CLAUDE, model: SONNET, effort: 'high' },
+    evaluator: { provider: CLAUDE, model: OPUS, effort: 'xhigh' },
   },
-  readiness: { provider: 'github-copilot', model: 'gpt-5-mini', effort: 'medium' },
-  ideate: { provider: 'claude-code', model: 'claude-sonnet-4-6' },
-  createPr: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
+  readiness: { provider: COPILOT, model: GPT_5_MINI, effort: 'medium' },
+  ideate: { provider: CLAUDE, model: SONNET },
+  createPr: { provider: CODEX, model: GPT_5_4_MINI },
 };
 
 const COPILOT_STRONG_GATE: AiSettings = {
   effort: 'high',
-  refine: { provider: 'github-copilot', model: 'claude-sonnet-4.6' },
-  plan: { provider: 'github-copilot', model: 'claude-opus-4.8', effort: 'xhigh' },
+  refine: { provider: COPILOT, model: COPILOT_SONNET },
+  plan: { provider: COPILOT, model: COPILOT_OPUS, effort: 'xhigh' },
   implement: {
-    generator: { provider: 'github-copilot', model: 'claude-sonnet-4.6', effort: 'high' },
-    evaluator: { provider: 'github-copilot', model: 'claude-opus-4.8', effort: 'xhigh' },
+    generator: { provider: COPILOT, model: COPILOT_SONNET, effort: 'high' },
+    evaluator: { provider: COPILOT, model: COPILOT_OPUS, effort: 'xhigh' },
   },
-  readiness: { provider: 'github-copilot', model: 'gpt-5-mini', effort: 'medium' },
-  ideate: { provider: 'github-copilot', model: 'claude-sonnet-4.6' },
-  createPr: { provider: 'github-copilot', model: 'gpt-5-mini' },
+  readiness: { provider: COPILOT, model: GPT_5_MINI, effort: 'medium' },
+  ideate: { provider: COPILOT, model: COPILOT_SONNET },
+  createPr: { provider: COPILOT, model: GPT_5_MINI },
 };
 
 const CODEX_STRONG_GATE: AiSettings = {
   effort: 'high',
-  refine: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
-  plan: { provider: 'openai-codex', model: 'gpt-5.5', effort: 'high' },
+  refine: { provider: CODEX, model: GPT_5_4_MINI },
+  plan: { provider: CODEX, model: 'gpt-5.5', effort: 'high' },
   implement: {
     // Narrowest gate of the family: gpt-5.4 author climbs the single rung to the gpt-5.5 gate.
-    generator: { provider: 'openai-codex', model: 'gpt-5.4', effort: 'high' },
-    evaluator: { provider: 'openai-codex', model: 'gpt-5.5', effort: 'high' },
+    generator: { provider: CODEX, model: 'gpt-5.4', effort: 'high' },
+    evaluator: { provider: CODEX, model: 'gpt-5.5', effort: 'high' },
   },
-  readiness: { provider: 'openai-codex', model: 'gpt-5.4-mini', effort: 'medium' },
-  ideate: { provider: 'openai-codex', model: 'gpt-5.5' },
-  createPr: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
+  readiness: { provider: CODEX, model: GPT_5_4_MINI, effort: 'medium' },
+  ideate: { provider: CODEX, model: 'gpt-5.5' },
+  createPr: { provider: CODEX, model: GPT_5_4_MINI },
 };
 
 /**
@@ -311,54 +326,54 @@ const CODEX_STRONG_GATE: AiSettings = {
  */
 const MIXED_FAST: AiSettings = {
   effort: 'low',
-  refine: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
-  plan: { provider: 'github-copilot', model: 'claude-sonnet-4.6', effort: 'low' },
+  refine: { provider: CODEX, model: GPT_5_4_MINI },
+  plan: { provider: COPILOT, model: COPILOT_SONNET, effort: 'low' },
   implement: {
-    generator: { provider: 'claude-code', model: 'claude-sonnet-4-6', effort: 'low' },
-    evaluator: { provider: 'claude-code', model: 'claude-sonnet-4-6', effort: 'low' },
+    generator: { provider: CLAUDE, model: SONNET, effort: 'low' },
+    evaluator: { provider: CLAUDE, model: SONNET, effort: 'low' },
   },
-  readiness: { provider: 'github-copilot', model: 'gpt-5-mini', effort: 'low' },
-  ideate: { provider: 'claude-code', model: 'claude-haiku-4-5' },
-  createPr: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
+  readiness: { provider: COPILOT, model: GPT_5_MINI, effort: 'low' },
+  ideate: { provider: CLAUDE, model: HAIKU },
+  createPr: { provider: CODEX, model: GPT_5_4_MINI },
 };
 
 const CLAUDE_FAST: AiSettings = {
   effort: 'low',
-  refine: { provider: 'claude-code', model: 'claude-haiku-4-5' },
-  plan: { provider: 'claude-code', model: 'claude-sonnet-4-6', effort: 'low' },
+  refine: { provider: CLAUDE, model: HAIKU },
+  plan: { provider: CLAUDE, model: SONNET, effort: 'low' },
   implement: {
-    generator: { provider: 'claude-code', model: 'claude-sonnet-4-6', effort: 'low' },
-    evaluator: { provider: 'claude-code', model: 'claude-sonnet-4-6', effort: 'low' },
+    generator: { provider: CLAUDE, model: SONNET, effort: 'low' },
+    evaluator: { provider: CLAUDE, model: SONNET, effort: 'low' },
   },
-  readiness: { provider: 'claude-code', model: 'claude-haiku-4-5', effort: 'low' },
-  ideate: { provider: 'claude-code', model: 'claude-haiku-4-5' },
-  createPr: { provider: 'claude-code', model: 'claude-haiku-4-5' },
+  readiness: { provider: CLAUDE, model: HAIKU, effort: 'low' },
+  ideate: { provider: CLAUDE, model: HAIKU },
+  createPr: { provider: CLAUDE, model: HAIKU },
 };
 
 const COPILOT_FAST: AiSettings = {
   effort: 'low',
-  refine: { provider: 'github-copilot', model: 'gpt-5-mini' },
-  plan: { provider: 'github-copilot', model: 'claude-sonnet-4.6', effort: 'low' },
+  refine: { provider: COPILOT, model: GPT_5_MINI },
+  plan: { provider: COPILOT, model: COPILOT_SONNET, effort: 'low' },
   implement: {
-    generator: { provider: 'github-copilot', model: 'claude-sonnet-4.6', effort: 'low' },
-    evaluator: { provider: 'github-copilot', model: 'claude-sonnet-4.6', effort: 'low' },
+    generator: { provider: COPILOT, model: COPILOT_SONNET, effort: 'low' },
+    evaluator: { provider: COPILOT, model: COPILOT_SONNET, effort: 'low' },
   },
-  readiness: { provider: 'github-copilot', model: 'gpt-5-mini', effort: 'low' },
-  ideate: { provider: 'github-copilot', model: 'gpt-5-mini' },
-  createPr: { provider: 'github-copilot', model: 'gpt-5-mini' },
+  readiness: { provider: COPILOT, model: GPT_5_MINI, effort: 'low' },
+  ideate: { provider: COPILOT, model: GPT_5_MINI },
+  createPr: { provider: COPILOT, model: GPT_5_MINI },
 };
 
 const CODEX_FAST: AiSettings = {
   effort: 'low',
-  refine: { provider: 'openai-codex', model: 'gpt-5.4-mini', effort: 'minimal' },
-  plan: { provider: 'openai-codex', model: 'gpt-5.4-mini', effort: 'low' },
+  refine: { provider: CODEX, model: GPT_5_4_MINI, effort: 'minimal' },
+  plan: { provider: CODEX, model: GPT_5_4_MINI, effort: 'low' },
   implement: {
-    generator: { provider: 'openai-codex', model: 'gpt-5.4-mini', effort: 'low' },
-    evaluator: { provider: 'openai-codex', model: 'gpt-5.4-mini', effort: 'low' },
+    generator: { provider: CODEX, model: GPT_5_4_MINI, effort: 'low' },
+    evaluator: { provider: CODEX, model: GPT_5_4_MINI, effort: 'low' },
   },
-  readiness: { provider: 'openai-codex', model: 'gpt-5.4-mini', effort: 'minimal' },
-  ideate: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
-  createPr: { provider: 'openai-codex', model: 'gpt-5.4-mini', effort: 'minimal' },
+  readiness: { provider: CODEX, model: GPT_5_4_MINI, effort: 'minimal' },
+  ideate: { provider: CODEX, model: GPT_5_4_MINI },
+  createPr: { provider: CODEX, model: GPT_5_4_MINI, effort: 'minimal' },
 };
 
 /**
@@ -373,55 +388,55 @@ const CODEX_FAST: AiSettings = {
  */
 const MIXED_FRONTIER: AiSettings = {
   effort: 'max',
-  refine: { provider: 'openai-codex', model: 'gpt-5.5' },
-  plan: { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'max' },
+  refine: { provider: CODEX, model: 'gpt-5.5' },
+  plan: { provider: CLAUDE, model: OPUS, effort: 'max' },
   implement: {
-    generator: { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'max' },
-    evaluator: { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'max' },
+    generator: { provider: CLAUDE, model: OPUS, effort: 'max' },
+    evaluator: { provider: CLAUDE, model: OPUS, effort: 'max' },
   },
-  readiness: { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'high' },
-  ideate: { provider: 'claude-code', model: 'claude-opus-4-8' },
-  createPr: { provider: 'openai-codex', model: 'gpt-5.5' },
+  readiness: { provider: CLAUDE, model: OPUS, effort: 'high' },
+  ideate: { provider: CLAUDE, model: OPUS },
+  createPr: { provider: CODEX, model: 'gpt-5.5' },
 };
 
 const CLAUDE_FRONTIER: AiSettings = {
   effort: 'max',
-  refine: { provider: 'claude-code', model: 'claude-opus-4-8' },
-  plan: { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'max' },
+  refine: { provider: CLAUDE, model: OPUS },
+  plan: { provider: CLAUDE, model: OPUS, effort: 'max' },
   implement: {
-    generator: { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'max' },
-    evaluator: { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'max' },
+    generator: { provider: CLAUDE, model: OPUS, effort: 'max' },
+    evaluator: { provider: CLAUDE, model: OPUS, effort: 'max' },
   },
-  readiness: { provider: 'claude-code', model: 'claude-opus-4-8', effort: 'high' },
-  ideate: { provider: 'claude-code', model: 'claude-opus-4-8' },
-  createPr: { provider: 'claude-code', model: 'claude-opus-4-8' },
+  readiness: { provider: CLAUDE, model: OPUS, effort: 'high' },
+  ideate: { provider: CLAUDE, model: OPUS },
+  createPr: { provider: CLAUDE, model: OPUS },
 };
 
 const COPILOT_FRONTIER: AiSettings = {
   effort: 'max',
-  refine: { provider: 'github-copilot', model: 'claude-opus-4.8' },
-  plan: { provider: 'github-copilot', model: 'claude-opus-4.8', effort: 'max' },
+  refine: { provider: COPILOT, model: COPILOT_OPUS },
+  plan: { provider: COPILOT, model: COPILOT_OPUS, effort: 'max' },
   implement: {
-    generator: { provider: 'github-copilot', model: 'claude-opus-4.8', effort: 'max' },
-    evaluator: { provider: 'github-copilot', model: 'claude-opus-4.8', effort: 'max' },
+    generator: { provider: COPILOT, model: COPILOT_OPUS, effort: 'max' },
+    evaluator: { provider: COPILOT, model: COPILOT_OPUS, effort: 'max' },
   },
-  readiness: { provider: 'github-copilot', model: 'claude-opus-4.8', effort: 'high' },
-  ideate: { provider: 'github-copilot', model: 'claude-opus-4.8' },
-  createPr: { provider: 'github-copilot', model: 'claude-opus-4.8' },
+  readiness: { provider: COPILOT, model: COPILOT_OPUS, effort: 'high' },
+  ideate: { provider: COPILOT, model: COPILOT_OPUS },
+  createPr: { provider: COPILOT, model: COPILOT_OPUS },
 };
 
 const CODEX_FRONTIER: AiSettings = {
   // Codex ceiling — global stays `high` so nothing implies a `max` codex row.
   effort: 'high',
-  refine: { provider: 'openai-codex', model: 'gpt-5.5' },
-  plan: { provider: 'openai-codex', model: 'gpt-5.5', effort: 'high' },
+  refine: { provider: CODEX, model: 'gpt-5.5' },
+  plan: { provider: CODEX, model: 'gpt-5.5', effort: 'high' },
   implement: {
-    generator: { provider: 'openai-codex', model: 'gpt-5.5', effort: 'high' },
-    evaluator: { provider: 'openai-codex', model: 'gpt-5.5', effort: 'high' },
+    generator: { provider: CODEX, model: 'gpt-5.5', effort: 'high' },
+    evaluator: { provider: CODEX, model: 'gpt-5.5', effort: 'high' },
   },
-  readiness: { provider: 'openai-codex', model: 'gpt-5.5', effort: 'high' },
-  ideate: { provider: 'openai-codex', model: 'gpt-5.5' },
-  createPr: { provider: 'openai-codex', model: 'gpt-5.5' },
+  readiness: { provider: CODEX, model: 'gpt-5.5', effort: 'high' },
+  ideate: { provider: CODEX, model: 'gpt-5.5' },
+  createPr: { provider: CODEX, model: 'gpt-5.5' },
 };
 
 /**

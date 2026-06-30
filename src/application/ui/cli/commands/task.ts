@@ -9,6 +9,9 @@ interface SprintOpt {
   readonly sprint?: string;
 }
 
+const SPRINT_OPTION_FLAGS = '-s, --sprint <id>';
+const SPRINT_OPTION_DESC = 'sprint id (defaults to the current sprint)';
+
 /**
  * Register the `task` command group. Read-side plus a single recovery hatch (`unblock`) —
  * task creation is owned by the planning chain (AI generates the task graph from approved
@@ -29,7 +32,7 @@ export const registerTaskCommand = (program: Command): void => {
   task
     .command('list')
     .description('list every task on the sprint, in order')
-    .option('-s, --sprint <id>', 'sprint id (defaults to the current sprint)')
+    .option(SPRINT_OPTION_FLAGS, SPRINT_OPTION_DESC)
     .action(async (opts: SprintOpt) => {
       const { deps, storage } = await bootstrapCli();
       const sprintId = await resolveSprintId(opts.sprint, storage.stateRoot);
@@ -57,7 +60,7 @@ export const registerTaskCommand = (program: Command): void => {
   task
     .command('show <taskId>')
     .description('print a single task as JSON')
-    .option('-s, --sprint <id>', 'sprint id (defaults to the current sprint)')
+    .option(SPRINT_OPTION_FLAGS, SPRINT_OPTION_DESC)
     .action(async (rawTaskId: string, opts: SprintOpt) => {
       const { deps, storage } = await bootstrapCli();
       const sprintId = await resolveSprintId(opts.sprint, storage.stateRoot);
@@ -85,7 +88,7 @@ export const registerTaskCommand = (program: Command): void => {
   task
     .command('unblock <taskId>')
     .description('flip a blocked task back to todo so the implement loop picks it up again')
-    .option('-s, --sprint <id>', 'sprint id (defaults to the current sprint)')
+    .option(SPRINT_OPTION_FLAGS, SPRINT_OPTION_DESC)
     .action(async (rawTaskId: string, opts: SprintOpt) => {
       const { deps, storage } = await bootstrapCli();
       const sprintId = await resolveSprintId(opts.sprint, storage.stateRoot);

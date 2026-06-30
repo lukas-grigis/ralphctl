@@ -46,6 +46,8 @@ export const parseRunTimestamp = (runDirName: string): Date | null => {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
+const DURATION_HINT = 'use a value like 24h, 7d, or 2w';
+
 /**
  * Parse a duration like `7d`, `24h`, `2w`. Suffixes are deliberately restricted to `h` / `d` /
  * `w` — minute granularity isn't useful when forensic dirs live for hours-to-weeks, and `m`
@@ -61,7 +63,7 @@ export const parseDuration = (input: string): Result<number, ValidationError> =>
         field: 'duration',
         value: input,
         message: 'duration must not be empty',
-        hint: 'use a value like 24h, 7d, or 2w',
+        hint: DURATION_HINT,
       })
     );
   }
@@ -72,7 +74,7 @@ export const parseDuration = (input: string): Result<number, ValidationError> =>
         field: 'duration',
         value: input,
         message: `unparsable duration: ${input}`,
-        hint: 'use a value like 24h, 7d, or 2w',
+        hint: DURATION_HINT,
       })
     );
   }
@@ -84,7 +86,7 @@ export const parseDuration = (input: string): Result<number, ValidationError> =>
         field: 'duration',
         value: input,
         message: `duration must be a positive number: ${input}`,
-        hint: 'use a value like 24h, 7d, or 2w',
+        hint: DURATION_HINT,
       })
     );
   }

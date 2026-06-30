@@ -61,11 +61,13 @@ const probeWritable = async (id: string, label: string, path: AbsolutePath): Pro
  * majors pass with an informational detail.
  */
 const probeNodeVersion = (nodeVersion: string): ProbeResult => {
+  const NODE_VERSION_ID = 'node-version';
+  const NODE_VERSION_LABEL = 'Node version';
   const match = /^v(\d+)\./.exec(nodeVersion);
   if (match === null || match[1] === undefined) {
     return {
-      id: 'node-version',
-      label: 'Node version',
+      id: NODE_VERSION_ID,
+      label: NODE_VERSION_LABEL,
       status: 'warn',
       detail: `could not parse '${nodeVersion}'`,
       group: 'runtime',
@@ -74,8 +76,8 @@ const probeNodeVersion = (nodeVersion: string): ProbeResult => {
   const major = Number.parseInt(match[1], 10);
   if (major < MIN_NODE_MAJOR) {
     return {
-      id: 'node-version',
-      label: 'Node version',
+      id: NODE_VERSION_ID,
+      label: NODE_VERSION_LABEL,
       status: 'fail',
       detail: `${nodeVersion} — ralphctl requires Node ≥ ${String(MIN_NODE_MAJOR)} (mise.toml)`,
       group: 'runtime',
@@ -83,8 +85,8 @@ const probeNodeVersion = (nodeVersion: string): ProbeResult => {
     };
   }
   return {
-    id: 'node-version',
-    label: 'Node version',
+    id: NODE_VERSION_ID,
+    label: NODE_VERSION_LABEL,
     status: 'pass',
     detail: `${nodeVersion} (mise.toml expects ≥ v${String(MIN_NODE_MAJOR)})`,
     group: 'runtime',
@@ -175,28 +177,30 @@ export const createDoctorFlow = (deps: DoctorDeps): Element<DoctorCtx> =>
         probes.push(probeNodeVersion(deps.nodeVersion));
 
         // ---- Settings ---------------------------------------------------------
+        const SETTINGS_PERSISTED_ID = 'settings-persisted';
+        const SETTINGS_PRESENT_LABEL = 'Settings file present';
         const settingsPath = deps.settingsRepo.path;
         const settingsExists = await deps.settingsRepo.exists();
         if (!settingsExists.ok) {
           probes.push({
-            id: 'settings-persisted',
-            label: 'Settings file present',
+            id: SETTINGS_PERSISTED_ID,
+            label: SETTINGS_PRESENT_LABEL,
             status: 'fail',
             detail: `${settingsPath} — ${settingsExists.error.message}`,
             group: 'settings',
           });
         } else if (settingsExists.value) {
           probes.push({
-            id: 'settings-persisted',
-            label: 'Settings file present',
+            id: SETTINGS_PERSISTED_ID,
+            label: SETTINGS_PRESENT_LABEL,
             status: 'pass',
             detail: settingsPath,
             group: 'settings',
           });
         } else {
           probes.push({
-            id: 'settings-persisted',
-            label: 'Settings file present',
+            id: SETTINGS_PERSISTED_ID,
+            label: SETTINGS_PRESENT_LABEL,
             status: 'warn',
             detail: `${settingsPath} — using built-in defaults (first run)`,
             hint: 'open the welcome flow to pick a provider and persist your settings',

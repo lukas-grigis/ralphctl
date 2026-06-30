@@ -257,10 +257,11 @@ export const proposeReadinessLeaf = (deps: ProposeReadinessLeafDeps, tool: Assis
       execute: async (input, signal) => proposeReadinessUseCase(deps, tool, input, signal),
     },
     input: (ctx) => {
+      const PRE_PROPOSE_STATE = 'pre-propose';
       if (ctx.repository === undefined) {
         throw new InvalidStateError({
           entity: 'chain',
-          currentState: 'pre-propose',
+          currentState: PRE_PROPOSE_STATE,
           attemptedAction: 'propose',
           message: 'propose: ctx.repository is undefined — pick-repository must run first',
         });
@@ -269,7 +270,7 @@ export const proposeReadinessLeaf = (deps: ProposeReadinessLeafDeps, tool: Assis
       if (entry?.probedState === undefined) {
         throw new InvalidStateError({
           entity: 'chain',
-          currentState: 'pre-propose',
+          currentState: PRE_PROPOSE_STATE,
           attemptedAction: 'propose',
           message: `propose: ctx.entries[${tool}].probedState is undefined — probe must run first`,
         });
@@ -277,7 +278,7 @@ export const proposeReadinessLeaf = (deps: ProposeReadinessLeafDeps, tool: Assis
       if (entry.runDir === undefined) {
         throw new InvalidStateError({
           entity: 'chain',
-          currentState: 'pre-propose',
+          currentState: PRE_PROPOSE_STATE,
           attemptedAction: 'propose',
           message: `propose: ctx.entries[${tool}].runDir is undefined — allocate-run-dir must run first`,
         });

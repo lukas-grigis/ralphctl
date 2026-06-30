@@ -9,6 +9,9 @@ import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 
+/** Leaf name, reused as the `attemptedAction` on the leaf's error states. */
+const LEAF_NAME = 'pick-repository';
+
 /**
  * Minimum context shape the leaf reads (`project`, loaded by `loadProjectLeaf`) and writes
  * (`repository`). Generic over `<TCtx extends PickRepositoryCtx>` so each flow can plug its
@@ -62,7 +65,7 @@ const pickRepositoryUseCase = async (
       new InvalidStateError({
         entity: 'project',
         currentState: 'no-repositories',
-        attemptedAction: 'pick-repository',
+        attemptedAction: LEAF_NAME,
         message: `project '${input.project.slug}' has no repositories to ${emptyVerb}`,
       })
     );
@@ -97,7 +100,7 @@ export const pickRepositoryLeaf = <TCtx extends PickRepositoryCtx>(
   deps: PickRepositoryLeafDeps,
   config: PickRepositoryLeafConfig<TCtx>
 ): Element<TCtx> =>
-  leaf<TCtx, PickRepositoryInput, Repository>('pick-repository', {
+  leaf<TCtx, PickRepositoryInput, Repository>(LEAF_NAME, {
     useCase: {
       execute: async (input) => pickRepositoryUseCase(deps, input, config.promptMessage, config.emptyVerb),
     },
@@ -106,7 +109,7 @@ export const pickRepositoryLeaf = <TCtx extends PickRepositoryCtx>(
         throw new InvalidStateError({
           entity: 'chain',
           currentState: 'pre-pick-repository',
-          attemptedAction: 'pick-repository',
+          attemptedAction: LEAF_NAME,
           message: 'pick-repository: ctx.project is undefined — load-project must run first',
         });
       }

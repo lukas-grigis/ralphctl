@@ -23,6 +23,9 @@ import {
   setRepositoryVerifyTimeout,
 } from '@src/domain/entity/repository.ts';
 
+/** Field tag shared by every repository-collection validation failure on a {@link Project}. */
+const FIELD_PROJECT_REPOSITORIES = 'project.repositories';
+
 /**
  * Where ralphctl should create new issues when a refined ticket has no `link` and the user
  * picks "Approve & create origin" in the refine flow. `provider` selects gh vs glab; `owner`
@@ -98,7 +101,7 @@ export const createProject = (input: ProjectCreateInput): Result<Project, Valida
   if (input.repositories.length === 0) {
     return Result.error(
       new ValidationError({
-        field: 'project.repositories',
+        field: FIELD_PROJECT_REPOSITORIES,
         value: input.repositories,
         message: 'project must have at least one repository',
       })
@@ -111,7 +114,7 @@ export const createProject = (input: ProjectCreateInput): Result<Project, Valida
     if (seenIds.has(repo.id)) {
       return Result.error(
         new ValidationError({
-          field: 'project.repositories',
+          field: FIELD_PROJECT_REPOSITORIES,
           value: repo.id,
           message: `duplicate repository id '${repo.id}' (slug '${repo.slug}', name '${repo.name}')`,
         })
@@ -120,7 +123,7 @@ export const createProject = (input: ProjectCreateInput): Result<Project, Valida
     if (seenSlugs.has(repo.slug)) {
       return Result.error(
         new ValidationError({
-          field: 'project.repositories',
+          field: FIELD_PROJECT_REPOSITORIES,
           value: repo.slug,
           message: `duplicate repository slug '${repo.slug}' (id '${repo.id}', name '${repo.name}')`,
         })
@@ -168,7 +171,7 @@ export const removeRepository = (project: Project, id: RepositoryId): Result<Pro
   if (project.repositories.length <= 1) {
     return Result.error(
       new ValidationError({
-        field: 'project.repositories',
+        field: FIELD_PROJECT_REPOSITORIES,
         value: id,
         message: 'project must keep at least one repository — refusing to remove the last one',
       })
@@ -178,7 +181,7 @@ export const removeRepository = (project: Project, id: RepositoryId): Result<Pro
   if (next.length === project.repositories.length) {
     return Result.error(
       new ValidationError({
-        field: 'project.repositories',
+        field: FIELD_PROJECT_REPOSITORIES,
         value: id,
         message: `repository '${id}' not found on project '${project.slug}'`,
       })
@@ -216,7 +219,7 @@ export const updateRepository = (
   if (idx === -1) {
     return Result.error(
       new ValidationError({
-        field: 'project.repositories',
+        field: FIELD_PROJECT_REPOSITORIES,
         value: id,
         message: `repository '${id}' not found on project '${project.slug}'`,
       })
@@ -227,7 +230,7 @@ export const updateRepository = (
   if (target === undefined) {
     return Result.error(
       new ValidationError({
-        field: 'project.repositories',
+        field: FIELD_PROJECT_REPOSITORIES,
         value: id,
         message: `repository '${id}' lookup returned undefined`,
       })

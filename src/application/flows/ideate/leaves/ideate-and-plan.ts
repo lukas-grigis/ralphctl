@@ -84,8 +84,11 @@ interface IdeateAndPlanOutput {
   readonly tasks: readonly Task[];
 }
 
+/** Leaf name, reused as the `entity` / `attemptedAction` on the leaf's error states. */
+const LEAF_NAME = 'ideate-and-plan';
+
 export const ideateAndPlanLeaf = (deps: IdeateAndPlanLeafDeps): Element<IdeateCtx> =>
-  leaf<IdeateCtx, IdeateAndPlanInput, IdeateAndPlanOutput>('ideate-and-plan', {
+  leaf<IdeateCtx, IdeateAndPlanInput, IdeateAndPlanOutput>(LEAF_NAME, {
     useCase: {
       execute: async (input) => {
         const session = await deps.runInTerminal(async () =>
@@ -120,7 +123,7 @@ export const ideateAndPlanLeaf = (deps: IdeateAndPlanLeafDeps): Element<IdeateCt
         if (ideatedSignal === undefined) {
           return Result.error(
             new InvalidStateError({
-              entity: 'ideate-and-plan',
+              entity: LEAF_NAME,
               currentState: 'post-validation',
               attemptedAction: 'project-signal',
               message: 'ideate: validated signals contained no ideated-tickets signal',
@@ -159,27 +162,28 @@ export const ideateAndPlanLeaf = (deps: IdeateAndPlanLeafDeps): Element<IdeateCt
       },
     },
     input: (ctx) => {
+      const PRE_IDEATE_STATE = 'pre-ideate';
       if (ctx.sprint === undefined) {
         throw new InvalidStateError({
           entity: 'chain',
-          currentState: 'pre-ideate',
-          attemptedAction: 'ideate-and-plan',
+          currentState: PRE_IDEATE_STATE,
+          attemptedAction: LEAF_NAME,
           message: 'ideate-and-plan: ctx.sprint is undefined — load-sprint must run first',
         });
       }
       if (ctx.project === undefined) {
         throw new InvalidStateError({
           entity: 'chain',
-          currentState: 'pre-ideate',
-          attemptedAction: 'ideate-and-plan',
+          currentState: PRE_IDEATE_STATE,
+          attemptedAction: LEAF_NAME,
           message: 'ideate-and-plan: ctx.project is undefined — load-project must run first',
         });
       }
       if (ctx.currentPromptFile === undefined || ctx.currentOutputFile === undefined) {
         throw new InvalidStateError({
           entity: 'chain',
-          currentState: 'pre-ideate',
-          attemptedAction: 'ideate-and-plan',
+          currentState: PRE_IDEATE_STATE,
+          attemptedAction: LEAF_NAME,
           message: 'ideate-and-plan: prompt/output paths missing — render-prompt-to-file must run first',
         });
       }

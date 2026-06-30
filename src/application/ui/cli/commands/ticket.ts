@@ -10,6 +10,9 @@ interface SprintOpt {
   readonly sprint?: string;
 }
 
+const SPRINT_OPTION_FLAGS = '-s, --sprint <id>';
+const SPRINT_OPTION_DESC = 'sprint id (defaults to the current sprint)';
+
 interface AddOpts extends SprintOpt {
   readonly title: string;
   readonly description?: string;
@@ -38,7 +41,7 @@ export const registerTicketCommand = (program: Command): void => {
   ticketCmd
     .command('list')
     .description('list every ticket on the sprint')
-    .option('-s, --sprint <id>', 'sprint id (defaults to the current sprint)')
+    .option(SPRINT_OPTION_FLAGS, SPRINT_OPTION_DESC)
     .action(async (opts: SprintOpt) => {
       const { deps, storage } = await bootstrapCli();
       const sprintId = await resolveSprintId(opts.sprint, storage.stateRoot);
@@ -66,7 +69,7 @@ export const registerTicketCommand = (program: Command): void => {
   ticketCmd
     .command('show <ticketId>')
     .description('print a single ticket as JSON')
-    .option('-s, --sprint <id>', 'sprint id (defaults to the current sprint)')
+    .option(SPRINT_OPTION_FLAGS, SPRINT_OPTION_DESC)
     .action(async (rawTicketId: string, opts: SprintOpt) => {
       const { deps, storage } = await bootstrapCli();
       const sprintId = await resolveSprintId(opts.sprint, storage.stateRoot);
@@ -100,7 +103,7 @@ export const registerTicketCommand = (program: Command): void => {
   ticketCmd
     .command('add')
     .description('append a pending ticket to a draft sprint')
-    .option('-s, --sprint <id>', 'sprint id (defaults to the current sprint)')
+    .option(SPRINT_OPTION_FLAGS, SPRINT_OPTION_DESC)
     .requiredOption('-t, --title <title>', 'ticket title')
     .option('-d, --description <text>', 'optional description')
     .option('-l, --link <url>', 'optional issue link (http/https)')
@@ -136,7 +139,7 @@ export const registerTicketCommand = (program: Command): void => {
   ticketCmd
     .command('remove <ticketId>')
     .description('drop a ticket from a draft sprint')
-    .option('-s, --sprint <id>', 'sprint id (defaults to the current sprint)')
+    .option(SPRINT_OPTION_FLAGS, SPRINT_OPTION_DESC)
     .action(async (rawTicketId: string, opts: SprintOpt) => {
       const { deps, storage } = await bootstrapCli();
       const sprintId = await resolveSprintId(opts.sprint, storage.stateRoot);

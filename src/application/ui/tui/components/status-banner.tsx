@@ -111,7 +111,7 @@ export const StatusBanner = (): React.JSX.Element | null => {
     // rather than crashing the host view when the bus isn't wired.
     const bus = deps.eventBus;
     if (bus === undefined) return undefined;
-    const unsub = bus.subscribe((event) => {
+    return bus.subscribe((event) => {
       if (event.type === 'banner-show') {
         setBanners((prev) => upsert(prev, toActive(event)));
         return;
@@ -120,7 +120,6 @@ export const StatusBanner = (): React.JSX.Element | null => {
         setBanners((prev) => prev.filter((b) => b.id !== event.id));
       }
     });
-    return unsub;
   }, [deps.eventBus]);
 
   // Sort by tier (most-urgent first); within the same tier we preserve insertion order so a

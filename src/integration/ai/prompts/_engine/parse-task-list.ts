@@ -15,6 +15,8 @@ import type { z } from 'zod';
 
 type ZodIssueLike = z.core.$ZodIssue;
 
+const SCHEMA_MISMATCH = 'schema-mismatch';
+
 /**
  * Shared task-list parser used by interactive flows that produce tasks: ideate (combined
  * refine+plan) and plan-interactive (plan only). Pure — no I/O.
@@ -85,7 +87,7 @@ export const parseTaskList = (
   if (!parsed.success) {
     return Result.error(
       new ParseError({
-        subCode: 'schema-mismatch',
+        subCode: SCHEMA_MISMATCH,
         message: `task-list: ${formatZodIssue(parsed.error.issues)}`,
         cause: parsed.error,
       })
@@ -107,7 +109,7 @@ export const parseTaskList = (
       if (idMap.has(t.id)) {
         return Result.error(
           new ParseError({
-            subCode: 'schema-mismatch',
+            subCode: SCHEMA_MISMATCH,
             message: `task-list: duplicate task id '${t.id}' at index ${String(i)}`,
           })
         );
@@ -131,7 +133,7 @@ export const parseTaskList = (
     if (repoId === undefined) {
       return Result.error(
         new ParseError({
-          subCode: 'schema-mismatch',
+          subCode: SCHEMA_MISMATCH,
           message: `task-list: tasks[${String(i)}].projectPath '${t.projectPath}' is not in the project's repositories`,
           hint: `available paths: ${Array.from(repoByPath.keys()).join(', ')}`,
         })
@@ -143,7 +145,7 @@ export const parseTaskList = (
       if (resolved === undefined) {
         return Result.error(
           new ParseError({
-            subCode: 'schema-mismatch',
+            subCode: SCHEMA_MISMATCH,
             message: `task-list: tasks[${String(i)}].blockedBy references unknown task id '${ref}'`,
           })
         );
@@ -184,7 +186,7 @@ export const parseTaskList = (
     if (!created.ok) {
       return Result.error(
         new ParseError({
-          subCode: 'schema-mismatch',
+          subCode: SCHEMA_MISMATCH,
           message: `task-list: tasks[${String(i)}] failed validation: ${created.error.message}`,
           cause: created.error,
         })
@@ -232,7 +234,7 @@ const scheduleAndFlatten = (tasks: readonly TodoTask[]): Result<ScheduledTasks, 
   if (!scheduled.ok) {
     return Result.error(
       new ParseError({
-        subCode: 'schema-mismatch',
+        subCode: SCHEMA_MISMATCH,
         message: `task-list: ${renderTaskGraphIssue(scheduled.error)}`,
       })
     );
@@ -282,7 +284,7 @@ const resolveTicketRef = (
   if (typeof t.ticketRef !== 'string' || t.ticketRef.trim().length === 0) {
     return Result.error(
       new ParseError({
-        subCode: 'schema-mismatch',
+        subCode: SCHEMA_MISMATCH,
         message: `task-list: tasks[${String(i)}].ticketRef missing — required when mode='lookup'`,
       })
     );
@@ -292,7 +294,7 @@ const resolveTicketRef = (
   if (match === undefined) {
     return Result.error(
       new ParseError({
-        subCode: 'schema-mismatch',
+        subCode: SCHEMA_MISMATCH,
         message: `task-list: tasks[${String(i)}].ticketRef '${ref}' is not an approved ticket on the sprint`,
         hint: `available ticket ids: ${mode.tickets.map((tk) => String(tk.id)).join(', ')}`,
       })
@@ -302,7 +304,7 @@ const resolveTicketRef = (
   if (!parsed.ok) {
     return Result.error(
       new ParseError({
-        subCode: 'schema-mismatch',
+        subCode: SCHEMA_MISMATCH,
         message: `task-list: tasks[${String(i)}].ticketRef '${ref}' is not a valid ticket id format`,
         cause: parsed.error,
       })

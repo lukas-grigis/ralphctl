@@ -25,6 +25,10 @@ export const PROVIDER_BINARY: Readonly<Record<AiProvider, string>> = {
   'openai-codex': 'codex',
 };
 
+const NPM_INSTALL_CLAUDE = 'npm install -g @anthropic-ai/claude-code';
+const NPM_INSTALL_COPILOT = 'npm install -g @github/copilot';
+const NPM_INSTALL_CODEX = 'npm install -g @openai/codex';
+
 /**
  * Per-vendor install guidance entries. Sources (verified against vendor docs at the time of
  * writing):
@@ -41,39 +45,27 @@ export const PROVIDER_INSTALL_GUIDANCE: Readonly<Record<AiProvider, ProviderInst
   'claude-code': {
     docsUrl: 'https://docs.claude.com/en/docs/claude-code/setup',
     commandsByPlatform: {
-      darwin: [
-        'brew install --cask claude-code',
-        'curl -fsSL https://claude.ai/install.sh | bash',
-        'npm install -g @anthropic-ai/claude-code',
-      ],
-      linux: ['curl -fsSL https://claude.ai/install.sh | bash', 'npm install -g @anthropic-ai/claude-code'],
-      win32: [
-        'winget install Anthropic.ClaudeCode',
-        'irm https://claude.ai/install.ps1 | iex',
-        'npm install -g @anthropic-ai/claude-code',
-      ],
+      darwin: ['brew install --cask claude-code', 'curl -fsSL https://claude.ai/install.sh | bash', NPM_INSTALL_CLAUDE],
+      linux: ['curl -fsSL https://claude.ai/install.sh | bash', NPM_INSTALL_CLAUDE],
+      win32: ['winget install Anthropic.ClaudeCode', 'irm https://claude.ai/install.ps1 | iex', NPM_INSTALL_CLAUDE],
     },
   },
   'github-copilot': {
     docsUrl: 'https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli',
     commandsByPlatform: {
-      darwin: ['brew install copilot-cli', 'npm install -g @github/copilot'],
-      linux: ['npm install -g @github/copilot', 'brew install copilot-cli'],
-      win32: ['winget install GitHub.Copilot', 'npm install -g @github/copilot'],
+      darwin: ['brew install copilot-cli', NPM_INSTALL_COPILOT],
+      linux: [NPM_INSTALL_COPILOT, 'brew install copilot-cli'],
+      win32: ['winget install GitHub.Copilot', NPM_INSTALL_COPILOT],
     },
   },
   'openai-codex': {
     docsUrl: 'https://github.com/openai/codex',
     commandsByPlatform: {
-      darwin: [
-        'brew install --cask codex',
-        'curl -fsSL https://chatgpt.com/codex/install.sh | sh',
-        'npm install -g @openai/codex',
-      ],
-      linux: ['curl -fsSL https://chatgpt.com/codex/install.sh | sh', 'npm install -g @openai/codex'],
+      darwin: ['brew install --cask codex', 'curl -fsSL https://chatgpt.com/codex/install.sh | sh', NPM_INSTALL_CODEX],
+      linux: ['curl -fsSL https://chatgpt.com/codex/install.sh | sh', NPM_INSTALL_CODEX],
       win32: [
         'powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"',
-        'npm install -g @openai/codex',
+        NPM_INSTALL_CODEX,
       ],
     },
   },

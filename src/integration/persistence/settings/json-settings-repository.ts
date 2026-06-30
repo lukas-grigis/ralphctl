@@ -11,6 +11,7 @@ import { applyMigrations, readSchemaVersion } from '@src/business/settings/migra
 import type { SettingsRepository } from '@src/domain/repository/settings/settings-repository.ts';
 
 const SETTINGS_FILE = 'settings.json';
+const SCHEMA_MISMATCH = 'schema-mismatch';
 
 /**
  * Re-run hint attached to every read-path `ParseError` — the CLI surfaces `.hint` in parentheses
@@ -60,7 +61,7 @@ export const createJsonSettingsRepository = (deps: JsonSettingsRepositoryDeps): 
       if (sourceVersion > CURRENT_SCHEMA_VERSION) {
         return Result.error(
           new ParseError({
-            subCode: 'schema-mismatch',
+            subCode: SCHEMA_MISMATCH,
             message: `settings at ${path} are from a newer ralphctl (schemaVersion=${String(sourceVersion)}, expected ${String(CURRENT_SCHEMA_VERSION)}). Upgrade ralphctl.`,
             hint: 'upgrade ralphctl, or fix/delete settings.json to start from defaults',
           })
@@ -73,7 +74,7 @@ export const createJsonSettingsRepository = (deps: JsonSettingsRepositoryDeps): 
       if (outcome.toVersion < CURRENT_SCHEMA_VERSION) {
         return Result.error(
           new ParseError({
-            subCode: 'schema-mismatch',
+            subCode: SCHEMA_MISMATCH,
             message: `settings at ${path} cannot be migrated: no chain from v${String(outcome.fromVersion)} to v${String(CURRENT_SCHEMA_VERSION)} (stopped at v${String(outcome.toVersion)}).`,
             hint: REPAIR_HINT,
           })
@@ -84,7 +85,7 @@ export const createJsonSettingsRepository = (deps: JsonSettingsRepositoryDeps): 
       if (!parsed.success) {
         return Result.error(
           new ParseError({
-            subCode: 'schema-mismatch',
+            subCode: SCHEMA_MISMATCH,
             message: `settings at ${path} are invalid: ${parsed.error.message}`,
             cause: parsed.error,
             hint: REPAIR_HINT,
@@ -106,7 +107,7 @@ export const createJsonSettingsRepository = (deps: JsonSettingsRepositoryDeps): 
       if (!parsed.success) {
         return Result.error(
           new ParseError({
-            subCode: 'schema-mismatch',
+            subCode: SCHEMA_MISMATCH,
             message: `settings validation failed before save: ${parsed.error.message}`,
             cause: parsed.error,
           })

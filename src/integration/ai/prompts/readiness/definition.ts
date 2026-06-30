@@ -52,6 +52,8 @@ export interface ReadinessPromptParams {
   readonly outputContractSection: string;
 }
 
+const CLAUDE_CODE = 'claude-code';
+
 /**
  * Map an {@link AssistantTool} to the XML tag the AI should emit around its proposed body.
  * Each tag matches what the harness will write to disk for that tool — no cross-tool envelope
@@ -59,7 +61,7 @@ export interface ReadinessPromptParams {
  */
 export const wireTagFor = (tool: AssistantTool): string => {
   switch (tool) {
-    case 'claude-code':
+    case CLAUDE_CODE:
       return 'claude-md';
     case 'copilot':
       return 'copilot-instructions';
@@ -77,7 +79,7 @@ export const conventionsPartialName = (
   tool: AssistantTool
 ): 'conventions-claude-md' | 'conventions-copilot-instructions' | 'conventions-agents-md' => {
   switch (tool) {
-    case 'claude-code':
+    case CLAUDE_CODE:
       return 'conventions-claude-md';
     case 'copilot':
       return 'conventions-copilot-instructions';
@@ -195,7 +197,7 @@ export const collectArtefactPaths = (state: ReadinessState): readonly string[] =
   if (!isPresent(state)) return [];
   const a = state.artifacts;
   const paths: string[] = [];
-  if (a.tool === 'claude-code') {
+  if (a.tool === CLAUDE_CODE) {
     if (a.claudeMd !== undefined) paths.push(String(a.claudeMd.path));
     if (a.agentsMd !== undefined) paths.push(String(a.agentsMd.path));
     if (a.settings !== undefined) paths.push(String(a.settings.path));
@@ -204,8 +206,8 @@ export const collectArtefactPaths = (state: ReadinessState): readonly string[] =
     for (const ref of a.skills) paths.push(String(ref.path));
     for (const ref of a.commands) paths.push(String(ref.path));
     for (const ref of a.agents) paths.push(String(ref.path));
-  } else if (a.tool === 'copilot') {
-    if (a.copilotInstructions !== undefined) paths.push(String(a.copilotInstructions.path));
+  } else if (a.tool === 'copilot' && a.copilotInstructions !== undefined) {
+    paths.push(String(a.copilotInstructions.path));
   }
   // Codex artefacts placeholder — see ai/readiness/codex/artifacts.ts. No fields to walk yet.
   return paths;

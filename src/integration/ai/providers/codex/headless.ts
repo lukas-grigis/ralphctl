@@ -98,6 +98,8 @@ import {
  * a port, not an implementation detail of this file.
  */
 
+const PROVIDER_NAME = 'codex-provider';
+
 /**
  * Map our SessionPermissions onto codex's `-s/--sandbox` policy.
  *
@@ -137,7 +139,7 @@ export const buildCodexArgs = (
   if (!isCodexModel(session.model)) {
     return Result.error(
       new InvalidStateError({
-        entity: 'codex-provider',
+        entity: PROVIDER_NAME,
         currentState: 'model-validation',
         attemptedAction: 'build argv',
         message: `codex-provider: '${session.model}' is not a known Codex model`,
@@ -379,7 +381,7 @@ export const createCodexProvider = (deps: CodexProviderDeps): HeadlessAiProvider
 
   return createHeadlessProvider({
     providerSlug: 'codex',
-    providerName: 'codex-provider',
+    providerName: PROVIDER_NAME,
     resumeStaleRe: RESUME_STALE_RE,
     rateLimitRetries: deps.rateLimitRetries,
     eventBus: deps.eventBus,
@@ -458,7 +460,7 @@ export const createCodexProvider = (deps: CodexProviderDeps): HeadlessAiProvider
               } catch (err) {
                 return Result.error(
                   new InvalidStateError({
-                    entity: 'codex-provider',
+                    entity: PROVIDER_NAME,
                     currentState: 'output-capture',
                     attemptedAction: 'read tempfile',
                     message: `codex-provider: failed to read output tempfile: ${err instanceof Error ? err.message : String(err)}`,
@@ -477,7 +479,7 @@ export const createCodexProvider = (deps: CodexProviderDeps): HeadlessAiProvider
                 ...(outputTokens !== undefined ? { outputTokens } : {}),
               });
             },
-            providerName: 'codex-provider',
+            providerName: PROVIDER_NAME,
             providerSlug: 'codex',
             eventBus: deps.eventBus,
             ...(deps.idleMs !== undefined ? { idleMs: deps.idleMs } : {}),

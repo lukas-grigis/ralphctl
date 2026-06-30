@@ -8,6 +8,8 @@ import { ProbeError } from '@src/domain/value/error/probe-error.ts';
 import { isNodeErrnoCode } from '@src/integration/io/fs.ts';
 import type { ArtifactRef, NamedArtifactRef } from '@src/integration/ai/readiness/_engine/artifact-ref.ts';
 
+const FS_PERMISSION = 'fs-permission';
+
 /**
  * Stat a single file and report a typed {@link ArtifactRef} if and only if it exists as a
  * regular file. Missing paths resolve to `undefined` (a normal absence); permission / I/O
@@ -23,7 +25,7 @@ export const probeFile = async (path: string): Promise<Result<ArtifactRef | unde
     if (isNodeErrnoCode(cause, 'ENOENT')) return Result.ok(undefined);
     if (isNodeErrnoCode(cause, 'EACCES')) {
       return Result.error(
-        new ProbeError({ subCode: 'fs-permission', message: `permission denied reading ${path}`, path, cause })
+        new ProbeError({ subCode: FS_PERMISSION, message: `permission denied reading ${path}`, path, cause })
       );
     }
     return Result.error(new ProbeError({ subCode: 'fs-read', message: `failed to stat ${path}`, path, cause }));
@@ -93,7 +95,7 @@ export const listDir = async (dir: string): Promise<Result<string[], ProbeError>
     if (isNodeErrnoCode(cause, 'ENOENT') || isNodeErrnoCode(cause, 'ENOTDIR')) return Result.ok([]);
     if (isNodeErrnoCode(cause, 'EACCES')) {
       return Result.error(
-        new ProbeError({ subCode: 'fs-permission', message: `permission denied listing ${dir}`, path: dir, cause })
+        new ProbeError({ subCode: FS_PERMISSION, message: `permission denied listing ${dir}`, path: dir, cause })
       );
     }
     return Result.error(new ProbeError({ subCode: 'fs-read', message: `failed to read ${dir}`, path: dir, cause }));
@@ -114,7 +116,7 @@ export const statSafely = async (path: string): Promise<Result<Stats | undefined
     if (isNodeErrnoCode(cause, 'ENOENT')) return Result.ok(undefined);
     if (isNodeErrnoCode(cause, 'EACCES')) {
       return Result.error(
-        new ProbeError({ subCode: 'fs-permission', message: `permission denied stat ${path}`, path, cause })
+        new ProbeError({ subCode: FS_PERMISSION, message: `permission denied stat ${path}`, path, cause })
       );
     }
     return Result.error(new ProbeError({ subCode: 'fs-read', message: `failed to stat ${path}`, path, cause }));
@@ -133,7 +135,7 @@ export const readFileSafely = async (path: AbsolutePath): Promise<Result<string 
     if (isNodeErrnoCode(cause, 'ENOENT')) return Result.ok(undefined);
     if (isNodeErrnoCode(cause, 'EACCES')) {
       return Result.error(
-        new ProbeError({ subCode: 'fs-permission', message: `permission denied reading ${path}`, path, cause })
+        new ProbeError({ subCode: FS_PERMISSION, message: `permission denied reading ${path}`, path, cause })
       );
     }
     return Result.error(new ProbeError({ subCode: 'fs-read', message: `failed to read ${path}`, path, cause }));

@@ -13,6 +13,9 @@ import { readJson, removeFile, writeJsonAtomic } from '@src/integration/io/fs.ts
 import { resolveSprintDir, sprintsDir } from '@src/integration/persistence/storage.ts';
 import { decode } from '@src/integration/persistence/shared/decode.ts';
 
+const ENTITY = 'sprint-execution';
+const EXECUTION_FILE = 'execution.json';
+
 export interface FsSprintExecutionRepositoryDeps {
   /** Root of the on-disk layout. Each sprint's execution lives at `<root>/sprints/<id>--<slug>/execution.json`. */
   readonly root: AbsolutePath;
@@ -37,32 +40,32 @@ export const createFsSprintExecutionRepository = (deps: FsSprintExecutionReposit
     async findById(id) {
       const dir = await resolveSprintDir(deps.root, id);
       if (dir === undefined) {
-        return Result.error(new NotFoundError({ entity: 'sprint-execution', id: String(id) }));
+        return Result.error(new NotFoundError({ entity: ENTITY, id: String(id) }));
       }
-      const path = join(dir, 'execution.json');
+      const path = join(dir, EXECUTION_FILE);
       const json = await readJson(path);
       if (!json.ok) {
         if (json.error instanceof NotFoundError) {
-          return Result.error(new NotFoundError({ entity: 'sprint-execution', id: String(id) }));
+          return Result.error(new NotFoundError({ entity: ENTITY, id: String(id) }));
         }
         return Result.error(json.error);
       }
-      return decode((input) => fromJsonSprintExecution(input, path), json.value, { entity: 'sprint-execution', path });
+      return decode((input) => fromJsonSprintExecution(input, path), json.value, { entity: ENTITY, path });
     },
 
     async save(execution: SprintExecution) {
-      const path = join(await dirFor(execution.sprintId), 'execution.json');
+      const path = join(await dirFor(execution.sprintId), EXECUTION_FILE);
       return writeJsonAtomic(path, toJsonSprintExecution(execution));
     },
 
     async remove(id) {
       const dir = await resolveSprintDir(deps.root, id);
       if (dir === undefined) {
-        return Result.error(new NotFoundError({ entity: 'sprint-execution', id: String(id) }));
+        return Result.error(new NotFoundError({ entity: ENTITY, id: String(id) }));
       }
-      const result = await removeFile(join(dir, 'execution.json'));
+      const result = await removeFile(join(dir, EXECUTION_FILE));
       if (!result.ok && result.error instanceof NotFoundError) {
-        return Result.error(new NotFoundError({ entity: 'sprint-execution', id: String(id) }));
+        return Result.error(new NotFoundError({ entity: ENTITY, id: String(id) }));
       }
       return result;
     },

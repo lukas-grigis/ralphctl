@@ -20,51 +20,41 @@ import type { FlowId } from '@src/domain/value/flow-id.ts';
 
 export type { FlowId };
 
+const SKILL_ALIGNMENT = 'ralphctl-alignment';
+const SKILL_ITERATIVE_REVIEW = 'ralphctl-iterative-review';
+const SKILL_ABSTRACTION_FIRST = 'ralphctl-abstraction-first';
+const SKILL_MINIMAL_SCAFFOLDING = 'ralphctl-minimal-scaffolding';
+
 /** Skill ids referenced below — must each exist as `src/ai/skills/bundled/<id>/SKILL.md`. */
 export const FLOW_SKILLS: Record<FlowId, readonly string[]> = {
-  refine: [
-    'ralphctl-alignment',
-    'ralphctl-iterative-review',
-    'ralphctl-abstraction-first',
-    'ralphctl-minimal-scaffolding',
-  ],
-  plan: [
-    'ralphctl-alignment',
-    'ralphctl-iterative-review',
-    'ralphctl-abstraction-first',
-    'ralphctl-minimal-scaffolding',
-  ],
+  refine: [SKILL_ALIGNMENT, SKILL_ITERATIVE_REVIEW, SKILL_ABSTRACTION_FIRST, SKILL_MINIMAL_SCAFFOLDING],
+  plan: [SKILL_ALIGNMENT, SKILL_ITERATIVE_REVIEW, SKILL_ABSTRACTION_FIRST, SKILL_MINIMAL_SCAFFOLDING],
   implement: [
-    'ralphctl-alignment',
-    'ralphctl-iterative-review',
-    'ralphctl-abstraction-first',
-    'ralphctl-minimal-scaffolding',
+    SKILL_ALIGNMENT,
+    SKILL_ITERATIVE_REVIEW,
+    SKILL_ABSTRACTION_FIRST,
+    SKILL_MINIMAL_SCAFFOLDING,
     'ralphctl-debugging-and-error-recovery',
     'ralphctl-test-driven-development',
     'ralphctl-code-review-and-quality',
     'ralphctl-surgical-simplicity',
   ],
-  readiness: [
-    'ralphctl-alignment',
-    'ralphctl-iterative-review',
-    'ralphctl-abstraction-first',
-    'ralphctl-minimal-scaffolding',
-  ],
+  readiness: [SKILL_ALIGNMENT, SKILL_ITERATIVE_REVIEW, SKILL_ABSTRACTION_FIRST, SKILL_MINIMAL_SCAFFOLDING],
   ideate: [
-    'ralphctl-alignment',
-    'ralphctl-iterative-review',
-    'ralphctl-abstraction-first',
-    'ralphctl-minimal-scaffolding',
+    SKILL_ALIGNMENT,
+    SKILL_ITERATIVE_REVIEW,
+    SKILL_ABSTRACTION_FIRST,
+    SKILL_MINIMAL_SCAFFOLDING,
     'ralphctl-surgical-simplicity',
   ],
   // `createPr` is the camelCase FlowId for the kebab-case orchestration flow `create-pr`.
   // The mapping lives in the registry test (and in the launcher's `aiFlowIdFor`). Skills
   // mirror the rest — same default bundle.
   createPr: [
-    'ralphctl-alignment',
-    'ralphctl-iterative-review',
-    'ralphctl-abstraction-first',
-    'ralphctl-minimal-scaffolding',
+    SKILL_ALIGNMENT,
+    SKILL_ITERATIVE_REVIEW,
+    SKILL_ABSTRACTION_FIRST,
+    SKILL_MINIMAL_SCAFFOLDING,
     'ralphctl-code-review-and-quality',
   ],
 };
