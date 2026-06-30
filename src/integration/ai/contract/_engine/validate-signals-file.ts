@@ -11,6 +11,7 @@ import { isNodeErrnoCode } from '@src/integration/io/fs.ts';
 import type { AiOutputContract } from '@src/integration/ai/contract/_engine/types.ts';
 
 const SIGNALS_FILENAME = 'signals.json';
+const SCHEMA_MISMATCH = 'schema-mismatch';
 
 /**
  * Hard ceiling on the signals.json body before we read/parse it. The AI provider writes this file
@@ -59,7 +60,7 @@ export const validateSignalsFile = async <TSig extends AiSignal>(
     if (stats.size > SIGNALS_FILE_MAX_BYTES) {
       return Result.error(
         new ParseError({
-          subCode: 'schema-mismatch',
+          subCode: SCHEMA_MISMATCH,
           message: `signals-invalid (too large) at ${path}: signals.json is ${stats.size} bytes, over the ${SIGNALS_FILE_MAX_BYTES}-byte (4 MB) cap — the AI wrote an implausibly large signals file; treating as malformed`,
           hint: 'The AI wrote a signals.json far larger than any plausible signals body. Inspect the per-spawn directory; the file was not parsed.',
         })
@@ -125,7 +126,7 @@ export const validateSignalsFile = async <TSig extends AiSignal>(
   if (typeof current !== 'object' || current === null) {
     return Result.error(
       new ParseError({
-        subCode: 'schema-mismatch',
+        subCode: SCHEMA_MISMATCH,
         message: `signals-invalid (schema) at ${path}: signals.json root is not an object`,
         hint: 'The AI wrote signals.json but its root was not a JSON object (e.g. literal `null` or a string).',
       })
@@ -144,7 +145,7 @@ export const validateSignalsFile = async <TSig extends AiSignal>(
   if (!parsed.success) {
     return Result.error(
       new ParseError({
-        subCode: 'schema-mismatch',
+        subCode: SCHEMA_MISMATCH,
         message: `signals-invalid (schema) at ${path}: ${parsed.error.message}`,
         cause: parsed.error,
         hint: 'The AI wrote signals.json but the shape failed the leaf contract. Issue path is in cause.issues.',

@@ -27,8 +27,10 @@ import type { AiOutputContract, SidecarRule } from '@src/integration/ai/contract
 
 type CreatePrSignal = PrContentSignal;
 
+const PR_CONTENT_KIND = 'pr-content';
+
 const exactlyOnePrContent = (signals: ReadonlyArray<{ readonly type: string }>): boolean =>
-  signals.filter((s) => s.type === 'pr-content').length === 1;
+  signals.filter((s) => s.type === PR_CONTENT_KIND).length === 1;
 
 const signalsArraySchemaRaw = z
   .array(prContentSignalSchema)
@@ -44,7 +46,7 @@ const signalsArraySchemaRaw = z
 const signalsArraySchema = brandSignalArray<CreatePrSignal>(signalsArraySchemaRaw);
 
 const prContentSidecar: SidecarRule<'pr-content'> = {
-  signalKind: 'pr-content',
+  signalKind: PR_CONTENT_KIND,
   filename: 'pr-content.md',
   multiplicity: 'one',
   extract: (signal) => `# ${signal.title}\n\n${signal.body}`,
@@ -60,7 +62,7 @@ const EXAMPLE_TS = '2026-05-23T10:00:00.000Z' as IsoTimestamp;
  */
 const createPrExampleSignals: readonly CreatePrSignal[] = [
   {
-    type: 'pr-content',
+    type: PR_CONTENT_KIND,
     title: 'Add CSV export for transactions',
     body: 'Adds a CSV export action on the transactions list, mirroring the existing JSON export.\n\n## Changes\n\n- New export-csv use case + CLI flag.\n- Reuses the existing serialiser for column order.\n\n## Test plan\n\n- [ ] Manual: export 100 rows and diff against fixture.\n- [ ] Automated: unit tests for the serialiser.\n\nCloses #123',
     timestamp: EXAMPLE_TS,

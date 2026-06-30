@@ -42,6 +42,12 @@ const PR_AUTHORING_PERMISSIONS = {
   autoApprove: true,
 } as const;
 
+/** Leaf name, reused as the `attemptedAction` on the leaf's error states. */
+const LEAF_NAME = 'generate-pr-content';
+
+/** Logger namespace for the create-pr AI authoring step. */
+const AI_LOGGER_NAME = 'create-pr.ai';
+
 export interface GeneratePrContentLeafDeps {
   readonly provider: HeadlessAiProvider;
   readonly templateLoader: TemplateLoader;
@@ -100,7 +106,7 @@ interface GeneratePrContentOutput {
  *   outputDir      = `<sprintDir>/create-pr/<run-slug>/` (auto-included as writable)
  */
 export const generatePrContentLeaf = (deps: GeneratePrContentLeafDeps): Element<CreatePrCtx> =>
-  leaf<CreatePrCtx, GeneratePrContentInput, GeneratePrContentOutput>('generate-pr-content', {
+  leaf<CreatePrCtx, GeneratePrContentInput, GeneratePrContentOutput>(LEAF_NAME, {
     useCase: {
       execute: async (input, signal) => {
         // Derive verbatim `Closes <ref>` lines from ticket + task externalRefs — the prompt
@@ -129,7 +135,7 @@ export const generatePrContentLeaf = (deps: GeneratePrContentLeafDeps): Element<
         });
         if (!promptResult.ok) {
           deps.logger
-            .named('create-pr.ai')
+            .named(AI_LOGGER_NAME)
             .warn(
               `create-pr: AI authoring skipped — prompt build failed: ${promptResult.error.message}; falling back to template`
             );
@@ -139,7 +145,7 @@ export const generatePrContentLeaf = (deps: GeneratePrContentLeafDeps): Element<
         const writePrompt = await deps.writeFile(input.promptFile, String(promptResult.value));
         if (!writePrompt.ok) {
           deps.logger
-            .named('create-pr.ai')
+            .named(AI_LOGGER_NAME)
             .warn(
               `create-pr: AI authoring skipped — prompt file write failed: ${writePrompt.error.message}; falling back to template`
             );
@@ -150,7 +156,7 @@ export const generatePrContentLeaf = (deps: GeneratePrContentLeafDeps): Element<
         const signalsFilePathResult = AbsolutePath.parse(`${String(input.unitRoot)}/signals.json`);
         if (!signalsFilePathResult.ok) {
           deps.logger
-            .named('create-pr.ai')
+            .named(AI_LOGGER_NAME)
             .warn(
               `create-pr: AI authoring skipped — could not resolve signals.json path: ${signalsFilePathResult.error.message}; falling back to template`
             );
@@ -179,7 +185,7 @@ export const generatePrContentLeaf = (deps: GeneratePrContentLeafDeps): Element<
           const spawn = await deps.provider.generate(session);
           if (!spawn.ok) {
             deps.logger
-              .named('create-pr.ai')
+              .named(AI_LOGGER_NAME)
               .warn(`create-pr: AI authoring failed, falling back to template (${spawn.error.message})`);
             return Result.ok({});
           }
@@ -187,7 +193,7 @@ export const generatePrContentLeaf = (deps: GeneratePrContentLeafDeps): Element<
           const validated = await validateSignalsFile(input.unitRoot, generatePrContentOutputContract);
           if (!validated.ok) {
             deps.logger
-              .named('create-pr.ai')
+              .named(AI_LOGGER_NAME)
               .warn(`create-pr: AI authoring failed, falling back to template (${validated.error.message})`);
             return Result.ok({});
           }
@@ -214,7 +220,7 @@ export const generatePrContentLeaf = (deps: GeneratePrContentLeafDeps): Element<
           if (prContent === undefined) {
             // Defensive — the contract's exactlyOne refine should have caught this upstream.
             deps.logger
-              .named('create-pr.ai')
+              .named(AI_LOGGER_NAME)
               .warn('create-pr: validated signals missing pr-content despite schema — falling back to template');
             return Result.ok({});
           }
@@ -225,7 +231,7 @@ export const generatePrContentLeaf = (deps: GeneratePrContentLeafDeps): Element<
           // through every wrapper without being absorbed by guards or fallbacks.
           if (err instanceof AbortError) throw err;
           deps.logger
-            .named('create-pr.ai')
+            .named(AI_LOGGER_NAME)
             .warn(
               `create-pr: AI authoring failed, falling back to template (${err instanceof Error ? err.message : String(err)})`
             );
@@ -238,7 +244,7 @@ export const generatePrContentLeaf = (deps: GeneratePrContentLeafDeps): Element<
         throw new InvalidStateError({
           entity: 'chain',
           currentState: 'pre-generate-pr-content',
-          attemptedAction: 'generate-pr-content',
+          attemptedAction: LEAF_NAME,
           message:
             'generate-pr-content: unit root / prompt file missing — build-create-pr-unit + render-prompt-to-file must run first',
         });
@@ -247,7 +253,7 @@ export const generatePrContentLeaf = (deps: GeneratePrContentLeafDeps): Element<
         throw new InvalidStateError({
           entity: 'chain',
           currentState: 'pre-generate-pr-content',
-          attemptedAction: 'generate-pr-content',
+          attemptedAction: LEAF_NAME,
           message: 'generate-pr-content: ctx.sprint is undefined — load-sprint must run first',
         });
       }

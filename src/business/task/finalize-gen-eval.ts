@@ -14,6 +14,9 @@ import type { GenEvalExit, RunTaskVerdict } from '@src/business/task/gen-eval-ex
 import { applyEscalation, decideEscalation, type EscalationTrigger } from '@src/business/task/escalation-policy.ts';
 import { clearRunningAttemptPlateauWarning } from '@src/domain/entity/task-attempts.ts';
 
+/** {@link GenEvalExit} kind for a loop whose turn budget ran out without a terminal verdict. */
+const BUDGET_EXHAUSTED_EXIT = 'budget-exhausted';
+
 /**
  * Settle a finished gen-eval loop. Maps the loop's terminal `GenEvalExit` to the
  * `AttemptWarning` + `RunTaskVerdict` that downstream `settle-attempt` consumes, then persists
@@ -110,10 +113,10 @@ const mapExit = (exit: GenEvalExit): { verdict: RunTaskVerdict; warning?: Attemp
       return { verdict: 'malformed', warning: { kind: 'malformed', detail: exit.detail } };
     case 'plateau':
       return { verdict: 'failed', warning: { kind: 'plateau', dimensions: exit.dimensions } };
-    case 'budget-exhausted':
+    case BUDGET_EXHAUSTED_EXIT:
       return {
         verdict: 'failed',
-        warning: { kind: 'budget-exhausted', turnsUsed: exit.turnsUsed, turnBudget: exit.turnBudget },
+        warning: { kind: BUDGET_EXHAUSTED_EXIT, turnsUsed: exit.turnsUsed, turnBudget: exit.turnBudget },
       };
   }
 };
@@ -128,7 +131,7 @@ const mapExit = (exit: GenEvalExit): { verdict: RunTaskVerdict; warning?: Attemp
  * the caller. `passed` / `self-blocked` are terminal and never reach this predicate's branch.
  */
 const isEscalatableExit = (exit: GenEvalExit): exit is Extract<GenEvalExit, { kind: 'plateau' | 'budget-exhausted' }> =>
-  exit.kind === 'plateau' || exit.kind === 'budget-exhausted';
+  exit.kind === 'plateau' || exit.kind === BUDGET_EXHAUSTED_EXIT;
 
 interface Remedy {
   readonly task: InProgressTask;
@@ -217,7 +220,7 @@ export const finalizeGenEvalUseCase = async (
   if (props.exit !== undefined) {
     exit = props.exit;
   } else {
-    exit = { kind: 'budget-exhausted', turnsUsed: props.turnsUsed, turnBudget: Math.max(1, cfg.maxTurns) };
+    exit = { kind: BUDGET_EXHAUSTED_EXIT, turnsUsed: props.turnsUsed, turnBudget: Math.max(1, cfg.maxTurns) };
   }
 
   log.debug(`finalizing gen-eval (${exit.kind})`, { taskId: props.task.id, exitKind: exit.kind });

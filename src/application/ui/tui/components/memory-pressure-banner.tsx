@@ -25,10 +25,9 @@ export const MemoryPressureBanner = (): React.JSX.Element | null => {
   const [latest, setLatest] = useState<MemoryPressureEvent | undefined>(undefined);
 
   useEffect(() => {
-    const unsub = deps.eventBus.subscribe((event) => {
+    return deps.eventBus.subscribe((event) => {
       if (event.type === 'memory-pressure') setLatest(event);
     });
-    return unsub;
   }, [deps.eventBus]);
 
   if (latest === undefined || latest.severity === 'recovered') return null;

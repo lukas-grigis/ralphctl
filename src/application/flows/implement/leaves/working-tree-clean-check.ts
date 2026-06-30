@@ -10,6 +10,9 @@ import { gitStatusPorcelain } from '@src/integration/io/git-operations.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
+/** Default leaf name, reused as the `attemptedAction` on the leaf's error states. */
+const WORKING_TREE_CLEAN_CHECK = 'working-tree-clean-check';
+
 /**
  * Pre-setup hard gate — fails the chain when the user's working tree at `cwd` is dirty.
  *
@@ -79,7 +82,7 @@ const detectResume = (tasks: readonly Task[] | undefined): boolean => {
 export const workingTreeCleanCheckLeaf = (
   deps: WorkingTreeCleanCheckLeafDeps,
   cwd: AbsolutePath,
-  name = 'working-tree-clean-check',
+  name = WORKING_TREE_CLEAN_CHECK,
   opts?: LeafOpts
 ): Element<ImplementCtx> =>
   leaf<ImplementCtx, LeafInput, void>(
@@ -94,7 +97,7 @@ export const workingTreeCleanCheckLeaf = (
               new InvalidStateError({
                 entity: 'repository',
                 currentState: 'unknown',
-                attemptedAction: 'working-tree-clean-check',
+                attemptedAction: WORKING_TREE_CLEAN_CHECK,
                 message: `working-tree-clean-check: git status failed at ${String(input.cwd)} — ${status.error.message}`,
                 hint: 'Ensure `git` is on PATH and the path is a git working tree.',
               })
@@ -111,7 +114,7 @@ export const workingTreeCleanCheckLeaf = (
               new InvalidStateError({
                 entity: 'repository',
                 currentState: 'dirty',
-                attemptedAction: 'working-tree-clean-check',
+                attemptedAction: WORKING_TREE_CLEAN_CHECK,
                 message: `working-tree-dirty at ${String(input.cwd)} (${String(status.value.length)} uncommitted change(s))`,
                 hint: `Commit, stash, or discard uncommitted changes in ${String(input.cwd)} before running implement.`,
               })

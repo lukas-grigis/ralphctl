@@ -88,6 +88,8 @@ const RATE_LIMIT_RE = /rate.?limit|usage limit reached|\b5-hour limit\b|overload
  */
 const RESUME_STALE_RE = /No conversation found with session ID/i;
 
+const PROVIDER_NAME = 'claude-provider';
+
 const asString = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
 
 /**
@@ -275,7 +277,7 @@ export const buildClaudeArgs = (session: AiSession): Result<readonly string[], I
   if (!isClaudeModel(session.model)) {
     return Result.error(
       new InvalidStateError({
-        entity: 'claude-provider',
+        entity: PROVIDER_NAME,
         currentState: 'model-validation',
         attemptedAction: 'build argv',
         message: `claude-provider: '${session.model}' is not a known Claude model`,
@@ -287,7 +289,7 @@ export const buildClaudeArgs = (session: AiSession): Result<readonly string[], I
   if (isSuspendedModel(session.model)) {
     return Result.error(
       new InvalidStateError({
-        entity: 'claude-provider',
+        entity: PROVIDER_NAME,
         currentState: 'model-suspended',
         attemptedAction: 'build argv',
         message: suspendedModelMessage(session.model),
@@ -329,7 +331,7 @@ export const createClaudeProvider = (deps: ClaudeProviderDeps): HeadlessAiProvid
 
   return createHeadlessProvider({
     providerSlug: 'claude',
-    providerName: 'claude-provider',
+    providerName: PROVIDER_NAME,
     resumeStaleRe: RESUME_STALE_RE,
     rateLimitRetries: deps.rateLimitRetries,
     eventBus: deps.eventBus,
@@ -402,7 +404,7 @@ export const createClaudeProvider = (deps: ClaudeProviderDeps): HeadlessAiProvid
                 : {}),
             });
           },
-          providerName: 'claude-provider',
+          providerName: PROVIDER_NAME,
           providerSlug: 'claude',
           eventBus: deps.eventBus,
           ...(deps.idleMs !== undefined ? { idleMs: deps.idleMs } : {}),

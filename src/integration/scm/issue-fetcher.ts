@@ -21,6 +21,7 @@ import type { Spawn } from '@src/integration/io/spawn.ts';
 
 const CLI_TIMEOUT_MS = 30_000;
 const MAX_COMMENTS = 20;
+const UNKNOWN_ERROR = 'unknown error';
 
 interface ParsedUrl {
   readonly host: 'github' | 'gitlab';
@@ -187,7 +188,7 @@ const fetchGitHub = async (
     return Result.error(
       new StorageError({
         subCode: 'io',
-        message: `gh issue view failed: ${result.value.stderr.trim() || 'unknown error'}`,
+        message: `gh issue view failed: ${result.value.stderr.trim() || UNKNOWN_ERROR}`,
       })
     );
   }
@@ -246,7 +247,7 @@ const fetchGitLabNotes = async (
   if (result.value.exitCode !== 0) {
     return {
       comments: [],
-      failure: `glab issue note list exited ${String(result.value.exitCode)}: ${result.value.stderr.trim() || 'unknown error'}`,
+      failure: `glab issue note list exited ${String(result.value.exitCode)}: ${result.value.stderr.trim() || UNKNOWN_ERROR}`,
     };
   }
   let notes: readonly GlabNote[];
@@ -289,7 +290,7 @@ const fetchGitLab = async (
     return Result.error(
       new StorageError({
         subCode: 'io',
-        message: `glab issue view failed: ${result.value.stderr.trim() || 'unknown error'}`,
+        message: `glab issue view failed: ${result.value.stderr.trim() || UNKNOWN_ERROR}`,
       })
     );
   }

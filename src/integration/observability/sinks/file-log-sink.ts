@@ -71,6 +71,8 @@ import type { FileLogSink, FileLogSinkDeps } from '@src/integration/observabilit
  */
 const MAX_QUEUE = 10_000;
 
+const CHAIN_LOG_DEGRADED = 'chain-log-degraded';
+
 interface ChainState {
   readonly flowId: string;
   readonly startedAtMs: number;
@@ -128,20 +130,18 @@ export const startFileLogSink = (deps: FileLogSinkDeps): FileLogSink => {
       const next = queue.shift();
       if (next === undefined) continue;
       const result = await deps.appendFile(deps.file, next);
-      if (!result.ok) {
-        // Best-effort write — never take down the chain. But fire the one-shot degradation
-        // marker so the operator knows the on-disk trace is incomplete. The `AppendFile`
-        // adapter retries dir-ensure on the next call, so a tmpfs cleanup mid-run heals
-        // itself on the next queued event.
-        if (!degraded) {
-          degraded = true;
-          deps.bus.publish({
-            type: 'chain-log-degraded',
-            reason: 'write-failed',
-            meta: { error: result.error.message },
-            at: IsoTimestamp.now(),
-          });
-        }
+      // Best-effort write — never take down the chain. But fire the one-shot degradation
+      // marker so the operator knows the on-disk trace is incomplete. The `AppendFile`
+      // adapter retries dir-ensure on the next call, so a tmpfs cleanup mid-run heals
+      // itself on the next queued event.
+      if (!result.ok && !degraded) {
+        degraded = true;
+        deps.bus.publish({
+          type: CHAIN_LOG_DEGRADED,
+          reason: 'write-failed',
+          meta: { error: result.error.message },
+          at: IsoTimestamp.now(),
+        });
       }
     }
     draining = undefined;
@@ -152,7 +152,7 @@ export const startFileLogSink = (deps: FileLogSinkDeps): FileLogSink => {
       if (!degraded) {
         degraded = true;
         deps.bus.publish({
-          type: 'chain-log-degraded',
+          type: CHAIN_LOG_DEGRADED,
           reason: 'queue-full',
           at: IsoTimestamp.now(),
         });
@@ -170,7 +170,7 @@ export const startFileLogSink = (deps: FileLogSinkDeps): FileLogSink => {
     // write failure would publish the marker, which would synchronously land back here and
     // get appended — round-tripping the event we are trying to surface and (worse) putting it
     // on a queue that may itself be in trouble.
-    if (event.type === 'chain-log-degraded') return;
+    if (event.type === CHAIN_LOG_DEGRADED) return;
 
     // Bracket state tracking — header BEFORE the chain-started event line, footer AFTER the
     // terminal event line. The boundary lines start with `=== ` so an NDJSON consumer skips

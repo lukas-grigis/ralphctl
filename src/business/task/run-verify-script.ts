@@ -6,6 +6,9 @@ import type { VerifyGate } from '@src/domain/entity/repository.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 
+/** {@link VerifyRunOutcome} value for a verify command the shell could not start. */
+const SPAWN_ERROR_OUTCOME = 'spawn-error';
+
 /**
  * Generic helper that runs the project's `verifyScript` once and projects the spawn result
  * into a structured {@link VerifyRun} row. Phase-agnostic — callers stamp `phase: 'pre'` or
@@ -118,7 +121,7 @@ export const runVerifyScriptUseCase = async (props: RunVerifyScriptProps): Promi
         command,
         exitCode: -1,
         durationMs: 0,
-        outcome: 'spawn-error',
+        outcome: SPAWN_ERROR_OUTCOME,
       },
       rawOutput: '',
       spawnErrorMessage: result.error.message,
@@ -310,7 +313,12 @@ const runOneGate = async (
       error: result.error.message,
     });
     state.executed.push({ command: gate.command, output: '' });
-    state.failure ??= { outcome: 'spawn-error', command: gate.command, exitCode: -1, message: result.error.message };
+    state.failure ??= {
+      outcome: SPAWN_ERROR_OUTCOME,
+      command: gate.command,
+      exitCode: -1,
+      message: result.error.message,
+    };
     return;
   }
 
@@ -393,7 +401,7 @@ export const attributeVerify = (
   pre: VerifyRun['outcome'],
   post: VerifyRun['outcome']
 ): 'clean' | 'regressed' | 'fixed-baseline' | 'baseline-broken' | undefined => {
-  if (pre === 'spawn-error' || post === 'spawn-error') return undefined;
+  if (pre === SPAWN_ERROR_OUTCOME || post === SPAWN_ERROR_OUTCOME) return undefined;
   if (pre === 'skipped' || post === 'skipped') return undefined;
   if (pre === 'success' && post === 'success') return 'clean';
   if (pre === 'success' && post === 'failed') return 'regressed';

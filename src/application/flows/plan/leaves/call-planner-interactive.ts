@@ -101,8 +101,11 @@ interface CallPlannerOutput {
 
 const isDraft = (s: Sprint): s is DraftSprint => s.status === 'draft';
 
+/** Leaf name, reused as the `entity` / `attemptedAction` on the leaf's error states. */
+const LEAF_NAME = 'call-planner-interactive';
+
 export const callPlannerInteractiveLeaf = (deps: CallPlannerInteractiveDeps): Element<PlanCtx> =>
-  leaf<PlanCtx, CallPlannerInput, CallPlannerOutput>('call-planner-interactive', {
+  leaf<PlanCtx, CallPlannerInput, CallPlannerOutput>(LEAF_NAME, {
     useCase: {
       execute: async (input) => {
         // `additionalRoots` are the project repos the AI may navigate. The output-file dir
@@ -142,7 +145,7 @@ export const callPlannerInteractiveLeaf = (deps: CallPlannerInteractiveDeps): El
         if (planSignal === undefined) {
           return Result.error(
             new InvalidStateError({
-              entity: 'call-planner-interactive',
+              entity: LEAF_NAME,
               currentState: 'post-validation',
               attemptedAction: 'project-signal',
               message: 'plan: validated signals contained no task-plan signal',
@@ -173,7 +176,7 @@ export const callPlannerInteractiveLeaf = (deps: CallPlannerInteractiveDeps): El
         throw new InvalidStateError({
           entity: 'chain',
           currentState: 'pre-plan',
-          attemptedAction: 'call-planner-interactive',
+          attemptedAction: LEAF_NAME,
           message: 'call-planner-interactive: ctx.sprint is undefined — load-sprint must run first',
         });
       }
@@ -181,7 +184,7 @@ export const callPlannerInteractiveLeaf = (deps: CallPlannerInteractiveDeps): El
         throw new InvalidStateError({
           entity: 'sprint',
           currentState: ctx.sprint.status,
-          attemptedAction: 'call-planner-interactive',
+          attemptedAction: LEAF_NAME,
           message: `call-planner-interactive: sprint must be draft — got '${ctx.sprint.status}'`,
         });
       }
@@ -189,7 +192,7 @@ export const callPlannerInteractiveLeaf = (deps: CallPlannerInteractiveDeps): El
         throw new InvalidStateError({
           entity: 'chain',
           currentState: 'pre-plan',
-          attemptedAction: 'call-planner-interactive',
+          attemptedAction: LEAF_NAME,
           message: 'call-planner-interactive: ctx.project is undefined — load-project must run first',
         });
       }
@@ -197,7 +200,7 @@ export const callPlannerInteractiveLeaf = (deps: CallPlannerInteractiveDeps): El
         throw new InvalidStateError({
           entity: 'chain',
           currentState: 'pre-plan',
-          attemptedAction: 'call-planner-interactive',
+          attemptedAction: LEAF_NAME,
           message: 'call-planner-interactive: prompt/output paths missing — render-prompt-to-file must run first',
         });
       }
@@ -205,7 +208,7 @@ export const callPlannerInteractiveLeaf = (deps: CallPlannerInteractiveDeps): El
         throw new InvalidStateError({
           entity: 'chain',
           currentState: 'pre-plan',
-          attemptedAction: 'call-planner-interactive',
+          attemptedAction: LEAF_NAME,
           message: 'call-planner-interactive: unit root missing — build-plan-unit must run first',
         });
       }

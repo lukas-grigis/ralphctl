@@ -70,6 +70,8 @@ const resolveHelpers = ({ platform, env }: PlatformProbeOptions): readonly Helpe
   return [];
 };
 
+const SPAWN_FAILED = 'spawn-failed';
+
 const runHelper = (spawn: Spawn, helper: HelperCommand, text: string): Promise<Result<void, ClipboardError>> =>
   new Promise((resolve) => {
     let child: ReturnType<Spawn>;
@@ -78,7 +80,7 @@ const runHelper = (spawn: Spawn, helper: HelperCommand, text: string): Promise<R
     } catch (cause) {
       resolve(
         Result.error({
-          code: 'spawn-failed',
+          code: SPAWN_FAILED,
           message: `clipboard helper '${helper.cmd}' could not be spawned: ${String((cause as Error)?.message ?? cause)}`,
         })
       );
@@ -93,7 +95,7 @@ const runHelper = (spawn: Spawn, helper: HelperCommand, text: string): Promise<R
 
     child.on('error', (cause) => {
       // ENOENT lands here when the binary isn't on PATH.
-      const code = (cause as NodeJS.ErrnoException).code === 'ENOENT' ? 'no-helper' : 'spawn-failed';
+      const code = (cause as NodeJS.ErrnoException).code === 'ENOENT' ? 'no-helper' : SPAWN_FAILED;
       settle(Result.error({ code, message: `clipboard helper '${helper.cmd}' failed: ${cause.message}` }));
     });
     child.on('close', (exitCode) => {
@@ -117,7 +119,7 @@ const runHelper = (spawn: Spawn, helper: HelperCommand, text: string): Promise<R
     } catch (cause) {
       settle(
         Result.error({
-          code: 'spawn-failed',
+          code: SPAWN_FAILED,
           message: `clipboard helper '${helper.cmd}' stdin write failed: ${String((cause as Error)?.message ?? cause)}`,
         })
       );

@@ -44,6 +44,9 @@ import { sectionFor, sectionRank, visibleFlowsFor } from '@src/application/ui/tu
 // without a React render. The view delegates section labelling, ordering, and the
 // per-status allow-list to that module.
 
+/** Flow id whose launch needs special sprint-rebinding handling (see the `onSelect` handler). */
+const CREATE_SPRINT_FLOW_ID = 'create-sprint';
+
 /**
  * Some flows in the registry are use-case shaped (one-shot, no chain runner) and the TUI
  * has dedicated views for them. Route those directly instead of falling through to
@@ -283,7 +286,7 @@ export const FlowsView = (): React.JSX.Element => {
           // additionally strips the launch-time sprint from the snapshot: the new sprint doesn't
           // exist yet, so pinning the PREVIOUS sprint onto the run's descriptor would mislabel
           // every panel; onSprintResolved pins the real one once known.
-          const sprintBound = entry.manifest.id === 'create-sprint' || entry.manifest.id === 'close-sprint';
+          const sprintBound = entry.manifest.id === CREATE_SPRINT_FLOW_ID || entry.manifest.id === 'close-sprint';
           let result;
           if (sprintBound) {
             const { sprint: _staleSprint, ...snapshotWithoutSprint } = snapshot;
@@ -291,11 +294,11 @@ export const FlowsView = (): React.JSX.Element => {
             result = await launchSprintBoundFlow(
               launcherDeps,
               entry.manifest.id,
-              entry.manifest.id === 'create-sprint' ? snapshotWithoutSprint : snapshot,
+              entry.manifest.id === CREATE_SPRINT_FLOW_ID ? snapshotWithoutSprint : snapshot,
               {
                 ...launchExtras,
                 onReseat: ({ id, name, status }) => {
-                  if (entry.manifest.id === 'create-sprint') {
+                  if (entry.manifest.id === CREATE_SPRINT_FLOW_ID) {
                     // A brand-new sprint can't collide with a mid-run switch — always reseat
                     // (and let the "✓ now on …" toast fire via lastSwitch).
                     selection.setSprint(id, name, status);

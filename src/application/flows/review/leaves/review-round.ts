@@ -247,8 +247,11 @@ const ensureRoundDir = async (dir: AbsolutePath): Promise<Result<void, StorageEr
   }
 };
 
+/** Leaf name, reused as the signal `source` and the `attemptedAction` on error states. */
+const LEAF_NAME = 'review-round';
+
 export const reviewRoundLeaf = (deps: ReviewRoundLeafDeps, opts: ReviewRoundLeafOpts): Element<ReviewCtx> =>
-  leaf<ReviewCtx, ReviewRoundInput, RunReviewRoundOutput>('review-round', {
+  leaf<ReviewCtx, ReviewRoundInput, RunReviewRoundOutput>(LEAF_NAME, {
     useCase: {
       execute: async (input, signal) => {
         // Derive the active round index from the ON-DISK feedback.md, not from in-memory ctx.
@@ -344,7 +347,7 @@ export const reviewRoundLeaf = (deps: ReviewRoundLeafDeps, opts: ReviewRoundLeaf
             // two paths once every TUI consumer migrates to `ai-signal` events.
             for (const sig of validated.value) {
               deps.signals.emit(sig);
-              deps.eventBus.publish({ type: 'ai-signal', signal: sig, source: 'review-round' });
+              deps.eventBus.publish({ type: 'ai-signal', signal: sig, source: LEAF_NAME });
             }
             return Result.ok(validated.value as readonly HarnessSignal[]);
           },
@@ -394,7 +397,7 @@ export const reviewRoundLeaf = (deps: ReviewRoundLeafDeps, opts: ReviewRoundLeaf
         throw new InvalidStateError({
           entity: 'chain',
           currentState: 'pre-review-round',
-          attemptedAction: 'review-round',
+          attemptedAction: LEAF_NAME,
           message: 'review-round: ctx.sprint missing',
         });
       }
@@ -402,7 +405,7 @@ export const reviewRoundLeaf = (deps: ReviewRoundLeafDeps, opts: ReviewRoundLeaf
         throw new InvalidStateError({
           entity: 'chain',
           currentState: 'pre-review-round',
-          attemptedAction: 'review-round',
+          attemptedAction: LEAF_NAME,
           message: 'review-round: ctx.feedbackFile missing — ensure-feedback-file must run first',
         });
       }

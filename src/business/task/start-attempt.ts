@@ -14,6 +14,13 @@ import type { ValidationError } from '@src/domain/value/error/validation-error.t
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 
 /**
+ * Conservative {@link AbortCause} for a leftover `running` attempt: a prior process exited without
+ * settling it (Ctrl-C, SIGTERM, watchdog, OOM all leave the same trace), so we cannot attribute a
+ * precise cause on the cross-process resume path.
+ */
+const PROCESS_CRASH_CAUSE = 'process-crash';
+
+/**
  * Start a fresh `running` attempt on a task and persist the transition. Domain transition +
  * single-task repo update + log. The chain leaf adapts ctx → props → ctx.
  *
@@ -113,9 +120,9 @@ export const startAttemptUseCase = async (
     log.info('recovering aborted attempt before resume', {
       taskId: props.task.id,
       priorAttemptN,
-      cause: 'process-crash',
+      cause: PROCESS_CRASH_CAUSE,
     });
-    const aborted = failCurrentAttempt(props.task, abortedAt, 'aborted', { abortCause: 'process-crash' });
+    const aborted = failCurrentAttempt(props.task, abortedAt, 'aborted', { abortCause: PROCESS_CRASH_CAUSE });
     if (!aborted.ok) {
       log.warn('failed to settle prior running attempt during resume', {
         taskId: props.task.id,
@@ -152,7 +159,7 @@ export const startAttemptUseCase = async (
       );
     }
     taskToStart = aborted.value;
-    recovering = { fromAttemptN: priorAttemptN, cause: 'process-crash', abortedAt };
+    recovering = { fromAttemptN: priorAttemptN, cause: PROCESS_CRASH_CAUSE, abortedAt };
   }
 
   const transitioned = startNextAttempt(taskToStart, props.clock(), undefined, recovering);

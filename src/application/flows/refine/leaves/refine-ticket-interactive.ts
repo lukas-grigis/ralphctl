@@ -191,12 +191,13 @@ const maybeCommentOnOrigin = async (
   ticket: ApprovedTicket,
   body: string
 ): Promise<void> => {
+  const PUSH_LOGGER = 'refine.push';
   if (deps.issuePusher === undefined) {
-    deps.logger.named('refine.push').warn('no IssuePusher wired — skipping issue comment');
+    deps.logger.named(PUSH_LOGGER).warn('no IssuePusher wired — skipping issue comment');
     return;
   }
   if (ticket.link === undefined) {
-    deps.logger.named('refine.push').warn('comment requested but ticket has no link — skipping');
+    deps.logger.named(PUSH_LOGGER).warn('comment requested but ticket has no link — skipping');
     return;
   }
   const now = new Date().toISOString();
@@ -204,9 +205,9 @@ const maybeCommentOnOrigin = async (
   const url = String(ticket.link);
   const result = await deps.issuePusher.comment(url, { body: fullBody });
   if (!result.ok) {
-    deps.logger.named('refine.push').warn(`issue comment failed (${url}): ${result.error.message}`);
+    deps.logger.named(PUSH_LOGGER).warn(`issue comment failed (${url}): ${result.error.message}`);
   } else {
-    deps.logger.named('refine.push').info(`posted comment on issue ${url}`);
+    deps.logger.named(PUSH_LOGGER).info(`posted comment on issue ${url}`);
   }
 };
 
@@ -303,10 +304,11 @@ export const refineTicketInteractiveLeaf = (
       },
     },
     input: (ctx) => {
+      const PRE_REFINE_STATE = 'pre-refine';
       if (ctx.sprint === undefined) {
         throw new InvalidStateError({
           entity: 'chain',
-          currentState: 'pre-refine',
+          currentState: PRE_REFINE_STATE,
           attemptedAction: `refine-ticket-${String(ticket.id)}`,
           message: `refine-ticket-${String(ticket.id)}: ctx.sprint is undefined — load-sprint must run first`,
         });
@@ -314,7 +316,7 @@ export const refineTicketInteractiveLeaf = (
       if (ctx.currentPromptFile === undefined || ctx.currentOutputFile === undefined) {
         throw new InvalidStateError({
           entity: 'chain',
-          currentState: 'pre-refine',
+          currentState: PRE_REFINE_STATE,
           attemptedAction: `refine-ticket-${String(ticket.id)}`,
           message: `refine-ticket-${String(ticket.id)}: prompt/output paths missing — render-prompt-to-file must run first`,
         });
@@ -322,7 +324,7 @@ export const refineTicketInteractiveLeaf = (
       if (ctx.currentUnitRoot === undefined) {
         throw new InvalidStateError({
           entity: 'chain',
-          currentState: 'pre-refine',
+          currentState: PRE_REFINE_STATE,
           attemptedAction: `refine-ticket-${String(ticket.id)}`,
           message: `refine-ticket-${String(ticket.id)}: unit root missing — build-refine-unit must run first`,
         });

@@ -26,6 +26,9 @@ const CHROME_ROWS = 6;
 /** Floor on the scrollable body so a tiny terminal still shows something. */
 const MIN_BODY_ROWS = 4;
 
+/** `HelpRow.kind` discriminant for a section header row. */
+const SECTION_TITLE = 'section-title';
+
 interface HelpRow {
   readonly kind: 'section-title' | 'binding';
   readonly title?: string;
@@ -45,14 +48,14 @@ export const HelpOverlay = (): React.JSX.Element => {
     const rows: HelpRow[] = [];
 
     if (localHints.length > 0) {
-      rows.push({ kind: 'section-title', title: 'This view' });
+      rows.push({ kind: SECTION_TITLE, title: 'This view' });
       for (const h of localHints) {
         rows.push({ kind: 'binding', keys: [h.keys], label: h.label });
       }
     }
 
     for (const section of keySections) {
-      rows.push({ kind: 'section-title', title: section.title });
+      rows.push({ kind: SECTION_TITLE, title: section.title });
       for (const b of section.bindings) {
         rows.push({
           kind: 'binding',
@@ -118,7 +121,7 @@ export const HelpOverlay = (): React.JSX.Element => {
         </Box>
         <Box flexDirection="column" marginTop={spacing.section}>
           {visibleRows.map((row, idx) => {
-            if (row.kind === 'section-title') {
+            if (row.kind === SECTION_TITLE) {
               return (
                 <Box key={`title-${String(offset + idx)}`} marginTop={idx === 0 ? 0 : spacing.section}>
                   <Text bold>{row.title}</Text>

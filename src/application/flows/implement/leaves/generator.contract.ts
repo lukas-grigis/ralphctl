@@ -59,8 +59,10 @@ type GeneratorSignal =
   | TaskBlockedSignal
   | CommitMessageSignal;
 
+const COMMIT_MESSAGE_KIND = 'commit-message';
+
 const atMostOneCommitMessage = (signals: ReadonlyArray<{ readonly type: string }>): boolean =>
-  signals.filter((s) => s.type === 'commit-message').length <= 1;
+  signals.filter((s) => s.type === COMMIT_MESSAGE_KIND).length <= 1;
 
 const signalsArraySchemaRaw = z
   .array(
@@ -109,7 +111,7 @@ const wrapLegacyArray = (raw: unknown): unknown => {
  * cast erases is preserved by the helper.
  */
 const commitMessageSidecar: SidecarRule<'commit-message'> = {
-  signalKind: 'commit-message',
+  signalKind: COMMIT_MESSAGE_KIND,
   filename: 'commit-message.txt',
   multiplicity: 'optional',
   extract: (signal) => renderCommitMessage(signal),
@@ -135,7 +137,7 @@ const generatorExampleSignals: readonly GeneratorSignal[] = [
   },
   { type: 'task-verified', output: '$ pnpm test\n... 42 passed', timestamp: EXAMPLE_TS },
   {
-    type: 'commit-message',
+    type: COMMIT_MESSAGE_KIND,
     subject: 'feat(foo): add helper for bar',
     body: 'Why: the call site repeated three times; centralising it removes a future drift hazard.',
     timestamp: EXAMPLE_TS,

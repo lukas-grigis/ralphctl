@@ -93,6 +93,8 @@ const RESUME_STALE_RE = /(session|conversation)[^\n]*not found|no (session|conve
 
 const isFullAuto = (p: SessionPermissions): boolean => p.autoApprove && p.canModifyRepoFiles && p.canRunShell;
 
+const PROVIDER_NAME = 'copilot-provider';
+
 /**
  * Build the argv for one Copilot invocation. Validates `session.model` is a known
  * {@link CopilotModel}; surfaces `InvalidStateError` for unknowns.
@@ -101,7 +103,7 @@ export const buildCopilotArgs = (session: AiSession): Result<readonly string[], 
   if (!isCopilotModel(session.model)) {
     return Result.error(
       new InvalidStateError({
-        entity: 'copilot-provider',
+        entity: PROVIDER_NAME,
         currentState: 'model-validation',
         attemptedAction: 'build argv',
         message: `copilot-provider: '${session.model}' is not a known Copilot model`,
@@ -113,7 +115,7 @@ export const buildCopilotArgs = (session: AiSession): Result<readonly string[], 
   if (isSuspendedModel(session.model)) {
     return Result.error(
       new InvalidStateError({
-        entity: 'copilot-provider',
+        entity: PROVIDER_NAME,
         currentState: 'model-suspended',
         attemptedAction: 'build argv',
         message: suspendedModelMessage(session.model),
@@ -173,7 +175,7 @@ export const createCopilotProvider = (deps: CopilotProviderDeps): HeadlessAiProv
 
   return createHeadlessProvider({
     providerSlug: 'copilot',
-    providerName: 'copilot-provider',
+    providerName: PROVIDER_NAME,
     resumeStaleRe: RESUME_STALE_RE,
     rateLimitRetries: deps.rateLimitRetries,
     eventBus: deps.eventBus,
@@ -282,7 +284,7 @@ export const createCopilotProvider = (deps: CopilotProviderDeps): HeadlessAiProv
               ...(usage.outputTokens !== undefined ? { outputTokens: usage.outputTokens } : {}),
             });
           },
-          providerName: 'copilot-provider',
+          providerName: PROVIDER_NAME,
           providerSlug: 'copilot',
           eventBus: deps.eventBus,
           ...(deps.idleMs !== undefined ? { idleMs: deps.idleMs } : {}),

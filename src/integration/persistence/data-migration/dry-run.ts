@@ -19,6 +19,8 @@ const PROJECTS_DIR = 'projects';
 const SPRINTS_DIR = 'sprints';
 const MEMORY_DIR = 'memory';
 const SPRINT_JSON = 'sprint.json';
+const REASON_ALREADY_MIGRATED = 'already migrated (slugged name)';
+const REASON_MALFORMED_NAME = 'malformed name — not a uuidv7 id';
 
 /**
  * Mutable accumulators for a single dry-run pass. Returned (frozen) as a {@link DryRunReport}.
@@ -100,11 +102,11 @@ const scanFileFamily = async (
     }
     const base = name.slice(0, -'.json'.length);
     if (base.includes(NAME_SEPARATOR)) {
-      acc.skipped.push({ name, reason: 'already migrated (slugged name)' });
+      acc.skipped.push({ name, reason: REASON_ALREADY_MIGRATED });
       continue;
     }
     if (!isUuidv7(base)) {
-      acc.problems.push({ name, reason: 'malformed name — not a uuidv7 id' });
+      acc.problems.push({ name, reason: REASON_MALFORMED_NAME });
       continue;
     }
     const slug = await readSlug(join(parent, name));
@@ -145,11 +147,11 @@ const scanDirFamily = async (
       continue;
     }
     if (name.includes(NAME_SEPARATOR)) {
-      acc.skipped.push({ name, reason: 'already migrated (slugged name)' });
+      acc.skipped.push({ name, reason: REASON_ALREADY_MIGRATED });
       continue;
     }
     if (!isUuidv7(name)) {
-      acc.problems.push({ name, reason: 'malformed name — not a uuidv7 id' });
+      acc.problems.push({ name, reason: REASON_MALFORMED_NAME });
       continue;
     }
     const slug = await readSlug(full, name);
@@ -193,9 +195,9 @@ const classifyMemoryEntry = async (
   const full = join(parent, name);
   if (!(await isDirectory(full))) return void acc.skipped.push({ name, reason: 'not a directory' });
   if (name.includes(NAME_SEPARATOR)) {
-    return void acc.skipped.push({ name, reason: 'already migrated (slugged name)' });
+    return void acc.skipped.push({ name, reason: REASON_ALREADY_MIGRATED });
   }
-  if (!isUuidv7(name)) return void acc.problems.push({ name, reason: 'malformed name — not a uuidv7 id' });
+  if (!isUuidv7(name)) return void acc.problems.push({ name, reason: REASON_MALFORMED_NAME });
 
   const slug = await readProjectSlugForId(dataRoot, name);
   if (slug === undefined) return void acc.problems.push({ name, reason: 'missing or unreadable slug' });

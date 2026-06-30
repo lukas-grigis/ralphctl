@@ -34,7 +34,14 @@ const LogLevelSchema = z.enum(['silent', 'debug', 'info', 'warn', 'error']) sati
  */
 export type AiProvider = 'claude-code' | 'github-copilot' | 'openai-codex';
 
-const AiProviderSchema = z.enum(['claude-code', 'github-copilot', 'openai-codex']) satisfies z.ZodType<AiProvider>;
+/** The `claude-code` provider id — reused by the schema enum/literal and the legacy-row migration check. */
+const PROVIDER_CLAUDE_CODE = 'claude-code';
+
+const AiProviderSchema = z.enum([
+  PROVIDER_CLAUDE_CODE,
+  'github-copilot',
+  'openai-codex',
+]) satisfies z.ZodType<AiProvider>;
 
 /**
  * Effort-level vocabularies, per provider. Each row's `effort` value is checked against the
@@ -61,7 +68,7 @@ const CopilotModelSchema = z.union([z.enum(COPILOT_MODELS as readonly [string, .
 const CodexModelSchema = z.union([z.enum(CODEX_MODELS as readonly [string, ...string[]]), CustomModelStringSchema]);
 
 const ClaudeFlowRowSchema = z.object({
-  provider: z.literal('claude-code'),
+  provider: z.literal(PROVIDER_CLAUDE_CODE),
   model: ClaudeModelSchema,
   effort: ClaudeEffortSchema.optional(),
 });
@@ -146,7 +153,7 @@ const SUCCESSOR_CLAUDE_OPUS = 'claude-opus-4-8';
 const migrateRetiredOpusRow = (row: unknown): unknown => {
   if (typeof row !== 'object' || row === null) return row;
   const rowObj = row as Record<string, unknown>;
-  if (rowObj['provider'] === 'claude-code' && rowObj['model'] === RETIRED_CLAUDE_OPUS) {
+  if (rowObj['provider'] === PROVIDER_CLAUDE_CODE && rowObj['model'] === RETIRED_CLAUDE_OPUS) {
     return { ...rowObj, model: SUCCESSOR_CLAUDE_OPUS };
   }
   return row;

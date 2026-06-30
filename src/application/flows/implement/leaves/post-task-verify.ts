@@ -24,6 +24,9 @@ import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.
 import { runVerifyShell } from '@src/application/flows/implement/leaves/pre-task-verify.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
+/** `VerifyRunOutcome` member tag for a shell that could not start the command. */
+const SPAWN_ERROR_OUTCOME = 'spawn-error';
+
 /**
  * Post-task verify gate — the harness's AUTHORITATIVE independent verification. Runs the
  * project's `verifyScript` after the AI commits its work, regardless of any `task-verified`
@@ -172,7 +175,7 @@ const legacyVerifyResult = (
 ): NonNullable<ImplementCtx['lastVerifyResult']> => {
   if (run.outcome === 'skipped') return { kind: 'skipped' };
   if (run.outcome === 'success') return { kind: 'passed' };
-  const stderr = run.outcome === 'spawn-error' ? (spawnErrorMessage ?? '') : rawOutput;
+  const stderr = run.outcome === SPAWN_ERROR_OUTCOME ? (spawnErrorMessage ?? '') : rawOutput;
   return { kind: 'verify-failed', exitCode: run.exitCode, stderr };
 };
 
@@ -370,7 +373,7 @@ export const postTaskVerifyLeaf = (
             message: `post-task-verify ${String(opts.cwd)}: fixed pre-existing failure (exit=0)`,
             at: deps.clock(),
           });
-        } else if (run.outcome === 'spawn-error') {
+        } else if (run.outcome === SPAWN_ERROR_OUTCOME) {
           deps.eventBus.publish({
             type: 'log',
             level: 'warn',
@@ -432,7 +435,7 @@ export const postTaskVerifyLeaf = (
       //   - fixed-baseline  — no block (post is green)
       //   - baseline-broken — no block (escape hatch; preserve AI's verdict)
       //   - undefined       — BLOCK on raw red post (no pre-verify evidence to clear it)
-      const isRed = out.run.outcome === 'failed' || out.run.outcome === 'spawn-error';
+      const isRed = out.run.outcome === 'failed' || out.run.outcome === SPAWN_ERROR_OUTCOME;
       const shouldBlock = isRed && out.attribution !== 'baseline-broken';
       const blockReason = shouldBlock
         ? out.attribution === 'regressed'

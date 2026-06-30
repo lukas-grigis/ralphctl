@@ -655,10 +655,11 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
       },
     },
     input: (ctx) => {
+      const PRE_GENERATOR_STATE = 'pre-generator';
       if (ctx.currentTask === undefined || ctx.currentTask.id !== taskId) {
         throw new InvalidStateError({
           entity: 'chain',
-          currentState: 'pre-generator',
+          currentState: PRE_GENERATOR_STATE,
           attemptedAction: `generator-${String(taskId)}`,
           message: `generator-${String(taskId)}: ctx.currentTask missing or mismatched`,
         });
@@ -674,7 +675,7 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
       if (ctx.taskWorkspaceRoot === undefined) {
         throw new InvalidStateError({
           entity: 'chain',
-          currentState: 'pre-generator',
+          currentState: PRE_GENERATOR_STATE,
           attemptedAction: `generator-${String(taskId)}`,
           message: `generator-${String(taskId)}: ctx.taskWorkspaceRoot missing — buildTaskWorkspaceLeaf must run first`,
         });
@@ -682,7 +683,7 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
       if (ctx.currentRoundNum === undefined) {
         throw new InvalidStateError({
           entity: 'chain',
-          currentState: 'pre-generator',
+          currentState: PRE_GENERATOR_STATE,
           attemptedAction: `generator-${String(taskId)}`,
           message: `generator-${String(taskId)}: ctx.currentRoundNum missing — resolve-round-num must run first`,
         });

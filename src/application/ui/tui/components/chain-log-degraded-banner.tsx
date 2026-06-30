@@ -33,10 +33,9 @@ export const ChainLogDegradedBanner = (): React.JSX.Element | null => {
   const [degraded, setDegraded] = useState(false);
 
   useEffect(() => {
-    const unsub = deps.eventBus.subscribe((event) => {
+    return deps.eventBus.subscribe((event) => {
       if (event.type === 'chain-log-degraded') setDegraded(true);
     });
-    return unsub;
   }, [deps.eventBus]);
 
   if (!degraded) return null;

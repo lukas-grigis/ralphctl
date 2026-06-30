@@ -15,6 +15,9 @@ import type { InvalidStateError } from '@src/domain/value/error/invalid-state-er
 import type { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 
+/** Log message shared by the persist-failure branches (primary update + cascade saveAll). */
+const PERSIST_FAILED_MSG = 'persist failed';
+
 /**
  * Manually unblock a task — recovery hatch for transient failures that leave a task stuck in
  * `blocked` (maxAttempts exhausted, verify failed) or `in_progress` with a settled last attempt
@@ -138,7 +141,7 @@ export const unblockTaskUseCase = async (
     });
     const persisted = await props.taskRepo.update(props.sprintId, primary);
     if (!persisted.ok) {
-      log.error('persist failed', { taskId: primary.id, error: persisted.error.message });
+      log.error(PERSIST_FAILED_MSG, { taskId: primary.id, error: persisted.error.message });
       return Result.error(persisted.error);
     }
     log.info(`unblocked task '${primary.name}'`, { taskId: primary.id, sprintId: props.sprintId });
@@ -153,7 +156,7 @@ export const unblockTaskUseCase = async (
   if (dependentIds.size === 0) {
     const persisted = await props.taskRepo.update(props.sprintId, primary);
     if (!persisted.ok) {
-      log.error('persist failed', { taskId: primary.id, error: persisted.error.message });
+      log.error(PERSIST_FAILED_MSG, { taskId: primary.id, error: persisted.error.message });
       return Result.error(persisted.error);
     }
     log.info(`unblocked task '${primary.name}'`, { taskId: primary.id, sprintId: props.sprintId });
@@ -175,7 +178,7 @@ export const unblockTaskUseCase = async (
 
   const saved = await props.taskRepo.saveAll(props.sprintId, nextTasks);
   if (!saved.ok) {
-    log.error('persist failed', { taskId: primary.id, error: saved.error.message });
+    log.error(PERSIST_FAILED_MSG, { taskId: primary.id, error: saved.error.message });
     return Result.error(saved.error);
   }
 

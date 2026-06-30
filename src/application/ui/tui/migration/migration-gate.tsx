@@ -90,6 +90,9 @@ type GateState =
 /** Outcome reused across every "decline / proceed on tolerant readers" path. */
 const SKIPPED: MigrationGateOutcome = 'skipped';
 
+/** `GateState.kind` discriminant for the "dry-run found a problem / threw" screen. */
+const DRY_RUN_BLOCKED = 'dry-run-blocked';
+
 /** Subset of Ink's `Key` flags the consent handler reads — declared so the handler is unit-typeable. */
 type KeyFlags = Pick<Key, 'leftArrow' | 'rightArrow' | 'tab' | 'return' | 'escape'>;
 
@@ -128,7 +131,7 @@ export const MigrationGate = (props: MigrationGateProps): React.JSX.Element => {
         const report = await engine.dryRun(dataRoot);
         if (cancelled) return;
         if (report.problems.length > 0) {
-          setState({ kind: 'dry-run-blocked', issues: report.problems.map((p) => `${p.name} — ${p.reason}`) });
+          setState({ kind: DRY_RUN_BLOCKED, issues: report.problems.map((p) => `${p.name} — ${p.reason}`) });
           return;
         }
         // No-op migration (brand-new install, or everything already reconciled): there is nothing to
@@ -146,7 +149,7 @@ export const MigrationGate = (props: MigrationGateProps): React.JSX.Element => {
         // A dry-run that threw is treated like a blocking problem: surface it, do NOT apply, proceed
         // on the tolerant readers. The dry-run touches nothing, so a throw here left disk untouched.
         const msg = err instanceof Error ? err.message : String(err);
-        setState({ kind: 'dry-run-blocked', issues: [`could not scan data — ${msg}`] });
+        setState({ kind: DRY_RUN_BLOCKED, issues: [`could not scan data — ${msg}`] });
       }
     };
     void scan();
@@ -209,7 +212,7 @@ export const MigrationGate = (props: MigrationGateProps): React.JSX.Element => {
         handleConsentInput(state, input, key);
         break;
       case 'lock-held':
-      case 'dry-run-blocked':
+      case DRY_RUN_BLOCKED:
         // Only path forward is to continue on the tolerant readers; any key proceeds.
         onResolve(SKIPPED);
         break;
@@ -259,7 +262,7 @@ const renderBody = (state: GateState): React.JSX.Element => {
           <Text dimColor>Your data is untouched. Press any key to continue.</Text>
         </Card>
       );
-    case 'dry-run-blocked':
+    case DRY_RUN_BLOCKED:
       return (
         <Card title={SKIP_TITLE} tone="warning">
           <Text color={inkColors.warning}>

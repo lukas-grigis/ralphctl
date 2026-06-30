@@ -126,6 +126,9 @@ export const PRESET_FAMILY_LABEL: Readonly<Record<PresetFamily, string>> = {
   frontier: 'Frontier',
 };
 
+/** Family shared by the four strong-gate presets. */
+const STRONG_GATE: PresetFamily = 'strong-gate';
+
 /** Maps each preset to its family — single source so preset-bar and any future caller stay in sync. */
 export const PRESET_FAMILY: Readonly<Record<PresetName, PresetFamily>> = {
   mixed: 'standard',
@@ -136,10 +139,10 @@ export const PRESET_FAMILY: Readonly<Record<PresetName, PresetFamily>> = {
   'claude-economic': 'economic',
   'copilot-economic': 'economic',
   'codex-economic': 'economic',
-  'mixed-strong-gate': 'strong-gate',
-  'claude-strong-gate': 'strong-gate',
-  'copilot-strong-gate': 'strong-gate',
-  'codex-strong-gate': 'strong-gate',
+  'mixed-strong-gate': STRONG_GATE,
+  'claude-strong-gate': STRONG_GATE,
+  'copilot-strong-gate': STRONG_GATE,
+  'codex-strong-gate': STRONG_GATE,
   'mixed-fast': 'fast',
   'claude-fast': 'fast',
   'copilot-fast': 'fast',

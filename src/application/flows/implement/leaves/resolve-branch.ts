@@ -13,6 +13,10 @@ import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
+/** Domain entity tag and leaf name, reused across this leaf's error states. */
+const SPRINT_EXECUTION_ENTITY = 'sprint-execution';
+const RESOLVE_BRANCH = 'resolve-branch';
+
 /**
  * One-shot leaf — pins every repo touched by the sprint to its designated branch before any
  * task runs.
@@ -74,8 +78,8 @@ const askCustomName = async (interactive: InteractivePrompt): Promise<Result<str
     if (!answer.ok) {
       return Result.error(
         new InvalidStateError({
-          entity: 'sprint-execution',
-          currentState: 'resolve-branch',
+          entity: SPRINT_EXECUTION_ENTITY,
+          currentState: RESOLVE_BRANCH,
           attemptedAction: 'ask-custom-branch-name',
           message: `resolve-branch: prompt cancelled — ${answer.error.message}`,
         })
@@ -114,8 +118,8 @@ const resolveFirstRun = async (
   if (!choice.ok) {
     return Result.error(
       new InvalidStateError({
-        entity: 'sprint-execution',
-        currentState: 'resolve-branch',
+        entity: SPRINT_EXECUTION_ENTITY,
+        currentState: RESOLVE_BRANCH,
         attemptedAction: 'ask-branch-strategy',
         message: `resolve-branch: prompt cancelled — ${choice.error.message}`,
       })
@@ -132,7 +136,7 @@ const resolveFirstRun = async (
 };
 
 export const resolveBranchLeaf = (deps: ResolveBranchLeafDeps, opts: ResolveBranchLeafOpts): Element<ImplementCtx> =>
-  leaf<ImplementCtx, ResolveBranchInput, ResolveBranchOutput>('resolve-branch', {
+  leaf<ImplementCtx, ResolveBranchInput, ResolveBranchOutput>(RESOLVE_BRANCH, {
     useCase: {
       execute: async (input) => {
         const log = deps.logger.named('branch.resolve');
@@ -164,9 +168,9 @@ export const resolveBranchLeaf = (deps: ResolveBranchLeafDeps, opts: ResolveBran
         if (!isValidBranchName(branch)) {
           return Result.error(
             new InvalidStateError({
-              entity: 'sprint-execution',
+              entity: SPRINT_EXECUTION_ENTITY,
               currentState: 'pre-resolve-branch',
-              attemptedAction: 'resolve-branch',
+              attemptedAction: RESOLVE_BRANCH,
               message: `resolve-branch: invalid branch name '${branch}'`,
             })
           );
@@ -186,7 +190,7 @@ export const resolveBranchLeaf = (deps: ResolveBranchLeafDeps, opts: ResolveBran
         throw new InvalidStateError({
           entity: 'chain',
           currentState: 'pre-resolve-branch',
-          attemptedAction: 'resolve-branch',
+          attemptedAction: RESOLVE_BRANCH,
           message: 'resolve-branch: ctx.execution is undefined — load-sprint-execution must run first',
         });
       }

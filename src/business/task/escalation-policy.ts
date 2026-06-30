@@ -7,6 +7,9 @@ import { recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { ValidationError } from '@src/domain/value/error/validation-error.ts';
 
+/** Event `type` discriminant for the operator banner every escalation branch publishes. */
+const BANNER_SHOW_EVENT = 'banner-show';
+
 /**
  * The gen-eval exit kind that triggered the model-escalation policy. Threaded through so the
  * emitted `model-escalated` event + banner copy name the real cause rather than always saying
@@ -267,7 +270,7 @@ export const applyEscalation = (props: ApplyEscalationProps): Result<ApplyEscala
         at: now,
       });
       eventBus.publish({
-        type: 'banner-show',
+        type: BANNER_SHOW_EVENT,
         id: bannerId,
         tier: 'info',
         message: `escalated generator model: ${decision.from} → ${decision.to}`,
@@ -292,7 +295,7 @@ export const applyEscalation = (props: ApplyEscalationProps): Result<ApplyEscala
       const stamped = recordTaskEscalation(task, decision.currentModel, decision.currentModel);
       if (!stamped.ok) return Result.error(stamped.error);
       eventBus.publish({
-        type: 'banner-show',
+        type: BANNER_SHOW_EVENT,
         id: bannerId,
         tier: 'info',
         message: `${cause} on '${decision.currentModel}' (top of ladder) — retrying with a change-of-approach directive`,
@@ -313,7 +316,7 @@ export const applyEscalation = (props: ApplyEscalationProps): Result<ApplyEscala
       // exhausted.
       const message = `ladder exhausted on '${decision.model}' (${cause}); keeping the work`;
       eventBus.publish({
-        type: 'banner-show',
+        type: BANNER_SHOW_EVENT,
         id: bannerId,
         tier: 'warn',
         message: 'ladder exhausted — keeping the work',
@@ -332,7 +335,7 @@ export const applyEscalation = (props: ApplyEscalationProps): Result<ApplyEscala
       // the work.
       const message = `${cause} with attempt budget exhausted (attempts=${String(decision.attemptsUsed)}, maxAttempts=${String(decision.maxAttempts)}); keeping the work`;
       eventBus.publish({
-        type: 'banner-show',
+        type: BANNER_SHOW_EVENT,
         id: bannerId,
         tier: 'warn',
         message: `${cause}, attempt budget exhausted — keeping the work`,

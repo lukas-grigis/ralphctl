@@ -10,6 +10,9 @@ import { parsePositiveInt } from '@src/domain/value/parsers/parse-positive-int.t
 import { parseRequiredString } from '@src/domain/value/parsers/parse-required-string.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 
+/** Field tag for `repository.name` validation failures, shared across the name parsers. */
+const FIELD_REPOSITORY_NAME = 'repository.name';
+
 /**
  * One structured per-module verify gate. A monorepo-style repo chains module gates inside a
  * single opaque {@link Repository.verifyScript}, so every verify run pays for every module. A
@@ -232,7 +235,7 @@ export const setRepositoryPath = (repo: Repository, path: AbsolutePath): Reposit
 });
 
 export const setRepositoryName = (repo: Repository, name: string): Result<Repository, ValidationError> => {
-  const parsed = parseRequiredString('repository.name', name);
+  const parsed = parseRequiredString(FIELD_REPOSITORY_NAME, name);
   if (!parsed.ok) return Result.error(parsed.error);
   return Result.ok({ ...repo, name: parsed.value });
 };
@@ -311,7 +314,7 @@ const resolveName = (candidate: string | undefined, path: AbsolutePath): Result<
     if (fallback.length === 0) {
       return Result.error(
         new ValidationError({
-          field: 'repository.name',
+          field: FIELD_REPOSITORY_NAME,
           value: path,
           message: 'could not derive repository name from path',
           hint: 'pass an explicit name',
@@ -320,7 +323,7 @@ const resolveName = (candidate: string | undefined, path: AbsolutePath): Result<
     }
     return Result.ok(fallback);
   }
-  return parseRequiredString('repository.name', candidate);
+  return parseRequiredString(FIELD_REPOSITORY_NAME, candidate);
 };
 
 const resolveSlug = (candidate: Slug | undefined, name: string): Result<Slug, ValidationError> => {
