@@ -65,19 +65,30 @@ every `ai` row plus `harness.escalateOnPlateau` in one transaction; subsequent p
 
 **Model catalog versions used by the presets** (verified against the tool versions noted per row):
 
-- Claude Code — `claude-haiku-4-5` / `claude-sonnet-4-6` / `claude-opus-4-8` (verified against Claude
-  Code v2.1.169). The catalog additionally lists the frontier tier `claude-fable-5` plus the 1M-context
-  variants `claude-opus-4-8[1m]` and `claude-fable-5[1m]` (the `[1m]` suffix is Claude Code's
-  long-context syntax, passed through verbatim — on large repos the 1M window avoids mid-session
-  compaction during deep implement runs) as **opt-in only** — no preset, default, or built-in
-  escalation rung references them; pick per row or add an `'claude-opus-4-8': 'claude-fable-5'` rung
-  via `settings.harness.escalationMap`. **Temporarily suspended (2026-06-12 Anthropic export-control
-  directive):** the `claude-fable-5` family stays in the catalog but is currently rejected at launch
-  with a clear message and flagged `(suspended)` in the pickers; it will be restored when access
-  returns (single-list revert in `settings-models/suspended-models.ts`).
-- GitHub Copilot — adds `gpt-5.5`, `claude-opus-4.7`, `claude-opus-4.8`, the Gemini family
-  (`gemini-2.5-pro`, `gemini-3-flash`, `gemini-3.1-pro-preview`, `gemini-3.5-flash`),
-  plus `mai-code-1-flash`, `raptor-mini-preview` (verified against Copilot CLI v1.0.60).
+- Claude Code — `claude-haiku-4-5` / `claude-sonnet-4-6` / `claude-sonnet-5` / `claude-opus-4-8`
+  (verified against Claude Code v2.1.197; `claude-sonnet-5` requires v2.1.197+). `claude-sonnet-5` is
+  the Sonnet-5 successor to Sonnet 4.6 and the **default Sonnet** across presets, the new-install
+  defaults, and the escalation ladder; `claude-sonnet-4-6` is kept alongside it (both Active at
+  Anthropic) so pinned 4.6 configs keep working. Sonnet 5 has **no `[1m]` variant** — on the Anthropic
+  API it always runs at its native 1M window in Claude Code, so the 1M figure is recorded against the
+  bare id in the context-window tables (the only base id, not a `[1m]` variant, to carry 1M). The
+  catalog additionally lists the frontier tier `claude-fable-5` plus the 1M-context variants
+  `claude-opus-4-8[1m]` and `claude-fable-5[1m]` (the `[1m]` suffix is Claude Code's long-context
+  syntax for models whose Claude-Code default is 200K, passed through verbatim — on large repos the 1M
+  window avoids mid-session compaction during deep implement runs) as **opt-in only** — no preset,
+  default, or built-in escalation rung references them; pick per row or add an
+  `'claude-opus-4-8': 'claude-fable-5'` rung via `settings.harness.escalationMap`. **Temporarily
+  suspended (2026-06-12 Anthropic export-control directive):** the `claude-fable-5` family stays in the
+  catalog but is currently rejected at launch with a clear message and flagged `(suspended)` in the
+  pickers; it will be restored when access returns (single-list revert in
+  `settings-models/suspended-models.ts`).
+- GitHub Copilot — adds `gpt-5.5`, `claude-opus-4.7`, `claude-opus-4.8`, `claude-sonnet-5`, the Gemini
+  family (`gemini-2.5-pro`, `gemini-3-flash`, `gemini-3.1-pro-preview`, `gemini-3.5-flash`),
+  plus `mai-code-1-flash`, `raptor-mini-preview` (Copilot reconciled to GitHub's supported-models doc
+  as of 2026-06-30; Sonnet 5 went GA for Copilot that day). Note: Sonnet 5's Copilot slug carries no
+  dot/date, so it is the SAME string (`claude-sonnet-5`) as the Claude-Code id — the escalation map
+  has one value per key, so the dash-form (Claude-Code) rung `claude-sonnet-5 → claude-opus-4-8` wins
+  it and Copilot's curated presets stay on `claude-sonnet-4.6` (see `escalation-map.ts`).
 - OpenAI Codex — adds `gpt-5.3-codex-spark` (text-only research preview, ChatGPT Pro only);
   `gpt-5.2` and `gpt-5.3-codex` are deprecated for ChatGPT sign-in but kept in the allowlist because
   they remain available via API-key auth. `gpt-5.5` is the frontier default — the model `codex-only`

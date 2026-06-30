@@ -71,13 +71,15 @@ export const isPresetName = (raw: string): raw is PresetName => (PRESET_NAMES as
 
 // Provider and model identifiers referenced across the preset matrices below, hoisted so each
 // literal appears once. The dash vs dot spelling is provider-specific and load-bearing:
-// claude-code uses `claude-…-4-8` (dashes → OPUS / SONNET / HAIKU) while github-copilot uses
-// `claude-…-4.8` (dots → COPILOT_OPUS / COPILOT_SONNET). Do not normalise one into the other.
+// claude-code uses the dash form (`claude-opus-4-8`, `claude-sonnet-5` → OPUS / SONNET / HAIKU)
+// while github-copilot uses the dotted form (`claude-…-4.8` → COPILOT_OPUS / COPILOT_SONNET). Do
+// not normalise one into the other. Sonnet 5 is the default Sonnet for Claude Code; Copilot's
+// curated presets stay on Sonnet 4.6 (its slug collides with the Claude-Code id — see escalation-map).
 const CLAUDE = 'claude-code';
 const COPILOT = 'github-copilot';
 const CODEX = 'openai-codex';
 const OPUS = 'claude-opus-4-8';
-const SONNET = 'claude-sonnet-4-6';
+const SONNET = 'claude-sonnet-5';
 const HAIKU = 'claude-haiku-4-5';
 const COPILOT_OPUS = 'claude-opus-4.8';
 const COPILOT_SONNET = 'claude-sonnet-4.6';

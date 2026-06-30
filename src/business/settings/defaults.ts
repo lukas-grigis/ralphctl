@@ -7,8 +7,9 @@ import {
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 
 // Model identifiers referenced more than once below, hoisted to named constants so each literal
-// appears once. The dash spelling (`claude-…-4-6`) is the claude-code catalog form.
-const CLAUDE_SONNET = 'claude-sonnet-4-6';
+// appears once. The dash spelling (`claude-sonnet-5`, `claude-opus-4-8`) is the claude-code
+// catalog form. Sonnet 5 is the default Sonnet for Claude Code.
+const CLAUDE_SONNET = 'claude-sonnet-5';
 const CLAUDE_OPUS = 'claude-opus-4-8';
 const GPT_5_MINI = 'gpt-5-mini';
 const GPT_5_4_MINI = 'gpt-5.4-mini';

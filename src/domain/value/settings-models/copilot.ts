@@ -1,4 +1,4 @@
-// Reconciled to GitHub's official supported-models doc (as of 2026-06-10).
+// Reconciled to GitHub's official supported-models doc (as of 2026-06-30).
 // Docs: https://docs.github.com/en/copilot/reference/ai-models/supported-models
 
 /**
@@ -7,8 +7,12 @@
  * adapter validates `AiSession.model` against this set and surfaces `InvalidStateError` for
  * unknowns. The default model is Claude Sonnet 4.5 (`claude-sonnet-4.5`).
  *
- * This catalog is reconciled to GitHub's official supported-models doc (as of 2026-06-10):
+ * This catalog is reconciled to GitHub's official supported-models doc (as of 2026-06-30):
  * https://docs.github.com/en/copilot/reference/ai-models/supported-models
+ *
+ * Anthropic's Claude Sonnet 5 (`claude-sonnet-5`) went GA for GitHub Copilot on 2026-06-30 and is
+ * listed here; its slug carries no dot/date, so the Copilot dotted-lowercase form is identical to
+ * the Claude-Code dash form (`claude-sonnet-5`) — see `escalation-map.ts` for the consequence.
  *
  * The Copilot CLI cannot enumerate its model catalog non-interactively (github/copilot-cli
  * issue #700), so the slugs below are mapped from the doc's display names through the
@@ -37,6 +41,7 @@ export type CopilotModel =
   | 'claude-fable-5'
   | 'claude-sonnet-4.5'
   | 'claude-sonnet-4.6'
+  | 'claude-sonnet-5'
   // Google
   | 'gemini-2.5-pro'
   | 'gemini-3-flash'
@@ -65,6 +70,7 @@ export const COPILOT_MODELS: readonly CopilotModel[] = [
   'claude-fable-5',
   'claude-sonnet-4.5',
   'claude-sonnet-4.6',
+  'claude-sonnet-5',
   // Google
   'gemini-2.5-pro',
   'gemini-3-flash',

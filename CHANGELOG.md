@@ -39,7 +39,22 @@ to [Semantic Versioning](https://semver.org/).
   explicit checkpoint before producing its verdict, improving grading consistency and reducing
   ungrounded pass/fail decisions.
 
+- **Claude Sonnet 5 in the model catalog.** `claude-sonnet-5` is now selectable for the
+  `claude-code` provider (and `claude-sonnet-5` for `github-copilot`, where it went GA on
+  2026-06-30). It is recorded with a 1M context window: unlike Opus/Fable, Sonnet 5 has no `[1m]`
+  long-context variant because on the Anthropic API it always runs at its native 1M window in Claude
+  Code. Selecting `claude-sonnet-5` requires Claude Code v2.1.197+. Sonnet 4.6 (`claude-sonnet-4-6` /
+  `claude-sonnet-4.6`) stays in the catalog, so configs pinned to it keep working.
+
 ### Changed
+
+- **Sonnet 5 is now the default Sonnet for Claude Code.** New-install defaults (`refine` / `readiness`
+  / `createPr`), every preset's Claude-Code Sonnet row, and the escalation ladder
+  (`claude-haiku-4-5 → claude-sonnet-5 → claude-opus-4-8`) now use `claude-sonnet-5` instead of
+  `claude-sonnet-4-6`. The legacy `claude-sonnet-4-6 → claude-opus-4-8` escalation rung is retained so
+  pinned 4.6 configs still climb. Copilot's curated presets stay on `claude-sonnet-4.6`: Sonnet 5's
+  Copilot slug is the same string as the Claude-Code id, and the flat escalation map can hold only one
+  target per key, so the Claude-Code rung wins it.
 
 - **Lint warning ceiling added.** The `lint` script is now `eslint . --max-warnings 342`, capping
   the accepted warning count at the baseline observed after the provider-engine refactor. Any future

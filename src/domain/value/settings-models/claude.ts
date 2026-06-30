@@ -16,10 +16,19 @@
  * entries are deliberate opt-in only: none is referenced by presets, defaults, or the built-in
  * escalation ladder — pick one per row, or extend `settings.harness.escalationMap` with a rung
  * such as `'claude-opus-4-8': 'claude-fable-5'`.
+ *
+ * `claude-sonnet-5` is the Sonnet-5 successor to Sonnet 4.6 and the default Sonnet across
+ * presets / defaults / the escalation ladder; `claude-sonnet-4-6` is KEPT alongside it (both
+ * remain Active at Anthropic) so configs pinned to 4.6 keep working. Sonnet 5 has NO `[1m]`
+ * variant — on the Anthropic API it always runs at its native 1M window in Claude Code (there is
+ * no 200K default to opt out of), unlike Opus/Fable whose Claude-Code default is 200K and whose
+ * `[1m]` suffix is the real 1M selector. The 1M figure is recorded in the context-window tables
+ * against the bare id, not via a suffix.
  */
 export type ClaudeModel =
   | 'claude-haiku-4-5'
   | 'claude-sonnet-4-6'
+  | 'claude-sonnet-5'
   | 'claude-opus-4-8'
   | 'claude-opus-4-8[1m]'
   | 'claude-fable-5'
@@ -28,6 +37,7 @@ export type ClaudeModel =
 export const CLAUDE_MODELS: readonly ClaudeModel[] = [
   'claude-haiku-4-5',
   'claude-sonnet-4-6',
+  'claude-sonnet-5',
   'claude-opus-4-8',
   'claude-opus-4-8[1m]',
   'claude-fable-5',

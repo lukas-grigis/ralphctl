@@ -65,8 +65,8 @@ describe('decideEscalation', () => {
     if (decision.kind === 'escalate') expect(decision.to).toBe('custom-frontier-model');
   });
 
-  it('climbs the ladder one rung per plateau: haiku → sonnet → opus across successive plateaus', () => {
-    // Rung 1: fresh task on haiku plateaus → escalate to sonnet.
+  it('climbs the ladder one rung per plateau: haiku → sonnet-5 → opus across successive plateaus', () => {
+    // Rung 1: fresh task on haiku plateaus → escalate to the default Sonnet (Sonnet 5).
     const fresh = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     const d1 = decideEscalation({
       task: fresh,
@@ -76,20 +76,20 @@ describe('decideEscalation', () => {
       fallbackMaxAttempts: 3,
     });
     expect(d1.kind).toBe('escalate');
-    if (d1.kind === 'escalate') expect(d1.to).toBe('claude-sonnet-4-6');
+    if (d1.kind === 'escalate') expect(d1.to).toBe('claude-sonnet-5');
 
     // Rung 2: task already escalated to sonnet, now running on sonnet, plateaus → escalate to opus.
-    const onSonnet = withEscalation(fresh, 'claude-haiku-4-5', 'claude-sonnet-4-6');
+    const onSonnet = withEscalation(fresh, 'claude-haiku-4-5', 'claude-sonnet-5');
     const d2 = decideEscalation({
       task: onSonnet,
-      generatorModel: 'claude-sonnet-4-6',
+      generatorModel: 'claude-sonnet-5',
       flagOn: true,
       userMap: {},
       fallbackMaxAttempts: 3,
     });
     expect(d2.kind).toBe('escalate');
     if (d2.kind === 'escalate') {
-      expect(d2.from).toBe('claude-sonnet-4-6');
+      expect(d2.from).toBe('claude-sonnet-5');
       expect(d2.to).toBe('claude-opus-4-8');
     }
 

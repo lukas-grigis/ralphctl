@@ -19,6 +19,12 @@ describe('contextWindowFor', () => {
     expect(contextWindowFor('claude-fable-5[1m]')).toBe(1_000_000);
   });
 
+  it('returns 1_000_000 for the bare claude-sonnet-5 id (native 1M, no [1m] selector)', () => {
+    // Sonnet 5 always runs at its native 1M window on the Anthropic API — the only base id (not a
+    // `[1m]` variant) that carries a 1M window.
+    expect(contextWindowFor('claude-sonnet-5')).toBe(1_000_000);
+  });
+
   it('returns undefined for models whose window size is not published', () => {
     // Copilot / Codex ids — omitted by scope discipline.
     expect(contextWindowFor('gpt-5.5')).toBeUndefined();
@@ -45,6 +51,7 @@ describe('contextWindowLabel', () => {
   it('formats 1M models as "1M" (not "1000k")', () => {
     expect(contextWindowLabel('claude-opus-4-8[1m]')).toBe('1M');
     expect(contextWindowLabel('claude-fable-5[1m]')).toBe('1M');
+    expect(contextWindowLabel('claude-sonnet-5')).toBe('1M');
   });
 
   it('returns undefined for models with no published window size', () => {
