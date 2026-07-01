@@ -41,6 +41,13 @@ const SESSION_RUNNING_CEILING = 200;
 const isTerminal = (status: RunnerStatus): boolean =>
   status === 'completed' || status === 'failed' || status === 'aborted';
 
+// Age key for ordering / TTL: prefer the descriptor's `finishedAt`. Terminal records registered
+// via the synthetic-replay path (runner reaches terminal before `register()` runs) will have
+// `finishedAt` populated during the sync replay — but if a future runner contract change drops
+// that guarantee, fall back to `startedAt` so the record is still LRU-eligible instead of
+// becoming an un-evictable leak.
+const ageKey = (rec: SessionRecord): number => rec.descriptor.finishedAt ?? rec.descriptor.startedAt;
+
 /**
  * Replace a terminal record's live {@link Runner} with a frozen stub that preserves the identity +
  * status + trace the UI reads, but drops the strong reference to the live runner closure — whose
@@ -166,6 +173,323 @@ export interface SessionRecord {
 
 export type SessionListener = () => void;
 
+/**
+ * The subset of {@link SessionDescriptor}'s optional fields that `register()` accepts directly
+ * from the caller (as opposed to `finishedAt` / `error`, which are only ever set internally by
+ * {@link update}). Named explicitly — rather than derived via `Omit` from the whole descriptor —
+ * so the whitelist stays a compile-time-checked, self-contained contract for
+ * {@link withDefinedFields}.
+ */
+type RegisterOptionalFields = Pick<
+  SessionDescriptor,
+  | 'taskNames'
+  | 'maxTurns'
+  | 'maxAttempts'
+  | 'plannedLeaves'
+  | 'planLabelByName'
+  | 'terminalSubstepName'
+  | 'taskRecovering'
+  | 'generatorModel'
+  | 'evaluatorModel'
+  | 'generatorProvider'
+  | 'evaluatorProvider'
+  | 'generatorEffort'
+  | 'evaluatorEffort'
+  | 'pinnedProjectId'
+  | 'pinnedProjectLabel'
+  | 'pinnedSprintId'
+  | 'pinnedSprintLabel'
+>;
+
+/**
+ * Mirrors {@link RegisterOptionalFields} but with every key REQUIRED (its value may still be
+ * `undefined`) — the shape of a destructured `{ taskNames, maxTurns, ... }` object literal, where
+ * every name is always present as a key even when its value is `undefined`. Distinct from the
+ * optional-key `RegisterOptionalFields` because of `exactOptionalPropertyTypes: true`.
+ */
+type RegisterOptionalFieldsInput = {
+  readonly [K in keyof RegisterOptionalFields]-?: RegisterOptionalFields[K] | undefined;
+};
+
+/**
+ * Copy only the DEFINED keys from `fields` onto a fresh object. Replaces 17 independent
+ * `...(x !== undefined ? {x} : {})` conditional spreads — the sole source of `register`'s former
+ * complexity/cognitive warnings — with one loop over an explicit whitelist. Keys are OMITTED
+ * (never set to `undefined`) per `exactOptionalPropertyTypes: true` and the "leaves pinned fields
+ * undefined when not supplied" contract.
+ *
+ * Callers MUST pass an explicit whitelist object literal (`{ taskNames, maxTurns, ... }`), never
+ * the raw `register()` input — the input also carries the always-defined `runner` / `flowId` /
+ * `title`, which this generic copy would otherwise reattach to the descriptor and pin the live
+ * runner's heavy ctx past terminal (the exact retention `terminalRunnerStub` exists to avoid).
+ */
+const withDefinedFields = (fields: RegisterOptionalFieldsInput): RegisterOptionalFields => {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(fields)) {
+    if (value !== undefined) out[key] = value;
+  }
+  return out as RegisterOptionalFields;
+};
+
+/**
+ * Subscribe to `runner`'s lifecycle, auto-detaching once the run reaches terminal — mirrors the
+ * chain-runner-bridge pattern (see `observability/chain-runner-bridge.ts`) so every dead
+ * Implement run drops its listener instead of accumulating on `runner.subscribe`'s internal Set
+ * across a long multi-run TUI session, each closure otherwise pinning the runner's trace buffer
+ * for the harness lifetime.
+ */
+const attachRunnerLifecycle = (
+  runner: Runner<unknown>,
+  handlers: {
+    readonly onStarted: () => void;
+    readonly onStep: () => void;
+    readonly onCompleted: () => void;
+    readonly onFailed: (error: DomainError) => void;
+    readonly onAborted: () => void;
+  }
+): void => {
+  // `unsub` doubles as state: `null` before subscribe completes or after detach; a function while
+  // the subscription is live. The listener can fire synchronously during `runner.subscribe(...)`
+  // for an already-terminal runner (sync-replay); when that happens `unsub` is still null inside
+  // `detach()`, so we record `pendingDetach` and re-run detach once subscribe has returned.
+  let unsub: (() => void) | null = null;
+  let pendingDetach = false;
+  const detach = (): void => {
+    if (unsub === null) {
+      pendingDetach = true;
+      return;
+    }
+    const fn = unsub;
+    unsub = null;
+    fn();
+  };
+
+  unsub = runner.subscribe((event) => {
+    switch (event.type) {
+      case 'started':
+        handlers.onStarted();
+        return;
+      case 'step':
+        handlers.onStep(); // trace-only wakeup, no descriptor rebuild — see touchTrace
+        return;
+      case 'completed':
+        handlers.onCompleted();
+        detach();
+        return;
+      case 'failed':
+        handlers.onFailed(event.error);
+        detach();
+        return;
+      case 'aborted':
+        handlers.onAborted();
+        detach();
+    }
+  });
+  // Sync-replay case (already-terminal runner during register): the listener fired before
+  // `unsub` was assigned, so detach() recorded `pendingDetach` and returned. Re-run it now that
+  // the assignment has completed.
+  if (pendingDetach) detach();
+};
+
+const notify = (listeners: ReadonlySet<SessionListener>): void => {
+  for (const fn of [...listeners]) {
+    try {
+      fn();
+    } catch (err) {
+      console.warn('[session-manager] listener threw:', err);
+    }
+  }
+};
+
+// TTL pass: drop terminal records older than the window.
+const evictExpiredTerminals = (records: Map<string, SessionRecord>, now: number): boolean => {
+  let removed = false;
+  for (const [id, rec] of records) {
+    if (isTerminal(rec.descriptor.status) && now - ageKey(rec) > SESSION_RECORD_TTL_MS) {
+      records.delete(id);
+      removed = true;
+    }
+  }
+  return removed;
+};
+
+// While above `cap`, drop the oldest record matching `pick`, ordered ascending by `order`.
+const evictOldestWhileOverCap = (
+  records: Map<string, SessionRecord>,
+  cap: number,
+  pick: (rec: SessionRecord) => boolean,
+  order: (rec: SessionRecord) => number
+): boolean => {
+  if (records.size <= cap) return false;
+  let removed = false;
+  const candidates = [...records.values()].filter(pick).sort((a, b) => order(a) - order(b));
+  for (const rec of candidates) {
+    if (records.size <= cap) break;
+    records.delete(rec.descriptor.id);
+    removed = true;
+  }
+  return removed;
+};
+
+const evict = (records: Map<string, SessionRecord>, now: number): boolean => {
+  let removed = evictExpiredTerminals(records, now);
+  // Soft LRU: shed the oldest TERMINAL records (running / queued are protected).
+  removed =
+    evictOldestWhileOverCap(records, SESSION_LRU_CAP, (r) => isTerminal(r.descriptor.status), ageKey) || removed;
+  // Emergency relief: if STILL over the hard ceiling, terminal records are exhausted and the
+  // overflow is live runs (the leak pathology). Shed the oldest RUNNING records as last resort —
+  // a healthy session never reaches the ceiling; their runners keep running detached.
+  removed =
+    evictOldestWhileOverCap(
+      records,
+      SESSION_RUNNING_CEILING,
+      (r) => !isTerminal(r.descriptor.status),
+      (r) => r.descriptor.startedAt
+    ) || removed;
+  return removed;
+};
+
+const update = (
+  records: Map<string, SessionRecord>,
+  listeners: ReadonlySet<SessionListener>,
+  clock: () => number,
+  id: string,
+  patch: Partial<SessionDescriptor>
+): void => {
+  const cur = records.get(id);
+  if (!cur) return;
+  const descriptor = { ...cur.descriptor, ...patch };
+  const goingTerminal = patch.status !== undefined && isTerminal(patch.status);
+  // On the terminal transition, swap the live runner for a frozen stub that keeps id/status/trace
+  // but drops the strong reference to the heavy forked ctx (the implement worktree ctx). The
+  // descriptor already snapshots the trace; nothing reads `runner.ctx` after terminal. This frees
+  // the dominant retainer AT terminal instead of waiting for TTL / LRU eviction. The original
+  // runner is no longer needed — its `abort()` is a no-op once terminal.
+  const runner = goingTerminal
+    ? terminalRunnerStub(cur.runner.id, patch.status!, descriptor.trace, descriptor.error)
+    : cur.runner;
+  records.set(id, { descriptor, runner });
+  if (goingTerminal) evict(records, clock());
+  notify(listeners);
+};
+
+/**
+ * Trace-only "step" wakeup. The descriptor's `trace` field already points at the runner's
+ * shared-mutable trace array from `register()` (the runner never reassigns it — see runner.ts),
+ * so a `step` mutates that array IN PLACE and the descriptor needs NO rebuild. We therefore notify
+ * subscribers WITHOUT spreading a fresh descriptor / record. This kills the per-step amplifier:
+ * previously every `step` allocated a new descriptor object, which invalidated the execute view's
+ * `useBucketedTasks` memo (keyed on the descriptor reference) and re-ran `bucketTaskSignals` over
+ * the whole trace on every leaf step of every task. Status-gated consumers (`useSessions` /
+ * `useSession` / `use-sprint-bundle`) already ignore step notifies; the live flow-steps rail stays
+ * current via the shared-mutable trace array + the sibling chainEvents re-render, exactly as the
+ * sigOf comment in sessions-context.tsx documents.
+ */
+const touchTrace = (
+  records: ReadonlyMap<string, SessionRecord>,
+  listeners: ReadonlySet<SessionListener>,
+  id: string
+): void => {
+  if (!records.has(id)) return;
+  notify(listeners);
+};
+
+const shedTerminalRecords = (records: Map<string, SessionRecord>, listeners: ReadonlySet<SessionListener>): number => {
+  let dropped = 0;
+  for (const [id, rec] of records) {
+    if (isTerminal(rec.descriptor.status)) {
+      records.delete(id);
+      dropped += 1;
+    }
+  }
+  if (dropped > 0) notify(listeners);
+  return dropped;
+};
+
+const registerSession = (
+  records: Map<string, SessionRecord>,
+  listeners: ReadonlySet<SessionListener>,
+  clock: () => number,
+  input: Parameters<SessionManager['register']>[0]
+): SessionRecord => {
+  const {
+    runner,
+    flowId,
+    title,
+    taskNames,
+    maxTurns,
+    maxAttempts,
+    plannedLeaves,
+    planLabelByName,
+    terminalSubstepName,
+    taskRecovering,
+    generatorModel,
+    evaluatorModel,
+    generatorProvider,
+    evaluatorProvider,
+    generatorEffort,
+    evaluatorEffort,
+    pinnedProjectId,
+    pinnedProjectLabel,
+    pinnedSprintId,
+    pinnedSprintLabel,
+  } = input;
+
+  evict(records, clock());
+  const descriptor: SessionDescriptor = {
+    id: runner.id,
+    flowId,
+    title,
+    status: runner.status,
+    startedAt: clock(),
+    trace: runner.trace,
+    ...withDefinedFields({
+      taskNames,
+      maxTurns,
+      maxAttempts,
+      plannedLeaves,
+      planLabelByName,
+      terminalSubstepName,
+      taskRecovering,
+      generatorModel,
+      evaluatorModel,
+      generatorProvider,
+      evaluatorProvider,
+      generatorEffort,
+      evaluatorEffort,
+      pinnedProjectId,
+      pinnedProjectLabel,
+      pinnedSprintId,
+      pinnedSprintLabel,
+    }),
+  };
+  const record: SessionRecord = { descriptor, runner: runner as Runner<unknown> };
+  records.set(runner.id, record);
+  notify(listeners);
+
+  attachRunnerLifecycle(runner, {
+    onStarted: () => update(records, listeners, clock, runner.id, { status: 'running' }),
+    onStep: () => touchTrace(records, listeners, runner.id),
+    onCompleted: () =>
+      update(records, listeners, clock, runner.id, {
+        status: 'completed',
+        finishedAt: clock(),
+        trace: runner.trace,
+      }),
+    onFailed: (error) =>
+      update(records, listeners, clock, runner.id, {
+        status: 'failed',
+        finishedAt: clock(),
+        trace: runner.trace,
+        error,
+      }),
+    onAborted: () =>
+      update(records, listeners, clock, runner.id, { status: 'aborted', finishedAt: clock(), trace: runner.trace }),
+  });
+
+  return record;
+};
+
 export interface SessionManager {
   list(): readonly SessionRecord[];
   get(id: string): SessionRecord | undefined;
@@ -223,233 +547,18 @@ export const createSessionManager = (opts?: { readonly clock?: () => number }): 
   const records = new Map<string, SessionRecord>();
   const listeners = new Set<SessionListener>();
 
-  const notify = (): void => {
-    for (const fn of [...listeners]) {
-      try {
-        fn();
-      } catch (err) {
-        console.warn('[session-manager] listener threw:', err);
-      }
-    }
-  };
-
-  // Age key for ordering / TTL: prefer the descriptor's `finishedAt`. Terminal records
-  // registered via the synthetic-replay path (runner reaches terminal before `register()` runs)
-  // will have `finishedAt` populated during the sync replay — but if a future runner contract
-  // change drops that guarantee, fall back to `startedAt` so the record is still LRU-eligible
-  // instead of becoming an un-evictable leak.
-  const ageKey = (rec: SessionRecord): number => rec.descriptor.finishedAt ?? rec.descriptor.startedAt;
-
-  // TTL pass: drop terminal records older than the window.
-  const evictExpiredTerminals = (now: number): boolean => {
-    let removed = false;
-    for (const [id, rec] of records) {
-      if (isTerminal(rec.descriptor.status) && now - ageKey(rec) > SESSION_RECORD_TTL_MS) {
-        records.delete(id);
-        removed = true;
-      }
-    }
-    return removed;
-  };
-
-  // While above `cap`, drop the oldest record matching `pick`, ordered ascending by `order`.
-  const evictOldestWhileOverCap = (
-    cap: number,
-    pick: (rec: SessionRecord) => boolean,
-    order: (rec: SessionRecord) => number
-  ): boolean => {
-    if (records.size <= cap) return false;
-    let removed = false;
-    const candidates = [...records.values()].filter(pick).sort((a, b) => order(a) - order(b));
-    for (const rec of candidates) {
-      if (records.size <= cap) break;
-      records.delete(rec.descriptor.id);
-      removed = true;
-    }
-    return removed;
-  };
-
-  const evict = (now: number): boolean => {
-    let removed = evictExpiredTerminals(now);
-    // Soft LRU: shed the oldest TERMINAL records (running / queued are protected).
-    removed = evictOldestWhileOverCap(SESSION_LRU_CAP, (r) => isTerminal(r.descriptor.status), ageKey) || removed;
-    // Emergency relief: if STILL over the hard ceiling, terminal records are exhausted and the
-    // overflow is live runs (the leak pathology). Shed the oldest RUNNING records as last resort —
-    // a healthy session never reaches the ceiling; their runners keep running detached.
-    removed =
-      evictOldestWhileOverCap(
-        SESSION_RUNNING_CEILING,
-        (r) => !isTerminal(r.descriptor.status),
-        (r) => r.descriptor.startedAt
-      ) || removed;
-    return removed;
-  };
-
-  const update = (id: string, patch: Partial<SessionDescriptor>): void => {
-    const cur = records.get(id);
-    if (!cur) return;
-    const descriptor = { ...cur.descriptor, ...patch };
-    const goingTerminal = patch.status !== undefined && isTerminal(patch.status);
-    // On the terminal transition, swap the live runner for a frozen stub that keeps id/status/trace
-    // but drops the strong reference to the heavy forked ctx (the implement worktree ctx). The
-    // descriptor already snapshots the trace; nothing reads `runner.ctx` after terminal. This frees
-    // the dominant retainer AT terminal instead of waiting for TTL / LRU eviction. The original
-    // runner is no longer needed — its `abort()` is a no-op once terminal.
-    const runner = goingTerminal
-      ? terminalRunnerStub(cur.runner.id, patch.status!, descriptor.trace, descriptor.error)
-      : cur.runner;
-    records.set(id, { descriptor, runner });
-    if (goingTerminal) evict(clock());
-    notify();
-  };
-
-  /**
-   * Trace-only "step" wakeup. The descriptor's `trace` field already points at the runner's
-   * shared-mutable trace array from `register()` (the runner never reassigns it — see runner.ts),
-   * so a `step` mutates that array IN PLACE and the descriptor needs NO rebuild. We therefore notify
-   * subscribers WITHOUT spreading a fresh descriptor / record. This kills the per-step amplifier:
-   * previously every `step` allocated a new descriptor object, which invalidated the execute view's
-   * `useBucketedTasks` memo (keyed on the descriptor reference) and re-ran `bucketTaskSignals` over
-   * the whole trace on every leaf step of every task. Status-gated consumers (`useSessions` /
-   * `useSession` / `use-sprint-bundle`) already ignore step notifies; the live flow-steps rail stays
-   * current via the shared-mutable trace array + the sibling chainEvents re-render, exactly as the
-   * sigOf comment in sessions-context.tsx documents.
-   */
-  const touchTrace = (id: string): void => {
-    if (!records.has(id)) return;
-    notify();
-  };
-
   return {
-    list(): readonly SessionRecord[] {
-      return [...records.values()].sort((a, b) => a.descriptor.startedAt - b.descriptor.startedAt);
+    list: () => [...records.values()].sort((a, b) => a.descriptor.startedAt - b.descriptor.startedAt),
+    get: (id) => records.get(id),
+    register: (input) => registerSession(records, listeners, clock, input),
+    abort: (id) => records.get(id)?.runner.abort('user requested'),
+    remove: (id) => {
+      if (records.delete(id)) notify(listeners);
     },
-    get(id: string): SessionRecord | undefined {
-      return records.get(id);
-    },
-    register({
-      runner,
-      flowId,
-      title,
-      taskNames,
-      maxTurns,
-      maxAttempts,
-      plannedLeaves,
-      planLabelByName,
-      terminalSubstepName,
-      taskRecovering,
-      generatorModel,
-      evaluatorModel,
-      generatorProvider,
-      evaluatorProvider,
-      generatorEffort,
-      evaluatorEffort,
-      pinnedProjectId,
-      pinnedProjectLabel,
-      pinnedSprintId,
-      pinnedSprintLabel,
-    }): SessionRecord {
-      evict(clock());
-      const descriptor: SessionDescriptor = {
-        id: runner.id,
-        flowId,
-        title,
-        status: runner.status,
-        startedAt: clock(),
-        trace: runner.trace,
-        ...(taskNames !== undefined ? { taskNames } : {}),
-        ...(maxTurns !== undefined ? { maxTurns } : {}),
-        ...(maxAttempts !== undefined ? { maxAttempts } : {}),
-        ...(plannedLeaves !== undefined ? { plannedLeaves } : {}),
-        ...(planLabelByName !== undefined ? { planLabelByName } : {}),
-        ...(terminalSubstepName !== undefined ? { terminalSubstepName } : {}),
-        ...(taskRecovering !== undefined ? { taskRecovering } : {}),
-        ...(generatorModel !== undefined ? { generatorModel } : {}),
-        ...(evaluatorModel !== undefined ? { evaluatorModel } : {}),
-        ...(generatorProvider !== undefined ? { generatorProvider } : {}),
-        ...(evaluatorProvider !== undefined ? { evaluatorProvider } : {}),
-        ...(generatorEffort !== undefined ? { generatorEffort } : {}),
-        ...(evaluatorEffort !== undefined ? { evaluatorEffort } : {}),
-        ...(pinnedProjectId !== undefined ? { pinnedProjectId } : {}),
-        ...(pinnedProjectLabel !== undefined ? { pinnedProjectLabel } : {}),
-        ...(pinnedSprintId !== undefined ? { pinnedSprintId } : {}),
-        ...(pinnedSprintLabel !== undefined ? { pinnedSprintLabel } : {}),
-      };
-      const record: SessionRecord = { descriptor, runner: runner as Runner<unknown> };
-      records.set(runner.id, record);
-      notify();
-
-      // Mirror the chain-runner-bridge pattern: hold the unsubscribe in a 1-slot box so the
-      // listener can release itself on terminal. Without this, every dead Implement run leaves
-      // a permanent listener on `runner.subscribe`'s internal Set across a long multi-run TUI
-      // session — and each closure pins the runner's trace buffer for the harness lifetime.
-      let unsub: (() => void) | null = null;
-      let pendingDetach = false;
-      const detach = (): void => {
-        if (unsub === null) {
-          pendingDetach = true;
-          return;
-        }
-        const fn = unsub;
-        unsub = null;
-        fn();
-      };
-
-      unsub = runner.subscribe((event) => {
-        switch (event.type) {
-          case 'started':
-            update(runner.id, { status: 'running' });
-            return;
-          case 'step':
-            touchTrace(runner.id); // trace-only wakeup, no descriptor rebuild — see touchTrace
-            return;
-          case 'completed':
-            update(runner.id, { status: 'completed', finishedAt: clock(), trace: runner.trace });
-            detach();
-            return;
-          case 'failed':
-            update(runner.id, {
-              status: 'failed',
-              finishedAt: clock(),
-              trace: runner.trace,
-              error: event.error,
-            });
-            detach();
-            return;
-          case 'aborted':
-            update(runner.id, { status: 'aborted', finishedAt: clock(), trace: runner.trace });
-            detach();
-        }
-      });
-      // Sync-replay case (already-terminal runner during register): the listener fired before
-      // `unsub` was assigned, so detach() recorded `pendingDetach` and returned. Re-run it now
-      // that the assignment has completed.
-      if (pendingDetach) detach();
-
-      return record;
-    },
-    abort(id: string): void {
-      const rec = records.get(id);
-      rec?.runner.abort('user requested');
-    },
-    remove(id: string): void {
-      if (records.delete(id)) notify();
-    },
-    shedTerminal(): number {
-      let dropped = 0;
-      for (const [id, rec] of records) {
-        if (isTerminal(rec.descriptor.status)) {
-          records.delete(id);
-          dropped += 1;
-        }
-      }
-      if (dropped > 0) notify();
-      return dropped;
-    },
-    setPinnedSprint(runnerId: string, sprintId: SprintId, sprintLabel: string): void {
-      update(runnerId, { pinnedSprintId: sprintId, pinnedSprintLabel: sprintLabel });
-    },
-    subscribe(fn: SessionListener): () => void {
+    shedTerminal: () => shedTerminalRecords(records, listeners),
+    setPinnedSprint: (runnerId, sprintId, sprintLabel) =>
+      update(records, listeners, clock, runnerId, { pinnedSprintId: sprintId, pinnedSprintLabel: sprintLabel }),
+    subscribe: (fn) => {
       listeners.add(fn);
       return () => {
         listeners.delete(fn);

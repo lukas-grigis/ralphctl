@@ -21,7 +21,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Text } from 'ink';
-import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
+import type { BucketedExecution, TaskBucket } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { SprintState, TaskProjection } from '@src/application/ui/tui/components/tasks-projection.ts';
 import type { TaskEvaluation } from '@src/application/ui/tui/components/tasks-panel-internals/evaluation-row.tsx';
 import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
@@ -158,48 +158,29 @@ export interface TasksPanelProps {
   readonly onFocusedCardChange?: (taskId: string | undefined) => void;
 }
 
-export const TasksPanel = ({
-  bucketed,
-  running,
-  nameById,
-  maxSignalsPerTask = 8,
-  maxTasks,
-  maxOrphanSignals = 6,
-  maxSubStepsPerTask = 12,
-  recoveringByTaskId,
-  inputActive = false,
-  taskCriteriaById,
-  pendingSubStepsByTaskId,
-  blockedReasonById,
-  warningSummaryById,
-  taskEvaluationById,
-  showEvaluatorFailureUI = false,
-  sprintState,
-  nowMs,
-  onFocusedCardChange,
-}: TasksPanelProps): React.JSX.Element => {
-  // Render-time fallback for the idle-ticker clock. The execute view passes a polled `now` so
-  // the ticker can re-evaluate on each heartbeat; isolated unit renders fall through to this
-  // default, which freezes the clock at mount-time and so naturally suppresses the ticker
-  // unless a test explicitly supplies an old timestamp.
-  const effectiveNowMs = nowMs ?? Date.now();
-  const flatKeys = useMemo(
-    () => buildFlatFocusKeys(bucketed, maxSignalsPerTask, maxOrphanSignals),
-    [bucketed, maxSignalsPerTask, maxOrphanSignals]
-  );
+interface TaskCardState {
+  /** Index of the first non-completed task in `bucketed.tasks`; `-1` when every task is done. */
+  readonly activeTaskIdx: number;
+  readonly activeTaskId: string | undefined;
+  readonly expandedTaskIds: ReadonlySet<string>;
+  readonly setExpandedTaskIds: (updater: (prev: ReadonlySet<string>) => ReadonlySet<string>) => void;
+  readonly isCardExpanded: (taskId: string) => boolean;
+  readonly setCardCursor: (index: number) => void;
+  readonly effectiveCardCursor: number;
+  readonly focusedCardId: string | undefined;
+  readonly focusedCardExpanded: boolean;
+}
 
-  // Cursor identity is the focused row's stable key (not its index). When a new signal lands
-  // the index of the existing row may shift, but its key is unchanged, so the cursor sticks
-  // to the same row. When the focused key falls off the visible slice (cap-elision), the
-  // cursor collapses to `undefined` and Enter/Space re-anchors at the latest row.
-  const [focusedKey, setFocusedKey] = useState<string | undefined>(undefined);
-  const [expandedKeys, setExpandedKeys] = useState<ReadonlySet<string>>(() => new Set<string>());
-  // No lazy hydration — `taskCriteriaById` is supplied synchronously by the host view from
-  // `Task.verificationCriteria`. Empty array → render the placeholder; missing key (task not
-  // yet in view's poll) → criteria UI is suppressed for that task.
-  // Task ids whose criteria block is currently expanded (full bullet list). Default state is
-  // the 3-line summary. Toggled by pressing `e` while the panel owns input.
-  const [criteriaExpandedIds, setCriteriaExpandedIds] = useState<ReadonlySet<string>>(() => new Set());
+/**
+ * Card-cursor / expansion state cluster for the Tasks panel — which card is focused, which
+ * cards are expanded, and the auto-expand-on-activation + focused-card-change side effects.
+ * Extracted from `TasksPanel` (mirrors the `useTasksPanelInput` split next door) so the render
+ * body only has to thread the resulting values, not own the effects that produce them.
+ */
+const useTaskCardState = (
+  bucketed: BucketedExecution,
+  onFocusedCardChange: ((taskId: string | undefined) => void) | undefined
+): TaskCardState => {
   // The active (first non-completed) task — anchor for the `e` criteria hotkey AND the
   // default card-cursor position. Recomputed each render so the `useInput` callback always
   // sees the latest active id.
@@ -264,9 +245,6 @@ export const TasksPanel = ({
   const focusedCardId = effectiveCardCursor >= 0 ? bucketed.tasks[effectiveCardCursor]?.id : undefined;
   const focusedCardExpanded = focusedCardId !== undefined ? isCardExpanded(focusedCardId) : false;
 
-  const focusedIndex = focusedKey !== undefined ? flatKeys.indexOf(focusedKey) : -1;
-  const effectiveFocusedKey = focusedIndex >= 0 ? focusedKey : undefined;
-
   // Report focused card id upward (passive sidebar minimap). Deduped — only fires when the id
   // changes. Uses a ref for the callback so a non-memoised caller doesn't cause an extra effect
   // run on every render; the ref is kept current on every render before the effect fires.
@@ -280,6 +258,192 @@ export const TasksPanel = ({
     }
   });
 
+  return {
+    activeTaskIdx,
+    activeTaskId,
+    expandedTaskIds,
+    setExpandedTaskIds,
+    isCardExpanded,
+    setCardCursor,
+    effectiveCardCursor,
+    focusedCardId,
+    focusedCardExpanded,
+  };
+};
+
+/**
+ * Collapses the repeated `value !== undefined ? { key: value } : {}` conditional-spread
+ * pattern into one call — keeps only the defined fields of a partial props bag. The return
+ * type strips `| undefined` per field (unlike `Partial<T>`, which would keep it) so the
+ * result satisfies `exactOptionalPropertyTypes` targets such as `TaskBlockProps`, matching
+ * the guarantee the ternary-spread idiom got "for free" from `!== undefined` narrowing.
+ */
+const pickDefined = <T extends Record<string, unknown>>(fields: T): { [K in keyof T]?: NonNullable<T[K]> } => {
+  const result: Record<string, unknown> = {};
+  for (const key of Object.keys(fields) as Array<keyof T>) {
+    const value = fields[key];
+    if (value !== undefined) result[key as string] = value;
+  }
+  return result as { [K in keyof T]?: NonNullable<T[K]> };
+};
+
+/**
+ * `undefined` and an empty array both mean "nothing to show" for a criteria / pending-sub-step
+ * list — collapses the length check formerly repeated at each of those two call sites.
+ */
+const nonEmptyOrUndefined = <T,>(arr: readonly T[] | undefined): readonly T[] | undefined =>
+  arr !== undefined && arr.length > 0 ? arr : undefined;
+
+type TaskBlockProps = React.ComponentProps<typeof TaskBlock>;
+
+/**
+ * The `TasksPanelProps` fields consumed only inside {@link buildTaskRowProps} — everything
+ * except the handful `TasksPanel` also needs directly, which it destructures by name and
+ * therefore excludes from its own `...rest` binding (see the component below).
+ */
+type TaskRowProps = Omit<
+  TasksPanelProps,
+  'bucketed' | 'maxSignalsPerTask' | 'maxTasks' | 'maxOrphanSignals' | 'inputActive' | 'nowMs' | 'onFocusedCardChange'
+>;
+
+/**
+ * Render-derived values shared by every row this render — the card-cursor/expansion state
+ * (via `useTaskCardState`) plus the row-focus key and first-run flag, bundled so
+ * {@link buildTaskRowProps} takes one argument instead of a dozen positional ones.
+ */
+interface TaskRowDerived {
+  readonly effectiveFocusedKey: string | undefined;
+  readonly expandedKeys: ReadonlySet<string>;
+  readonly criteriaExpandedIds: ReadonlySet<string>;
+  readonly noSignalsYet: boolean;
+  readonly activeTaskIdx: number;
+  readonly effectiveCardCursor: number;
+  readonly isCardExpanded: (taskId: string) => boolean;
+  readonly effectiveNowMs: number;
+  readonly maxSignalsPerTask: number;
+}
+
+/**
+ * Pure per-task derivation for one `TaskBlock` row — absolute index, display name, and the
+ * optional-prop lookups (recovery / criteria / projection / blocked reason / warning / eval /
+ * pending sub-steps), each omitted when its map has no entry for this task.
+ */
+const buildTaskRowProps = (
+  task: TaskBucket,
+  idx: number,
+  rest: TaskRowProps,
+  derived: TaskRowDerived
+): TaskBlockProps => {
+  // Deliberate stylistic 8-char short-uuid fallback (NOT a width-driven clip) — keeps
+  // the header readable when the launcher hasn't supplied a friendly name. The friendly
+  // name path goes through `nameById` and renders verbatim; if a future design makes
+  // the name itself overflow, wrap that path in a `<Box flexGrow>` + `wrap="truncate-end"`.
+  const display = rest.nameById?.get(task.id) ?? `${task.id.slice(0, 8)}${glyphs.clipEllipsis}`;
+  const sliceLen = Math.min(task.signals.length, derived.maxSignalsPerTask);
+  const sliceStart = task.signals.length - sliceLen;
+  // Match by id when a projection is supplied so the order of `sprintState.tasks`
+  // doesn't have to mirror the bucketed order (projections are stored by `order`; bucketed
+  // tasks track the runtime sequence).
+  const taskProjection = rest.sprintState?.tasks.find((t: TaskProjection) => t.id === task.id);
+  return {
+    task,
+    running: rest.running,
+    display,
+    maxSignals: derived.maxSignalsPerTask,
+    // `maxSubStepsPerTask` defaults to 12 on `TasksPanelProps` — reapplied here since this
+    // field is read straight off `rest`, not destructured with a default in `TasksPanel`.
+    maxSubSteps: rest.maxSubStepsPerTask ?? 12,
+    focusedKey: derived.effectiveFocusedKey,
+    expandedKeys: derived.expandedKeys,
+    scopeId: task.id,
+    sliceStart,
+    criteriaExpanded: derived.criteriaExpandedIds.has(task.id),
+    // `showEvaluatorFailureUI` defaults to `false` on `TasksPanelProps` — same reapplication.
+    showEvaluatorFailureUI: rest.showEvaluatorFailureUI ?? false,
+    isActive: idx === derived.activeTaskIdx,
+    firstRun: derived.noSignalsYet,
+    cardExpanded: derived.isCardExpanded(task.id),
+    cardFocused: idx === derived.effectiveCardCursor,
+    nowMs: derived.effectiveNowMs,
+    ...pickDefined({
+      recovering: rest.recoveringByTaskId?.get(task.id),
+      taskCriteria: nonEmptyOrUndefined(rest.taskCriteriaById?.get(task.id)),
+      taskProjection,
+      blockedReason: rest.blockedReasonById?.get(task.id),
+      warningSummary: rest.warningSummaryById?.get(task.id),
+      taskEvaluation: rest.taskEvaluationById?.get(task.id),
+      pendingSubSteps: nonEmptyOrUndefined(rest.pendingSubStepsByTaskId?.get(task.id)),
+    }),
+  };
+};
+
+/** Empty-run placeholder — no tasks and no orphan signals yet. */
+const EmptyTasksPanel = (): React.JSX.Element => (
+  <Box paddingX={spacing.indent}>
+    <Text dimColor>
+      {glyphs.bullet} Tasks panel empty {glyphs.bullet} Run plan to generate tasks
+    </Text>
+  </Box>
+);
+
+/** Dim "N more above/below" cue for the anchored card window's elided rows. */
+const HiddenCountHint = ({
+  glyph,
+  count,
+  label,
+}: {
+  readonly glyph: string;
+  readonly count: number;
+  readonly label: string;
+}): React.JSX.Element => (
+  <Box paddingX={spacing.indent}>
+    <Text dimColor>
+      {glyph} {count} {label}
+    </Text>
+  </Box>
+);
+
+export const TasksPanel = ({
+  bucketed,
+  maxSignalsPerTask = 8,
+  maxTasks,
+  maxOrphanSignals = 6,
+  inputActive = false,
+  nowMs,
+  onFocusedCardChange,
+  ...rest
+}: TasksPanelProps): React.JSX.Element => {
+  // Render-time fallback for the idle-ticker clock. The execute view passes a polled `now` so
+  // the ticker can re-evaluate on each heartbeat; isolated unit renders fall through to this
+  // default, which freezes the clock at mount-time and so naturally suppresses the ticker
+  // unless a test explicitly supplies an old timestamp.
+  const effectiveNowMs = nowMs ?? Date.now();
+  const flatKeys = useMemo(
+    () => buildFlatFocusKeys(bucketed, maxSignalsPerTask, maxOrphanSignals),
+    [bucketed, maxSignalsPerTask, maxOrphanSignals]
+  );
+
+  // Cursor identity is the focused row's stable key (not its index). When a new signal lands
+  // the index of the existing row may shift, but its key is unchanged, so the cursor sticks
+  // to the same row. When the focused key falls off the visible slice (cap-elision), the
+  // cursor collapses to `undefined` and Enter/Space re-anchors at the latest row.
+  const [focusedKey, setFocusedKey] = useState<string | undefined>(undefined);
+  const [expandedKeys, setExpandedKeys] = useState<ReadonlySet<string>>(() => new Set<string>());
+  // No lazy hydration — `taskCriteriaById` is supplied synchronously by the host view from
+  // `Task.verificationCriteria`. Empty array → render the placeholder; missing key (task not
+  // yet in view's poll) → criteria UI is suppressed for that task.
+  // Task ids whose criteria block is currently expanded (full bullet list). Default state is
+  // the 3-line summary. Toggled by pressing `e` while the panel owns input.
+  const [criteriaExpandedIds, setCriteriaExpandedIds] = useState<ReadonlySet<string>>(() => new Set());
+
+  // Card-cursor / expansion state — see `useTaskCardState`. Spread wholesale below (into both
+  // `useTasksPanelInput` and `derived`) rather than destructured field-by-field so this
+  // orchestrator stays a thin threading layer instead of re-enumerating the cluster's shape.
+  const cardState = useTaskCardState(bucketed, onFocusedCardChange);
+
+  const focusedIndex = focusedKey !== undefined ? flatKeys.indexOf(focusedKey) : -1;
+  const effectiveFocusedKey = focusedIndex >= 0 ? focusedKey : undefined;
+
   useTasksPanelInput({
     inputActive,
     bucketed,
@@ -287,26 +451,14 @@ export const TasksPanel = ({
     focusedKey,
     focusedIndex,
     effectiveFocusedKey,
-    effectiveCardCursor,
-    focusedCardId,
-    focusedCardExpanded,
-    activeTaskId,
-    expandedTaskIds,
     setFocusedKey,
     setExpandedKeys,
-    setCardCursor,
-    setExpandedTaskIds,
     setCriteriaExpandedIds,
+    ...cardState,
   });
 
   if (bucketed.tasks.length === 0 && bucketed.orphanSignals.length === 0) {
-    return (
-      <Box paddingX={spacing.indent}>
-        <Text dimColor>
-          {glyphs.bullet} Tasks panel empty {glyphs.bullet} Run plan to generate tasks
-        </Text>
-      </Box>
-    );
+    return <EmptyTasksPanel />;
   }
   // First-run state — tasks exist but no harness signal has fired yet across the whole run.
   // The kinds bar is suppressed (it's already empty when no signals are present) and the
@@ -315,20 +467,27 @@ export const TasksPanel = ({
   const noSignalsYet =
     bucketed.orphanSignals.length === 0 &&
     bucketed.tasks.every((t) => t.signals.length === 0 && t.evaluations.length === 0);
-  const kinds = collectKinds(bucketed);
-  const orphanSliceLen = Math.min(bucketed.orphanSignals.length, maxOrphanSignals);
-  const orphanSliceStart = bucketed.orphanSignals.length - orphanSliceLen;
+  const orphanSliceStart = bucketed.orphanSignals.length - Math.min(bucketed.orphanSignals.length, maxOrphanSignals);
   // Anchored card window: keep the active / focused card visible and cap the rendered card
   // count to the terminal-derived budget so the column stops growing past the viewport. Absent
   // `maxTasks` ⇒ full range (no windowing), preserving isolated-render behaviour.
   const taskWindow = computeAnchoredWindow(
     bucketed.tasks.length,
-    effectiveCardCursor,
+    cardState.effectiveCardCursor,
     maxTasks ?? bucketed.tasks.length
   );
+  const derived: TaskRowDerived = {
+    ...cardState,
+    effectiveFocusedKey,
+    expandedKeys,
+    criteriaExpandedIds,
+    noSignalsYet,
+    effectiveNowMs,
+    maxSignalsPerTask,
+  };
   return (
     <Box flexDirection="column" paddingX={spacing.indent}>
-      <InlineKindsBar kinds={kinds} />
+      <InlineKindsBar kinds={collectKinds(bucketed)} />
       <OrphanSignals
         signals={bucketed.orphanSignals}
         max={maxOrphanSignals}
@@ -337,76 +496,17 @@ export const TasksPanel = ({
         sliceStart={orphanSliceStart}
       />
       {taskWindow.hiddenBefore > 0 && (
-        <Box paddingX={spacing.indent}>
-          <Text dimColor>
-            {glyphs.moreAbove} {taskWindow.hiddenBefore} more above
-          </Text>
-        </Box>
+        <HiddenCountHint glyph={glyphs.moreAbove} count={taskWindow.hiddenBefore} label="more above" />
       )}
       {bucketed.tasks.slice(taskWindow.start, taskWindow.end).map((task, sliceIdx) => {
         // Absolute index into `bucketed.tasks` — the window slices a sub-range, but `isActive`
         // and `cardFocused` compare against absolute indices (`activeTaskIdx`,
         // `effectiveCardCursor`), so recover the absolute position from the slice offset.
         const idx = taskWindow.start + sliceIdx;
-        // Deliberate stylistic 8-char short-uuid fallback (NOT a width-driven clip) — keeps
-        // the header readable when the launcher hasn't supplied a friendly name. The friendly
-        // name path goes through `nameById` and renders verbatim; if a future design makes
-        // the name itself overflow, wrap that path in a `<Box flexGrow>` + `wrap="truncate-end"`.
-        const display = nameById?.get(task.id) ?? `${task.id.slice(0, 8)}${glyphs.clipEllipsis}`;
-        const recovering = recoveringByTaskId?.get(task.id);
-        const sliceLen = Math.min(task.signals.length, maxSignalsPerTask);
-        const sliceStart = task.signals.length - sliceLen;
-        // Read criteria synchronously from props (audit [05]). Empty arrays / missing keys
-        // suppress the block entirely; non-empty arrays render the "definition of done" criteria
-        // (collapsed 3-line summary, expandable via `e`) — un-marked, no per-criterion verdict.
-        const criteriaBullets = taskCriteriaById?.get(task.id);
-        const taskCriteria = criteriaBullets !== undefined && criteriaBullets.length > 0 ? criteriaBullets : undefined;
-        // Match by id when a projection is supplied so the order of `sprintState.tasks`
-        // doesn't have to mirror the bucketed order (projections are stored by `order`; bucketed
-        // tasks track the runtime sequence).
-        const taskProjection = sprintState?.tasks.find((t: TaskProjection) => t.id === task.id);
-        const blockedReason = blockedReasonById?.get(task.id);
-        const warningSummary = warningSummaryById?.get(task.id);
-        // Authoritative verdict for this task id — drives the card's eval line + the
-        // EvaluatorFailurePanel visibility gate. Never the bucketed signal stream.
-        const taskEvaluation = taskEvaluationById?.get(task.id);
-        const pendingSubSteps = pendingSubStepsByTaskId?.get(task.id);
-        const isActive = idx === activeTaskIdx;
-        return (
-          <TaskBlock
-            key={task.id}
-            task={task}
-            running={running}
-            display={display}
-            maxSignals={maxSignalsPerTask}
-            maxSubSteps={maxSubStepsPerTask}
-            focusedKey={effectiveFocusedKey}
-            expandedKeys={expandedKeys}
-            scopeId={task.id}
-            sliceStart={sliceStart}
-            criteriaExpanded={criteriaExpandedIds.has(task.id)}
-            showEvaluatorFailureUI={showEvaluatorFailureUI}
-            isActive={isActive}
-            firstRun={noSignalsYet}
-            cardExpanded={isCardExpanded(task.id)}
-            cardFocused={idx === effectiveCardCursor}
-            nowMs={effectiveNowMs}
-            {...(recovering !== undefined ? { recovering } : {})}
-            {...(taskCriteria !== undefined ? { taskCriteria } : {})}
-            {...(taskProjection !== undefined ? { taskProjection } : {})}
-            {...(blockedReason !== undefined ? { blockedReason } : {})}
-            {...(warningSummary !== undefined ? { warningSummary } : {})}
-            {...(taskEvaluation !== undefined ? { taskEvaluation } : {})}
-            {...(pendingSubSteps !== undefined && pendingSubSteps.length > 0 ? { pendingSubSteps } : {})}
-          />
-        );
+        return <TaskBlock key={task.id} {...buildTaskRowProps(task, idx, rest, derived)} />;
       })}
       {taskWindow.hiddenAfter > 0 && (
-        <Box paddingX={spacing.indent}>
-          <Text dimColor>
-            {glyphs.moreBelow} {taskWindow.hiddenAfter} more below
-          </Text>
-        </Box>
+        <HiddenCountHint glyph={glyphs.moreBelow} count={taskWindow.hiddenAfter} label="more below" />
       )}
     </Box>
   );

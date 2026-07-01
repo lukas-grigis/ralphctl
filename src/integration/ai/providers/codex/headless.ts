@@ -16,6 +16,7 @@ import { isCodexModel } from '@src/domain/value/settings-models/codex.ts';
 import { type ProviderSpawn, defaultProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import { DEFAULT_RATE_LIMIT_RE } from '@src/integration/ai/providers/_engine/classify-spawn-exit.ts';
 import { truncateField } from '@src/integration/ai/providers/_engine/truncate-debug-field.ts';
+import type { AttemptOutcome } from '@src/integration/ai/providers/_engine/attempt-outcome.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import {
   createHeadlessProvider,
@@ -209,6 +210,47 @@ interface CodexMetaUpdate {
 }
 
 /**
+ * Trim + JSON.parse a single stdout line. Returns `undefined` for blank lines, non-JSON-looking
+ * lines, and lines that fail to parse — codex occasionally prints banner text alongside json
+ * records, so a parse failure is an expected, silently-skipped case rather than a caller error.
+ */
+const parseCodexJsonLine = (line: string): Record<string, unknown> | undefined => {
+  const trimmed = line.trim();
+  if (trimmed.length === 0 || !trimmed.startsWith('{')) return undefined;
+  try {
+    // Why: codex stream records arrive line-by-line at high volume; downstream `stringField` /
+    // `numberField` helpers narrowly type-check the fields we care about (`thread_id`,
+    // `session_id`, `model`, `usage.*`). Unknown shapes are skipped.
+    return JSON.parse(trimmed) as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * Pull the session-id / `model` / token-usage fields out of one already-parsed stdout record.
+ * Returns `undefined` when the record carries none of them (caller skips the `onMeta` call).
+ */
+const extractCodexMetaUpdate = (obj: Record<string, unknown>): CodexMetaUpdate | undefined => {
+  // `thread_id` is the 0.130.x field (on the `thread.started` record); `session_id` /
+  // `sessionId` cover legacy / forward-compat builds. First non-empty id wins (deduped by
+  // the caller), so listing `thread_id` first matches the stream order.
+  const id = stringField(obj, 'thread_id', 'session_id', 'sessionId');
+  const model = stringField(obj, 'model');
+  const usageObj = obj['usage'];
+  const source = isRecord(usageObj) ? usageObj : obj;
+  const i = numberField(source, 'input_tokens', 'inputTokens', 'prompt_tokens');
+  const o = numberField(source, 'output_tokens', 'outputTokens', 'completion_tokens');
+  if (id === undefined && model === undefined && i === undefined && o === undefined) return undefined;
+  return {
+    ...(id !== undefined ? { sessionId: id } : {}),
+    ...(model !== undefined ? { model } : {}),
+    ...(i !== undefined ? { inputTokens: i } : {}),
+    ...(o !== undefined ? { outputTokens: o } : {}),
+  };
+};
+
+/**
  * Line-extract session-id / `model` / token-usage fields from codex's JSONL stdout. Returns
  * the residual tail (unterminated trailing chars). `onMeta` is invoked once per recognised
  * line carrying any of the fields; the caller dedupes (sessionId / model = first wins; usage
@@ -236,39 +278,79 @@ const consumeMetaLines = (
     if (nl === -1) return remaining;
     const line = remaining.slice(0, nl);
     remaining = remaining.slice(nl + 1);
-    const trimmed = line.trim();
-    if (trimmed.length === 0 || !trimmed.startsWith('{')) continue;
-    let obj: Record<string, unknown>;
-    try {
-      // Why: codex stream records arrive line-by-line at high volume; downstream
-      // `stringField` / `numberField` helpers narrowly type-check the fields we care
-      // about (`thread_id`, `session_id`, `model`, `usage.*`). Unknown shapes are skipped.
-      obj = JSON.parse(trimmed) as Record<string, unknown>;
-    } catch {
-      // non-JSON line — codex occasionally prints banner text alongside json records; skip
-      continue;
-    }
+    const obj = parseCodexJsonLine(line);
+    if (obj === undefined) continue;
     // Per-line debug fan-out (assistant / tool_use / tool_result) BEFORE the meta extractors,
     // so a single `item.completed` record both updates meta accumulators (when applicable)
     // and surfaces as one debug event in chain.log.
     if (onLine !== undefined) onLine(obj);
-    // `thread_id` is the 0.130.x field (on the `thread.started` record); `session_id` /
-    // `sessionId` cover legacy / forward-compat builds. First non-empty id wins (deduped by
-    // the caller), so listing `thread_id` first matches the stream order.
-    const id = stringField(obj, 'thread_id', 'session_id', 'sessionId');
-    const model = stringField(obj, 'model');
-    const usageObj = obj['usage'];
-    const source = isRecord(usageObj) ? usageObj : obj;
-    const i = numberField(source, 'input_tokens', 'inputTokens', 'prompt_tokens');
-    const o = numberField(source, 'output_tokens', 'outputTokens', 'completion_tokens');
-    if (id === undefined && model === undefined && i === undefined && o === undefined) continue;
-    onMeta({
-      ...(id !== undefined ? { sessionId: id } : {}),
-      ...(model !== undefined ? { model } : {}),
-      ...(i !== undefined ? { inputTokens: i } : {}),
-      ...(o !== undefined ? { outputTokens: o } : {}),
-    });
+    const update = extractCodexMetaUpdate(obj);
+    if (update !== undefined) onMeta(update);
   }
+};
+
+/** `item.completed` / `item.type === 'agent_message'` → one `assistant` debug event. */
+const publishAgentMessageEvent = (eventBus: EventBus, item: Record<string, unknown>): void => {
+  const text = truncateField(stringField(item, 'text'));
+  if (text === undefined) return;
+  eventBus.publish({
+    type: 'log',
+    level: 'debug',
+    message: 'codex-provider: assistant',
+    meta: { text },
+    at: IsoTimestamp.now(),
+  });
+};
+
+/** `item.completed` / `item.type === 'command_execution'` → one `tool_use` debug event. */
+const publishCommandExecutionEvent = (eventBus: EventBus, item: Record<string, unknown>): void => {
+  const args = truncateField(stringField(item, 'command'));
+  eventBus.publish({
+    type: 'log',
+    level: 'debug',
+    message: 'codex-provider: tool_use',
+    meta: {
+      tool: 'command_execution',
+      ...(args !== undefined ? { args } : {}),
+    },
+    at: IsoTimestamp.now(),
+  });
+};
+
+/** `item.completed` / `item.type === 'function_call'` → one `tool_use` debug event. */
+const publishFunctionCallEvent = (eventBus: EventBus, item: Record<string, unknown>): void => {
+  const tool = stringField(item, 'name') ?? '';
+  const rawArgs = item['arguments'];
+  const argsPreview = typeof rawArgs === 'string' ? rawArgs : safeJson(rawArgs);
+  const args = truncateField(argsPreview);
+  eventBus.publish({
+    type: 'log',
+    level: 'debug',
+    message: 'codex-provider: tool_use',
+    meta: {
+      tool,
+      ...(args !== undefined ? { args } : {}),
+    },
+    at: IsoTimestamp.now(),
+  });
+};
+
+/** `item.completed` / `item.type === 'function_call_output'` → one `tool_result` debug event. */
+const publishFunctionCallOutputEvent = (eventBus: EventBus, item: Record<string, unknown>): void => {
+  const tool = stringField(item, 'name') ?? stringField(item, 'call_id') ?? '';
+  const status = item['is_error'] === true || stringField(item, 'status') === 'error' ? 'error' : 'ok';
+  const preview = truncateField(stringField(item, 'output'));
+  eventBus.publish({
+    type: 'log',
+    level: 'debug',
+    message: 'codex-provider: tool_result',
+    meta: {
+      tool,
+      status,
+      ...(preview !== undefined ? { preview } : {}),
+    },
+    at: IsoTimestamp.now(),
+  });
 };
 
 /**
@@ -283,66 +365,10 @@ const publishCodexStreamLineEvents = (eventBus: EventBus, obj: Record<string, un
   const item = obj['item'];
   if (!isRecord(item)) return;
   const itemType = stringField(item, 'type');
-  if (itemType === 'agent_message') {
-    const text = truncateField(stringField(item, 'text'));
-    if (text !== undefined) {
-      eventBus.publish({
-        type: 'log',
-        level: 'debug',
-        message: 'codex-provider: assistant',
-        meta: { text },
-        at: IsoTimestamp.now(),
-      });
-    }
-    return;
-  }
-  if (itemType === 'command_execution') {
-    const args = truncateField(stringField(item, 'command'));
-    eventBus.publish({
-      type: 'log',
-      level: 'debug',
-      message: 'codex-provider: tool_use',
-      meta: {
-        tool: 'command_execution',
-        ...(args !== undefined ? { args } : {}),
-      },
-      at: IsoTimestamp.now(),
-    });
-    return;
-  }
-  if (itemType === 'function_call') {
-    const tool = stringField(item, 'name') ?? '';
-    const rawArgs = item['arguments'];
-    const argsPreview = typeof rawArgs === 'string' ? rawArgs : safeJson(rawArgs);
-    const args = truncateField(argsPreview);
-    eventBus.publish({
-      type: 'log',
-      level: 'debug',
-      message: 'codex-provider: tool_use',
-      meta: {
-        tool,
-        ...(args !== undefined ? { args } : {}),
-      },
-      at: IsoTimestamp.now(),
-    });
-    return;
-  }
-  if (itemType === 'function_call_output') {
-    const tool = stringField(item, 'name') ?? stringField(item, 'call_id') ?? '';
-    const status = item['is_error'] === true || stringField(item, 'status') === 'error' ? 'error' : 'ok';
-    const preview = truncateField(stringField(item, 'output'));
-    eventBus.publish({
-      type: 'log',
-      level: 'debug',
-      message: 'codex-provider: tool_result',
-      meta: {
-        tool,
-        status,
-        ...(preview !== undefined ? { preview } : {}),
-      },
-      at: IsoTimestamp.now(),
-    });
-  }
+  if (itemType === 'agent_message') return publishAgentMessageEvent(eventBus, item);
+  if (itemType === 'command_execution') return publishCommandExecutionEvent(eventBus, item);
+  if (itemType === 'function_call') return publishFunctionCallEvent(eventBus, item);
+  if (itemType === 'function_call_output') return publishFunctionCallOutputEvent(eventBus, item);
 };
 
 /** Best-effort debug log when the codex forensic body tempfile can't be read (audit-[09]). */
@@ -378,6 +404,153 @@ const agentMessageText = (obj: Record<string, unknown>): string | undefined => {
   return stringField(item, 'text');
 };
 
+/**
+ * Mutable per-attempt accumulator for codex's JSONL stdout stream: session id / model / token
+ * usage (dedup rules per {@link consumeMetaLines}'s `onMeta` contract — first-wins for id/model,
+ * last-wins for usage) plus the bounded `agent_message` tail used as the rate-limit haystack.
+ * One fresh instance per `attempt()` call — mirrors the sibling `createClaudeStreamParser`
+ * pattern in claude/headless.ts, kept file-local since codex's JSONL-meta-line shape has no
+ * natural shared port with Claude's `result`-envelope shape.
+ */
+interface CodexAttemptTracker {
+  /** Feed one raw stdout chunk through {@link consumeMetaLines}. */
+  readonly consumeChunk: (chunk: string) => void;
+  /** Flush any partial trailing line once the child has exited (no trailing newline). */
+  readonly flush: () => void;
+  readonly getSessionId: () => string | undefined;
+  readonly getModel: () => string | undefined;
+  readonly getInputTokens: () => number | undefined;
+  readonly getOutputTokens: () => number | undefined;
+  /** Bounded `agent_message` tail for the rate-limit classifier's haystack. */
+  readonly getStdoutTail: () => string | undefined;
+}
+
+const createCodexAttemptTracker = (eventBus: EventBus): CodexAttemptTracker => {
+  let sessionId: string | undefined;
+  let model: string | undefined;
+  let inputTokens: number | undefined;
+  let outputTokens: number | undefined;
+  // Accumulate codex's `agent_message` text so the rate-limit classifier can scan it
+  // alongside stderr — codex surfaces a quota throttle in the agent_message body,
+  // not always on stderr. Capped to bound memory on a long session.
+  let agentMessageTail = '';
+  let stdoutLineBuf = '';
+
+  const onMeta = (update: CodexMetaUpdate): void => {
+    if (update.sessionId !== undefined && sessionId === undefined) {
+      sessionId = update.sessionId;
+    }
+    if (update.model !== undefined && model === undefined) {
+      model = update.model;
+    }
+    // Last-write-wins on usage — codex's `turn.completed` record carries the cumulative
+    // figure; earlier records (thread.started / streaming chunks) report partials or nothing.
+    if (update.inputTokens !== undefined) inputTokens = update.inputTokens;
+    if (update.outputTokens !== undefined) outputTokens = update.outputTokens;
+  };
+  const onLine = (obj: Record<string, unknown>): void => {
+    publishCodexStreamLineEvents(eventBus, obj);
+    const text = agentMessageText(obj);
+    if (text !== undefined) {
+      agentMessageTail = `${agentMessageTail}${agentMessageTail.length > 0 ? '\n' : ''}${text}`.slice(
+        -RATE_LIMIT_SCAN_TAIL_CAP
+      );
+    }
+  };
+
+  return {
+    consumeChunk: (chunk) => {
+      stdoutLineBuf = consumeMetaLines(stdoutLineBuf + chunk, onMeta, onLine);
+    },
+    // Flush any partial line remaining in the buffer — codex may terminate without a
+    // trailing newline. Appending a synthetic '\n' forces the partial through the parser.
+    flush: () => {
+      if (stdoutLineBuf.length > 0) {
+        consumeMetaLines(stdoutLineBuf + '\n', onMeta, onLine);
+      }
+    },
+    getSessionId: () => sessionId,
+    getModel: () => model,
+    getInputTokens: () => inputTokens,
+    getOutputTokens: () => outputTokens,
+    getStdoutTail: () => (agentMessageTail.length > 0 ? agentMessageTail : undefined),
+  };
+};
+
+interface RunCodexAttemptOpts {
+  readonly outputFile: string;
+  readonly spawnFn: ProviderSpawn;
+  readonly command: string;
+  readonly deps: CodexProviderDeps;
+  readonly readFile: (path: string) => Promise<string>;
+}
+
+/**
+ * Run one codex spawn attempt: validates argv, wires a fresh {@link CodexAttemptTracker} into
+ * `runProviderAttempt`'s stdout hooks, and reads back the forensic body tempfile. `outputFile` is
+ * shared across every retry attempt within one `generate()` call (see `createGenerateContext`
+ * below, which owns its lifetime); the tracker's mutable state is fresh per `attempt()` call.
+ */
+const runCodexAttempt = (
+  attemptSession: AiSession,
+  { outputFile, spawnFn, command, deps, readFile }: RunCodexAttemptOpts
+): Promise<AttemptOutcome> => {
+  const built = buildCodexArgs(attemptSession, { outputFile });
+  if (!built.ok) return Promise.resolve({ kind: 'error', error: built.error });
+
+  const tracker = createCodexAttemptTracker(deps.eventBus);
+
+  return runProviderAttempt({
+    spawnFn,
+    command,
+    args: built.value,
+    session: attemptSession,
+    resolveOn: 'exit',
+    // `cwd` is set in addition to codex's argv `-C` so context-file autoload works on
+    // `exec resume` (which does not accept `-C`) and is consistent with the other adapters.
+    // See CLAUDE.md §Security.
+    stdin: attemptSession.prompt,
+    rateLimitRe: DEFAULT_RATE_LIMIT_RE,
+    onStdoutChunk: (chunk) => tracker.consumeChunk(chunk),
+    flush: () => tracker.flush(),
+    getSessionId: () => tracker.getSessionId(),
+    // Codex reports a quota throttle in the agent_message body, not always on stderr.
+    // Feed the accumulated tail into the rate-limit haystack so it trips the backoff.
+    getStdoutTail: () => tracker.getStdoutTail(),
+    // Single-shot read of the codex output tempfile (may be partial/empty on SIGTERM
+    // recovery). audit-[09]: a missing/unreadable tempfile must NOT hard-error — `onSuccess`
+    // also runs on the recovery branch (non-zero exit + signals.json present), and
+    // signals.json is the authoritative gate. Best-effort, like claude/copilot's getBody.
+    getBody: async () => {
+      try {
+        return Result.ok(await readFile(outputFile));
+      } catch (err) {
+        if (err instanceof AbortError) throw err;
+        publishUnreadableBody(deps.eventBus, err);
+        return Result.ok('');
+      }
+    },
+    emitProviderTokenUsage: (sessionId_) => {
+      // Codex commonly omits token counts from the JSONL records on v0.130.x; the event
+      // still fires so subscribers can correlate sessionId → provider without inferring
+      // success from token-field absence.
+      const model = tracker.getModel();
+      const inputTokens = tracker.getInputTokens();
+      const outputTokens = tracker.getOutputTokens();
+      emitTokenUsage(deps.eventBus, attemptSession, sessionId_, {
+        provider: 'openai-codex',
+        ...(model !== undefined ? { model } : {}),
+        ...(inputTokens !== undefined ? { inputTokens } : {}),
+        ...(outputTokens !== undefined ? { outputTokens } : {}),
+      });
+    },
+    providerName: PROVIDER_NAME,
+    providerSlug: 'codex',
+    eventBus: deps.eventBus,
+    ...(deps.idleMs !== undefined ? { idleMs: deps.idleMs } : {}),
+  });
+};
+
 export const createCodexProvider = (deps: CodexProviderDeps): HeadlessAiProvider => {
   const spawnFn: ProviderSpawn = deps.spawn ?? defaultProviderSpawn;
   const command = deps.command ?? 'codex';
@@ -403,97 +576,7 @@ export const createCodexProvider = (deps: CodexProviderDeps): HeadlessAiProvider
       // retry reuses the same -o path without leaving orphan files. Cleaned up in cleanup().
       const outputFile = mkTempPath();
       return {
-        attempt: async (attemptSession) => {
-          const built = buildCodexArgs(attemptSession, { outputFile });
-          if (!built.ok) return { kind: 'error', error: built.error };
-
-          let sessionId: string | undefined;
-          let model: string | undefined;
-          let inputTokens: number | undefined;
-          let outputTokens: number | undefined;
-          // Accumulate codex's `agent_message` text so the rate-limit classifier can scan it
-          // alongside stderr — codex surfaces a quota throttle in the agent_message body,
-          // not always on stderr. Capped to bound memory on a long session.
-          let agentMessageTail = '';
-          let stdoutLineBuf = '';
-
-          const onMeta = (update: CodexMetaUpdate): void => {
-            if (update.sessionId !== undefined && sessionId === undefined) {
-              sessionId = update.sessionId;
-            }
-            if (update.model !== undefined && model === undefined) {
-              model = update.model;
-            }
-            // Last-write-wins on usage — codex's `turn.completed` record carries the cumulative
-            // figure; earlier records (thread.started / streaming chunks) report partials or nothing.
-            if (update.inputTokens !== undefined) inputTokens = update.inputTokens;
-            if (update.outputTokens !== undefined) outputTokens = update.outputTokens;
-          };
-          const onLine = (obj: Record<string, unknown>): void => {
-            publishCodexStreamLineEvents(deps.eventBus, obj);
-            const text = agentMessageText(obj);
-            if (text !== undefined) {
-              agentMessageTail = `${agentMessageTail}${agentMessageTail.length > 0 ? '\n' : ''}${text}`.slice(
-                -RATE_LIMIT_SCAN_TAIL_CAP
-              );
-            }
-          };
-
-          return runProviderAttempt({
-            spawnFn,
-            command,
-            args: built.value,
-            session: attemptSession,
-            resolveOn: 'exit',
-            // `cwd` is set in addition to codex's argv `-C` so context-file autoload works on
-            // `exec resume` (which does not accept `-C`) and is consistent with the other adapters.
-            // See CLAUDE.md §Security.
-            stdin: attemptSession.prompt,
-            rateLimitRe: DEFAULT_RATE_LIMIT_RE,
-            onStdoutChunk: (chunk) => {
-              stdoutLineBuf = consumeMetaLines(stdoutLineBuf + chunk, onMeta, onLine);
-            },
-            // Flush any partial line remaining in the buffer — codex may terminate without a
-            // trailing newline. Appending a synthetic '\n' forces the partial through the parser.
-            flush: () => {
-              if (stdoutLineBuf.length > 0) {
-                consumeMetaLines(stdoutLineBuf + '\n', onMeta, onLine);
-              }
-            },
-            getSessionId: () => sessionId,
-            // Codex reports a quota throttle in the agent_message body, not always on stderr.
-            // Feed the accumulated tail into the rate-limit haystack so it trips the backoff.
-            getStdoutTail: () => (agentMessageTail.length > 0 ? agentMessageTail : undefined),
-            // Single-shot read of the codex output tempfile (may be partial/empty on SIGTERM
-            // recovery). audit-[09]: a missing/unreadable tempfile must NOT hard-error — `onSuccess`
-            // also runs on the recovery branch (non-zero exit + signals.json present), and
-            // signals.json is the authoritative gate. Best-effort, like claude/copilot's getBody.
-            getBody: async () => {
-              try {
-                return Result.ok(await readFile(outputFile));
-              } catch (err) {
-                if (err instanceof AbortError) throw err;
-                publishUnreadableBody(deps.eventBus, err);
-                return Result.ok('');
-              }
-            },
-            emitProviderTokenUsage: (sessionId_) => {
-              // Codex commonly omits token counts from the JSONL records on v0.130.x; the event
-              // still fires so subscribers can correlate sessionId → provider without inferring
-              // success from token-field absence.
-              emitTokenUsage(deps.eventBus, attemptSession, sessionId_, {
-                provider: 'openai-codex',
-                ...(model !== undefined ? { model } : {}),
-                ...(inputTokens !== undefined ? { inputTokens } : {}),
-                ...(outputTokens !== undefined ? { outputTokens } : {}),
-              });
-            },
-            providerName: PROVIDER_NAME,
-            providerSlug: 'codex',
-            eventBus: deps.eventBus,
-            ...(deps.idleMs !== undefined ? { idleMs: deps.idleMs } : {}),
-          });
-        },
+        attempt: (attemptSession) => runCodexAttempt(attemptSession, { outputFile, spawnFn, command, deps, readFile }),
         cleanup: () => unlink(outputFile),
       };
     },

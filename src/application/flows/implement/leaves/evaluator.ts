@@ -233,226 +233,299 @@ const buildEvaluatorPrompt = async (
   });
 };
 
+/**
+ * Build one evaluator turn's corrective-retry `reinvoke` callback — resumes the just-spawned
+ * thread (falling back to the prior round's session id when this spawn never reported one to
+ * disk) so the corrective message lands as a follow-up turn on the SAME conversation the AI
+ * just wrote invalid/missing signals from. Mirrors the generator-leaf helper of the same shape.
+ */
+const makeEvaluatorReinvoke =
+  (
+    deps: Pick<EvaluatorLeafDeps, 'provider' | 'cwd' | 'sprintDir' | 'model' | 'effort'>,
+    args: {
+      readonly workspaceRoot: AbsolutePath;
+      readonly roundNum: number;
+      readonly signalsFile: AbsolutePath;
+      readonly priorEvaluatorSessionId: SessionId | undefined;
+      readonly signal: AbortSignal | undefined;
+    }
+  ): ((corrective: Prompt) => Promise<Result<void, DomainError>>) =>
+  async (corrective) => {
+    // Resume the reviewer's just-spawned thread so the corrective lands as a follow-up turn —
+    // read the session id this spawn captured to disk. Falls back to the prior-round id when
+    // this spawn never reported one.
+    const resume =
+      (await readRoundSessionId(args.workspaceRoot, args.roundNum, 'evaluator')) ?? args.priorEvaluatorSessionId;
+    const respawn = await deps.provider.generate(
+      implementSession(
+        args.workspaceRoot,
+        deps.cwd,
+        deps.sprintDir,
+        corrective as Prompt,
+        deps.model,
+        args.signalsFile,
+        'evaluator',
+        resume,
+        deps.effort,
+        args.signal
+      )
+    );
+    return respawn.ok ? Result.ok(undefined) : Result.error(respawn.error);
+  };
+
+/**
+ * Build this turn's `callEvaluate` — selects + builds + persists the prompt, spawns the reviewer,
+ * validates `signals.json` with one corrective retry (self-contained against a cold resume so a
+ * context-free retry can't fabricate a verdict), fans the parsed signals out to the sink/bus, and
+ * renders harness-owned sidecars (`evaluation.md`). Returns the parsed signals for
+ * `runEvaluatorTurnUseCase` to interpret.
+ */
+const makeEvaluatorCallEvaluate =
+  (
+    deps: EvaluatorLeafDeps,
+    args: {
+      readonly input: EvaluatorInput;
+      readonly signalsFile: AbsolutePath;
+      readonly outputDir: AbsolutePath;
+      readonly signal: AbortSignal | undefined;
+    }
+  ): RunEvaluatorTurnProps['callEvaluate'] =>
+  async (task) => {
+    const outputContractSection = renderContractSectionFor(evaluatorOutputContract, args.outputDir);
+    const prompt = await buildEvaluatorPrompt(deps, {
+      task,
+      workspaceRoot: args.input.workspaceRoot,
+      roundNum: args.input.roundNum,
+      outputContractSection,
+      priorEvaluatorSessionId: args.input.priorEvaluatorSessionId,
+      generatorHints: args.input.generatorHints,
+    });
+    if (!prompt.ok) return Result.error(prompt.error) as Result<readonly HarnessSignal[], DomainError>;
+    // Persist the rendered prompt under `rounds/<N>/evaluator/prompt.md` BEFORE the AI
+    // call so a crash mid-spawn still leaves the prompt on disk for post-hoc replay.
+    // Best-effort: the writer logs and swallows on failure.
+    await writeRoundPrompt(
+      args.input.workspaceRoot,
+      args.input.roundNum,
+      'evaluator',
+      String(prompt.value),
+      deps.logger
+    );
+
+    const spawn = await deps.provider.generate(
+      implementSession(
+        args.input.workspaceRoot,
+        deps.cwd,
+        deps.sprintDir,
+        prompt.value,
+        deps.model,
+        args.signalsFile,
+        'evaluator',
+        args.input.priorEvaluatorSessionId,
+        deps.effort,
+        args.signal
+      )
+    );
+    if (!spawn.ok) return Result.error(spawn.error);
+
+    // Validate `signals.json` against the evaluator contract. On a RECOVERABLE failure
+    // (signals-missing / invalid-json / schema-mismatch) re-prompt the reviewer ONCE on
+    // the resumed session with a corrective message + the Zod issue list, then re-validate
+    // — one near-miss element no longer blocks the whole verdict. `runEvaluatorTurnUseCase`
+    // converts a still-failing validation into a `self-blocked` exit (task settles as
+    // blocked — the ungraded change is NOT marked done; run continues); only a fatal
+    // `Aborted`/`RateLimit` propagates.
+    const validated = await validateSignalsFileWithCorrectiveRetry(
+      {
+        outputDir: args.outputDir,
+        logger: deps.logger,
+        // Self-containment for a COLD corrective spawn (no resumable id / codex stale-resume
+        // fallback): the per-round output contract plus the reviewer's grounding — without
+        // this, a context-free retry's whole prompt is the error text, which is exactly
+        // enough scaffolding to fabricate a schema-valid verdict for unseen work.
+        selfContainedContext: [
+          `Task spec (read it): \`${join(String(args.input.workspaceRoot), 'contract.md')}\``,
+          'Your PRIMARY INPUT is the uncommitted working-tree diff — inspect it via shell',
+          '(`git status` / `git diff HEAD`) before grading. A verdict must reflect the actual',
+          'work, never this message.',
+          '',
+          outputContractSection,
+        ].join('\n'),
+        reinvoke: makeEvaluatorReinvoke(deps, {
+          workspaceRoot: args.input.workspaceRoot,
+          roundNum: args.input.roundNum,
+          signalsFile: args.signalsFile,
+          priorEvaluatorSessionId: args.input.priorEvaluatorSessionId,
+          signal: args.signal,
+        }),
+      },
+      evaluatorOutputContract
+    );
+    if (!validated.ok) return Result.error(validated.error);
+    const signals = validated.value;
+
+    // Fan out to BOTH the legacy `HarnessSignalSink` (TUI panels, decisions-log) and
+    // the application bus's typed `ai-signal` event. The bus carries every kind the
+    // contract accepts; the sink keeps its existing per-kind consumers happy until
+    // Wave 6 collapses the two paths.
+    for (const sig of signals) {
+      deps.signals.emit(sig);
+      deps.eventBus.publish({ type: 'ai-signal', signal: sig, source: 'evaluator' });
+    }
+
+    // Render harness-owned sidecars (`evaluation.md`). Write failures log warn inside
+    // `renderSidecars`; the helper always returns `Result.ok` (sidecars are operator UX
+    // only — `runEvaluatorTurnUseCase` consumes the in-memory `evaluation` signal, never
+    // the rendered file).
+    await renderSidecars(deps.writeFile, args.outputDir, signals, evaluatorOutputContract.sidecars, deps.logger);
+
+    // `runEvaluatorTurnUseCase` expects `readonly HarnessSignal[]`. `EvaluatorContractSignal`
+    // is a strict subset of `HarnessSignal`, but TS's array variance doesn't infer that
+    // automatically — cast through `AiSignal[]` (the canonical union alias) to keep the
+    // call site honest about the underlying domain shape.
+    return Result.ok(signals as readonly AiSignal[]) as Result<readonly HarnessSignal[], DomainError>;
+  };
+
+/**
+ * Build this leaf's `execute` — resolves the round's `signals.json` path, fingerprints the
+ * working tree's uncommitted changes for the plateau predicate's progress exemption, drives one
+ * evaluator turn via `runEvaluatorTurnUseCase` (see {@link makeEvaluatorCallEvaluate}), then reads
+ * back the captured session id into {@link EvaluatorOutput}.
+ */
+const makeEvaluatorExecute =
+  (
+    deps: EvaluatorLeafDeps
+  ): ((input: EvaluatorInput, signal?: AbortSignal) => Promise<Result<EvaluatorOutput, DomainError>>) =>
+  async (input, signal) => {
+    const signalsFilePath = AbsolutePath.parse(roundSignalsPath(input.workspaceRoot, input.roundNum, 'evaluator'));
+    if (!signalsFilePath.ok) return Result.error(signalsFilePath.error);
+    const signalsFile = signalsFilePath.value;
+
+    // `outputDir` is the per-round directory (`rounds/<N>/evaluator/`);
+    // `validateSignalsFile` resolves `<outputDir>/signals.json` and `renderSidecars`
+    // writes harness-rendered sidecars into the same directory. We derive it once from
+    // `signalsFile` so the two paths stay structurally coupled.
+    const outputDirPath = AbsolutePath.parse(dirname(String(signalsFile)));
+    if (!outputDirPath.ok) return Result.error(outputDirPath.error);
+    const outputDir = outputDirPath.value;
+
+    const callEvaluate = makeEvaluatorCallEvaluate(deps, { input, signalsFile, outputDir, signal });
+
+    // Fingerprint the working tree's uncommitted changes for this round so the plateau
+    // predicate's progress exemption measures real code change instead of commit-message
+    // rewording. Best-effort — a git failure yields `undefined` and the predicate degrades
+    // to the commit-subject proxy. Computed BEFORE the use case so the record carries it.
+    const changedFilesHash = await computeWorkProductFingerprint(deps.gitRunner, deps.cwd);
+
+    const result = await runEvaluatorTurnUseCase({
+      task: input.task,
+      priorTurns: input.priorTurns,
+      plateauThreshold: deps.plateauThreshold,
+      ...(input.currentCommitSubject !== undefined ? { currentCommitSubject: input.currentCommitSubject } : {}),
+      ...(changedFilesHash !== undefined ? { changedFilesHash } : {}),
+      callEvaluate,
+      evaluationFile: roundEvaluationRelativePath(input.roundNum),
+      logger: deps.logger,
+    });
+    if (!result.ok) return Result.error(result.error);
+
+    // Read THIS turn's captured sessionId from disk (the Claude adapter just wrote it as a
+    // sibling of `signals.json` via `persistSessionIdFile`). Undefined when the spawn never
+    // reported an id — left undefined so the next round cold-starts cleanly.
+    const capturedSessionId = await readRoundSessionId(input.workspaceRoot, input.roundNum, 'evaluator');
+
+    return Result.ok({
+      task: result.value.task,
+      ...(result.value.evaluation !== undefined ? { evaluation: result.value.evaluation } : {}),
+      ...(result.value.exit !== undefined ? { exit: result.value.exit } : {}),
+      ...(result.value.turnRecord !== undefined ? { turnRecord: result.value.turnRecord } : {}),
+      ...(capturedSessionId !== undefined ? { capturedSessionId } : {}),
+    });
+  };
+
+/**
+ * Build this leaf's `input` projection — validates the ctx preconditions the evaluator turn needs
+ * (`currentTask`, `taskWorkspaceRoot`, `currentRoundNum`), then composes the same-round
+ * `<generator_hints>` block (T5) from pure ctx reads before assembling {@link EvaluatorInput}.
+ */
+const makeEvaluatorInput =
+  (taskId: TaskId): ((ctx: ImplementCtx) => EvaluatorInput) =>
+  (ctx) => {
+    if (ctx.currentTask === undefined || ctx.currentTask.id !== taskId) {
+      throw new InvalidStateError({
+        entity: 'chain',
+        currentState: 'pre-evaluator',
+        attemptedAction: `evaluator-${String(taskId)}`,
+        message: `evaluator-${String(taskId)}: ctx.currentTask missing or mismatched`,
+      });
+    }
+    if (ctx.currentTask.status !== 'in_progress') {
+      throw new InvalidStateError({
+        entity: 'task',
+        currentState: ctx.currentTask.status,
+        attemptedAction: `evaluator-${String(taskId)}`,
+        message: `evaluator-${String(taskId)}: expected in_progress task`,
+      });
+    }
+    if (ctx.taskWorkspaceRoot === undefined || ctx.currentRoundNum === undefined) {
+      throw new InvalidStateError({
+        entity: 'chain',
+        currentState: 'pre-evaluator',
+        attemptedAction: `evaluator-${String(taskId)}`,
+        message: `evaluator-${String(taskId)}: ctx.taskWorkspaceRoot/currentRoundNum missing — generator leaf must run first`,
+      });
+    }
+    const currentCommitSubject = ctx.proposedCommitMessage?.subject;
+    // T5: compose the same-round generator hints from the per-attempt ctx accumulators. Pure
+    // read — `composeGeneratorHints` caps + clamps so a deep multi-round attempt's accumulators
+    // can't balloon the evaluator prompt. Empty across all sources → '' → placeholder collapses.
+    const hintsInput: GeneratorHintsInput = {
+      ...(currentCommitSubject !== undefined ? { commitSubject: currentCommitSubject } : {}),
+      ...(ctx.currentAttemptChanges !== undefined ? { changes: ctx.currentAttemptChanges } : {}),
+      ...(ctx.currentAttemptLearnings !== undefined ? { learnings: ctx.currentAttemptLearnings } : {}),
+      ...(ctx.currentAttemptNotes !== undefined ? { notes: ctx.currentAttemptNotes } : {}),
+    };
+    return {
+      task: ctx.currentTask,
+      priorTurns: ctx.plateauHistory ?? [],
+      workspaceRoot: ctx.taskWorkspaceRoot,
+      roundNum: ctx.currentRoundNum,
+      generatorHints: composeGeneratorHints(hintsInput),
+      ...(currentCommitSubject !== undefined ? { currentCommitSubject } : {}),
+      ...(ctx.priorEvaluatorSessionId !== undefined ? { priorEvaluatorSessionId: ctx.priorEvaluatorSessionId } : {}),
+    };
+  };
+
+/**
+ * Merge one evaluator turn's output into ctx — task/tasks list, plateau history, captured
+ * session id, and the verdict / terminal-exit fields.
+ */
+const evaluatorOutput = (ctx: ImplementCtx, out: EvaluatorOutput): ImplementCtx => {
+  const tasks = (ctx.tasks ?? []).map((t) => (t.id === out.task.id ? out.task : t));
+  const nextHistory =
+    out.turnRecord !== undefined ? [...(ctx.plateauHistory ?? []), out.turnRecord] : ctx.plateauHistory;
+  // Latest captured evaluator sessionId wins; only OVERWRITE when this turn produced one
+  // (preserves the prior turn's thread when this spawn failed to report an id).
+  const sessionCarry = out.capturedSessionId !== undefined ? { priorEvaluatorSessionId: out.capturedSessionId } : {};
+  const next: ImplementCtx = {
+    ...ctx,
+    currentTask: out.task,
+    tasks,
+    // Direct assignment (NOT a conditional spread): a self-blocked / signals-missing turn
+    // returns `out.evaluation === undefined`, and we must CLEAR `ctx.lastEvaluation` so
+    // `settle-attempt` never writes the prior round's verdict into this round's `outcome.md`.
+    // `ctx.ts` types `lastEvaluation?` so assigning `undefined` is valid + explicit.
+    lastEvaluation: out.evaluation,
+    ...(nextHistory !== undefined ? { plateauHistory: nextHistory } : {}),
+    ...sessionCarry,
+  };
+  if (out.exit === undefined) return next;
+  return { ...next, lastExit: out.exit };
+};
+
 export const evaluatorLeaf = (deps: EvaluatorLeafDeps, taskId: TaskId): Element<ImplementCtx> =>
   leaf<ImplementCtx, EvaluatorInput, EvaluatorOutput>(`evaluator-${String(taskId)}`, {
-    useCase: {
-      execute: async (input, signal) => {
-        const signalsFilePath = AbsolutePath.parse(roundSignalsPath(input.workspaceRoot, input.roundNum, 'evaluator'));
-        if (!signalsFilePath.ok) return Result.error(signalsFilePath.error);
-        const signalsFile = signalsFilePath.value;
-
-        // `outputDir` is the per-round directory (`rounds/<N>/evaluator/`);
-        // `validateSignalsFile` resolves `<outputDir>/signals.json` and `renderSidecars`
-        // writes harness-rendered sidecars into the same directory. We derive it once from
-        // `signalsFile` so the two paths stay structurally coupled.
-        const outputDirPath = AbsolutePath.parse(dirname(String(signalsFile)));
-        if (!outputDirPath.ok) return Result.error(outputDirPath.error);
-        const outputDir = outputDirPath.value;
-
-        const callEvaluate: RunEvaluatorTurnProps['callEvaluate'] = async (task) => {
-          const outputContractSection = renderContractSectionFor(evaluatorOutputContract, outputDir);
-          const prompt = await buildEvaluatorPrompt(deps, {
-            task,
-            workspaceRoot: input.workspaceRoot,
-            roundNum: input.roundNum,
-            outputContractSection,
-            priorEvaluatorSessionId: input.priorEvaluatorSessionId,
-            generatorHints: input.generatorHints,
-          });
-          if (!prompt.ok) return Result.error(prompt.error) as Result<readonly HarnessSignal[], DomainError>;
-          // Persist the rendered prompt under `rounds/<N>/evaluator/prompt.md` BEFORE the AI
-          // call so a crash mid-spawn still leaves the prompt on disk for post-hoc replay.
-          // Best-effort: the writer logs and swallows on failure.
-          await writeRoundPrompt(input.workspaceRoot, input.roundNum, 'evaluator', String(prompt.value), deps.logger);
-
-          const spawn = await deps.provider.generate(
-            implementSession(
-              input.workspaceRoot,
-              deps.cwd,
-              deps.sprintDir,
-              prompt.value,
-              deps.model,
-              signalsFile,
-              'evaluator',
-              input.priorEvaluatorSessionId,
-              deps.effort,
-              signal
-            )
-          );
-          if (!spawn.ok) return Result.error(spawn.error);
-
-          // Validate `signals.json` against the evaluator contract. On a RECOVERABLE failure
-          // (signals-missing / invalid-json / schema-mismatch) re-prompt the reviewer ONCE on
-          // the resumed session with a corrective message + the Zod issue list, then re-validate
-          // — one near-miss element no longer blocks the whole verdict. `runEvaluatorTurnUseCase`
-          // converts a still-failing validation into a `self-blocked` exit (task settles as
-          // blocked — the ungraded change is NOT marked done; run continues); only a fatal
-          // `Aborted`/`RateLimit` propagates.
-          const validated = await validateSignalsFileWithCorrectiveRetry(
-            {
-              outputDir,
-              logger: deps.logger,
-              // Self-containment for a COLD corrective spawn (no resumable id / codex stale-resume
-              // fallback): the per-round output contract plus the reviewer's grounding — without
-              // this, a context-free retry's whole prompt is the error text, which is exactly
-              // enough scaffolding to fabricate a schema-valid verdict for unseen work.
-              selfContainedContext: [
-                `Task spec (read it): \`${join(String(input.workspaceRoot), 'contract.md')}\``,
-                'Your PRIMARY INPUT is the uncommitted working-tree diff — inspect it via shell',
-                '(`git status` / `git diff HEAD`) before grading. A verdict must reflect the actual',
-                'work, never this message.',
-                '',
-                outputContractSection,
-              ].join('\n'),
-              reinvoke: async (corrective) => {
-                // Resume the reviewer's just-spawned thread so the corrective lands as a
-                // follow-up turn — read the session id this spawn captured to disk. Falls back
-                // to the prior-round id when this spawn never reported one.
-                const resume =
-                  (await readRoundSessionId(input.workspaceRoot, input.roundNum, 'evaluator')) ??
-                  input.priorEvaluatorSessionId;
-                const respawn = await deps.provider.generate(
-                  implementSession(
-                    input.workspaceRoot,
-                    deps.cwd,
-                    deps.sprintDir,
-                    corrective as Prompt,
-                    deps.model,
-                    signalsFile,
-                    'evaluator',
-                    resume,
-                    deps.effort,
-                    signal
-                  )
-                );
-                return respawn.ok ? Result.ok(undefined) : Result.error(respawn.error);
-              },
-            },
-            evaluatorOutputContract
-          );
-          if (!validated.ok) return Result.error(validated.error);
-          const signals = validated.value;
-
-          // Fan out to BOTH the legacy `HarnessSignalSink` (TUI panels, decisions-log) and
-          // the application bus's typed `ai-signal` event. The bus carries every kind the
-          // contract accepts; the sink keeps its existing per-kind consumers happy until
-          // Wave 6 collapses the two paths.
-          for (const sig of signals) {
-            deps.signals.emit(sig);
-            deps.eventBus.publish({ type: 'ai-signal', signal: sig, source: 'evaluator' });
-          }
-
-          // Render harness-owned sidecars (`evaluation.md`). Write failures log warn inside
-          // `renderSidecars`; the helper always returns `Result.ok` (sidecars are operator UX
-          // only — `runEvaluatorTurnUseCase` consumes the in-memory `evaluation` signal, never
-          // the rendered file).
-          await renderSidecars(deps.writeFile, outputDir, signals, evaluatorOutputContract.sidecars, deps.logger);
-
-          // `runEvaluatorTurnUseCase` expects `readonly HarnessSignal[]`. `EvaluatorContractSignal`
-          // is a strict subset of `HarnessSignal`, but TS's array variance doesn't infer that
-          // automatically — cast through `AiSignal[]` (the canonical union alias) to keep the
-          // call site honest about the underlying domain shape.
-          return Result.ok(signals as readonly AiSignal[]) as Result<readonly HarnessSignal[], DomainError>;
-        };
-
-        // Fingerprint the working tree's uncommitted changes for this round so the plateau
-        // predicate's progress exemption measures real code change instead of commit-message
-        // rewording. Best-effort — a git failure yields `undefined` and the predicate degrades
-        // to the commit-subject proxy. Computed BEFORE the use case so the record carries it.
-        const changedFilesHash = await computeWorkProductFingerprint(deps.gitRunner, deps.cwd);
-
-        const result = await runEvaluatorTurnUseCase({
-          task: input.task,
-          priorTurns: input.priorTurns,
-          plateauThreshold: deps.plateauThreshold,
-          ...(input.currentCommitSubject !== undefined ? { currentCommitSubject: input.currentCommitSubject } : {}),
-          ...(changedFilesHash !== undefined ? { changedFilesHash } : {}),
-          callEvaluate,
-          evaluationFile: roundEvaluationRelativePath(input.roundNum),
-          logger: deps.logger,
-        });
-        if (!result.ok) return Result.error(result.error);
-
-        // Read THIS turn's captured sessionId from disk (the Claude adapter just wrote it as a
-        // sibling of `signals.json` via `persistSessionIdFile`). Undefined when the spawn never
-        // reported an id — left undefined so the next round cold-starts cleanly.
-        const capturedSessionId = await readRoundSessionId(input.workspaceRoot, input.roundNum, 'evaluator');
-
-        return Result.ok({
-          task: result.value.task,
-          ...(result.value.evaluation !== undefined ? { evaluation: result.value.evaluation } : {}),
-          ...(result.value.exit !== undefined ? { exit: result.value.exit } : {}),
-          ...(result.value.turnRecord !== undefined ? { turnRecord: result.value.turnRecord } : {}),
-          ...(capturedSessionId !== undefined ? { capturedSessionId } : {}),
-        });
-      },
-    },
-    input: (ctx) => {
-      if (ctx.currentTask === undefined || ctx.currentTask.id !== taskId) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: 'pre-evaluator',
-          attemptedAction: `evaluator-${String(taskId)}`,
-          message: `evaluator-${String(taskId)}: ctx.currentTask missing or mismatched`,
-        });
-      }
-      if (ctx.currentTask.status !== 'in_progress') {
-        throw new InvalidStateError({
-          entity: 'task',
-          currentState: ctx.currentTask.status,
-          attemptedAction: `evaluator-${String(taskId)}`,
-          message: `evaluator-${String(taskId)}: expected in_progress task`,
-        });
-      }
-      if (ctx.taskWorkspaceRoot === undefined || ctx.currentRoundNum === undefined) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: 'pre-evaluator',
-          attemptedAction: `evaluator-${String(taskId)}`,
-          message: `evaluator-${String(taskId)}: ctx.taskWorkspaceRoot/currentRoundNum missing — generator leaf must run first`,
-        });
-      }
-      const currentCommitSubject = ctx.proposedCommitMessage?.subject;
-      // T5: compose the same-round generator hints from the per-attempt ctx accumulators. Pure
-      // read — `composeGeneratorHints` caps + clamps so a deep multi-round attempt's accumulators
-      // can't balloon the evaluator prompt. Empty across all sources → '' → placeholder collapses.
-      const hintsInput: GeneratorHintsInput = {
-        ...(currentCommitSubject !== undefined ? { commitSubject: currentCommitSubject } : {}),
-        ...(ctx.currentAttemptChanges !== undefined ? { changes: ctx.currentAttemptChanges } : {}),
-        ...(ctx.currentAttemptLearnings !== undefined ? { learnings: ctx.currentAttemptLearnings } : {}),
-        ...(ctx.currentAttemptNotes !== undefined ? { notes: ctx.currentAttemptNotes } : {}),
-      };
-      return {
-        task: ctx.currentTask,
-        priorTurns: ctx.plateauHistory ?? [],
-        workspaceRoot: ctx.taskWorkspaceRoot,
-        roundNum: ctx.currentRoundNum,
-        generatorHints: composeGeneratorHints(hintsInput),
-        ...(currentCommitSubject !== undefined ? { currentCommitSubject } : {}),
-        ...(ctx.priorEvaluatorSessionId !== undefined ? { priorEvaluatorSessionId: ctx.priorEvaluatorSessionId } : {}),
-      };
-    },
-    output: (ctx, out) => {
-      const tasks = (ctx.tasks ?? []).map((t) => (t.id === out.task.id ? out.task : t));
-      const nextHistory =
-        out.turnRecord !== undefined ? [...(ctx.plateauHistory ?? []), out.turnRecord] : ctx.plateauHistory;
-      // Latest captured evaluator sessionId wins; only OVERWRITE when this turn produced one
-      // (preserves the prior turn's thread when this spawn failed to report an id).
-      const sessionCarry =
-        out.capturedSessionId !== undefined ? { priorEvaluatorSessionId: out.capturedSessionId } : {};
-      const next: ImplementCtx = {
-        ...ctx,
-        currentTask: out.task,
-        tasks,
-        // Direct assignment (NOT a conditional spread): a self-blocked / signals-missing turn
-        // returns `out.evaluation === undefined`, and we must CLEAR `ctx.lastEvaluation` so
-        // `settle-attempt` never writes the prior round's verdict into this round's `outcome.md`.
-        // `ctx.ts` types `lastEvaluation?` so assigning `undefined` is valid + explicit.
-        lastEvaluation: out.evaluation,
-        ...(nextHistory !== undefined ? { plateauHistory: nextHistory } : {}),
-        ...sessionCarry,
-      };
-      if (out.exit === undefined) return next;
-      return { ...next, lastExit: out.exit };
-    },
+    useCase: { execute: makeEvaluatorExecute(deps) },
+    input: makeEvaluatorInput(taskId),
+    output: evaluatorOutput,
   });

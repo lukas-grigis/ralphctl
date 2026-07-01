@@ -1,6 +1,7 @@
 import type { Project } from '@src/domain/entity/project.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { Task } from '@src/domain/entity/task.ts';
+import type { Ticket } from '@src/domain/entity/ticket.ts';
 
 export interface RenderSprintContextInput {
   readonly sprint: Sprint;
@@ -21,14 +22,29 @@ export const renderSprintContextMarkdown = (input: RenderSprintContextInput): st
   const { sprint, project, tasks } = input;
   const lines: string[] = [];
 
-  lines.push(`# Harness Context — ${sprint.name}`);
-  lines.push('');
-  lines.push(`- Sprint id: \`${String(sprint.id)}\``);
-  lines.push(`- Slug: \`${String(sprint.slug)}\``);
-  lines.push(`- Status: ${sprint.status}`);
-  lines.push(`- Tickets: ${String(sprint.tickets.length)}`);
-  lines.push(`- Tasks: ${String(tasks.length)}`);
-  lines.push('');
+  lines.push(...renderHeaderLines(sprint, tasks));
+  lines.push(...renderProjectLines(project));
+  lines.push(...renderTicketsLines(sprint.tickets));
+  lines.push(...renderTasksLines(tasks));
+
+  return lines.join('\n');
+};
+
+const renderHeaderLines = (sprint: Sprint, tasks: readonly Task[]): string[] => {
+  return [
+    `# Harness Context — ${sprint.name}`,
+    '',
+    `- Sprint id: \`${String(sprint.id)}\``,
+    `- Slug: \`${String(sprint.slug)}\``,
+    `- Status: ${sprint.status}`,
+    `- Tickets: ${String(sprint.tickets.length)}`,
+    `- Tasks: ${String(tasks.length)}`,
+    '',
+  ];
+};
+
+const renderProjectLines = (project: Project): string[] => {
+  const lines: string[] = [];
 
   lines.push('## Project');
   lines.push('');
@@ -49,13 +65,19 @@ export const renderSprintContextMarkdown = (input: RenderSprintContextInput): st
   }
   lines.push('');
 
+  return lines;
+};
+
+const renderTicketsLines = (tickets: readonly Ticket[]): string[] => {
+  const lines: string[] = [];
+
   lines.push('## Tickets');
   lines.push('');
-  if (sprint.tickets.length === 0) {
+  if (tickets.length === 0) {
     lines.push('_(no tickets)_');
     lines.push('');
   } else {
-    for (const ticket of sprint.tickets) {
+    for (const ticket of tickets) {
       lines.push(`### ${ticket.title}`);
       lines.push('');
       lines.push(`- ID: \`${String(ticket.id)}\``);
@@ -75,46 +97,60 @@ export const renderSprintContextMarkdown = (input: RenderSprintContextInput): st
     }
   }
 
+  return lines;
+};
+
+const renderTaskLines = (task: Task): string[] => {
+  const lines: string[] = [];
+
+  lines.push(`### ${String(task.order)}. ${task.name}`);
+  lines.push('');
+  lines.push(`- ID: \`${String(task.id)}\``);
+  lines.push(`- Status: ${task.status}`);
+  lines.push(`- Ticket: \`${String(task.ticketId)}\``);
+  if (task.dependsOn.length > 0) {
+    lines.push(`- Depends on: ${task.dependsOn.map((id) => `\`${String(id)}\``).join(', ')}`);
+  }
+  if (task.description !== undefined) {
+    lines.push('');
+    lines.push(task.description);
+  }
+  if (task.steps.length > 0) {
+    lines.push('');
+    lines.push('**Steps:**');
+    for (const step of task.steps) lines.push(`- ${step}`);
+  }
+  if (task.verificationCriteria.length > 0) {
+    lines.push('');
+    lines.push('**Verification:**');
+    for (const vc of task.verificationCriteria) {
+      if (vc.check === 'auto' && vc.command !== undefined) {
+        lines.push(`- [${vc.id}] auto \`${vc.command}\` — ${vc.assertion}`);
+      } else {
+        lines.push(`- [${vc.id}] manual — ${vc.assertion}`);
+      }
+    }
+  }
+  lines.push('');
+
+  return lines;
+};
+
+const renderTasksLines = (tasks: readonly Task[]): string[] => {
+  const lines: string[] = [];
+
   lines.push('## Tasks');
   lines.push('');
   if (tasks.length === 0) {
     lines.push('_(no tasks generated yet — run `ralphctl sprint plan`)_');
     lines.push('');
-    return lines.join('\n');
+    return lines;
   }
 
   const sortedTasks = [...tasks].sort((a, b) => a.order - b.order);
   for (const task of sortedTasks) {
-    lines.push(`### ${String(task.order)}. ${task.name}`);
-    lines.push('');
-    lines.push(`- ID: \`${String(task.id)}\``);
-    lines.push(`- Status: ${task.status}`);
-    lines.push(`- Ticket: \`${String(task.ticketId)}\``);
-    if (task.dependsOn.length > 0) {
-      lines.push(`- Depends on: ${task.dependsOn.map((id) => `\`${String(id)}\``).join(', ')}`);
-    }
-    if (task.description !== undefined) {
-      lines.push('');
-      lines.push(task.description);
-    }
-    if (task.steps.length > 0) {
-      lines.push('');
-      lines.push('**Steps:**');
-      for (const step of task.steps) lines.push(`- ${step}`);
-    }
-    if (task.verificationCriteria.length > 0) {
-      lines.push('');
-      lines.push('**Verification:**');
-      for (const vc of task.verificationCriteria) {
-        if (vc.check === 'auto' && vc.command !== undefined) {
-          lines.push(`- [${vc.id}] auto \`${vc.command}\` — ${vc.assertion}`);
-        } else {
-          lines.push(`- [${vc.id}] manual — ${vc.assertion}`);
-        }
-      }
-    }
-    lines.push('');
+    lines.push(...renderTaskLines(task));
   }
 
-  return lines.join('\n');
+  return lines;
 };

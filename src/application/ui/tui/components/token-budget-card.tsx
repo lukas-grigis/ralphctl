@@ -90,20 +90,45 @@ interface ContextView {
   readonly filled: number;
 }
 
-const computeContext = (usage: TokenUsage): ContextView => {
-  const contextWindow = usage.contextWindow;
-  const hasWindow = contextWindow !== undefined && contextWindow > 0;
+interface LiveUsage {
+  readonly hasLive: boolean;
+  readonly liveUsed: number;
+}
 
+/** Sum of the per-turn LIVE counters (claude `-p` only) — the true window fill when present. */
+const resolveLiveUsage = (usage: TokenUsage): LiveUsage => {
   const hasLive =
     usage.liveInputTokens !== undefined ||
     usage.liveCacheReadTokens !== undefined ||
     usage.liveCacheCreationTokens !== undefined;
   const liveUsed =
     (usage.liveInputTokens ?? 0) + (usage.liveCacheReadTokens ?? 0) + (usage.liveCacheCreationTokens ?? 0);
+  return { hasLive, liveUsed };
+};
 
+interface CumulativeUsage {
+  readonly cumulativeUsed: number;
+  readonly cumulativeFitsWindow: boolean;
+}
+
+/** Cumulative-derived fallback used when the provider reports no per-turn LIVE counters. */
+const resolveCumulativeUsage = (
+  usage: TokenUsage,
+  contextWindow: number | undefined,
+  hasWindow: boolean
+): CumulativeUsage => {
   // Output tokens don't occupy the window, so cumulative context used = input + cacheRead.
   const cumulativeUsed = (usage.inputTokens ?? 0) + (usage.cacheReadTokens ?? 0);
   const cumulativeFitsWindow = hasWindow && contextWindow !== undefined && cumulativeUsed <= contextWindow;
+  return { cumulativeUsed, cumulativeFitsWindow };
+};
+
+const computeContext = (usage: TokenUsage): ContextView => {
+  const contextWindow = usage.contextWindow;
+  const hasWindow = contextWindow !== undefined && contextWindow > 0;
+
+  const { hasLive, liveUsed } = resolveLiveUsage(usage);
+  const { cumulativeUsed, cumulativeFitsWindow } = resolveCumulativeUsage(usage, contextWindow, hasWindow);
 
   const used = hasLive ? liveUsed : cumulativeUsed;
   const showBar = hasWindow && (hasLive || cumulativeFitsWindow);
@@ -113,6 +138,112 @@ const computeContext = (usage: TokenUsage): ContextView => {
 
   return { used, showBar, showCumulativeNote, pct, filled };
 };
+
+interface UsageGroupValues {
+  /** Raw (possibly-undefined) input-token count — rendered as `?` when the provider omitted it. */
+  readonly inputTokens: number | undefined;
+  readonly output: number | undefined;
+  readonly cacheRead: number;
+  readonly cacheTotal: number;
+  readonly cachePct: number | undefined;
+}
+
+/** Cumulative throughput / billing figures for the Usage group, derived from a {@link TokenUsage} record. */
+const computeUsageGroup = (usage: TokenUsage): UsageGroupValues => {
+  const input = usage.inputTokens ?? 0;
+  const cacheRead = usage.cacheReadTokens ?? 0;
+  const cacheCreate = usage.cacheCreationTokens ?? 0;
+  const cacheTotal = cacheRead + cacheCreate;
+
+  // Cache-hit rate: fraction of the prompt served from cache (always 0–100%).
+  // Formula: cacheRead / (cacheRead + input), i.e. how much of the prompt was already cached.
+  const cacheBase = cacheRead + input;
+  const cachePct = cacheBase > 0 && cacheRead > 0 ? Math.round((cacheRead / cacheBase) * 100) : undefined;
+
+  return { inputTokens: usage.inputTokens, output: usage.outputTokens, cacheRead, cacheTotal, cachePct };
+};
+
+/** Cumulative throughput / billing group — input/output totals plus the optional cache-hit row. */
+const UsageGroup = ({ inputTokens, output, cacheRead, cacheTotal, cachePct }: UsageGroupValues): React.JSX.Element => (
+  <>
+    <Text dimColor bold>
+      Usage
+    </Text>
+    {/* input/output row: use a single outer Text wrapper so Ink treats the entire
+        line as one text block — no flex-column splitting between label and value.
+        Inner Text nodes only apply colour; they do not create separate flex items. */}
+    <Text>
+      <Text dimColor>in/out:</Text> {inputTokens !== undefined ? fmtTokens(inputTokens) : '?'} /{' '}
+      {output !== undefined ? fmtTokens(output) : '?'}
+    </Text>
+    {cacheTotal > 0 && (
+      <Box>
+        {/* Explicit standalone space node — Ink collapses trailing spaces inside a
+            styled Text node, so the gap between label and value must be a plain
+            un-styled adjacent node. */}
+        <Text dimColor>cache hit:</Text>
+        <Text> </Text>
+        <Text>{fmtTokens(cacheRead)}</Text>
+        {cachePct !== undefined && (
+          <>
+            <Text> </Text>
+            <Text dimColor>({String(cachePct)}%)</Text>
+          </>
+        )}
+      </Box>
+    )}
+  </>
+);
+
+interface ContextGroupProps {
+  readonly usage: TokenUsage;
+  readonly modelWindowLabel: string | undefined;
+  readonly ctx: ContextView;
+  readonly contextWindow: number | undefined;
+}
+
+/** Effective context-window occupancy group — model label, used/window figure, and the optional % bar. */
+const ContextGroup = ({ usage, modelWindowLabel, ctx, contextWindow }: ContextGroupProps): React.JSX.Element => (
+  <Box marginTop={spacing.gutter} flexDirection="column">
+    <Text dimColor bold>
+      Context
+    </Text>
+    {/* Model descriptor: shows which model's window is the denominator. Omitted when
+        the model is unknown so the card degrades cleanly for providers that don't
+        report a model name. */}
+    {usage.model !== undefined && (
+      <Box>
+        <Text dimColor>{usage.model}</Text>
+        {modelWindowLabel !== undefined && (
+          <>
+            <Text dimColor> {glyphs.bullet} </Text>
+            <Text dimColor>{modelWindowLabel}</Text>
+          </>
+        )}
+      </Box>
+    )}
+    {ctx.showCumulativeNote ? (
+      // Cumulative data over the window: raw total labelled as session-cumulative; no
+      // "/window" denominator and no % bar — a "2.2M / 200k 100%" bar would mislead.
+      <Text>
+        <Text dimColor>session:</Text>
+        {` ${fmtTokens(ctx.used)} `}
+        <Text dimColor>(cumulative)</Text>
+      </Text>
+    ) : (
+      <Text>
+        {fmtTokens(ctx.used)} / {contextWindow !== undefined ? fmtTokens(contextWindow) : '?'}
+      </Text>
+    )}
+    {ctx.showBar && (
+      <Box>
+        <Text color={pctColor(ctx.pct)}>{renderBar(ctx.filled)}</Text>
+        <Text> </Text>
+        <Text color={pctColor(ctx.pct)}>{String(ctx.pct)}%</Text>
+      </Box>
+    )}
+  </Box>
+);
 
 export const TokenBudgetCard = ({ sessionId, usage }: TokenBudgetCardProps): React.JSX.Element => {
   const title = `Tokens · ${shortSession(sessionId)}`;
@@ -130,25 +261,14 @@ export const TokenBudgetCard = ({ sessionId, usage }: TokenBudgetCardProps): Rea
     );
   }
 
-  // ── Usage group: cumulative throughput / billing ──────────────────────────────────────────
-  const input = usage.inputTokens ?? 0;
-  const output = usage.outputTokens;
-  const cacheRead = usage.cacheReadTokens ?? 0;
-  const cacheCreate = usage.cacheCreationTokens ?? 0;
-  const cacheTotal = cacheRead + cacheCreate;
+  const usageGroup = computeUsageGroup(usage);
 
-  // Cache-hit rate: fraction of the prompt served from cache (always 0–100%).
-  // Formula: cacheRead / (cacheRead + input), i.e. how much of the prompt was already cached.
-  const cacheBase = cacheRead + input;
-  const cachePct = cacheBase > 0 && cacheRead > 0 ? Math.round((cacheRead / cacheBase) * 100) : undefined;
-
-  // ── Context group: effective window occupancy ─────────────────────────────────────────────
   const contextWindow = usage.contextWindow;
   const hasLive =
     usage.liveInputTokens !== undefined ||
     usage.liveCacheReadTokens !== undefined ||
     usage.liveCacheCreationTokens !== undefined;
-  const hasUsageData = usage.inputTokens !== undefined || output !== undefined || hasLive;
+  const hasUsageData = usage.inputTokens !== undefined || usage.outputTokens !== undefined || hasLive;
   const ctx = computeContext(usage);
   // Model descriptor for the Context group — shown as a dim sub-label so the denominator
   // (e.g. `53.6k / 200k`) is self-explanatory without needing to cross-reference the header.
@@ -159,74 +279,11 @@ export const TokenBudgetCard = ({ sessionId, usage }: TokenBudgetCardProps): Rea
       <Card title={title} tone="info">
         <Box flexDirection="column">
           {/* ── Usage group (cumulative / billing) ── */}
-          <Text dimColor bold>
-            Usage
-          </Text>
-          {/* input/output row: use a single outer Text wrapper so Ink treats the entire
-              line as one text block — no flex-column splitting between label and value.
-              Inner Text nodes only apply colour; they do not create separate flex items. */}
-          <Text>
-            <Text dimColor>in/out:</Text> {usage.inputTokens !== undefined ? fmtTokens(usage.inputTokens) : '?'} /{' '}
-            {output !== undefined ? fmtTokens(output) : '?'}
-          </Text>
-          {cacheTotal > 0 && (
-            <Box>
-              {/* Explicit standalone space node — Ink collapses trailing spaces inside a
-                  styled Text node, so the gap between label and value must be a plain
-                  un-styled adjacent node. */}
-              <Text dimColor>cache hit:</Text>
-              <Text> </Text>
-              <Text>{fmtTokens(cacheRead)}</Text>
-              {cachePct !== undefined && (
-                <>
-                  <Text> </Text>
-                  <Text dimColor>({String(cachePct)}%)</Text>
-                </>
-              )}
-            </Box>
-          )}
+          <UsageGroup {...usageGroup} />
 
           {/* ── Context group (effective window occupancy) ── */}
           {hasUsageData && (
-            <Box marginTop={spacing.gutter} flexDirection="column">
-              <Text dimColor bold>
-                Context
-              </Text>
-              {/* Model descriptor: shows which model's window is the denominator. Omitted when
-                  the model is unknown so the card degrades cleanly for providers that don't
-                  report a model name. */}
-              {usage.model !== undefined && (
-                <Box>
-                  <Text dimColor>{usage.model}</Text>
-                  {modelWindowLabel !== undefined && (
-                    <>
-                      <Text dimColor> {glyphs.bullet} </Text>
-                      <Text dimColor>{modelWindowLabel}</Text>
-                    </>
-                  )}
-                </Box>
-              )}
-              {ctx.showCumulativeNote ? (
-                // Cumulative data over the window: raw total labelled as session-cumulative; no
-                // "/window" denominator and no % bar — a "2.2M / 200k 100%" bar would mislead.
-                <Text>
-                  <Text dimColor>session:</Text>
-                  {` ${fmtTokens(ctx.used)} `}
-                  <Text dimColor>(cumulative)</Text>
-                </Text>
-              ) : (
-                <Text>
-                  {fmtTokens(ctx.used)} / {contextWindow !== undefined ? fmtTokens(contextWindow) : '?'}
-                </Text>
-              )}
-              {ctx.showBar && (
-                <Box>
-                  <Text color={pctColor(ctx.pct)}>{renderBar(ctx.filled)}</Text>
-                  <Text> </Text>
-                  <Text color={pctColor(ctx.pct)}>{String(ctx.pct)}%</Text>
-                </Box>
-              )}
-            </Box>
+            <ContextGroup usage={usage} modelWindowLabel={modelWindowLabel} ctx={ctx} contextWindow={contextWindow} />
           )}
         </Box>
       </Card>

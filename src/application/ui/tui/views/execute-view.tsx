@@ -49,6 +49,23 @@ import type { AppEvent } from '@src/business/observability/events.ts';
 import { useUiState, type FocusedRunCtx } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { fmtElapsed } from '@src/application/ui/tui/theme/duration.ts';
+import type { AppDeps } from '@src/application/bootstrap/wire.ts';
+import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
+import type {
+  SessionDescriptor,
+  SessionManager,
+  SessionRecord,
+} from '@src/application/ui/tui/runtime/session-manager.ts';
+import type { RouterApi } from '@src/application/ui/tui/runtime/router.tsx';
+import type { TerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
+import type { TokenUsage } from '@src/application/ui/tui/runtime/use-token-usage.ts';
+import type { LogEvent } from '@src/business/observability/events.ts';
+import type { HarnessSignal } from '@src/domain/signal.ts';
+import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
+import type { Task } from '@src/domain/entity/task.ts';
+import type { ResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/use-responsive-layout.ts';
+import type { BucketedDerivation } from '@src/application/ui/tui/views/execute-view-internals/use-bucketed-tasks.ts';
+import type { CancelHandlers } from '@src/application/ui/tui/views/execute-view-internals/use-cancel-handlers.ts';
 
 import { ExecuteBody } from '@src/application/ui/tui/views/execute-view-internals/body.tsx';
 import { LOG_TAIL_LIMIT } from '@src/application/ui/tui/views/execute-view-internals/log-panel.tsx';
@@ -67,51 +84,35 @@ interface ExecuteProps extends Readonly<Record<string, unknown>> {
 }
 
 /**
- * Derive a human-readable section title from a flow id. Keeps the Execute view header
- * accurate for any flow that reuses this view (refine, plan, review, create-pr, …) instead
- * of always showing "Implement". Falls back to the raw flowId so a future flow never shows
- * a blank header.
+ * Human-readable section title per flow id. Keeps the Execute view header accurate for any
+ * flow that reuses this view (refine, plan, review, create-pr, …) instead of always showing
+ * "Implement".
  */
-const flowIdToTitle = (flowId: string): string => {
-  switch (flowId) {
-    case 'implement':
-      return 'Implement';
-    case 'refine':
-      return 'Refine';
-    case 'plan':
-      return 'Plan';
-    case 'ideate':
-      return 'Ideate';
-    case 'review':
-      return 'Review';
-    case 'create-pr':
-      return 'Create PR';
-    case 'readiness':
-      return 'Readiness';
-    case 'detect-scripts':
-      return 'Detect Scripts';
-    case 'detect-skills':
-      return 'Detect Skills';
-    case 'create-sprint':
-      return 'Create Sprint';
-    case 'close-sprint':
-      return 'Close Sprint';
-    case 'add-ticket':
-      return 'Add Ticket';
-    case 'remove-ticket':
-      return 'Remove Ticket';
-    case 'export-context':
-      return 'Export Context';
-    case 'export-requirements':
-      return 'Export Requirements';
-    case 'doctor':
-      return 'Doctor';
-    case 'settings':
-      return 'Settings';
-    default:
-      return flowId;
-  }
+const FLOW_TITLES: Record<string, string> = {
+  implement: 'Implement',
+  refine: 'Refine',
+  plan: 'Plan',
+  ideate: 'Ideate',
+  review: 'Review',
+  'create-pr': 'Create PR',
+  readiness: 'Readiness',
+  'detect-scripts': 'Detect Scripts',
+  'detect-skills': 'Detect Skills',
+  'create-sprint': 'Create Sprint',
+  'close-sprint': 'Close Sprint',
+  'add-ticket': 'Add Ticket',
+  'remove-ticket': 'Remove Ticket',
+  'export-context': 'Export Context',
+  'export-requirements': 'Export Requirements',
+  doctor: 'Doctor',
+  settings: 'Settings',
 };
+
+/**
+ * Derive a human-readable section title from a flow id. Falls back to the raw flowId so a
+ * future flow never shows a blank header.
+ */
+const flowIdToTitle = (flowId: string): string => FLOW_TITLES[flowId] ?? flowId;
 
 /**
  * Buffer sizing for long Implement runs:
@@ -125,8 +126,30 @@ const flowIdToTitle = (flowId: string): string => {
 const HARNESS_SIGNAL_LIMIT = 1000;
 const CHAIN_EVENT_LIMIT = 2000;
 
-export const ExecuteView = (): React.JSX.Element => {
-  const { sessionId } = useViewProps<ExecuteProps>();
+// `useUiState` doesn't export its return interface, so infer it locally.
+type UiStateApi = ReturnType<typeof useUiState>;
+
+interface ExecuteSessionData {
+  readonly session: SessionRecord | undefined;
+  readonly sessions: SessionManager;
+  readonly sessionList: readonly SessionRecord[];
+  readonly router: RouterApi;
+  readonly ui: UiStateApi;
+  readonly deps: AppDeps;
+  readonly eventBus: AppDeps['eventBus'];
+  readonly signals: readonly HarnessSignal[];
+  readonly logEntries: readonly LogEvent[];
+  readonly chainEvents: readonly AppEvent[];
+  readonly term: TerminalSize;
+}
+
+/**
+ * Every hook that just wires this view to shared runtime context (session registry, event
+ * buses, deps, terminal size, …) rather than deriving Execute-specific state. Grouped into one
+ * call so the component body reads as "get my wiring, then derive my state" instead of a long
+ * flat prelude — the individual hooks are unchanged, still called in the same relative order.
+ */
+const useExecuteSessionData = (sessionId: string): ExecuteSessionData => {
   const session = useSession(sessionId);
   const sessions = useSessionManager();
   // Live list of every session for the multi-flow strip (renders only when ≥2 are running).
@@ -143,22 +166,40 @@ export const ExecuteView = (): React.JSX.Element => {
     limit: CHAIN_EVENT_LIMIT,
   });
   const term = useTerminalSize();
+  return { session, sessions, sessionList, router, ui, deps, eventBus, signals, logEntries, chainEvents, term };
+};
 
-  // Each Execute view is scoped to its session's pinned sprint so concurrent runs remain
-  // independent of each other and of the mutable global selection.
-  const pinnedSprintId = session?.descriptor?.pinnedSprintId as SprintId | undefined;
-  const pinnedProjectLabel = session?.descriptor?.pinnedProjectLabel;
-  const pinnedSprintLabel = session?.descriptor?.pinnedSprintLabel;
+interface UsePinnedSprintContextInput {
+  readonly pinnedSprintId: SprintId | undefined;
+  readonly pinnedProjectLabel: string | undefined;
+  readonly pinnedSprintLabel: string | undefined;
+  readonly sprintRepo: AppDeps['sprintRepo'];
+  readonly setFocusedRunContext: (ctx: FocusedRunCtx | undefined) => void;
+}
 
-  // Best-effort probe: mark the sprint unavailable when it has been closed or removed so
-  // the Execute view can show an inline fallback instead of stale panel data.
+/**
+ * Two effects scoped to the session's pinned sprint, extracted together because they share
+ * the same trio of inputs (pinnedSprintId / pinnedProjectLabel / pinnedSprintLabel):
+ *  - probes `sprintRepo` to detect a closed/removed sprint, surfaced as `pinnedSprintAvailable`
+ *    so the caller can blank the panels that depend on it (see `deriveTasksPanel` below).
+ *  - registers this run's project/sprint as the focused-run context so the breadcrumb and
+ *    progress overlay reflect the run's own sprint while this view is mounted.
+ */
+const usePinnedSprintContext = ({
+  pinnedSprintId,
+  pinnedProjectLabel,
+  pinnedSprintLabel,
+  sprintRepo,
+  setFocusedRunContext,
+}: UsePinnedSprintContextInput): { pinnedSprintAvailable: boolean } => {
   const [pinnedSprintAvailable, setPinnedSprintAvailable] = React.useState(true);
+
   React.useEffect(() => {
     if (pinnedSprintId === undefined) return undefined;
     let cancelled = false;
     const check = async (): Promise<void> => {
       try {
-        const r = await deps.sprintRepo.findById(pinnedSprintId);
+        const r = await sprintRepo.findById(pinnedSprintId);
         if (cancelled) return;
         if (!r.ok || r.value.status === 'done') setPinnedSprintAvailable(false);
       } catch {
@@ -169,11 +210,8 @@ export const ExecuteView = (): React.JSX.Element => {
     return (): void => {
       cancelled = true;
     };
-  }, [pinnedSprintId, deps.sprintRepo]);
+  }, [pinnedSprintId, sprintRepo]);
 
-  // Register this run's pinned project/sprint as the focused-run context so breadcrumb and
-  // progress overlay reflect the run's own sprint while this view is mounted.
-  const setFocusedRunContext = ui.setFocusedRunContext;
   React.useEffect(() => {
     const ctx: FocusedRunCtx = {
       projectLabel: pinnedProjectLabel,
@@ -186,107 +224,44 @@ export const ExecuteView = (): React.JSX.Element => {
     };
   }, [pinnedProjectLabel, pinnedSprintId, pinnedSprintLabel, setFocusedRunContext]);
 
-  // NOTE deliberately NO selection convergence here: focusing a run (Tab / Ctrl+1..9 /
-  // Sessions-open) is a *browse*, exactly like opening a project or sprint detail — it must
-  // never mutate (or persist) the global project/sprint selection. The user's pick survives
-  // until they explicitly pick something else; the focused-run context above already scopes
-  // the breadcrumb / overlay to the run's own sprint while this view is mounted.
+  return { pinnedSprintAvailable };
+};
 
-  const baselineSprintId: SprintId | undefined = pinnedSprintId;
-  const { executionState, taskState } = useBaselineHealthData({
-    baselineSprintId,
-    sprintExecutionRepo: deps.sprintExecutionRepo,
-    taskRepo: deps.taskRepo,
-  });
+interface DeriveTasksPanelInput {
+  readonly pinnedSprintStale: boolean;
+  readonly bucketed: BucketedExecution | undefined;
+  readonly descriptor: SessionDescriptor;
+  readonly isRunning: boolean;
+  readonly layout: ResponsiveLayout;
+  readonly tasksInputActive: boolean;
+  readonly now: number;
+  readonly executionState: SprintExecution | undefined;
+  readonly taskState: readonly Task[] | undefined;
+}
 
-  const isRunning = session?.descriptor.status === 'running';
+interface DeriveTasksPanelResult {
+  readonly tasksPanel: React.JSX.Element;
+  // Named to match `ExecuteBodyProps` (`executionState` / `taskState`) so the caller can spread
+  // this result straight onto `<ExecuteBody>` — see `ExecuteViewFrame` below.
+  readonly executionState: SprintExecution | undefined;
+  readonly taskState: readonly Task[] | undefined;
+}
 
-  // Cancel-scope picker — `c` no longer aborts immediately; it opens an inline overlay that
-  // distinguishes "cancel current attempt" (keep task queued, retry next round) from "cancel
-  // whole flow" (mark current task blocked + exit chain). The overlay claims the keyboard
-  // while mounted so the picker's `1` / `2` / `esc` keystrokes don't fight this handler.
-  const [cancelScopeOpen, setCancelScopeOpen] = React.useState(false);
-
-  useExecuteInput({
-    isRunning,
-    cancelScopeOpen,
-    setCancelScopeOpen,
-    modalOpen: ui.modalOpen,
-    router,
-  });
-
-  const now = useLiveClock(isRunning);
-
-  const { bucketed, tasksDone, tasksTotal, currentTask, currentTaskIdx, currentTaskName, currentSubStep } =
-    useBucketedTasks({ descriptor: session?.descriptor, chainEvents, signals, eventBus });
-
-  // Per-session token usage — latest `TokenUsageEvent` per sessionId. The execute view is
-  // sessionId-scoped so we only look up the current runner's entry; absent ⇒ empty state.
-  const tokenUsageBySession = useTokenUsage(eventBus);
-  const tokenUsage = tokenUsageBySession.get(sessionId);
-
-  // Stash the stable setter so the active-task-summary effect doesn't fire on unrelated
-  // UI state toggles (helpOpen, claims, …).
-  const setActiveTaskSummaryProvider = ui.setActiveTaskSummaryProvider;
-  useActiveTaskSummary({ currentTask, currentTaskName, setActiveTaskSummaryProvider });
-
-  const { attemptStartedAt, remainingTaskCount } = useCancelScopeStats({
-    chainEvents,
-    currentTask,
-    bucketed,
-  });
-  // Elapsed is derived here (not inside the memo) so the O(chainEvents) scan that produces
-  // `attemptStartedAt` does not re-run on every 1 Hz `useLiveClock` tick — only this cheap
-  // subtraction does. Math.max guards the initial render: `now` (useLiveClock's Date.now() seed)
-  // can be fractionally behind an attempt timestamp parsed in the same tick, yielding a small
-  // negative delta we clamp to 0.
-  const attemptElapsedMs = attemptStartedAt !== undefined ? Math.max(0, now - attemptStartedAt) : undefined;
-
-  const {
-    onCancelAttempt,
-    onCancelFlow,
-    onDismiss: onDismissCancelScope,
-  } = useCancelHandlers({
-    sessions,
-    sessionId,
-    sprintId: pinnedSprintId,
-    currentTask,
-    taskRepo: deps.taskRepo,
-    logger: deps.logger,
-    setCancelScopeOpen,
-  });
-
-  const layout = useResponsiveLayout({ columns: term.columns, rows: term.rows, isRunning });
-
-  // Early-return for "no session in registry" must come AFTER every hook above so the Hook
-  // call order is identical across renders. Hooks below this line do not exist — every Hook
-  // the view needs has already run.
-  const descriptor = session?.descriptor;
-  if (!session || descriptor === undefined) {
-    return (
-      <ViewShell title="Implement" subtitle="(session not found)">
-        <Box paddingX={spacing.indent}>
-          <Text dimColor>The session id was not found in the registry. It may have been removed.</Text>
-        </Box>
-      </ViewShell>
-    );
-  }
-
-  // Wall-clock elapsed since the run started — a display string for the header / footer.
-  const endedAt = descriptor.finishedAt ?? now;
-  const elapsed = fmtElapsed(descriptor.startedAt, endedAt);
-
-  // TasksPanel claims input for the signal-row cursor (j/k or ↑/↓ to move, Enter / Space to
-  // expand a commit-message row). Disabled while any modal owns the keyboard so the cursor
-  // can't fight the help overlay (`?`), the progress overlay (`g`), a prompt, or the
-  // cancel-scope picker (`c`) — the latter is rendered inline behind the modal, so without
-  // this gate esc/j/k/e would double-handle the hidden panel.
-  const tasksInputActive = !ui.modalOpen && !cancelScopeOpen;
-
-  // When the pinned sprint is no longer available (done or removed), blank the panels that
-  // depend on it and surface a pick-a-sprint prompt so the user knows what happened.
-  const pinnedSprintStale = pinnedSprintId !== undefined && !pinnedSprintAvailable;
-
+/**
+ * When the pinned sprint is no longer available (done or removed), blank the panels that
+ * depend on it and surface a pick-a-sprint prompt so the user knows what happened.
+ */
+const deriveTasksPanel = ({
+  pinnedSprintStale,
+  bucketed,
+  descriptor,
+  isRunning,
+  layout,
+  tasksInputActive,
+  now,
+  executionState,
+  taskState,
+}: DeriveTasksPanelInput): DeriveTasksPanelResult => {
   const tasksPanel = pinnedSprintStale ? (
     <Box paddingX={spacing.indent}>
       <Text dimColor>Sprint no longer available — pick a sprint to continue.</Text>
@@ -304,8 +279,109 @@ export const ExecuteView = (): React.JSX.Element => {
     />
   );
 
-  const effectiveExecutionState = pinnedSprintStale ? undefined : executionState;
-  const effectiveTaskState = pinnedSprintStale ? undefined : taskState;
+  return {
+    tasksPanel,
+    executionState: pinnedSprintStale ? undefined : executionState,
+    taskState: pinnedSprintStale ? undefined : taskState,
+  };
+};
+
+/** Rendered when `sessionId` has no matching entry in the registry (e.g. it was removed). */
+const SessionNotFoundNotice = (): React.JSX.Element => (
+  <ViewShell title="Implement" subtitle="(session not found)">
+    <Box paddingX={spacing.indent}>
+      <Text dimColor>The session id was not found in the registry. It may have been removed.</Text>
+    </Box>
+  </ViewShell>
+);
+
+/**
+ * Not derived inside `useCancelScopeStats` itself so the O(chainEvents) scan that produces
+ * `attemptStartedAt` does not re-run on every 1 Hz `useLiveClock` tick — only this cheap
+ * subtraction does. `Math.max` guards the initial render: `now` (`useLiveClock`'s `Date.now()`
+ * seed) can be fractionally behind an attempt timestamp parsed in the same tick, yielding a
+ * small negative delta we clamp to 0.
+ */
+const computeAttemptElapsedMs = (attemptStartedAt: number | undefined, now: number): number | undefined =>
+  attemptStartedAt !== undefined ? Math.max(0, now - attemptStartedAt) : undefined;
+
+interface UseExecuteRunControlsInput {
+  readonly descriptor: SessionDescriptor | undefined;
+  readonly modalOpen: boolean;
+  readonly router: RouterApi;
+}
+
+export interface ExecuteRunControls {
+  readonly isRunning: boolean;
+  readonly cancelScopeOpen: boolean;
+  readonly setCancelScopeOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  readonly now: number;
+}
+
+/**
+ * Bundles the three pieces of state/derivation that only make sense together: whether the run
+ * is live, the cancel-scope picker's open/closed state (claimed by `useExecuteInput`'s `c` key),
+ * and the 1 Hz clock that only ticks while running.
+ */
+const useExecuteRunControls = ({ descriptor, modalOpen, router }: UseExecuteRunControlsInput): ExecuteRunControls => {
+  const isRunning = descriptor?.status === 'running';
+
+  // Cancel-scope picker — `c` no longer aborts immediately; it opens an inline overlay that
+  // distinguishes "cancel current attempt" (keep task queued, retry next round) from "cancel
+  // whole flow" (mark current task blocked + exit chain). The overlay claims the keyboard
+  // while mounted so the picker's `1` / `2` / `esc` keystrokes don't fight this handler.
+  const [cancelScopeOpen, setCancelScopeOpen] = React.useState(false);
+
+  useExecuteInput({ isRunning, cancelScopeOpen, setCancelScopeOpen, modalOpen, router });
+
+  const now = useLiveClock(isRunning);
+
+  return { isRunning, cancelScopeOpen, setCancelScopeOpen, now };
+};
+
+interface ExecuteViewFrameProps {
+  readonly ui: UiStateApi;
+  readonly descriptor: SessionDescriptor;
+  readonly sessionList: readonly SessionRecord[];
+  readonly sessionId: string;
+  readonly runControls: ExecuteRunControls;
+  readonly layout: ResponsiveLayout;
+  readonly term: TerminalSize;
+  readonly bucketedTasks: BucketedDerivation;
+  readonly tasksPanelDerivation: DeriveTasksPanelResult;
+  readonly tokenUsage: TokenUsage | undefined;
+  readonly logEntries: readonly LogEvent[];
+  readonly attemptElapsedMs: number | undefined;
+  readonly remainingTaskCount: number;
+  readonly cancelHandlers: CancelHandlers;
+  readonly pinnedSprintStale: boolean;
+}
+
+/**
+ * The settled render for a found session — header chip + either the help overlay or the full
+ * `ExecuteBody`. Takes the grouped hook results as-is (rather than 20+ flat props) so the
+ * caller reads as "assemble the frame from what I already computed".
+ */
+const ExecuteViewFrame = ({
+  ui,
+  descriptor,
+  sessionList,
+  sessionId,
+  runControls,
+  layout,
+  term,
+  bucketedTasks,
+  tasksPanelDerivation,
+  tokenUsage,
+  logEntries,
+  attemptElapsedMs,
+  remainingTaskCount,
+  cancelHandlers,
+  pinnedSprintStale,
+}: ExecuteViewFrameProps): React.JSX.Element => {
+  // Wall-clock elapsed since the run started — a display string for the header / footer.
+  const endedAt = descriptor.finishedAt ?? runControls.now;
+  const elapsed = fmtElapsed(descriptor.startedAt, endedAt);
 
   return (
     <ViewShell
@@ -321,33 +397,146 @@ export const ExecuteView = (): React.JSX.Element => {
           descriptor={descriptor}
           sessionList={sessionList}
           sessionId={sessionId}
-          isRunning={isRunning}
-          now={now}
+          isRunning={runControls.isRunning}
+          now={runControls.now}
           elapsed={elapsed}
           layout={layout}
           termColumns={term.columns}
           termRows={term.rows}
-          bucketed={bucketed}
-          executionState={effectiveExecutionState}
-          taskState={effectiveTaskState}
           tokenUsage={tokenUsage}
-          tasksDone={tasksDone}
-          tasksTotal={tasksTotal}
-          currentTask={currentTask}
-          currentTaskIdx={currentTaskIdx}
-          currentTaskName={currentTaskName}
-          currentSubStep={currentSubStep}
-          tasksPanel={tasksPanel}
           logEntries={logEntries}
-          cancelScopeOpen={cancelScopeOpen}
+          cancelScopeOpen={runControls.cancelScopeOpen}
           attemptElapsedMs={attemptElapsedMs}
           remainingTaskCount={remainingTaskCount}
-          onCancelAttempt={onCancelAttempt}
-          onCancelFlow={onCancelFlow}
-          onDismissCancelScope={onDismissCancelScope}
+          onCancelAttempt={cancelHandlers.onCancelAttempt}
+          onCancelFlow={cancelHandlers.onCancelFlow}
+          onDismissCancelScope={cancelHandlers.onDismiss}
           pinnedSprintStale={pinnedSprintStale}
+          {...bucketedTasks}
+          {...tasksPanelDerivation}
         />
       )}
     </ViewShell>
+  );
+};
+
+export const ExecuteView = (): React.JSX.Element => {
+  const { sessionId } = useViewProps<ExecuteProps>();
+  const { session, sessions, sessionList, router, ui, deps, eventBus, signals, logEntries, chainEvents, term } =
+    useExecuteSessionData(sessionId);
+
+  // Each Execute view is scoped to its session's pinned sprint so concurrent runs remain
+  // independent of each other and of the mutable global selection.
+  const descriptor = session?.descriptor;
+  const pinnedSprintId = descriptor?.pinnedSprintId as SprintId | undefined;
+  const pinnedProjectLabel = descriptor?.pinnedProjectLabel;
+  const pinnedSprintLabel = descriptor?.pinnedSprintLabel;
+
+  // Probes sprintRepo (best-effort — mark unavailable when closed/removed so the Execute
+  // view can show an inline fallback instead of stale panel data) and registers this run's
+  // pinned project/sprint as the focused-run context so breadcrumb and progress overlay
+  // reflect the run's own sprint while this view is mounted.
+  const { pinnedSprintAvailable } = usePinnedSprintContext({
+    pinnedSprintId,
+    pinnedProjectLabel,
+    pinnedSprintLabel,
+    sprintRepo: deps.sprintRepo,
+    setFocusedRunContext: ui.setFocusedRunContext,
+  });
+
+  // NOTE deliberately NO selection convergence here: focusing a run (Tab / Ctrl+1..9 /
+  // Sessions-open) is a *browse*, exactly like opening a project or sprint detail — it must
+  // never mutate (or persist) the global project/sprint selection. The user's pick survives
+  // until they explicitly pick something else; the focused-run context above already scopes
+  // the breadcrumb / overlay to the run's own sprint while this view is mounted.
+
+  const { executionState, taskState } = useBaselineHealthData({
+    baselineSprintId: pinnedSprintId,
+    sprintExecutionRepo: deps.sprintExecutionRepo,
+    taskRepo: deps.taskRepo,
+  });
+
+  const runControls = useExecuteRunControls({ descriptor, modalOpen: ui.modalOpen, router });
+
+  const bucketedTasks = useBucketedTasks({ descriptor, chainEvents, signals, eventBus });
+
+  // Per-session token usage — latest `TokenUsageEvent` per sessionId. The execute view is
+  // sessionId-scoped so we only look up the current runner's entry; absent ⇒ empty state.
+  const tokenUsageBySession = useTokenUsage(eventBus);
+  const tokenUsage = tokenUsageBySession.get(sessionId);
+
+  // Stash the stable setter so the active-task-summary effect doesn't fire on unrelated
+  // UI state toggles (helpOpen, claims, …).
+  const setActiveTaskSummaryProvider = ui.setActiveTaskSummaryProvider;
+  useActiveTaskSummary({
+    currentTask: bucketedTasks.currentTask,
+    currentTaskName: bucketedTasks.currentTaskName,
+    setActiveTaskSummaryProvider,
+  });
+
+  const cancelStats = useCancelScopeStats({
+    chainEvents,
+    currentTask: bucketedTasks.currentTask,
+    bucketed: bucketedTasks.bucketed,
+  });
+  const attemptElapsedMs = computeAttemptElapsedMs(cancelStats.attemptStartedAt, runControls.now);
+
+  const cancelHandlers = useCancelHandlers({
+    sessions,
+    sessionId,
+    sprintId: pinnedSprintId,
+    currentTask: bucketedTasks.currentTask,
+    taskRepo: deps.taskRepo,
+    logger: deps.logger,
+    setCancelScopeOpen: runControls.setCancelScopeOpen,
+  });
+
+  const layout = useResponsiveLayout({ columns: term.columns, rows: term.rows, isRunning: runControls.isRunning });
+
+  // Early-return for "no session in registry" must come AFTER every hook above so the Hook
+  // call order is identical across renders. Hooks below this line do not exist — every Hook
+  // the view needs has already run.
+  if (!session || descriptor === undefined) return <SessionNotFoundNotice />;
+
+  // TasksPanel claims input for the signal-row cursor (j/k or ↑/↓ to move, Enter / Space to
+  // expand a commit-message row). Disabled while any modal owns the keyboard so the cursor
+  // can't fight the help overlay (`?`), the progress overlay (`g`), a prompt, or the
+  // cancel-scope picker (`c`) — the latter is rendered inline behind the modal, so without
+  // this gate esc/j/k/e would double-handle the hidden panel.
+  const tasksInputActive = !ui.modalOpen && !runControls.cancelScopeOpen;
+
+  // The pinned sprint is stale once it's been closed or removed — see `deriveTasksPanel`.
+  const pinnedSprintStale = pinnedSprintId !== undefined && !pinnedSprintAvailable;
+
+  const tasksPanelDerivation = deriveTasksPanel({
+    pinnedSprintStale,
+    bucketed: bucketedTasks.bucketed,
+    descriptor,
+    isRunning: runControls.isRunning,
+    layout,
+    tasksInputActive,
+    now: runControls.now,
+    executionState,
+    taskState,
+  });
+
+  return (
+    <ExecuteViewFrame
+      ui={ui}
+      descriptor={descriptor}
+      sessionList={sessionList}
+      sessionId={sessionId}
+      runControls={runControls}
+      layout={layout}
+      term={term}
+      bucketedTasks={bucketedTasks}
+      tasksPanelDerivation={tasksPanelDerivation}
+      tokenUsage={tokenUsage}
+      logEntries={logEntries}
+      attemptElapsedMs={attemptElapsedMs}
+      remainingTaskCount={cancelStats.remainingTaskCount}
+      cancelHandlers={cancelHandlers}
+      pinnedSprintStale={pinnedSprintStale}
+    />
   );
 };

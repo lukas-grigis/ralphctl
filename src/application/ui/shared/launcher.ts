@@ -187,51 +187,53 @@ export interface LauncherDeps {
 
 const sessionId = (): string => `r-${Math.random().toString(36).slice(2, 10)}-${String(Date.now())}`;
 
+/** The `ok: true` branch of {@link LaunchResult} — the shape {@link sessionHintsFromLaunchResult} reads. */
+type LaunchOk = Extract<LaunchResult, { readonly ok: true }>;
+
+/**
+ * Optional UI-hint field names projected by {@link sessionHintsFromLaunchResult}. Declared once
+ * as a `satisfies`-checked tuple so adding a new hint is a one-line edit that stays in sync with
+ * both the picker call and its inferred return type.
+ */
+const HINT_KEYS = [
+  'taskNames',
+  'maxTurns',
+  'maxAttempts',
+  'plannedLeaves',
+  'planLabelByName',
+  'terminalSubstepName',
+  'taskRecovering',
+  'generatorModel',
+  'evaluatorModel',
+  'generatorProvider',
+  'evaluatorProvider',
+  'generatorEffort',
+  'evaluatorEffort',
+  'pinnedProjectId',
+  'pinnedProjectLabel',
+  'pinnedSprintId',
+  'pinnedSprintLabel',
+] as const satisfies ReadonlyArray<keyof LaunchOk>;
+
+/** Copy the subset of `keys` whose value on `obj` is not `undefined` into a fresh object. */
+const pickDefined = <T extends object, K extends keyof T>(obj: T, keys: readonly K[]): Pick<T, K> => {
+  const picked = {} as Pick<T, K>;
+  for (const key of keys) {
+    const value = obj[key];
+    if (value !== undefined) picked[key] = value;
+  }
+  return picked;
+};
+
 /**
  * Project the optional UI-hint fields from a successful {@link LaunchResult} into the shape
  * `SessionManager.register` accepts. Centralised so the four call sites (flows-view,
  * pick-sprint-view, project-detail-view, sprints-view) don't each stamp the same
- * conditional-spread pattern. Adding a new UI hint becomes one edit here instead of four.
+ * conditional-spread pattern. Adding a new UI hint becomes one edit to {@link HINT_KEYS} instead
+ * of four.
  */
-export const sessionHintsFromLaunchResult = (
-  result: Extract<LaunchResult, { readonly ok: true }>
-): {
-  readonly taskNames?: ReadonlyMap<string, string>;
-  readonly maxTurns?: number;
-  readonly maxAttempts?: number;
-  readonly plannedLeaves?: readonly string[];
-  readonly planLabelByName?: ReadonlyMap<string, string>;
-  readonly terminalSubstepName?: string;
-  readonly taskRecovering?: ReadonlyMap<string, RecoveryContext>;
-  readonly generatorModel?: string;
-  readonly evaluatorModel?: string;
-  readonly generatorProvider?: AiProvider;
-  readonly evaluatorProvider?: AiProvider;
-  readonly generatorEffort?: string;
-  readonly evaluatorEffort?: string;
-  readonly pinnedProjectId?: ProjectId;
-  readonly pinnedProjectLabel?: string;
-  readonly pinnedSprintId?: SprintId;
-  readonly pinnedSprintLabel?: string;
-} => ({
-  ...(result.taskNames !== undefined ? { taskNames: result.taskNames } : {}),
-  ...(result.maxTurns !== undefined ? { maxTurns: result.maxTurns } : {}),
-  ...(result.maxAttempts !== undefined ? { maxAttempts: result.maxAttempts } : {}),
-  ...(result.plannedLeaves !== undefined ? { plannedLeaves: result.plannedLeaves } : {}),
-  ...(result.planLabelByName !== undefined ? { planLabelByName: result.planLabelByName } : {}),
-  ...(result.terminalSubstepName !== undefined ? { terminalSubstepName: result.terminalSubstepName } : {}),
-  ...(result.taskRecovering !== undefined ? { taskRecovering: result.taskRecovering } : {}),
-  ...(result.generatorModel !== undefined ? { generatorModel: result.generatorModel } : {}),
-  ...(result.evaluatorModel !== undefined ? { evaluatorModel: result.evaluatorModel } : {}),
-  ...(result.generatorProvider !== undefined ? { generatorProvider: result.generatorProvider } : {}),
-  ...(result.evaluatorProvider !== undefined ? { evaluatorProvider: result.evaluatorProvider } : {}),
-  ...(result.generatorEffort !== undefined ? { generatorEffort: result.generatorEffort } : {}),
-  ...(result.evaluatorEffort !== undefined ? { evaluatorEffort: result.evaluatorEffort } : {}),
-  ...(result.pinnedProjectId !== undefined ? { pinnedProjectId: result.pinnedProjectId } : {}),
-  ...(result.pinnedProjectLabel !== undefined ? { pinnedProjectLabel: result.pinnedProjectLabel } : {}),
-  ...(result.pinnedSprintId !== undefined ? { pinnedSprintId: result.pinnedSprintId } : {}),
-  ...(result.pinnedSprintLabel !== undefined ? { pinnedSprintLabel: result.pinnedSprintLabel } : {}),
-});
+export const sessionHintsFromLaunchResult = (result: LaunchOk): Pick<LaunchOk, (typeof HINT_KEYS)[number]> =>
+  pickDefined(result, HINT_KEYS);
 
 /**
  * Map a launcher flow id to the {@link FlowId} that owns the AI session, or `undefined` for
@@ -324,37 +326,39 @@ const cwdFromSnapshot = (snapshot: AppStateSnapshot): AbsolutePath | undefined =
   return repo?.path;
 };
 
-export const launchFlow = async (
-  deps: LauncherDeps,
-  flowId: string,
-  snapshot: AppStateSnapshot,
-  extras: LaunchExtras = {}
-): Promise<LaunchResult> => {
-  // Settings priority: caller-supplied snapshot > on-disk reload > boot-time snapshot. The
-  // boot-time `app.settings` is the floor; it's stale across any Settings-view edit, and the
-  // adapter-rebuild block below depends on the per-flow row's provider matching the user's
-  // current choice. Callers that already reloaded (e.g. flows-view, for its model picker) just
-  // pass their fresh snapshot via `extras.settingsSnapshot`; callers that didn't (project-
-  // detail-view) implicitly opt into a one-roundtrip reload here so they don't have to remember.
+/**
+ * Settings priority: caller-supplied snapshot > on-disk reload > boot-time snapshot, with the
+ * picker's per-launch override applied on top. The boot-time `app.settings` is the floor; it's
+ * stale across any Settings-view edit, and the adapter-rebuild in {@link buildLaunchAdapters}
+ * depends on the per-flow row's provider matching the user's current choice. Callers that
+ * already reloaded (e.g. flows-view, for its model picker) just pass their fresh snapshot via
+ * `extras.settingsSnapshot`; callers that didn't (project-detail-view) implicitly opt into a
+ * one-roundtrip reload here so they don't have to remember.
+ *
+ * The override is applied BEFORE the adapter rebuild so a provider override re-keys it. Implement
+ * is handled inside its own launcher because its two roles need independent merges; for every
+ * other AI flow the override applies to the single row identified by `aiFlowIdFor` (review and
+ * detect-* aliases included).
+ */
+const resolveLaunchSettings = async (deps: LauncherDeps, flowId: string, extras: LaunchExtras): Promise<Settings> => {
   let baseSettings = extras.settingsSnapshot ?? deps.app.settings;
   if (extras.settingsSnapshot === undefined) {
     const reloaded = await deps.app.settingsRepo.load();
     if (reloaded.ok) baseSettings = reloaded.value;
   }
-  // Apply the picker's per-launch override BEFORE constructing adapters / resolving effort so
-  // a provider override re-keys the adapter rebuild below. Implement is handled inside its
-  // launcher because its two roles need independent merges; for every other AI flow the
-  // override applies to the single row identified by aiFlowIdFor (review and detect-* aliases
-  // included).
-  const settings = applyOverrideToSettings(baseSettings, flowId, extras.override);
+  return applyOverrideToSettings(baseSettings, flowId, extras.override);
+};
 
-  // Rebuild the provider-bound adapters from the fresh settings every launch, keyed on the
-  // dispatched flow's id. `app.provider`, `app.interactiveAi`, and `app.skillsAdapter` are
-  // wired once at `wire()` time from a placeholder flow (see `wire.ts`); without this rebuild,
-  // a user who configured refine on Claude and implement on Codex would get whichever provider
-  // happened to seed wire(). These factories are tiny (no I/O, no async) so a per-launch
-  // rebuild is essentially free. Flows that don't open an AI session fall through to whatever
-  // wire() seeded — they never call `.generate(...)`.
+/**
+ * Rebuild the provider-bound adapters from the resolved settings every launch, keyed on the
+ * dispatched flow's id. `app.provider`, `app.interactiveAi`, and `app.skillsAdapter` are wired
+ * once at `wire()` time from a placeholder flow (see `wire.ts`); without this rebuild, a user who
+ * configured refine on Claude and implement on Codex would get whichever provider happened to
+ * seed wire(). These factories are tiny (no I/O, no async) so a per-launch rebuild is essentially
+ * free. Flows that don't open an AI session fall through to whatever wire() seeded — they never
+ * call `.generate(...)`.
+ */
+const buildLaunchAdapters = (deps: LauncherDeps, flowId: string, settings: Settings) => {
   const aiFlow = aiFlowIdFor(flowId);
   const adapterFlow: FlowId = aiFlow ?? 'refine';
   const provider = createAiProvider({
@@ -374,17 +378,22 @@ export const launchFlow = async (
     logger: deps.app.logger,
   });
   const effort = aiFlow !== undefined ? resolveEffort(aiFlow, settings) : undefined;
+  return { provider, interactiveAi, skillsAdapter, resolvedProvider, effort };
+};
 
-  // Compose the static bundled skill source with a project-scoped source that emits per-repo
-  // setup / verify skills authored via the detect-skills flow. The project-source closure reads
-  // through `snapshot.project` so every install-skills leaf during this chain run sees the latest
-  // skills as of launch time. Flows that run without a project (none today) fall back cleanly
-  // to bundled-only.
+/**
+ * Compose the static bundled skill source with a project-scoped source that emits per-repo
+ * setup / verify skills authored via the detect-skills flow, plus the global, provider-specific
+ * operator drop-in skills under `<appRoot>/skills/<providerDir>/`. The project source's closure
+ * reads through `snapshot.project` so every install-skills leaf during this chain run sees the
+ * latest skills as of launch time; flows that run without a project (none today) fall back
+ * cleanly to bundled-only. The operator source is keyed on `resolvedProvider` so a mixed config
+ * installs each flow's operator skills for that flow's provider only — installed through the
+ * same adapter as bundled (same `ralphctl-` namespace + `.git/info/exclude` wildcard + tracked
+ * uninstall); a missing dir yields an empty source.
+ */
+const buildComposedSkillSource = (deps: LauncherDeps, snapshot: AppStateSnapshot, resolvedProvider: AiProvider) => {
   const projectSource = createProjectSkillSource({ getProject: () => snapshot.project });
-  // Global, provider-specific operator drop-in skills under `<appRoot>/skills/<providerDir>/`.
-  // Keyed on the resolved provider so a mixed config installs each flow's operator skills for
-  // that flow's provider only. Installed through the same adapter as bundled — same `ralphctl-`
-  // namespace + `.git/info/exclude` wildcard + tracked uninstall. A missing dir = empty source.
   const operatorSource = createOperatorSkillSource({
     operatorSkillsRoot: deps.storage.operatorSkillsRoot,
     provider: resolvedProvider,
@@ -396,7 +405,42 @@ export const launchFlow = async (
       checkContract(deps.app.logger, skill.name, skill.content);
     },
   });
-  const composedSkillSource = composeSkillSources(deps.app.skillSource, projectSource, operatorSource);
+  return composeSkillSources(deps.app.skillSource, projectSource, operatorSource);
+};
+
+/**
+ * Pin the launch snapshot's project / sprint onto a successful dispatch result. create-sprint
+ * never pins the snapshot sprint: the run's sprint does not exist at launch time, so a sprint on
+ * the snapshot is by definition the PREVIOUS selection — pinning it would mislabel the run's
+ * execute view / breadcrumb. The sprint-bound launch wrapper pins the real one via
+ * `setPinnedSprint` once the chain resolves it.
+ */
+const pinLaunchResult = (dispatchResult: LaunchResult, snapshot: AppStateSnapshot, flowId: string): LaunchResult => {
+  if (!dispatchResult.ok) return dispatchResult;
+  return {
+    ...dispatchResult,
+    ...(snapshot.project !== undefined
+      ? { pinnedProjectId: snapshot.project.id, pinnedProjectLabel: snapshot.project.displayName }
+      : {}),
+    ...(snapshot.sprint !== undefined && flowId !== 'create-sprint'
+      ? { pinnedSprintId: snapshot.sprint.id, pinnedSprintLabel: snapshot.sprint.name }
+      : {}),
+  };
+};
+
+export const launchFlow = async (
+  deps: LauncherDeps,
+  flowId: string,
+  snapshot: AppStateSnapshot,
+  extras: LaunchExtras = {}
+): Promise<LaunchResult> => {
+  const settings = await resolveLaunchSettings(deps, flowId, extras);
+  const { provider, interactiveAi, skillsAdapter, resolvedProvider, effort } = buildLaunchAdapters(
+    deps,
+    flowId,
+    settings
+  );
+  const composedSkillSource = buildComposedSkillSource(deps, snapshot, resolvedProvider);
 
   // Every launched runner gets bridged to the event bus so subscribers (TUI panels,
   // progress files, future webhooks) see chain progress without per-flow emission wiring. The
@@ -451,19 +495,5 @@ export const launchFlow = async (
     }
   })();
 
-  if (!dispatchResult.ok) return dispatchResult;
-
-  return {
-    ...dispatchResult,
-    ...(snapshot.project !== undefined
-      ? { pinnedProjectId: snapshot.project.id, pinnedProjectLabel: snapshot.project.displayName }
-      : {}),
-    // create-sprint never pins the snapshot sprint: the run's sprint does not exist at launch
-    // time, so a sprint on the snapshot is by definition the PREVIOUS selection — pinning it
-    // would mislabel the run's execute view / breadcrumb. The sprint-bound launch wrapper pins
-    // the real one via `setPinnedSprint` once the chain resolves it.
-    ...(snapshot.sprint !== undefined && flowId !== 'create-sprint'
-      ? { pinnedSprintId: snapshot.sprint.id, pinnedSprintLabel: snapshot.sprint.name }
-      : {}),
-  };
+  return pinLaunchResult(dispatchResult, snapshot, flowId);
 };

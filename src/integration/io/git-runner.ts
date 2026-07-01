@@ -1,3 +1,4 @@
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { Result } from '@src/domain/result.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
@@ -65,138 +66,191 @@ export const createGitRunner = (deps: GitRunnerDeps = {}): GitRunner => {
     args: readonly string[],
     opts: GitRunOptions = {}
   ): Promise<Result<GitRunResult, StorageError>> =>
-    new Promise((resolve) => {
-      const timeoutMs = opts.timeoutMs ?? defaultTimeoutMs;
-      let child;
-      try {
-        child = spawn('git', args, {
-          stdio: ['pipe', 'pipe', 'pipe'],
-          cwd: String(cwd),
-        });
-      } catch (cause) {
-        resolve(
-          Result.error(
-            new StorageError({
-              subCode: 'io',
-              message: `failed to spawn git: ${stringifyError(cause)}`,
-              cause,
-            })
-          )
-        );
-        return;
-      }
-
-      const stdoutChunks: Buffer[] = [];
-      const stderrChunks: Buffer[] = [];
-      let stdoutBytes = 0;
-      let stderrBytes = 0;
-      let timedOut = false;
-      // Cap-truncation is tracked separately from `timedOut`: the SIGTERM we issue for the cap
-      // also fires the child's `close`, and that close must surface ok+marker, NOT the timeout
-      // StorageError. A shared flag would let cap-kills masquerade as timeouts.
-      let truncated = false;
-      let settled = false;
-
-      const killChild = (): void => {
-        try {
-          child.kill('SIGTERM');
-        } catch {
-          // already dead
-        }
-      };
-
-      // Drop further chunks once the cap is hit and kill the child so git stops producing more
-      // (mirrors shell-script-runner). The kill drives `close`, which the handler below reports
-      // as cap-truncation rather than a timeout.
-      const appendStdout = (chunk: Buffer): void => {
-        if (truncated) return;
-        stdoutBytes += chunk.length;
-        if (stdoutBytes > maxOutputBytes) {
-          truncated = true;
-          killChild();
-          return;
-        }
-        stdoutChunks.push(chunk);
-      };
-      // stderr is tiny in practice; cap it too for consistency. No marker is emitted for stderr.
-      const appendStderr = (chunk: Buffer): void => {
-        if (stderrBytes > maxOutputBytes) return;
-        stderrBytes += chunk.length;
-        if (stderrBytes > maxOutputBytes) return;
-        stderrChunks.push(chunk);
-      };
-
-      child.stdout.on('data', (c: Buffer) => appendStdout(c));
-      child.stderr.on('data', (c: Buffer) => appendStderr(c));
-
-      const timer = setTimeout(() => {
-        timedOut = true;
-        killChild();
-      }, timeoutMs);
-
-      const finish = (result: Result<GitRunResult, StorageError>): void => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        resolve(result);
-      };
-
-      child.on('error', (err) => {
-        finish(
-          Result.error(
-            new StorageError({
-              subCode: 'io',
-              message: `git spawn error: ${err.message}`,
-              cause: err,
-            })
-          )
-        );
-      });
-
-      child.on('close', (code) => {
-        if (timedOut) {
-          finish(
-            Result.error(
-              new StorageError({
-                subCode: 'io',
-                message: `git timed out after ${String(timeoutMs)}ms: git ${args.join(' ')}`,
-              })
-            )
-          );
-          return;
-        }
-        // Materializing stdout can throw ERR_STRING_TOO_LONG when output exceeds V8's max string
-        // length (~512MiB — e.g. a `git diff HEAD` over enormous generated artifacts). This close
-        // handler runs outside any caller try/catch, so an uncaught throw here would kill the
-        // whole process instead of surfacing through the Result envelope. Catch and map to
-        // StorageError — consumers like the work-product fingerprint degrade gracefully.
-        try {
-          const base = Buffer.concat(stdoutChunks).toString('utf8');
-          const stdout = truncated
-            ? `${base}\n[git output exceeded ${String(maxOutputBytes)} byte cap — truncated]`
-            : base;
-          finish(
-            Result.ok({
-              stdout,
-              stderr: Buffer.concat(stderrChunks).toString('utf8'),
-              exitCode: code ?? -1,
-            })
-          );
-        } catch (cause) {
-          finish(
-            Result.error(
-              new StorageError({
-                subCode: 'io',
-                message: `git output too large to materialize: git ${args.join(' ')} — ${stringifyError(cause)}`,
-              })
-            )
-          );
-        }
-      });
-    });
+    runGitOnce(spawn, cwd, args, opts.timeoutMs ?? defaultTimeoutMs, maxOutputBytes);
 
   return { run };
 };
+
+/** Spawns the `git` child, mapping a synchronous spawn throw to a `StorageError`. */
+const spawnGitChild = (
+  spawn: Spawn,
+  cwd: AbsolutePath,
+  args: readonly string[]
+): Result<ChildProcessWithoutNullStreams, StorageError> => {
+  try {
+    return Result.ok(
+      spawn('git', args, {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        cwd: String(cwd),
+      })
+    );
+  } catch (cause) {
+    return Result.error(
+      new StorageError({
+        subCode: 'io',
+        message: `failed to spawn git: ${stringifyError(cause)}`,
+        cause,
+      })
+    );
+  }
+};
+
+interface OutputCollector {
+  /** Buffers a stdout chunk. Returns `true` the instant the cap trips, so the caller — which
+   * owns the child process — can kill it; further chunks are dropped once truncated. */
+  readonly appendStdout: (chunk: Buffer) => boolean;
+  readonly appendStderr: (chunk: Buffer) => void;
+  readonly isTruncated: () => boolean;
+  readonly stdoutText: () => string;
+  readonly stderrText: () => string;
+}
+
+/**
+ * Buffers stdout/stderr up to `maxOutputBytes`. Mirrors shell-script-runner's byte-cap
+ * bookkeeping so a huge AI-generated diff can't OOM the heap.
+ */
+const createOutputCollector = (maxOutputBytes: number): OutputCollector => {
+  const stdoutChunks: Buffer[] = [];
+  const stderrChunks: Buffer[] = [];
+  let stdoutBytes = 0;
+  let stderrBytes = 0;
+  let truncated = false;
+
+  const appendStdout = (chunk: Buffer): boolean => {
+    if (truncated) return false;
+    stdoutBytes += chunk.length;
+    if (stdoutBytes > maxOutputBytes) {
+      truncated = true;
+      return true;
+    }
+    stdoutChunks.push(chunk);
+    return false;
+  };
+
+  // stderr is tiny in practice; cap it too for consistency. No marker is emitted for stderr.
+  const appendStderr = (chunk: Buffer): void => {
+    if (stderrBytes > maxOutputBytes) return;
+    stderrBytes += chunk.length;
+    if (stderrBytes > maxOutputBytes) return;
+    stderrChunks.push(chunk);
+  };
+
+  return {
+    appendStdout,
+    appendStderr,
+    isTruncated: () => truncated,
+    stdoutText: () => Buffer.concat(stdoutChunks).toString('utf8'),
+    stderrText: () => Buffer.concat(stderrChunks).toString('utf8'),
+  };
+};
+
+/**
+ * Translates a `close` event into the final `Result`. Timeout takes precedence (cap-kills are
+ * tracked separately via `collector.isTruncated()` so they never masquerade as a timeout).
+ * Materializing stdout can throw `ERR_STRING_TOO_LONG` when output exceeds V8's max string
+ * length (~512MiB — e.g. a `git diff HEAD` over enormous generated artifacts); this runs outside
+ * any caller try/catch, so the throw is caught here and mapped to a `StorageError` instead of
+ * killing the process.
+ */
+const buildCloseResult = (
+  collector: OutputCollector,
+  timedOut: boolean,
+  code: number | null,
+  timeoutMs: number,
+  args: readonly string[],
+  maxOutputBytes: number
+): Result<GitRunResult, StorageError> => {
+  if (timedOut) {
+    return Result.error(
+      new StorageError({
+        subCode: 'io',
+        message: `git timed out after ${String(timeoutMs)}ms: git ${args.join(' ')}`,
+      })
+    );
+  }
+  try {
+    const base = collector.stdoutText();
+    const stdout = collector.isTruncated()
+      ? `${base}\n[git output exceeded ${String(maxOutputBytes)} byte cap — truncated]`
+      : base;
+    return Result.ok({
+      stdout,
+      stderr: collector.stderrText(),
+      exitCode: code ?? -1,
+    });
+  } catch (cause) {
+    return Result.error(
+      new StorageError({
+        subCode: 'io',
+        message: `git output too large to materialize: git ${args.join(' ')} — ${stringifyError(cause)}`,
+      })
+    );
+  }
+};
+
+const runGitOnce = (
+  spawn: Spawn,
+  cwd: AbsolutePath,
+  args: readonly string[],
+  timeoutMs: number,
+  maxOutputBytes: number
+): Promise<Result<GitRunResult, StorageError>> =>
+  new Promise((resolve) => {
+    const spawnResult = spawnGitChild(spawn, cwd, args);
+    if (!spawnResult.ok) {
+      resolve(Result.error(spawnResult.error));
+      return;
+    }
+    const child = spawnResult.value;
+
+    const collector = createOutputCollector(maxOutputBytes);
+    let timedOut = false;
+    let settled = false;
+
+    const killChild = (): void => {
+      try {
+        child.kill('SIGTERM');
+      } catch {
+        // already dead
+      }
+    };
+
+    // Drop further chunks once the cap is hit and kill the child so git stops producing more
+    // (mirrors shell-script-runner). The kill drives `close`, which the handler below reports
+    // as cap-truncation rather than a timeout.
+    child.stdout.on('data', (c: Buffer) => {
+      if (collector.appendStdout(c)) killChild();
+    });
+    child.stderr.on('data', (c: Buffer) => collector.appendStderr(c));
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      killChild();
+    }, timeoutMs);
+
+    const finish = (result: Result<GitRunResult, StorageError>): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+
+    child.on('error', (err) => {
+      finish(
+        Result.error(
+          new StorageError({
+            subCode: 'io',
+            message: `git spawn error: ${err.message}`,
+            cause: err,
+          })
+        )
+      );
+    });
+
+    child.on('close', (code) => {
+      finish(buildCloseResult(collector, timedOut, code, timeoutMs, args, maxOutputBytes));
+    });
+  });
 
 const defaultSpawn: Spawn = (command, args, options) =>
   crossPlatformSpawn(command, args, { ...options, stdio: [...options.stdio] }) as ReturnType<Spawn>;

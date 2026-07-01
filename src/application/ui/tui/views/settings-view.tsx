@@ -23,10 +23,15 @@
  * row's `{ provider, model }` from the new provider's defaults so the persistence schema stays
  * satisfied). Off-catalog persisted model values stay visible on read; the catalog gate only
  * constrains the editor surface.
+ *
+ * `SettingsView` itself is a short composition of local hooks (`useSettingsData`,
+ * `useInstalledProviders`, `useAvailableModelsMap`, `useSectionNavigation`,
+ * `useSettingsKeyHandler`) plus the `SettingsViewBody` display-state subcomponent — each owns one
+ * cohesive slice of the view's state/effects so the orchestrator itself stays a thin wire-up.
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text, useInput, type Key } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { ConfirmPrompt } from '@src/application/ui/tui/prompts/confirm-prompt.tsx';
@@ -42,6 +47,7 @@ import type { PresetName } from '@src/business/settings/presets.ts';
 import type { PresetWarning } from '@src/application/flows/settings-apply-preset/ctx.ts';
 import { type AiProvider, type Settings, uniqueProvidersFromAi } from '@src/domain/entity/settings.ts';
 import type { LogLevel } from '@src/domain/value/log-level.ts';
+import type { SettingsRepository } from '@src/domain/repository/settings/settings-repository.ts';
 import { detectInstalledProviders } from '@src/integration/system/detect-cli.ts';
 import { SettingsEditor } from '@src/application/ui/tui/views/settings-editor.tsx';
 import { applyPreset, submitField } from '@src/application/ui/tui/views/settings-mutations.ts';
@@ -52,58 +58,144 @@ import {
   type SettingsSection,
 } from '@src/application/ui/tui/views/settings-view-model.ts';
 
-export const SettingsView = (): React.JSX.Element => {
-  const deps = useDeps();
-  const storage = useStorage();
-  const ui = useUiState();
-  const logLevel = useLogLevel();
+/** Feedback banner rendered under the active section — `undefined` clears it. */
+type SettingsFeedback = { readonly tone: 'ok' | 'error'; readonly text: string } | undefined;
+
+/** `-1` (previous) / `1` (next) section-switch delta for `←`/`[` and `→`/`]`; `undefined` otherwise. */
+const sectionKeyDelta = (input: string, key: Pick<Key, 'leftArrow' | 'rightArrow'>): -1 | 1 | undefined => {
+  if (key.leftArrow || input === '[') return -1;
+  if (key.rightArrow || input === ']') return 1;
+  return undefined;
+};
+
+/**
+ * Next cursor index for `↑/↓`/j/k (clamped ±1) and PageUp/PageDown/Home/End (snap to an end);
+ * `undefined` when `input`/`key` isn't a cursor-movement key.
+ */
+const cursorKeyIndex = (
+  input: string,
+  key: Pick<Key, 'upArrow' | 'downArrow' | 'pageUp' | 'pageDown' | 'home' | 'end'>,
+  cursor: number,
+  length: number
+): number | undefined => {
+  if (key.upArrow || input === 'k') return Math.max(0, cursor - 1);
+  if (key.downArrow || input === 'j') return Math.min(length - 1, cursor + 1);
+  if (key.pageUp || key.home) return 0;
+  if (key.pageDown || key.end) return length - 1;
+  return undefined;
+};
+
+/** Renders the current value + active-cursor glyph for `key` inside the active section's field list. */
+const renderFieldValue = (activeFields: readonly EditableField[], cursor: number, key: string): React.ReactNode => {
+  const focused = activeFields[cursor]?.key === key;
+  const field = activeFields.find((f) => f.key === key);
+  const value = field?.current ?? '';
+  return (
+    <Text {...(focused ? { color: inkColors.primary } : {})} bold={focused}>
+      {focused ? `${glyphs.actionCursor} ` : '  '}
+      {value}
+    </Text>
+  );
+};
+
+interface FieldActivationSetters {
+  readonly setFeedback: (feedback: SettingsFeedback) => void;
+  readonly setPresetWarnings: (warnings: readonly PresetWarning[]) => void;
+  readonly setPendingPreset: (preset: PresetName) => void;
+  readonly setEditingField: (field: EditableField) => void;
+}
+
+/** `↵/e` activation for the focused field — opens the preset-confirm prompt or the field editor. */
+const activateField = (field: EditableField, setters: FieldActivationSetters): void => {
+  setters.setFeedback(undefined);
+  if (field.kind === 'preset') {
+    setters.setPresetWarnings([]);
+    setters.setPendingPreset(field.preset);
+    return;
+  }
+  setters.setPresetWarnings([]);
+  setters.setEditingField(field);
+};
+
+interface SettingsDataParams {
+  readonly settingsRepo: SettingsRepository;
+  readonly setLogLevel: (level: LogLevel) => void;
+  readonly setFeedback: (feedback: SettingsFeedback) => void;
+  readonly setPresetWarnings: (warnings: readonly PresetWarning[]) => void;
+  readonly closeEditor: () => void;
+}
+
+interface SettingsDataResult {
+  readonly settings: Settings | undefined;
+  readonly loadError: string | undefined;
+  readonly handlePreset: (preset: PresetName) => Promise<void>;
+  readonly handleSubmit: (raw: string, field: EditableField) => Promise<void>;
+}
+
+/**
+ * Owns the loaded `Settings` record and its load/mutate lifecycle: initial load, preset apply,
+ * and per-field submit. Every mutation re-runs `refresh` on success so the view always reflects
+ * the persisted record rather than an optimistic local patch.
+ */
+const useSettingsData = (params: SettingsDataParams): SettingsDataResult => {
+  const { settingsRepo, setLogLevel, setFeedback, setPresetWarnings, closeEditor } = params;
   const [settings, setSettings] = useState<Settings | undefined>(undefined);
   const [loadError, setLoadError] = useState<string | undefined>(undefined);
-  /**
-   * Set of providers whose CLI binary resolved on PATH at mount time. Probed once per Settings
-   * session — the per-row Settings editor never re-probes; the user has to leave and re-enter
-   * Settings to refresh the gate (matches the apply-preset / launch-time probe sites). Stays
-   * `undefined` while the probe is in flight; the provider picker treats `undefined` as "all
-   * enabled" so the picker is usable in the rare frame between mount and probe-completion.
-   */
-  const [installedProviders, setInstalledProviders] = useState<ReadonlySet<AiProvider> | undefined>(undefined);
-  /**
-   * Per-provider account-available model subset, resolved lazily after the settings load. Keyed by
-   * provider; absent entries fall back to the full catalog inside {@link buildSections}. Empty
-   * while the availability probes are in flight — the full catalog renders, then re-renders
-   * filtered once each provider resolves. Never blocks the view.
-   */
-  const [availableModels, setAvailableModels] = useState<ReadonlyMap<AiProvider, readonly string[]>>(new Map());
-  const [sectionIdx, setSectionIdx] = useState(0);
-  const [cursor, setCursor] = useState(0);
-  const [editingField, setEditingField] = useState<EditableField | undefined>(undefined);
-  /** Pending preset confirmation — populated when the user activates a preset button. */
-  const [pendingPreset, setPendingPreset] = useState<PresetName | undefined>(undefined);
-  const [feedback, setFeedback] = useState<{ readonly tone: 'ok' | 'error'; readonly text: string } | undefined>(
-    undefined
-  );
-  /**
-   * Warnings from the most recent apply-preset. Rendered as a dimmed multi-line note below the
-   * preset action group; cleared when the user activates a new preset or edits any other row.
-   */
-  const [presetWarnings, setPresetWarnings] = useState<readonly PresetWarning[]>([]);
-  useViewHints([
-    { keys: '←/→', label: 'section' },
-    { keys: '↑/↓', label: 'navigate' },
-    { keys: '↵/e', label: 'edit' },
-  ]);
 
   const refresh = React.useCallback(async (): Promise<void> => {
-    const flow = createSettingsShowFlow({ settingsRepo: deps.settingsRepo });
+    const flow = createSettingsShowFlow({ settingsRepo });
     const result = await flow.execute({ input: undefined });
     if (result.ok) setSettings(result.value.ctx.output!);
     else setLoadError(result.error.error.message);
-  }, [deps]);
+  }, [settingsRepo]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
+  const handlePreset = async (preset: PresetName): Promise<void> => {
+    const outcome = await applyPreset(preset, settingsRepo);
+    if (outcome.kind === 'error') {
+      setFeedback({ tone: 'error', text: outcome.text });
+      return;
+    }
+    setFeedback({ tone: 'ok', text: outcome.text });
+    setPresetWarnings(outcome.warnings);
+    await refresh();
+  };
+
+  const handleSubmit = async (raw: string, field: EditableField): Promise<void> => {
+    if (settings === undefined) {
+      setFeedback({ tone: 'error', text: 'settings not loaded yet' });
+      closeEditor();
+      return;
+    }
+    const outcome = await submitField(settings, field, raw, settingsRepo);
+    if (outcome.kind === 'error') {
+      setFeedback({ tone: 'error', text: outcome.text });
+      closeEditor();
+      return;
+    }
+    if (outcome.next !== undefined && field.key === 'logging.level') {
+      setLogLevel(outcome.next.logging.level satisfies LogLevel);
+    }
+    setFeedback({ tone: 'ok', text: outcome.text });
+    closeEditor();
+    await refresh();
+  };
+
+  return { settings, loadError, handlePreset, handleSubmit };
+};
+
+/**
+ * Set of providers whose CLI binary resolved on PATH at mount time. Probed once per Settings
+ * session — the per-row Settings editor never re-probes; the user has to leave and re-enter
+ * Settings to refresh the gate (matches the apply-preset / launch-time probe sites). Resolves to
+ * `undefined` while the probe is in flight; the provider picker treats `undefined` as "all
+ * enabled" so the picker is usable in the rare frame between mount and probe-completion.
+ */
+const useInstalledProviders = (): ReadonlySet<AiProvider> | undefined => {
+  const [installedProviders, setInstalledProviders] = useState<ReadonlySet<AiProvider> | undefined>(undefined);
   useEffect(() => {
     let cancelled = false;
     void detectInstalledProviders().then((installed) => {
@@ -113,11 +205,21 @@ export const SettingsView = (): React.JSX.Element => {
       cancelled = true;
     };
   }, []);
+  return installedProviders;
+};
 
-  // Resolve account-available models once settings load — one probe per distinct provider in the
-  // loaded config. Non-blocking: each result folds into the map as it arrives, re-rendering the
-  // affected provider's model options filtered. The probe never throws (fail open).
-  const availableModelsFor = deps.availableModelsFor;
+/**
+ * Per-provider account-available model subset, resolved lazily after settings load — one probe
+ * per distinct provider in the loaded config. Keyed by provider; absent entries fall back to the
+ * full catalog inside {@link buildSections}. Empty while the availability probes are in flight —
+ * the full catalog renders, then re-renders filtered once each provider resolves. The probe never
+ * throws (fail open); never blocks the view.
+ */
+const useAvailableModelsMap = (
+  settings: Settings | undefined,
+  availableModelsFor: ((provider: AiProvider) => Promise<readonly string[]>) | undefined
+): ReadonlyMap<AiProvider, readonly string[]> => {
+  const [availableModels, setAvailableModels] = useState<ReadonlyMap<AiProvider, readonly string[]>>(new Map());
   useEffect(() => {
     if (settings === undefined || availableModelsFor === undefined) return;
     let cancelled = false;
@@ -131,12 +233,35 @@ export const SettingsView = (): React.JSX.Element => {
       cancelled = true;
     };
   }, [settings, availableModelsFor]);
+  return availableModels;
+};
 
+interface SectionNavigationResult {
+  readonly sections: readonly SettingsSection[];
+  readonly sectionIdx: number;
+  readonly setSectionIdx: React.Dispatch<React.SetStateAction<number>>;
+  readonly cursor: number;
+  readonly setCursor: React.Dispatch<React.SetStateAction<number>>;
+  readonly activeSection: SettingsSection | undefined;
+  readonly activeFields: readonly EditableField[];
+}
+
+/**
+ * Builds the section list from the loaded settings + resolved model catalog, and owns the
+ * section/cursor pointers into it — including the two clamp effects that keep both pointers in
+ * bounds when the underlying field set shrinks (e.g. a provider switch resets a section's model
+ * options, or the section list itself changes shape).
+ */
+const useSectionNavigation = (
+  settings: Settings | undefined,
+  availableModels: ReadonlyMap<AiProvider, readonly string[]>
+): SectionNavigationResult => {
   const sections = useMemo<readonly SettingsSection[]>(
     () => (settings === undefined ? [] : buildSections(settings, availableModels)),
     [settings, availableModels]
   );
-
+  const [sectionIdx, setSectionIdx] = useState(0);
+  const [cursor, setCursor] = useState(0);
   const activeSection = sections[sectionIdx];
   /**
    * `useMemo` keeps the same array reference across renders while the section's field set is
@@ -156,59 +281,218 @@ export const SettingsView = (): React.JSX.Element => {
     if (sectionIdx >= sections.length && sections.length > 0) setSectionIdx(sections.length - 1);
   }, [sections, sectionIdx]);
 
+  return { sections, sectionIdx, setSectionIdx, cursor, setCursor, activeSection, activeFields };
+};
+
+interface SettingsKeyHandlerParams {
+  readonly modalOpen: boolean;
+  readonly editingField: EditableField | undefined;
+  readonly pendingPreset: PresetName | undefined;
+  readonly sections: readonly SettingsSection[];
+  readonly activeFields: readonly EditableField[];
+  readonly cursor: number;
+  readonly setSectionIdx: React.Dispatch<React.SetStateAction<number>>;
+  readonly setCursor: React.Dispatch<React.SetStateAction<number>>;
+  readonly setFeedback: (feedback: SettingsFeedback) => void;
+  readonly onActivate: (field: EditableField) => void;
+}
+
+/**
+ * Owns the Settings view's global keyboard routing: `←/→`/`[`/`]` switch sections, `↑/↓`/j/k
+ * (plus PageUp/PageDown/Home/End) move the cursor within the active section's fields, `↵`/`e`
+ * activates the focused field. Muted while a modal overlay, editor, or preset confirmation is
+ * active — those own their own `useInput` handlers.
+ */
+const useSettingsKeyHandler = (params: SettingsKeyHandlerParams): void => {
+  const {
+    modalOpen,
+    editingField,
+    pendingPreset,
+    sections,
+    activeFields,
+    cursor,
+    setSectionIdx,
+    setCursor,
+    setFeedback,
+    onActivate,
+  } = params;
+
   useInput((input, key) => {
-    if (ui.modalOpen || editingField !== undefined || pendingPreset !== undefined) return;
+    if (modalOpen || editingField !== undefined || pendingPreset !== undefined) return;
     if (sections.length === 0) return;
-    if (key.leftArrow || input === '[') {
-      setSectionIdx((i) => (i - 1 + sections.length) % sections.length);
-      setCursor(0);
-      setFeedback(undefined);
-      return;
-    }
-    if (key.rightArrow || input === ']') {
-      setSectionIdx((i) => (i + 1) % sections.length);
+    const sectionDelta = sectionKeyDelta(input, key);
+    if (sectionDelta !== undefined) {
+      setSectionIdx((i) => (i + sectionDelta + sections.length) % sections.length);
       setCursor(0);
       setFeedback(undefined);
       return;
     }
     if (activeFields.length === 0) return;
-    if (key.upArrow || input === 'k') {
-      setCursor((c) => Math.max(0, c - 1));
-      return;
-    }
-    if (key.downArrow || input === 'j') {
-      setCursor((c) => Math.min(activeFields.length - 1, c + 1));
-      return;
-    }
-    if (key.pageUp) {
-      // Per-section row count is small (≤ 8) so PgUp snaps to the first field.
-      setCursor(0);
-      return;
-    }
-    if (key.pageDown) {
-      setCursor(activeFields.length - 1);
-      return;
-    }
-    if (key.home) {
-      setCursor(0);
-      return;
-    }
-    if (key.end) {
-      setCursor(activeFields.length - 1);
+    const nextCursor = cursorKeyIndex(input, key, cursor, activeFields.length);
+    if (nextCursor !== undefined) {
+      setCursor(nextCursor);
       return;
     }
     if (key.return || input === 'e') {
       const field = activeFields[cursor];
-      if (field === undefined) return;
-      setFeedback(undefined);
-      if (field.kind === 'preset') {
-        setPresetWarnings([]);
-        setPendingPreset(field.preset);
-        return;
-      }
-      setPresetWarnings([]);
-      setEditingField(field);
+      if (field !== undefined) onActivate(field);
     }
+  });
+};
+
+interface SettingsViewBodyProps {
+  readonly helpOpen: boolean;
+  readonly pendingPreset: PresetName | undefined;
+  readonly onApplyPreset: (preset: PresetName) => Promise<void>;
+  readonly onCancelPreset: () => void;
+  readonly editingField: EditableField | undefined;
+  readonly installedProviders: ReadonlySet<AiProvider> | undefined;
+  readonly onSubmitField: (raw: string, field: EditableField) => Promise<void>;
+  readonly onCancelField: () => void;
+  readonly loadError: string | undefined;
+  readonly settings: Settings | undefined;
+  readonly activeSection: SettingsSection | undefined;
+  readonly sections: readonly SettingsSection[];
+  readonly sectionIdx: number;
+  readonly valueFor: (key: string) => React.ReactNode;
+  readonly storage: ReturnType<typeof useStorage>;
+  readonly presetWarnings: readonly PresetWarning[];
+  readonly feedback: SettingsFeedback;
+}
+
+/**
+ * The Settings view's mutually-exclusive display states, in priority order: help overlay, preset
+ * confirmation, field editor, load error, loading spinner, then the section strip + active-section
+ * body. Isolated from `SettingsView` so the hook-heavy orchestrator stays a short composition.
+ */
+const SettingsViewBody = ({
+  helpOpen,
+  pendingPreset,
+  onApplyPreset,
+  onCancelPreset,
+  editingField,
+  installedProviders,
+  onSubmitField,
+  onCancelField,
+  loadError,
+  settings,
+  activeSection,
+  sections,
+  sectionIdx,
+  valueFor,
+  storage,
+  presetWarnings,
+  feedback,
+}: SettingsViewBodyProps): React.JSX.Element => {
+  if (helpOpen) return <HelpOverlay />;
+
+  if (pendingPreset !== undefined) {
+    return (
+      <ConfirmPrompt
+        message={`Apply preset ${pendingPreset}? This overwrites all AI rows.`}
+        defaultYes={false}
+        onSubmit={(yes) => {
+          onCancelPreset();
+          if (yes) void onApplyPreset(pendingPreset);
+        }}
+        onCancel={onCancelPreset}
+      />
+    );
+  }
+
+  if (editingField !== undefined) {
+    return (
+      <SettingsEditor
+        field={editingField}
+        installedProviders={installedProviders}
+        onSubmit={(value) => void onSubmitField(value, editingField)}
+        onCancel={onCancelField}
+      />
+    );
+  }
+
+  if (loadError !== undefined) {
+    return (
+      <Box paddingX={spacing.indent}>
+        <Text color={inkColors.error}>Failed to load settings: {loadError}</Text>
+      </Box>
+    );
+  }
+
+  if (settings === undefined || activeSection === undefined) {
+    return (
+      <Box paddingX={spacing.indent}>
+        <Spinner label="Loading…" />
+      </Box>
+    );
+  }
+
+  return (
+    <Box flexDirection="column">
+      <SectionStrip sections={sections} activeIdx={sectionIdx} />
+      <Box marginTop={spacing.section}>
+        <SectionBody section={activeSection} valueFor={valueFor} storage={storage} presetWarnings={presetWarnings} />
+      </Box>
+      {feedback !== undefined && (
+        <Box paddingX={spacing.indent} marginTop={spacing.section}>
+          <Text color={feedback.tone === 'ok' ? inkColors.primary : inkColors.error}>
+            {feedback.tone === 'ok' ? glyphs.check : glyphs.cross} {feedback.text}
+          </Text>
+        </Box>
+      )}
+    </Box>
+  );
+};
+
+export const SettingsView = (): React.JSX.Element => {
+  const deps = useDeps();
+  const storage = useStorage();
+  const ui = useUiState();
+  const logLevel = useLogLevel();
+
+  const [editingField, setEditingField] = useState<EditableField | undefined>(undefined);
+  /** Pending preset confirmation — populated when the user activates a preset button. */
+  const [pendingPreset, setPendingPreset] = useState<PresetName | undefined>(undefined);
+  const [feedback, setFeedback] = useState<SettingsFeedback>(undefined);
+  /**
+   * Warnings from the most recent apply-preset. Rendered as a dimmed multi-line note below the
+   * preset action group; cleared when the user activates a new preset or edits any other row.
+   */
+  const [presetWarnings, setPresetWarnings] = useState<readonly PresetWarning[]>([]);
+
+  useViewHints([
+    { keys: '←/→', label: 'section' },
+    { keys: '↑/↓', label: 'navigate' },
+    { keys: '↵/e', label: 'edit' },
+  ]);
+
+  const closeEditor = (): void => setEditingField(undefined);
+
+  const { settings, loadError, handlePreset, handleSubmit } = useSettingsData({
+    settingsRepo: deps.settingsRepo,
+    setLogLevel: logLevel.setLevel,
+    setFeedback,
+    setPresetWarnings,
+    closeEditor,
+  });
+  const installedProviders = useInstalledProviders();
+  const availableModels = useAvailableModelsMap(settings, deps.availableModelsFor);
+  const { sections, sectionIdx, setSectionIdx, cursor, setCursor, activeSection, activeFields } = useSectionNavigation(
+    settings,
+    availableModels
+  );
+
+  useSettingsKeyHandler({
+    modalOpen: ui.modalOpen,
+    editingField,
+    pendingPreset,
+    sections,
+    activeFields,
+    cursor,
+    setSectionIdx,
+    setCursor,
+    setFeedback,
+    onActivate: (field) => activateField(field, { setFeedback, setPresetWarnings, setPendingPreset, setEditingField }),
   });
 
   // Tie the prompt-active claim to the editing-field state so React's effect cleanup matches
@@ -220,104 +504,30 @@ export const SettingsView = (): React.JSX.Element => {
     [editingField, pendingPreset, claimPrompt]
   );
 
-  const closeEditor = (): void => {
-    setEditingField(undefined);
-  };
-
-  const handlePreset = async (preset: PresetName): Promise<void> => {
-    const outcome = await applyPreset(preset, deps.settingsRepo);
-    if (outcome.kind === 'error') {
-      setFeedback({ tone: 'error', text: outcome.text });
-      return;
-    }
-    setFeedback({ tone: 'ok', text: outcome.text });
-    setPresetWarnings(outcome.warnings);
-    await refresh();
-  };
-
-  const handleSubmit = async (raw: string, field: EditableField): Promise<void> => {
-    if (settings === undefined) {
-      setFeedback({ tone: 'error', text: 'settings not loaded yet' });
-      closeEditor();
-      return;
-    }
-    const outcome = await submitField(settings, field, raw, deps.settingsRepo);
-    if (outcome.kind === 'error') {
-      setFeedback({ tone: 'error', text: outcome.text });
-      closeEditor();
-      return;
-    }
-    if (outcome.next !== undefined && field.key === 'logging.level') {
-      logLevel.setLevel(outcome.next.logging.level satisfies LogLevel);
-    }
-    setFeedback({ tone: 'ok', text: outcome.text });
-    closeEditor();
-    await refresh();
-  };
-
-  const valueFor = (key: string): React.ReactNode => {
-    if (settings === undefined) return null;
-    const focused = activeFields[cursor]?.key === key;
-    const field = activeFields.find((f) => f.key === key);
-    const value = field?.current ?? '';
-    return (
-      <Text {...(focused ? { color: inkColors.primary } : {})} bold={focused}>
-        {focused ? `${glyphs.actionCursor} ` : '  '}
-        {value}
-      </Text>
-    );
-  };
+  const valueFor = (key: string): React.ReactNode =>
+    settings === undefined ? null : renderFieldValue(activeFields, cursor, key);
 
   return (
     <ViewShell title="Settings" subtitle="←/→ section · ↑/↓ navigate · ↵ edit · esc cancel">
-      {ui.helpOpen ? (
-        <HelpOverlay />
-      ) : pendingPreset !== undefined ? (
-        <ConfirmPrompt
-          message={`Apply preset ${pendingPreset}? This overwrites all AI rows.`}
-          defaultYes={false}
-          onSubmit={(yes) => {
-            const preset = pendingPreset;
-            setPendingPreset(undefined);
-            if (yes) void handlePreset(preset);
-          }}
-          onCancel={() => setPendingPreset(undefined)}
-        />
-      ) : editingField !== undefined ? (
-        <SettingsEditor
-          field={editingField}
-          installedProviders={installedProviders}
-          onSubmit={(value) => void handleSubmit(value, editingField)}
-          onCancel={closeEditor}
-        />
-      ) : loadError !== undefined ? (
-        <Box paddingX={spacing.indent}>
-          <Text color={inkColors.error}>Failed to load settings: {loadError}</Text>
-        </Box>
-      ) : settings === undefined || activeSection === undefined ? (
-        <Box paddingX={spacing.indent}>
-          <Spinner label="Loading…" />
-        </Box>
-      ) : (
-        <Box flexDirection="column">
-          <SectionStrip sections={sections} activeIdx={sectionIdx} />
-          <Box marginTop={spacing.section}>
-            <SectionBody
-              section={activeSection}
-              valueFor={valueFor}
-              storage={storage}
-              presetWarnings={presetWarnings}
-            />
-          </Box>
-          {feedback !== undefined && (
-            <Box paddingX={spacing.indent} marginTop={spacing.section}>
-              <Text color={feedback.tone === 'ok' ? inkColors.primary : inkColors.error}>
-                {feedback.tone === 'ok' ? glyphs.check : glyphs.cross} {feedback.text}
-              </Text>
-            </Box>
-          )}
-        </Box>
-      )}
+      <SettingsViewBody
+        helpOpen={ui.helpOpen}
+        pendingPreset={pendingPreset}
+        onApplyPreset={handlePreset}
+        onCancelPreset={() => setPendingPreset(undefined)}
+        editingField={editingField}
+        installedProviders={installedProviders}
+        onSubmitField={handleSubmit}
+        onCancelField={closeEditor}
+        loadError={loadError}
+        settings={settings}
+        activeSection={activeSection}
+        sections={sections}
+        sectionIdx={sectionIdx}
+        valueFor={valueFor}
+        storage={storage}
+        presetWarnings={presetWarnings}
+        feedback={feedback}
+      />
     </ViewShell>
   );
 };

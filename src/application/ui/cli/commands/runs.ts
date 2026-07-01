@@ -23,6 +23,18 @@ interface PruneOpts {
   readonly yes?: boolean;
 }
 
+interface PruneFilters {
+  readonly olderThanMs: number | undefined;
+  readonly keepLast: number | undefined;
+}
+
+type PruneFiltersResult = ({ readonly ok: true } & PruneFilters) | { readonly ok: false };
+
+type ScopedRunsResult =
+  { readonly ok: true; readonly grouped: ReadonlyMap<string, readonly RunEntry[]> } | { readonly ok: false };
+
+type FlowFilterResult = { readonly ok: true; readonly flowFilter: string | undefined } | { readonly ok: false };
+
 /**
  * Register the `runs` command group — inspection + tidy-up for per-run forensic artifacts
  * under `<dataRoot>/runs/<flow>/<run-id>/`.
@@ -109,13 +121,47 @@ const runPruneCommand = async (opts: PruneOpts): Promise<void> => {
     return;
   }
 
+  const filters = parsePruneFilters(opts);
+  if (!filters.ok) return;
+
+  const scopedResult = await resolveScopedRuns(opts.flow);
+  if (!scopedResult.ok) return;
+
+  if (filters.olderThanMs === undefined && filters.keepLast === undefined) {
+    process.stderr.write(
+      'error: --older-than or --keep-last is required (or invoke `ralphctl runs prune` with no flags for the interactive picker)\n'
+    );
+    process.exit(1);
+    return;
+  }
+
+  const candidates = computeAndAnnouncePruneCandidates(scopedResult.grouped, {
+    olderThanMs: filters.olderThanMs,
+    keepLast: filters.keepLast,
+  });
+  if (candidates === undefined) return;
+
+  if (opts.dryRun === true) {
+    return;
+  }
+
+  if (opts.yes !== true) {
+    const confirmed = await confirmNonInteractivePrune(candidates.length);
+    if (!confirmed) return;
+  }
+
+  await performPrune(candidates);
+};
+
+/** Validate `--older-than` / `--keep-last`, reporting + exiting on the first malformed value. */
+const parsePruneFilters = (opts: PruneOpts): PruneFiltersResult => {
   let olderThanMs: number | undefined;
   if (opts.olderThan !== undefined) {
     const parsed = parseDuration(opts.olderThan);
     if (!parsed.ok) {
       process.stderr.write(`error: ${parsed.error.message}\n`);
       process.exit(1);
-      return;
+      return { ok: false };
     }
     olderThanMs = parsed.value;
   }
@@ -126,42 +172,48 @@ const runPruneCommand = async (opts: PruneOpts): Promise<void> => {
     if (!Number.isInteger(parsed) || parsed < 0) {
       process.stderr.write(`error: --keep-last must be a non-negative integer\n`);
       process.exit(1);
-      return;
+      return { ok: false };
     }
     keepLast = parsed;
   }
 
+  return { ok: true, olderThanMs, keepLast };
+};
+
+/** List runs, verify the requested `--flow` exists, and group the scoped entries by flow. */
+const resolveScopedRuns = async (flow: string | undefined): Promise<ScopedRunsResult> => {
   const { storage } = await bootstrapCli();
   const result = await listRuns(storage.runsRoot);
   if (!result.ok) {
     process.stderr.write(`error: ${result.error.message}\n`);
     process.exit(1);
-    return;
+    return { ok: false };
   }
 
   const allEntries = result.value;
 
-  if (opts.flow !== undefined) {
-    const flowExists = allEntries.some((r) => r.flow === opts.flow);
+  if (flow !== undefined) {
+    const flowExists = allEntries.some((r) => r.flow === flow);
     if (!flowExists) {
-      process.stderr.write(`error: no such flow '${opts.flow}' under ${String(storage.runsRoot)}\n`);
+      process.stderr.write(`error: no such flow '${flow}' under ${String(storage.runsRoot)}\n`);
       process.exit(1);
-      return;
+      return { ok: false };
     }
   }
 
-  const scoped = opts.flow !== undefined ? allEntries.filter((r) => r.flow === opts.flow) : allEntries;
-  const grouped = groupByFlow(scoped);
+  const scoped = flow !== undefined ? allEntries.filter((r) => r.flow === flow) : allEntries;
+  return { ok: true, grouped: groupByFlow(scoped) };
+};
 
-  if (olderThanMs === undefined && keepLast === undefined) {
-    process.stderr.write(
-      'error: --older-than or --keep-last is required (or invoke `ralphctl runs prune` with no flags for the interactive picker)\n'
-    );
-    process.exit(1);
-    return;
-  }
-
-  const { candidates, unknownStampWarnings } = selectCandidates(grouped, { olderThanMs, keepLast });
+/**
+ * Shared tail of both prune paths: select candidates, surface unknown-timestamp warnings, and
+ * print the summary. Returns `undefined` when there is nothing to prune (caller should stop).
+ */
+const computeAndAnnouncePruneCandidates = (
+  grouped: ReadonlyMap<string, readonly RunEntry[]>,
+  filters: PruneFilters
+): readonly RunEntry[] | undefined => {
+  const { candidates, unknownStampWarnings } = selectCandidates(grouped, filters);
 
   for (const warning of unknownStampWarnings) {
     process.stdout.write(`warning: skipping run with non-conforming dir name (no timestamp): ${warning}\n`);
@@ -169,33 +221,28 @@ const runPruneCommand = async (opts: PruneOpts): Promise<void> => {
 
   if (candidates.length === 0) {
     process.stdout.write('nothing to prune\n');
-    return;
+    return undefined;
   }
 
   printCandidateSummary(candidates);
+  return candidates;
+};
 
-  if (opts.dryRun === true) {
-    return;
-  }
-
-  if (opts.yes !== true) {
-    if (process.stdin.isTTY !== true) {
-      process.stderr.write(
-        'error: refusing to delete without confirmation on a non-TTY stdin — re-run with --yes to bypass, or --dry-run to list candidates only\n'
-      );
-      process.exit(1);
-      return;
-    }
-    const confirmed = await confirmYesNo(
-      `delete ${String(candidates.length)} run${candidates.length === 1 ? '' : 's'}? [y/N] `
+/** Non-interactive `--yes`-less confirm: refuse on a non-TTY stdin, otherwise prompt y/N. */
+const confirmNonInteractivePrune = async (count: number): Promise<boolean> => {
+  if (process.stdin.isTTY !== true) {
+    process.stderr.write(
+      'error: refusing to delete without confirmation on a non-TTY stdin — re-run with --yes to bypass, or --dry-run to list candidates only\n'
     );
-    if (!confirmed) {
-      process.stdout.write('aborted\n');
-      return;
-    }
+    process.exit(1);
+    return false;
   }
-
-  await performPrune(candidates);
+  const confirmed = await confirmYesNo(`delete ${String(count)} run${count === 1 ? '' : 's'}? [y/N] `);
+  if (!confirmed) {
+    process.stdout.write('aborted\n');
+    return false;
+  }
+  return true;
 };
 
 const runInteractivePrune = async (): Promise<void> => {
@@ -219,64 +266,25 @@ const runInteractivePrune = async (): Promise<void> => {
   }
   const groups = groupByFlow(listed.value);
   const flows = Array.from(groups.keys());
-  process.stdout.write('current runs:\n');
-  for (const [flow, runs] of groups) {
-    const flowBytes = runs.reduce((acc, r) => acc + r.sizeBytes, 0);
-    process.stdout.write(
-      `  ${flow}  (${String(runs.length)} run${runs.length === 1 ? '' : 's'}, ${formatBytes(flowBytes)})\n`
-    );
-  }
-  process.stdout.write('\n');
+  printRunsOverview(groups);
 
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    const criterion = (await question(rl, 'prune by [1] age threshold or [2] keep-last N? ')).trim();
-    let olderThanMs: number | undefined;
-    let keepLast: number | undefined;
-    if (criterion === '1') {
-      const duration = (await question(rl, 'duration (e.g. 7d, 24h, 2w): ')).trim();
-      const parsed = parseDuration(duration);
-      if (!parsed.ok) {
-        process.stderr.write(`error: ${parsed.error.message}\n`);
-        process.exit(1);
-        return;
-      }
-      olderThanMs = parsed.value;
-    } else if (criterion === '2') {
-      const n = (await question(rl, 'keep last N runs per flow: ')).trim();
-      const parsed = Number(n);
-      if (!Number.isInteger(parsed) || parsed < 0) {
-        process.stderr.write('error: keep-last must be a non-negative integer\n');
-        process.exit(1);
-        return;
-      }
-      keepLast = parsed;
-    } else {
-      process.stderr.write(`error: unrecognised choice '${criterion}' — expected 1 or 2\n`);
-      process.exit(1);
-      return;
-    }
-    const flowAnswer = (
-      await question(rl, `restrict to a flow? [enter for all, or one of: ${flows.join(', ')}] `)
-    ).trim();
-    const flowFilter = flowAnswer.length === 0 ? undefined : flowAnswer;
-    if (flowFilter !== undefined && !flows.includes(flowFilter)) {
-      process.stderr.write(`error: no such flow '${flowFilter}'\n`);
-      process.exit(1);
-      return;
-    }
+    const filterChoice = await promptPruneFilterChoice(rl);
+    if (!filterChoice.ok) return;
 
-    const scoped = flowFilter !== undefined ? listed.value.filter((r) => r.flow === flowFilter) : listed.value;
+    const flowChoice = await promptFlowFilterChoice(rl, flows);
+    if (!flowChoice.ok) return;
+
+    const scoped =
+      flowChoice.flowFilter !== undefined ? listed.value.filter((r) => r.flow === flowChoice.flowFilter) : listed.value;
     const grouped = groupByFlow(scoped);
-    const { candidates, unknownStampWarnings } = selectCandidates(grouped, { olderThanMs, keepLast });
-    for (const warning of unknownStampWarnings) {
-      process.stdout.write(`warning: skipping run with non-conforming dir name (no timestamp): ${warning}\n`);
-    }
-    if (candidates.length === 0) {
-      process.stdout.write('nothing to prune\n');
-      return;
-    }
-    printCandidateSummary(candidates);
+    const candidates = computeAndAnnouncePruneCandidates(grouped, {
+      olderThanMs: filterChoice.olderThanMs,
+      keepLast: filterChoice.keepLast,
+    });
+    if (candidates === undefined) return;
+
     const ok = (
       await question(rl, `delete ${String(candidates.length)} run${candidates.length === 1 ? '' : 's'}? [y/N] `)
     ).trim();
@@ -290,6 +298,62 @@ const runInteractivePrune = async (): Promise<void> => {
   }
 };
 
+const printRunsOverview = (groups: ReadonlyMap<string, readonly RunEntry[]>): void => {
+  process.stdout.write('current runs:\n');
+  for (const [flow, runs] of groups) {
+    const flowBytes = runs.reduce((acc, r) => acc + r.sizeBytes, 0);
+    process.stdout.write(
+      `  ${flow}  (${String(runs.length)} run${runs.length === 1 ? '' : 's'}, ${formatBytes(flowBytes)})\n`
+    );
+  }
+  process.stdout.write('\n');
+};
+
+/** Prompt for age-vs-keep-last, then the matching follow-up value, validating as it goes. */
+const promptPruneFilterChoice = async (rl: ReturnType<typeof createInterface>): Promise<PruneFiltersResult> => {
+  const criterion = (await question(rl, 'prune by [1] age threshold or [2] keep-last N? ')).trim();
+  if (criterion === '1') {
+    const duration = (await question(rl, 'duration (e.g. 7d, 24h, 2w): ')).trim();
+    const parsed = parseDuration(duration);
+    if (!parsed.ok) {
+      process.stderr.write(`error: ${parsed.error.message}\n`);
+      process.exit(1);
+      return { ok: false };
+    }
+    return { ok: true, olderThanMs: parsed.value, keepLast: undefined };
+  }
+  if (criterion === '2') {
+    const n = (await question(rl, 'keep last N runs per flow: ')).trim();
+    const parsed = Number(n);
+    if (!Number.isInteger(parsed) || parsed < 0) {
+      process.stderr.write('error: keep-last must be a non-negative integer\n');
+      process.exit(1);
+      return { ok: false };
+    }
+    return { ok: true, olderThanMs: undefined, keepLast: parsed };
+  }
+  process.stderr.write(`error: unrecognised choice '${criterion}' — expected 1 or 2\n`);
+  process.exit(1);
+  return { ok: false };
+};
+
+/** Prompt for an optional flow restriction, validating it against the known flow list. */
+const promptFlowFilterChoice = async (
+  rl: ReturnType<typeof createInterface>,
+  flows: readonly string[]
+): Promise<FlowFilterResult> => {
+  const flowAnswer = (
+    await question(rl, `restrict to a flow? [enter for all, or one of: ${flows.join(', ')}] `)
+  ).trim();
+  const flowFilter = flowAnswer.length === 0 ? undefined : flowAnswer;
+  if (flowFilter !== undefined && !flows.includes(flowFilter)) {
+    process.stderr.write(`error: no such flow '${flowFilter}'\n`);
+    process.exit(1);
+    return { ok: false };
+  }
+  return { ok: true, flowFilter };
+};
+
 /**
  * Per-flow candidate selection. When both criteria are set, a dir qualifies only when it is
  * older than the duration AND not among the N most-recent for its flow. When only one is set,
@@ -300,33 +364,50 @@ const runInteractivePrune = async (): Promise<void> => {
  */
 const selectCandidates = (
   grouped: ReadonlyMap<string, readonly RunEntry[]>,
-  filters: { readonly olderThanMs: number | undefined; readonly keepLast: number | undefined }
+  filters: PruneFilters
 ): { readonly candidates: readonly RunEntry[]; readonly unknownStampWarnings: readonly string[] } => {
   const { olderThanMs, keepLast } = filters;
   const candidates: RunEntry[] = [];
   const unknownStampWarnings: string[] = [];
   const nowMs = Date.now();
   for (const [, runsForFlow] of grouped) {
-    let keep: Set<string> | undefined;
-    if (keepLast !== undefined) {
-      keep = new Set<string>();
-      for (const r of runsForFlow.slice(0, keepLast)) keep.add(r.path);
-    }
+    const keep = buildKeepSet(runsForFlow, keepLast);
     for (const run of runsForFlow) {
-      let ageQualifies = true;
-      if (olderThanMs !== undefined) {
-        if (run.timestamp === null) {
-          unknownStampWarnings.push(run.path);
-          ageQualifies = false;
-        } else {
-          ageQualifies = nowMs - run.timestamp.getTime() >= olderThanMs;
-        }
-      }
-      const keepQualifies = keep === undefined ? true : !keep.has(run.path);
-      if (ageQualifies && keepQualifies) candidates.push(run);
+      const { qualifies, unknownStamp } = evaluatePruneQualification(run, keep, olderThanMs, nowMs);
+      if (unknownStamp) unknownStampWarnings.push(run.path);
+      if (qualifies) candidates.push(run);
     }
   }
   return { candidates, unknownStampWarnings };
+};
+
+/** The set of run paths to retain under `--keep-last` for one flow's run list. */
+const buildKeepSet = (runsForFlow: readonly RunEntry[], keepLast: number | undefined): Set<string> | undefined => {
+  if (keepLast === undefined) return undefined;
+  const keep = new Set<string>();
+  for (const r of runsForFlow.slice(0, keepLast)) keep.add(r.path);
+  return keep;
+};
+
+/** Age + keep-last gating for one run; `unknownStamp` flags a dir name with no embedded timestamp. */
+const evaluatePruneQualification = (
+  run: RunEntry,
+  keepSet: Set<string> | undefined,
+  olderThanMs: number | undefined,
+  nowMs: number
+): { readonly qualifies: boolean; readonly unknownStamp: boolean } => {
+  let ageQualifies = true;
+  let unknownStamp = false;
+  if (olderThanMs !== undefined) {
+    if (run.timestamp === null) {
+      unknownStamp = true;
+      ageQualifies = false;
+    } else {
+      ageQualifies = nowMs - run.timestamp.getTime() >= olderThanMs;
+    }
+  }
+  const keepQualifies = keepSet === undefined ? true : !keepSet.has(run.path);
+  return { qualifies: ageQualifies && keepQualifies, unknownStamp };
 };
 
 const printCandidateSummary = (candidates: readonly RunEntry[]): void => {

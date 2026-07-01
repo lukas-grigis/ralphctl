@@ -30,6 +30,7 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
+import type { RefObject } from 'react';
 import { Box, Text } from 'ink';
 import { useEditField } from '@src/application/ui/tui/runtime/use-edit-field.ts';
 import { useIsMounted } from '@src/application/ui/tui/runtime/use-is-mounted.ts';
@@ -39,17 +40,19 @@ import { LoadErrorRow, LoadingRow } from '@src/application/ui/tui/components/asy
 import { ConfirmCard } from '@src/application/ui/tui/components/confirm-card.tsx';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { Project } from '@src/domain/entity/project.ts';
+import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { Ticket } from '@src/domain/entity/ticket.ts';
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useRouter, useViewProps } from '@src/application/ui/tui/runtime/router.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
-import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
+import { useViewHints, type ViewHint } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { createTicketRemoveFlow } from '@src/application/flows/remove-ticket/flow.ts';
-import { unblockTaskUseCase } from '@src/business/task/unblock-task.ts';
+import type { TicketRemoveDeps } from '@src/application/flows/remove-ticket/deps.ts';
+import { type UnblockTaskProps, unblockTaskUseCase } from '@src/business/task/unblock-task.ts';
 import { NextPhaseCard, SprintHeader } from '@src/application/ui/tui/views/sprint-detail-internals/header-card.tsx';
 import { TicketsSection } from '@src/application/ui/tui/views/sprint-detail-internals/ticket-list.tsx';
 import { TasksSection } from '@src/application/ui/tui/views/sprint-detail-internals/task-summary.tsx';
@@ -63,6 +66,7 @@ import {
 import { useListWindow } from '@src/application/ui/tui/components/windowed-list.tsx';
 import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
 import { runEdit } from '@src/application/ui/tui/views/sprint-detail-internals/field-editors.ts';
+import type { AsyncLoadState } from '@src/application/ui/tui/runtime/use-async-load.ts';
 import {
   type SprintBundle,
   useSprintBundle,
@@ -71,6 +75,120 @@ import {
 interface SprintDetailProps extends Readonly<Record<string, unknown>> {
   readonly sprintId: SprintId;
 }
+
+interface FocusedSelection {
+  readonly focusedTicket: Ticket | undefined;
+  readonly focusedTodoTask: Task | undefined;
+  readonly focusedStuckTask: Task | undefined;
+  readonly canEdit: boolean;
+}
+
+/**
+ * Derive the "what's under the cursor" selection from the flat focus list. Feeds the `e` edit
+ * gate, the `u` unblock gate, and the hint row — all three read off this one pass. Pure: same
+ * `focusList` + `cursorIdx` + `ticketsEditable` always yields the same selection, so it lives
+ * outside the component body as a plain helper rather than a hook.
+ */
+const deriveFocusedSelection = (
+  focusList: readonly FocusItem[],
+  cursorIdx: number,
+  ticketsEditable: boolean
+): FocusedSelection => {
+  const focusedNow = focusList[Math.min(cursorIdx, Math.max(0, focusList.length - 1))];
+  // "Stuck" covers both `blocked` (maxAttempts exhausted / verify failed) and `in_progress`
+  // with a settled last attempt (crash recovery after Ctrl-C / watchdog kill). Both map to the
+  // same operator action: press `u` to reset to `todo` and retry on the next implement run.
+  const focusedStuckTask =
+    focusedNow?.kind === 'task' && (focusedNow.task.status === 'blocked' || focusedNow.task.status === 'in_progress')
+      ? focusedNow.task
+      : undefined;
+  const focusedTicket = focusedNow?.kind === 'ticket' && ticketsEditable ? focusedNow.ticket : undefined;
+  const focusedTodoTask =
+    focusedNow?.kind === 'task' && focusedNow.task.status === 'todo' ? focusedNow.task : undefined;
+  const canEdit = focusedTicket !== undefined || focusedTodoTask !== undefined;
+  return { focusedTicket, focusedTodoTask, focusedStuckTask, canEdit };
+};
+
+/** Stable identity for the flat focus list — see the `useMemo` call site for why it matters. */
+const focusItemId = (item: FocusItem): string =>
+  item.kind === 'ticket' ? `ticket:${String(item.ticket.id)}` : `task:${String(item.task.id)}`;
+
+interface BuildDetailHintsArgs {
+  readonly inDetail: boolean;
+  readonly ticketsEditable: boolean;
+  readonly canEdit: boolean;
+  readonly sprint: Sprint | undefined;
+  readonly currentSprintId: SprintId | undefined;
+  readonly focusedStuckTask: Task | undefined;
+}
+
+/**
+ * Build the local footer-hint list. Every hint shares one source of truth with its handler via
+ * `enabledWhen`: the `a`/`d` ticket-CRUD chords are gated on `ticketsEditable` (draft only), so
+ * the hints must hide on a non-draft sprint or the footer would advertise keys that do nothing.
+ * `m` (mark-current) and `u` (unblock) follow the same declarative gate rather than conditional
+ * spreads. Pure — lives outside the component so `useViewHints` keeps a plain call site.
+ */
+const buildDetailHints = (args: BuildDetailHintsArgs): readonly ViewHint[] => {
+  const { inDetail, ticketsEditable, canEdit, sprint, currentSprintId, focusedStuckTask } = args;
+  return [
+    { keys: '↑/↓/j/k', label: 'move' },
+    { keys: 'n', label: 'flows' },
+    { keys: '↵/o', label: inDetail ? 'expand/collapse' : 'expand' },
+    // `esc/q` collapses all expanded cards; only shown while in detail mode so the hint
+    // doesn't compete with the global `esc → back` behavior when nothing is expanded.
+    { keys: 'esc/q', label: 'collapse all', enabledWhen: inDetail },
+    { keys: 'a', label: 'add ticket', enabledWhen: ticketsEditable },
+    { keys: 'e', label: 'edit field', enabledWhen: canEdit },
+    { keys: 'd', label: 'remove ticket', enabledWhen: ticketsEditable },
+    // Surface the `m` chord only when this sprint is not already the current one — once
+    // they match, the action is a no-op and the hint adds noise. Suppressed while a
+    // stuck task is focused so the `u unblock` hint (a more urgent operator action)
+    // stays prominent in the footer without competing for horizontal space.
+    {
+      keys: 'm',
+      label: 'current',
+      enabledWhen: sprint !== undefined && currentSprintId !== sprint.id && focusedStuckTask === undefined,
+    },
+    { keys: 'u', label: 'unblock', enabledWhen: focusedStuckTask !== undefined },
+  ];
+};
+
+interface BuildShortcutsActionsArgs {
+  readonly selection: ReturnType<typeof useSelection>;
+  readonly router: ReturnType<typeof useRouter>;
+  readonly setOpenIds: React.Dispatch<React.SetStateAction<ReadonlySet<string>>>;
+  readonly setConfirmRemove: (ticket: Ticket | undefined) => void;
+  readonly setFeedback: (message: string) => void;
+  readonly onUnblock: (task: Task) => Promise<void>;
+}
+
+/**
+ * Build the `useSprintDetailShortcuts` action closures (`a`/`m`/↵/`d`/`u`) — spread into the
+ * hook's config alongside the plain gate fields so the call site stays a flat list.
+ */
+const buildShortcutsActions = (args: BuildShortcutsActionsArgs) => {
+  const { selection, router, setOpenIds, setConfirmRemove, setFeedback, onUnblock } = args;
+  return {
+    closeAllExpanded: () => setOpenIds(new Set()),
+    openAddTicket: (id: SprintId) => router.push({ id: 'add-ticket', props: { sprintId: id } }),
+    toggleExpand: (id: string) =>
+      setOpenIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      }),
+    beginRemove: (ticket: Ticket) => setConfirmRemove(ticket),
+    markCurrent: (s: Sprint) => {
+      selection.setSprint(s.id, s.name, s.status);
+      setFeedback(`${glyphs.check} now on ${s.name}`);
+    },
+    handleUnblock: (task: Task) => {
+      void onUnblock(task);
+    },
+  };
+};
 
 export const SprintDetailView = (): React.JSX.Element => {
   const deps = useDeps();
@@ -102,12 +220,7 @@ export const SprintDetailView = (): React.JSX.Element => {
   // Id-stable cursor over the flat focus list. Items are keyed as `ticket:<id>` / `task:<id>`
   // matching the entity's stable domain id, so a task-list refresh or reorder keeps focus on
   // the same logical item instead of teleporting to whatever sits at the old index.
-  const getFocusItemId = useMemo(
-    () =>
-      (item: FocusItem): string =>
-        item.kind === 'ticket' ? `ticket:${String(item.ticket.id)}` : `task:${String(item.task.id)}`,
-    []
-  );
+  const getFocusItemId = useMemo(() => focusItemId, []);
   const listActive = !ui.modalOpen;
   const { focusedIndex: cursorIdx } = useListWindow<FocusItem>({
     items: focusList,
@@ -131,48 +244,25 @@ export const SprintDetailView = (): React.JSX.Element => {
   // Ticket CRUD is only meaningful in draft. Detail-mode disables hot keys other than esc.
   const ticketsEditable = sprint?.status === 'draft';
   const inDetail = openIds.size > 0;
-  const focusedNow = focusList[Math.min(cursorIdx, Math.max(0, focusList.length - 1))];
-  // "Stuck" covers both `blocked` (maxAttempts exhausted / verify failed) and `in_progress`
-  // with a settled last attempt (crash recovery after Ctrl-C / watchdog kill). Both map to the
-  // same operator action: press `u` to reset to `todo` and retry on the next implement run.
-  const focusedStuckTask =
-    focusedNow?.kind === 'task' && (focusedNow.task.status === 'blocked' || focusedNow.task.status === 'in_progress')
-      ? focusedNow.task
-      : undefined;
+  const { focusedTicket, focusedTodoTask, focusedStuckTask, canEdit } = deriveFocusedSelection(
+    focusList,
+    cursorIdx,
+    ticketsEditable
+  );
 
   const edit = useEditField();
   const queue = usePromptQueue();
 
-  const focusedTicket = focusedNow?.kind === 'ticket' && ticketsEditable ? focusedNow.ticket : undefined;
-  const focusedTodoTask =
-    focusedNow?.kind === 'task' && focusedNow.task.status === 'todo' ? focusedNow.task : undefined;
-  const canEdit = focusedTicket !== undefined || focusedTodoTask !== undefined;
-
-  // Every hint shares one source of truth with its handler via `enabledWhen`: the `a`/`d`
-  // ticket-CRUD chords are gated on `ticketsEditable` (draft only), so the hints must hide on a
-  // non-draft sprint or the footer would advertise keys that do nothing. `m` (mark-current) and
-  // `u` (unblock) follow the same declarative gate rather than conditional spreads.
-  useViewHints([
-    { keys: '↑/↓/j/k', label: 'move' },
-    { keys: 'n', label: 'flows' },
-    { keys: '↵/o', label: inDetail ? 'expand/collapse' : 'expand' },
-    // `esc/q` collapses all expanded cards; only shown while in detail mode so the hint
-    // doesn't compete with the global `esc → back` behavior when nothing is expanded.
-    { keys: 'esc/q', label: 'collapse all', enabledWhen: inDetail },
-    { keys: 'a', label: 'add ticket', enabledWhen: ticketsEditable === true },
-    { keys: 'e', label: 'edit field', enabledWhen: canEdit },
-    { keys: 'd', label: 'remove ticket', enabledWhen: ticketsEditable === true },
-    // Surface the `m` chord only when this sprint is not already the current one — once
-    // they match, the action is a no-op and the hint adds noise. Suppressed while a
-    // stuck task is focused so the `u unblock` hint (a more urgent operator action)
-    // stays prominent in the footer without competing for horizontal space.
-    {
-      keys: 'm',
-      label: 'current',
-      enabledWhen: sprint !== undefined && selection.sprintId !== sprint.id && focusedStuckTask === undefined,
-    },
-    { keys: 'u', label: 'unblock', enabledWhen: focusedStuckTask !== undefined },
-  ]);
+  useViewHints(
+    buildDetailHints({
+      inDetail,
+      ticketsEditable: ticketsEditable === true,
+      canEdit,
+      sprint,
+      currentSprintId: selection.sprintId,
+      focusedStuckTask,
+    })
+  );
 
   const handleEdit = (): void => {
     if (sprint === undefined) return;
@@ -190,21 +280,17 @@ export const SprintDetailView = (): React.JSX.Element => {
 
   const handleUnblock = async (target: Task): Promise<void> => {
     if (sprint === undefined) return;
-    const r = await unblockTaskUseCase({
-      task: target,
+    await runUnblock({
+      target,
       sprintId: sprint.id,
       taskRepo: deps.taskRepo,
       sprintRepo: deps.sprintRepo,
       clock: deps.clock,
       logger: deps.logger,
+      mountedRef,
+      setFeedback,
+      reload,
     });
-    if (!r.ok) {
-      if (mountedRef.current) setFeedback(`${glyphs.cross} ${r.error.message}`);
-      return;
-    }
-    if (!mountedRef.current) return;
-    setFeedback(`${glyphs.check} unblocked "${target.name}"`);
-    reload();
   };
 
   useSprintDetailShortcuts({
@@ -218,24 +304,15 @@ export const SprintDetailView = (): React.JSX.Element => {
     focusList,
     cursorIdx,
     focusedStuckTask,
-    closeAllExpanded: () => setOpenIds(new Set()),
-    openAddTicket: (id) => router.push({ id: 'add-ticket', props: { sprintId: id } }),
-    toggleExpand: (id) =>
-      setOpenIds((prev) => {
-        const next = new Set(prev);
-        if (next.has(id)) next.delete(id);
-        else next.add(id);
-        return next;
-      }),
-    beginRemove: (ticket) => setConfirmRemove(ticket),
-    markCurrent: (s) => {
-      selection.setSprint(s.id, s.name, s.status);
-      setFeedback(`${glyphs.check} now on ${s.name}`);
-    },
+    ...buildShortcutsActions({
+      selection,
+      router,
+      setOpenIds,
+      setConfirmRemove,
+      setFeedback,
+      onUnblock: handleUnblock,
+    }),
     handleEdit,
-    handleUnblock: (task) => {
-      void handleUnblock(task);
-    },
   });
 
   // Claim `esc` while the detail card is open so the local handler can close the card without
@@ -247,15 +324,14 @@ export const SprintDetailView = (): React.JSX.Element => {
   const handleRemoveConfirmed = async (target: Ticket, confirmed: boolean): Promise<void> => {
     setConfirmRemove(undefined);
     if (!confirmed || sprint === undefined) return;
-    const flow = createTicketRemoveFlow({ sprintRepo: deps.sprintRepo });
-    const r = await flow.execute({ input: { sprintId: sprint.id, ticketId: target.id } });
-    if (!r.ok) {
-      if (mountedRef.current) setFeedback(`${glyphs.cross} ${r.error.error.message}`);
-      return;
-    }
-    if (!mountedRef.current) return;
-    setFeedback(`${glyphs.check} removed "${target.title}"`);
-    reload();
+    await runRemoveTicket({
+      target,
+      sprintId: sprint.id,
+      sprintRepo: deps.sprintRepo,
+      mountedRef,
+      setFeedback,
+      reload,
+    });
   };
 
   return (
@@ -268,36 +344,143 @@ export const SprintDetailView = (): React.JSX.Element => {
       // page scroll keeps its arrows there.
       suppressScrollArrows={state.kind === 'ok'}
     >
-      {ui.helpOpen ? (
-        <HelpOverlay />
-      ) : state.kind === 'loading' || state.kind === 'idle' ? (
-        <LoadingRow label="Loading…" />
-      ) : state.kind === 'error' ? (
-        <LoadErrorRow message="Failed to load sprint." />
-      ) : confirmRemove !== undefined ? (
-        <ConfirmCard
-          title={
-            <Text>
-              Remove ticket <Text bold>{confirmRemove.title}</Text> from this sprint?
-            </Text>
-          }
-          message="Remove?"
-          onSubmit={(value) => void handleRemoveConfirmed(confirmRemove, value)}
-          onCancel={() => setConfirmRemove(undefined)}
-        />
-      ) : (
-        <Body
-          bundle={state.value}
-          project={project}
-          focusList={focusList}
-          cursorIdx={Math.min(cursorIdx, Math.max(0, focusList.length - 1))}
-          openIds={openIds}
-          ticketsEditable={ticketsEditable === true}
-          feedback={feedback ?? edit.feedback}
-          isCurrent={selection.sprintId === state.value.sprint.id}
-        />
-      )}
+      <SprintDetailContent
+        helpOpen={ui.helpOpen}
+        state={state}
+        confirmRemove={confirmRemove}
+        onCancelRemove={() => setConfirmRemove(undefined)}
+        onRemoveConfirmed={(target, confirmed) => void handleRemoveConfirmed(target, confirmed)}
+        project={project}
+        focusList={focusList}
+        cursorIdx={cursorIdx}
+        openIds={openIds}
+        ticketsEditable={ticketsEditable === true}
+        feedback={feedback ?? edit.feedback}
+        currentSprintId={selection.sprintId}
+      />
     </ViewShell>
+  );
+};
+
+interface RunUnblockArgs {
+  readonly target: Task;
+  readonly sprintId: SprintId;
+  readonly taskRepo: UnblockTaskProps['taskRepo'];
+  readonly sprintRepo: UnblockTaskProps['sprintRepo'];
+  readonly clock: UnblockTaskProps['clock'];
+  readonly logger: UnblockTaskProps['logger'];
+  readonly mountedRef: RefObject<boolean>;
+  readonly setFeedback: (message: string) => void;
+  readonly reload: () => void;
+}
+
+/**
+ * Run the unblock use case for one stuck task (the `u` chord) and thread the result to
+ * feedback + reload. `mountedRef` guards the post-await writes — see the comment on the
+ * component's own `mountedRef` declaration for why they can otherwise fire into an unmounted
+ * tree.
+ */
+const runUnblock = async (args: RunUnblockArgs): Promise<void> => {
+  const { target, sprintId, taskRepo, sprintRepo, clock, logger, mountedRef, setFeedback, reload } = args;
+  const r = await unblockTaskUseCase({ task: target, sprintId, taskRepo, sprintRepo, clock, logger });
+  if (!r.ok) {
+    if (mountedRef.current) setFeedback(`${glyphs.cross} ${r.error.message}`);
+    return;
+  }
+  if (!mountedRef.current) return;
+  setFeedback(`${glyphs.check} unblocked "${target.name}"`);
+  reload();
+};
+
+interface RunRemoveTicketArgs {
+  readonly target: Ticket;
+  readonly sprintId: SprintId;
+  readonly sprintRepo: TicketRemoveDeps['sprintRepo'];
+  readonly mountedRef: RefObject<boolean>;
+  readonly setFeedback: (message: string) => void;
+  readonly reload: () => void;
+}
+
+/**
+ * Run the ticket-remove flow for one confirmed removal and thread the result to feedback +
+ * reload. Same `mountedRef` guard as {@link runUnblock} — the confirm overlay dismisses before
+ * the flow resolves, so the view can already be unmounted by the time it settles.
+ */
+const runRemoveTicket = async (args: RunRemoveTicketArgs): Promise<void> => {
+  const { target, sprintId, sprintRepo, mountedRef, setFeedback, reload } = args;
+  const flow = createTicketRemoveFlow({ sprintRepo });
+  const r = await flow.execute({ input: { sprintId, ticketId: target.id } });
+  if (!r.ok) {
+    if (mountedRef.current) setFeedback(`${glyphs.cross} ${r.error.error.message}`);
+    return;
+  }
+  if (!mountedRef.current) return;
+  setFeedback(`${glyphs.check} removed "${target.title}"`);
+  reload();
+};
+
+interface SprintDetailContentProps {
+  readonly helpOpen: boolean;
+  readonly state: AsyncLoadState<SprintBundle, unknown>;
+  readonly confirmRemove: Ticket | undefined;
+  readonly onCancelRemove: () => void;
+  readonly onRemoveConfirmed: (target: Ticket, confirmed: boolean) => void;
+  readonly project: Project | undefined;
+  readonly focusList: readonly FocusItem[];
+  readonly cursorIdx: number;
+  readonly openIds: ReadonlySet<string>;
+  readonly ticketsEditable: boolean;
+  readonly feedback: string | undefined;
+  readonly currentSprintId: SprintId | undefined;
+}
+
+/**
+ * Top-level render branch: help overlay > load/error states > remove confirm > the loaded
+ * body. Flat if-returns instead of a nested ternary chain — same branch order and same props
+ * as before, just laid out as one branch per line.
+ */
+const SprintDetailContent = ({
+  helpOpen,
+  state,
+  confirmRemove,
+  onCancelRemove,
+  onRemoveConfirmed,
+  project,
+  focusList,
+  cursorIdx,
+  openIds,
+  ticketsEditable,
+  feedback,
+  currentSprintId,
+}: SprintDetailContentProps): React.JSX.Element => {
+  if (helpOpen) return <HelpOverlay />;
+  if (state.kind === 'loading' || state.kind === 'idle') return <LoadingRow label="Loading…" />;
+  if (state.kind === 'error') return <LoadErrorRow message="Failed to load sprint." />;
+  if (confirmRemove !== undefined) {
+    return (
+      <ConfirmCard
+        title={
+          <Text>
+            Remove ticket <Text bold>{confirmRemove.title}</Text> from this sprint?
+          </Text>
+        }
+        message="Remove?"
+        onSubmit={(value) => onRemoveConfirmed(confirmRemove, value)}
+        onCancel={onCancelRemove}
+      />
+    );
+  }
+  return (
+    <Body
+      bundle={state.value}
+      project={project}
+      focusList={focusList}
+      cursorIdx={Math.min(cursorIdx, Math.max(0, focusList.length - 1))}
+      openIds={openIds}
+      ticketsEditable={ticketsEditable}
+      feedback={feedback}
+      isCurrent={currentSprintId === state.value.sprint.id}
+    />
   );
 };
 

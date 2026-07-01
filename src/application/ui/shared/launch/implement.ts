@@ -25,6 +25,9 @@ import { renderTaskGraphIssue, validateTaskGraph } from '@src/domain/entity/task
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
+import type { Repository } from '@src/domain/entity/repository.ts';
+import type { Sprint } from '@src/domain/entity/sprint.ts';
+import type { Project } from '@src/domain/entity/project.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { Sink } from '@src/business/observability/sink.ts';
@@ -32,9 +35,12 @@ import type { HarnessSignalSink } from '@src/business/observability/harness-sign
 import { broadcastSink } from '@src/integration/observability/sinks/broadcast-sink.ts';
 import type { AiFlowSettings, AiImplementSettings, Settings } from '@src/domain/entity/settings.ts';
 import { createAiProvider } from '@src/application/bootstrap/provider-factory.ts';
+import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
+import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
+import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
 import { resolveEffortForRow } from '@src/business/settings/resolve-effort.ts';
 import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts';
-import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
+import type { LaunchResult, LauncherDeps } from '@src/application/ui/shared/launcher.ts';
 import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
 
 /**
@@ -218,6 +224,234 @@ const buildParallelElement = (
   });
 };
 
+/**
+ * Direct-build the canonical `<id>--<slug>/` sprint dir plus its `progress.md` / `events.ndjson`
+ * siblings, collapsing the three `AbsolutePath.parse` checks into one `Result` chain. The launcher
+ * holds the full sprint entity, so no async resolver scan is needed — building the bare `<id>`
+ * path here would split-brain against a slug-renamed dir the repos converge on.
+ */
+const resolveImplementSprintPaths = (
+  dataRoot: AbsolutePath,
+  sprint: Pick<Sprint, 'id' | 'slug'>
+): Result<
+  {
+    readonly sprintDirPath: AbsolutePath;
+    readonly progressPath: AbsolutePath;
+    readonly eventsNdjsonPath: AbsolutePath;
+  },
+  string
+> => {
+  const sprintDirPath = AbsolutePath.parse(sprintDir(dataRoot, sprint.id, sprint.slug));
+  if (!sprintDirPath.ok) return Result.error(sprintDirPath.error.message);
+  const progressPath = AbsolutePath.parse(join(String(sprintDirPath.value), 'progress.md'));
+  if (!progressPath.ok) return Result.error(progressPath.error.message);
+  const eventsNdjsonPath = AbsolutePath.parse(join(String(sprintDirPath.value), 'events.ndjson'));
+  if (!eventsNdjsonPath.ok) return Result.error(eventsNdjsonPath.error.message);
+  return Result.ok({
+    sprintDirPath: sprintDirPath.value,
+    progressPath: progressPath.value,
+    eventsNdjsonPath: eventsNdjsonPath.value,
+  });
+};
+
+/**
+ * Signal mirror: `<change>` / `<learning>` / `<note>` signals are republished as structured
+ * `harness-signal` events on the EventBus so the TUI panels (and the opt-in events.ndjson tee)
+ * see them with a queryable shape.
+ *
+ * The OLD single-slot `currentTaskId` tracker (keyed off the bus's `task-attempt-started` event)
+ * is DELETED: that event has zero production publishers, so the slot was always `undefined` —
+ * every serial-path `harness-signal` was already unattributed. The parallel `>1` path attaches a
+ * PER-BRANCH sink keyed on the branch's `taskId` (see `wave-branch.ts`), the only correct model
+ * under concurrency. The serial path keeps emitting unattributed events, byte-for-byte with
+ * today's behaviour — renderers that group by task simply skip unattributed entries.
+ */
+const buildImplementSignalSink = (deps: LauncherDeps): HarnessSignalSink => {
+  const serialSignalBusMirror: Sink<HarnessSignal> = {
+    emit(signal) {
+      if (signal.type !== 'change' && signal.type !== 'learning' && signal.type !== 'note') return;
+      deps.app.eventBus.publish({
+        type: 'harness-signal',
+        signalKind: signal.type,
+        text: signal.text,
+        at: IsoTimestamp.now(),
+      });
+    },
+  };
+  return broadcastSink<HarnessSignal>([deps.app.signals, serialSignalBusMirror]);
+};
+
+/** Project repositories → `RepoExecConfig` map keyed by id, the per-task subchain's repo lookup. */
+const buildRepoExecConfigs = (repositories: readonly Repository[]): Map<RepositoryId, RepoExecConfig> => {
+  const configs = new Map<RepositoryId, RepoExecConfig>();
+  for (const r of repositories) {
+    configs.set(r.id, {
+      path: r.path,
+      name: r.name,
+      ...(r.verifyScript !== undefined ? { verifyScript: r.verifyScript } : {}),
+      ...(r.verifyGates !== undefined ? { verifyGates: r.verifyGates } : {}),
+      ...(r.verifyTimeout !== undefined ? { verifyTimeout: r.verifyTimeout } : {}),
+      ...(r.setupScript !== undefined ? { setupScript: r.setupScript } : {}),
+    });
+  }
+  return configs;
+};
+
+/**
+ * Build one `HeadlessAiProvider` per role from the effective implement pair. The two roles may
+ * target distinct providers — they're constructed independently rather than routed through
+ * `primaryFlowRow` so a cross-provider configuration spawns the right CLI per role. `ctx.provider`
+ * (the launcher-rebuilt primary adapter) is deliberately left unused by the implement launcher —
+ * implement bypasses the single-row seam.
+ */
+const buildImplementProviders = (
+  implementPair: AiImplementSettings,
+  effectiveSettings: Settings,
+  deps: LauncherDeps
+): {
+  readonly generatorProvider: HeadlessAiProvider;
+  readonly evaluatorProvider: HeadlessAiProvider;
+  readonly generatorEffort: string | undefined;
+  readonly evaluatorEffort: string | undefined;
+} => {
+  const generatorProvider = createAiProvider({
+    row: implementPair.generator,
+    harnessConfig: effectiveSettings.harness,
+    eventBus: deps.app.eventBus,
+  });
+  const evaluatorProvider = createAiProvider({
+    row: implementPair.evaluator,
+    harnessConfig: effectiveSettings.harness,
+    eventBus: deps.app.eventBus,
+  });
+  const generatorEffort = resolveEffortForRow(implementPair.generator, effectiveSettings.ai.effort);
+  const evaluatorEffort = resolveEffortForRow(implementPair.evaluator, effectiveSettings.ai.effort);
+  return { generatorProvider, evaluatorProvider, generatorEffort, evaluatorEffort };
+};
+
+/** Assemble the `ImplementDeps` bag handed to `createImplementFlow` / `buildParallelElement`. */
+const buildImplementDepsBag = (
+  deps: LauncherDeps,
+  effectiveSettings: Settings,
+  signals: HarnessSignalSink,
+  providers: { readonly generatorProvider: HeadlessAiProvider; readonly evaluatorProvider: HeadlessAiProvider },
+  skillsAdapter: SkillsAdapter,
+  skillSource: SkillSource
+): ImplementDeps => ({
+  sprintRepo: deps.app.sprintRepo,
+  sprintExecutionRepo: deps.app.sprintExecutionRepo,
+  taskRepo: deps.app.taskRepo,
+  generatorProvider: providers.generatorProvider,
+  evaluatorProvider: providers.evaluatorProvider,
+  templateLoader: deps.app.templateLoader,
+  signals,
+  eventBus: deps.app.eventBus,
+  logger: deps.app.logger,
+  clock: deps.app.clock,
+  config: effectiveSettings,
+  gitRunner: deps.app.gitRunner,
+  shellScriptRunner: deps.app.shellScriptRunner,
+  fileLocker: deps.app.fileLocker,
+  locksRoot: deps.storage.locksRoot,
+  skillsAdapter,
+  skillSource,
+  interactive: deps.interactive,
+  writeFile: deps.app.writeFile,
+  appendFile: deps.app.appendFile,
+  // ONE journal mutex per run. Every parallel branch inherits this instance (branches spread this
+  // deps bag), so their `progress-journal-<taskId>` leaves serialise their read-regenerate-write
+  // of the shared `progress.md` through it; the serial path is a single caller, so it is a no-op.
+  journalMutex: createFoldQueue(),
+});
+
+/**
+ * Assemble the `CreateImplementFlowOpts` bag — pure object-literal assembly, no branching.
+ * `repositories` is derived here (via {@link buildRepoExecConfigs}) rather than passed in, so
+ * callers only need to hand over the raw project.
+ */
+const buildImplementOptsBag = (
+  sprint: Pick<Sprint, 'id'>,
+  project: Pick<Project, 'id' | 'slug' | 'repositories'>,
+  todoTasks: readonly Task[],
+  sprintPaths: { readonly progressPath: AbsolutePath; readonly sprintDirPath: AbsolutePath },
+  implementPair: AiImplementSettings,
+  providers: { readonly generatorEffort: string | undefined; readonly evaluatorEffort: string | undefined },
+  memoryRoot: AbsolutePath
+): CreateImplementFlowOpts => ({
+  sprintId: sprint.id,
+  todoTasks,
+  repositories: buildRepoExecConfigs(project.repositories),
+  progressFile: sprintPaths.progressPath,
+  sprintDir: sprintPaths.sprintDirPath,
+  generatorProviderId: implementPair.generator.provider,
+  generatorModel: implementPair.generator.model,
+  ...(providers.generatorEffort !== undefined ? { generatorEffort: providers.generatorEffort } : {}),
+  evaluatorProviderId: implementPair.evaluator.provider,
+  evaluatorModel: implementPair.evaluator.model,
+  ...(providers.evaluatorEffort !== undefined ? { evaluatorEffort: providers.evaluatorEffort } : {}),
+  memoryRoot,
+  projectId: String(project.id),
+  projectSlug: project.slug,
+});
+
+/**
+ * Stop the file-log + bus subscriptions when the runner reaches a terminal state. Pending writes
+ * still drain in the background — events.ndjson remains consistent post-exit. The subscription
+ * self-unsubscribes on the terminal event so we don't pin a dead listener (and its closure scope)
+ * to the runner's internal listener Set across a long multi-run TUI session — historically a
+ * load-bearing OOM contributor.
+ */
+const wireChainLogStop = (
+  runner: Runner<ImplementCtx>,
+  chainLog: { readonly stop: () => void; readonly flush: () => Promise<void> }
+): void => {
+  const unsubRunner: () => void = runner.subscribe((evt) => {
+    if (evt.type === 'completed' || evt.type === 'failed' || evt.type === 'aborted') {
+      chainLog.stop();
+      void chainLog.flush();
+      unsubRunner();
+    }
+  });
+};
+
+/**
+ * Detect resumes at launch time: any task whose last attempt is still `running` (the v8 OOM /
+ * Ctrl-C / SIGTERM signature in a prior process) gets a `RecoveryContext` pinned to its id. We
+ * pre-derive here — rather than waiting for the chain's start-attempt leaf to settle — so the
+ * TUI's resume-from-aborted banner shows up *before* the chain starts executing, not after the
+ * first leaf finishes. Keyed on the leftover running attempt, NOT on `status === 'in_progress'`:
+ * a crash can persist a status-corrupt `todo` task whose last attempt is still `running` (which
+ * `startAttemptUseCase` heals), and the banner must fire for it too. `process-crash` is the
+ * conservative cause for the cross-process inference; P1j's signal-aware path will refine it.
+ */
+const computeTaskRecovering = (todoTasks: readonly Task[], now: IsoTimestamp): Map<string, RecoveryContext> => {
+  const taskRecovering = new Map<string, RecoveryContext>();
+  for (const t of todoTasks) {
+    const last = t.attempts.at(-1);
+    if (last === undefined || last.status !== 'running') continue;
+    taskRecovering.set(String(t.id), {
+      fromAttemptN: t.attempts.length,
+      cause: 'process-crash',
+      abortedAt: now,
+    });
+  }
+  return taskRecovering;
+};
+
+/**
+ * Plan-time label lookup — keyed by element name so the rail can render friendly labels for rows
+ * that haven't traced yet (pending / running). Once a leaf executes, the trace entry's own `label`
+ * carries the same value and supersedes this lookup. Only leaves that supplied a non-empty label
+ * are entered; lookups fall through to the raw name for everything else.
+ */
+const computePlanLabels = (flattened: ReadonlyArray<Element<ImplementCtx>>): Map<string, string> => {
+  const planLabelByName = new Map<string, string>();
+  for (const leaf of flattened) {
+    if (leaf.label !== undefined && leaf.label.length > 0) planLabelByName.set(leaf.name, leaf.label);
+  }
+  return planLabelByName;
+};
+
 export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult> => {
   const { deps, snapshot, extras, settings, skillsAdapter, skillSource, bridge, sessionId } = ctx;
   // Apply per-role overrides (from CLI flags via `LaunchExtras.implementRoleOverrides`) onto
@@ -246,122 +480,35 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
   if (!queue.ok) return { ok: false, reason: queue.error };
   const todoTasks = queue.value;
   if (todoTasks.length === 0) return { ok: false, reason: 'No tasks to implement or resume.' };
-  // Direct-build the canonical `<id>--<slug>/` sprint dir — the launcher holds the full sprint
-  // entity, so no async resolver scan is needed. Building the bare `<id>` path here would
-  // split-brain against a slug-renamed dir the repos converge on.
-  const sprintDirPath = AbsolutePath.parse(sprintDir(deps.storage.dataRoot, snapshot.sprint.id, snapshot.sprint.slug));
-  if (!sprintDirPath.ok) return { ok: false, reason: sprintDirPath.error.message };
-  const progressPath = AbsolutePath.parse(join(String(sprintDirPath.value), 'progress.md'));
-  if (!progressPath.ok) return { ok: false, reason: progressPath.error.message };
-  const eventsNdjsonPath = AbsolutePath.parse(join(String(sprintDirPath.value), 'events.ndjson'));
-  if (!eventsNdjsonPath.ok) return { ok: false, reason: eventsNdjsonPath.error.message };
+  const sprintPaths = resolveImplementSprintPaths(deps.storage.dataRoot, snapshot.sprint);
+  if (!sprintPaths.ok) return { ok: false, reason: sprintPaths.error };
+  const { sprintDirPath, progressPath, eventsNdjsonPath } = sprintPaths.value;
 
   // Tee every AppEvent on the bus to <sprintDir>/events.ndjson for postmortem debugging.
-  // Stopped when the runner exits (success or fail) — wired below via subscribe().
+  // Stopped when the runner exits (success or fail) — wired below via `wireChainLogStop`.
   // The factory is env-gated at `wire()` time: when `RALPHCTL_DEBUG_TRACE` is unset the
   // returned handle is a no-op, so production runs do not write the file unless the operator
   // explicitly opts in.
-  const chainLog = deps.app.chainLogSink({ file: eventsNdjsonPath.value, bus: deps.app.eventBus });
+  const chainLog = deps.app.chainLogSink({ file: eventsNdjsonPath, bus: deps.app.eventBus });
 
-  // Signal mirror: `<change>` / `<learning>` / `<note>` signals are republished as structured
-  // `harness-signal` events on the EventBus so the TUI panels (and the opt-in events.ndjson tee)
-  // see them with a queryable shape.
-  //
-  // The OLD single-slot `currentTaskId` tracker (keyed off the bus's `task-attempt-started` event)
-  // is DELETED: that event has zero production publishers, so the slot was always `undefined` —
-  // every serial-path `harness-signal` was already unattributed. The parallel `>1` path attaches a
-  // PER-BRANCH sink keyed on the branch's `taskId` (see `wave-branch.ts`), the only correct model
-  // under concurrency. The serial path keeps emitting unattributed events, byte-for-byte with
-  // today's behaviour — renderers that group by task simply skip unattributed entries.
-  const serialSignalBusMirror: Sink<HarnessSignal> = {
-    emit(signal) {
-      if (signal.type !== 'change' && signal.type !== 'learning' && signal.type !== 'note') return;
-      deps.app.eventBus.publish({
-        type: 'harness-signal',
-        signalKind: signal.type,
-        text: signal.text,
-        at: IsoTimestamp.now(),
-      });
-    },
-  };
   // Fan out every harness signal to the existing app sink (TUI bus + subscribers) and the serial
-  // event-bus mirror. Decisions are accumulated on ctx by the gen-eval leaves and rendered into
-  // `progress.md` by the journal leaf (audit-[07]). The parallel path builds its own per-branch
-  // sinks in `wave-branch.ts` from `deps.app.signals`, so this `signals` is the serial-path sink.
-  const signals: HarnessSignalSink = broadcastSink<HarnessSignal>([deps.app.signals, serialSignalBusMirror]);
-
-  const repositories = new Map<RepositoryId, RepoExecConfig>();
-  for (const r of snapshot.project.repositories) {
-    repositories.set(r.id, {
-      path: r.path,
-      name: r.name,
-      ...(r.verifyScript !== undefined ? { verifyScript: r.verifyScript } : {}),
-      ...(r.verifyGates !== undefined ? { verifyGates: r.verifyGates } : {}),
-      ...(r.verifyTimeout !== undefined ? { verifyTimeout: r.verifyTimeout } : {}),
-      ...(r.setupScript !== undefined ? { setupScript: r.setupScript } : {}),
-    });
-  }
-
-  // Build one HeadlessAiProvider per role from the effective implement pair. The two roles
-  // may target distinct providers — the launcher constructs them independently rather than
-  // routing through `primaryFlowRow` so a cross-provider configuration spawns the right CLI
-  // per role. `ctx.provider` (the launcher-rebuilt primary adapter) is left unused here;
-  // implement deliberately bypasses the single-row seam.
-  const generatorProvider = createAiProvider({
-    row: implementPair.generator,
-    harnessConfig: effectiveSettings.harness,
-    eventBus: deps.app.eventBus,
-  });
-  const evaluatorProvider = createAiProvider({
-    row: implementPair.evaluator,
-    harnessConfig: effectiveSettings.harness,
-    eventBus: deps.app.eventBus,
-  });
-  const generatorEffort = resolveEffortForRow(implementPair.generator, effectiveSettings.ai.effort);
-  const evaluatorEffort = resolveEffortForRow(implementPair.evaluator, effectiveSettings.ai.effort);
-
-  const implementDeps: ImplementDeps = {
-    sprintRepo: deps.app.sprintRepo,
-    sprintExecutionRepo: deps.app.sprintExecutionRepo,
-    taskRepo: deps.app.taskRepo,
-    generatorProvider,
-    evaluatorProvider,
-    templateLoader: deps.app.templateLoader,
-    signals,
-    eventBus: deps.app.eventBus,
-    logger: deps.app.logger,
-    clock: deps.app.clock,
-    config: effectiveSettings,
-    gitRunner: deps.app.gitRunner,
-    shellScriptRunner: deps.app.shellScriptRunner,
-    fileLocker: deps.app.fileLocker,
-    locksRoot: deps.storage.locksRoot,
-    skillsAdapter,
-    skillSource,
-    interactive: deps.interactive,
-    writeFile: deps.app.writeFile,
-    appendFile: deps.app.appendFile,
-    // ONE journal mutex per run. Every parallel branch inherits this instance (branches spread this
-    // deps bag), so their `progress-journal-<taskId>` leaves serialise their read-regenerate-write
-    // of the shared `progress.md` through it; the serial path is a single caller, so it is a no-op.
-    journalMutex: createFoldQueue(),
-  };
-  const implementOpts = {
-    sprintId: snapshot.sprint.id,
+  // event-bus mirror. The parallel path builds its own per-branch sinks in `wave-branch.ts` from
+  // `deps.app.signals`, so this `signals` is the serial-path sink.
+  const signals = buildImplementSignalSink(deps);
+  // Two independent per-role adapters — the roles may target distinct providers (see
+  // `buildImplementProviders`'s doc comment for why `ctx.provider` is unused here).
+  const providers = buildImplementProviders(implementPair, effectiveSettings, deps);
+  const implementDeps = buildImplementDepsBag(deps, effectiveSettings, signals, providers, skillsAdapter, skillSource);
+  const implementOpts = buildImplementOptsBag(
+    snapshot.sprint,
+    snapshot.project,
     todoTasks,
-    repositories,
-    progressFile: progressPath.value,
-    sprintDir: sprintDirPath.value,
-    generatorProviderId: implementPair.generator.provider,
-    generatorModel: implementPair.generator.model,
-    ...(generatorEffort !== undefined ? { generatorEffort } : {}),
-    evaluatorProviderId: implementPair.evaluator.provider,
-    evaluatorModel: implementPair.evaluator.model,
-    ...(evaluatorEffort !== undefined ? { evaluatorEffort } : {}),
-    memoryRoot: deps.storage.memoryRoot,
-    projectId: String(snapshot.project.id),
-    projectSlug: snapshot.project.slug,
-  };
+    { progressPath, sprintDirPath },
+    implementPair,
+    providers,
+    deps.storage.memoryRoot
+  );
+  const { generatorEffort, evaluatorEffort } = providers;
 
   // Parallel cap: clamp `settings.concurrency.maxParallelTasks` to `[1,5]`. `=== 1` →
   // today's serial path: `createImplementFlow` built directly, the chain owning its own internal
@@ -384,48 +531,13 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
     element,
     initialCtx: { sprintId: snapshot.sprint.id },
   });
-  // Stop the file-log + bus subscriptions when the runner reaches a terminal state.
-  // Pending writes still drain in the background — events.ndjson remains consistent
-  // post-exit. The subscription self-unsubscribes on the terminal event so we don't pin
-  // a dead listener (and its closure scope) to the runner's internal listener Set across
-  // a long multi-run TUI session — historically a load-bearing OOM contributor.
-  const unsubRunner: () => void = runner.subscribe((evt) => {
-    if (evt.type === 'completed' || evt.type === 'failed' || evt.type === 'aborted') {
-      chainLog.stop();
-      void chainLog.flush();
-      unsubRunner();
-    }
-  });
+  wireChainLogStop(runner, chainLog);
+
   const taskNames = new Map<string, string>(todoTasks.map((t) => [String(t.id), t.name]));
-  // Detect resumes at launch time: any task whose last attempt is still `running` (the v8 OOM /
-  // Ctrl-C / SIGTERM signature in a prior process) gets a `RecoveryContext` pinned to its id. We
-  // pre-derive here — rather than waiting for the chain's start-attempt leaf to settle — so the
-  // TUI's resume-from-aborted banner shows up *before* the chain starts executing, not after the
-  // first leaf finishes. Keyed on the leftover running attempt, NOT on `status === 'in_progress'`:
-  // a crash can persist a status-corrupt `todo` task whose last attempt is still `running` (which
-  // `startAttemptUseCase` heals), and the banner must fire for it too. `process-crash` is the
-  // conservative cause for the cross-process inference; P1j's signal-aware path will refine it.
-  const taskRecovering = new Map<string, RecoveryContext>();
-  const nowAtLaunch = deps.app.clock();
-  for (const t of todoTasks) {
-    const last = t.attempts.at(-1);
-    if (last === undefined || last.status !== 'running') continue;
-    taskRecovering.set(String(t.id), {
-      fromAttemptN: t.attempts.length,
-      cause: 'process-crash',
-      abortedAt: nowAtLaunch,
-    });
-  }
+  const taskRecovering = computeTaskRecovering(todoTasks, deps.app.clock());
   const flattened = flattenLeaves(element);
   const plannedLeaves = flattened.map((e) => e.name);
-  // Plan-time label lookup — keyed by element name so the rail can render friendly labels for
-  // rows that haven't traced yet (pending / running). Once a leaf executes, the trace entry's
-  // own `label` carries the same value and supersedes this lookup. Only leaves that supplied
-  // a non-empty label are entered; lookups fall through to the raw name for everything else.
-  const planLabelByName = new Map<string, string>();
-  for (const leaf of flattened) {
-    if (leaf.label !== undefined && leaf.label.length > 0) planLabelByName.set(leaf.name, leaf.label);
-  }
+  const planLabelByName = computePlanLabels(flattened);
   // Both role models are drawn from the post-merge implementPair so per-launch role overrides
   // (TUI customize picker or CLI flags) flow through to the rail/banner without a second
   // settings read.

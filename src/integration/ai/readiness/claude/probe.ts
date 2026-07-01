@@ -4,7 +4,7 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { ProbeError } from '@src/domain/value/error/probe-error.ts';
 import type { Repository } from '@src/domain/entity/repository.ts';
-import type { ArtifactRef, HookRef } from '@src/integration/ai/readiness/_engine/artifact-ref.ts';
+import type { ArtifactRef, HookRef, NamedArtifactRef } from '@src/integration/ai/readiness/_engine/artifact-ref.ts';
 import {
   probeFile,
   probeNamedDirCollection,
@@ -35,49 +35,84 @@ export const claudeProbe: ReadinessProbe<ClaudeArtifacts> = {
   async evaluate(repository: Repository, now: IsoTimestamp): Promise<Result<ReadinessState, ProbeError>> {
     const root = repository.path;
 
-    const claudeMd = await probeFile(join(root, 'CLAUDE.md'));
-    if (!claudeMd.ok) return Result.error(claudeMd.error);
+    const coreFiles = await probeCoreFiles(root);
+    if (!coreFiles.ok) return Result.error(coreFiles.error);
 
-    const agentsMd = await probeFile(join(root, 'AGENTS.md'));
-    if (!agentsMd.ok) return Result.error(agentsMd.error);
+    const namedArtifacts = await probeNamedArtifacts(root);
+    if (!namedArtifacts.ok) return Result.error(namedArtifacts.error);
 
-    const settings = await probeFile(join(root, '.claude/settings.json'));
-    if (!settings.ok) return Result.error(settings.error);
-
-    const settingsLocal = await probeFile(join(root, '.claude/settings.local.json'));
-    if (!settingsLocal.ok) return Result.error(settingsLocal.error);
-
-    const mcpConfig = await probeFile(join(root, '.mcp.json'));
-    if (!mcpConfig.ok) return Result.error(mcpConfig.error);
-
-    const skills = await probeNamedDirCollection(join(root, '.claude/skills'), 'SKILL.md');
-    if (!skills.ok) return Result.error(skills.error);
-
-    const commands = await probeNamedFileCollection(join(root, '.claude/commands'));
-    if (!commands.ok) return Result.error(commands.error);
-
-    const agents = await probeNamedFileCollection(join(root, '.claude/agents'));
-    if (!agents.ok) return Result.error(agents.error);
-
-    const hooks = await readHooks([settings.value, settingsLocal.value]);
+    const hooks = await readHooks([coreFiles.value.settings, coreFiles.value.settingsLocal]);
     if (!hooks.ok) return Result.error(hooks.error);
 
-    const artifacts: ClaudeArtifacts = {
-      tool: 'claude-code',
-      ...(claudeMd.value !== undefined ? { claudeMd: claudeMd.value } : {}),
-      ...(agentsMd.value !== undefined ? { agentsMd: agentsMd.value } : {}),
-      ...(settings.value !== undefined ? { settings: settings.value } : {}),
-      ...(settingsLocal.value !== undefined ? { settingsLocal: settingsLocal.value } : {}),
-      ...(mcpConfig.value !== undefined ? { mcpConfig: mcpConfig.value } : {}),
-      skills: skills.value,
-      commands: commands.value,
-      agents: agents.value,
-      hooks: hooks.value,
-    };
+    const artifacts = buildClaudeArtifacts(coreFiles.value, namedArtifacts.value, hooks.value);
 
     return Result.ok(hasAnyClaudeArtifact(artifacts) ? presentState(now, artifacts) : absentState(now));
   },
 };
+
+const CORE_FILE_SPECS = [
+  ['claudeMd', 'CLAUDE.md'],
+  ['agentsMd', 'AGENTS.md'],
+  ['settings', '.claude/settings.json'],
+  ['settingsLocal', '.claude/settings.local.json'],
+  ['mcpConfig', '.mcp.json'],
+] as const;
+
+type CoreFiles = Record<(typeof CORE_FILE_SPECS)[number][0], ArtifactRef | undefined>;
+
+/**
+ * Probes the flat, single-file artifacts (root memory files + project config) that live
+ * directly under `root`. Short-circuits on the first read error.
+ */
+const probeCoreFiles = async (root: string): Promise<Result<CoreFiles, ProbeError>> => {
+  const files = {} as CoreFiles;
+  for (const [key, relPath] of CORE_FILE_SPECS) {
+    const probed = await probeFile(join(root, relPath));
+    if (!probed.ok) return Result.error(probed.error);
+    files[key] = probed.value;
+  }
+  return Result.ok(files);
+};
+
+interface NamedArtifacts {
+  readonly skills: readonly NamedArtifactRef[];
+  readonly commands: readonly NamedArtifactRef[];
+  readonly agents: readonly NamedArtifactRef[];
+}
+
+/**
+ * Probes the named-collection artifacts (skills, commands, subagents) that live under
+ * `.claude/<collection>/`.
+ */
+const probeNamedArtifacts = async (root: string): Promise<Result<NamedArtifacts, ProbeError>> => {
+  const skills = await probeNamedDirCollection(join(root, '.claude/skills'), 'SKILL.md');
+  if (!skills.ok) return Result.error(skills.error);
+
+  const commands = await probeNamedFileCollection(join(root, '.claude/commands'));
+  if (!commands.ok) return Result.error(commands.error);
+
+  const agents = await probeNamedFileCollection(join(root, '.claude/agents'));
+  if (!agents.ok) return Result.error(agents.error);
+
+  return Result.ok({ skills: skills.value, commands: commands.value, agents: agents.value });
+};
+
+const buildClaudeArtifacts = (
+  coreFiles: CoreFiles,
+  namedArtifacts: NamedArtifacts,
+  hooks: readonly HookRef[]
+): ClaudeArtifacts => ({
+  tool: 'claude-code',
+  ...(coreFiles.claudeMd !== undefined ? { claudeMd: coreFiles.claudeMd } : {}),
+  ...(coreFiles.agentsMd !== undefined ? { agentsMd: coreFiles.agentsMd } : {}),
+  ...(coreFiles.settings !== undefined ? { settings: coreFiles.settings } : {}),
+  ...(coreFiles.settingsLocal !== undefined ? { settingsLocal: coreFiles.settingsLocal } : {}),
+  ...(coreFiles.mcpConfig !== undefined ? { mcpConfig: coreFiles.mcpConfig } : {}),
+  skills: namedArtifacts.skills,
+  commands: namedArtifacts.commands,
+  agents: namedArtifacts.agents,
+  hooks,
+});
 
 const readHooks = async (
   settingsRefs: ReadonlyArray<ArtifactRef | undefined>
@@ -111,18 +146,33 @@ const extractHooks = (settings: unknown, sink: HookRef[]): void => {
   const hooks = (settings as Record<string, unknown>).hooks;
   if (typeof hooks !== 'object' || hooks === null) return;
   for (const [event, matchers] of Object.entries(hooks as Record<string, unknown>)) {
-    if (!Array.isArray(matchers)) continue;
-    for (const matcher of matchers) {
-      if (typeof matcher !== 'object' || matcher === null) continue;
-      const inner = (matcher as Record<string, unknown>).hooks;
-      if (!Array.isArray(inner)) continue;
-      for (const entry of inner) {
-        if (typeof entry !== 'object' || entry === null) continue;
-        const command = (entry as Record<string, unknown>).command;
-        if (typeof command === 'string' && command.startsWith('/')) {
-          sink.push({ event, script: command as AbsolutePath });
-        }
-      }
-    }
+    extractHookEvent(matchers, event, sink);
+  }
+};
+
+/** Second nesting level: `<Event>`'s matcher array — each matcher carries its own `hooks` list. */
+const extractHookEvent = (matchers: unknown, event: string, sink: HookRef[]): void => {
+  if (!Array.isArray(matchers)) return;
+  for (const matcher of matchers) {
+    extractHookMatcher(matcher, event, sink);
+  }
+};
+
+/** Third nesting level: a single matcher's inner `hooks` list of `{ type, command }` entries. */
+const extractHookMatcher = (matcher: unknown, event: string, sink: HookRef[]): void => {
+  if (typeof matcher !== 'object' || matcher === null) return;
+  const inner = (matcher as Record<string, unknown>).hooks;
+  if (!Array.isArray(inner)) return;
+  for (const entry of inner) {
+    pushHookCommand(entry, event, sink);
+  }
+};
+
+/** Leaf: pushes `entry.command` onto `sink` iff it's an absolute-path string command. */
+const pushHookCommand = (entry: unknown, event: string, sink: HookRef[]): void => {
+  if (typeof entry !== 'object' || entry === null) return;
+  const command = (entry as Record<string, unknown>).command;
+  if (typeof command === 'string' && command.startsWith('/')) {
+    sink.push({ event, script: command as AbsolutePath });
   }
 };

@@ -70,67 +70,74 @@ type EmptyDecision = 'manual' | 'skip';
  * Edge case — no proposed scripts at all: the user is still queried with an "Enter manually /
  * Skip" choice so they're never silently no-op'd. Manual entry pre-fills any existing values.
  */
-const confirmUseCase = async (
+
+/**
+ * Handle the case where the AI returned no proposals: show the raw body when available,
+ * then offer manual entry or skip. Manual entry pre-fills any existing values and returns
+ * the user's input; skip returns an empty proposal with `accepted: false`.
+ */
+const handleEmptyProposal = async (
   deps: ConfirmDetectScriptsLeafDeps,
   input: ConfirmInput
 ): Promise<Result<ConfirmOutput, DomainError>> => {
-  const {
-    proposedSetupScript: nextSetup,
-    proposedVerifyScript: nextVerify,
-    proposedVerifyGates: nextGates,
-  } = input.proposal;
-
-  if (nextSetup === undefined && nextVerify === undefined) {
-    // AI returned no proposals — surface that to the user instead of silently no-op'ing.
-    // Show the raw body when available so a permission request / read-error / format slip is
-    // visible inline, not buried in the run dir. Then offer manual entry or skip.
-    const bodyPreview =
-      input.runDir !== undefined
-        ? await readRunBodyPreview(input.runDir, {
-            truncatedSuffix: `\n[…truncated; full body at ${String(input.runDir)}/body.txt]`,
-          })
-        : undefined;
-    const header = `AI returned no proposals for ${input.repository.name} (${String(input.repository.slug)}).`;
-    const promptLines: string[] = [header];
-    if (bodyPreview !== undefined) {
-      promptLines.push('', 'AI response:', bodyPreview);
-    } else if (input.runDir !== undefined) {
-      promptLines.push('', `Run artifacts: ${String(input.runDir)}`);
-    }
-    promptLines.push('', 'What would you like to do?');
-
-    const emptyChoices: ReadonlyArray<Choice<EmptyDecision>> = [
-      { label: 'Enter manually', value: 'manual', description: 'Type setup / verify scripts yourself.' },
-      { label: 'Skip', value: 'skip', description: 'Leave the repository unchanged.' },
-    ];
-    const decision = await deps.interactive.askChoice<EmptyDecision>(promptLines.join('\n'), emptyChoices);
-    if (!decision.ok) return Result.error(decision.error);
-    if (decision.value === 'skip') {
-      return Result.ok({ accepted: false, proposal: {} });
-    }
-    const manualSetup = await deps.interactive.askText('Setup script (empty to skip):', {
-      ...(input.repository.setupScript !== undefined ? { initial: input.repository.setupScript } : {}),
-    });
-    if (!manualSetup.ok) return Result.error(manualSetup.error);
-    const manualVerify = await deps.interactive.askText('Verify script (empty to skip):', {
-      ...(input.repository.verifyScript !== undefined ? { initial: input.repository.verifyScript } : {}),
-    });
-    if (!manualVerify.ok) return Result.error(manualVerify.error);
-    const setupOut = manualSetup.value.length > 0 ? manualSetup.value : undefined;
-    const verifyOut = manualVerify.value.length > 0 ? manualVerify.value : undefined;
-    const accepted = setupOut !== undefined || verifyOut !== undefined;
-    return Result.ok({
-      accepted,
-      proposal: {
-        ...(setupOut !== undefined ? { proposedSetupScript: setupOut } : {}),
-        ...(verifyOut !== undefined ? { proposedVerifyScript: verifyOut } : {}),
-      },
-    });
+  const bodyPreview =
+    input.runDir !== undefined
+      ? await readRunBodyPreview(input.runDir, {
+          truncatedSuffix: `\n[…truncated; full body at ${String(input.runDir)}/body.txt]`,
+        })
+      : undefined;
+  const header = `AI returned no proposals for ${input.repository.name} (${String(input.repository.slug)}).`;
+  const promptLines: string[] = [header];
+  if (bodyPreview !== undefined) {
+    promptLines.push('', 'AI response:', bodyPreview);
+  } else if (input.runDir !== undefined) {
+    promptLines.push('', `Run artifacts: ${String(input.runDir)}`);
   }
+  promptLines.push('', 'What would you like to do?');
 
-  const currentSetup = input.repository.setupScript;
-  const currentVerify = input.repository.verifyScript;
-  const preview: string[] = [`Detected scripts for ${input.repository.name} (${String(input.repository.slug)}):`, ''];
+  const emptyChoices: ReadonlyArray<Choice<EmptyDecision>> = [
+    { label: 'Enter manually', value: 'manual', description: 'Type setup / verify scripts yourself.' },
+    { label: 'Skip', value: 'skip', description: 'Leave the repository unchanged.' },
+  ];
+  const decision = await deps.interactive.askChoice<EmptyDecision>(promptLines.join('\n'), emptyChoices);
+  if (!decision.ok) return Result.error(decision.error);
+  if (decision.value === 'skip') {
+    return Result.ok({ accepted: false, proposal: {} });
+  }
+  const manualSetup = await deps.interactive.askText('Setup script (empty to skip):', {
+    ...(input.repository.setupScript !== undefined ? { initial: input.repository.setupScript } : {}),
+  });
+  if (!manualSetup.ok) return Result.error(manualSetup.error);
+  const manualVerify = await deps.interactive.askText('Verify script (empty to skip):', {
+    ...(input.repository.verifyScript !== undefined ? { initial: input.repository.verifyScript } : {}),
+  });
+  if (!manualVerify.ok) return Result.error(manualVerify.error);
+  const setupOut = manualSetup.value.length > 0 ? manualSetup.value : undefined;
+  const verifyOut = manualVerify.value.length > 0 ? manualVerify.value : undefined;
+  const accepted = setupOut !== undefined || verifyOut !== undefined;
+  return Result.ok({
+    accepted,
+    proposal: {
+      ...(setupOut !== undefined ? { proposedSetupScript: setupOut } : {}),
+      ...(verifyOut !== undefined ? { proposedVerifyScript: verifyOut } : {}),
+    },
+  });
+};
+
+/**
+ * Build the diff preview showing current vs. next scripts and verify gates.
+ * Pure function — no I/O or side effects.
+ */
+const buildProposalPreview = (
+  nextSetup: string | undefined,
+  nextVerify: string | undefined,
+  nextGates: readonly VerifyGateProposal[] | undefined,
+  currentSetup: string | undefined,
+  currentVerify: string | undefined,
+  repositoryName: string,
+  repositorySlug: string
+): string[] => {
+  const preview: string[] = [`Detected scripts for ${repositoryName} (${repositorySlug}):`, ''];
   if (nextSetup !== undefined) {
     preview.push('Setup script (sprint-start prep):');
     preview.push(`  current: ${renderScript(currentSetup)}`);
@@ -152,6 +159,70 @@ const confirmUseCase = async (
     }
     preview.push('');
   }
+  return preview;
+};
+
+/**
+ * Handle the 'Edit & approve' flow: prompt for edits to each proposed script,
+ * drop empty ones, and carry gates verbatim. Gates are not line-editable but
+ * count toward acceptance even if script lines are dropped.
+ */
+const handleEditDecision = async (
+  deps: ConfirmDetectScriptsLeafDeps,
+  nextSetup: string | undefined,
+  nextVerify: string | undefined,
+  nextGates: readonly VerifyGateProposal[] | undefined
+): Promise<Result<ConfirmOutput, DomainError>> => {
+  let editedSetup: string | undefined;
+  if (nextSetup !== undefined) {
+    const answer = await deps.interactive.askText('Edit setup script (empty to drop):', { initial: nextSetup });
+    if (!answer.ok) return Result.error(answer.error);
+    if (answer.value.length > 0) editedSetup = answer.value;
+  }
+  let editedVerify: string | undefined;
+  if (nextVerify !== undefined) {
+    const answer = await deps.interactive.askText('Edit verify script (empty to drop):', { initial: nextVerify });
+    if (!answer.ok) return Result.error(answer.error);
+    if (answer.value.length > 0) editedVerify = answer.value;
+  }
+
+  const keepGates = nextGates !== undefined && nextGates.length > 0;
+  const accepted = editedSetup !== undefined || editedVerify !== undefined || keepGates;
+  return Result.ok({
+    accepted,
+    proposal: {
+      ...(editedSetup !== undefined ? { proposedSetupScript: editedSetup } : {}),
+      ...(editedVerify !== undefined ? { proposedVerifyScript: editedVerify } : {}),
+      ...(keepGates ? { proposedVerifyGates: nextGates } : {}),
+    },
+  });
+};
+
+const confirmUseCase = async (
+  deps: ConfirmDetectScriptsLeafDeps,
+  input: ConfirmInput
+): Promise<Result<ConfirmOutput, DomainError>> => {
+  const {
+    proposedSetupScript: nextSetup,
+    proposedVerifyScript: nextVerify,
+    proposedVerifyGates: nextGates,
+  } = input.proposal;
+
+  if (nextSetup === undefined && nextVerify === undefined) {
+    return handleEmptyProposal(deps, input);
+  }
+
+  const currentSetup = input.repository.setupScript;
+  const currentVerify = input.repository.verifyScript;
+  const preview = buildProposalPreview(
+    nextSetup,
+    nextVerify,
+    nextGates,
+    currentSetup,
+    currentVerify,
+    input.repository.name,
+    String(input.repository.slug)
+  );
 
   const choices: ReadonlyArray<Choice<Decision>> = [
     { label: 'Approve', value: 'approve', description: 'Apply the proposal as-is.' },
@@ -179,33 +250,7 @@ const confirmUseCase = async (
     });
   }
 
-  // 'edit' — ask for each proposed line with the AI's suggestion pre-filled.
-  let editedSetup: string | undefined;
-  if (nextSetup !== undefined) {
-    const answer = await deps.interactive.askText('Edit setup script (empty to drop):', { initial: nextSetup });
-    if (!answer.ok) return Result.error(answer.error);
-    if (answer.value.length > 0) editedSetup = answer.value;
-  }
-  let editedVerify: string | undefined;
-  if (nextVerify !== undefined) {
-    const answer = await deps.interactive.askText('Edit verify script (empty to drop):', { initial: nextVerify });
-    if (!answer.ok) return Result.error(answer.error);
-    if (answer.value.length > 0) editedVerify = answer.value;
-  }
-
-  // Gates are not line-editable — they ride along verbatim when the user reaches the edit path.
-  // They count toward acceptance: a monorepo proposal whose script lines were both dropped still
-  // has meaningful verification to persist.
-  const keepGates = nextGates !== undefined && nextGates.length > 0;
-  const accepted = editedSetup !== undefined || editedVerify !== undefined || keepGates;
-  return Result.ok({
-    accepted,
-    proposal: {
-      ...(editedSetup !== undefined ? { proposedSetupScript: editedSetup } : {}),
-      ...(editedVerify !== undefined ? { proposedVerifyScript: editedVerify } : {}),
-      ...(keepGates ? { proposedVerifyGates: nextGates } : {}),
-    },
-  });
+  return handleEditDecision(deps, nextSetup, nextVerify, nextGates);
 };
 
 const renderScript = (script: string | undefined): string => (script === undefined ? '(none)' : script);
