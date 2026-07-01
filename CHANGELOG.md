@@ -7,6 +7,8 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-06-30
+
 ### Added
 
 - **Two earlier-exit plateau signals in the gen-eval loop.** The inner generator-evaluator loop now
@@ -34,10 +36,33 @@ to [Semantic Versioning](https://semver.org/).
   keeping the most-recent content. A one-line truncation notice is prepended at the boundary so
   the model sees where content was omitted.
 
-- **Evaluator reasoning phase and per-criterion checkpoint protocol.** The evaluate prompt now
-  opens with a structured reasoning phase and steps the model through each criterion with an
-  explicit checkpoint before producing its verdict, improving grading consistency and reducing
-  ungrounded pass/fail decisions.
+- **Structured per-criterion acceptance verdicts.** The evaluator records each acceptance
+  criterion's verdict structurally — pass/fail plus a one-line evidence citation — in the
+  `evaluation` signal's `criteria` array, and the harness folds these into a per-task
+  `criteriaVerdicts` map from the signal itself, never from model prose. A schema refinement rejects
+  an overall `passed` verdict that lists a failing criterion. The sprint-state header's pass column
+  now shows `k/N` criteria graded passed instead of a coarse attempt-pass proxy. (Supersedes the
+  earlier free-text `<criterion_checkpoint>` reasoning protocol, which is removed.)
+
+- **Durable per-project decision memory.** Architectural `decision` signals are now promoted
+  alongside `learning` signals into the per-project ledger (a `kind` discriminator on
+  `learnings.ndjson`) and read back into the generator's prior-sprint context under a Decisions
+  sub-heading, so deliberate choices persist across sprints. Declining a learning at the distill
+  gate now durably retires it (a tombstone) so it leaves the prompt for good and survives context
+  compaction. Migration-safe — existing ledgers load unchanged.
+
+- **End-to-end self-verification in implement and evaluate.** When the project declares a way to run
+  the product (dev server, CLI, API, or e2e suite, surfaced via `{{PROJECT_TOOLING}}`), the
+  implementer must exercise the changed behaviour as a user before signalling done, and the
+  evaluator verifies by running the product rather than inspecting the diff alone. Modality-agnostic
+  (web / CLI / API) with an explicit static-check fallback for libraries and no-runtime downstreams.
+
+- **Restored derived sprint-state header in the progress journal.** The journal again regenerates a
+  forgery-safe state header — status, blockers, stale tasks, and a per-task pass-count table — from
+  canonical sprint/task JSON in the always-kept header band, while keeping the append-only
+  per-attempt journal. The inline read window is now bounded by a token budget scaled to the model's
+  context window (replacing the previous fixed section count), and lifecycle / recovery breadcrumbs
+  are pinned so they are never dropped from the kept band.
 
 - **Claude Sonnet 5 in the model catalog.** `claude-sonnet-5` is now selectable for the
   `claude-code` provider (and `claude-sonnet-5` for `github-copilot`, where it went GA on
@@ -62,7 +87,18 @@ to [Semantic Versioning](https://semver.org/).
   autofix is not blocked. Maintainers may lower the ceiling incrementally as existing warnings are
   resolved.
 
+- **Provider-agnostic reasoning scaffolding in prompts.** Prompt templates no longer embed
+  `<thinking>`-style reasoning blocks; they use neutral process directives that work across Claude,
+  Copilot, and Codex, with reasoning depth deferred to each provider's effort setting. The
+  harness-context guidance was reframed toward the durable external record the agent writes through
+  (signals, role artifacts, the progress journal, and git) rather than trusting in-session
+  compaction.
+
 ### Fixed
+
+- **Progress-journal task matching by id.** Current-task journal sections are now matched by task id
+  rather than by name, fixing same-name collisions and the orphaning of a task's journal entries
+  when the task is renamed mid-sprint.
 
 - **Provider stdout parse-buffer OOM caps.** A single large tool-result line embedded in the AI's
   NDJSON output stream could inflate the in-flight line-parse accumulator to tens of MB before
