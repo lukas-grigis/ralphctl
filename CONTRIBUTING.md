@@ -13,10 +13,9 @@ the process smooth for everyone.
    for it.
 3. **All checks must pass.** Lint, typecheck, and tests are non-negotiable. Coverage is also enforced as a
    required merge gate: a PR that drops coverage below the configured thresholds, or that fails the
-   cold-install reproducibility check, cannot be merged. Each PR's coverage run uploads to
-   [Codecov](https://codecov.io/gh/lukas-grigis/ralphctl), which backs the README badge — that published
-   number is the authoritative coverage figure for the project. The required status checks (including the
-   coverage and cold-install jobs) are configured via `scripts/setup-required-checks.sh`.
+   cold-install reproducibility check, cannot be merged. Each PR's coverage run generates an lcov report
+   that CI uploads as a build artifact. The required status checks (including the coverage and cold-install
+   jobs) are configured via `scripts/setup-required-checks.sh`.
 
 ## Getting started
 

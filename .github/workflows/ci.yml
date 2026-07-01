@@ -116,14 +116,6 @@ jobs:
       - name: Run tests with coverage
         run: pnpm coverage
 
-      - name: Upload to Codecov
-        if: always()
-        uses: codecov/codecov-action@v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage/lcov.info
-          fail_ci_if_error: false
-
       - name: Upload coverage artifact
         if: always()
         uses: actions/upload-artifact@v4
