@@ -4,29 +4,23 @@ description: How the execute view tracks runner terminal status and renders comp
 type: project
 ---
 
-The SessionManager intentionally omits `status-changed` events. `descriptor.status` is a frozen snapshot that stays
-`'running'` after the chain completes. The view must subscribe to `runner.subscribe()` directly and track terminal
-events via local `runnerStatus` state.
+`descriptor.status` is kept live by the SessionManager: `attachRunnerLifecycle` subscribes to `runner.subscribe(...)`
+and calls `update(..., { status })` on `completed`/`failed`/`aborted`, transitioning the descriptor to its terminal
+status (see `session-manager.ts`), then auto-detaches the listener now that the run is terminal. The execute view
+therefore reads `descriptor.status` directly — `isRunning = descriptor?.status === 'running'` and
+`<StatusChip label={descriptor.status} kind={runnerStatusKind(descriptor.status)} />` — and does NOT subscribe to
+the runner or keep any local `runnerStatus` state.
 
-Pattern in `execute-view.tsx`:
+Pattern in `execute-view.tsx` / `execute-view-internals/result-footer.tsx`:
 
-- `const [runnerStatus, setRunnerStatus] = useState<'completed' | 'failed' | 'aborted' | null>(null)`
-- In the runner `useEffect`, on `completed`/`failed`/`aborted` events: `setRunnerStatus(event.type)`
-- Derive `effectiveStatusForHooks = runnerStatus ?? descriptor?.status ?? 'idle'` — must be computed BEFORE the
-  `if (!descriptor)` guard so hooks (`useViewHints`, `useViewInput`) can use it
-- Use `effectiveStatus` everywhere for rendering (chip label, isRunning, result card)
+- `execute-view.tsx`: `const isRunning = descriptor?.status === 'running'`
+- `execute-view.tsx`: `<StatusChip label={descriptor.status} kind={runnerStatusKind(descriptor.status)} />`
+- `result-footer.tsx`: renders the settled `ResultCard` keyed off `descriptor.status` (success/aborted/failed)
 
-**Why:** `SessionManagerPort` doc says "status-changed is intentionally absent — listeners that need status updates
-should subscribe directly to the runner". SessionManager only emits registry-level events (
-added/removed/active-changed).
+**Why:** SessionManager writes the terminal `status` + `finishedAt` into the descriptor itself (via `update(...)`
+inside `attachRunnerLifecycle`'s `onCompleted`/`onFailed`/`onAborted` handlers), so views don't need their own
+subscription to observe the terminal transition — reading `descriptor.status` is sufficient and live.
 
-**How to apply:** Any view that renders runner lifecycle state must subscribe to `runner.subscribe()` and maintain local
-status state. Never rely solely on `descriptor.status` for live transitions.
-
-Next-step CTA pattern:
-
-- `nextStepsForFlow(label, terminalStatus, steps)` — parses first token of label as flow type
-- Maps flow types to contextual CLI commands: refine→plan, plan/ideate→start, execute (all done)→close+create-pr,
-  execute (tasks remain)→home, feedback→close, create-pr→close, onboard→complete
-- `failed`/`aborted` always get generic recovery hints regardless of flow
-- Rendered via `<ResultCard kind="success|error|warning" nextSteps={...} />`
+**How to apply:** Views that render runner lifecycle state read `descriptor.status` directly. Do not add a local
+`runnerStatus` useState, an `effectiveStatusForHooks` derivation, or a view-level `runner.subscribe()` — that pattern
+does not exist in the current code and there is no `nextStepsForFlow(...)` helper to hook into.

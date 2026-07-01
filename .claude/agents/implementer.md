@@ -152,7 +152,7 @@ import { guard } from '@src/application/chain/build/guard.ts';
 ```
 
 - `Element<TCtx>` — base interface every primitive implements (in `chain/element.ts`).
-- `leaf(name, { useCase, input, output })` — the only seam to a business use case.
+- `leaf(name, { useCase, input, output }, { label? })` — the only seam to a business use case.
 - `sequential(name, [elements])` — runs in order, threads ctx, aborts remaining on first error.
 - `loop(name, body, { shouldContinue?, shouldStop?, maxIterations? })` — generator-evaluator primitive
   with a hard `maxIterations` cap (default 1000).

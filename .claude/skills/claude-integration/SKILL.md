@@ -12,8 +12,8 @@ sequential task execution, and check-script gating — see `CLAUDE.md`.
 **Source of truth:**
 
 - Provider adapters: `src/integration/ai/providers/{claude,copilot,codex}/` — one folder per tool, sibling-
-  isolated. Each owns `headless.ts` and `interactive.ts` entries (Claude also has `parse-stream.ts` for
-  stream-format handling).
+  isolated. Each owns `headless.ts` and `interactive.ts` entries (Claude and Copilot also have
+  `parse-stream.ts` for stream-format handling).
 - Shared engine: `src/integration/ai/providers/_engine/` — `spawn.ts` (the `ProviderSpawn` port + default
   `node:child_process.spawn` impl), `run-headless-spawn.ts` (the headless wrapper that wires watchdog +
   signals file + sessionId file + rate-limit backoff), `rate-limit-backoff.ts` (exponential retry policy),
@@ -60,9 +60,9 @@ The per-spawn audit / sandbox layout is:
 ```
 <sprintDir>/<flow>/<unit>/rounds/<N>/{generator,evaluator}/
 ├── prompt.md           ← rendered prompt (input)
-├── session.md          ← per-session audit (provider / cwd / flags / exit code)
-├── signals.json        ← parsed structured signals (output)
-└── sessionId           ← provider's session id (output)
+├── signals.json        ← parsed structured signals (output, provider-written)
+├── session-id.txt      ← provider's session id (output)
+└── evaluation.md       ← rendered evaluator verdict (evaluator role only)
 ```
 
 ## Permission modes (per-tool, NOT portable)

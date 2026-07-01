@@ -1,6 +1,6 @@
 ---
 name: project_context_window_visibility
-description: Context-window size (200K / 1M) visible in all model selectors and execution surfaces; domain helper mirrors integration adapter pending #226
+description: Context-window size (200K / 1M) visible in all model selectors and execution surfaces; domain helper is the single source of truth (integration adapter re-exports it, #226)
 metadata:
   type: project
 ---
@@ -18,8 +18,9 @@ models gracefully degrade (no suffix added).
 - `contextWindowFor(model): number | undefined`
 - `contextWindowLabel(model): string | undefined` → `"200K"` / `"1M"` / undefined
 
-Intentionally duplicates `src/integration/ai/providers/_engine/context-window.ts`. Once #226 lands the
-integration copy should delegate here; until then keep both in sync when adding a new model entry.
+`src/integration/ai/providers/_engine/context-window.ts` re-exports `contextWindowFor` from here
+(unified in #226) — this domain module is the single source of truth for the model → window map. A new
+model entry only needs to be added to `CONTEXT_WINDOW` here.
 
 **Layer rationale:** `application/` layer cannot import `integration/_engine/` adapter — domain is the
 correct home for model IDs and their properties.
@@ -49,6 +50,7 @@ Composed with suspended note: `claude-fable-5[1m]  ·  1M  (suspended)`.
   — Added `buildExpectedModelLabel()` helper, updated 6 assertions to use new format, changed
   2 label-based lookups to value-based lookups (`o.value === otherModel`).
 
-**How to apply:** When adding a new model to CLAUDE_MODELS, add it to `context-window.ts` CONTEXT_WINDOW
-if its window size is known; also update `integration/ai/providers/_engine/context-window.ts` until #226
-unifies them.
+**How to apply:** When adding a new model to CLAUDE_MODELS, add it to `CONTEXT_WINDOW` in
+`src/domain/value/settings-models/context-window.ts` if its window size is known. The integration adapter
+(`integration/ai/providers/_engine/context-window.ts`) re-exports this table (#226), so no second file
+update is needed.

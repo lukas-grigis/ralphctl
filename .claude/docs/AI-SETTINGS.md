@@ -82,13 +82,16 @@ every `ai` row plus `harness.escalateOnPlateau` in one transaction; subsequent p
   catalog but is currently rejected at launch with a clear message and flagged `(suspended)` in the
   pickers; it will be restored when access returns (single-list revert in
   `settings-models/suspended-models.ts`).
-- GitHub Copilot — adds `gpt-5.5`, `claude-opus-4.7`, `claude-opus-4.8`, `claude-sonnet-5`, the Gemini
-  family (`gemini-2.5-pro`, `gemini-3-flash`, `gemini-3.1-pro-preview`, `gemini-3.5-flash`),
-  plus `mai-code-1-flash`, `raptor-mini-preview` (Copilot reconciled to GitHub's supported-models doc
-  as of 2026-06-30; Sonnet 5 went GA for Copilot that day). Note: Sonnet 5's Copilot slug carries no
-  dot/date, so it is the SAME string (`claude-sonnet-5`) as the Claude-Code id — the escalation map
-  has one value per key, so the dash-form (Claude-Code) rung `claude-sonnet-5 → claude-opus-4-8` wins
-  it and Copilot's curated presets stay on `claude-sonnet-4.6` (see `escalation-map.ts`).
+- GitHub Copilot — lists 22 models reconciled to GitHub's supported-models doc (as of 2026-06-30;
+  Sonnet 5 went GA for Copilot that day): OpenAI `gpt-5-mini`, `gpt-5.3-codex`, `gpt-5.4`,
+  `gpt-5.4-mini`, `gpt-5.4-nano`, `gpt-5.5`; Anthropic `claude-haiku-4.5`, `claude-opus-4.5`,
+  `claude-opus-4.6`, `claude-opus-4.6-fast`, `claude-opus-4.7`, `claude-opus-4.8`, `claude-fable-5`,
+  `claude-sonnet-4.5` (default), `claude-sonnet-4.6`, `claude-sonnet-5`; Google `gemini-2.5-pro`,
+  `gemini-3-flash`, `gemini-3.1-pro-preview`, `gemini-3.5-flash`; Microsoft `mai-code-1-flash`;
+  fine-tuned `raptor-mini-preview`. Note: Sonnet 5's Copilot slug carries no dot/date, so it is the
+  SAME string (`claude-sonnet-5`) as the Claude-Code id — the escalation map has one value per key,
+  so the dash-form (Claude-Code) rung `claude-sonnet-5 → claude-opus-4-8` wins it and Copilot's
+  curated presets stay on `claude-sonnet-4.6` (see `escalation-map.ts`).
 - OpenAI Codex — adds `gpt-5.3-codex-spark` (text-only research preview, ChatGPT Pro only);
   `gpt-5.2` and `gpt-5.3-codex` are deprecated for ChatGPT sign-in but kept in the allowlist because
   they remain available via API-key auth. `gpt-5.5` is the frontier default — the model `codex-only`

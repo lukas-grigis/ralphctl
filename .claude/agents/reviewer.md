@@ -159,7 +159,7 @@ const answer = await prompt(); // Should check TTY / RALPHCTL_NO_TUI
 const config = '~/.config'; // Should use storage-paths.resolveStoragePaths()
 
 // Missing exit codes
-process.exit(); // Use EXIT_SUCCESS / EXIT_ERROR / EXIT_INTERRUPTED
+process.exit(); // Set an explicit code — process.exitCode = 1 (or process.exit(1)) on error, 0 on success; never a bare exit
 ```
 
 ## ralphctl-specific review checks
@@ -192,8 +192,13 @@ ralphctl uses a **four-module Clean Architecture** under `src/`. Watch for these
   readiness, runs, skills), `business/<module>/`, and `application/flows/<flow>/`, sibling directories cannot import each
   other. Cross-sibling access goes through `_engine/` (or `_partials/` for prompts). Port-shaped types
   (`*Port`, `*Adapter`, `*Provider`, `*Sink`, `*Loader`, `*Probe`, …) MUST live in `_engine/`.
-- **Step-order tests** — every flow has a step-order fence test asserting `trace.map(s => s.elementName)`
-  for happy + failure paths. If a PR changes a flow's step order, the corresponding test must change too.
+- **Chain-shape tests** — high-complexity flows (currently `plan`, `implement`, `ideate`, `refine`,
+  `readiness`, `create-pr`) ship a `flow-shape.test.ts` fence that asserts the exact leaf topology, in order,
+  by recursively walking `Element.children` at construction time (`names(el)`), not runtime traces — the
+  tests self-describe as a construction-only topology fence. Runtime step-order
+  (`trace.map(s => s.elementName)`) is asserted in the chain-primitive tests (`sequential`/`loop`/`guard`)
+  and a few flow integration tests, not per flow. If a PR changes a flow's step order, update the
+  corresponding fence test if one exists; if a non-trivial flow lacks one, consider adding it.
 - **No new chain primitives** — the framework has five concepts: `element` (interface), `leaf`,
   `sequential`, `loop`, `guard`. There is **no `retry` and no `onError`** — retry-on-429 is an adapter
   concern (`IterationConfig.rateLimitRetries`); branching belongs inside a use case or a `guard`. If a PR

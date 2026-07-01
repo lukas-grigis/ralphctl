@@ -97,8 +97,9 @@ terminals it is an inert no-op (the help overlay labels it accordingly), while `
 
 Execute view: three-column at `xl` (≥180), two-column at `lg` (≥140), compact-rail at `md` (100–139),
 single-column below `md`. Rail grows fluidly 36→56 cols at `xl`+ via `resolveRailWidth`. Named breakpoints
-(`sm 80 / md 100 / lg 140 / xl 180 / xxl 220`) are canonical — use `breakpointFor`, `fluid`, `responsive`,
-`useBreakpoint` from `theme/tokens.ts`; no hardcoded column literals. Global keys: `b` banner, `g` progress,
+(`sm 80 / md 100 / lg 140 / xl 180 / xxl 220`) are canonical — use `breakpointFor`, `fluid`, `responsive`
+from `theme/tokens.ts` and `useBreakpoint` from `runtime/use-breakpoint.ts`; no hardcoded column literals.
+Global keys: `b` banner, `g` progress,
 `y` yank, `P` project picker, `S` sprint picker. Execute-view: `j`/`k` nav, `e` verification-criteria, `c` cancel-scope.
 
 **`setupScript` vs `verifyScript` / `verifyGates`.** Setup runs unconditionally once per affected repo at

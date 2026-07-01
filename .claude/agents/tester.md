@@ -232,10 +232,12 @@ Don't obsess over:
 ## ralphctl Testing Context
 
 - **Test framework:** vitest. Run via `pnpm test` (single shot) or watch mode.
-- **Test layout:** unit tests colocated as `*.test.ts` / `*.test.tsx`; integration / e2e under `tests/`.
-- **Flow step-order fence tests:** `tests/integration/application/flows/<flow>/<flow>.test.ts` assert
-  `trace.map(s => s.elementName)` on happy + failure paths. These lock orchestration order; update them
-  when intentionally changing a flow's element list.
+- **Test layout:** unit tests under `tests/unit/`; integration tests under `tests/integration/`; e2e tests
+  under `tests/e2e/` (shared `tests/fixtures/` + `tests/helpers/`). No tests are colocated in `src/`.
+- **Flow step-order fence tests:** `tests/e2e/flows/<flow>.test.ts` (one file per flow — `ideate`, `plan`,
+  `implement`, `review`, `readiness`, `create-sprint`, `close-sprint`, `detect-scripts`, `detect-skills`, …)
+  assert `runner.trace.map((s) => s.elementName)` on happy + failure paths. These lock orchestration order;
+  update them when intentionally changing a flow's element list.
 - **Chain primitive tests:** `tests/unit/application/chain/{build,run}/*.test.ts` cover `leaf` /
   `sequential` / `loop` / `guard` and the runner in isolation.
 - **Use case tests:** `tests/unit/business/<concern>/<use-case>.test.ts` build fake ports inline. No

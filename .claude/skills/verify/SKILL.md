@@ -21,8 +21,7 @@ addressed.
 1. **`pnpm typecheck`** — `tsc` (`noEmit` set in `tsconfig.json`). Fastest feedback; catches most issues.
 2. **`pnpm lint`** — ESLint. Includes the Clean Architecture layer fence (
    `domain → business → integration → application`), the no-class fence (outside `domain/value/error/`), the no-barrels
-   fence, the sibling-isolation rules under `integration/ai/<concept>/`, and the CLI/TUI → flow-factory rule. A layer
-   violation shows up here.
+   fence, and the sibling-isolation rules under `integration/ai/<concept>/`. A layer violation shows up here.
 3. **`pnpm test`** — vitest (`vitest run`). The full suite, including flow step-order integration tests that lock the architectural shape.
 
 Running them chained with `&&` short-circuits on the first failure, which is what we want.

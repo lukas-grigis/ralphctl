@@ -31,8 +31,10 @@ non-consent outcome.
   `CLI_METADATA.currentVersion`, now = `() => String(deps.clock())`.
 - cli/bootstrap.ts: NO splash, NO auto-migrate (one-shots run headless on tolerant readers); a comment
   states the TUI owns consent.
-- Failure screen names downgrade `npm install -g ralphctl@<PRIOR_VERSION_FALLBACK '0.6.0'>` — marker's
-  `lastWrittenByAppVersion` is unstamped on failure (only written on full success), so the fallback is
-  the honest version; don't try to read the marker post-failure (engine port doesn't expose it).
+- Failure screen reads the prior version post-failure via `engine.readMarker(dataRoot)`; the marker is
+  unstamped on an apply failure (stamped ONLY on full success, so the CURRENT version still reads the
+  data). Only when `marker.lastWrittenByAppVersion` is non-empty does it name
+  `npm install -g ralphctl@<version>`; otherwise it omits the downgrade line rather than guess a version.
+  No PRIOR_VERSION_FALLBACK / hardcoded '0.6.0' exists — the source comment is explicit: we NEVER guess.
 - Test gotcha: .tsx test files must NOT import React (automatic JSX runtime) — tsc flags it unused.
   Vitest positional args after `--` did NOT filter; run files by path: `vitest run <path1> <path2>`.
