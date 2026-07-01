@@ -27,13 +27,14 @@ export type JournalVerdict = 'pass' | 'pass-with-warning' | 'escalated' | 'block
  * what failed and on which dimensions.
  *
  *  - `kind`        — the warning discriminant (`budget-exhausted` / `plateau` / `malformed` /
- *                    `verify-failed`).
- *  - `detail`      — one-line human detail (malformed parse error, verify stderr head, …).
+ *                    `verify-failed` / `crashed`).
+ *  - `detail`      — one-line human detail (malformed parse error, verify stderr head, crash
+ *                    exit/signal text, …).
  *  - `dimensions`  — failed-criterion ids, present only for the `plateau` kind.
  *  - `turnsUsed` / `turnBudget` — present only for the `budget-exhausted` kind.
  */
 export interface JournalWarning {
-  readonly kind: 'budget-exhausted' | 'plateau' | 'malformed' | 'verify-failed';
+  readonly kind: 'budget-exhausted' | 'plateau' | 'malformed' | 'verify-failed' | 'crashed';
   readonly detail?: string;
   readonly dimensions?: readonly string[];
   readonly turnsUsed?: number;
@@ -195,6 +196,10 @@ const appendLearningsSubsection = (lines: string[], entries: readonly LearningEn
   lines.push('');
 };
 
+/** ` (detail)` when a non-empty detail is present, else '' — shared by the malformed + crashed arms. */
+const parenDetail = (detail: string | undefined): string =>
+  detail !== undefined && detail.trim().length > 0 ? ` (${detail.trim()})` : '';
+
 /**
  * One plain-prose sentence describing what the warning means for the next attempt. The journal
  * is the generator's cross-attempt memory, so this names the failure mode explicitly instead of
@@ -216,16 +221,15 @@ const warningSentence = (warning: JournalWarning): string => {
           : '';
       return `The evaluator plateaued — two consecutive evaluations flagged the identical failure${dims}.`;
     }
-    case 'malformed': {
-      const detail =
-        warning.detail !== undefined && warning.detail.trim().length > 0 ? ` (${warning.detail.trim()})` : '';
-      return `The evaluator output could not be parsed${detail}.`;
-    }
+    case 'malformed':
+      return `The evaluator output could not be parsed${parenDetail(warning.detail)}.`;
     case 'verify-failed': {
       const detail =
         warning.detail !== undefined && warning.detail.trim().length > 0 ? `: ${warning.detail.trim()}` : '';
       return `The post-task verify script ran red after the commit${detail}.`;
     }
+    case 'crashed':
+      return `The AI process was killed (watchdog/crash) before finishing${parenDetail(warning.detail)}; the attempt was retried.`;
   }
 };
 

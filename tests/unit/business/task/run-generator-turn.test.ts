@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { ParseError } from '@src/domain/value/error/parse-error.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
+import { ProcessCrashError } from '@src/domain/value/error/process-crash-error.ts';
 import { RateLimitError } from '@src/domain/value/error/rate-limit-error.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
 import { FIXED_NOW, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
@@ -59,6 +60,31 @@ describe('runGeneratorTurnUseCase', () => {
       expect(result.value.exit?.reason).toContain('generator did not produce a valid signals.json');
       expect(result.value.exit?.reason).toContain('signals-invalid (schema) at root');
       expect(result.value.task).toBe(task); // unchanged — no verification recorded
+    }
+  });
+
+  it('returns a CRASHED exit (not self-blocked) on a ProcessCrashError — the retry path', async () => {
+    // A watchdog kill / spawn crash surfaces a ProcessCrashError. Unlike a signals-contract
+    // ParseError (which self-blocks), a crash must route to a `crashed` exit so finalize retries
+    // the attempt within maxAttempts instead of terminally blocking after one. The crash message
+    // rides the exit reason for the operator / progress.md.
+    const task = makeInProgressTaskWithRunningAttempt();
+    const err = new ProcessCrashError({
+      entity: 'claude-provider',
+      state: 'exit-143',
+      message: 'claude-provider: process exited with code 143 (signal=SIGTERM): <empty stderr>',
+    });
+    const result = await runGeneratorTurnUseCase({
+      task,
+      callImplement: async () => Result.error(err),
+      logger: noopLogger,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.exit?.kind).toBe('crashed');
+      expect(result.value.exit?.reason).toContain('AI process was killed before producing signals.json');
+      expect(result.value.exit?.reason).toContain('process exited with code 143 (signal=SIGTERM)');
+      expect(result.value.task).toBe(task); // unchanged — no verification recorded on a crash
     }
   });
 

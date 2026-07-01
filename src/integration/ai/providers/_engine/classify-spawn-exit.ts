@@ -1,5 +1,6 @@
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import { ProcessCrashError } from '@src/domain/value/error/process-crash-error.ts';
 import { RateLimitError } from '@src/domain/value/error/rate-limit-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
@@ -57,6 +58,14 @@ export const DEFAULT_RATE_LIMIT_RE = /rate.?limit|quota|\b429\b/i;
  * `rate-limit` — backoff/retry is the right response even if a partial `signals.json` from
  * a previous attempt happens to be on disk (per-round outputDir means it shouldn't be, but
  * the precedence keeps the semantics safe under reuse).
+ *
+ * **Retryable crash vs. non-retryable config error.** Two failure branches surface a
+ * `ProcessCrashError` (a TRANSIENT process death worth retrying within the attempt budget):
+ * step 2 (spawn-failed — the child never ran) and step 7 (non-zero exit with no signals.json —
+ * the idle-stdout watchdog SIGTERM shape). Both let the harness re-run the generator and only
+ * block once `maxAttempts` is exhausted. Step 5 (model-unavailable) deliberately stays an
+ * `InvalidStateError`: a model-availability failure is a CONFIG error, so retrying just burns the
+ * whole budget on the same misconfiguration — it must keep blocking after one attempt.
  */
 export type ProviderName = 'claude-provider' | 'codex-provider' | 'copilot-provider';
 
@@ -151,15 +160,16 @@ export const classifySpawnExit = async (input: ClassifySpawnExitInput): Promise<
   // 2. Spawn error precedence (before any exit-code branch). The child never ran — a missing /
   // non-executable binary (ENOENT / EACCES) or a death before stdin drained. Without this the
   // unhandled `'error'` event would have killed the whole process; runHeadlessSpawn captured it
-  // so we surface a typed, actionable failure instead.
+  // so we surface a typed, actionable failure instead. Classified as a RETRYABLE `ProcessCrash`
+  // (distinct from step 5's non-retryable config error): a spawn that died transiently is worth
+  // re-running within the attempt budget rather than blocking after one attempt.
   if (exit.spawnError !== undefined) {
     const errno = exit.spawnError.code ?? exit.spawnError.name;
     return {
       kind: 'error',
-      error: new InvalidStateError({
+      error: new ProcessCrashError({
         entity: providerName,
-        currentState: 'spawn-failed',
-        attemptedAction: 'spawn provider CLI',
+        state: 'spawn-failed',
         message: `${providerName}: spawn failed: ${errno} — ${exit.spawnError.message}`,
         hint: 'verify the provider CLI is installed and on PATH',
       }),
@@ -242,13 +252,16 @@ export const classifySpawnExit = async (input: ClassifySpawnExitInput): Promise<
     return outcome;
   }
 
-  // 7. Hard fail. Mirrors the historical per-adapter exit-N error shape.
+  // 7. Hard fail — non-zero exit with no signals.json. This is the watchdog-SIGTERM-before-signals
+  // shape (idle-stdout kill of a wedged child): a TRANSIENT process death worth retrying, so it
+  // surfaces a RETRYABLE `ProcessCrash` (distinct from step 5's non-retryable config error). The
+  // message text is unchanged from the historical per-adapter exit-N shape so logs / progress read
+  // the same (exit code + signal + stderr tail).
   return {
     kind: 'error',
-    error: new InvalidStateError({
+    error: new ProcessCrashError({
       entity: providerName,
-      currentState: `exit-${String(exit.code ?? 'null')}`,
-      attemptedAction: 'complete generation',
+      state: `exit-${String(exit.code ?? 'null')}`,
       message: `${providerName}: process exited with code ${String(exit.code)}${exit.signal !== null ? ` (signal=${exit.signal})` : ''}: ${stderr.trim() || '<empty stderr>'}`,
     }),
   };

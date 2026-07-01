@@ -749,14 +749,24 @@ export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<
       // action diversity, never an accumulation across turns.
       const actionCountsCarry = { lastTurnActionCounts: countTurnActionKinds(out) };
       if (out.exit !== undefined) {
+        // Both exit kinds stop the inner loop + skip the evaluator (both key on `lastExit`), but
+        // they diverge on `lastBlockReason`:
+        //  - `self-blocked` (generator emitted `<task-blocked>` / codex-copilot signals-contract
+        //    failure) sets it → settle terminal-blocks the task after one attempt (unchanged).
+        //  - `crashed` (watchdog kill / spawn crash) sets ONLY `lastExit`. It must NOT set
+        //    `lastBlockReason`: finalize is the sole authority for whether a crash blocks (it grants
+        //    a retry within maxAttempts, then blocks at the cap). Because `finalizeGenEvalLeaf` only
+        //    ADDS a block reason (conditional spread) and never CLEARS a stale one, a block reason
+        //    stamped here would leak past finalize into settle and wrongly terminal-block the task.
+        const blockReasonCarry = out.exit.kind === 'self-blocked' ? { lastBlockReason: out.exit.reason } : {};
         return {
           ...ctx,
           currentTask: out.task,
           tasks,
           genEvalTurn: out.turn,
           currentRoundNum: out.roundNum,
-          lastExit: { kind: 'self-blocked', reason: out.exit.reason },
-          lastBlockReason: out.exit.reason,
+          lastExit: { kind: out.exit.kind, reason: out.exit.reason },
+          ...blockReasonCarry,
           ...carry,
           ...sessionCarry,
           ...decisionsCarry,

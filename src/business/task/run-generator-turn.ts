@@ -3,6 +3,7 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import type { InProgressTask } from '@src/domain/entity/task.ts';
 import { recordRunningAttemptVerification } from '@src/domain/entity/task-attempts.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
+import { ErrorCode } from '@src/domain/value/error/error-code.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
 import { isRecoverableTurnError } from '@src/business/task/turn-error-policy.ts';
 
@@ -22,7 +23,7 @@ import { isRecoverableTurnError } from '@src/business/task/turn-error-policy.ts'
  * for reading the provider's `signalsFile` and forwarding signals to the harness sink before
  * calling this use case.
  */
-export type GeneratorTurnExit = { readonly kind: 'self-blocked'; readonly reason: string };
+export type GeneratorTurnExit = { readonly kind: 'self-blocked' | 'crashed'; readonly reason: string };
 
 export interface RunGeneratorTurnProps {
   readonly task: InProgressTask;
@@ -72,12 +73,27 @@ export const runGeneratorTurnUseCase = async (
   if (!signalsResult.ok) {
     const err = signalsResult.error;
     // Fatal errors (user abort, rate-limit-after-retries) must abort the whole run — propagate.
-    // Everything else is a recoverable signals-contract failure: block THIS task (so it surfaces
-    // and re-runs next launch) instead of taking down every remaining task. The error message
-    // lands in the block reason so the operator/progress.md shows WHY the turn failed.
+    // Everything else is recoverable, but splits two ways by error TYPE:
+    //  - a `ProcessCrash` (watchdog kill / spawn crash / non-zero exit with no signals.json) is a
+    //    TRANSIENT process death → a `crashed` exit, which finalize retries within maxAttempts
+    //    (then blocks at the cap) instead of terminally blocking after one attempt.
+    //  - anything else is a genuine signals-contract failure (codex/copilot wrote the wrong shape,
+    //    wrong place, or nothing) → a `self-blocked` exit that blocks THIS task so it surfaces and
+    //    re-runs next launch, without taking down every remaining task.
+    // The error message rides the exit reason so the operator / progress.md shows WHY the turn failed.
     if (!isRecoverableTurnError(err)) {
       log.error('implement call failed (fatal — propagating)', { taskId: props.task.id, error: err.message });
       return Result.error(err);
+    }
+    if (err.code === ErrorCode.ProcessCrash) {
+      log.warn('AI process was killed before producing signals.json — retrying attempt', {
+        taskId: props.task.id,
+        error: err.message,
+      });
+      return Result.ok({
+        task: props.task,
+        exit: { kind: 'crashed', reason: `AI process was killed before producing signals.json: ${err.message}` },
+      });
     }
     log.warn('generator did not produce a valid signals.json — blocking task', {
       taskId: props.task.id,

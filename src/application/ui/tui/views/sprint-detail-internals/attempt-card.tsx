@@ -122,6 +122,8 @@ const renderWarningDetail = (w: NonNullable<Attempt['warning']>): string => {
       return `  ${glyphs.bullet} ${firstLine(w.detail)}`;
     case 'verify-failed':
       return `  ${glyphs.bullet} exit ${String(w.exitCode ?? '?')}${w.stderr.length > 0 ? ` · ${firstLine(w.stderr)}` : ''}`;
+    case 'crashed':
+      return `  ${glyphs.bullet} ${firstLine(w.detail)}`;
   }
 };
 

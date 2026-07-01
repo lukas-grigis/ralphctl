@@ -25,6 +25,10 @@ const warningDetail = (w: AttemptWarning): string => {
         ? `post-task verify red (${exit}: ${w.stderr.trim()})`
         : `post-task verify red (${exit})`;
     }
+    case 'crashed':
+      return w.detail.trim().length > 0
+        ? `process killed (watchdog/crash): ${w.detail.trim()}`
+        : 'process killed (watchdog/crash)';
   }
 };
 

@@ -22,6 +22,7 @@ import type { Task } from '@src/domain/entity/task.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import { ProcessCrashError } from '@src/domain/value/error/process-crash-error.ts';
 import {
   absolutePath,
   FIXED_LATER,
@@ -2566,5 +2567,147 @@ describe('createImplementFlow — gen-eval loop', () => {
     // that aborted). A leaked second loop iteration would re-emit it.
     const generatorEntries = runner.trace.filter((e) => e.elementName === `generator-${String(f.tasks[0]?.id)}`);
     expect(generatorEntries.length).toBeLessThanOrEqual(1);
+  });
+
+  it('watchdog kill before signals.json: retries up to maxAttempts then blocks "attempt budget exhausted" — NOT after one attempt', async () => {
+    // Headline regression. A ProcessCrashError from the generator provider (watchdog SIGTERM /
+    // spawn crash that died before writing signals.json — the classify-spawn step-7 shape) must
+    // RETRY the attempt up to `maxAttempts` and only THEN block, consuming the retry budget.
+    // Before the fix, a crash-before-signals folded into a `self-blocked` exit and terminally
+    // blocked the task after a SINGLE attempt, never touching the `maxAttempts` budget.
+    const f = await buildFixture(1, 3); // maxAttempts = 3
+    tracking(f);
+    const sprintRepo = inMemorySprintRepo(f.sprint);
+    const taskRepo = inMemoryTaskRepo(f.tasks);
+
+    // Generator provider that always dies before producing signals.json. Returns the retryable
+    // ProcessCrashError the headless wrapper surfaces after classify-spawn step 7 (non-zero exit,
+    // no signals.json). No signals.json is written, so the generator leaf never reaches validate.
+    let genCalls = 0;
+    const crashingProvider: HeadlessAiProvider = {
+      async generate() {
+        genCalls += 1;
+        return Result.error(
+          new ProcessCrashError({
+            entity: 'claude-provider',
+            state: 'exit-143',
+            message: 'claude-provider: process exited with code 143 (signal=SIGTERM): <empty stderr>',
+          })
+        );
+      },
+    };
+
+    const flow = createImplementFlow(
+      buildDeps(
+        sprintRepo.repo,
+        inMemoryExecutionRepo(f.execution).repo,
+        taskRepo.repo,
+        crashingProvider,
+        f.dir,
+        makeCleanGit()
+      ),
+      {
+        sprintId: f.sprint.id,
+        todoTasks: f.tasks,
+        repositories: FAKE_REPOSITORIES,
+        generatorProviderId: 'claude-code',
+        generatorModel: 'claude-opus-4-8',
+        evaluatorProviderId: 'claude-code',
+        evaluatorModel: 'claude-opus-4-8',
+        progressFile: absolutePath(f.progressFile),
+        sprintDir: absolutePath(f.dir),
+        memoryRoot: FAKE_MEMORY_ROOT,
+        projectId: FAKE_PROJECT_ID,
+        projectSlug: FAKE_PROJECT_SLUG,
+      }
+    );
+
+    const runner = createRunner({
+      id: 'r-impl-crash-retry',
+      element: flow,
+      initialCtx: { sprintId: f.sprint.id } satisfies ImplementCtx,
+    });
+    await runner.start();
+
+    expect(runner.status).toBe('completed');
+
+    const finalTask = taskRepo.tasks()[0];
+    // Retried up to the cap, THEN blocked via failCurrentAttempt's budget branch — not after one.
+    expect(finalTask?.status).toBe('blocked');
+    expect(finalTask?.attempts).toHaveLength(3);
+    if (finalTask?.status === 'blocked') {
+      expect(finalTask.blockedReason).toContain('attempt budget exhausted');
+      expect(finalTask.blockedReason).toContain('maxAttempts=3');
+    }
+
+    // start-attempt + settle-attempt each ran once per attempt — the outer loop genuinely
+    // re-entered twice, not just recorded one settle. This is the load-bearing "it retried" proof.
+    const startEntries = runner.trace.filter((e) => e.elementName === `start-attempt-${String(finalTask?.id)}`);
+    expect(startEntries).toHaveLength(3);
+    const settleEntries = runner.trace.filter((e) => e.elementName === `settle-attempt-${String(finalTask?.id)}`);
+    expect(settleEntries).toHaveLength(3);
+    // The generator was spawned once per attempt (3 crashes) — not silenced after the first.
+    expect(genCalls).toBe(3);
+
+    // Operator visibility: every failed attempt records the crash as a structured warning so the
+    // retry is SEEN (attempt history + progress journal), addressing "the actions never happen".
+    for (const attempt of finalTask?.attempts ?? []) {
+      expect(attempt.warning?.kind).toBe('crashed');
+    }
+
+    // No done task → the sprint stays active so a re-run picks it up after the cause is fixed.
+    expect(sprintRepo.current().status).toBe('active');
+  });
+
+  it('self-block fence: a genuine <task-blocked> STILL blocks after ONE attempt even with maxAttempts=3 (semantic self-blocks must not retry)', async () => {
+    // Fence for the crash-retry change: only a ProcessCrash takes the retry path. A generator
+    // <task-blocked> signal is a SEMANTIC self-block (the AI decided it cannot proceed) and must
+    // remain terminal after a single attempt regardless of the attempt budget — otherwise every
+    // block would waste the whole budget re-running work the AI already declared blocked.
+    const f = await buildFixture(1, 3); // maxAttempts = 3 — the retry budget is available…
+    tracking(f);
+    const sprintRepo = inMemorySprintRepo(f.sprint);
+    const taskRepo = inMemoryTaskRepo(f.tasks);
+
+    const provider = createFakeAiProvider({
+      signals: { implement: [taskBlocked('missing API key')] },
+    });
+
+    const flow = createImplementFlow(
+      buildDeps(sprintRepo.repo, inMemoryExecutionRepo(f.execution).repo, taskRepo.repo, provider, f.dir),
+      {
+        sprintId: f.sprint.id,
+        todoTasks: f.tasks,
+        repositories: FAKE_REPOSITORIES,
+        generatorProviderId: 'claude-code',
+        generatorModel: 'claude-opus-4-8',
+        evaluatorProviderId: 'claude-code',
+        evaluatorModel: 'claude-opus-4-8',
+        progressFile: absolutePath(f.progressFile),
+        sprintDir: absolutePath(f.dir),
+        memoryRoot: FAKE_MEMORY_ROOT,
+        projectId: FAKE_PROJECT_ID,
+        projectSlug: FAKE_PROJECT_SLUG,
+      }
+    );
+
+    const runner = createRunner({
+      id: 'r-impl-selfblock-fence',
+      element: flow,
+      initialCtx: { sprintId: f.sprint.id } satisfies ImplementCtx,
+    });
+    await runner.start();
+
+    expect(runner.status).toBe('completed');
+
+    const finalTask = taskRepo.tasks()[0];
+    // …but the self-block is terminal: blocked with the AI's own reason after exactly ONE attempt.
+    expect(finalTask?.status).toBe('blocked');
+    expect(finalTask?.attempts).toHaveLength(1);
+    if (finalTask?.status === 'blocked') {
+      expect(finalTask.blockedReason).toBe('missing API key');
+    }
+    const startEntries = runner.trace.filter((e) => e.elementName === `start-attempt-${String(finalTask?.id)}`);
+    expect(startEntries).toHaveLength(1);
   });
 });
