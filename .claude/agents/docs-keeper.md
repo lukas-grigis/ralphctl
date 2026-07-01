@@ -106,20 +106,20 @@ You should NOT edit when:
 
 When asked "are the docs in sync with the code?", run a structured pass:
 
-1. **Module layout.** `ls src/*/` vs `ARCHITECTURE.md § Module layout` and `CLAUDE.md § Architecture`.
+1. **Module layout.** `ls src/*/` vs `ARCHITECTURE.md § Module layout` and `CLAUDE.md § Architecture invariants`.
 2. **Repositories.** `ls src/domain/repository/` vs the table in `ARCHITECTURE.md § Bounded contexts` and
    `REQUIREMENTS.md § Foundations`.
 3. **Ports.** `ls src/business/*/` (excluding repos) vs the `ARCHITECTURE.md § Ports` table.
 4. **Flow registry.** `cat src/application/registry.ts` and `ls src/application/flows/*/` vs the table in
    `ARCHITECTURE.md § Flow registry` and `docs/api.md` (if present).
 5. **Signals.** `cat src/domain/signal.ts` plus `ls src/integration/ai/contract/_engine/signals/` vs
-   the table in `ARCHITECTURE.md § Harness Signals` and `CLAUDE.md § Architecture`.
+   the table in `ARCHITECTURE.md § Harness Signals` and `CLAUDE.md § Architecture invariants`.
 6. **Errors.** `ls src/domain/value/error/` vs the table in `ARCHITECTURE.md § Error Classes`.
-7. **CLI surface.** `grep -rn '\.command(' src/application/ui/cli/commands/` vs the table in `CLAUDE.md §
-Workflows & State` (sub-section "CLI Command Surface").
+7. **CLI surface.** `grep -rn '\.command(' src/application/ui/cli/commands/` vs the list in `REQUIREMENTS.md
+§ CLI surface`.
 8. **TUI views and global keys.** `ls src/application/ui/tui/views/` and `cat
 src/application/ui/tui/runtime/use-global-keys.ts` vs `DESIGN-SYSTEM.md` and `REQUIREMENTS.md § TUI`.
-9. **Env vars.** `grep -rn 'process\.env\.' src/` vs the table in `CLAUDE.md § Performance & Limits`.
+9. **Env vars.** `grep -rn 'process\.env\.' src/` vs the table in `PERFORMANCE.md § Environment variables`.
 10. **Harness principles.** After any structural change to `src/application/chain/`, `src/application/flows/`,
     or `src/integration/ai/providers/_engine/` — check whether any `applied` row in
     `.claude/docs/HARNESS-PRINCIPLES.md` was weakened or any `partial`/`gap` row was closed. Update the

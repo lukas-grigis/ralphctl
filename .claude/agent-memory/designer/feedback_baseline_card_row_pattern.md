@@ -1,21 +1,26 @@
 ---
 name: feedback_baseline_card_row_pattern
-description: Baseline-health card row design pattern — one row shape, status on sub-line, compact all-clean variant
+description: Baseline-health card row design pattern — one row shape, status inline after label, one line per indicator, compact all-clean variant
 metadata:
   type: feedback
 ---
 
-Keep one row pattern throughout status cards: glyph + label on headline; status phrase
-and detail on dim sub-lines. Never put status inline after the label on the same line.
+Keep one row pattern throughout status cards: glyph + label, then the single most important
+detail token shown dim inline after the label — one line per indicator (no multi-line
+stacking). error/warning/pending rows show the status phrase; ok rows show the first
+subline (elapsed).
 
-**Why:** Inline `<label> · <status>` patterns always risk wrapping at narrow card widths
-(CONTEXT_WIDTH = 28 cols, 24 usable after borders/padding). When status is a sub-line the
-label is always a clean single line. Discovered during baseline-health card redesign (May 2026).
+**Why:** Inline `<label> <detail>` risks wrapping at narrow card widths (CONTEXT_WIDTH = 28
+cols, 24 usable after borders/padding). Wrapping is avoided not by stacking sub-lines but by
+keeping labels short (≤14 chars) and rendering only ONE short detail token per row. Discovered
+during baseline-health card redesign (May 2026).
 
 **How to apply:**
 
-- `RowData.status` → first dim sub-line below the headline (not inline).
-- `RowData.sublines` → additional dim lines (elapsed, counts, etc.).
+- `RowData.status` → the inline detail token for error/warning/pending rows (shown after the
+  label, not on a sub-line).
+- `RowData.sublines` → only the first entry is ever rendered; shown inline for ok rows
+  (elapsed), not as a stacked line.
 - Label strings: keep ≤14 chars. "Pre verify" / "Post verify" / "Attrib" / "Setup" are safe.
 - Compact all-clean variant: build a single plain string (`✓Stp ✓Pre ✓Post ✓Att`) rather than
   multiple `<Text>` nodes in a flex row — ink word-wraps between sibling `<Text>` nodes, which

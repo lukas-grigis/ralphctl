@@ -7,6 +7,24 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Parallel implement runs no longer lose progress-journal entries.** When a sprint runs its
+  tasks in parallel waves, concurrent branches share one `progress.md`; a read-modify-write race
+  could let the last writer silently drop a sibling's just-recorded attempt section. The journal's
+  read → regenerate → write sequence is now serialized, so every attempt is preserved.
+- **A persistently crashing AI process no longer loops forever on legacy tasks.** Tasks planned
+  before per-task attempt budgets existed (no `maxAttempts`) now stop and block once the fallback
+  budget is exhausted, instead of re-attempting on every relaunch.
+- **AI process crashes retry within the attempt budget** instead of terminally blocking the task
+  after a single crash — a watchdog kill or spawn failure is treated as a transient, retryable
+  attempt rather than a hard failure.
+- **Codex crash recovery keeps a recovered result.** A missing or unreadable forensic output
+  tempfile is now best-effort (logged, not fatal), so a run that exits non-zero but has already
+  written `signals.json` is no longer discarded.
+- **Dev-mode TUI memory growth bounded.** The Node performance-hooks timeline that the dev React
+  build accumulates per commit is now capped, preventing an out-of-memory crash on long runs.
+
 ## [0.14.0] - 2026-06-30
 
 ### Added

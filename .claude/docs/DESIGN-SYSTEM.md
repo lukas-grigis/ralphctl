@@ -445,11 +445,11 @@ keypress-counting exercise. Three candidate fixes:
   budget), and the `←/→` idiom matches the canonical "prev/next page" vocabulary in
   [§6.3](#63-view-local-keys--published-via-useviewhints).
 
-Per-section row counts (all ≤ ~8 static rows): `Presets 4`, `Global 1`, `Refine 3`, `Plan 3`,
+Per-section row counts: `Presets 20`, `Global 1`, `Refine 3`, `Plan 3`,
 `Implement 6` (generator triple + evaluator triple), `Readiness 3`, `Ideate 3`, `Create-PR 3`,
-`Harness 7` (six scalar/select rows + one `map-add` action row; grows by one `map-entry` row per
-user-defined escalation-map override), `Other 2`, `Storage 0` (read-only). Implement is the
-largest among the fixed-size sections.
+`Harness 8` (seven scalar/select rows + one `map-add` action row; grows by one `map-entry` row per
+user-defined escalation-map override), `Other 2`, `Storage 0` (read-only). Presets is the largest
+section; among the rest, Implement is the largest at 6 rows.
 
 **Responsive fallback.** The section strip uses `flexWrap="wrap"`, so on terminals narrower
 than the strip's natural width (the default 11 labels) the strip wraps onto a

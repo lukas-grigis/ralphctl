@@ -61,4 +61,4 @@
 
 ## Context-Window Visibility
 
-- [project_context_window_visibility.md](project_context_window_visibility.md) — 200K/1M label in every model selector + execution surface; domain helper at settings-models/context-window.ts mirrors integration adapter pending #226 (Jun 2026)
+- [project_context_window_visibility.md](project_context_window_visibility.md) — 200K/1M label in every model selector + execution surface; domain helper at settings-models/context-window.ts is the single source of truth; integration adapter re-exports it (#226) (Jun 2026)

@@ -163,7 +163,7 @@ direction. `domain/` and `business/` cannot import I/O-bearing `node:*` modules 
 
 Every user-launchable workflow ("flow") declares itself once in `src/application/registry.ts` as a
 `FlowManifest`. CLI command builder, TUI menu, and launcher all consume from this one array. Adding a flow =
-append one `FlowManifest` to the `FLOWS` array in `src/application/registry.ts` and scaffold the flow folder
+append one `FlowEntry` (e.g. `{ manifest: xManifest }`) to the `flowRegistry` array in `src/application/registry.ts` and scaffold the flow folder
 by hand (there is no `gen:flow` script).
 
 CLI commands and TUI views invoke flow factories from `application/flows/<flow>/` and launch via the chain
@@ -177,7 +177,7 @@ ESLint fence.
 readiness, create-sprint, add-ticket, review) are TUI-only. The CLI exposes inspection + one-shot operations
 only (`doctor`, `completion`, `export-{context,requirements}`, `create-pr`, `settings`, `project show/list/
 remove`, `sprint show/list/remove/activate/close/set-current/progress`, `ticket show/list/add/remove`,
-`task show/list`). When planning a new flow: **TUI surface is mandatory; CLI surface is optional** and only
+`task show/list/unblock`, `runs list/prune`). When planning a new flow: **TUI surface is mandatory; CLI surface is optional** and only
 justified for one-shot, scriptable, non-interactive operations.
 
 - Tests are colocated as `*.test.ts` / `*.test.tsx`.

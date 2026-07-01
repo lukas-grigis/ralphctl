@@ -194,7 +194,7 @@ application/ui/tui/
 ├── runtime/      session-manager.ts, router.tsx, *-context.tsx, keyboard-map.ts,
 │                 hooks (use-event-bus, use-global-keys, …)
 ├── theme/        tokens.ts (single source of visual truth)
-├── components/   ViewShell, SectionStamp, ResultCard, FieldList, StatusChip, Spinner, ListView,
+├── components/   ViewShell, SectionStamp, ResultCard, FieldList, StatusChip, Spinner, WindowedList,
 │                 PipelineMap, TasksPanel, StepTrace, RecentEventsTail, Banner, HelpOverlay, …
 ├── prompts/      InkInteractivePrompt + per-kind components (select, multi-select, confirm, text-area,
 │                 path-picker) + prompt-host + prompt-queue
@@ -209,7 +209,7 @@ Views never render their own header, hints, or section spacing.
 Global hotkeys come from `src/application/ui/tui/runtime/use-global-keys.ts` (and `keyboard-map.ts` for the
 canonical label set — treat those two as the source of truth). Current set: `h` home, `n` flows, `x` sessions,
 `s` settings, `!` doctor, `b` banner toggle, `g` progress overlay, `y` yank focused task, `P` project picker,
-`S` sprint picker, `Tab` / `Shift+Tab` cycle sessions, `Ctrl+1..9` jump, `Esc` context, `?` help, `q` / `Ctrl+C`
+`S` sprint picker, `Tab` / `Shift+Tab` cycle sessions, `Ctrl+1..9` jump, `Esc` back, `?` help, `q` / `Ctrl+C`
 quit.
 
 ## Design Review Checklist

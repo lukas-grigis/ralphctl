@@ -81,8 +81,9 @@ required. The only path that resets a task to `todo` is `task unblock`.
 Two additional plateau signals fire _inside_ each gen-eval turn via dedicated guard leaves, without
 waiting for the `plateauThreshold` count:
 
-- **`loop-diversity-check`** (`src/business/task/loop-diversity.ts`) — tracks a rolling window of
-  failed-dimension fingerprints (sorted set of failing dimension names joined by `|`). When the last
+- **`loop-diversity-check`** (`src/application/flows/implement/leaves/gen-eval-loop.ts`, backed by the
+  rolling buffer `createLoopDiversityTracker` in `src/business/task/loop-diversity.ts`) — tracks a rolling
+  window of failed-dimension fingerprints (sorted set of failing dimension names joined by `|`). When the last
   `DIVERSITY_WINDOW_SIZE` (3) fingerprints are identical the loop exits with `plateau`, letting the
   escalation ladder intervene earlier than the count-based predicate would. Tracker state resets at
   each new attempt so fingerprints do not leak across attempts.

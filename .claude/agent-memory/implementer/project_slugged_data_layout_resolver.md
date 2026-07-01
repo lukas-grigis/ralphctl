@@ -37,10 +37,14 @@ files, sprint dirs, memory dirs). `--` is the separator; kebab slugs never conta
   exists, remove the stale dir instead. All best-effort (swallow failures — tolerant reader covers gaps).
 
 **Memory ledger**: `learningsLedgerPath` was REPLACED by two functions in
-`flows/_shared/memory/ledger-path.ts`: `resolveLearningsLedgerPath` (async, tolerant) and
-`learningsLedgerPathDirect(memoryRoot, id, slug)` (pure). DECISION: thread `projectSlug` through
-`CreateImplementFlowOpts` → `PerTaskSubchainOpts` → `AppendLearningsLeafOpts`, and through
-`DistillStepOpts`/`CreateDistillLearningsOpts`, so all memory writers use direct-build (no async scan).
+`flows/_shared/memory/ledger-path.ts`: `resolveLearningsLedgerPath(memoryRoot, projectId)` (async,
+tolerant, READ-side) and `resolveWritableLearningsLedgerPath(memoryRoot, projectId, projectSlug)`
+(async, tolerant, WRITE-side). Both scan the memory root via `resolveMemoryDir` to tolerate the legacy
+bare `<projectId>/` and the new `<projectId>--<slug>/` forms. The WRITE-side resolver is the critical
+anti-stranding rule (commit d7575671): it keeps appending to an existing legacy bare dir rather than
+creating a second slugged dir beside it. `projectSlug` is still threaded through `CreateImplementFlowOpts`
+→ `PerTaskSubchainOpts` → `AppendLearningsLeafOpts` and `DistillStepOpts`/`CreateDistillLearningsOpts`,
+but the writers now resolve tolerantly (async scan) — NOT via pure direct-build.
 
 **UUIDv7 monotonic** (`domain/value/uuid7.ts`): RFC 9562 Method 1 — 12-bit `rand_a` is now a per-ms counter
 (reset on new ms, increment same-ms, overflow bumps ms+1). Shape/regex unchanged. Module-level `lastMs`/`seq`.

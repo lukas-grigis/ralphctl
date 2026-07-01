@@ -41,7 +41,7 @@ its alt-screen behaviour differs.
 8. **Expected:** prompt shows the AI's suggestion as the default. Type `c` somewhere in the field — confirm
    it does NOT trigger a global hotkey on the underlying execute view.
 9. Submit each confirm prompt
-10. **Expected:** session ends with `[COMPLETED] readiness <repo>`. The breadcrumb shows the path.
+10. **Expected:** session ends with a result card showing `✓ Readiness — <project-name> — completed`. The breadcrumb shows the path.
 11. Press Esc back to Home
 
 ---
@@ -57,8 +57,11 @@ its alt-screen behaviour differs.
 4. **Expected:** AI CLI takes over with full UI for ticket 1. The TUI is hidden during the session.
 5. Have a conversation; the AI emits its approved requirements as a `refined-ticket` signal into `signals.json` when
    done, then exit
-6. **Expected:** ralphctl re-appears with the parsed requirements shown inline, then
-   "Approve these requirements?" prompt
+6. **Expected:** ralphctl re-appears with the parsed requirements shown inline, then an approval
+   prompt titled `Approve refined requirements for "<ticket title>"?` that shows the proposed body
+   inline, offering choices Approve / Edit / Reject (plus "Post as comment" when the ticket has a
+   linked issue). Pressing Enter selects the highlighted default (Approve, unless "Post as comment"
+   leads via `settings.scm.postRefinementComment` + a link)
 7. Press Enter to approve
 8. **Expected:** ticket 1 transitions to `approved`, sprint saved, chain moves to ticket 2
 9. Repeat for ticket 2

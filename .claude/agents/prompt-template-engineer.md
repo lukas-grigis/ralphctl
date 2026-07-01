@@ -162,12 +162,11 @@ via its Write tool; the harness validates post-spawn. There is no XML-tag stdout
 
 Per-kind schemas currently shipped (`type` discriminant on each signal object):
 
-- Narrative: `note`, `learning`, `decision`, `change`, `progress-entry`, `progress`,
-  `context-compacted`.
+- Narrative: `note`, `learning`, `decision`, `change`, `context-compacted`.
 - Lifecycle: `task-complete`, `task-verified`, `task-blocked`.
-- Implement-handover: `commit-message`, `evaluation`.
+- Implement-handover: `commit-message`, `evaluation`, `pr-content`.
 - Planning: `task-plan`, `refined-ticket`, `ideated-tickets`.
-- Setup-time: `setup-script`, `verify-script`, `setup-skill-proposal`,
+- Setup-time: `setup-script`, `verify-script`, `verify-gates`, `setup-skill-proposal`,
   `verify-skill-proposal`, `agents-md-proposal`, `skill-suggestions`.
 
 The prompt's `{{OUTPUT_CONTRACT_SECTION}}` block is rendered from the contract via

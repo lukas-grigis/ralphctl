@@ -42,7 +42,7 @@ one rots quietly. So the script flags, and you verify.
      signal; a gone path is almost always real drift.
    - **[3] Unread env vars** — `RALPHCTL_*` named in docs with zero non-test reads in `src/` (unshipped or removed).
    - **[4] Known stale patterns** — recurring renames (`tests/integration/flows/` → `…/application/flows/`,
-     the `signals/` → `contract/` sibling rename, `mount.tsx`, `InkPromptAdapter`, `PromptPort`).
+     the `signals/` → `contract/` sibling rename, `runtime/mount.tsx`, `InkPromptAdapter`, `PromptPort`).
    - **[5] Symbol sample** — backticked identifiers to spot-check; too noisy to auto-resolve, so pick the
      load-bearing ones and grep them yourself.
 

@@ -389,11 +389,11 @@ readiness / create sprint) stay TUI-only by design. The CLI exposes inspection +
 
 ### Export & PR
 
-| Command                                                                | Description                                                    |
-| ---------------------------------------------------------------------- | -------------------------------------------------------------- |
-| `ralphctl export-requirements --sprint <id> --output <path>`           | Render approved-ticket requirements to markdown                |
-| `ralphctl export-context --sprint <id> --project <id> --output <path>` | Render harness context (sprint + project + tasks) to markdown  |
-| `ralphctl create-pr --sprint <id> [--base <branch>] [--draft]`         | Open a PR/MR via `gh` or `glab`, persist the URL on the sprint |
+| Command                                                                    | Description                                                    |
+| -------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `ralphctl export-requirements [--sprint <id>] --output <path>`             | Render approved-ticket requirements to markdown                |
+| `ralphctl export-context [--sprint <id>] [--project <id>] --output <path>` | Render harness context (sprint + project + tasks) to markdown  |
+| `ralphctl create-pr --sprint <id> [--base <branch>] [--draft]`             | Open a PR/MR via `gh` or `glab`, persist the URL on the sprint |
 
 ### Maintenance
 
