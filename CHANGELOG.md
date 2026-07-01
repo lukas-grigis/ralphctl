@@ -7,6 +7,8 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-07-01
+
 ### Fixed
 
 - **Parallel implement runs no longer lose progress-journal entries.** When a sprint runs its
