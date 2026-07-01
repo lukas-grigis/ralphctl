@@ -161,6 +161,8 @@ const toJournalWarning = (warning: AttemptWarning): JournalWarning => {
       const detail = warning.stderr.trim().length > 0 ? `${exit} — ${warning.stderr.trim()}` : exit;
       return { kind: 'verify-failed', detail };
     }
+    case 'crashed':
+      return { kind: 'crashed', detail: warning.detail };
   }
 };
 
@@ -180,6 +182,15 @@ const toJournalEscalation = (task: Task): JournalEscalation | undefined =>
     : undefined;
 
 const latestAttempt = (task: Task): Attempt | undefined => task.attempts[task.attempts.length - 1];
+
+/**
+ * True when the attempt's warning kind retries WITHOUT burning a model-ladder rung (`malformed` —
+ * the evaluator's failure; `crashed` — a transient process death). On those exits the persisted
+ * `escalatedFromModel`/`To` stamp reflects a PRIOR climb, so projecting it would misrepresent this
+ * attempt's remedy — the caller suppresses the escalation projection when this returns true.
+ */
+const ladderBypassed = (warning: AttemptWarning | undefined): boolean =>
+  warning?.kind === 'malformed' || warning?.kind === 'crashed';
 
 const attemptDurationMs = (attempt: Attempt | undefined): number | undefined => {
   if (attempt === undefined || attempt.status === 'running') return undefined;
@@ -225,14 +236,15 @@ const buildStateHeader = (input: JournalInput, existing: string, clock: () => Is
  * Render this attempt's journal section. The warning / escalation fields are projected only when they
  * exist, so the clean-pass entry stays byte-identical to the pre-widening output (no `### Outcome
  * detail`). The model-ladder transition rides the `escalated` / `pass-with-warning` entry EXCEPT when
- * the exit was `malformed` — that retry bypasses the ladder, so any stamp is a stale prior climb.
+ * the exit was `malformed` or `crashed` — both retry WITHOUT burning a ladder rung, so any stamp is a
+ * stale prior climb that would misrepresent this attempt's remedy.
  */
 const buildAttemptSection = (input: JournalInput, totalRounds: number, clock: () => IsoTimestamp): string => {
   const attempt = latestAttempt(input.task);
   const verdict = deriveVerdict(input.task, attempt);
   const warning = attempt?.warning !== undefined ? toJournalWarning(attempt.warning) : undefined;
   const escalation =
-    (verdict === 'escalated' || verdict === 'pass-with-warning') && attempt?.warning?.kind !== 'malformed'
+    (verdict === 'escalated' || verdict === 'pass-with-warning') && !ladderBypassed(attempt?.warning)
       ? toJournalEscalation(input.task)
       : undefined;
   const durationMs = attemptDurationMs(attempt);

@@ -12,6 +12,7 @@ import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import { ProcessCrashError } from '@src/domain/value/error/process-crash-error.ts';
 import { RateLimitError } from '@src/domain/value/error/rate-limit-error.ts';
 
 const PROMPT = 'fake prompt' as unknown as Prompt;
@@ -183,7 +184,11 @@ describe.each(PROVIDERS)('classifySpawnExit [%s]', (providerName) => {
     }
   });
 
-  it('non-zero exit + signals.json absent hard-fails with InvalidStateError', async () => {
+  it('non-zero exit + signals.json absent hard-fails with a RETRYABLE ProcessCrashError (watchdog-kill shape)', async () => {
+    // A non-zero exit with no signals.json is the idle-stdout-watchdog SIGTERM shape: a transient
+    // process death worth retrying within the attempt budget, so it surfaces a ProcessCrashError
+    // (code 'process-crash') rather than a terminal InvalidStateError. The exact message text is
+    // preserved (exit code + stderr tail) so logs / progress read the same as before.
     const session = baseSession();
     // Do NOT write signals.json.
     let invoked = 0;
@@ -203,7 +208,8 @@ describe.each(PROVIDERS)('classifySpawnExit [%s]', (providerName) => {
     expect(invoked).toBe(0);
     expect(outcome.kind).toBe('error');
     if (outcome.kind === 'error') {
-      expect(outcome.error).toBeInstanceOf(InvalidStateError);
+      expect(outcome.error).toBeInstanceOf(ProcessCrashError);
+      expect(outcome.error.code).toBe('process-crash');
       expect(outcome.error.message).toContain('process exited with code 2');
       expect(outcome.error.message).toContain('some-real-failure');
     }
@@ -232,10 +238,11 @@ describe.each(PROVIDERS)('classifySpawnExit [%s]', (providerName) => {
     expect(outcome.kind).toBe('success');
   });
 
-  it('spawn error maps to InvalidStateError before any exit-code branch (missing binary)', async () => {
+  it('spawn error maps to a RETRYABLE ProcessCrashError before any exit-code branch (missing binary)', async () => {
     // FINDING 1 — a spawn `'error'` event (ENOENT / EACCES) means the child never ran; classify
     // it as a typed, actionable failure before the clean-exit / rate-limit branches. The errno
-    // and message must surface so the operator knows the CLI is missing.
+    // and message must surface so the operator knows the CLI is missing. It is a ProcessCrashError
+    // (code 'process-crash') so a transient spawn death retries within the attempt budget.
     const session = baseSession();
     const spawnError = Object.assign(new Error('spawn claude ENOENT'), {
       code: 'ENOENT',
@@ -257,7 +264,8 @@ describe.each(PROVIDERS)('classifySpawnExit [%s]', (providerName) => {
     expect(invoked).toBe(0);
     expect(outcome.kind).toBe('error');
     if (outcome.kind === 'error') {
-      expect(outcome.error).toBeInstanceOf(InvalidStateError);
+      expect(outcome.error).toBeInstanceOf(ProcessCrashError);
+      expect(outcome.error.code).toBe('process-crash');
       expect(outcome.error.message).toContain('spawn failed');
       expect(outcome.error.message).toContain('ENOENT');
       expect(outcome.error.message).toContain(providerName);
@@ -349,7 +357,11 @@ describe.each(PROVIDERS)('classifySpawnExit [%s]', (providerName) => {
     expect(invoked).toBe(0);
     expect(outcome.kind).toBe('error');
     if (outcome.kind === 'error') {
+      // A config failure must keep BLOCKING (InvalidStateError), never retry — retrying a
+      // model-availability error would burn the whole attempt budget on the same misconfiguration.
       expect(outcome.error).toBeInstanceOf(InvalidStateError);
+      expect(outcome.error).not.toBeInstanceOf(ProcessCrashError);
+      expect(outcome.error.code).toBe('invalid-state');
       expect(outcome.error.message).toContain('model not available');
     }
   });
@@ -374,8 +386,9 @@ describe.each(PROVIDERS)('classifySpawnExit [%s]', (providerName) => {
     });
     expect(outcome.kind).toBe('error');
     if (outcome.kind === 'error') {
-      expect(outcome.error).toBeInstanceOf(InvalidStateError);
-      // Falls through to generic hard-fail — the model hint must NOT appear.
+      // Falls through to the generic hard-fail (step 7) — a retryable ProcessCrashError, and the
+      // model hint must NOT appear (the false-positive guard: a stdout-only phrase is not a config error).
+      expect(outcome.error).toBeInstanceOf(ProcessCrashError);
       expect(outcome.error.message).not.toContain('pick another model in settings');
       expect(outcome.error.message).toContain('process exited with code 1');
     }
@@ -395,7 +408,8 @@ describe.each(PROVIDERS)('classifySpawnExit [%s]', (providerName) => {
     });
     expect(outcome.kind).toBe('error');
     if (outcome.kind === 'error') {
-      expect(outcome.error).toBeInstanceOf(InvalidStateError);
+      // Generic non-zero exit → the retryable hard-fail branch, and no model hint.
+      expect(outcome.error).toBeInstanceOf(ProcessCrashError);
       expect(outcome.error.message).not.toContain('pick another model in settings');
     }
   });

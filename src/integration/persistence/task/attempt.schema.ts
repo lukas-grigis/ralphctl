@@ -25,11 +25,16 @@ const VerifyFailedWarningSchema = z.object({
   exitCode: z.number().int().nullable(),
   stderr: z.string(),
 });
+const CrashedWarningSchema = z.object({
+  kind: z.literal('crashed'),
+  detail: z.string(),
+});
 const AttemptWarningSchema = z.discriminatedUnion('kind', [
   BudgetExhaustedWarningSchema,
   PlateauWarningSchema,
   MalformedWarningSchema,
   VerifyFailedWarningSchema,
+  CrashedWarningSchema,
 ]);
 
 const AbortCauseSchema = z.enum([

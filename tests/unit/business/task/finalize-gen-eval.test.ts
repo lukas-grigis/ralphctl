@@ -591,6 +591,71 @@ describe('finalizeGenEvalUseCase', () => {
     expect(result.value.blockedReason).toBeUndefined();
   });
 
+  // ── Crashed: unconditional retry (watchdog kill / spawn crash), no ladder rung ────────────────
+
+  it('crashed exit (flag OFF, budget remaining): verdict failed, warning kind=crashed with detail, shouldFailAttempt=true, NO escalation, no blockedReason', async () => {
+    // A process crash is NOT a quality plateau: it retries UNCONDITIONALLY (regardless of
+    // escalateOnPlateau) and WITHOUT stamping the escalation model fields. shouldFailAttempt keeps
+    // the task in_progress so the outer loop re-enters. Mutant-kill: a mutant that gates the retry
+    // on the flag (like malformed) would leave shouldFailAttempt falsy here.
+    const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 3 });
+    const bus = newBus();
+    const events: Array<{ type: string }> = [];
+    bus.subscribe((e) => events.push(e));
+    const result = await finalizeGenEvalUseCase({
+      task,
+      sprintId,
+      exit: { kind: 'crashed', reason: 'AI process was killed before producing signals.json: exit 143 (SIGTERM)' },
+      turnsUsed: 1,
+      readConfig: cfg({ escalateOnPlateau: false, maxAttempts: 3 }),
+      taskRepo: okRepo,
+      logger: noopLogger,
+      eventBus: bus,
+      clock: fixedClock,
+      generatorModel: 'claude-sonnet-4-6',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.verdict).toBe('failed');
+    expect(result.value.warning?.kind).toBe('crashed');
+    expect((result.value.warning as { kind: 'crashed'; detail: string } | undefined)?.detail).toContain(
+      'AI process was killed before producing signals.json'
+    );
+    expect(result.value.shouldFailAttempt).toBe(true);
+    // No ladder rung burned — a crash is not a generator weakness.
+    expect(result.value.task.escalatedFromModel).toBeUndefined();
+    expect(result.value.task.escalatedToModel).toBeUndefined();
+    expect(result.value.blockedReason).toBeUndefined();
+    expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
+  });
+
+  it('crashed exit on the FINAL attempt (maxAttempts=1): STILL shouldFailAttempt=true — failCurrentAttempt blocks at the cap, not finalize', async () => {
+    // The retry budget itself decides when to stop: finalize always grants shouldFailAttempt for a
+    // crash, and failCurrentAttempt transitions the task to blocked once attempts hit the cap. So
+    // even on what turns out to be the last allowed attempt, finalize sets shouldFailAttempt=true
+    // and never sets blockedReason (finalize must not pre-empt the domain's budget branch).
+    const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 1 });
+    const result = await finalizeGenEvalUseCase({
+      task,
+      sprintId,
+      exit: { kind: 'crashed', reason: 'AI process was killed before producing signals.json: spawn failed ENOENT' },
+      turnsUsed: 1,
+      readConfig: cfg({ escalateOnPlateau: true, maxAttempts: 1 }),
+      taskRepo: okRepo,
+      logger: noopLogger,
+      eventBus: newBus(),
+      clock: fixedClock,
+      generatorModel: 'claude-sonnet-4-6',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.verdict).toBe('failed');
+    expect(result.value.warning?.kind).toBe('crashed');
+    expect(result.value.shouldFailAttempt).toBe(true);
+    expect(result.value.blockedReason).toBeUndefined();
+    expect(result.value.task.escalatedToModel).toBeUndefined();
+  });
+
   // ── Legacy-task budget fallback (task.maxAttempts unset) ──────────────────────────────────────
 
   it('legacy task (no maxAttempts) plateau escalate: verdict failed, plateau warning, shouldFailAttempt=true, escalation stamps set', async () => {

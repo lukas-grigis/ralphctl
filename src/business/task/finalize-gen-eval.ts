@@ -31,6 +31,8 @@ const BUDGET_EXHAUSTED_EXIT = 'budget-exhausted';
  * attempt fails so the outer loop re-enters — is gated by the escalation policy / attempt budget):
  *   passed             → verdict 'passed',    no warning,                       never retries
  *   self-blocked       → verdict 'failed',    blockedReason set (settle blocks), never retries
+ *   crashed            → verdict 'failed',    warning { kind: 'crashed' },       retry within maxAttempts
+ *                          (no ladder rung), blocks at cap via failCurrentAttempt
  *   plateau            → verdict 'failed',    warning { kind: 'plateau' },       escalation policy
  *   budget-exhausted   → verdict 'failed',    warning { kind: 'budget-exhausted' }, escalation policy
  *   malformed          → verdict 'malformed', warning { kind: 'malformed' },     plain same-model retry
@@ -109,6 +111,8 @@ const mapExit = (exit: GenEvalExit): { verdict: RunTaskVerdict; warning?: Attemp
       return { verdict: 'passed' };
     case 'self-blocked':
       return { verdict: 'failed', blockedReason: exit.reason };
+    case 'crashed':
+      return { verdict: 'failed', warning: { kind: 'crashed', detail: exit.reason } };
     case 'malformed':
       return { verdict: 'malformed', warning: { kind: 'malformed', detail: exit.detail } };
     case 'plateau':
@@ -244,6 +248,13 @@ export const finalizeGenEvalUseCase = async (
     remedy = resolved.value;
   } else if (exit.kind === 'malformed') {
     remedy = resolveMalformedRemedy(props, cfg, log);
+  } else if (exit.kind === 'crashed') {
+    // A process crash (watchdog kill / spawn crash) is not a quality plateau — retry
+    // UNCONDITIONALLY, regardless of `escalateOnPlateau`, and WITHOUT stamping the escalation
+    // model fields (no ladder rung). `failCurrentAttempt` transitions the task to `blocked` on its
+    // own once attempts hit the cap, so `shouldFailAttempt: true` is correct even on the final
+    // attempt — the retry budget itself decides when to stop.
+    remedy = { task: props.task, shouldFailAttempt: true };
   }
 
   const taskForPersist: InProgressTask = remedy.task;

@@ -39,6 +39,10 @@ const warningSummaryFor = (w: AttemptWarning): string => {
       return 'done with warning: evaluator output malformed';
     case 'verify-failed':
       return `done with warning: post-task verify red (${w.exitCode !== null ? `exit ${String(w.exitCode)}` : 'no exit code'})`;
+    case 'crashed':
+      // A `crashed` warning rides a FAILED (retried) attempt, not a done task's final attempt, so
+      // this arm is unreachable through the done-only caller above — present for exhaustiveness.
+      return 'retried after a process crash (watchdog/crash)';
   }
 };
 

@@ -9,6 +9,7 @@ export const ErrorCode = {
   Probe: 'probe-error',
   Aborted: 'aborted',
   MigrationGap: 'migration-gap',
+  ProcessCrash: 'process-crash',
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];

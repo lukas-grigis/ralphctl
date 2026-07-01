@@ -116,6 +116,12 @@ const createHeapWarningHandler = (args: {
 }): (() => void) => {
   const { logger, sessions } = args;
   return () => {
+    // Clear the perf-hooks timeline FIRST. React's dev-reconciler per-fiber measures are the
+    // dominant retainer, and they live outside every app buffer — `shedTerminal` below cannot
+    // reach them. Clearing here makes 0.80-band relief drop the real weight, not just finished
+    // records. Safe: React never reads its own measures back. See startPerfTimelineGuard.
+    performance.clearMeasures();
+    performance.clearMarks();
     const dropped = sessions.shedTerminal();
     if (dropped > 0) {
       logger.warn(`heap warning — shed ${dropped} finished session record(s) early to relieve pressure`);
@@ -146,6 +152,12 @@ const createHeapCriticalHandler = (args: {
     harnessBus.clear();
     logBus.clear();
 
+    // Clear the perf-hooks timeline too: React's dev-reconciler measures are the dominant retainer
+    // and live OUTSIDE every app buffer — which is exactly why shedTerminal here historically freed
+    // nothing. Safe: React never reads its own measures back. See startPerfTimelineGuard.
+    performance.clearMeasures();
+    performance.clearMarks();
+
     // Shed the dominant reachable retainer: drop EVERY terminal SessionRecord (with its trace
     // snapshot). The small-capped buffers above free little; completed/aborted/failed run records
     // accumulated across a long session are the real weight the app root can reach. shedTerminal
@@ -156,7 +168,7 @@ const createHeapCriticalHandler = (args: {
       logger.warn(`heap critical — shed ${dropped} finished session record(s) for memory relief`);
     } else {
       logger.warn(
-        'heap critical — no terminal records to shed; dominant retainer is the live session trace or chainEvents buffer'
+        'heap critical — no terminal records to shed; cleared the perf-hooks timeline (React dev-reconciler measures), the dominant retainer that lives outside app buffers'
       );
     }
 
@@ -178,6 +190,36 @@ const createHeapCriticalHandler = (args: {
       }
     });
   };
+};
+
+/**
+ * Bound Node's process-global performance timeline. React 19's DEVELOPMENT reconciler writes a
+ * `performance.measure()` per committed fiber on every commit (the changed-props diff is attached
+ * as the measure's `detail`), and Node's `perf_hooks` retains every entry unbounded. A multi-hour
+ * TUI run commits constantly, so the timeline grows without bound and OOMs from OUTSIDE every app
+ * buffer — the heap watchdog's `shedTerminal` structurally cannot reach it. Nothing in this process
+ * consumes marks/measures (the app + Ink only ever call `performance.now()`), so we drop the whole
+ * timeline on a fixed cadence. Under a production React build this is a silent no-op (the reconciler
+ * emits nothing), so it is safe to install unconditionally.
+ *
+ * Throw-safety (timing-independent): `clearMeasures()` / `clearMarks()` can never make React's
+ * `performance.measure` throw, because React 19.2's reconciler builds every measure from a numeric
+ * `{ start, end }` options object — never a named start-mark — and never reads the timeline back
+ * (zero `getEntries*` calls). So a clear can neither split a mark→measure pair nor perturb
+ * reconciliation, however it interleaves with a commit. Unref'd so it never keeps the process
+ * alive; `clear*` are cheap in-memory splices.
+ *
+ * INVARIANT: this clear is process-global. If a future dependency ever emits a `performance.measure`
+ * that references a NAMED start mark (not numeric `{ start, end }` options), or any TUI-process
+ * feature ever CONSUMES marks/measures, re-audit before assuming this guard stays safe.
+ */
+const startPerfTimelineGuard = (): { readonly stop: () => void } => {
+  const handle = setInterval(() => {
+    performance.clearMeasures();
+    performance.clearMarks();
+  }, 10_000);
+  handle.unref?.();
+  return { stop: (): void => clearInterval(handle) };
 };
 
 const bootstrap = async (): Promise<Bootstrapped> => {
@@ -235,6 +277,12 @@ const bootstrap = async (): Promise<Bootstrapped> => {
     onWarning: createHeapWarningHandler({ logger: deps.logger, sessions }),
     onCritical: createHeapCriticalHandler({ logger: deps.logger, logForwarder, harnessBus, logBus, sessions }),
   });
+
+  // Bound Node's perf-hooks timeline. React's dev reconciler writes a performance.measure per fiber
+  // per commit, retained unbounded by Node — a leak OUTSIDE every app buffer that the heap watchdog
+  // structurally cannot shed. The periodic guard drops it on a cadence; the watchdog handlers above
+  // also clear it the moment real pressure fires. No-op under a production React build.
+  const perfTimelineGuard = startPerfTimelineGuard();
 
   // OS-attention notifications. Wired here (not inside wire()) so tests that build wire() never
   // accidentally pop NotificationCenter dings on the dev machine — only the TUI bootstrap
@@ -304,6 +352,7 @@ const bootstrap = async (): Promise<Bootstrapped> => {
       unsubLogForward();
       logForwarder.stop();
       heapWatchdog.stop();
+      perfTimelineGuard.stop();
       unsubNotifications();
     },
     migration: {

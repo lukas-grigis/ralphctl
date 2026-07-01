@@ -31,22 +31,30 @@ export interface Evaluation {
 
 /**
  * Structured warning attached to an attempt when the gen-eval inner loop terminates without a
- * passed evaluation but the task still settles as `done` (vs `blocked`). The four kinds:
+ * passed evaluation but the task still settles as `done` (vs `blocked`), OR when an attempt is
+ * failed-and-retried. The kinds:
  *
  *  - `budget-exhausted` — turn budget hit without the evaluator passing.
  *  - `plateau`          — two consecutive evals flagged the identical failed-dimension set.
  *  - `malformed`        — evaluator output couldn't be parsed (no verdict signal).
  *  - `verify-failed`    — post-task check script ran red after commit; non-fatal but surfaced.
+ *  - `crashed`          — the AI process died (watchdog kill / spawn crash) before producing a
+ *                         terminal verdict. Recorded on the failed attempt so the operator can
+ *                         SEE the retry in attempt history + the progress journal (rather than the
+ *                         task silently blocking after one attempt).
  *
  * Why warnings on a "done" task: the locked policy is that only `<task-blocked>` from the
  * generator → `markTaskBlocked`. Everything else (budget / plateau / malformed eval / red
- * verify) → `markTaskDone` with the structured warning attached so the operator can review.
+ * verify) → `markTaskDone` with the structured warning attached so the operator can review. The
+ * `crashed` kind is the exception in provenance — it rides a FAILED (retried) attempt, not a
+ * done one — but shares the same audit purpose.
  */
 export type AttemptWarning =
   | { readonly kind: 'budget-exhausted'; readonly turnsUsed: number; readonly turnBudget: number }
   | { readonly kind: 'plateau'; readonly dimensions: readonly string[] }
   | { readonly kind: 'malformed'; readonly detail: string }
-  | { readonly kind: 'verify-failed'; readonly exitCode: number | null; readonly stderr: string };
+  | { readonly kind: 'verify-failed'; readonly exitCode: number | null; readonly stderr: string }
+  | { readonly kind: 'crashed'; readonly detail: string };
 
 /**
  * Discriminated reason why an attempt was settled as `aborted`. Capture point varies:

@@ -6,6 +6,7 @@ import type { InvalidStateError } from '@src/domain/value/error/invalid-state-er
 import type { MigrationGapError } from '@src/domain/value/error/migration-gap-error.ts';
 import type { ParseError } from '@src/domain/value/error/parse-error.ts';
 import type { ProbeError } from '@src/domain/value/error/probe-error.ts';
+import type { ProcessCrashError } from '@src/domain/value/error/process-crash-error.ts';
 import type { RateLimitError } from '@src/domain/value/error/rate-limit-error.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 
@@ -18,5 +19,6 @@ export type DomainError =
   | MigrationGapError
   | ParseError
   | ProbeError
+  | ProcessCrashError
   | RateLimitError
   | StorageError;
