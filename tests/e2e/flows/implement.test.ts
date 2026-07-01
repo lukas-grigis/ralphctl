@@ -43,6 +43,7 @@ import { createFileLocker } from '@src/integration/io/file-locker.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import { createFakeAiProvider } from '@tests/fixtures/fake-ai-provider.ts';
 import { createImplementFlow } from '@src/application/flows/implement/flow.ts';
+import { createFoldQueue } from '@src/application/flows/implement/wave-branch.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { emptySkillSource, noopSkillsAdapter } from '@tests/fixtures/skills-fakes.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
@@ -352,6 +353,7 @@ const buildDeps = (
   interactive: unusedInteractive,
   writeFile: createAtomicWriteFile(),
   appendFile: createAppendFile(),
+  journalMutex: createFoldQueue(),
 });
 
 const unusedInteractive: InteractivePrompt = {

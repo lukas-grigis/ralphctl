@@ -100,27 +100,23 @@ export const createRepository = (input: RepositoryCreateInput): Result<Repositor
   const slugResult = resolveSlug(input.slug, nameResult.value);
   if (!slugResult.ok) return Result.error(slugResult.error);
 
-  const verifyScript = parseOptionalString('repository.verifyScript', input.verifyScript);
-  if (!verifyScript.ok) return Result.error(verifyScript.error);
-
-  const setupScript = parseOptionalString('repository.setupScript', input.setupScript);
-  if (!setupScript.ok) return Result.error(setupScript.error);
-
-  const setupSkill = parseOptionalString('repository.setupSkill', input.setupSkill);
-  if (!setupSkill.ok) return Result.error(setupSkill.error);
-
-  const verifySkill = parseOptionalString('repository.verifySkill', input.verifySkill);
-  if (!verifySkill.ok) return Result.error(verifySkill.error);
+  const scriptFieldsResult = resolveOptionalScriptFields(input);
+  if (!scriptFieldsResult.ok) return Result.error(scriptFieldsResult.error);
 
   const verifyGates = verifyGatesPart(input.verifyGates);
   if (!verifyGates.ok) return Result.error(verifyGates.error);
 
-  let verifyTimeout: number | undefined;
-  if (input.verifyTimeout !== undefined) {
-    const parsed = parsePositiveInt('repository.verifyTimeout', input.verifyTimeout);
-    if (!parsed.ok) return Result.error(parsed.error);
-    verifyTimeout = parsed.value;
-  }
+  const verifyTimeoutResult = resolveVerifyTimeout(input.verifyTimeout);
+  if (!verifyTimeoutResult.ok) return Result.error(verifyTimeoutResult.error);
+
+  const optionalFields = optionalFieldsPart({
+    verifyScript: scriptFieldsResult.value.verifyScript,
+    setupScript: scriptFieldsResult.value.setupScript,
+    setupSkill: scriptFieldsResult.value.setupSkill,
+    verifySkill: scriptFieldsResult.value.verifySkill,
+    verifyGates: verifyGates.value.verifyGates,
+    verifyTimeout: verifyTimeoutResult.value,
+  });
 
   return Result.ok({
     id: input.id ?? RepositoryId.generate(),
@@ -128,12 +124,7 @@ export const createRepository = (input: RepositoryCreateInput): Result<Repositor
     name: nameResult.value,
     path: input.path,
     ...suggestedSkillsPart(input.suggestedSkills),
-    ...(verifyScript.value !== undefined ? { verifyScript: verifyScript.value } : {}),
-    ...(verifyGates.value.verifyGates !== undefined ? { verifyGates: verifyGates.value.verifyGates } : {}),
-    ...(verifyTimeout !== undefined ? { verifyTimeout } : {}),
-    ...(setupScript.value !== undefined ? { setupScript: setupScript.value } : {}),
-    ...(setupSkill.value !== undefined ? { setupSkill: setupSkill.value } : {}),
-    ...(verifySkill.value !== undefined ? { verifySkill: verifySkill.value } : {}),
+    ...optionalFields,
   });
 };
 
@@ -264,6 +255,73 @@ export const setRepositorySuggestedSkills = (repo: Repository, names: readonly s
 };
 
 /**
+ * Parse the four optional string fields (verifyScript, setupScript, setupSkill, verifySkill)
+ * from the input, validating each in sequence. Returns a Result containing all four parsed
+ * values (which may be undefined). Short-circuits on the first parse error.
+ */
+const resolveOptionalScriptFields = (
+  input: RepositoryCreateInput
+): Result<
+  {
+    readonly verifyScript: string | undefined;
+    readonly setupScript: string | undefined;
+    readonly setupSkill: string | undefined;
+    readonly verifySkill: string | undefined;
+  },
+  ValidationError
+> => {
+  const verifyScript = parseOptionalString('repository.verifyScript', input.verifyScript);
+  if (!verifyScript.ok) return Result.error(verifyScript.error);
+
+  const setupScript = parseOptionalString('repository.setupScript', input.setupScript);
+  if (!setupScript.ok) return Result.error(setupScript.error);
+
+  const setupSkill = parseOptionalString('repository.setupSkill', input.setupSkill);
+  if (!setupSkill.ok) return Result.error(setupSkill.error);
+
+  const verifySkill = parseOptionalString('repository.verifySkill', input.verifySkill);
+  if (!verifySkill.ok) return Result.error(verifySkill.error);
+
+  return Result.ok({
+    verifyScript: verifyScript.value,
+    setupScript: setupScript.value,
+    setupSkill: setupSkill.value,
+    verifySkill: verifySkill.value,
+  });
+};
+
+/**
+ * Parse an optional verifyTimeout. When the input is undefined, returns Ok(undefined).
+ * Otherwise validates that it is a positive integer.
+ */
+const resolveVerifyTimeout = (timeout: number | undefined): Result<number | undefined, ValidationError> => {
+  if (timeout === undefined) return Result.ok(undefined);
+  const parsed = parsePositiveInt('repository.verifyTimeout', timeout);
+  if (!parsed.ok) return Result.error(parsed.error);
+  return Result.ok(parsed.value);
+};
+
+/**
+ * Construct the partial object containing all optional Repository fields from their parsed
+ * values. Returns an object ready to spread into the final Repository.
+ */
+const optionalFieldsPart = (fields: {
+  readonly verifyScript: string | undefined;
+  readonly setupScript: string | undefined;
+  readonly setupSkill: string | undefined;
+  readonly verifySkill: string | undefined;
+  readonly verifyGates: readonly VerifyGate[] | undefined;
+  readonly verifyTimeout: number | undefined;
+}): Partial<Repository> => ({
+  ...(fields.verifyScript !== undefined ? { verifyScript: fields.verifyScript } : {}),
+  ...(fields.verifyGates !== undefined ? { verifyGates: fields.verifyGates } : {}),
+  ...(fields.verifyTimeout !== undefined ? { verifyTimeout: fields.verifyTimeout } : {}),
+  ...(fields.setupScript !== undefined ? { setupScript: fields.setupScript } : {}),
+  ...(fields.setupSkill !== undefined ? { setupSkill: fields.setupSkill } : {}),
+  ...(fields.verifySkill !== undefined ? { verifySkill: fields.verifySkill } : {}),
+});
+
+/**
  * Trim each suggested skill name, drop blanks, de-duplicate. Returns `{ suggestedSkills }` only
  * when at least one name survives so the factory omits the field entirely otherwise (a clean
  * repo round-trips without an empty array on disk).
@@ -277,13 +335,35 @@ const suggestedSkillsPart = (
 };
 
 /**
- * Normalise a `verifyGates` input. Trims each gate's `command`, drops gates whose command is
- * blank, trims the `pathPrefix` is NOT done — a prefix is matched verbatim against POSIX paths,
- * so leading/trailing whitespace in a prefix would be a deliberate (if unusual) author choice;
- * we only validate the load-bearing `command` and the optional `timeoutMs`. Returns
- * `{ verifyGates }` only when at least one gate survives so the factory omits the field entirely
- * otherwise (a repo with no gates round-trips without an empty array on disk). A surviving gate
- * with a non-positive `timeoutMs` fails the whole parse.
+ * Normalise a single verify gate: trim the command, validate the optional timeoutMs.
+ * Returns undefined when the command is blank (the gate is skipped). Returns an error
+ * if the gate has a non-positive timeoutMs. The pathPrefix is NOT trimmed — prefixes
+ * are matched verbatim against POSIX paths, so whitespace is significant.
+ */
+const normalizeVerifyGate = (gate: VerifyGate): Result<VerifyGate | undefined, ValidationError> => {
+  const command = typeof gate.command === 'string' ? gate.command.trim() : '';
+  if (command.length === 0) return Result.ok(undefined);
+
+  let timeoutMs: number | undefined;
+  if (gate.timeoutMs !== undefined) {
+    const parsed = parsePositiveInt('repository.verifyGates[].timeoutMs', gate.timeoutMs);
+    if (!parsed.ok) return Result.error(parsed.error);
+    timeoutMs = parsed.value;
+  }
+
+  return Result.ok({
+    pathPrefix: typeof gate.pathPrefix === 'string' ? gate.pathPrefix : '',
+    command,
+    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+  });
+};
+
+/**
+ * Normalise a `verifyGates` input. Validates each gate via {@link normalizeVerifyGate},
+ * drops gates whose command is blank, and validates optional per-gate timeoutMs values.
+ * Returns `{ verifyGates }` only when at least one gate survives so the factory omits the
+ * field entirely otherwise (a repo with no gates round-trips without an empty array on
+ * disk). Short-circuits on the first validation error.
  */
 const verifyGatesPart = (
   input: readonly VerifyGate[] | undefined
@@ -291,19 +371,9 @@ const verifyGatesPart = (
   if (input === undefined) return Result.ok({});
   const gates: VerifyGate[] = [];
   for (const gate of input) {
-    const command = typeof gate.command === 'string' ? gate.command.trim() : '';
-    if (command.length === 0) continue;
-    let timeoutMs: number | undefined;
-    if (gate.timeoutMs !== undefined) {
-      const parsed = parsePositiveInt('repository.verifyGates[].timeoutMs', gate.timeoutMs);
-      if (!parsed.ok) return Result.error(parsed.error);
-      timeoutMs = parsed.value;
-    }
-    gates.push({
-      pathPrefix: typeof gate.pathPrefix === 'string' ? gate.pathPrefix : '',
-      command,
-      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
-    });
+    const result = normalizeVerifyGate(gate);
+    if (!result.ok) return Result.error(result.error);
+    if (result.value !== undefined) gates.push(result.value);
   }
   return Result.ok(gates.length > 0 ? { verifyGates: gates } : {});
 };

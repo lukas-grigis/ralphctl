@@ -17,6 +17,7 @@ import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-sourc
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { AppendFile } from '@src/business/io/append-file.ts';
+import type { FoldQueue } from '@src/application/flows/implement/wave-branch.ts';
 
 /**
  * Narrow dependency contract for the implement chain. Composition root constructs each field
@@ -75,7 +76,16 @@ export interface ImplementDeps {
   readonly writeFile: WriteFile;
   /**
    * Append-only writer — used by `append-journal-separator-leaf` to grow `<sprintDir>/progress.md`
-   * (audit-[07]). The `progress-journal-leaf` uses {@link writeFile} instead (read-regenerate-write).
+   * (audit-[07]). The `progress-journal-leaf` uses {@link writeFile} instead (read-regenerate-write,
+   * guarded by {@link journalMutex}).
    */
   readonly appendFile: AppendFile;
+  /**
+   * Mutex guarding `progress-journal-<taskId>`'s read → regenerate-header → append-section →
+   * write critical section on `<sprintDir>/progress.md`. Built once per run by the launcher, so on
+   * the parallel wave path every branch inherits the SAME instance (branches spread this deps bag)
+   * and their journal leaves never race the shared sprint journal file; the serial path is a single
+   * caller that never contends with itself. See `wave-branch.ts`'s `FoldQueue`/`createFoldQueue`.
+   */
+  readonly journalMutex: FoldQueue;
 }

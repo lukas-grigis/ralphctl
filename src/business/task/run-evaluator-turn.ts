@@ -8,7 +8,11 @@ import {
 } from '@src/domain/entity/task-attempts.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { EvaluationSignal, HarnessSignal } from '@src/domain/signal.ts';
-import { computePlateauVerdict, type PlateauTurnRecord } from '@src/business/task/plateau-detection.ts';
+import {
+  computePlateauVerdict,
+  type PlateauTurnRecord,
+  type PlateauVerdict,
+} from '@src/business/task/plateau-detection.ts';
 import { isRecoverableTurnError } from '@src/business/task/turn-error-policy.ts';
 
 /**
@@ -135,32 +139,141 @@ const resolveCritique = (evaluation: EvaluationSignal): string | undefined => {
   return synthesized.length > 0 ? synthesized : undefined;
 };
 
-export const runEvaluatorTurnUseCase = async (
-  props: RunEvaluatorTurnProps
-): Promise<Result<RunEvaluatorTurnOutput, DomainError>> => {
+type TurnResult = Result<RunEvaluatorTurnOutput, DomainError>;
+
+/**
+ * Handle a `callEvaluate` failure. Fatal errors (user abort, rate-limit-after-retries) must
+ * abort the whole run — propagate. Everything else is a recoverable signals-contract failure:
+ * self-block THIS task so it settles as `blocked` (the generator's work is NOT committed/
+ * marked-done ungraded — commit is gated on no block reason). Routing to `malformed` instead
+ * would mark the change done.
+ */
+const handleEvaluateFailure = (err: DomainError, task: InProgressTask, log: Logger): TurnResult => {
+  if (!isRecoverableTurnError(err)) {
+    log.error('evaluate call failed (fatal — propagating)', { taskId: task.id, error: err.message });
+    return Result.error(err);
+  }
+  log.warn('evaluator did not produce a valid signals.json — blocking task', {
+    taskId: task.id,
+    error: err.message,
+  });
+  return Result.ok({
+    task,
+    exit: { kind: 'self-blocked', reason: `evaluator did not produce a valid signals.json: ${err.message}` },
+  });
+};
+
+/** `passed`/`malformed` are terminal exits recorded as-is; `undefined` means the loop continues. */
+const handleTerminalStatus = (
+  evaluation: EvaluationSignal,
+  task: InProgressTask,
+  log: Logger
+): TurnResult | undefined => {
+  if (evaluation.status === 'passed') {
+    log.info('evaluator passed the attempt', { taskId: task.id });
+    return Result.ok({ task, evaluation, exit: { kind: 'passed' } });
+  }
+
+  if (evaluation.status === 'malformed') {
+    log.warn('evaluator emitted dimension scores but no terminal verdict', { taskId: task.id });
+    return Result.ok({
+      task,
+      evaluation,
+      exit: { kind: 'malformed', detail: 'evaluator emitted dimension scores but no terminal verdict' },
+    });
+  }
+
+  return undefined;
+};
+
+/**
+ * Build the current turn's plateau record from what we know NOW — the just-recorded
+ * evaluation, the critique we're about to feed forward, and the generator's proposed
+ * commit subject for this round.
+ */
+const buildTurnRecord = (
+  evaluation: EvaluationSignal,
+  critique: string | undefined,
+  props: Pick<RunEvaluatorTurnProps, 'currentCommitSubject' | 'changedFilesHash'>
+): PlateauTurnRecord => ({
+  evaluation,
+  ...(critique !== undefined && critique.trim().length > 0 ? { critique } : {}),
+  ...(props.currentCommitSubject !== undefined && props.currentCommitSubject.trim().length > 0
+    ? { commitSubject: props.currentCommitSubject }
+    : {}),
+  ...(props.changedFilesHash !== undefined && props.changedFilesHash.length > 0
+    ? { changedFilesHash: props.changedFilesHash }
+    : {}),
+});
+
+/**
+ * `failed`, fresh dimensions or exemption applies → continue: record the critique on the
+ * running attempt so the next generator turn's prompt incorporates it. `announce` gates the
+ * trailing debug logs — the warning-softened caller (which already logged an `info` for the
+ * softening) passes `false` to avoid double narration; the plain-continue path passes `true`.
+ */
+const finishContinuing = (
+  task: InProgressTask,
+  evaluation: EvaluationSignal,
+  critique: string | undefined,
+  turnRecord: PlateauTurnRecord,
+  log: Logger,
+  announce: boolean
+): TurnResult => {
+  if (critique !== undefined && critique.trim().length > 0) {
+    const recordedCritique = recordRunningAttemptCritique(task, critique);
+    if (!recordedCritique.ok) {
+      log.error('cannot record critique on attempt', {
+        taskId: task.id,
+        error: recordedCritique.error.message,
+      });
+      return Result.error(recordedCritique.error);
+    }
+    if (announce) {
+      log.debug('evaluator failed; recorded critique for next turn', { taskId: recordedCritique.value.id });
+    }
+    return Result.ok({ task: recordedCritique.value, evaluation, turnRecord });
+  }
+
+  if (announce) {
+    log.debug('evaluator failed without critique; continuing', { taskId: task.id });
+  }
+  return Result.ok({ task, evaluation, turnRecord });
+};
+
+/**
+ * Net stall, but the work-product fingerprint changed (real code edits) — record a `plateau`
+ * warning so the attempt audit reflects the soft signal, then keep looping. Capped at
+ * WARNING_SOFTEN_CAP consecutive softenings inside the predicate.
+ */
+const handleWarningVerdict = (
+  verdict: Extract<PlateauVerdict, { kind: 'warning' }>,
+  task: InProgressTask,
+  critique: string | undefined,
+  turnRecord: PlateauTurnRecord,
+  evaluation: EvaluationSignal,
+  log: Logger
+): TurnResult => {
+  const warned = recordRunningAttemptWarning(task, { kind: 'plateau', dimensions: verdict.dimensions });
+  if (!warned.ok) {
+    log.error('cannot record plateau warning on attempt', { taskId: task.id, error: warned.error.message });
+    return Result.error(warned.error);
+  }
+  log.info('plateau softened to warning — work product changed; continuing', {
+    taskId: warned.value.id,
+    dimensions: verdict.dimensions,
+    reason: verdict.reason,
+  });
+  // Continue: also record the critique so the next generator turn picks it up.
+  return finishContinuing(warned.value, evaluation, critique, turnRecord, log, false);
+};
+
+export const runEvaluatorTurnUseCase = async (props: RunEvaluatorTurnProps): Promise<TurnResult> => {
   const log = props.logger.named('task.evaluator-turn');
   log.debug('running evaluator turn', { taskId: props.task.id });
 
   const signalsResult = await props.callEvaluate(props.task);
-  if (!signalsResult.ok) {
-    const err = signalsResult.error;
-    // Fatal errors (user abort, rate-limit-after-retries) must abort the whole run — propagate.
-    // Everything else is a recoverable signals-contract failure: self-block THIS task so it
-    // settles as `blocked` (the generator's work is NOT committed/marked-done ungraded — commit
-    // is gated on no block reason). Routing to `malformed` instead would mark the change done.
-    if (!isRecoverableTurnError(err)) {
-      log.error('evaluate call failed (fatal — propagating)', { taskId: props.task.id, error: err.message });
-      return Result.error(err);
-    }
-    log.warn('evaluator did not produce a valid signals.json — blocking task', {
-      taskId: props.task.id,
-      error: err.message,
-    });
-    return Result.ok({
-      task: props.task,
-      exit: { kind: 'self-blocked', reason: `evaluator did not produce a valid signals.json: ${err.message}` },
-    });
-  }
+  if (!signalsResult.ok) return handleEvaluateFailure(signalsResult.error, props.task, log);
   const signals = signalsResult.value;
 
   const evaluation = findEvaluation(signals);
@@ -183,37 +296,15 @@ export const runEvaluatorTurnUseCase = async (
     return Result.error(recorded.error);
   }
 
-  if (evaluation.status === 'passed') {
-    log.info('evaluator passed the attempt', { taskId: recorded.value.id });
-    return Result.ok({ task: recorded.value, evaluation, exit: { kind: 'passed' } });
-  }
+  const terminal = handleTerminalStatus(evaluation, recorded.value, log);
+  if (terminal !== undefined) return terminal;
 
-  if (evaluation.status === 'malformed') {
-    log.warn('evaluator emitted dimension scores but no terminal verdict', { taskId: recorded.value.id });
-    return Result.ok({
-      task: recorded.value,
-      evaluation,
-      exit: { kind: 'malformed', detail: 'evaluator emitted dimension scores but no terminal verdict' },
-    });
-  }
-
-  // Build the current turn's plateau record from what we know NOW — the just-recorded
-  // evaluation, the critique we're about to feed forward, and the generator's proposed
-  // commit subject for this round. When the reviewer left `critique` empty on a FAIL we
-  // synthesize one from the per-dimension findings so the wire to the next generator turn
-  // never goes silent (and so the plateau predicate's critique-shift exemption has real text
-  // to compare instead of always falling through on a missing critique).
+  // When the reviewer left `critique` empty on a FAIL we synthesize one from the per-dimension
+  // findings so the wire to the next generator turn never goes silent (and so the plateau
+  // predicate's critique-shift exemption has real text to compare instead of always falling
+  // through on a missing critique).
   const critique = resolveCritique(evaluation);
-  const baseRecord: PlateauTurnRecord = {
-    evaluation,
-    ...(critique !== undefined && critique.trim().length > 0 ? { critique } : {}),
-    ...(props.currentCommitSubject !== undefined && props.currentCommitSubject.trim().length > 0
-      ? { commitSubject: props.currentCommitSubject }
-      : {}),
-    ...(props.changedFilesHash !== undefined && props.changedFilesHash.length > 0
-      ? { changedFilesHash: props.changedFilesHash }
-      : {}),
-  };
+  const baseRecord = buildTurnRecord(evaluation, critique, props);
 
   const verdict = computePlateauVerdict(props.priorTurns ?? [], baseRecord, {
     threshold: props.plateauThreshold,
@@ -238,38 +329,7 @@ export const runEvaluatorTurnUseCase = async (
   }
 
   if (verdict.kind === 'warning') {
-    // Net stall, but the work-product fingerprint changed (real code edits) — record a `plateau`
-    // warning so the attempt audit reflects the soft signal, then keep looping. Capped at
-    // WARNING_SOFTEN_CAP consecutive softenings inside the predicate.
-    const warned = recordRunningAttemptWarning(recorded.value, {
-      kind: 'plateau',
-      dimensions: verdict.dimensions,
-    });
-    if (!warned.ok) {
-      log.error('cannot record plateau warning on attempt', {
-        taskId: recorded.value.id,
-        error: warned.error.message,
-      });
-      return Result.error(warned.error);
-    }
-    log.info('plateau softened to warning — work product changed; continuing', {
-      taskId: warned.value.id,
-      dimensions: verdict.dimensions,
-      reason: verdict.reason,
-    });
-    // Continue: also record the critique so the next generator turn picks it up.
-    if (critique !== undefined && critique.trim().length > 0) {
-      const recordedCritique = recordRunningAttemptCritique(warned.value, critique);
-      if (!recordedCritique.ok) {
-        log.error('cannot record critique on attempt', {
-          taskId: warned.value.id,
-          error: recordedCritique.error.message,
-        });
-        return Result.error(recordedCritique.error);
-      }
-      return Result.ok({ task: recordedCritique.value, evaluation, turnRecord: currentRecord });
-    }
-    return Result.ok({ task: warned.value, evaluation, turnRecord: currentRecord });
+    return handleWarningVerdict(verdict, recorded.value, critique, currentRecord, evaluation, log);
   }
 
   if (verdict.kind === 'progress') {
@@ -279,19 +339,5 @@ export const runEvaluatorTurnUseCase = async (
     });
   }
 
-  if (critique !== undefined && critique.trim().length > 0) {
-    const recordedCritique = recordRunningAttemptCritique(recorded.value, critique);
-    if (!recordedCritique.ok) {
-      log.error('cannot record critique on attempt', {
-        taskId: recorded.value.id,
-        error: recordedCritique.error.message,
-      });
-      return Result.error(recordedCritique.error);
-    }
-    log.debug('evaluator failed; recorded critique for next turn', { taskId: recordedCritique.value.id });
-    return Result.ok({ task: recordedCritique.value, evaluation, turnRecord: currentRecord });
-  }
-
-  log.debug('evaluator failed without critique; continuing', { taskId: recorded.value.id });
-  return Result.ok({ task: recorded.value, evaluation, turnRecord: currentRecord });
+  return finishContinuing(recorded.value, evaluation, critique, currentRecord, log, true);
 };

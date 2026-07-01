@@ -18,7 +18,7 @@ import { ErrorCode } from '@src/domain/value/error/error-code.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
-import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
+import type { ShellScriptResult, ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
 /** Per-line cap for setup-script tail rows surfaced to the TUI. JS code units; see comment
@@ -29,6 +29,9 @@ const MAX_TAIL_LINES = 20;
 /** Display-clip marker (audit-[03]). Mirrors `glyphs.clipEllipsis` in TUI tokens — duplicated
  *  here because the chains layer cannot import from UI (ESLint fence). One char, U+2026. */
 const CLIP_ELLIPSIS = '…';
+/** Event-bus event type for dismissible TUI banners. Named constant so the string literal
+ *  doesn't drift across the several publish sites below. */
+const BANNER_SHOW = 'banner-show';
 
 /**
  * Harness-side setup-script gate. The leaf runs at the start of every implement chain —
@@ -119,6 +122,328 @@ interface LeafOutput {
   readonly verifiedThisRun: readonly RepositoryId[];
 }
 
+/**
+ * Resume gate: if a prior chain on this sprint already ran setup successfully for this repo
+ * under the *same* command, skip. The previous success entry remains canonical; no new row
+ * is appended. Command drift (operator edited `project.json#setupScript`) breaks the gate and
+ * re-runs the script — logged here, but the caller still proceeds to the actual run.
+ */
+const shouldSkipOnResume = (
+  execution: SprintExecution,
+  repo: SetupRepoEntry,
+  command: string,
+  deps: SetupScriptRunnerLeafDeps
+): boolean => {
+  const priorSuccess = execution.setupRanAt.find(
+    (r) => String(r.repositoryId) === String(repo.repositoryId) && r.outcome === 'success'
+  );
+  if (priorSuccess && priorSuccess.command === command) {
+    deps.eventBus.publish({
+      type: 'log',
+      level: 'info',
+      message: `setup-script ${String(repo.path)}: skipped on resume (succeeded earlier on this sprint)`,
+      at: deps.clock(),
+    });
+    return true;
+  }
+  if (priorSuccess && priorSuccess.command !== command) {
+    deps.eventBus.publish({
+      type: 'log',
+      level: 'info',
+      message: `setup-script ${String(repo.path)}: re-running — configured command changed since prior success (was: ${priorSuccess.command}, now: ${command})`,
+      at: deps.clock(),
+    });
+  }
+  return false;
+};
+
+/**
+ * No script configured is NOT a failure — the chain continues. But it is also not a silent
+ * pass: the operator deserves to know that *nothing was validated* before the AI starts
+ * touching the tree. Surface as a warn-tier banner (dismissible) and a warn-level log row so
+ * it lands in both the Recent-log tail and the persistent chain.log. Banner id is repo-keyed
+ * so re-runs replace rather than stack.
+ */
+const runNoScriptSkip = async (
+  execution: SprintExecution,
+  repo: SetupRepoEntry,
+  deps: SetupScriptRunnerLeafDeps
+): Promise<SprintExecution> => {
+  const run = makeSetupRun({
+    repositoryId: repo.repositoryId,
+    ranAt: deps.clock(),
+    command: '',
+    exitCode: 0,
+    durationMs: 0,
+    outcome: 'skipped',
+  });
+  const next = await persistRun(execution, run, deps);
+  deps.eventBus.publish({
+    type: 'log',
+    level: 'warn',
+    message: `setup-script ${String(repo.path)}: skipped — no script configured (nothing was validated)`,
+    at: deps.clock(),
+  });
+  deps.eventBus.publish({
+    type: BANNER_SHOW,
+    id: `setup-script-skipped-${String(repo.repositoryId)}`,
+    tier: 'warn',
+    message: `No setup script configured for ${String(repo.path)} — nothing was validated before implement`,
+    cause: 'configure one via `project` settings to gate the working tree',
+    at: deps.clock(),
+  });
+  return next;
+};
+
+/**
+ * Spawns the configured setup command. Cancellation propagates verbatim: a
+ * `Result.error(AbortError)` from the runner is a user-initiated abort, not a setup failure —
+ * returned untouched so the chain tears down per "AbortError is the one error chains
+ * propagate transparently" — never folded into a `spawn-error` row or a failed-gate banner.
+ *
+ * A genuine spawn-time failure (the shell could not start the command at all — ENOENT, etc)
+ * is recorded here with `exitCode: -1` so consumers can distinguish "ran and failed" from
+ * "could not run" without parsing the message string, and returns the `InvalidStateError` for
+ * the caller to propagate.
+ */
+const runSetupSpawn = async (
+  repo: SetupRepoEntry,
+  command: string,
+  opts: SetupScriptRunnerLeafOpts,
+  execution: SprintExecution,
+  deps: SetupScriptRunnerLeafDeps,
+  signal?: AbortSignal
+): Promise<Result<ShellScriptResult, DomainError>> => {
+  const spawnResult = await deps.shellScriptRunner.run(repo.path, command, {
+    ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+    env: { RALPHCTL_LIFECYCLE_EVENT: 'setup' },
+    // Thread the chain abort signal so a Ctrl-C mid-setup kills the child promptly
+    // instead of waiting out the timeout while the repo lock is held. A cancel surfaces
+    // as `AbortError` below (propagated verbatim — never folded into a spawn-error row).
+    ...(signal !== undefined ? { signal } : {}),
+  });
+
+  if (!spawnResult.ok && spawnResult.error.code === ErrorCode.Aborted) {
+    return Result.error(spawnResult.error);
+  }
+
+  if (!spawnResult.ok) {
+    // The spawn error message is surfaced on the abort log + banner cause (no longer
+    // persisted on the row).
+    const run = makeSetupRun({
+      repositoryId: repo.repositoryId,
+      ranAt: deps.clock(),
+      command,
+      exitCode: -1,
+      durationMs: 0,
+      outcome: 'spawn-error',
+    });
+    await persistRun(execution, run, deps);
+    deps.eventBus.publish({
+      type: 'log',
+      level: 'error',
+      message: `setup-script ${String(repo.path)}: spawn-error — ${spawnResult.error.message}`,
+      at: deps.clock(),
+    });
+    deps.eventBus.publish({
+      type: BANNER_SHOW,
+      id: `setup-script-${String(repo.repositoryId)}`,
+      tier: 'error',
+      message: `Setup script failed for ${String(repo.path)}: ${command}`,
+      cause: `spawn-error — ${spawnResult.error.message}`,
+      at: deps.clock(),
+    });
+    return Result.error(
+      new InvalidStateError({
+        entity: 'sprint',
+        currentState: 'pre-implement',
+        attemptedAction: 'setup-script',
+        message: `setup-script (${basename(String(repo.path))}) could not spawn: ${spawnResult.error.message}`,
+        hint: 'Ensure the setup command is on PATH and is executable from the repo root.',
+      })
+    );
+  }
+
+  return spawnResult;
+};
+
+/**
+ * Builds the failure error for a setup script that spawned but exited non-zero: detects the
+ * pnpm-no-TTY marker for a targeted hint, surfaces the last few output lines as error-level
+ * logs (audit-[03]: clip at display, never at persistence), and shows the failed-gate banner.
+ * Returns the `InvalidStateError` for the caller to wrap in `Result.error`.
+ */
+const buildSetupFailureError = (
+  repo: SetupRepoEntry,
+  command: string,
+  exitCode: number | null,
+  output: string,
+  deps: SetupScriptRunnerLeafDeps
+): DomainError => {
+  // pnpm 11 hardened `removeModulesDirSafe` to abort on missing TTY rather than
+  // silently re-creating `node_modules` (pnpm/pnpm#9966 / #11562). The shell runner
+  // now sets `CI=true` (+ `PNPM_CONFIG_FROZEN_LOCKFILE=false`) on every setup/verify
+  // child — the only lever that suppresses this on pnpm 11, where every
+  // `confirm-modules-purge=false` form is ignored. So this marker should fire only when
+  // `CI` has been explicitly overridden in the operator's environment; the hint points
+  // there rather than asking the project under development to adapt.
+  const noTtyDetected = output.includes(PNPM_NO_TTY_ERROR_MARKER);
+  const pnpmTtyHint = noTtyDetected
+    ? 'pnpm no-TTY abort. The harness sets `CI=true` (+ `PNPM_CONFIG_FROZEN_LOCKFILE=false`) on setup/verify to prevent this — `CI` looks overridden in your environment. Clear `CI`, or run the install once in a terminal to resync `node_modules`.'
+    : undefined;
+  deps.eventBus.publish({
+    type: 'log',
+    level: 'error',
+    message: `setup-script ${String(repo.path)}: failed (exit=${String(exitCode ?? 'null')})`,
+    at: deps.clock(),
+  });
+  // Surface the last few lines of script output as error-level logs so the TUI's
+  // Recent-log tail renders the actionable bit alongside the headline. The full
+  // output already landed verbatim at `<sprintDir>/logs/setup/<repo-id>.log`;
+  // these bus events are a *display* surface, so per-line + per-count clipping is
+  // valid here (audit-[03]: clip at display, never at persistence). Headline first,
+  // detail rows after.
+  //
+  // Clip unit: JS string `.length` (UTF-16 code units) at the per-line cap. ralphctl's
+  // setup output is shell stdout — overwhelmingly ASCII (paths, exit codes, npm/pnpm
+  // diagnostic strings); grapheme-aware clipping via Intl.Segmenter would be
+  // overkill for the actual content. A pathological emoji-in-script string could be
+  // split mid-surrogate, in which case Ink renders the broken pair as a replacement
+  // glyph — still visually obvious that the line was clipped. If/when we surface
+  // user-authored prose through this path, switch to Intl.Segmenter and update the
+  // banner-clip unit test fixtures.
+  const tailLines = output
+    .split('\n')
+    .map((l) => l.trimEnd())
+    .filter((l) => l.length > 0)
+    .slice(-MAX_TAIL_LINES);
+  const totalCount = output.split('\n').filter((l) => l.trim().length > 0).length;
+  const elided = Math.max(0, totalCount - tailLines.length);
+  const repoBasename = basename(String(repo.path));
+  if (elided > 0) {
+    // Multi-line collapse marker: signals to the operator that earlier lines were
+    // dropped from this surface (the full log is on disk).
+    deps.eventBus.publish({
+      type: 'log',
+      level: 'error',
+      message: `setup-script (${repoBasename}): ${CLIP_ELLIPSIS} ${String(elided)} earlier line${elided === 1 ? '' : 's'} elided — full log at logs/setup/${String(repo.repositoryId)}.log`,
+      at: deps.clock(),
+    });
+  }
+  for (const line of tailLines) {
+    const clipped = line.length > BANNER_LINE_MAX ? `${line.slice(0, BANNER_LINE_MAX - 1)}${CLIP_ELLIPSIS}` : line;
+    deps.eventBus.publish({
+      type: 'log',
+      level: 'error',
+      message: `setup-script (${repoBasename}): ${clipped}`,
+      at: deps.clock(),
+    });
+  }
+  deps.eventBus.publish({
+    type: BANNER_SHOW,
+    id: `setup-script-${String(repo.repositoryId)}`,
+    tier: 'error',
+    message: `Setup script failed for ${String(repo.path)}: ${command}`,
+    cause:
+      pnpmTtyHint !== undefined
+        ? `exit ${String(exitCode ?? 'null')} — ${pnpmTtyHint}`
+        : `exit ${String(exitCode ?? 'null')}`,
+    at: deps.clock(),
+  });
+  return new InvalidStateError({
+    entity: 'sprint',
+    currentState: 'pre-implement',
+    attemptedAction: 'setup-script',
+    // The rail row already prefixes `setup-script · <repo>`; the message stays
+    // minimal so the operator's eye is not retracing the same name. The full
+    // command + path are in the banner / log / execution.json audit row.
+    message:
+      pnpmTtyHint !== undefined
+        ? `exited ${String(exitCode ?? 'null')} (no-tty pnpm)`
+        : `exited ${String(exitCode ?? 'null')}`,
+    hint: pnpmTtyHint ?? 'Inspect <sprintDir>/logs/setup/<repo-id>.log for the failing repo and fix the environment.',
+  });
+};
+
+/**
+ * Iterates every repo, running (or skipping) its configured setup script per the
+ * resume/command-drift/no-script gates documented above the leaf. See `setupScriptRunnerLeaf`
+ * for the full outcome/audit contract.
+ */
+const executeSetupScriptRunner = async (
+  deps: SetupScriptRunnerLeafDeps,
+  opts: SetupScriptRunnerLeafOpts,
+  input: LeafInput,
+  signal?: AbortSignal
+): Promise<Result<LeafOutput, DomainError>> => {
+  let execution = input.execution;
+  // Repos whose setup ran green in THIS invocation. Seeds the
+  // `skipPreVerifyOnFreshSetup` fast path on the first pre-task-verify. The resume-skip
+  // and no-script paths deliberately do NOT contribute — only a fresh green run proves
+  // the tree was verified by this launch.
+  const verifiedThisRun: RepositoryId[] = [];
+  for (const repo of opts.repos) {
+    const command = repo.setupScript?.trim() ?? '';
+
+    if (command.length > 0 && shouldSkipOnResume(execution, repo, command, deps)) {
+      continue;
+    }
+    if (command.length === 0) {
+      execution = await runNoScriptSkip(execution, repo, deps);
+      continue;
+    }
+
+    const startedAt = deps.clock();
+    const spawnResult = await runSetupSpawn(repo, command, opts, execution, deps, signal);
+    if (!spawnResult.ok) {
+      return spawnResult;
+    }
+
+    const { passed, exitCode, output, durationMs } = spawnResult.value;
+
+    // Audit [01] / [03]: persist the full untruncated output to `<sprintDir>/logs/setup/`
+    // so the operator can grep / tail the real failure. Best-effort — a write failure
+    // logs warn and never aborts the chain (the audit row remains canonical).
+    if (opts.sprintDir !== undefined) {
+      const logPath = join(String(opts.sprintDir), 'logs', 'setup', `${String(repo.repositoryId)}.log`);
+      const wrote = await writeTextAtomic(logPath, output);
+      if (!wrote.ok) {
+        deps.eventBus.publish({
+          type: 'log',
+          level: 'warn',
+          message: `setup-script ${String(repo.path)}: failed to persist full log to ${logPath} — ${wrote.error.message}`,
+          at: deps.clock(),
+        });
+      }
+    }
+    const normalisedExit = exitCode ?? -1;
+    const outcome: SetupRunOutcome = passed ? 'success' : 'failed';
+    const run = makeSetupRun({
+      repositoryId: repo.repositoryId,
+      ranAt: startedAt,
+      command,
+      exitCode: normalisedExit,
+      durationMs,
+      outcome,
+    });
+    execution = await persistRun(execution, run, deps);
+
+    if (passed) {
+      verifiedThisRun.push(repo.repositoryId);
+      deps.eventBus.publish({
+        type: 'log',
+        level: 'info',
+        message: `setup-script ${String(repo.path)}: success (exit=0, ${String(durationMs)}ms)`,
+        at: deps.clock(),
+      });
+      continue;
+    }
+
+    return Result.error(buildSetupFailureError(repo, command, exitCode, output, deps));
+  }
+  return Result.ok({ execution, verifiedThisRun });
+};
+
 export const setupScriptRunnerLeaf = (
   deps: SetupScriptRunnerLeafDeps,
   opts: SetupScriptRunnerLeafOpts
@@ -132,262 +457,7 @@ export const setupScriptRunnerLeaf = (
     'setup-script-runner',
     {
       useCase: {
-        execute: async (input, signal): Promise<Result<LeafOutput, DomainError>> => {
-          const BANNER_SHOW = 'banner-show';
-          let execution = input.execution;
-          // Repos whose setup ran green in THIS invocation. Seeds the
-          // `skipPreVerifyOnFreshSetup` fast path on the first pre-task-verify. The resume-skip
-          // and no-script paths deliberately do NOT contribute — only a fresh green run proves
-          // the tree was verified by this launch.
-          const verifiedThisRun: RepositoryId[] = [];
-          for (const repo of opts.repos) {
-            const command = repo.setupScript?.trim() ?? '';
-            // Resume gate: if a prior chain on this sprint already ran setup successfully
-            // for this repo under the *same* command, skip. The previous success entry
-            // remains canonical; no new row is appended. Command drift (operator edited
-            // `project.json#setupScript`) breaks the gate and re-runs the script.
-            if (command.length > 0) {
-              const priorSuccess = execution.setupRanAt.find(
-                (r) => String(r.repositoryId) === String(repo.repositoryId) && r.outcome === 'success'
-              );
-              if (priorSuccess && priorSuccess.command === command) {
-                deps.eventBus.publish({
-                  type: 'log',
-                  level: 'info',
-                  message: `setup-script ${String(repo.path)}: skipped on resume (succeeded earlier on this sprint)`,
-                  at: deps.clock(),
-                });
-                continue;
-              }
-              if (priorSuccess && priorSuccess.command !== command) {
-                deps.eventBus.publish({
-                  type: 'log',
-                  level: 'info',
-                  message: `setup-script ${String(repo.path)}: re-running — configured command changed since prior success (was: ${priorSuccess.command}, now: ${command})`,
-                  at: deps.clock(),
-                });
-              }
-            }
-            if (command.length === 0) {
-              // No script configured is NOT a failure — the chain continues. But it is also not
-              // a silent pass: the operator deserves to know that *nothing was validated* before
-              // the AI starts touching the tree. Surface as a warn-tier banner (dismissible) and
-              // a warn-level log row so it lands in both the Recent-log tail and the persistent
-              // chain.log. Banner id is repo-keyed so re-runs replace rather than stack.
-              const run = makeSetupRun({
-                repositoryId: repo.repositoryId,
-                ranAt: deps.clock(),
-                command: '',
-                exitCode: 0,
-                durationMs: 0,
-                outcome: 'skipped',
-              });
-              execution = await persistRun(execution, run, deps);
-              deps.eventBus.publish({
-                type: 'log',
-                level: 'warn',
-                message: `setup-script ${String(repo.path)}: skipped — no script configured (nothing was validated)`,
-                at: deps.clock(),
-              });
-              deps.eventBus.publish({
-                type: BANNER_SHOW,
-                id: `setup-script-skipped-${String(repo.repositoryId)}`,
-                tier: 'warn',
-                message: `No setup script configured for ${String(repo.path)} — nothing was validated before implement`,
-                cause: 'configure one via `project` settings to gate the working tree',
-                at: deps.clock(),
-              });
-              continue;
-            }
-
-            const startedAt = deps.clock();
-            const spawnResult = await deps.shellScriptRunner.run(repo.path, command, {
-              ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
-              env: { RALPHCTL_LIFECYCLE_EVENT: 'setup' },
-              // Thread the chain abort signal so a Ctrl-C mid-setup kills the child promptly
-              // instead of waiting out the timeout while the repo lock is held. A cancel surfaces
-              // as `AbortError` below (propagated verbatim — never folded into a spawn-error row).
-              ...(signal !== undefined ? { signal } : {}),
-            });
-
-            // Cancellation propagates verbatim: a `Result.error(AbortError)` from the runner is a
-            // user-initiated abort, not a setup failure. Return it untouched so the chain tears
-            // down per "AbortError is the one error chains propagate transparently" — do NOT
-            // record it as a `spawn-error` audit row or a failed-gate banner.
-            if (!spawnResult.ok && spawnResult.error.code === ErrorCode.Aborted) {
-              return Result.error(spawnResult.error);
-            }
-
-            if (!spawnResult.ok) {
-              // Spawn-time failure: the shell could not start the command at all (ENOENT, etc).
-              // Recorded with `exitCode: -1` so consumers can distinguish "ran and failed" from
-              // "could not run" without parsing the message string. The spawn error message is
-              // surfaced on the abort log + banner cause (no longer persisted on the row).
-              const run = makeSetupRun({
-                repositoryId: repo.repositoryId,
-                ranAt: deps.clock(),
-                command,
-                exitCode: -1,
-                durationMs: 0,
-                outcome: 'spawn-error',
-              });
-              await persistRun(execution, run, deps);
-              deps.eventBus.publish({
-                type: 'log',
-                level: 'error',
-                message: `setup-script ${String(repo.path)}: spawn-error — ${spawnResult.error.message}`,
-                at: deps.clock(),
-              });
-              deps.eventBus.publish({
-                type: BANNER_SHOW,
-                id: `setup-script-${String(repo.repositoryId)}`,
-                tier: 'error',
-                message: `Setup script failed for ${String(repo.path)}: ${command}`,
-                cause: `spawn-error — ${spawnResult.error.message}`,
-                at: deps.clock(),
-              });
-              return Result.error(
-                new InvalidStateError({
-                  entity: 'sprint',
-                  currentState: 'pre-implement',
-                  attemptedAction: 'setup-script',
-                  message: `setup-script (${basename(String(repo.path))}) could not spawn: ${spawnResult.error.message}`,
-                  hint: 'Ensure the setup command is on PATH and is executable from the repo root.',
-                })
-              );
-            }
-
-            const { passed, exitCode, output, durationMs } = spawnResult.value;
-
-            // Audit [01] / [03]: persist the full untruncated output to `<sprintDir>/logs/setup/`
-            // so the operator can grep / tail the real failure. Best-effort — a write failure
-            // logs warn and never aborts the chain (the audit row remains canonical).
-            if (opts.sprintDir !== undefined) {
-              const logPath = join(String(opts.sprintDir), 'logs', 'setup', `${String(repo.repositoryId)}.log`);
-              const wrote = await writeTextAtomic(logPath, output);
-              if (!wrote.ok) {
-                deps.eventBus.publish({
-                  type: 'log',
-                  level: 'warn',
-                  message: `setup-script ${String(repo.path)}: failed to persist full log to ${logPath} — ${wrote.error.message}`,
-                  at: deps.clock(),
-                });
-              }
-            }
-            const normalisedExit = exitCode ?? -1;
-            const outcome: SetupRunOutcome = passed ? 'success' : 'failed';
-            const run = makeSetupRun({
-              repositoryId: repo.repositoryId,
-              ranAt: startedAt,
-              command,
-              exitCode: normalisedExit,
-              durationMs,
-              outcome,
-            });
-            execution = await persistRun(execution, run, deps);
-
-            if (passed) {
-              verifiedThisRun.push(repo.repositoryId);
-              deps.eventBus.publish({
-                type: 'log',
-                level: 'info',
-                message: `setup-script ${String(repo.path)}: success (exit=0, ${String(durationMs)}ms)`,
-                at: deps.clock(),
-              });
-              continue;
-            }
-
-            // pnpm 11 hardened `removeModulesDirSafe` to abort on missing TTY rather than
-            // silently re-creating `node_modules` (pnpm/pnpm#9966 / #11562). The shell runner
-            // now sets `CI=true` (+ `PNPM_CONFIG_FROZEN_LOCKFILE=false`) on every setup/verify
-            // child — the only lever that suppresses this on pnpm 11, where every
-            // `confirm-modules-purge=false` form is ignored. So this marker should fire only when
-            // `CI` has been explicitly overridden in the operator's environment; the hint points
-            // there rather than asking the project under development to adapt.
-            const noTtyDetected = output.includes(PNPM_NO_TTY_ERROR_MARKER);
-            const pnpmTtyHint = noTtyDetected
-              ? 'pnpm no-TTY abort. The harness sets `CI=true` (+ `PNPM_CONFIG_FROZEN_LOCKFILE=false`) on setup/verify to prevent this — `CI` looks overridden in your environment. Clear `CI`, or run the install once in a terminal to resync `node_modules`.'
-              : undefined;
-            deps.eventBus.publish({
-              type: 'log',
-              level: 'error',
-              message: `setup-script ${String(repo.path)}: failed (exit=${String(exitCode ?? 'null')})`,
-              at: deps.clock(),
-            });
-            // Surface the last few lines of script output as error-level logs so the TUI's
-            // Recent-log tail renders the actionable bit alongside the headline. The full
-            // output already landed verbatim at `<sprintDir>/logs/setup/<repo-id>.log` (above);
-            // these bus events are a *display* surface, so per-line + per-count clipping is
-            // valid here (audit-[03]: clip at display, never at persistence). Headline first,
-            // detail rows after.
-            //
-            // Clip unit: JS string `.length` (UTF-16 code units) at the per-line cap. ralphctl's
-            // setup output is shell stdout — overwhelmingly ASCII (paths, exit codes, npm/pnpm
-            // diagnostic strings); grapheme-aware clipping via Intl.Segmenter would be
-            // overkill for the actual content. A pathological emoji-in-script string could be
-            // split mid-surrogate, in which case Ink renders the broken pair as a replacement
-            // glyph — still visually obvious that the line was clipped. If/when we surface
-            // user-authored prose through this path, switch to Intl.Segmenter and update the
-            // banner-clip unit test fixtures.
-            const tailLines = output
-              .split('\n')
-              .map((l) => l.trimEnd())
-              .filter((l) => l.length > 0)
-              .slice(-MAX_TAIL_LINES);
-            const totalCount = output.split('\n').filter((l) => l.trim().length > 0).length;
-            const elided = Math.max(0, totalCount - tailLines.length);
-            const repoBasename = basename(String(repo.path));
-            if (elided > 0) {
-              // Multi-line collapse marker: signals to the operator that earlier lines were
-              // dropped from this surface (the full log is on disk).
-              deps.eventBus.publish({
-                type: 'log',
-                level: 'error',
-                message: `setup-script (${repoBasename}): ${CLIP_ELLIPSIS} ${String(elided)} earlier line${elided === 1 ? '' : 's'} elided — full log at logs/setup/${String(repo.repositoryId)}.log`,
-                at: deps.clock(),
-              });
-            }
-            for (const line of tailLines) {
-              const clipped =
-                line.length > BANNER_LINE_MAX ? `${line.slice(0, BANNER_LINE_MAX - 1)}${CLIP_ELLIPSIS}` : line;
-              deps.eventBus.publish({
-                type: 'log',
-                level: 'error',
-                message: `setup-script (${repoBasename}): ${clipped}`,
-                at: deps.clock(),
-              });
-            }
-            deps.eventBus.publish({
-              type: BANNER_SHOW,
-              id: `setup-script-${String(repo.repositoryId)}`,
-              tier: 'error',
-              message: `Setup script failed for ${String(repo.path)}: ${command}`,
-              cause:
-                pnpmTtyHint !== undefined
-                  ? `exit ${String(exitCode ?? 'null')} — ${pnpmTtyHint}`
-                  : `exit ${String(exitCode ?? 'null')}`,
-              at: deps.clock(),
-            });
-            return Result.error(
-              new InvalidStateError({
-                entity: 'sprint',
-                currentState: 'pre-implement',
-                attemptedAction: 'setup-script',
-                // The rail row already prefixes `setup-script · <repo>`; the message stays
-                // minimal so the operator's eye is not retracing the same name. The full
-                // command + path are in the banner / log / execution.json audit row.
-                message:
-                  pnpmTtyHint !== undefined
-                    ? `exited ${String(exitCode ?? 'null')} (no-tty pnpm)`
-                    : `exited ${String(exitCode ?? 'null')}`,
-                hint:
-                  pnpmTtyHint ??
-                  'Inspect <sprintDir>/logs/setup/<repo-id>.log for the failing repo and fix the environment.',
-              })
-            );
-          }
-          return Result.ok({ execution, verifiedThisRun });
-        },
+        execute: (input, signal) => executeSetupScriptRunner(deps, opts, input, signal),
       },
       input: (ctx) => {
         if (ctx.execution === undefined) {

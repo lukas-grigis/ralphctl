@@ -101,6 +101,48 @@ export const parseTaskList = (
   }
 
   // Pass 1: resolve user-supplied task ids → minted TaskIds (for blockedBy resolution).
+  const idMapResult = buildIdMap(specs);
+  if (!idMapResult.ok) return Result.error(idMapResult.error);
+  const idMap = idMapResult.value;
+
+  // Pass 2: domain-aware validation (path → repo, ticketRef → ticketId, blockedBy → TaskId)
+  // and TodoTask construction.
+  const tasks: TodoTask[] = [];
+  for (let i = 0; i < specs.length; i++) {
+    const t = specs[i];
+    if (t === undefined) continue;
+
+    const built = buildTask(t, i, {
+      repoByPath,
+      idMap,
+      mode: input.mode,
+      ...(input.defaultMaxAttempts !== undefined ? { defaultMaxAttempts: input.defaultMaxAttempts } : {}),
+    });
+    if (!built.ok) return Result.error(built.error);
+    tasks.push(built.value);
+  }
+
+  // Pass 3: dependency-wave schedule via the shared domain scheduler.
+  // `scheduleIntoWaves` validates the graph (unknown dep / self-edge / cycle) then runs
+  // Kahn-by-level so every dependency lands in an earlier wave than its dependent. We flatten
+  // the waves into a single sequence and renumber `order` to the 1-based array position.
+  const scheduled = scheduleAndFlatten(tasks);
+  if (!scheduled.ok) return Result.error(scheduled.error);
+  if (scheduled.value.changed) {
+    input.logger?.info(
+      `[parseTaskList] reordered ${String(scheduled.value.tasks.length)} of ${String(tasks.length)} tasks to satisfy blockedBy graph`
+    );
+  }
+
+  return Result.ok(scheduled.value.tasks);
+};
+
+/**
+ * Pass 1 helper — mint a `TaskId` for every user-supplied `id` so Pass 2's `blockedBy`
+ * resolution can look tasks up by their spec-authored id before the domain entity exists.
+ * Rejects duplicate ids outright (the AI must not emit the same id twice within one call).
+ */
+const buildIdMap = (specs: readonly TaskImportSpec[]): Result<Map<string, TaskId>, ParseError> => {
   const idMap = new Map<string, TaskId>();
   for (let i = 0; i < specs.length; i++) {
     const t = specs[i];
@@ -117,97 +159,110 @@ export const parseTaskList = (
       idMap.set(t.id, TaskId.generate());
     }
   }
+  return Result.ok(idMap);
+};
 
-  // Pass 2: domain-aware validation (path → repo, ticketRef → ticketId, blockedBy → TaskId)
-  // and TodoTask construction.
-  const tasks: TodoTask[] = [];
-  for (let i = 0; i < specs.length; i++) {
-    const t = specs[i];
-    if (t === undefined) continue;
-
-    const ticketResolution = resolveTicketRef(t, i, input.mode);
-    if (!ticketResolution.ok) return Result.error(ticketResolution.error);
-    const { ticketId, externalRefs } = ticketResolution.value;
-
-    const repoId = repoByPath.get(t.projectPath);
-    if (repoId === undefined) {
+/** Resolve a task's `blockedBy` spec-ids onto the minted `TaskId`s from {@link buildIdMap}. */
+const resolveDependsOn = (
+  blockedBy: readonly string[] | undefined,
+  idMap: Map<string, TaskId>,
+  i: number
+): Result<TaskId[], ParseError> => {
+  const dependsOn: TaskId[] = [];
+  for (const ref of blockedBy ?? []) {
+    const resolved = idMap.get(ref);
+    if (resolved === undefined) {
       return Result.error(
         new ParseError({
           subCode: SCHEMA_MISMATCH,
-          message: `task-list: tasks[${String(i)}].projectPath '${t.projectPath}' is not in the project's repositories`,
-          hint: `available paths: ${Array.from(repoByPath.keys()).join(', ')}`,
+          message: `task-list: tasks[${String(i)}].blockedBy references unknown task id '${ref}'`,
         })
       );
     }
-    const dependsOn: TaskId[] = [];
-    for (const ref of t.blockedBy ?? []) {
-      const resolved = idMap.get(ref);
-      if (resolved === undefined) {
-        return Result.error(
-          new ParseError({
-            subCode: SCHEMA_MISMATCH,
-            message: `task-list: tasks[${String(i)}].blockedBy references unknown task id '${ref}'`,
-          })
-        );
-      }
-      dependsOn.push(resolved);
-    }
-    const mappedId = t.id !== undefined ? idMap.get(t.id) : undefined;
-    // Normalise extras: trim, lowercase, drop empties so the prompt + parser stay stable
-    // regardless of casing or stray whitespace the planner emits.
-    const normalisedExtras =
-      t.extraDimensions !== undefined
-        ? t.extraDimensions.map((d) => d.trim().toLowerCase()).filter((d) => d.length > 0)
-        : undefined;
-    // `t.verificationCriteria` is the AI-emitted structured shape; pass it straight through —
-    // `createTask` re-validates the auto / manual command invariant and clones defensively.
-    const created = createTask({
-      ...(mappedId !== undefined ? { id: mappedId } : {}),
-      // Single-line names everywhere: the name is interpolated into the journal's structural
-      // `## Task: <name> — Attempt <N>` header line that cap-progress splits and attributes on —
-      // a planner-emitted newline would break the task's own section boundary.
-      name: t.name.replace(/[\r\n\t\v\f]+/g, ' ').trim(),
-      ...(t.description !== undefined && t.description.trim().length > 0 ? { description: t.description } : {}),
-      steps: t.steps,
-      verificationCriteria: t.verificationCriteria.map((c) => ({
-        id: c.id,
-        assertion: c.assertion,
-        check: c.check,
-        ...(c.command !== undefined ? { command: c.command } : {}),
-      })),
-      order: i + 1,
-      ticketId,
-      repositoryId: repoId,
-      ...(dependsOn.length > 0 ? { dependsOn } : {}),
-      ...(normalisedExtras !== undefined && normalisedExtras.length > 0 ? { extraDimensions: normalisedExtras } : {}),
-      ...(externalRefs !== undefined ? { externalRefs } : {}),
-      ...(input.defaultMaxAttempts !== undefined ? { maxAttempts: input.defaultMaxAttempts } : {}),
-    });
-    if (!created.ok) {
-      return Result.error(
-        new ParseError({
-          subCode: SCHEMA_MISMATCH,
-          message: `task-list: tasks[${String(i)}] failed validation: ${created.error.message}`,
-          cause: created.error,
-        })
-      );
-    }
-    tasks.push(created.value);
+    dependsOn.push(resolved);
   }
+  return Result.ok(dependsOn);
+};
 
-  // Pass 3: dependency-wave schedule via the shared domain scheduler.
-  // `scheduleIntoWaves` validates the graph (unknown dep / self-edge / cycle) then runs
-  // Kahn-by-level so every dependency lands in an earlier wave than its dependent. We flatten
-  // the waves into a single sequence and renumber `order` to the 1-based array position.
-  const scheduled = scheduleAndFlatten(tasks);
-  if (!scheduled.ok) return Result.error(scheduled.error);
-  if (scheduled.value.changed) {
-    input.logger?.info(
-      `[parseTaskList] reordered ${String(scheduled.value.tasks.length)} of ${String(tasks.length)} tasks to satisfy blockedBy graph`
+/**
+ * Normalise extras: trim, lowercase, drop empties so the prompt + parser stay stable regardless
+ * of casing or stray whitespace the planner emits.
+ */
+const normalizeExtraDimensions = (extraDimensions?: readonly string[]): readonly string[] | undefined =>
+  extraDimensions !== undefined
+    ? extraDimensions.map((d) => d.trim().toLowerCase()).filter((d) => d.length > 0)
+    : undefined;
+
+/**
+ * Pass 2 helper — resolve one task spec's cross-references (ticketRef → ticketId, projectPath →
+ * repo, blockedBy → TaskId) and construct the `TodoTask` entity via `createTask`.
+ * `t.verificationCriteria` is the AI-emitted structured shape; it is passed straight through —
+ * `createTask` re-validates the auto / manual command invariant and clones defensively.
+ */
+const buildTask = (
+  t: TaskImportSpec,
+  i: number,
+  ctx: {
+    readonly repoByPath: Map<string, RepositoryId>;
+    readonly idMap: Map<string, TaskId>;
+    readonly mode: ParseTaskListMode;
+    readonly defaultMaxAttempts?: number;
+  }
+): Result<TodoTask, ParseError> => {
+  const ticketResolution = resolveTicketRef(t, i, ctx.mode);
+  if (!ticketResolution.ok) return Result.error(ticketResolution.error);
+  const { ticketId, externalRefs } = ticketResolution.value;
+
+  const repoId = ctx.repoByPath.get(t.projectPath);
+  if (repoId === undefined) {
+    return Result.error(
+      new ParseError({
+        subCode: SCHEMA_MISMATCH,
+        message: `task-list: tasks[${String(i)}].projectPath '${t.projectPath}' is not in the project's repositories`,
+        hint: `available paths: ${Array.from(ctx.repoByPath.keys()).join(', ')}`,
+      })
     );
   }
 
-  return Result.ok(scheduled.value.tasks);
+  const dependsOnResult = resolveDependsOn(t.blockedBy, ctx.idMap, i);
+  if (!dependsOnResult.ok) return Result.error(dependsOnResult.error);
+  const dependsOn = dependsOnResult.value;
+
+  const mappedId = t.id !== undefined ? ctx.idMap.get(t.id) : undefined;
+  const normalisedExtras = normalizeExtraDimensions(t.extraDimensions);
+
+  const created = createTask({
+    ...(mappedId !== undefined ? { id: mappedId } : {}),
+    // Single-line names everywhere: the name is interpolated into the journal's structural
+    // `## Task: <name> — Attempt <N>` header line that cap-progress splits and attributes on —
+    // a planner-emitted newline would break the task's own section boundary.
+    name: t.name.replace(/[\r\n\t\v\f]+/g, ' ').trim(),
+    ...(t.description !== undefined && t.description.trim().length > 0 ? { description: t.description } : {}),
+    steps: t.steps,
+    verificationCriteria: t.verificationCriteria.map((c) => ({
+      id: c.id,
+      assertion: c.assertion,
+      check: c.check,
+      ...(c.command !== undefined ? { command: c.command } : {}),
+    })),
+    order: i + 1,
+    ticketId,
+    repositoryId: repoId,
+    ...(dependsOn.length > 0 ? { dependsOn } : {}),
+    ...(normalisedExtras !== undefined && normalisedExtras.length > 0 ? { extraDimensions: normalisedExtras } : {}),
+    ...(externalRefs !== undefined ? { externalRefs } : {}),
+    ...(ctx.defaultMaxAttempts !== undefined ? { maxAttempts: ctx.defaultMaxAttempts } : {}),
+  });
+  if (!created.ok) {
+    return Result.error(
+      new ParseError({
+        subCode: SCHEMA_MISMATCH,
+        message: `task-list: tasks[${String(i)}] failed validation: ${created.error.message}`,
+        cause: created.error,
+      })
+    );
+  }
+  return Result.ok(created.value);
 };
 
 interface ScheduledTasks {

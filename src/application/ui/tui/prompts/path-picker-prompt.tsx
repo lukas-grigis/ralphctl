@@ -27,7 +27,7 @@ import React, { useEffect, useState } from 'react';
 import { promises as fs } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text, useInput, type Key } from 'ink';
 import { TextPrompt } from '@src/application/ui/tui/prompts/text-prompt.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 
@@ -59,18 +59,16 @@ const expandHome = (input: string): string => {
   return input;
 };
 
-export const PathPickerPrompt = ({
-  message,
-  onSubmit,
-  onCancel,
-  initial,
-}: PathPickerPromptProps): React.JSX.Element => {
-  const [cwd, setCwd] = useState<string>(() => expandHome(initial ?? process.cwd()));
+interface DirectoryEntriesState {
+  readonly entries: readonly Entry[];
+  readonly error: string | undefined;
+  readonly setError: React.Dispatch<React.SetStateAction<string | undefined>>;
+}
+
+/** Loads and filters the subdirectories of `cwd`, re-running whenever `cwd` or `showHidden` change. */
+const useDirectoryEntries = (cwd: string, showHidden: boolean): DirectoryEntriesState => {
   const [entries, setEntries] = useState<readonly Entry[]>([]);
-  const [cursor, setCursor] = useState(1); // Default to `[Select this directory]`.
-  const [showHidden, setShowHidden] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
-  const [typing, setTyping] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -97,6 +95,168 @@ export const PathPickerPrompt = ({
     };
   }, [cwd, showHidden]);
 
+  return { entries, error, setError };
+};
+
+/** Jumps `cwd` to its parent directory, resetting the cursor onto `[Select this directory]`. */
+const goToParent = (
+  cwd: string,
+  setCwd: React.Dispatch<React.SetStateAction<string>>,
+  setCursor: React.Dispatch<React.SetStateAction<number>>
+): void => {
+  const parent = dirname(cwd);
+  if (parent !== cwd) {
+    setCwd(parent);
+    setCursor(1);
+  }
+};
+
+/** Resolves the `↵` key against the currently focused row: parent / select / open-directory. */
+const handleReturnKey = (
+  rows: readonly Row[],
+  cursor: number,
+  cwd: string,
+  onSubmit: (path: string) => void,
+  setCwd: React.Dispatch<React.SetStateAction<string>>,
+  setCursor: React.Dispatch<React.SetStateAction<number>>
+): void => {
+  const row = rows[cursor];
+  if (row === undefined) return;
+  if (row.kind === 'parent') {
+    goToParent(cwd, setCwd, setCursor);
+    return;
+  }
+  if (row.kind === 'select') {
+    onSubmit(cwd);
+    return;
+  }
+  setCwd(join(cwd, row.entry.name));
+  setCursor(1);
+};
+
+interface PathPickerKeyDeps {
+  readonly cwd: string;
+  readonly rows: readonly Row[];
+  readonly cursor: number;
+  readonly onCancel: () => void;
+  readonly onSubmit: (path: string) => void;
+  readonly setCwd: React.Dispatch<React.SetStateAction<string>>;
+  readonly setCursor: React.Dispatch<React.SetStateAction<number>>;
+  readonly setShowHidden: React.Dispatch<React.SetStateAction<boolean>>;
+  readonly setError: React.Dispatch<React.SetStateAction<string | undefined>>;
+  readonly setTyping: React.Dispatch<React.SetStateAction<boolean>>;
+}
+
+/** Dispatches a single keypress to the matching navigation/action handler. Flat guard sequence — no nesting. */
+const handlePathPickerKey = (input: string, key: Key, deps: PathPickerKeyDeps): void => {
+  const { cwd, rows, cursor, onCancel, onSubmit, setCwd, setCursor, setShowHidden, setError, setTyping } = deps;
+  if (key.escape) {
+    onCancel();
+    return;
+  }
+  if (key.upArrow || input === 'k') {
+    setCursor((c) => clamp(c - 1, 0, rows.length - 1));
+    return;
+  }
+  if (key.downArrow || input === 'j') {
+    setCursor((c) => clamp(c + 1, 0, rows.length - 1));
+    return;
+  }
+  if (key.backspace || key.delete) {
+    goToParent(cwd, setCwd, setCursor);
+    return;
+  }
+  if (input === '~') {
+    setCwd(homedir());
+    setCursor(1);
+    return;
+  }
+  if (input === '.') {
+    setShowHidden((v) => !v);
+    return;
+  }
+  if (input === 't') {
+    setError(undefined);
+    setTyping(true);
+    return;
+  }
+  if (key.return) {
+    handleReturnKey(rows, cursor, cwd, onSubmit, setCwd, setCursor);
+  }
+};
+
+interface SubmitTypedPathDeps {
+  readonly setError: React.Dispatch<React.SetStateAction<string | undefined>>;
+  readonly setTyping: React.Dispatch<React.SetStateAction<boolean>>;
+  readonly onSubmit: (path: string) => void;
+}
+
+/** Validates a manually-typed path exists and is a directory, then submits or reports an error. */
+const submitTypedPath = async (raw: string, { setError, setTyping, onSubmit }: SubmitTypedPathDeps): Promise<void> => {
+  const expanded = expandHome(raw.trim());
+  if (expanded.length === 0) {
+    setTyping(false);
+    return;
+  }
+  try {
+    const stat = await fs.stat(expanded);
+    if (!stat.isDirectory()) {
+      setError(`${expanded} is not a directory`);
+      setTyping(false);
+      return;
+    }
+    setTyping(false);
+    onSubmit(expanded);
+  } catch (err) {
+    setError(err instanceof Error ? err.message : String(err));
+    setTyping(false);
+  }
+};
+
+interface PathPickerRowsProps {
+  readonly rows: readonly Row[];
+  readonly start: number;
+  readonly end: number;
+  readonly cursor: number;
+}
+
+/** Renders the windowed slice of rows plus the "N of M" counter when the list overflows. */
+const PathPickerRows = ({ rows, start, end, cursor }: PathPickerRowsProps): React.JSX.Element => (
+  <>
+    {rows.slice(start, end).map((row, localIdx) => {
+      const idx = start + localIdx;
+      const focused = idx === cursor;
+      const label = labelFor(row);
+      return (
+        <Box key={`${row.kind}-${idx}`} paddingX={spacing.indent}>
+          <Text {...(focused ? { color: inkColors.primary } : {})} bold={focused}>
+            {focused ? glyphs.actionCursor : ' '} {label}
+          </Text>
+        </Box>
+      );
+    })}
+    {rows.length > VISIBLE_ROWS && (
+      <Box paddingX={spacing.indent}>
+        <Text dimColor>
+          {String(cursor + 1)} of {String(rows.length)}
+        </Text>
+      </Box>
+    )}
+  </>
+);
+
+export const PathPickerPrompt = ({
+  message,
+  onSubmit,
+  onCancel,
+  initial,
+}: PathPickerPromptProps): React.JSX.Element => {
+  const [cwd, setCwd] = useState<string>(() => expandHome(initial ?? process.cwd()));
+  const [showHidden, setShowHidden] = useState(false);
+  const { entries, error, setError } = useDirectoryEntries(cwd, showHidden);
+  const [cursor, setCursor] = useState(1); // Default to `[Select this directory]`.
+  const [typing, setTyping] = useState(false);
+
   // Synthetic rows: parent (..) → [Select this directory] → directory entries.
   const rows: readonly Row[] = [
     { kind: 'parent' },
@@ -110,83 +270,21 @@ export const PathPickerPrompt = ({
   }, [rows.length]);
 
   useInput(
-    (input, key) => {
-      if (key.escape) {
-        onCancel();
-        return;
-      }
-      if (key.upArrow || input === 'k') {
-        setCursor((c) => clamp(c - 1, 0, rows.length - 1));
-        return;
-      }
-      if (key.downArrow || input === 'j') {
-        setCursor((c) => clamp(c + 1, 0, rows.length - 1));
-        return;
-      }
-      if (key.backspace || key.delete) {
-        const parent = dirname(cwd);
-        if (parent !== cwd) {
-          setCwd(parent);
-          setCursor(1);
-        }
-        return;
-      }
-      if (input === '~') {
-        setCwd(homedir());
-        setCursor(1);
-        return;
-      }
-      if (input === '.') {
-        setShowHidden((v) => !v);
-        return;
-      }
-      if (input === 't') {
-        setError(undefined);
-        setTyping(true);
-        return;
-      }
-      if (key.return) {
-        const row = rows[cursor];
-        if (row === undefined) return;
-        if (row.kind === 'parent') {
-          const parent = dirname(cwd);
-          if (parent !== cwd) {
-            setCwd(parent);
-            setCursor(1);
-          }
-          return;
-        }
-        if (row.kind === 'select') {
-          onSubmit(cwd);
-          return;
-        }
-        setCwd(join(cwd, row.entry.name));
-        setCursor(1);
-      }
-    },
+    (input, key) =>
+      handlePathPickerKey(input, key, {
+        cwd,
+        rows,
+        cursor,
+        onCancel,
+        onSubmit,
+        setCwd,
+        setCursor,
+        setShowHidden,
+        setError,
+        setTyping,
+      }),
     { isActive: !typing }
   );
-
-  const submitTyped = async (raw: string): Promise<void> => {
-    const expanded = expandHome(raw.trim());
-    if (expanded.length === 0) {
-      setTyping(false);
-      return;
-    }
-    try {
-      const stat = await fs.stat(expanded);
-      if (!stat.isDirectory()) {
-        setError(`${expanded} is not a directory`);
-        setTyping(false);
-        return;
-      }
-      setTyping(false);
-      onSubmit(expanded);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      setTyping(false);
-    }
-  };
 
   // Windowed slice around the cursor so deep directories stay scrollable.
   const half = Math.floor(VISIBLE_ROWS / 2);
@@ -209,25 +307,7 @@ export const PathPickerPrompt = ({
         </Box>
       )}
       <Box flexDirection="column" marginTop={1}>
-        {rows.slice(start, end).map((row, localIdx) => {
-          const idx = start + localIdx;
-          const focused = idx === cursor;
-          const label = labelFor(row);
-          return (
-            <Box key={`${row.kind}-${idx}`} paddingX={spacing.indent}>
-              <Text {...(focused ? { color: inkColors.primary } : {})} bold={focused}>
-                {focused ? glyphs.actionCursor : ' '} {label}
-              </Text>
-            </Box>
-          );
-        })}
-        {rows.length > VISIBLE_ROWS && (
-          <Box paddingX={spacing.indent}>
-            <Text dimColor>
-              {String(cursor + 1)} of {String(rows.length)}
-            </Text>
-          </Box>
-        )}
+        <PathPickerRows rows={rows} start={start} end={end} cursor={cursor} />
       </Box>
       {typing ? (
         <Box flexDirection="column" marginTop={1} paddingX={spacing.indent}>
@@ -235,7 +315,7 @@ export const PathPickerPrompt = ({
           <TextPrompt
             message="Path"
             initial={cwd}
-            onSubmit={(value) => void submitTyped(value)}
+            onSubmit={(value) => void submitTypedPath(value, { setError, setTyping, onSubmit })}
             onCancel={() => setTyping(false)}
           />
         </Box>

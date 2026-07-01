@@ -32,6 +32,54 @@ import type {
 import { STDOUT_LINE_PARSE_CAP } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
 import { isRecord, numberField, stringField } from '@src/integration/ai/providers/_engine/json-field.ts';
 
+// Module-level (no closure over parser state) — safe to hoist out of the factory.
+//
+// Why: stdout-stream records arrive at high volume — a Zod schema per record is overkill.
+// `ingest()` downstream extracts known fields with narrow `stringField` / `numberField` helpers;
+// unknown keys are ignored.
+const emitLine = (raw: string, onLine: (line: ClaudeStreamLine) => void): void => {
+  if (raw.length === 0) return;
+  if (raw.startsWith('{') && raw.endsWith('}')) {
+    try {
+      const json = JSON.parse(raw) as Record<string, unknown>;
+      onLine({ raw, json });
+      return;
+    } catch {
+      // fall through — non-JSON or malformed: emit as plain text and let `ingest` skip it.
+    }
+  }
+  onLine({ raw });
+};
+
+// Per-turn usage lives on `message.usage` (same nested field names the result path uses).
+const extractLiveUsage = (u: Record<string, unknown>): ClaudeLiveUsage => {
+  const i = numberField(u, 'input_tokens', 'inputTokens');
+  const cr = numberField(u, 'cache_read_input_tokens', 'cacheReadInputTokens');
+  const cc = numberField(u, 'cache_creation_input_tokens', 'cacheCreationInputTokens');
+  return {
+    ...(i !== undefined ? { inputTokens: i } : {}),
+    ...(cr !== undefined ? { cacheReadTokens: cr } : {}),
+    ...(cc !== undefined ? { cacheCreationTokens: cc } : {}),
+  };
+};
+
+// Token usage on the result event: `usage: { input_tokens, output_tokens,
+// cache_read_input_tokens, cache_creation_input_tokens }`. Cumulative — already the spawn
+// total. Stream-json never streams partial counts on intermediate events for `-p` mode, so a
+// single read here is the authoritative figure.
+const extractResultUsage = (u: Record<string, unknown>): ClaudeUsage => {
+  const i = numberField(u, 'input_tokens', 'inputTokens');
+  const o = numberField(u, 'output_tokens', 'outputTokens');
+  const cr = numberField(u, 'cache_read_input_tokens', 'cacheReadInputTokens');
+  const cc = numberField(u, 'cache_creation_input_tokens', 'cacheCreationInputTokens');
+  return {
+    ...(i !== undefined ? { inputTokens: i } : {}),
+    ...(o !== undefined ? { outputTokens: o } : {}),
+    ...(cr !== undefined ? { cacheReadTokens: cr } : {}),
+    ...(cc !== undefined ? { cacheCreationTokens: cc } : {}),
+  };
+};
+
 export const createClaudeStreamParser = (): ClaudeStreamParser => {
   let buffer = '';
   // One-shot latch: warn exactly once per parser so a child that streams a pathologically long
@@ -68,77 +116,46 @@ export const createClaudeStreamParser = (): ClaudeStreamParser => {
   // unlike the cumulative `result.usage` above. Stays `{}` if no assistant carried usage.
   let liveUsage: ClaudeLiveUsage = {};
 
-  const emit = (raw: string, onLine: (line: ClaudeStreamLine) => void): void => {
-    if (raw.length === 0) return;
-    if (raw.startsWith('{') && raw.endsWith('}')) {
-      try {
-        // Why: stdout-stream records arrive at high volume — a Zod schema per record
-        // is overkill. `ingest()` downstream extracts known fields with narrow
-        // `stringField` / `numberField` helpers; unknown keys are ignored.
-        const json = JSON.parse(raw) as Record<string, unknown>;
-        onLine({ raw, json });
-        return;
-      } catch {
-        // fall through — non-JSON or malformed: emit as plain text and let `ingest` skip it.
-      }
-    }
-    onLine({ raw });
+  // Earliest session_id wins. The system/init event normally arrives first and carries it, but
+  // every event after that re-states it; clamping to "first seen" makes the value stable.
+  const applySessionId = (json: Record<string, unknown>): void => {
+    if (sessionId !== undefined) return;
+    const seen = stringField(json, 'session_id', 'sessionId');
+    if (seen !== undefined) sessionId = seen;
+  };
+
+  const applyModel = (type: string | undefined, json: Record<string, unknown>): void => {
+    if (type !== 'system' || model !== undefined) return;
+    const m = stringField(json, 'model');
+    if (m !== undefined) model = m;
+  };
+
+  // Defensive: content-only assistant deltas carry no usage — only update when a usage record
+  // is present, so a usage-less delta never clobbers a captured live snapshot.
+  const applyLiveUsage = (type: string | undefined, json: Record<string, unknown>): void => {
+    if (type !== 'assistant') return;
+    const message = json['message'];
+    if (!isRecord(message)) return;
+    const u = message['usage'];
+    if (isRecord(u)) liveUsage = extractLiveUsage(u);
+  };
+
+  const applyResultFields = (type: string | undefined, json: Record<string, unknown>): void => {
+    if (type !== 'result') return;
+    const r = stringField(json, 'result');
+    if (r !== undefined) body = r;
+    const u = json['usage'];
+    if (isRecord(u)) usage = extractResultUsage(u);
   };
 
   const ingest = (line: ClaudeStreamLine): void => {
     const json = line.json;
     if (json === undefined) return;
-    // Earliest session_id wins. The system/init event normally arrives first and carries it,
-    // but every event after that re-states it; clamping to "first seen" makes the value stable.
-    if (sessionId === undefined) {
-      const seen = stringField(json, 'session_id', 'sessionId');
-      if (seen !== undefined) sessionId = seen;
-    }
+    applySessionId(json);
     const type = stringField(json, 'type');
-    if (type === 'system' && model === undefined) {
-      const m = stringField(json, 'model');
-      if (m !== undefined) model = m;
-    }
-    if (type === 'assistant') {
-      // Per-turn usage lives on `message.usage` (same nested field names the result path uses).
-      // Defensive: content-only assistant deltas carry no usage — only update when a usage record
-      // is present, so a usage-less delta never clobbers a captured live snapshot.
-      const message = json['message'];
-      if (isRecord(message)) {
-        const u = message['usage'];
-        if (isRecord(u)) {
-          const i = numberField(u, 'input_tokens', 'inputTokens');
-          const cr = numberField(u, 'cache_read_input_tokens', 'cacheReadInputTokens');
-          const cc = numberField(u, 'cache_creation_input_tokens', 'cacheCreationInputTokens');
-          liveUsage = {
-            ...(i !== undefined ? { inputTokens: i } : {}),
-            ...(cr !== undefined ? { cacheReadTokens: cr } : {}),
-            ...(cc !== undefined ? { cacheCreationTokens: cc } : {}),
-          };
-        }
-      }
-    }
-    if (type === 'result') {
-      const r = stringField(json, 'result');
-      if (r !== undefined) body = r;
-      // Token usage on the result event: `usage: { input_tokens, output_tokens,
-      // cache_read_input_tokens, cache_creation_input_tokens }`. Cumulative — already the
-      // spawn total. Stream-json never streams partial counts on intermediate events for `-p`
-      // mode, so a single read here is the authoritative figure.
-      const u = json['usage'];
-      if (isRecord(u)) {
-        const i = numberField(u, 'input_tokens', 'inputTokens');
-        const o = numberField(u, 'output_tokens', 'outputTokens');
-        const cr = numberField(u, 'cache_read_input_tokens', 'cacheReadInputTokens');
-        const cc = numberField(u, 'cache_creation_input_tokens', 'cacheCreationInputTokens');
-        usage = {
-          ...(i !== undefined ? { inputTokens: i } : {}),
-          ...(o !== undefined ? { outputTokens: o } : {}),
-          ...(cr !== undefined ? { cacheReadTokens: cr } : {}),
-          ...(cc !== undefined ? { cacheCreationTokens: cc } : {}),
-        };
-      }
-    }
+    applyModel(type, json);
+    applyLiveUsage(type, json);
+    applyResultFields(type, json);
   };
 
   return {
@@ -148,13 +165,13 @@ export const createClaudeStreamParser = (): ClaudeStreamParser => {
       while (nl !== -1) {
         const line = buffer.slice(0, nl);
         buffer = buffer.slice(nl + 1);
-        emit(line, onLine);
+        emitLine(line, onLine);
         nl = buffer.indexOf('\n');
       }
     },
     flush(onLine) {
       if (buffer.length > 0) {
-        emit(buffer, onLine);
+        emitLine(buffer, onLine);
         buffer = '';
       }
     },

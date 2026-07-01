@@ -8,7 +8,7 @@
  * project's sprints.
  */
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
@@ -24,8 +24,10 @@ import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { Result } from '@src/domain/result.ts';
 import { type OpenEditPromptInput, useEditField } from '@src/application/ui/tui/runtime/use-edit-field.ts';
+import { useIsMounted } from '@src/application/ui/tui/runtime/use-is-mounted.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useAsyncLoad } from '@src/application/ui/tui/runtime/use-async-load.ts';
+import type { AsyncLoadState } from '@src/application/ui/tui/runtime/use-async-load.ts';
 import { useRouter, useViewProps } from '@src/application/ui/tui/runtime/router.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
@@ -52,6 +54,191 @@ type Field =
 type EditTarget =
   { readonly kind: 'project' } | { readonly kind: 'repo'; readonly field: RepoFieldKey; readonly repo: Repository };
 
+/**
+ * Once the project loads, refresh the display-name label in the selection cache so the status
+ * bar can show "proj: <name>" without re-loading the aggregate — but ONLY for the project that
+ * is already current. Re-stamping a *different* project here would switch the selection (and
+ * clear the sprint cursor) as a side effect of merely browsing its detail; the explicit `m`
+ * chord is the only path that switches.
+ */
+const useSyncCurrentProjectLabel = (
+  state: AsyncLoadState<Project, unknown>,
+  selection: ReturnType<typeof useSelection>
+): void => {
+  const setProjectRef = React.useRef(selection.setProject);
+  setProjectRef.current = selection.setProject;
+  const selectionProjectIdRef = React.useRef(selection.projectId);
+  selectionProjectIdRef.current = selection.projectId;
+  React.useEffect(() => {
+    if (state.kind !== 'ok') return;
+    if (selectionProjectIdRef.current === state.value.id) {
+      setProjectRef.current(state.value.id, state.value.displayName);
+    }
+  }, [state]);
+};
+
+interface BuildFieldEditArgs {
+  readonly target: EditTarget;
+  readonly project: Project;
+  readonly projectRepo: ReturnType<typeof useDeps>['projectRepo'];
+  readonly reload: () => void;
+}
+
+/** Build the edit-prompt config for the focused row — the project's displayName or one repo
+ *  field. Takes the entity + repo port as explicit args instead of closing over them so it can
+ *  live outside the component's render scope. */
+const buildFieldEdit = (args: BuildFieldEditArgs): OpenEditPromptInput => {
+  const { target, project, projectRepo, reload } = args;
+  if (target.kind === 'project') {
+    return {
+      title: `Rename project "${project.displayName}"`,
+      kind: 'short',
+      currentValue: project.displayName,
+      onSave: async (value) => {
+        const renamed = setProjectDisplayName(project, value);
+        if (!renamed.ok) return Result.error(renamed.error);
+        const saved = await projectRepo.save(renamed.value);
+        if (!saved.ok) return Result.error(saved.error);
+        reload();
+        return Result.ok(undefined);
+      },
+      successLabel: `✓ renamed project`,
+    };
+  }
+  const { repo, field } = target;
+  const label = field === 'name' ? `Rename repository "${repo.name}"` : `Edit ${field} for "${repo.name}"`;
+  const current =
+    field === 'name' ? repo.name : field === 'setupScript' ? (repo.setupScript ?? '') : (repo.verifyScript ?? '');
+  return {
+    title: label,
+    kind: field === 'name' ? 'short' : 'long',
+    currentValue: current,
+    onSave: async (value) => {
+      // For optional script fields, route through the setter directly so `value === ''`
+      // explicitly *clears* the field (the entity setter accepts `undefined` for clear).
+      // `updateRepository`'s partial type — with exactOptionalPropertyTypes — disallows
+      // direct undefined assignment, so we update the repo and persist the parent project.
+      if (field === 'name') {
+        const next = updateRepository(project, repo.id, { name: value });
+        if (!next.ok) return Result.error(next.error);
+        const saved = await projectRepo.save(next.value);
+        if (!saved.ok) return Result.error(saved.error);
+        reload();
+        return Result.ok(undefined);
+      }
+      const updatedRepo =
+        field === 'setupScript'
+          ? setRepositorySetupScript(repo, value.length === 0 ? undefined : value)
+          : setRepositoryVerifyScript(repo, value.length === 0 ? undefined : value);
+      if (!updatedRepo.ok) return Result.error(updatedRepo.error);
+      const nextRepos = project.repositories.map((r) => (r.id === repo.id ? updatedRepo.value : r));
+      const saved = await projectRepo.save({ ...project, repositories: nextRepos });
+      if (!saved.ok) return Result.error(saved.error);
+      reload();
+      return Result.ok(undefined);
+    },
+    successLabel: `✓ updated ${field}`,
+  };
+};
+
+interface LaunchPerRepoFlowCtx {
+  readonly deps: ReturnType<typeof useDeps>;
+  readonly queue: ReturnType<typeof usePromptQueue>;
+  readonly storage: ReturnType<typeof useStorage>;
+  readonly sessions: ReturnType<typeof useSessionManager>;
+  readonly router: ReturnType<typeof useRouter>;
+  readonly mountedRef: ReturnType<typeof useIsMounted>;
+  readonly setFeedback: (message: string | undefined) => void;
+}
+
+/**
+ * Launch the `detect-scripts` / `detect-skills` one-shot flow scoped to a single repository.
+ * `c`/`S` don't claim the global key-mute, so the operator can navigate away (unmounting this
+ * view) while the launcher resolves — the mounted-ref guard skips the post-await view-local
+ * writes (setFeedback / session open) so neither fires into an unmounted tree.
+ */
+const launchPerRepoFlow = async (
+  ctx: LaunchPerRepoFlowCtx,
+  project: Project | undefined,
+  flowId: 'detect-scripts' | 'detect-skills',
+  target: Repository
+): Promise<void> => {
+  if (project === undefined) return;
+  const { deps, queue, storage, sessions, router, mountedRef, setFeedback } = ctx;
+  setFeedback(undefined);
+  const snapshot = await loadAppStateSnapshot(deps, { projectId: project.id });
+  const interactive = createInkInteractivePrompt(queue);
+  const result = await launchFlow(
+    { app: deps, interactive, storage, runInTerminal: getRunInTerminal() },
+    flowId,
+    snapshot,
+    { repositoryId: target.id }
+  );
+  if (!mountedRef.current) return;
+  if (!result.ok) {
+    setFeedback(`✗ ${result.reason}`);
+    return;
+  }
+  openFlowSession({ sessions, router }, result, flowId);
+};
+
+interface ProjectDetailShortcutArgs {
+  readonly modalOpen: boolean;
+  readonly confirmRemoveActive: boolean;
+  readonly project: Project | undefined;
+  readonly focused: Field | undefined;
+  readonly fieldsLength: number;
+  readonly setCursorIdx: React.Dispatch<React.SetStateAction<number>>;
+  readonly handleEdit: () => void;
+  // One lookup per action group instead of a separate callback field per chord — keeps both the
+  // interface and the dispatch below flat. `rootActions` covers the two project-scoped chords
+  // (add repo / mark current); `repoActions` covers the three repo-scoped ones.
+  readonly rootActions: Readonly<Record<'a' | 'm', (project: Project) => void>>;
+  readonly repoActions: Readonly<Record<'d' | 'c' | 'S', (repo: Repository) => void>>;
+  readonly pushSprints: () => void;
+}
+
+/**
+ * Keymap hook for the project-detail view — encapsulates every `useInput` chord (add repo, mark
+ * current, edit field, flat-cursor navigation, per-repo CRUD + detect flows, sprints shortcut)
+ * so the orchestrator only has to wire state and handler callbacks. Mirrors
+ * `useSprintDetailShortcuts` on the sibling sprint-detail view.
+ */
+const useProjectDetailShortcuts = (args: ProjectDetailShortcutArgs): void => {
+  useInput((input, key) => {
+    if (args.modalOpen || args.confirmRemoveActive || args.project === undefined) return;
+    const project = args.project;
+    if (input in args.rootActions) {
+      args.rootActions[input as 'a' | 'm'](project);
+      return;
+    }
+    if (input === 'e' || key.return) {
+      args.handleEdit();
+      return;
+    }
+    if (key.downArrow || input === 'j') {
+      args.setCursorIdx((c) => Math.min(Math.max(0, args.fieldsLength - 1), c + 1));
+      return;
+    }
+    if (key.upArrow || input === 'k') {
+      args.setCursorIdx((c) => Math.max(0, c - 1));
+      return;
+    }
+    // Repo-scoped chords look up their handler in `repoActions` instead of repeating the "is a
+    // repo row focused" guard for each chord.
+    if (args.focused?.kind === 'repo' && input in args.repoActions) {
+      args.repoActions[input as 'd' | 'c' | 'S'](args.focused.repo);
+      return;
+    }
+    if (input === 'r') {
+      // The hint has advertised `r — sprints` since this view shipped, but no handler ever
+      // existed. Plain navigation: the Sprints list scopes to the current selection (press
+      // `m` first to scope it to the viewed project).
+      args.pushSprints();
+    }
+  });
+};
+
 export const ProjectDetailView = (): React.JSX.Element => {
   const deps = useDeps();
   const router = useRouter();
@@ -68,22 +255,8 @@ export const ProjectDetailView = (): React.JSX.Element => {
     return r.value;
   }, [projectId]);
 
-  // Once the project loads, refresh the display-name label in the selection cache so the
-  // status bar can show "proj: <name>" without re-loading the aggregate — but ONLY for the
-  // project that is already current. Re-stamping a *different* project here would switch the
-  // selection (and clear the sprint cursor) as a side effect of merely browsing its detail;
-  // the explicit `m` chord below is the only path that switches.
   const selection = useSelection();
-  const setProjectRef = React.useRef(selection.setProject);
-  setProjectRef.current = selection.setProject;
-  const selectionProjectIdRef = React.useRef(selection.projectId);
-  selectionProjectIdRef.current = selection.projectId;
-  React.useEffect(() => {
-    if (state.kind !== 'ok') return;
-    if (selectionProjectIdRef.current === state.value.id) {
-      setProjectRef.current(state.value.id, state.value.displayName);
-    }
-  }, [state]);
+  useSyncCurrentProjectLabel(state, selection);
 
   const [cursorIdx, setCursorIdx] = useState(0);
   const [confirmRemove, setConfirmRemove] = useState<Repository | undefined>(undefined);
@@ -92,14 +265,8 @@ export const ProjectDetailView = (): React.JSX.Element => {
   // Mounted-ref guard for the async remove-repo handler: dismissing the confirm overlay unblocks the
   // router, so the operator can navigate away (unmounting this view) before the awaited save resolves.
   // The guard skips the post-await view-local writes (setFeedback / reload) so they never fire into an
-  // unmounted tree. Mirrors the guard in `useEditField`.
-  const mountedRef = useRef(true);
-  useEffect(
-    () => () => {
-      mountedRef.current = false;
-    },
-    []
-  );
+  // unmounted tree.
+  const mountedRef = useIsMounted();
 
   const project = state.kind === 'ok' ? state.value : undefined;
 
@@ -150,137 +317,43 @@ export const ProjectDetailView = (): React.JSX.Element => {
     if (state.kind === 'ok') setCursorIdx(0);
   }, [state.kind, projectId]);
 
-  const launchPerRepoFlow = async (flowId: 'detect-scripts' | 'detect-skills', target: Repository): Promise<void> => {
-    if (project === undefined) return;
-    setFeedback(undefined);
-    const snapshot = await loadAppStateSnapshot(deps, { projectId: project.id });
-    const interactive = createInkInteractivePrompt(queue);
-    const result = await launchFlow(
-      { app: deps, interactive, storage, runInTerminal: getRunInTerminal() },
-      flowId,
-      snapshot,
-      { repositoryId: target.id }
-    );
-    // `c`/`S` don't claim the global key-mute, so the operator can navigate away (unmounting this
-    // view) while the launcher resolves. Skip consuming the result once unmounted — both the
-    // view-local `setFeedback` and the session/router open — so neither fires into an unmounted
-    // tree. Mirrors `handleRemoveConfirmed`.
-    if (!mountedRef.current) return;
-    if (!result.ok) {
-      setFeedback(`✗ ${result.reason}`);
-      return;
-    }
-    openFlowSession({ sessions, router }, result, flowId);
-  };
-
-  const renderEditPrompt = (target: EditTarget): OpenEditPromptInput | undefined => {
-    if (project === undefined) return undefined;
-    if (target.kind === 'project') {
-      return {
-        title: `Rename project "${project.displayName}"`,
-        kind: 'short',
-        currentValue: project.displayName,
-        onSave: async (value) => {
-          const renamed = setProjectDisplayName(project, value);
-          if (!renamed.ok) return Result.error(renamed.error);
-          const saved = await deps.projectRepo.save(renamed.value);
-          if (!saved.ok) return Result.error(saved.error);
-          reload();
-          return Result.ok(undefined);
-        },
-        successLabel: `✓ renamed project`,
-      };
-    }
-    const { repo, field } = target;
-    const label = field === 'name' ? `Rename repository "${repo.name}"` : `Edit ${field} for "${repo.name}"`;
-    const current =
-      field === 'name' ? repo.name : field === 'setupScript' ? (repo.setupScript ?? '') : (repo.verifyScript ?? '');
-    return {
-      title: label,
-      kind: field === 'name' ? 'short' : 'long',
-      currentValue: current,
-      onSave: async (value) => {
-        // For optional script fields, route through the setter directly so `value === ''`
-        // explicitly *clears* the field (the entity setter accepts `undefined` for clear).
-        // `updateRepository`'s partial type — with exactOptionalPropertyTypes — disallows
-        // direct undefined assignment, so we update the repo and persist the parent project.
-        if (field === 'name') {
-          const next = updateRepository(project, repo.id, { name: value });
-          if (!next.ok) return Result.error(next.error);
-          const saved = await deps.projectRepo.save(next.value);
-          if (!saved.ok) return Result.error(saved.error);
-          reload();
-          return Result.ok(undefined);
-        }
-        const updatedRepo =
-          field === 'setupScript'
-            ? setRepositorySetupScript(repo, value.length === 0 ? undefined : value)
-            : setRepositoryVerifyScript(repo, value.length === 0 ? undefined : value);
-        if (!updatedRepo.ok) return Result.error(updatedRepo.error);
-        const nextRepos = project.repositories.map((r) => (r.id === repo.id ? updatedRepo.value : r));
-        const saved = await deps.projectRepo.save({ ...project, repositories: nextRepos });
-        if (!saved.ok) return Result.error(saved.error);
-        reload();
-        return Result.ok(undefined);
-      },
-      successLabel: `✓ updated ${field}`,
-    };
-  };
-
   const handleEdit = (): void => {
     if (project === undefined || focused === undefined) return;
     setFeedback(undefined);
     const target: EditTarget =
       focused.kind === 'project' ? { kind: 'project' } : { kind: 'repo', field: focused.field, repo: focused.repo };
-    const cfg = renderEditPrompt(target);
-    if (cfg !== undefined) void edit.openEditPrompt(cfg);
+    const cfg = buildFieldEdit({ target, project, projectRepo: deps.projectRepo, reload });
+    void edit.openEditPrompt(cfg);
   };
 
-  useInput((input, key) => {
-    if (ui.modalOpen || confirmRemove !== undefined || project === undefined) return;
-    if (input === 'a') {
-      router.push({ id: 'add-repository', props: { projectId: project.id } });
-      return;
-    }
-    if (input === 'm') {
-      // Explicit "make this project current" — the deliberate counterpart to the browse-only
-      // open. No-op if already current so re-pressing doesn't churn feedback.
-      if (selection.projectId !== project.id) {
-        selection.setProject(project.id, project.displayName);
-        setFeedback(`✓ now on ${project.displayName}`);
-      }
-      return;
-    }
-    if (input === 'e' || key.return) {
-      handleEdit();
-      return;
-    }
-    if (key.downArrow || input === 'j') {
-      setCursorIdx((c) => Math.min(Math.max(0, fields.length - 1), c + 1));
-      return;
-    }
-    if (key.upArrow || input === 'k') {
-      setCursorIdx((c) => Math.max(0, c - 1));
-      return;
-    }
-    if (input === 'd' && focused?.kind === 'repo') {
-      setConfirmRemove(focused.repo);
-      return;
-    }
-    if (input === 'c' && focused?.kind === 'repo') {
-      void launchPerRepoFlow('detect-scripts', focused.repo);
-      return;
-    }
-    if (input === 'S' && focused?.kind === 'repo') {
-      void launchPerRepoFlow('detect-skills', focused.repo);
-      return;
-    }
-    if (input === 'r') {
-      // The hint has advertised `r — sprints` since this view shipped, but no handler ever
-      // existed. Plain navigation: the Sprints list scopes to the current selection (press
-      // `m` first to scope it to the viewed project).
-      router.push({ id: 'sprints' });
-    }
+  // Explicit "make this project current" — the deliberate counterpart to the browse-only open.
+  // No-op if already current so re-pressing doesn't churn feedback.
+  const markCurrent = (target: Project): void => {
+    if (selection.projectId === target.id) return;
+    selection.setProject(target.id, target.displayName);
+    setFeedback(`✓ now on ${target.displayName}`);
+  };
+
+  const launchPerRepoFlowCtx = { deps, queue, storage, sessions, router, mountedRef, setFeedback };
+
+  useProjectDetailShortcuts({
+    modalOpen: ui.modalOpen,
+    confirmRemoveActive: confirmRemove !== undefined,
+    project,
+    focused,
+    fieldsLength: fields.length,
+    setCursorIdx,
+    handleEdit,
+    rootActions: {
+      a: (p) => router.push({ id: 'add-repository', props: { projectId: p.id } }),
+      m: markCurrent,
+    },
+    repoActions: {
+      d: (repo) => setConfirmRemove(repo),
+      c: (repo) => void launchPerRepoFlow(launchPerRepoFlowCtx, project, 'detect-scripts', repo),
+      S: (repo) => void launchPerRepoFlow(launchPerRepoFlowCtx, project, 'detect-skills', repo),
+    },
+    pushSprints: () => router.push({ id: 'sprints' }),
   });
 
   const handleRemoveConfirmed = async (target: Repository, confirmed: boolean): Promise<void> => {

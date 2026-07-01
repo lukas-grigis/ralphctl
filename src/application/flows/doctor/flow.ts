@@ -154,6 +154,222 @@ const probeCliAuth = async (
   return { id, label, status: 'warn', detail, hint, group };
 };
 
+/** Probe storage paths for readability and writability. */
+const probeStorageGroup = async (input: DoctorInput): Promise<readonly ProbeResult[]> => {
+  const probes: ProbeResult[] = [];
+  probes.push(await probePath('data-root', 'Data root readable', input.dataRoot, 'storage'));
+  probes.push(await probePath('config-root', 'Config root readable', input.configRoot, 'storage'));
+  probes.push(await probeWritable('data-root-writable', 'Data root writable', input.dataRoot));
+  probes.push(await probeWritable('config-root-writable', 'Config root writable', input.configRoot));
+  return probes;
+};
+
+/** Probe settings file persistence. */
+const probeSettingsGroup = async (deps: DoctorDeps): Promise<readonly ProbeResult[]> => {
+  const probes: ProbeResult[] = [];
+  const SETTINGS_PERSISTED_ID = 'settings-persisted';
+  const SETTINGS_PRESENT_LABEL = 'Settings file present';
+  const settingsPath = deps.settingsRepo.path;
+  const settingsExists = await deps.settingsRepo.exists();
+  if (!settingsExists.ok) {
+    probes.push({
+      id: SETTINGS_PERSISTED_ID,
+      label: SETTINGS_PRESENT_LABEL,
+      status: 'fail',
+      detail: `${settingsPath} — ${settingsExists.error.message}`,
+      group: 'settings',
+    });
+  } else if (settingsExists.value) {
+    probes.push({
+      id: SETTINGS_PERSISTED_ID,
+      label: SETTINGS_PRESENT_LABEL,
+      status: 'pass',
+      detail: settingsPath,
+      group: 'settings',
+    });
+  } else {
+    probes.push({
+      id: SETTINGS_PERSISTED_ID,
+      label: SETTINGS_PRESENT_LABEL,
+      status: 'warn',
+      detail: `${settingsPath} — using built-in defaults (first run)`,
+      hint: 'open the welcome flow to pick a provider and persist your settings',
+      group: 'settings',
+    });
+  }
+  return probes;
+};
+
+/** Probe VCS tooling: git, GitHub CLI, GitLab CLI, and their authentication. */
+const probeVcsToolingGroup = async (deps: DoctorDeps): Promise<readonly ProbeResult[]> => {
+  const probes: ProbeResult[] = [];
+
+  const gitInstalled = await deps.commandExists('git');
+  probes.push({
+    id: 'git-installed',
+    label: 'Git installed',
+    status: gitInstalled ? 'pass' : 'fail',
+    detail: gitInstalled ? 'git found on PATH' : 'git not found on PATH',
+    group: 'vcs',
+    ...(gitInstalled ? {} : { hint: 'install git — required for implement / review flows' }),
+  });
+  if (gitInstalled) {
+    probes.push(
+      await probeGitConfig(
+        'git-user-name',
+        'Git user.name',
+        'user.name',
+        deps.runCommand,
+        'run `git config --global user.name "<your name>"` so commits are attributed correctly'
+      )
+    );
+    probes.push(
+      await probeGitConfig(
+        'git-user-email',
+        'Git user.email',
+        'user.email',
+        deps.runCommand,
+        'run `git config --global user.email "<you@example.com>"` so commits are attributed correctly'
+      )
+    );
+  }
+
+  const ghInstalled = await deps.commandExists('gh');
+  probes.push({
+    id: 'gh-installed',
+    label: 'GitHub CLI (`gh`) installed',
+    status: ghInstalled ? 'pass' : 'warn',
+    detail: ghInstalled ? 'gh found on PATH' : 'gh not found on PATH',
+    group: 'vcs',
+    ...(ghInstalled ? {} : { hint: 'install gh from https://cli.github.com if you target GitHub' }),
+  });
+  if (ghInstalled) {
+    probes.push(
+      await probeCliAuth(
+        'gh-auth',
+        'GitHub CLI authenticated',
+        'gh',
+        ['auth', 'status'],
+        'run `gh auth login` to sign in',
+        deps.runCommand
+      )
+    );
+  }
+
+  const glabInstalled = await deps.commandExists('glab');
+  probes.push({
+    id: 'glab-installed',
+    label: 'GitLab CLI (`glab`) installed',
+    status: glabInstalled ? 'pass' : 'warn',
+    detail: glabInstalled ? 'glab found on PATH' : 'glab not found on PATH',
+    group: 'vcs',
+    ...(glabInstalled ? {} : { hint: 'install glab from https://gitlab.com/gitlab-org/cli if you target GitLab' }),
+  });
+  if (glabInstalled) {
+    probes.push(
+      await probeCliAuth(
+        'glab-auth',
+        'GitLab CLI authenticated',
+        'glab',
+        ['auth', 'status'],
+        'run `glab auth login` to sign in',
+        deps.runCommand
+      )
+    );
+  }
+
+  return probes;
+};
+
+/** Probe AI provider CLIs and their authentication. */
+const probeAiProvidersGroup = async (deps: DoctorDeps): Promise<readonly ProbeResult[]> => {
+  const probes: ProbeResult[] = [];
+
+  const settings = await deps.settingsRepo.load();
+  // Per-flow rows can each pick a provider; surface every provider that appears on any row
+  // as "configured" so the doctor flags binaries the user actually relies on.
+  const configuredProviders: ReadonlySet<AiProvider> = settings.ok
+    ? new Set<AiProvider>([
+        settings.value.ai.refine.provider,
+        settings.value.ai.plan.provider,
+        settings.value.ai.implement.generator.provider,
+        settings.value.ai.implement.evaluator.provider,
+        settings.value.ai.readiness.provider,
+        settings.value.ai.ideate.provider,
+      ])
+    : new Set<AiProvider>();
+
+  let codexInstalled = false;
+  for (const provider of Object.keys(PROVIDER_BINARY) as readonly AiProvider[]) {
+    const binary = PROVIDER_BINARY[provider];
+    const isConfigured = configuredProviders.has(provider);
+    const probe = await probeBinary(
+      `ai-${provider}`,
+      `${PROVIDER_LABEL[provider]}${isConfigured ? ' (configured)' : ''}`,
+      binary,
+      'ai',
+      deps.commandExists,
+      `install the '${binary}' CLI and ensure it is on your PATH`
+    );
+    if (provider === 'openai-codex') codexInstalled = probe.status === 'pass';
+    if (probe.status === 'fail') {
+      probes.push({ ...probe, status: 'warn' });
+    } else {
+      probes.push(probe);
+    }
+  }
+
+  if (configuredProviders.has('openai-codex') && codexInstalled) {
+    probes.push(
+      await probeCliAuth(
+        'codex-auth',
+        'OpenAI Codex CLI authenticated',
+        'codex',
+        ['login', 'status'],
+        'run `codex login` to sign in',
+        deps.runCommand,
+        'ai'
+      )
+    );
+  }
+
+  return probes;
+};
+
+/** Probe repository lists and data integrity. */
+const probeRepositoriesAndIntegrityGroup = async (deps: DoctorDeps): Promise<readonly ProbeResult[]> => {
+  const probes: ProbeResult[] = [];
+
+  const projects = await deps.projectRepo.list();
+  probes.push({
+    id: 'projects-list',
+    label: 'Project repository responds',
+    status: projects.ok ? 'pass' : 'fail',
+    detail: projects.ok ? `${String(projects.value.length)} project(s)` : projects.error.message,
+    group: 'repositories',
+  });
+
+  const sprints = await deps.sprintRepo.list();
+  probes.push({
+    id: 'sprints-list',
+    label: 'Sprint repository responds',
+    status: sprints.ok ? 'pass' : 'fail',
+    detail: sprints.ok ? `${String(sprints.value.length)} sprint(s)` : sprints.error.message,
+    group: 'repositories',
+  });
+
+  if (projects.ok && projects.value.length > 0) {
+    probes.push(...(await probeProjectRepoPaths(projects.value)));
+    probes.push(...(await probeProjectDefaultBranches(projects.value, deps.runCommand)));
+  }
+
+  if (sprints.ok && sprints.value.length > 0) {
+    probes.push(await probeSprintExecutionPairing(sprints.value, deps.sprintExecutionRepo));
+  }
+
+  return probes;
+};
+
 /**
  * Run the standard sanity probes and report each one's outcome. Always resolves to ok — a
  * failed probe is data, not an error.
@@ -167,199 +383,12 @@ export const createDoctorFlow = (deps: DoctorDeps): Element<DoctorCtx> =>
       async execute(input) {
         const probes: ProbeResult[] = [];
 
-        // ---- Storage ----------------------------------------------------------
-        probes.push(await probePath('data-root', 'Data root readable', input.dataRoot, 'storage'));
-        probes.push(await probePath('config-root', 'Config root readable', input.configRoot, 'storage'));
-        probes.push(await probeWritable('data-root-writable', 'Data root writable', input.dataRoot));
-        probes.push(await probeWritable('config-root-writable', 'Config root writable', input.configRoot));
-
-        // ---- Runtime ----------------------------------------------------------
+        probes.push(...(await probeStorageGroup(input)));
         probes.push(probeNodeVersion(deps.nodeVersion));
-
-        // ---- Settings ---------------------------------------------------------
-        const SETTINGS_PERSISTED_ID = 'settings-persisted';
-        const SETTINGS_PRESENT_LABEL = 'Settings file present';
-        const settingsPath = deps.settingsRepo.path;
-        const settingsExists = await deps.settingsRepo.exists();
-        if (!settingsExists.ok) {
-          probes.push({
-            id: SETTINGS_PERSISTED_ID,
-            label: SETTINGS_PRESENT_LABEL,
-            status: 'fail',
-            detail: `${settingsPath} — ${settingsExists.error.message}`,
-            group: 'settings',
-          });
-        } else if (settingsExists.value) {
-          probes.push({
-            id: SETTINGS_PERSISTED_ID,
-            label: SETTINGS_PRESENT_LABEL,
-            status: 'pass',
-            detail: settingsPath,
-            group: 'settings',
-          });
-        } else {
-          probes.push({
-            id: SETTINGS_PERSISTED_ID,
-            label: SETTINGS_PRESENT_LABEL,
-            status: 'warn',
-            detail: `${settingsPath} — using built-in defaults (first run)`,
-            hint: 'open the welcome flow to pick a provider and persist your settings',
-            group: 'settings',
-          });
-        }
-
-        // ---- VCS tooling: git + hosting CLIs ----------------------------------
-        const gitInstalled = await deps.commandExists('git');
-        probes.push({
-          id: 'git-installed',
-          label: 'Git installed',
-          status: gitInstalled ? 'pass' : 'fail',
-          detail: gitInstalled ? 'git found on PATH' : 'git not found on PATH',
-          group: 'vcs',
-          ...(gitInstalled ? {} : { hint: 'install git — required for implement / review flows' }),
-        });
-        if (gitInstalled) {
-          probes.push(
-            await probeGitConfig(
-              'git-user-name',
-              'Git user.name',
-              'user.name',
-              deps.runCommand,
-              'run `git config --global user.name "<your name>"` so commits are attributed correctly'
-            )
-          );
-          probes.push(
-            await probeGitConfig(
-              'git-user-email',
-              'Git user.email',
-              'user.email',
-              deps.runCommand,
-              'run `git config --global user.email "<you@example.com>"` so commits are attributed correctly'
-            )
-          );
-        }
-
-        const ghInstalled = await deps.commandExists('gh');
-        probes.push({
-          id: 'gh-installed',
-          label: 'GitHub CLI (`gh`) installed',
-          status: ghInstalled ? 'pass' : 'warn',
-          detail: ghInstalled ? 'gh found on PATH' : 'gh not found on PATH',
-          group: 'vcs',
-          ...(ghInstalled ? {} : { hint: 'install gh from https://cli.github.com if you target GitHub' }),
-        });
-        if (ghInstalled) {
-          probes.push(
-            await probeCliAuth(
-              'gh-auth',
-              'GitHub CLI authenticated',
-              'gh',
-              ['auth', 'status'],
-              'run `gh auth login` to sign in',
-              deps.runCommand
-            )
-          );
-        }
-
-        const glabInstalled = await deps.commandExists('glab');
-        probes.push({
-          id: 'glab-installed',
-          label: 'GitLab CLI (`glab`) installed',
-          status: glabInstalled ? 'pass' : 'warn',
-          detail: glabInstalled ? 'glab found on PATH' : 'glab not found on PATH',
-          group: 'vcs',
-          ...(glabInstalled
-            ? {}
-            : { hint: 'install glab from https://gitlab.com/gitlab-org/cli if you target GitLab' }),
-        });
-        if (glabInstalled) {
-          probes.push(
-            await probeCliAuth(
-              'glab-auth',
-              'GitLab CLI authenticated',
-              'glab',
-              ['auth', 'status'],
-              'run `glab auth login` to sign in',
-              deps.runCommand
-            )
-          );
-        }
-
-        // ---- AI providers -----------------------------------------------------
-        const settings = await deps.settingsRepo.load();
-        // Per-flow rows can each pick a provider; surface every provider that appears on any row
-        // as "configured" so the doctor flags binaries the user actually relies on.
-        const configuredProviders: ReadonlySet<AiProvider> = settings.ok
-          ? new Set<AiProvider>([
-              settings.value.ai.refine.provider,
-              settings.value.ai.plan.provider,
-              settings.value.ai.implement.generator.provider,
-              settings.value.ai.implement.evaluator.provider,
-              settings.value.ai.readiness.provider,
-              settings.value.ai.ideate.provider,
-            ])
-          : new Set<AiProvider>();
-        let codexInstalled = false;
-        for (const provider of Object.keys(PROVIDER_BINARY) as readonly AiProvider[]) {
-          const binary = PROVIDER_BINARY[provider];
-          const isConfigured = configuredProviders.has(provider);
-          const probe = await probeBinary(
-            `ai-${provider}`,
-            `${PROVIDER_LABEL[provider]}${isConfigured ? ' (configured)' : ''}`,
-            binary,
-            'ai',
-            deps.commandExists,
-            `install the '${binary}' CLI and ensure it is on your PATH`
-          );
-          if (provider === 'openai-codex') codexInstalled = probe.status === 'pass';
-          if (probe.status === 'fail') {
-            probes.push({ ...probe, status: 'warn' });
-          } else {
-            probes.push(probe);
-          }
-        }
-        if (configuredProviders.has('openai-codex') && codexInstalled) {
-          probes.push(
-            await probeCliAuth(
-              'codex-auth',
-              'OpenAI Codex CLI authenticated',
-              'codex',
-              ['login', 'status'],
-              'run `codex login` to sign in',
-              deps.runCommand,
-              'ai'
-            )
-          );
-        }
-
-        // ---- Repositories -----------------------------------------------------
-        const projects = await deps.projectRepo.list();
-        probes.push({
-          id: 'projects-list',
-          label: 'Project repository responds',
-          status: projects.ok ? 'pass' : 'fail',
-          detail: projects.ok ? `${String(projects.value.length)} project(s)` : projects.error.message,
-          group: 'repositories',
-        });
-
-        const sprints = await deps.sprintRepo.list();
-        probes.push({
-          id: 'sprints-list',
-          label: 'Sprint repository responds',
-          status: sprints.ok ? 'pass' : 'fail',
-          detail: sprints.ok ? `${String(sprints.value.length)} sprint(s)` : sprints.error.message,
-          group: 'repositories',
-        });
-
-        // ---- Integrity --------------------------------------------------------
-        if (projects.ok && projects.value.length > 0) {
-          probes.push(...(await probeProjectRepoPaths(projects.value)));
-          probes.push(...(await probeProjectDefaultBranches(projects.value, deps.runCommand)));
-        }
-
-        if (sprints.ok && sprints.value.length > 0) {
-          probes.push(await probeSprintExecutionPairing(sprints.value, deps.sprintExecutionRepo));
-        }
+        probes.push(...(await probeSettingsGroup(deps)));
+        probes.push(...(await probeVcsToolingGroup(deps)));
+        probes.push(...(await probeAiProvidersGroup(deps)));
+        probes.push(...(await probeRepositoriesAndIntegrityGroup(deps)));
 
         const hasFailures = probes.some((p) => p.status === 'fail');
         const allPassed = probes.every((p) => p.status === 'pass');

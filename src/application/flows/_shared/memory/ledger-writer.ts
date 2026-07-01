@@ -11,6 +11,7 @@ import { renderLearningsMd } from '@src/application/flows/_shared/memory/render-
 import {
   type LedgerLine,
   readLedgerLines,
+  serializeLedgerBody,
   statLedgerExceedsThreshold,
 } from '@src/application/flows/_shared/memory/read-ledger.ts';
 import { type LedgerRow, compactLedger } from '@src/application/flows/_shared/memory/compact-ledger.ts';
@@ -108,7 +109,7 @@ export const boundLedgerIfNeeded = async (
   const compacted = compactLedger(rows);
   if (compacted.evictedCount === 0 && compacted.deduplicatedCount === 0) return Result.ok(undefined);
 
-  const body = compacted.rows.map((r) => ensureTrailingNewline(r.raw)).join('');
+  const body = serializeLedgerBody(compacted.rows);
   const written = await deps.writeFile(ledgerPath, body);
   if (!written.ok) {
     deps.log.warn('ledger bounding rewrite failed (ledger still authoritative)', {
@@ -151,10 +152,3 @@ export const appendMemoryRecords = async (
   await boundLedgerIfNeeded(ledgerPath, { writeFile: deps.writeFile, log: deps.log });
   return Result.ok(undefined) as Result<void, StorageError>;
 };
-
-/**
- * `readLedgerLines` strips the trailing newline off each raw line (`split('\n')`);
- * `serializeLearningRecord` keeps it. Normalise so the NDJSON rewrite is one well-formed line per
- * row regardless of source.
- */
-const ensureTrailingNewline = (raw: string): string => (raw.endsWith('\n') ? raw : `${raw}\n`);

@@ -169,6 +169,173 @@ export const buildCopilotArgs = (session: AiSession): Result<readonly string[], 
   return Result.ok(args);
 };
 
+/** Handle returned by {@link createBoundedTail} — aliased so helpers below don't need a type import. */
+type BoundedTailHandle = ReturnType<typeof createBoundedTail>;
+
+/**
+ * Mutable per-attempt state captured while parsing one Copilot stdout stream. A single plain
+ * object (rather than three separate closured `let`s) so the `onLine` helpers below can read and
+ * mutate it by reference without each capturing its own slice of the attempt closure.
+ */
+interface CopilotAttemptState {
+  sessionId: string | undefined;
+  model: string | undefined;
+  usage: CopilotUsage;
+}
+
+const createCopilotAttemptState = (): CopilotAttemptState => ({
+  sessionId: undefined,
+  model: undefined,
+  usage: {},
+});
+
+/**
+ * Appends one line to both bounded tails in stream order — the forensic tail backs body.txt and
+ * the rate-limit tail is the classifier's scan haystack. Both drop their oldest bytes once full,
+ * so per-spawn stdout footprint is pinned regardless of child verbosity.
+ */
+const createLineRecorder =
+  (forensicTail: BoundedTailHandle, rateLimitTail: BoundedTailHandle) =>
+  (text: string): void => {
+    forensicTail.append(`${text}\n`);
+    rateLimitTail.append(`${text}\n`);
+  };
+
+/** Captures session id / model / usage off one JSON stream line into the shared attempt state. */
+const applyLineMeta = (state: CopilotAttemptState, line: CopilotStreamLine): void => {
+  if (line.sessionId !== undefined && state.sessionId === undefined) {
+    state.sessionId = line.sessionId;
+  }
+  if (line.model !== undefined && state.model === undefined) {
+    state.model = line.model;
+  }
+  // Last-write-wins on usage. Copilot occasionally emits multiple meta lines through a
+  // spawn; whichever lands last is the most current cumulative count.
+  if (line.usage !== undefined) {
+    state.usage = line.usage;
+  }
+};
+
+/** Per-line assistant debug event, driven off the parser's extracted `bodyText`. */
+const publishAssistantLine = (deps: CopilotProviderDeps, bodyText: string): void => {
+  const text = truncateField(bodyText);
+  if (text === undefined) return;
+  deps.eventBus.publish({
+    type: 'log',
+    level: 'debug',
+    message: 'copilot-provider: assistant',
+    meta: { text },
+    at: IsoTimestamp.now(),
+  });
+};
+
+/** Per-line raw-stdout debug event, published for every recognised JSON stream line. */
+const publishStdoutJsonLine = (deps: CopilotProviderDeps, line: CopilotStreamLine): void => {
+  // Truncate the raw line like every other stream-originated debug field (see truncateField):
+  // at the debug floor this fires per stdout line, so an untruncated raw envelope would bloat
+  // each capped log-bus entry. The full raw stream is still captured in bodyFile when set.
+  const rawLine = truncateField(line.raw);
+  deps.eventBus.publish({
+    type: 'log',
+    level: 'debug',
+    message: 'copilot-provider: stdout json line',
+    ...(rawLine !== undefined ? { meta: { raw: rawLine } } : {}),
+    at: IsoTimestamp.now(),
+  });
+};
+
+/** Handles one JSON stream line: meta capture, body/raw recording, then the stdout debug event. */
+const handleJsonLine = (
+  deps: CopilotProviderDeps,
+  state: CopilotAttemptState,
+  recordLine: (text: string) => void,
+  line: CopilotStreamLine
+): void => {
+  applyLineMeta(state, line);
+  if (line.bodyText !== undefined && line.bodyText.length > 0) {
+    recordLine(line.bodyText);
+    publishAssistantLine(deps, line.bodyText);
+  } else if (line.sessionId === undefined && line.model === undefined && line.usage === undefined) {
+    // Unrecognised JSON event — keep the raw form so `body.txt` (when bodyFile is set)
+    // captures Copilot's actual stream shapes. NEVER feed this to the signal parser:
+    // Copilot echoes the prompt as `user.message`, which carries literal harness tags.
+    recordLine(line.raw);
+  }
+  publishStdoutJsonLine(deps, line);
+};
+
+/** Builds the parser's per-line callback: non-JSON lines record raw, JSON lines fan out via {@link handleJsonLine}. */
+const createOnLine =
+  (deps: CopilotProviderDeps, state: CopilotAttemptState, recordLine: (text: string) => void) =>
+  (line: CopilotStreamLine): void =>
+    // Non-JSON lines (banner/status); preserve in body.txt but keep out of signal parsing.
+    line.json === undefined ? recordLine(line.raw) : handleJsonLine(deps, state, recordLine, line);
+
+/**
+ * Builds the per-attempt function passed to `runProviderAttempt` via `createGenerateContext`.
+ * Wires the argv build, stream parser, bounded tails, attempt state, and the resulting
+ * `onLine` callback, then delegates the actual spawn/exit/retry-classification handling to
+ * the shared `runProviderAttempt` scaffold.
+ */
+const createCopilotAttempt = (deps: CopilotProviderDeps, spawnFn: ProviderSpawn, command: string) => {
+  return async (attemptSession: AiSession) => {
+    const built = buildCopilotArgs(attemptSession);
+    if (!built.ok) return { kind: 'error' as const, error: built.error };
+
+    const parser = createCopilotStreamParser();
+    // Two bounded tails fed in stream order — the forensic tail backs body.txt and the
+    // rate-limit tail is the classifier's scan haystack. Both drop their oldest bytes once
+    // full, so per-spawn stdout footprint is pinned regardless of child verbosity.
+    const forensicTail = createBoundedTail(FORENSIC_BODY_TAIL_CAP);
+    const rateLimitTail = createBoundedTail(RATE_LIMIT_SCAN_TAIL_CAP);
+    const recordLine = createLineRecorder(forensicTail, rateLimitTail);
+    const state = createCopilotAttemptState();
+    const onLine = createOnLine(deps, state, recordLine);
+
+    return runProviderAttempt({
+      spawnFn,
+      command,
+      args: built.value,
+      session: attemptSession,
+      resolveOn: 'exit',
+      // Copilot reads the prompt from -p argv (no stdin payload); omitting `stdin` causes
+      // runProviderAttempt to close the child's stdin immediately.
+      rateLimitRe: DEFAULT_RATE_LIMIT_RE,
+      onStdoutChunk: (chunk) => {
+        parser.feed(chunk, onLine);
+      },
+      // Flush any partial line remaining in the buffer — Copilot may terminate without a
+      // trailing newline. The parser drains inline so flush is a no-op in the normal case.
+      flush: () => {
+        parser.flush(onLine);
+      },
+      getSessionId: () => state.sessionId,
+      // Feed the stream body tail into the rate-limit haystack — Copilot reports a quota
+      // throttle in its result-record text, not on stderr. rateLimitTail is already bounded
+      // to RATE_LIMIT_SCAN_TAIL_CAP, so a long session can't build a multi-MB scan string.
+      getStdoutTail: () => {
+        const tail = rateLimitTail.value();
+        return tail.length > 0 ? tail : undefined;
+      },
+      // forensicTail is the accumulated body buffer; operators inspect it when a proposal
+      // comes back empty to decide whether the prompt, the AI, or the validator is at fault.
+      getBody: () => Promise.resolve(Result.ok(forensicTail.value())),
+      emitProviderTokenUsage: (sid) => {
+        emitTokenUsage(deps.eventBus, attemptSession, sid, {
+          provider: 'github-copilot',
+          ...(state.model !== undefined ? { model: state.model } : {}),
+          ...(state.usage.inputTokens !== undefined ? { inputTokens: state.usage.inputTokens } : {}),
+          ...(state.usage.outputTokens !== undefined ? { outputTokens: state.usage.outputTokens } : {}),
+        });
+      },
+      providerName: PROVIDER_NAME,
+      providerSlug: 'copilot',
+      eventBus: deps.eventBus,
+      ...(deps.idleMs !== undefined ? { idleMs: deps.idleMs } : {}),
+    });
+  };
+};
+
 export const createCopilotProvider = (deps: CopilotProviderDeps): HeadlessAiProvider => {
   const spawnFn: ProviderSpawn = deps.spawn ?? defaultProviderSpawn;
   const command = deps.command ?? 'copilot';
@@ -180,116 +347,6 @@ export const createCopilotProvider = (deps: CopilotProviderDeps): HeadlessAiProv
     rateLimitRetries: deps.rateLimitRetries,
     eventBus: deps.eventBus,
     ...(deps.backoffSchedule !== undefined ? { backoffSchedule: deps.backoffSchedule } : {}),
-    createGenerateContext: () => ({
-      attempt: async (attemptSession) => {
-        const built = buildCopilotArgs(attemptSession);
-        if (!built.ok) return { kind: 'error', error: built.error };
-
-        const parser = createCopilotStreamParser();
-        // Two bounded tails fed in stream order — the forensic tail backs body.txt and the
-        // rate-limit tail is the classifier's scan haystack. Both drop their oldest bytes once
-        // full, so per-spawn stdout footprint is pinned regardless of child verbosity.
-        const forensicTail = createBoundedTail(FORENSIC_BODY_TAIL_CAP);
-        const rateLimitTail = createBoundedTail(RATE_LIMIT_SCAN_TAIL_CAP);
-        const recordLine = (text: string): void => {
-          forensicTail.append(`${text}\n`);
-          rateLimitTail.append(`${text}\n`);
-        };
-        let sessionId: string | undefined;
-        let model: string | undefined;
-        let usage: CopilotUsage = {};
-
-        const onLine = (line: CopilotStreamLine): void => {
-          if (line.json !== undefined) {
-            if (line.sessionId !== undefined && sessionId === undefined) {
-              sessionId = line.sessionId;
-            }
-            if (line.model !== undefined && model === undefined) {
-              model = line.model;
-            }
-            // Last-write-wins on usage. Copilot occasionally emits multiple meta lines through a
-            // spawn; whichever lands last is the most current cumulative count.
-            if (line.usage !== undefined) {
-              usage = line.usage;
-            }
-            if (line.bodyText !== undefined && line.bodyText.length > 0) {
-              recordLine(line.bodyText);
-              // Per-line assistant debug event.
-              const text = truncateField(line.bodyText);
-              if (text !== undefined) {
-                deps.eventBus.publish({
-                  type: 'log',
-                  level: 'debug',
-                  message: 'copilot-provider: assistant',
-                  meta: { text },
-                  at: IsoTimestamp.now(),
-                });
-              }
-            } else if (line.sessionId === undefined && line.model === undefined && line.usage === undefined) {
-              // Unrecognised JSON event — keep the raw form so `body.txt` (when bodyFile is set)
-              // captures Copilot's actual stream shapes. NEVER feed this to the signal parser:
-              // Copilot echoes the prompt as `user.message`, which carries literal harness tags.
-              recordLine(line.raw);
-            }
-            // Truncate the raw line like every other stream-originated debug field (see truncateField):
-            // at the debug floor this fires per stdout line, so an untruncated raw envelope would bloat
-            // each capped log-bus entry. The full raw stream is still captured in bodyFile when set.
-            const rawLine = truncateField(line.raw);
-            deps.eventBus.publish({
-              type: 'log',
-              level: 'debug',
-              message: 'copilot-provider: stdout json line',
-              ...(rawLine !== undefined ? { meta: { raw: rawLine } } : {}),
-              at: IsoTimestamp.now(),
-            });
-            return;
-          }
-          // Non-JSON lines (banner/status); preserve in body.txt but keep out of signal parsing.
-          recordLine(line.raw);
-        };
-
-        return runProviderAttempt({
-          spawnFn,
-          command,
-          args: built.value,
-          session: attemptSession,
-          resolveOn: 'exit',
-          // Copilot reads the prompt from -p argv (no stdin payload); omitting `stdin` causes
-          // runProviderAttempt to close the child's stdin immediately.
-          rateLimitRe: DEFAULT_RATE_LIMIT_RE,
-          onStdoutChunk: (chunk) => {
-            parser.feed(chunk, onLine);
-          },
-          // Flush any partial line remaining in the buffer — Copilot may terminate without a
-          // trailing newline. The parser drains inline so flush is a no-op in the normal case.
-          flush: () => {
-            parser.flush(onLine);
-          },
-          getSessionId: () => sessionId,
-          // Feed the stream body tail into the rate-limit haystack — Copilot reports a quota
-          // throttle in its result-record text, not on stderr. rateLimitTail is already bounded
-          // to RATE_LIMIT_SCAN_TAIL_CAP, so a long session can't build a multi-MB scan string.
-          getStdoutTail: () => {
-            const tail = rateLimitTail.value();
-            return tail.length > 0 ? tail : undefined;
-          },
-          // forensicTail is the accumulated body buffer; operators inspect it when a proposal
-          // comes back empty to decide whether the prompt, the AI, or the validator is at fault.
-          getBody: () => Promise.resolve(Result.ok(forensicTail.value())),
-          emitProviderTokenUsage: (sid) => {
-            emitTokenUsage(deps.eventBus, attemptSession, sid, {
-              provider: 'github-copilot',
-              ...(model !== undefined ? { model } : {}),
-              ...(usage.inputTokens !== undefined ? { inputTokens: usage.inputTokens } : {}),
-              ...(usage.outputTokens !== undefined ? { outputTokens: usage.outputTokens } : {}),
-            });
-          },
-          providerName: PROVIDER_NAME,
-          providerSlug: 'copilot',
-          eventBus: deps.eventBus,
-          ...(deps.idleMs !== undefined ? { idleMs: deps.idleMs } : {}),
-        });
-      },
-    }),
+    createGenerateContext: () => ({ attempt: createCopilotAttempt(deps, spawnFn, command) }),
   });
 };

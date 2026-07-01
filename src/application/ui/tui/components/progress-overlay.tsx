@@ -20,6 +20,8 @@ import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import React, { useEffect, useState } from 'react';
 import { resolveSprintDir } from '@src/integration/persistence/storage.ts';
+import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { Box, Text, useInput } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
@@ -58,25 +60,15 @@ const formatAgo = (modifiedAtMs: number, now: number): string => {
   return `${fmtDuration(elapsed)} ago`;
 };
 
-export const ProgressOverlay = (): React.JSX.Element => {
-  const selection = useSelection();
-  const ui = useUiState();
-  const storage = useStorage();
-  const term = useTerminalSize();
+/**
+ * Loads `<sprintDir>/progress.md` on mount / whenever `sprintId` or `dataRoot` change. The sprint
+ * dir is resolved via the tolerant id-prefix resolver so both the new `<id>--<slug>/` and legacy
+ * bare `<id>/` names are found — building the bare path here would split-brain against a
+ * slug-renamed dir. We don't tail the file; a re-open (close + `g` again) gets the latest snapshot.
+ */
+const useProgressFile = (sprintId: SprintId | undefined, dataRoot: AbsolutePath): ProgressState => {
   const [state, setState] = useState<ProgressState>({ kind: 'loading' });
-  const [offset, setOffset] = useState<number>(0);
-  // Frozen "now" at mount so the "(Xs ago)" header doesn't tick mid-view; pressing `g` again
-  // re-mounts the overlay and refreshes the file + the timestamp.
-  const [now] = useState<number>(() => Date.now());
 
-  // When an Execute view is focused, prefer its pinned sprint so `g` opens the run's own
-  // progress file rather than whatever the global selection happens to be.
-  const sprintId = ui.focusedRunSprintId ?? selection.sprintId;
-
-  // Re-read on mount. The harness's progress-file-sink is the writer; we don't tail. A
-  // re-open (close + `g` again) gets the latest snapshot. The sprint dir is resolved via the
-  // tolerant id-prefix resolver so both the new `<id>--<slug>/` and legacy bare `<id>/` names
-  // are found — building the bare path here would split-brain against a slug-renamed dir.
   useEffect(() => {
     let cancelled = false;
     if (sprintId === undefined) {
@@ -85,7 +77,7 @@ export const ProgressOverlay = (): React.JSX.Element => {
     }
     const load = async (): Promise<void> => {
       try {
-        const dir = await resolveSprintDir(storage.dataRoot, sprintId);
+        const dir = await resolveSprintDir(dataRoot, sprintId);
         if (cancelled) return;
         if (dir === undefined) {
           setState({ kind: 'missing' });
@@ -117,22 +109,37 @@ export const ProgressOverlay = (): React.JSX.Element => {
     return () => {
       cancelled = true;
     };
-  }, [sprintId, storage.dataRoot]);
+  }, [sprintId, dataRoot]);
 
-  // Reset offset whenever the underlying line count changes (e.g. re-open of a longer file).
+  return state;
+};
+
+interface ProgressScroll {
+  readonly offset: number;
+  readonly maxOffset: number;
+  readonly visibleLines: readonly string[];
+  readonly lineCount: number;
+}
+
+/**
+ * Owns the scroll offset + keyboard handling for the progress body. Resets to the top whenever
+ * the underlying line count changes (e.g. re-open of a longer file). No `g` / `G` bindings here —
+ * `g` is the global open / close toggle, so claiming it inside the overlay would be a UX landmine.
+ * PgUp / PgDn / Ctrl+b/f/u/d cover the same ground.
+ */
+const useProgressScroll = (state: ProgressState, bodyRows: number): ProgressScroll => {
+  const [offset, setOffset] = useState<number>(0);
+
   const lineCount = state.kind === 'ok' ? state.lines.length : 0;
   useEffect(() => {
     setOffset(0);
   }, [lineCount]);
 
-  const bodyRows = Math.max(MIN_BODY_ROWS, term.rows - CHROME_ROWS);
   const maxOffset = Math.max(0, lineCount - bodyRows);
   const clamp = (n: number): number => Math.max(0, Math.min(n, maxOffset));
 
   useInput((input, key) => {
-    // Only scroll when there's an actual document and it overflows the viewport. No `g` / `G`
-    // bindings here — `g` is the global open / close toggle, so claiming it inside the overlay
-    // would be a UX landmine. PgUp / PgDn / Ctrl+b/f/u/d cover the same ground.
+    // Only scroll when there's an actual document and it overflows the viewport.
     if (state.kind !== 'ok' || maxOffset === 0) return;
     if (key.upArrow) {
       setOffset((o) => clamp(o - 1));
@@ -160,6 +167,99 @@ export const ProgressOverlay = (): React.JSX.Element => {
   });
 
   const visibleLines = state.kind === 'ok' ? state.lines.slice(offset, offset + bodyRows) : [];
+
+  return { offset, maxOffset, visibleLines, lineCount };
+};
+
+interface ProgressBodyProps {
+  readonly state: ProgressState;
+  readonly visibleLines: readonly string[];
+  readonly offset: number;
+  readonly bodyRows: number;
+  readonly lineCount: number;
+  readonly modifiedAgo: string | undefined;
+}
+
+/** Renders the scrollable body (one branch per {@link ProgressState} kind) plus the paginated footer. */
+const ProgressBody = ({
+  state,
+  visibleLines,
+  offset,
+  bodyRows,
+  lineCount,
+  modifiedAgo,
+}: ProgressBodyProps): React.JSX.Element => {
+  const maxOffset = Math.max(0, lineCount - bodyRows);
+  return (
+    <>
+      <Box flexDirection="column" marginTop={spacing.section}>
+        {state.kind === 'loading' && <Spinner label="Loading…" />}
+        {state.kind === 'missing' && (
+          <Box flexDirection="column">
+            <Text>{glyphs.infoGlyph} No progress file yet.</Text>
+            <Box marginTop={1}>
+              <Text dimColor>
+                The harness writes <Text>progress.md</Text> as the implementer reports signals. It will appear once a
+                run starts.
+              </Text>
+            </Box>
+          </Box>
+        )}
+        {state.kind === 'empty' && (
+          <Box flexDirection="column">
+            <Text>{glyphs.infoGlyph} Progress file exists but is empty.</Text>
+            <Box marginTop={1}>
+              <Text dimColor>Touched {modifiedAgo}; no signals have been recorded yet.</Text>
+            </Box>
+          </Box>
+        )}
+        {state.kind === 'failed' && (
+          <Box flexDirection="column">
+            <Text color={inkColors.error}>{glyphs.cross} Could not read progress file.</Text>
+            <Box marginTop={1}>
+              <Text dimColor>{state.message}</Text>
+            </Box>
+          </Box>
+        )}
+        {state.kind === 'ok' && (
+          <Box flexDirection="column">
+            {visibleLines.map((line, idx) => (
+              <Text key={`row-${String(offset + idx)}`}>{line.length === 0 ? ' ' : line}</Text>
+            ))}
+          </Box>
+        )}
+      </Box>
+      {state.kind === 'ok' && maxOffset > 0 && (
+        <Box marginTop={spacing.section} justifyContent="space-between">
+          <Text dimColor>
+            lines {String(offset + 1)}–{String(Math.min(lineCount, offset + bodyRows))} of {String(lineCount)}
+          </Text>
+          <Text dimColor>
+            {glyphs.bullet} ↑/↓ scroll {glyphs.bullet} PgUp/PgDn page
+          </Text>
+        </Box>
+      )}
+    </>
+  );
+};
+
+export const ProgressOverlay = (): React.JSX.Element => {
+  const selection = useSelection();
+  const ui = useUiState();
+  const storage = useStorage();
+  const term = useTerminalSize();
+  // Frozen "now" at mount so the "(Xs ago)" header doesn't tick mid-view; pressing `g` again
+  // re-mounts the overlay and refreshes the file + the timestamp.
+  const [now] = useState<number>(() => Date.now());
+
+  // When an Execute view is focused, prefer its pinned sprint so `g` opens the run's own
+  // progress file rather than whatever the global selection happens to be.
+  const sprintId = ui.focusedRunSprintId ?? selection.sprintId;
+
+  const state = useProgressFile(sprintId, storage.dataRoot);
+
+  const bodyRows = Math.max(MIN_BODY_ROWS, term.rows - CHROME_ROWS);
+  const { offset, visibleLines, lineCount } = useProgressScroll(state, bodyRows);
 
   const sprintLabel =
     ui.focusedRunSprintLabel ?? selection.sprintLabel ?? (sprintId !== undefined ? String(sprintId) : '(no sprint)');
@@ -190,53 +290,14 @@ export const ProgressOverlay = (): React.JSX.Element => {
           </Box>
           <Text dimColor>esc · g to close</Text>
         </Box>
-        <Box flexDirection="column" marginTop={spacing.section}>
-          {state.kind === 'loading' && <Spinner label="Loading…" />}
-          {state.kind === 'missing' && (
-            <Box flexDirection="column">
-              <Text>{glyphs.infoGlyph} No progress file yet.</Text>
-              <Box marginTop={1}>
-                <Text dimColor>
-                  The harness writes <Text>progress.md</Text> as the implementer reports signals. It will appear once a
-                  run starts.
-                </Text>
-              </Box>
-            </Box>
-          )}
-          {state.kind === 'empty' && (
-            <Box flexDirection="column">
-              <Text>{glyphs.infoGlyph} Progress file exists but is empty.</Text>
-              <Box marginTop={1}>
-                <Text dimColor>Touched {modifiedAgo}; no signals have been recorded yet.</Text>
-              </Box>
-            </Box>
-          )}
-          {state.kind === 'failed' && (
-            <Box flexDirection="column">
-              <Text color={inkColors.error}>{glyphs.cross} Could not read progress file.</Text>
-              <Box marginTop={1}>
-                <Text dimColor>{state.message}</Text>
-              </Box>
-            </Box>
-          )}
-          {state.kind === 'ok' && (
-            <Box flexDirection="column">
-              {visibleLines.map((line, idx) => (
-                <Text key={`row-${String(offset + idx)}`}>{line.length === 0 ? ' ' : line}</Text>
-              ))}
-            </Box>
-          )}
-        </Box>
-        {state.kind === 'ok' && maxOffset > 0 && (
-          <Box marginTop={spacing.section} justifyContent="space-between">
-            <Text dimColor>
-              lines {String(offset + 1)}–{String(Math.min(lineCount, offset + bodyRows))} of {String(lineCount)}
-            </Text>
-            <Text dimColor>
-              {glyphs.bullet} ↑/↓ scroll {glyphs.bullet} PgUp/PgDn page
-            </Text>
-          </Box>
-        )}
+        <ProgressBody
+          state={state}
+          visibleLines={visibleLines}
+          offset={offset}
+          bodyRows={bodyRows}
+          lineCount={lineCount}
+          modifiedAgo={modifiedAgo}
+        />
       </Box>
     </Box>
   );

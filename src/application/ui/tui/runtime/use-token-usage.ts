@@ -4,11 +4,11 @@
 // because every insert path goes through the same delete-then-set-then-evict reducer, and the
 // TokenBudgetCard only ever reads the most recent session anyway — evicted entries are unread.
 //
-// Commit-rate: the subscription feeds a `createCoalescedBuffer`, so a burst of `token-usage`
-// events yields at most ONE `setUsage` (one React commit) per flush window rather than one
-// per publish — the same commit-storm guard `use-event-bus.ts` gained in d2208392. The cap
-// doubles as the buffer's per-window event cap; equal to the Map cap, it can only shed events
-// the Map fold would itself evict via LRU.
+// Commit-rate: the subscription feeds a `createCoalescedBuffer` (via `useCoalescedMap`), so a
+// burst of `token-usage` events yields at most ONE `setUsage` (one React commit) per flush window
+// rather than one per publish — the same commit-storm guard `use-event-bus.ts` gained in d2208392.
+// The cap doubles as the buffer's per-window event cap; equal to the Map cap, it can only shed
+// events the Map fold would itself evict via LRU.
 
 /**
  * Per-session token-usage tracker — subscribes to `TokenUsageEvent` on the EventBus and folds
@@ -28,10 +28,9 @@
  * many rounds × tasks × rate-limit retries could otherwise grow the Map unboundedly.
  */
 
-import { useEffect, useState } from 'react';
 import type { AppEvent, TokenUsageEvent } from '@src/business/observability/events.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
-import { createCoalescedBuffer } from '@src/application/ui/tui/runtime/coalesced-buffer.ts';
+import { useCoalescedMap } from '@src/application/ui/tui/runtime/use-coalesced-map.ts';
 
 /**
  * Hard cap on retained per-session token-usage entries. Each entry is small (~100 bytes) but
@@ -73,6 +72,17 @@ const toUsage = (e: TokenUsageEvent): TokenUsage => ({
   ...(e.contextWindow !== undefined ? { contextWindow: e.contextWindow } : {}),
 });
 
+// Key by the chain runner id when present — that is the id the execute view looks up by.
+// Provider adapters stamp `sessionId` with the AI CLI's own uuid (a disjoint id space), so keying
+// on it alone guarantees a miss. Legacy / one-shot events without a runner id fall back to
+// `sessionId` so they still resolve. Module-scoped so it stays referentially stable across
+// renders — `useCoalescedMap`'s effect deps include it, and a fresh arrow per render would churn
+// the subscription.
+const keyOfTokenUsage = (e: TokenUsageEvent): string => e.chainSessionId ?? e.sessionId;
+
+// Latest event always wins per key — no monotonic guard, so the fold ignores `existing`.
+const foldTokenUsage = (_existing: TokenUsage | undefined, e: TokenUsageEvent): TokenUsage => toUsage(e);
+
 /** @public */
 export interface UseTokenUsageOptions {
   /** Flush cadence in ms. Test-only escape hatch; production callers use the coalescer default. */
@@ -83,58 +93,16 @@ export interface UseTokenUsageOptions {
  * Subscribe to `token-usage` events on `bus` and return the latest usage per sessionId. Returns
  * a fresh Map on every update so React's referential equality check triggers re-renders.
  *
- * Events feed a `createCoalescedBuffer` (delta semantics via `clearOnFlush`), so a burst of
- * publishes folds into the Map in a single `setUsage` per flush window — decoupling the publish
- * rate from React's commit rate. Latest-wins per key, so a same-session event later in a batch
- * supersedes an earlier one via the delete + re-set.
+ * Events feed a `useCoalescedMap` (delta semantics via the shared buffer's `clearOnFlush`), so a
+ * burst of publishes folds into the Map in a single `setState` per flush window — decoupling the
+ * publish rate from React's commit rate. Latest-wins per key, so a same-session event later in a
+ * batch supersedes an earlier one.
  */
-export const useTokenUsage = (bus: EventBus, opts: UseTokenUsageOptions = {}): ReadonlyMap<string, TokenUsage> => {
-  const { flushMs } = opts;
-  const [usage, setUsage] = useState<ReadonlyMap<string, TokenUsage>>(() => new Map());
-
-  useEffect(() => {
-    const buf = createCoalescedBuffer<TokenUsageEvent>({
-      limit: TOKEN_USAGE_SESSION_CAP,
-      clearOnFlush: true,
-      ...(flushMs !== undefined ? { flushMs } : {}),
-      onFlush: (batch) => {
-        setUsage((prev) => {
-          let next: Map<string, TokenUsage> | undefined;
-          for (const event of batch) {
-            // Key by the chain runner id when present — that is the id the execute view looks up by.
-            // Provider adapters stamp `sessionId` with the AI CLI's own uuid (a disjoint id space), so
-            // keying on it alone guarantees a miss. Legacy / one-shot events without a runner id fall
-            // back to `sessionId` so they still resolve.
-            const key = event.chainSessionId ?? event.sessionId;
-            if (next === undefined) next = new Map(prev);
-            // Delete + re-set so an updated session jumps to the end of insertion order; the
-            // post-fold trim below then drops the actually-oldest entry, not whichever key hashed
-            // first in Map's insertion order.
-            next.delete(key);
-            next.set(key, toUsage(event));
-          }
-          if (next === undefined) return prev;
-          // Single LRU trim once the whole batch is folded (delete+set kept order hot per session).
-          while (next.size > TOKEN_USAGE_SESSION_CAP) {
-            const oldest = next.keys().next().value;
-            if (oldest === undefined) break;
-            next.delete(oldest);
-          }
-          return next;
-        });
-      },
-    });
-    const unsub = bus.subscribe((event) => {
-      if (isTokenUsage(event)) buf.push(event);
-    });
-    // Order matters: unsub first so no push can race the drain, flushNow to land in-flight events,
-    // stop last to tear down the timer (no flush-after-stop on single-threaded JS).
-    return () => {
-      unsub();
-      buf.flushNow();
-      buf.stop();
-    };
-  }, [bus, flushMs]);
-
-  return usage;
-};
+export const useTokenUsage = (bus: EventBus, opts: UseTokenUsageOptions = {}): ReadonlyMap<string, TokenUsage> =>
+  useCoalescedMap<TokenUsageEvent, TokenUsage>(bus, {
+    cap: TOKEN_USAGE_SESSION_CAP,
+    ...(opts.flushMs !== undefined ? { flushMs: opts.flushMs } : {}),
+    accept: isTokenUsage,
+    keyOf: keyOfTokenUsage,
+    fold: foldTokenUsage,
+  });

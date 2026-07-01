@@ -98,6 +98,129 @@ const withoutResume = (session: AiSession): AiSession => {
   return cold;
 };
 
+interface HandleRateLimitOutcomeParams {
+  readonly eventBus: EventBus;
+  readonly providerSlug: RunWithRateLimitRetryOptions['providerSlug'];
+  readonly providerName: string;
+  readonly session: AiSession;
+  readonly attemptIdx: number;
+  readonly maxAttempts: number;
+  readonly schedule: readonly number[];
+  readonly error: RateLimitError;
+}
+
+/**
+ * Result of one rate-limit-outcome handling pass: either an abort surfaced during the backoff
+ * sleep (caller must stop and return it), or the rebuilt session the loop should retry with.
+ */
+type RateLimitOutcomeResult =
+  { readonly type: 'aborted'; readonly error: AbortError } | { readonly type: 'continue'; readonly session: AiSession };
+
+/**
+ * Handle one `rate-limit` attempt outcome: warn-log, rebuild the session with the captured
+ * resume id (if any), and — unless this was the last allotted attempt — wait out the backoff
+ * schedule behind a show/clear banner pair, short-circuiting on abort. Pulled out of the main
+ * loop body purely to keep that loop under the complexity/line thresholds; same publishes, same
+ * ordering, same abort semantics as before.
+ */
+const handleRateLimitOutcome = async ({
+  eventBus,
+  providerSlug,
+  providerName,
+  session,
+  attemptIdx,
+  maxAttempts,
+  schedule,
+  error,
+}: HandleRateLimitOutcomeParams): Promise<RateLimitOutcomeResult> => {
+  const bannerId = `rate-limit-${providerSlug}-${error.sessionId ?? String(attemptIdx + 1)}`;
+  eventBus.publish({
+    type: 'log',
+    level: 'warn',
+    message: `${providerName}: rate-limit on attempt ${String(attemptIdx + 1)}/${String(maxAttempts)}`,
+    meta: { attempt: attemptIdx + 1, maxAttempts, subCode: error.subCode },
+    at: IsoTimestamp.now(),
+  });
+  // Carry the interrupted session forward so the retry resumes it instead of cold-starting.
+  // Only when the provider captured an id — a 429 before any session id leaves nothing to
+  // resume, so the next attempt is necessarily cold.
+  const nextSession = error.sessionId !== undefined ? withResume(session, error.sessionId) : session;
+
+  // Wait before retrying — gives a daily-quota throttle a chance to reset on a fresh window.
+  // Only between attempts, not after the last one. Abort short-circuits the sleep so a
+  // user-initiated cancel doesn't have to wait through a multi-hour backoff.
+  if (attemptIdx >= maxAttempts - 1) {
+    return { type: 'continue', session: nextSession };
+  }
+  const delayMs = delayForRetry(attemptIdx + 1, schedule);
+  if (delayMs <= 0) {
+    return { type: 'continue', session: nextSession };
+  }
+
+  eventBus.publish({
+    type: 'log',
+    level: 'info',
+    message: `${providerName}: waiting ${String(delayMs)}ms before retry`,
+    meta: { delayMs, nextAttempt: attemptIdx + 2, maxAttempts },
+    at: IsoTimestamp.now(),
+  });
+  eventBus.publish({
+    type: 'banner-show',
+    id: bannerId,
+    tier: 'info',
+    message: `Rate limit (${providerSlug}) — waiting ${Math.round(delayMs / 1000).toString()}s before retry`,
+    cause: `attempt ${String(attemptIdx + 1)}/${String(maxAttempts)}`,
+    at: IsoTimestamp.now(),
+  });
+  await sleepCancellable(delayMs, nextSession.abortSignal);
+  // Clear once the wait completes (either elapsed or abort fired); the next attempt
+  // re-publishes if it also hits the rate-limit.
+  eventBus.publish({ type: 'banner-clear', id: bannerId, at: IsoTimestamp.now() });
+  if (nextSession.abortSignal?.aborted === true) {
+    // User cancel during the backoff sleep must surface as AbortError — the one error
+    // chains propagate transparently (CLAUDE.md §AbortError). InvalidStateError is
+    // classified as a recoverable turn error and would wrongly self-block the task.
+    // Mirrors the abort-on-exit shape in classify-spawn-exit.ts.
+    return {
+      type: 'aborted',
+      error: new AbortError({
+        elementName: providerName,
+        reason: `${providerName}: aborted by caller during rate-limit backoff`,
+      }),
+    };
+  }
+  return { type: 'continue', session: nextSession };
+};
+
+/**
+ * Stale-resume cold fallback predicate (FINDING 4 — shared, was codex-only). A `resume` spawn
+ * that failed because the provider no longer has the session/thread would otherwise block the
+ * task; the caller falls back to a COLD spawn (no resume) exactly once when this returns `true`.
+ * An aborted run is exempt: a user cancel must tear the run down, not spawn fresh work a
+ * competitor may now own.
+ */
+const shouldColdRetry = (
+  outcome: Extract<AttemptOutcome, { readonly kind: 'error' }>,
+  session: AiSession,
+  resumeStaleRe: RegExp | undefined,
+  coldRetried: boolean
+): boolean =>
+  resumeStaleRe !== undefined &&
+  !coldRetried &&
+  session.abortSignal?.aborted !== true &&
+  session.resume !== undefined &&
+  resumeStaleRe.test(outcome.error.message);
+
+const logColdRetry = (eventBus: EventBus, providerName: string, session: AiSession): void => {
+  eventBus.publish({
+    type: 'log',
+    level: 'warn',
+    message: `${providerName}: resume thread not found — retrying cold (dropping --resume)`,
+    meta: { resume: String(session.resume) },
+    at: IsoTimestamp.now(),
+  });
+};
+
 export const runWithRateLimitRetry = async (
   opts: RunWithRateLimitRetryOptions
 ): Promise<Result<ProviderOutput, DomainError>> => {
@@ -121,83 +244,28 @@ export const runWithRateLimitRetry = async (
 
     if (outcome.kind === 'rate-limit') {
       lastRateLimit = outcome.error;
-      const bannerId = `rate-limit-${providerSlug}-${outcome.error.sessionId ?? String(attemptIdx + 1)}`;
-      eventBus.publish({
-        type: 'log',
-        level: 'warn',
-        message: `${providerName}: rate-limit on attempt ${String(attemptIdx + 1)}/${String(maxAttempts)}`,
-        meta: { attempt: attemptIdx + 1, maxAttempts, subCode: outcome.error.subCode },
-        at: IsoTimestamp.now(),
+      const result = await handleRateLimitOutcome({
+        eventBus,
+        providerSlug,
+        providerName,
+        session,
+        attemptIdx,
+        maxAttempts,
+        schedule,
+        error: outcome.error,
       });
-      // Carry the interrupted session forward so the retry resumes it instead of cold-starting.
-      // Only when the provider captured an id — a 429 before any session id leaves nothing to
-      // resume, so the next attempt is necessarily cold.
-      if (outcome.error.sessionId !== undefined) {
-        session = withResume(session, outcome.error.sessionId);
+      if (result.type === 'aborted') {
+        return Result.error(result.error) as Result<ProviderOutput, DomainError>;
       }
-      // Wait before retrying — gives a daily-quota throttle a chance to reset on a fresh window.
-      // Only between attempts, not after the last one. Abort short-circuits the sleep so a
-      // user-initiated cancel doesn't have to wait through a multi-hour backoff.
-      if (attemptIdx < maxAttempts - 1) {
-        const delayMs = delayForRetry(attemptIdx + 1, schedule);
-        if (delayMs > 0) {
-          eventBus.publish({
-            type: 'log',
-            level: 'info',
-            message: `${providerName}: waiting ${String(delayMs)}ms before retry`,
-            meta: { delayMs, nextAttempt: attemptIdx + 2, maxAttempts },
-            at: IsoTimestamp.now(),
-          });
-          eventBus.publish({
-            type: 'banner-show',
-            id: bannerId,
-            tier: 'info',
-            message: `Rate limit (${providerSlug}) — waiting ${Math.round(delayMs / 1000).toString()}s before retry`,
-            cause: `attempt ${String(attemptIdx + 1)}/${String(maxAttempts)}`,
-            at: IsoTimestamp.now(),
-          });
-          await sleepCancellable(delayMs, session.abortSignal);
-          // Clear once the wait completes (either elapsed or abort fired); the next attempt
-          // re-publishes if it also hits the rate-limit.
-          eventBus.publish({ type: 'banner-clear', id: bannerId, at: IsoTimestamp.now() });
-          if (session.abortSignal?.aborted === true) {
-            // User cancel during the backoff sleep must surface as AbortError — the one error
-            // chains propagate transparently (CLAUDE.md §AbortError). InvalidStateError is
-            // classified as a recoverable turn error and would wrongly self-block the task.
-            // Mirrors the abort-on-exit shape in classify-spawn-exit.ts.
-            return Result.error(
-              new AbortError({
-                elementName: providerName,
-                reason: `${providerName}: aborted by caller during rate-limit backoff`,
-              })
-            ) as Result<ProviderOutput, DomainError>;
-          }
-        }
-      }
+      session = result.session;
       continue;
     }
 
-    // Stale-resume cold fallback (FINDING 4 — shared, was codex-only). A `resume` spawn that
-    // failed because the provider no longer has the session/thread would otherwise block the
-    // task. Fall back to a COLD spawn (no resume) exactly once. Re-running the SAME attempt
-    // index keeps the fallback from consuming a rate-limit slot; the `coldRetried` latch bounds
-    // it. An aborted run is exempt: a user cancel must tear the run down, not spawn fresh work a
-    // competitor may now own.
-    if (
-      resumeStaleRe !== undefined &&
-      !coldRetried &&
-      session.abortSignal?.aborted !== true &&
-      session.resume !== undefined &&
-      resumeStaleRe.test(outcome.error.message)
-    ) {
+    // Re-running the SAME attempt index keeps the cold fallback from consuming a rate-limit
+    // slot; see `shouldColdRetry` for the full rationale.
+    if (shouldColdRetry(outcome, session, resumeStaleRe, coldRetried)) {
       coldRetried = true;
-      eventBus.publish({
-        type: 'log',
-        level: 'warn',
-        message: `${providerName}: resume thread not found — retrying cold (dropping --resume)`,
-        meta: { resume: String(session.resume) },
-        at: IsoTimestamp.now(),
-      });
+      logColdRetry(eventBus, providerName, session);
       session = withoutResume(session);
       attemptIdx--;
       continue;

@@ -16,13 +16,14 @@
  * consistent across every consumer.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { Result } from '@src/domain/result.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { PendingPromptInput, PromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
 import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useIsMounted } from '@src/application/ui/tui/runtime/use-is-mounted.ts';
 
 export type EditFieldKind = 'short' | 'long';
 
@@ -75,19 +76,16 @@ export const useEditField = (): UseEditFieldState => {
   // Mounted-ref guard: `openEditPrompt` is async and the host view can unmount between the
   // initial keystroke and the prompt's resolution. Calling setState on an unmounted component
   // is a no-op in React 18+ but emits a dev warning and indicates a closure that survived
-  // teardown. The ref is set false on cleanup; every state mutation routes through
-  // `setFeedback` which checks it. `release()` in the finally block is unconditional — the
-  // claim counter must always decrement even if the view is gone.
-  const mountedRef = useRef(true);
-  useEffect(
-    () => () => {
-      mountedRef.current = false;
+  // teardown. Every state mutation routes through `setFeedback` which checks it. `release()` in
+  // the finally block is unconditional — the claim counter must always decrement even if the
+  // view is gone.
+  const mountedRef = useIsMounted();
+  const setFeedback = useCallback(
+    (value: string | undefined): void => {
+      if (mountedRef.current) setFeedbackState(value);
     },
-    []
+    [mountedRef]
   );
-  const setFeedback = useCallback((value: string | undefined): void => {
-    if (mountedRef.current) setFeedbackState(value);
-  }, []);
 
   const openEditPrompt = useCallback(
     async (input: OpenEditPromptInput): Promise<void> => {

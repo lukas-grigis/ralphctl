@@ -26,24 +26,4 @@
  * the provider reports, since the model-side wrapping (system prompts, tool definitions, …)
  * differs per route.
  */
-const CONTEXT_WINDOW: Readonly<Record<string, number>> = {
-  // Claude (claude-code adapter — direct from Anthropic)
-  'claude-haiku-4-5': 200_000,
-  'claude-sonnet-4-6': 200_000,
-  'claude-opus-4-8': 200_000,
-  // Sonnet 5 has no `[1m]` variant — it always runs at its native 1M window on the Anthropic API.
-  'claude-sonnet-5': 1_000_000,
-  // `[1m]` is Claude Code's 1M-token long-context selector — the window is part of the id.
-  'claude-opus-4-8[1m]': 1_000_000,
-  'claude-fable-5[1m]': 1_000_000,
-};
-
-/**
- * Look up the canonical context window for a provider-reported model id. Returns `undefined`
- * for unknown / unset models — emit the {@link TokenUsageEvent} without `contextWindow`, the
- * subscriber renders the raw counts.
- */
-export const contextWindowFor = (model: string | undefined): number | undefined => {
-  if (model === undefined) return undefined;
-  return CONTEXT_WINDOW[model];
-};
+export { contextWindowFor } from '@src/domain/value/settings-models/context-window.ts';

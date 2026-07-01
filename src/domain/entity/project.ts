@@ -259,36 +259,11 @@ export const updateRepository = (
   if (partial.path !== undefined) {
     updated = setRepositoryPath(updated, partial.path);
   }
-  if ('verifyScript' in partial) {
-    const r = setRepositoryVerifyScript(updated, partial.verifyScript);
-    if (!r.ok) return Result.error(r.error);
-    updated = r.value;
-  }
-  if ('verifyGates' in partial) {
-    const r = setRepositoryVerifyGates(updated, partial.verifyGates);
-    if (!r.ok) return Result.error(r.error);
-    updated = r.value;
-  }
-  if ('verifyTimeout' in partial) {
-    const r = setRepositoryVerifyTimeout(updated, partial.verifyTimeout);
-    if (!r.ok) return Result.error(r.error);
-    updated = r.value;
-  }
-  if ('setupScript' in partial) {
-    const r = setRepositorySetupScript(updated, partial.setupScript);
-    if (!r.ok) return Result.error(r.error);
-    updated = r.value;
-  }
-  if ('setupSkill' in partial) {
-    const r = setRepositorySetupSkill(updated, partial.setupSkill);
-    if (!r.ok) return Result.error(r.error);
-    updated = r.value;
-  }
-  if ('verifySkill' in partial) {
-    const r = setRepositoryVerifySkill(updated, partial.verifySkill);
-    if (!r.ok) return Result.error(r.error);
-    updated = r.value;
-  }
+
+  const validated = applyValidatedRepositoryFields(updated, partial);
+  if (!validated.ok) return Result.error(validated.error);
+  updated = validated.value;
+
   if ('suggestedSkills' in partial) {
     updated = setRepositorySuggestedSkills(updated, partial.suggestedSkills);
   }
@@ -296,6 +271,58 @@ export const updateRepository = (
   const next = [...project.repositories];
   next[idx] = updated;
   return Result.ok({ ...project, repositories: next });
+};
+
+/** The subset of {@link RepositoryUpdate} keys handled uniformly by {@link applyValidatedRepositoryFields}. */
+type ValidatedRepositoryField =
+  'verifyScript' | 'verifyGates' | 'verifyTimeout' | 'setupScript' | 'setupSkill' | 'verifySkill';
+
+/**
+ * Builds one `(repo, partial) => Result<Repository, ValidationError>` step for a single
+ * validated field. `key`/`setter` are correlated at the call site (this generic invocation),
+ * so the returned closure is safe to store alongside the other fields' closures in a plain,
+ * uniformly-typed array — see {@link VALIDATED_FIELD_STEPS}.
+ */
+const validatedFieldStep = <K extends ValidatedRepositoryField>(
+  key: K,
+  setter: (repo: Repository, value: RepositoryUpdate[K]) => Result<Repository, ValidationError>
+): ((repo: Repository, partial: RepositoryUpdate) => Result<Repository, ValidationError>) => {
+  return (repo, partial) => {
+    if (!(key in partial)) return Result.ok(repo);
+    return setter(repo, partial[key]);
+  };
+};
+
+/**
+ * The six `RepositoryUpdate` fields that share the exact same "guarded validating setter"
+ * shape (`'field' in partial` → call a `(repo, value) => Result<Repository, ValidationError>`
+ * setter → thread the error or the updated repo). Order matters — it is applied in declaration
+ * order by {@link applyValidatedRepositoryFields}, matching the field order `updateRepository`
+ * has always used.
+ */
+const VALIDATED_FIELD_STEPS: ReadonlyArray<
+  (repo: Repository, partial: RepositoryUpdate) => Result<Repository, ValidationError>
+> = [
+  validatedFieldStep('verifyScript', setRepositoryVerifyScript),
+  validatedFieldStep('verifyGates', setRepositoryVerifyGates),
+  validatedFieldStep('verifyTimeout', setRepositoryVerifyTimeout),
+  validatedFieldStep('setupScript', setRepositorySetupScript),
+  validatedFieldStep('setupSkill', setRepositorySetupSkill),
+  validatedFieldStep('verifySkill', setRepositoryVerifySkill),
+];
+
+/** Applies every {@link ValidatedRepositoryField} present on `partial`, in order, short-circuiting on error. */
+const applyValidatedRepositoryFields = (
+  repo: Repository,
+  partial: RepositoryUpdate
+): Result<Repository, ValidationError> => {
+  let updated = repo;
+  for (const step of VALIDATED_FIELD_STEPS) {
+    const r = step(updated, partial);
+    if (!r.ok) return Result.error(r.error);
+    updated = r.value;
+  }
+  return Result.ok(updated);
 };
 
 const resolveSlug = (

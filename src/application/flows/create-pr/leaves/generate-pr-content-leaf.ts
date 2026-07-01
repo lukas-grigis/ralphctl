@@ -109,6 +109,8 @@ export const generatePrContentLeaf = (deps: GeneratePrContentLeafDeps): Element<
   leaf<CreatePrCtx, GeneratePrContentInput, GeneratePrContentOutput>(LEAF_NAME, {
     useCase: {
       execute: async (input, signal) => {
+        const log = deps.logger.named(AI_LOGGER_NAME);
+
         // Derive verbatim `Closes <ref>` lines from ticket + task externalRefs — the prompt
         // embeds the rendered string and instructs the AI to mirror it at the bottom of the
         // body. Pre-computing here keeps the trailing refs deterministic instead of relying
@@ -134,32 +136,26 @@ export const generatePrContentLeaf = (deps: GeneratePrContentLeafDeps): Element<
           outputContractSection: renderContractSectionFor(generatePrContentOutputContract, input.unitRoot),
         });
         if (!promptResult.ok) {
-          deps.logger
-            .named(AI_LOGGER_NAME)
-            .warn(
-              `create-pr: AI authoring skipped — prompt build failed: ${promptResult.error.message}; falling back to template`
-            );
+          log.warn(
+            `create-pr: AI authoring skipped — prompt build failed: ${promptResult.error.message}; falling back to template`
+          );
           return Result.ok({});
         }
 
         const writePrompt = await deps.writeFile(input.promptFile, String(promptResult.value));
         if (!writePrompt.ok) {
-          deps.logger
-            .named(AI_LOGGER_NAME)
-            .warn(
-              `create-pr: AI authoring skipped — prompt file write failed: ${writePrompt.error.message}; falling back to template`
-            );
+          log.warn(
+            `create-pr: AI authoring skipped — prompt file write failed: ${writePrompt.error.message}; falling back to template`
+          );
           return Result.ok({});
         }
 
         // The signalsFile path mirrors the audit-[09] convention: <outputDir>/signals.json.
         const signalsFilePathResult = AbsolutePath.parse(`${String(input.unitRoot)}/signals.json`);
         if (!signalsFilePathResult.ok) {
-          deps.logger
-            .named(AI_LOGGER_NAME)
-            .warn(
-              `create-pr: AI authoring skipped — could not resolve signals.json path: ${signalsFilePathResult.error.message}; falling back to template`
-            );
+          log.warn(
+            `create-pr: AI authoring skipped — could not resolve signals.json path: ${signalsFilePathResult.error.message}; falling back to template`
+          );
           return Result.ok({});
         }
 
@@ -184,17 +180,13 @@ export const generatePrContentLeaf = (deps: GeneratePrContentLeafDeps): Element<
         try {
           const spawn = await deps.provider.generate(session);
           if (!spawn.ok) {
-            deps.logger
-              .named(AI_LOGGER_NAME)
-              .warn(`create-pr: AI authoring failed, falling back to template (${spawn.error.message})`);
+            log.warn(`create-pr: AI authoring failed, falling back to template (${spawn.error.message})`);
             return Result.ok({});
           }
 
           const validated = await validateSignalsFile(input.unitRoot, generatePrContentOutputContract);
           if (!validated.ok) {
-            deps.logger
-              .named(AI_LOGGER_NAME)
-              .warn(`create-pr: AI authoring failed, falling back to template (${validated.error.message})`);
+            log.warn(`create-pr: AI authoring failed, falling back to template (${validated.error.message})`);
             return Result.ok({});
           }
           const signals = validated.value;
@@ -219,9 +211,7 @@ export const generatePrContentLeaf = (deps: GeneratePrContentLeafDeps): Element<
           const prContent = signals.find((s): s is PrContentSignal => s.type === 'pr-content');
           if (prContent === undefined) {
             // Defensive — the contract's exactlyOne refine should have caught this upstream.
-            deps.logger
-              .named(AI_LOGGER_NAME)
-              .warn('create-pr: validated signals missing pr-content despite schema — falling back to template');
+            log.warn('create-pr: validated signals missing pr-content despite schema — falling back to template');
             return Result.ok({});
           }
 
@@ -230,11 +220,9 @@ export const generatePrContentLeaf = (deps: GeneratePrContentLeafDeps): Element<
           // AbortError MUST propagate per CLAUDE.md — user-initiated cancellation flows
           // through every wrapper without being absorbed by guards or fallbacks.
           if (err instanceof AbortError) throw err;
-          deps.logger
-            .named(AI_LOGGER_NAME)
-            .warn(
-              `create-pr: AI authoring failed, falling back to template (${err instanceof Error ? err.message : String(err)})`
-            );
+          log.warn(
+            `create-pr: AI authoring failed, falling back to template (${err instanceof Error ? err.message : String(err)})`
+          );
           return Result.ok({});
         }
       },

@@ -36,12 +36,17 @@ const PLACEHOLDER_PATTERN = /\{\{([A-Z][A-Z0-9_]*)\}\}/g;
 
 /**
  * Keys whose substituted values are tail-compressed when they exceed {@link SECTION_CHAR_CAP}.
- * These are large dynamic sections (progress journals, learning ledgers, episode history) that
- * grow unboundedly over a long sprint. Keeping the tail (most recent content) follows the
- * "Lost in the Middle" guidance — older entries are less useful and pushing them into the middle
- * of the context degrades model attention on the task-critical sections that follow.
+ * These are large dynamic sections (progress journals, learning ledgers) that grow unboundedly
+ * over a long sprint. Keeping the tail (most recent content) follows the "Lost in the Middle"
+ * guidance — older entries are less useful and pushing them into the middle of the context
+ * degrades model attention on the task-critical sections that follow.
+ *
+ * Episode summaries are deliberately excluded: they are hard-bounded to a handful of short items
+ * well under the cap, and their substituted value self-wraps in an opening/closing tag (unlike
+ * the wrappers for the keys below, which live in template.md). Tail-slicing would drop the
+ * leading open tag, leaving a dangling close tag outside any tag — malformed.
  */
-const COMPRESSIBLE_KEYS = new Set(['PRIOR_PROGRESS', 'PRIOR_LEARNINGS', 'PRIOR_EPISODES']);
+const COMPRESSIBLE_KEYS = new Set(['PRIOR_PROGRESS', 'PRIOR_LEARNINGS']);
 
 export const substitute = (template: string, values: Readonly<Record<string, string>>): string =>
   template.replace(PLACEHOLDER_PATTERN, (match, key: string) => {

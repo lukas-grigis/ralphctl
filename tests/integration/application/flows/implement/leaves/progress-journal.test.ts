@@ -30,6 +30,7 @@ import {
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
+import { createFoldQueue } from '@src/application/flows/implement/wave-branch.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { progressJournalLeaf } from '@src/application/flows/implement/leaves/progress-journal.ts';
@@ -77,7 +78,12 @@ const ctxFor = (tasks: ImplementCtx['tasks'], extra: Partial<ImplementCtx> = {})
   ...extra,
 });
 
-const journalDeps = (writeFile: WriteFile, clock = () => FIXED_LATER) => ({ writeFile, clock, logger: noopLogger });
+const journalDeps = (writeFile: WriteFile, clock = () => FIXED_LATER) => ({
+  writeFile,
+  clock,
+  logger: noopLogger,
+  journalMutex: createFoldQueue(),
+});
 
 describe('progressJournalLeaf', () => {
   it('writes a task-attempt section with the stable id token + verdict=pass for a settled done task', async () => {

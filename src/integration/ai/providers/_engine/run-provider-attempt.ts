@@ -111,8 +111,10 @@ export interface ProviderAttemptInput {
   readonly getStdoutTail: () => string | undefined;
   /**
    * Returns the assistant body for `bodyFile` mirroring. Only called when `session.bodyFile`
-   * is set. For providers that read from a tempfile (codex), may return a failure Result that
-   * surfaces as a hard error from `onSuccess`.
+   * is set. Forensic capture is best-effort across all providers — an unreadable body resolves to
+   * an empty string rather than a failure Result, so it never discards an otherwise-recovered
+   * success (`signals.json` is the authoritative gate). A non-`AbortError` failure Result here
+   * would still surface as a hard error from `onSuccess`.
    */
   readonly getBody: () => Promise<Result<string, DomainError>>;
   /**

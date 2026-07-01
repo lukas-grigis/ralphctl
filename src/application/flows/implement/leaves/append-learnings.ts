@@ -21,6 +21,7 @@ import { resolveWritableLearningsLedgerPath } from '@src/application/flows/_shar
 import { appendMemoryRecords } from '@src/application/flows/_shared/memory/ledger-writer.ts';
 import type { Slug } from '@src/domain/value/slug.ts';
 import { dedupeLearnings } from '@src/application/flows/implement/leaves/_shared/dedupe-learnings.ts';
+import { dedupeTexts } from '@src/application/flows/implement/leaves/_shared/dedupe-texts.ts';
 import type { LearningEntry } from '@src/domain/signal.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
@@ -134,19 +135,6 @@ const buildRecords = (
   return [...learningRecords, ...decisionRecords];
 };
 
-/** Trim + dedupe a per-attempt decision-text accumulator (first-seen order); drops empties. */
-const dedupeDecisions = (texts: readonly string[]): readonly string[] => {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const t of texts) {
-    const trimmed = t.trim();
-    if (trimmed.length === 0 || seen.has(trimmed)) continue;
-    seen.add(trimmed);
-    out.push(trimmed);
-  }
-  return out;
-};
-
 /**
  * Factory — `append-learnings-<taskId>`. Looks up the just-settled task by id (settle-attempt
  * clears `currentTask`), builds one {@link LearningRecord} per deduped learning AND per deduped
@@ -208,7 +196,7 @@ export const appendLearningsLeaf = (
       // Read the STILL-POPULATED accumulators (progress-journal clears them AFTER us). Dedupe so an
       // identical signal emitted twice in one attempt produces one row.
       const learnings = dedupeLearnings(ctx.currentAttemptLearnings ?? []);
-      const decisions = dedupeDecisions(ctx.currentAttemptDecisions ?? []);
+      const decisions = dedupeTexts(ctx.currentAttemptDecisions);
       const records = buildRecords(deps, opts, task, String(ctx.sprintId), learnings, decisions);
       // The path is resolved at execute time (async tolerant write-side resolver), so the still-sync
       // input projection just threads the resolver thunk through.

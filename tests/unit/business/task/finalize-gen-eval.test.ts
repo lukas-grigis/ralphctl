@@ -711,6 +711,37 @@ describe('finalizeGenEvalUseCase', () => {
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
   });
 
+  it('legacy task (no maxAttempts) crashed at fallback budget cap: blocks instead of granting another retry', async () => {
+    // Legacy task (task.maxAttempts undefined): `failCurrentAttempt` never applies a cap for
+    // these, so an unconditional retry here would crash-loop the task forever across launches.
+    // Once recorded attempts reach the fallback budget, finalize must block directly.
+    const task = makeInProgressTaskWithRunningAttempt();
+    const bus = newBus();
+    const events: Array<{ type: string }> = [];
+    bus.subscribe((e) => events.push(e));
+    const result = await finalizeGenEvalUseCase({
+      task,
+      sprintId,
+      exit: { kind: 'crashed', reason: 'AI process was killed before producing signals.json: exit 143 (SIGTERM)' },
+      turnsUsed: 1,
+      // Fallback budget 1 === 1 attempt already recorded → exhausted.
+      readConfig: cfg({ escalateOnPlateau: false, maxAttempts: 1 }),
+      taskRepo: okRepo,
+      logger: noopLogger,
+      eventBus: bus,
+      clock: fixedClock,
+      generatorModel: 'claude-sonnet-4-6',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.verdict).toBe('failed');
+    expect(result.value.warning?.kind).toBe('crashed');
+    expect(result.value.shouldFailAttempt).toBeFalsy();
+    expect(result.value.blockedReason).toBe('AI process repeatedly crashed; attempt budget exhausted');
+    expect(result.value.task.escalatedToModel).toBeUndefined();
+    expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
+  });
+
   it('forwards a StorageError from the repo', async () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const failing: UpdateTask = {

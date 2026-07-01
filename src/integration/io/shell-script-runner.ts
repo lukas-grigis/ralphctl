@@ -1,4 +1,5 @@
 import { spawn as nodeSpawn } from 'node:child_process';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { Result } from '@src/domain/result.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
@@ -89,11 +90,281 @@ export interface ShellScriptRunnerDeps {
   readonly abortKillGraceMs?: number;
 }
 
+const abortResult = (): Result<ShellScriptResult, StorageError | AbortError> =>
+  Result.error(new AbortError({ elementName: 'shell-script-runner', reason: 'shell script aborted' }));
+
+/**
+ * Kill the child's process group (or the child itself as a fallback). Detached children get
+ * their own process group (`detached: process.platform !== 'win32'` at spawn time) so a negative
+ * pid signal reaches the whole tree a shell script may have spawned, not just the shell.
+ */
+const killProcessTree = (child: ChildProcessWithoutNullStreams, sig: NodeJS.Signals): void => {
+  if (process.platform !== 'win32' && typeof child.pid === 'number') {
+    try {
+      process.kill(-child.pid, sig);
+      return;
+    } catch {
+      // group already gone — fall through to per-process kill.
+    }
+  }
+  try {
+    child.kill(sig);
+  } catch {
+    // already dead.
+  }
+};
+
+/**
+ * Non-interactive defaults for the spawned setup/verify child. These live on the CHILD env
+ * only — ralphctl's own process env is untouched, so they never alter how the harness itself
+ * detects CI / colour.
+ *
+ *   CI=true   — setup/verify scripts run headless (no TTY). pnpm 11 hardened its
+ *     `node_modules` purge to ABORT without a TTY instead of re-creating it silently
+ *     (`ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`, pnpm/pnpm#9966 / #11562). On
+ *     pnpm 11 EVERY `confirm-modules-purge=false` form is ignored at the abort site —
+ *     verified against 11.1.3: the `npm_config_*` env, the `PNPM_CONFIG_*` env, and a
+ *     local `.npmrc` all still abort; only `CI=true` (env) or
+ *     `--config.confirm-modules-purge=false` (a CLI flag) suppress it. We run the
+ *     user's script as an opaque shell string and cannot inject a flag into their
+ *     `pnpm` invocation, so `CI=true` is the one lever available. It is also the honest
+ *     signal — this IS an automated, non-interactive context. Set on BOTH setup and
+ *     verify (both flow through this runner), so the two phases share one env and never
+ *     drift on baseline. Caveat: JVM tests gated on
+ *     `@DisabledIfEnvironmentVariable("CI")` skip — by design for automation, and
+ *     symmetric across setup/verify. (This deliberately reverses the earlier
+ *     "do NOT reach for CI=true" policy, which assumed a narrow pnpm flag would work —
+ *     it does not on pnpm 11.)
+ *
+ *   PNPM_CONFIG_FROZEN_LOCKFILE=false   — `CI=true` also flips pnpm's `frozen-lockfile`
+ *     default to true, which would fail a bare `pnpm install` on a drifted lockfile
+ *     (`ERR_PNPM_OUTDATED_LOCKFILE`) — trading one abort for another. The pnpm-native
+ *     `PNPM_CONFIG_` prefix IS honoured here (unlike the broken `npm_config_` form),
+ *     so this restores the pre-CI install semantics: non-frozen, exactly as before.
+ *
+ *   NO_COLOR=1   — the cross-tool convention (https://no-color.org). Persisted
+ *     setup/verify logs are plain text; without this they fill with `^[[1m…` escape
+ *     sequences that render as garbage in editors. Honoured by Node / Python / Rust /
+ *     Go / Ruby and modern CLIs; unknown to JVM tools (Maven / Gradle / sbt) — those
+ *     are handled at script-authoring time via `mvn -B`, `gradle --console=plain`.
+ *
+ * Defaults sit BEFORE `...process.env` so a user can override any of them (e.g. export
+ * `CI=` to opt out, `NO_COLOR=` / `FORCE_COLOR=1` for colour); `opts.env` wins last.
+ */
+const buildChildEnv = (overrideEnv: NodeJS.ProcessEnv | undefined): NodeJS.ProcessEnv => ({
+  CI: 'true',
+  PNPM_CONFIG_FROZEN_LOCKFILE: 'false',
+  NO_COLOR: '1',
+  ...process.env,
+  ...overrideEnv,
+});
+
+type SpawnAttempt =
+  | { readonly ok: true; readonly child: ChildProcessWithoutNullStreams }
+  | { readonly ok: false; readonly error: StorageError };
+
+const trySpawnChild = (spawn: Spawn, cwd: AbsolutePath, script: string, env: NodeJS.ProcessEnv): SpawnAttempt => {
+  try {
+    const child = spawn(script, [], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      cwd: String(cwd),
+      shell: true,
+      detached: process.platform !== 'win32',
+      env,
+    });
+    return { ok: true, child };
+  } catch (cause) {
+    return {
+      ok: false,
+      error: new StorageError({
+        subCode: 'io',
+        message: `failed to spawn shell script: ${stringifyError(cause)}`,
+        cause,
+      }),
+    };
+  }
+};
+
+interface OutputSink {
+  append(chunk: Buffer): void;
+  isCapExceeded(): boolean;
+  toBufferString(): string;
+}
+
+/**
+ * Combined stdout+stderr buffer with the {@link MAX_OUTPUT_BYTES} hard cap. Once the cap is
+ * exceeded, further chunks are dropped and `onCapExceeded` fires once (to trigger the kill) —
+ * subsequent chunks are silently ignored rather than re-triggering the kill.
+ */
+const createOutputSink = (onCapExceeded: () => void): OutputSink => {
+  const chunks: Buffer[] = [];
+  let totalBytes = 0;
+  let capExceeded = false;
+  return {
+    append(chunk) {
+      if (capExceeded) return;
+      totalBytes += chunk.length;
+      if (totalBytes > MAX_OUTPUT_BYTES) {
+        capExceeded = true;
+        onCapExceeded();
+        return;
+      }
+      chunks.push(chunk);
+    },
+    isCapExceeded: () => capExceeded,
+    toBufferString: () => Buffer.concat(chunks).toString('utf8').trim(),
+  };
+};
+
+interface RunChildProcessDeps {
+  readonly spawn: Spawn;
+  readonly defaultTimeoutMs: number;
+  readonly now: () => number;
+  readonly abortKillGraceMs: number;
+}
+
+interface AbortLadder {
+  isAborted(): boolean;
+  teardown(): void;
+}
+
+/**
+ * Cancellation: when the chain's signal fires mid-run, kill the child tree (SIGTERM, same
+ * ladder as the timeout / cap kills) and remember we aborted so `finish()` resolves an
+ * `AbortError` rather than a `passed: false` gate failure. `{ once: true }` so a settle that
+ * races the abort doesn't leak the listener; `teardown()` also removes it explicitly on settle.
+ *
+ * SIGTERM → SIGKILL escalation: a setup/verify script that traps SIGTERM would otherwise
+ * outlive the abort and strand the run. After `abortKillGraceMs` we send a hard SIGKILL;
+ * `teardown()` clears this timer so a child that exits cleanly within the window never gets a
+ * stray kill. Mirrors the idle-watchdog's grace ladder.
+ */
+const wireAbortLadder = (
+  child: ChildProcessWithoutNullStreams,
+  signal: AbortSignal | undefined,
+  abortKillGraceMs: number,
+  isSettled: () => boolean
+): AbortLadder => {
+  let aborted = false;
+  let killGraceTimer: NodeJS.Timeout | null = null;
+  const onAbort = (): void => {
+    if (isSettled()) return;
+    aborted = true;
+    killProcessTree(child, 'SIGTERM');
+    killGraceTimer = setTimeout(() => {
+      killProcessTree(child, 'SIGKILL');
+    }, abortKillGraceMs);
+  };
+  signal?.addEventListener('abort', onAbort, { once: true });
+  return {
+    isAborted: () => aborted,
+    teardown: () => {
+      if (killGraceTimer !== null) {
+        clearTimeout(killGraceTimer);
+        killGraceTimer = null;
+      }
+      signal?.removeEventListener('abort', onAbort);
+    },
+  };
+};
+
+/**
+ * Spawns the child and wires abort / timeout / output-cap / close handling through to a single
+ * `finish()` settle point. Pulled out of the `run()` Promise executor as a named function (rather
+ * than the executor callback itself) so nesting depth stops accruing to `run`.
+ */
+const runChildProcess = (
+  cwd: AbsolutePath,
+  script: string,
+  opts: ShellRunOptions,
+  deps: RunChildProcessDeps,
+  resolve: (result: Result<ShellScriptResult, StorageError | AbortError>) => void
+): void => {
+  const { spawn, defaultTimeoutMs, now, abortKillGraceMs } = deps;
+  const start = now();
+  const timeoutMs = opts.timeoutMs ?? defaultTimeoutMs;
+
+  // Already-aborted on entry: nothing spawned, resolve immediately as an abort so the caller
+  // doesn't pay the spawn + timeout cost for a cancel that already happened.
+  if (opts.signal?.aborted === true) {
+    resolve(abortResult());
+    return;
+  }
+
+  const spawnAttempt = trySpawnChild(spawn, cwd, script, buildChildEnv(opts.env));
+  if (!spawnAttempt.ok) {
+    resolve(Result.error(spawnAttempt.error));
+    return;
+  }
+  const { child } = spawnAttempt;
+
+  let timedOut = false;
+  let settled = false;
+  const abortLadder = wireAbortLadder(child, opts.signal, abortKillGraceMs, () => settled);
+
+  const sink = createOutputSink(() => killProcessTree(child, 'SIGTERM'));
+  child.stdout.on('data', (c: Buffer) => {
+    sink.append(c);
+  });
+  child.stderr.on('data', (c: Buffer) => {
+    sink.append(c);
+  });
+
+  const timer = setTimeout(() => {
+    timedOut = true;
+    killProcessTree(child, 'SIGTERM');
+  }, timeoutMs);
+
+  const finish = (exitCode: number | null, marker?: string): void => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    abortLadder.teardown();
+    // Abort wins over every other settle reason: a cancelled run is a user-initiated abort,
+    // not a clean gate failure. Surface the codebase's transparently-propagated AbortError so
+    // the chain tears down rather than treating the kill as a `passed: false` verify failure.
+    if (abortLadder.isAborted()) {
+      resolve(abortResult());
+      return;
+    }
+    const base = sink.toBufferString();
+    const output = marker !== undefined ? (base.length > 0 ? `${base}\n${marker}` : marker) : base;
+    resolve(
+      Result.ok({
+        passed: exitCode === 0 && !timedOut && !sink.isCapExceeded(),
+        exitCode,
+        output,
+        durationMs: now() - start,
+      })
+    );
+  };
+
+  child.on('error', (err) => {
+    // Spawn-time error after the spawn() call returned (e.g. shell binary disappeared).
+    // Surface as passed:false with a marker; callers treat this the same as exit 127.
+    finish(null, `[spawn error: ${err.message}]`);
+  });
+
+  child.on('close', (code) => {
+    if (timedOut) {
+      finish(code, `[timeout exceeded after ${String(timeoutMs)}ms]`);
+      return;
+    }
+    if (sink.isCapExceeded()) {
+      finish(code, `[output exceeded ${String(MAX_OUTPUT_BYTES)} byte cap — truncated]`);
+      return;
+    }
+    finish(code);
+  });
+};
+
 export const createShellScriptRunner = (deps: ShellScriptRunnerDeps = {}): ShellScriptRunner => {
-  const spawn = deps.spawn ?? defaultSpawn;
-  const defaultTimeoutMs = deps.defaultTimeoutMs ?? DEFAULT_SHELL_TIMEOUT_MS;
-  const now = deps.now ?? Date.now;
-  const abortKillGraceMs = deps.abortKillGraceMs ?? ABORT_KILL_GRACE_MS;
+  const runDeps: RunChildProcessDeps = {
+    spawn: deps.spawn ?? defaultSpawn,
+    defaultTimeoutMs: deps.defaultTimeoutMs ?? DEFAULT_SHELL_TIMEOUT_MS,
+    now: deps.now ?? Date.now,
+    abortKillGraceMs: deps.abortKillGraceMs ?? ABORT_KILL_GRACE_MS,
+  };
 
   const run = (
     cwd: AbsolutePath,
@@ -101,192 +372,7 @@ export const createShellScriptRunner = (deps: ShellScriptRunnerDeps = {}): Shell
     opts: ShellRunOptions = {}
   ): Promise<Result<ShellScriptResult, StorageError | AbortError>> =>
     new Promise((resolve) => {
-      const start = now();
-      const timeoutMs = opts.timeoutMs ?? defaultTimeoutMs;
-
-      // Already-aborted on entry: nothing spawned, resolve immediately as an abort so the
-      // caller doesn't pay the spawn + timeout cost for a cancel that already happened.
-      if (opts.signal?.aborted === true) {
-        resolve(Result.error(new AbortError({ elementName: 'shell-script-runner', reason: 'shell script aborted' })));
-        return;
-      }
-
-      let child;
-      try {
-        child = spawn(script, [], {
-          stdio: ['pipe', 'pipe', 'pipe'],
-          cwd: String(cwd),
-          shell: true,
-          detached: process.platform !== 'win32',
-          // Non-interactive defaults for the spawned setup/verify child. These live on the CHILD
-          // env only — ralphctl's own process env is untouched, so they never alter how the
-          // harness itself detects CI / colour.
-          //
-          //   CI=true   — setup/verify scripts run headless (no TTY). pnpm 11 hardened its
-          //     `node_modules` purge to ABORT without a TTY instead of re-creating it silently
-          //     (`ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`, pnpm/pnpm#9966 / #11562). On
-          //     pnpm 11 EVERY `confirm-modules-purge=false` form is ignored at the abort site —
-          //     verified against 11.1.3: the `npm_config_*` env, the `PNPM_CONFIG_*` env, and a
-          //     local `.npmrc` all still abort; only `CI=true` (env) or
-          //     `--config.confirm-modules-purge=false` (a CLI flag) suppress it. We run the
-          //     user's script as an opaque shell string and cannot inject a flag into their
-          //     `pnpm` invocation, so `CI=true` is the one lever available. It is also the honest
-          //     signal — this IS an automated, non-interactive context. Set on BOTH setup and
-          //     verify (both flow through this runner), so the two phases share one env and never
-          //     drift on baseline. Caveat: JVM tests gated on
-          //     `@DisabledIfEnvironmentVariable("CI")` skip — by design for automation, and
-          //     symmetric across setup/verify. (This deliberately reverses the earlier
-          //     "do NOT reach for CI=true" policy, which assumed a narrow pnpm flag would work —
-          //     it does not on pnpm 11.)
-          //
-          //   PNPM_CONFIG_FROZEN_LOCKFILE=false   — `CI=true` also flips pnpm's `frozen-lockfile`
-          //     default to true, which would fail a bare `pnpm install` on a drifted lockfile
-          //     (`ERR_PNPM_OUTDATED_LOCKFILE`) — trading one abort for another. The pnpm-native
-          //     `PNPM_CONFIG_` prefix IS honoured here (unlike the broken `npm_config_` form),
-          //     so this restores the pre-CI install semantics: non-frozen, exactly as before.
-          //
-          //   NO_COLOR=1   — the cross-tool convention (https://no-color.org). Persisted
-          //     setup/verify logs are plain text; without this they fill with `^[[1m…` escape
-          //     sequences that render as garbage in editors. Honoured by Node / Python / Rust /
-          //     Go / Ruby and modern CLIs; unknown to JVM tools (Maven / Gradle / sbt) — those
-          //     are handled at script-authoring time via `mvn -B`, `gradle --console=plain`.
-          //
-          // Defaults sit BEFORE `...process.env` so a user can override any of them (e.g. export
-          // `CI=` to opt out, `NO_COLOR=` / `FORCE_COLOR=1` for colour); `opts.env` wins last.
-          env: {
-            CI: 'true',
-            PNPM_CONFIG_FROZEN_LOCKFILE: 'false',
-            NO_COLOR: '1',
-            ...process.env,
-            ...opts.env,
-          },
-        });
-      } catch (cause) {
-        resolve(
-          Result.error(
-            new StorageError({
-              subCode: 'io',
-              message: `failed to spawn shell script: ${stringifyError(cause)}`,
-              cause,
-            })
-          )
-        );
-        return;
-      }
-
-      const killTree = (sig: NodeJS.Signals): void => {
-        if (process.platform !== 'win32' && typeof child.pid === 'number') {
-          try {
-            process.kill(-child.pid, sig);
-            return;
-          } catch {
-            // group already gone — fall through to per-process kill.
-          }
-        }
-        try {
-          child.kill(sig);
-        } catch {
-          // already dead.
-        }
-      };
-
-      const chunks: Buffer[] = [];
-      let totalBytes = 0;
-      let timedOut = false;
-      let capExceeded = false;
-      let aborted = false;
-      let settled = false;
-      let killGraceTimer: NodeJS.Timeout | null = null;
-
-      // Cancellation: when the chain's signal fires mid-run, kill the child tree (SIGTERM, same
-      // ladder as the timeout / cap kills) and remember we aborted so the `close` handler resolves
-      // an `AbortError` rather than a `passed: false` gate failure. `{ once: true }` so a settle
-      // that races the abort doesn't leak the listener; we also remove it explicitly on settle.
-      //
-      // SIGTERM → SIGKILL escalation: a setup/verify script that traps SIGTERM would otherwise
-      // outlive the abort and strand the run. After `ABORT_KILL_GRACE_MS` we send a hard SIGKILL;
-      // `finish()` clears this timer so a child that exits cleanly within the window never gets a
-      // stray kill. Mirrors the idle-watchdog's grace ladder.
-      const onAbort = (): void => {
-        if (settled) return;
-        aborted = true;
-        killTree('SIGTERM');
-        killGraceTimer = setTimeout(() => {
-          killTree('SIGKILL');
-        }, abortKillGraceMs);
-      };
-      opts.signal?.addEventListener('abort', onAbort, { once: true });
-
-      const appendChunk = (chunk: Buffer): void => {
-        if (capExceeded) return;
-        totalBytes += chunk.length;
-        if (totalBytes > MAX_OUTPUT_BYTES) {
-          capExceeded = true;
-          killTree('SIGTERM');
-          return;
-        }
-        chunks.push(chunk);
-      };
-
-      child.stdout.on('data', (c: Buffer) => {
-        appendChunk(c);
-      });
-      child.stderr.on('data', (c: Buffer) => {
-        appendChunk(c);
-      });
-
-      const timer = setTimeout(() => {
-        timedOut = true;
-        killTree('SIGTERM');
-      }, timeoutMs);
-
-      const finish = (exitCode: number | null, marker?: string): void => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        // Clear the abort grace timer so a child that exited cleanly within the window doesn't
-        // fire a stray SIGKILL at a recycled pid after we've resolved.
-        if (killGraceTimer !== null) {
-          clearTimeout(killGraceTimer);
-          killGraceTimer = null;
-        }
-        opts.signal?.removeEventListener('abort', onAbort);
-        // Abort wins over every other settle reason: a cancelled run is a user-initiated abort,
-        // not a clean gate failure. Surface the codebase's transparently-propagated AbortError so
-        // the chain tears down rather than treating the kill as a `passed: false` verify failure.
-        if (aborted) {
-          resolve(Result.error(new AbortError({ elementName: 'shell-script-runner', reason: 'shell script aborted' })));
-          return;
-        }
-        const base = Buffer.concat(chunks).toString('utf8').trim();
-        const output = marker !== undefined ? (base.length > 0 ? `${base}\n${marker}` : marker) : base;
-        resolve(
-          Result.ok({
-            passed: exitCode === 0 && !timedOut && !capExceeded,
-            exitCode,
-            output,
-            durationMs: now() - start,
-          })
-        );
-      };
-
-      child.on('error', (err) => {
-        // Spawn-time error after the spawn() call returned (e.g. shell binary disappeared).
-        // Surface as passed:false with a marker; callers treat this the same as exit 127.
-        finish(null, `[spawn error: ${err.message}]`);
-      });
-
-      child.on('close', (code) => {
-        if (timedOut) {
-          finish(code, `[timeout exceeded after ${String(timeoutMs)}ms]`);
-          return;
-        }
-        if (capExceeded) {
-          finish(code, `[output exceeded ${String(MAX_OUTPUT_BYTES)} byte cap — truncated]`);
-          return;
-        }
-        finish(code);
-      });
+      runChildProcess(cwd, script, opts, runDeps, resolve);
     });
 
   return { run };

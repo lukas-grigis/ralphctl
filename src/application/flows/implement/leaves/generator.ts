@@ -439,356 +439,468 @@ const composeVerifyBlocks = async (
   };
 };
 
+/** Per-turn signal-text accumulators — mutated in place by {@link accumulateAndEmitSignals}. */
+interface GeneratorTurnAccumulators {
+  readonly decisionsEmitted: string[];
+  readonly changesEmitted: string[];
+  readonly learningsEmitted: LearningEntry[];
+  readonly notesEmitted: string[];
+}
+
+/**
+ * Fan out this turn's validated signals to BOTH the legacy `HarnessSignalSink` (TUI panels,
+ * decisions-log) and the application bus's typed `ai-signal` event, while pushing each kind's
+ * text onto the turn's accumulator arrays for the leaf's `execute` to read back afterward. The
+ * bus carries every kind the contract accepts; the sink keeps its existing per-kind consumers
+ * happy until Wave 6 collapses the two paths.
+ */
+const accumulateAndEmitSignals = (
+  deps: Pick<GeneratorLeafDeps, 'signals' | 'eventBus'>,
+  signals: readonly AiSignal[],
+  accumulators: GeneratorTurnAccumulators
+): void => {
+  for (const sig of signals) {
+    deps.signals.emit(sig);
+    deps.eventBus.publish({ type: 'ai-signal', signal: sig, source: 'generator' });
+    if (sig.type === 'decision') accumulators.decisionsEmitted.push(sig.text);
+    else if (sig.type === 'change') accumulators.changesEmitted.push(sig.text);
+    else if (sig.type === 'learning')
+      accumulators.learningsEmitted.push({
+        text: sig.text,
+        ...(sig.context !== undefined ? { context: sig.context } : {}),
+        ...(sig.appliesTo !== undefined ? { appliesTo: sig.appliesTo } : {}),
+      });
+    else if (sig.type === 'note') accumulators.notesEmitted.push(sig.text);
+  }
+};
+
+/**
+ * Publish the discrete `task-round-started` boundary marker — fired BEFORE the AI call so the
+ * TUI's per-task round counter and the persistent `chain.log` see the round-start before any of
+ * this turn's generator-leaf trace entries. `attemptN` is `task.attempts.length`: the running
+ * attempt was already started by `start-attempt-<taskId>` upstream, so this counts the n-th
+ * attempt-within-task (1-indexed; matches `task.maxAttempts`). Also releases any prior escalation
+ * banner (idempotent against an absent one — once a new round starts, the operator-facing
+ * "escalated to <model>" message has served its purpose) and logs the round-start line.
+ */
+const announceRoundStart = (
+  deps: Pick<GeneratorLeafDeps, 'eventBus' | 'clock' | 'logger' | 'maxTurns'>,
+  taskId: TaskId,
+  task: InProgressTask,
+  roundNum: number
+): void => {
+  deps.eventBus.publish({
+    type: 'task-round-started',
+    taskId: String(taskId),
+    attemptN: task.attempts.length,
+    roundN: roundNum,
+    totalCap: deps.maxTurns,
+    at: deps.clock(),
+  });
+  deps.eventBus.publish({
+    type: 'banner-clear',
+    id: escalationBannerId(String(taskId)),
+    at: deps.clock(),
+  });
+  deps.logger
+    .named('task.round-started')
+    .info(`round ${String(roundNum)}/${String(deps.maxTurns)} of attempt ${String(task.attempts.length)}`, {
+      taskId: task.id,
+      attemptN: task.attempts.length,
+      roundN: roundNum,
+      totalCap: deps.maxTurns,
+    });
+};
+
+/**
+ * Build one generator turn's corrective-retry `reinvoke` callback — resumes the just-spawned
+ * thread (falling back to the prior round's session id when this spawn never reported one to
+ * disk) so the corrective message lands as a follow-up turn on the SAME conversation the AI
+ * just wrote invalid/missing signals from.
+ */
+const makeGeneratorReinvoke =
+  (
+    deps: Pick<GeneratorLeafDeps, 'provider' | 'cwd' | 'sprintDir' | 'effort'>,
+    args: {
+      readonly workspaceRoot: AbsolutePath;
+      readonly roundNum: number;
+      readonly signalsFile: AbsolutePath;
+      readonly effectiveModel: string;
+      readonly priorGeneratorSessionId: SessionId | undefined;
+      readonly signal: AbortSignal | undefined;
+    }
+  ): ((corrective: Prompt) => Promise<Result<void, DomainError>>) =>
+  async (corrective) => {
+    const resume =
+      (await readRoundSessionId(args.workspaceRoot, args.roundNum, 'generator')) ?? args.priorGeneratorSessionId;
+    const respawn = await deps.provider.generate(
+      implementSession(
+        args.workspaceRoot,
+        deps.cwd,
+        deps.sprintDir,
+        corrective as Prompt,
+        args.effectiveModel,
+        args.signalsFile,
+        'generator',
+        resume,
+        deps.effort,
+        args.signal
+      )
+    );
+    return respawn.ok ? Result.ok(undefined) : Result.error(respawn.error);
+  };
+
+/**
+ * Build this turn's `callImplement` — composes the harness-verify prompt blocks, builds + persists
+ * the prompt, spawns the generator (on the task's escalated model when present), validates
+ * `signals.json` with one corrective retry, fans the parsed signals out to the sink/bus while
+ * accumulating their texts, and renders harness-owned sidecars. Returns the parsed signals for
+ * `runGeneratorTurnUseCase` to interpret.
+ */
+const makeGeneratorCallImplement =
+  (
+    deps: GeneratorLeafDeps,
+    taskId: TaskId,
+    args: {
+      readonly input: GeneratorInput;
+      readonly roundNum: number;
+      readonly signalsFile: AbsolutePath;
+      readonly outputDir: AbsolutePath;
+      readonly logTailReader: LogTailReader;
+      readonly signal: AbortSignal | undefined;
+      readonly accumulators: GeneratorTurnAccumulators;
+    }
+  ): RunGeneratorTurnProps['callImplement'] =>
+  async (task) => {
+    const outputContractSection = renderContractSectionFor(generatorOutputContract, args.outputDir);
+
+    // T4: surface the harness's pre-task verify result (so the generator reviews baseline
+    // state instead of re-running the verify script in-turn) and the prior attempt's failing
+    // post-verify (so a retry fixes the regression first). All best-effort — see helper.
+    const { preVerifyOutput, retryFeedback } = await composeVerifyBlocks(
+      args.logTailReader,
+      deps.sprintDir,
+      taskId,
+      task
+    );
+
+    const prompt = await buildGeneratorPrompt(deps, {
+      task,
+      workspaceRoot: args.input.workspaceRoot,
+      roundNum: args.roundNum,
+      outputContractSection,
+      priorGeneratorSessionId: args.input.priorGeneratorSessionId,
+      dimensionTrajectory: args.input.dimensionTrajectory ?? '',
+      priorLearnings: args.input.priorLearnings ?? '',
+      priorEpisodes: args.input.priorEpisodes ?? '',
+      preVerifyOutput,
+      retryFeedback,
+    });
+    if (!prompt.ok) return Result.error(prompt.error) as Result<readonly HarnessSignal[], DomainError>;
+    // Persist the rendered prompt under `rounds/<N>/generator/prompt.md` BEFORE the AI
+    // call so a crash mid-spawn still leaves the prompt that triggered it on disk for
+    // post-hoc replay. Best-effort: the writer logs and swallows on failure (the audit
+    // trail must never take down the chain).
+    await writeRoundPrompt(args.input.workspaceRoot, args.roundNum, 'generator', String(prompt.value), deps.logger);
+
+    // Per-task generator-model escalation: when the task carries an `escalatedToModel`
+    // (stamped by the prior plateau's escalation policy), spawn the generator on that
+    // upgraded model instead of the configured row. Evaluator model is intentionally
+    // unaffected — escalation only touches the generator role.
+    const effectiveModel = task.escalatedToModel ?? deps.model;
+    const spawn = await deps.provider.generate(
+      implementSession(
+        args.input.workspaceRoot,
+        deps.cwd,
+        deps.sprintDir,
+        prompt.value,
+        effectiveModel,
+        args.signalsFile,
+        'generator',
+        args.input.priorGeneratorSessionId,
+        deps.effort,
+        args.signal
+      )
+    );
+    if (!spawn.ok) return Result.error(spawn.error);
+
+    // Validate `signals.json` against the generator contract. On a RECOVERABLE failure
+    // (signals-missing / invalid-json / schema-mismatch) re-prompt the generator ONCE on
+    // the resumed session with a corrective message + the Zod issue list, then re-validate.
+    // `runGeneratorTurnUseCase` converts a still-failing validation into a `self-blocked`
+    // exit (task settles as blocked, run continues); only a fatal `Aborted`/`RateLimit`
+    // propagates and aborts the run.
+    const validated = await validateSignalsFileWithCorrectiveRetry(
+      {
+        outputDir: args.outputDir,
+        logger: deps.logger,
+        // Self-containment for a COLD corrective spawn (no resumable id / codex stale-resume
+        // fallback): the per-round output contract + the on-disk task spec, so a fresh
+        // session re-reads its grounding instead of emitting signals from the error text.
+        selfContainedContext: [
+          `Task spec (read it): \`${join(String(args.input.workspaceRoot), 'contract.md')}\``,
+          '',
+          outputContractSection,
+        ].join('\n'),
+        reinvoke: makeGeneratorReinvoke(deps, {
+          workspaceRoot: args.input.workspaceRoot,
+          roundNum: args.roundNum,
+          signalsFile: args.signalsFile,
+          effectiveModel,
+          priorGeneratorSessionId: args.input.priorGeneratorSessionId,
+          signal: args.signal,
+        }),
+      },
+      generatorOutputContract
+    );
+    if (!validated.ok) return Result.error(validated.error);
+    const signals = validated.value;
+
+    accumulateAndEmitSignals(deps, signals, args.accumulators);
+
+    // Render harness-owned sidecars (`commit-message.txt` when present). Write
+    // failures log warn inside `renderSidecars`; the helper always returns
+    // `Result.ok` (sidecars are operator UX only — downstream leaves read in-memory
+    // signals from ctx, never the sidecar file).
+    await renderSidecars(deps.writeFile, args.outputDir, signals, generatorOutputContract.sidecars, deps.logger);
+
+    // `runGeneratorTurnUseCase` expects `readonly HarnessSignal[]`. `GeneratorContractSignal`
+    // is a strict subset of `HarnessSignal`, but TS's array variance doesn't infer
+    // that automatically — cast through `AiSignal[]` (the canonical union alias) to
+    // keep the call site honest about the underlying domain shape.
+    return Result.ok(signals as readonly AiSignal[]) as Result<readonly HarnessSignal[], DomainError>;
+  };
+
+/**
+ * Build this leaf's `execute` — resolves the round's `signals.json` path, announces the round
+ * boundary, drives one generator turn via `runGeneratorTurnUseCase` (see
+ * {@link makeGeneratorCallImplement}), then reads back the captured session id and the turn's
+ * accumulated signal texts into {@link GeneratorOutput}.
+ */
+const makeGeneratorExecute =
+  (
+    deps: GeneratorLeafDeps,
+    taskId: TaskId
+  ): ((input: GeneratorInput, signal?: AbortSignal) => Promise<Result<GeneratorOutput, DomainError>>) =>
+  async (input, signal) => {
+    const roundNum = input.roundNum;
+    const signalsFilePath = AbsolutePath.parse(roundSignalsPath(input.workspaceRoot, roundNum, 'generator'));
+    if (!signalsFilePath.ok) return Result.error(signalsFilePath.error);
+    const signalsFile = signalsFilePath.value;
+
+    announceRoundStart(deps, taskId, input.task, roundNum);
+
+    // `outputDir` is the per-round directory (`rounds/<N>/generator/`); `validateSignalsFile`
+    // resolves `<outputDir>/signals.json` and `renderSidecars` writes harness-rendered
+    // sidecars into the same directory. We derive it once from `signalsFile` so the two
+    // paths stay structurally coupled.
+    const outputDirPath = AbsolutePath.parse(dirname(String(signalsFile)));
+    if (!outputDirPath.ok) return Result.error(outputDirPath.error);
+    const outputDir = outputDirPath.value;
+
+    // Per-turn signal accumulators — closure-captured so the leaf can stamp the
+    // emitted texts onto ctx in `output(...)`. The journal leaf reads the aggregate
+    // across all gen-eval rounds for the attempt.
+    const accumulators: GeneratorTurnAccumulators = {
+      decisionsEmitted: [],
+      changesEmitted: [],
+      learningsEmitted: [],
+      notesEmitted: [],
+    };
+    const logTailReader = deps.logTailReader ?? createFsLogTailReader();
+    const callImplement = makeGeneratorCallImplement(deps, taskId, {
+      input,
+      roundNum,
+      signalsFile,
+      outputDir,
+      logTailReader,
+      signal,
+      accumulators,
+    });
+
+    const result = await runGeneratorTurnUseCase({
+      task: input.task,
+      callImplement,
+      logger: deps.logger,
+    });
+    if (!result.ok) return Result.error(result.error);
+
+    // Read THIS turn's captured sessionId from disk (the Claude adapter just wrote it as a
+    // sibling of `signals.json` via `persistSessionIdFile`). Undefined when the spawn never
+    // reported an id — left undefined so the next round cold-starts cleanly rather than
+    // forwarding a stale id from a prior task.
+    const capturedSessionId = await readRoundSessionId(input.workspaceRoot, roundNum, 'generator');
+
+    return Result.ok({
+      task: result.value.task,
+      turn: input.turn,
+      roundNum,
+      ...accumulators,
+      ...(result.value.exit !== undefined ? { exit: result.value.exit } : {}),
+      ...(result.value.proposedCommitMessage !== undefined
+        ? { proposedCommitMessage: result.value.proposedCommitMessage }
+        : {}),
+      ...(capturedSessionId !== undefined ? { capturedSessionId } : {}),
+    });
+  };
+
+/**
+ * Build this leaf's `input` projection — validates the ctx preconditions the generator turn
+ * needs (`currentTask`, `taskWorkspaceRoot`, `currentRoundNum`), then composes the three
+ * feed-forward prompt blocks (dimension trajectory, prior learnings, prior episodes) from pure
+ * ctx reads before assembling {@link GeneratorInput}.
+ */
+const makeGeneratorInput =
+  (
+    deps: Pick<GeneratorLeafDeps, 'plateauThreshold' | 'maxTurns'>,
+    taskId: TaskId
+  ): ((ctx: ImplementCtx) => GeneratorInput) =>
+  (ctx) => {
+    const PRE_GENERATOR_STATE = 'pre-generator';
+    if (ctx.currentTask === undefined || ctx.currentTask.id !== taskId) {
+      throw new InvalidStateError({
+        entity: 'chain',
+        currentState: PRE_GENERATOR_STATE,
+        attemptedAction: `generator-${String(taskId)}`,
+        message: `generator-${String(taskId)}: ctx.currentTask missing or mismatched`,
+      });
+    }
+    if (ctx.currentTask.status !== 'in_progress') {
+      throw new InvalidStateError({
+        entity: 'task',
+        currentState: ctx.currentTask.status,
+        attemptedAction: `generator-${String(taskId)}`,
+        message: `generator-${String(taskId)}: expected in_progress task`,
+      });
+    }
+    if (ctx.taskWorkspaceRoot === undefined) {
+      throw new InvalidStateError({
+        entity: 'chain',
+        currentState: PRE_GENERATOR_STATE,
+        attemptedAction: `generator-${String(taskId)}`,
+        message: `generator-${String(taskId)}: ctx.taskWorkspaceRoot missing — buildTaskWorkspaceLeaf must run first`,
+      });
+    }
+    if (ctx.currentRoundNum === undefined) {
+      throw new InvalidStateError({
+        entity: 'chain',
+        currentState: PRE_GENERATOR_STATE,
+        attemptedAction: `generator-${String(taskId)}`,
+        message: `generator-${String(taskId)}: ctx.currentRoundNum missing — resolve-round-num must run first`,
+      });
+    }
+    // Compose the dimension-trajectory feed-forward (principles 6 + 15) from the per-attempt
+    // evaluator-turn history. Pure ctx read — `composeDimensionTrajectory` returns '' until there
+    // are two turns to diff (round 1 has none), so the prompt's PRIOR_CRITIQUE_SECTION collapses
+    // cleanly on the first round.
+    const dimensionTrajectory = composeDimensionTrajectory({
+      history: ctx.plateauHistory ?? [],
+      plateauThreshold: deps.plateauThreshold,
+      roundNum: ctx.currentRoundNum,
+      maxTurns: deps.maxTurns,
+    });
+    // Cross-sprint procedural memory (principle 3) loaded once by the prologue's `load-learnings`.
+    // Pure ctx read; '' when the ledger was absent/empty so the prompt placeholder collapses.
+    const priorLearnings = composePriorLearnings(ctx.priorLearnings ?? []);
+    // Episodic memory (R4) derived from this sprint's already-settled sibling tasks. Pure ctx
+    // read; '' until a sibling has settled (done/blocked) so the prompt placeholder collapses.
+    const priorEpisodes = summariseEpisodes(composeTaskEpisodes(ctx.tasks ?? [], taskId, ctx.sprintId));
+    return {
+      task: ctx.currentTask,
+      turn: (ctx.genEvalTurn ?? 0) + 1,
+      workspaceRoot: ctx.taskWorkspaceRoot,
+      roundNum: ctx.currentRoundNum,
+      ...(ctx.priorGeneratorSessionId !== undefined ? { priorGeneratorSessionId: ctx.priorGeneratorSessionId } : {}),
+      ...(dimensionTrajectory.length > 0 ? { dimensionTrajectory } : {}),
+      ...(priorLearnings.length > 0 ? { priorLearnings } : {}),
+      ...(priorEpisodes.length > 0 ? { priorEpisodes } : {}),
+    };
+  };
+
+/**
+ * Merge one generator turn's output into ctx — task/tasks list, round bookkeeping, latest
+ * proposed commit message, captured session id, per-attempt signal accumulators, and the
+ * per-turn action-kind distribution (R2).
+ */
+const generatorOutput = (ctx: ImplementCtx, out: GeneratorOutput): ImplementCtx => {
+  const tasks = (ctx.tasks ?? []).map((t) => (t.id === out.task.id ? out.task : t));
+  // Latest non-undefined proposed commit message wins across turns.
+  const proposedCommitMessage = out.proposedCommitMessage ?? ctx.proposedCommitMessage;
+  const carry = proposedCommitMessage !== undefined ? { proposedCommitMessage } : {};
+  // Latest captured generator sessionId wins; only OVERWRITE when this turn produced one.
+  // A turn that failed to capture an id (provider crash mid-stream) preserves whatever the
+  // prior turn captured so the next round still has a thread to resume.
+  const sessionCarry = out.capturedSessionId !== undefined ? { priorGeneratorSessionId: out.capturedSessionId } : {};
+  // Accumulate this turn's signal texts onto the per-attempt aggregates. Cleared by the
+  // progress-journal leaf after the attempt settles. Each kind has its own field on ctx so
+  // the journal renderer can drop empty subsections without inspecting the signal type.
+  const decisionsCarry =
+    out.decisionsEmitted.length > 0
+      ? { currentAttemptDecisions: [...(ctx.currentAttemptDecisions ?? []), ...out.decisionsEmitted] }
+      : {};
+  const changesCarry =
+    out.changesEmitted.length > 0
+      ? { currentAttemptChanges: [...(ctx.currentAttemptChanges ?? []), ...out.changesEmitted] }
+      : {};
+  const learningsCarry =
+    out.learningsEmitted.length > 0
+      ? { currentAttemptLearnings: [...(ctx.currentAttemptLearnings ?? []), ...out.learningsEmitted] }
+      : {};
+  const notesCarry =
+    out.notesEmitted.length > 0
+      ? { currentAttemptNotes: [...(ctx.currentAttemptNotes ?? []), ...out.notesEmitted] }
+      : {};
+  // Per-turn signal-kind distribution (R2) — stamped fresh every turn (overwrites the prior
+  // turn's map) so the entropy-plateau heuristic in the gen-eval loop sees the current turn's
+  // action diversity, never an accumulation across turns.
+  const actionCountsCarry = { lastTurnActionCounts: countTurnActionKinds(out) };
+  if (out.exit !== undefined) {
+    // Both exit kinds stop the inner loop + skip the evaluator (both key on `lastExit`), but
+    // they diverge on `lastBlockReason`:
+    //  - `self-blocked` (generator emitted `<task-blocked>` / codex-copilot signals-contract
+    //    failure) sets it → settle terminal-blocks the task after one attempt (unchanged).
+    //  - `crashed` (watchdog kill / spawn crash) sets ONLY `lastExit`. It must NOT set
+    //    `lastBlockReason`: finalize is the sole authority for whether a crash blocks (it grants
+    //    a retry within maxAttempts, then blocks at the cap). Because `finalizeGenEvalLeaf` only
+    //    ADDS a block reason (conditional spread) and never CLEARS a stale one, a block reason
+    //    stamped here would leak past finalize into settle and wrongly terminal-block the task.
+    const blockReasonCarry = out.exit.kind === 'self-blocked' ? { lastBlockReason: out.exit.reason } : {};
+    return {
+      ...ctx,
+      currentTask: out.task,
+      tasks,
+      genEvalTurn: out.turn,
+      currentRoundNum: out.roundNum,
+      lastExit: { kind: out.exit.kind, reason: out.exit.reason },
+      ...blockReasonCarry,
+      ...carry,
+      ...sessionCarry,
+      ...decisionsCarry,
+      ...changesCarry,
+      ...learningsCarry,
+      ...notesCarry,
+      ...actionCountsCarry,
+    };
+  }
+  return {
+    ...ctx,
+    currentTask: out.task,
+    tasks,
+    genEvalTurn: out.turn,
+    currentRoundNum: out.roundNum,
+    ...carry,
+    ...sessionCarry,
+    ...decisionsCarry,
+    ...changesCarry,
+    ...learningsCarry,
+    ...notesCarry,
+    ...actionCountsCarry,
+  };
+};
+
 export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<ImplementCtx> =>
   leaf<ImplementCtx, GeneratorInput, GeneratorOutput>(`generator-${String(taskId)}`, {
-    useCase: {
-      execute: async (input, signal) => {
-        const roundNum = input.roundNum;
-        const signalsFilePath = AbsolutePath.parse(roundSignalsPath(input.workspaceRoot, roundNum, 'generator'));
-        if (!signalsFilePath.ok) return Result.error(signalsFilePath.error);
-        const signalsFile = signalsFilePath.value;
-
-        // Discrete boundary marker — fired BEFORE the AI call so the TUI's per-task round
-        // counter and the persistent `chain.log` see the round-start before any of its
-        // generator-leaf trace entries. `attemptN` is `task.attempts.length`: the running
-        // attempt was already started by `start-attempt-<taskId>` upstream, so this counts the
-        // n-th attempt-within-task (1-indexed; matches `task.maxAttempts`).
-        deps.eventBus.publish({
-          type: 'task-round-started',
-          taskId: String(taskId),
-          attemptN: input.task.attempts.length,
-          roundN: roundNum,
-          totalCap: deps.maxTurns,
-          at: deps.clock(),
-        });
-        // Release any prior escalation banner — once a new generator round starts on this
-        // task, the operator-facing "escalated to <model>" message has served its purpose and
-        // shouldn't hang around blocking the banner slot. Idempotent against an absent banner.
-        deps.eventBus.publish({
-          type: 'banner-clear',
-          id: escalationBannerId(String(taskId)),
-          at: deps.clock(),
-        });
-        deps.logger
-          .named('task.round-started')
-          .info(`round ${String(roundNum)}/${String(deps.maxTurns)} of attempt ${String(input.task.attempts.length)}`, {
-            taskId: input.task.id,
-            attemptN: input.task.attempts.length,
-            roundN: roundNum,
-            totalCap: deps.maxTurns,
-          });
-
-        // `outputDir` is the per-round directory (`rounds/<N>/generator/`); `validateSignalsFile`
-        // resolves `<outputDir>/signals.json` and `renderSidecars` writes harness-rendered
-        // sidecars into the same directory. We derive it once from `signalsFile` so the two
-        // paths stay structurally coupled.
-        const outputDirPath = AbsolutePath.parse(dirname(String(signalsFile)));
-        if (!outputDirPath.ok) return Result.error(outputDirPath.error);
-        const outputDir = outputDirPath.value;
-
-        // Per-turn signal accumulators — closure-captured so the leaf can stamp the
-        // emitted texts onto ctx in `output(...)`. The journal leaf reads the aggregate
-        // across all gen-eval rounds for the attempt.
-        const decisionsEmitted: string[] = [];
-        const changesEmitted: string[] = [];
-        const learningsEmitted: LearningEntry[] = [];
-        const notesEmitted: string[] = [];
-        const logTailReader = deps.logTailReader ?? createFsLogTailReader();
-        const callImplement: RunGeneratorTurnProps['callImplement'] = async (task) => {
-          const outputContractSection = renderContractSectionFor(generatorOutputContract, outputDir);
-
-          // T4: surface the harness's pre-task verify result (so the generator reviews baseline
-          // state instead of re-running the verify script in-turn) and the prior attempt's failing
-          // post-verify (so a retry fixes the regression first). All best-effort — see helper.
-          const { preVerifyOutput, retryFeedback } = await composeVerifyBlocks(
-            logTailReader,
-            deps.sprintDir,
-            taskId,
-            task
-          );
-
-          const prompt = await buildGeneratorPrompt(deps, {
-            task,
-            workspaceRoot: input.workspaceRoot,
-            roundNum,
-            outputContractSection,
-            priorGeneratorSessionId: input.priorGeneratorSessionId,
-            dimensionTrajectory: input.dimensionTrajectory ?? '',
-            priorLearnings: input.priorLearnings ?? '',
-            priorEpisodes: input.priorEpisodes ?? '',
-            preVerifyOutput,
-            retryFeedback,
-          });
-          if (!prompt.ok) return Result.error(prompt.error) as Result<readonly HarnessSignal[], DomainError>;
-          // Persist the rendered prompt under `rounds/<N>/generator/prompt.md` BEFORE the AI
-          // call so a crash mid-spawn still leaves the prompt that triggered it on disk for
-          // post-hoc replay. Best-effort: the writer logs and swallows on failure (the audit
-          // trail must never take down the chain).
-          await writeRoundPrompt(input.workspaceRoot, roundNum, 'generator', String(prompt.value), deps.logger);
-
-          // Per-task generator-model escalation: when the task carries an `escalatedToModel`
-          // (stamped by the prior plateau's escalation policy), spawn the generator on that
-          // upgraded model instead of the configured row. Evaluator model is intentionally
-          // unaffected — escalation only touches the generator role.
-          const effectiveModel = task.escalatedToModel ?? deps.model;
-          const spawn = await deps.provider.generate(
-            implementSession(
-              input.workspaceRoot,
-              deps.cwd,
-              deps.sprintDir,
-              prompt.value,
-              effectiveModel,
-              signalsFile,
-              'generator',
-              input.priorGeneratorSessionId,
-              deps.effort,
-              signal
-            )
-          );
-          if (!spawn.ok) return Result.error(spawn.error);
-
-          // Validate `signals.json` against the generator contract. On a RECOVERABLE failure
-          // (signals-missing / invalid-json / schema-mismatch) re-prompt the generator ONCE on
-          // the resumed session with a corrective message + the Zod issue list, then re-validate.
-          // `runGeneratorTurnUseCase` converts a still-failing validation into a `self-blocked`
-          // exit (task settles as blocked, run continues); only a fatal `Aborted`/`RateLimit`
-          // propagates and aborts the run.
-          const validated = await validateSignalsFileWithCorrectiveRetry(
-            {
-              outputDir,
-              logger: deps.logger,
-              // Self-containment for a COLD corrective spawn (no resumable id / codex stale-resume
-              // fallback): the per-round output contract + the on-disk task spec, so a fresh
-              // session re-reads its grounding instead of emitting signals from the error text.
-              selfContainedContext: [
-                `Task spec (read it): \`${join(String(input.workspaceRoot), 'contract.md')}\``,
-                '',
-                outputContractSection,
-              ].join('\n'),
-              reinvoke: async (corrective) => {
-                // Resume the generator's just-spawned thread so the corrective lands as a
-                // follow-up turn. Falls back to the prior-round id when this spawn never
-                // reported one to disk.
-                const resume =
-                  (await readRoundSessionId(input.workspaceRoot, roundNum, 'generator')) ??
-                  input.priorGeneratorSessionId;
-                const respawn = await deps.provider.generate(
-                  implementSession(
-                    input.workspaceRoot,
-                    deps.cwd,
-                    deps.sprintDir,
-                    corrective as Prompt,
-                    effectiveModel,
-                    signalsFile,
-                    'generator',
-                    resume,
-                    deps.effort,
-                    signal
-                  )
-                );
-                return respawn.ok ? Result.ok(undefined) : Result.error(respawn.error);
-              },
-            },
-            generatorOutputContract
-          );
-          if (!validated.ok) return Result.error(validated.error);
-          const signals = validated.value;
-
-          // Fan out to BOTH the legacy `HarnessSignalSink` (TUI panels, decisions-log) and
-          // the application bus's typed `ai-signal` event. The bus carries every kind the
-          // contract accepts; the sink keeps its existing per-kind consumers happy until
-          // Wave 6 collapses the two paths.
-          for (const sig of signals) {
-            deps.signals.emit(sig);
-            deps.eventBus.publish({ type: 'ai-signal', signal: sig, source: 'generator' });
-            if (sig.type === 'decision') decisionsEmitted.push(sig.text);
-            else if (sig.type === 'change') changesEmitted.push(sig.text);
-            else if (sig.type === 'learning')
-              learningsEmitted.push({
-                text: sig.text,
-                ...(sig.context !== undefined ? { context: sig.context } : {}),
-                ...(sig.appliesTo !== undefined ? { appliesTo: sig.appliesTo } : {}),
-              });
-            else if (sig.type === 'note') notesEmitted.push(sig.text);
-          }
-
-          // Render harness-owned sidecars (`commit-message.txt` when present). Write
-          // failures log warn inside `renderSidecars`; the helper always returns
-          // `Result.ok` (sidecars are operator UX only — downstream leaves read in-memory
-          // signals from ctx, never the sidecar file).
-          await renderSidecars(deps.writeFile, outputDir, signals, generatorOutputContract.sidecars, deps.logger);
-
-          // `runGeneratorTurnUseCase` expects `readonly HarnessSignal[]`. `GeneratorContractSignal`
-          // is a strict subset of `HarnessSignal`, but TS's array variance doesn't infer
-          // that automatically — cast through `AiSignal[]` (the canonical union alias) to
-          // keep the call site honest about the underlying domain shape.
-          return Result.ok(signals as readonly AiSignal[]) as Result<readonly HarnessSignal[], DomainError>;
-        };
-
-        const result = await runGeneratorTurnUseCase({
-          task: input.task,
-          callImplement,
-          logger: deps.logger,
-        });
-        if (!result.ok) return Result.error(result.error);
-
-        // Read THIS turn's captured sessionId from disk (the Claude adapter just wrote it as a
-        // sibling of `signals.json` via `persistSessionIdFile`). Undefined when the spawn never
-        // reported an id — left undefined so the next round cold-starts cleanly rather than
-        // forwarding a stale id from a prior task.
-        const capturedSessionId = await readRoundSessionId(input.workspaceRoot, roundNum, 'generator');
-
-        return Result.ok({
-          task: result.value.task,
-          turn: input.turn,
-          roundNum,
-          decisionsEmitted,
-          changesEmitted,
-          learningsEmitted,
-          notesEmitted,
-          ...(result.value.exit !== undefined ? { exit: result.value.exit } : {}),
-          ...(result.value.proposedCommitMessage !== undefined
-            ? { proposedCommitMessage: result.value.proposedCommitMessage }
-            : {}),
-          ...(capturedSessionId !== undefined ? { capturedSessionId } : {}),
-        });
-      },
-    },
-    input: (ctx) => {
-      const PRE_GENERATOR_STATE = 'pre-generator';
-      if (ctx.currentTask === undefined || ctx.currentTask.id !== taskId) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: PRE_GENERATOR_STATE,
-          attemptedAction: `generator-${String(taskId)}`,
-          message: `generator-${String(taskId)}: ctx.currentTask missing or mismatched`,
-        });
-      }
-      if (ctx.currentTask.status !== 'in_progress') {
-        throw new InvalidStateError({
-          entity: 'task',
-          currentState: ctx.currentTask.status,
-          attemptedAction: `generator-${String(taskId)}`,
-          message: `generator-${String(taskId)}: expected in_progress task`,
-        });
-      }
-      if (ctx.taskWorkspaceRoot === undefined) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: PRE_GENERATOR_STATE,
-          attemptedAction: `generator-${String(taskId)}`,
-          message: `generator-${String(taskId)}: ctx.taskWorkspaceRoot missing — buildTaskWorkspaceLeaf must run first`,
-        });
-      }
-      if (ctx.currentRoundNum === undefined) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: PRE_GENERATOR_STATE,
-          attemptedAction: `generator-${String(taskId)}`,
-          message: `generator-${String(taskId)}: ctx.currentRoundNum missing — resolve-round-num must run first`,
-        });
-      }
-      // Compose the dimension-trajectory feed-forward (principles 6 + 15) from the per-attempt
-      // evaluator-turn history. Pure ctx read — `composeDimensionTrajectory` returns '' until there
-      // are two turns to diff (round 1 has none), so the prompt's PRIOR_CRITIQUE_SECTION collapses
-      // cleanly on the first round.
-      const dimensionTrajectory = composeDimensionTrajectory({
-        history: ctx.plateauHistory ?? [],
-        plateauThreshold: deps.plateauThreshold,
-        roundNum: ctx.currentRoundNum,
-        maxTurns: deps.maxTurns,
-      });
-      // Cross-sprint procedural memory (principle 3) loaded once by the prologue's `load-learnings`.
-      // Pure ctx read; '' when the ledger was absent/empty so the prompt placeholder collapses.
-      const priorLearnings = composePriorLearnings(ctx.priorLearnings ?? []);
-      // Episodic memory (R4) derived from this sprint's already-settled sibling tasks. Pure ctx
-      // read; '' until a sibling has settled (done/blocked) so the prompt placeholder collapses.
-      const priorEpisodes = summariseEpisodes(composeTaskEpisodes(ctx.tasks ?? [], taskId, ctx.sprintId));
-      return {
-        task: ctx.currentTask,
-        turn: (ctx.genEvalTurn ?? 0) + 1,
-        workspaceRoot: ctx.taskWorkspaceRoot,
-        roundNum: ctx.currentRoundNum,
-        ...(ctx.priorGeneratorSessionId !== undefined ? { priorGeneratorSessionId: ctx.priorGeneratorSessionId } : {}),
-        ...(dimensionTrajectory.length > 0 ? { dimensionTrajectory } : {}),
-        ...(priorLearnings.length > 0 ? { priorLearnings } : {}),
-        ...(priorEpisodes.length > 0 ? { priorEpisodes } : {}),
-      };
-    },
-    output: (ctx, out) => {
-      const tasks = (ctx.tasks ?? []).map((t) => (t.id === out.task.id ? out.task : t));
-      // Latest non-undefined proposed commit message wins across turns.
-      const proposedCommitMessage = out.proposedCommitMessage ?? ctx.proposedCommitMessage;
-      const carry = proposedCommitMessage !== undefined ? { proposedCommitMessage } : {};
-      // Latest captured generator sessionId wins; only OVERWRITE when this turn produced one.
-      // A turn that failed to capture an id (provider crash mid-stream) preserves whatever the
-      // prior turn captured so the next round still has a thread to resume.
-      const sessionCarry =
-        out.capturedSessionId !== undefined ? { priorGeneratorSessionId: out.capturedSessionId } : {};
-      // Accumulate this turn's signal texts onto the per-attempt aggregates. Cleared by the
-      // progress-journal leaf after the attempt settles. Each kind has its own field on ctx so
-      // the journal renderer can drop empty subsections without inspecting the signal type.
-      const decisionsCarry =
-        out.decisionsEmitted.length > 0
-          ? { currentAttemptDecisions: [...(ctx.currentAttemptDecisions ?? []), ...out.decisionsEmitted] }
-          : {};
-      const changesCarry =
-        out.changesEmitted.length > 0
-          ? { currentAttemptChanges: [...(ctx.currentAttemptChanges ?? []), ...out.changesEmitted] }
-          : {};
-      const learningsCarry =
-        out.learningsEmitted.length > 0
-          ? { currentAttemptLearnings: [...(ctx.currentAttemptLearnings ?? []), ...out.learningsEmitted] }
-          : {};
-      const notesCarry =
-        out.notesEmitted.length > 0
-          ? { currentAttemptNotes: [...(ctx.currentAttemptNotes ?? []), ...out.notesEmitted] }
-          : {};
-      // Per-turn signal-kind distribution (R2) — stamped fresh every turn (overwrites the prior
-      // turn's map) so the entropy-plateau heuristic in the gen-eval loop sees the current turn's
-      // action diversity, never an accumulation across turns.
-      const actionCountsCarry = { lastTurnActionCounts: countTurnActionKinds(out) };
-      if (out.exit !== undefined) {
-        // Both exit kinds stop the inner loop + skip the evaluator (both key on `lastExit`), but
-        // they diverge on `lastBlockReason`:
-        //  - `self-blocked` (generator emitted `<task-blocked>` / codex-copilot signals-contract
-        //    failure) sets it → settle terminal-blocks the task after one attempt (unchanged).
-        //  - `crashed` (watchdog kill / spawn crash) sets ONLY `lastExit`. It must NOT set
-        //    `lastBlockReason`: finalize is the sole authority for whether a crash blocks (it grants
-        //    a retry within maxAttempts, then blocks at the cap). Because `finalizeGenEvalLeaf` only
-        //    ADDS a block reason (conditional spread) and never CLEARS a stale one, a block reason
-        //    stamped here would leak past finalize into settle and wrongly terminal-block the task.
-        const blockReasonCarry = out.exit.kind === 'self-blocked' ? { lastBlockReason: out.exit.reason } : {};
-        return {
-          ...ctx,
-          currentTask: out.task,
-          tasks,
-          genEvalTurn: out.turn,
-          currentRoundNum: out.roundNum,
-          lastExit: { kind: out.exit.kind, reason: out.exit.reason },
-          ...blockReasonCarry,
-          ...carry,
-          ...sessionCarry,
-          ...decisionsCarry,
-          ...changesCarry,
-          ...learningsCarry,
-          ...notesCarry,
-          ...actionCountsCarry,
-        };
-      }
-      return {
-        ...ctx,
-        currentTask: out.task,
-        tasks,
-        genEvalTurn: out.turn,
-        currentRoundNum: out.roundNum,
-        ...carry,
-        ...sessionCarry,
-        ...decisionsCarry,
-        ...changesCarry,
-        ...learningsCarry,
-        ...notesCarry,
-        ...actionCountsCarry,
-      };
-    },
+    useCase: { execute: makeGeneratorExecute(deps, taskId) },
+    input: makeGeneratorInput(deps, taskId),
+    output: generatorOutput,
   });
