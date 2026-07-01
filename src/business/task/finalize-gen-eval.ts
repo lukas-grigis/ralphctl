@@ -214,6 +214,25 @@ const resolveMalformedRemedy = (
   return { task: props.task, shouldFailAttempt };
 };
 
+/**
+ * A process crash (watchdog kill / spawn crash) is not a quality plateau — retry regardless of
+ * `escalateOnPlateau`, and WITHOUT stamping the escalation model fields (no ladder rung).
+ * `failCurrentAttempt` transitions the task to `blocked` on its own once attempts hit the cap — but
+ * ONLY when `task.maxAttempts` is set. Legacy tasks (`maxAttempts` undefined) have no cap enforced
+ * downstream, so a persistent crash would retry forever across launches; once such a task's recorded
+ * attempts reach the configured fallback budget (`cfg.maxAttempts`), block here directly instead.
+ */
+const resolveCrashedRemedy = (props: FinalizeGenEvalProps, cfg: { readonly maxAttempts: number }): Remedy => {
+  const legacyBudgetExhausted = props.task.maxAttempts === undefined && props.task.attempts.length >= cfg.maxAttempts;
+  return legacyBudgetExhausted
+    ? {
+        task: props.task,
+        shouldFailAttempt: false,
+        blockedReason: 'AI process repeatedly crashed; attempt budget exhausted',
+      }
+    : { task: props.task, shouldFailAttempt: true };
+};
+
 export const finalizeGenEvalUseCase = async (
   props: FinalizeGenEvalProps
 ): Promise<Result<FinalizeGenEvalOutput, InvalidStateError | NotFoundError | StorageError | ValidationError>> => {
@@ -249,12 +268,7 @@ export const finalizeGenEvalUseCase = async (
   } else if (exit.kind === 'malformed') {
     remedy = resolveMalformedRemedy(props, cfg, log);
   } else if (exit.kind === 'crashed') {
-    // A process crash (watchdog kill / spawn crash) is not a quality plateau — retry
-    // UNCONDITIONALLY, regardless of `escalateOnPlateau`, and WITHOUT stamping the escalation
-    // model fields (no ladder rung). `failCurrentAttempt` transitions the task to `blocked` on its
-    // own once attempts hit the cap, so `shouldFailAttempt: true` is correct even on the final
-    // attempt — the retry budget itself decides when to stop.
-    remedy = { task: props.task, shouldFailAttempt: true };
+    remedy = resolveCrashedRemedy(props, cfg);
   }
 
   const taskForPersist: InProgressTask = remedy.task;

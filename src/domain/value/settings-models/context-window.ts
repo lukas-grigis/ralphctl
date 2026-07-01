@@ -8,10 +8,9 @@
  *  2. The TUI (`application/`) cannot import the integration-layer adapter
  *     (`providers/_engine/context-window.ts`) without violating the four-module layer rule.
  *
- * This intentionally duplicates the map that also lives in
- * `src/integration/ai/providers/_engine/context-window.ts`. Once ticket #226 lands and the
- * provider-engine is refactored, the integration copy should delegate here rather than maintaining
- * its own table. Until then keep both in sync when adding a new model entry.
+ * `src/integration/ai/providers/_engine/context-window.ts` re-exports {@link contextWindowFor}
+ * from here rather than keeping its own table — this module is the single source of truth for
+ * the model → window map.
  *
  * Scope discipline: only entries we are confident about. A guess here surfaces as a wrong label or
  * a wrong % bar in the TUI; an omission surfaces as "no label rendered". Prefer the latter — add a

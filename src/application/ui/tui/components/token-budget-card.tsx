@@ -39,6 +39,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
+import { fmtTokens } from '@src/application/ui/tui/components/format.ts';
 import { CONTEXT_WIDTH, glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import type { TokenUsage } from '@src/application/ui/tui/runtime/use-token-usage.ts';
 import { contextWindowLabel } from '@src/domain/value/settings-models/context-window.ts';
@@ -51,23 +52,6 @@ export interface TokenBudgetCardProps {
 
 /** Width of the context-window progress bar in cells. Sized to fit inside {@link CONTEXT_WIDTH}. */
 const BAR_WIDTH = 10;
-
-/**
- * Compact a token count for display: `200000` → `200k`, `12400` → `12.4k`, `120` → `120`,
- * `1000000` → `1M`, `1200000` → `1.2M`. The context column is narrow; single-char suffixes
- * keep every row scannable. Values ≥ 1M use the `M` suffix so a 1M context-window renders
- * as `1M`, not `1000k`.
- */
-const fmtTokens = (n: number): string => {
-  if (!Number.isFinite(n) || n < 0) return String(n);
-  if (n < 1000) return String(Math.round(n));
-  if (n >= 1_000_000) {
-    const m = n / 1_000_000;
-    return `${m.toFixed(1).replace(/\.0$/, '')}M`;
-  }
-  const k = n / 1000;
-  return k >= 100 ? `${String(Math.round(k))}k` : `${k.toFixed(1).replace(/\.0$/, '')}k`;
-};
 
 /** Render an ASCII progress bar of the configured width — filled-blocks for used, light-shade for remaining. */
 const renderBar = (filled: number): string => {

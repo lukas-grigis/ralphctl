@@ -192,9 +192,11 @@ const buildParallelElement = (
     });
 
   // Serialise every append for the WHOLE parallel run — prologue, all branches, and the epilogue
-  // share ONE mutex. Concurrent branches append to the same `progress.md` journal and project
-  // learnings ledger; funnelling them through one queue keeps each line atomic (no torn NDJSON /
-  // journal lines under fan-out). The serial path keeps the raw port — it has no concurrency.
+  // share ONE mutex. Concurrent branches append to the same project learnings ledger (and the
+  // prologue/epilogue's `progress.md` separator lines); funnelling them through one queue keeps
+  // each line atomic (no torn NDJSON lines under fan-out). The serial path keeps the raw port — it
+  // has no concurrency. `progress.md`'s per-attempt SECTION write is a SEPARATE read-modify-write
+  // path guarded by `ImplementDeps.journalMutex` (built once per run, below), not by this append mutex.
   const parallelDeps: ImplementDeps = { ...implementDeps, appendFile: serializeAppendFile(implementDeps.appendFile) };
 
   const branchDeps: BuildWaveBranchesDeps = {
@@ -339,6 +341,10 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
     interactive: deps.interactive,
     writeFile: deps.app.writeFile,
     appendFile: deps.app.appendFile,
+    // ONE journal mutex per run. Every parallel branch inherits this instance (branches spread this
+    // deps bag), so their `progress-journal-<taskId>` leaves serialise their read-regenerate-write
+    // of the shared `progress.md` through it; the serial path is a single caller, so it is a no-op.
+    journalMutex: createFoldQueue(),
   };
   const implementOpts = {
     sprintId: snapshot.sprint.id,

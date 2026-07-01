@@ -35,6 +35,7 @@ import { createAppendFile } from '@src/integration/io/append-file-adapter.ts';
 import type { AppEvent, LogEvent } from '@src/business/observability/events.ts';
 
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
+import { createFoldQueue } from '@src/application/flows/implement/wave-branch.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import { createImplementFlow } from '@src/application/flows/implement/flow.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
@@ -218,6 +219,7 @@ function runTests(): void {
     interactive: unusedInteractive,
     writeFile: createAtomicWriteFile(),
     appendFile: createAppendFile(),
+    journalMutex: createFoldQueue(),
   });
 
   // ─── Fixture builder ─────────────────────────────────────────────────────────

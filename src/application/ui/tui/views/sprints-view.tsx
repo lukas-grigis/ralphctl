@@ -8,7 +8,7 @@
  *   ↵   open the sprint's detail view.
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { OverflowRow, useListWindow } from '@src/application/ui/tui/components/windowed-list.tsx';
@@ -19,6 +19,7 @@ import { sprintStatusKind, StatusChip } from '@src/application/ui/tui/components
 import { ConfirmCard } from '@src/application/ui/tui/components/confirm-card.tsx';
 import { renameSprint, type Sprint } from '@src/domain/entity/sprint.ts';
 import { useEditField } from '@src/application/ui/tui/runtime/use-edit-field.ts';
+import { useIsMounted } from '@src/application/ui/tui/runtime/use-is-mounted.ts';
 import { Result } from '@src/domain/result.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
@@ -61,14 +62,7 @@ export const SprintsView = (): React.JSX.Element => {
   // (or firing `u`) unblocks the router, so the operator can navigate away (unmounting this view)
   // before the awaited repo writes resolve. The guard skips the post-await view-local writes
   // (setFeedback / reload / setFocusedSprintTasks) so they never fire into an unmounted tree.
-  // Mirrors the guard in `useEditField`.
-  const mountedRef = useRef(true);
-  useEffect(
-    () => () => {
-      mountedRef.current = false;
-    },
-    []
-  );
+  const mountedRef = useIsMounted();
 
   // Windowed cursor — owns ↑/↓ + j/k + PgUp/PgDn + Home/End + Enter; the cursor is the sprint id,
   // so a reload/reorder keeps focus on the same sprint. Enter selects (sets current + drills in).

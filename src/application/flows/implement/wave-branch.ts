@@ -82,14 +82,19 @@ export const createFoldQueue = (): FoldQueue => {
 
 /**
  * Wrap an {@link AppendFile} so concurrent calls serialise through one in-process mutex. The
- * parallel path runs N branches at once, and several of them append to the SAME shared files —
- * `<sprintDir>/progress.md` (the journal) and `<memoryRoot>/<projectId>/learnings.ndjson` (the
- * learning ledger). Two overlapping `fs.appendFile` calls to one file can interleave their writes
- * and tear an NDJSON / journal line; the read side (ledger dedup, the human reading `progress.md`)
- * tolerates duplicate lines but NOT torn ones. Funnelling every append through one {@link FoldQueue}
- * makes each line atomic with respect to the others — cheap (a promise chain), and it also yields a
- * deterministic FIFO append order. Per-task artefacts (`prompt.md`, `signals.json`) are written to
- * task-scoped paths and never collide, so only the append port needs this.
+ * parallel path runs N branches at once, and several of them append to the SAME shared
+ * `<memoryRoot>/<projectId>/learnings.ndjson` learning ledger (and, via
+ * `append-journal-separator-leaf`, the prologue/epilogue's `<sprintDir>/progress.md` separator
+ * lines). Two overlapping `fs.appendFile` calls to one file can interleave their writes and tear an
+ * NDJSON line; the read side (ledger dedup) tolerates duplicate lines but NOT torn ones. Funnelling
+ * every append through one {@link FoldQueue} makes each line atomic with respect to the others —
+ * cheap (a promise chain), and it also yields a deterministic FIFO append order.
+ *
+ * `progress-journal-<taskId>`'s per-attempt SECTION write is a SEPARATE concern — it is a
+ * read-modify-write of the WHOLE file (not this append port), so it is guarded by the dedicated
+ * `journalMutex` instead (see `ProgressJournalLeafDeps` / `ImplementDeps`), not by this append
+ * mutex. Per-task artefacts (`prompt.md`, `signals.json`) are written to task-scoped paths and
+ * never collide, so only these two shared files need serialisation.
  *
  * @public
  */
@@ -514,8 +519,9 @@ const buildOneBranch = (
   const worktreePath = worktreePathFor(opts.sprintDir, task.id);
   const branchRef = gitWorktreeRef(String(opts.sprintId), String(task.id));
 
-  // Per-branch deps clone — only the harness-signal sink differs, keyed on this task's id so
-  // concurrent branches don't cross-attribute their `<change>`/`<learning>`/`<note>` signals.
+  // Per-branch deps clone — only the harness-signal sink differs (keyed on this task's id so
+  // concurrent branches don't cross-attribute their `<change>`/`<learning>`/`<note>` signals).
+  // Everything else, including the run's shared `journalMutex`, is inherited from `deps.implement`.
   const branchDeps: ImplementDeps = {
     ...deps.implement,
     signals: perBranchSignalSink(deps.appSignals, deps.eventBus, task.id),

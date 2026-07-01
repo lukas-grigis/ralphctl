@@ -163,3 +163,18 @@ export const statLedgerExceedsThreshold = async (path: AbsolutePath): Promise<bo
     return false;
   }
 };
+
+/**
+ * `readLedgerLines` strips the trailing newline off each raw line (`split('\n')`);
+ * `serializeLearningRecord` keeps it. Normalise so the NDJSON rewrite is one well-formed line per
+ * row regardless of source.
+ */
+export const ensureTrailingNewline = (raw: string): string => (raw.endsWith('\n') ? raw : `${raw}\n`);
+
+/**
+ * Join compacted ledger rows into a well-formed NDJSON body. Shared by both ledger-rewrite paths
+ * (`stampPromotedLeaf` and `boundLedgerIfNeeded`) so they emit byte-for-byte-identical output for
+ * the same input rows.
+ */
+export const serializeLedgerBody = (rows: ReadonlyArray<{ readonly raw: string }>): string =>
+  rows.map((r) => ensureTrailingNewline(r.raw)).join('');

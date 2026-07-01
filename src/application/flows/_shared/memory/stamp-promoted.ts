@@ -13,6 +13,7 @@ import { isAbortedRead } from '@src/application/flows/_shared/memory/abort-guard
 import {
   type LedgerLine,
   readLedgerLines,
+  serializeLedgerBody,
   statLedgerExceedsThreshold,
 } from '@src/application/flows/_shared/memory/read-ledger.ts';
 import { type LedgerRow, compactLedger } from '@src/application/flows/_shared/memory/compact-ledger.ts';
@@ -156,7 +157,7 @@ const stamp = async (
   // byte forward-compat holds across the dedup; promoted tombstones are never evicted.
   const compacted = compactLedger(rows);
 
-  const body = compacted.rows.map((r) => ensureTrailingNewline(r.raw)).join('');
+  const body = serializeLedgerBody(compacted.rows);
   const written = await deps.writeFile(path, body);
   if (!written.ok) return Result.error(written.error);
 
@@ -240,10 +241,3 @@ const stampPass = (
 
 /** Not already retired (so a second decline never re-serializes / re-dates an existing tombstone). */
 const isLive = (record: LearningRecord): boolean => record.retiredAt === undefined || record.retiredAt === null;
-
-/**
- * `readLedgerLines` strips the trailing newline off each raw line (`split('\n')`);
- * `serializeLearningRecord` keeps it. Normalise so the NDJSON rewrite is one well-formed line per
- * row regardless of source.
- */
-const ensureTrailingNewline = (raw: string): string => (raw.endsWith('\n') ? raw : `${raw}\n`);

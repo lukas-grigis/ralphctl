@@ -9,6 +9,7 @@ import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session
 import type { CodexProviderDeps } from '@src/integration/ai/providers/_engine/codex-provider-deps.ts';
 import { resolveWritableRoots } from '@src/integration/ai/providers/_engine/resolve-roots.ts';
 import type { SessionPermissions } from '@src/integration/ai/providers/_engine/session-permissions.ts';
+import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { isCodexModel } from '@src/domain/value/settings-models/codex.ts';
@@ -344,6 +345,17 @@ const publishCodexStreamLineEvents = (eventBus: EventBus, obj: Record<string, un
   }
 };
 
+/** Best-effort debug log when the codex forensic body tempfile can't be read (audit-[09]). */
+const publishUnreadableBody = (eventBus: EventBus, err: unknown): void => {
+  eventBus.publish({
+    type: 'log',
+    level: 'debug',
+    message: 'codex-provider: forensic body tempfile unreadable',
+    meta: { error: err instanceof Error ? err.message : String(err) },
+    at: IsoTimestamp.now(),
+  });
+};
+
 const safeJson = (v: unknown): string | undefined => {
   if (v === undefined || v === null) return undefined;
   try {
@@ -452,20 +464,17 @@ export const createCodexProvider = (deps: CodexProviderDeps): HeadlessAiProvider
             // Codex reports a quota throttle in the agent_message body, not always on stderr.
             // Feed the accumulated tail into the rate-limit haystack so it trips the backoff.
             getStdoutTail: () => (agentMessageTail.length > 0 ? agentMessageTail : undefined),
-            // Single-shot read of the codex output tempfile — no per-line in-process accumulation.
-            // On SIGTERM-recovery the tempfile may be partial or empty.
+            // Single-shot read of the codex output tempfile (may be partial/empty on SIGTERM
+            // recovery). audit-[09]: a missing/unreadable tempfile must NOT hard-error — `onSuccess`
+            // also runs on the recovery branch (non-zero exit + signals.json present), and
+            // signals.json is the authoritative gate. Best-effort, like claude/copilot's getBody.
             getBody: async () => {
               try {
                 return Result.ok(await readFile(outputFile));
               } catch (err) {
-                return Result.error(
-                  new InvalidStateError({
-                    entity: PROVIDER_NAME,
-                    currentState: 'output-capture',
-                    attemptedAction: 'read tempfile',
-                    message: `codex-provider: failed to read output tempfile: ${err instanceof Error ? err.message : String(err)}`,
-                  })
-                );
+                if (err instanceof AbortError) throw err;
+                publishUnreadableBody(deps.eventBus, err);
+                return Result.ok('');
               }
             },
             emitProviderTokenUsage: (sessionId_) => {

@@ -25,6 +25,7 @@ import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { recordingAppendFile } from '@tests/fixtures/recording-append-file.ts';
 import { recordingWriteFile } from '@tests/fixtures/recording-write-file.ts';
 import { appendLearningsLeaf } from '@src/application/flows/implement/leaves/append-learnings.ts';
+import { createFoldQueue } from '@src/application/flows/implement/wave-branch.ts';
 import { progressJournalLeaf } from '@src/application/flows/implement/leaves/progress-journal.ts';
 import { loadLearningsLeaf } from '@src/application/flows/_shared/memory/load-learnings.ts';
 import { LEARNINGS_LEDGER_FILE } from '@src/application/flows/_shared/memory/ledger-path.ts';
@@ -292,7 +293,7 @@ describe('appendLearningsLeaf', () => {
       task.id
     );
     const journalLeaf = progressJournalLeaf(
-      { writeFile: journalWrite.fn, clock: () => FIXED_NOW, logger: noopLogger },
+      { writeFile: journalWrite.fn, clock: () => FIXED_NOW, logger: noopLogger, journalMutex: createFoldQueue() },
       { progressFile: PROGRESS_FILE, totalRounds: 5 },
       task.id
     );

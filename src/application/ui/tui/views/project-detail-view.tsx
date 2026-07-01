@@ -8,7 +8,7 @@
  * project's sprints.
  */
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
@@ -24,6 +24,7 @@ import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { Result } from '@src/domain/result.ts';
 import { type OpenEditPromptInput, useEditField } from '@src/application/ui/tui/runtime/use-edit-field.ts';
+import { useIsMounted } from '@src/application/ui/tui/runtime/use-is-mounted.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useAsyncLoad } from '@src/application/ui/tui/runtime/use-async-load.ts';
 import { useRouter, useViewProps } from '@src/application/ui/tui/runtime/router.tsx';
@@ -92,14 +93,8 @@ export const ProjectDetailView = (): React.JSX.Element => {
   // Mounted-ref guard for the async remove-repo handler: dismissing the confirm overlay unblocks the
   // router, so the operator can navigate away (unmounting this view) before the awaited save resolves.
   // The guard skips the post-await view-local writes (setFeedback / reload) so they never fire into an
-  // unmounted tree. Mirrors the guard in `useEditField`.
-  const mountedRef = useRef(true);
-  useEffect(
-    () => () => {
-      mountedRef.current = false;
-    },
-    []
-  );
+  // unmounted tree.
+  const mountedRef = useIsMounted();
 
   const project = state.kind === 'ok' ? state.value : undefined;
 

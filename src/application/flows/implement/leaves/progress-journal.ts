@@ -23,8 +23,10 @@ import { renderSectionHeader } from '@src/business/sprint/journal-structure.ts';
 import { renderSprintStateHeader, type SprintStateTask } from '@src/business/sprint/render-sprint-state-header.ts';
 import { parseJournalCreatedAt, regenerateJournal } from '@src/business/sprint/regenerate-journal-header.ts';
 import { dedupeLearnings } from '@src/application/flows/implement/leaves/_shared/dedupe-learnings.ts';
+import { dedupeTexts } from '@src/application/flows/implement/leaves/_shared/dedupe-texts.ts';
 import type { LearningEntry } from '@src/domain/signal.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
+import type { FoldQueue } from '@src/application/flows/implement/wave-branch.ts';
 
 /**
  * Write the just-settled task-attempt section into `<sprintDir>/progress.md` (audit-[07]) and
@@ -39,6 +41,14 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
  * execution), append the new attempt section, and write the whole file atomically. The header band
  * stays an accurate machine-derived snapshot; the attempt sections are never rewritten.
  *
+ * MUTEX-GUARDED read-modify-write: on the parallel wave path, 2+ branches share the SAME sprint
+ * `progress.md`. Each branch's read (a bare `fs.readFile`, outside any port) → regenerate-header →
+ * append-section → write is a critical section — without serialising it end-to-end, two branches
+ * can both read the same base, append only their own section, and the last `writeFile` rename wins,
+ * silently dropping a sibling's just-appended section. Serialising only the `writeFile` port is
+ * insufficient (the read happens BEFORE the port call); the whole `execute` body runs inside
+ * {@link ProgressJournalLeafDeps.journalMutex} instead.
+ *
  * FAIL-LOUD / self-healing for the section write: the per-attempt section is the NEXT attempt's
  * memory, so a dropped write silently removes a warning/escalation the next session must honour. A
  * failed write is retried once; if it still fails, a VISIBLE in-file gap marker is written instead so
@@ -50,6 +60,13 @@ export interface ProgressJournalLeafDeps {
   readonly writeFile: WriteFile;
   readonly clock: () => IsoTimestamp;
   readonly logger: Logger;
+  /**
+   * Mutex guarding this leaf's ENTIRE read → regenerate-header → append-section → write critical
+   * section. The parallel launcher threads ONE shared instance across every branch of a run (see
+   * `wave-branch.ts` / `launch/implement.ts`); the serial path gets a fresh, effectively-unshared
+   * instance (a single caller never contends with itself). See `wave-branch.ts`'s `FoldQueue`.
+   */
+  readonly journalMutex: FoldQueue;
 }
 
 export interface ProgressJournalLeafOpts {
@@ -72,24 +89,6 @@ interface JournalInput {
   /** Every task in the sprint — drives the per-task table, blockers, and stale lists. */
   readonly allTasks: readonly Task[];
 }
-
-/**
- * Trim + dedupe a per-attempt signal-text accumulator. Returns the deduped list in first-seen
- * order. Empty / undefined input → empty array; the renderer drops empty subsections.
- */
-const dedupeTexts = (texts: readonly string[] | undefined): readonly string[] => {
-  if (texts === undefined || texts.length === 0) return [];
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const t of texts) {
-    const trimmed = t.trim();
-    if (trimmed.length === 0) continue;
-    if (seen.has(trimmed)) continue;
-    seen.add(trimmed);
-    out.push(trimmed);
-  }
-  return out;
-};
 
 const renderOutcomeParagraph = (task: Task, attempt: Attempt | undefined): string => {
   if (task.status === 'blocked') {
@@ -330,24 +329,28 @@ export const progressJournalLeaf = (
 ): Element<ImplementCtx> =>
   leaf<ImplementCtx, JournalInput, void>(`progress-journal-${String(taskId)}`, {
     useCase: {
-      execute: async (input) => {
-        const newSection = buildAttemptSection(input, opts.totalRounds, deps.clock);
+      // The ENTIRE read → regenerate-header → append-section → write sequence is the critical
+      // section — the read is a bare `fs.readFile` outside any port, so serialising only the
+      // `writeFile` call would leave a window where two branches both read the same stale base.
+      execute: (input) =>
+        deps.journalMutex.run(async () => {
+          const newSection = buildAttemptSection(input, opts.totalRounds, deps.clock);
 
-        // Regenerate the always-kept header band from canonical state, then append this attempt
-        // section. The existing file's append-only sections ride through verbatim.
-        const existing = await readExisting(input.progressFile);
-        const stateHeader = buildStateHeader(input, existing, deps.clock);
-        const content = regenerateJournal({ existing, stateHeader, newSection });
+          // Regenerate the always-kept header band from canonical state, then append this attempt
+          // section. The existing file's append-only sections ride through verbatim.
+          const existing = await readExisting(input.progressFile);
+          const stateHeader = buildStateHeader(input, existing, deps.clock);
+          const content = regenerateJournal({ existing, stateHeader, newSection });
 
-        // Fallback payload if the section write keeps failing: a forgery-safe section header (so the
-        // delimiter + id token still parse for the next attempt) with a visible gap marker body.
-        const markerSection = `\n${renderSectionHeader(input.task.name, input.task.attempts.length, String(input.task.id))}\n\n_section for the latest attempt is missing — see signals.json / git log_\n`;
-        const markerContent = regenerateJournal({ existing, stateHeader, newSection: markerSection });
+          // Fallback payload if the section write keeps failing: a forgery-safe section header (so
+          // the delimiter + id token still parse for the next attempt) with a visible gap marker body.
+          const markerSection = `\n${renderSectionHeader(input.task.name, input.task.attempts.length, String(input.task.id))}\n\n_section for the latest attempt is missing — see signals.json / git log_\n`;
+          const markerContent = regenerateJournal({ existing, stateHeader, newSection: markerSection });
 
-        await writeJournalFailLoud(deps, taskId, input.progressFile, content, markerContent);
-        // The journal is a derived artefact — never halt the chain; fail-loud surfaced any loss.
-        return Result.ok(undefined) as Result<void, StorageError | InvalidStateError>;
-      },
+          await writeJournalFailLoud(deps, taskId, input.progressFile, content, markerContent);
+          // The journal is a derived artefact — never halt the chain; fail-loud surfaced any loss.
+          return Result.ok(undefined) as Result<void, StorageError | InvalidStateError>;
+        }),
     },
     input: (ctx) => {
       const allTasks = ctx.tasks ?? [];

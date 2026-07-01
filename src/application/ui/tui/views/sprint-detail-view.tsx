@@ -29,9 +29,10 @@
  * helpers, footer hints, keymap) live in `sprint-detail-internals/`.
  */
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Box, Text } from 'ink';
 import { useEditField } from '@src/application/ui/tui/runtime/use-edit-field.ts';
+import { useIsMounted } from '@src/application/ui/tui/runtime/use-is-mounted.ts';
 import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.tsx';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { LoadErrorRow, LoadingRow } from '@src/application/ui/tui/components/async-rows.tsx';
@@ -124,14 +125,8 @@ export const SprintDetailView = (): React.JSX.Element => {
   // Mounted-ref guard for the async unblock / remove-ticket handlers: dismissing the confirm overlay
   // (or firing `u`) unblocks the router, so the operator can navigate away (unmounting this view)
   // before the awaited use-case / flow resolves. The guard skips the post-await view-local writes
-  // (setFeedback / reload) so they never fire into an unmounted tree. Mirrors the guard in `useEditField`.
-  const mountedRef = useRef(true);
-  useEffect(
-    () => () => {
-      mountedRef.current = false;
-    },
-    []
-  );
+  // (setFeedback / reload) so they never fire into an unmounted tree.
+  const mountedRef = useIsMounted();
 
   // Ticket CRUD is only meaningful in draft. Detail-mode disables hot keys other than esc.
   const ticketsEditable = sprint?.status === 'draft';

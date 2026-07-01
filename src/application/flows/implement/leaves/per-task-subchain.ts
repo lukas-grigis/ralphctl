@@ -382,7 +382,12 @@ export const createPerTaskSubchain = (
             // duration, and the deduped signals for the just-settled attempt. Fail-loud / self-healing:
             // a failed section write retries once, then writes a visible gap marker + logs at error level.
             progressJournalLeaf(
-              { writeFile: deps.writeFile, clock: deps.clock, logger: deps.logger },
+              {
+                writeFile: deps.writeFile,
+                clock: deps.clock,
+                logger: deps.logger,
+                journalMutex: deps.journalMutex,
+              },
               { progressFile: opts.progressFile, totalRounds: deps.config.harness.maxTurns },
               taskId
             ),
