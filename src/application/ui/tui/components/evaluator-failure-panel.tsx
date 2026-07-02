@@ -27,7 +27,7 @@
 import React, { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import type { EvaluationSignal } from '@src/domain/signal.ts';
-import { glyphs, inkColors } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { fmtIsoTime } from '@src/application/ui/tui/theme/duration.ts';
 
 /**
@@ -139,7 +139,7 @@ export const EvaluatorFailurePanel = ({
                   )}
                 </Box>
                 {d.executionEvidence !== undefined && d.executionEvidence.trim().length > 0 && (
-                  <Box paddingLeft={2}>
+                  <Box paddingLeft={spacing.indent}>
                     <Text dimColor wrap="truncate-end">
                       {glyphs.activityArrow} {collapseEvidence(d.executionEvidence)}
                     </Text>
@@ -151,26 +151,26 @@ export const EvaluatorFailurePanel = ({
         </Box>
       )}
       {hasCritique && !expanded && (
-        <Box paddingLeft={2}>
+        <Box paddingLeft={spacing.indent}>
           <Text dimColor>{disclosure} </Text>
           <Text>critique: {critiqueExcerpt}</Text>
           {isExpandable && <Text dimColor> (press d to expand)</Text>}
         </Box>
       )}
       {hasCritique && expanded && (
-        <Box flexDirection="column" paddingLeft={2}>
+        <Box flexDirection="column" paddingLeft={spacing.indent}>
           <Box>
             <Text dimColor>{disclosure} </Text>
             <Text bold>critique</Text>
             {isExpandable && <Text dimColor> (press d to collapse)</Text>}
           </Box>
-          <Box paddingLeft={2}>
+          <Box paddingLeft={spacing.indent}>
             <Text>{critique}</Text>
           </Box>
         </Box>
       )}
       {!isFinalRound && (
-        <Box paddingLeft={2}>
+        <Box paddingLeft={spacing.indent}>
           <Text dimColor>{glyphs.activityArrow} next round will receive this critique</Text>
         </Box>
       )}

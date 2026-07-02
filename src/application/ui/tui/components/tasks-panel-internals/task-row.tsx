@@ -48,6 +48,7 @@ import {
   STATUS_PRESENTATION,
   SubStepLine,
 } from '@src/application/ui/tui/components/tasks-panel-internals/task-card-parts.tsx';
+import { useIdleClock } from '@src/application/ui/tui/components/tasks-panel-internals/use-idle-clock.ts';
 
 /**
  * Cursor caret, status glyph/spinner, display name, duration, and status word — the header's
@@ -403,8 +404,53 @@ const SignalsSection = ({
 );
 
 /**
- * Idle ticker / resume banner / first-run hint / criteria / error message — the "notice-ish"
- * rows directly under the header. Self-gates on `cardExpanded`.
+ * Idle-ticker hint — the only genuinely 1 Hz-dependent bit of an expanded task card. Owns its
+ * own tick internally via {@link useIdleClock} (mirrors the `ElapsedLabel` pattern from
+ * `execute-view-internals/elapsed-label.tsx`) instead of reading a `now` prop that the parent
+ * re-renders on every second — so a clock tick re-renders only this leaf, not `TaskBlock` or the
+ * rest of the card. `seedNowMs` seeds the leaf's clock on mount (the caller's freshest known
+ * "now"); the leaf free-runs from `Date.now()` afterwards while `active`.
+ *
+ * Surfaces the last 1–2 note / learning signals when the task is running and the most recent
+ * stream signal is older than `IDLE_TICKER_THRESHOLD_MS` — reassurance that the harness is alive
+ * during long tool calls. Hides immediately when a new signal lands. `active` should be
+ * `isActive && isSpinning` — completed / blocked / non-focused cards have no use for "what's the
+ * AI been thinking about" hints and never start a timer.
+ */
+const IdleTickerNotice = ({
+  active,
+  signals,
+  seedNowMs,
+}: {
+  readonly active: boolean;
+  readonly signals: TaskBucket['signals'];
+  readonly seedNowMs: number;
+}): React.JSX.Element | null => {
+  const now = useIdleClock(active, seedNowMs);
+  const idleSnippets = useMemo<readonly string[]>(() => {
+    if (!active) return [];
+    const latest = signals[signals.length - 1];
+    if (latest === undefined) return [];
+    const latestMs = new Date(String(latest.timestamp)).getTime();
+    if (!Number.isFinite(latestMs)) return [];
+    if (now - latestMs < IDLE_TICKER_THRESHOLD_MS) return [];
+    return latestIdleSnippets(signals);
+  }, [signals, active, now]);
+  if (idleSnippets.length === 0) return null;
+  return (
+    <IndentedNotice
+      tone="dim"
+      icon={glyphs.activityArrow}
+      text={idleSnippets.map((s) => collapseWhitespace(s)).join(`  ${glyphs.bullet}  `)}
+      truncate
+    />
+  );
+};
+
+/**
+ * Resume banner / first-run hint / criteria / error message — the "notice-ish" rows directly
+ * under the header, plus the idle ticker (delegated to {@link IdleTickerNotice}). Self-gates on
+ * `cardExpanded`.
  */
 const ExpandedNotices = ({
   cardExpanded,
@@ -426,31 +472,10 @@ const ExpandedNotices = ({
   readonly criteriaExpanded: boolean;
 }): React.JSX.Element | null => {
   const isSpinning = task.status === 'running';
-  // Idle ticker — surfaces the last 1–2 note / learning signals when the task is running and
-  // the most recent stream signal is older than IDLE_TICKER_THRESHOLD_MS. Provides reassurance
-  // that the harness is alive during long tool calls; hides immediately when a new signal
-  // lands. Active task only — completed / blocked cards have no use for "what's the AI been
-  // thinking about" hints.
-  const idleSnippets = useMemo<readonly string[]>(() => {
-    if (!isActive || !isSpinning) return [];
-    const latest = task.signals[task.signals.length - 1];
-    if (latest === undefined) return [];
-    const latestMs = new Date(String(latest.timestamp)).getTime();
-    if (!Number.isFinite(latestMs)) return [];
-    if (nowMs - latestMs < IDLE_TICKER_THRESHOLD_MS) return [];
-    return latestIdleSnippets(task.signals);
-  }, [task.signals, isActive, isSpinning, nowMs]);
   if (!cardExpanded) return null;
   return (
     <>
-      {idleSnippets.length > 0 && (
-        <IndentedNotice
-          tone="dim"
-          icon={glyphs.activityArrow}
-          text={idleSnippets.map((s) => collapseWhitespace(s)).join(`  ${glyphs.bullet}  `)}
-          truncate
-        />
-      )}
+      <IdleTickerNotice active={isActive && isSpinning} signals={task.signals} seedNowMs={nowMs} />
       {recovering !== undefined && <RecoveryLine attemptN={recovering.fromAttemptN + 1} context={recovering} />}
       {firstRun && isActive && isSpinning && (
         <IndentedNotice tone="dim" icon={glyphs.activityArrow} text="waiting for first attempt…" />
@@ -630,7 +655,29 @@ type TaskBlockProps = {
   readonly pendingSubSteps?: readonly string[];
 };
 
-export const TaskBlock = ({
+/**
+ * `TaskBlock`'s props-equality check for {@link React.memo} — identical to React's own default
+ * shallow compare EXCEPT it ignores `nowMs`. The host (`tasks-panel.tsx`) re-derives `nowMs` from
+ * a polled 1 Hz clock every second, so a naive default `React.memo` would still re-render every
+ * card on every tick even though only the idle-ticker leaf (`IdleTickerNotice`, which now owns
+ * its own timer — see `use-idle-clock.ts`) ever needed it. Excluding just that one field is what
+ * turns the memo into a real bail-out for the 1 Hz tick without touching the host's prop shape.
+ */
+const TASK_BLOCK_IGNORED_KEYS: ReadonlySet<keyof TaskBlockProps> = new Set(['nowMs']);
+
+const taskBlockPropsEqual = (prev: TaskBlockProps, next: TaskBlockProps): boolean => {
+  const keys = new Set<keyof TaskBlockProps>([
+    ...(Object.keys(prev) as Array<keyof TaskBlockProps>),
+    ...(Object.keys(next) as Array<keyof TaskBlockProps>),
+  ]);
+  for (const key of keys) {
+    if (TASK_BLOCK_IGNORED_KEYS.has(key)) continue;
+    if (!Object.is(prev[key], next[key])) return false;
+  }
+  return true;
+};
+
+const TaskBlockImpl = ({
   task,
   running,
   display,
@@ -698,7 +745,15 @@ export const TaskBlock = ({
   </Box>
 );
 
-export const OrphanSignals = ({
+/**
+ * Memoized with the custom `nowMs`-excluding comparator above. `tasks-panel.tsx` rebuilds this
+ * component's props from scratch every render (including every 1 Hz tick), so without a memo the
+ * card would re-render regardless; with it, a card whose only "changed" prop is `nowMs` bails out
+ * before touching its subtree (`ExpandedNotices`, `ExpandedProgressBlock`, …).
+ */
+export const TaskBlock = React.memo(TaskBlockImpl, taskBlockPropsEqual);
+
+const OrphanSignalsImpl = ({
   signals,
   max,
   focusedKey,
@@ -744,3 +799,8 @@ export const OrphanSignals = ({
     </Box>
   );
 };
+
+/** Default shallow-compare memo — no `nowMs`-style ticking prop here, so a plain `React.memo`
+ *  is enough to skip re-rendering the cross-task notes block when an unrelated task card change
+ *  (focus, expansion, a new per-task signal) triggers `TasksPanel` to re-render. */
+export const OrphanSignals = React.memo(OrphanSignalsImpl);
