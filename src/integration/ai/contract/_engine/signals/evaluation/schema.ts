@@ -1,20 +1,22 @@
 import { z } from 'zod';
-import {
-  FLOOR_DIMENSIONS,
-  type CriterionVerdict,
-  type DimensionScore,
-  type EvaluationSignal,
-} from '@src/domain/signal.ts';
+import type { CriterionVerdict, DimensionScore, EvaluationSignal } from '@src/domain/signal.ts';
+import { FLOOR_DIMENSION_NAMES } from '@src/integration/ai/evaluation/_engine/floor-dimensions.ts';
 import { IsoTimestampSchema } from '@src/integration/persistence/shared/value-schemas.ts';
 import type { Compatible } from '@src/integration/persistence/shared/codec-internal.ts';
 
+/** Sorted floor-dimension name list, derived from the canonical rubric — one source, no drift. */
+const FLOOR_DIMENSIONS = [...FLOOR_DIMENSION_NAMES].sort();
+
 /**
  * Per-dimension PASS / FAIL verdict the evaluator emits. The redesign dropped the numeric
- * `score` field — `passed` is the only verdict per dimension. Two refinements protect
- * downstream consumers:
+ * `score` field — `passed` is the only verdict per dimension. Refinements protect downstream
+ * consumers:
  *
  *  - `passed === false` REQUIRES `finding` to be non-empty so the operator (and the next
  *    generator turn's prompt) always has a concrete reason for the FAIL.
+ *  - `applicable === false` (explicit not-applicable, e.g. a robustness grade on a change that
+ *    touches no error path) also REQUIRES `finding` to be non-empty — the operator needs the
+ *    stated reason even though there is no pass/fail verdict to explain.
  *  - `executionEvidence` is schema-optional. Auto criteria are prompt-enforced to fill it;
  *    making it Zod-required would require cross-referencing `tasks.json` from the signal
  *    schema (ugly cross-aggregate coupling). The anti-rubber-stamp guard in the evaluator
@@ -26,12 +28,20 @@ const dimensionScoreSchema = z
     passed: z.boolean(),
     finding: z.string(),
     executionEvidence: z.string().optional(),
+    applicable: z.boolean().optional(),
   })
   .superRefine((d, ctx) => {
-    if (!d.passed && d.finding.trim().length === 0) {
+    if (!d.passed && d.applicable !== false && d.finding.trim().length === 0) {
       ctx.addIssue({
         code: 'custom',
         message: `dimension '${d.dimension}' failed but carries no finding`,
+        path: ['finding'],
+      });
+    }
+    if (d.applicable === false && d.finding.trim().length === 0) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `dimension '${d.dimension}' is marked not-applicable but carries no finding`,
         path: ['finding'],
       });
     }
@@ -61,12 +71,15 @@ void _criterionTypeCheck;
  *
  * The signal-level refinement enforces verdict / dimension consistency AND the floor-dimension
  * coverage the prompt prose mandates:
- *  - `status: 'passed'`  → every dimension MUST be `passed: true` AND all four
- *     {@link FLOOR_DIMENSIONS} (correctness / completeness / safety / consistency) MUST be
- *     present. A "passed with zero dimensions" (or a partial floor set) is rejected here — the
- *     hole that previously let a vacuous PASS validate while the rubric lived in prompt-prose only.
- *  - `status: 'failed'`  → at least one dimension MUST be `passed: false` AND all four floor
- *     dimensions MUST be present (so the critique can name a concrete failing floor item).
+ *  - `status: 'passed'`  → every dimension with `applicable !== false` MUST be `passed: true`
+ *     AND all five {@link FLOOR_DIMENSIONS} (correctness / completeness / safety / consistency /
+ *     robustness) MUST be present. A "passed with zero dimensions" (or a partial floor set) is
+ *     rejected here — the hole that previously let a vacuous PASS validate while the rubric
+ *     lived in prompt-prose only. A dimension marked `applicable: false` is neither a pass nor a
+ *     fail, so it never blocks a `passed` status.
+ *  - `status: 'failed'`  → at least one `applicable !== false` dimension MUST be `passed: false`
+ *     AND all five floor dimensions MUST be present (so the critique can name a concrete failing
+ *     floor item).
  *  - `status: 'malformed'` is the escape hatch the harness uses when the AI emits dimension
  *     rows but no terminal verdict; no consistency or coverage check applies — the harness
  *     retries the attempt (see `prompts/evaluate/template.md`).
@@ -110,13 +123,13 @@ export const evaluationSignalSchema = z
     if (missing.length > 0) {
       ctx.addIssue({
         code: 'custom',
-        message: `status is "${s.status}" but the required floor dimension(s) ${missing.join(', ')} are missing — every terminal verdict must grade correctness, completeness, safety, and consistency`,
+        message: `status is "${s.status}" but the required floor dimension(s) ${missing.join(', ')} are missing — every terminal verdict must grade correctness, completeness, safety, consistency, and robustness`,
         path: ['dimensions'],
       });
     }
 
     if (s.status === 'passed') {
-      const failedIndex = s.dimensions.findIndex((d) => !d.passed);
+      const failedIndex = s.dimensions.findIndex((d) => d.applicable !== false && !d.passed);
       if (failedIndex !== -1) {
         ctx.addIssue({
           code: 'custom',
@@ -125,7 +138,7 @@ export const evaluationSignalSchema = z
         });
       }
     } else {
-      const anyFailed = s.dimensions.some((d) => !d.passed);
+      const anyFailed = s.dimensions.some((d) => d.applicable !== false && !d.passed);
       if (!anyFailed) {
         ctx.addIssue({
           code: 'custom',

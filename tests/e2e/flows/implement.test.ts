@@ -396,13 +396,14 @@ const commitMessage = (subject: string, body?: string): HarnessSignal => ({
 });
 
 /**
- * The three floor dimensions other than `correctness`, all passing — appended so terminal
+ * The four floor dimensions other than `correctness`, all passing — appended so terminal
  * verdicts carry the full floor set the signal schema now requires.
  */
 const floorPasses = [
   { dimension: 'completeness', passed: true, finding: 'steps shipped' },
   { dimension: 'safety', passed: true, finding: 'inputs validated' },
   { dimension: 'consistency', passed: true, finding: 'matches siblings' },
+  { dimension: 'robustness', passed: true, finding: 'error paths handled' },
 ];
 
 /**

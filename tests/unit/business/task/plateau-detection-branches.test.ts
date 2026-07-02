@@ -22,10 +22,11 @@ import {
 
 const NOW = isoTimestamp('2026-05-26T10:00:00.000Z');
 
-const dim = (name: string, passed: boolean): DimensionScore => ({
+const dim = (name: string, passed: boolean, applicable?: boolean): DimensionScore => ({
   dimension: name,
   passed,
   finding: passed ? '' : 'placeholder failure finding',
+  ...(applicable !== undefined ? { applicable } : {}),
 });
 
 const evalFrom = (...dims: DimensionScore[]): EvaluationSignal => ({

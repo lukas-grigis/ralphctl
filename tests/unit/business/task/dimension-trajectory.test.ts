@@ -6,18 +6,27 @@ import { composeDimensionTrajectory } from '@src/business/task/dimension-traject
 
 const TS = '2026-06-12T00:00:00.000Z' as IsoTimestamp;
 
-const evalWith = (failed: readonly string[], passed: readonly string[] = []): EvaluationSignal => ({
+const evalWith = (
+  failed: readonly string[],
+  passed: readonly string[] = [],
+  notApplicable: readonly string[] = []
+): EvaluationSignal => ({
   type: 'evaluation',
   status: failed.length === 0 ? 'passed' : 'failed',
   dimensions: [
     ...failed.map((d) => ({ dimension: d, passed: false, finding: 'x' })),
     ...passed.map((d) => ({ dimension: d, passed: true, finding: 'ok' })),
+    ...notApplicable.map((d) => ({ dimension: d, passed: false, applicable: false, finding: 'not applicable' })),
   ],
   timestamp: TS,
 });
 
-const turn = (failed: readonly string[], passed: readonly string[] = []): PlateauTurnRecord => ({
-  evaluation: evalWith(failed, passed),
+const turn = (
+  failed: readonly string[],
+  passed: readonly string[] = [],
+  notApplicable: readonly string[] = []
+): PlateauTurnRecord => ({
+  evaluation: evalWith(failed, passed, notApplicable),
 });
 
 describe('composeDimensionTrajectory', () => {
@@ -57,6 +66,16 @@ describe('composeDimensionTrajectory', () => {
       maxTurns: 8,
     });
     expect(out).toContain('completeness: newly failing this round');
+  });
+
+  it('treats an applicable:false dimension as never failing, not newly failing', () => {
+    const out = composeDimensionTrajectory({
+      history: [turn(['correctness']), turn(['correctness'], [], ['robustness'])],
+      plateauThreshold: 5,
+      roundNum: 2,
+      maxTurns: 8,
+    });
+    expect(out).not.toContain('robustness');
   });
 
   it('fires the budget-pressure line one round before the plateau threshold', () => {

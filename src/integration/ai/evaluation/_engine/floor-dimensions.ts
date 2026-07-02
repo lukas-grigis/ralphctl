@@ -1,5 +1,5 @@
 /**
- * Floor evaluation dimensions — the four universal axes every task is graded on, regardless
+ * Floor evaluation dimensions — the five universal axes every task is graded on, regardless
  * of whether the planner emitted any per-task `extraDimensions`. The names are stable and
  * lowercased for plateau-detection use; the descriptions are mirrored into the evaluate prompt
  * template so the AI sees one consistent rubric.
@@ -36,6 +36,11 @@ export const FLOOR_DIMENSIONS: readonly FloorDimension[] = [
     name: 'Consistency',
     description:
       'Does the implementation fit the codebase? Check for: follows existing patterns and conventions (naming, structure, error handling); uses existing utilities instead of reinventing them; no unnecessary changes outside the task scope (spec drift); test patterns match the project existing test style.',
+  },
+  {
+    name: 'Robustness',
+    description:
+      'Does the change handle error and failure paths gracefully? Check for: unhandled exceptions, missing error propagation, ungraceful degradation under partial failure, and recovery from transient faults (retries, cleanup, rollback). When the change touches no error path, grade this dimension `applicable: false` and state why in `finding` rather than fabricating a pass or fail.',
   },
 ];
 
