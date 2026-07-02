@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createBundledSkillSource } from '@src/integration/ai/skills/bundled/source.ts';
+import { skillsForFlow } from '@src/integration/ai/skills/_engine/registry.ts';
 
 describe('createBundledSkillSource (production root)', () => {
   // Hits the real `src/ai/skills/bundled/` folder. Asserts the three v1 skills load.
@@ -28,12 +29,13 @@ describe('createBundledSkillSource (production root)', () => {
     expect(alignment?.content).toContain('# Alignment');
   });
 
-  it('returns the same set across flows (current registry assigns all skills to all flows)', async () => {
+  it('returns exactly the registry defaults for each flow, in table order', async () => {
     const a = await source.getForFlow('refine');
     const b = await source.getForFlow('plan');
     expect(a.ok && b.ok).toBe(true);
     if (!(a.ok && b.ok)) return;
-    expect(a.value.map((s) => s.name)).toEqual(b.value.map((s) => s.name));
+    expect(a.value.map((s) => s.name)).toEqual(skillsForFlow('refine'));
+    expect(b.value.map((s) => s.name)).toEqual(skillsForFlow('plan'));
   });
 
   it('getByName resolves a known bundled skill by its exact folder name', async () => {

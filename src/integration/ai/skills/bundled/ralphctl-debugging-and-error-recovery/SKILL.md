@@ -1,6 +1,6 @@
 ---
 name: ralphctl-debugging-and-error-recovery
-description: Systematic root-cause debugging. Use when tests fail, builds break, or behaviour does not match expectations. Follow stop-the-line → reproduce → localize → reduce → root-cause → guard-with-regression-test → verify, not guessing.
+description: Systematic root-cause debugging. Use when tests fail, builds break, or behaviour does not match expectations. Follow stop-the-line → reproduce → localize → reduce → root-cause → guard-with-regression-test → verify, not guessing; the reproduction and regression steps follow the same red-green discipline as ralphctl-test-driven-development.
 license: MIT
 ---
 

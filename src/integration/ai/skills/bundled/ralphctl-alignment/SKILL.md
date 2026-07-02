@@ -1,6 +1,6 @@
 ---
 name: ralphctl-alignment
-description: Cross-phase skill — establish a shared understanding of what will and will not be done before producing output. Restate the input back to the user; surface assumptions; agree before you write.
+description: Cross-phase skill — establish a shared understanding of what will and will not be done before producing output: restate the input back to the user, surface assumptions, name non-goals, and agree before you write. For an input that is still a raw, unshaped idea needing multiple candidate directions before one is chosen, run ralphctl-idea-refinement first; alignment then confirms whichever direction comes out of it.
 ---
 
 # Alignment

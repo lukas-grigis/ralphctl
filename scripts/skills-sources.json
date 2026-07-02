@@ -27,6 +27,30 @@
       "ref": "main",
       "license": "MIT",
       "upstreamUrl": "https://github.com/addyosmani/agent-skills"
+    },
+    {
+      "name": "ralphctl-ponytail",
+      "repo": "DietrichGebert/ponytail",
+      "path": "skills/ponytail/SKILL.md",
+      "ref": "main",
+      "license": "MIT",
+      "upstreamUrl": "https://github.com/DietrichGebert/ponytail"
+    },
+    {
+      "name": "ralphctl-idea-refinement",
+      "repo": "addyosmani/agent-skills",
+      "path": "skills/idea-refine/SKILL.md",
+      "ref": "main",
+      "license": "MIT",
+      "upstreamUrl": "https://github.com/addyosmani/agent-skills"
+    },
+    {
+      "name": "ralphctl-domain-driven-design",
+      "repo": "wondelai/skills",
+      "path": "domain-driven-design/SKILL.md",
+      "ref": "main",
+      "license": "MIT",
+      "upstreamUrl": "https://github.com/wondelai/skills"
     }
   ]
 }
