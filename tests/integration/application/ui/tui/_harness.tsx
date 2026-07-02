@@ -16,7 +16,11 @@ import { DepsProvider } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { RouterProvider, type ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 import { UiStateProvider } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { HintsProvider } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
-import { SelectionProvider, useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
+import {
+  SelectionProvider,
+  useSelection,
+  type SelectionSeed,
+} from '@src/application/ui/tui/runtime/selection-context.tsx';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { SessionsProvider } from '@src/application/ui/tui/runtime/sessions-context.tsx';
@@ -51,6 +55,12 @@ export interface HarnessOptions {
     readonly sprintId?: SprintId;
     readonly sprintLabel?: string;
   };
+  /**
+   * Observe the `SelectionProvider`'s persistence callback — useful for asserting that a
+   * given interaction did (or, notably, did NOT) write through to the on-disk store, e.g.
+   * `execute-view.test.tsx`'s focus-convergence-does-not-persist fence.
+   */
+  readonly selectionOnChange?: (next: SelectionSeed) => void;
 }
 
 export interface HarnessApi {
@@ -101,7 +111,9 @@ export const renderView = (child: React.ReactNode, opts: HarnessOptions): Harnes
             <PromptQueueProvider value={queue}>
               <UiStateProvider>
                 <HintsProvider>
-                  <SelectionProvider>
+                  <SelectionProvider
+                    {...(opts.selectionOnChange !== undefined ? { onChange: opts.selectionOnChange } : {})}
+                  >
                     {opts.selection !== undefined && <SeedSelection seed={opts.selection} />}
                     <LogLevelProvider gate={createLogLevelGate('info')}>
                       <SystemStatusProvider>

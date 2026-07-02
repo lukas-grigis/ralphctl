@@ -417,6 +417,7 @@ pushes a dedicated `*-detail-view.tsx`).
 - `FieldList` for metadata.
 - `StatusChip` for lifecycle state.
 - Detail views are primarily read-only browse surfaces. An explicit `m` chord is allowed to make the viewed entity current when opening the detail must not implicitly switch the selection (e.g. `ProjectsView` and `ProjectDetailView` — browsing must not clear the sprint cursor as a side effect).
+- **Execute view is the one deliberate exception.** Focusing a session (Tab / Ctrl+1..9 / Sessions-open) auto-converges the global selection onto that run's pinned sprint — unlike Projects/Sprint-detail browsing, this view IS the thing currently being worked, so `n → Flows` must target what's on screen, not a stale pick from before the focus switch. The convergence is non-persisting (an exploratory Tab-cycle through old sessions must never corrupt the next boot's default sprint — see `selection-context.tsx`'s `followFocusedRun`) and fires the "✓ now on …" toast so the switch is visible, never silent.
 
 ### 7.4 Phase views (refine / plan / implement / review)
 

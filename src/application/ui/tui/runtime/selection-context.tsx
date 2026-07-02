@@ -75,6 +75,19 @@ interface SelectionApi {
     sprintLabel: string,
     sprintStatus?: SprintStatus
   ): void;
+  /**
+   * Converge the selection onto a focused Execute-view run's pinned project/sprint — for the
+   * Tab / Ctrl+1..9 / Sessions-open case where focus lands on a session pinned to a DIFFERENT
+   * sprint than the current selection, so `n → Flows` (and every other selection-reading
+   * surface) targets what's actually on screen instead of a stale pick.
+   *
+   * Deliberately NOT persisted, unlike {@link setProjectAndSprint}: this fires from a passive
+   * effect reacting to focus changes, not an explicit user pick — a purely exploratory
+   * Tab-cycle through old sessions must never overwrite the next boot's default sprint. `lastSwitch`
+   * IS still recorded so Home's "✓ now on …" toast fires; the switch changes real behaviour
+   * (what the next flow launch targets), so it must not be silent either.
+   */
+  followFocusedRun(projectId: ProjectId, projectLabel: string, sprintId: SprintId, sprintLabel: string): void;
 }
 
 const SelectionContext = createContext<SelectionApi | undefined>(undefined);
@@ -139,15 +152,25 @@ export const SelectionProvider = ({
   const sprintIdRef = useRef(sprintId);
   sprintIdRef.current = sprintId;
 
+  // Set by `followFocusedRun` right before its state writes; the persist effect below checks
+  // and clears it instead of calling `onChange` for that one transition. This is the mechanism
+  // that keeps focus-driven convergence out of the on-disk store — see `followFocusedRun`.
+  const skipNextPersistRef = useRef(false);
+
   // Persist whenever the canonical selection changes — but skip the initial render. The launch
   // router may seed an auto-default project/sprint (first project + most-recent sprint) when
   // nothing was persisted; persisting that on mount would freeze the auto-default as if it were
   // a real user choice. A restored real selection is already on disk, so skipping the first
-  // write is a harmless no-op there too. Only post-mount selection changes reach the store.
+  // write is a harmless no-op there too. Only post-mount, non-`followFocusedRun` selection
+  // changes reach the store.
   const isFirstPersist = useRef(true);
   useEffect(() => {
     if (isFirstPersist.current) {
       isFirstPersist.current = false;
+      return;
+    }
+    if (skipNextPersistRef.current) {
+      skipNextPersistRef.current = false;
       return;
     }
     onChangeRef.current?.({
@@ -250,6 +273,21 @@ export const SelectionProvider = ({
     []
   );
 
+  const followFocusedRun = useCallback((pId: ProjectId, pLabel: string, sId: SprintId, sLabel: string) => {
+    // Flip the skip flag before the batch of state writes below — the persist effect reads it
+    // once, after this same commit, and clears it back to false.
+    skipNextPersistRef.current = true;
+    setProjectId(pId);
+    setProjectLabel(pLabel);
+    setSprintId(sId);
+    setSprintLabel(sLabel);
+    // Status is unknown at focus time (the descriptor only carries ids/labels) — leave it for
+    // the existing Home/Flows `syncSprintStatus` effects to backfill from the next snapshot
+    // load, exactly as a fresh manual pick behaves before its first load.
+    setSprintStatus(undefined);
+    setLastSwitch({ sprintId: sId, sprintLabel: sLabel, at: Date.now() });
+  }, []);
+
   const api = useMemo<SelectionApi>(
     () => ({
       projectId,
@@ -262,6 +300,7 @@ export const SelectionProvider = ({
       setSprint,
       syncSprintStatus,
       setProjectAndSprint,
+      followFocusedRun,
     }),
     [
       projectId,
@@ -274,6 +313,7 @@ export const SelectionProvider = ({
       setSprint,
       syncSprintStatus,
       setProjectAndSprint,
+      followFocusedRun,
     ]
   );
 
