@@ -48,14 +48,15 @@ export const registerCreatePrCommand = (program: Command): void => {
       const cwd = AbsolutePath.parse(cwdInput);
       if (!cwd.ok) {
         process.stderr.write(`error: --cwd: ${cwd.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
+        return;
       }
 
       const { deps, storage } = await bootstrapCli();
       const resolved = await resolveSprintId(opts.sprint, storage.stateRoot);
       if (!resolved.ok) {
         process.stderr.write(`error: ${resolved.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       // Opening a PR is a write to the upstream — always disambiguate a pin-derived target.
@@ -69,7 +70,8 @@ export const registerCreatePrCommand = (program: Command): void => {
         const gate = await checkCli('create-pr', deps.settings);
         if (gate !== undefined && !gate.ok) {
           process.stderr.write(`error: ${gate.reason}\n`);
-          process.exit(1);
+          process.exitCode = 1;
+          return;
         }
       }
       // Resolve the sprint dir via the tolerant id-prefix resolver (both `<id>--<slug>/` and the
@@ -77,13 +79,14 @@ export const registerCreatePrCommand = (program: Command): void => {
       const resolvedDir = await resolveSprintDir(storage.dataRoot, sprintId);
       if (resolvedDir === undefined) {
         process.stderr.write('error: sprint dir: not found on disk\n');
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       const sprintDir = AbsolutePath.parse(resolvedDir);
       if (!sprintDir.ok) {
         process.stderr.write(`error: sprint dir: ${sprintDir.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
+        return;
       }
       // Rebuild the provider from the `createPr` settings row — `deps.provider` is wired from the
       // `implement` row at boot, which mismatches the createPr model in a mixed-provider config.
@@ -124,7 +127,8 @@ export const registerCreatePrCommand = (program: Command): void => {
 
       if (!result.ok) {
         process.stderr.write(`error: ${result.error.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
+        return;
       }
       process.stdout.write(`opened PR ${result.value.ctx.output!.url}\n`);
     });

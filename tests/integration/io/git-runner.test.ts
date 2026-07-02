@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { createGitRunner } from '@src/integration/io/git-runner.ts';
@@ -165,6 +165,49 @@ describe('createGitRunner', () => {
     if (result.ok) {
       expect(result.value.stdout).toBe('main\n');
       expect(result.value.stdout).not.toContain('truncated');
+    }
+  });
+
+  it('escalates SIGTERM → SIGKILL on timeout so a wedged child that ignores SIGTERM is still reaped', async () => {
+    // Fix 2: a bare SIGTERM on timeout never reaps a git child that traps/ignores it — the runner
+    // would hang forever (holding .git/index.lock). The SIGTERM→grace→SIGKILL ladder guarantees
+    // the child dies and the promise settles.
+    vi.useFakeTimers();
+    try {
+      const signals: NodeJS.Signals[] = [];
+      const child = new EventEmitter() as ChildProcessWithoutNullStreams;
+      Object.assign(child, {
+        stdout: makeStream(),
+        stderr: makeStream(),
+        stdin: { end(): void {} },
+        pid: 999,
+        kill(signal?: NodeJS.Signals): boolean {
+          signals.push(signal ?? 'SIGTERM');
+          // A wedged child ignores SIGTERM; only the OS force-kill (SIGKILL) actually reaps it.
+          if (signal === 'SIGKILL') {
+            child.emit('exit', null, 'SIGKILL');
+            child.emit('close', null);
+          }
+          return true;
+        },
+      });
+      const spawn: Spawn = () => child;
+      const runner = createGitRunner({ spawn });
+      const p = runner.run(cwd, ['log'], { timeoutMs: 5 });
+
+      // Timeout trips → SIGTERM sent, but the wedged child ignores it (still no close).
+      await vi.advanceTimersByTimeAsync(5);
+      expect(signals).toEqual(['SIGTERM']);
+
+      // After the grace, the escalation SIGKILLs the child, which finally closes → runner settles.
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(signals).toEqual(['SIGTERM', 'SIGKILL']);
+
+      const result = await p;
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.message).toContain('timed out');
+    } finally {
+      vi.useRealTimers();
     }
   });
 

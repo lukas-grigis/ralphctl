@@ -232,15 +232,15 @@ const CommitSignalLine = ({
  * warning / error). The body shares the same `flexGrow` + `wrap="truncate-end"` shape as
  * {@link SignalLine} so on narrow terminals the topic / token text ellides instead of wrapping.
  *
- * Layout note: the parent `<Box paddingLeft={2}>` indents the signal column by 2 chars; the
- * `marginLeft={-2}` here cancels that indent so the marker lines up with the un-indented
- * "signals" header row above. The dot triplet (`· · ·`) and `dimColor` make it read as a
- * separator at a glance.
+ * Layout note: the parent `<Box paddingLeft={spacing.indent}>` indents the signal column; the
+ * `marginLeft={-spacing.indent}` here cancels that indent so the marker lines up with the
+ * un-indented "signals" header row above. The dot triplet (`· · ·`) and `dimColor` make it read
+ * as a separator at a glance.
  */
 const CompactionMarker = ({ signal }: { readonly signal: ContextCompactedSignal }): React.JSX.Element => {
   const detail = formatCompactionDetail(signal);
   return (
-    <Box marginLeft={-2}>
+    <Box marginLeft={-spacing.indent}>
       <Text dimColor>{fmtIsoTime(String(signal.timestamp))}</Text>
       <Text color={inkColors.muted}>
         {'  '}
@@ -265,7 +265,7 @@ const CompactionMarker = ({ signal }: { readonly signal: ContextCompactedSignal 
  * {@link SignalLine}. Returns `null` for signals that have no row form (e.g. `evaluation`, which
  * is rendered by the dedicated `<EvaluationLine>` component).
  */
-export const StreamSignalRow = ({
+const StreamSignalRowImpl = ({
   signal,
   focused,
   expanded,
@@ -279,6 +279,16 @@ export const StreamSignalRow = ({
     return <CommitSignalLine signal={signal} focused={focused} expanded={expanded} />;
   return <SignalLine signal={signal} focused={focused} />;
 };
+
+/**
+ * Memoized (default shallow compare — no `now`-style prop here). `SignalsSection` /
+ * `OrphanSignals` re-`.slice()` their source array on every `TasksPanel` render, but `.slice()`
+ * doesn't clone elements, so an unchanged signal keeps the same object identity across renders;
+ * `focused` / `expanded` are plain booleans. That means only the 1–2 rows whose focus or
+ * expansion state actually changed re-render — the rest bail out, which matters once a task
+ * accumulates dozens of signal rows.
+ */
+export const StreamSignalRow = React.memo(StreamSignalRowImpl);
 
 /**
  * One-row inline kinds bar — colored signal-kind labels for kinds that have actually appeared

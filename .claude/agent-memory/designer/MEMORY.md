@@ -62,3 +62,11 @@
 ## Context-Window Visibility
 
 - [project_context_window_visibility.md](project_context_window_visibility.md) — 200K/1M label in every model selector + execution surface; domain helper at settings-models/context-window.ts is the single source of truth; integration adapter re-exports it (#226) (Jun 2026)
+
+## Execute View Selection Convergence
+
+- [project_execute_view_selection_convergence_reversal.md](project_execute_view_selection_convergence_reversal.md) — focus-driven convergence added (6fbc7f8b) → reverted for persisting-on-peek (4593036f) → re-added non-persisting via `followFocusedRun` (Jul 2026), then hardened to a value-keyed skip-guard after a load-only flake surfaced a real reconciler-ordering gap; read before touching this area again
+
+## Working Agreements
+
+- [feedback_no_git_when_told_none.md](feedback_no_git_when_told_none.md) — "NO git commands of any kind" means literally zero, including read-only log/diff/show/status — not just mutating ones

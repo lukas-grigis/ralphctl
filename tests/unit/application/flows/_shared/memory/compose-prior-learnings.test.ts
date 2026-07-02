@@ -78,3 +78,59 @@ describe('composePriorLearnings', () => {
     expect(out).not.toContain('Decisions from prior sprints');
   });
 });
+
+describe('composePriorLearnings — relevance weighting', () => {
+  it('ranks same-repo records above cross-repo records, most-relevant block first', () => {
+    const out = composePriorLearnings(
+      [
+        record({ text: 'cross A', repo: '/other' }),
+        record({ text: 'same A', repo: '/repo' }),
+        record({ text: 'cross B', repo: '/other' }),
+        record({ text: 'same B', repo: '/repo' }),
+      ],
+      { repo: '/repo', taskKind: 'feature' }
+    );
+    // Same-repo (tier first, append order) then cross-repo (append order) — deterministic.
+    expect(out).toBe('- same A\n- same B\n- cross A\n- cross B');
+  });
+
+  it('weights repo match above taskKind match', () => {
+    const out = composePriorLearnings(
+      [
+        record({ text: 'kind only', repo: '/other', taskKind: 'feature' }),
+        record({ text: 'repo other kind', repo: '/repo', taskKind: 'bugfix' }),
+        record({ text: 'neither', repo: '/other', taskKind: 'docs' }),
+      ],
+      { repo: '/repo', taskKind: 'feature' }
+    );
+    // repo match (score 2) > taskKind match (score 1) > neither (score 0).
+    expect(out).toBe('- repo other kind\n- kind only\n- neither');
+  });
+
+  it('keeps the cap: cross-repo records ranked below same-repo are dropped when the cap fills', () => {
+    const sameRepo = Array.from({ length: PRIOR_LEARNINGS_MAX + 3 }, (_, i) =>
+      record({ text: `same-${String(i)}`, repo: '/repo' })
+    );
+    const out = composePriorLearnings([record({ text: 'cross', repo: '/other' }), ...sameRepo], {
+      repo: '/repo',
+      taskKind: 'feature',
+    });
+    const lines = out.split('\n');
+    expect(lines).toHaveLength(PRIOR_LEARNINGS_MAX);
+    // Cross-repo record ranks below the same-repo tier, which alone overflows the cap → excluded.
+    expect(out).not.toContain('cross');
+    // Within the same-repo tier the newest survive; the oldest (same-0..2) are dropped.
+    expect(out).toContain(`same-${String(PRIOR_LEARNINGS_MAX + 2)}`);
+    expect(lines).not.toContain('- same-0');
+  });
+
+  it('without context, selection is recency-only regardless of repo/taskKind', () => {
+    // No context → every record scores 0 → pure recency (newest N, append order). A cross-repo record
+    // is NOT deprioritised here, proving the weighting only kicks in when a context is supplied.
+    const out = composePriorLearnings([
+      record({ text: 'first', repo: '/other' }),
+      record({ text: 'second', repo: '/repo' }),
+    ]);
+    expect(out).toBe('- first\n- second');
+  });
+});

@@ -90,7 +90,7 @@ const LEAF_NAME = 'ideate-and-plan';
 export const ideateAndPlanLeaf = (deps: IdeateAndPlanLeafDeps): Element<IdeateCtx> =>
   leaf<IdeateCtx, IdeateAndPlanInput, IdeateAndPlanOutput>(LEAF_NAME, {
     useCase: {
-      execute: async (input) => {
+      execute: async (input, signal) => {
         const session = await deps.runInTerminal(async () =>
           deps.interactiveAi.run({
             cwd: input.cwd,
@@ -98,6 +98,10 @@ export const ideateAndPlanLeaf = (deps: IdeateAndPlanLeafDeps): Element<IdeateCt
             outputFile: input.outputFile,
             model: deps.model,
             ...(deps.effort !== undefined ? { effort: deps.effort } : {}),
+            // Thread the leaf's abort signal so a TUI cancel tears the stdio-inherit child down
+            // (attachAbortKill) rather than leaving it running — and the adapter classifies the
+            // resulting non-zero exit as AbortError, not InvalidStateError.
+            ...(signal !== undefined ? { abortSignal: signal } : {}),
           })
         );
         if (!session.ok) return Result.error(session.error);

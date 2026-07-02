@@ -17,6 +17,13 @@ export interface BuildMenuItemsInput {
   readonly hasProject: boolean;
   /** State.kind === 'ok' — gates the "create your first project" row so it only appears on a loaded empty snapshot. */
   readonly stateLoaded: boolean;
+  /**
+   * True while the app-state snapshot is still fetching (covers both `loading` and the
+   * pre-fetch `idle` tick). `recentSprints` is always empty during this window — without an
+   * explicit row the "switch sprint" section looks identical to a genuinely sprint-less
+   * project and the 1–5 digit quick-switch hotkeys silently do nothing.
+   */
+  readonly loading: boolean;
   readonly currentSprint: Sprint | undefined;
   readonly recentSprints: readonly Sprint[];
   readonly selectionSprintId: SprintId | undefined;
@@ -50,6 +57,22 @@ export const buildMenuItems = (input: BuildMenuItemsInput): readonly MenuItem[] 
       description: 'Bind a repository to a project — required before any flow can run.',
       hotkey: 'c',
       onSelect: (): void => input.onPushHome('create-project'),
+    });
+  }
+
+  // Loading placeholder — renders in place of the (always-empty-until-loaded) digit list so a
+  // fetch-in-progress reads as "loading", not "no sprints yet". Non-interactive: `disabledReason`
+  // keeps it out of the cursorable set, so `1`–`5` stay harmless no-ops during this window instead
+  // of landing on a fake row.
+  if (input.loading && input.recentSprints.length === 0) {
+    items.push({
+      id: 'sprint-loading',
+      section: 'switch sprint',
+      label: '(loading…)',
+      disabledReason: 'fetching recent sprints',
+      onSelect: () => {
+        /* not selectable while loading */
+      },
     });
   }
 

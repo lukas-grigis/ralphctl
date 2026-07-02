@@ -113,7 +113,7 @@ const SummaryHeader = ({ probes }: { readonly probes: readonly ProbeResult[] }):
   const warnings = probes.filter((p) => p.status === 'warn').length;
   const failures = probes.filter((p) => p.status === 'fail').length;
   const tone = failures > 0 ? inkColors.error : warnings > 0 ? inkColors.warning : inkColors.primary;
-  const icon = failures > 0 ? '✗' : warnings > 0 ? '!' : '✓';
+  const icon = failures > 0 ? glyphs.cross : warnings > 0 ? glyphs.warningGlyph : glyphs.check;
   return (
     <Box paddingX={spacing.indent} marginBottom={spacing.section}>
       <Text color={tone} bold>
@@ -138,14 +138,14 @@ const ProbeRow = ({ probe }: { readonly probe: ProbeResult }): React.JSX.Element
       <Text> {probe.label}</Text>
     </Box>
     {probe.detail !== undefined && (
-      <Box paddingLeft={2}>
+      <Box paddingLeft={spacing.indent}>
         <Text dimColor>
           {glyphs.activityArrow} {probe.detail}
         </Text>
       </Box>
     )}
     {probe.hint !== undefined && probe.status !== 'pass' && (
-      <Box paddingLeft={2}>
+      <Box paddingLeft={spacing.indent}>
         <Text dimColor italic>
           hint: {probe.hint}
         </Text>

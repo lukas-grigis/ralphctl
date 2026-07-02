@@ -4,6 +4,7 @@ import type { Project } from '@src/domain/entity/project.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { buildPrompt, type BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
 import type { PromptDefinition } from '@src/integration/ai/prompts/_engine/definition.ts';
+import { renderPriorLearningsSection } from '@src/integration/ai/prompts/_engine/renderers/task.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import { TASK_IMPORT_JSON_SCHEMA } from '@src/integration/ai/prompts/_engine/task-import-schema.ts';
 
@@ -31,6 +32,15 @@ export interface IdeatePromptParams {
    * section (audit-[07]). Empty when the journal has no entries yet.
    */
   readonly priorProgress: string;
+  /**
+   * Markdown body for the `<prior_learnings>` block — this project's not-yet-promoted ledger
+   * insights (both `learning` and `decision` rows), composed application-side by
+   * `composePriorLearnings` and rendered by `renderPriorLearningsSection`. Read-only background so
+   * the combined refine + plan session scopes tasks and picks verification commands against earned
+   * repo facts rather than blind. Empty string when the ledger is absent / empty so the surrounding
+   * template prose handles the empty case without a per-flow branch.
+   */
+  readonly priorLearningsSection: string;
 }
 
 const nonEmpty =
@@ -76,6 +86,11 @@ export const ideatePromptDef: PromptDefinition<IdeatePromptParams> = {
       placeholder: 'PRIOR_PROGRESS',
       description: 'Current `progress.md` body — empty when the sprint journal has no entries yet.',
     },
+    priorLearningsSection: {
+      placeholder: 'PRIOR_LEARNINGS',
+      description:
+        "`<prior_learnings>` block — this project's not-yet-promoted ledger insights (learnings + decisions); empty when none recorded yet.",
+    },
   },
   partials: {
     HARNESS_CONTEXT: 'harness-context',
@@ -98,6 +113,12 @@ export const buildIdeatePrompt = async (
     readonly outputContractSection: string;
     /** Current `progress.md` body — inlined into the prompt's "## Prior progress" section. */
     readonly priorProgress: string;
+    /**
+     * Pre-composed prior-sprint learnings body (bullet list built by `composePriorLearnings`).
+     * Absent or empty → the `{{PRIOR_LEARNINGS}}` placeholder collapses cleanly. Composed
+     * application-side by the ideate flow from this project's ledger; passed in by the render leaf.
+     */
+    readonly priorLearnings?: string;
   }
 ): Promise<Result<Prompt, BuildPromptError>> =>
   buildPrompt(deps, ideatePromptDef, {
@@ -108,6 +129,7 @@ export const buildIdeatePrompt = async (
     schema: TASK_IMPORT_JSON_SCHEMA,
     outputContractSection: input.outputContractSection,
     priorProgress: input.priorProgress,
+    priorLearningsSection: renderPriorLearningsSection(input.priorLearnings),
   });
 
 const project_name = (project: Project): string => project.displayName;

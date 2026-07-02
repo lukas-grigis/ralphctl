@@ -14,6 +14,25 @@ to [Semantic Versioning](https://semver.org/).
   now issues up to this many corrective nudges — each a full resumed spawn re-prompted with the
   concrete fix — before the task self-blocks, up from a single hardcoded nudge. Applies to both
   the generator and evaluator; consumes no turn or attempt budget. Tune it under Settings → Harness.
+- **A fifth evaluator floor: Robustness.** Alongside the four existing floors, the evaluator now
+  also grades robustness — error-path handling, graceful degradation, and recovery — on every
+  implement attempt. A floor that genuinely doesn't apply to the change is graded N/A instead of
+  being forced into a fabricated pass or fail, and an N/A floor never counts toward a plateau. Each
+  floor's rationale is now stated before its pass/fail verdict.
+- **A same-model effort rung before the change-of-approach nudge.** When the gen-eval loop
+  plateaus at the top of the model escalation ladder, the harness now first raises the generator's
+  reasoning effort on the same model — provider-aware, climbing Claude up to its maximum effort —
+  before falling back to nudging a different approach. Previously a shipped default effort could
+  never escalate, leaving this rung inert.
+- **Plan and ideate prompts now read prior learnings.** Earlier sprints' recorded learnings are
+  woven into the plan and ideate prompts, weighted by relevance (same repo, then task kind, then
+  recency), so planning no longer starts blind to facts the project already earned.
+- **Fresh generator and evaluator attempts see prior per-criterion history.** A compact pass/fail
+  record for each acceptance criterion from earlier attempts is now included in the prompt, framed
+  as material to re-verify rather than re-derive from scratch.
+- **Destructive CLI removes require confirmation.** The `sprint`, `project`, and `ticket` remove
+  commands now prompt for confirmation on a TTY and refuse to proceed on a non-TTY unless
+  `-y`/`--yes` is passed, matching the existing `runs prune` behavior.
 
 ### Fixed
 
@@ -23,6 +42,22 @@ to [Semantic Versioning](https://semver.org/).
   instead of "attempt 2 · round 1" — because the counter was derived by assuming every prior
   attempt used its full round budget. It now uses the authoritative attempt number from the round
   event.
+- **TUI cancel reliably aborts interactive AI sessions.** Cancelling from the TUI now propagates
+  through refine, plan, ideate, distill, and create-PR sessions and kills the underlying child
+  process — previously an interactive session could keep running after cancel, and a cancelled
+  create-PR run could still open a real pull request.
+- **Evaluator no longer treats N/A dimensions as failures.** A floor graded not-applicable was
+  previously folded into the synthesized critique as a fake failure (skewing plateau detection)
+  and rendered as FAIL in `outcome.md`; both now honor the N/A verdict.
+- **Shipped binary and dev runs use a production React build.** The development build's
+  per-commit `performance.measure()` retention could exhaust memory on long TUI sessions; the
+  built binary and the `dev`/`start` scripts now force a production build.
+- **CLI output no longer truncates when piped.** Commands now set the process exit code instead
+  of calling `process.exit()` directly, so pending stdout/stderr writes are flushed before the
+  process exits.
+- **git and gh spawns escalate SIGTERM → SIGKILL on timeout.** A wedged git or gh child process is
+  now force-killed after a grace period instead of potentially holding the repository lock
+  forever.
 
 ### Changed
 
@@ -52,6 +87,11 @@ to [Semantic Versioning](https://semver.org/).
   flow previously kept showing launch-time state — for example "refine tickets (N pending)" after
   every ticket had just been refined — until the manual reload key was pressed. Both views now
   reload the moment a flow reaches a terminal status, matching the sprint-detail view's behaviour.
+- **Selection follows the focused run.** Focusing a session whose pinned sprint differs from the
+  current selection now converges the project and sprint to match it — with a confirmation toast
+  — instead of leaving the selection stale, without persisting the switch to the next launch.
+- **Execute-view render hygiene.** The live elapsed-time clock no longer forces the whole execute
+  view to re-render every second, reducing flicker and CPU usage during long-running sprints.
 
 ## [0.14.1] - 2026-07-01
 

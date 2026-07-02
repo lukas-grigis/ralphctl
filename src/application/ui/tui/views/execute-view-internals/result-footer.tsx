@@ -20,7 +20,7 @@ interface ResultFooterProps {
   readonly elapsed: string;
 }
 
-export const ResultFooter = ({
+const ResultFooterImpl = ({
   descriptor,
   isRunning,
   tasksDone,
@@ -47,3 +47,8 @@ export const ResultFooter = ({
     </Box>
   );
 };
+
+// Memoized: renders null while running (the common, tick-driven case) and `elapsed` stops
+// changing the instant `descriptor.finishedAt` is set, so this component's props are stable
+// both before and after settle — memo just skips the redundant re-render on every tick.
+export const ResultFooter = React.memo(ResultFooterImpl);

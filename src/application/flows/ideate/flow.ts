@@ -16,6 +16,8 @@ import { buildUnitLeaf } from '@src/application/flows/_shared/build-unit.ts';
 import { renderPromptToFileLeaf } from '@src/application/flows/_shared/render-prompt-to-file.ts';
 import { buildIdeatePrompt } from '@src/integration/ai/prompts/ideate/definition.ts';
 import { readCappedSprintProgress } from '@src/application/flows/_shared/progress/read-sprint-progress.ts';
+import { composePriorLearnings } from '@src/application/flows/_shared/memory/compose-prior-learnings.ts';
+import { loadCandidateLearnings } from '@src/application/flows/_shared/memory/load-candidate-learnings.ts';
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
 import { ideateOutputContract } from '@src/application/flows/ideate/leaves/ideate.contract.ts';
 import type { IdeateCtx } from '@src/application/flows/ideate/ctx.ts';
@@ -49,6 +51,14 @@ export interface CreateIdeateFlowOpts {
   readonly ideateRoot: AbsolutePath;
   /** Per-run slug — the subfolder under ideateRoot. Defaults to `'session-<timestamp>'`. */
   readonly runSlug?: string;
+  /**
+   * Root of the per-project procedural-memory tree (`<dataRoot>/memory/`). When supplied, the
+   * combined refine + plan prompt is seeded with this project's not-yet-promoted learnings +
+   * decisions so the session scopes tasks and picks verification commands against earned repo facts
+   * rather than blind. Optional: when omitted the ledger read is skipped and the `<prior_learnings>`
+   * block collapses — the launcher passes `deps.storage.memoryRoot`, mirroring the implement flow.
+   */
+  readonly memoryRoot?: AbsolutePath;
 }
 
 /**
@@ -141,12 +151,22 @@ export const createIdeateFlow = (deps: IdeateDeps, opts: CreateIdeateFlowOpts): 
           if (ctx.project === undefined) throw new Error('project missing');
           if (ctx.currentUnitRoot === undefined) throw new Error('currentUnitRoot missing');
           const priorProgress = await readCappedSprintProgress(opts.ideateRoot, opts.model);
+          // Cross-sprint procedural memory (read side). Ideate runs in a single session repo
+          // (`opts.cwd`), so relevance is weighted toward records earned in that repo; a missing
+          // ledger resolves to an empty list, so the block degrades cleanly.
+          const priorLearnings =
+            opts.memoryRoot === undefined
+              ? ''
+              : composePriorLearnings(await loadCandidateLearnings(opts.memoryRoot, opts.projectId, deps.logger), {
+                  repo: String(opts.cwd),
+                });
           return buildIdeatePrompt(deps.templateLoader, {
             ideaTitle: opts.ideaTitle,
             ideaDescription: opts.ideaText,
             project: ctx.project,
             outputContractSection: renderContractSectionFor(ideateOutputContract, ctx.currentUnitRoot),
             priorProgress,
+            priorLearnings,
           });
         },
         write: (ctx, path) => ({ ...ctx, currentPromptFile: path }),

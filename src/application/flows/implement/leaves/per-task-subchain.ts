@@ -1,3 +1,4 @@
+import type { AiProvider } from '@src/domain/entity/settings.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { Slug } from '@src/domain/value/slug.ts';
@@ -303,6 +304,13 @@ export const createPerTaskSubchain = (
                 eventBus: deps.eventBus,
                 clock: deps.clock,
                 configuredGeneratorModel: opts.generator.model,
+                // Activate the escalation policy's same-model effort rung: forward the generator
+                // provider + its launch-resolved effort so a top-of-ladder plateau bumps reasoning
+                // effort to the next provider-aware tier (Claude: up to max; Copilot/Codex: high)
+                // before spending the nudge. `providerId` is the resolved provider enum string;
+                // `nextEffortRung` skips gracefully for any non-effort provider or model.
+                configuredGeneratorProvider: opts.generator.providerId as AiProvider,
+                ...(opts.generator.effort !== undefined ? { configuredGeneratorEffort: opts.generator.effort } : {}),
               },
               taskId
             ),

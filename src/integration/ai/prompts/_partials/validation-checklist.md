@@ -22,5 +22,9 @@ Before writing the JSON output, verify EVERY item:
    is read by the harness.
 9. **Unique placeholder ids** — each task's `id` is a unique string within this array (used only for
    `blockedBy` resolution; the harness assigns persistent ids on save).
+10. **Deterministic checks preferred** — each task includes at least one `auto` criterion when the
+    repository exposes a check command (test, typecheck, lint, or build). A task that relies solely on
+    `manual` criteria is acceptable only when it is pure documentation or investigation work with no
+    code change to check.
 
 </validation-checklist>

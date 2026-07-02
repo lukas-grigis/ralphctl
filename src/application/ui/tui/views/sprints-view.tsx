@@ -127,7 +127,7 @@ const SprintRow = ({ sprint, focused }: SprintRowProps): React.JSX.Element => {
   const pending = sprint.tickets.filter((t) => t.status === 'pending').length;
   const approved = sprint.tickets.filter((t) => t.status === 'approved').length;
   return (
-    <Box flexDirection="column" marginBottom={1}>
+    <Box flexDirection="column" marginBottom={spacing.section}>
       <Box
         flexDirection="column"
         borderStyle="round"

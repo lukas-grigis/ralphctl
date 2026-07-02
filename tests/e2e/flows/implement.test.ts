@@ -2315,13 +2315,16 @@ describe('createImplementFlow — gen-eval loop', () => {
   // path produces a genuine second attempt; `maxAttempts === 1` collapses to one iteration;
   // an abort propagates verbatim with no extra iteration.
 
-  it('graduated ladder across attempts: sonnet plateaus → escalate to opus → opus plateaus → nudge → budget-exhausted preserves work', async () => {
+  it('graduated ladder across attempts: sonnet plateaus → escalate to opus → opus plateaus → effort-bump to max → budget-exhausted preserves work', async () => {
     // maxAttempts 3 so the ladder can climb multiple rungs. Generator starts on a model
     // (`claude-sonnet-4-6`) that HAS a default escalation rung (→ `claude-opus-4-8`). The graduated
-    // remedy ladder climbs one rung per plateau: attempt 1 (sonnet) escalates to opus, attempt 2
-    // (opus, top of ladder) nudges (same model + change-of-approach directive), attempt 3 (opus)
-    // plateaus with the budget exhausted (attempts === maxAttempts) — a plateau never blocks, so
-    // the work is preserved (done-with-warning).
+    // remedy ladder is spent cheapest-first per plateau: attempt 1 (sonnet) escalates to opus,
+    // attempt 2 (opus, top of the model ladder) raises reasoning effort on the SAME model (the
+    // effort rung, before the nudge). opus is xhigh-capable and Claude Code's own default is xhigh,
+    // so the rung climbs to `max` in a single step (a fixed `high` would be a no-op / downgrade),
+    // attempt 3 (opus at max effort) plateaus with the budget exhausted (attempts === maxAttempts) —
+    // a plateau never blocks, so the work is preserved (done-with-warning). The nudge is the NEXT
+    // rung after the effort bump, but the budget runs out first here, so it is never reached.
     const f = await buildFixture(1, 3);
     tracking(f);
     const sprintRepo = inMemorySprintRepo(f.sprint);
@@ -2376,10 +2379,10 @@ describe('createImplementFlow — gen-eval loop', () => {
 
     expect(runner.status).toBe('completed');
 
-    // Three attempts ran in ONE launch — the outer loop re-entered after each escalate/nudge kept
-    // the task in_progress. Attempt 1 escalated sonnet→opus, attempt 2 nudged (top of ladder),
-    // attempt 3 plateaued with the budget exhausted — a plateau never blocks, so the work is
-    // preserved (done-with-warning). All three attempts recorded.
+    // Three attempts ran in ONE launch — the outer loop re-entered after each escalate/effort-bump
+    // kept the task in_progress. Attempt 1 escalated sonnet→opus, attempt 2 raised effort to max
+    // (same model), attempt 3 plateaued with the budget exhausted — a plateau never blocks, so the
+    // work is preserved (done-with-warning). All three attempts recorded.
     const finalTask = taskRepo.tasks()[0];
     expect(finalTask?.status).toBe('done');
     expect(finalTask?.attempts).toHaveLength(3);
@@ -2393,17 +2396,23 @@ describe('createImplementFlow — gen-eval loop', () => {
     const startEntries = runner.trace.filter((e) => e.elementName === `start-attempt-${String(finalTask?.id)}`);
     expect(startEntries).toHaveLength(3);
 
-    // The ladder climbed to the top and the last stamp is the top-of-ladder same-model nudge
-    // (from === to === opus). A plateau never blocks; the work is preserved (done-with-warning).
-    expect(finalTask?.escalatedFromModel).toBe('claude-opus-4-8');
+    // The last MODEL transition is the sonnet→opus climb (the effort rung leaves the model fields
+    // untouched, and the budget exhausted before the nudge). The effort rung stamped
+    // `escalatedToEffort = max`. A plateau never blocks; the work is preserved (done-with-warning).
+    expect(finalTask?.escalatedFromModel).toBe('claude-sonnet-4-6');
     expect(finalTask?.escalatedToModel).toBe('claude-opus-4-8');
+    expect(finalTask?.escalatedToEffort).toBe('max');
     expect(finalTask?.status).not.toBe('blocked');
 
     // The generator climbed the ladder: attempt 1 ran on sonnet, later attempts ran on the
     // escalated opus model — proof later iterations didn't just re-run identical work.
-    const generatorModels = provider.recordedSessions.filter((s) => s.role === 'generator').map((s) => s.model);
+    const generatorSessions = provider.recordedSessions.filter((s) => s.role === 'generator');
+    const generatorModels = generatorSessions.map((s) => s.model);
     expect(generatorModels).toContain('claude-sonnet-4-6');
     expect(generatorModels).toContain('claude-opus-4-8');
+    // End-to-end proof the effort bump reached the actual spawn: at least one generator turn ran at
+    // the escalated `max` effort (attempt 3, after the effort rung stamped `escalatedToEffort`).
+    expect(generatorSessions.some((s) => s.effort === 'max')).toBe(true);
 
     // The plateau preserved the work as `done`, so the run finished and the sprint moves to review.
     expect(sprintRepo.current().status).toBe('review');

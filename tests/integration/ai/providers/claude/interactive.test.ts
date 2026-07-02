@@ -23,6 +23,8 @@ const makeSpawn = (): CapturingSpawnState => {
     const child = new EventEmitter() as unknown as ChildProcess & {
       emit: (event: string, ...args: unknown[]) => boolean;
     };
+    // `attachAbortKill` calls `child.kill` on abort — the fake needs it to be callable.
+    (child as unknown as { kill: () => boolean }).kill = (): boolean => true;
     last.child = child;
     return child;
   };
@@ -180,5 +182,30 @@ describe('createInteractiveClaudeProvider', () => {
     if (result.ok) return;
     expect(result.error.code).toBe('invalid-state');
     expect(result.error.message).toContain('code 7');
+  });
+
+  it('returns AbortError (not InvalidStateError) when aborted before a non-zero exit', async () => {
+    // A TUI cancel fires: attachAbortKill SIGTERMs the stdio-inherit child, which exits non-zero.
+    // The adapter must classify this as AbortError (the one error chains propagate transparently),
+    // NOT the generic session-exit InvalidStateError a downstream guard could catch and continue.
+    const cap = createCapturingBus();
+    const { spawn, emitExit } = makeSpawn();
+    const provider = createInteractiveClaudeProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
+    const controller = new AbortController();
+
+    const runPromise = provider.run({
+      cwd: CWD,
+      promptFile: PROMPT_FILE,
+      outputFile: OUTPUT_FILE,
+      model: CLAUDE_MODELS[0]!,
+      abortSignal: controller.signal,
+    });
+    controller.abort();
+    emitExit(143);
+    const result = await runPromise;
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.code).toBe('aborted');
+    expect(result.error.name).toBe('AbortError');
   });
 });

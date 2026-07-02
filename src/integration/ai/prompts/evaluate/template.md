@@ -86,6 +86,12 @@ The block below mirrors that file for in-context reference.
 {{TASK_STEPS_SECTION}}
 {{VERIFICATION_CRITERIA_SECTION}}
 
+<prior_criteria_verdicts>{{PRIOR_CRITERIA_VERDICTS}}</prior_criteria_verdicts>
+
+The `<prior_criteria_verdicts>` block above — when non-empty — records the verdicts earlier rounds
+reached on this checklist. Treat it as context, not evidence: re-verify every criterion yourself this
+round and never carry a prior PASS forward without your own observation.
+
 </task_specification>
 
 <evaluation_discipline>
@@ -243,7 +249,8 @@ observation — file path, line number, function name, tool output, or quoted sn
 
 ### Phase 4 — Dimension assessment
 
-Evaluate across the five floor dimensions rendered in `{{FLOOR_RUBRIC_SECTION}}` above. Write per-dimension
+Evaluate across the five floor dimensions rendered in the grading rubric pinned at the top of this
+prompt. Write per-dimension
 findings as one PASS/FAIL verdict (or `applicable: false` for robustness, when justified) and 1–3 specific
 observations each, anchored to the acceptance criteria and check/verify output you gathered in Phases 1–3.
 
@@ -287,7 +294,8 @@ Criteria:
 - [C1] (auto) run the project's test suite filtered to the export module — all tests pass.
 - [C2] (manual) — invalid `startDate` value returns 400 with the project's standard error body.
 
-Phase 1: verify script exits 0 — recorded verbatim in `executionEvidence` for the Correctness dimension.
+Phase 1: ran C1's test command directly — exit 0, 12 tests green, recorded verbatim in
+`executionEvidence` for the Correctness dimension.
 
 Phase 2:
 
@@ -369,7 +377,8 @@ Criteria:
 - [C1] (auto) run the project's test suite filtered to the user-search module — all tests pass.
 - [C2] (manual) — invalid page number returns 400.
 
-Phase 1: verify script exits 0.
+Phase 1: ran C1's test command directly — exit 0, 8 tests green, recorded verbatim in
+`executionEvidence`.
 
 Phase 2:
 
@@ -469,7 +478,8 @@ Criteria:
 - [C2] (manual) — old session-cookie keys are no longer read anywhere in the codebase.
 - [C3] (manual) — session TTL is configurable via environment variable.
 
-Phase 1: verify script exits 0. Integration tests green.
+Phase 1: ran C1's test command directly — exit 0, 34 tests green, recorded verbatim in
+`executionEvidence`.
 
 Phase 2:
 
@@ -494,8 +504,8 @@ Phase 4 dimensions:
   issuing a fresh anonymous session, matching the retry/fallback pattern already used in
   `src/middleware/csrf.ts`.
 
-Note: the verify script passed. This round still fails because C3 is unimplemented. The verify suite does
-not test TTL configurability.
+Note: C1's test command passed. This round still fails because C3 is unimplemented — a passing test
+command does not confirm TTL configurability.
 
 Verdict: `status: "failed"`, critique:
 

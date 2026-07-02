@@ -18,6 +18,7 @@
  *   - `use-cancel-scope-stats.ts`    — attempt-elapsed + remaining-task stats
  *   - `use-execute-input.ts`         — keyboard + view-hint registration
  *   - `use-live-clock.ts`            — 1-Hz tick while running
+ *   - `use-pinned-sprint-context.ts` — pin availability probe, focused-run context, selection converge
  *   - `use-responsive-layout.ts`     — width-regime + row-cap derivation
  *
  * Layout regimes (driven by terminal width):
@@ -46,7 +47,9 @@ import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useEventBusBuffer } from '@src/application/ui/tui/runtime/use-event-bus.ts';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 import type { AppEvent } from '@src/business/observability/events.ts';
-import { useUiState, type FocusedRunCtx } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
+import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { fmtElapsed } from '@src/application/ui/tui/theme/duration.ts';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
@@ -74,6 +77,7 @@ import { useBaselineHealthData } from '@src/application/ui/tui/views/execute-vie
 import { useBucketedTasks } from '@src/application/ui/tui/views/execute-view-internals/use-bucketed-tasks.ts';
 import { useCancelHandlers } from '@src/application/ui/tui/views/execute-view-internals/use-cancel-handlers.ts';
 import { useCancelScopeStats } from '@src/application/ui/tui/views/execute-view-internals/use-cancel-scope-stats.ts';
+import { usePinnedSprintContext } from '@src/application/ui/tui/views/execute-view-internals/use-pinned-sprint-context.ts';
 import { useResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/use-responsive-layout.ts';
 import { useExecuteInput } from '@src/application/ui/tui/views/execute-view-internals/use-execute-input.ts';
 import { useLiveClock } from '@src/application/ui/tui/views/execute-view-internals/use-live-clock.ts';
@@ -166,64 +170,6 @@ const useExecuteSessionData = (sessionId: string): ExecuteSessionData => {
   });
   const term = useTerminalSize();
   return { session, sessions, sessionList, router, ui, deps, eventBus, signals, logEntries, chainEvents, term };
-};
-
-interface UsePinnedSprintContextInput {
-  readonly pinnedSprintId: SprintId | undefined;
-  readonly pinnedProjectLabel: string | undefined;
-  readonly pinnedSprintLabel: string | undefined;
-  readonly sprintRepo: AppDeps['sprintRepo'];
-  readonly setFocusedRunContext: (ctx: FocusedRunCtx | undefined) => void;
-}
-
-/**
- * Two effects scoped to the session's pinned sprint, extracted together because they share
- * the same trio of inputs (pinnedSprintId / pinnedProjectLabel / pinnedSprintLabel):
- *  - probes `sprintRepo` to detect a closed/removed sprint, surfaced as `pinnedSprintAvailable`
- *    so the caller can blank the panels that depend on it (see `deriveTasksPanel` below).
- *  - registers this run's project/sprint as the focused-run context so the breadcrumb and
- *    progress overlay reflect the run's own sprint while this view is mounted.
- */
-const usePinnedSprintContext = ({
-  pinnedSprintId,
-  pinnedProjectLabel,
-  pinnedSprintLabel,
-  sprintRepo,
-  setFocusedRunContext,
-}: UsePinnedSprintContextInput): { pinnedSprintAvailable: boolean } => {
-  const [pinnedSprintAvailable, setPinnedSprintAvailable] = React.useState(true);
-
-  React.useEffect(() => {
-    if (pinnedSprintId === undefined) return undefined;
-    let cancelled = false;
-    const check = async (): Promise<void> => {
-      try {
-        const r = await sprintRepo.findById(pinnedSprintId);
-        if (cancelled) return;
-        if (!r.ok || r.value.status === 'done') setPinnedSprintAvailable(false);
-      } catch {
-        // Keep available on error (absent repo in test harnesses, transient I/O failures).
-      }
-    };
-    void check();
-    return (): void => {
-      cancelled = true;
-    };
-  }, [pinnedSprintId, sprintRepo]);
-
-  React.useEffect(() => {
-    const ctx: FocusedRunCtx = {
-      projectLabel: pinnedProjectLabel,
-      sprintId: pinnedSprintId,
-      sprintLabel: pinnedSprintLabel,
-    };
-    setFocusedRunContext(ctx);
-    return (): void => {
-      setFocusedRunContext(undefined);
-    };
-  }, [pinnedProjectLabel, pinnedSprintId, pinnedSprintLabel, setFocusedRunContext]);
-
-  return { pinnedSprintAvailable };
 };
 
 interface DeriveTasksPanelInput {
@@ -423,31 +369,28 @@ export const ExecuteView = (): React.JSX.Element => {
   const { sessionId } = useViewProps<ExecuteProps>();
   const { session, sessions, sessionList, router, ui, deps, eventBus, signals, logEntries, chainEvents, term } =
     useExecuteSessionData(sessionId);
+  const selection = useSelection();
 
   // Each Execute view is scoped to its session's pinned sprint so concurrent runs remain
   // independent of each other and of the mutable global selection.
   const descriptor = session?.descriptor;
   const pinnedSprintId = descriptor?.pinnedSprintId as SprintId | undefined;
-  const pinnedProjectLabel = descriptor?.pinnedProjectLabel;
-  const pinnedSprintLabel = descriptor?.pinnedSprintLabel;
 
-  // Probes sprintRepo (best-effort — mark unavailable when closed/removed so the Execute
-  // view can show an inline fallback instead of stale panel data) and registers this run's
-  // pinned project/sprint as the focused-run context so breadcrumb and progress overlay
-  // reflect the run's own sprint while this view is mounted.
-  const { pinnedSprintAvailable } = usePinnedSprintContext({
+  // Probes sprintRepo (best-effort — blank stale panels via `pinnedSprintStale` when the pin is
+  // closed/removed), registers this run's pinned project/sprint as the focused-run context
+  // (breadcrumb + progress overlay), and converges the global selection onto the pin once
+  // confirmed live — so `n → Flows` targets the run on screen, not a stale pick. See
+  // `use-pinned-sprint-context.ts` for the full rationale (loop-safety, non-persistence).
+  const { pinnedSprintStale } = usePinnedSprintContext({
+    pinnedProjectId: descriptor?.pinnedProjectId as ProjectId | undefined,
+    pinnedProjectLabel: descriptor?.pinnedProjectLabel,
     pinnedSprintId,
-    pinnedProjectLabel,
-    pinnedSprintLabel,
+    pinnedSprintLabel: descriptor?.pinnedSprintLabel,
     sprintRepo: deps.sprintRepo,
     setFocusedRunContext: ui.setFocusedRunContext,
+    selectionSprintId: selection.sprintId,
+    followFocusedRun: selection.followFocusedRun,
   });
-
-  // NOTE deliberately NO selection convergence here: focusing a run (Tab / Ctrl+1..9 /
-  // Sessions-open) is a *browse*, exactly like opening a project or sprint detail — it must
-  // never mutate (or persist) the global project/sprint selection. The user's pick survives
-  // until they explicitly pick something else; the focused-run context above already scopes
-  // the breadcrumb / overlay to the run's own sprint while this view is mounted.
 
   const { executionState, taskState } = useBaselineHealthData({
     baselineSprintId: pinnedSprintId,
@@ -461,8 +404,7 @@ export const ExecuteView = (): React.JSX.Element => {
 
   // Per-session token usage — latest `TokenUsageEvent` per sessionId. The execute view is
   // sessionId-scoped so we only look up the current runner's entry; absent ⇒ empty state.
-  const tokenUsageBySession = useTokenUsage(eventBus);
-  const tokenUsage = tokenUsageBySession.get(sessionId);
+  const tokenUsage = useTokenUsage(eventBus).get(sessionId);
 
   // Stash the stable setter so the active-task-summary effect doesn't fire on unrelated
   // UI state toggles (helpOpen, claims, …).
@@ -504,9 +446,8 @@ export const ExecuteView = (): React.JSX.Element => {
   // this gate esc/j/k/e would double-handle the hidden panel.
   const tasksInputActive = !ui.modalOpen && !runControls.cancelScopeOpen;
 
-  // The pinned sprint is stale once it's been closed or removed — see `deriveTasksPanel`.
-  const pinnedSprintStale = pinnedSprintId !== undefined && !pinnedSprintAvailable;
-
+  // `pinnedSprintStale` (closed/removed pin) is computed above, alongside the selection
+  // convergence effect that also needs it.
   const tasksPanelDerivation = deriveTasksPanel({
     pinnedSprintStale,
     bucketed: bucketedTasks.bucketed,

@@ -4,6 +4,7 @@ import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import { computePlaceholderParity, loadPartialMap } from '@src/integration/ai/prompts/_engine/test-utils.ts';
 import { buildIdeatePrompt, ideatePromptDef } from '@src/integration/ai/prompts/ideate/definition.ts';
+import { composePriorLearnings } from '@src/application/flows/_shared/memory/compose-prior-learnings.ts';
 import { makeProject } from '@tests/fixtures/domain.ts';
 
 const loader = createFsTemplateLoader(defaultTemplatesDir());
@@ -58,5 +59,54 @@ describe('buildIdeatePrompt — end-to-end', () => {
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);
+  });
+
+  it('injects the prior-learnings section when the ledger has records', async () => {
+    const project = makeProject({ displayName: 'Demo' });
+    // Compose the section body the way the flow does — from real ledger records.
+    const priorLearnings = composePriorLearnings([
+      {
+        v: 1,
+        id: 'l1',
+        kind: 'learning',
+        text: 'auth module has hidden coupling to the shared session cache — touch both together',
+        repo: '/repos/app',
+        repoName: 'app',
+        taskKind: 'feature',
+        sprintId: 's-prev',
+        taskId: 't-prev',
+        timestamp: '2026-05-30T10:00:00.000Z',
+        promotedAt: null,
+      },
+    ]);
+    const result = await buildIdeatePrompt(loader, {
+      ideaTitle: 'CSV export',
+      ideaDescription: 'Add CSV export to reports.',
+      project,
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      priorProgress: '',
+      priorLearnings,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toContain('## Learnings from prior sprints');
+    expect(result.value).toContain('auth module has hidden coupling to the shared session cache');
+    expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
+  });
+
+  it('omits the prior-learnings section cleanly when the ledger is empty', async () => {
+    const project = makeProject({ displayName: 'Demo' });
+    const result = await buildIdeatePrompt(loader, {
+      ideaTitle: 'CSV export',
+      ideaDescription: 'Add CSV export to reports.',
+      project,
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      priorProgress: '',
+      // No priorLearnings → the rendered `## Learnings` heading is absent; wrapper + note stay.
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).not.toContain('## Learnings from prior sprints');
+    expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
 });

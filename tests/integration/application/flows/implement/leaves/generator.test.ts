@@ -16,7 +16,11 @@ import { createEventBusLogger } from '@src/business/observability/event-bus-logg
 import { createPublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { absolutePath, FIXED_LATER, FIXED_NOW, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
-import { failCurrentAttempt, recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
+import {
+  failCurrentAttempt,
+  recordTaskEffortEscalation,
+  recordTaskEscalation,
+} from '@src/domain/entity/task-settle.ts';
 import { escalationBannerId } from '@src/business/task/escalation-policy.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
@@ -279,6 +283,32 @@ describe('generatorLeaf', () => {
     const result = await leaf.execute(baseCtx(task));
     expect(result.ok).toBe(true);
     expect(provider.recordedSessions[0]?.model).toBe('claude-sonnet-4-6');
+  });
+
+  it('uses task.escalatedToEffort as the spawn effort when the task carries an effort escalation', async () => {
+    // Same-model effort rung: the model is unchanged (no escalatedToModel), but the raised effort
+    // must reach the spawn. Without the leaf preferring `escalatedToEffort`, the bump the policy
+    // granted would never take effect.
+    const initial = makeInProgressTaskWithRunningAttempt();
+    const stamped = recordTaskEffortEscalation(initial, 'high');
+    if (!stamped.ok) throw stamped.error;
+    const task = stamped.value;
+    const provider = createFakeAiProvider({ responses: { implement: '' } });
+    const leaf = generatorLeaf({ ...buildDeps(), provider, model: 'claude-opus-4-8', effort: 'medium' }, task.id);
+    const result = await leaf.execute(baseCtx(task));
+    expect(result.ok).toBe(true);
+    expect(provider.recordedSessions[0]?.effort).toBe('high');
+    // Model stays the configured value — the effort rung never touches the model.
+    expect(provider.recordedSessions[0]?.model).toBe('claude-opus-4-8');
+  });
+
+  it('falls back to the configured effort when the task has no escalatedToEffort', async () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    const provider = createFakeAiProvider({ responses: { implement: '' } });
+    const leaf = generatorLeaf({ ...buildDeps(), provider, model: 'claude-opus-4-8', effort: 'medium' }, task.id);
+    const result = await leaf.execute(baseCtx(task));
+    expect(result.ok).toBe(true);
+    expect(provider.recordedSessions[0]?.effort).toBe('medium');
   });
 
   // Plateau-break: when the escalation policy stamped the task (model bump or same-model nudge),

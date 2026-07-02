@@ -9,7 +9,7 @@
 
 import React from 'react';
 import { Box, Text } from 'ink';
-import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 
 const DESCRIPTION_MAX_LINES = 3;
 
@@ -20,10 +20,11 @@ export const Section = ({
   readonly heading: string;
   readonly children: React.ReactNode;
 }): React.JSX.Element => (
-  <Box flexDirection="column" marginTop={1}>
+  <Box flexDirection="column" marginTop={spacing.section}>
     <Text bold dimColor>
       {glyphs.bullet} {heading}
     </Text>
+    {/* marginTop={0} — no spacing token for "none"; left as a literal. */}
     <Box marginTop={0}>{children}</Box>
   </Box>
 );
@@ -53,7 +54,7 @@ export const Description = ({
   const shown = Number.isFinite(maxLines) ? lines.slice(0, maxLines) : lines;
   const hidden = lines.length - shown.length;
   return (
-    <Box flexDirection="column" paddingLeft={2}>
+    <Box flexDirection="column" paddingLeft={spacing.indent}>
       {shown.map((line, idx) => (
         <Text key={`${String(idx)}:${line.slice(0, 16)}`} dimColor>
           {line}

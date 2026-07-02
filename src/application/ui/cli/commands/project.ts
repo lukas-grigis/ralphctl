@@ -2,7 +2,12 @@ import type { Command } from 'commander';
 import type { Project } from '@src/domain/entity/project.ts';
 import { ProjectId } from '@src/domain/value/id/project-id.ts';
 import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
+import { confirmDestructive } from '@src/application/ui/cli/confirm-destructive.ts';
 import { createLastSelectionStore } from '@src/integration/persistence/selection/last-selection-store.ts';
+
+interface RemoveOpts {
+  readonly yes?: boolean;
+}
 
 /**
  * Register the `project` command group.
@@ -27,7 +32,7 @@ export const registerProjectCommand = (program: Command): void => {
       const result = await deps.projectRepo.list();
       if (!result.ok) {
         process.stderr.write(`error: ${result.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       if (result.value.length === 0) {
@@ -52,7 +57,7 @@ export const registerProjectCommand = (program: Command): void => {
         const pinned = await createLastSelectionStore(storage.stateRoot).read();
         if (pinned?.projectId === undefined) {
           process.stderr.write('error: no current project — pick one in the TUI or pass an id\n');
-          process.exit(1);
+          process.exitCode = 1;
           return;
         }
         effectiveRaw = String(pinned.projectId);
@@ -60,13 +65,13 @@ export const registerProjectCommand = (program: Command): void => {
       const id = ProjectId.parse(effectiveRaw);
       if (!id.ok) {
         process.stderr.write(`error: invalid project id: ${id.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       const result = await deps.projectRepo.findById(id.value);
       if (!result.ok) {
         process.stderr.write(`error: ${result.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       process.stdout.write(`${JSON.stringify(result.value, null, 2)}\n`);
@@ -75,18 +80,29 @@ export const registerProjectCommand = (program: Command): void => {
   project
     .command('remove <id>')
     .description('delete a project (does not touch sprints or repository contents)')
-    .action(async (raw: string) => {
+    .option('-y, --yes', 'skip the interactive y/N confirmation')
+    .action(async (raw: string, opts: RemoveOpts) => {
       const id = ProjectId.parse(raw);
       if (!id.ok) {
         process.stderr.write(`error: invalid project id: ${id.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
+      // Mirrors the TUI's ConfirmCard gate on the same projectRepo.remove call
+      // (projects-view.tsx) — the CLI has no interactive overlay, so a TTY-gated y/N prompt
+      // (or --yes for scripts) stands in for it.
+      const confirmed = await confirmDestructive({
+        yes: opts.yes === true,
+        action: `remove project ${String(id.value)}`,
+        confirmPrompt: `remove project ${String(id.value)}? [y/N] `,
+      });
+      if (!confirmed) return;
+
       const { deps, storage } = await bootstrapCli();
       const result = await deps.projectRepo.remove(id.value);
       if (!result.ok) {
         process.stderr.write(`error: ${result.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       // Clear a dangling pin: a removed project would otherwise keep resolving as the default

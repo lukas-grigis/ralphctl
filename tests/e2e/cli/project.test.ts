@@ -70,13 +70,26 @@ describe('ralphctl project', () => {
       const listAfterSeed = await runCliCaptured(cli, ['project', 'list']);
       expect(listAfterSeed.stdout).toContain('Round Trip');
 
-      const removed = await runCliCaptured(cli, ['project', 'remove', String(project.id)]);
+      const removed = await runCliCaptured(cli, ['project', 'remove', String(project.id), '--yes']);
       expect(removed.exitCode).toBe(0);
       expect(removed.stdout).toContain(`removed project ${String(project.id)}`);
 
       const listAfterRemove = await runCliCaptured(cli, ['project', 'list']);
       expect(listAfterRemove.exitCode).toBe(0);
       expect(listAfterRemove.stdout).toContain('no projects yet');
+    });
+
+    it('refuses to remove on non-TTY without --yes and prints actionable guidance', async () => {
+      const repo = createFsProjectRepository({ root: cli.paths.dataRoot });
+      const project = makeProject({ displayName: 'Guarded' });
+      await repo.save(project);
+
+      const result = await runCliCaptured(cli, ['project', 'remove', String(project.id)]);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('--yes');
+
+      const reloaded = await repo.findById(project.id);
+      expect(reloaded.ok).toBe(true);
     });
   });
 });

@@ -18,7 +18,12 @@ provider's native vocabulary.
 **Effort resolution** at every AI-spawning leaf (`src/business/settings/resolve-effort.ts`): per-flow
 `ai.<flow>.effort` wins; otherwise the global `ai.effort` floored to the row's provider ceiling;
 otherwise the provider CLI's default. Codex caps at `high` — `xhigh` and `max` collapse to `high` when
-floored from the global value; `minimal` is reachable only via an explicit per-flow override.
+floored from the global value; `minimal` is reachable only via an explicit per-flow override. The
+implement generator's resolved effort also feeds the escalation policy's same-model effort rung, whose
+target is provider- and model-aware: a Claude generator at the top of the model ladder climbs its own effort
+tiers (Claude Code's default is `xhigh` on xhigh-capable models, so the shipped default `claude-opus-4-8`
+with effort unset escalates to `max`, not `high`), while Copilot/Codex escalate to a fixed `high` — see
+`PERFORMANCE.md § plateau escalation`).
 
 **Single-provider configurations are first-class.** Every row may point at the same provider, or every row
 at a different one; the launcher rebuilds the provider / interactive-AI / skills-adapter trio per launch
@@ -99,12 +104,17 @@ every `ai` row plus `harness.escalateOnPlateau` in one transaction; subsequent p
   coder one tier below it, where `codex-economic` starts implement (verified against Codex CLI
   v0.138.0). The `codex-only` preset moves implement off the deprecated `gpt-5.3-codex` to `gpt-5.5`.
 
-**Default escalation posture (inert ladder).** `DEFAULT_SETTINGS.ai.implement.generator` is
-`claude-opus-4-8`, which has no key in `DEFAULT_ESCALATION_MAP` — so the shipped default can never
-model-escalate. On a plateau it fires one same-model nudge (a change-of-approach directive), then settles
-`done-with-warning`. This is deliberate: the default posture is conservative. To activate a live ladder,
-use one of the `*-economic` presets (where `implement.generator` starts on Sonnet and escalates to Opus)
-or add a custom rung via `settings.harness.escalationMap`:
+**Default escalation posture (effort rung, no model ladder).** `DEFAULT_SETTINGS.ai.implement.generator` is
+`claude-opus-4-8`, which has no key in `DEFAULT_ESCALATION_MAP` — so the shipped default never
+model-escalates. It is NOT inert, though: at the top of the model ladder the graduated policy first raises
+reasoning effort on the same model (the `escalate-effort` rung). opus is xhigh-capable and its effort is
+unset, so Claude Code's implicit default is already `xhigh` — the rung therefore climbs to `max` in a single
+step (a fixed `high` would be a no-op or a downgrade). Then — on a further plateau, opus now at `max` — it
+fires the same-model nudge (a change-of-approach directive), then settles `done-with-warning`. For the shipped
+default the effort rung fires exactly once (unset `→ max`; the next plateau sees `max` and falls through to
+the nudge). To also activate a live MODEL ladder, use one
+of the `*-economic` presets (where `implement.generator` starts on Sonnet and escalates to Opus) or add a
+custom rung via `settings.harness.escalationMap`:
 
 ```json
 "escalationMap": { "claude-opus-4-8": "claude-fable-5" }

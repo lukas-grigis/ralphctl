@@ -1,5 +1,7 @@
 import { Result } from '@src/domain/result.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
+import { ErrorCode } from '@src/domain/value/error/error-code.ts';
+import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
@@ -105,6 +107,109 @@ interface GeneratePrContentOutput {
  *   additionalRoots = [repoPath] so the AI can run `git log` / `git diff` against the repo
  *   outputDir      = `<sprintDir>/create-pr/<run-slug>/` (auto-included as writable)
  */
+/**
+ * Projects the chain ctx into the leaf's input. Throws `InvalidStateError` (a precondition
+ * violation the leaf framework converts to a `failed` trace entry) when an upstream leaf that
+ * should have populated the unit root / prompt file / sprint has not run. Extracted from the
+ * factory arrow to keep it within the per-function length budget.
+ */
+const projectInput = (ctx: CreatePrCtx): GeneratePrContentInput => {
+  if (ctx.currentUnitRoot === undefined || ctx.currentPromptFile === undefined) {
+    throw new InvalidStateError({
+      entity: 'chain',
+      currentState: 'pre-generate-pr-content',
+      attemptedAction: LEAF_NAME,
+      message:
+        'generate-pr-content: unit root / prompt file missing — build-create-pr-unit + render-prompt-to-file must run first',
+    });
+  }
+  if (ctx.sprint === undefined) {
+    throw new InvalidStateError({
+      entity: 'chain',
+      currentState: 'pre-generate-pr-content',
+      attemptedAction: LEAF_NAME,
+      message: 'generate-pr-content: ctx.sprint is undefined — load-sprint must run first',
+    });
+  }
+  return {
+    sprint: ctx.sprint,
+    tasks: ctx.tasks ?? [],
+    baseBranch: ctx.input.base,
+    headBranch: ctx.headBranch ?? '',
+    unitRoot: ctx.currentUnitRoot,
+    promptFile: ctx.currentPromptFile,
+    repoPath: ctx.input.cwd,
+  };
+};
+
+/**
+ * Runs the headless authoring spawn and turns its output into the leaf's result. Extracted from
+ * `execute` so both stay within the project's per-function complexity / length budget.
+ *
+ * Degradation contract: every recoverable failure (provider error, missing / malformed
+ * signals.json, missing pr-content) returns `Result.ok({})` so the caller falls back to the
+ * template. The one exception is user-initiated cancellation — an `AbortError` surfaced through
+ * the provider's Result channel is returned verbatim, and a thrown `AbortError` is re-thrown, so
+ * the chain stops instead of opening a real PR after the user cancelled.
+ */
+const runAuthoringSpawn = async (
+  deps: GeneratePrContentLeafDeps,
+  session: AiSession,
+  unitRoot: AbsolutePath,
+  log: Logger
+): Promise<Result<GeneratePrContentOutput, DomainError>> => {
+  try {
+    const spawn = await deps.provider.generate(session);
+    if (!spawn.ok) {
+      // A user-initiated cancellation surfaces through the Result channel (the provider builds
+      // an AbortError in classify-spawn-exit — it does NOT throw). It MUST propagate per
+      // CLAUDE.md: absorbing it here would let the chain continue and open a real `gh pr create`
+      // after the user cancelled. Only offline / timeout / creds failures fall back.
+      if (spawn.error.code === ErrorCode.Aborted) return Result.error(spawn.error);
+      log.warn(`create-pr: AI authoring failed, falling back to template (${spawn.error.message})`);
+      return Result.ok({});
+    }
+
+    const validated = await validateSignalsFile(unitRoot, generatePrContentOutputContract);
+    if (!validated.ok) {
+      // No abort guard here by design: validateSignalsFile only reads + parses signals.json (no
+      // spawn / cancellation surface), so its error union cannot carry ErrorCode.Aborted — a
+      // guard would be provably dead code the type checker rejects.
+      log.warn(`create-pr: AI authoring failed, falling back to template (${validated.error.message})`);
+      return Result.ok({});
+    }
+    const signals = validated.value;
+
+    // Fan out the validated signal to the application bus so TUI subscribers see the proposal
+    // live. The contract guarantees exactly one pr-content signal — narrative kinds are not part
+    // of the contract for this leaf.
+    for (const sig of signals) {
+      deps.eventBus.publish({ type: 'ai-signal', signal: sig, source: 'create-pr' });
+    }
+
+    // Render harness-owned sidecar `pr-content.md`. Write failures inside renderSidecars log warn
+    // and the helper still returns ok — the operator file is convenience only.
+    await renderSidecars(deps.writeFile, unitRoot, signals, generatePrContentOutputContract.sidecars, deps.logger);
+
+    const prContent = signals.find((s): s is PrContentSignal => s.type === 'pr-content');
+    if (prContent === undefined) {
+      // Defensive — the contract's exactlyOne refine should have caught this upstream.
+      log.warn('create-pr: validated signals missing pr-content despite schema — falling back to template');
+      return Result.ok({});
+    }
+
+    return Result.ok({ aiContent: { title: prContent.title, body: prContent.body } });
+  } catch (err) {
+    // AbortError MUST propagate per CLAUDE.md — user-initiated cancellation flows through every
+    // wrapper without being absorbed by guards or fallbacks.
+    if (err instanceof AbortError) throw err;
+    log.warn(
+      `create-pr: AI authoring failed, falling back to template (${err instanceof Error ? err.message : String(err)})`
+    );
+    return Result.ok({});
+  }
+};
+
 export const generatePrContentLeaf = (deps: GeneratePrContentLeafDeps): Element<CreatePrCtx> =>
   leaf<CreatePrCtx, GeneratePrContentInput, GeneratePrContentOutput>(LEAF_NAME, {
     useCase: {
@@ -177,83 +282,9 @@ export const generatePrContentLeaf = (deps: GeneratePrContentLeafDeps): Element<
           ...(signal !== undefined ? { abortSignal: signal } : {}),
         };
 
-        try {
-          const spawn = await deps.provider.generate(session);
-          if (!spawn.ok) {
-            log.warn(`create-pr: AI authoring failed, falling back to template (${spawn.error.message})`);
-            return Result.ok({});
-          }
-
-          const validated = await validateSignalsFile(input.unitRoot, generatePrContentOutputContract);
-          if (!validated.ok) {
-            log.warn(`create-pr: AI authoring failed, falling back to template (${validated.error.message})`);
-            return Result.ok({});
-          }
-          const signals = validated.value;
-
-          // Fan out the validated signal to the application bus so TUI subscribers see the
-          // proposal live. The contract guarantees exactly one pr-content signal — narrative
-          // kinds are not part of the contract for this leaf.
-          for (const sig of signals) {
-            deps.eventBus.publish({ type: 'ai-signal', signal: sig, source: 'create-pr' });
-          }
-
-          // Render harness-owned sidecar `pr-content.md`. Write failures inside renderSidecars
-          // log warn and the helper still returns ok — the operator file is convenience only.
-          await renderSidecars(
-            deps.writeFile,
-            input.unitRoot,
-            signals,
-            generatePrContentOutputContract.sidecars,
-            deps.logger
-          );
-
-          const prContent = signals.find((s): s is PrContentSignal => s.type === 'pr-content');
-          if (prContent === undefined) {
-            // Defensive — the contract's exactlyOne refine should have caught this upstream.
-            log.warn('create-pr: validated signals missing pr-content despite schema — falling back to template');
-            return Result.ok({});
-          }
-
-          return Result.ok({ aiContent: { title: prContent.title, body: prContent.body } });
-        } catch (err) {
-          // AbortError MUST propagate per CLAUDE.md — user-initiated cancellation flows
-          // through every wrapper without being absorbed by guards or fallbacks.
-          if (err instanceof AbortError) throw err;
-          log.warn(
-            `create-pr: AI authoring failed, falling back to template (${err instanceof Error ? err.message : String(err)})`
-          );
-          return Result.ok({});
-        }
+        return runAuthoringSpawn(deps, session, input.unitRoot, log);
       },
     },
-    input: (ctx) => {
-      if (ctx.currentUnitRoot === undefined || ctx.currentPromptFile === undefined) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: 'pre-generate-pr-content',
-          attemptedAction: LEAF_NAME,
-          message:
-            'generate-pr-content: unit root / prompt file missing — build-create-pr-unit + render-prompt-to-file must run first',
-        });
-      }
-      if (ctx.sprint === undefined) {
-        throw new InvalidStateError({
-          entity: 'chain',
-          currentState: 'pre-generate-pr-content',
-          attemptedAction: LEAF_NAME,
-          message: 'generate-pr-content: ctx.sprint is undefined — load-sprint must run first',
-        });
-      }
-      return {
-        sprint: ctx.sprint,
-        tasks: ctx.tasks ?? [],
-        baseBranch: ctx.input.base,
-        headBranch: ctx.headBranch ?? '',
-        unitRoot: ctx.currentUnitRoot,
-        promptFile: ctx.currentPromptFile,
-        repoPath: ctx.input.cwd,
-      };
-    },
+    input: projectInput,
     output: (ctx, out) => (out.aiContent !== undefined ? { ...ctx, aiContent: out.aiContent } : ctx),
   });

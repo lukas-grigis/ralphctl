@@ -530,12 +530,14 @@ const announceRoundStart = (
  */
 const makeGeneratorReinvoke =
   (
-    deps: Pick<GeneratorLeafDeps, 'provider' | 'cwd' | 'sprintDir' | 'effort'>,
+    deps: Pick<GeneratorLeafDeps, 'provider' | 'cwd' | 'sprintDir'>,
     args: {
       readonly workspaceRoot: AbsolutePath;
       readonly roundNum: number;
       readonly signalsFile: AbsolutePath;
       readonly effectiveModel: string;
+      /** Effort the initial spawn ran at (`task.escalatedToEffort ?? deps.effort`) — the corrective respawn matches it. */
+      readonly effectiveEffort: string | undefined;
       readonly priorGeneratorSessionId: SessionId | undefined;
       readonly signal: AbortSignal | undefined;
     }
@@ -558,7 +560,7 @@ const makeGeneratorReinvoke =
         args.signalsFile,
         'generator',
         resume,
-        deps.effort,
+        args.effectiveEffort,
         args.signal,
         bodyFile.ok ? bodyFile.value : undefined
       )
@@ -624,6 +626,11 @@ const makeGeneratorCallImplement =
     // upgraded model instead of the configured row. Evaluator model is intentionally
     // unaffected — escalation only touches the generator role.
     const effectiveModel = task.escalatedToModel ?? deps.model;
+    // Per-task generator-EFFORT escalation: the same-model effort rung stamps `escalatedToEffort`
+    // (default → high) when the generator topped out on the model ladder but still had effort
+    // headroom. Prefer it over the configured `deps.effort` at spawn — mirrors the model override
+    // above. Without this read the effort bump the policy granted would never reach the spawn.
+    const effectiveEffort = task.escalatedToEffort ?? deps.effort;
     // Forensic mirror of the initial spawn's raw body — best-effort parse; a bad path omits it.
     const initialBodyFile = AbsolutePath.parse(roundBodyPath(args.input.workspaceRoot, args.roundNum, 'generator'));
     const spawn = await deps.provider.generate(
@@ -636,7 +643,7 @@ const makeGeneratorCallImplement =
         args.signalsFile,
         'generator',
         args.input.priorGeneratorSessionId,
-        deps.effort,
+        effectiveEffort,
         args.signal,
         initialBodyFile.ok ? initialBodyFile.value : undefined
       )
@@ -667,6 +674,7 @@ const makeGeneratorCallImplement =
           roundNum: args.roundNum,
           signalsFile: args.signalsFile,
           effectiveModel,
+          effectiveEffort,
           priorGeneratorSessionId: args.input.priorGeneratorSessionId,
           signal: args.signal,
         }),

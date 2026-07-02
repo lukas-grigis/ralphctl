@@ -197,7 +197,7 @@ const ProgressBody = ({
         {state.kind === 'missing' && (
           <Box flexDirection="column">
             <Text>{glyphs.infoGlyph} No progress file yet.</Text>
-            <Box marginTop={1}>
+            <Box marginTop={spacing.section}>
               <Text dimColor>
                 The harness writes <Text>progress.md</Text> as the implementer reports signals. It will appear once a
                 run starts.
@@ -208,7 +208,7 @@ const ProgressBody = ({
         {state.kind === 'empty' && (
           <Box flexDirection="column">
             <Text>{glyphs.infoGlyph} Progress file exists but is empty.</Text>
-            <Box marginTop={1}>
+            <Box marginTop={spacing.section}>
               <Text dimColor>Touched {modifiedAgo}; no signals have been recorded yet.</Text>
             </Box>
           </Box>
@@ -216,7 +216,7 @@ const ProgressBody = ({
         {state.kind === 'failed' && (
           <Box flexDirection="column">
             <Text color={inkColors.error}>{glyphs.cross} Could not read progress file.</Text>
-            <Box marginTop={1}>
+            <Box marginTop={spacing.section}>
               <Text dimColor>{state.message}</Text>
             </Box>
           </Box>

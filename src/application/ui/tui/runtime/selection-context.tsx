@@ -75,6 +75,19 @@ interface SelectionApi {
     sprintLabel: string,
     sprintStatus?: SprintStatus
   ): void;
+  /**
+   * Converge the selection onto a focused Execute-view run's pinned project/sprint — for the
+   * Tab / Ctrl+1..9 / Sessions-open case where focus lands on a session pinned to a DIFFERENT
+   * sprint than the current selection, so `n → Flows` (and every other selection-reading
+   * surface) targets what's actually on screen instead of a stale pick.
+   *
+   * Deliberately NOT persisted, unlike {@link setProjectAndSprint}: this fires from a passive
+   * effect reacting to focus changes, not an explicit user pick — a purely exploratory
+   * Tab-cycle through old sessions must never overwrite the next boot's default sprint. `lastSwitch`
+   * IS still recorded so Home's "✓ now on …" toast fires; the switch changes real behaviour
+   * (what the next flow launch targets), so it must not be silent either.
+   */
+  followFocusedRun(projectId: ProjectId, projectLabel: string, sprintId: SprintId, sprintLabel: string): void;
 }
 
 const SelectionContext = createContext<SelectionApi | undefined>(undefined);
@@ -139,15 +152,41 @@ export const SelectionProvider = ({
   const sprintIdRef = useRef(sprintId);
   sprintIdRef.current = sprintId;
 
+  // Set by `followFocusedRun` right before its state writes, to the EXACT tuple it's about to
+  // write. The persist effect below skips a transition when the CURRENT values still match this
+  // snapshot — value-keyed, not a one-shot flag, because a one-shot boolean is fragile to
+  // ordering: the reconciler can coalesce this update together with an unrelated one (e.g. the
+  // test harness's own post-mount seed) into extra/reordered render + effect passes, letting an
+  // unrelated persist-effect invocation "spend" the flag before the write it was meant to guard
+  // ever becomes visible — confirmed by an intermittent flake where the converged tuple still
+  // reached `onChange`. Matching on the actual values is immune to how many renders land in
+  // between or which effect fires first. Cleared once consumed so a later, genuinely explicit
+  // pick of the identical project+sprint is never mistaken for the same convergence and skipped.
+  const skipPersistForRef = useRef<
+    { projectId: ProjectId; projectLabel: string; sprintId: SprintId; sprintLabel: string } | undefined
+  >(undefined);
+
   // Persist whenever the canonical selection changes — but skip the initial render. The launch
   // router may seed an auto-default project/sprint (first project + most-recent sprint) when
   // nothing was persisted; persisting that on mount would freeze the auto-default as if it were
   // a real user choice. A restored real selection is already on disk, so skipping the first
-  // write is a harmless no-op there too. Only post-mount selection changes reach the store.
+  // write is a harmless no-op there too. Only post-mount, non-`followFocusedRun` selection
+  // changes reach the store.
   const isFirstPersist = useRef(true);
   useEffect(() => {
     if (isFirstPersist.current) {
       isFirstPersist.current = false;
+      return;
+    }
+    const skip = skipPersistForRef.current;
+    if (
+      skip !== undefined &&
+      skip.projectId === projectId &&
+      skip.projectLabel === projectLabel &&
+      skip.sprintId === sprintId &&
+      skip.sprintLabel === sprintLabel
+    ) {
+      skipPersistForRef.current = undefined;
       return;
     }
     onChangeRef.current?.({
@@ -250,6 +289,22 @@ export const SelectionProvider = ({
     []
   );
 
+  const followFocusedRun = useCallback((pId: ProjectId, pLabel: string, sId: SprintId, sLabel: string) => {
+    // Record the exact tuple being written before the state writes below — the persist effect
+    // matches on these values (not a one-shot flag) so it reliably skips THIS transition
+    // regardless of how many renders land in between.
+    skipPersistForRef.current = { projectId: pId, projectLabel: pLabel, sprintId: sId, sprintLabel: sLabel };
+    setProjectId(pId);
+    setProjectLabel(pLabel);
+    setSprintId(sId);
+    setSprintLabel(sLabel);
+    // Status is unknown at focus time (the descriptor only carries ids/labels) — leave it for
+    // the existing Home/Flows `syncSprintStatus` effects to backfill from the next snapshot
+    // load, exactly as a fresh manual pick behaves before its first load.
+    setSprintStatus(undefined);
+    setLastSwitch({ sprintId: sId, sprintLabel: sLabel, at: Date.now() });
+  }, []);
+
   const api = useMemo<SelectionApi>(
     () => ({
       projectId,
@@ -262,6 +317,7 @@ export const SelectionProvider = ({
       setSprint,
       syncSprintStatus,
       setProjectAndSprint,
+      followFocusedRun,
     }),
     [
       projectId,
@@ -274,6 +330,7 @@ export const SelectionProvider = ({
       setSprint,
       syncSprintStatus,
       setProjectAndSprint,
+      followFocusedRun,
     ]
   );
 

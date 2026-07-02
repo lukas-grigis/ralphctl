@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { type Result } from '@src/domain/result.ts';
-import type { TodoTask, VerificationCriterion } from '@src/domain/entity/task.ts';
+import type { CriteriaVerdicts, TodoTask, VerificationCriterion } from '@src/domain/entity/task.ts';
 import { createTask } from '@src/domain/entity/task-factory.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { FIXED_REPOSITORY_ID, makeApprovedTicket, makeTodoTask } from '@tests/fixtures/domain.ts';
@@ -413,6 +413,49 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value).toContain('<retry_feedback>');
+    expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
+  });
+
+  it('renders the prior-criteria-verdicts block when the task carries a graded verdict map', async () => {
+    const base = makeTaskWith({
+      name: 'export CSV',
+      verificationCriteria: [
+        { id: 'C1', assertion: 'lint passes', check: 'manual' },
+        { id: 'C2', assertion: 'tests green', check: 'manual' },
+      ],
+    });
+    const verdicts: CriteriaVerdicts = { C1: 'passed', C2: 'failed' };
+    const task: TodoTask = { ...base, criteriaVerdicts: verdicts };
+    const result = await buildImplementPrompt(deps, {
+      task,
+      projectPath: '/tmp/ralph/main-repo',
+      progressFile: '/tmp/ralph/sprint-1/progress.md',
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toContain('## Prior criteria verdicts');
+    expect(result.value).toContain('1 of 2 done-criteria passing');
+    expect(result.value).toContain('- C1: passing');
+    expect(result.value).toContain('- C2: failing');
+    expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
+  });
+
+  it('collapses the prior-criteria-verdicts block on a fresh task with no verdict map', async () => {
+    const task = makeTaskWith({ name: 'export CSV' });
+    const result = await buildImplementPrompt(deps, {
+      task,
+      projectPath: '/tmp/ralph/main-repo',
+      progressFile: '/tmp/ralph/sprint-1/progress.md',
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).not.toContain('## Prior criteria verdicts');
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
 

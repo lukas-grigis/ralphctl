@@ -23,6 +23,7 @@ const buildWith = (recentSprints: readonly Sprint[]): ReturnType<typeof buildMen
   buildMenuItems({
     hasProject: true,
     stateLoaded: true,
+    loading: false,
     currentSprint: undefined,
     recentSprints,
     selectionSprintId: undefined,
@@ -54,6 +55,7 @@ describe('buildMenuItems — recent-sprint digit hotkeys', () => {
     const items = buildMenuItems({
       hasProject: true,
       stateLoaded: true,
+      loading: false,
       currentSprint: undefined,
       recentSprints: sprints,
       selectionSprintId: undefined,
@@ -68,5 +70,43 @@ describe('buildMenuItems — recent-sprint digit hotkeys', () => {
     expect(second).toBeDefined();
     second?.onSelect();
     expect(onSwitchSprint).toHaveBeenCalledWith(sprints[1]);
+  });
+});
+
+describe('buildMenuItems — loading placeholder', () => {
+  const buildLoading = (loading: boolean, recentSprints: readonly Sprint[] = []): ReturnType<typeof buildMenuItems> =>
+    buildMenuItems({
+      hasProject: false,
+      stateLoaded: false,
+      loading,
+      currentSprint: undefined,
+      recentSprints,
+      selectionSprintId: undefined,
+      switchSprintDisabled: 'no project loaded',
+      addTicketDisabled: 'pick a sprint first',
+      onPushHome: vi.fn(),
+      onPushAddTicket: vi.fn(),
+      onSwitchSprint: vi.fn(),
+      onLaunchCreateSprint: vi.fn(),
+    });
+
+  it('shows a non-selectable "(loading…)" row while the snapshot fetch is in flight', () => {
+    const items = buildLoading(true);
+    const row = items.find((i) => i.id === 'sprint-loading');
+    expect(row).toBeDefined();
+    expect(row?.label).toContain('loading');
+    // disabledReason keeps it out of the ActionMenu's cursorable/hotkey-matchable set.
+    expect(row?.disabledReason).toBeDefined();
+    expect(row?.hotkey).toBeUndefined();
+  });
+
+  it('omits the loading row once the snapshot has settled', () => {
+    const items = buildLoading(false);
+    expect(items.find((i) => i.id === 'sprint-loading')).toBeUndefined();
+  });
+
+  it('omits the loading row when recent sprints are already known (a settled reload mid-flight)', () => {
+    const items = buildLoading(true, [makeSprint(1)]);
+    expect(items.find((i) => i.id === 'sprint-loading')).toBeUndefined();
   });
 });

@@ -1,4 +1,5 @@
 import { crossPlatformSpawn } from '@src/integration/io/cross-platform-spawn.ts';
+import { killWithEscalation } from '@src/integration/io/kill-with-escalation.ts';
 
 /**
  * Result of running an external command. `ok` is true iff the process spawned and exited 0.
@@ -50,11 +51,9 @@ export const runCommand: RunCommand = (name, args) =>
     };
 
     const timer = setTimeout(() => {
-      try {
-        child.kill('SIGTERM');
-      } catch {
-        // already dead
-      }
+      // SIGTERM → grace → SIGKILL: a wedged probe that ignores SIGTERM is still reaped rather
+      // than left running after we settle. Resolution is not delayed.
+      killWithEscalation(child);
       settle({
         ok: false,
         code: null,

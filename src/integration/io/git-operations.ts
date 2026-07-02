@@ -37,10 +37,12 @@ export interface GitStatusEntry {
   readonly path: string;
 }
 
-export interface CommitOutcome {
-  readonly committed: boolean;
-  readonly headSha?: string;
-}
+/**
+ * Result of {@link gitCommitWithMessage}. Discriminated on `committed` so `headSha` is only
+ * reachable on the success arm — mirrors the business-layer `CommitResult` shape the commit-task
+ * leaf bridges to, keeping the "no commit → no SHA" invariant compiler-enforced on both sides.
+ */
+export type CommitOutcome = { readonly committed: true; readonly headSha: string } | { readonly committed: false };
 
 export interface StashOutcome {
   readonly stashed: boolean;

@@ -459,8 +459,8 @@ and the non-obvious mutators.
   because a prerequisite was not `done`; `'own'` for evaluator / verify / budget failures. New code reads
   `isUpstreamBlocked(task)` (checks `blockKind`) — never the `blockedReason` string prefix. Legacy
   `tasks.json` entries without `blockKind` are migrated at read time. Optional `extraDimensions` is the
-  planner's per-task grading rubric beyond the four floor dimensions (Correctness / Completeness / Safety /
-  Consistency). Optional `maxAttempts` overrides the global cap. Optional `escalatedFromModel` /
+  planner's per-task grading rubric beyond the five floor dimensions (Correctness / Completeness / Safety /
+  Consistency / Robustness — single-sourced from `src/integration/ai/evaluation/_engine/floor-dimensions.ts`). Optional `maxAttempts` overrides the global cap. Optional `escalatedFromModel` /
   `escalatedToModel` are stamped on first plateau-escalation.
 - **`TaskEpisode`** (`src/domain/repository/episode/episode-types.ts`) — an in-memory value type (no
   on-disk persistence in this release) capturing the outcome of one settled task: `taskId`, `sprintId`,

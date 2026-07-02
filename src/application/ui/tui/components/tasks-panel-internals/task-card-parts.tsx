@@ -13,7 +13,7 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import type { TaskBucketStatus, TaskSubStep } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
-import { glyphs, inkColors } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { fmtDuration, fmtIsoHHMM } from '@src/application/ui/tui/theme/duration.ts';
 import {
   abortCauseLabel,
@@ -54,7 +54,7 @@ export const RecoveryLine = ({
   const hhmm = fmtIsoHHMM(String(context.abortedAt));
   const label = abortCauseLabel(context.cause);
   return (
-    <Box paddingLeft={2}>
+    <Box paddingLeft={spacing.indent}>
       <Text dimColor>{glyphs.activityArrow} </Text>
       <Text>attempt {String(attemptN)}</Text>
       <Text dimColor> {glyphs.bullet} </Text>
@@ -80,7 +80,7 @@ export const BusyIndicator = ({
 }: {
   readonly role: 'generator' | 'evaluator' | undefined;
 }): React.JSX.Element => (
-  <Box paddingLeft={2}>
+  <Box paddingLeft={spacing.indent}>
     {role === 'generator' ? (
       <Text color={inkColors.info}>generator {glyphs.busyDot}</Text>
     ) : (
@@ -137,7 +137,7 @@ export const CriteriaBlock = ({
   const visible = expanded ? bullets : bullets.slice(0, CRITERIA_COLLAPSED_LINES);
   const overflow = bullets.length - visible.length;
   return (
-    <Box flexDirection="column" paddingLeft={2}>
+    <Box flexDirection="column" paddingLeft={spacing.indent}>
       <Box>
         <Text dimColor>{glyphs.bullet} criteria</Text>
         {!expanded && bullets.length > CRITERIA_COLLAPSED_LINES && (
@@ -147,7 +147,7 @@ export const CriteriaBlock = ({
           <Text dimColor> {glyphs.bullet} press e to collapse</Text>
         )}
       </Box>
-      <Box flexDirection="column" paddingLeft={2}>
+      <Box flexDirection="column" paddingLeft={spacing.indent}>
         {visible.map((b, i) => (
           <Box key={`crit-row-${String(i)}`}>
             <Text dimColor>{glyphs.bullet} </Text>

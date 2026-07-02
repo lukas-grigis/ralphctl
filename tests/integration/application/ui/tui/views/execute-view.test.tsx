@@ -247,10 +247,10 @@ describe('ExecuteView', () => {
     result.unmount();
   });
 
-  it('Enter after a run goes Home and leaves a drifted global selection untouched', async () => {
-    // The user's rule: the project/sprint combo starts from THEIR pick and only changes on an
-    // explicit pick. A settled run pinned to sprint A must route Home (not sprint-detail of A)
-    // and must not drag the selection from B back to A on the way out.
+  it('Enter after a run goes Home; the converged selection (not the pre-focus pick) survives the exit', async () => {
+    // Focusing a settled run pinned to sprint A converges the selection onto A (see the
+    // "focusing a session … converges" fence below); Enter must route Home (not sprint-detail)
+    // without reverting that convergence back to whatever was selected before the focus.
     const sessions = createSessionManager();
     const runner = fakeRunner('r-pin-nav', 'completed');
     const sprintA = 'sprint-a-nav' as unknown as SprintId;
@@ -288,34 +288,55 @@ describe('ExecuteView', () => {
       }
     );
     await waitForViewReady(result, (f) => f.includes('Implement — Pinned'));
+    // Mounting focused on the run already converged the selection onto its pinned sprint.
+    // Convergence needs TWO chained effect generations (the availability probe settling from
+    // 'checking' to 'available', THEN the convergence effect reacting to that) — more than the
+    // single generic post-commit tick `waitForViewReady` waits out. Poll explicitly instead of
+    // asserting straight off that tick: under load, each generation's scheduler pass can outrun
+    // a fixed 30ms window, which showed up as a real ~1-in-8 flake here (always the pre-focus
+    // sprintB value, never a corrupted one — confirms this is a "hasn't happened yet" race, not
+    // a wrong-value bug).
+    await waitFor(() => seenSprintIds.at(-1) === sprintA);
+    expect(seenSprintIds.at(-1)).toBe(sprintA);
+
     result.stdin.write(ENTER);
     await waitFor(() => routeEntries.some((e) => e.id === 'home'));
     expect(routeEntries.some((e) => e.id === 'sprint-detail')).toBe(false);
-    // The selection seeded to sprint B must survive both the focus and the exit.
-    expect(seenSprintIds.at(-1)).toBe(sprintB);
-    expect(seenSprintIds).not.toContain(sprintA);
+    // The converged selection (A) survives the exit — it is not reverted to the pre-focus pick.
+    expect(seenSprintIds.at(-1)).toBe(sprintA);
     result.unmount();
   });
 
-  it('focusing an execute view never converges the global selection onto the run pinned sprint', async () => {
-    // Regression fence: viewing a run (Tab / Ctrl+1..9 / Sessions-open) is a browse, not a
-    // pick. An effect that "converges" the selection onto the run's pinned project/sprint
-    // clobbers the user's pick AND persists the clobber — the next boot then lands on the
-    // wrong sprint.
+  it('focusing a session pinned to a different sprint converges the global selection onto it', async () => {
+    // Closes a design gap: Tab / Ctrl+1..9 / Sessions-open can focus a DIFFERENT run than the
+    // one the global selection points at. Without convergence, the breadcrumb shows the
+    // focused run's sprint while `n → Flows` (and every other selection-reading surface) still
+    // targets the stale pick. Two sessions pinned to different sprints; only the second is
+    // focused (rendered) — the selection must converge onto ITS sprint, not the first's.
     const sessions = createSessionManager();
-    const runner = fakeRunner('r-no-converge', 'running');
+    const runnerA = fakeRunner('r-converge-a', 'running');
     const sprintA = 'sprint-converge-a' as unknown as SprintId;
     sessions.register({
-      runner,
+      runner: runnerA,
       flowId: 'implement',
-      title: 'Implement — No Converge',
+      title: 'Implement — A',
       pinnedProjectId: 'project-converge-a' as unknown as ProjectId,
       pinnedProjectLabel: 'Project A',
       pinnedSprintId: sprintA,
       pinnedSprintLabel: 'Sprint A',
     });
-
+    const runnerB = fakeRunner('r-converge-b', 'running');
     const sprintB = 'sprint-converge-b' as unknown as SprintId;
+    sessions.register({
+      runner: runnerB,
+      flowId: 'implement',
+      title: 'Implement — B',
+      pinnedProjectId: 'project-converge-b' as unknown as ProjectId,
+      pinnedProjectLabel: 'Project B',
+      pinnedSprintId: sprintB,
+      pinnedSprintLabel: 'Sprint B',
+    });
+
     const seenSprintIds: Array<SprintId | undefined> = [];
     const SelectionProbe = (): null => {
       const sel = useSelection();
@@ -329,15 +350,110 @@ describe('ExecuteView', () => {
       </>,
       {
         deps: stubDeps(),
-        initial: { id: 'execute', props: { sessionId: 'r-no-converge' } },
+        // Simulates "the user was on sprint A, then Tab-cycled focus to session B" — the route
+        // is scoped to B's sessionId; the pre-existing selection is seeded to A.
+        initial: { id: 'execute', props: { sessionId: 'r-converge-b' } },
         sessions,
-        selection: { sprintId: sprintB, sprintLabel: 'Sprint B' },
+        selection: { sprintId: sprintA, sprintLabel: 'Sprint A' },
       }
     );
-    await waitForViewReady(result, (f) => f.includes('Implement — No Converge'));
-    await tick();
+    await waitForViewReady(result, (f) => f.includes('Implement — B'));
+    // The seeded selection starts on A (the pre-focus pick) — `seenSprintIds` legitimately opens
+    // with A; the fence is that it CONVERGES to B and stays there, not that A never appears.
+    await waitFor(() => seenSprintIds.at(-1) === sprintB);
     expect(seenSprintIds.at(-1)).toBe(sprintB);
-    expect(seenSprintIds).not.toContain(sprintA);
+    result.unmount();
+  });
+
+  it('convergence updates the live selection but does not persist it to disk', async () => {
+    // The prior implementation of this feature converged AND persisted, so a purely
+    // exploratory Tab-cycle through old sessions corrupted the next boot's default sprint. This
+    // is the regression fence for the fix: `onChange` (the persistence callback) must never
+    // see the focus-driven sprint, even though the in-memory selection (and the toast) reflect
+    // it immediately.
+    const sessions = createSessionManager();
+    const runner = fakeRunner('r-no-persist', 'running');
+    const sprintA = 'sprint-no-persist-a' as unknown as SprintId;
+    sessions.register({
+      runner,
+      flowId: 'implement',
+      title: 'Implement — No Persist',
+      pinnedProjectId: 'project-no-persist-a' as unknown as ProjectId,
+      pinnedProjectLabel: 'Project A',
+      pinnedSprintId: sprintA,
+      pinnedSprintLabel: 'Sprint A',
+    });
+
+    const sprintB = 'sprint-no-persist-b' as unknown as SprintId;
+    const onChange = vi.fn();
+    const seenSprintIds: Array<SprintId | undefined> = [];
+    const SelectionProbe = (): null => {
+      const sel = useSelection();
+      seenSprintIds.push(sel.sprintId);
+      return null;
+    };
+    const { result } = renderView(
+      <>
+        <ExecuteView />
+        <SelectionProbe />
+      </>,
+      {
+        deps: stubDeps(),
+        initial: { id: 'execute', props: { sessionId: 'r-no-persist' } },
+        sessions,
+        selection: { sprintId: sprintB, sprintLabel: 'Sprint B' },
+        selectionOnChange: onChange,
+      }
+    );
+    await waitForViewReady(result, (f) => f.includes('Implement — No Persist'));
+    // Converged in memory …
+    await waitFor(() => seenSprintIds.at(-1) === sprintA);
+    expect(seenSprintIds.at(-1)).toBe(sprintA);
+    // … but never handed to the persistence callback.
+    expect(onChange).not.toHaveBeenCalledWith(expect.objectContaining({ sprintId: sprintA }));
+    result.unmount();
+  });
+
+  it('never converges onto a pinned sprint that is closed or removed', async () => {
+    const sessions = createSessionManager();
+    const runner = fakeRunner('r-stale-no-converge', 'running');
+    const staleSprintId = 'sprint-stale-no-converge' as unknown as SprintId;
+    sessions.register({
+      runner,
+      flowId: 'implement',
+      title: 'Implement — Stale No Converge',
+      pinnedProjectId: 'project-stale-no-converge' as unknown as ProjectId,
+      pinnedProjectLabel: 'Project Stale',
+      pinnedSprintId: staleSprintId,
+      pinnedSprintLabel: 'Stale Sprint',
+    });
+
+    const liveSprintId = 'sprint-live-no-converge' as unknown as SprintId;
+    const mockSprintRepo = { findById: vi.fn().mockResolvedValue({ ok: true, value: { status: 'done' } }) };
+    const deps: AppDeps = { eventBus: noopEventBus, sprintRepo: mockSprintRepo } as unknown as AppDeps;
+
+    const seenSprintIds: Array<SprintId | undefined> = [];
+    const SelectionProbe = (): null => {
+      const sel = useSelection();
+      seenSprintIds.push(sel.sprintId);
+      return null;
+    };
+    const { result } = renderView(
+      <>
+        <ExecuteView />
+        <SelectionProbe />
+      </>,
+      {
+        deps,
+        initial: { id: 'execute', props: { sessionId: 'r-stale-no-converge' } },
+        sessions,
+        selection: { sprintId: liveSprintId, sprintLabel: 'Live Sprint' },
+      }
+    );
+    await waitForViewReady(result, (f) => f.includes('Sprint no longer available'));
+    // The pin resolved to `done` — the selection must stay on the live sprint, not the stale pin.
+    expect(seenSprintIds.at(-1)).toBe(liveSprintId);
+    expect(seenSprintIds).not.toContain(staleSprintId);
     result.unmount();
   });
 

@@ -2,6 +2,7 @@ import { type FinalizeGenEvalOutput, finalizeGenEvalUseCase } from '@src/busines
 import type { GenEvalExit } from '@src/business/task/gen-eval-exit.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
+import type { AiProvider } from '@src/domain/entity/settings.ts';
 import type { InProgressTask, Task } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -22,6 +23,12 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
  * The leaf falls through to `task.escalatedToModel` first (matching the generator leaf's
  * resolution order); the resulting value is what the escalation policy looks up in the
  * merged map on a plateau exit.
+ *
+ * `configuredGeneratorProvider` / `configuredGeneratorEffort` are the generator row's provider and
+ * its already-resolved reasoning effort (`resolveEffortForRow`). They activate the escalation
+ * policy's same-model effort rung: the leaf forwards the provider plus `task.escalatedToEffort ??
+ * configured` so a top-of-ladder plateau raises reasoning effort before spending the nudge. Absent
+ * (a provider with no effort dimension, or a caller that never wired them) → the rung is skipped.
  */
 export interface FinalizeGenEvalLeafDeps {
   readonly taskRepo: UpdateTask;
@@ -35,6 +42,8 @@ export interface FinalizeGenEvalLeafDeps {
   readonly eventBus: EventBus;
   readonly clock: () => IsoTimestamp;
   readonly configuredGeneratorModel: string;
+  readonly configuredGeneratorProvider?: AiProvider;
+  readonly configuredGeneratorEffort?: string;
 }
 
 interface FinalizeInput {
@@ -43,6 +52,8 @@ interface FinalizeInput {
   readonly exit?: GenEvalExit;
   readonly turnsUsed: number;
   readonly generatorModel: string;
+  readonly generatorProvider?: AiProvider;
+  readonly generatorEffort?: string;
 }
 
 export const finalizeGenEvalLeaf = (deps: FinalizeGenEvalLeafDeps, taskId: TaskId): Element<ImplementCtx> =>
@@ -60,6 +71,8 @@ export const finalizeGenEvalLeaf = (deps: FinalizeGenEvalLeafDeps, taskId: TaskI
           eventBus: deps.eventBus,
           clock: deps.clock,
           generatorModel: input.generatorModel,
+          ...(input.generatorProvider !== undefined ? { generatorProvider: input.generatorProvider } : {}),
+          ...(input.generatorEffort !== undefined ? { generatorEffort: input.generatorEffort } : {}),
         }),
     },
     input: (ctx) => {
@@ -83,12 +96,20 @@ export const finalizeGenEvalLeaf = (deps: FinalizeGenEvalLeafDeps, taskId: TaskI
       // configured settings row — matches the resolution order in `generator.ts`. Read here
       // so the escalation policy can look up the rung above the actual model that ran.
       const generatorModel = ctx.currentTask.escalatedToModel ?? deps.configuredGeneratorModel;
+      // Per-attempt generator effort mirrors that resolution order (`task.escalatedToEffort ??
+      // configured`) so the policy sees the effort the just-finished attempt actually ran at — a
+      // prior effort bump reads back as the raised level, stopping the effort rung from re-firing.
+      const generatorEffort = ctx.currentTask.escalatedToEffort ?? deps.configuredGeneratorEffort;
       return {
         task: ctx.currentTask,
         sprintId: ctx.sprintId,
         ...(ctx.lastExit !== undefined ? { exit: ctx.lastExit } : {}),
         turnsUsed: ctx.genEvalTurn ?? 0,
         generatorModel,
+        ...(deps.configuredGeneratorProvider !== undefined
+          ? { generatorProvider: deps.configuredGeneratorProvider }
+          : {}),
+        ...(generatorEffort !== undefined ? { generatorEffort } : {}),
       };
     },
     output: (ctx, out) => {

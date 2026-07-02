@@ -1,5 +1,8 @@
 # Implementer Memory
 
+- [project_external_kill_escalation_seam.md](project_external_kill_escalation_seam.md) — killWithEscalation shared
+  SIGTERM→grace→SIGKILL helper for io runners (separate copy of provider-engine ladder, sibling-isolation); interactive
+  adapters' abortSignal was dead code, now threaded from 4 leaves + classified before exit-code; sonarjs 3-literal ratchet gotcha
 - [project_prompt_queue_cancel_vs_abort.md](project_prompt_queue_cancel_vs_abort.md) — TUI prompt-queue esc-cancel
   & shutdown reject with PLAIN Error (never AbortError), so a blanket `.catch` around prompt promises can safely
   re-throw AbortError; edit text-prompt seam (use-edit-field) vs field-picker seam (field-editors) are independent
@@ -49,6 +52,12 @@
   event-arrival from React-commit rate; fix for DEBUG-floor commit-storm OOM; + status-diff guard on useSessions/useSession
 - [project_escalation_gate_broadened.md](project_escalation_gate_broadened.md) — finalize-gen-eval now escalates on
   plateau+budget-exhausted+malformed (not just plateau); malformed = same-model retry no ladder rung; fallbackMaxAttempts wired
+- [project_effort_escalation_rung_seam.md](project_effort_escalation_rung_seam.md) — same-model effort rung (default→high)
+  between model-jump and nudge in decideEscalation; nextEffortRung helper; ACTIVATED end-to-end 2026-07-02 via
+  escalatedToEffort task field + per-task-subchain→finalize-leaf wiring (launch is UI-fenced) + generator.ts read
+- [project_criteria_history_feedforward_seam.md](project_criteria_history_feedforward_seam.md) — composeCriteriaHistory
+  (business) renders Task.criteriaVerdicts k/N into BOTH implement+evaluate prompts; derived INSIDE the prompt builders
+  from input.task (not threaded via leaves); optional placeholder; evaluate template adds re-verify framing
 - [project_attempt_scoped_ctx_reset_seam.md](project_attempt_scoped_ctx_reset_seam.md) — implement attempt-scoped ctx
   resets split across start-attempt (entry: verdict/session) vs progress-journal (exit: GENERATOR_HINTS accumulators)
 - [project_structured_verify_gates.md](project_structured_verify_gates.md) — WS3 per-module verify gates: precedence,

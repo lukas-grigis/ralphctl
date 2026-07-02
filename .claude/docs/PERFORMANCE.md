@@ -126,13 +126,28 @@ Opus in both dash-form Claude-Code/Codex ids and dot-form Copilot ids; Codex / C
 `gpt-5.4-mini` and the economic full tier `gpt-5.4` → `gpt-5.5`, kept in lockstep with
 `domain/value/settings-models/` by code review). Each exit re-reads the most-recent
 `Task.escalatedToModel` as the generator model, so the policy returns `escalate` repeatedly and the
-task climbs through every intermediate rung (bounded by `maxAttempts`). When the generator reaches the
-top of the ladder, the policy fires a single same-model **"change your approach" directive**
-(`{{PLATEAU_DIRECTIVE_SECTION}}` in the implement prompt) — a "nudge" stamped
-`escalatedFromModel === escalatedToModel`. The directive is gated on that same-model marker, NOT on a
-model bump: a bump hands the stronger model the targeted `priorCritique` instead, decoupling the
-"abandon your approach" directive from escalation so it is reserved for the top-of-ladder case where
-there is no fresh capability to lean on. A further exit after the nudge tops out — keeping the work.
+task climbs through every intermediate rung (bounded by `maxAttempts`).
+(2) **effort escalation** — when the generator reaches the top of the model ladder (no stronger rung) the
+policy tries a cheaper same-model remedy BEFORE the nudge: raise reasoning effort (`escalate-effort`) to a
+**provider- and model-aware target** (`nextEffortRung` in `escalation-map.ts`) when the provider/model
+exposes an effort dimension and the generator still has headroom. Claude is model-aware — Claude Code's own
+CLI default is `xhigh` on xhigh-capable models (Opus 4.7/4.8, Sonnet 5, Fable 5), so the rung climbs Claude's
+own tiers (`…→ xhigh → max`) rather than stamping a fixed `high` that would be a no-op or a downgrade of the
+implicit default; an explicit `low|medium|high` climbs to `xhigh`, and `unset` (the CLI default) or `xhigh`
+climbs to `max`, capping there. A non-xhigh-capable Claude model (Sonnet 4.6, CLI default `high`) climbs
+straight to `max`. Copilot/Codex keep the fixed target `EFFORT_ESCALATION_TARGET` (`high`). It stamps
+`Task.escalatedToEffort` (no model change), the generator leaf prefers that over the configured `effort` at
+spawn, and the next plateau sees the raised effort. Fires once for the shipped default (unset `→ max` in a
+single step) and is strictly bounded generally — the stamped effort climbs monotonically to the terminal
+`max`, from which the rung is spent and falls through to the nudge. Skipped gracefully — straight to the
+nudge — when the provider/model has no effort knob (e.g. Claude Haiku) or the generator is already at its
+ceiling.
+(3) **change-of-approach nudge** — a single same-model **"change your approach" directive**
+(`{{PLATEAU_DIRECTIVE_SECTION}}` in the implement prompt) stamped `escalatedFromModel === escalatedToModel`.
+The directive is gated on that same-model marker, NOT on a model bump: a bump hands the stronger model the
+targeted `priorCritique` instead, decoupling the "abandon your approach" directive from escalation so it is
+reserved for the top-of-ladder case where there is no fresh capability to lean on. A further exit after the
+nudge tops out — keeping the work.
 
 **Routing by exit kind.** `plateau` and `budget-exhausted` exits (including the synthesized budget-
 exhausted when no leaf set `lastExit`) both go through `decideEscalation`. A `malformed` exit —
@@ -144,18 +159,22 @@ while the attempt budget remains, falling back to done-with-warning at the cap.
 introduced have `task.maxAttempts === undefined`; `decideEscalation` and the per-task loop cap both fall
 back to `settings.harness.maxAttempts` so the attempt budget binds for them too.
 
-**Inert default ladder.** The shipped default generator model (`claude-opus-4-8`) has no key in
-`DEFAULT_ESCALATION_MAP`. With default settings the harness can never model-escalate — on a plateau it
-fires one same-model nudge, then settles done-with-warning. See `AI-SETTINGS.md § Default escalation
-posture` for how to activate a live ladder (economic presets or a custom escalationMap rung).
+**Default posture: effort rung, then nudge.** The shipped default generator model (`claude-opus-4-8`) has
+no key in `DEFAULT_ESCALATION_MAP`, so the harness never model-escalates it. But the effort rung IS live for
+the default posture: opus is xhigh-capable and its effort is unset (Claude Code's implicit default is
+`xhigh`), so on a plateau at the top of the ladder the rung raises reasoning effort to `max` on the same
+model in a single step (a live remedy, not just a directive) — a fixed `high` would be a no-op or a downgrade
+of that implicit `xhigh`. A further plateau (opus already at `max`, rung spent) fires the same-model nudge,
+then settles done-with-warning. See `AI-SETTINGS.md § Default escalation posture` for how to also activate a
+live MODEL ladder (economic presets or a custom escalationMap rung).
 
 Escalation is generator-only by design — the evaluator's model is held constant across the task so the
 scoring rubric does not shift mid-task, which would make plateau detection meaningless. `Task`'s
-`escalatedFromModel` / `escalatedToModel` fields are re-stampable and hold the MOST-RECENT rung
-transition; the cost ceiling is enforced by the ladder top plus `maxAttempts` (each escalate/nudge
-fails the running attempt, consuming budget), not by a once-per-task cap. A non-passing exit with no
-attempt budget left, or after the top-of-ladder nudge, preserves the work (done-with-warning) — never
-blocks.
+`escalatedFromModel` / `escalatedToModel` (model bump / nudge marker) and `escalatedToEffort` (effort rung)
+fields are re-stampable and hold the MOST-RECENT transition; the cost ceiling is enforced by the ladder top
+plus `maxAttempts` (each escalate / effort-bump / nudge fails the running attempt, consuming budget), not by
+a once-per-task cap. A non-passing exit with no attempt budget left, or after the top-of-ladder nudge,
+preserves the work (done-with-warning) — never blocks.
 Cross-provider escalation (e.g. `claude-opus-4-8` → `gpt-5.5`) is intentionally deferred — switching
 providers mid-task carries auth / context / tool-availability hazards.
 

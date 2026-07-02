@@ -47,6 +47,10 @@ export const HomeView = (): React.JSX.Element => {
   const snapshot = state.kind === 'ok' ? state.value : undefined;
   const hasProject = snapshot?.project !== undefined;
   const currentSprint = snapshot?.sprint;
+  // Covers the pre-fetch `idle` tick as well as `loading` — matches the guard sibling views
+  // (sprints-view, pick-sprint-view, projects-view, …) use for their own `LoadingRow`. Without
+  // it, the single-render `idle` frame shows a blank hero card indistinguishable from "no data".
+  const snapshotLoading = state.kind === 'loading' || state.kind === 'idle';
 
   // Refresh the cached breadcrumb status chip from every fresh snapshot load — flows route
   // back to Home after a run settles, so this is where a plan/implement/close transition
@@ -163,6 +167,7 @@ export const HomeView = (): React.JSX.Element => {
       buildMenuItems({
         hasProject,
         stateLoaded: state.kind === 'ok',
+        loading: snapshotLoading,
         currentSprint,
         recentSprints,
         selectionSprintId: selection.sprintId,
@@ -179,6 +184,7 @@ export const HomeView = (): React.JSX.Element => {
       router,
       hasProject,
       state.kind,
+      snapshotLoading,
       switchSprintDisabled,
       addTicketDisabled,
       selection,
@@ -194,7 +200,7 @@ export const HomeView = (): React.JSX.Element => {
         <HelpOverlay />
       ) : (
         <Box flexDirection="column">
-          <StateCard state={state.kind === 'ok' ? state.value : undefined} loading={state.kind === 'loading'} />
+          <StateCard state={state.kind === 'ok' ? state.value : undefined} loading={snapshotLoading} />
           {switchToastVisible && lastSwitch !== undefined && (
             <Box paddingX={spacing.indent} marginTop={spacing.section}>
               <Text color={inkColors.success}>{`${glyphs.check} now on ${lastSwitch.sprintLabel}`}</Text>

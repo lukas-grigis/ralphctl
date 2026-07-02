@@ -60,7 +60,7 @@ export interface TasksPanelHostProps {
   readonly onFocusedCardChange?: (taskId: string | undefined) => void;
 }
 
-export const TasksPanelHost = ({
+const TasksPanelHostImpl = ({
   bucketed,
   descriptor,
   isRunning,
@@ -195,3 +195,9 @@ export const TasksPanelHost = ({
     />
   );
 };
+
+// Memoized for hygiene / protection against unrelated-prop churn elsewhere in the tree (e.g. a
+// sibling resize or cancel-scope toggle). NOTE: unlike HeaderCard / FlowStepsRail / LogPanel,
+// this does NOT skip the 1 Hz tick itself — `now` is a genuine dependency (live per-task
+// elapsed time), so TasksPanel is expected to re-render every second while a task is running.
+export const TasksPanelHost = React.memo(TasksPanelHostImpl);

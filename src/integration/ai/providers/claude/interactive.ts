@@ -13,6 +13,7 @@ import {
 } from '@src/integration/ai/providers/_engine/interactive-spawn.ts';
 import { persistSessionIdFile } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
 import { attachAbortKill } from '@src/integration/ai/providers/_engine/abort-kill.ts';
+import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
@@ -59,6 +60,9 @@ import { uuidv7 } from '@src/domain/value/uuid7.ts';
  * `--permission-mode acceptEdits`, `--add-dir`, `--model`).
  */
 
+/** Entity / element name stamped on every error this adapter surfaces. */
+const PROVIDER = 'interactive-claude';
+
 export const createInteractiveClaudeProvider = (deps: InteractiveClaudeDeps): InteractiveAiProvider => {
   const spawnFn: InteractiveSpawn = deps.spawn ?? defaultInteractiveSpawn;
   const command = deps.command ?? 'claude';
@@ -70,7 +74,7 @@ export const createInteractiveClaudeProvider = (deps: InteractiveClaudeDeps): In
       if (!isClaudeModel(input.model)) {
         return Result.error(
           new InvalidStateError({
-            entity: 'interactive-claude',
+            entity: PROVIDER,
             currentState: 'model-validation',
             attemptedAction: 'run',
             message: `interactive-claude: '${input.model}' is not a known Claude model`,
@@ -175,10 +179,24 @@ export const createInteractiveClaudeProvider = (deps: InteractiveClaudeDeps): In
         at: IsoTimestamp.now(),
       });
 
+      // Abort precedence (mirrors classifySpawnExit step 1). A user cancel (Ctrl-C / TUI stop)
+      // tore the child down via attachAbortKill's SIGTERM, so the non-zero exit below is the
+      // cancel — not a session error. Surface AbortError (the one error chains propagate
+      // transparently, CLAUDE.md §AbortError) BEFORE the exit-code branch, so a downstream
+      // guard/fallback doesn't catch an InvalidStateError shape and continue past the cancel.
+      if (input.abortSignal?.aborted === true) {
+        return Result.error(
+          new AbortError({
+            elementName: PROVIDER,
+            reason: `${PROVIDER}: aborted by caller`,
+          })
+        );
+      }
+
       if (exitCode !== 0) {
         return Result.error(
           new InvalidStateError({
-            entity: 'interactive-claude',
+            entity: PROVIDER,
             currentState: 'session-exit',
             attemptedAction: 'run',
             message: `interactive-claude: session exited with code ${String(exitCode ?? 'null')}`,

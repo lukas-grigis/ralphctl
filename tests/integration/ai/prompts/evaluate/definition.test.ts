@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { type Result } from '@src/domain/result.ts';
-import type { TodoTask, VerificationCriterion } from '@src/domain/entity/task.ts';
+import type { CriteriaVerdicts, TodoTask, VerificationCriterion } from '@src/domain/entity/task.ts';
 import { createTask } from '@src/domain/entity/task-factory.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { FIXED_REPOSITORY_ID, makeApprovedTicket, makeTodoTask } from '@tests/fixtures/domain.ts';
@@ -249,6 +249,46 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
     expect(robustnessVerdictIdx).toBeGreaterThan(robustnessIdx);
     // Robustness carries its explicit not-applicable-with-reason guidance.
     expect(result.value).toContain('applicable: false');
+  });
+
+  it('renders the prior-criteria-verdicts block (as re-verify context) when the task carries a graded verdict map', async () => {
+    const base = makeTaskWith({
+      name: 'export CSV',
+      verificationCriteria: [
+        { id: 'C1', assertion: 'lint passes', check: 'manual' },
+        { id: 'C2', assertion: 'tests green', check: 'manual' },
+      ],
+    });
+    const verdicts: CriteriaVerdicts = { C1: 'passed', C2: 'failed' };
+    const task: TodoTask = { ...base, criteriaVerdicts: verdicts };
+    const result = await buildEvaluatePrompt(deps, {
+      task,
+      projectPath: '/tmp/ralph/main-repo',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toContain('## Prior criteria verdicts');
+    expect(result.value).toContain('- C1: passing');
+    expect(result.value).toContain('- C2: failing');
+    // The re-verify framing must reach the evaluator so it never carries a prior PASS forward.
+    expect(result.value).toContain('re-verify every criterion yourself');
+    expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
+  });
+
+  it('collapses the prior-criteria-verdicts block on a fresh task with no verdict map', async () => {
+    const task = makeTaskWith({ name: 'export CSV' });
+    const result = await buildEvaluatePrompt(deps, {
+      task,
+      projectPath: '/tmp/ralph/main-repo',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).not.toContain('## Prior criteria verdicts');
+    expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
 
   it('renders extra dimensions after the floor dimensions when planner attached them', async () => {

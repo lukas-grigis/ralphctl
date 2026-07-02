@@ -6,7 +6,7 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { makeInProgressTaskWithRunningAttempt, makeTodoTask } from '@tests/fixtures/domain.ts';
-import { recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
+import { recordTaskEffortEscalation, recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
 import { join } from 'node:path';
 import { createFsTaskRepository } from '@src/integration/persistence/task/repository.ts';
 import { sprintsDir } from '@src/integration/persistence/storage.ts';
@@ -117,6 +117,29 @@ describe('createFsTaskRepository', () => {
     if (!reloaded.ok) throw new Error('expected ok');
     expect(reloaded.value.escalatedFromModel).toBe('claude-sonnet-4-6');
     expect(reloaded.value.escalatedToModel).toBe('claude-opus-4-8');
+  });
+
+  it('round-trips escalatedToEffort across save → load (effort-rung resume path)', async () => {
+    const repo = createFsTaskRepository({ root });
+    const inProgress = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
+    const bumped = recordTaskEffortEscalation(inProgress, 'high');
+    if (!bumped.ok) throw bumped.error;
+    await repo.saveAll(sprintId, [bumped.value]);
+
+    const reloaded = await repo.findById(sprintId, bumped.value.id);
+    if (!reloaded.ok) throw new Error('expected ok');
+    expect(reloaded.value.escalatedToEffort).toBe('high');
+  });
+
+  it('loads a legacy tasks.json entry without escalatedToEffort unchanged (tolerant additive field)', async () => {
+    const repo = createFsTaskRepository({ root });
+    // A task saved before the field existed carries no escalatedToEffort — it must load fine.
+    const legacy = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
+    await repo.saveAll(sprintId, [legacy]);
+
+    const reloaded = await repo.findById(sprintId, legacy.id);
+    if (!reloaded.ok) throw new Error('expected ok');
+    expect(reloaded.value.escalatedToEffort).toBeUndefined();
   });
 
   it('surfaces a non-array tasks file as StorageError(parse)', async () => {

@@ -1,6 +1,7 @@
 import { Result } from '@src/domain/result.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import type { Task } from '@src/domain/entity/task.ts';
+import { composeCriteriaHistory } from '@src/business/task/compose-criteria-history.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { buildPrompt, type BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
 import type { PromptDefinition } from '@src/integration/ai/prompts/_engine/definition.ts';
@@ -84,6 +85,16 @@ export interface EvaluatePromptParams {
    * evidence. Empty string when no hints were collected — template collapses cleanly.
    */
   readonly generatorHintsSection: string;
+  /**
+   * "## Prior criteria verdicts" block — the durable per-criterion k-of-N checklist carried across
+   * rounds (`Task.criteriaVerdicts`), rendered by `composeCriteriaHistory`. Surfaced so the reviewer
+   * knows the checklist is multi-round rather than a fresh binary; the surrounding template prose
+   * frames it as context that must still be re-verified independently, never carried forward as a
+   * PASS. Empty (no criterion graded yet) → `{{PRIOR_CRITERIA_VERDICTS}}` collapses cleanly.
+   * Optional so direct `buildPrompt` callers (test fixtures) may omit it; `buildEvaluatePrompt`
+   * always supplies it (empty string when there is no history).
+   */
+  readonly priorCriteriaVerdictsSection?: string;
 }
 
 const requireNonEmpty =
@@ -168,6 +179,13 @@ export const evaluatePromptDef: PromptDefinition<EvaluatePromptParams> = {
       description:
         'Same-round generator observations (environment notes, learnings) framed as unverified context inside a <generator_hints> block — empty when no hints were collected.',
     },
+    priorCriteriaVerdictsSection: {
+      placeholder: 'PRIOR_CRITERIA_VERDICTS',
+      optional: true,
+      description:
+        'Durable per-criterion k-of-N checklist carried across rounds (`Task.criteriaVerdicts`), rendered ' +
+        'by `composeCriteriaHistory`. Context only — re-verify independently. Empty → `{{PRIOR_CRITERIA_VERDICTS}}` collapses.',
+    },
   },
   partials: {
     HARNESS_CONTEXT: 'harness-context',
@@ -242,4 +260,10 @@ export const buildEvaluatePrompt = async (
     outputContractSection: input.outputContractSection,
     priorProgress: input.priorProgress ?? '',
     generatorHintsSection: renderGeneratorHintsSection(input.generatorHints),
+    // Derived from the task itself (the durable per-criterion verdict map is a task field), so no
+    // leaf needs to pre-compose or thread it. Empty (no criterion graded yet) → collapses.
+    priorCriteriaVerdictsSection: composeCriteriaHistory({
+      verificationCriteria: input.task.verificationCriteria,
+      verdicts: input.task.criteriaVerdicts,
+    }),
   });

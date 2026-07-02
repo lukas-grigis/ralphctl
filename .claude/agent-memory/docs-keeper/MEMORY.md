@@ -10,3 +10,5 @@
   first after any feature drop
 - [reference_harness_principles_doc.md](reference_harness_principles_doc.md) — HARNESS-PRINCIPLES.md: 18 rows,
   applied/partial/gap; update when chain/flow/\_engine changes close a gap
+- [project_changelog_unreleased_drafting.md](project_changelog_unreleased_drafting.md) — [Unreleased] drafting must
+  diff both `<tag>..origin/main` and `origin/main..HEAD` — squash-merged PRs can lack a changelog line

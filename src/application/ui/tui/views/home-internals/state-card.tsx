@@ -37,7 +37,7 @@ const KeyCue = ({ keys, label }: { readonly keys: string; readonly label: string
  * created a sprint. Once they're in the flow it stays out of the way.
  */
 const OrientationLine = (): React.JSX.Element => (
-  <Box marginTop={1}>
+  <Box marginTop={spacing.section}>
     <Text dimColor italic>
       Workflow: project {glyphs.arrowRight} sprint {glyphs.arrowRight} tickets {glyphs.arrowRight} refine{' '}
       {glyphs.arrowRight} plan {glyphs.arrowRight} implement {glyphs.arrowRight} PR
@@ -89,12 +89,12 @@ export const StateCard = ({
 
   if (state.projectCount === 0) {
     return (
-      <Card title="▸ Start by creating a project" tone="primary">
+      <Card title={`${glyphs.actionCursor} Start by creating a project`} tone="primary">
         <Box flexDirection="column" paddingX={spacing.indent}>
           <Text>
             A project binds one or more repositories together. Sprints, tickets, and runs all live inside one.
           </Text>
-          <Box marginTop={1}>
+          <Box marginTop={spacing.section}>
             <KeyCue keys="c" label="create your first project" />
           </Box>
           <OrientationLine />
@@ -105,13 +105,13 @@ export const StateCard = ({
 
   if (!state.project) {
     return (
-      <Card title="▸ Pick a project to work on" tone="primary">
+      <Card title={`${glyphs.actionCursor} Pick a project to work on`} tone="primary">
         <Box flexDirection="column" paddingX={spacing.indent}>
           <Text>
             <Text bold>{String(state.projectCount)}</Text>
             <Text dimColor> project{state.projectCount === 1 ? '' : 's'} in storage.</Text>
           </Text>
-          <Box marginTop={1}>
+          <Box marginTop={spacing.section}>
             <KeyCue keys="p" label="open Projects and select one" />
           </Box>
         </Box>
@@ -123,7 +123,7 @@ export const StateCard = ({
   const sprintCount = state.sprintCount;
 
   if (!sprint) {
-    const title = `▸ ${state.project.displayName} — ${sprintCount === 0 ? 'ready for the first sprint' : 'pick or create a sprint'}`;
+    const title = `${glyphs.actionCursor} ${state.project.displayName} — ${sprintCount === 0 ? 'ready for the first sprint' : 'pick or create a sprint'}`;
     return (
       <Card title={title} tone="primary">
         <Box flexDirection="column" paddingX={spacing.indent}>
@@ -135,7 +135,7 @@ export const StateCard = ({
               <Text dimColor> sprint{sprintCount === 1 ? '' : 's'} in this project — pick one to continue.</Text>
             </Text>
           )}
-          <Box marginTop={1}>
+          <Box marginTop={spacing.section}>
             <KeyCue
               keys="r"
               label={
@@ -152,7 +152,7 @@ export const StateCard = ({
   const nextAction = sprintNextActionLabel(state);
   return (
     <Card
-      title={`▸ ${sprint.name}`}
+      title={`${glyphs.actionCursor} ${sprint.name}`}
       tone="primary"
       right={<StatusChip label={sprint.status} kind={sprintStatusKind(sprint.status)} />}
     >
@@ -163,7 +163,7 @@ export const StateCard = ({
             {state.project.repositories.length === 1 ? '' : 's'}
           </Text>
         </Box>
-        <Box marginTop={1}>
+        <Box marginTop={spacing.section}>
           <Text>
             <Text bold>{String(sprint.tickets.length)}</Text>
             <Text dimColor> tickets </Text>
@@ -179,11 +179,11 @@ export const StateCard = ({
             <Text dimColor> tasks pending</Text>
           </Text>
         </Box>
-        <Box marginTop={1}>
+        <Box marginTop={spacing.section}>
           <PipelineMap status={sprint.status} />
         </Box>
         {nextAction !== undefined && (
-          <Box marginTop={1}>
+          <Box marginTop={spacing.section}>
             <Text dimColor>{glyphs.bullet} next: </Text>
             <Text bold color={inkColors.highlight}>
               {nextAction}

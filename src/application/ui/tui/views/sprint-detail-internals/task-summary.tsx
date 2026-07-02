@@ -61,11 +61,11 @@ export const TasksSection = ({
     <Box marginTop={spacing.section} flexDirection="column">
       <Text bold>{glyphs.badge} Tasks</Text>
       {tasks.length === 0 ? (
-        <Box marginTop={1}>
+        <Box marginTop={spacing.section}>
           <EmptyState title="No tasks yet" hint="Run plan from Flows (n) once tickets are approved." />
         </Box>
       ) : (
-        <Box flexDirection="column" marginTop={1}>
+        <Box flexDirection="column" marginTop={spacing.section}>
           <OverflowRow direction="above" count={window.start} />
           {visibleTasks.map((task, localIdx) => {
             const idx = window.start + localIdx;
@@ -160,7 +160,7 @@ const TaskCard = ({
       )}
       {!expanded && task.description !== undefined && <Description text={task.description} maxLines={2} />}
       {!expanded && task.status === 'blocked' && (
-        <Box paddingLeft={2}>
+        <Box paddingLeft={spacing.indent}>
           <Text color={inkColors.error}>
             {glyphs.cross} blocked: {task.blockedReason}
           </Text>
@@ -274,7 +274,7 @@ const TaskDetailBody = ({
         ]}
       />
       {task.status === 'blocked' && (
-        <Box marginTop={1}>
+        <Box marginTop={spacing.section}>
           <Text color={inkColors.error}>
             {glyphs.cross} blocked: {task.blockedReason}
           </Text>
@@ -287,7 +287,7 @@ const TaskDetailBody = ({
       )}
       {task.steps.length > 0 && (
         <Section heading="Steps">
-          <Box flexDirection="column" paddingLeft={2}>
+          <Box flexDirection="column" paddingLeft={spacing.indent}>
             {task.steps.map((s, i) => (
               <Text key={`step-${String(i)}`} dimColor>
                 {String(i + 1)}. {s}
@@ -298,7 +298,7 @@ const TaskDetailBody = ({
       )}
       {task.verificationCriteria.length > 0 && (
         <Section heading="Verification">
-          <Box flexDirection="column" paddingLeft={2}>
+          <Box flexDirection="column" paddingLeft={spacing.indent}>
             {task.verificationCriteria.map((c, i) => (
               <Text key={`vc-${String(i)}`} dimColor>
                 {glyphs.bullet} [{c.id}] {c.check}
@@ -310,7 +310,7 @@ const TaskDetailBody = ({
       )}
       {dependsOnTasks.length > 0 && (
         <Section heading="Depends on">
-          <Box flexDirection="column" paddingLeft={2}>
+          <Box flexDirection="column" paddingLeft={spacing.indent}>
             {dependsOnTasks.map((d) => (
               <Box key={d.id}>
                 <StatusChip label={d.status} kind={taskStatusKind(d.status)} />
@@ -322,7 +322,7 @@ const TaskDetailBody = ({
       )}
       {task.attempts.length > 0 && (
         <Section heading="Attempt history">
-          <Box flexDirection="column" paddingLeft={2}>
+          <Box flexDirection="column" paddingLeft={spacing.indent}>
             {task.attempts.map((attempt) => (
               <AttemptCard key={`attempt-${String(attempt.n)}`} attempt={attempt} />
             ))}

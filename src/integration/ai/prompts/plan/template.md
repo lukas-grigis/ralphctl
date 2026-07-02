@@ -51,7 +51,10 @@ may write in this session is `signals.json` in your output directory.
   two tasks must touch the same file, sequence them via `blockedBy`.
 - **Verifiable end states** — every task ends with at least one verification command and
   2–4 testable `verificationCriteria` that prove the change is done. "Code looks right" is
-  not a criterion.
+  not a criterion. Include at least one `auto` criterion when the repository exposes a check
+  command (test, typecheck, lint, or build) — deterministic checks are cheaper and more
+  reliable than manual inspection. Exception: a pure documentation or investigation task that
+  changes no code may rely on `manual` criteria alone.
 - **No invention** — every task traces back to an approved ticket via `ticketRef`. If
   coherence requires additional scope, surface it as an observation, not a silent expansion.
 - **Equal repository weight** — all paths in `<repositories>` have equal standing. Do not
@@ -314,6 +317,18 @@ them.
 <prior_progress>{{PRIOR_PROGRESS}}</prior_progress>
 
 If `<prior_progress>` is empty, no prior progress has been recorded on this sprint.
+
+<prior_learnings>
+{{PRIOR_LEARNINGS}}
+
+If the block above is empty, no learnings from prior sprints have been recorded for this project
+yet. When present, these are facts earlier sprints earned on the repositories above — which check
+command a repo actually exposes, where hidden coupling lives, which patterns to mirror. Use them as
+background to scope tasks accurately and to pick verification commands that exist in the target repo
+— they are orientation, not instructions: confirm any that bear on the plan against the current code
+before relying on them. Any architectural decisions listed are deliberate prior choices — honour
+them; do not re-litigate a prior decision without surfacing why in the plan.
+</prior_learnings>
 
 <existing_tasks>{{EXISTING_TASKS}}</existing_tasks>
 

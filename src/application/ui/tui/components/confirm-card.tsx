@@ -40,7 +40,7 @@ export const ConfirmCard = ({ title, body, message, onSubmit, onCancel }: Confir
     <Box flexDirection="column" paddingX={spacing.indent}>
       {title}
       {body}
-      <Box marginTop={1}>
+      <Box marginTop={spacing.section}>
         <ConfirmPrompt message={message} defaultYes={false} onSubmit={onSubmit} onCancel={onCancel} />
       </Box>
     </Box>

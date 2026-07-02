@@ -1,6 +1,7 @@
 import { Result } from '@src/domain/result.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { Spawn } from '@src/integration/io/spawn.ts';
+import { killWithEscalation } from '@src/integration/io/kill-with-escalation.ts';
 
 /**
  * Output of a single CLI invocation. `exitCode` is `null` only when the close event never
@@ -71,11 +72,9 @@ export const runCli = (
     const timer = setTimeout(() => {
       if (settled) return;
       settled = true;
-      try {
-        child.kill('SIGTERM');
-      } catch {
-        // already dead.
-      }
+      // SIGTERM → grace → SIGKILL: a wedged child that ignores SIGTERM is still reaped, so it
+      // can't linger holding locks after we settle. Resolution is not delayed.
+      killWithEscalation(child);
       resolve(
         Result.error(
           new StorageError({

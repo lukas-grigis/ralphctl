@@ -4,6 +4,7 @@ import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Spawn } from '@src/integration/io/spawn.ts';
 import { crossPlatformSpawn } from '@src/integration/io/cross-platform-spawn.ts';
+import { killWithEscalation } from '@src/integration/io/kill-with-escalation.ts';
 
 /**
  * Async wrapper around `git` invocations. Pure transport: no shell expansion, no
@@ -207,12 +208,11 @@ const runGitOnce = (
     let timedOut = false;
     let settled = false;
 
+    // SIGTERM → grace → SIGKILL. Both callers (byte-cap overflow + timeout) settle immediately;
+    // a wedged git child that ignores SIGTERM is still reaped so it can't hold `.git/index.lock`
+    // open forever. Resolution is not delayed — this only guarantees the child eventually dies.
     const killChild = (): void => {
-      try {
-        child.kill('SIGTERM');
-      } catch {
-        // already dead
-      }
+      killWithEscalation(child);
     };
 
     // Drop further chunks once the cap is hit and kill the child so git stops producing more

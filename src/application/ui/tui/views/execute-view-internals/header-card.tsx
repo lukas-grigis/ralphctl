@@ -28,11 +28,11 @@ import { glyphs, inkColors } from '@src/application/ui/tui/theme/tokens.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
 import { resolveAttemptCoords, type TaskBucket } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import { contextWindowLabel } from '@src/domain/value/settings-models/context-window.ts';
+import { ElapsedLabel } from '@src/application/ui/tui/views/execute-view-internals/elapsed-label.tsx';
 
 interface HeaderCardProps {
   readonly descriptor: SessionDescriptor;
   readonly isRunning: boolean;
-  readonly elapsed: string;
   readonly tasksDone: number;
   readonly tasksTotal: number;
   readonly currentTask: TaskBucket | undefined;
@@ -147,10 +147,9 @@ const ModelLines = ({
   return null;
 };
 
-export const HeaderCard = ({
+const HeaderCardImpl = ({
   descriptor,
   isRunning,
-  elapsed,
   tasksDone,
   tasksTotal,
   currentTask,
@@ -165,7 +164,7 @@ export const HeaderCard = ({
           <Text dimColor>flow </Text>
           <Text>{descriptor.flowId}</Text>
           <Text dimColor> {glyphs.bullet} elapsed </Text>
-          <Text>{elapsed}</Text>
+          <ElapsedLabel startedAt={descriptor.startedAt} finishedAt={descriptor.finishedAt} isRunning={isRunning} />
           {tasksTotal > 0 && (
             <>
               <Text dimColor> {glyphs.bullet} tasks </Text>
@@ -250,3 +249,9 @@ export const HeaderCard = ({
     </Card>
   );
 };
+
+// Memoized: `elapsed` moved into the self-ticking `<ElapsedLabel>` leaf above, so this card's
+// own props are now stable across the 1 Hz clock tick — memo lets React skip re-rendering the
+// model lines + task-focus row (and everything ElapsedLabel isn't part of) except when the
+// task actually advances.
+export const HeaderCard = React.memo(HeaderCardImpl);

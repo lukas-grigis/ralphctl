@@ -15,7 +15,8 @@ warranted. Write all signals to the `signals.json` path described in `<output_co
 
 - `agents-md-proposal` signal emitted with `tag: "{{WIRE_TAG}}"` and a non-empty `content` field.
 - Every tech-stack claim in `content` is backed by a quoted file path or file content, not inferred.
-- `content` targets 80–200 lines; MUST NOT exceed 400 lines.
+- `content` targets 80–200 lines and MUST NOT exceed the hard line cap named for
+  `{{CURRENT_TOOL}}` in `<target_file_conventions>` below — the exact ceiling is provider-specific.
 - When an existing context file is supplied in `<existing_context_file>`, `content` starts with that body
   verbatim — byte-for-byte, unchanged, in the same order — before any additions.
 - Setup and verify skill proposals, when emitted, cite only commands that resolve in this specific repo
@@ -53,8 +54,9 @@ with this repo would get it wrong without being told. Anything an agent can deri
 existing docs does not belong in the context file — redundant context measurably reduces agent success.
 Lean is better than comprehensive.
 
-**Output length.** Target 80–200 lines in the produced context file body. Hard cap: 400 lines. Brevity is a
-feature — the file is read fresh on every AI session.
+**Output length.** Target 80–200 lines in the produced context file body. The hard line cap is
+provider-specific — read the exact ceiling from `<target_file_conventions>` below and never exceed it.
+Brevity is a feature — the file is read fresh on every AI session.
 
 **Structure caps.** Exactly one H1; at most 7 H2 sections; no H4 or deeper headings. Prefer bullets and
 short sentences.

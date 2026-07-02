@@ -10,6 +10,7 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { EvaluationSignal, HarnessSignal } from '@src/domain/signal.ts';
 import {
   computePlateauVerdict,
+  failedDimensions,
   type PlateauTurnRecord,
   type PlateauVerdict,
 } from '@src/business/task/plateau-detection.ts';
@@ -124,6 +125,11 @@ const findEvaluation = (signals: readonly HarnessSignal[]): EvaluationSignal | u
  * advances silently. `dimensionScoreSchema` guarantees a non-empty `finding` on every failed
  * dimension, so the synthesized critique always carries actionable content.
  *
+ * An explicit N/A dimension (`applicable: false`) carries `passed: false` per the evaluator
+ * prompt's example but is neither pass nor fail — it MUST NOT be synthesized into the critique as
+ * a fake failure. We reuse the canonical {@link failedDimensions} predicate (which applies the
+ * `applicable !== false` guard) so the exclusion stays single-sourced with plateau detection.
+ *
  * Returns `undefined` only when the AI supplied no usable critique AND there are no failed
  * dimensions to synthesize from (a degenerate shape — `failed` with zero failures is already
  * rejected by the signal schema, so in practice the synthesized branch always fires).
@@ -132,8 +138,9 @@ const resolveCritique = (evaluation: EvaluationSignal): string | undefined => {
   const explicit = evaluation.critique;
   if (explicit !== undefined && explicit.trim().length > 0) return explicit;
 
+  const failed = failedDimensions(evaluation);
   const synthesized = evaluation.dimensions
-    .filter((d) => !d.passed && d.finding.trim().length > 0)
+    .filter((d) => failed.has(d.dimension.trim().toLowerCase()) && d.finding.trim().length > 0)
     .map((d) => `[${d.dimension}] ${d.finding.trim()}`)
     .join('\n');
   return synthesized.length > 0 ? synthesized : undefined;
