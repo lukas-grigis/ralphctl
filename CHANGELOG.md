@@ -7,6 +7,16 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Crash-interrupted saves can no longer resurface stale project or sprint data.** When a legacy
+  bare-id file and its renamed `<id>--<slug>` sibling transiently coexist after a crash, listings
+  now explicitly prefer the canonical (slugged) entry — previously the alphabetical scan order let
+  the stale file win.
+- **Skill files no longer grow an extra blank line on every write.** Parsing a `SKILL.md` with the
+  standard blank line after its frontmatter fence left a leading newline in the body, so repeated
+  parse → write cycles kept adding blank lines below the frontmatter.
+
 ## [0.14.1] - 2026-07-01
 
 ### Fixed
