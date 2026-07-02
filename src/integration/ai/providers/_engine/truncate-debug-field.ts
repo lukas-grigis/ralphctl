@@ -2,7 +2,7 @@
  * Truncate a free-form string for inclusion in a debug-level `LogEvent.meta` payload.
  *
  * The headless provider adapters (`claude/`, `copilot/`, `codex/`) publish one debug event per
- * recognised stream line so operators can `tail -f` chain.log under `RALPHCTL_LOG_LEVEL=debug`
+ * recognised stream line so operators can `tail -f` chain.log under `RALPHCTL_DEBUG_TRACE=1`
  * without drowning in untruncated JSON. Stream payloads are unbounded by design — a single
  * assistant turn can carry several KB of text, and tool inputs (e.g. file diffs) can be larger
  * still — so every field that originated from the AI stream is funnelled through this helper.

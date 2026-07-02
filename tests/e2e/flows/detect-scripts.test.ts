@@ -28,7 +28,7 @@ import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai
 import { createFakeAiProvider } from '@tests/fixtures/fake-ai-provider.ts';
 import { createEventBusLogger } from '@src/business/observability/event-bus-logger.ts';
 import { createDetectScriptsFlow } from '@src/application/flows/detect-scripts/flow.ts';
-import { detectScriptsSession } from '@src/application/flows/detect-scripts/leaves/propose.ts';
+import { readOnlySignalsSession } from '@src/application/flows/_shared/signals-session.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import { createFsProjectRepository } from '@src/integration/persistence/project/repository.ts';
 import { projectFile } from '@src/integration/persistence/storage.ts';
@@ -191,6 +191,7 @@ describe('createDetectScriptsFlow', () => {
     expect(runner.trace.map((e) => e.elementName)).toEqual([
       'load-project',
       'pick-repository',
+      'allocate-run-dir-detect-scripts',
       'propose',
       'confirm',
       'write',
@@ -463,13 +464,13 @@ describe('createDetectScriptsFlow', () => {
     const repository = makeRepository();
     const signalsFile = absolutePath('/tmp/runs/detect-scripts/r1/signals.json');
     const outputDir = absolutePath('/tmp/runs/detect-scripts/r1');
-    const session = detectScriptsSession(
-      repository,
-      '#prompt' as unknown as Prompt,
-      'claude-sonnet-4-6',
+    const session = readOnlySignalsSession({
+      cwd: repository.path,
+      prompt: '#prompt' as unknown as Prompt,
+      model: 'claude-sonnet-4-6',
       signalsFile,
-      outputDir
-    );
+      outputDir,
+    });
     expect(session.model).toBe('claude-sonnet-4-6');
     expect(session.permissions.canModifyRepoFiles).toBe(false);
     expect(session.permissions.canRunShell).toBe(false);

@@ -1,14 +1,10 @@
-import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
-import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { Sink } from '@src/business/observability/sink.ts';
-import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
-import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import { READ_ONLY } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { Repository } from '@src/domain/entity/repository.ts';
+import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type {
@@ -20,52 +16,19 @@ import type {
 } from '@src/domain/signal.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
-import { currentSessionId } from '@src/application/session/session.ts';
 import { buildDetectScriptsPrompt } from '@src/integration/ai/prompts/detect-scripts/definition.ts';
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
 import { validateSignalsFile } from '@src/integration/ai/contract/_engine/validate-signals-file.ts';
 import { detectScriptsOutputContract } from '@src/application/flows/detect-scripts/leaves/propose.contract.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
-import { buildRunDirName } from '@src/integration/ai/runs/_engine/run-artifacts.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
+import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import type { DetectScriptsCtx } from '@src/application/flows/detect-scripts/ctx.ts';
-
-/**
- * Per-call AiSession profile for the detect-scripts chain — read-only by construction.
- * `outputDir` carries the per-run forensic dir; the AI writes `signals.json` directly there.
- *
- * Call only within a `runWithSession` scope: `chainSessionId` is captured from the ambient
- * session at call time (omitted when invoked outside one, e.g. a bare test).
- */
-export const detectScriptsSession = (
-  repository: Repository,
-  prompt: Prompt,
-  model: string,
-  signalsFile: AbsolutePath,
-  outputDir: AbsolutePath,
-  bodyFile?: AbsolutePath,
-  effort?: string,
-  abortSignal?: AbortSignal
-): AiSession => {
-  // `currentSessionId()` is read inside the leaf's execute scope (the runner wraps it in
-  // `runWithSession`) and threaded onto the session as DATA so the headless adapter can key
-  // the token-usage event by the runner id without importing the application session helper
-  // across the layer boundary. Undefined out of session scope → the spread omits it.
-  const chainSessionId = currentSessionId();
-  return {
-    prompt,
-    cwd: repository.path,
-    model,
-    permissions: READ_ONLY,
-    signalsFile,
-    outputDir,
-    ...(chainSessionId !== undefined ? { chainSessionId } : {}),
-    ...(bodyFile !== undefined ? { bodyFile } : {}),
-    ...(effort !== undefined ? { effort } : {}),
-    // Thread the chain's abort signal so a TUI cancel mid-spawn kills the child.
-    ...(abortSignal !== undefined ? { abortSignal } : {}),
-  };
-};
+import {
+  readOnlySignalsSession,
+  type ReadOnlySignalsSessionOpts,
+} from '@src/application/flows/_shared/signals-session.ts';
+import { runPathsFor, type RunPaths } from '@src/application/flows/_shared/allocate-run-dir.ts';
 
 export interface ProposeDetectScriptsLeafDeps {
   readonly provider: HeadlessAiProvider;
@@ -81,21 +44,22 @@ export interface ProposeDetectScriptsLeafDeps {
   readonly model: string;
   /** Optional reasoning / effort level forwarded into the AiSession. */
   readonly effort?: string;
+}
+
+interface ProposeInput {
+  readonly repository: Repository;
   /**
-   * `<dataRoot>/runs`. The leaf creates `<runsRoot>/detect-scripts/<run-id>/` and writes
-   * `prompt.md` (the rendered template the AI saw), `signals.json` (the AI's contract
-   * envelope), and `body.txt` (the raw AI response). The directory is the operator's primary
-   * diagnostic surface when a proposal comes back empty.
+   * Pre-allocated per-run forensic directory — `<runsRoot>/detect-scripts/<run-id>/`. Resolved
+   * upstream by the chain's `allocate-run-dir-detect-scripts` leaf so `prompt.md` (the rendered
+   * template the AI saw), `signals.json` (the AI's contract envelope), and `body.txt` (the raw
+   * AI response) all land in the same directory — the operator's primary diagnostic surface
+   * when a proposal comes back empty.
    *
    * Lifecycle is user-managed: artifacts persist after the run; `rm -rf <runsRoot>` at any
    * point is safe. We intentionally do NOT auto-GC — the failure mode of losing a forensic
    * record is worse than the cost of an occasional `rm`.
    */
-  readonly runsRoot: AbsolutePath;
-}
-
-interface ProposeInput {
-  readonly repository: Repository;
+  readonly runDir: AbsolutePath;
 }
 
 interface ProposeOutput {
@@ -110,34 +74,33 @@ interface ProposeOutput {
   readonly proposedVerifyGates?: readonly VerifyGateProposal[];
   /**
    * Per-run forensic dir surfaced for the confirm leaf to read `body.txt` when both scripts
-   * are absent. Always set on success — the leaf creates the dir before calling the AI.
+   * are absent. Mirrors {@link ProposeInput.runDir} — the leaf receives it and returns it
+   * unchanged so downstream leaves can keep reading it off `ctx.proposal.runDir`.
    */
   readonly runDir: AbsolutePath;
 }
 
-interface RunPaths {
-  readonly runDir: AbsolutePath;
-  readonly promptFile: AbsolutePath;
-  readonly bodyFile: AbsolutePath;
-  readonly signalsFile: AbsolutePath;
-}
-
-const allocateRunPaths = (runsRoot: AbsolutePath): Result<RunPaths, DomainError> => {
-  const runDir = AbsolutePath.parse(join(String(runsRoot), 'detect-scripts', buildRunDirName()));
-  if (!runDir.ok) return Result.error(runDir.error);
-  const promptFile = AbsolutePath.parse(join(String(runDir.value), 'prompt.md'));
-  if (!promptFile.ok) return Result.error(promptFile.error);
-  const bodyFile = AbsolutePath.parse(join(String(runDir.value), 'body.txt'));
-  if (!bodyFile.ok) return Result.error(bodyFile.error);
-  const signalsFile = AbsolutePath.parse(join(String(runDir.value), 'signals.json'));
-  if (!signalsFile.ok) return Result.error(signalsFile.error);
-  return Result.ok({
-    runDir: runDir.value,
-    promptFile: promptFile.value,
-    bodyFile: bodyFile.value,
-    signalsFile: signalsFile.value,
-  });
-};
+/**
+ * Assemble the `readOnlySignalsSession` options — pulled out of `proposeUseCase` purely to
+ * keep the use case's branch count low; the two optional fields are the only conditionals
+ * here.
+ */
+const buildSessionOpts = (
+  deps: ProposeDetectScriptsLeafDeps,
+  input: ProposeInput,
+  paths: RunPaths,
+  prompt: Prompt,
+  abortSignal: AbortSignal | undefined
+): ReadOnlySignalsSessionOpts => ({
+  cwd: input.repository.path,
+  prompt,
+  model: deps.model,
+  signalsFile: paths.signalsFile,
+  outputDir: input.runDir,
+  bodyFile: paths.bodyFile,
+  ...(deps.effort !== undefined ? { effort: deps.effort } : {}),
+  ...(abortSignal !== undefined ? { abortSignal } : {}),
+});
 
 /**
  * Build the detect-scripts prompt, run the AI, validate the audit-[09] `signals.json` it
@@ -148,12 +111,6 @@ const allocateRunPaths = (runsRoot: AbsolutePath): Result<RunPaths, DomainError>
  * repo where the AI honestly says "nothing to do" produces `{}` and the confirm leaf then
  * shows the user a "no suggestions" state. Failing the chain would be the wrong outcome for
  * a useful "no answer".
- *
- * Forensic artifacts: every call materialises `<runsRoot>/detect-scripts/<run-id>/prompt.md`
- * (always), `signals.json` (the contract envelope), and `body.txt` (when the configured
- * provider implements `bodyFile` — Claude does today; Copilot / Codex no-op). Operators
- * inspect these when a proposal comes back empty to decide whether the prompt or the AI is
- * at fault. Artifacts persist after the chain exits — user manages the lifecycle.
  */
 const proposeUseCase = async (
   deps: ProposeDetectScriptsLeafDeps,
@@ -166,10 +123,10 @@ const proposeUseCase = async (
     repositoryPath: String(input.repository.path),
   });
 
-  const paths = allocateRunPaths(deps.runsRoot);
+  const paths = runPathsFor(input.runDir);
   if (!paths.ok) return Result.error(paths.error);
 
-  const outputContractSection = renderContractSectionFor(detectScriptsOutputContract, paths.value.runDir);
+  const outputContractSection = renderContractSectionFor(detectScriptsOutputContract, input.runDir);
   const prompt = await buildDetectScriptsPrompt(deps.templateLoader, {
     repositoryPath: String(input.repository.path),
     outputContractSection,
@@ -182,32 +139,23 @@ const proposeUseCase = async (
   if (!promptWrote.ok) return Result.error(promptWrote.error);
 
   const spawn = await deps.provider.generate(
-    detectScriptsSession(
-      input.repository,
-      prompt.value,
-      deps.model,
-      paths.value.signalsFile,
-      paths.value.runDir,
-      paths.value.bodyFile,
-      deps.effort,
-      abortSignal
-    )
+    readOnlySignalsSession(buildSessionOpts(deps, input, paths.value, prompt.value, abortSignal))
   );
   if (!spawn.ok) {
     log.error(`provider failed for repo ${input.repository.name}`, {
       repositoryId: String(input.repository.id),
       error: spawn.error.message,
-      runDir: String(paths.value.runDir),
+      runDir: String(input.runDir),
     });
     return Result.error(spawn.error);
   }
 
-  const validated = await validateSignalsFile(paths.value.runDir, detectScriptsOutputContract);
+  const validated = await validateSignalsFile(input.runDir, detectScriptsOutputContract);
   if (!validated.ok) {
     log.error(`signals validation failed for repo ${input.repository.name}`, {
       repositoryId: String(input.repository.id),
       error: validated.error.message,
-      runDir: String(paths.value.runDir),
+      runDir: String(input.runDir),
     });
     return Result.error(validated.error);
   }
@@ -228,7 +176,7 @@ const proposeUseCase = async (
     // needs to diagnose, and the body.txt is right there to inspect.
     log.warn(`AI returned no proposals for repo ${input.repository.name} — inspect run dir for prompt + raw body`, {
       repositoryId: String(input.repository.id),
-      runDir: String(paths.value.runDir),
+      runDir: String(input.runDir),
     });
   }
 
@@ -237,14 +185,14 @@ const proposeUseCase = async (
     hasSetupScript: setupScript !== undefined,
     hasVerifyScript: verifyScript !== undefined,
     verifyGateCount: verifyGates?.length ?? 0,
-    runDir: String(paths.value.runDir),
+    runDir: String(input.runDir),
   });
 
   return Result.ok({
     ...(setupScript !== undefined ? { proposedSetupScript: setupScript } : {}),
     ...(verifyScript !== undefined ? { proposedVerifyScript: verifyScript } : {}),
     ...(verifyGates !== undefined ? { proposedVerifyGates: verifyGates } : {}),
-    runDir: paths.value.runDir,
+    runDir: input.runDir,
   });
 };
 
@@ -276,15 +224,25 @@ export const proposeDetectScriptsLeaf = (deps: ProposeDetectScriptsLeafDeps): El
       execute: async (input, signal) => proposeUseCase(deps, input, signal),
     },
     input: (ctx) => {
+      const PRE_PROPOSE_STATE = 'pre-propose';
       if (ctx.repository === undefined) {
         throw new InvalidStateError({
           entity: 'chain',
-          currentState: 'pre-propose',
+          currentState: PRE_PROPOSE_STATE,
           attemptedAction: 'propose',
           message: 'propose: ctx.repository is undefined — pick-repository must run first',
         });
       }
-      return { repository: ctx.repository };
+      const runDir = ctx.proposal?.runDir;
+      if (runDir === undefined) {
+        throw new InvalidStateError({
+          entity: 'chain',
+          currentState: PRE_PROPOSE_STATE,
+          attemptedAction: 'propose',
+          message: 'propose: ctx.proposal.runDir is undefined — allocate-run-dir must run first',
+        });
+      }
+      return { repository: ctx.repository, runDir };
     },
     output: (ctx, out) => ({
       ...ctx,

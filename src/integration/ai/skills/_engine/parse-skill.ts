@@ -32,8 +32,11 @@ export const splitFrontmatter = (raw: string): { readonly frontmatter: string; r
   if (closing === -1) return { frontmatter: '', body: trimmed };
   const frontmatter = trimmed.slice(3, closing).trim();
   const afterClose = trimmed.slice(closing + 4); // skip "\n---"
-  // Strip the line-end after the closing fence so the body is clean.
-  const body = afterClose.replace(/^\r?\n/, '');
+  // Strip every blank line after the closing fence so the body is clean. Stripping only ONE
+  // line-end would keep the standard blank separator line inside the body, and each
+  // parse → render round-trip (render re-inserts the separator) would grow the file by one
+  // blank line.
+  const body = afterClose.replace(/^(?:\r?\n)+/, '');
   return { frontmatter, body };
 };
 

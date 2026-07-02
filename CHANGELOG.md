@@ -7,6 +7,20 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Crash-interrupted saves can no longer resurface stale project or sprint data.** When a legacy
+  bare-id file and its renamed `<id>--<slug>` sibling transiently coexist after a crash, listings
+  now explicitly prefer the canonical (slugged) entry — previously the alphabetical scan order let
+  the stale file win.
+- **Skill files no longer grow an extra blank line on every write.** Parsing a `SKILL.md` with the
+  standard blank line after its frontmatter fence left a leading newline in the body, so repeated
+  parse → write cycles kept adding blank lines below the frontmatter.
+- **The flows menu and home overview refresh when a flow finishes.** Returning from a completed
+  flow previously kept showing launch-time state — for example "refine tickets (N pending)" after
+  every ticket had just been refined — until the manual reload key was pressed. Both views now
+  reload the moment a flow reaches a terminal status, matching the sprint-detail view's behaviour.
+
 ## [0.14.1] - 2026-07-01
 
 ### Fixed

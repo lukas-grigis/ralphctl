@@ -119,15 +119,18 @@ describe('proposeDetectSkillsLeaf — audit-[09] contract', () => {
     logger: noopLogger,
     skillsAdapter: noopSkillsAdapter,
     model: 'claude-sonnet-4-6',
-    runsRoot,
   });
 
   const buildCtx = (): DetectSkillsCtx => {
     const project = makeProject();
     const repository = makeRepository({ path: repoPath, name: 'repo-a' });
+    // In production the chain's `allocate-run-dir-detect-skills` leaf stamps this onto ctx
+    // before propose runs; these leaf-level tests stand it in directly.
+    const runDir = absolutePath(join(String(runsRoot), 'detect-skills', 'test-run'));
     return {
       projectId: project.id,
       repository,
+      proposal: { runDir },
     };
   };
 

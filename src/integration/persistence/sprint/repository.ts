@@ -104,9 +104,10 @@ export const createFsSprintRepository = (deps: FsSprintRepositoryDeps): SprintRe
     const items: Sprint[] = [];
     // Dedupe by sprint id: if a legacy bare `<id>/` and a slugged `<id>--<slug>/` dir transiently
     // coexist (a crash between reconcile's rename + cleanup), the list must not show the sprint twice.
-    // The slugged (canonical) entry wins — it sorts AFTER the bare one for the same id (the `--`
-    // separator is > end-of-string), so a later same-id read overwrites the earlier one by id.
+    // The slugged (canonical) entry wins EXPLICITLY — the id-only comparator above returns 0 for the
+    // colliding pair, so sort order (stable sort over unspecified readdir order) cannot arbitrate.
     const byId = new Map<string, Sprint>();
+    const canonicalIds = new Set<string>();
     for (const entry of sortedEntries) {
       const path = `${dir}/${entry}/sprint.json`;
       const json = await readJson(path);
@@ -116,7 +117,11 @@ export const createFsSprintRepository = (deps: FsSprintRepositoryDeps): SprintRe
       }
       const decoded = decode((input) => fromJsonSprint(input, path), json.value, { entity: 'sprint', path });
       if (!decoded.ok) return Result.error(decoded.error);
-      byId.set(String(decoded.value.id), decoded.value);
+      const id = String(decoded.value.id);
+      const isCanonical = entry.includes('--');
+      if (!isCanonical && canonicalIds.has(id)) continue; // slugged sibling already read — it wins
+      byId.set(id, decoded.value);
+      if (isCanonical) canonicalIds.add(id);
     }
     items.push(...byId.values());
     return Result.ok(items);

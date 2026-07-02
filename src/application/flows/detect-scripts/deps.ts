@@ -16,9 +16,10 @@ import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/templat
  *  - `provider` / `templateLoader` / `signals` / `logger` — the standard AI-call quartet.
  *  - `interactive` — port for the pick-repository + confirm leaves.
  *  - `eventBus` — wired by the launcher; reserved for future per-leaf events.
- *  - `runsRoot` — `<dataRoot>/runs`; the propose leaf materialises `prompt.md` + `body.txt`
- *    under `<runsRoot>/detect-scripts/<run-id>/` so an empty or surprising proposal is
- *    forensically diagnosable after the chain exits.
+ *  - `runsRoot` — `<dataRoot>/runs`; the chain's `allocate-run-dir-detect-scripts` leaf
+ *    materialises `<runsRoot>/detect-scripts/<run-id>/` before propose runs, so `prompt.md` +
+ *    `body.txt` land there and an empty or surprising proposal is forensically diagnosable
+ *    after the chain exits.
  */
 export interface DetectScriptsDeps {
   readonly projectRepo: ProjectRepository;

@@ -50,8 +50,10 @@ export interface DetectScriptsCtx {
     /**
      * Per-run forensic dir under `<dataRoot>/runs/detect-scripts/<run-id>/` holding the
      * rendered `prompt.md` and (for providers that implement `bodyFile`, i.e. Claude today)
-     * the raw `body.txt`. Surfaced to the confirm leaf so an empty proposal can show the user
-     * what the AI actually emitted instead of leaving them with no context.
+     * the raw `body.txt`. Stamped by the `allocate-run-dir-detect-scripts` leaf BEFORE propose
+     * runs (so propose reads it back off ctx rather than allocating it itself), then carried
+     * forward unchanged so the confirm leaf can show the user what the AI actually emitted
+     * when a proposal comes back empty.
      */
     readonly runDir?: AbsolutePath;
   };

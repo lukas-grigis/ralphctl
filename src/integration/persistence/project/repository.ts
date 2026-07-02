@@ -52,9 +52,10 @@ export const createFsProjectRepository = (deps: FsProjectRepositoryDeps): Projec
     const items: Project[] = [];
     // Dedupe by project id: if a legacy bare `<id>.json` and a slugged `<id>--<slug>.json` transiently
     // coexist (a crash between save's write + stale-sibling cleanup), the list must not show the project
-    // twice. The sorted scan reads the bare name before the slugged one for the same id (`.json` <
-    // `--<slug>.json`), so a later same-id read overwrites the earlier — the slugged (canonical) wins.
+    // twice. The slugged (canonical) name wins EXPLICITLY — sort order cannot arbitrate here: `-` < `.`
+    // in ASCII puts `<id>--<slug>.json` before `<id>.json`, so the bare (stale) file is read last.
     const byId = new Map<string, Project>();
+    const canonicalIds = new Set<string>();
     for (const file of jsonFiles) {
       const path = `${dir}/${file}`;
       const json = await readJson(path);
@@ -64,7 +65,11 @@ export const createFsProjectRepository = (deps: FsProjectRepositoryDeps): Projec
       }
       const decoded = decode(fromJsonProject, json.value, { entity: 'project', path });
       if (!decoded.ok) return Result.error(decoded.error);
-      byId.set(String(decoded.value.id), decoded.value);
+      const id = String(decoded.value.id);
+      const isCanonical = file.includes('--');
+      if (!isCanonical && canonicalIds.has(id)) continue; // slugged sibling already read — it wins
+      byId.set(id, decoded.value);
+      if (isCanonical) canonicalIds.add(id);
     }
     items.push(...byId.values());
     return Result.ok(items);

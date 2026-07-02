@@ -11,7 +11,8 @@
  *
  * "Best-effort" is the contract: a missing binary, a daemon refusing the request, an `osascript`
  * timeout — all absorbed silently. The dispatcher logs at debug level so the operator can opt in
- * to seeing what failed via `RALPHCTL_LOG_LEVEL=debug`, but the bell still fires either way.
+ * to seeing what failed by lowering the log-level floor to `debug` in the TUI settings, but the
+ * bell still fires either way.
  *
  * Quoting is the awkward bit on macOS. The `osascript -e '<literal>'` invocation puts the AppleScript
  * source on the argv, then AppleScript itself parses double-quoted string literals — so we have to

@@ -27,7 +27,7 @@ import { createFakeAiProvider } from '@tests/fixtures/fake-ai-provider.ts';
 import { createReadinessFlow } from '@src/application/flows/readiness/flow.ts';
 import { createEventBusLogger } from '@src/business/observability/event-bus-logger.ts';
 import { emptySkillSource, noopSkillsAdapter } from '@tests/fixtures/skills-fakes.ts';
-import { readinessSession } from '@src/application/flows/readiness/leaves/propose.ts';
+import { readOnlySignalsSession } from '@src/application/flows/_shared/signals-session.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 
 const FAKE_CWD = absolutePath('/tmp/ralph/fake-readiness-cwd');
@@ -259,14 +259,13 @@ describe('createReadinessFlow', () => {
   });
 
   it('AiSession profile — readiness runs read-only with the configured model (no edit, no shell, no auto-approve)', () => {
-    const session = readinessSession(
-      FAKE_CWD,
-      '#prompt' as unknown as Prompt,
-      'claude-sonnet-4-6',
-      absolutePath('/tmp/run-dir/signals.json'),
-      undefined,
-      absolutePath('/tmp/run-dir')
-    );
+    const session = readOnlySignalsSession({
+      cwd: FAKE_CWD,
+      prompt: '#prompt' as unknown as Prompt,
+      model: 'claude-sonnet-4-6',
+      signalsFile: absolutePath('/tmp/run-dir/signals.json'),
+      outputDir: absolutePath('/tmp/run-dir'),
+    });
     expect(session.model).toBe('claude-sonnet-4-6');
     expect(session.permissions.canModifyRepoFiles).toBe(false);
     expect(session.permissions.canRunShell).toBe(false);

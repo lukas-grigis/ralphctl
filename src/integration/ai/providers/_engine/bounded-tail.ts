@@ -73,3 +73,31 @@ export const createBoundedTail = (capBytes: number): BoundedTail => {
     },
   };
 };
+
+/**
+ * Shared `appendCapped` implementation for the stdout stream parsers (`claude/parse-stream.ts`,
+ * `copilot/parse-stream.ts`) — grow the in-flight line accumulator, trimming to the newest
+ * {@link STDOUT_LINE_PARSE_CAP} bytes on overflow. Drop the OLDEST bytes (keep the tail) so the
+ * record's terminating `}`/newline, when it finally arrives, still lands inside the window. The
+ * warning fires exactly ONCE per parser so a pathologically long unterminated line does not
+ * itself spam one warning per chunk. Unified here from byte-identical local copies (they
+ * differed only in the `[<stream>]` warn prefix) so the siblings can't drift.
+ *
+ * @public
+ */
+export const createCappedAppend = (streamLabel: string): ((buffer: string, chunk: string) => string) => {
+  let overflowWarned = false;
+  return (buffer, chunk) => {
+    const next = buffer + chunk;
+    if (next.length <= STDOUT_LINE_PARSE_CAP) return next;
+    if (!overflowWarned) {
+      overflowWarned = true;
+      console.warn(
+        `[${streamLabel}] in-flight NDJSON line exceeded ${String(STDOUT_LINE_PARSE_CAP)} bytes — ` +
+          'truncating the parse buffer to its tail and continuing. A single record is streaming an ' +
+          'oversized tool result; the affected line will be emitted as a raw (unparsed) text line.'
+      );
+    }
+    return next.slice(-STDOUT_LINE_PARSE_CAP);
+  };
+};

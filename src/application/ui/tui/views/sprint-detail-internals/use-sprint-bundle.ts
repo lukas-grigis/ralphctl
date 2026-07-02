@@ -4,24 +4,22 @@
  * Hides three side effects behind one hook so the orchestrator only deals with the result:
  *
  *   1. `useAsyncLoad` fetches sprint + tasks in parallel keyed on `sprintId`.
- *   2. A session-manager subscription reloads whenever a tracked flow status transitions
+ *   2. {@link useSessionTransitionReload} reloads whenever a tracked flow status transitions
  *      (registered, running → completed / failed / aborted, or removed) so cancelling or
- *      finishing a flow doesn't leave the view frozen on its mount-time snapshot. We diff
- *      session statuses rather than reloading on every notify() because the session manager
- *      fires on every chain `step` and the trace-only updates would otherwise hammer disk.
+ *      finishing a flow doesn't leave the view frozen on its mount-time snapshot.
  *   3. A best-effort project lookup (no Result envelope leak) used to resolve
  *      `repositoryId → name` for task cards. Failures surface via `logger.warn` rather than
  *      breaking the view.
  */
 
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { type AsyncLoadState, useAsyncLoad } from '@src/application/ui/tui/runtime/use-async-load.ts';
-import { useSessionManager } from '@src/application/ui/tui/runtime/sessions-context.tsx';
+import { useSessionTransitionReload } from '@src/application/ui/tui/runtime/use-session-transition-reload.ts';
 
 export interface SprintBundle {
   readonly sprint: Sprint;
@@ -52,33 +50,7 @@ export const useSprintBundle = (args: UseSprintBundleArgs): UseSprintBundleRetur
     return { sprint: sprintR.value, tasks: tasksR.value };
   }, [sprintId]);
 
-  // `reload` is a fresh closure each render (no useCallback in useAsyncLoad), so we route it
-  // through a ref to keep the subscription stable.
-  const sessionMgr = useSessionManager();
-  const reloadRef = React.useRef(reload);
-  reloadRef.current = reload;
-  useEffect(() => {
-    const snapshot = (): Map<string, string> => {
-      const m = new Map<string, string>();
-      for (const rec of sessionMgr.list()) m.set(rec.descriptor.id, rec.descriptor.status);
-      return m;
-    };
-    let prev = snapshot();
-    return sessionMgr.subscribe(() => {
-      const next = snapshot();
-      let changed = prev.size !== next.size;
-      if (!changed) {
-        for (const [id, status] of next) {
-          if (prev.get(id) !== status) {
-            changed = true;
-            break;
-          }
-        }
-      }
-      prev = next;
-      if (changed) reloadRef.current();
-    });
-  }, [sessionMgr]);
+  useSessionTransitionReload(reload);
 
   const [project, setProject] = useState<Project | undefined>(undefined);
   useEffect(() => {

@@ -368,8 +368,11 @@ const createFlowSelectHandler = (
     }
     attachRepositoryCapture(result.runner, ui);
     // Register + start + route via the shared tail. `replace` (not push) so the flow menu
-    // isn't left on the stack behind the run; the trailing reload refreshes this menu's
-    // enabled/disabled state for when the user pops back.
+    // isn't left on the stack behind the run. The trailing reload refreshes this menu's
+    // enabled/disabled state immediately at launch (e.g. a flow-status trigger flips the
+    // moment the session registers); freshness on COMPLETION comes separately, from
+    // `useAppStateSnapshot`'s session-transition subscription firing once the run reaches
+    // a terminal status — see `use-session-transition-reload.ts`.
     openFlowSession({ sessions, router }, result, entry.manifest.id, { mode: 'replace' });
     reload();
   };

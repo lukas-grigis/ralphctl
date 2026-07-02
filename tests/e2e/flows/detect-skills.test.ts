@@ -23,7 +23,7 @@ import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai
 import { createFakeAiProvider } from '@tests/fixtures/fake-ai-provider.ts';
 import { createEventBusLogger } from '@src/business/observability/event-bus-logger.ts';
 import { createDetectSkillsFlow } from '@src/application/flows/detect-skills/flow.ts';
-import { detectSkillsSession } from '@src/application/flows/detect-skills/leaves/propose.ts';
+import { readOnlySignalsSession } from '@src/application/flows/_shared/signals-session.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import { noopSkillsAdapter } from '@tests/fixtures/skills-fakes.ts';
 
@@ -173,6 +173,7 @@ describe('createDetectSkillsFlow', () => {
     expect(runner.trace.map((e) => e.elementName)).toEqual([
       'load-project',
       'pick-repository',
+      'allocate-run-dir-detect-skills',
       'propose',
       'confirm',
       'write',
@@ -310,13 +311,13 @@ describe('createDetectSkillsFlow', () => {
     const repository = makeRepository();
     const signalsFile = absolutePath('/tmp/runs/detect-skills/r1/signals.json');
     const outputDir = absolutePath('/tmp/runs/detect-skills/r1');
-    const session = detectSkillsSession(
-      repository,
-      '#prompt' as unknown as Prompt,
-      'claude-sonnet-4-6',
+    const session = readOnlySignalsSession({
+      cwd: repository.path,
+      prompt: '#prompt' as unknown as Prompt,
+      model: 'claude-sonnet-4-6',
       signalsFile,
-      outputDir
-    );
+      outputDir,
+    });
     expect(session.model).toBe('claude-sonnet-4-6');
     expect(session.permissions.canModifyRepoFiles).toBe(false);
     expect(session.permissions.canRunShell).toBe(false);

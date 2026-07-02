@@ -15,7 +15,7 @@ import type {
   CopilotStreamParser,
   CopilotUsage,
 } from '@src/integration/ai/providers/_engine/copilot-stream.ts';
-import { STDOUT_LINE_PARSE_CAP } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
+import { createCappedLineFeed } from '@src/integration/ai/providers/_engine/line-feed.ts';
 import { isRecord, numberField, stringField } from '@src/integration/ai/providers/_engine/json-field.ts';
 
 const extractUsage = (json: Record<string, unknown>): CopilotUsage | undefined => {
@@ -91,29 +91,6 @@ const extractBodyText = (json: Record<string, unknown>): string | undefined => {
 };
 
 export const createCopilotStreamParser = (): CopilotStreamParser => {
-  let buffer = '';
-  // One-shot latch: warn exactly once per parser so a child that streams a pathologically long
-  // unterminated line does not itself spam the console with one warning per chunk.
-  let overflowWarned = false;
-  // Cap the in-flight line accumulator. A single NDJSON record embedding a large file-read /
-  // bash tool result can grow `buffer` to tens of MB before its newline clears it — an OOM-class
-  // accumulation. `feed` is the SOLE append site, so capping here keeps the invariant for `flush`
-  // too (it only drains an already-bounded buffer). Drop the OLDEST bytes (keep the tail) so the
-  // record's terminating `}`/newline, when it finally arrives, still lands inside the window.
-  const appendCapped = (chunk: string): void => {
-    buffer += chunk;
-    if (buffer.length > STDOUT_LINE_PARSE_CAP) {
-      buffer = buffer.slice(-STDOUT_LINE_PARSE_CAP);
-      if (!overflowWarned) {
-        overflowWarned = true;
-        console.warn(
-          `[copilot-stream] in-flight NDJSON line exceeded ${String(STDOUT_LINE_PARSE_CAP)} bytes — ` +
-            'truncating the parse buffer to its tail and continuing. A single record is streaming an ' +
-            'oversized tool result; the affected line will be emitted as a raw (unparsed) text line.'
-        );
-      }
-    }
-  };
   const emit = (raw: string, onLine: (line: CopilotStreamLine) => void): void => {
     if (raw.length === 0) return;
     if (raw.startsWith('{') && raw.endsWith('}')) {
@@ -142,22 +119,9 @@ export const createCopilotStreamParser = (): CopilotStreamParser => {
     }
     onLine({ raw });
   };
+  const lineFeed = createCappedLineFeed<CopilotStreamLine>('copilot-stream', emit);
   return {
-    feed(chunk, onLine) {
-      appendCapped(chunk);
-      let nl = buffer.indexOf('\n');
-      while (nl !== -1) {
-        const line = buffer.slice(0, nl);
-        buffer = buffer.slice(nl + 1);
-        emit(line, onLine);
-        nl = buffer.indexOf('\n');
-      }
-    },
-    flush(onLine) {
-      if (buffer.length > 0) {
-        emit(buffer, onLine);
-        buffer = '';
-      }
-    },
+    feed: lineFeed.feed,
+    flush: lineFeed.flush,
   };
 };

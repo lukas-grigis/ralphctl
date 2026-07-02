@@ -29,8 +29,10 @@ export interface DetectSkillsCtx {
     readonly proposedVerifySkill?: string;
     /**
      * Per-run forensic dir under `<dataRoot>/runs/detect-skills/<run-id>/` holding the
-     * rendered `prompt.md` and (for Claude) the raw `body.txt`. Surfaced to the confirm leaf
-     * so an empty proposal can show the user the AI's actual response.
+     * rendered `prompt.md` and (for Claude) the raw `body.txt`. Stamped by the
+     * `allocate-run-dir-detect-skills` leaf BEFORE propose runs (so propose reads it back off
+     * ctx rather than allocating it itself), then carried forward unchanged so the confirm
+     * leaf can show the user the AI's actual response when a proposal comes back empty.
      */
     readonly runDir?: AbsolutePath;
   };

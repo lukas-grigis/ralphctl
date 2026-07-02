@@ -1,12 +1,9 @@
 import { promises as fs } from 'node:fs';
 import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
-import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { ReadinessState } from '@src/integration/ai/readiness/_engine/state.ts';
 import type { AssistantTool } from '@src/integration/ai/readiness/_engine/tool.ts';
 import { isPresent } from '@src/integration/ai/readiness/_engine/predicates.ts';
-import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
-import { READ_ONLY } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
@@ -16,7 +13,6 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
-import { currentSessionId } from '@src/application/session/session.ts';
 import { setupReadinessUseCase } from '@src/integration/ai/readiness/_engine/setup.ts';
 import { buildReadinessPrompt } from '@src/integration/ai/prompts/readiness/definition.ts';
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
@@ -25,45 +21,7 @@ import { renderSidecars } from '@src/integration/ai/contract/_engine/render-side
 import { validateSignalsFile } from '@src/integration/ai/contract/_engine/validate-signals-file.ts';
 import type { ReadinessCtx } from '@src/application/flows/readiness/ctx.ts';
 import { readinessOutputContract } from '@src/application/flows/readiness/leaves/readiness.contract.ts';
-
-/**
- * Per-call AiSession profile for the readiness chain — audit-[09] aware: the AI's permission
- * profile remains READ_ONLY for repository navigation, augmented with the Write tool so the
- * AI can write `signals.json` into `outputDir`. `outputDir` is the per-run forensic dir; the
- * harness validates `<outputDir>/signals.json` post-spawn.
- *
- * Call only within a `runWithSession` scope: `chainSessionId` is captured from the ambient
- * session at call time (omitted when invoked outside one, e.g. a bare test).
- */
-export const readinessSession = (
-  cwd: AbsolutePath,
-  prompt: Prompt,
-  model: string,
-  signalsFile: AbsolutePath,
-  bodyFile: AbsolutePath | undefined,
-  outputDir: AbsolutePath,
-  effort?: string,
-  abortSignal?: AbortSignal
-): AiSession => {
-  // `currentSessionId()` is read inside the leaf's execute scope (the runner wraps it in
-  // `runWithSession`) and threaded onto the session as DATA so the headless adapter can key
-  // the token-usage event by the runner id without importing the application session helper
-  // across the layer boundary. Undefined out of session scope → the spread omits it.
-  const chainSessionId = currentSessionId();
-  return {
-    prompt,
-    cwd,
-    model,
-    permissions: READ_ONLY,
-    signalsFile,
-    outputDir,
-    ...(chainSessionId !== undefined ? { chainSessionId } : {}),
-    ...(bodyFile !== undefined ? { bodyFile } : {}),
-    ...(effort !== undefined ? { effort } : {}),
-    // Thread the chain's abort signal so a TUI cancel mid-spawn kills the child.
-    ...(abortSignal !== undefined ? { abortSignal } : {}),
-  };
-};
+import { readOnlySignalsSession } from '@src/application/flows/_shared/signals-session.ts';
 
 export interface ProposeReadinessLeafDeps {
   readonly provider: HeadlessAiProvider;
@@ -161,7 +119,16 @@ const proposeReadinessUseCase = async (
           outputContractSection: renderContractSectionFor(readinessOutputContract, params.outputDir),
         }),
       buildSession: (prompt, signalsFile, bodyFile, outputDir) =>
-        readinessSession(deps.cwd, prompt, deps.model, signalsFile, bodyFile, outputDir, deps.effort, abortSignal),
+        readOnlySignalsSession({
+          cwd: deps.cwd,
+          prompt,
+          model: deps.model,
+          signalsFile,
+          outputDir,
+          ...(bodyFile !== undefined ? { bodyFile } : {}),
+          ...(deps.effort !== undefined ? { effort: deps.effort } : {}),
+          ...(abortSignal !== undefined ? { abortSignal } : {}),
+        }),
       logger: deps.logger,
     },
     {

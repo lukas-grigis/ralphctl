@@ -1,68 +1,31 @@
-import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
-import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { Sink } from '@src/business/observability/sink.ts';
-import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
-import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import { READ_ONLY } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { Repository } from '@src/domain/entity/repository.ts';
 import type { HarnessSignal, SetupSkillProposalSignal, VerifySkillProposalSignal } from '@src/domain/signal.ts';
+import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
-import { currentSessionId } from '@src/application/session/session.ts';
 import { buildDetectSkillsPrompt } from '@src/integration/ai/prompts/detect-skills/definition.ts';
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
 import { renderSidecars } from '@src/integration/ai/contract/_engine/render-sidecars.ts';
 import { validateSignalsFile } from '@src/integration/ai/contract/_engine/validate-signals-file.ts';
 import { detectSkillsOutputContract } from '@src/application/flows/detect-skills/leaves/propose.contract.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
-import { buildRunDirName } from '@src/integration/ai/runs/_engine/run-artifacts.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
+import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
 import type { DetectSkillsCtx } from '@src/application/flows/detect-skills/ctx.ts';
-
-/**
- * Per-call AiSession profile for the detect-skills chain — read-only by construction.
- * `outputDir` carries the per-run forensic dir; the AI writes `signals.json` directly there.
- *
- * Call only within a `runWithSession` scope: `chainSessionId` is captured from the ambient
- * session at call time (omitted when invoked outside one, e.g. a bare test).
- */
-export const detectSkillsSession = (
-  repository: Repository,
-  prompt: Prompt,
-  model: string,
-  signalsFile: AbsolutePath,
-  outputDir: AbsolutePath,
-  bodyFile?: AbsolutePath,
-  effort?: string,
-  abortSignal?: AbortSignal
-): AiSession => {
-  // `currentSessionId()` is read inside the leaf's execute scope (the runner wraps it in
-  // `runWithSession`) and threaded onto the session as DATA so the headless adapter can key
-  // the token-usage event by the runner id without importing the application session helper
-  // across the layer boundary. Undefined out of session scope → the spread omits it.
-  const chainSessionId = currentSessionId();
-  return {
-    prompt,
-    cwd: repository.path,
-    model,
-    permissions: READ_ONLY,
-    signalsFile,
-    outputDir,
-    ...(chainSessionId !== undefined ? { chainSessionId } : {}),
-    ...(bodyFile !== undefined ? { bodyFile } : {}),
-    ...(effort !== undefined ? { effort } : {}),
-    // Thread the chain's abort signal so a TUI cancel mid-spawn kills the child.
-    ...(abortSignal !== undefined ? { abortSignal } : {}),
-  };
-};
+import {
+  readOnlySignalsSession,
+  type ReadOnlySignalsSessionOpts,
+} from '@src/application/flows/_shared/signals-session.ts';
+import { runPathsFor, type RunPaths } from '@src/application/flows/_shared/allocate-run-dir.ts';
 
 export interface ProposeDetectSkillsLeafDeps {
   readonly provider: HeadlessAiProvider;
@@ -80,43 +43,68 @@ export interface ProposeDetectSkillsLeafDeps {
   readonly model: string;
   /** Optional reasoning / effort level forwarded into the AiSession. */
   readonly effort?: string;
-  /** `<dataRoot>/runs`. See {@link DetectSkillsDeps.runsRoot}. */
-  readonly runsRoot: AbsolutePath;
 }
 
 interface ProposeInput {
   readonly repository: Repository;
+  /**
+   * Pre-allocated per-run forensic directory — `<runsRoot>/detect-skills/<run-id>/`. Resolved
+   * upstream by the chain's `allocate-run-dir-detect-skills` leaf so `prompt.md` (rendered
+   * template), `signals.json` (contract envelope), `body.txt` (raw AI response — Claude only)
+   * and the two sidecar `*.md` skill bodies all land in the same directory. The confirm leaf
+   * reads `body.txt` when both proposals are empty to surface the AI's actual response to the
+   * user.
+   */
+  readonly runDir: AbsolutePath;
 }
 
 interface ProposeOutput {
   readonly proposedSetupSkill?: string;
   readonly proposedVerifySkill?: string;
-  /** Always set on success — propose creates the dir before calling the AI. */
+  /**
+   * Per-run forensic dir mirrored back for downstream leaves. Mirrors {@link ProposeInput.runDir}
+   * — the leaf receives it and returns it unchanged so `ctx.proposal.runDir` stays populated.
+   */
   readonly runDir: AbsolutePath;
 }
 
-interface RunPaths {
-  readonly runDir: AbsolutePath;
-  readonly promptFile: AbsolutePath;
-  readonly bodyFile: AbsolutePath;
-  readonly signalsFile: AbsolutePath;
-}
+/**
+ * Assemble the `readOnlySignalsSession` options — pulled out of `proposeUseCase` purely to
+ * keep the use case's branch count low; the two optional fields are the only conditionals
+ * here.
+ */
+const buildSessionOpts = (
+  deps: ProposeDetectSkillsLeafDeps,
+  input: ProposeInput,
+  paths: RunPaths,
+  prompt: Prompt,
+  abortSignal: AbortSignal | undefined
+): ReadOnlySignalsSessionOpts => ({
+  cwd: input.repository.path,
+  prompt,
+  model: deps.model,
+  signalsFile: paths.signalsFile,
+  outputDir: input.runDir,
+  bodyFile: paths.bodyFile,
+  ...(deps.effort !== undefined ? { effort: deps.effort } : {}),
+  ...(abortSignal !== undefined ? { abortSignal } : {}),
+});
 
-const allocateRunPaths = (runsRoot: AbsolutePath): Result<RunPaths, DomainError> => {
-  const runDir = AbsolutePath.parse(join(String(runsRoot), 'detect-skills', buildRunDirName()));
-  if (!runDir.ok) return Result.error(runDir.error);
-  const promptFile = AbsolutePath.parse(join(String(runDir.value), 'prompt.md'));
-  if (!promptFile.ok) return Result.error(promptFile.error);
-  const bodyFile = AbsolutePath.parse(join(String(runDir.value), 'body.txt'));
-  if (!bodyFile.ok) return Result.error(bodyFile.error);
-  const signalsFile = AbsolutePath.parse(join(String(runDir.value), 'signals.json'));
-  if (!signalsFile.ok) return Result.error(signalsFile.error);
-  return Result.ok({
-    runDir: runDir.value,
-    promptFile: promptFile.value,
-    bodyFile: bodyFile.value,
-    signalsFile: signalsFile.value,
-  });
+/**
+ * Project the validated detect-skills signal array onto the two optional proposal fields. The
+ * contract caps each kind at one, so `find` is the right primitive. Extracted from
+ * `proposeUseCase` so the use-case body stays a flat read of its validation chain (mirrors
+ * detect-scripts' `extractProposal`).
+ */
+const extractProposal = (
+  signals: readonly HarnessSignal[]
+): { readonly setupSkill?: string; readonly verifySkill?: string } => {
+  const setupSkill = signals.find((s): s is SetupSkillProposalSignal => s.type === 'setup-skill-proposal')?.content;
+  const verifySkill = signals.find((s): s is VerifySkillProposalSignal => s.type === 'verify-skill-proposal')?.content;
+  return {
+    ...(setupSkill !== undefined ? { setupSkill } : {}),
+    ...(verifySkill !== undefined ? { verifySkill } : {}),
+  };
 };
 
 /**
@@ -127,12 +115,6 @@ const allocateRunPaths = (runsRoot: AbsolutePath): Result<RunPaths, DomainError>
  * Either signal may be absent — that's a valid "no skill needed" answer (e.g. an existing
  * project skill already covers the responsibility). The confirm leaf renders a "no
  * suggestions" UI in that case rather than failing the chain.
- *
- * Forensic artifacts: every call materialises `<runsRoot>/detect-skills/<run-id>/` with
- * `prompt.md` (rendered template), `signals.json` (contract envelope), `body.txt` (raw AI
- * response — Claude only) and the two sidecar `*.md` skill bodies (rendered from validated
- * signals). The confirm leaf reads `body.txt` when both proposals are empty to surface the
- * AI's actual response to the user.
  */
 const proposeUseCase = async (
   deps: ProposeDetectSkillsLeafDeps,
@@ -145,10 +127,10 @@ const proposeUseCase = async (
     repositoryPath: String(input.repository.path),
   });
 
-  const paths = allocateRunPaths(deps.runsRoot);
+  const paths = runPathsFor(input.runDir);
   if (!paths.ok) return Result.error(paths.error);
 
-  const outputContractSection = renderContractSectionFor(detectSkillsOutputContract, paths.value.runDir);
+  const outputContractSection = renderContractSectionFor(detectSkillsOutputContract, input.runDir);
   const prompt = await buildDetectSkillsPrompt(deps.templateLoader, {
     repositoryPath: String(input.repository.path),
     skillsConvention: deps.skillsAdapter.describeSkillsConvention(),
@@ -160,32 +142,23 @@ const proposeUseCase = async (
   if (!promptWrote.ok) return Result.error(promptWrote.error);
 
   const spawn = await deps.provider.generate(
-    detectSkillsSession(
-      input.repository,
-      prompt.value,
-      deps.model,
-      paths.value.signalsFile,
-      paths.value.runDir,
-      paths.value.bodyFile,
-      deps.effort,
-      abortSignal
-    )
+    readOnlySignalsSession(buildSessionOpts(deps, input, paths.value, prompt.value, abortSignal))
   );
   if (!spawn.ok) {
     log.error(`provider failed for repo ${input.repository.name}`, {
       repositoryId: String(input.repository.id),
       error: spawn.error.message,
-      runDir: String(paths.value.runDir),
+      runDir: String(input.runDir),
     });
     return Result.error(spawn.error);
   }
 
-  const validated = await validateSignalsFile(paths.value.runDir, detectSkillsOutputContract);
+  const validated = await validateSignalsFile(input.runDir, detectSkillsOutputContract);
   if (!validated.ok) {
     log.error(`signals validation failed for repo ${input.repository.name}`, {
       repositoryId: String(input.repository.id),
       error: validated.error.message,
-      runDir: String(paths.value.runDir),
+      runDir: String(input.runDir),
     });
     return Result.error(validated.error);
   }
@@ -202,15 +175,14 @@ const proposeUseCase = async (
   // Render the operator-facing sidecars (`setup-skill.md`, `verify-skill.md`) from validated
   // signals. The confirm leaf reads from in-memory signals (ctx), not these files — the
   // sidecars exist for operator review only.
-  await renderSidecars(deps.writeFile, paths.value.runDir, signals, detectSkillsOutputContract.sidecars, deps.logger);
+  await renderSidecars(deps.writeFile, input.runDir, signals, detectSkillsOutputContract.sidecars, deps.logger);
 
-  const setupSkill = signals.find((s): s is SetupSkillProposalSignal => s.type === 'setup-skill-proposal')?.content;
-  const verifySkill = signals.find((s): s is VerifySkillProposalSignal => s.type === 'verify-skill-proposal')?.content;
+  const { setupSkill, verifySkill } = extractProposal(signals);
 
   if (setupSkill === undefined && verifySkill === undefined) {
     log.warn(`AI returned no proposals for repo ${input.repository.name} — inspect run dir for prompt + raw body`, {
       repositoryId: String(input.repository.id),
-      runDir: String(paths.value.runDir),
+      runDir: String(input.runDir),
     });
   }
 
@@ -220,13 +192,13 @@ const proposeUseCase = async (
     hasVerifySkill: verifySkill !== undefined,
     setupLength: setupSkill?.length ?? 0,
     verifyLength: verifySkill?.length ?? 0,
-    runDir: String(paths.value.runDir),
+    runDir: String(input.runDir),
   });
 
   return Result.ok({
     ...(setupSkill !== undefined ? { proposedSetupSkill: setupSkill } : {}),
     ...(verifySkill !== undefined ? { proposedVerifySkill: verifySkill } : {}),
-    runDir: paths.value.runDir,
+    runDir: input.runDir,
   });
 };
 
@@ -244,7 +216,16 @@ export const proposeDetectSkillsLeaf = (deps: ProposeDetectSkillsLeafDeps): Elem
           message: 'propose: ctx.repository is undefined — pick-repository must run first',
         });
       }
-      return { repository: ctx.repository };
+      const runDir = ctx.proposal?.runDir;
+      if (runDir === undefined) {
+        throw new InvalidStateError({
+          entity: 'chain',
+          currentState: 'pre-propose',
+          attemptedAction: 'propose',
+          message: 'propose: ctx.proposal.runDir is undefined — allocate-run-dir must run first',
+        });
+      }
+      return { repository: ctx.repository, runDir };
     },
     output: (ctx, out) => ({
       ...ctx,
