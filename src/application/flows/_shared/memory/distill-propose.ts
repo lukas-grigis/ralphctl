@@ -66,7 +66,8 @@ interface DistillProposeOutput {
 const distillProposeUseCase = async (
   deps: DistillProposeLeafDeps,
   tool: AssistantTool,
-  input: DistillProposeInput
+  input: DistillProposeInput,
+  signal?: AbortSignal
 ): Promise<Result<DistillProposeOutput, DomainError>> => {
   const log = deps.logger.named(`memory.distill-propose-${tool}`);
   const targetFilename = targetPathFor(tool);
@@ -119,6 +120,10 @@ const distillProposeUseCase = async (
       outputFile: outputFileResult.value,
       model: deps.model,
       ...(deps.effort !== undefined ? { effort: deps.effort } : {}),
+      // Thread the leaf's abort signal so a TUI cancel tears the stdio-inherit child down
+      // (attachAbortKill) rather than leaving it running — and the adapter classifies the
+      // resulting non-zero exit as AbortError, not InvalidStateError.
+      ...(signal !== undefined ? { abortSignal: signal } : {}),
     })
   );
   if (!session.ok) return Result.error(session.error);
@@ -179,7 +184,7 @@ const safeReadText = async (path: string): Promise<string | undefined> => {
 export const distillProposeLeaf = (deps: DistillProposeLeafDeps, tool: AssistantTool): Element<DistillLearningsCtx> =>
   leaf<DistillLearningsCtx, DistillProposeInput, DistillProposeOutput>(`distill-propose-${tool}`, {
     useCase: {
-      execute: async (input) => distillProposeUseCase(deps, tool, input),
+      execute: async (input, signal) => distillProposeUseCase(deps, tool, input, signal),
     },
     input: (ctx) => {
       if (ctx.candidates === undefined) {

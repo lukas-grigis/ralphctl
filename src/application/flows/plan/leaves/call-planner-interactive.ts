@@ -107,7 +107,7 @@ const LEAF_NAME = 'call-planner-interactive';
 export const callPlannerInteractiveLeaf = (deps: CallPlannerInteractiveDeps): Element<PlanCtx> =>
   leaf<PlanCtx, CallPlannerInput, CallPlannerOutput>(LEAF_NAME, {
     useCase: {
-      execute: async (input) => {
+      execute: async (input, signal) => {
         // `additionalRoots` are the project repos the AI may navigate. The output-file dir
         // is auto-mounted by the interactive adapter itself, so we don't repeat that here.
         const additionalRoots = deps.additionalRoots ?? [];
@@ -120,6 +120,10 @@ export const callPlannerInteractiveLeaf = (deps: CallPlannerInteractiveDeps): El
             model: deps.model,
             ...(deps.effort !== undefined ? { effort: deps.effort } : {}),
             ...(additionalRoots.length > 0 ? { additionalRoots } : {}),
+            // Thread the leaf's abort signal so a TUI cancel tears the stdio-inherit child down
+            // (attachAbortKill) rather than leaving it running — and the adapter classifies the
+            // resulting non-zero exit as AbortError, not InvalidStateError.
+            ...(signal !== undefined ? { abortSignal: signal } : {}),
           })
         );
         if (!session.ok) return Result.error(session.error);

@@ -217,7 +217,7 @@ export const refineTicketInteractiveLeaf = (
 ): Element<RefineCtx> =>
   leaf<RefineCtx, RefineTicketInteractiveInput, RefineTicketInteractiveOutput>(`refine-ticket-${String(ticket.id)}`, {
     useCase: {
-      execute: async (input) => {
+      execute: async (input, signal) => {
         const session = await deps.runInTerminal(async () =>
           deps.interactiveAi.run({
             cwd: input.cwd,
@@ -225,6 +225,10 @@ export const refineTicketInteractiveLeaf = (
             outputFile: input.outputFile,
             model: deps.model,
             ...(deps.effort !== undefined ? { effort: deps.effort } : {}),
+            // Thread the leaf's abort signal so a TUI cancel tears the stdio-inherit child down
+            // (attachAbortKill) rather than leaving it running — and the adapter classifies the
+            // resulting non-zero exit as AbortError, not InvalidStateError.
+            ...(signal !== undefined ? { abortSignal: signal } : {}),
           })
         );
         if (!session.ok) return Result.error(session.error);

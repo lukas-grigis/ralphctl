@@ -166,6 +166,29 @@ describe('refineTicketInteractiveLeaf — audit-[09] contract', () => {
     expect(approved?.requirements).toBe('## Refined requirements\n\n- gate the import.');
   });
 
+  // ── 1b. Abort signal threading ────────────────────────────────────────────────
+  it('threads the leaf abort signal into the interactive provider', async () => {
+    // Fix 1b: the leaf must forward its execute() signal as `abortSignal` so a TUI cancel can
+    // tear the stdio-inherit child down (attachAbortKill). Without this the child runs on.
+    await ensureUnitDir();
+    await fs.writeFile(
+      signalsFilePath(),
+      JSON.stringify({ schemaVersion: 1, signals: [refinedTicketSignal('## r\n\n- x')] }),
+      'utf8'
+    );
+    const controller = new AbortController();
+    let seen: AbortSignal | undefined;
+    const provider = fakeAi(async (input) => {
+      seen = input.abortSignal;
+    });
+    const { ctx, ticket } = buildCtx();
+    const leaf = refineTicketInteractiveLeaf(buildDeps(provider), ticket);
+
+    const result = await leaf.execute(ctx, controller.signal);
+    expect(result.ok).toBe(true);
+    expect(seen).toBe(controller.signal);
+  });
+
   // ── 2. signals.json missing ───────────────────────────────────────────────────
   it('signals-missing: surfaces a refine-specific actionable InvalidStateError', async () => {
     await ensureUnitDir();

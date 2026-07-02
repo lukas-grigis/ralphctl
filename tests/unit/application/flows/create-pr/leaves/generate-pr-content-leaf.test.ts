@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
+import { ErrorCode } from '@src/domain/value/error/error-code.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { AiSignalEvent, AppEvent } from '@src/business/observability/events.ts';
@@ -204,5 +205,24 @@ describe('generatePrContentLeaf', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error.error).toBeInstanceOf(AbortError);
+  });
+
+  it('AbortError returned via the provider Result channel propagates (does not fall back to template)', async () => {
+    // Real cancellation path: the provider does NOT throw — classify-spawn-exit builds an
+    // AbortError in the Result.error channel. The leaf must surface it, not treat a mid-spawn
+    // user cancel like an offline failure (which would let the chain open a real `gh pr create`).
+    const provider: HeadlessAiProvider = {
+      async generate() {
+        return Result.error(new AbortError({ elementName: 'generate-pr-content', reason: 'user cancelled mid-spawn' }));
+      },
+    };
+
+    const leaf = generatePrContentLeaf(buildDeps(provider));
+    const result = await leaf.execute(buildCtx(unitRoot, promptFile));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.error).toBeInstanceOf(AbortError);
+    expect(result.error.error.code).toBe(ErrorCode.Aborted);
   });
 });

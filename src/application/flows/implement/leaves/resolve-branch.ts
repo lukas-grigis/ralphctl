@@ -1,6 +1,7 @@
 import { Result } from '@src/domain/result.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import { setExecutionBranch } from '@src/domain/entity/sprint-execution.ts';
@@ -39,7 +40,9 @@ const RESOLVE_BRANCH = 'resolve-branch';
  * so per-task commits land on the right ref regardless of which repo the task targets.
  *
  * Failure semantics: any error from persistence, git, or the prompt is fatal. Implementation
- * must not run against an unverified working tree.
+ * must not run against an unverified working tree. A prompt cancellation (Ctrl-C / Esc) is
+ * propagated verbatim as the port's `AbortError` so the runner renders a clean abort rather
+ * than a hard failure banner — the error is not re-wrapped as an `InvalidStateError`.
  */
 
 export interface ResolveBranchLeafDeps {
@@ -70,37 +73,28 @@ interface ResolveBranchOutput {
 
 type Strategy = 'keep' | 'auto' | 'custom';
 
-const askCustomName = async (interactive: InteractivePrompt): Promise<Result<string, InvalidStateError>> => {
+const askCustomName = async (interactive: InteractivePrompt): Promise<Result<string, DomainError>> => {
   // Re-prompt up to three times; bail with InvalidStateError after that so the user gets out
   // of an unresponsive loop. Three attempts mirrors common shell tooling.
   for (let i = 0; i < 3; i++) {
     const answer = await interactive.askText('Branch name?');
-    if (!answer.ok) {
-      return Result.error(
-        new InvalidStateError({
-          entity: SPRINT_EXECUTION_ENTITY,
-          currentState: RESOLVE_BRANCH,
-          attemptedAction: 'ask-custom-branch-name',
-          message: `resolve-branch: prompt cancelled — ${answer.error.message}`,
-        })
-      );
-    }
+    // Prompt cancellation (Ctrl-C / Esc) surfaces as an AbortError through the port's Result
+    // channel; propagate it verbatim so the runner keys on ErrorCode.Aborted and shows a clean
+    // abort instead of a hard failure banner. Any other prompt error propagates unchanged too.
+    if (!answer.ok) return Result.error(answer.error);
     if (isValidBranchName(answer.value)) return Result.ok(answer.value);
   }
   return Result.error(
     new InvalidStateError({
-      entity: 'sprint-execution',
-      currentState: 'resolve-branch',
+      entity: SPRINT_EXECUTION_ENTITY,
+      currentState: RESOLVE_BRANCH,
       attemptedAction: 'ask-custom-branch-name',
       message: 'resolve-branch: gave up after 3 invalid branch names',
     })
   );
 };
 
-const resolveFirstRun = async (
-  deps: ResolveBranchLeafDeps,
-  sprintId: string
-): Promise<Result<string, InvalidStateError>> => {
+const resolveFirstRun = async (deps: ResolveBranchLeafDeps, sprintId: string): Promise<Result<string, DomainError>> => {
   const generated = generateBranchName(sprintId);
   const choice = await deps.interactive.askChoice<Strategy>('Branch strategy?', [
     {
@@ -115,16 +109,10 @@ const resolveFirstRun = async (
     },
     { label: 'Custom name', value: 'custom', description: 'I will type the branch name' },
   ]);
-  if (!choice.ok) {
-    return Result.error(
-      new InvalidStateError({
-        entity: SPRINT_EXECUTION_ENTITY,
-        currentState: RESOLVE_BRANCH,
-        attemptedAction: 'ask-branch-strategy',
-        message: `resolve-branch: prompt cancelled — ${choice.error.message}`,
-      })
-    );
-  }
+  // Prompt cancellation (Ctrl-C / Esc) surfaces as an AbortError through the port's Result
+  // channel; propagate it verbatim so the runner keys on ErrorCode.Aborted and shows a clean
+  // abort instead of a hard failure banner. Any other prompt error propagates unchanged too.
+  if (!choice.ok) return Result.error(choice.error);
   switch (choice.value) {
     case 'keep':
       return Result.ok('');
