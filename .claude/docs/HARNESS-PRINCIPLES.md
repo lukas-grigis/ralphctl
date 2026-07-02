@@ -314,7 +314,9 @@ harness when new model releases; strip non-load-bearing pieces."_
 **Where it lives.**
 
 - Cross-phase skill: `src/integration/ai/skills/bundled/ralphctl-minimal-scaffolding/SKILL.md` (bundled skill)
-- No audit cadence yet — nothing enforces a per-model-release walk of this doc.
+- Audit trigger is mechanized: `tests/unit/business/task/escalation-map.test.ts` fingerprints the three
+  provider model catalogs and fails `pnpm verify` the moment one changes — see the "Model-bump audit
+  checklist" below.
 
 **Note — parallelism as above-the-chain orchestration.** The `maxParallelTasks > 1` parallel
 execution was deliberately implemented as `runWaves` — an async orchestrator that sits
@@ -322,9 +324,12 @@ execution was deliberately implemented as `runWaves` — an async orchestrator t
 five-primitive rule (`element` / `leaf` / `sequential` / `loop` / `guard`) is unchanged.
 `runWaves` never implements `Element` and must never be composed into a `sequential`/`loop`/`guard`.
 
-**Next step.** The `ralphctl-minimal-scaffolding` skill captures the principle; what's missing is a ritual.
-Add a checklist block to the "How to use this doc" section (below) and gate it on a team process (e.g.
-open a ticket when a new model version ships).
+**Next step.** The trigger is mechanized — a catalog edit fails `pnpm verify` and forces a walk of this
+doc's `partial`/`gap` rows before the fingerprint can be updated (see the "Model-bump audit checklist"
+below). What remains manual is the measurement ritual itself: nothing verifies that a flagged
+non-load-bearing component was actually measured and removed rather than just glanced at. Closing this
+gap means recording the audit's outcome (component kept / removed, with the measurement that justified
+it) somewhere durable, not just bumping the recorded hash.
 
 ---
 
@@ -344,11 +349,14 @@ over-praising."_
 **Where it lives.**
 
 - Evaluator template: `src/integration/ai/prompts/evaluate/template.md`
+- Floor rubric single-sourced from `src/integration/ai/evaluation/_engine/floor-dimensions.ts`: five
+  dimensions (correctness / completeness / safety / consistency / robustness — any FAIL forces
+  `status: "failed"`), with robustness alone carrying an explicit `applicable: false` outcome for
+  changes that touch no error/failure path.
 - Today's template grades against `{{VERIFICATION_CRITERIA_SECTION}}` and the verify-script outcome, opens
-  with "Skepticism is your default", pins a four-dimension floor rubric (correctness / completeness / safety
-  / consistency — any FAIL forces `status: "failed"`), and carries an explicit "Evaluator failure modes to
-  resist actively" block naming talking-self-into-approval, superficial testing, crediting incomplete work,
-  and rubber-stamping on a green verify script. Status moved `gap` → `applied`.
+  with "Skepticism is your default", pins the five-dimension floor rubric above, and carries an explicit
+  "Evaluator failure modes to resist actively" block naming talking-self-into-approval, superficial testing,
+  crediting incomplete work, and rubber-stamping on a green verify script. Status moved `gap` → `applied`.
 
 ---
 
@@ -408,17 +416,21 @@ Opus 4.7.
 **Source.** Anthropic — Harness Design: _"Re-examine entire harness when new model releases; strip
 non-load-bearing pieces."_
 
-**ralphctl status.** `gap`
+**ralphctl status.** `partial`
 
 **Where it lives.**
 
-- No audit cadence exists. This doc is the intended home for the checklist; the `ralphctl-minimal-scaffolding`
-  skill captures the per-change discipline.
+- Audit trigger is mechanized, not a ticket convention: `tests/unit/business/task/escalation-map.test.ts`
+  fingerprints the three model catalogs (`domain/value/settings-models/{claude,codex,copilot}.ts`) and
+  fails `pnpm verify` the moment a catalog changes — see the "Model-bump audit checklist" below. This doc
+  remains the home for the checklist content itself, and the `ralphctl-minimal-scaffolding` skill captures
+  the per-change discipline.
 
-**Next step.** On every significant model release (Opus bump, Sonnet bump), open a ticket: "Model-bump
-harness audit." The ritual: read this doc top-to-bottom; for each `applied` row, ask "is this still
-load-bearing against the new model?" For `partial` / `gap` rows, ask "has the model closed the gap
-unaided?" Findings feed into targeted removals or promos from `gap` → `applied`.
+**Next step.** The trigger fires automatically; what's still manual is the audit content. Nothing enforces
+that the failing test's fix actually walked every `applied` row and re-evaluated its load-bearing status
+(§ 14), or that a `gap`/`partial` promotion gets recorded rather than skipped under time pressure. Closing
+this gap means the checklist's steps 2–3 (below) leave a durable trace — a commit note or a doc update —
+that the walk happened, not just that the hash was bumped.
 
 ---
 
