@@ -77,4 +77,30 @@ describe('implementSession', () => {
     );
     expect(session.abortSignal).toBe(controller.signal);
   });
+
+  // bodyFile wire: forensic mirror of the raw AI response, armed before every spawn so a
+  // signals-missing failure still leaves the model's output on disk. Absent by default so a
+  // spawn that opts out carries no dangling path (matches the abortSignal contract above).
+  it('omits `bodyFile` when none is supplied', () => {
+    const session = implementSession(SANDBOX, REPO, SPRINT_DIR, PROMPT, 'claude-opus-4-8', SIGNALS, 'generator');
+    expect(session).not.toHaveProperty('bodyFile');
+  });
+
+  it('forwards a supplied `bodyFile` onto the session descriptor', () => {
+    const body = absolutePath('/tmp/sandbox/rounds/2/generator/body.txt');
+    const session = implementSession(
+      SANDBOX,
+      REPO,
+      SPRINT_DIR,
+      PROMPT,
+      'claude-opus-4-8',
+      SIGNALS,
+      'generator',
+      undefined,
+      undefined,
+      undefined,
+      body
+    );
+    expect(session.bodyFile).toBe(body);
+  });
 });

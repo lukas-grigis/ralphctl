@@ -206,6 +206,7 @@ function runTests(): void {
         rateLimitRetries: 0,
         // plateauThreshold of 2: two consecutive rounds with the same failed dimensions = plateau
         plateauThreshold: 2,
+        correctiveRetries: 2,
         escalateOnPlateau: true,
         // Escalation map: 'claude-opus-4-8' → 'claude-opus-4-5'
         escalationMap: { 'claude-opus-4-8': 'claude-opus-4-5' },

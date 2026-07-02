@@ -56,6 +56,28 @@ export const roundSignalsPath = (workspaceRoot: AbsolutePath, round: number, rol
   join(String(workspaceRoot), 'rounds', String(round), role, 'signals.json');
 
 /**
+ * Absolute path to `rounds/<N>/<role>/body.txt` — the forensic mirror of the ORIGINAL spawn's raw
+ * response body. Wired as `session.bodyFile` so a `signals-missing` failure (a clean spawn that
+ * simply never wrote `signals.json`) still leaves the AI's actual output on disk for a human /
+ * future-agent post-mortem, matching the readiness / detect-skills `bodyFile` pattern. (Written by
+ * the Claude / Codex adapters; the Copilot adapter no-ops the mirror — see `AiSession.bodyFile`.)
+ */
+export const roundBodyPath = (workspaceRoot: AbsolutePath, round: number, role: 'generator' | 'evaluator'): string =>
+  join(String(workspaceRoot), 'rounds', String(round), role, 'body.txt');
+
+/**
+ * Absolute path to `rounds/<N>/<role>/body-corrective-<attempt>.txt` — one file per corrective
+ * nudge so a 2nd / 3rd nudge's response never overwrites an earlier nudge's forensic capture.
+ * `attempt` is the 1-based nudge index `validateSignalsFileWithCorrectiveRetry` passes to `reinvoke`.
+ */
+export const roundCorrectiveBodyPath = (
+  workspaceRoot: AbsolutePath,
+  round: number,
+  role: 'generator' | 'evaluator',
+  attempt: number
+): string => join(String(workspaceRoot), 'rounds', String(round), role, `body-corrective-${String(attempt)}.txt`);
+
+/**
  * Read the captured Claude `session_id` from `rounds/<N>/<role>/session-id.txt` — the sibling
  * text file the Claude adapter writes via `persistSessionIdFile` after every spawn. Returns
  * `undefined` when the file is missing (the adapter skips the write on a spawn that never

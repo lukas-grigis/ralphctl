@@ -69,6 +69,8 @@ export interface GenEvalLoopDeps {
   readonly readConfig: () => Promise<{ readonly maxTurns: number }>;
   readonly maxTurns: number;
   readonly plateauThreshold: number;
+  /** Bounded corrective in-round nudges before a signals.json contract failure self-blocks (1–5). */
+  readonly correctiveRetries: number;
 }
 
 export interface GenEvalLoopRoleConfig {
@@ -111,6 +113,7 @@ export const createGenEvalLoop = (
     eventBus: deps.eventBus,
     maxTurns: deps.maxTurns,
     plateauThreshold: deps.plateauThreshold,
+    correctiveRetries: deps.correctiveRetries,
     ...(opts.verifyScript !== undefined ? { verifyScript: opts.verifyScript } : {}),
   };
   const generatorLeafDeps = {

@@ -86,6 +86,7 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
       progressFile: absolutePath('/tmp/ralph/fake-sprint-dir/progress.md'),
       model: 'test-model',
       plateauThreshold: 2,
+      correctiveRetries: 1,
       gitRunner: stubGitRunner(),
       clock: () => FIXED_NOW,
       logger: noopLogger,
@@ -444,6 +445,7 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
       progressFile: absolutePath('/tmp/ralph/fake-sprint-dir/progress.md'),
       model: 'test-model',
       plateauThreshold: 2,
+      correctiveRetries: 1,
       gitRunner: stubGitRunner(),
       clock: () => FIXED_NOW,
       logger: noopLogger,
@@ -459,6 +461,10 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
     expect(result.value.ctx.lastEvaluation?.status).toBe('passed');
     // Exactly two spawns: the original + ONE corrective retry (no loop).
     expect(mock.invocations).toHaveLength(2);
+    // Forensic body mirror: the initial spawn captures `body.txt`, the corrective nudge captures a
+    // distinct `body-corrective-1.txt` so a nudge never clobbers the original spawn's capture.
+    expect(String(mock.invocations[0]?.session.bodyFile)).toMatch(/\/rounds\/\d+\/evaluator\/body\.txt$/);
+    expect(String(mock.invocations[1]?.session.bodyFile)).toMatch(/\/rounds\/\d+\/evaluator\/body-corrective-1\.txt$/);
   });
 
   it('corrective retry exhausted: both spawns write a vacuous PASS → self-block (one retry max)', async () => {
@@ -494,6 +500,7 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
       progressFile: absolutePath('/tmp/ralph/fake-sprint-dir/progress.md'),
       model: 'test-model',
       plateauThreshold: 2,
+      correctiveRetries: 1,
       gitRunner: stubGitRunner(),
       clock: () => FIXED_NOW,
       logger: noopLogger,
@@ -505,6 +512,80 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
     expectSelfBlock(result, 'schema');
     // Original + exactly one corrective retry — never loops.
     expect(mock.invocations).toHaveLength(2);
+  });
+
+  // ── Bounded loop (correctiveRetries=2): recover on the SECOND nudge / exhaust after two ──
+  const vacuousPass: SpawnFixture = {
+    kind: 'ok',
+    payload: {
+      schemaVersion: 1,
+      signals: [
+        {
+          type: 'evaluation',
+          status: 'passed',
+          dimensions: [{ dimension: 'correctness', passed: true, finding: 'all good' }],
+          timestamp: '2026-05-22T10:00:00.000Z',
+        },
+      ],
+    },
+  };
+  const twoRetryDeps = (mock: ReturnType<typeof createMockHeadlessProvider>): EvaluatorLeafDeps => {
+    const writeFile: EvaluatorLeafDeps['writeFile'] = async (path, content) => {
+      await fs.mkdir(join(String(path), '..'), { recursive: true });
+      await fs.writeFile(String(path), content, 'utf8');
+      return Result.ok(undefined);
+    };
+    return {
+      provider: mock.provider,
+      templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
+      signals: createInMemorySink<HarnessSignal>(),
+      writeFile,
+      cwd: absolutePath('/tmp/ralph/fake-cwd'),
+      sprintDir: absolutePath('/tmp/ralph/fake-sprint-dir'),
+      progressFile: absolutePath('/tmp/ralph/fake-sprint-dir/progress.md'),
+      model: 'test-model',
+      plateauThreshold: 2,
+      correctiveRetries: 2,
+      gitRunner: stubGitRunner(),
+      clock: () => FIXED_NOW,
+      logger: noopLogger,
+      eventBus: createInMemoryEventBus(),
+    };
+  };
+
+  it('corrective retry recovers on the SECOND nudge (correctiveRetries=2 → 3 spawns)', async () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    // Original + first nudge both write a vacuous PASS (fails the floor refinement); the second
+    // nudge writes the full floor set → recovers.
+    const sequences = new Map<string, readonly SpawnFixture[]>([
+      [
+        signalsFilePath(),
+        [vacuousPass, vacuousPass, { kind: 'ok', payload: { schemaVersion: 1, signals: [passedEvaluation] } }],
+      ],
+    ]);
+    const mock = createMockHeadlessProvider({ sequences });
+    const leaf = evaluatorLeaf(twoRetryDeps(mock), task.id);
+    const result = await leaf.execute(baseCtx(task));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.ctx.lastExit?.kind).toBe('passed');
+    // Original spawn + 2 corrective nudges.
+    expect(mock.invocations).toHaveLength(3);
+  });
+
+  it('corrective retry exhausted after two nudges (correctiveRetries=2 → 3 spawns) → self-block', async () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    const sequences = new Map<string, readonly SpawnFixture[]>([
+      [signalsFilePath(), [vacuousPass, vacuousPass, vacuousPass]],
+    ]);
+    const mock = createMockHeadlessProvider({ sequences });
+    const leaf = evaluatorLeaf(twoRetryDeps(mock), task.id);
+    const result = await leaf.execute(baseCtx(task));
+
+    expectSelfBlock(result, 'schema');
+    // Original spawn + 2 corrective nudges, then self-block.
+    expect(mock.invocations).toHaveLength(3);
   });
 
   // ── Stale-clear: a self-blocked round must CLEAR a prior round's lastEvaluation ──

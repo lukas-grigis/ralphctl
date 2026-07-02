@@ -22,7 +22,7 @@ import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
  * explicitly via `ai.implement.generator.<field>` or `ai.implement.evaluator.<field>`.
  */
 const SETTINGS_KEY_HINT =
-  'supported keys: ai.effort, ai.{flow}.{provider,model,effort} (flow in {refine,plan,readiness,ideate,createPr}), ai.implement.{generator,evaluator}.{provider,model,effort}, harness.{maxTurns,maxAttempts,rateLimitRetries,idleWatchdogMs,plateauThreshold,escalateOnPlateau,skipPreVerifyOnFreshSetup}, harness.escalationMap.<fromModel>, logging.level, concurrency.maxParallelTasks, scm.postRefinementComment, ui.notifications.enabled';
+  'supported keys: ai.effort, ai.{flow}.{provider,model,effort} (flow in {refine,plan,readiness,ideate,createPr}), ai.implement.{generator,evaluator}.{provider,model,effort}, harness.{maxTurns,maxAttempts,rateLimitRetries,idleWatchdogMs,plateauThreshold,correctiveRetries,escalateOnPlateau,skipPreVerifyOnFreshSetup}, harness.escalationMap.<fromModel>, logging.level, concurrency.maxParallelTasks, scm.postRefinementComment, ui.notifications.enabled';
 
 const BOOLEAN_VALUE_HINT = "use 'true' or 'false'";
 
@@ -239,9 +239,15 @@ const applyFixedSettingsKey = (current: Settings, key: string, raw: string): Res
     case 'harness.maxAttempts':
     case 'harness.rateLimitRetries':
     case 'harness.idleWatchdogMs':
-    case 'harness.plateauThreshold': {
+    case 'harness.plateauThreshold':
+    case 'harness.correctiveRetries': {
       const which = key.split('.')[1] as
-        'maxTurns' | 'maxAttempts' | 'rateLimitRetries' | 'idleWatchdogMs' | 'plateauThreshold';
+        | 'maxTurns'
+        | 'maxAttempts'
+        | 'rateLimitRetries'
+        | 'idleWatchdogMs'
+        | 'plateauThreshold'
+        | 'correctiveRetries';
       return applyNumberField(current, key, raw, (c, n) => ({ ...c, harness: { ...c.harness, [which]: n } }));
     }
     case 'harness.escalateOnPlateau':

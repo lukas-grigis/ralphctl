@@ -76,6 +76,14 @@ loop's `shouldStop` predicate fires immediately and no generator or evaluator tu
 guard also skips the post-task verify when `lastExit` is already set on ctx entry, avoiding a spurious
 verify run on a tree the generator never touched.
 
+**Corrective-retry gate before self-block.** When a generator or evaluator spawn exits without a
+valid `signals.json` (signals-missing / invalid-json / schema-mismatch — a correctable contract
+failure), the harness does not self-block immediately: it issues up to `settings.harness.correctiveRetries`
+(1–5, default 2) bounded in-round nudges, each a full resumed spawn re-prompted with the concrete
+fix, before giving up. Only after every nudge still fails does the turn stamp a `self-blocked` exit.
+These nudges are in-round and consume no `maxTurns`/`maxAttempts` budget; a self-blocked exit still
+never retries at the task level. See `contract/_engine/corrective-retry.ts`.
+
 **Serial-path blocked-diff quarantine.** On the serial path, when a task is blocked (own-failure),
 its rejected diff is stashed to `ralphctl/<sprintId>/<taskId>/blocked-diff` and recorded on
 `blockedReason` before sibling tasks run — preserving the rejected work for post-mortem inspection

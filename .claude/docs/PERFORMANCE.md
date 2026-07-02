@@ -68,6 +68,11 @@ required. The only path that resets a task to `todo` is `task unblock`.
 - `rateLimitRetries` (0–10) — adapter-side 429 retries
 - `idleWatchdogMs` (60_000–3_600_000, default 300_000) — stdio-silence threshold before the idle watchdog
   SIGTERMs a wedged headless AI child
+- `correctiveRetries` (1–5, default 2) — bounded in-round corrective nudges the harness issues when a
+  generator or evaluator spawn exits without a valid `signals.json` (signals-missing / invalid-json /
+  schema-mismatch) before the task self-blocks. Each nudge is a full resumed spawn; capped tighter
+  than `maxTurns`/`maxAttempts` because it multiplies spawn cost INSIDE one round. Consumes no turn or
+  attempt budget — nudges happen before the turn is recorded. See `contract/_engine/corrective-retry.ts`.
 - `plateauThreshold` (2–5, default 3) — consecutive evaluator rounds flagging the same failed-dimension
   set before the loop exits with a plateau warning; score improvement, commit-progress, or
   critique-Jaccard shift can exempt a round from counting. The patient default (3) avoids spending an

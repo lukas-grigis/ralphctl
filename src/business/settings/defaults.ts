@@ -104,6 +104,7 @@ export const DEFAULT_SETTINGS: Settings = {
     rateLimitRetries: 3,
     idleWatchdogMs: 300_000,
     plateauThreshold: 3,
+    correctiveRetries: 2,
     escalateOnPlateau: true,
     escalationMap: {},
     skipPreVerifyOnFreshSetup: false,

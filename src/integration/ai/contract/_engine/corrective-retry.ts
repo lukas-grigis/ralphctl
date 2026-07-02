@@ -11,7 +11,7 @@ import type { AiOutputContract } from '@src/integration/ai/contract/_engine/type
 import { validateSignalsFile } from '@src/integration/ai/contract/_engine/validate-signals-file.ts';
 
 /**
- * One corrective retry on a *recoverable* `signals.json` contract failure.
+ * Bounded corrective retries on a *recoverable* `signals.json` contract failure.
  *
  * The first whole-array Zod parse is all-or-nothing: a single malformed element (wrong shape,
  * truncated JSON, a vacuous evaluation that now fails the floor-dimension refinement) fails the
@@ -21,31 +21,43 @@ import { validateSignalsFile } from '@src/integration/ai/contract/_engine/valida
  * exactly that reason: without it, today's vacuous passes would become terminal blocks instead
  * of one extra corrective round.
  *
- * Flow (one retry, no loop — chain-level retry primitives are banned; in-leaf branching is fine):
+ * Flow (a BOUNDED in-function loop, up to `deps.correctiveRetries` nudges — chain-level retry
+ * primitives are still banned; this is the in-leaf loop CLAUDE.md explicitly allows, mirroring
+ * `providers/_engine/run-with-rate-limit-retry.ts`'s idiom):
  *
  *   1. {@link validateSignalsFile} the spawn's output dir. On success, return immediately.
  *   2. On a NON-correctable failure (user abort, rate-limit, or a `MigrationGapError` the AI
  *      cannot fix by re-emitting), return the error verbatim — the caller self-blocks.
- *   3. On a CORRECTABLE failure (signals-missing / invalid-json / schema-mismatch), build a
- *      short corrective prompt gated by the error class, re-invoke the provider ONCE via the
- *      caller-supplied {@link reinvoke} callback (the leaf owns the resumed spawn so session /
- *      resume / abort threading stays there), then re-validate. Return whichever Result the
- *      second validation produced — success on a fixed file, the second error on a repeat miss.
+ *   3. On a CORRECTABLE failure (signals-missing / invalid-json / schema-mismatch), loop up to
+ *      `correctiveRetries` times: build a short corrective prompt gated by the LATEST error class,
+ *      re-invoke the provider via the caller-supplied {@link reinvoke} callback (the leaf owns the
+ *      resumed spawn so session / resume / abort threading stays there), then re-validate. Return
+ *      on the first fixed file; a spawn-level error short-circuits; exhausting every nudge returns
+ *      the last contract error so the caller self-blocks.
  *
- * `reinvoke(corrective)` MUST spawn the provider on the SAME resumed session (so the model sees
- * the corrective message as a follow-up turn) targeting the SAME `signals.json` path, then
+ * `reinvoke(corrective, attempt)` MUST spawn the provider on the SAME resumed session (so the model
+ * sees the corrective message as a follow-up turn) targeting the SAME `signals.json` path, then
  * resolve once the spawn has returned. A spawn-level error (`Result.error`) short-circuits — the
- * caller self-blocks with that error. `AbortError` from the re-invoke propagates transparently.
+ * caller self-blocks with that error. `AbortError` from the re-invoke propagates transparently. The
+ * `attempt` index (1-based) lets the leaf name per-nudge forensic artifacts.
  */
 export interface CorrectiveRetryDeps {
   readonly outputDir: AbsolutePath;
   readonly logger: Logger;
   /**
+   * Bounded number of corrective nudges to issue before self-blocking (`settings.harness.
+   * correctiveRetries`, 1–5). Each nudge is one full resumed spawn. `0` degrades cleanly to
+   * "self-block on the first contract failure" (the loop body never runs).
+   */
+  readonly correctiveRetries: number;
+  /**
    * Re-run the provider on the resumed session with the corrective `Prompt` and re-target the
    * same `signals.json`. Resolves with the spawn-level Result (the leaf maps a clean spawn to
-   * `Result.ok(undefined)`; a non-zero / errored spawn to `Result.error`).
+   * `Result.ok(undefined)`; a non-zero / errored spawn to `Result.error`). `attempt` is the
+   * 1-based nudge index (`1..correctiveRetries`) — the leaf uses it to name per-nudge side
+   * artifacts (the forensic `bodyFile`) so a later nudge never overwrites an earlier one's capture.
    */
-  readonly reinvoke: (corrective: Prompt) => Promise<Result<void, DomainError>>;
+  readonly reinvoke: (corrective: Prompt, attempt: number) => Promise<Result<void, DomainError>>;
   /**
    * SELF-CONTAINMENT block appended to every corrective body — the per-round output-contract
    * section plus role context (contract.md path; for the evaluator, the instruction that the
@@ -140,34 +152,48 @@ export const validateSignalsFileWithCorrectiveRetry = async <TSig extends AiSign
   const first = await validateSignalsFile(deps.outputDir, contract);
   if (first.ok) return first;
 
-  const err: DomainError = first.error;
-  if (!isCorrectableContractError(err)) return Result.error(err);
+  let lastErr: DomainError = first.error;
+  if (!isCorrectableContractError(lastErr)) return Result.error(lastErr);
 
   const log = deps.logger.named('ai.contract.corrective-retry');
   const signalsPath = `${String(deps.outputDir)}/signals.json`;
-  log.warn('signals.json failed the contract — issuing one corrective retry', {
-    outputDir: String(deps.outputDir),
-    error: err.message,
-  });
+  const maxRetries = Math.max(0, deps.correctiveRetries);
 
-  const corrective = correctiveBody(err, signalsPath, deps.selfContainedContext) as Prompt;
-  const respawn = await deps.reinvoke(corrective);
-  if (!respawn.ok) {
-    log.warn('corrective retry spawn failed — self-blocking on the spawn error', {
+  // Bounded in-function loop — up to `correctiveRetries` resumed nudges, re-building the corrective
+  // body from the LATEST error each round (a schema-mismatch that becomes signals-missing on the
+  // next round gets the right message). NOT a chain-level `loop` primitive (banned by CLAUDE.md);
+  // this is the in-leaf branching that section explicitly allows, mirroring `run-with-rate-limit-
+  // retry.ts`. A spawn-level error short-circuits (AbortError propagates verbatim); exhausting every
+  // nudge without a valid file self-blocks with the last contract error.
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    log.warn(`signals.json failed the contract — corrective retry ${String(attempt)}/${String(maxRetries)}`, {
       outputDir: String(deps.outputDir),
-      error: respawn.error.message,
+      error: lastErr.message,
     });
-    return Result.error(respawn.error);
+
+    const corrective = correctiveBody(lastErr, signalsPath, deps.selfContainedContext) as Prompt;
+    const respawn = await deps.reinvoke(corrective, attempt);
+    if (!respawn.ok) {
+      log.warn('corrective retry spawn failed — self-blocking on the spawn error', {
+        outputDir: String(deps.outputDir),
+        attempt,
+        error: respawn.error.message,
+      });
+      return Result.error(respawn.error);
+    }
+
+    const revalidated = await validateSignalsFile(deps.outputDir, contract);
+    if (revalidated.ok) {
+      log.info('corrective retry produced a valid signals.json', { outputDir: String(deps.outputDir), attempt });
+      return revalidated;
+    }
+    lastErr = revalidated.error;
   }
 
-  const second = await validateSignalsFile(deps.outputDir, contract);
-  if (second.ok) {
-    log.info('corrective retry produced a valid signals.json', { outputDir: String(deps.outputDir) });
-    return second;
-  }
-  log.warn('corrective retry still failed the contract — self-blocking', {
+  log.warn('corrective retries exhausted — self-blocking', {
     outputDir: String(deps.outputDir),
-    error: second.error.message,
+    attempts: maxRetries,
+    error: lastErr.message,
   });
-  return Result.error(second.error);
+  return Result.error(lastErr);
 };

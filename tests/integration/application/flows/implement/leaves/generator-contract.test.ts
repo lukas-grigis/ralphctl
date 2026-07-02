@@ -80,6 +80,7 @@ describe('generatorLeaf — audit-[09] contract', () => {
       eventBus,
       maxTurns: 5,
       plateauThreshold: 3,
+      correctiveRetries: 2,
     };
     return { deps, sink };
   };

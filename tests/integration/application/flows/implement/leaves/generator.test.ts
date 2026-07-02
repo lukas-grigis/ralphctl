@@ -53,6 +53,7 @@ describe('generatorLeaf', () => {
     eventBus,
     maxTurns: 5,
     plateauThreshold: 3,
+    correctiveRetries: 2,
   });
 
   const baseCtx = (task: ReturnType<typeof makeInProgressTaskWithRunningAttempt>): ImplementCtx => ({

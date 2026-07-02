@@ -35,6 +35,8 @@ import { implementSession } from '@src/application/flows/implement/leaves/implem
 import { evaluatorOutputContract } from '@src/application/flows/implement/leaves/evaluator.contract.ts';
 import {
   readRoundSessionId,
+  roundBodyPath,
+  roundCorrectiveBodyPath,
   roundEvaluationRelativePath,
   roundSignalsPath,
   writeRoundPrompt,
@@ -101,6 +103,11 @@ export interface EvaluatorLeafDeps {
   readonly verifyScript?: string;
   /** From `settings.harness.plateauThreshold` (2–5). */
   readonly plateauThreshold: number;
+  /**
+   * Bounded corrective in-round nudges before a signals.json contract failure self-blocks the task
+   * (`settings.harness.correctiveRetries`, 1–5). Threaded into `validateSignalsFileWithCorrectiveRetry`.
+   */
+  readonly correctiveRetries: number;
   /**
    * Git transport — used post-spawn to compute the round's work-product fingerprint (a content
    * hash of `git status --porcelain` + `git diff HEAD` against {@link cwd}). Fed into the
@@ -249,13 +256,18 @@ const makeEvaluatorReinvoke =
       readonly priorEvaluatorSessionId: SessionId | undefined;
       readonly signal: AbortSignal | undefined;
     }
-  ): ((corrective: Prompt) => Promise<Result<void, DomainError>>) =>
-  async (corrective) => {
+  ): ((corrective: Prompt, attempt: number) => Promise<Result<void, DomainError>>) =>
+  async (corrective, attempt) => {
     // Resume the reviewer's just-spawned thread so the corrective lands as a follow-up turn —
     // read the session id this spawn captured to disk. Falls back to the prior-round id when
     // this spawn never reported one.
     const resume =
       (await readRoundSessionId(args.workspaceRoot, args.roundNum, 'evaluator')) ?? args.priorEvaluatorSessionId;
+    // Per-nudge forensic body mirror so a 2nd/3rd nudge never clobbers an earlier capture. Parse is
+    // best-effort — a bad path just omits the mirror, never fails the spawn.
+    const bodyFile = AbsolutePath.parse(
+      roundCorrectiveBodyPath(args.workspaceRoot, args.roundNum, 'evaluator', attempt)
+    );
     const respawn = await deps.provider.generate(
       implementSession(
         args.workspaceRoot,
@@ -267,7 +279,8 @@ const makeEvaluatorReinvoke =
         'evaluator',
         resume,
         deps.effort,
-        args.signal
+        args.signal,
+        bodyFile.ok ? bodyFile.value : undefined
       )
     );
     return respawn.ok ? Result.ok(undefined) : Result.error(respawn.error);
@@ -312,6 +325,10 @@ const makeEvaluatorCallEvaluate =
       deps.logger
     );
 
+    // Forensic mirror of the initial spawn's raw body — best-effort parse; a bad path omits it.
+    const initialBodyFile = AbsolutePath.parse(
+      roundBodyPath(args.input.workspaceRoot, args.input.roundNum, 'evaluator')
+    );
     const spawn = await deps.provider.generate(
       implementSession(
         args.input.workspaceRoot,
@@ -323,7 +340,8 @@ const makeEvaluatorCallEvaluate =
         'evaluator',
         args.input.priorEvaluatorSessionId,
         deps.effort,
-        args.signal
+        args.signal,
+        initialBodyFile.ok ? initialBodyFile.value : undefined
       )
     );
     if (!spawn.ok) return Result.error(spawn.error);
@@ -339,6 +357,7 @@ const makeEvaluatorCallEvaluate =
       {
         outputDir: args.outputDir,
         logger: deps.logger,
+        correctiveRetries: deps.correctiveRetries,
         // Self-containment for a COLD corrective spawn (no resumable id / codex stale-resume
         // fallback): the per-round output contract plus the reviewer's grounding — without
         // this, a context-free retry's whole prompt is the error text, which is exactly

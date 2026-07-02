@@ -56,7 +56,8 @@ export const implementSession = (
   role: 'generator' | 'evaluator',
   resume?: SessionId,
   effort?: string,
-  abortSignal?: AbortSignal
+  abortSignal?: AbortSignal,
+  bodyFile?: AbsolutePath
 ): AiSession => {
   // The per-round output dir is the directory containing `signalsFile` (e.g.
   // `<sandboxCwd>/rounds/<N>/<role>/`). Stamping it on the session lets every adapter's
@@ -92,5 +93,10 @@ export const implementSession = (
     // machinery is dead code — a manual abort would let the child run to natural completion,
     // stranding the repo lock and the progress spinner until the run ends on its own.
     ...(abortSignal !== undefined ? { abortSignal } : {}),
+    // Forensic mirror of the raw AI response body — armed BEFORE the spawn (we can't know in
+    // advance which spawn omits `signals.json`). On a `signals-missing` failure this is the only
+    // artifact of what the model actually did. Matches the readiness / detect-skills pattern; the
+    // Claude / Codex adapters write it, Copilot no-ops (see `AiSession.bodyFile`).
+    ...(bodyFile !== undefined ? { bodyFile } : {}),
   };
 };
