@@ -1,6 +1,7 @@
 import { Result } from '@src/domain/result.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import type { Task } from '@src/domain/entity/task.ts';
+import { composeCriteriaHistory } from '@src/business/task/compose-criteria-history.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { buildPrompt, type BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
 import type { PromptDefinition } from '@src/integration/ai/prompts/_engine/definition.ts';
@@ -126,6 +127,13 @@ export interface ImplementPromptParams {
    * (no `<prior_task_episodes>` block is emitted). Default undefined (empty).
    */
   readonly priorEpisodesSection?: string;
+  /**
+   * "## Prior criteria verdicts" block — the durable per-criterion k-of-N checklist carried across
+   * rounds (`Task.criteriaVerdicts`), rendered by `composeCriteriaHistory`. Fed forward so a fresh
+   * attempt (post-escalation, new session) knows which done-criteria already pass and which still
+   * fail. Absent or empty (no criterion graded yet) → `{{PRIOR_CRITERIA_VERDICTS}}` collapses cleanly.
+   */
+  readonly priorCriteriaVerdictsSection?: string;
 }
 
 const requireNonEmpty =
@@ -234,6 +242,13 @@ export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
       description:
         'Compact bullet list of prior task episodes for this sprint rendered by `summariseEpisodes`. ' +
         'Empty → `{{PRIOR_EPISODES}}` collapses (the renderer omits the `<prior_task_episodes>` wrapper).',
+    },
+    priorCriteriaVerdictsSection: {
+      placeholder: 'PRIOR_CRITERIA_VERDICTS',
+      optional: true,
+      description:
+        'Durable per-criterion k-of-N checklist carried across rounds (`Task.criteriaVerdicts`), rendered ' +
+        'by `composeCriteriaHistory`. Empty (no criterion graded yet) → `{{PRIOR_CRITERIA_VERDICTS}}` collapses.',
     },
   },
   partials: {
@@ -360,4 +375,10 @@ export const buildImplementPrompt = async (
     preVerifyResults: renderPreVerifyResultsSection(input.preVerifyOutput),
     retryFeedbackSection: renderRetryFeedbackSection(input.retryFeedback),
     priorEpisodesSection: renderPriorEpisodesSection(input.priorEpisodes),
+    // Derived from the task itself (which already rides `input.task`) — the durable per-criterion
+    // verdict map is a task field, so no leaf needs to pre-compose or thread it. Empty → collapses.
+    priorCriteriaVerdictsSection: composeCriteriaHistory({
+      verificationCriteria: input.task.verificationCriteria,
+      verdicts: input.task.criteriaVerdicts,
+    }),
   });

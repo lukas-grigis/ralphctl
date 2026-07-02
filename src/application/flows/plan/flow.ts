@@ -15,6 +15,8 @@ import { buildUnitLeaf } from '@src/application/flows/_shared/build-unit.ts';
 import { renderPromptToFileLeaf } from '@src/application/flows/_shared/render-prompt-to-file.ts';
 import { buildPlanPrompt } from '@src/integration/ai/prompts/plan/definition.ts';
 import { readCappedSprintProgress } from '@src/application/flows/_shared/progress/read-sprint-progress.ts';
+import { composePriorLearnings } from '@src/application/flows/_shared/memory/compose-prior-learnings.ts';
+import { loadCandidateLearnings } from '@src/application/flows/_shared/memory/load-candidate-learnings.ts';
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
 import { planOutputContract } from '@src/application/flows/plan/leaves/plan.contract.ts';
 import type { PlanCtx } from '@src/application/flows/plan/ctx.ts';
@@ -50,6 +52,15 @@ export interface CreatePlanFlowOpts {
   readonly planRoot: AbsolutePath;
   /** Optional run slug. Defaults to `'session-<timestamp>'`. */
   readonly runSlug?: string;
+  /**
+   * Root of the per-project procedural-memory tree (`<dataRoot>/memory/`). When supplied, the
+   * planner prompt is seeded with this project's not-yet-promoted learnings + decisions so the
+   * planner scopes tasks and picks verification commands against earned repo facts rather than
+   * blind (spec quality dominates generation quality). Optional: when omitted the ledger read is
+   * skipped and the `<prior_learnings>` block collapses — the launcher passes
+   * `deps.storage.memoryRoot`, mirroring the implement flow.
+   */
+  readonly memoryRoot?: AbsolutePath;
 }
 
 /**
@@ -113,11 +124,20 @@ export const createPlanFlow = (deps: PlanDeps, opts: CreatePlanFlowOpts): Elemen
           if (ctx.project === undefined) throw new Error('project missing');
           if (ctx.currentUnitRoot === undefined) throw new Error('currentUnitRoot missing');
           const priorProgress = await readCappedSprintProgress(opts.planRoot, opts.model);
+          // Cross-sprint procedural memory (read side). The plan session mounts every project repo
+          // as an equal `--add-dir` source with no primary repo, so relevance is weighted by
+          // recency only (empty context) rather than biasing toward any single repo. A missing
+          // ledger resolves to an empty list, so the block degrades cleanly.
+          const priorLearnings =
+            opts.memoryRoot === undefined
+              ? ''
+              : composePriorLearnings(await loadCandidateLearnings(opts.memoryRoot, opts.projectId, deps.logger), {});
           return buildPlanPrompt(deps.templateLoader, {
             sprint: ctx.sprint,
             project: ctx.project,
             outputContractSection: renderContractSectionFor(planOutputContract, ctx.currentUnitRoot),
             priorProgress,
+            priorLearnings,
             ...(ctx.tasks !== undefined && ctx.tasks.length > 0 ? { existingTasks: ctx.tasks } : {}),
           });
         },

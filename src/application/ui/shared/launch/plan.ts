@@ -91,6 +91,7 @@ export const launchPlan = async (ctx: LaunchContext): Promise<LaunchResult> => {
       providerId: settings.ai.plan.provider,
       model: settings.ai.plan.model,
       maxAttempts: settings.harness.maxAttempts,
+      memoryRoot: deps.storage.memoryRoot,
       ...(effort !== undefined ? { effort } : {}),
       planRoot: planRoot.value,
     }

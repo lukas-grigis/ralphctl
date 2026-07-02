@@ -49,6 +49,7 @@ export const launchIdeate = async (ctx: LaunchContext): Promise<LaunchResult> =>
       providerId: settings.ai.ideate.provider,
       model: settings.ai.ideate.model,
       maxAttempts: settings.harness.maxAttempts,
+      memoryRoot: deps.storage.memoryRoot,
       ...(effort !== undefined ? { effort } : {}),
       ideateRoot: ideateRoot.value,
     }

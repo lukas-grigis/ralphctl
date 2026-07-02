@@ -129,4 +129,98 @@ Do not run `git stash`, `git add`, or `git commit` — those are write operation
 may write is the `signals.json` named in the output contract below.
 </protocol>
 
+<examples>
+
+<example id="1" label="FAIL — a criterion that passed in round 1 regresses in round 2">
+
+Task: "Add rate limiting to the public API"
+
+Criteria:
+
+- [C1] (auto) run the project's test suite filtered to the rate-limit module — all tests pass.
+- [C2] (manual) — requests over the limit return 429 with a `Retry-After` header.
+
+Round 1 (already in this conversation's history): `status: "failed"` — C1 passed, C2 failed because
+no `Retry-After` header was present.
+
+Round 2 (this call) — re-ran C1's test command directly: exit 1, one failure — `rate-limit.test.ts:34`
+now fails because the request counter increments twice per request. Verbatim output recorded in
+`executionEvidence`. Re-inspected the diff: `src/middleware/rate-limit.ts:52` calls `store.increment()`
+a second time while building the new header, on top of the existing increment in the limit check.
+
+Re-assessment: C1 regressed from PASS (round 1) to FAIL (round 2) — the header fix double-counts
+requests against the limit. C2 is now PASS — `src/middleware/rate-limit.ts:60` sets `Retry-After` from
+the store's TTL, matching the criterion. Correctness fails on the C1 regression; Completeness, Safety,
+and Consistency pass; Robustness is `applicable: false` — the change touches only a counter increment,
+no new error/failure-recovery path.
+
+Verdict: `status: "failed"`, critique:
+
+- "[Correctness · C1] (a) correctness, (b) `store.increment()` at `src/middleware/rate-limit.ts:52` now
+  runs twice per request — once for the limit check, once while building the `Retry-After` header —
+  doubling the effective rate-limit consumption and failing `rate-limit.test.ts:34` (this criterion
+  passed in round 1; the header fix introduced the regression), (c) compute `Retry-After` from the
+  existing counter value without incrementing again, (d) `src/middleware/rate-limit.ts:52`."
+
+Signals:
+
+```json
+{
+  "schemaVersion": 1,
+  "signals": [
+    {
+      "type": "evaluation",
+      "status": "failed",
+      "dimensions": [
+        {
+          "dimension": "correctness",
+          "passed": false,
+          "finding": "C1 regressed: store.increment() at src/middleware/rate-limit.ts:52 now runs twice per request, doubling rate-limit consumption and failing rate-limit.test.ts:34.",
+          "executionEvidence": "<test command output>"
+        },
+        {
+          "dimension": "completeness",
+          "passed": true,
+          "finding": "both criteria now have an implementation attempt; C2's header fix is present"
+        },
+        {
+          "dimension": "safety",
+          "passed": true,
+          "finding": "no new trust-boundary issue introduced by the header change"
+        },
+        {
+          "dimension": "consistency",
+          "passed": true,
+          "finding": "header logic follows the existing middleware pattern in src/middleware/csrf.ts"
+        },
+        {
+          "dimension": "robustness",
+          "passed": false,
+          "applicable": false,
+          "finding": "change touches only a counter increment; no new error/failure-recovery path"
+        }
+      ],
+      "criteria": [
+        {
+          "id": "C1",
+          "passed": false,
+          "evidence": "regressed this round — store.increment() now called twice per request, failing rate-limit.test.ts:34"
+        },
+        {
+          "id": "C2",
+          "passed": true,
+          "evidence": "Retry-After header set from store TTL at src/middleware/rate-limit.ts:60"
+        }
+      ],
+      "critique": "[Correctness · C1] (a) correctness, (b) store.increment() at src/middleware/rate-limit.ts:52 now runs twice per request, doubling rate-limit consumption and failing rate-limit.test.ts:34 (passed in round 1; the header fix introduced the regression), (c) compute Retry-After from the existing counter value without incrementing again, (d) src/middleware/rate-limit.ts:52.",
+      "timestamp": "2026-01-01T00:00:00.000Z"
+    }
+  ]
+}
+```
+
+</example>
+
+</examples>
+
 {{OUTPUT_CONTRACT_SECTION}}

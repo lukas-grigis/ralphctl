@@ -6,6 +6,7 @@ import type { Task } from '@src/domain/entity/task.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { buildPrompt, type BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
 import type { PromptDefinition } from '@src/integration/ai/prompts/_engine/definition.ts';
+import { renderPriorLearningsSection } from '@src/integration/ai/prompts/_engine/renderers/task.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import { TASK_IMPORT_JSON_SCHEMA } from '@src/integration/ai/prompts/_engine/task-import-schema.ts';
 
@@ -36,6 +37,15 @@ export interface PlanPromptParams {
    * section (audit-[07]). Empty when the journal has no entries yet.
    */
   readonly priorProgress: string;
+  /**
+   * Markdown body for the `<prior_learnings>` block — this project's not-yet-promoted ledger
+   * insights (both `learning` and `decision` rows), composed application-side by
+   * `composePriorLearnings` and rendered by `renderPriorLearningsSection`. Read-only background so
+   * the planner scopes tasks and picks verification commands against earned repo facts rather than
+   * blind. Empty string when the ledger is absent / empty so the surrounding template prose handles
+   * the empty case without a per-flow branch.
+   */
+  readonly priorLearningsSection: string;
 }
 
 const nonEmpty =
@@ -84,6 +94,11 @@ export const planPromptDef: PromptDefinition<PlanPromptParams> = {
     priorProgress: {
       placeholder: 'PRIOR_PROGRESS',
       description: 'Current `progress.md` body — empty when the sprint journal has no entries yet.',
+    },
+    priorLearningsSection: {
+      placeholder: 'PRIOR_LEARNINGS',
+      description:
+        "`<prior_learnings>` block — this project's not-yet-promoted ledger insights (learnings + decisions); empty when none recorded yet.",
     },
   },
   partials: {
@@ -146,6 +161,12 @@ export interface BuildPlanPromptInput {
   readonly outputContractSection: string;
   /** Current `progress.md` body — inlined into the prompt's "## Prior progress" section. */
   readonly priorProgress: string;
+  /**
+   * Pre-composed prior-sprint learnings body (bullet list built by `composePriorLearnings`).
+   * Absent or empty → the `{{PRIOR_LEARNINGS}}` placeholder collapses cleanly. Composed
+   * application-side by the plan flow from this project's ledger; passed in by the render leaf.
+   */
+  readonly priorLearnings?: string;
 }
 
 export const buildPlanPrompt = async (
@@ -160,6 +181,7 @@ export const buildPlanPrompt = async (
     schema: TASK_IMPORT_JSON_SCHEMA,
     outputContractSection: input.outputContractSection,
     priorProgress: input.priorProgress,
+    priorLearningsSection: renderPriorLearningsSection(input.priorLearnings),
     ...(existing.length > 0 ? { existingTasks: existing } : {}),
   });
 };

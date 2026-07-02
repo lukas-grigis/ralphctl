@@ -183,6 +183,28 @@ describe('callPlannerInteractiveLeaf — audit-[09] contract', () => {
     expect(result.value.ctx.sprint?.status).toBe('planned');
   });
 
+  // ── 1b. Abort signal threading ────────────────────────────────────────────────
+  it('threads the leaf abort signal into the interactive provider', async () => {
+    // Fix 1b: the leaf must forward its execute() signal as `abortSignal` so a TUI cancel can
+    // tear the stdio-inherit child down (attachAbortKill). Without this the child runs on.
+    await ensureUnitDir();
+    await fs.writeFile(
+      signalsFilePath(),
+      JSON.stringify({ schemaVersion: 1, signals: [taskPlanSignal(validTasksJson())] }),
+      'utf8'
+    );
+    const controller = new AbortController();
+    let seen: AbortSignal | undefined;
+    const provider = fakeAi(async (input) => {
+      seen = input.abortSignal;
+    });
+    const leaf = callPlannerInteractiveLeaf(buildDeps(provider));
+
+    const result = await leaf.execute(buildCtx(), controller.signal);
+    expect(result.ok).toBe(true);
+    expect(seen).toBe(controller.signal);
+  });
+
   // ── 2. signals.json missing ───────────────────────────────────────────────────
   it('ok-missing: surfaces signals-missing as InvalidStateError', async () => {
     await ensureUnitDir();

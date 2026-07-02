@@ -118,8 +118,8 @@ single `note` signal with a brief explanation and stop — do not invent command
 </output_contract>
 
 <example>
-When `CLAUDE.md` (or equivalent) contains "Verification: `<tool> typecheck && <tool> lint &&
-`<tool> test`" and the manifest declares those scripts:
+When `CLAUDE.md` (or equivalent) contains "Verification: `<tool> typecheck && <tool> lint && <tool>
+test`" and the manifest declares those scripts:
 
 ```json
 {

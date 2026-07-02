@@ -10,7 +10,8 @@ invocation, not as a tutorial or README.
 - At most seven H2 sections (`## Build & Run`, `## Testing`, `## Architecture`, …). Fewer is better.
 - No H4 headings or deeper — three heading levels (`#`, `##`, `###`) is the practical maximum.
 - Prefer tight bullet lists over prose paragraphs; each bullet should be one verifiable claim.
-- Hard line cap: 200 lines. Claude Code truncates longer files, so brevity is load-bearing.
+- Hard line cap: 200 lines. Instruction adherence measurably degrades on longer context files, so
+  brevity is load-bearing.
 
 **"Read on demand" pattern** — for sections that an agent rarely needs mid-task, list them under a
 `## References` heading with paths rather than embedding the content inline:

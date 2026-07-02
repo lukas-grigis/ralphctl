@@ -14,6 +14,7 @@ import {
   renderRepositories,
   renderSprintContext,
 } from '@src/integration/ai/prompts/plan/definition.ts';
+import { composePriorLearnings } from '@src/application/flows/_shared/memory/compose-prior-learnings.ts';
 
 const deps = createFsTemplateLoader(defaultTemplatesDir());
 
@@ -133,6 +134,56 @@ describe('buildPlanPrompt — end-to-end against the real template', () => {
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
 
+  it('injects the prior-learnings section when the ledger has records', async () => {
+    const sprint = draftWithApproved(1);
+    // Compose the section body the way the flow does — from real ledger records — so the test
+    // exercises compose → render → template, not just a hand-written string.
+    const priorLearnings = composePriorLearnings([
+      {
+        v: 1,
+        id: 'l1',
+        kind: 'learning',
+        text: 'the repo test runner is invoked via the project task command, not a global binary',
+        repo: '/repos/app',
+        repoName: 'app',
+        taskKind: 'feature',
+        sprintId: 's-prev',
+        taskId: 't-prev',
+        timestamp: '2026-05-30T10:00:00.000Z',
+        promotedAt: null,
+      },
+    ]);
+    const result = await buildPlanPrompt(deps, {
+      sprint,
+      project: makeProject(),
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      priorProgress: '',
+      priorLearnings,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toContain('## Learnings from prior sprints');
+    expect(result.value).toContain('the repo test runner is invoked via the project task command');
+    expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
+  });
+
+  it('omits the prior-learnings section cleanly when the ledger is empty', async () => {
+    const sprint = draftWithApproved(1);
+    const result = await buildPlanPrompt(deps, {
+      sprint,
+      project: makeProject(),
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      priorProgress: '',
+      // No priorLearnings → composePriorLearnings([]) === '' → section collapses.
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // The `<prior_learnings>` wrapper + standing "if empty" note stay; the rendered `## Learnings`
+    // heading does NOT appear when there is nothing to inject, and no placeholder leaks.
+    expect(result.value).not.toContain('## Learnings from prior sprints');
+    expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
+  });
+
   it('includes the existing-tasks block in replan flows', async () => {
     const { makeTodoTask } = await import('@tests/fixtures/domain.ts');
     const sprint = draftWithApproved(1);
@@ -156,6 +207,7 @@ describe('buildPlanPrompt — end-to-end against the real template', () => {
       schema: 'x',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
       priorProgress: '',
+      priorLearningsSection: '',
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBeInstanceOf(ValidationError);
