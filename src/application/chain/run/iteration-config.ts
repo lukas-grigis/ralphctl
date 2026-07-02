@@ -19,6 +19,13 @@ export interface IterationConfig {
    */
   readonly plateauThreshold: number;
   /**
+   * Bounded corrective in-round nudges on a correctable `signals.json` contract failure before the
+   * task self-blocks (1–5). Applies to generator and evaluator alike. Mirrors
+   * `settings.harness.correctiveRetries`; consumes no turn/attempt budget (nudges happen inside one
+   * turn). See `integration/ai/contract/_engine/corrective-retry.ts`.
+   */
+  readonly correctiveRetries: number;
+  /**
    * Master switch for failure-driven generator-model escalation. Despite the name (kept for
    * backward compatibility) it gates ALL failure-driven escalation, not only plateau: on a
    * `plateau` or `budget-exhausted` exit the generator's model climbs one rung up the ladder

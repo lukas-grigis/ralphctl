@@ -50,6 +50,7 @@ describe('renderRoundOutcome', () => {
       attemptN: 1,
       attempt: verifiedAttempt({ sessionId: 'sess-g', commitSha: 'abc1234deadbeef' as CommitSha }),
       verdict: 'passed',
+      willRetryNextRound: false,
       evaluation: passingEvaluation(),
       generatorSessionId: 'sess-g',
       durationMs: 5000,
@@ -68,12 +69,13 @@ describe('renderRoundOutcome', () => {
     expect(out).toMatch(/Round 2 of attempt 1 passed all evaluator dimensions and committed abc1234\./);
   });
 
-  it('failed verdict: includes the Critique section as a blockquote and synthesises a failure summary', () => {
+  it('failed verdict with a granted retry: includes the Critique section and promises round N+1', () => {
     const out = renderRoundOutcome({
       roundN: 1,
       attemptN: 1,
       attempt: failedAttempt({ critique: 'Implementation misses the empty-input path.' }),
       verdict: 'failed',
+      willRetryNextRound: true,
       evaluation: failingEvaluation(),
     });
 
@@ -83,12 +85,30 @@ describe('renderRoundOutcome', () => {
     expect(out).toMatch(/Round 1 of attempt 1 failed on completeness; critique persisted, round 2 will retry\./);
   });
 
+  it('failed verdict on a terminal round: does NOT promise a round N+1 that never runs', () => {
+    const out = renderRoundOutcome({
+      roundN: 2,
+      attemptN: 2,
+      attempt: failedAttempt({ n: 2 }),
+      verdict: 'failed',
+      willRetryNextRound: false,
+      evaluation: failingEvaluation(),
+    });
+
+    expect(out).toContain('- verdict: failed');
+    expect(out).toMatch(
+      /Round 2 of attempt 2 failed on completeness; critique persisted; the harness will not start another round for this attempt\./
+    );
+    expect(out).not.toContain('will retry');
+  });
+
   it('plateau verdict: synthesises a plateau summary using the failed dimension names', () => {
     const out = renderRoundOutcome({
       roundN: 3,
       attemptN: 2,
       attempt: failedAttempt({ n: 2 }),
       verdict: 'plateau',
+      willRetryNextRound: false,
       evaluation: {
         type: 'evaluation',
         status: 'failed',
@@ -110,6 +130,7 @@ describe('renderRoundOutcome', () => {
       attemptN: 1,
       attempt: verifiedAttempt(),
       verdict: 'passed',
+      willRetryNextRound: false,
       evaluation: passingEvaluation(),
     });
     expect(out).toContain('- generator session: —');
@@ -122,6 +143,7 @@ describe('renderRoundOutcome', () => {
       attemptN: 1,
       attempt: failedAttempt(),
       verdict: 'failed',
+      willRetryNextRound: true,
       evaluation: failingEvaluation(),
     });
     expect(out).toContain('- duration: —');
@@ -134,6 +156,7 @@ describe('renderRoundOutcome', () => {
       attemptN: 1,
       attempt: verifiedAttempt({ sessionId: 'sess', commitSha: '1234567' as CommitSha }),
       verdict: 'passed' as const,
+      willRetryNextRound: false,
       evaluation: passingEvaluation(),
       generatorSessionId: 'sess',
       durationMs: 1500,
@@ -147,6 +170,7 @@ describe('renderRoundOutcome', () => {
       attemptN: 1,
       attempt: failedAttempt({ critique: 'fallback critique text' }),
       verdict: 'failed',
+      willRetryNextRound: true,
     });
     expect(out).toContain('> fallback critique text');
   });
@@ -157,6 +181,7 @@ describe('renderRoundOutcome', () => {
       attemptN: 1,
       attempt: failedAttempt(),
       verdict: 'failed',
+      willRetryNextRound: true,
     });
     expect(out).toContain('## Critique');
     expect(out).toContain('_No critique text emitted by the evaluator._');
@@ -170,6 +195,7 @@ describe('renderRoundOutcome', () => {
         evaluation: { status: 'failed', file: 'rounds/1/evaluator/evaluation.md' },
       }),
       verdict: 'failed',
+      willRetryNextRound: true,
     });
     expect(out).toContain('## Evaluator dimensions');
     expect(out).toContain('_No dimension verdicts recorded._');
@@ -181,6 +207,7 @@ describe('renderRoundOutcome', () => {
       attemptN: 1,
       attempt: verifiedAttempt({ commitSha: 'abcdef1' as CommitSha }),
       verdict: 'passed',
+      willRetryNextRound: false,
       evaluation: passingEvaluation(),
     });
     expect(out).not.toContain(isoTimestamp('2026-05-08T10:00:00.000Z'));

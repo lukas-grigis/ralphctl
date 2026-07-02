@@ -302,6 +302,21 @@ export const SettingsSchema = z.object({
          */
         plateauThreshold: z.number().int().min(2).max(5).default(3),
         /**
+         * Bounded number of corrective in-round nudges the harness issues on a *correctable*
+         * `signals.json` contract failure (signals-missing / invalid-json / schema-mismatch) before
+         * self-blocking the task (1–5, default 2). Applies identically to the generator and
+         * evaluator roles via `validateSignalsFileWithCorrectiveRetry` — see
+         * `integration/ai/contract/_engine/corrective-retry.ts`.
+         *
+         * Each nudge is a full resumed AI spawn, so raising this trades cost/latency on a wedged
+         * round for a lower chance of a false self-block. Deliberately capped tighter than
+         * `maxTurns`/`maxAttempts` (1–10): unlike those two — which bound the OUTER loop — this
+         * multiplies spawn cost INSIDE one round, stacked on the turn budget, so 5 caps a wedged
+         * round at 6 spawns. Independent of `maxTurns`/`maxAttempts`: nudges happen inside one turn,
+         * before that turn is recorded, so they consume neither budget.
+         */
+        correctiveRetries: z.number().int().min(1).max(5).default(2),
+        /**
          * Master switch for failure-driven generator-model escalation. The flag name is retained for
          * backward compatibility, but it now gates ALL failure-driven escalation — not only plateau:
          * `plateau` AND `budget-exhausted` (the turn budget ran out without a terminal verdict) exits

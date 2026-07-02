@@ -30,6 +30,7 @@ const harnessConfig: Settings['harness'] = {
   rateLimitRetries: 2,
   idleWatchdogMs: 300_000,
   plateauThreshold: 2,
+  correctiveRetries: 2,
   escalateOnPlateau: false,
   escalationMap: {},
   skipPreVerifyOnFreshSetup: false,

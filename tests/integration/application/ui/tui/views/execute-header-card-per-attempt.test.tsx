@@ -95,4 +95,20 @@ describe('HeaderCard per-attempt round', () => {
     expect(frame).not.toContain('round 3/');
     r.unmount();
   });
+
+  it('trusts live tracker coords over the division heuristic (the crashed-attempt-1 incident)', () => {
+    // Attempt 1 crashed after round 1; attempt 2's first round continues the GLOBAL counter at 2.
+    // Live coords say attempt 2 / round 1; the bare division of (2,3) would wrongly read
+    // attempt 1 / round 2 — the exact mislabel the operator hit.
+    const r = renderHeader(
+      task({ genEvalRound: 2, genEvalMaxRounds: 3, genEvalMaxAttempts: 3, attemptN: 2, roundInAttempt: 1 })
+    );
+    const frame = r.lastFrame() ?? '';
+
+    expect(frame).toContain('attempt 2/3');
+    expect(frame).toContain('round 1/3');
+    expect(frame).not.toContain('attempt 1/3');
+    expect(frame).not.toContain('round 2/3');
+    r.unmount();
+  });
 });

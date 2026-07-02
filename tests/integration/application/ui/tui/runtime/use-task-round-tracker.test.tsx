@@ -18,7 +18,11 @@ import { render } from 'ink-testing-library';
 import { Text } from 'ink';
 import { describe, expect, it } from 'vitest';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
-import { TASK_ROUND_CAP, useTaskRoundTracker } from '@src/application/ui/tui/runtime/use-task-round-tracker.ts';
+import {
+  TASK_ROUND_CAP,
+  type TaskRound,
+  useTaskRoundTracker,
+} from '@src/application/ui/tui/runtime/use-task-round-tracker.ts';
 import { isoTimestamp } from '@tests/fixtures/domain.ts';
 
 const NOW = isoTimestamp('2026-05-09T10:00:00.000Z');
@@ -29,7 +33,7 @@ const DRAIN_MS = 60;
 
 const drain = (ms: number = DRAIN_MS): Promise<void> => new Promise((res) => setTimeout(res, ms));
 
-type Rounds = ReadonlyMap<string, { roundN: number; totalCap: number }>;
+type Rounds = ReadonlyMap<string, TaskRound>;
 
 const Probe = ({
   bus,
@@ -57,8 +61,9 @@ describe('useTaskRoundTracker', () => {
     bus.publish({ type: 'task-round-started', taskId: 't2', attemptN: 1, roundN: 1, totalCap: 5, at: NOW });
     await drain();
 
-    expect(last.get('t1')).toEqual({ roundN: 2, totalCap: 5 });
-    expect(last.get('t2')).toEqual({ roundN: 1, totalCap: 5 });
+    // attemptN=1 throughout, so roundInAttempt tracks roundN (attempt anchored at round 1).
+    expect(last.get('t1')).toEqual({ roundN: 2, totalCap: 5, attemptN: 1, roundInAttempt: 2 });
+    expect(last.get('t2')).toEqual({ roundN: 1, totalCap: 5, attemptN: 1, roundInAttempt: 1 });
     r.unmount();
   });
 
@@ -71,7 +76,25 @@ describe('useTaskRoundTracker', () => {
     bus.publish({ type: 'task-round-started', taskId: 't1', attemptN: 1, roundN: 2, totalCap: 5, at: NOW });
     await drain();
 
-    expect(last.get('t1')).toEqual({ roundN: 3, totalCap: 5 });
+    // First-seen event is round 3 with no prior state, so the attempt anchors there → roundInAttempt 1.
+    expect(last.get('t1')).toEqual({ roundN: 3, totalCap: 5, attemptN: 1, roundInAttempt: 1 });
+    r.unmount();
+  });
+
+  it('resets roundInAttempt to 1 when a new attempt continues the global round counter', async () => {
+    // Reproduces the real incident: attempt 1 crashed after round 1 (global round 1); attempt 2's
+    // first round continues the GLOBAL counter at round 2 — but must display as attempt 2, round 1,
+    // not attempt 1, round 2 (which the old division heuristic produced).
+    const bus = createInMemoryEventBus();
+    let last: Rounds = new Map();
+    const r = render(<Probe bus={bus} onState={(rounds) => (last = rounds)} />);
+
+    bus.publish({ type: 'task-round-started', taskId: 't1', attemptN: 1, roundN: 1, totalCap: 5, at: NOW });
+    // No round-2-of-attempt-1 event — attempt 1 crashed. Attempt 2 opens at global round 2.
+    bus.publish({ type: 'task-round-started', taskId: 't1', attemptN: 2, roundN: 2, totalCap: 5, at: NOW });
+    await drain();
+
+    expect(last.get('t1')).toEqual({ roundN: 2, totalCap: 5, attemptN: 2, roundInAttempt: 1 });
     r.unmount();
   });
 

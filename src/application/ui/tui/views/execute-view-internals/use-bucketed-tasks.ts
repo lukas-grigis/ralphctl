@@ -92,10 +92,15 @@ export const useBucketedTasks = ({
       const tracked = taskRounds.get(t.id);
       if (tracked === undefined) return t;
       const roundN = Math.max(t.genEvalRound, tracked.roundN);
+      // `tracked.roundN` is a monotonic high-water ≥ the trace-derived count, so a tracked entry is
+      // always the authoritative source for the attempt-relative pair — overlay it unconditionally,
+      // mirroring how `genEvalMaxRounds: tracked.totalCap` is already overlaid.
       return {
         ...t,
         genEvalRound: roundN,
         genEvalMaxRounds: tracked.totalCap,
+        attemptN: tracked.attemptN,
+        roundInAttempt: tracked.roundInAttempt,
       };
     });
     return { ...rawBucketed, tasks };

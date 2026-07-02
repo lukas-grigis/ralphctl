@@ -41,8 +41,19 @@ import { useCoalescedMap } from '@src/application/ui/tui/runtime/use-coalesced-m
 export const TASK_ROUND_CAP = 500;
 
 export interface TaskRound {
+  /** Monotonic GLOBAL round across the whole task (the `rounds/<N>/` dir is attempt-shared). */
   readonly roundN: number;
+  /** Per-ATTEMPT cap (`maxTurns`). */
   readonly totalCap: number;
+  /** 1-indexed attempt this round belongs to — the authoritative value straight off the event. */
+  readonly attemptN: number;
+  /**
+   * 1-indexed round WITHIN {@link attemptN}, derived from the attempt boundary rather than the
+   * global counter. Resets to 1 the moment `attemptN` changes, so an attempt that crashed after
+   * one round (leaving the global counter high) still displays "round 1" on its successor's first
+   * round — the bug the old `perAttemptRound` division heuristic produced.
+   */
+  readonly roundInAttempt: number;
 }
 
 const isTaskRoundStarted = (e: AppEvent): e is TaskRoundStartedEvent => e.type === 'task-round-started';
@@ -51,10 +62,25 @@ const isTaskRoundStarted = (e: AppEvent): e is TaskRoundStartedEvent => e.type =
 // deps include it, and a fresh arrow per render would churn the subscription.
 const keyOfTaskRound = (e: TaskRoundStartedEvent): string => e.taskId;
 
-// Monotonic guard — a late/older round must not regress the high-water mark. Returning
-// `undefined` tells `useCoalescedMap` to skip the event and leave `existing` untouched.
-const foldTaskRound = (existing: TaskRound | undefined, e: TaskRoundStartedEvent): TaskRound | undefined =>
-  existing && existing.roundN >= e.roundN ? undefined : { roundN: e.roundN, totalCap: e.totalCap };
+// Monotonic guard + attempt-relative round derivation. A late/older round returns `undefined`
+// (skip, leave `existing` untouched). Otherwise anchor the attempt's first round: a new attempt
+// (attemptN changed, or no prior state) anchors here; a same-attempt event re-derives the anchor
+// from the prior public fields so the value self-corrects even if an intermediate round event was
+// dropped — no hidden bookkeeping field needed. Known edge: if the FIRST event of a new attempt is
+// itself dropped, the next-seen event anchors there, still strictly better than the old division.
+const foldTaskRound = (existing: TaskRound | undefined, e: TaskRoundStartedEvent): TaskRound | undefined => {
+  if (existing && existing.roundN >= e.roundN) return undefined;
+  const attemptStartRoundN =
+    existing === undefined || e.attemptN !== existing.attemptN
+      ? e.roundN
+      : existing.roundN - existing.roundInAttempt + 1;
+  return {
+    roundN: e.roundN,
+    totalCap: e.totalCap,
+    attemptN: e.attemptN,
+    roundInAttempt: e.roundN - attemptStartRoundN + 1,
+  };
+};
 
 /** @public */
 export interface UseTaskRoundTrackerOptions {

@@ -283,6 +283,7 @@ export const createPerTaskSubchain = (
                 readConfig,
                 maxTurns: deps.config.harness.maxTurns,
                 plateauThreshold: deps.config.harness.plateauThreshold,
+                correctiveRetries: deps.config.harness.correctiveRetries,
               },
               {
                 cwd: repo.path,

@@ -229,6 +229,7 @@ function runTests(): void {
         maxAttempts: 2,
         rateLimitRetries: 0,
         plateauThreshold: 2,
+        correctiveRetries: 2,
         escalateOnPlateau: false,
         escalationMap: {},
         skipPreVerifyOnFreshSetup: false,

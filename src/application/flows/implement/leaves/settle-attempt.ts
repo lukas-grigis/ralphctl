@@ -103,6 +103,10 @@ export const settleAttemptLeaf = (
             roundNum: input.roundNum,
             task: settled.value,
             verdict: deriveRoundVerdict(input.verdict, input.warning),
+            // `shouldFailAttempt === true` is set (in finalize-gen-eval) exactly when a fresh
+            // attempt is granted, so it reliably means "another round follows"; a self-blocked or
+            // budget-exhausted terminal round leaves it unset.
+            willRetryNextRound: input.shouldFailAttempt === true,
             ...(input.evaluation !== undefined ? { evaluation: input.evaluation } : {}),
             ...(input.generatorSessionId !== undefined ? { generatorSessionId: input.generatorSessionId } : {}),
             ...(input.evaluatorSessionId !== undefined ? { evaluatorSessionId: input.evaluatorSessionId } : {}),
@@ -214,6 +218,7 @@ const writeRoundOutcome = async (params: {
   readonly roundNum: number;
   readonly task: SettleAttemptOutput;
   readonly verdict: RoundVerdict;
+  readonly willRetryNextRound: boolean;
   readonly evaluation?: EvaluationSignal;
   readonly generatorSessionId?: string;
   readonly evaluatorSessionId?: string;
@@ -233,6 +238,7 @@ const writeRoundOutcome = async (params: {
     attemptN: attempt.n,
     attempt,
     verdict: params.verdict,
+    willRetryNextRound: params.willRetryNextRound,
     ...(params.evaluation !== undefined ? { evaluation: params.evaluation } : {}),
     ...(generatorSessionId !== undefined ? { generatorSessionId } : {}),
     ...(params.evaluatorSessionId !== undefined ? { evaluatorSessionId: params.evaluatorSessionId } : {}),

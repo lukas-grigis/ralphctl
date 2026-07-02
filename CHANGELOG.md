@@ -7,8 +7,32 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`harness.correctiveRetries` setting (1–5, default 2).** When a generator or evaluator AI turn
+  exits without a valid `signals.json` (never written, invalid JSON, or wrong shape), the harness
+  now issues up to this many corrective nudges — each a full resumed spawn re-prompted with the
+  concrete fix — before the task self-blocks, up from a single hardcoded nudge. Applies to both
+  the generator and evaluator; consumes no turn or attempt budget. Tune it under Settings → Harness.
+
 ### Fixed
 
+- **The task panel and header now show the real attempt number when an earlier attempt ended
+  early.** After an attempt crashed part-way through (for example, a watchdog kill after the first
+  round), the next attempt's first round was mislabelled — it displayed as "attempt 1 · round 2"
+  instead of "attempt 2 · round 1" — because the counter was derived by assuming every prior
+  attempt used its full round budget. It now uses the authoritative attempt number from the round
+  event.
+- **A generator/evaluator turn that omits `signals.json` gets more than one chance to fix it.**
+  Previously a single corrective nudge that also failed blocked the task even with attempt budget
+  remaining; the retry is now a bounded loop (see `harness.correctiveRetries` above). Each spawn
+  also mirrors the raw AI response to `body.txt` / `body-corrective-<n>.txt` under the round
+  directory for post-mortem diagnosis (Claude and Codex; the Copilot adapter does not capture a
+  body).
+- **`outcome.md` no longer claims a retry that never happens.** A round that failed terminally
+  (self-blocked, or done-with-warning at the budget cap) previously still wrote "critique
+  persisted, round N+1 will retry"; terminal rounds now say the harness will not start another
+  round.
 - **Crash-interrupted saves can no longer resurface stale project or sprint data.** When a legacy
   bare-id file and its renamed `<id>--<slug>` sibling transiently coexist after a crash, listings
   now explicitly prefer the canonical (slugged) entry — previously the alphabetical scan order let

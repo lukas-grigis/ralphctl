@@ -83,7 +83,46 @@ export interface TaskBucket {
   readonly genEvalMaxRounds?: number;
   /** Configured cap on attempts per task (`maxAttempts`), when known. Surfaced as `attempt A/X`. */
   readonly genEvalMaxAttempts?: number;
+  /**
+   * Live tracker-sourced 1-indexed attempt number (authoritative — straight off the
+   * `task-round-started` event, see `use-task-round-tracker.ts`). Present ONLY when
+   * `useBucketedTasks` has overlaid a tracked round; `bucketTaskSignals` itself never sets it (it
+   * has no attempt information). A frozen-trace / no-live-events bucket (post-mortem replay) leaves
+   * it undefined — {@link resolveAttemptCoords} then falls back to the division heuristic.
+   */
+  readonly attemptN?: number;
+  /** Live tracker-sourced 1-indexed round-within-attempt. Paired with {@link attemptN}. */
+  readonly roundInAttempt?: number;
 }
+
+export interface AttemptCoords {
+  readonly attemptN: number;
+  readonly roundInAttempt: number;
+}
+
+/**
+ * Resolve a task bucket's round into attempt-relative display coordinates. Prefers the live
+ * tracker-sourced `attemptN`/`roundInAttempt` (authoritative — derived from the attempt boundary
+ * in {@link "use-task-round-tracker.ts"}) when present. Falls back to the {@link perAttemptRound}
+ * division heuristic ONLY when no live coordinates are available (e.g. a frozen-trace post-mortem
+ * replay with no incoming events — see `use-bucketed-tasks.ts`'s docstring for why that fallback
+ * must stay) and a `maxTurns` cap is known. Returns `undefined` when neither is available — callers
+ * then render the bare round with no `/M` denominator and no attempt chip.
+ *
+ * @public
+ */
+export const resolveAttemptCoords = (bucket: {
+  readonly genEvalRound: number;
+  readonly genEvalMaxRounds?: number;
+  readonly attemptN?: number;
+  readonly roundInAttempt?: number;
+}): AttemptCoords | undefined => {
+  if (bucket.attemptN !== undefined && bucket.roundInAttempt !== undefined) {
+    return { attemptN: bucket.attemptN, roundInAttempt: bucket.roundInAttempt };
+  }
+  if (bucket.genEvalMaxRounds === undefined) return undefined;
+  return perAttemptRound(bucket.genEvalRound, bucket.genEvalMaxRounds);
+};
 
 /**
  * Fold a task's monotonic gen-eval round into its per-attempt coordinates. {@link TaskBucket.genEvalRound}

@@ -14,9 +14,10 @@
  * Round counter: `TaskBucket.genEvalRound` is monotonic across the whole task (the `rounds/`
  * dir is shared by every attempt), while `genEvalMaxRounds` (`maxTurns`) caps a single attempt.
  * Rendering the raw ratio overshoots on a 2nd+ attempt (e.g. `round 4/3`), so the focus row
- * folds the round into per-attempt coordinates via `perAttemptRound` and shows the attempt
- * counter alongside it (`attempt A/X · round R/maxTurns`) whenever more than one attempt is in
- * play; single-attempt runs keep the bare `round R/maxTurns`.
+ * folds the round into per-attempt coordinates via `resolveAttemptCoords` (which prefers the live
+ * tracker-sourced attempt number and falls back to the `perAttemptRound` division heuristic) and
+ * shows the attempt counter alongside it (`attempt A/X · round R/maxTurns`) whenever more than one
+ * attempt is in play; single-attempt runs keep the bare `round R/maxTurns`.
  */
 
 import React from 'react';
@@ -25,7 +26,7 @@ import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { glyphs, inkColors } from '@src/application/ui/tui/theme/tokens.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
-import { perAttemptRound, type TaskBucket } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
+import { resolveAttemptCoords, type TaskBucket } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import { contextWindowLabel } from '@src/domain/value/settings-models/context-window.ts';
 
 interface HeaderCardProps {
@@ -211,9 +212,10 @@ export const HeaderCard = ({
               (() => {
                 const maxTurns = currentTask.genEvalMaxRounds;
                 const maxAttempts = currentTask.genEvalMaxAttempts;
-                // Without a known per-attempt cap we can't fold the monotonic round into
-                // per-attempt coordinates — fall back to the raw round (no `/M` to overshoot).
-                if (maxTurns === undefined) {
+                const coords = resolveAttemptCoords(currentTask);
+                // No attempt-relative coordinates — no live tracker data AND no `maxTurns` cap to
+                // fold the monotonic round against — so fall back to the raw round (no `/M`).
+                if (coords === undefined) {
                   return (
                     <>
                       <Text dimColor> {glyphs.bullet} round </Text>
@@ -221,7 +223,7 @@ export const HeaderCard = ({
                     </>
                   );
                 }
-                const { attemptN, roundInAttempt } = perAttemptRound(currentTask.genEvalRound, maxTurns);
+                const { attemptN, roundInAttempt } = coords;
                 const showAttempt = attemptN > 1 || (maxAttempts !== undefined && maxAttempts > 1);
                 return (
                   <>
@@ -236,7 +238,8 @@ export const HeaderCard = ({
                     )}
                     <Text dimColor> {glyphs.bullet} round </Text>
                     <Text color={inkColors.info}>
-                      {String(roundInAttempt)}/{String(maxTurns)}
+                      {String(roundInAttempt)}
+                      {maxTurns !== undefined ? `/${String(maxTurns)}` : ''}
                     </Text>
                   </>
                 );

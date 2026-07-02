@@ -167,6 +167,8 @@ export const HARNESS_HINTS: Readonly<Record<string, string>> = {
   'harness.idleWatchdogMs':
     'Stdio-silence (ms) before a wedged AI child is killed — 60000-3600000, default 300000 (5 min). Raise for slow first-token models.',
   'harness.plateauThreshold': 'Consecutive evaluator turns on the same failed dimensions before the loop exits (2-5).',
+  'harness.correctiveRetries':
+    'Corrective nudges when the AI omits or malforms signals.json before the task blocks — 1-5, default 2. Each nudge is a full re-spawn.',
   'harness.escalateOnPlateau':
     'Gates ALL failure-driven escalation — plateau AND budget-exhausted exits climb the model ladder; disable to always stay on the configured model.',
   'harness.skipPreVerifyOnFreshSetup':
@@ -340,6 +342,12 @@ export const buildSections = (
       key: 'harness.plateauThreshold',
       label: 'Plateau threshold',
       current: String(s.harness.plateauThreshold),
+    },
+    {
+      kind: 'text',
+      key: 'harness.correctiveRetries',
+      label: 'Corrective retries',
+      current: String(s.harness.correctiveRetries),
     },
     {
       kind: 'select',
