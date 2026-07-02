@@ -29,7 +29,7 @@ import type {
   ClaudeStreamParser,
   ClaudeUsage,
 } from '@src/integration/ai/providers/_engine/claude-stream.ts';
-import { createCappedAppend } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
+import { createCappedLineFeed } from '@src/integration/ai/providers/_engine/line-feed.ts';
 import { isRecord, numberField, stringField } from '@src/integration/ai/providers/_engine/json-field.ts';
 
 // Module-level (no closure over parser state) — safe to hoist out of the factory.
@@ -81,13 +81,7 @@ const extractResultUsage = (u: Record<string, unknown>): ClaudeUsage => {
 };
 
 export const createClaudeStreamParser = (): ClaudeStreamParser => {
-  let buffer = '';
-  // Cap the in-flight line accumulator. A single NDJSON record embedding a large file-read /
-  // bash tool result can grow `buffer` to tens of MB before its newline clears it — an OOM-class
-  // accumulation. `feed` is the SOLE append site, so capping here keeps the invariant for `flush`
-  // too (it only drains an already-bounded buffer). Shared impl — see `createCappedAppend`
-  // (drop-oldest, one-shot warn).
-  const appendCapped = createCappedAppend('claude-stream');
+  const lineFeed = createCappedLineFeed<ClaudeStreamLine>('claude-stream', emitLine);
   // `body` is reassigned from the latest `result` event's `.result` field in `ingest` (one
   // O(1) write), never built by per-line concatenation. Keep it that way — see the analogous
   // `bodyLines.push` + `.join('\n')` pattern in copilot/headless.ts for why.
@@ -143,22 +137,8 @@ export const createClaudeStreamParser = (): ClaudeStreamParser => {
   };
 
   return {
-    feed(chunk, onLine) {
-      buffer = appendCapped(buffer, chunk);
-      let nl = buffer.indexOf('\n');
-      while (nl !== -1) {
-        const line = buffer.slice(0, nl);
-        buffer = buffer.slice(nl + 1);
-        emitLine(line, onLine);
-        nl = buffer.indexOf('\n');
-      }
-    },
-    flush(onLine) {
-      if (buffer.length > 0) {
-        emitLine(buffer, onLine);
-        buffer = '';
-      }
-    },
+    feed: lineFeed.feed,
+    flush: lineFeed.flush,
     ingest,
     snapshot() {
       return { body, sessionId, model, usage, liveUsage };
