@@ -23,6 +23,14 @@ to [Semantic Versioning](https://semver.org/).
   instead of "attempt 2 · round 1" — because the counter was derived by assuming every prior
   attempt used its full round budget. It now uses the authoritative attempt number from the round
   event.
+
+### Changed
+
+- **Parallel-run signals group under the right task reliably.** Harness signals from parallel
+  worktree branches now carry the originating task's id end-to-end, so the execute view's
+  per-task panels group them exactly instead of guessing by timestamp windows (which could
+  orphan or misfile signals from overlapping tasks). Internally the three overlapping signal
+  channels collapsed into one typed event stream.
 - **A generator/evaluator turn that omits `signals.json` gets more than one chance to fix it.**
   Previously a single corrective nudge that also failed blocked the task even with attempt budget
   remaining; the retry is now a bounded loop (see `harness.correctiveRetries` above). Each spawn

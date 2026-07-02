@@ -73,7 +73,6 @@ import {
   slug,
 } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
-import { createInMemorySink } from '@tests/fixtures/in-memory-sink.ts';
 import { noopSkillsAdapter, emptySkillSource } from '@tests/fixtures/skills-fakes.ts';
 import { createFakeProject, type FakeProject } from '@tests/helpers/fake-project.ts';
 
@@ -341,7 +340,7 @@ function runTests(): void {
       generatorProvider: provider,
       evaluatorProvider: provider,
       templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-      signals: createInMemorySink<HarnessSignal>(),
+      publishSignal: () => {},
       eventBus: createInMemoryEventBus(),
       logger: noopLogger,
       clock: () => FIXED_LATER,
@@ -569,7 +568,6 @@ function runTests(): void {
       const foldQueue = createFoldQueue();
       const branchDeps = {
         implement: implementDeps,
-        appSignals: createInMemorySink<HarnessSignal>(),
         eventBus: createInMemoryEventBus(),
         foldQueue,
       };
@@ -804,7 +802,6 @@ function runTests(): void {
       const foldQueue = createFoldQueue();
       const branchDeps = {
         implement: implementDeps,
-        appSignals: createInMemorySink<HarnessSignal>(),
         eventBus: createInMemoryEventBus(),
         foldQueue,
       };
@@ -991,7 +988,6 @@ function runTests(): void {
       const foldQueue = createFoldQueue();
       const branchDeps = {
         implement: implementDeps,
-        appSignals: createInMemorySink<HarnessSignal>(),
         eventBus: createInMemoryEventBus(),
         foldQueue,
       };

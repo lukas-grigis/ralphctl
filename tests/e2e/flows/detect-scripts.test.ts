@@ -23,7 +23,6 @@ import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { absolutePath, isoTimestamp, makeProject, makeRepository } from '@tests/fixtures/domain.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
-import { createInMemorySink } from '@tests/fixtures/in-memory-sink.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import { createFakeAiProvider } from '@tests/fixtures/fake-ai-provider.ts';
 import { createEventBusLogger } from '@src/business/observability/event-bus-logger.ts';
@@ -129,7 +128,6 @@ const buildDeps = (
   runsRoot: AbsolutePath
 ) => {
   const { repo, saves } = fakeProjectRepo(project);
-  const harness = createInMemorySink<HarnessSignal>();
   const eventBus = createInMemoryEventBus();
   const provider = createFakeAiProvider({
     signals: { 'detect-scripts': script.signals ?? [] },
@@ -139,13 +137,11 @@ const buildDeps = (
   return {
     repo,
     saves,
-    harness,
     eventBus,
     deps: {
       projectRepo: repo,
       provider,
       templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-      signals: harness,
       eventBus,
       logger: createEventBusLogger({ eventBus, clock: () => isoTimestamp('2026-05-11T10:00:00.000Z') }),
       interactive,
@@ -519,7 +515,6 @@ describe('createDetectScriptsFlow — real on-disk persistence', () => {
     const seeded = await projectRepo.save(project);
     expect(seeded.ok).toBe(true);
 
-    const harness = createInMemorySink<HarnessSignal>();
     const eventBus = createInMemoryEventBus();
     const provider = createFakeAiProvider({
       signals: {
@@ -540,7 +535,6 @@ describe('createDetectScriptsFlow — real on-disk persistence', () => {
       projectRepo,
       provider,
       templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-      signals: harness,
       eventBus,
       logger: createEventBusLogger({ eventBus, clock: () => isoTimestamp('2026-05-11T10:00:00.000Z') }),
       interactive,

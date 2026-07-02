@@ -4,13 +4,14 @@
  *  - `trace` — every leaf invocation with status + durationMs (no timestamps).
  *  - `chainEvents` — the chain-step-completed events with ISO `at` timestamps (the chain
  *    runner bridge only emits `chain-step-completed` / `chain-step-failed`, never `-started`).
- *  - `signals` — harness signals (change/learning/decision/evaluation/…); each carries an
- *    ISO timestamp but no task id.
+ *  - `signals` — harness-signal bus entries (change/learning/decision/evaluation/…), each
+ *    carrying the underlying signal's ISO timestamp plus an OPTIONAL explicit `taskId`.
  *
  * Per-task element names follow `<leaf>-<taskId>` (uuid v7 36-char). Inner leaves attribute
- * trivially by suffix. Signals attribute by timestamp: a signal belongs to the task whose
- * first-substep-to-last-substep window contains the signal's timestamp; signals outside any
- * window are returned as `orphanSignals`.
+ * trivially by suffix. Signal attribution is PRIMARY-then-FALLBACK: an entry's explicit `taskId`
+ * (stamped only by the implement flow's parallel per-branch publisher) wins when present;
+ * otherwise a signal belongs to the task whose first-substep-to-last-substep window contains its
+ * timestamp. Signals attributed to neither are returned as `orphanSignals`.
  *
  * Task status derivation: per-task composites (`sequential('task-<id>', …)`) do NOT emit a
  * self-trace entry — only leaves do. Likewise no producer emits `chain-step-started` events
@@ -30,6 +31,7 @@
 import type { Trace, TraceStatus } from '@src/application/chain/trace.ts';
 import type { AppEvent } from '@src/business/observability/events.ts';
 import type { EvaluationSignal, HarnessSignal } from '@src/domain/signal.ts';
+import type { SignalBusEntry } from '@src/application/ui/tui/runtime/sinks-context.tsx';
 
 /**
  * UUIDv7 suffix on a per-task leaf name (`<leaf>-<36-char-uuid>`). Exported so the execute
@@ -248,13 +250,31 @@ const findOwningWindow = (sortedWindows: readonly WindowEntry[], ts: string): nu
 };
 
 /**
+ * Resolve a signal's owning taskId by the timestamp-window heuristic — the FALLBACK path, used
+ * only when the bus entry carries no explicit `taskId` (see {@link bucketSignals}).
+ */
+const attributeByWindow = (ts: string, sortedWindows: readonly WindowEntry[]): string | undefined => {
+  const idx = findOwningWindow(sortedWindows, ts);
+  const candidate = idx >= 0 ? sortedWindows[idx] : undefined;
+  return candidate !== undefined && (candidate.endedAt === undefined || ts <= candidate.endedAt)
+    ? candidate.taskId
+    : undefined;
+};
+
+/**
  * O(signals + windows log windows) bucketing — replaced the original O(signals × windows) inner
  * loop because long-running sessions with high signal volume (1000+) made per-render bucketing
  * a hot spot in the TUI. Tasks run sequentially in the implement chain so windows never
  * overlap; that invariant lets us sort by startedAt once and binary-search per signal.
+ *
+ * Attribution precedence: a bus entry's explicit `taskId` (stamped only by the implement flow's
+ * parallel per-branch publisher — see `wave-branch.ts`'s `perBranchSignalPublisher`) is
+ * PRIMARY and always wins when present. The timestamp-window heuristic is the FALLBACK for every
+ * entry that carries no `taskId` — the implement serial path and every other flow (review,
+ * detect-scripts, detect-skills, refine, plan, readiness, create-pr).
  */
 const bucketSignals = (
-  signals: readonly HarnessSignal[],
+  entries: readonly SignalBusEntry[],
   windows: Map<string, TaskWindow>
 ): {
   signalsByTask: Map<string, HarnessSignal[]>;
@@ -275,14 +295,9 @@ const bucketSignals = (
   }
   sortedWindows.sort((a, b) => (a.startedAt < b.startedAt ? -1 : a.startedAt > b.startedAt ? 1 : 0));
 
-  for (const sig of signals) {
-    const ts = String(sig.timestamp);
-    const idx = findOwningWindow(sortedWindows, ts);
-    const candidate = idx >= 0 ? sortedWindows[idx] : undefined;
-    const owner =
-      candidate !== undefined && (candidate.endedAt === undefined || ts <= candidate.endedAt)
-        ? candidate.taskId
-        : undefined;
+  for (const entry of entries) {
+    const sig = entry.signal;
+    const owner = entry.taskId ?? attributeByWindow(String(sig.timestamp), sortedWindows);
 
     if (owner === undefined) {
       orphans.push(sig);
@@ -363,7 +378,7 @@ export interface BucketOptions {
 export const bucketTaskSignals = (
   trace: Trace,
   chainEvents: readonly AppEvent[],
-  signals: readonly HarnessSignal[],
+  signals: readonly SignalBusEntry[],
   opts: BucketOptions = {}
 ): BucketedExecution => {
   const terminalSubstepName = opts.terminalSubstepName ?? DEFAULT_TERMINAL_SUBSTEP;

@@ -2,12 +2,12 @@ import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
-import type { EvaluationSignal, HarnessSignal } from '@src/domain/signal.ts';
+import type { EvaluationSignal } from '@src/domain/signal.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { AiSignalEvent, AppEvent } from '@src/business/observability/events.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
-import { createInMemorySink } from '@tests/fixtures/in-memory-sink.ts';
+import { createPublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import { renderEvaluationMarkdown } from '@src/integration/ai/contract/_engine/render-evaluation-markdown.ts';
 import { absolutePath, FIXED_NOW, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
@@ -52,17 +52,11 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
   const sidecarPath = (): string => join(String(root.root), 'rounds', '1', 'evaluator', 'evaluation.md');
 
   /**
-   * Build the leaf deps along with two inspectable handles — the in-memory sink (so tests
-   * can read what the leaf emitted to the legacy fan-out) and the recorded mock provider
-   * invocations. Returning the rich tuple keeps the test bodies free of casts.
+   * Build the leaf deps — `publishSignal` is bound to this leaf's `eventBus` with
+   * `source: 'evaluator'` so tests can assert on the fanned-out `ai-signal` events (via
+   * `captureBus`) instead of a legacy sink.
    */
-  const buildDeps = (
-    fixtures: Map<string, SpawnFixture>,
-    eventBus = createInMemoryEventBus()
-  ): {
-    readonly deps: EvaluatorLeafDeps;
-    readonly sink: ReturnType<typeof createInMemorySink<HarnessSignal>>;
-  } => {
+  const buildDeps = (fixtures: Map<string, SpawnFixture>, eventBus = createInMemoryEventBus()): EvaluatorLeafDeps => {
     const mock = createMockHeadlessProvider({ fixtures });
     // `WriteFile` adapter — real disk writes so sidecars land where the production helper
     // would write them and tests can read them back. No port mock needed.
@@ -75,11 +69,10 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
         return Result.error({ message: String(cause) } as never);
       }
     };
-    const sink = createInMemorySink<HarnessSignal>();
-    const deps: EvaluatorLeafDeps = {
+    return {
       provider: mock.provider,
       templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-      signals: sink,
+      publishSignal: createPublishSignal(eventBus, 'evaluator'),
       writeFile,
       cwd: absolutePath('/tmp/ralph/fake-cwd'),
       sprintDir: absolutePath('/tmp/ralph/fake-sprint-dir'),
@@ -90,9 +83,7 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
       gitRunner: stubGitRunner(),
       clock: () => FIXED_NOW,
       logger: noopLogger,
-      eventBus,
     };
-    return { deps, sink };
   };
 
   const baseCtx = (task: ReturnType<typeof makeInProgressTaskWithRunningAttempt>): ImplementCtx => ({
@@ -139,7 +130,7 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
   };
 
   // ── 1. Happy path ─────────────────────────────────────────────────────────────
-  it('ok: validates signals, writes evaluation.md byte-for-byte, fans out to bus + sink', async () => {
+  it('ok: validates signals, writes evaluation.md byte-for-byte, publishes every signal onto the bus', async () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const fixtures = new Map<string, SpawnFixture>([
       [
@@ -158,7 +149,7 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
       ],
     ]);
     const { events, eventBus } = captureBus();
-    const { deps, sink } = buildDeps(fixtures, eventBus);
+    const deps = buildDeps(fixtures, eventBus);
     const leaf = evaluatorLeaf(deps, task.id);
 
     const result = await leaf.execute(baseCtx(task));
@@ -175,9 +166,6 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
     const aiSignals = events.filter((e): e is AiSignalEvent => e.type === 'ai-signal');
     expect(aiSignals.map((e) => e.signal.type)).toEqual(['note', 'task-verified', 'evaluation']);
     for (const ev of aiSignals) expect(ev.source).toBe('evaluator');
-
-    // The legacy sink still sees the same signals (TUI consumers stay happy until Wave 6).
-    expect(sink.entries.map((s: HarnessSignal) => s.type)).toEqual(['note', 'task-verified', 'evaluation']);
 
     // The use case projects the evaluation onto ctx.lastEvaluation.
     if (!result.ok) return;
@@ -196,7 +184,7 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
         },
       ],
     ]);
-    const leaf = evaluatorLeaf(buildDeps(fixtures).deps, task.id);
+    const leaf = evaluatorLeaf(buildDeps(fixtures), task.id);
     const result = await leaf.execute(baseCtx(task));
     expect(result.ok).toBe(true);
 
@@ -229,7 +217,7 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
   it('ok-missing: self-blocks with signals-missing in the reason', async () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const fixtures = new Map<string, SpawnFixture>([[signalsFilePath(), { kind: 'ok-missing' }]]);
-    const leaf = evaluatorLeaf(buildDeps(fixtures).deps, task.id);
+    const leaf = evaluatorLeaf(buildDeps(fixtures), task.id);
     const result = await leaf.execute(baseCtx(task));
     expectSelfBlock(result, 'signals-missing');
   });
@@ -240,7 +228,7 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
     const fixtures = new Map<string, SpawnFixture>([
       [signalsFilePath(), { kind: 'ok-raw', rawBody: '{ this is not json' }],
     ]);
-    const leaf = evaluatorLeaf(buildDeps(fixtures).deps, task.id);
+    const leaf = evaluatorLeaf(buildDeps(fixtures), task.id);
     const result = await leaf.execute(baseCtx(task));
     expectSelfBlock(result, 'malformed JSON');
   });
@@ -262,7 +250,7 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
         },
       ],
     ]);
-    const leaf = evaluatorLeaf(buildDeps(fixtures).deps, task.id);
+    const leaf = evaluatorLeaf(buildDeps(fixtures), task.id);
     const result = await leaf.execute(baseCtx(task));
     expectSelfBlock(result, 'schema');
   });
@@ -282,7 +270,7 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
         },
       ],
     ]);
-    const leaf = evaluatorLeaf(buildDeps(fixtures).deps, task.id);
+    const leaf = evaluatorLeaf(buildDeps(fixtures), task.id);
     const result = await leaf.execute(baseCtx(task));
     expectSelfBlock(result, 'exactly one evaluation');
   });
@@ -302,7 +290,7 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
         },
       ],
     ]);
-    const leaf = evaluatorLeaf(buildDeps(fixtures).deps, task.id);
+    const leaf = evaluatorLeaf(buildDeps(fixtures), task.id);
     const result = await leaf.execute(baseCtx(task));
     expectSelfBlock(result, 'exactly one evaluation');
   });
@@ -323,7 +311,7 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
       ],
     ]);
     const { events, eventBus } = captureBus();
-    const leaf = evaluatorLeaf(buildDeps(fixtures, eventBus).deps, task.id);
+    const leaf = evaluatorLeaf(buildDeps(fixtures, eventBus), task.id);
 
     const result = await leaf.execute(baseCtx(task));
     expect(result.ok).toBe(true);
@@ -346,7 +334,7 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
       message: 'simulated spawn failure',
     });
     const fixtures = new Map<string, SpawnFixture>([[signalsFilePath(), { kind: 'spawn-error', error: spawnError }]]);
-    const leaf = evaluatorLeaf(buildDeps(fixtures).deps, task.id);
+    const leaf = evaluatorLeaf(buildDeps(fixtures), task.id);
 
     const result = await leaf.execute(baseCtx(task));
     // A non-zero spawn (InvalidStateError, recoverable) blocks this task rather than aborting
@@ -362,7 +350,7 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
   it('abort: AbortError propagates transparently through the leaf', async () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const fixtures = new Map<string, SpawnFixture>([[signalsFilePath(), { kind: 'abort' }]]);
-    const leaf = evaluatorLeaf(buildDeps(fixtures).deps, task.id);
+    const leaf = evaluatorLeaf(buildDeps(fixtures), task.id);
 
     // The mock throws AbortError; the leaf primitive treats it as a DomainError (it has a
     // string `code`) and surfaces it via Result.error. The "transparent" contract is that
@@ -397,7 +385,7 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
         },
       ],
     ]);
-    const leaf = evaluatorLeaf(buildDeps(fixtures).deps, task.id);
+    const leaf = evaluatorLeaf(buildDeps(fixtures), task.id);
     const result = await leaf.execute(baseCtx(task));
     expectSelfBlock(result, 'schema');
   });
@@ -438,7 +426,7 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
     const deps: EvaluatorLeafDeps = {
       provider: mock.provider,
       templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-      signals: createInMemorySink<HarnessSignal>(),
+      publishSignal: createPublishSignal(createInMemoryEventBus(), 'evaluator'),
       writeFile,
       cwd: absolutePath('/tmp/ralph/fake-cwd'),
       sprintDir: absolutePath('/tmp/ralph/fake-sprint-dir'),
@@ -449,7 +437,6 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
       gitRunner: stubGitRunner(),
       clock: () => FIXED_NOW,
       logger: noopLogger,
-      eventBus: createInMemoryEventBus(),
     };
     const leaf = evaluatorLeaf(deps, task.id);
     const result = await leaf.execute(baseCtx(task));
@@ -493,7 +480,7 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
     const deps: EvaluatorLeafDeps = {
       provider: mock.provider,
       templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-      signals: createInMemorySink<HarnessSignal>(),
+      publishSignal: createPublishSignal(createInMemoryEventBus(), 'evaluator'),
       writeFile,
       cwd: absolutePath('/tmp/ralph/fake-cwd'),
       sprintDir: absolutePath('/tmp/ralph/fake-sprint-dir'),
@@ -504,7 +491,6 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
       gitRunner: stubGitRunner(),
       clock: () => FIXED_NOW,
       logger: noopLogger,
-      eventBus: createInMemoryEventBus(),
     };
     const leaf = evaluatorLeaf(deps, task.id);
     const result = await leaf.execute(baseCtx(task));
@@ -538,7 +524,7 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
     return {
       provider: mock.provider,
       templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-      signals: createInMemorySink<HarnessSignal>(),
+      publishSignal: createPublishSignal(createInMemoryEventBus(), 'evaluator'),
       writeFile,
       cwd: absolutePath('/tmp/ralph/fake-cwd'),
       sprintDir: absolutePath('/tmp/ralph/fake-sprint-dir'),
@@ -549,7 +535,6 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
       gitRunner: stubGitRunner(),
       clock: () => FIXED_NOW,
       logger: noopLogger,
-      eventBus: createInMemoryEventBus(),
     };
   };
 
@@ -602,7 +587,7 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
       [round1Signals, { kind: 'ok', payload: { schemaVersion: 1, signals: [passedEvaluation] } }],
       [round2Signals, { kind: 'ok-missing' }],
     ]);
-    const leaf = evaluatorLeaf(buildDeps(fixtures).deps, task.id);
+    const leaf = evaluatorLeaf(buildDeps(fixtures), task.id);
 
     // Round 1 — verdict lands on ctx.lastEvaluation.
     const round1 = await leaf.execute(baseCtx(task));

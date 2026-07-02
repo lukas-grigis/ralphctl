@@ -17,7 +17,6 @@ import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { absolutePath, isoTimestamp, makeProject, makeRepository } from '@tests/fixtures/domain.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
-import { createInMemorySink } from '@tests/fixtures/in-memory-sink.ts';
 import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import { createFakeAiProvider } from '@tests/fixtures/fake-ai-provider.ts';
@@ -104,7 +103,6 @@ const buildDeps = (
   runsRoot: AbsolutePath
 ) => {
   const { repo, saves } = fakeProjectRepo(project);
-  const harness = createInMemorySink<HarnessSignal>();
   const eventBus = createInMemoryEventBus();
   const provider = createFakeAiProvider({
     signals: { 'detect-skills': script.signals ?? [] },
@@ -114,13 +112,11 @@ const buildDeps = (
   return {
     repo,
     saves,
-    harness,
     eventBus,
     deps: {
       projectRepo: repo,
       provider,
       templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-      signals: harness,
       eventBus,
       writeFile: createAtomicWriteFile(),
       logger: createEventBusLogger({ eventBus, clock: () => isoTimestamp('2026-05-12T11:00:00.000Z') }),

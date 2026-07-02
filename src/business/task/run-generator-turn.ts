@@ -20,8 +20,8 @@ import { isRecoverableTurnError } from '@src/business/task/turn-error-policy.ts'
  *
  * The actual AI call + signal extraction are integration concerns supplied as function-shape
  * deps so the use case stays integration-agnostic and easy to test. The leaf is responsible
- * for reading the provider's `signalsFile` and forwarding signals to the harness sink before
- * calling this use case.
+ * for reading the provider's `signalsFile` and publishing each signal onto the harness-signal
+ * channel before calling this use case.
  */
 export type GeneratorTurnExit = { readonly kind: 'self-blocked' | 'crashed'; readonly reason: string };
 

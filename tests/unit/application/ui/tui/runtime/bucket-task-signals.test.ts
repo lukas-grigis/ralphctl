@@ -4,6 +4,8 @@
  * Focus areas these tests pin down:
  *  - The O(s + w log w) binary-search rewrite: edge cases at window boundaries (signal ts
  *    exactly equal to startedAt/endedAt), empty/single-window inputs, mid-window attribution.
+ *  - Explicit-taskId attribution (primary) winning over the timestamp-window heuristic
+ *    (fallback), and the fallback still applying when no taskId is stamped.
  *  - Terminal-substep override flips `completed` when a flow uses a non-default last leaf.
  *  - Status derivation: failed/aborted substeps win over a later completed terminal substep.
  *  - Round counter via `generator-<id>` substep count.
@@ -13,6 +15,7 @@ import { describe, expect, it } from 'vitest';
 import type { Trace } from '@src/application/chain/trace.ts';
 import type { AppEvent } from '@src/business/observability/events.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
+import type { SignalBusEntry } from '@src/application/ui/tui/runtime/sinks-context.tsx';
 import {
   bucketTaskSignals,
   perAttemptRound,
@@ -23,6 +26,12 @@ const TASK = '01933fbb-1111-7000-8000-000000000001';
 const TASK2 = '01933fbb-2222-7000-8000-000000000002';
 
 const note = (ts: string, text = 'n'): HarnessSignal => ({ type: 'note', text, timestamp: ts as never });
+/** Wrap a bare signal into a bus entry — `taskId` omitted by default (timestamp-window fallback). */
+const entry = (signal: HarnessSignal, taskId?: string): SignalBusEntry => ({
+  signal,
+  source: 'test',
+  ...(taskId !== undefined ? { taskId } : {}),
+});
 const stepCompleted = (elementName: string, at: string): AppEvent => ({
   type: 'chain-step-completed',
   chainId: 'r-1',
@@ -44,7 +53,7 @@ describe('bucketTaskSignals — binary-search attribution', () => {
       stepCompleted(`build-task-workspace-${TASK}`, '2026-05-09T10:00:00.000Z'),
       stepCompleted(`uninstall-skills-${TASK}`, '2026-05-09T10:01:00.000Z'),
     ];
-    const signals: HarnessSignal[] = [note('2026-05-09T10:00:30.000Z')];
+    const signals: SignalBusEntry[] = [entry(note('2026-05-09T10:00:30.000Z'))];
     const result = bucketTaskSignals(trace, events, signals);
     expect(result.tasks).toHaveLength(1);
     expect(result.tasks[0]?.signals).toHaveLength(1);
@@ -57,7 +66,7 @@ describe('bucketTaskSignals — binary-search attribution', () => {
       stepCompleted(`uninstall-skills-${TASK}`, '2026-05-09T10:01:00.000Z'),
     ];
     const trace: Trace = [{ elementName: `generator-${TASK}`, status: 'completed', durationMs: 10 }];
-    const signals: HarnessSignal[] = [note('2026-05-09T10:00:00.000Z', 'at-start')];
+    const signals: SignalBusEntry[] = [entry(note('2026-05-09T10:00:00.000Z', 'at-start'))];
     const result = bucketTaskSignals(trace, events, signals);
     expect(result.tasks[0]?.signals).toHaveLength(1);
     expect(result.orphanSignals).toHaveLength(0);
@@ -69,7 +78,7 @@ describe('bucketTaskSignals — binary-search attribution', () => {
       stepCompleted(`uninstall-skills-${TASK}`, '2026-05-09T10:01:00.000Z'),
     ];
     const trace: Trace = [{ elementName: `generator-${TASK}`, status: 'completed', durationMs: 10 }];
-    const signals: HarnessSignal[] = [note('2026-05-09T10:01:00.000Z', 'at-end')];
+    const signals: SignalBusEntry[] = [entry(note('2026-05-09T10:01:00.000Z', 'at-end'))];
     const result = bucketTaskSignals(trace, events, signals);
     expect(result.tasks[0]?.signals).toHaveLength(1);
     expect(result.orphanSignals).toHaveLength(0);
@@ -78,7 +87,7 @@ describe('bucketTaskSignals — binary-search attribution', () => {
   it('treats signals before any window as orphans', () => {
     const events: AppEvent[] = [stepCompleted(`build-task-workspace-${TASK}`, '2026-05-09T10:00:00.000Z')];
     const trace: Trace = [{ elementName: `generator-${TASK}`, status: 'completed', durationMs: 10 }];
-    const signals: HarnessSignal[] = [note('2026-05-09T09:00:00.000Z', 'before-everything')];
+    const signals: SignalBusEntry[] = [entry(note('2026-05-09T09:00:00.000Z', 'before-everything'))];
     const result = bucketTaskSignals(trace, events, signals);
     expect(result.orphanSignals).toHaveLength(1);
     expect(result.tasks[0]?.signals ?? []).toHaveLength(0);
@@ -92,7 +101,7 @@ describe('bucketTaskSignals — binary-search attribution', () => {
       stepCompleted(`uninstall-skills-${TASK}`, '2026-05-09T10:01:00.000Z'),
     ];
     const trace: Trace = [{ elementName: `generator-${TASK}`, status: 'completed', durationMs: 10 }];
-    const signals: HarnessSignal[] = [note('2026-05-09T10:01:30.000Z', 'after-task-1')];
+    const signals: SignalBusEntry[] = [entry(note('2026-05-09T10:01:30.000Z', 'after-task-1'))];
     const result = bucketTaskSignals(trace, events, signals);
     expect(result.orphanSignals).toHaveLength(1);
   });
@@ -108,9 +117,9 @@ describe('bucketTaskSignals — binary-search attribution', () => {
       { elementName: `generator-${TASK}`, status: 'completed', durationMs: 10 },
       { elementName: `generator-${TASK2}`, status: 'completed', durationMs: 10 },
     ];
-    const signals: HarnessSignal[] = [
-      note('2026-05-09T10:00:30.000Z', 'for-1'),
-      note('2026-05-09T10:02:30.000Z', 'for-2'),
+    const signals: SignalBusEntry[] = [
+      entry(note('2026-05-09T10:00:30.000Z', 'for-1')),
+      entry(note('2026-05-09T10:02:30.000Z', 'for-2')),
     ];
     const result = bucketTaskSignals(trace, events, signals);
     const t1 = result.tasks.find((t) => t.id === TASK);
@@ -118,6 +127,68 @@ describe('bucketTaskSignals — binary-search attribution', () => {
     expect(t1?.signals).toHaveLength(1);
     expect(t2?.signals).toHaveLength(1);
     expect(result.orphanSignals).toHaveLength(0);
+  });
+});
+
+describe('bucketTaskSignals — explicit taskId attribution (primary) vs. timestamp window (fallback)', () => {
+  it('an explicit taskId wins even when the timestamp falls outside that task window', () => {
+    // Task 1's window is 10:00-10:01; the signal's timestamp (09:00) predates it entirely — the
+    // timestamp-window heuristic alone would orphan it. The explicit taskId must still win.
+    const events: AppEvent[] = [
+      stepCompleted(`build-task-workspace-${TASK}`, '2026-05-09T10:00:00.000Z'),
+      stepCompleted(`uninstall-skills-${TASK}`, '2026-05-09T10:01:00.000Z'),
+    ];
+    const trace: Trace = [{ elementName: `generator-${TASK}`, status: 'completed', durationMs: 10 }];
+    const signals: SignalBusEntry[] = [entry(note('2026-05-09T09:00:00.000Z', 'explicit-taskid'), TASK)];
+    const result = bucketTaskSignals(trace, events, signals);
+    expect(result.orphanSignals).toHaveLength(0);
+    expect(result.tasks[0]?.signals).toHaveLength(1);
+  });
+
+  it('an explicit taskId attributes correctly under concurrency — timestamps that would cross-attribute by window still route to the stamped task', () => {
+    // Both tasks' windows overlap in wall-clock time (parallel branches) — the timestamp-window
+    // heuristic would misattribute at least one signal. Explicit taskId sidesteps the ambiguity.
+    const events: AppEvent[] = [
+      stepCompleted(`build-task-workspace-${TASK}`, '2026-05-09T10:00:00.000Z'),
+      stepCompleted(`build-task-workspace-${TASK2}`, '2026-05-09T10:00:05.000Z'),
+      stepCompleted(`uninstall-skills-${TASK}`, '2026-05-09T10:01:00.000Z'),
+      stepCompleted(`uninstall-skills-${TASK2}`, '2026-05-09T10:01:05.000Z'),
+    ];
+    const trace: Trace = [
+      { elementName: `generator-${TASK}`, status: 'completed', durationMs: 10 },
+      { elementName: `generator-${TASK2}`, status: 'completed', durationMs: 10 },
+    ];
+    // Both signals land inside TASK2's window by timestamp, but the second is explicitly stamped
+    // for TASK — the stamped id must win over the window the timestamp would suggest.
+    const signals: SignalBusEntry[] = [
+      entry(note('2026-05-09T10:00:06.000Z', 'for-2-by-window'), TASK2),
+      entry(note('2026-05-09T10:00:07.000Z', 'for-1-by-explicit-id'), TASK),
+    ];
+    const result = bucketTaskSignals(trace, events, signals);
+    const t1 = result.tasks.find((t) => t.id === TASK);
+    const t2 = result.tasks.find((t) => t.id === TASK2);
+    expect(t1?.signals.map((s) => (s.type === 'note' ? s.text : ''))).toEqual(['for-1-by-explicit-id']);
+    expect(t2?.signals.map((s) => (s.type === 'note' ? s.text : ''))).toEqual(['for-2-by-window']);
+  });
+
+  it('falls back to the timestamp-window heuristic when no taskId is stamped', () => {
+    const events: AppEvent[] = [
+      stepCompleted(`build-task-workspace-${TASK}`, '2026-05-09T10:00:00.000Z'),
+      stepCompleted(`uninstall-skills-${TASK}`, '2026-05-09T10:01:00.000Z'),
+    ];
+    const trace: Trace = [{ elementName: `generator-${TASK}`, status: 'completed', durationMs: 10 }];
+    const signals: SignalBusEntry[] = [entry(note('2026-05-09T10:00:30.000Z', 'no-taskid'))];
+    const result = bucketTaskSignals(trace, events, signals);
+    expect(result.tasks[0]?.signals).toHaveLength(1);
+    expect(result.orphanSignals).toHaveLength(0);
+  });
+
+  it('orphans a no-taskId signal whose timestamp falls outside every window (fallback still applies)', () => {
+    const events: AppEvent[] = [stepCompleted(`build-task-workspace-${TASK}`, '2026-05-09T10:00:00.000Z')];
+    const trace: Trace = [{ elementName: `generator-${TASK}`, status: 'completed', durationMs: 10 }];
+    const signals: SignalBusEntry[] = [entry(note('2026-05-09T09:00:00.000Z', 'no-taskid-before'))];
+    const result = bucketTaskSignals(trace, events, signals);
+    expect(result.orphanSignals).toHaveLength(1);
   });
 });
 
@@ -172,7 +243,7 @@ describe('bucketTaskSignals — commit-message attribution', () => {
       body: 'Add a basic email + password form.',
       timestamp: '2026-05-09T10:00:30.000Z' as never,
     };
-    const result = bucketTaskSignals(trace, events, [aiSignal]);
+    const result = bucketTaskSignals(trace, events, [entry(aiSignal)]);
     const commitRows = result.tasks[0]?.signals.filter((s) => s.type === 'commit-message') ?? [];
     expect(commitRows).toHaveLength(1);
     expect(commitRows[0]?.type === 'commit-message' ? commitRows[0].subject : undefined).toBe('feat: add login form');

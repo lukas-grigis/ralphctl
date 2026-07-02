@@ -40,7 +40,7 @@ import { useTokenUsage } from '@src/application/ui/tui/runtime/use-token-usage.t
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { useRouter, useViewProps } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSession, useSessionManager, useSessions } from '@src/application/ui/tui/runtime/sessions-context.tsx';
-import { useBuses } from '@src/application/ui/tui/runtime/sinks-context.tsx';
+import { type SignalBusEntry, useBuses } from '@src/application/ui/tui/runtime/sinks-context.tsx';
 import { useSinkStream } from '@src/application/ui/tui/runtime/use-sink-stream.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useEventBusBuffer } from '@src/application/ui/tui/runtime/use-event-bus.ts';
@@ -60,7 +60,6 @@ import type { RouterApi } from '@src/application/ui/tui/runtime/router.tsx';
 import type { TerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 import type { TokenUsage } from '@src/application/ui/tui/runtime/use-token-usage.ts';
 import type { LogEvent } from '@src/business/observability/events.ts';
-import type { HarnessSignal } from '@src/domain/signal.ts';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { ResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/use-responsive-layout.ts';
@@ -137,7 +136,7 @@ interface ExecuteSessionData {
   readonly ui: UiStateApi;
   readonly deps: AppDeps;
   readonly eventBus: AppDeps['eventBus'];
-  readonly signals: readonly HarnessSignal[];
+  readonly signals: readonly SignalBusEntry[];
   readonly logEntries: readonly LogEvent[];
   readonly chainEvents: readonly AppEvent[];
   readonly term: TerminalSize;

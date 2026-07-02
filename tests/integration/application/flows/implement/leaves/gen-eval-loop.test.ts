@@ -7,7 +7,6 @@ import type { HarnessSignal } from '@src/domain/signal.ts';
 import type { AppEvent } from '@src/business/observability/events.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
-import { createInMemorySink } from '@tests/fixtures/in-memory-sink.ts';
 import { createFakeAiProvider } from '@tests/fixtures/fake-ai-provider.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import { absolutePath, FIXED_NOW, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
@@ -44,7 +43,7 @@ describe('createGenEvalLoop — loop-entry guard', () => {
         generatorProvider,
         evaluatorProvider,
         templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-        signals: createInMemorySink<HarnessSignal>(),
+        publishSignal: () => {},
         writeFile: async () => Result.ok(undefined),
         clock: () => FIXED_NOW,
         logger: noopLogger,
@@ -150,7 +149,7 @@ describe('createGenEvalLoop — gen-eval-turn child order (step-order fence)', (
         generatorProvider: createFakeAiProvider({}),
         evaluatorProvider: createFakeAiProvider({}),
         templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-        signals: createInMemorySink<HarnessSignal>(),
+        publishSignal: () => {},
         writeFile: async () => Result.ok(undefined),
         clock: () => FIXED_NOW,
         logger: noopLogger,
@@ -269,7 +268,7 @@ describe('createGenEvalLoop — crash-attribution: meta sidecars land before gen
         generatorProvider: failingGeneratorProvider,
         evaluatorProvider: createFakeAiProvider({}),
         templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-        signals: createInMemorySink<HarnessSignal>(),
+        publishSignal: () => {},
         // Real writeFile so the stamp sidecars actually land on disk.
         writeFile: createAtomicWriteFile(),
         clock: () => FIXED_NOW,
@@ -417,7 +416,7 @@ describe('createGenEvalLoop — entropy-check (R2) live behavior', () => {
         generatorProvider,
         evaluatorProvider,
         templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-        signals: createInMemorySink<HarnessSignal>(),
+        publishSignal: () => {},
         writeFile: async () => Result.ok(undefined),
         clock: () => FIXED_NOW,
         logger: noopLogger,

@@ -1,6 +1,6 @@
 import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
-import type { HarnessSignalSink } from '@src/business/observability/harness-signal-sink.ts';
+import type { PublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
@@ -55,7 +55,13 @@ export interface GenEvalLoopDeps {
   readonly generatorProvider: HeadlessAiProvider;
   readonly evaluatorProvider: HeadlessAiProvider;
   readonly templateLoader: TemplateLoader;
-  readonly signals: HarnessSignalSink;
+  /**
+   * Fan-out seam for every validated signal either role's turn emits — the ONE harness-signal
+   * channel (see `publish-signal.ts`). Shared verbatim by both the generator and evaluator leaf
+   * (both roles publish under the SAME pre-bound source/taskId; the leaf itself no longer picks
+   * its own source string).
+   */
+  readonly publishSignal: PublishSignal;
   readonly writeFile: WriteFile;
   /**
    * Git transport — threaded into the evaluator leaf so it can fingerprint the working tree's
@@ -98,7 +104,7 @@ export const createGenEvalLoop = (
   // top below so generator / evaluator can target different providers.
   const sharedLeafDeps = {
     templateLoader: deps.templateLoader,
-    signals: deps.signals,
+    publishSignal: deps.publishSignal,
     // Threaded into both gen-eval leaves so harness-owned sidecars (audit-[09]
     // `commit-message.txt` for the generator, `evaluation.md` for the evaluator) land via
     // the atomic-write port. The leaves never write these files directly.

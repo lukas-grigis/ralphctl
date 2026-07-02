@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-import type { HarnessSignal } from '@src/domain/signal.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { Result } from '@src/domain/result.ts';
 import { addTicket } from '@src/domain/entity/sprint.ts';
@@ -15,15 +14,10 @@ import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
 import { RALPHCTL_DEBUG_TRACE_ENV, wire } from '@src/application/bootstrap/wire.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { createRefineFlow } from '@src/application/flows/refine/flow.ts';
-import type { AppSinks } from '@src/application/bootstrap/runtime-sinks.ts';
 import { makeDraftSprint, makeDraftSprintBundle, makePendingTicket, makeProject } from '@tests/fixtures/domain.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
-import { createInMemorySink } from '@tests/fixtures/in-memory-sink.ts';
-import { nullSink } from '@src/integration/observability/sinks/null-sink.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
-
-const noOpSinks = (): AppSinks => ({ harness: nullSink() });
 
 describe('wire', () => {
   let tmpHome: string;
@@ -44,7 +38,7 @@ describe('wire', () => {
     if (!paths.ok) throw new Error('storagePathsFromRoot failed');
     await ensureStorageRoots(paths.value);
 
-    const deps = wire({ storage: paths.value, sinks: noOpSinks(), settings: DEFAULT_SETTINGS });
+    const deps = wire({ storage: paths.value, settings: DEFAULT_SETTINGS });
 
     // Round-trip a project + sprint through the wired repos.
     const project = makeProject();
@@ -87,7 +81,7 @@ describe('wire', () => {
     const at = IsoTimestamp.now();
 
     // Without the env var: factory must return a no-op handle, never touch disk.
-    const off = wire({ storage: paths.value, sinks: noOpSinks(), settings: DEFAULT_SETTINGS, env: {} });
+    const off = wire({ storage: paths.value, settings: DEFAULT_SETTINGS, env: {} });
     const offHandle = off.chainLogSink({ file: offFile.value, bus: off.eventBus });
     off.eventBus.publish({ type: 'chain-started', chainId: 'r-off', flowId: 'implement', at });
     await offHandle.flush();
@@ -101,7 +95,6 @@ describe('wire', () => {
     // With the env var set: factory returns the real file-log sink and lines hit disk.
     const on = wire({
       storage: paths.value,
-      sinks: noOpSinks(),
       settings: DEFAULT_SETTINGS,
       env: { [RALPHCTL_DEBUG_TRACE_ENV]: '1' },
     });
@@ -121,8 +114,8 @@ describe('wire', () => {
     if (!paths.ok) throw new Error('storagePathsFromRoot failed');
     await ensureStorageRoots(paths.value);
 
-    const a = wire({ storage: paths.value, sinks: noOpSinks(), settings: DEFAULT_SETTINGS });
-    const b = wire({ storage: paths.value, sinks: noOpSinks(), settings: DEFAULT_SETTINGS });
+    const a = wire({ storage: paths.value, settings: DEFAULT_SETTINGS });
+    const b = wire({ storage: paths.value, settings: DEFAULT_SETTINGS });
 
     expect(a.projectRepo).not.toBe(b.projectRepo);
     expect(a.sprintRepo).not.toBe(b.sprintRepo);
@@ -140,16 +133,12 @@ describe('wire', () => {
     const withTicket = addTicket(draft, ticket);
     if (!withTicket.ok) throw new Error('fixture: addTicket failed');
 
-    const sinks: AppSinks = {
-      harness: createInMemorySink<HarnessSignal>(),
-    };
-
     // Fake spawn that scripts a successful Claude call: a markdown body containing a
     // task-verified signal — refine itself doesn't require signals, but exercising the
     // parsing path through the wired provider proves the seam works.
     const spawn: ProviderSpawn = () => makeFakeChild();
 
-    const deps = wire({ storage: paths.value, sinks, settings: DEFAULT_SETTINGS, spawn });
+    const deps = wire({ storage: paths.value, settings: DEFAULT_SETTINGS, spawn });
     await deps.sprintRepo.save(withTicket.value);
 
     // Refine is now interactive — replace the wired interactiveAi with a fake that writes a

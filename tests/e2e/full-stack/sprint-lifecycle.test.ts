@@ -28,7 +28,6 @@ import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import { createFileLocker } from '@src/integration/io/file-locker.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
-import { createInMemorySink } from '@tests/fixtures/in-memory-sink.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
 import { createAppendFile } from '@src/integration/io/append-file-adapter.ts';
@@ -49,6 +48,7 @@ import { createRealFsApp, type RealFsApp } from '@tests/helpers/real-fs-app.ts';
 
 import { App } from '@src/application/ui/tui/App.tsx';
 import { createBusSink } from '@src/application/ui/tui/runtime/sinks-bus.ts';
+import type { SignalBusEntry } from '@src/application/ui/tui/runtime/sinks-context.tsx';
 import { createSessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
 import { createPromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
 import { createLogLevelGate } from '@src/business/observability/log-level-filter.ts';
@@ -195,7 +195,7 @@ function runTests(): void {
     generatorProvider: provider,
     evaluatorProvider: provider,
     templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-    signals: createInMemorySink<HarnessSignal>(),
+    publishSignal: () => {},
     eventBus: eventBus ?? createInMemoryEventBus(),
     logger: noopLogger,
     clock: () => FIXED_LATER,
@@ -493,9 +493,9 @@ function runTests(): void {
       // A real TUI bus forwarder (launch.ts) would pipe the log sub-channel into logBus; here
       // we publish a chain event directly since the harness bus (BusesProvider) does not require
       // the log forwarder for chain events. We subscribe a spy to the app.deps.eventBus and also
-      // wire a harnessBus that the App's BusesProvider uses for the HarnessSignal channel.
+      // wire a harnessBus that the App's BusesProvider uses for the harness-signal channel.
 
-      const harnessBus = createBusSink<HarnessSignal>({ maxEntries: 100 });
+      const harnessBus = createBusSink<SignalBusEntry>({ maxEntries: 100 });
 
       // Re-wire deps with our hermetic overrides (no-op version checker, etc.)
       const deps = {

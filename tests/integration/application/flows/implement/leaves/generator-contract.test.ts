@@ -2,12 +2,11 @@ import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
-import type { HarnessSignal } from '@src/domain/signal.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { AiSignalEvent, AppEvent } from '@src/business/observability/events.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
-import { createInMemorySink } from '@tests/fixtures/in-memory-sink.ts';
+import { createPublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import { absolutePath, FIXED_NOW, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
@@ -42,17 +41,11 @@ describe('generatorLeaf — audit-[09] contract', () => {
   const sidecarPath = (): string => join(String(root.root), 'rounds', '1', 'generator', 'commit-message.txt');
 
   /**
-   * Build the leaf deps along with two inspectable handles — the in-memory sink (so tests
-   * can read what the leaf emitted to the legacy fan-out) and the recorded mock provider
-   * invocations. Returning the rich tuple keeps the test bodies free of casts.
+   * Build the leaf deps — `publishSignal` is bound to this leaf's `eventBus` with
+   * `source: 'generator'` so tests can assert on the fanned-out `ai-signal` events (via
+   * `captureBus`) instead of a legacy sink.
    */
-  const buildDeps = (
-    fixtures: Map<string, SpawnFixture>,
-    eventBus = createInMemoryEventBus()
-  ): {
-    readonly deps: GeneratorLeafDeps;
-    readonly sink: ReturnType<typeof createInMemorySink<HarnessSignal>>;
-  } => {
+  const buildDeps = (fixtures: Map<string, SpawnFixture>, eventBus = createInMemoryEventBus()): GeneratorLeafDeps => {
     const mock = createMockHeadlessProvider({ fixtures });
     // `WriteFile` adapter — real disk writes so sidecars land where the production helper
     // would write them and tests can read them back. No port mock needed.
@@ -65,11 +58,10 @@ describe('generatorLeaf — audit-[09] contract', () => {
         return Result.error({ message: String(cause) } as never);
       }
     };
-    const sink = createInMemorySink<HarnessSignal>();
-    const deps: GeneratorLeafDeps = {
+    return {
       provider: mock.provider,
       templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-      signals: sink,
+      publishSignal: createPublishSignal(eventBus, 'generator'),
       writeFile,
       cwd: absolutePath('/tmp/ralph/fake-cwd'),
       sprintDir: absolutePath('/tmp/ralph/fake-sprint-dir'),
@@ -82,7 +74,6 @@ describe('generatorLeaf — audit-[09] contract', () => {
       plateauThreshold: 3,
       correctiveRetries: 2,
     };
-    return { deps, sink };
   };
 
   const baseCtx = (task: ReturnType<typeof makeInProgressTaskWithRunningAttempt>): ImplementCtx => ({
@@ -103,7 +94,7 @@ describe('generatorLeaf — audit-[09] contract', () => {
   };
 
   // ── 1. Happy path ─────────────────────────────────────────────────────────────
-  it('ok: validates signals, writes commit-message.txt, fans out to bus + sink', async () => {
+  it('ok: validates signals, writes commit-message.txt, publishes every signal onto the bus', async () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const fixtures = new Map<string, SpawnFixture>([
       [
@@ -130,7 +121,7 @@ describe('generatorLeaf — audit-[09] contract', () => {
       ],
     ]);
     const { events, eventBus } = captureBus();
-    const { deps, sink } = buildDeps(fixtures, eventBus);
+    const deps = buildDeps(fixtures, eventBus);
     const leaf = generatorLeaf(deps, task.id);
 
     const result = await leaf.execute(baseCtx(task));
@@ -151,16 +142,6 @@ describe('generatorLeaf — audit-[09] contract', () => {
       'commit-message',
     ]);
     for (const ev of aiSignals) expect(ev.source).toBe('generator');
-
-    // The legacy sink still sees the same signals (TUI consumers stay happy until Wave 6).
-    expect(sink.entries.map((s: HarnessSignal) => s.type)).toEqual([
-      'change',
-      'decision',
-      'learning',
-      'note',
-      'task-verified',
-      'commit-message',
-    ]);
 
     // Ctx projection threads the validated commit-message into proposedCommitMessage.
     if (!result.ok) return;
@@ -189,7 +170,7 @@ describe('generatorLeaf — audit-[09] contract', () => {
         },
       ],
     ]);
-    const leaf = generatorLeaf(buildDeps(fixtures).deps, task.id);
+    const leaf = generatorLeaf(buildDeps(fixtures), task.id);
     const result = await leaf.execute(baseCtx(task));
     expect(result.ok).toBe(true);
 
@@ -219,7 +200,7 @@ describe('generatorLeaf — audit-[09] contract', () => {
   it('ok-missing: self-blocks with signals-missing in the reason', async () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const fixtures = new Map<string, SpawnFixture>([[signalsFilePath(), { kind: 'ok-missing' }]]);
-    const leaf = generatorLeaf(buildDeps(fixtures).deps, task.id);
+    const leaf = generatorLeaf(buildDeps(fixtures), task.id);
     const result = await leaf.execute(baseCtx(task));
     expectSelfBlock(result, 'signals-missing');
   });
@@ -230,7 +211,7 @@ describe('generatorLeaf — audit-[09] contract', () => {
     const fixtures = new Map<string, SpawnFixture>([
       [signalsFilePath(), { kind: 'ok-raw', rawBody: '{ this is not json' }],
     ]);
-    const leaf = generatorLeaf(buildDeps(fixtures).deps, task.id);
+    const leaf = generatorLeaf(buildDeps(fixtures), task.id);
     const result = await leaf.execute(baseCtx(task));
     expectSelfBlock(result, 'malformed JSON');
   });
@@ -252,7 +233,7 @@ describe('generatorLeaf — audit-[09] contract', () => {
         },
       ],
     ]);
-    const leaf = generatorLeaf(buildDeps(fixtures).deps, task.id);
+    const leaf = generatorLeaf(buildDeps(fixtures), task.id);
     const result = await leaf.execute(baseCtx(task));
     expectSelfBlock(result, 'schema');
   });
@@ -275,7 +256,7 @@ describe('generatorLeaf — audit-[09] contract', () => {
         },
       ],
     ]);
-    const leaf = generatorLeaf(buildDeps(fixtures).deps, task.id);
+    const leaf = generatorLeaf(buildDeps(fixtures), task.id);
     const result = await leaf.execute(baseCtx(task));
     expectSelfBlock(result, 'at most one commit-message');
   });
@@ -303,7 +284,7 @@ describe('generatorLeaf — audit-[09] contract', () => {
       ],
     ]);
     const { events, eventBus } = captureBus();
-    const leaf = generatorLeaf(buildDeps(fixtures, eventBus).deps, task.id);
+    const leaf = generatorLeaf(buildDeps(fixtures, eventBus), task.id);
 
     const result = await leaf.execute(baseCtx(task));
     expect(result.ok).toBe(true);
@@ -326,7 +307,7 @@ describe('generatorLeaf — audit-[09] contract', () => {
       message: 'simulated spawn failure',
     });
     const fixtures = new Map<string, SpawnFixture>([[signalsFilePath(), { kind: 'spawn-error', error: spawnError }]]);
-    const leaf = generatorLeaf(buildDeps(fixtures).deps, task.id);
+    const leaf = generatorLeaf(buildDeps(fixtures), task.id);
 
     const result = await leaf.execute(baseCtx(task));
     // A non-zero spawn (InvalidStateError, recoverable) blocks this task rather than aborting
@@ -342,7 +323,7 @@ describe('generatorLeaf — audit-[09] contract', () => {
   it('abort: AbortError propagates transparently through the leaf', async () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const fixtures = new Map<string, SpawnFixture>([[signalsFilePath(), { kind: 'abort' }]]);
-    const leaf = generatorLeaf(buildDeps(fixtures).deps, task.id);
+    const leaf = generatorLeaf(buildDeps(fixtures), task.id);
 
     // The mock throws AbortError; the leaf primitive treats it as a DomainError (it has a
     // string `code`) and surfaces it via Result.error. The "transparent" contract is that

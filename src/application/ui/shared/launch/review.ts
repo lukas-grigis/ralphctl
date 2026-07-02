@@ -88,7 +88,6 @@ export const launchReview = async (ctx: LaunchContext): Promise<LaunchResult> =>
       taskRepo: deps.app.taskRepo,
       provider,
       templateLoader: deps.app.templateLoader,
-      signals: deps.app.signals,
       eventBus: deps.app.eventBus,
       logger: deps.app.logger,
       clock: deps.app.clock,

@@ -185,7 +185,7 @@ in `domain/repository/<aggregate>/`.
 | `EventBus`                                            | `business/observability/`           | `InMemoryEventBus` (`integration/observability/`)                                                                                                                           |
 | `HeadlessAiProvider`                                  | `integration/ai/providers/_engine/` | `claude` / `copilot` / `codex` adapters under `providers/<tool>/`                                                                                                           |
 | `InteractiveAiProvider`                               | `integration/ai/providers/_engine/` | same per-tool adapters (interactive entrypoint)                                                                                                                             |
-| `HarnessSignalSink`                                   | `business/observability/`           | file sinks under `integration/observability/sinks/`                                                                                                                         |
+| `PublishSignal` (fn type)                             | `application/flows/_shared/`        | `createPublishSignal(eventBus, source, taskId?)` — the ONE harness-signal channel (`ai-signal` AppEvent)                                                                    |
 | `TemplateLoader`                                      | `integration/ai/prompts/_engine/`   | `FsTemplateLoader` — dev: src tree, bundled: `dist/`                                                                                                                        |
 | `ReadinessProbe`                                      | `integration/ai/readiness/_engine/` | per-tool probes under `readiness/<tool>/`                                                                                                                                   |
 | `SkillsAdapter` + `SkillSource`                       | `integration/ai/skills/_engine/`    | per-tool adapter + bundled / operator / project source; `parseSkill` extracts a `Skill` from a `SKILL.md`; `checkSkillContract` validates against six harness rules (S1–S6) |
@@ -239,7 +239,6 @@ application/bootstrap/
 ├── storage-paths.ts       ← resolveStoragePaths() + storagePathsFromRoot(absPath);
 │                            StoragePaths carries appRoot / dataRoot / configRoot / stateRoot /
 │                            locksRoot / runsRoot / memoryRoot / operatorSkillsRoot
-├── runtime-sinks.ts       ← AppSinks (HarnessSignalSink, …)
 ├── provider-factory.ts    ← createAiProvider({ harnessConfig, eventBus, spawn? } & ({ flow, ai } | { row }))
 ├── interactive-provider-factory.ts
 └── legacy-layout-detector.ts  ← v0.6.x layout detector (RALPHCTL_SKIP_LEGACY_CHECK bypass)

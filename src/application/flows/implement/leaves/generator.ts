@@ -20,7 +20,7 @@ import type { AiSignal, HarnessSignal, LearningEntry } from '@src/domain/signal.
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
-import type { HarnessSignalSink } from '@src/business/observability/harness-signal-sink.ts';
+import type { PublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import { buildImplementPrompt } from '@src/integration/ai/prompts/implement/definition.ts';
 import { buildImplementContinuationPrompt } from '@src/integration/ai/prompts/implement-continuation/definition.ts';
 import type { BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
@@ -58,14 +58,14 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
 /**
  * Chain leaf — one generator turn of the gen-eval loop. Wires the integration ports
- * (`provider`, `templateLoader`, `signals`) into function-shape deps for
+ * (`provider`, `templateLoader`, `publishSignal`) into function-shape deps for
  * {@link runGeneratorTurnUseCase}; the use case owns the per-turn business decisions
  * (self-blocked detection + verification recording).
  *
  * File-based contract: the leaf computes this turn's round number BEFORE the provider call so
  * `session.signalsFile = <workspaceRoot>/rounds/<N>/generator/signals.json` is in place when
- * the provider writes. After the call returns the leaf reads that file, forwards each parsed
- * signal to the harness sink (TUI + progress.md fan-out), then passes the array to the use
+ * the provider writes. After the call returns the leaf reads that file, publishes each parsed
+ * signal onto the application bus (TUI + progress.md fan-out), then passes the array to the use
  * case. The AI's raw prose is never materialised in node memory at this layer.
  *
  * The leaf increments `ctx.genEvalTurn` at the start so downstream consumers can report
@@ -76,7 +76,12 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 export interface GeneratorLeafDeps {
   readonly provider: HeadlessAiProvider;
   readonly templateLoader: TemplateLoader;
-  readonly signals: HarnessSignalSink;
+  /**
+   * Fan-out seam for every validated signal this turn — the ONE harness-signal channel
+   * (see `publish-signal.ts`). Pre-bound with this leaf's `source` (and, on the implement
+   * parallel path, the owning branch's `taskId`) by the caller.
+   */
+  readonly publishSignal: PublishSignal;
   /**
    * Output port used to write harness-rendered sidecars (`commit-message.txt`) post-spawn.
    * Per audit-[09], the AI only writes `signals.json`; the harness derives every other on-
@@ -455,20 +460,18 @@ interface GeneratorTurnAccumulators {
 }
 
 /**
- * Fan out this turn's validated signals to BOTH the legacy `HarnessSignalSink` (TUI panels,
- * decisions-log) and the application bus's typed `ai-signal` event, while pushing each kind's
- * text onto the turn's accumulator arrays for the leaf's `execute` to read back afterward. The
- * bus carries every kind the contract accepts; the sink keeps its existing per-kind consumers
- * happy until Wave 6 collapses the two paths.
+ * Fan out this turn's validated signals onto the application bus's typed `ai-signal` event (the
+ * one harness-signal channel), while pushing each kind's text onto the turn's accumulator arrays
+ * for the leaf's `execute` to read back afterward. Every validated signal kind flows — not just
+ * the text-bearing subset the legacy sink mirror filtered to.
  */
 const accumulateAndEmitSignals = (
-  deps: Pick<GeneratorLeafDeps, 'signals' | 'eventBus'>,
+  deps: Pick<GeneratorLeafDeps, 'publishSignal'>,
   signals: readonly AiSignal[],
   accumulators: GeneratorTurnAccumulators
 ): void => {
   for (const sig of signals) {
-    deps.signals.emit(sig);
-    deps.eventBus.publish({ type: 'ai-signal', signal: sig, source: 'generator' });
+    deps.publishSignal(sig);
     if (sig.type === 'decision') accumulators.decisionsEmitted.push(sig.text);
     else if (sig.type === 'change') accumulators.changesEmitted.push(sig.text);
     else if (sig.type === 'learning')
@@ -566,7 +569,7 @@ const makeGeneratorReinvoke =
 /**
  * Build this turn's `callImplement` — composes the harness-verify prompt blocks, builds + persists
  * the prompt, spawns the generator (on the task's escalated model when present), validates
- * `signals.json` with one corrective retry, fans the parsed signals out to the sink/bus while
+ * `signals.json` with one corrective retry, publishes the parsed signals onto the bus while
  * accumulating their texts, and renders harness-owned sidecars. Returns the parsed signals for
  * `runGeneratorTurnUseCase` to interpret.
  */

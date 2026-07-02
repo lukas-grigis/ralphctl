@@ -5,6 +5,7 @@ import { sequential } from '@src/application/chain/build/sequential.ts';
 import { loadProjectLeaf } from '@src/application/flows/_shared/project/load.ts';
 import { pickRepositoryLeaf } from '@src/application/flows/_shared/project/pick-repository.ts';
 import { allocateRunDirLeaf } from '@src/application/flows/_shared/allocate-run-dir.ts';
+import { createPublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import type { DetectSkillsCtx } from '@src/application/flows/detect-skills/ctx.ts';
 import type { DetectSkillsDeps } from '@src/application/flows/detect-skills/deps.ts';
 import { proposeDetectSkillsLeaf } from '@src/application/flows/detect-skills/leaves/propose.ts';
@@ -31,13 +32,16 @@ export interface CreateDetectSkillsFlowOpts {
  *     write,                    // no-op when not accepted; updateRepository + save otherwise
  *   ])
  */
+/** Canonical flow id — the sequential trace name, the run-dir segment, and the signal source. */
+const DETECT_SKILLS_FLOW = 'detect-skills';
+
 export const createDetectSkillsFlow = (
   deps: DetectSkillsDeps,
   opts: CreateDetectSkillsFlowOpts
 ): Element<DetectSkillsCtx> => {
   void opts.projectId;
   void opts.repositoryId;
-  return sequential<DetectSkillsCtx>('detect-skills', [
+  return sequential<DetectSkillsCtx>(DETECT_SKILLS_FLOW, [
     loadProjectLeaf<DetectSkillsCtx>({ projectRepo: deps.projectRepo }),
     pickRepositoryLeaf<DetectSkillsCtx>(
       { interactive: deps.interactive },
@@ -50,14 +54,13 @@ export const createDetectSkillsFlow = (
     allocateRunDirLeaf<DetectSkillsCtx>({
       name: 'allocate-run-dir-detect-skills',
       runsRoot: () => deps.runsRoot,
-      flowSegment: 'detect-skills',
+      flowSegment: DETECT_SKILLS_FLOW,
       write: (ctx, runDir) => ({ ...ctx, proposal: { ...ctx.proposal, runDir } }),
     }),
     proposeDetectSkillsLeaf({
       provider: deps.provider,
       templateLoader: deps.templateLoader,
-      signals: deps.signals,
-      eventBus: deps.eventBus,
+      publishSignal: createPublishSignal(deps.eventBus, DETECT_SKILLS_FLOW),
       writeFile: deps.writeFile,
       logger: deps.logger,
       skillsAdapter: deps.skillsAdapter,

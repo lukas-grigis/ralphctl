@@ -3,8 +3,8 @@ import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type { AppendFile } from '@src/business/io/append-file.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
-import type { Sink } from '@src/business/observability/sink.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
+import type { PublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import { FULL_AUTO } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
@@ -67,11 +67,10 @@ export interface ReviewRoundLeafDeps {
   readonly provider: HeadlessAiProvider;
   readonly templateLoader: TemplateLoader;
   /**
-   * Legacy harness signal sink — fanned out so the TUI's per-flow signal panels keep
-   * rendering live updates while the eventBus subscriber path matures. The `eventBus`
-   * mirror below is the canonical path for new consumers.
+   * Fan-out seam for every validated signal this round emits — the ONE harness-signal channel
+   * (see `publish-signal.ts`). Pre-bound by the flow factory with `source: 'review-round'`.
    */
-  readonly signals: Sink<HarnessSignal>;
+  readonly publishSignal: PublishSignal;
   readonly eventBus: EventBus;
   readonly logger: Logger;
   /**
@@ -342,13 +341,8 @@ export const reviewRoundLeaf = (deps: ReviewRoundLeafDeps, opts: ReviewRoundLeaf
             if (!spawn.ok) return Result.error(spawn.error);
             const validated = await validateSignalsFile(paths.value.outputDir, reviewRoundOutputContract);
             if (!validated.ok) return Result.error(validated.error);
-            // Fan-out to BOTH the legacy sink (TUI panels) AND the typed event bus — matching
-            // the generator/evaluator dual-emit pattern. Wave 6 of the audit collapses the
-            // two paths once every TUI consumer migrates to `ai-signal` events.
-            for (const sig of validated.value) {
-              deps.signals.emit(sig);
-              deps.eventBus.publish({ type: 'ai-signal', signal: sig, source: LEAF_NAME });
-            }
+            // Publish every validated signal onto the one harness-signal channel.
+            for (const sig of validated.value) deps.publishSignal(sig);
             return Result.ok(validated.value as readonly HarnessSignal[]);
           },
           commitRound: async (round) => {

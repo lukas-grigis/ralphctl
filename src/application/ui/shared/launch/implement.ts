@@ -18,7 +18,6 @@ import {
 } from '@src/application/flows/implement/wave-branch.ts';
 import { createParallelImplementElement } from '@src/application/flows/implement/parallel-element.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
-import type { HarnessSignal } from '@src/domain/signal.ts';
 import { Result } from '@src/domain/result.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { renderTaskGraphIssue, validateTaskGraph } from '@src/domain/entity/task-graph.ts';
@@ -29,10 +28,8 @@ import type { Repository } from '@src/domain/entity/repository.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
-import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
-import type { Sink } from '@src/business/observability/sink.ts';
-import type { HarnessSignalSink } from '@src/business/observability/harness-signal-sink.ts';
-import { broadcastSink } from '@src/integration/observability/sinks/broadcast-sink.ts';
+import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
+import { createPublishSignal, type PublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import type { AiFlowSettings, AiImplementSettings, Settings } from '@src/domain/entity/settings.ts';
 import { createAiProvider } from '@src/application/bootstrap/provider-factory.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
@@ -174,13 +171,13 @@ export const clampParallel = (n: number): number => {
  * serial path uses, then wraps the prologue → `runWaves` → epilogue orchestration in the
  * {@link createParallelImplementElement} adapter — run on ONE outer runner under ONE held lock.
  *
- * `appSignals` is the launcher's app-wide harness-signal sink (NOT the serial-path-wrapped one);
- * `buildWaveBranches` fans a per-branch sink off it keyed on each branch's `taskId`.
+ * `buildWaveBranches` rebuilds each branch's `publishSignal` off `parallelDeps.eventBus`, keyed
+ * on the branch's `taskId` (see `wave-branch.ts`'s `perBranchSignalPublisher`) — the flow-wide
+ * `publishSignal` on `implementDeps` (built by the caller for the serial path) is not reused here.
  */
 const buildParallelElement = (
   implementDeps: ImplementDeps,
   implementOpts: CreateImplementFlowOpts,
-  appSignals: HarnessSignalSink,
   maxParallel: number,
   sessionId: () => string
 ): Element<ImplementCtx> => {
@@ -207,7 +204,6 @@ const buildParallelElement = (
 
   const branchDeps: BuildWaveBranchesDeps = {
     implement: parallelDeps,
-    appSignals,
     eventBus: parallelDeps.eventBus,
     foldQueue: createFoldQueue(),
   };
@@ -252,33 +248,6 @@ const resolveImplementSprintPaths = (
     progressPath: progressPath.value,
     eventsNdjsonPath: eventsNdjsonPath.value,
   });
-};
-
-/**
- * Signal mirror: `<change>` / `<learning>` / `<note>` signals are republished as structured
- * `harness-signal` events on the EventBus so the TUI panels (and the opt-in events.ndjson tee)
- * see them with a queryable shape.
- *
- * The OLD single-slot `currentTaskId` tracker (keyed off the bus's `task-attempt-started` event)
- * is DELETED: that event has zero production publishers, so the slot was always `undefined` —
- * every serial-path `harness-signal` was already unattributed. The parallel `>1` path attaches a
- * PER-BRANCH sink keyed on the branch's `taskId` (see `wave-branch.ts`), the only correct model
- * under concurrency. The serial path keeps emitting unattributed events, byte-for-byte with
- * today's behaviour — renderers that group by task simply skip unattributed entries.
- */
-const buildImplementSignalSink = (deps: LauncherDeps): HarnessSignalSink => {
-  const serialSignalBusMirror: Sink<HarnessSignal> = {
-    emit(signal) {
-      if (signal.type !== 'change' && signal.type !== 'learning' && signal.type !== 'note') return;
-      deps.app.eventBus.publish({
-        type: 'harness-signal',
-        signalKind: signal.type,
-        text: signal.text,
-        at: IsoTimestamp.now(),
-      });
-    },
-  };
-  return broadcastSink<HarnessSignal>([deps.app.signals, serialSignalBusMirror]);
 };
 
 /** Project repositories → `RepoExecConfig` map keyed by id, the per-task subchain's repo lookup. */
@@ -333,7 +302,7 @@ const buildImplementProviders = (
 const buildImplementDepsBag = (
   deps: LauncherDeps,
   effectiveSettings: Settings,
-  signals: HarnessSignalSink,
+  publishSignal: PublishSignal,
   providers: { readonly generatorProvider: HeadlessAiProvider; readonly evaluatorProvider: HeadlessAiProvider },
   skillsAdapter: SkillsAdapter,
   skillSource: SkillSource
@@ -344,7 +313,7 @@ const buildImplementDepsBag = (
   generatorProvider: providers.generatorProvider,
   evaluatorProvider: providers.evaluatorProvider,
   templateLoader: deps.app.templateLoader,
-  signals,
+  publishSignal,
   eventBus: deps.app.eventBus,
   logger: deps.app.logger,
   clock: deps.app.clock,
@@ -452,8 +421,56 @@ const computePlanLabels = (flattened: ReadonlyArray<Element<ImplementCtx>>): Map
   return planLabelByName;
 };
 
+/**
+ * Build the implement chain element for this launch — the deps/opts bags plus the
+ * serial-vs-parallel topology decision. Parallel cap: `settings.concurrency.maxParallelTasks`
+ * clamped to `[1,5]`. `=== 1` → the serial path: `createImplementFlow` built directly, the
+ * chain owning its own internal `withRepoLock`. `> 1` → the parallel path: one held lock
+ * hoisted to the launcher across prologue + waves + epilogue, one worktree per task, folds
+ * serialised onto the single shared sprint branch → one PR. The parallel path rebuilds its own
+ * per-branch `publishSignal` (see `wave-branch.ts`'s `perBranchSignalPublisher`), keyed on each
+ * task's id — the flow-wide serial-path instance in `args.publishSignal` is not reused there.
+ */
+const buildImplementElement = (
+  ctx: LaunchContext,
+  args: {
+    readonly effectiveSettings: Settings;
+    readonly implementPair: AiImplementSettings;
+    readonly publishSignal: PublishSignal;
+    readonly providers: ReturnType<typeof buildImplementProviders>;
+    readonly sprint: Sprint;
+    readonly project: Project;
+    readonly todoTasks: readonly Task[];
+    readonly progressPath: AbsolutePath;
+    readonly sprintDirPath: AbsolutePath;
+  }
+): Element<ImplementCtx> => {
+  const { deps, skillsAdapter, skillSource, sessionId } = ctx;
+  const implementDeps = buildImplementDepsBag(
+    deps,
+    args.effectiveSettings,
+    args.publishSignal,
+    args.providers,
+    skillsAdapter,
+    skillSource
+  );
+  const implementOpts = buildImplementOptsBag(
+    args.sprint,
+    args.project,
+    args.todoTasks,
+    { progressPath: args.progressPath, sprintDirPath: args.sprintDirPath },
+    args.implementPair,
+    args.providers,
+    deps.storage.memoryRoot
+  );
+  const maxParallel = clampParallel(args.effectiveSettings.concurrency.maxParallelTasks);
+  return maxParallel === 1
+    ? createImplementFlow(implementDeps, implementOpts)
+    : buildParallelElement(implementDeps, implementOpts, maxParallel, sessionId);
+};
+
 export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult> => {
-  const { deps, snapshot, extras, settings, skillsAdapter, skillSource, bridge, sessionId } = ctx;
+  const { deps, snapshot, extras, settings, bridge, sessionId } = ctx;
   // Apply per-role overrides (from CLI flags via `LaunchExtras.implementRoleOverrides`) onto
   // a settings copy before either readiness probing or provider construction — both must see
   // the overridden providers / models to avoid spawning the persisted pair while reporting on
@@ -491,40 +508,26 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
   // explicitly opts in.
   const chainLog = deps.app.chainLogSink({ file: eventsNdjsonPath, bus: deps.app.eventBus });
 
-  // Fan out every harness signal to the existing app sink (TUI bus + subscribers) and the serial
-  // event-bus mirror. The parallel path builds its own per-branch sinks in `wave-branch.ts` from
-  // `deps.app.signals`, so this `signals` is the serial-path sink.
-  const signals = buildImplementSignalSink(deps);
+  // Flow-wide publisher for the serial path — every gen-eval turn's signal publishes onto the
+  // application bus as a typed `ai-signal` event with `source: 'implement'`. The parallel path
+  // rebuilds its own per-branch publisher in `wave-branch.ts` (keyed on each task's `taskId`), so
+  // this instance is never reused there.
+  const publishSignal = createPublishSignal(deps.app.eventBus, 'implement');
   // Two independent per-role adapters — the roles may target distinct providers (see
   // `buildImplementProviders`'s doc comment for why `ctx.provider` is unused here).
   const providers = buildImplementProviders(implementPair, effectiveSettings, deps);
-  const implementDeps = buildImplementDepsBag(deps, effectiveSettings, signals, providers, skillsAdapter, skillSource);
-  const implementOpts = buildImplementOptsBag(
-    snapshot.sprint,
-    snapshot.project,
-    todoTasks,
-    { progressPath, sprintDirPath },
-    implementPair,
-    providers,
-    deps.storage.memoryRoot
-  );
   const { generatorEffort, evaluatorEffort } = providers;
-
-  // Parallel cap: clamp `settings.concurrency.maxParallelTasks` to `[1,5]`. `=== 1` →
-  // today's serial path: `createImplementFlow` built directly, the chain owning its own internal
-  // `withRepoLock`. `> 1` → the parallel path: one held lock hoisted to the launcher
-  // across prologue + waves + epilogue, one worktree per task, folds serialised onto the
-  // single shared sprint branch → one PR.
-  const maxParallel = clampParallel(effectiveSettings.concurrency.maxParallelTasks);
-
-  // Parallel path fans per-branch signal sinks off the RAW app sink (`deps.app.signals`), NOT the
-  // serial-wrapped `signals` (which carries the unattributed serial bus mirror) — so concurrent
-  // branches emit `harness-signal` events with their own `taskId` and don't also double-publish
-  // unattributed ones.
-  const element: Element<ImplementCtx> =
-    maxParallel === 1
-      ? createImplementFlow(implementDeps, implementOpts)
-      : buildParallelElement(implementDeps, implementOpts, deps.app.signals, maxParallel, sessionId);
+  const element = buildImplementElement(ctx, {
+    effectiveSettings,
+    implementPair,
+    publishSignal,
+    providers,
+    sprint: snapshot.sprint,
+    project: snapshot.project,
+    todoTasks,
+    progressPath,
+    sprintDirPath,
+  });
 
   const runner = createRunner<ImplementCtx>({
     id: sessionId(),

@@ -274,7 +274,7 @@ export const createPerTaskSubchain = (
                 generatorProvider: deps.generatorProvider,
                 evaluatorProvider: deps.evaluatorProvider,
                 templateLoader: deps.templateLoader,
-                signals: deps.signals,
+                publishSignal: deps.publishSignal,
                 writeFile: deps.writeFile,
                 gitRunner: deps.gitRunner,
                 clock: deps.clock,

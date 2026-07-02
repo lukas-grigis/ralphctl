@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
-import { createInMemorySink } from '@tests/fixtures/in-memory-sink.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import type { EvaluationSignal, HarnessSignal } from '@src/domain/signal.ts';
 import type { TokenUsageEvent } from '@src/business/observability/events.ts';
@@ -329,7 +328,7 @@ const buildDeps = (
   generatorProvider: provider,
   evaluatorProvider: provider,
   templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-  signals: createInMemorySink<HarnessSignal>(),
+  publishSignal: () => {},
   eventBus: createInMemoryEventBus(),
   logger: noopLogger,
   clock: () => FIXED_LATER,

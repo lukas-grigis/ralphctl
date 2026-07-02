@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import { Result } from '@src/domain/result.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
@@ -7,9 +7,8 @@ import type { Task } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
-import type { AppEvent } from '@src/business/observability/events.ts';
+import type { AiSignalEvent, AppEvent } from '@src/business/observability/events.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
-import type { HarnessSignalSink } from '@src/business/observability/harness-signal-sink.ts';
 import type { AppendFile } from '@src/business/io/append-file.ts';
 import type { GitRunner, GitRunResult } from '@src/integration/io/git-runner.ts';
 import type { ShellScriptRunner, ShellScriptResult } from '@src/integration/io/shell-script-runner.ts';
@@ -22,7 +21,7 @@ import type { RepoExecConfig } from '@src/application/flows/implement/leaves/res
 import {
   buildWorktreeBranch,
   createFoldQueue,
-  perBranchSignalSink,
+  perBranchSignalPublisher,
   serializeAppendFile,
   worktreePathFor,
   type BuildWaveBranchesDeps,
@@ -118,7 +117,6 @@ const stubBus = (events: AppEvent[]): EventBus => ({
 
 const makeBranchDeps = (
   runner: GitRunner,
-  appSignals: HarnessSignalSink,
   eventBus: EventBus,
   shellScriptRunner?: ShellScriptRunner
 ): BuildWaveBranchesDeps => ({
@@ -127,7 +125,6 @@ const makeBranchDeps = (
     logger: noopLogger,
     ...(shellScriptRunner !== undefined ? { shellScriptRunner } : {}),
   } as unknown as ImplementDeps,
-  appSignals,
   eventBus,
   foldQueue: createFoldQueue(),
 });
@@ -188,7 +185,7 @@ describe('buildWorktreeBranch — happy path', () => {
     const task = makeTodoTask();
     const done: Task = { ...makeDoneTask(), id: task.id };
     const { runner, calls } = fakeGit();
-    const deps = makeBranchDeps(runner, { emit: vi.fn() }, stubBus([]));
+    const deps = makeBranchDeps(runner, stubBus([]));
     const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
 
     const branch = buildWorktreeBranch(deps, repo, task, wt, 'ralphctl/s1/wt-x', settlingSubchain(task.id, done));
@@ -205,7 +202,7 @@ describe('buildWorktreeBranch — happy path', () => {
   it('never stashes the main repo', async () => {
     const task = makeTodoTask();
     const { runner, calls } = fakeGit();
-    const deps = makeBranchDeps(runner, { emit: vi.fn() }, stubBus([]));
+    const deps = makeBranchDeps(runner, stubBus([]));
     const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
     const branch = buildWorktreeBranch(
       deps,
@@ -225,7 +222,7 @@ describe('buildWorktreeBranch — fold conflict → blocked', () => {
     const task = makeTodoTask();
     const done: Task = { ...makeDoneTask(), id: task.id };
     const { runner, calls } = fakeGit({ foldConflict: true });
-    const deps = makeBranchDeps(runner, { emit: vi.fn() }, stubBus([]));
+    const deps = makeBranchDeps(runner, stubBus([]));
     const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
 
     const branch = buildWorktreeBranch(deps, repo, task, wt, 'ref', settlingSubchain(task.id, done));
@@ -246,7 +243,7 @@ describe('buildWorktreeBranch — does not fold a non-done task', () => {
     const task = makeTodoTask();
     // Subchain leaves the task as-is (todo) — e.g. self-blocked path with no commit.
     const { runner, calls } = fakeGit();
-    const deps = makeBranchDeps(runner, { emit: vi.fn() }, stubBus([]));
+    const deps = makeBranchDeps(runner, stubBus([]));
     const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
     const passthroughSubchain = (): Element<ImplementCtx> => ({
       name: 'passthrough',
@@ -265,48 +262,49 @@ describe('buildWorktreeBranch — does not fold a non-done task', () => {
   });
 });
 
-// ── per-branch signal sink attribution ────────────────────────────────────────────────────────
+// ── per-branch signal publisher attribution ───────────────────────────────────────────────────
 
-describe('perBranchSignalSink — taskId attribution under concurrency', () => {
+describe('perBranchSignalPublisher — taskId attribution under concurrency', () => {
   const change = (text: string): HarnessSignal => ({ type: 'change', text, timestamp: IsoTimestamp.now() });
+  const asAiSignals = (events: readonly AppEvent[]): AiSignalEvent[] =>
+    events.filter((e): e is AiSignalEvent => e.type === 'ai-signal');
 
-  it('stamps each branch sink with ITS OWN taskId — two branches do not cross-attribute', () => {
+  it('stamps each branch publisher with ITS OWN taskId — two branches do not cross-attribute', () => {
     const t1 = makeTodoTask({ name: 't1' });
     const t2 = makeTodoTask({ name: 't2' });
     const events: AppEvent[] = [];
     const bus = stubBus(events);
-    const appSeen: HarnessSignal[] = [];
-    const appSink: HarnessSignalSink = { emit: (s) => appSeen.push(s) };
 
-    const sink1 = perBranchSignalSink(appSink, bus, t1.id);
-    const sink2 = perBranchSignalSink(appSink, bus, t2.id);
+    const publish1 = perBranchSignalPublisher(bus, t1.id);
+    const publish2 = perBranchSignalPublisher(bus, t2.id);
 
     // Interleave emissions to simulate concurrent branches.
-    sink1.emit(change('from-1-a'));
-    sink2.emit(change('from-2-a'));
-    sink1.emit(change('from-1-b'));
+    publish1(change('from-1-a'));
+    publish2(change('from-2-a'));
+    publish1(change('from-1-b'));
 
-    const harness = events.filter((e) => e.type === 'harness-signal');
-    expect(harness).toHaveLength(3);
-    // Each event carries the taskId of the branch that emitted it — never the other branch's.
-    const byText = new Map(harness.map((e) => [e.type === 'harness-signal' ? e.text : '', e]));
-    expect(byText.get('from-1-a')).toMatchObject({ taskId: String(t1.id) });
-    expect(byText.get('from-1-b')).toMatchObject({ taskId: String(t1.id) });
-    expect(byText.get('from-2-a')).toMatchObject({ taskId: String(t2.id) });
-    // Every signal also reached the app-wide sink.
-    expect(appSeen).toHaveLength(3);
+    const aiSignals = asAiSignals(events);
+    expect(aiSignals).toHaveLength(3);
+    // Each event carries the taskId of the branch that published it — never the other branch's —
+    // and the flow-wide 'implement' source.
+    const byText = new Map(aiSignals.map((e) => [e.signal.type === 'change' ? e.signal.text : '', e]));
+    expect(byText.get('from-1-a')).toMatchObject({ taskId: String(t1.id), source: 'implement' });
+    expect(byText.get('from-1-b')).toMatchObject({ taskId: String(t1.id), source: 'implement' });
+    expect(byText.get('from-2-a')).toMatchObject({ taskId: String(t2.id), source: 'implement' });
   });
 
-  it('ignores non-text-bearing signal kinds (only change/learning/note mirror to the bus)', () => {
+  it('publishes every signal kind — not just change/learning/note', () => {
     const t1 = makeTodoTask();
     const events: AppEvent[] = [];
-    const sink = perBranchSignalSink({ emit: vi.fn() }, stubBus(events), t1.id);
+    const publish = perBranchSignalPublisher(stubBus(events), t1.id);
 
-    sink.emit({ type: 'decision', text: 'a decision', timestamp: IsoTimestamp.now() });
-    sink.emit({ type: 'learning', text: 'a learning', timestamp: IsoTimestamp.now() });
+    publish({ type: 'decision', text: 'a decision', timestamp: IsoTimestamp.now() });
+    publish({ type: 'learning', text: 'a learning', timestamp: IsoTimestamp.now() });
+    publish({ type: 'note', text: 'a note', timestamp: IsoTimestamp.now() });
 
-    const harness = events.filter((e) => e.type === 'harness-signal');
-    expect(harness.map((e) => (e.type === 'harness-signal' ? e.signalKind : ''))).toEqual(['learning']);
+    const aiSignals = asAiSignals(events);
+    expect(aiSignals.map((e) => e.signal.type)).toEqual(['decision', 'learning', 'note']);
+    for (const e of aiSignals) expect(e.taskId).toBe(String(t1.id));
   });
 });
 
@@ -314,7 +312,7 @@ describe('buildWorktreeBranch — abort runs cleanup', () => {
   it('runs worktree cleanup even when the subchain is aborted mid-flight, and never stashes', async () => {
     const task = makeTodoTask();
     const { runner, calls } = fakeGit();
-    const deps = makeBranchDeps(runner, { emit: vi.fn() }, stubBus([]));
+    const deps = makeBranchDeps(runner, stubBus([]));
     const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
 
     // A subchain that hangs until aborted.
@@ -354,7 +352,7 @@ describe('buildWorktreeBranch — per-worktree setup script', () => {
     const done: Task = { ...makeDoneTask(), id: task.id };
     const { runner, calls } = fakeGit();
     const shell = fakeShell(okShell(true));
-    const deps = makeBranchDeps(runner, { emit: vi.fn() }, stubBus([]), shell.runner);
+    const deps = makeBranchDeps(runner, stubBus([]), shell.runner);
     const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
 
     const branch = buildWorktreeBranch(deps, repoWithSetup, task, wt, 'ref', settlingSubchain(task.id, done));
@@ -376,7 +374,7 @@ describe('buildWorktreeBranch — per-worktree setup script', () => {
     const done: Task = { ...makeDoneTask(), id: task.id };
     const { runner } = fakeGit();
     const shell = fakeShell(okShell(true));
-    const deps = makeBranchDeps(runner, { emit: vi.fn() }, stubBus([]), shell.runner);
+    const deps = makeBranchDeps(runner, stubBus([]), shell.runner);
     const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
     const controller = new AbortController();
 
@@ -402,7 +400,7 @@ describe('buildWorktreeBranch — per-worktree setup script', () => {
         return Result.ok({ ctx, trace: [] });
       },
     });
-    const deps = makeBranchDeps(runner, { emit: vi.fn() }, stubBus([]), shell.runner);
+    const deps = makeBranchDeps(runner, stubBus([]), shell.runner);
     const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
 
     const branch = buildWorktreeBranch(deps, repoWithSetup, task, wt, 'ref', trackingSubchain);
@@ -422,7 +420,7 @@ describe('buildWorktreeBranch — per-worktree setup script', () => {
     const task = makeTodoTask();
     const { runner } = fakeGit();
     const shell = fakeShell(Result.error(new StorageError({ subCode: 'io', message: 'shell binary missing' })));
-    const deps = makeBranchDeps(runner, { emit: vi.fn() }, stubBus([]), shell.runner);
+    const deps = makeBranchDeps(runner, stubBus([]), shell.runner);
     const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
 
     const branch = buildWorktreeBranch(deps, repoWithSetup, task, wt, 'ref', () => ({
@@ -442,7 +440,7 @@ describe('buildWorktreeBranch — per-worktree setup script', () => {
     const done: Task = { ...makeDoneTask(), id: task.id };
     const { runner } = fakeGit();
     const shell = fakeShell();
-    const deps = makeBranchDeps(runner, { emit: vi.fn() }, stubBus([]), shell.runner);
+    const deps = makeBranchDeps(runner, stubBus([]), shell.runner);
     const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
 
     const branch = buildWorktreeBranch(deps, repo, task, wt, 'ref', settlingSubchain(task.id, done));
@@ -460,7 +458,7 @@ describe('setupWorktree — defensive leaked-ref delete before add', () => {
     const task = makeTodoTask();
     const done: Task = { ...makeDoneTask(), id: task.id };
     const { runner, calls } = fakeGit();
-    const deps = makeBranchDeps(runner, { emit: vi.fn() }, stubBus([]));
+    const deps = makeBranchDeps(runner, stubBus([]));
     const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
 
     const branch = buildWorktreeBranch(deps, repo, task, wt, 'ralphctl/s1/wt-x', settlingSubchain(task.id, done));
