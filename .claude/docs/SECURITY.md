@@ -87,7 +87,7 @@ non-interactive runs. The earlier "approve & update" / "approve & create" review
 `defaultIssueOrigin`-driven create path were removed — `Project.defaultIssueOrigin` survives as a
 persisted field but refine no longer consults it.
 
-**Bundled skills (8 total) always lose to project skills.** When `<cwd>/.claude/skills/<name>/` already
+**Bundled skills (13 total) always lose to project skills.** When `<cwd>/.claude/skills/<name>/` already
 exists, the bundled copy is skipped and the project copy is left untouched. The skills adapter
 (`src/integration/ai/skills/adapter-factory.ts`) tracks only what it installed; uninstall removes only
 those entries. Every bundled `SKILL.md` is validated by `skill-contract-checker.ts` against six harness
@@ -99,6 +99,20 @@ are discovered by `createOperatorSkillSource` and installed through the same `ra
 `.git/info/exclude` wildcard as bundled skills. `StoragePaths.operatorSkillsRoot` = `<appRoot>/skills`.
 The compat checker runs as a warning for operator skills — a violation logs and skips, never aborts the
 flow. There is no per-project operator location.
+
+**Phase-folder opt-in skills.** Global, per-FLOW (not per-provider) opt-in skills under
+`<appRoot>/skills/<flow>/<name>/SKILL.md` — the provider-agnostic sibling of the operator drop-in above.
+Discovered by `createPhaseSkillSource` and installed through the same `ralphctl-` namespace and
+`.git/info/exclude` wildcard as bundled/operator skills. The TUI's Skills-catalog view (`K` from Home) is
+the intended writer: enabling a bundled skill copies its raw `SKILL.md` bytes into the flow's phase dir
+and drops a `.provenance.json` sidecar next to it (sha256 of the copied bytes, `ralphctlVersion`,
+`copiedAt`) so a later `list()` can tell in-sync / update-available / locally-modified apart; disabling
+removes the folder. The sidecar is catalog-only bookkeeping — no `SkillSource` (bundled, project,
+operator, or phase) ever reads it or installs it into an AI session; only `SKILL.md` reaches the model.
+A hand-dropped folder with no sidecar is a valid `manual` entry and loads exactly like a catalog-managed
+one. Selection is resolved once, at launch, by `createResolvedSkillSource`: a phase-folder copy shadows
+a same-named bundled default, and either can be subtracted per-flow via `settings.ai.skills[flow].disabled`
+or the customize picker's per-run override (see `AI-SETTINGS.md`).
 
 **`pnpm skills:update` (maintainers only).** Re-vendors upstream `SKILL.md` files from URLs in
 `scripts/skills-sources.json` into `scripts/vendor/skills/` for human review; adapted committed copies live

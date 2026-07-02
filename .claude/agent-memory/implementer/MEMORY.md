@@ -78,6 +78,9 @@
 - [project_loop_diversity_budget_precedence.md](project_loop_diversity_budget_precedence.md) — gen-eval loop-diversity
   guard must not pre-empt the final budgeted turn; budget-exhausted wins over plateau when turnsUsed >= maxTurns (reads
   readConfig budget, not a captured const)
+- [project_skill_selection_resolution_seam.md](project_skill_selection_resolution_seam.md) — #216 T4: ONE skill
+  resolution point (createResolvedSkillSource decorator in launcher buildComposedSkillSource); compose order
+  bundled→project→operator→phase (LAST-wins dedupe), disabled subtraction, getByName unfiltered, aiFlowIdFor aliasing
 - [project_plateau_predicate_count_based.md](project_plateau_predicate_count_based.md) — plateau predicate is
   failed-dim-COUNT based (not identical-set); critique-shift (Jaccard<0.5) is the lever to keep a multi-turn loop test
   running; R2 entropy guard reads ctx.lastTurnActionCounts (signal-kind proxy) stamped by generator every turn

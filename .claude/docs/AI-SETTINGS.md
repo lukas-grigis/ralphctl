@@ -29,6 +29,24 @@ with effort unset escalates to `max`, not `high`), while Copilot/Codex escalate 
 at a different one; the launcher rebuilds the provider / interactive-AI / skills-adapter trio per launch
 keyed on the dispatched flow's row, so mixed and uniform configs traverse the same code path.
 
+**Per-flow skill opt-out — `settings.ai.skills`.** An optional, durable preference of shape
+`Partial<Record<FlowId, { disabled: string[] }>>`. Every flow key is optional; an absent key — or an absent
+`ai.skills` altogether — means the flow's registry defaults apply. Each flow's `disabled` array lists skill
+names (`ralphctl-*`) to SUBTRACT from that flow's bundled defaults at launch. Names are not validated against
+the bundled catalog at parse time, so an unknown name is a harmless no-op. This is opt-OUT only — adding a
+skill beyond the defaults is filesystem-based (`<appRoot>/skills/<flow>/` folders), never settings.
+
+```json
+"skills": {
+  "implement": { "disabled": ["ralphctl-ponytail"] },
+  "refine": { "disabled": [] }
+}
+```
+
+Precedence at launch: per-run override > this saved preference > registry default. The per-run override is
+the customize picker's checklist; the saved preference is this key; the registry default is the flow's
+bundled skill set.
+
 **Twenty presets across five families** stamp the entire `ai` section plus `harness.escalateOnPlateau`
 in one shot — all equally first-class (none is marked default). Each family carries four variants:
 `mixed` (best-fit provider per flow), `claude-only`, `copilot-only`, `codex-only`. The families:

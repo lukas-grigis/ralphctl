@@ -33,6 +33,16 @@ to [Semantic Versioning](https://semver.org/).
 - **Destructive CLI removes require confirmation.** The `sprint`, `project`, and `ticket` remove
   commands now prompt for confirmation on a TTY and refuse to proceed on a non-TTY unless
   `-y`/`--yes` is passed, matching the existing `runs prune` behavior.
+- **Opt-in skills per flow, with a browsable catalog and a customize-picker step (#216).** Beyond
+  the bundled defaults, dropping a skill into `<appRoot>/skills/<flow>/<name>/` now makes it load
+  for that flow only — provider-agnostic and independent of the existing per-provider drop-in
+  folders. The new "Skills catalog" view (Home menu, hotkey `K`) browses every bundled skill, shows
+  where each is currently enabled and whether that copy is in sync with the bundle, and lets you
+  enable / disable / update it — or update every out-of-date copy at once — without leaving the
+  TUI. The pre-launch customize picker gained a matching skills step: pick what loads for this run
+  only, or save the choice as the flow's new default. Five new curated skills ship with the
+  catalog: `ralphctl-ponytail` (anti-over-engineering), `ralphctl-domain-driven-design`,
+  `ralphctl-idea-refinement`, `ralphctl-karpathy-guidelines`, and `ralphctl-cherny-workflow`.
 
 ### Fixed
 
