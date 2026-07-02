@@ -16,6 +16,10 @@ to [Semantic Versioning](https://semver.org/).
 - **Skill files no longer grow an extra blank line on every write.** Parsing a `SKILL.md` with the
   standard blank line after its frontmatter fence left a leading newline in the body, so repeated
   parse → write cycles kept adding blank lines below the frontmatter.
+- **The flows menu and home overview refresh when a flow finishes.** Returning from a completed
+  flow previously kept showing launch-time state — for example "refine tickets (N pending)" after
+  every ticket had just been refined — until the manual reload key was pressed. Both views now
+  reload the moment a flow reaches a terminal status, matching the sprint-detail view's behaviour.
 
 ## [0.14.1] - 2026-07-01
 
