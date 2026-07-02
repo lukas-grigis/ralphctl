@@ -211,10 +211,11 @@ describe('decideEscalation', () => {
 });
 
 describe('decideEscalation — same-model effort rung', () => {
-  it('(a) shipped defaults + plateau → effort rung fires (not straight to done-with-warning)', () => {
-    // The shipped default generator (`claude-opus-4-8`) sits at the top of the model ladder with no
-    // stronger rung above it. Before the effort rung it settled to a same-model nudge → done-with-
-    // warning. Reading the actual shipped defaults grounds this test in DEFAULT_SETTINGS, so a future
+  it('(a) shipped defaults + plateau → effort rung fires to `max` (opus CLI default is xhigh)', () => {
+    // The shipped default generator (`claude-opus-4-8`, effort unset) sits at the top of the model
+    // ladder with no stronger rung above it. Claude Code's own default effort on this xhigh-capable
+    // model is xhigh, so the rung climbs to `max` in a single step — a fixed `high` would be a no-op
+    // / downgrade. Reading the actual shipped defaults grounds this in DEFAULT_SETTINGS, so a future
     // default that is already effort-maxed would fail here rather than silently disabling the rung.
     const generatorRow = DEFAULT_SETTINGS.ai.implement.generator;
     const decision = decideEscalation({
@@ -230,11 +231,13 @@ describe('decideEscalation — same-model effort rung', () => {
     if (decision.kind === 'escalate-effort') {
       expect(decision.model).toBe(generatorRow.model);
       expect(decision.from).toBe('default');
-      expect(decision.to).toBe(EFFORT_ESCALATION_TARGET);
+      expect(decision.to).toBe('max');
     }
   });
 
-  it('(b) generator already at high effort → falls through to the same-model nudge', () => {
+  it('(b) claude opus at explicit `high` → effort rung climbs to `xhigh` (headroom remains)', () => {
+    // `high` is below the xhigh/max power tiers on an xhigh-capable model, so it still escalates —
+    // to `xhigh` (the first power tier). A later plateau at `xhigh` would then climb to `max`.
     const decision = decideEscalation({
       task: makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
       generatorModel: 'claude-opus-4-8',
@@ -244,8 +247,40 @@ describe('decideEscalation — same-model effort rung', () => {
       generatorProvider: 'claude-code',
       generatorEffort: 'high',
     });
+    expect(decision.kind).toBe('escalate-effort');
+    if (decision.kind === 'escalate-effort') {
+      expect(decision.from).toBe('high');
+      expect(decision.to).toBe('xhigh');
+    }
+  });
+
+  it('(b2) claude opus already at `max` → no headroom, falls through to the same-model nudge', () => {
+    const decision = decideEscalation({
+      task: makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
+      generatorModel: 'claude-opus-4-8',
+      flagOn: true,
+      userMap: {},
+      fallbackMaxAttempts: 3,
+      generatorProvider: 'claude-code',
+      generatorEffort: 'max',
+    });
     expect(decision.kind).toBe('nudge');
     if (decision.kind === 'nudge') expect(decision.currentModel).toBe('claude-opus-4-8');
+  });
+
+  it('(b3) claude Haiku (no effort dimension) → falls through to the same-model nudge', () => {
+    // A user-map rung keeps Haiku at the top of ITS ladder for this test (default map climbs Haiku
+    // to Sonnet). With no effort dimension the rung is skipped, so the top-of-ladder path nudges.
+    const decision = decideEscalation({
+      task: makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
+      generatorModel: 'claude-haiku-4-5',
+      flagOn: true,
+      userMap: { 'claude-haiku-4-5': 'claude-haiku-4-5' },
+      fallbackMaxAttempts: 3,
+      generatorProvider: 'claude-code',
+      generatorEffort: undefined,
+    });
+    expect(decision.kind).toBe('nudge');
   });
 
   it('(c) provider without a resolvable effort dimension → unchanged behaviour (nudge)', () => {

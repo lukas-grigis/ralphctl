@@ -51,27 +51,32 @@ const triggerLabel = (trigger: EscalationTrigger): string =>
  * advances by one rung on each escalate (because the leaf re-reads `escalatedToModel`), so the
  * same policy returns `escalate` repeatedly until the generator reaches the top of the model ladder.
  * At the top — before spending the same-model `nudge` — the policy tries a same-model EFFORT rung
- * (`escalate-effort`, default effort → `high`) when the provider exposes an effort dimension and the
- * generator has headroom below `high`; a further failure then nudges, and a failure after the nudge
+ * (`escalate-effort`) when the provider/model exposes an effort dimension and the generator has
+ * headroom. The target is provider-aware ({@link nextEffortRung}): Claude climbs its own tiers (…→
+ * `xhigh` → `max`) because Claude Code's default is already `xhigh` on xhigh-capable models, while
+ * Copilot/Codex step to a fixed `high`. A further failure then nudges, and a failure after the nudge
  * tops out. The effort rung is what activates a live remedy for the shipped default posture
- * (`claude-opus-4-8`, which sits at the top of the model ladder with no stronger rung above it).
+ * (`claude-opus-4-8`, effort unset → `max`, which sits at the top of the model ladder with no
+ * stronger rung above it).
  *
  * Outputs (discriminated):
  *   - `escalate`          — a stronger model rung exists above `generatorModel`; caller re-stamps
  *                           the task (model bump) + emits events. Task stays in_progress for the
  *                           next attempt. Fires once per rung, repeatedly up the ladder.
  *   - `escalate-effort`   — no stronger MODEL rung (generator at the top of the ladder), not yet
- *                           nudged, the provider exposes an effort dimension, and the resolved
- *                           generator effort is below the target (`high`). Caller raises the
- *                           generator's reasoning effort on the SAME model for one more attempt
+ *                           nudged, the provider/model exposes an effort dimension, and the resolved
+ *                           generator effort has headroom below its ceiling ({@link nextEffortRung}
+ *                           returns a target). Caller raises the generator's reasoning effort to
+ *                           that target on the SAME model for one more attempt
  *                           (in_progress); no model change, so the escalation model fields are NOT
  *                           stamped. Fires at most once — the next exit sees the raised effort and
  *                           falls through to the nudge. Requires the caller to supply
  *                           `generatorProvider` / `generatorEffort`; without them the policy behaves
  *                           exactly as before (this rung is never returned).
  *   - `nudge`             — flag on, budget remains, no stronger model rung AND the effort rung is
- *                           unavailable (unsupported provider or already at/above `high`) AND the
- *                           task has not yet been nudged at the top. Caller stamps the task with the
+ *                           unavailable (unsupported provider/model, or already at its effort
+ *                           ceiling) AND the task has not yet been nudged at the top. Caller stamps
+ *                           the task with the
  *                           SAME model (from === to marks the top-of-ladder nudge), and the generator
  *                           gets a change-of-approach directive. Task stays in_progress for one more
  *                           attempt. No model change.
@@ -112,10 +117,12 @@ export interface DecideEscalationProps {
   readonly generatorProvider?: AiProvider | undefined;
   /**
    * The generator's currently-resolved reasoning effort (`resolveEffort`/`resolveEffortForRow`), or
-   * `undefined` for the CLI default. Read alongside {@link generatorProvider} to decide whether the
-   * effort rung has headroom: `undefined` (default) and any level below `high` escalate to `high`;
-   * `high | xhigh | max` have no headroom and fall through to the nudge. OPTIONAL for the same
-   * backward-compatibility reason as {@link generatorProvider}.
+   * `undefined` for the CLI default. Read alongside {@link generatorProvider} and
+   * {@link generatorModel} to decide whether the effort rung has headroom — the target is
+   * provider/model-aware ({@link nextEffortRung}): Claude climbs its own tiers (unset on an
+   * xhigh-capable model → `max`), Copilot/Codex step to a fixed `high`, and a generator already at
+   * its ceiling falls through to the nudge. OPTIONAL for the same backward-compatibility reason as
+   * {@link generatorProvider}.
    */
   readonly generatorEffort?: string | undefined;
 }
@@ -129,10 +136,10 @@ export interface DecideEscalationProps {
  * Multi-rung climb: `generatorModel` is the model the just-finished attempt ran on. Because the
  * generator leaf re-reads `escalatedToModel` each attempt, `generatorModel` advances one rung per
  * plateau, so this function returns `escalate` repeatedly until the generator hits the top of the
- * model ladder. At the top it tries a same-model `escalate-effort` rung once (default effort →
- * `high`, when the provider supports effort and there is headroom), then `nudge` (same-model retry
- * with a change-of-approach directive), and a further plateau after the nudge returns `topped-out`
- * (keep the work).
+ * model ladder. At the top it tries a same-model `escalate-effort` rung (to the provider/model-aware
+ * target from {@link nextEffortRung}, when the provider/model supports effort and there is headroom),
+ * then `nudge` (same-model retry with a change-of-approach directive), and a further plateau after
+ * the nudge returns `topped-out` (keep the work).
  */
 export const decideEscalation = (props: DecideEscalationProps): EscalationDecision => {
   if (!props.flagOn) return { kind: 'flag-off' };
@@ -170,12 +177,13 @@ export const decideEscalation = (props: DecideEscalationProps): EscalationDecisi
     props.task.escalatedToModel === props.generatorModel;
   if (nudgedAtTop) return { kind: 'topped-out', model: props.generatorModel };
   // Cheapest remedy before the change-of-approach nudge: raise reasoning effort on the SAME model
-  // when the provider exposes an effort dimension and there is headroom below the target. This is
-  // the rung that gives the shipped default posture (`claude-opus-4-8`, already at the top of the
-  // model ladder) a live escalation step instead of settling done-with-warning after one nudge.
-  // Skipped gracefully (falls through to the nudge) when the caller supplied no provider/effort
-  // context, the provider has no effort knob, or the generator is already at/above the target.
-  const effortTarget = nextEffortRung(props.generatorProvider, props.generatorEffort);
+  // when the provider/model exposes an effort dimension and there is headroom. The target is
+  // provider/model-aware (nextEffortRung): Claude climbs its own tiers (unset on an xhigh-capable
+  // model → `max`, so the shipped default `claude-opus-4-8` gets a live escalation step instead of
+  // settling done-with-warning after one nudge), Copilot/Codex step to a fixed `high`. Skipped
+  // gracefully (falls through to the nudge) when the caller supplied no provider/effort context,
+  // the provider/model has no effort knob, or the generator is already at its ceiling.
+  const effortTarget = nextEffortRung(props.generatorProvider, props.generatorModel, props.generatorEffort);
   if (effortTarget !== undefined) {
     return {
       kind: 'escalate-effort',

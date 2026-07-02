@@ -306,8 +306,9 @@ export const createPerTaskSubchain = (
                 configuredGeneratorModel: opts.generator.model,
                 // Activate the escalation policy's same-model effort rung: forward the generator
                 // provider + its launch-resolved effort so a top-of-ladder plateau bumps reasoning
-                // effort (default → high) before spending the nudge. `providerId` is the resolved
-                // provider enum string; `nextEffortRung` skips gracefully for any non-effort provider.
+                // effort to the next provider-aware tier (Claude: up to max; Copilot/Codex: high)
+                // before spending the nudge. `providerId` is the resolved provider enum string;
+                // `nextEffortRung` skips gracefully for any non-effort provider or model.
                 configuredGeneratorProvider: opts.generator.providerId as AiProvider,
                 ...(opts.generator.effort !== undefined ? { configuredGeneratorEffort: opts.generator.effort } : {}),
               },

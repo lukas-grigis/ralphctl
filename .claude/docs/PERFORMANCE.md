@@ -128,12 +128,20 @@ Opus in both dash-form Claude-Code/Codex ids and dot-form Copilot ids; Codex / C
 `Task.escalatedToModel` as the generator model, so the policy returns `escalate` repeatedly and the
 task climbs through every intermediate rung (bounded by `maxAttempts`).
 (2) **effort escalation** — when the generator reaches the top of the model ladder (no stronger rung) the
-policy tries a cheaper same-model remedy BEFORE the nudge: raise reasoning effort default → `high`
-(`escalate-effort`, target `EFFORT_ESCALATION_TARGET` in `escalation-map.ts`) when the provider exposes an
-effort dimension and the generator still has headroom below `high`. It stamps `Task.escalatedToEffort` (no
-model change), the generator leaf prefers that over the configured `effort` at spawn, and the next plateau
-sees the raised effort and falls through to the nudge (so the rung fires at most once). Skipped gracefully —
-straight to the nudge — when the provider has no effort knob or the generator is already at/above `high`.
+policy tries a cheaper same-model remedy BEFORE the nudge: raise reasoning effort (`escalate-effort`) to a
+**provider- and model-aware target** (`nextEffortRung` in `escalation-map.ts`) when the provider/model
+exposes an effort dimension and the generator still has headroom. Claude is model-aware — Claude Code's own
+CLI default is `xhigh` on xhigh-capable models (Opus 4.7/4.8, Sonnet 5, Fable 5), so the rung climbs Claude's
+own tiers (`…→ xhigh → max`) rather than stamping a fixed `high` that would be a no-op or a downgrade of the
+implicit default; an explicit `low|medium|high` climbs to `xhigh`, and `unset` (the CLI default) or `xhigh`
+climbs to `max`, capping there. A non-xhigh-capable Claude model (Sonnet 4.6, CLI default `high`) climbs
+straight to `max`. Copilot/Codex keep the fixed target `EFFORT_ESCALATION_TARGET` (`high`). It stamps
+`Task.escalatedToEffort` (no model change), the generator leaf prefers that over the configured `effort` at
+spawn, and the next plateau sees the raised effort. Fires once for the shipped default (unset `→ max` in a
+single step) and is strictly bounded generally — the stamped effort climbs monotonically to the terminal
+`max`, from which the rung is spent and falls through to the nudge. Skipped gracefully — straight to the
+nudge — when the provider/model has no effort knob (e.g. Claude Haiku) or the generator is already at its
+ceiling.
 (3) **change-of-approach nudge** — a single same-model **"change your approach" directive**
 (`{{PLATEAU_DIRECTIVE_SECTION}}` in the implement prompt) stamped `escalatedFromModel === escalatedToModel`.
 The directive is gated on that same-model marker, NOT on a model bump: a bump hands the stronger model the
@@ -153,10 +161,12 @@ back to `settings.harness.maxAttempts` so the attempt budget binds for them too.
 
 **Default posture: effort rung, then nudge.** The shipped default generator model (`claude-opus-4-8`) has
 no key in `DEFAULT_ESCALATION_MAP`, so the harness never model-escalates it. But the effort rung IS live for
-the default posture: on a plateau at the top of the ladder it first raises reasoning effort default → `high`
-on the same model (a live remedy, not just a directive), then — on a further plateau — fires the same-model
-nudge, then settles done-with-warning. See `AI-SETTINGS.md § Default escalation posture` for how to also
-activate a live MODEL ladder (economic presets or a custom escalationMap rung).
+the default posture: opus is xhigh-capable and its effort is unset (Claude Code's implicit default is
+`xhigh`), so on a plateau at the top of the ladder the rung raises reasoning effort to `max` on the same
+model in a single step (a live remedy, not just a directive) — a fixed `high` would be a no-op or a downgrade
+of that implicit `xhigh`. A further plateau (opus already at `max`, rung spent) fires the same-model nudge,
+then settles done-with-warning. See `AI-SETTINGS.md § Default escalation posture` for how to also activate a
+live MODEL ladder (economic presets or a custom escalationMap rung).
 
 Escalation is generator-only by design — the evaluator's model is held constant across the task so the
 scoring rubric does not shift mid-task, which would make plateau detection meaningless. `Task`'s

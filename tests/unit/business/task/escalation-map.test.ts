@@ -190,34 +190,71 @@ describe('DEFAULT_ESCALATION_MAP — catalog lockstep (mechanizes the section 14
 });
 
 describe('nextEffortRung', () => {
-  it('escalates a fresh (CLI-default) row to the target on an effort-capable provider', () => {
-    // The shipped default posture: no per-flow effort set → undefined → escalate to `high`.
-    expect(nextEffortRung('claude-code', undefined)).toBe(EFFORT_ESCALATION_TARGET);
-    expect(nextEffortRung('github-copilot', undefined)).toBe(EFFORT_ESCALATION_TARGET);
-    expect(nextEffortRung('openai-codex', undefined)).toBe(EFFORT_ESCALATION_TARGET);
+  // ── Claude is model-aware: its CLI default is `xhigh` on xhigh-capable models, so the rung
+  //    climbs Claude's own tiers (…→ xhigh → max), never re-stamping the implicit default. ──
+
+  const OPUS = 'claude-opus-4-8'; // xhigh-capable frontier
+  const SONNET5 = 'claude-sonnet-5'; // xhigh-capable
+  const SONNET46 = 'claude-sonnet-4-6'; // effort-capable but NOT xhigh-capable (CLI default `high`)
+  const HAIKU = 'claude-haiku-4-5'; // no effort dimension
+
+  it('claude xhigh-capable + unset (CLI default xhigh) → max in a single step', () => {
+    // The shipped default posture (`claude-opus-4-8`, effort unset). A fixed `high` here would be a
+    // no-op / downgrade of the implicit xhigh — the rung must climb to `max` instead.
+    expect(nextEffortRung('claude-code', OPUS, undefined)).toBe('max');
+    expect(nextEffortRung('claude-code', SONNET5, undefined)).toBe('max');
   });
 
-  it('escalates a below-target explicit effort to the target', () => {
-    expect(nextEffortRung('claude-code', 'low')).toBe(EFFORT_ESCALATION_TARGET);
-    expect(nextEffortRung('claude-code', 'medium')).toBe(EFFORT_ESCALATION_TARGET);
-    expect(nextEffortRung('openai-codex', 'minimal')).toBe(EFFORT_ESCALATION_TARGET);
+  it('claude xhigh-capable + explicit low/medium/high → xhigh (the first power tier)', () => {
+    expect(nextEffortRung('claude-code', OPUS, 'low')).toBe('xhigh');
+    expect(nextEffortRung('claude-code', OPUS, 'medium')).toBe('xhigh');
+    expect(nextEffortRung('claude-code', OPUS, 'high')).toBe('xhigh');
+    expect(nextEffortRung('claude-code', SONNET5, 'medium')).toBe('xhigh');
   });
 
-  it('returns undefined when already at or above the target (no headroom)', () => {
-    expect(nextEffortRung('claude-code', 'high')).toBeUndefined();
-    expect(nextEffortRung('claude-code', 'xhigh')).toBeUndefined();
-    expect(nextEffortRung('claude-code', 'max')).toBeUndefined();
+  it('claude xhigh-capable + xhigh → max; + max → spent (undefined)', () => {
+    expect(nextEffortRung('claude-code', OPUS, 'xhigh')).toBe('max');
+    expect(nextEffortRung('claude-code', OPUS, 'max')).toBeUndefined();
+  });
+
+  it('claude non-xhigh-capable (Sonnet 4.6) → max, skipping the unsupported xhigh tier', () => {
+    // CLI default here is `high` (no xhigh tier), so unset AND every explicit tier below max climb
+    // straight to `max`. Never a no-op / downgrade.
+    expect(nextEffortRung('claude-code', SONNET46, undefined)).toBe('max');
+    expect(nextEffortRung('claude-code', SONNET46, 'low')).toBe('max');
+    expect(nextEffortRung('claude-code', SONNET46, 'high')).toBe('max');
+    expect(nextEffortRung('claude-code', SONNET46, 'max')).toBeUndefined();
+  });
+
+  it('claude model with no effort dimension (Haiku) → skipped (undefined) regardless of effort', () => {
+    expect(nextEffortRung('claude-code', HAIKU, undefined)).toBeUndefined();
+    expect(nextEffortRung('claude-code', HAIKU, 'low')).toBeUndefined();
+  });
+
+  // ── Copilot / Codex keep the original fixed-`high` semantics; model plays no role. ──
+
+  it('copilot/codex escalate a fresh or below-target row to the fixed target `high`', () => {
+    expect(nextEffortRung('github-copilot', 'gpt-5.5', undefined)).toBe(EFFORT_ESCALATION_TARGET);
+    expect(nextEffortRung('openai-codex', 'gpt-5.5', undefined)).toBe(EFFORT_ESCALATION_TARGET);
+    expect(nextEffortRung('github-copilot', 'gpt-5.5', 'low')).toBe(EFFORT_ESCALATION_TARGET);
+    expect(nextEffortRung('openai-codex', 'gpt-5.5', 'minimal')).toBe(EFFORT_ESCALATION_TARGET);
+  });
+
+  it('copilot/codex return undefined when already at/above the fixed target (no headroom)', () => {
+    expect(nextEffortRung('github-copilot', 'gpt-5.5', 'high')).toBeUndefined();
+    expect(nextEffortRung('github-copilot', 'gpt-5.5', 'xhigh')).toBeUndefined();
+    expect(nextEffortRung('openai-codex', 'gpt-5.5', 'high')).toBeUndefined();
   });
 
   it('returns undefined when no provider is resolvable (skips the rung gracefully)', () => {
-    expect(nextEffortRung(undefined, undefined)).toBeUndefined();
-    expect(nextEffortRung(undefined, 'low')).toBeUndefined();
+    expect(nextEffortRung(undefined, OPUS, undefined)).toBeUndefined();
+    expect(nextEffortRung(undefined, OPUS, 'low')).toBeUndefined();
   });
 
   it('returns undefined for a provider outside the effort-capable set (forward-compat)', () => {
     // A future provider with no effort dimension must skip the rung rather than stamp a level the
     // adapter would reject.
-    expect(nextEffortRung('some-future-provider' as AiProvider, undefined)).toBeUndefined();
+    expect(nextEffortRung('some-future-provider' as AiProvider, OPUS, undefined)).toBeUndefined();
   });
 });
 

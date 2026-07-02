@@ -12,7 +12,6 @@ import { recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
 import { recordRunningAttemptWarning } from '@src/domain/entity/task-attempts.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
 import { resolveEffort } from '@src/business/settings/resolve-effort.ts';
-import { EFFORT_ESCALATION_TARGET } from '@src/business/task/escalation-map.ts';
 
 const okRepo: UpdateTask = {
   async update() {
@@ -747,10 +746,11 @@ describe('finalizeGenEvalUseCase', () => {
 
   // ── Same-model effort rung (activated end-to-end via generatorProvider + generatorEffort) ──────
 
-  it('shipped defaults + plateau at ladder top → escalate-effort: task stamped escalatedToEffort=high, shouldFailAttempt=true, NO model stamp, no model-escalated event', async () => {
+  it('shipped defaults + plateau at ladder top → escalate-effort: task stamped escalatedToEffort=max, shouldFailAttempt=true, NO model stamp, no model-escalated event', async () => {
     // Grounds the wiring in the real shipped defaults (opus, no per-flow effort). The default
-    // generator sits at the top of the model ladder, so a plateau now bumps reasoning effort
-    // (default → high) instead of settling done-with-warning after one nudge.
+    // generator sits at the top of the model ladder, so a plateau now bumps reasoning effort. Claude
+    // Code's own default on this xhigh-capable model is xhigh, so the rung climbs to `max` in one
+    // step (a fixed `high` would be a no-op / downgrade) instead of settling done-with-warning.
     const generatorRow = DEFAULT_SETTINGS.ai.implement.generator;
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     const bus = newBus();
@@ -775,7 +775,7 @@ describe('finalizeGenEvalUseCase', () => {
     expect(result.value.verdict).toBe('failed');
     expect(result.value.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'] });
     // The raised effort is stamped so the next generator spawn reads it; the MODEL is untouched.
-    expect(result.value.task.escalatedToEffort).toBe(EFFORT_ESCALATION_TARGET);
+    expect(result.value.task.escalatedToEffort).toBe('max');
     expect(result.value.task.escalatedFromModel).toBeUndefined();
     expect(result.value.task.escalatedToModel).toBeUndefined();
     expect(result.value.shouldFailAttempt).toBe(true);
@@ -843,7 +843,38 @@ describe('finalizeGenEvalUseCase', () => {
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
   });
 
-  it('generator already at high effort → nudge (no headroom): no escalatedToEffort stamped', async () => {
+  it('generator already at max effort → nudge (no headroom): no escalatedToEffort stamped', async () => {
+    // `max` is the top of Claude's effort ladder — the rung is spent, so a top-of-ladder opus
+    // plateau falls through to the same-model nudge (an explicit `high` would still climb to xhigh;
+    // only the ceiling exhausts the rung). This is the wiring of `nextEffortRung` returning
+    // undefined at the ceiling → the finalize leaf stamps no effort, only the same-model nudge.
+    const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
+    const result = await finalizeGenEvalUseCase({
+      task,
+      sprintId,
+      exit: { kind: 'plateau', dimensions: ['correctness'] },
+      turnsUsed: 3,
+      readConfig: cfg({ escalateOnPlateau: true, maxAttempts: 5 }),
+      taskRepo: okRepo,
+      logger: noopLogger,
+      eventBus: newBus(),
+      clock: fixedClock,
+      generatorModel: 'claude-opus-4-8',
+      generatorProvider: 'claude-code',
+      generatorEffort: 'max',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // No effort headroom → the top-of-ladder nudge (same-model stamp), never an effort bump.
+    expect(result.value.task.escalatedToEffort).toBeUndefined();
+    expect(result.value.task.escalatedFromModel).toBe('claude-opus-4-8');
+    expect(result.value.task.escalatedToModel).toBe('claude-opus-4-8');
+    expect(result.value.shouldFailAttempt).toBe(true);
+  });
+
+  it('generator at explicit high effort → escalate-effort to xhigh (headroom on an xhigh-capable model)', async () => {
+    // opus is xhigh-capable, so an explicit `high` still has headroom: the rung climbs to `xhigh`
+    // (the raised effort is stamped for the next spawn; a later plateau at xhigh would reach max).
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     const result = await finalizeGenEvalUseCase({
       task,
@@ -861,10 +892,10 @@ describe('finalizeGenEvalUseCase', () => {
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    // No effort headroom → the top-of-ladder nudge (same-model stamp), never an effort bump.
-    expect(result.value.task.escalatedToEffort).toBeUndefined();
-    expect(result.value.task.escalatedFromModel).toBe('claude-opus-4-8');
-    expect(result.value.task.escalatedToModel).toBe('claude-opus-4-8');
+    expect(result.value.task.escalatedToEffort).toBe('xhigh');
+    // The effort rung leaves the model fields untouched.
+    expect(result.value.task.escalatedFromModel).toBeUndefined();
+    expect(result.value.task.escalatedToModel).toBeUndefined();
     expect(result.value.shouldFailAttempt).toBe(true);
   });
 
