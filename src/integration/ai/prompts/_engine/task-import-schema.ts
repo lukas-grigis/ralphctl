@@ -68,10 +68,10 @@ export const TaskImportSpecSchema = z
     verificationCriteria: z.array(VerificationCriterionImportSchema).min(1, 'verificationCriteria missing or empty'),
     blockedBy: z.array(z.string()).optional(),
     /**
-     * Per-task evaluator dimensions to score in ADDITION to the four floor dimensions
-     * (correctness, completeness, safety, consistency). Optional; the planner omits the field
-     * when the floor dimensions already capture what matters. Capped at 6 to keep the rubric
-     * focused — past that, dimensions tend to overlap and dilute the per-axis verdict.
+     * Per-task evaluator dimensions to score in ADDITION to the five floor dimensions
+     * (correctness, completeness, safety, consistency, robustness). Optional; the planner omits
+     * the field when the floor dimensions already capture what matters. Capped at 6 to keep the
+     * rubric focused — past that, dimensions tend to overlap and dilute the per-axis verdict.
      */
     extraDimensions: z.array(z.string().min(1)).max(6).optional(),
   })

@@ -4,6 +4,7 @@ import type { Task } from '@src/domain/entity/task.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { buildPrompt, type BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
 import type { PromptDefinition } from '@src/integration/ai/prompts/_engine/definition.ts';
+import { renderFloorRubricSection } from '@src/integration/ai/prompts/_engine/renderers/floor-rubric.ts';
 import {
   renderExtraDimensionsSection,
   renderGeneratorHintsSection,
@@ -24,9 +25,9 @@ import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/templat
  *
  * The evaluate template runs an independent reviewer agent: it reads the task description /
  * steps / verification criteria, runs the verify script as authoritative ground truth, scores
- * four floor dimensions (correctness, completeness, safety, consistency), and writes exactly
- * one `evaluation` signal to `signals.json` carrying the PASS / FAIL verdict + per-dimension
- * findings.
+ * five floor dimensions (correctness, completeness, safety, consistency, robustness), and writes
+ * exactly one `evaluation` signal to `signals.json` carrying the PASS / FAIL verdict +
+ * per-dimension findings.
  */
 export interface EvaluatePromptParams {
   /** Task display name — `{{TASK_NAME}}` (referenced both as the page title and inside the spec block). */
@@ -53,7 +54,13 @@ export interface EvaluatePromptParams {
   /** Detected subagents / skills / MCP servers the reviewer can route to, or fallback. */
   readonly projectTooling: string;
   /**
-   * Optional "Task-specific dimensions" block appended after the four floor dimensions. Empty
+   * Rendered `{{FLOOR_RUBRIC_SECTION}}` markdown block — the five floor dimensions, each with a
+   * rationale-before-verdict block, single-sourced from `FLOOR_DIMENSIONS` via
+   * {@link renderFloorRubricSection}. Always non-empty.
+   */
+  readonly floorRubricSection: string;
+  /**
+   * Optional "Task-specific dimensions" block appended after the five floor dimensions. Empty
    * string when the planner didn't attach extras to this task — keeps the template stable.
    */
   readonly extraDimensionsSection: string;
@@ -87,7 +94,7 @@ const requireNonEmpty =
 export const evaluatePromptDef: PromptDefinition<EvaluatePromptParams> = {
   templateName: 'evaluate',
   description:
-    'Independent code review of a completed task. The agent runs deterministic checks, scores four floor dimensions, and emits one verdict signal.',
+    'Independent code review of a completed task. The agent runs deterministic checks, scores five floor dimensions, and emits one verdict signal.',
   parameters: {
     taskName: {
       placeholder: 'TASK_NAME',
@@ -128,6 +135,15 @@ export const evaluatePromptDef: PromptDefinition<EvaluatePromptParams> = {
     projectTooling: {
       placeholder: 'PROJECT_TOOLING',
       description: 'Detected subagents, skills, MCP servers, or "(none detected)".',
+    },
+    floorRubricSection: {
+      placeholder: 'FLOOR_RUBRIC_SECTION',
+      description:
+        'The five floor dimensions, each rendered as a rationale-before-verdict block, single-sourced from FLOOR_DIMENSIONS.',
+      validate: requireNonEmpty(
+        'floorRubricSection',
+        'floor-rubric section must not be empty (renderFloorRubricSection always emits a body)'
+      ),
     },
     extraDimensionsSection: {
       placeholder: 'EXTRA_DIMENSIONS_SECTION',
@@ -201,9 +217,10 @@ export interface BuildEvaluatePromptInput {
  * grades every criterion and records each verdict structurally in the `evaluation` signal's `criteria`
  * array (id + passed boolean + one-line evidence citation) in addition to prose assessment. Phase 3
  * applies inferential investigation to what deterministic checks cannot catch, including end-to-end
- * product exercise when a run-path is declared in `<project_tooling>`. Phase 4 assesses the four
- * floor dimensions (correctness, completeness, safety, consistency) plus any task-specific extras
- * injected via `{{EXTRA_DIMENSIONS_SECTION}}`. An `<evaluation_discipline>` block instructs the
+ * product exercise when a run-path is declared in `<project_tooling>`. Phase 4 assesses the five
+ * floor dimensions (correctness, completeness, safety, consistency, robustness) rendered via
+ * `{{FLOOR_RUBRIC_SECTION}}`, plus any task-specific extras injected via
+ * `{{EXTRA_DIMENSIONS_SECTION}}`. An `<evaluation_discipline>` block instructs the
  * evaluator to work through each criterion and floor dimension explicitly — recording a preliminary
  * verdict per criterion before moving to the next — to reduce premature verdict commitment.
  */
@@ -220,6 +237,7 @@ export const buildEvaluatePrompt = async (
     verificationCriteriaSection: renderVerificationCriteriaSection(input.task),
     verifyScriptSection: renderVerifyScriptSection(input.verifyScript),
     projectTooling: renderProjectToolingSection(input.projectTooling),
+    floorRubricSection: renderFloorRubricSection(),
     extraDimensionsSection: renderExtraDimensionsSection(input.task.extraDimensions),
     outputContractSection: input.outputContractSection,
     priorProgress: input.priorProgress ?? '',

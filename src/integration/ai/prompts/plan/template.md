@@ -100,12 +100,12 @@ Each task entry uses these fields:
     `check === "manual"`. Use the project's own commands — read the project's AI context
     file or manifest for the exact verification command this repository expects.
 - **`blockedBy`** — `id`s of earlier tasks that must complete first.
-- **`extraDimensions`** — optional kebab-case evaluator dimensions beyond the four floor
-  dimensions (correctness, completeness, safety, consistency). Attach an extra dimension
-  ONLY when an acceptance criterion explicitly demands a measurable property that no floor
-  dimension covers AND no manual criterion already encodes it. When in doubt, omit — the
+- **`extraDimensions`** — optional kebab-case evaluator dimensions beyond the five floor
+  dimensions (correctness, completeness, safety, consistency, robustness). Attach an extra
+  dimension ONLY when an acceptance criterion explicitly demands a measurable property that no
+  floor dimension covers AND no manual criterion already encodes it. When in doubt, omit — the
   floor dimensions are almost always sufficient. Example of a justified attachment:
-  `migration-safety` when the ticket requires a zero-downtime schema change that the four
+  `migration-safety` when the ticket requires a zero-downtime schema change that the five
   floor dimensions cannot score on their own. Cap: 2–3 per task; hard max 6.
 
 If you cannot produce a sound plan, emit the `task-plan` signal with `tasksJson` set to:

@@ -11,12 +11,15 @@ fixed. Investigate the current working tree again.
 You do not write code. You do not fix bugs. You do not edit tests. You read, run verification
 tooling, and render a verdict.
 
-**Grading rubric (unchanged every round):** grade the four floor dimensions (correctness, completeness, safety, consistency)
-plus any task-specific dimensions the planner attached. Each dimension is independent; a FAIL on
-any one forces `status: "failed"`. Every PASS requires a concrete observation (file path, line
-number, function name, tool output, or quoted snippet); "looks correct" is not evidence. A terminal
-`passed` or `failed` verdict MUST grade all four floor dimensions, each with a finding — a verdict
-missing a floor dimension is rejected and re-requested.
+**Grading rubric (unchanged every round):**
+
+{{FLOOR_RUBRIC_SECTION}}
+
+Grade any task-specific dimensions the planner attached with the same binary pass/fail logic. Every
+PASS requires a concrete observation (file path, line number, function name, tool output, or quoted
+snippet); "looks correct" is not evidence. A terminal `passed` or `failed` verdict MUST grade all
+five floor dimensions, each with a finding — a verdict missing a floor dimension is rejected and
+re-requested.
 
 **Verdict values — `passed`, `failed`, `malformed`:** reach for `malformed` ONLY when a tooling or
 environment problem blocks you from reaching a terminal verdict this round — never to dodge a clear
@@ -74,7 +77,7 @@ end. The final `signals.json` is the only machine-readable output and must come 
 **Checkpoint write — do this first, before re-grading**
 
 If you have not already written a checkpoint `signals.json` for this round, write an `evaluation`
-signal now before continuing. Use `status: "failed"`, all four floor dimensions present, each set
+signal now before continuing. Use `status: "failed"`, all five floor dimensions present, each set
 to `passed: false` with `finding: "assessment in progress"`. Use the path named in the output
 contract section at the bottom of this prompt. This placeholder is valid against the schema the
 harness validates — it ensures a recoverable file exists on disk if this session exhausts its
@@ -92,13 +95,18 @@ below.
         { "dimension": "correctness", "passed": false, "finding": "assessment in progress" },
         { "dimension": "completeness", "passed": false, "finding": "assessment in progress" },
         { "dimension": "safety", "passed": false, "finding": "assessment in progress" },
-        { "dimension": "consistency", "passed": false, "finding": "assessment in progress" }
+        { "dimension": "consistency", "passed": false, "finding": "assessment in progress" },
+        { "dimension": "robustness", "passed": false, "applicable": false, "finding": "assessment in progress" }
       ],
       "timestamp": "<ISO-8601 timestamp>"
     }
   ]
 }
 ```
+
+Robustness carries the optional `applicable` field shown above — set it to `false` only if
+re-grading determines the change touches no error/failure path (with the real reason in
+`finding`), or omit it (default `true`) once you record an actual pass/fail.
 
 Re-grade this round the same way you graded the first:
 

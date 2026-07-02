@@ -3,6 +3,7 @@ import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts'
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { buildPrompt, type BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
 import type { PromptDefinition } from '@src/integration/ai/prompts/_engine/definition.ts';
+import { renderFloorRubricSection } from '@src/integration/ai/prompts/_engine/renderers/floor-rubric.ts';
 import { renderGeneratorHintsSection } from '@src/integration/ai/prompts/_engine/renderers/task.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 
@@ -45,6 +46,13 @@ export interface EvaluateContinuationPromptParams {
    */
   readonly priorProgress: string;
   /**
+   * Rendered `{{FLOOR_RUBRIC_SECTION}}` markdown block — the five floor dimensions, each with a
+   * rationale-before-verdict block, single-sourced from `FLOOR_DIMENSIONS` via
+   * {@link renderFloorRubricSection}. Kept consistent with `evaluate/template.md` so the
+   * reviewer never drifts on the rubric across rounds. Always non-empty.
+   */
+  readonly floorRubricSection: string;
+  /**
    * Audit-[09] output contract section rendered from the evaluator contract for THIS round's
    * output directory (`rounds/<N>/evaluator/`). Because the leaf re-renders it per round, the
    * embedded `signals.json` path always names the current round — `{{OUTPUT_CONTRACT_SECTION}}`.
@@ -86,6 +94,15 @@ export const evaluateContinuationPromptDef: PromptDefinition<EvaluateContinuatio
     priorProgress: {
       placeholder: 'PRIOR_PROGRESS',
       description: 'Capped recent slice of progress.md inlined into the prior-progress block — empty when none yet.',
+    },
+    floorRubricSection: {
+      placeholder: 'FLOOR_RUBRIC_SECTION',
+      description:
+        'The five floor dimensions, each rendered as a rationale-before-verdict block, single-sourced from FLOOR_DIMENSIONS.',
+      validate: requireNonEmpty(
+        'floorRubricSection',
+        'floor-rubric section must not be empty (renderFloorRubricSection always emits a body)'
+      ),
     },
     outputContractSection: {
       placeholder: 'OUTPUT_CONTRACT_SECTION',
@@ -141,6 +158,7 @@ export const buildEvaluateContinuationPrompt = async (
     contractPath: input.contractPath,
     progressFile: input.progressFile,
     priorProgress: input.priorProgress,
+    floorRubricSection: renderFloorRubricSection(),
     outputContractSection: input.outputContractSection,
     generatorHintsSection: renderGeneratorHintsSection(input.generatorHints),
   });

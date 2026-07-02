@@ -1,4 +1,5 @@
 import type { Task } from '@src/domain/entity/task.ts';
+import { FLOOR_DIMENSIONS } from '@src/integration/ai/evaluation/_engine/floor-dimensions.ts';
 import { normalizeRefs } from '@src/domain/value/external-ref.ts';
 
 /**
@@ -132,9 +133,13 @@ export const renderProjectToolingSection = (projectTooling: string | undefined):
  *
  * Empty / absent → empty string so the template placeholder collapses without leaving an
  * orphan heading. `floorCount` is the number of floor dimensions already listed above the
- * placeholder; defaults to 4 to match the canonical rubric.
+ * placeholder; defaults to `FLOOR_DIMENSIONS.length` (the canonical rubric size) so the
+ * numbering never drifts from the rendered `{{FLOOR_RUBRIC_SECTION}}` block.
  */
-export const renderExtraDimensionsSection = (extras: readonly string[] | undefined, floorCount = 4): string => {
+export const renderExtraDimensionsSection = (
+  extras: readonly string[] | undefined,
+  floorCount = FLOOR_DIMENSIONS.length
+): string => {
   if (extras === undefined || extras.length === 0) return '';
   const lines = extras.map(
     (name, i) =>

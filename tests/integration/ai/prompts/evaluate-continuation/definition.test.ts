@@ -13,6 +13,7 @@ const deps = createFsTemplateLoader(defaultTemplatesDir());
 const TEMPLATE_PATH = `${String(defaultTemplatesDir())}/evaluate-continuation/template.md`;
 const CONTRACT_PATH = '/tmp/ralph/main-repo/contract.md';
 const PROGRESS_FILE = '/tmp/ralph/sprint-1/progress.md';
+const SAMPLE_FLOOR_RUBRIC_SECTION = '1. **Correctness** — rationale.\n\n   **Verdict:** PASS when ...; FAIL when ...';
 const SAMPLE_CONTRACT_SECTION =
   '## Output contract\n\nWrite /tmp/ralph/sandbox/rounds/3/evaluator/signals.json. (test fixture body.)';
 
@@ -51,6 +52,11 @@ describe('evaluateContinuationPromptDef — completeness', () => {
   it('declares the single evaluation-verdict signal the full evaluate prompt does', () => {
     expect(evaluateContinuationPromptDef.expectedSignals).toEqual(['evaluation']);
   });
+
+  it('declares the FLOOR_RUBRIC_SECTION placeholder for the single-sourced floor rubric', () => {
+    const placeholders = Object.values(evaluateContinuationPromptDef.parameters).map((p) => p.placeholder);
+    expect(placeholders).toContain('FLOOR_RUBRIC_SECTION');
+  });
 });
 
 describe('buildEvaluateContinuationPrompt — end-to-end against the real template', () => {
@@ -68,9 +74,16 @@ describe('buildEvaluateContinuationPrompt — end-to-end against the real templa
     expect(result.value).toContain('# Re-evaluate — Round 4');
     expect(result.value).toContain(CONTRACT_PATH);
     expect(result.value).toContain(PROGRESS_FILE);
-    // The verdict-format reminder must ride so the reviewer stays consistent on the floor
+    // The rendered floor rubric must ride so the reviewer stays consistent on the floor
     // dimensions and malformed semantics across rounds (kept in sync with evaluate/template.md).
-    expect(result.value).toContain('correctness, completeness, safety, consistency');
+    for (const name of ['**Correctness**', '**Completeness**', '**Safety**', '**Consistency**', '**Robustness**']) {
+      expect(result.value).toContain(name);
+    }
+    // Rationale-before-verdict: the floor's name/description precedes its "Verdict:" line.
+    const robustnessIdx = result.value.indexOf('**Robustness**');
+    const robustnessVerdictIdx = result.value.indexOf('**Verdict:**', robustnessIdx);
+    expect(robustnessIdx).toBeGreaterThan(-1);
+    expect(robustnessVerdictIdx).toBeGreaterThan(robustnessIdx);
     expect(result.value).toContain('malformed');
     // The cold-resume hedge tells a context-free thread where to re-read the specification.
     expect(result.value).toContain('re-read these on-disk files');
@@ -143,6 +156,7 @@ describe('evaluateContinuationPromptDef — validate-rejected paths', () => {
       contractPath: CONTRACT_PATH,
       progressFile: PROGRESS_FILE,
       priorProgress: '',
+      floorRubricSection: SAMPLE_FLOOR_RUBRIC_SECTION,
       outputContractSection: SAMPLE_CONTRACT_SECTION,
       generatorHintsSection: '',
     });
@@ -157,6 +171,7 @@ describe('evaluateContinuationPromptDef — validate-rejected paths', () => {
       contractPath: CONTRACT_PATH,
       progressFile: PROGRESS_FILE,
       priorProgress: '',
+      floorRubricSection: SAMPLE_FLOOR_RUBRIC_SECTION,
       outputContractSection: '   ',
       generatorHintsSection: '',
     });
