@@ -23,9 +23,28 @@ History on `src/application/ui/tui/views/execute-view.tsx` + `runtime/selection-
 reintroducing it:
 
 - Added `SelectionApi.followFocusedRun` (`selection-context.tsx`) — atomic like `setProjectAndSprint`
-  but **deliberately does NOT persist** (a `skipNextPersistRef` flag makes the provider's persist effect
-  skip exactly that one state transition). A purely exploratory Tab-cycle through old sessions can no
+  but **deliberately does NOT persist**. A purely exploratory Tab-cycle through old sessions can no
   longer corrupt the next boot's default sprint — the specific harm 4593036f called out.
+- **Skip-guard is value-keyed, not a one-shot flag.** First cut used a `skipNextPersistRef` boolean
+  (`followFocusedRun` sets true, the persist effect reads-and-clears it). This flaked intermittently
+  under load (~1-2/10 runs in `execute-view.test.tsx`'s "does not persist" test): the reconciler can
+  coalesce the convergence write together with an unrelated one (e.g. the test harness's post-mount
+  `SeedSelection`) into extra/reordered render+effect passes, letting an unrelated persist-effect
+  invocation "spend" the flag before the write it was meant to guard ever becomes visible — the
+  converged tuple then leaks to `onChange` (a real correctness gap, not just a test artifact, since the
+  same reconciler behavior isn't test-only). Fixed by replacing the boolean with `skipPersistForRef`
+  holding the EXACT `{projectId, projectLabel, sprintId, sprintLabel}` tuple `followFocusedRun` is
+  about to write; the persist effect skips only when current values still match that snapshot (cleared
+  on match, so a later genuinely-explicit pick of the same project+sprint isn't mistaken for it). Immune
+  to render ordering/coalescing since it's not "did some effect happen to run first," it's "do the
+  values match." Verified via 30 isolated + 30 CPU-loaded (`yes` background load) repeats, all passing.
+- A separate, earlier flake in the SAME suite ("Enter after a run goes Home…") was pure test-side: the
+  assertion right after `waitForViewReady` didn't `waitFor` the convergence chain (probe settling →
+  convergence effect firing is two sequential effect generations, more than `waitForViewReady`'s single
+  generic tick covers) — fixed by polling explicitly, matching the two OTHER new convergence tests that
+  already did this correctly. Moral: when a test asserts on the result of a multi-hop async effect
+  chain, poll for the actual condition — never rely on a generic single-tick wait, even one designed for
+  "post-commit effects."
 - Convergence DOES fire the `lastSwitch` toast ("✓ now on …") — directly answers the OTHER half of
   4593036f's complaint ("peeking … silently re-pinned"): the switch is now visible, not silent.
 - Guarded against converging onto a closed/removed pin via a tri-state probe (`'checking' |

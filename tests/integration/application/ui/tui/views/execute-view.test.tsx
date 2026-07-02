@@ -289,6 +289,14 @@ describe('ExecuteView', () => {
     );
     await waitForViewReady(result, (f) => f.includes('Implement — Pinned'));
     // Mounting focused on the run already converged the selection onto its pinned sprint.
+    // Convergence needs TWO chained effect generations (the availability probe settling from
+    // 'checking' to 'available', THEN the convergence effect reacting to that) — more than the
+    // single generic post-commit tick `waitForViewReady` waits out. Poll explicitly instead of
+    // asserting straight off that tick: under load, each generation's scheduler pass can outrun
+    // a fixed 30ms window, which showed up as a real ~1-in-8 flake here (always the pre-focus
+    // sprintB value, never a corrupted one — confirms this is a "hasn't happened yet" race, not
+    // a wrong-value bug).
+    await waitFor(() => seenSprintIds.at(-1) === sprintA);
     expect(seenSprintIds.at(-1)).toBe(sprintA);
 
     result.stdin.write(ENTER);

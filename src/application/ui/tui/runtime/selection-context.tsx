@@ -152,10 +152,19 @@ export const SelectionProvider = ({
   const sprintIdRef = useRef(sprintId);
   sprintIdRef.current = sprintId;
 
-  // Set by `followFocusedRun` right before its state writes; the persist effect below checks
-  // and clears it instead of calling `onChange` for that one transition. This is the mechanism
-  // that keeps focus-driven convergence out of the on-disk store — see `followFocusedRun`.
-  const skipNextPersistRef = useRef(false);
+  // Set by `followFocusedRun` right before its state writes, to the EXACT tuple it's about to
+  // write. The persist effect below skips a transition when the CURRENT values still match this
+  // snapshot — value-keyed, not a one-shot flag, because a one-shot boolean is fragile to
+  // ordering: the reconciler can coalesce this update together with an unrelated one (e.g. the
+  // test harness's own post-mount seed) into extra/reordered render + effect passes, letting an
+  // unrelated persist-effect invocation "spend" the flag before the write it was meant to guard
+  // ever becomes visible — confirmed by an intermittent flake where the converged tuple still
+  // reached `onChange`. Matching on the actual values is immune to how many renders land in
+  // between or which effect fires first. Cleared once consumed so a later, genuinely explicit
+  // pick of the identical project+sprint is never mistaken for the same convergence and skipped.
+  const skipPersistForRef = useRef<
+    { projectId: ProjectId; projectLabel: string; sprintId: SprintId; sprintLabel: string } | undefined
+  >(undefined);
 
   // Persist whenever the canonical selection changes — but skip the initial render. The launch
   // router may seed an auto-default project/sprint (first project + most-recent sprint) when
@@ -169,8 +178,15 @@ export const SelectionProvider = ({
       isFirstPersist.current = false;
       return;
     }
-    if (skipNextPersistRef.current) {
-      skipNextPersistRef.current = false;
+    const skip = skipPersistForRef.current;
+    if (
+      skip !== undefined &&
+      skip.projectId === projectId &&
+      skip.projectLabel === projectLabel &&
+      skip.sprintId === sprintId &&
+      skip.sprintLabel === sprintLabel
+    ) {
+      skipPersistForRef.current = undefined;
       return;
     }
     onChangeRef.current?.({
@@ -274,9 +290,10 @@ export const SelectionProvider = ({
   );
 
   const followFocusedRun = useCallback((pId: ProjectId, pLabel: string, sId: SprintId, sLabel: string) => {
-    // Flip the skip flag before the batch of state writes below — the persist effect reads it
-    // once, after this same commit, and clears it back to false.
-    skipNextPersistRef.current = true;
+    // Record the exact tuple being written before the state writes below — the persist effect
+    // matches on these values (not a one-shot flag) so it reliably skips THIS transition
+    // regardless of how many renders land in between.
+    skipPersistForRef.current = { projectId: pId, projectLabel: pLabel, sprintId: sId, sprintLabel: sLabel };
     setProjectId(pId);
     setProjectLabel(pLabel);
     setSprintId(sId);
