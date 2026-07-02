@@ -11,10 +11,11 @@ import {
 
 const NOW = isoTimestamp('2026-05-09T10:00:00.000Z');
 
-const dim = (name: string, passed: boolean): DimensionScore => ({
+const dim = (name: string, passed: boolean, applicable?: boolean): DimensionScore => ({
   dimension: name,
   passed,
   finding: passed ? '' : 'placeholder failure finding',
+  ...(applicable !== undefined ? { applicable } : {}),
 });
 
 const evalFrom = (...dims: DimensionScore[]): EvaluationSignal => ({
@@ -48,6 +49,11 @@ describe('failedDimensions', () => {
   it('returns lowercased trimmed names of failed dimensions only', () => {
     const sig = evalFrom(dim(' Correctness ', false), dim('Completeness', true), dim('SAFETY', false));
     expect(failedDimensions(sig)).toEqual(new Set(['correctness', 'safety']));
+  });
+
+  it('excludes an applicable:false dimension even when passed is false', () => {
+    const sig = evalFrom(dim('correctness', false), dim('robustness', false, false));
+    expect(failedDimensions(sig)).toEqual(new Set(['correctness']));
   });
 });
 

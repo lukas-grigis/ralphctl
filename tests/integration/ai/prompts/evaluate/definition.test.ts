@@ -103,9 +103,15 @@ describe('evaluatePromptDef — completeness', () => {
     const placeholders = Object.values(evaluatePromptDef.parameters).map((p) => p.placeholder);
     expect(placeholders).toContain('PRIOR_PROGRESS');
   });
+
+  it('declares the FLOOR_RUBRIC_SECTION placeholder for the single-sourced floor rubric', () => {
+    const placeholders = Object.values(evaluatePromptDef.parameters).map((p) => p.placeholder);
+    expect(placeholders).toContain('FLOOR_RUBRIC_SECTION');
+  });
 });
 
 const SAMPLE_CONTRACT_SECTION = '## Output contract\n\nWrite signals.json. (test fixture body.)';
+const SAMPLE_FLOOR_RUBRIC_SECTION = '1. **Correctness** — rationale.\n\n   **Verdict:** PASS when ...; FAIL when ...';
 
 describe('buildEvaluatePrompt — end-to-end against the real template', () => {
   it('produces a fully-substituted prompt with title, task name, project path, and no leftover placeholders', async () => {
@@ -222,6 +228,29 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
     expect(result.value).toContain('## Task: shipped-earlier — Attempt 1');
   });
 
+  it('renders all five floor dimensions including robustness, rationale before verdict', async () => {
+    const task = makeTaskWith({ name: 'five-floor rubric' });
+    const result = await buildEvaluatePrompt(deps, {
+      task,
+      projectPath: '/tmp/ralph/main-repo',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    for (const name of ['**Correctness**', '**Completeness**', '**Safety**', '**Consistency**', '**Robustness**']) {
+      expect(result.value).toContain(name);
+    }
+    // Rationale-before-verdict: each floor's name/description precedes its "Verdict:" line.
+    const robustnessIdx = result.value.indexOf('**Robustness**');
+    const robustnessVerdictIdx = result.value.indexOf('**Verdict:**', robustnessIdx);
+    expect(robustnessIdx).toBeGreaterThan(-1);
+    expect(robustnessVerdictIdx).toBeGreaterThan(robustnessIdx);
+    // Robustness carries its explicit not-applicable-with-reason guidance.
+    expect(result.value).toContain('applicable: false');
+  });
+
   it('renders extra dimensions after the floor dimensions when planner attached them', async () => {
     const ticket = makeApprovedTicket();
     const task = unwrap(
@@ -244,10 +273,10 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value).toContain('Task-specific dimensions');
-    expect(result.value).toContain('5. **accessibility**');
-    expect(result.value).toContain('6. **performance**');
-    // Extras must come after the four floor dimensions.
-    const floorIdx = result.value.indexOf('**Consistency**');
+    expect(result.value).toContain('6. **accessibility**');
+    expect(result.value).toContain('7. **performance**');
+    // Extras must come after the five floor dimensions.
+    const floorIdx = result.value.indexOf('**Robustness**');
     const extrasIdx = result.value.indexOf('Task-specific dimensions');
     expect(floorIdx).toBeGreaterThan(-1);
     expect(extrasIdx).toBeGreaterThan(floorIdx);
@@ -266,6 +295,7 @@ describe('evaluatePromptDef — validate-rejected paths', () => {
       verificationCriteriaSection: '',
       verifyScriptSection: 'No verify script configured for this repo.',
       projectTooling: '_(none detected)_',
+      floorRubricSection: SAMPLE_FLOOR_RUBRIC_SECTION,
       extraDimensionsSection: '',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
       priorProgress: '',
@@ -286,6 +316,7 @@ describe('evaluatePromptDef — validate-rejected paths', () => {
       verificationCriteriaSection: '',
       verifyScriptSection: 'No verify script configured for this repo.',
       projectTooling: '_(none detected)_',
+      floorRubricSection: SAMPLE_FLOOR_RUBRIC_SECTION,
       extraDimensionsSection: '',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
       priorProgress: '',
@@ -306,6 +337,7 @@ describe('evaluatePromptDef — validate-rejected paths', () => {
       verificationCriteriaSection: '',
       verifyScriptSection: 'No verify script configured for this repo.',
       projectTooling: '_(none detected)_',
+      floorRubricSection: SAMPLE_FLOOR_RUBRIC_SECTION,
       extraDimensionsSection: '',
       outputContractSection: SAMPLE_CONTRACT_SECTION,
       priorProgress: '',

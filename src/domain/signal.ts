@@ -27,33 +27,26 @@ export type EvaluationDimension = string;
  * stdout/stderr so an operator can audit the verdict without re-running the spawn. Optional at
  * the schema layer (the auto/manual partitioning lives on the task contract, not the signal),
  * prompt-enforced for auto criteria.
+ *
+ * `applicable` marks whether the dimension could be meaningfully graded at all. Absent or `true`
+ * means the ordinary graded pass/fail on `passed` applies; `false` means the dimension does not
+ * apply to this change (e.g. a robustness grade on a change that touches no error path) and
+ * `passed` is not a graded verdict — `finding` carries the stated reason instead. The five floor
+ * dimensions living in `floor-dimensions.ts` (integration layer) are the single canonical source
+ * of the always-present rubric; this domain type only shapes the per-dimension verdict.
  */
 export interface DimensionScore {
   readonly dimension: EvaluationDimension;
   readonly passed: boolean;
   readonly finding: string;
   readonly executionEvidence?: string;
+  readonly applicable?: boolean;
 }
-
-/**
- * The four floor dimensions every terminal evaluator verdict MUST grade. They are the
- * always-present rubric pinned in the evaluate prompt (`prompts/evaluate/template.md`); the
- * planner may append task-specific dimensions on top, but these four are mandatory on every
- * `passed` / `failed` verdict so a vacuous "passed with zero dimensions" can never validate.
- *
- * Names are compared case-/whitespace-insensitively (lowercased, trimmed) by the signal-schema
- * refinement and by `failedDimensions` in the plateau predicate, so the canonical lowercase
- * spelling here is the single source of truth the integration schema imports (domain → integration
- * is the allowed direction).
- *
- * @public
- */
-export const FLOOR_DIMENSIONS = ['correctness', 'completeness', 'safety', 'consistency'] as const;
 
 /**
  * One structured per-criterion verdict the evaluator emits, keyed by {@link VerificationCriterion.id}
  * (`C1`, `C2`, …). Orthogonal to {@link DimensionScore}: dimensions grade the always-present floor
- * rubric (correctness / completeness / safety / consistency), whereas `criteria` records the
+ * rubric (correctness / completeness / safety / consistency / robustness), whereas `criteria` records the
  * machine-readable PASS / FAIL of each task-specific acceptance criterion the planner authored — the
  * grading the evaluator already does in prose (`Phase 2 — Per-criterion assessment`), now carried as
  * data so the harness can persist a durable k-of-N checklist instead of collapsing many criteria to

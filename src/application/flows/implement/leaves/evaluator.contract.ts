@@ -125,6 +125,7 @@ const evaluatorExampleSignals: readonly EvaluatorSignal[] = [
       { dimension: 'completeness', passed: true, finding: 'all declared steps shipped' },
       { dimension: 'safety', passed: true, finding: 'inputs validated at the request boundary' },
       { dimension: 'consistency', passed: true, finding: 'matches sibling code at src/bar.ts' },
+      { dimension: 'robustness', passed: true, finding: 'error path retries the write once before surfacing' },
     ],
     criteria: [
       { id: 'C1', passed: false, evidence: 'npm test exited 1 — empty-input case failed at src/foo.ts:23' },

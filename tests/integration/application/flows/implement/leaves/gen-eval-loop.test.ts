@@ -361,7 +361,7 @@ describe('createGenEvalLoop — entropy-check (R2) live behavior', () => {
   const change = (text: string): HarnessSignal => ({ type: 'change', text, timestamp: ts });
   const learning = (text: string): HarnessSignal => ({ type: 'learning', text, timestamp: ts });
 
-  const FLOOR = ['correctness', 'completeness', 'safety', 'consistency'] as const;
+  const FLOOR = ['correctness', 'completeness', 'safety', 'consistency', 'robustness'] as const;
   // Pairwise-dissimilar critiques (trigram-Jaccard < 0.5) so the evaluator's critique-shift
   // exemption keeps returning `progress` and its count-based plateau never fires.
   const CRITIQUES = [

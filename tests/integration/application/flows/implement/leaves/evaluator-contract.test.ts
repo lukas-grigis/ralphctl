@@ -112,12 +112,13 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
     return { events, eventBus };
   };
 
-  // Terminal verdicts now MUST grade all four floor dimensions (correctness / completeness /
-  // safety / consistency), so every fixture below carries the full floor set.
+  // Terminal verdicts now MUST grade all five floor dimensions (correctness / completeness /
+  // safety / consistency / robustness), so every fixture below carries the full floor set.
   const floorPasses = [
     { dimension: 'completeness', passed: true, finding: 'all steps shipped' },
     { dimension: 'safety', passed: true, finding: 'inputs validated' },
     { dimension: 'consistency', passed: true, finding: 'matches siblings' },
+    { dimension: 'robustness', passed: true, finding: 'error paths handled' },
   ];
 
   const passedEvaluation: EvaluationSignal = {

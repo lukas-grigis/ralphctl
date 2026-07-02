@@ -101,6 +101,7 @@ function runTests(): void {
       { dimension: 'completeness', passed: true, finding: 'steps shipped' },
       { dimension: 'safety', passed: true, finding: 'inputs validated' },
       { dimension: 'consistency', passed: true, finding: 'matches siblings' },
+      { dimension: 'robustness', passed: true, finding: 'error paths handled' },
     ],
     timestamp: FIXED_NOW,
   });
@@ -112,6 +113,7 @@ function runTests(): void {
       { dimension: 'completeness', passed: true, finding: 'steps shipped' },
       { dimension: 'safety', passed: true, finding: 'inputs validated' },
       { dimension: 'consistency', passed: true, finding: 'matches siblings' },
+      { dimension: 'robustness', passed: true, finding: 'error paths handled' },
     ],
     critique,
     timestamp: FIXED_NOW,

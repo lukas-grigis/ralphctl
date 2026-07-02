@@ -116,12 +116,14 @@ export interface PlateauOptions {
 
 /**
  * Extract the set of failed dimension names from a parsed evaluation. Names are lowercased
- * and trimmed so `Correctness` / ` correctness ` / `CORRECTNESS` collapse to one entry.
+ * and trimmed so `Correctness` / ` correctness ` / `CORRECTNESS` collapse to one entry. A
+ * dimension marked `applicable: false` (explicit not-applicable, with the reason in `finding`)
+ * is never counted as failed regardless of its `passed` value — N/A is neither pass nor fail.
  */
 export const failedDimensions = (signal: EvaluationSignal): ReadonlySet<string> => {
   const names = new Set<string>();
   for (const d of signal.dimensions) {
-    if (!d.passed) {
+    if (d.applicable !== false && !d.passed) {
       names.add(d.dimension.trim().toLowerCase());
     }
   }

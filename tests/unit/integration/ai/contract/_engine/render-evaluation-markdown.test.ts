@@ -39,6 +39,27 @@ describe('renderEvaluationMarkdown', () => {
     expect(md).toContain('```\nnpm test\n  12 passing\n```');
   });
 
+  it('renders an applicable:false dimension as n/a, not passed/failed', () => {
+    const signal: EvaluationSignal = {
+      type: 'evaluation',
+      status: 'passed',
+      dimensions: [
+        {
+          dimension: 'robustness',
+          passed: false,
+          applicable: false,
+          finding: 'change touches no error path',
+        },
+      ],
+      timestamp: ts(),
+    };
+    const md = renderEvaluationMarkdown(signal);
+    expect(md).toContain('### robustness — n/a');
+    expect(md).not.toContain('### robustness — passed');
+    expect(md).not.toContain('### robustness — failed');
+    expect(md).toContain('change touches no error path');
+  });
+
   it('omits the critique section when critique is absent', () => {
     const signal: EvaluationSignal = {
       type: 'evaluation',

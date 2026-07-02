@@ -20,7 +20,7 @@ import { prContentSignalSchema } from '@src/integration/ai/contract/_engine/sign
 const ts = '2026-05-22T10:00:00.000Z';
 
 /**
- * The three floor dimensions other than `correctness` — appended so a terminal verdict carries
+ * The four floor dimensions other than `correctness` — appended so a terminal verdict carries
  * the full floor set the signal schema now requires. Individual tests vary the `correctness`
  * row to drive the case under test.
  */
@@ -28,6 +28,7 @@ const floorRest = [
   { dimension: 'completeness', passed: true, finding: '' },
   { dimension: 'safety', passed: true, finding: '' },
   { dimension: 'consistency', passed: true, finding: '' },
+  { dimension: 'robustness', passed: true, finding: '' },
 ];
 
 /**
@@ -235,6 +236,31 @@ describe('signal schemas (happy-path parses)', () => {
     });
     expect(r.success).toBe(false);
   });
+
+  it('evaluation: a PASS verdict whose robustness dimension is applicable:false (with a finding) validates', () => {
+    const dimensions = [
+      { dimension: 'correctness', passed: true, finding: '' },
+      { dimension: 'completeness', passed: true, finding: '' },
+      { dimension: 'safety', passed: true, finding: '' },
+      { dimension: 'consistency', passed: true, finding: '' },
+      { dimension: 'robustness', passed: false, applicable: false, finding: 'change touches no error path' },
+    ];
+    const r = evaluationSignalSchema.safeParse({ type: 'evaluation', status: 'passed', dimensions, timestamp: ts });
+    expect(r.success).toBe(true);
+  });
+
+  it('evaluation: rejects an applicable:false dimension with an empty finding', () => {
+    const dimensions = [
+      { dimension: 'correctness', passed: true, finding: '' },
+      { dimension: 'completeness', passed: true, finding: '' },
+      { dimension: 'safety', passed: true, finding: '' },
+      { dimension: 'consistency', passed: true, finding: '' },
+      { dimension: 'robustness', passed: false, applicable: false, finding: '' },
+    ];
+    const r = evaluationSignalSchema.safeParse({ type: 'evaluation', status: 'passed', dimensions, timestamp: ts });
+    expect(r.success).toBe(false);
+  });
+
   it('commit-message', () => {
     expect(
       commitMessageSignalSchema.safeParse({ type: 'commit-message', subject: 'feat: x', timestamp: ts }).success

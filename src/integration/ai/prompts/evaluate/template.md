@@ -8,15 +8,7 @@ render a verdict.
 
 **Grading rubric (pinned here — applies every round regardless of context):**
 
-Every evaluation grades four floor dimensions. Each dimension is independent; a FAIL on any one forces
-`status: "failed"` on the signal regardless of how other dimensions score.
-
-| Dimension    | PASS when                                                                                                                | FAIL when                                                                             |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
-| Correctness  | Every verification criterion in `<task_specification>` is met, with evidence                                             | Any criterion unmet, or evidence is missing for a PASS claim                          |
-| Completeness | All declared steps present; all criteria addressed; no criterion silently skipped                                        | A step or criterion has no evidence in the findings                                   |
-| Safety       | No error paths that crash, swallow, or silently corrupt; no unvalidated inputs at trust boundaries; no leaked resources  | A concrete safety defect is observable in the diff                                    |
-| Consistency  | Change follows the project's existing patterns — naming, file organisation, error handling, test structure, import style | A sibling file or function shows a materially different pattern the generator ignored |
+{{FLOOR_RUBRIC_SECTION}}
 
 Additional dimensions appended by the planner (when present) are evaluated with the same binary pass/fail
 logic. The rubric from `<task_specification>` is the authority — grade against it, not against your own
@@ -51,9 +43,9 @@ forcing a `passed` you cannot support — a false `passed` ships a bug; a `malfo
 Conversely, do not reach for `malformed` to dodge a clear `failed`: if you can name a concrete failing
 criterion, the verdict is `failed` with a critique, never `malformed`.
 
-A terminal `passed` or `failed` verdict MUST grade all four floor dimensions (correctness, completeness,
-safety, consistency), each with a finding — a verdict missing a floor dimension is rejected by the harness and
-re-requested. `malformed` is exempt from that coverage requirement.
+A terminal `passed` or `failed` verdict MUST grade all five floor dimensions (correctness, completeness,
+safety, consistency, robustness), each with a finding — a verdict missing a floor dimension is rejected by the
+harness and re-requested. `malformed` is exempt from that coverage requirement.
 </role>
 
 {{HARNESS_CONTEXT}}
@@ -143,7 +135,7 @@ may write is `signals.json` under the harness output directory.
 
 ### Phase 0 — Checkpoint write (do this first, before any verification)
 
-Write `signals.json` now with placeholder verdicts — `status: "failed"`, all four floor dimensions
+Write `signals.json` now with placeholder verdicts — `status: "failed"`, all five floor dimensions
 present, each set to `passed: false` with `finding: "assessment in progress"`. Use the schema and
 path shown in the output contract section at the bottom of this prompt.
 
@@ -164,13 +156,18 @@ rather than restarting from scratch.
         { "dimension": "correctness", "passed": false, "finding": "assessment in progress" },
         { "dimension": "completeness", "passed": false, "finding": "assessment in progress" },
         { "dimension": "safety", "passed": false, "finding": "assessment in progress" },
-        { "dimension": "consistency", "passed": false, "finding": "assessment in progress" }
+        { "dimension": "consistency", "passed": false, "finding": "assessment in progress" },
+        { "dimension": "robustness", "passed": false, "applicable": false, "finding": "assessment in progress" }
       ],
       "timestamp": "<ISO-8601 timestamp>"
     }
   ]
 }
 ```
+
+Robustness carries the optional `applicable` field shown above — leave it as a placeholder here and
+set it to `false` only if Phase 4 determines the change touches no error/failure path (with the real
+reason in `finding`), or omit it (default `true`) once you grade an actual pass/fail.
 
 Write this file, then proceed to Phase 1.
 
@@ -246,8 +243,9 @@ observation — file path, line number, function name, tool output, or quoted sn
 
 ### Phase 4 — Dimension assessment
 
-Evaluate across the four floor dimensions. Write per-dimension findings as one PASS/FAIL verdict and 1–3
-specific observations each.
+Evaluate across the five floor dimensions rendered in `{{FLOOR_RUBRIC_SECTION}}` above. Write per-dimension
+findings as one PASS/FAIL verdict (or `applicable: false` for robustness, when justified) and 1–3 specific
+observations each, anchored to the acceptance criteria and check/verify output you gathered in Phases 1–3.
 
 1. **Correctness** — does the implementation do what the specification says, across every verification
    criterion? Cite the criterion and the code that satisfies (or fails to satisfy) it.
@@ -258,6 +256,10 @@ specific observations each.
 4. **Consistency** — does the change follow the project's existing patterns and conventions (naming, file
    organisation, error handling, test structure, import style)? Cite a specific sibling file or function
    when the comparison matters.
+5. **Robustness** — does the change handle error and failure paths gracefully — unhandled exceptions,
+   missing error propagation, ungraceful degradation, recovery from transient faults? When the change
+   touches no error/failure path, grade this dimension `applicable: false` and state the concrete reason in
+   `finding` rather than fabricating a pass or fail.
 
 {{EXTRA_DIMENSIONS_SECTION}}
 
@@ -303,6 +305,8 @@ Phase 4 dimensions:
   to this task's criteria.
 - Safety — PASS — input validated via shared Zod schema at `src/routes/exports.ts:12` before DB access.
 - Consistency — PASS — follows existing endpoint patterns in `src/routes/`; uses the shared error format.
+- Robustness — N/A — the change only adds input validation with a standard 400 response; it introduces no
+  error/failure-recovery path (retries, rollback, degradation) beyond what Correctness already covers.
 
 Verdict: `status: "passed"`, no critique.
 
@@ -336,6 +340,12 @@ Signals:
           "dimension": "consistency",
           "passed": true,
           "finding": "follows existing endpoint patterns in src/routes/; uses the shared error format from src/lib/errors.ts"
+        },
+        {
+          "dimension": "robustness",
+          "passed": false,
+          "applicable": false,
+          "finding": "input-validation change only; no error/failure-recovery path beyond the 400 response Correctness already covers"
         }
       ],
       "criteria": [
@@ -379,6 +389,9 @@ Phase 4 dimensions:
 - Safety — FAIL — `src/repositories/users.ts:23`: SQL injection via unparameterised template literal.
   Sibling `src/repositories/posts.ts:15` shows the correct pattern.
 - Consistency — PASS — controller structure follows existing patterns; pagination helper used correctly.
+- Robustness — FAIL — `src/controllers/users.ts:47` lets the `NaN` from `parseInt(page)` propagate
+  uncaught into the query layer instead of degrading gracefully (e.g. rejecting with a 400 before the
+  query runs); the same defect that breaks Correctness also breaks graceful error handling here.
 
 Verdict: `status: "failed"`, critique:
 
@@ -388,6 +401,9 @@ Verdict: `status: "failed"`, critique:
 - "[Safety] (a) safety, (b) `WHERE name LIKE '%${query}%'` at `src/repositories/users.ts:23` interpolates
   user input into SQL, (c) use a parameterised query with `$1` placeholder, (d)
   `src/repositories/users.ts:23`."
+- "[Robustness] (a) robustness, (b) `src/controllers/users.ts:47` lets an invalid `page` value propagate
+  as an uncaught exception instead of a handled 400, (c) validate `page` before use and return a graceful
+  400 on failure, (d) `src/controllers/users.ts:47`."
 
 Signals:
 
@@ -419,6 +435,11 @@ Signals:
           "dimension": "consistency",
           "passed": true,
           "finding": "controller structure follows existing patterns; pagination helper used correctly"
+        },
+        {
+          "dimension": "robustness",
+          "passed": false,
+          "finding": "src/controllers/users.ts:47 lets an invalid page value propagate as an uncaught exception instead of a handled 400"
         }
       ],
       "criteria": [
@@ -429,7 +450,7 @@ Signals:
           "evidence": "src/controllers/users.ts:47 returns 500 on non-numeric page (expected 400)"
         }
       ],
-      "critique": "[Correctness · C2] (a) correctness, (b) parseInt(page) at src/controllers/users.ts:47 returns NaN for non-numeric input causing 500, (c) validate page before use so invalid input returns 400, (d) src/controllers/users.ts:47. [Safety] (a) safety, (b) WHERE name LIKE '%${query}%' at src/repositories/users.ts:23 interpolates user input into SQL, (c) use a parameterised query, (d) src/repositories/users.ts:23.",
+      "critique": "[Correctness · C2] (a) correctness, (b) parseInt(page) at src/controllers/users.ts:47 returns NaN for non-numeric input causing 500, (c) validate page before use so invalid input returns 400, (d) src/controllers/users.ts:47. [Safety] (a) safety, (b) WHERE name LIKE '%${query}%' at src/repositories/users.ts:23 interpolates user input into SQL, (c) use a parameterised query, (d) src/repositories/users.ts:23. [Robustness] (a) robustness, (b) src/controllers/users.ts:47 lets an invalid page value propagate as an uncaught exception, (c) validate page before use and return a graceful 400, (d) src/controllers/users.ts:47.",
       "timestamp": "2026-01-01T00:00:00.000Z"
     }
   ]
@@ -469,6 +490,9 @@ Phase 4 dimensions:
 - Safety — PASS — new session store uses the project's standard signing key from `src/config/secrets.ts`.
 - Consistency — PASS — middleware structure matches `src/middleware/csrf.ts`; config access follows the
   pattern in `src/middleware/rate-limit.ts`.
+- Robustness — PASS — `src/middleware/session.ts:31` catches store-lookup failures and falls back to
+  issuing a fresh anonymous session, matching the retry/fallback pattern already used in
+  `src/middleware/csrf.ts`.
 
 Note: the verify script passed. This round still fails because C3 is unimplemented. The verify suite does
 not test TTL configurability.

@@ -104,8 +104,8 @@ const correctiveBody = (err: DomainError, signalsPath: string, selfContainedCont
       );
     }
     lines.push('');
-    lines.push('Common cause: a terminal `evaluation` verdict (`passed` / `failed`) MUST grade all four');
-    lines.push('floor dimensions — correctness, completeness, safety, consistency — each with a finding.');
+    lines.push('Common cause: a terminal `evaluation` verdict (`passed` / `failed`) MUST grade all five');
+    lines.push('floor dimensions — correctness, completeness, safety, consistency, robustness — each with a finding.');
   } else if (err instanceof ParseError && err.subCode === 'invalid-json') {
     lines.push(`The file at \`${signalsPath}\` existed but was not valid JSON. Re-write it as a single`);
     lines.push('valid JSON object matching the `{ schemaVersion, signals }` shape. Check for trailing');

@@ -12,7 +12,7 @@ import type { EvaluationSignal } from '@src/domain/signal.ts';
  *
  *     ## Dimensions
  *
- *     ### <dimension name> — <passed | failed>
+ *     ### <dimension name> — <passed | failed | n/a>
  *     <finding>
  *
  *     ```
@@ -28,6 +28,12 @@ import type { EvaluationSignal } from '@src/domain/signal.ts';
  * Empty sections are omitted entirely. The output has a trailing newline so editors line-
  * count cleanly.
  */
+/** `n/a` for an explicit not-applicable dimension, otherwise the ordinary passed/failed verdict. */
+const dimensionVerdict = (d: EvaluationSignal['dimensions'][number]): string => {
+  if (d.applicable === false) return 'n/a';
+  return d.passed ? 'passed' : 'failed';
+};
+
 export const renderEvaluationMarkdown = (signal: EvaluationSignal): string => {
   const lines: string[] = [];
   lines.push(`# Evaluation — ${signal.status}`);
@@ -46,7 +52,7 @@ export const renderEvaluationMarkdown = (signal: EvaluationSignal): string => {
     lines.push('## Dimensions');
     lines.push('');
     for (const d of signal.dimensions) {
-      lines.push(`### ${d.dimension} — ${d.passed ? 'passed' : 'failed'}`);
+      lines.push(`### ${d.dimension} — ${dimensionVerdict(d)}`);
       if (d.finding.trim().length > 0) {
         lines.push('');
         lines.push(d.finding.trim());
