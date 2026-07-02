@@ -375,16 +375,14 @@ export const buildSections = (
     // One editable row per user override, directly under the add-row so the group reads as one
     // unit. Keys reuse the CLI grammar (`harness.escalationMap.<from>`) — submit routes through
     // the same applySettingsKey path `settings set` uses.
-    ...escalationOverrides.map(
-      ([from, to]): EditableField => ({
-        kind: 'map-entry',
-        key: `harness.escalationMap.${from}`,
-        label: `  ${from}`,
-        current: `${glyphs.arrowRight} ${to}`,
-        from,
-        to,
-      })
-    ),
+    ...escalationOverrides.map(([from, to]): EditableField => ({
+      kind: 'map-entry',
+      key: `harness.escalationMap.${from}`,
+      label: `  ${from}`,
+      current: `${glyphs.arrowRight} ${to}`,
+      from,
+      to,
+    })),
   ];
 
   const otherFields: readonly EditableField[] = [

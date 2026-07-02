@@ -242,12 +242,7 @@ const applyFixedSettingsKey = (current: Settings, key: string, raw: string): Res
     case 'harness.plateauThreshold':
     case 'harness.correctiveRetries': {
       const which = key.split('.')[1] as
-        | 'maxTurns'
-        | 'maxAttempts'
-        | 'rateLimitRetries'
-        | 'idleWatchdogMs'
-        | 'plateauThreshold'
-        | 'correctiveRetries';
+        'maxTurns' | 'maxAttempts' | 'rateLimitRetries' | 'idleWatchdogMs' | 'plateauThreshold' | 'correctiveRetries';
       return applyNumberField(current, key, raw, (c, n) => ({ ...c, harness: { ...c.harness, [which]: n } }));
     }
     case 'harness.escalateOnPlateau':
