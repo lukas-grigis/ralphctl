@@ -98,12 +98,29 @@ const renderDimensions = (
   }
   const rows: string[] = ['## Evaluator dimensions', '', '| dimension | verdict |', '|---|---|'];
   for (const d of dimensions) {
-    rows.push(`| ${dimensionLabel(d)} | ${d.passed ? 'PASS' : 'FAIL'} |`);
+    rows.push(`| ${dimensionLabel(d)} | ${dimensionVerdict(d)} |`);
   }
   return rows;
 };
 
 const dimensionLabel = (d: DimensionScore): string => (d.dimension.length > 0 ? d.dimension : 'unnamed');
+
+/**
+ * Table verdict cell. An explicit N/A dimension (`applicable: false`) is neither pass nor fail, so
+ * it renders `N/A` rather than a misleading `FAIL` — matching the `n/a` convention in the
+ * integration-layer `render-evaluation-markdown.ts`, upper-cased to sit beside `PASS`/`FAIL`.
+ */
+const dimensionVerdict = (d: DimensionScore): string => {
+  if (d.applicable === false) return 'N/A';
+  return d.passed ? 'PASS' : 'FAIL';
+};
+
+/**
+ * Canonical "actually failed" predicate for a single dimension — mirrors the `applicable !== false`
+ * guard in `failedDimensions` (plateau-detection.ts): an N/A dimension is excluded from the failed
+ * set regardless of its `passed` value.
+ */
+const isFailedDimension = (d: DimensionScore): boolean => d.applicable !== false && !d.passed;
 
 const renderCritique = (
   verdict: RoundVerdict,
@@ -153,14 +170,12 @@ const synthesise = (input: RoundOutcomeInput): string => {
 
 const collectFailedDimensions = (evaluation: EvaluationSignal | undefined): readonly string[] => {
   if (evaluation === undefined) return [];
-  return evaluation.dimensions.filter((d) => !d.passed).map((d) => dimensionLabel(d));
+  return evaluation.dimensions.filter(isFailedDimension).map((d) => dimensionLabel(d));
 };
 
 const formatFailedDimensions = (evaluation: EvaluationSignal | undefined): string => {
-  if (evaluation === undefined) return 'evaluator dimensions';
-  const failed = evaluation.dimensions.filter((d) => !d.passed);
-  if (failed.length === 0) return 'evaluator dimensions';
-  return failed.map((d) => dimensionLabel(d)).join(', ');
+  const failed = collectFailedDimensions(evaluation);
+  return failed.length === 0 ? 'evaluator dimensions' : failed.join(', ');
 };
 
 const SHA_DISPLAY_LENGTH = 7;

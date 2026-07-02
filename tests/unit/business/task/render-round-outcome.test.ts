@@ -124,6 +124,56 @@ describe('renderRoundOutcome', () => {
     expect(out).toMatch(/Round 3 of attempt 2 plateaued on correctness, completeness; harness gave up/);
   });
 
+  // PR #244 N/A dimensions: an `applicable: false` dimension is neither pass nor fail. It must
+  // render as `N/A` in the table (not FAIL) and must be excluded from the "failed on X, Y"
+  // synthesis sentence — otherwise the outcome.md a fresh resuming agent reads is corrupted.
+  it('renders N/A for an applicable:false dimension and omits it from the failed synthesis', () => {
+    const out = renderRoundOutcome({
+      roundN: 1,
+      attemptN: 1,
+      attempt: failedAttempt(),
+      verdict: 'failed',
+      willRetryNextRound: true,
+      evaluation: {
+        type: 'evaluation',
+        status: 'failed',
+        dimensions: [
+          { dimension: 'completeness', passed: false, finding: 'missing edge case' },
+          { dimension: 'robustness', passed: false, applicable: false, finding: 'no error path introduced' },
+        ],
+        timestamp: FIXED_NOW,
+      },
+    });
+    // Table cell: N/A for the not-applicable dimension, FAIL for the real failure.
+    expect(out).toContain('| completeness | FAIL |');
+    expect(out).toContain('| robustness | N/A |');
+    // Synthesis sentence names only the real failed dimension.
+    expect(out).toMatch(/Round 1 of attempt 1 failed on completeness; critique persisted/);
+    expect(out).not.toContain('completeness, robustness');
+  });
+
+  it('plateau synthesis excludes an applicable:false dimension from the failed list', () => {
+    const out = renderRoundOutcome({
+      roundN: 3,
+      attemptN: 2,
+      attempt: failedAttempt({ n: 2 }),
+      verdict: 'plateau',
+      willRetryNextRound: false,
+      evaluation: {
+        type: 'evaluation',
+        status: 'failed',
+        dimensions: [
+          { dimension: 'correctness', passed: false, finding: 'still wrong' },
+          { dimension: 'robustness', passed: false, applicable: false, finding: 'no error path touched' },
+        ],
+        timestamp: FIXED_NOW,
+      },
+    });
+    expect(out).toContain('| robustness | N/A |');
+    expect(out).toMatch(/Round 3 of attempt 2 plateaued on correctness; harness gave up/);
+    expect(out).not.toContain('correctness, robustness');
+  });
+
   it('renders em-dash for missing generator + evaluator session ids', () => {
     const out = renderRoundOutcome({
       roundN: 1,

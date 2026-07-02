@@ -351,6 +351,37 @@ describe('runEvaluatorTurnUseCase', () => {
     }
   });
 
+  // PR #244 N/A dimensions: an `applicable: false` dimension (e.g. robustness on a change that
+  // touches no error path) carries `passed: false` per the evaluator prompt's example, but it is
+  // neither pass nor fail. It must NOT be folded into the synthesized critique as a fake failure —
+  // otherwise the next generator turn is told to "fix" a non-issue and its boilerplate line skews
+  // the trigram-Jaccard critique-shift comparison. Reuses the canonical `failedDimensions` guard.
+  it('excludes an applicable:false (N/A) dimension from the synthesized critique', async () => {
+    const task = verifiedTask();
+    const failed: EvaluationSignal = evaluation('failed', {
+      dimensions: [
+        { dimension: 'correctness', passed: false, finding: 'returns 500 on empty input at src/foo.ts:23' },
+        { dimension: 'robustness', passed: false, applicable: false, finding: 'no error path introduced' },
+      ],
+      // No critique field → synthesis path fires.
+    });
+    const result = await runEvaluatorTurnUseCase({
+      task,
+      plateauThreshold: 2,
+      callEvaluate: async () => Result.ok([failed] as readonly HarnessSignal[]),
+      evaluationFile: EVAL_FILE,
+      logger: noopLogger,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const critique = result.value.task.attempts.at(-1)?.critique ?? '';
+      expect(critique).toContain('[correctness] returns 500 on empty input at src/foo.ts:23');
+      // The N/A dimension contributes neither its name nor its finding.
+      expect(critique).not.toContain('robustness');
+      expect(critique).not.toContain('no error path introduced');
+    }
+  });
+
   it('prefers the explicit critique over synthesis when the evaluator provided one', async () => {
     const task = verifiedTask();
     const failed: EvaluationSignal = evaluation('failed', {
