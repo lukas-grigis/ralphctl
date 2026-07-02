@@ -39,6 +39,7 @@ export interface BuildMenuItemsInput {
       | 'projects'
       | 'sessions'
       | 'settings'
+      | 'skills'
       | 'doctor'
   ) => void;
   readonly onPushAddTicket: (sprintId: SprintId) => void;
@@ -189,6 +190,14 @@ export const buildMenuItems = (input: BuildMenuItemsInput): readonly MenuItem[] 
       hotkey: 's',
       globalHotkey: true,
       onSelect: (): void => input.onPushHome('settings'),
+    },
+    {
+      id: 'skills',
+      section: 'system',
+      label: 'Skills catalog',
+      description: 'Browse, enable, disable, and update opt-in skills.',
+      hotkey: 'K',
+      onSelect: (): void => input.onPushHome('skills'),
     },
     {
       id: 'doctor',

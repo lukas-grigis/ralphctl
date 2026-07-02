@@ -110,6 +110,7 @@ const renderPrompt = (prompt: PendingPrompt, queue: PromptQueue): React.JSX.Elem
         <MultiSelectPrompt
           message={prompt.message}
           options={prompt.options}
+          {...(prompt.initial !== undefined ? { initialSelectedValues: prompt.initial } : {})}
           onSubmit={(values): void => queue.resolveHead(values)}
           onCancel={cancel}
         />

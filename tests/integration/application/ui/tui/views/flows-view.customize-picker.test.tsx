@@ -35,7 +35,7 @@ import {
   modelCatalogFor,
   runCustomizePicker,
 } from '@src/application/ui/tui/views/flows-customize-picker.ts';
-import { applyOverrideToSettings } from '@src/application/ui/shared/launcher.ts';
+import { applyOverrideToSettings, type SkillCandidatesResult } from '@src/application/ui/shared/launcher.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { createJsonSettingsRepository } from '@src/integration/persistence/settings/json-settings-repository.ts';
@@ -55,7 +55,12 @@ interface ScriptEntryPick {
 interface ScriptEntryCancel {
   readonly action: 'cancel';
 }
-type ScriptEntry = ScriptEntryPick | ScriptEntryCancel;
+interface ScriptEntryMultiPick {
+  readonly action: 'multiPick';
+  /** Each entry is either an option label or a value — first label match wins per entry. */
+  readonly choices: readonly string[];
+}
+type ScriptEntry = ScriptEntryPick | ScriptEntryCancel | ScriptEntryMultiPick;
 
 interface CapturedPrompt {
   readonly message: string;
@@ -77,8 +82,32 @@ const buildScriptedPrompt = (
     async askConfirm() {
       throw new Error('askConfirm not supported by scripted prompt');
     },
-    async askMultiChoice() {
-      throw new Error('askMultiChoice not supported by scripted prompt');
+    async askMultiChoice<T>(message: string, options: ReadonlyArray<Choice<T>>) {
+      captured.push({ message, options: options.map((o) => o.label) });
+      const entry = script[cursor];
+      cursor += 1;
+      if (entry === undefined) {
+        throw new Error(`scripted prompt exhausted at message: ${message}`);
+      }
+      if (entry.action === 'cancel') {
+        return Result.error(new AbortError({ elementName: 'test', reason: 'scripted cancel' })) as unknown as Result<
+          readonly T[],
+          DomainError
+        >;
+      }
+      if (entry.action !== 'multiPick') {
+        throw new Error(`scripted prompt: expected a multiPick entry at message: ${message}`);
+      }
+      const values = entry.choices.map((choice) => {
+        const found = options.find((o) => o.label === choice) ?? options.find((o) => String(o.value) === choice);
+        if (found === undefined) {
+          throw new Error(
+            `scripted prompt: option '${choice}' not found in ${options.map((o) => o.label).join(' / ')}`
+          );
+        }
+        return found.value;
+      });
+      return Result.ok(values) as unknown as Result<readonly T[], DomainError>;
     },
     async askChoice<T>(message: string, options: ReadonlyArray<Choice<T>>) {
       captured.push({ message, options: options.map((o) => o.label) });
@@ -92,6 +121,9 @@ const buildScriptedPrompt = (
           T,
           DomainError
         >;
+      }
+      if (entry.action !== 'pick') {
+        throw new Error(`scripted prompt: expected a pick entry at message: ${message}`);
       }
       const found =
         options.find((o) => o.label === entry.choice) ?? options.find((o) => String(o.value) === entry.choice);
@@ -886,5 +918,316 @@ describe('runCustomizePicker — availableModelsFor gates the model step', () =>
     const modelOptions = modelOptionsFromCapture(captured);
     for (const model of subset) expect(modelOptions).toContain(buildExpectedModelLabel(model));
     for (const model of excluded) expect(modelOptions).not.toContain(buildExpectedModelLabel(model));
+  });
+});
+
+describe('runCustomizePicker — skills step (T6)', () => {
+  // Fixture candidates — two bundled-default skills for `refine`, neither saved-disabled.
+  const FIXTURE_CANDIDATES: SkillCandidatesResult = {
+    settingsFlow: 'refine',
+    candidates: [
+      { name: 'ralphctl-alignment', description: 'Confirm scope before diving into work', origin: 'bundled-default' },
+      { name: 'ralphctl-iterative-review', description: 'Iterate on the review', origin: 'bundled-default' },
+    ],
+    savedDisabled: [],
+  };
+
+  /** Row-walk script that keeps every default for `refine` — used as a customize-path prefix. */
+  const KEEP_ROW_SCRIPT: readonly ScriptEntry[] = [
+    { action: 'pick', choice: 'Customize for this run…' },
+    { action: 'pick', choice: `Keep default (${DEFAULT_SETTINGS.ai.refine.provider})` },
+    { action: 'pick', choice: `Keep default (${DEFAULT_SETTINGS.ai.refine.model})` },
+    { action: 'pick', choice: 'Keep default (auto)' },
+  ];
+
+  it('no skillCandidates supplied → no skills prompt at all, even inside Customize', async () => {
+    const { interactive, captured } = buildScriptedPrompt(KEEP_ROW_SCRIPT);
+    const result = await runCustomizePicker({
+      interactive,
+      flowId: 'refine',
+      flowTitle: 'Refine',
+      settings: DEFAULT_SETTINGS,
+    });
+    expect(result.kind).toBe('defaults');
+    expect((result as { skills?: unknown }).skills).toBeUndefined();
+    expect(captured.some((c) => c.message === 'Skills:')).toBe(false);
+  });
+
+  it('candidates present but empty → no skills prompt (same as absent)', async () => {
+    const { interactive, captured } = buildScriptedPrompt(KEEP_ROW_SCRIPT);
+    const result = await runCustomizePicker({
+      interactive,
+      flowId: 'refine',
+      flowTitle: 'Refine',
+      settings: DEFAULT_SETTINGS,
+      skillCandidates: { settingsFlow: 'refine', candidates: [], savedDisabled: [] },
+    });
+    expect(result.kind).toBe('defaults');
+    expect((result as { skills?: unknown }).skills).toBeUndefined();
+    expect(captured.some((c) => c.message === 'Skills:')).toBe(false);
+  });
+
+  it('Keep skills → result carries no skills field; exactly one skills prompt shown', async () => {
+    const { interactive, captured } = buildScriptedPrompt([...KEEP_ROW_SCRIPT, { action: 'pick', choice: 'keep' }]);
+    const result = await runCustomizePicker({
+      interactive,
+      flowId: 'refine',
+      flowTitle: 'Refine',
+      settings: DEFAULT_SETTINGS,
+      skillCandidates: FIXTURE_CANDIDATES,
+    });
+    expect(result.kind).toBe('defaults');
+    expect((result as { skills?: unknown }).skills).toBeUndefined();
+    const skillsPrompts = captured.filter((c) => c.message === 'Skills:');
+    expect(skillsPrompts).toHaveLength(1);
+    expect(skillsPrompts[0]?.options).toEqual(['Keep skills (2 active)', 'Customize skills for this run…']);
+  });
+
+  it('Customize skills + uncheck one + run-only → skills.disabled = [that name]; saveAsDefault false', async () => {
+    // The checklist opens pre-checked to both candidates; leaving only `ralphctl-alignment`
+    // checked in the submitted (enabled) set disables the other one.
+    const { interactive } = buildScriptedPrompt([
+      ...KEEP_ROW_SCRIPT,
+      { action: 'pick', choice: 'customize' },
+      { action: 'multiPick', choices: ['ralphctl-alignment'] },
+      { action: 'pick', choice: 'run-only' },
+    ]);
+    const result = await runCustomizePicker({
+      interactive,
+      flowId: 'refine',
+      flowTitle: 'Refine',
+      settings: DEFAULT_SETTINGS,
+      skillCandidates: FIXTURE_CANDIDATES,
+    });
+    if (result.kind !== 'defaults') throw new Error(`expected kind 'defaults', got ${result.kind}`);
+    expect(result.skills).toEqual({ disabled: ['ralphctl-iterative-review'], saveAsDefault: false });
+  });
+
+  it('Customize skills + uncheck one + remember → saveAsDefault true', async () => {
+    const { interactive } = buildScriptedPrompt([
+      ...KEEP_ROW_SCRIPT,
+      { action: 'pick', choice: 'customize' },
+      { action: 'multiPick', choices: ['ralphctl-alignment'] },
+      { action: 'pick', choice: 'remember' },
+    ]);
+    const result = await runCustomizePicker({
+      interactive,
+      flowId: 'refine',
+      flowTitle: 'Refine',
+      settings: DEFAULT_SETTINGS,
+      skillCandidates: FIXTURE_CANDIDATES,
+    });
+    if (result.kind !== 'defaults') throw new Error(`expected kind 'defaults', got ${result.kind}`);
+    expect(result.skills).toEqual({ disabled: ['ralphctl-iterative-review'], saveAsDefault: true });
+  });
+
+  it('Customize skills + re-check a saved-disabled skill + run-only → skills.disabled = [] (re-enables it)', async () => {
+    // savedDisabled has `ralphctl-iterative-review` off; the checklist opens with it UNCHECKED
+    // (only `ralphctl-alignment` pre-checked). Submitting with BOTH checked re-enables it for
+    // this run — the mechanism a per-run RE-ENABLE relies on.
+    const { interactive } = buildScriptedPrompt([
+      ...KEEP_ROW_SCRIPT,
+      { action: 'pick', choice: 'customize' },
+      { action: 'multiPick', choices: ['ralphctl-alignment', 'ralphctl-iterative-review'] },
+      { action: 'pick', choice: 'run-only' },
+    ]);
+    const result = await runCustomizePicker({
+      interactive,
+      flowId: 'refine',
+      flowTitle: 'Refine',
+      settings: DEFAULT_SETTINGS,
+      skillCandidates: { ...FIXTURE_CANDIDATES, savedDisabled: ['ralphctl-iterative-review'] },
+    });
+    if (result.kind !== 'defaults') throw new Error(`expected kind 'defaults', got ${result.kind}`);
+    expect(result.skills).toEqual({ disabled: [], saveAsDefault: false });
+  });
+
+  it('a row change AND a skills change both surface on the same result (kind single)', async () => {
+    const otherModel = CLAUDE_MODELS.find((m) => m !== DEFAULT_SETTINGS.ai.refine.model)!;
+    const { interactive } = buildScriptedPrompt([
+      { action: 'pick', choice: 'Customize for this run…' },
+      { action: 'pick', choice: `Keep default (${DEFAULT_SETTINGS.ai.refine.provider})` },
+      { action: 'pick', choice: otherModel },
+      { action: 'pick', choice: 'Keep default (auto)' },
+      { action: 'pick', choice: 'customize' },
+      { action: 'multiPick', choices: ['ralphctl-iterative-review'] },
+      { action: 'pick', choice: 'run-only' },
+    ]);
+    const result = await runCustomizePicker({
+      interactive,
+      flowId: 'refine',
+      flowTitle: 'Refine',
+      settings: DEFAULT_SETTINGS,
+      skillCandidates: FIXTURE_CANDIDATES,
+    });
+    if (result.kind !== 'single') throw new Error(`expected kind 'single', got ${result.kind}`);
+    expect(result.override.model).toBe(otherModel);
+    expect(result.skills).toEqual({ disabled: ['ralphctl-alignment'], saveAsDefault: false });
+  });
+
+  it('cancel at the skills entry prompt → kind cancel (row change discarded too)', async () => {
+    const { interactive } = buildScriptedPrompt([...KEEP_ROW_SCRIPT, { action: 'cancel' }]);
+    const result = await runCustomizePicker({
+      interactive,
+      flowId: 'refine',
+      flowTitle: 'Refine',
+      settings: DEFAULT_SETTINGS,
+      skillCandidates: FIXTURE_CANDIDATES,
+    });
+    expect(result.kind).toBe('cancel');
+  });
+
+  it('cancel at the disable checklist → kind cancel', async () => {
+    const { interactive } = buildScriptedPrompt([
+      ...KEEP_ROW_SCRIPT,
+      { action: 'pick', choice: 'customize' },
+      { action: 'cancel' },
+    ]);
+    const result = await runCustomizePicker({
+      interactive,
+      flowId: 'refine',
+      flowTitle: 'Refine',
+      settings: DEFAULT_SETTINGS,
+      skillCandidates: FIXTURE_CANDIDATES,
+    });
+    expect(result.kind).toBe('cancel');
+  });
+
+  it('cancel at the remember prompt → kind cancel', async () => {
+    const { interactive } = buildScriptedPrompt([
+      ...KEEP_ROW_SCRIPT,
+      { action: 'pick', choice: 'customize' },
+      { action: 'multiPick', choices: ['ralphctl-alignment'] },
+      { action: 'cancel' },
+    ]);
+    const result = await runCustomizePicker({
+      interactive,
+      flowId: 'refine',
+      flowTitle: 'Refine',
+      settings: DEFAULT_SETTINGS,
+      skillCandidates: FIXTURE_CANDIDATES,
+    });
+    expect(result.kind).toBe('cancel');
+  });
+
+  it("checklist opens pre-checked to today's effective state (checked = enabled, unchecked = saved-disabled)", async () => {
+    let checklistOptions: readonly string[] | undefined;
+    let checklistInitial: readonly unknown[] | undefined;
+    const interactive: InteractivePrompt = {
+      async askText() {
+        throw new Error('not used');
+      },
+      async askTextArea() {
+        throw new Error('not used');
+      },
+      async askConfirm() {
+        throw new Error('not used');
+      },
+      async askChoice<T>(message: string, options: ReadonlyArray<Choice<T>>) {
+        if (message.includes('What would you like to do?')) {
+          const c = options.find((o) => o.label === 'Customize for this run…');
+          return Result.ok(c!.value) as unknown as Result<T, DomainError>;
+        }
+        if (message.includes('Provider:') || message.includes('Model:') || message.includes('Effort:')) {
+          const c = options.find((o) => o.label.startsWith('Keep default'));
+          return Result.ok(c!.value) as unknown as Result<T, DomainError>;
+        }
+        if (message === 'Skills:') {
+          const c = options.find((o) => String(o.value) === 'customize');
+          return Result.ok(c!.value) as unknown as Result<T, DomainError>;
+        }
+        throw new Error(`unexpected askChoice prompt: ${message}`);
+      },
+      async askMultiChoice<T>(
+        _message: string,
+        options: ReadonlyArray<Choice<T>>,
+        opts?: { readonly initial?: readonly T[] }
+      ) {
+        checklistOptions = options.map((o) => o.label);
+        checklistInitial = opts?.initial;
+        return Result.error(new AbortError({ elementName: 'test', reason: 'snapshot' })) as unknown as Result<
+          readonly T[],
+          DomainError
+        >;
+      },
+    };
+    await runCustomizePicker({
+      interactive,
+      flowId: 'refine',
+      flowTitle: 'Refine',
+      settings: DEFAULT_SETTINGS,
+      skillCandidates: { ...FIXTURE_CANDIDATES, savedDisabled: ['ralphctl-iterative-review'] },
+    });
+    // Origin marker only — no redundant state suffix; the pre-checked seeding carries the state.
+    expect(checklistOptions).toEqual(['ralphctl-alignment (default)', 'ralphctl-iterative-review (default)']);
+    // Pre-checked to the effective set — only the non-saved-disabled candidate.
+    expect(checklistInitial).toEqual(['ralphctl-alignment']);
+  });
+});
+
+describe('runCustomizePicker — implement skills step runs once, flow-level (T6)', () => {
+  const FIXTURE_CANDIDATES: SkillCandidatesResult = {
+    settingsFlow: 'implement',
+    candidates: [{ name: 'ralphctl-alignment', description: 'Confirm scope', origin: 'bundled-default' }],
+    savedDisabled: [],
+  };
+
+  it('keep-all-defaults on both roles + customize skills → skills step runs exactly once', async () => {
+    const gen = DEFAULT_SETTINGS.ai.implement.generator;
+    const eva = DEFAULT_SETTINGS.ai.implement.evaluator;
+    const { interactive, captured } = buildScriptedPrompt([
+      { action: 'pick', choice: 'Customize for this run…' },
+      // generator (keep all)
+      { action: 'pick', choice: `Keep default (${gen.provider})` },
+      { action: 'pick', choice: `Keep default (${gen.model})` },
+      { action: 'pick', choice: 'Keep default (auto)' },
+      // evaluator (keep all)
+      { action: 'pick', choice: `Keep default (${eva.provider})` },
+      { action: 'pick', choice: `Keep default (${eva.model})` },
+      { action: 'pick', choice: 'Keep default (auto)' },
+      // skills — once, after BOTH roles. Unchecking the lone candidate disables it.
+      { action: 'pick', choice: 'customize' },
+      { action: 'multiPick', choices: [] },
+      { action: 'pick', choice: 'run-only' },
+    ]);
+    const result = await runCustomizePicker({
+      interactive,
+      flowId: 'implement',
+      flowTitle: 'Implement',
+      settings: DEFAULT_SETTINGS,
+      skillCandidates: FIXTURE_CANDIDATES,
+    });
+    // Both roles kept every default, so `kind` is 'defaults' — modulo the skills change.
+    if (result.kind !== 'defaults') throw new Error(`expected kind 'defaults', got ${result.kind}`);
+    expect(result.skills).toEqual({ disabled: ['ralphctl-alignment'], saveAsDefault: false });
+    // Exactly one "Skills:" prompt — never per-role.
+    expect(captured.filter((c) => c.message === 'Skills:')).toHaveLength(1);
+  });
+
+  it('a generator-only change still surfaces the single flow-level skills step (kind implement)', async () => {
+    const gen = DEFAULT_SETTINGS.ai.implement.generator;
+    const eva = DEFAULT_SETTINGS.ai.implement.evaluator;
+    const newGenModel = CLAUDE_MODELS.find((m) => m !== gen.model)!;
+    const { interactive, captured } = buildScriptedPrompt([
+      { action: 'pick', choice: 'Customize for this run…' },
+      { action: 'pick', choice: `Keep default (${gen.provider})` },
+      { action: 'pick', choice: newGenModel },
+      { action: 'pick', choice: 'Keep default (auto)' },
+      { action: 'pick', choice: `Keep default (${eva.provider})` },
+      { action: 'pick', choice: `Keep default (${eva.model})` },
+      { action: 'pick', choice: 'Keep default (auto)' },
+      { action: 'pick', choice: 'keep' },
+    ]);
+    const result = await runCustomizePicker({
+      interactive,
+      flowId: 'implement',
+      flowTitle: 'Implement',
+      settings: DEFAULT_SETTINGS,
+      skillCandidates: FIXTURE_CANDIDATES,
+    });
+    if (result.kind !== 'implement') throw new Error(`expected kind 'implement', got ${result.kind}`);
+    expect(result.implementRoleOverrides.generator).toEqual({ model: newGenModel });
+    expect(result.skills).toBeUndefined();
+    expect(captured.filter((c) => c.message === 'Skills:')).toHaveLength(1);
   });
 });

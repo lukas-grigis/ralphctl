@@ -98,6 +98,11 @@ export const pickerKeys = {
  * opened sprint as the current selection — replaces the prior silent auto-sync on detail mount.
  * The same chord on the projects list / project detail marks the focused (or viewed) project
  * current — opening a project detail is a browse and never switches the selection.
+ *
+ * The Skills catalog view reuses `e` / `d` / `u` for enable / disable / update — another
+ * deliberate overlap (see the `e` note above): these only fire on the Skills screen, which has
+ * no Project/Sprint/Ticket field to edit and no stuck task to unblock, so the two meanings never
+ * collide at runtime. `U` (update-all) is unique to that view.
  */
 export const contextualKeys = {
   editField: { keys: ['e'], label: 'edit focused field' },
@@ -106,6 +111,10 @@ export const contextualKeys = {
   createSprint: { keys: ['+'], label: 'create a new sprint' },
   makeSprintCurrent: { keys: ['m'], label: 'make focused sprint current' },
   makeProjectCurrent: { keys: ['m'], label: 'make focused project current' },
+  enableSkill: { keys: ['e'], label: 'enable skill for picked flows' },
+  disableSkill: { keys: ['d'], label: 'disable skill for picked flows' },
+  updateSkill: { keys: ['u'], label: 'update skill from bundle' },
+  updateAllSkills: { keys: ['U'], label: 'update every out-of-date skill' },
 } as const satisfies Record<string, KeyBinding>;
 
 /**
