@@ -100,7 +100,7 @@ export const SessionsView = (): React.JSX.Element => {
             Cancel <Text bold>{confirmCancel.descriptor.title}</Text>?
           </Text>
           <Text dimColor>The runner stops at the next safe point; partial progress is retained on disk.</Text>
-          <Box marginTop={1}>
+          <Box marginTop={spacing.section}>
             <ConfirmPrompt
               message="Cancel?"
               defaultYes={false}

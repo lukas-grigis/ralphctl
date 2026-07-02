@@ -56,10 +56,10 @@ export const SprintHeader = ({
           },
         ]}
       />
-      <Box marginTop={1}>
+      <Box marginTop={spacing.section}>
         <PhaseTimeline sprint={sprint} />
       </Box>
-      <Box marginTop={1}>
+      <Box marginTop={spacing.section}>
         <PipelineMap status={sprint.status} />
       </Box>
     </Card>
@@ -118,7 +118,7 @@ const PhaseTimeline = ({ sprint }: { readonly sprint: Sprint }): React.JSX.Eleme
     );
   }
   return (
-    <Box flexDirection="column" paddingLeft={2}>
+    <Box flexDirection="column" paddingLeft={spacing.indent}>
       {cells.map((c, idx) => (
         <Box key={`${c.label}-${String(idx)}`}>
           <Text dimColor>{glyphs.activityArrow} </Text>
@@ -225,11 +225,11 @@ export const NextPhaseCard = ({
           <Text bold color={inkColors.primary}>
             {glyphs.actionCursor} {action.label}
           </Text>
-          <Box marginTop={1}>
+          <Box marginTop={spacing.section}>
             <Text dimColor>{action.hint}</Text>
           </Box>
           {isResume && (
-            <Box marginTop={1}>
+            <Box marginTop={spacing.section}>
               <Text dimColor>
                 {glyphs.actionCursor} Resume in-progress task {glyphs.emDash} {String(inProgress)} task(s) partially
                 complete from a prior run; press n {glyphs.arrowRight} implement to resume.

@@ -99,7 +99,6 @@ export const ExecuteBody = ({
     <HeaderCard
       descriptor={descriptor}
       isRunning={isRunning}
-      elapsed={elapsed}
       tasksDone={tasksDone}
       tasksTotal={tasksTotal}
       currentTask={currentTask}

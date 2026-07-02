@@ -59,17 +59,17 @@ export const ResultCard = ({ kind, title, summary, fields, nextSteps }: ResultCa
         </Text>
       </Box>
       {summary !== undefined && summary.length > 0 && (
-        <Box marginTop={1}>
+        <Box marginTop={spacing.section}>
           <Text>{summary}</Text>
         </Box>
       )}
       {fields !== undefined && fields.length > 0 && (
-        <Box marginTop={1}>
+        <Box marginTop={spacing.section}>
           <FieldList fields={fields} />
         </Box>
       )}
       {nextSteps !== undefined && nextSteps.length > 0 && (
-        <Box flexDirection="column" marginTop={1}>
+        <Box flexDirection="column" marginTop={spacing.section}>
           <Text dimColor bold>
             Next steps
           </Text>

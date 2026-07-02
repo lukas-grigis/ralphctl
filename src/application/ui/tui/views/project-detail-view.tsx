@@ -445,7 +445,7 @@ const RepoCard = ({ repo, focused }: RepoCardProps): React.JSX.Element => {
       borderStyle="round"
       borderColor={inkColors.rule}
       paddingX={spacing.cardPadX}
-      marginTop={1}
+      marginTop={spacing.section}
     >
       <Text bold {...(nameFocused ? { color: inkColors.primary } : {})}>
         {nameFocused ? `${glyphs.actionCursor} ` : '  '}

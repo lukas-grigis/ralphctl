@@ -220,7 +220,7 @@ const IndentedNotice = ({
     </Text>
   );
   return (
-    <Box paddingLeft={2}>
+    <Box paddingLeft={spacing.indent}>
       {truncate ? (
         <Box flexGrow={1} flexShrink={1} minWidth={0}>
           {line}
@@ -306,7 +306,7 @@ const SubStepsSection = ({
   readonly pendingSubSteps: readonly string[] | undefined;
   readonly running: boolean;
 }): React.JSX.Element => (
-  <Box flexDirection="column" paddingLeft={2}>
+  <Box flexDirection="column" paddingLeft={spacing.indent}>
     {subStepElided > 0 && <Text dimColor>{`${glyphs.clipEllipsis} ${String(subStepElided)} earlier sub-steps`}</Text>}
     {subStepRows.map((s, i) => (
       <SubStepLine key={`${taskId}-sub-${String(i)}`} sub={s} running={running} />
@@ -348,14 +348,14 @@ const EvalVerdictSection = ({
     if (failureSignal !== undefined) {
       // Still running ⇒ the harness will feed the critique into another round.
       return (
-        <Box flexDirection="column" paddingLeft={2} marginTop={1}>
+        <Box flexDirection="column" paddingLeft={spacing.indent} marginTop={spacing.section}>
           <EvaluatorFailurePanel evaluation={failureSignal} isFinalRound={taskStatus !== 'running'} />
         </Box>
       );
     }
   }
   return (
-    <Box flexDirection="column" paddingLeft={2} marginTop={1}>
+    <Box flexDirection="column" paddingLeft={spacing.indent} marginTop={spacing.section}>
       <EvaluationLine evaluation={taskEvaluation} />
     </Box>
   );
@@ -379,9 +379,9 @@ const SignalsSection = ({
   readonly scopeId: string;
   readonly sliceStart: number;
 }): React.JSX.Element => (
-  <Box flexDirection="column" paddingLeft={2} marginTop={1}>
+  <Box flexDirection="column" paddingLeft={spacing.indent} marginTop={spacing.section}>
     <Text dimColor>signals</Text>
-    <Box flexDirection="column" paddingLeft={2}>
+    <Box flexDirection="column" paddingLeft={spacing.indent}>
       {signalsElided > 0 && (
         <Text
           dimColor
@@ -459,7 +459,7 @@ const ExpandedNotices = ({
         <CriteriaBlock bullets={criteriaBullets} expanded={criteriaExpanded} />
       )}
       {task.errorMessage !== undefined && (
-        <Box paddingLeft={2}>
+        <Box paddingLeft={spacing.indent}>
           <Text color={inkColors.error}>{task.errorMessage}</Text>
         </Box>
       )}
@@ -522,7 +522,7 @@ const ExpandedProgressBlock = ({
         // so the operator sees the eval slot is live-but-empty rather than missing. We gate on the
         // ABSENCE of an authoritative verdict (not the bucketed signal stream, which can mis-
         // attribute a stale signal). `activityArrow` matches the other indented continuation lines.
-        <Box paddingLeft={2} marginTop={1}>
+        <Box paddingLeft={spacing.indent} marginTop={spacing.section}>
           <Text dimColor>{glyphs.activityArrow} awaiting eval</Text>
         </Box>
       )}
@@ -723,7 +723,7 @@ export const OrphanSignals = ({
       <Text dimColor bold>
         {glyphs.bullet} Cross-task notes
       </Text>
-      <Box flexDirection="column" paddingLeft={2}>
+      <Box flexDirection="column" paddingLeft={spacing.indent}>
         {orphansElided > 0 && (
           <Text
             dimColor

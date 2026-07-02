@@ -14,7 +14,7 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { FieldList } from '@src/application/ui/tui/components/field-list.tsx';
-import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import {
   type EditableField,
   effectiveEscalationChains,
@@ -46,7 +46,7 @@ export const HarnessRow = ({ title, fields, valueFor }: HarnessRowProps): React.
           };
         })}
       />
-      <Box flexDirection="column" marginTop={1}>
+      <Box flexDirection="column" marginTop={spacing.section}>
         <Text dimColor>Effective ladder (built-in {glyphs.bullet} overrides win):</Text>
         {chains.map((chain) => (
           <Text key={chain.models[0]} dimColor>

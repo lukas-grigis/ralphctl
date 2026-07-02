@@ -54,7 +54,7 @@ export const TicketsSection = ({
     <Box marginTop={spacing.section} flexDirection="column">
       <Text bold>{glyphs.badge} Tickets</Text>
       {sprint.tickets.length === 0 ? (
-        <Box marginTop={1}>
+        <Box marginTop={spacing.section}>
           <EmptyState
             title="No tickets yet"
             hint={
@@ -63,7 +63,7 @@ export const TicketsSection = ({
           />
         </Box>
       ) : (
-        <Box flexDirection="column" marginTop={1}>
+        <Box flexDirection="column" marginTop={spacing.section}>
           <OverflowRow direction="above" count={window.start} />
           {visibleTickets.map((ticket, localIdx) => {
             const idx = window.start + localIdx;
@@ -93,7 +93,7 @@ export const TicketsSection = ({
         </Text>
       </Box>
       {feedback !== undefined && (
-        <Box paddingX={spacing.indent} marginTop={1}>
+        <Box paddingX={spacing.indent} marginTop={spacing.section}>
           <Text color={feedback.startsWith(glyphs.cross) ? inkColors.error : inkColors.primary}>{feedback}</Text>
         </Box>
       )}
@@ -161,7 +161,7 @@ const TicketDetailBody = ({
       )}
       {referencedTasks.length > 0 && (
         <Section heading="Referenced tasks">
-          <Box flexDirection="column" paddingLeft={2}>
+          <Box flexDirection="column" paddingLeft={spacing.indent}>
             {referencedTasks.map((t) => (
               <Box key={t.id}>
                 <StatusChip label={t.status} kind={taskStatusKind(t.status)} />

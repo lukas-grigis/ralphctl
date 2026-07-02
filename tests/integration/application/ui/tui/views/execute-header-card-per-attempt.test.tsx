@@ -38,7 +38,6 @@ const renderHeader = (currentTask: TaskBucket) =>
     <HeaderCard
       descriptor={descriptor()}
       isRunning={true}
-      elapsed="0s"
       tasksDone={0}
       tasksTotal={1}
       currentTask={currentTask}

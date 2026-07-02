@@ -67,7 +67,7 @@ export const Banner = ({ compact }: BannerProps): React.JSX.Element => {
       <Box alignItems="center" justifyContent="center">
         <Text>{STABLE_ART}</Text>
       </Box>
-      <Box alignItems="center" justifyContent="center" marginTop={1}>
+      <Box alignItems="center" justifyContent="center" marginTop={spacing.section}>
         <Text dimColor italic>
           🍩 &quot;{STABLE_QUOTE}&quot;
         </Text>

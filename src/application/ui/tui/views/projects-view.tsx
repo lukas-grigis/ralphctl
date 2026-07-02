@@ -91,7 +91,7 @@ const useDeleteProjectAction = (
 
 /** Private presentational component for a single project row. */
 const ProjectRow = ({ project, focused }: { project: Project; focused: boolean }): React.JSX.Element => (
-  <Box key={project.id} flexDirection="column" marginBottom={1}>
+  <Box key={project.id} flexDirection="column" marginBottom={spacing.section}>
     <Box
       flexDirection="column"
       borderStyle="round"

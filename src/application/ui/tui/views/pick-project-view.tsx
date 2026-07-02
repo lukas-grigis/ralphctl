@@ -189,7 +189,7 @@ export const PickProjectView = (): React.JSX.Element => {
           <Text color={inkColors.error}>Failed to load projects.</Text>
         </Box>
       ) : projects.length === 0 ? (
-        <Card title="▸ No projects yet" tone="primary">
+        <Card title={`${glyphs.actionCursor} No projects yet`} tone="primary">
           <Box flexDirection="column" paddingX={spacing.indent}>
             <Text>A project binds one or more repositories together. Press + to create one.</Text>
           </Box>

@@ -42,7 +42,7 @@ interface RailProps {
 // At ≥32 cols there is room for a short duration like " · 42s" (6 chars) after a truncated name.
 const NARROW_RAIL_SUPPRESS_META_THRESHOLD = 32;
 
-export const FlowStepsRail = ({
+const FlowStepsRailImpl = ({
   descriptor,
   isRunning,
   maxRows,
@@ -62,13 +62,17 @@ export const FlowStepsRail = ({
   />
 );
 
+// Memoized: none of this component's props are driven by the Execute view's 1 Hz clock — only
+// re-renders (and re-formats the trace list) when the descriptor's trace / plan actually change.
+export const FlowStepsRail = React.memo(FlowStepsRailImpl);
+
 interface CompactRailProps {
   readonly descriptor: SessionDescriptor;
   readonly isRunning: boolean;
   readonly maxRows: number;
 }
 
-export const CompactFlowStepsRail = ({ descriptor, isRunning, maxRows }: CompactRailProps): React.JSX.Element => (
+const CompactFlowStepsRailImpl = ({ descriptor, isRunning, maxRows }: CompactRailProps): React.JSX.Element => (
   // `inFlightLabel` is intentionally dropped here — at the compact breakpoint there is no
   // room for any text anyway, so the rail's job is just "is the runner moving and which
   // phase is it on".
@@ -82,3 +86,5 @@ export const CompactFlowStepsRail = ({ descriptor, isRunning, maxRows }: Compact
     {...(descriptor.planLabelByName !== undefined ? { labelByName: descriptor.planLabelByName } : {})}
   />
 );
+
+export const CompactFlowStepsRail = React.memo(CompactFlowStepsRailImpl);

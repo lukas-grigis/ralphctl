@@ -41,10 +41,14 @@ interface LogPanelProps {
   readonly maxRows: number;
 }
 
-export const LogPanel = ({ entries, maxRows }: LogPanelProps): React.JSX.Element => (
+const LogPanelImpl = ({ entries, maxRows }: LogPanelProps): React.JSX.Element => (
   <Box marginTop={spacing.section}>
     <Card title="Recent log">
       <RecentEventsTail entries={entries} maxRows={maxRows} />
     </Card>
   </Box>
 );
+
+// Memoized: neither prop depends on the Execute view's 1 Hz clock — skips re-formatting the
+// whole log tail on ticks where no new log line has actually arrived.
+export const LogPanel = React.memo(LogPanelImpl);

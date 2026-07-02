@@ -11,7 +11,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { StatusChip, type StatusKind } from '@src/application/ui/tui/components/status-chip.tsx';
-import { glyphs, inkColors } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { fmtDuration, fmtIsoAbsolute } from '@src/application/ui/tui/theme/duration.ts';
 import type { Attempt } from '@src/domain/entity/attempt.ts';
 
@@ -25,7 +25,7 @@ export const attemptElapsedMs = (attempt: Attempt): number | undefined => {
 export const AttemptCard = ({ attempt }: { readonly attempt: Attempt }): React.JSX.Element => {
   const elapsedMs = attemptElapsedMs(attempt);
   return (
-    <Box flexDirection="column" marginBottom={1} paddingLeft={1}>
+    <Box flexDirection="column" marginBottom={spacing.section} paddingLeft={spacing.gutter}>
       <Box>
         <Text bold>#{String(attempt.n)}</Text>
         <Text> </Text>
@@ -47,7 +47,7 @@ export const AttemptCard = ({ attempt }: { readonly attempt: Attempt }): React.J
           </Text>
         )}
       </Box>
-      <Box paddingLeft={2} flexDirection="column">
+      <Box paddingLeft={spacing.indent} flexDirection="column">
         {attempt.sessionId !== undefined && (
           <Text dimColor>
             session: <Text>{attempt.sessionId}</Text>
@@ -71,7 +71,7 @@ export const AttemptCard = ({ attempt }: { readonly attempt: Attempt }): React.J
           </Text>
         )}
         {attempt.critique !== undefined && (
-          <Box paddingLeft={1}>
+          <Box paddingLeft={spacing.gutter}>
             <Text dimColor italic>
               critique: {firstLine(attempt.critique)}
             </Text>
