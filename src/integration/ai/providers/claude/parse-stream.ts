@@ -29,7 +29,7 @@ import type {
   ClaudeStreamParser,
   ClaudeUsage,
 } from '@src/integration/ai/providers/_engine/claude-stream.ts';
-import { STDOUT_LINE_PARSE_CAP } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
+import { createCappedAppend } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
 import { isRecord, numberField, stringField } from '@src/integration/ai/providers/_engine/json-field.ts';
 
 // Module-level (no closure over parser state) — safe to hoist out of the factory.
@@ -82,28 +82,12 @@ const extractResultUsage = (u: Record<string, unknown>): ClaudeUsage => {
 
 export const createClaudeStreamParser = (): ClaudeStreamParser => {
   let buffer = '';
-  // One-shot latch: warn exactly once per parser so a child that streams a pathologically long
-  // unterminated line does not itself spam the console with one warning per chunk.
-  let overflowWarned = false;
   // Cap the in-flight line accumulator. A single NDJSON record embedding a large file-read /
   // bash tool result can grow `buffer` to tens of MB before its newline clears it — an OOM-class
   // accumulation. `feed` is the SOLE append site, so capping here keeps the invariant for `flush`
-  // too (it only drains an already-bounded buffer). Drop the OLDEST bytes (keep the tail) so the
-  // record's terminating `}`/newline, when it finally arrives, still lands inside the window.
-  const appendCapped = (chunk: string): void => {
-    buffer += chunk;
-    if (buffer.length > STDOUT_LINE_PARSE_CAP) {
-      buffer = buffer.slice(-STDOUT_LINE_PARSE_CAP);
-      if (!overflowWarned) {
-        overflowWarned = true;
-        console.warn(
-          `[claude-stream] in-flight NDJSON line exceeded ${String(STDOUT_LINE_PARSE_CAP)} bytes — ` +
-            'truncating the parse buffer to its tail and continuing. A single record is streaming an ' +
-            'oversized tool result; the affected line will be emitted as a raw (unparsed) text line.'
-        );
-      }
-    }
-  };
+  // too (it only drains an already-bounded buffer). Shared impl — see `createCappedAppend`
+  // (drop-oldest, one-shot warn).
+  const appendCapped = createCappedAppend('claude-stream');
   // `body` is reassigned from the latest `result` event's `.result` field in `ingest` (one
   // O(1) write), never built by per-line concatenation. Keep it that way — see the analogous
   // `bodyLines.push` + `.join('\n')` pattern in copilot/headless.ts for why.
@@ -160,7 +144,7 @@ export const createClaudeStreamParser = (): ClaudeStreamParser => {
 
   return {
     feed(chunk, onLine) {
-      appendCapped(chunk);
+      buffer = appendCapped(buffer, chunk);
       let nl = buffer.indexOf('\n');
       while (nl !== -1) {
         const line = buffer.slice(0, nl);

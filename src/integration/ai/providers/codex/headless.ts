@@ -84,9 +84,9 @@ import {
  *   - `thread.started`, `turn.started`, `turn.completed`, unknown / malformed lines: silently
  *     skipped — they are accounted for by the session-id / token-usage telemetry above.
  *
- * The bus → logger consumer (`createEventBusLogger`) honours `RALPHCTL_LOG_LEVEL`, so these
- * events stay invisible at the default `info` floor and only land in chain.log when an
- * operator explicitly bumps the floor to `debug`.
+ * These events publish at `debug` level, so they stay invisible at the TUI's default `info`
+ * log-level floor and only surface when the operator lowers the floor in the settings view;
+ * the `RALPHCTL_DEBUG_TRACE`-gated chain.log captures them regardless of the floor.
  *
  * Test seam: `spawn` is overridable so tests script stdout / stderr / exit code without
  * launching the real `codex` binary. `readFile` / `unlink` are also injectable for unit

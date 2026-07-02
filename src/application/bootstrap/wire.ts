@@ -354,7 +354,7 @@ const noopNotificationDispatcher: NotificationDispatcher = {
 };
 
 export const wire = (opts: WireOptions): AppDeps => {
-  const spawn = (opts.spawn ?? defaultPipeSpawn) as unknown as Spawn;
+  const spawn: Spawn = opts.spawn ?? defaultPipeSpawn;
   // Env-gated chain.log writes. Reading `process.env` here keeps the integration adapter
   // (`startFileLogSink`) pure — it never needs to know whether tracing is enabled, only
   // whether to wire up. The no-op factory matches the live shape so callers can call

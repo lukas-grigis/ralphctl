@@ -98,15 +98,19 @@ describe('createFsProjectRepository', () => {
     const repo = createFsProjectRepository({ root });
     const project = makeProject();
     // Hand-write BOTH a slugged (canonical) file and a legacy bare file for the SAME id — a crash-left
-    // pair (save wrote the new file but the stale-sibling cleanup did not finish).
+    // pair (save wrote the new file but the stale-sibling cleanup did not finish). The bare file
+    // carries STALE content so the test also pins the winner, not just the dedup.
     await fs.mkdir(projectsDir(root), { recursive: true });
     await fs.writeFile(projectFile(root, project.id, project.slug), JSON.stringify(toJsonProject(project)), 'utf8');
-    await fs.writeFile(legacyProjectFile(root, project.id), JSON.stringify(toJsonProject(project)), 'utf8');
+    const stale = { ...project, displayName: 'stale pre-crash name' };
+    await fs.writeFile(legacyProjectFile(root, project.id), JSON.stringify(toJsonProject(stale)), 'utf8');
 
     const all = await repo.list();
     if (!all.ok) throw new Error('list failed');
-    // The project appears EXACTLY once, not twice.
-    expect(all.value.filter((p) => p.id === project.id)).toHaveLength(1);
+    const matches = all.value.filter((p) => p.id === project.id);
+    // The project appears EXACTLY once, and the slugged (canonical) content wins.
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.displayName).toBe(project.displayName);
   });
 
   it('save overwrites an existing project (upsert)', async () => {

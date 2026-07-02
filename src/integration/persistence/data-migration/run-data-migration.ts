@@ -28,8 +28,9 @@ import type { DryRunReport } from '@src/integration/persistence/data-migration/t
  *   3. {@link DataMigrationEngine.apply} — on consent: lock-guard → backup → atomic per-item renames
  *      → learnings.md backfill → stamp the marker. Returns a discriminated {@link ApplyResult}.
  *
- * Nothing in the app calls this at runtime yet — the launch pre-flight wiring is Wave 2b. There is
- * no top-level side effect here; the engine never auto-runs.
+ * The TUI launch pre-flight (`launchTui`) drives this engine behind the consent splash. There is
+ * no top-level side effect here; the engine never runs without that explicit consent (or the
+ * no-op `stampCurrent` fast-path).
  *
  * @public
  */

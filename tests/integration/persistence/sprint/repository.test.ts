@@ -111,6 +111,26 @@ describe('createFsSprintRepository', () => {
     expect(all.value.map((s) => s.id)).toEqual([a.id, b.id, c.id]);
   });
 
+  it('list dedupes by id when a legacy <id>/ and slugged <id>--<slug>/ dir transiently coexist', async () => {
+    const repo = createFsSprintRepository({ root });
+    const { sprint } = makeDraftSprintBundle();
+    await repo.save(sprint); // writes the slugged (canonical) dir
+    // Hand-write a legacy bare dir for the SAME id — a crash-left pair (reconcile's rename landed
+    // but the cleanup did not finish). The bare dir carries STALE content so the test also pins
+    // the winner, not just the dedup.
+    const legacyDir = join(sprintsDir(root), String(sprint.id));
+    await fs.mkdir(legacyDir, { recursive: true });
+    const stale = { ...sprint, name: 'stale pre-crash name' };
+    await fs.writeFile(join(legacyDir, 'sprint.json'), JSON.stringify(toJsonForTest(stale)), 'utf8');
+
+    const all = await repo.list();
+    if (!all.ok) throw new Error('list failed');
+    const matches = all.value.filter((s) => s.id === sprint.id);
+    // The sprint appears EXACTLY once, and the slugged (canonical) content wins.
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.name).toBe(sprint.name);
+  });
+
   it('save overwrites an existing sprint (upsert)', async () => {
     const repo = createFsSprintRepository({ root });
     const { sprint } = makeDraftSprintBundle({ name: 'old' });
