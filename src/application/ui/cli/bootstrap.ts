@@ -32,6 +32,12 @@ export const bootstrapCli = async (): Promise<CliBootstrap> => {
   // Legacy-layout check runs BEFORE ensureStorageRoots so we don't materialise the
   // 0.7.0 subdir tree on top of 0.6.x data and confuse the user about what's "v2"
   // vs "v1" inside the directory. Detection is read-only; on hit we exit non-zero.
+  //
+  // process.exit (not exitCode) is intentional here: bootstrapCli's return type is the
+  // concrete CliBootstrap object, not a Result, and every command destructures it directly
+  // (`const { deps, storage } = await bootstrapCli()`) with no ok-check — there is no
+  // "return" that keeps that contract. A hard exit is the only option without threading an
+  // optional/Result return through every command file.
   const legacy = await detectLegacyLayout(paths.value.appRoot);
   if (legacy.kind === 'legacy-v0.6') {
     process.stderr.write(renderLegacyLayoutMessage(legacy));

@@ -2,10 +2,15 @@ import type { Command } from 'commander';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
+import { confirmDestructive } from '@src/application/ui/cli/confirm-destructive.ts';
 import { resolveSprintId } from '@src/application/ui/cli/resolve-sprint-selection.ts';
 import { activateSprintUseCase } from '@src/business/sprint/activate-sprint.ts';
 import { transitionSprintToDoneUseCase } from '@src/business/sprint/transition-sprint-to-done.ts';
 import { createLastSelectionStore } from '@src/integration/persistence/selection/last-selection-store.ts';
+
+interface RemoveOpts {
+  readonly yes?: boolean;
+}
 
 /**
  * Register the `sprint` command group.
@@ -35,7 +40,7 @@ export const registerSprintCommand = (program: Command): void => {
       const result = await deps.sprintRepo.list();
       if (!result.ok) {
         process.stderr.write(`error: ${result.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       if (result.value.length === 0) {
@@ -57,13 +62,13 @@ export const registerSprintCommand = (program: Command): void => {
       });
       if (!id.ok) {
         process.stderr.write(`error: ${id.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       const result = await deps.sprintRepo.findById(id.value.sprintId);
       if (!result.ok) {
         process.stderr.write(`error: ${result.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       process.stdout.write(`${JSON.stringify(result.value, null, 2)}\n`);
@@ -72,18 +77,29 @@ export const registerSprintCommand = (program: Command): void => {
   sprintCmd
     .command('remove <id>')
     .description('delete a sprint (cascades to its execution + tasks)')
-    .action(async (raw: string) => {
+    .option('-y, --yes', 'skip the interactive y/N confirmation')
+    .action(async (raw: string, opts: RemoveOpts) => {
       const id = SprintId.parse(raw);
       if (!id.ok) {
         process.stderr.write(`error: invalid sprint id: ${id.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
+      // Mirrors the TUI's ConfirmCard gate on the same sprintRepo.remove call
+      // (sprints-view.tsx) — the CLI has no interactive overlay, so a TTY-gated y/N prompt
+      // (or --yes for scripts) stands in for it.
+      const confirmed = await confirmDestructive({
+        yes: opts.yes === true,
+        action: `remove sprint ${String(id.value)}`,
+        confirmPrompt: `remove sprint ${String(id.value)} (cascades to its execution + tasks)? [y/N] `,
+      });
+      if (!confirmed) return;
+
       const { deps, storage } = await bootstrapCli();
       const result = await deps.sprintRepo.remove(id.value);
       if (!result.ok) {
         process.stderr.write(`error: ${result.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       // Clear a dangling pin: leaving the removed sprint in last-selection.json would make
@@ -107,14 +123,14 @@ export const registerSprintCommand = (program: Command): void => {
       const id = SprintId.parse(raw);
       if (!id.ok) {
         process.stderr.write(`error: invalid sprint id: ${id.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       const { deps } = await bootstrapCli();
       const loaded = await deps.sprintRepo.findById(id.value);
       if (!loaded.ok) {
         process.stderr.write(`error: ${loaded.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       const result = await activateSprintUseCase({
@@ -125,7 +141,7 @@ export const registerSprintCommand = (program: Command): void => {
       });
       if (!result.ok) {
         process.stderr.write(`error: ${result.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       process.stdout.write(`activated sprint '${result.value.slug}' (${String(result.value.id)})\n`);
@@ -138,14 +154,14 @@ export const registerSprintCommand = (program: Command): void => {
       const id = SprintId.parse(raw);
       if (!id.ok) {
         process.stderr.write(`error: invalid sprint id: ${id.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       const { deps } = await bootstrapCli();
       const loaded = await deps.sprintRepo.findById(id.value);
       if (!loaded.ok) {
         process.stderr.write(`error: ${loaded.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       const result = await transitionSprintToDoneUseCase({
@@ -157,12 +173,12 @@ export const registerSprintCommand = (program: Command): void => {
       });
       if (!result.ok) {
         process.stderr.write(`error: ${result.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       if (result.value === undefined) {
         process.stderr.write('error: close was aborted internally — please retry\n');
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       process.stdout.write(`closed sprint '${result.value.slug}' (${String(result.value.id)})\n`);
@@ -177,14 +193,14 @@ export const registerSprintCommand = (program: Command): void => {
       const id = SprintId.parse(raw);
       if (!id.ok) {
         process.stderr.write(`error: invalid sprint id: ${id.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       const { deps, storage } = await bootstrapCli();
       const sprint = await deps.sprintRepo.findById(id.value);
       if (!sprint.ok) {
         process.stderr.write(`error: ${sprint.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       // Re-load the project so the persisted selection is internally consistent — set-current
@@ -193,7 +209,7 @@ export const registerSprintCommand = (program: Command): void => {
       const project = await deps.projectRepo.findById(sprint.value.projectId);
       if (!project.ok) {
         process.stderr.write(`error: project lookup failed: ${project.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       const store = createLastSelectionStore(storage.stateRoot);
@@ -215,20 +231,20 @@ export const registerSprintCommand = (program: Command): void => {
       });
       if (!resolved.ok) {
         process.stderr.write(`error: ${resolved.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       const sprintId = resolved.value.sprintId;
       const sprint = await deps.sprintRepo.findById(sprintId);
       if (!sprint.ok) {
         process.stderr.write(`error: ${sprint.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       const tasks = await deps.taskRepo.findBySprintId(sprintId);
       if (!tasks.ok) {
         process.stderr.write(`error: ${tasks.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       const execution = await deps.sprintExecutionRepo.findById(sprintId);

@@ -33,7 +33,7 @@ export const registerDoctorCommand = (program: Command): void => {
       });
       if (!result.ok) {
         process.stderr.write(`error: ${result.error.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       const report = result.value.ctx.output!;
@@ -47,7 +47,8 @@ export const registerDoctorCommand = (program: Command): void => {
       }
       // Exit non-zero on hard failures (provider CLI missing, repo unreachable). Warnings —
       // notably "settings file not yet persisted on first run" — pass with exit 0 so the
-      // welcome flow can resolve them on the next launch without scaring CI scripts.
-      process.exit(report.hasFailures ? 1 : 0);
+      // welcome flow can resolve them on the next launch without scaring CI scripts. Setting
+      // exitCode (not process.exit) lets pending stdout writes above flush before Node exits.
+      process.exitCode = report.hasFailures ? 1 : 0;
     });
 };

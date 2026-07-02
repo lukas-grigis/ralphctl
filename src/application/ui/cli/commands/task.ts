@@ -38,14 +38,14 @@ export const registerTaskCommand = (program: Command): void => {
       const sprintId = await resolveSprintId(opts.sprint, storage.stateRoot);
       if (!sprintId.ok) {
         process.stderr.write(`error: ${sprintId.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       if (sprintId.value.fromPin) process.stderr.write(pinFallbackNotice(sprintId.value.sprintId));
       const result = await deps.taskRepo.findBySprintId(sprintId.value.sprintId);
       if (!result.ok) {
         process.stderr.write(`error: ${result.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       if (result.value.length === 0) {
@@ -66,20 +66,20 @@ export const registerTaskCommand = (program: Command): void => {
       const sprintId = await resolveSprintId(opts.sprint, storage.stateRoot);
       if (!sprintId.ok) {
         process.stderr.write(`error: ${sprintId.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       const taskId = TaskId.parse(rawTaskId);
       if (!taskId.ok) {
         process.stderr.write(`error: invalid task id: ${taskId.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       if (sprintId.value.fromPin) process.stderr.write(pinFallbackNotice(sprintId.value.sprintId));
       const result = await deps.taskRepo.findById(sprintId.value.sprintId, taskId.value);
       if (!result.ok) {
         process.stderr.write(`error: ${result.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       process.stdout.write(`${JSON.stringify(result.value, null, 2)}\n`);
@@ -94,20 +94,20 @@ export const registerTaskCommand = (program: Command): void => {
       const sprintId = await resolveSprintId(opts.sprint, storage.stateRoot);
       if (!sprintId.ok) {
         process.stderr.write(`error: ${sprintId.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       const taskId = TaskId.parse(rawTaskId);
       if (!taskId.ok) {
         process.stderr.write(`error: invalid task id: ${taskId.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       if (sprintId.value.fromPin) process.stderr.write(pinFallbackNotice(sprintId.value.sprintId));
       const loaded = await deps.taskRepo.findById(sprintId.value.sprintId, taskId.value);
       if (!loaded.ok) {
         process.stderr.write(`error: ${loaded.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       const result = await unblockTaskUseCase({
@@ -120,7 +120,7 @@ export const registerTaskCommand = (program: Command): void => {
       });
       if (!result.ok) {
         process.stderr.write(`error: ${result.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       process.stdout.write(`unblocked task '${result.value.name}' (${String(result.value.id)})\n`);

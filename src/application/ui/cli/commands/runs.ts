@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import { createInterface } from 'node:readline';
 import type { Command } from 'commander';
 import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
+import { confirmDestructive } from '@src/application/ui/cli/confirm-destructive.ts';
 import {
   formatBytes,
   formatRelativeAge,
@@ -76,15 +77,17 @@ const runListCommand = async (opts: ListOpts): Promise<void> => {
   const result = await listRuns(storage.runsRoot);
   if (!result.ok) {
     process.stderr.write(`error: ${result.error.message}\n`);
-    process.exit(1);
+    process.exitCode = 1;
     return;
   }
   const entries = opts.flow !== undefined ? result.value.filter((r) => r.flow === opts.flow) : result.value;
   if (entries.length === 0) {
     if (opts.flow !== undefined) {
-      process.stdout.write(`no runs for flow '${opts.flow}' under ${String(storage.runsRoot)}\n`);
+      process.stdout.write(
+        `(no runs for flow '${opts.flow}' yet under ${String(storage.runsRoot)} — drop --flow to see all)\n`
+      );
     } else {
-      process.stdout.write(`no runs yet under ${String(storage.runsRoot)}\n`);
+      process.stdout.write(`(no runs yet under ${String(storage.runsRoot)} — run a flow to generate one)\n`);
     }
     return;
   }
@@ -131,7 +134,7 @@ const runPruneCommand = async (opts: PruneOpts): Promise<void> => {
     process.stderr.write(
       'error: --older-than or --keep-last is required (or invoke `ralphctl runs prune` with no flags for the interactive picker)\n'
     );
-    process.exit(1);
+    process.exitCode = 1;
     return;
   }
 
@@ -160,7 +163,7 @@ const parsePruneFilters = (opts: PruneOpts): PruneFiltersResult => {
     const parsed = parseDuration(opts.olderThan);
     if (!parsed.ok) {
       process.stderr.write(`error: ${parsed.error.message}\n`);
-      process.exit(1);
+      process.exitCode = 1;
       return { ok: false };
     }
     olderThanMs = parsed.value;
@@ -171,7 +174,7 @@ const parsePruneFilters = (opts: PruneOpts): PruneFiltersResult => {
     const parsed = Number(opts.keepLast);
     if (!Number.isInteger(parsed) || parsed < 0) {
       process.stderr.write(`error: --keep-last must be a non-negative integer\n`);
-      process.exit(1);
+      process.exitCode = 1;
       return { ok: false };
     }
     keepLast = parsed;
@@ -186,7 +189,7 @@ const resolveScopedRuns = async (flow: string | undefined): Promise<ScopedRunsRe
   const result = await listRuns(storage.runsRoot);
   if (!result.ok) {
     process.stderr.write(`error: ${result.error.message}\n`);
-    process.exit(1);
+    process.exitCode = 1;
     return { ok: false };
   }
 
@@ -196,7 +199,7 @@ const resolveScopedRuns = async (flow: string | undefined): Promise<ScopedRunsRe
     const flowExists = allEntries.some((r) => r.flow === flow);
     if (!flowExists) {
       process.stderr.write(`error: no such flow '${flow}' under ${String(storage.runsRoot)}\n`);
-      process.exit(1);
+      process.exitCode = 1;
       return { ok: false };
     }
   }
@@ -229,35 +232,27 @@ const computeAndAnnouncePruneCandidates = (
 };
 
 /** Non-interactive `--yes`-less confirm: refuse on a non-TTY stdin, otherwise prompt y/N. */
-const confirmNonInteractivePrune = async (count: number): Promise<boolean> => {
-  if (process.stdin.isTTY !== true) {
-    process.stderr.write(
-      'error: refusing to delete without confirmation on a non-TTY stdin — re-run with --yes to bypass, or --dry-run to list candidates only\n'
-    );
-    process.exit(1);
-    return false;
-  }
-  const confirmed = await confirmYesNo(`delete ${String(count)} run${count === 1 ? '' : 's'}? [y/N] `);
-  if (!confirmed) {
-    process.stdout.write('aborted\n');
-    return false;
-  }
-  return true;
-};
+const confirmNonInteractivePrune = async (count: number): Promise<boolean> =>
+  confirmDestructive({
+    yes: false,
+    action: 'delete',
+    confirmPrompt: `delete ${String(count)} run${count === 1 ? '' : 's'}? [y/N] `,
+    nonTtyHint: ', or --dry-run to list candidates only',
+  });
 
 const runInteractivePrune = async (): Promise<void> => {
   if (process.stdin.isTTY !== true) {
     process.stderr.write(
       'error: interactive prune requires a TTY — supply --older-than or --keep-last (plus --yes / --dry-run) on non-interactive stdin\n'
     );
-    process.exit(1);
+    process.exitCode = 1;
     return;
   }
   const { storage } = await bootstrapCli();
   const listed = await listRuns(storage.runsRoot);
   if (!listed.ok) {
     process.stderr.write(`error: ${listed.error.message}\n`);
-    process.exit(1);
+    process.exitCode = 1;
     return;
   }
   if (listed.value.length === 0) {
@@ -317,7 +312,7 @@ const promptPruneFilterChoice = async (rl: ReturnType<typeof createInterface>): 
     const parsed = parseDuration(duration);
     if (!parsed.ok) {
       process.stderr.write(`error: ${parsed.error.message}\n`);
-      process.exit(1);
+      process.exitCode = 1;
       return { ok: false };
     }
     return { ok: true, olderThanMs: parsed.value, keepLast: undefined };
@@ -327,13 +322,13 @@ const promptPruneFilterChoice = async (rl: ReturnType<typeof createInterface>): 
     const parsed = Number(n);
     if (!Number.isInteger(parsed) || parsed < 0) {
       process.stderr.write('error: keep-last must be a non-negative integer\n');
-      process.exit(1);
+      process.exitCode = 1;
       return { ok: false };
     }
     return { ok: true, olderThanMs: undefined, keepLast: parsed };
   }
   process.stderr.write(`error: unrecognised choice '${criterion}' — expected 1 or 2\n`);
-  process.exit(1);
+  process.exitCode = 1;
   return { ok: false };
 };
 
@@ -348,7 +343,7 @@ const promptFlowFilterChoice = async (
   const flowFilter = flowAnswer.length === 0 ? undefined : flowAnswer;
   if (flowFilter !== undefined && !flows.includes(flowFilter)) {
     process.stderr.write(`error: no such flow '${flowFilter}'\n`);
-    process.exit(1);
+    process.exitCode = 1;
     return { ok: false };
   }
   return { ok: true, flowFilter };
@@ -450,7 +445,7 @@ const performPrune = async (candidates: readonly RunEntry[]): Promise<void> => {
     process.stderr.write(
       `error: ${String(failures.length)} run${failures.length === 1 ? '' : 's'} could not be deleted\n`
     );
-    process.exit(1);
+    process.exitCode = 1;
   }
 };
 
@@ -458,16 +453,6 @@ const question = (rl: ReturnType<typeof createInterface>, prompt: string): Promi
   new Promise((resolve) => {
     rl.question(prompt, (answer) => resolve(answer));
   });
-
-const confirmYesNo = async (prompt: string): Promise<boolean> => {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    const answer = await question(rl, prompt);
-    return isYes(answer.trim());
-  } finally {
-    rl.close();
-  }
-};
 
 const isYes = (answer: string): boolean => {
   const lower = answer.toLowerCase();

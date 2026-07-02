@@ -59,12 +59,25 @@ describe('ralphctl sprint', () => {
       const sprint = makeDraftSprint();
       await repo.save(sprint);
 
-      const removed = await runCliCaptured(cli, ['sprint', 'remove', String(sprint.id)]);
+      const removed = await runCliCaptured(cli, ['sprint', 'remove', String(sprint.id), '--yes']);
       expect(removed.exitCode).toBe(0);
       expect(removed.stdout).toContain(`removed sprint ${String(sprint.id)}`);
 
       const listAfterRemove = await runCliCaptured(cli, ['sprint', 'list']);
       expect(listAfterRemove.stdout).toContain('no sprints yet');
+    });
+
+    it('refuses to remove on non-TTY without --yes and prints actionable guidance', async () => {
+      const repo = createFsSprintRepository({ root: cli.paths.dataRoot });
+      const sprint = makeDraftSprint();
+      await repo.save(sprint);
+
+      const result = await runCliCaptured(cli, ['sprint', 'remove', String(sprint.id)]);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('--yes');
+
+      const reloaded = await repo.findById(sprint.id);
+      expect(reloaded.ok).toBe(true);
     });
   });
 
@@ -124,7 +137,7 @@ describe('ralphctl sprint', () => {
       await sprintRepo.save(sprint);
       await runCliCaptured(cli, ['sprint', 'set-current', String(sprint.id)]);
 
-      const removed = await runCliCaptured(cli, ['sprint', 'remove', String(sprint.id)]);
+      const removed = await runCliCaptured(cli, ['sprint', 'remove', String(sprint.id), '--yes']);
       expect(removed.exitCode).toBe(0);
 
       // The pin no longer resolves — the default must fail with guidance, not a ghost lookup.

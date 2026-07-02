@@ -19,7 +19,7 @@ export const registerCompletionCommand = (program: Command): void => {
     .action((shell: string) => {
       if (!(SUPPORTED as readonly string[]).includes(shell)) {
         process.stderr.write(`error: unsupported shell '${shell}' — supported: ${SUPPORTED.join(', ')}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       // Derive the completion word list from the live program's registered subcommands so it

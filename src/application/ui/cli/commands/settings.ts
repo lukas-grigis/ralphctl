@@ -68,7 +68,7 @@ export const registerSettingsCommand = (program: Command): void => {
       const result = await flow.execute({ input: undefined });
       if (!result.ok) {
         process.stderr.write(`error: ${result.error.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       process.stdout.write(`${JSON.stringify(result.value.ctx.output, null, 2)}\n`);
@@ -92,7 +92,7 @@ export const registerSettingsCommand = (program: Command): void => {
           process.stderr.write(
             `error: '${value}' is not a recognised provider (expected one of: ${AI_PROVIDERS.join(', ')})\n`
           );
-          process.exit(1);
+          process.exitCode = 1;
           return;
         }
         const providerFlow = createSettingsSetProviderFlow({ settingsRepo: deps.settingsRepo });
@@ -107,7 +107,7 @@ export const registerSettingsCommand = (program: Command): void => {
           const err = saved.error.error;
           const hint = 'hint' in err && typeof err.hint === 'string' ? ` (${err.hint})` : '';
           process.stderr.write(`error: ${err.message}${hint}\n`);
-          process.exit(1);
+          process.exitCode = 1;
           return;
         }
         process.stdout.write(`${key} = ${value}\n`);
@@ -117,20 +117,20 @@ export const registerSettingsCommand = (program: Command): void => {
       const current = await showFlow.execute({ input: undefined });
       if (!current.ok) {
         process.stderr.write(`error: ${current.error.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       const next = applySettingsKey(current.value.ctx.output!, key, value);
       if (!next.ok) {
         process.stderr.write(`error: ${next.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       const setFlow = createSettingsSetFlow({ settingsRepo: deps.settingsRepo });
       const saved = await setFlow.execute({ input: { next: next.value } });
       if (!saved.ok) {
         process.stderr.write(`error: ${saved.error.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       process.stdout.write(`${key} = ${value}\n`);
@@ -142,7 +142,7 @@ export const registerSettingsCommand = (program: Command): void => {
     .action(async (name: string) => {
       if (!isPresetName(name)) {
         process.stderr.write(`error: unknown preset '${name}' — expected one of: ${PRESET_NAMES.join(', ')}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       const { deps } = await bootstrapCli();
@@ -150,7 +150,7 @@ export const registerSettingsCommand = (program: Command): void => {
       const result = await flow.execute({ input: { preset: name } });
       if (!result.ok) {
         process.stderr.write(`error: ${result.error.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       const output = result.value.ctx.output!;

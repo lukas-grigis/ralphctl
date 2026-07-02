@@ -29,7 +29,7 @@ export const registerExportRequirementsCommand = (program: Command): void => {
       const outputPath = AbsolutePath.parse(opts.output);
       if (!outputPath.ok) {
         process.stderr.write(`error: --output: ${outputPath.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
 
@@ -37,7 +37,7 @@ export const registerExportRequirementsCommand = (program: Command): void => {
       const sprintId = await resolveSprintId(opts.sprint, storage.stateRoot);
       if (!sprintId.ok) {
         process.stderr.write(`error: ${sprintId.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       if (sprintId.value.fromPin) process.stderr.write(pinFallbackNotice(sprintId.value.sprintId));
@@ -51,7 +51,7 @@ export const registerExportRequirementsCommand = (program: Command): void => {
 
       if (!result.ok) {
         process.stderr.write(`error: ${result.error.error.message}\n`);
-        process.exit(1);
+        process.exitCode = 1;
         return;
       }
       const out = result.value.ctx.output!;

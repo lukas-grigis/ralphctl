@@ -178,7 +178,14 @@ describe('ralphctl ticket', () => {
       await repo.save(withBoth.value);
       const sprint = withBoth.value;
 
-      const result = await runCliCaptured(cli, ['ticket', 'remove', String(ticketA.id), '--sprint', String(sprint.id)]);
+      const result = await runCliCaptured(cli, [
+        'ticket',
+        'remove',
+        String(ticketA.id),
+        '--sprint',
+        String(sprint.id),
+        '--yes',
+      ]);
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain(`removed ticket ${String(ticketA.id)}`);
       expect(result.stdout).toContain('1 ticket remain');
@@ -199,9 +206,28 @@ describe('ralphctl ticket', () => {
         '01900000-0000-7000-8000-00000000ffff',
         '--sprint',
         String(sprint.id),
+        '--yes',
       ]);
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain('not found');
+    });
+
+    it('refuses to remove on non-TTY without --yes and prints actionable guidance', async () => {
+      const repo = createFsSprintRepository({ root: cli.paths.dataRoot });
+      const ticket = makePendingTicket({ title: 'guarded' });
+      const empty = makeDraftSprint();
+      const withTicket = addTicket(empty, ticket);
+      if (!withTicket.ok) throw new Error('fixture: addTicket failed');
+      await repo.save(withTicket.value);
+      const sprint = withTicket.value;
+
+      const result = await runCliCaptured(cli, ['ticket', 'remove', String(ticket.id), '--sprint', String(sprint.id)]);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('--yes');
+
+      const reloaded = await repo.findById(sprint.id);
+      if (!reloaded.ok) throw new Error('reload failed');
+      expect(reloaded.value.tickets.map((t) => t.id)).toEqual([ticket.id]);
     });
   });
 });
