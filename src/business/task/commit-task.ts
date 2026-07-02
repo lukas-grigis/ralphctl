@@ -26,10 +26,12 @@ import type { ValidationError } from '@src/domain/value/error/validation-error.t
  *
  * The `gitCommit` dep is a function-shape adapter: integration wires git operations behind it.
  */
-export interface CommitResult {
-  readonly committed: boolean;
-  readonly headSha?: string | undefined;
-}
+/**
+ * Outcome of the `gitCommit` adapter. Discriminated on `committed` so the SHA is only reachable
+ * on the success arm — the compiler forces adapters to supply `headSha` whenever they report a
+ * commit, and the use case reads it without a non-null assertion.
+ */
+export type CommitResult = { readonly committed: true; readonly headSha: string } | { readonly committed: false };
 
 export interface CommitTaskProps {
   readonly task: InProgressTask;
@@ -62,7 +64,8 @@ export const commitTaskUseCase = async (
     return Result.ok({ task: props.task });
   }
 
-  const sha = result.value.headSha!;
+  // `committed` narrowed to `true` above → `headSha` is a guaranteed string, no assertion needed.
+  const sha = result.value.headSha;
   const parsedSha = CommitSha.parse(sha);
   if (!parsedSha.ok) {
     log.error('git returned invalid sha', { taskId: props.task.id, sha, error: parsedSha.error.message });
