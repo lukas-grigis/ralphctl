@@ -99,15 +99,18 @@ describe('proposeDetectScriptsLeaf — audit-[09] contract', () => {
     eventBus,
     logger: noopLogger,
     model: 'claude-sonnet-4-6',
-    runsRoot,
   });
 
   const buildCtx = (): DetectScriptsCtx => {
     const project = makeProject();
     const repository = makeRepository({ path: repoPath, name: 'repo-a' });
+    // In production the chain's `allocate-run-dir-detect-scripts` leaf stamps this onto ctx
+    // before propose runs; these leaf-level tests stand it in directly.
+    const runDir = absolutePath(join(String(runsRoot), 'detect-scripts', 'test-run'));
     return {
       projectId: project.id,
       repository,
+      proposal: { runDir },
     };
   };
 

@@ -4,6 +4,7 @@ import type { Element } from '@src/application/chain/element.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
 import { loadProjectLeaf } from '@src/application/flows/_shared/project/load.ts';
 import { pickRepositoryLeaf } from '@src/application/flows/_shared/project/pick-repository.ts';
+import { allocateRunDirLeaf } from '@src/application/flows/_shared/allocate-run-dir.ts';
 import type { DetectScriptsCtx } from '@src/application/flows/detect-scripts/ctx.ts';
 import type { DetectScriptsDeps } from '@src/application/flows/detect-scripts/deps.ts';
 import { proposeDetectScriptsLeaf } from '@src/application/flows/detect-scripts/leaves/propose.ts';
@@ -31,10 +32,11 @@ export interface CreateDetectScriptsFlowOpts {
  *
  *   sequential('detect-scripts', [
  *     load-project,
- *     pick-repository,   // auto when ctx.repositoryId is set or project has one repo
- *     propose,           // AI round-trip → ctx.proposal (both scripts may be undefined)
- *     confirm,           // interactive; auto-declines when proposal is empty
- *     write,             // no-op when not accepted; updateRepository + save otherwise
+ *     pick-repository,           // auto when ctx.repositoryId is set or project has one repo
+ *     allocate-run-dir-detect-scripts,  // materialises <runsRoot>/detect-scripts/<run-id>/
+ *     propose,                   // AI round-trip → ctx.proposal (both scripts may be undefined)
+ *     confirm,                   // interactive; auto-declines when proposal is empty
+ *     write,                     // no-op when not accepted; updateRepository + save otherwise
  *   ])
  */
 export const createDetectScriptsFlow = (
@@ -52,6 +54,12 @@ export const createDetectScriptsFlow = (
         preselectedFromCtx: (ctx) => ctx.repositoryId,
       }
     ),
+    allocateRunDirLeaf<DetectScriptsCtx>({
+      name: 'allocate-run-dir-detect-scripts',
+      runsRoot: () => deps.runsRoot,
+      flowSegment: 'detect-scripts',
+      write: (ctx, runDir) => ({ ...ctx, proposal: { ...ctx.proposal, runDir } }),
+    }),
     proposeDetectScriptsLeaf({
       provider: deps.provider,
       templateLoader: deps.templateLoader,
@@ -60,7 +68,6 @@ export const createDetectScriptsFlow = (
       logger: deps.logger,
       model: opts.model,
       ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
-      runsRoot: deps.runsRoot,
     }),
     confirmDetectScriptsLeaf({ interactive: deps.interactive }),
     writeDetectScriptsLeaf({ projectRepo: deps.projectRepo, logger: deps.logger }),

@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
+import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { buildRunDirName } from '@src/integration/ai/runs/_engine/run-artifacts.ts';
@@ -19,6 +20,9 @@ import { buildRunDirName } from '@src/integration/ai/runs/_engine/run-artifacts.
  * stamp to either inline into the propose leaf (breaking the "single generic stamp leaf"
  * contract) or land after the spawn (defeating the crash-survival rationale). Splitting the
  * allocation into a dedicated leaf is the only seam that makes the chain composition reusable.
+ * `readiness`, `detect-scripts` and `detect-skills` all wire this leaf ahead of their propose
+ * leaf; the propose leaf then reads the resolved run dir back off ctx (see {@link runPathsFor}
+ * for the shared file-path convention inside it).
  *
  * Idempotent `mkdir -p` semantics — the leaf doesn't error when the directory already
  * exists.
@@ -65,3 +69,25 @@ export const allocateRunDirLeaf = <TCtx>(opts: AllocateRunDirOpts<TCtx>): Elemen
     input: (ctx) => ({ path: join(String(opts.runsRoot(ctx)), opts.flowSegment, buildRunDirName()) }),
     output: (ctx, runDir) => opts.write(ctx, runDir),
   });
+
+export interface RunPaths {
+  readonly promptFile: AbsolutePath;
+  readonly bodyFile: AbsolutePath;
+  readonly signalsFile: AbsolutePath;
+}
+
+/**
+ * Derive the three well-known artifact paths inside a per-run forensic directory —
+ * `prompt.md` (rendered template), `body.txt` (raw AI response, provider-dependent), and
+ * `signals.json` (the audit-[09] contract envelope). Shared by every one-shot AI flow's
+ * propose leaf so the file-naming convention lives in one place.
+ */
+export const runPathsFor = (runDir: AbsolutePath): Result<RunPaths, DomainError> => {
+  const promptFile = AbsolutePath.parse(join(String(runDir), 'prompt.md'));
+  if (!promptFile.ok) return Result.error(promptFile.error);
+  const bodyFile = AbsolutePath.parse(join(String(runDir), 'body.txt'));
+  if (!bodyFile.ok) return Result.error(bodyFile.error);
+  const signalsFile = AbsolutePath.parse(join(String(runDir), 'signals.json'));
+  if (!signalsFile.ok) return Result.error(signalsFile.error);
+  return Result.ok({ promptFile: promptFile.value, bodyFile: bodyFile.value, signalsFile: signalsFile.value });
+};

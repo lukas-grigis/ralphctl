@@ -15,9 +15,10 @@ import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-po
  * the provider's skills-discovery convention into the authoring prompt so the AI knows
  * where to look for existing skills before drafting new ones.
  *
- *  - `runsRoot` — `<dataRoot>/runs`; propose materialises `prompt.md` + `body.txt` under
- *    `<runsRoot>/detect-skills/<run-id>/` so empty / surprising proposals are forensically
- *    diagnosable. Confirm reads `body.txt` to show the AI's actual response inline.
+ *  - `runsRoot` — `<dataRoot>/runs`; the chain's `allocate-run-dir-detect-skills` leaf
+ *    materialises `<runsRoot>/detect-skills/<run-id>/` before propose runs, so `prompt.md` +
+ *    `body.txt` land there and empty / surprising proposals are forensically diagnosable.
+ *    Confirm reads `body.txt` to show the AI's actual response inline.
  */
 export interface DetectSkillsDeps {
   readonly projectRepo: ProjectRepository;
