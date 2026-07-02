@@ -414,3 +414,66 @@ describe('settleAttemptLeaf — outcome.md session-id threading', () => {
     }
   });
 });
+
+describe('settleAttemptLeaf — outcome.md retry-text gating on shouldFailAttempt', () => {
+  const failedCtx = (ws: string, ip: InProgressTask, shouldFailAttempt: boolean): ImplementCtx => ({
+    sprintId: 'sprint-x' as SprintId,
+    tasks: [ip],
+    currentTaskId: ip.id,
+    currentTask: ip,
+    lastVerdict: 'failed',
+    ...(shouldFailAttempt ? { lastShouldFailAttempt: true } : {}),
+    lastEvaluation: {
+      type: 'evaluation',
+      status: 'failed',
+      dimensions: [
+        { dimension: 'correctness', passed: true, finding: 'ok' },
+        { dimension: 'completeness', passed: false, finding: 'missing edge case' },
+      ],
+      timestamp: FIXED_LATER,
+    },
+    taskWorkspaceRoot: absolutePath(ws),
+    currentRoundNum: 1,
+  });
+
+  it('a granted retry (lastShouldFailAttempt) promises round N+1 in outcome.md', async () => {
+    const ws = await realpath(await mkdtemp(join(tmpdir(), 'ralphctl-settle-retrytext-')));
+    try {
+      const ip = inProgressWithVerification(3);
+      const { repo } = fakeUpdateTask();
+      const leafEl = settleAttemptLeaf(
+        { taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger },
+        { cwd: absolutePath('/tmp/settle-attempt-test') },
+        ip.id
+      );
+      const result = await leafEl.execute(failedCtx(ws, ip, true));
+      expect(result.ok).toBe(true);
+
+      const outcome = await readFile(join(ws, 'rounds', '1', 'outcome.md'), 'utf8');
+      expect(outcome).toContain('round 2 will retry.');
+    } finally {
+      await rm(ws, { recursive: true, force: true });
+    }
+  });
+
+  it('a terminal round (no lastShouldFailAttempt) does not promise a next round in outcome.md', async () => {
+    const ws = await realpath(await mkdtemp(join(tmpdir(), 'ralphctl-settle-retrytext-')));
+    try {
+      const ip = inProgressWithVerification(3);
+      const { repo } = fakeUpdateTask();
+      const leafEl = settleAttemptLeaf(
+        { taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger },
+        { cwd: absolutePath('/tmp/settle-attempt-test') },
+        ip.id
+      );
+      const result = await leafEl.execute(failedCtx(ws, ip, false));
+      expect(result.ok).toBe(true);
+
+      const outcome = await readFile(join(ws, 'rounds', '1', 'outcome.md'), 'utf8');
+      expect(outcome).toContain('the harness will not start another round for this attempt.');
+      expect(outcome).not.toContain('will retry');
+    } finally {
+      await rm(ws, { recursive: true, force: true });
+    }
+  });
+});

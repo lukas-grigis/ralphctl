@@ -39,6 +39,13 @@ export interface RoundOutcomeInput {
   readonly evaluatorSessionId?: string;
   /** Total round duration in milliseconds. `undefined` → `—`. */
   readonly durationMs?: number;
+  /**
+   * True IFF the harness will actually start another round after this one — sourced from
+   * `shouldFailAttempt === true` at the settle-attempt call site (a granted retry). `false` means
+   * this was the terminal round of the attempt (self-blocked, or done-with-warning at the budget
+   * cap): the synthesis sentence must NOT promise a round N+1 that never runs.
+   */
+  readonly willRetryNextRound: boolean;
 }
 
 /**
@@ -130,13 +137,18 @@ const synthesise = (input: RoundOutcomeInput): string => {
     const dims = failedDims.length > 0 ? ` on ${failedDims.join(', ')}` : '';
     return `${base} plateaued${dims}; harness gave up after 2 identical failed evaluations.`;
   }
-  // failed
+  // failed — the trailing clause depends on whether another round actually follows. A granted
+  // retry keeps today's "round N+1 will retry" wording; a terminal round (self-blocked, or
+  // done-with-warning at the cap) must not promise a round that never runs.
+  const tail = input.willRetryNextRound
+    ? `critique persisted, round ${String(input.roundN + 1)} will retry.`
+    : 'critique persisted; the harness will not start another round for this attempt.';
   const failedDims = collectFailedDimensions(input.evaluation);
   if (failedDims.length === 0) {
-    return `${base} failed without dimension verdicts; critique persisted, round ${String(input.roundN + 1)} will retry.`;
+    return `${base} failed without dimension verdicts; ${tail}`;
   }
   const detail = formatFailedDimensions(input.evaluation);
-  return `${base} failed on ${detail}; critique persisted, round ${String(input.roundN + 1)} will retry.`;
+  return `${base} failed on ${detail}; ${tail}`;
 };
 
 const collectFailedDimensions = (evaluation: EvaluationSignal | undefined): readonly string[] => {
