@@ -488,8 +488,9 @@ interface RunCodexAttemptOpts {
 /**
  * Run one codex spawn attempt: validates argv, wires a fresh {@link CodexAttemptTracker} into
  * `runProviderAttempt`'s stdout hooks, and reads back the forensic body tempfile. `outputFile` is
- * shared across every retry attempt within one `generate()` call (see `createGenerateContext`
- * below, which owns its lifetime); the tracker's mutable state is fresh per `attempt()` call.
+ * minted fresh per attempt by `createGenerateContext` below (which tracks every path for cleanup),
+ * so a killed later attempt never reads back the prior attempt's stale body; the tracker's mutable
+ * state is likewise fresh per `attempt()` call.
  */
 const runCodexAttempt = (
   attemptSession: AiSession,
@@ -572,12 +573,21 @@ export const createCodexProvider = (deps: CodexProviderDeps): HeadlessAiProvider
     eventBus: deps.eventBus,
     ...(deps.backoffSchedule !== undefined ? { backoffSchedule: deps.backoffSchedule } : {}),
     createGenerateContext: () => {
-      // One tempfile per generate() call, shared across all retry attempts so a rate-limit
-      // retry reuses the same -o path without leaving orphan files. Cleaned up in cleanup().
-      const outputFile = mkTempPath();
+      // A FRESH output tempfile per attempt. Sharing one `-o` path across retries let a killed
+      // later attempt (rate-limit / stale-resume respawn SIGTERMed before it wrote the tempfile)
+      // read back the PRIOR attempt's body as its own forensic `body.txt` — a stale-diagnostic
+      // hazard. Each attempt mints its own path; every minted path is tracked so cleanup() unlinks
+      // all of them (no orphans), which is why the tempfile is not created once up front.
+      const outputFiles: string[] = [];
       return {
-        attempt: (attemptSession) => runCodexAttempt(attemptSession, { outputFile, spawnFn, command, deps, readFile }),
-        cleanup: () => unlink(outputFile),
+        attempt: (attemptSession) => {
+          const outputFile = mkTempPath();
+          outputFiles.push(outputFile);
+          return runCodexAttempt(attemptSession, { outputFile, spawnFn, command, deps, readFile });
+        },
+        cleanup: async () => {
+          for (const outputFile of outputFiles) await unlink(outputFile);
+        },
       };
     },
   });

@@ -562,6 +562,49 @@ describe('createCodexProvider', () => {
     expect(fsStub.unlinks).toEqual([FIXED_OUT]);
   });
 
+  it('mints a fresh -o output tempfile per attempt (no stale-body reuse) and cleans up every one', async () => {
+    // Fix 3: sharing one `-o` path across retries let a killed later attempt read back the PRIOR
+    // attempt's body as its own forensic capture. Each attempt now gets a distinct tempfile; all
+    // minted paths are unlinked on cleanup so there are no orphans.
+    const cap = createCapturingBus();
+    let n = 0;
+    const minted: string[] = [];
+    const unlinks: string[] = [];
+    const mkTempPath = (): string => {
+      n += 1;
+      const p = `/tmp/ralphctl-codex-attempt-${String(n)}.txt`;
+      minted.push(p);
+      return p;
+    };
+    const { spawn, calls } = makeSpawn([
+      // Attempt 1: rate-limit (captures no id) → retry cold.
+      { stderrChunks: ['Error: rate limit exceeded\n'], exitCode: 1 },
+      // Attempt 2: clean success.
+      { stdoutChunks: ['{"type":"thread.started","thread_id":"t2"}\n'], exitCode: 0 },
+    ]);
+
+    const provider = createCodexProvider({
+      rateLimitRetries: 2,
+      eventBus: cap.bus,
+      spawn,
+      readFile: async () => 'body',
+      unlink: async (p: string) => {
+        unlinks.push(p);
+      },
+      mkTempPath,
+      backoffSchedule: [0, 0, 0],
+    });
+
+    const out = await provider.generate(session());
+    expect(out.ok).toBe(true);
+    expect(calls).toHaveLength(2);
+    // Each attempt built `-o` with a DIFFERENT tempfile path.
+    const oValues = calls.map((c) => c.args[c.args.indexOf('-o') + 1]);
+    expect(oValues).toEqual(['/tmp/ralphctl-codex-attempt-1.txt', '/tmp/ralphctl-codex-attempt-2.txt']);
+    // Both minted paths are unlinked (no orphans).
+    expect(unlinks).toEqual(['/tmp/ralphctl-codex-attempt-1.txt', '/tmp/ralphctl-codex-attempt-2.txt']);
+  });
+
   it('publishes one debug LogEvent per recognised item.completed (agent_message / function_call / function_call_output); skips thread.started / turn.completed / malformed; truncates payloads to 120 chars', async () => {
     const cap = createCapturingBus();
     const sess = session();
