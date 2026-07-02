@@ -13,7 +13,6 @@ export const launchDetectScripts = (ctx: LaunchContext): LaunchResult => {
       projectRepo: deps.app.projectRepo,
       provider,
       templateLoader: deps.app.templateLoader,
-      signals: deps.app.signals,
       eventBus: deps.app.eventBus,
       logger: deps.app.logger,
       interactive: deps.interactive,

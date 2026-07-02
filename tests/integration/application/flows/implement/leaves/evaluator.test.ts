@@ -3,8 +3,6 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
-import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
-import { createInMemorySink } from '@tests/fixtures/in-memory-sink.ts';
 import { createFakeAiProvider } from '@tests/fixtures/fake-ai-provider.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import { absolutePath, FIXED_NOW, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
@@ -54,7 +52,7 @@ describe('evaluatorLeaf', () => {
       },
     }),
     templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-    signals: createInMemorySink<HarnessSignal>(),
+    publishSignal: () => {},
     // The contract-driven evaluator renders `evaluation.md` via the WriteFile port. These
     // legacy tests cover prompt persistence (pre-spawn); a no-op writer is sufficient here.
     writeFile: async () => Result.ok(undefined),
@@ -72,7 +70,6 @@ describe('evaluatorLeaf', () => {
     },
     clock: () => FIXED_NOW,
     logger: noopLogger,
-    eventBus: createInMemoryEventBus(),
   });
 
   it('persists evaluator prompt.md under rounds/<N>/evaluator/', async () => {

@@ -22,14 +22,13 @@ import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { SessionsProvider } from '@src/application/ui/tui/runtime/sessions-context.tsx';
 import { PromptQueueProvider } from '@src/application/ui/tui/prompts/prompt-context.tsx';
 import { StorageProvider } from '@src/application/ui/tui/runtime/storage-context.tsx';
-import { BusesProvider, type TuiBuses } from '@src/application/ui/tui/runtime/sinks-context.tsx';
+import { BusesProvider, type SignalBusEntry, type TuiBuses } from '@src/application/ui/tui/runtime/sinks-context.tsx';
 import { SystemStatusProvider } from '@src/application/ui/tui/runtime/system-status-context.tsx';
 import { LogLevelProvider } from '@src/application/ui/tui/runtime/log-level-context.tsx';
 import { createBusSink } from '@src/application/ui/tui/runtime/sinks-bus.ts';
 import { createSessionManager, type SessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
 import { createPromptQueue, type PromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
 import { createLogLevelGate } from '@src/business/observability/log-level-filter.ts';
-import type { HarnessSignal } from '@src/domain/signal.ts';
 import type { LogEvent } from '@src/business/observability/events.ts';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { StoragePaths } from '@src/application/bootstrap/storage-paths.ts';
@@ -89,7 +88,7 @@ export const renderView = (child: React.ReactNode, opts: HarnessOptions): Harnes
   const queue = opts.queue ?? createPromptQueue();
   const storage = opts.storage ?? defaultStorage();
   const buses: TuiBuses = opts.buses ?? {
-    harness: createBusSink<HarnessSignal>({ maxEntries: 100 }),
+    harness: createBusSink<SignalBusEntry>({ maxEntries: 100 }),
     log: createBusSink<LogEvent>({ maxEntries: 100 }),
   };
   const routes: ViewEntry[] = [];

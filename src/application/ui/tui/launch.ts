@@ -1,7 +1,7 @@
 /**
  * TUI bootstrap. Resolves storage paths, ensures roots exist, loads settings, builds the
- * harness signal bus + the log entry bus (the latter populated from the EventBus's `'log'`
- * AppEvents), wires deps, then renders App with everything threaded in.
+ * harness signal bus (populated from the EventBus's `'ai-signal'` AppEvents) + the log entry bus
+ * (populated from the `'log'` AppEvents), wires deps, then renders App with everything threaded in.
  *
  * Pre-render errors fall through to a tiny stderr message + non-zero exit so the operator
  * sees exactly what went wrong without staring at a blank Ink frame.
@@ -12,16 +12,13 @@
 
 import React from 'react';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import type { HarnessSignal } from '@src/domain/signal.ts';
 import type { LogEvent } from '@src/business/observability/events.ts';
-import type { HarnessSignalSink } from '@src/business/observability/harness-signal-sink.ts';
-import type { AppSinks } from '@src/application/bootstrap/runtime-sinks.ts';
 import { ensureStorageRoots, resolveStoragePaths } from '@src/application/bootstrap/storage-paths.ts';
 import { detectLegacyLayout, renderLegacyLayoutMessage } from '@src/application/bootstrap/legacy-layout-detector.ts';
 import { createJsonSettingsRepository } from '@src/integration/persistence/settings/json-settings-repository.ts';
 import { type AppDeps, wire } from '@src/application/bootstrap/wire.ts';
-import { broadcastSink } from '@src/integration/observability/sinks/broadcast-sink.ts';
 import { type BusSink, createBusSink } from '@src/application/ui/tui/runtime/sinks-bus.ts';
+import type { SignalBusEntry } from '@src/application/ui/tui/runtime/sinks-context.tsx';
 import { type CoalescedBuffer, createCoalescedBuffer } from '@src/application/ui/tui/runtime/coalesced-buffer.ts';
 import { createSessionManager, type SessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
 import { createPromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
@@ -104,6 +101,32 @@ const createLogForwarder = (
 };
 
 /**
+ * Build the EventBus-`ai-signal` → harnessBus forwarder — the harness-signal mirror of {@link
+ * createLogForwarder}. Every AI-spawning leaf publishes a validated signal onto the bus as a
+ * single `ai-signal` AppEvent (see `publish-signal.ts`); this is the one place that re-shapes it
+ * into the TUI's {@link SignalBusEntry} and forwards it into `harnessBus`.
+ *
+ * Unlike the log forwarder this does NOT coalesce through a buffer: per-task signal volume is two
+ * orders of magnitude below a DEBUG-floor log stream (~20-40 signals per task vs. thousands of
+ * stream-json lines/sec — see `execute-view.tsx`'s `HARNESS_SIGNAL_LIMIT` sizing note), so a
+ * direct forward-per-emit never approaches the commit-storm rate `createLogForwarder`'s buffering
+ * exists to guard against.
+ *
+ * Returns the bus-unsubscribe (so a re-launched TUI in the same Node process does not stack a
+ * second forwarder on the dead one and double-publish every event) — disposed alongside
+ * `unsubLogForward` at drain.
+ */
+const createSignalForwarder = (eventBus: AppDeps['eventBus'], harnessBus: BusSink<SignalBusEntry>): (() => void) =>
+  eventBus.subscribe((event) => {
+    if (event.type !== 'ai-signal') return;
+    harnessBus.emit({
+      signal: event.signal,
+      source: event.source,
+      ...(event.taskId !== undefined ? { taskId: event.taskId } : {}),
+    });
+  });
+
+/**
  * Build the heap-watchdog `onWarning` callback — early, non-disruptive relief on entering the
  * 0.80 band. Sheds finished SessionRecords (the dominant app-root-reachable retainer) so GC
  * reclaims headroom BEFORE pressure reaches critical. Unlike the critical handler it does NOT
@@ -138,7 +161,7 @@ const createHeapWarningHandler = (args: {
 const createHeapCriticalHandler = (args: {
   readonly logger: AppDeps['logger'];
   readonly logForwarder: CoalescedBuffer<LogEvent>;
-  readonly harnessBus: BusSink<HarnessSignal>;
+  readonly harnessBus: BusSink<SignalBusEntry>;
   readonly logBus: BusSink<LogEvent>;
   readonly sessions: SessionManager;
 }): (() => void) => {
@@ -242,14 +265,16 @@ const bootstrap = async (): Promise<Bootstrapped> => {
   const settings = await settingsRepo.load();
   if (!settings.ok) throw new Error(`settings: ${settings.error.message}`);
 
-  // The harness signal sink reaches the chain layer via `wire()`; the log bus is
-  // populated below by subscribing to the wired EventBus's `'log'` events.
-  const harnessBus = createBusSink<HarnessSignal>({ maxEntries: 1000 });
+  // Both buses are populated below by subscribing to the wired EventBus's `'ai-signal'` / `'log'`
+  // events — no separate sink is threaded through `wire()`.
+  const harnessBus = createBusSink<SignalBusEntry>({ maxEntries: 1000 });
   const logBus = createBusSink<LogEvent>({ maxEntries: 2000 });
-  const harnessSink: HarnessSignalSink = broadcastSink<HarnessSignal>([harnessBus]);
 
-  const sinks: AppSinks = { harness: harnessSink };
-  const deps = wire({ storage: paths.value, sinks, settings: settings.value });
+  const deps = wire({ storage: paths.value, settings: settings.value });
+
+  // Forward EventBus 'ai-signal' events into the TUI's harness bus. See createSignalForwarder
+  // for the full rationale.
+  const unsubSignalForward = createSignalForwarder(deps.eventBus, harnessBus);
 
   // Forward EventBus 'log' events into the TUI's log bus (coalesced, gate-at-ingest). See
   // createLogForwarder for the full rationale. Log-level gate is a small mutable holder seeded
@@ -349,6 +374,7 @@ const bootstrap = async (): Promise<Bootstrapped> => {
     },
     drain: (): void => {
       queue.drain(new Error('TUI shutting down'));
+      unsubSignalForward();
       unsubLogForward();
       logForwarder.stop();
       heapWatchdog.stop();

@@ -2,7 +2,6 @@ import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
-import type { HarnessSignal } from '@src/domain/signal.ts';
 import {
   recordRunningAttemptCritique,
   recordRunningAttemptWarning,
@@ -11,10 +10,10 @@ import {
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { AppEvent, TaskRoundStartedEvent } from '@src/business/observability/events.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
-import { createInMemorySink } from '@tests/fixtures/in-memory-sink.ts';
 import { createFakeAiProvider } from '@tests/fixtures/fake-ai-provider.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import { createEventBusLogger } from '@src/business/observability/event-bus-logger.ts';
+import { createPublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { absolutePath, FIXED_LATER, FIXED_NOW, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
 import { failCurrentAttempt, recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
@@ -38,7 +37,7 @@ describe('generatorLeaf', () => {
   const buildDeps = (eventBus = createInMemoryEventBus()) => ({
     provider: createFakeAiProvider({ responses: { implement: '' } }),
     templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-    signals: createInMemorySink<HarnessSignal>(),
+    publishSignal: createPublishSignal(eventBus, 'generator'),
     // The contract-driven generator renders sidecars via the WriteFile port. The legacy
     // tests below cover the leaf's pre-spawn behaviour (prompt persistence, round-event
     // boundary) so a no-op writer is sufficient — the new audit-[10] grid lives in

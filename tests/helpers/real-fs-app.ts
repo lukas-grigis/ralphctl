@@ -44,8 +44,6 @@ import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import { wire } from '@src/application/bootstrap/wire.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
 import type { Settings } from '@src/domain/entity/settings.ts';
-import type { AppSinks } from '@src/application/bootstrap/runtime-sinks.ts';
-import { nullSink } from '@src/integration/observability/sinks/null-sink.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { InteractiveAiProvider } from '@src/integration/ai/providers/_engine/interactive-ai-provider.ts';
@@ -82,8 +80,6 @@ export const noopVersionChecker: VersionChecker = async () => null;
 export interface CreateRealFsAppOptions {
   /** Override settings (e.g. to switch provider). Default: `DEFAULT_SETTINGS`. */
   readonly settings?: Settings;
-  /** Override harness sink. Default: `nullSink()` — drops every signal. */
-  readonly sinks?: AppSinks;
   /**
    * Override spawn. Default: a no-op spawn that emits no stdout and exits 0 — sufficient for
    * any test that doesn't actually run a provider but where `wire()` still constructs one.
@@ -128,7 +124,6 @@ export const createRealFsApp = async (options: CreateRealFsAppOptions = {}): Pro
 
   const wired = wire({
     storage: paths.value,
-    sinks: options.sinks ?? { harness: nullSink() },
     settings: options.settings ?? DEFAULT_SETTINGS,
     spawn: options.spawn ?? noopProviderSpawn,
   });

@@ -43,10 +43,10 @@ import { isRecoverableTurnError } from '@src/business/task/turn-error-policy.ts'
  *    to the next generator turn never goes silent.
  *
  * The actual AI call + signal extraction are integration concerns supplied as function-shape
- * deps. The leaf is responsible for reading the provider's `signalsFile`, forwarding signals
- * to the harness sink, and passing the parsed array here. The leaf also threads the per-turn
- * history (`priorTurns`) and the current generator's proposed commit subject through ctx so
- * the use case stays free of state.
+ * deps. The leaf is responsible for reading the provider's `signalsFile`, publishing each
+ * signal onto the harness-signal channel, and passing the parsed array here. The leaf also
+ * threads the per-turn history (`priorTurns`) and the current generator's proposed commit
+ * subject through ctx so the use case stays free of state.
  */
 export type EvaluatorTurnExit =
   | { readonly kind: 'passed' }

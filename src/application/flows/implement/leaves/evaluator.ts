@@ -6,7 +6,6 @@ import {
   type RunEvaluatorTurnProps,
   runEvaluatorTurnUseCase,
 } from '@src/business/task/run-evaluator-turn.ts';
-import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { InProgressTask } from '@src/domain/entity/task.ts';
@@ -19,7 +18,7 @@ import type { AiSignal, EvaluationSignal, HarnessSignal } from '@src/domain/sign
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
-import type { HarnessSignalSink } from '@src/business/observability/harness-signal-sink.ts';
+import type { PublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import { buildEvaluatePrompt } from '@src/integration/ai/prompts/evaluate/definition.ts';
 import { buildEvaluateContinuationPrompt } from '@src/integration/ai/prompts/evaluate-continuation/definition.ts';
 import type { BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
@@ -51,19 +50,18 @@ import type { PlateauTurnRecord } from '@src/business/task/plateau-detection.ts'
 
 /**
  * Chain leaf — one evaluator turn of the gen-eval loop. Wires the integration ports
- * (`provider`, `templateLoader`, `signals`, `writeFile`, `eventBus`) into function-shape deps
- * for {@link runEvaluatorTurnUseCase}; the use case owns the per-turn business decisions
+ * (`provider`, `templateLoader`, `publishSignal`, `writeFile`) into function-shape
+ * deps for {@link runEvaluatorTurnUseCase}; the use case owns the per-turn business decisions
  * (evaluation recording, plateau detection, malformed detection, critique recording).
  *
  * File-based contract (audit-[09]): the leaf reuses the generator's `ctx.currentRoundNum` so
  * generator and evaluator artifacts share the round folder. `session.signalsFile =
  * <workspaceRoot>/rounds/<N>/evaluator/signals.json` is set on the provider call; after the
  * call the leaf {@link validateSignalsFile validates} the file against
- * {@link evaluatorOutputContract}, fans every validated signal out to both the legacy
- * `HarnessSignalSink` (TUI panels, decisions-log) and the application `eventBus` as a typed
- * `ai-signal` event, then renders the harness-owned `evaluation.md` sidecar via
- * {@link renderSidecars}. The leaf no longer constructs `evaluation.md` directly — sidecar
- * rendering is the only writer.
+ * {@link evaluatorOutputContract}, publishes every validated signal onto the application bus as
+ * a typed `ai-signal` event (the one harness-signal channel), then renders the harness-owned
+ * `evaluation.md` sidecar via {@link renderSidecars}. The leaf no longer constructs
+ * `evaluation.md` directly — sidecar rendering is the only writer.
  *
  * The leaf reads `ctx.plateauHistory` (default `[]`) as `priorTurns` for plateau comparison,
  * appends the new turn record on completion, and writes the new evaluation back to
@@ -75,7 +73,12 @@ import type { PlateauTurnRecord } from '@src/business/task/plateau-detection.ts'
 export interface EvaluatorLeafDeps {
   readonly provider: HeadlessAiProvider;
   readonly templateLoader: TemplateLoader;
-  readonly signals: HarnessSignalSink;
+  /**
+   * Fan-out seam for every validated signal this turn — the ONE harness-signal channel
+   * (see `publish-signal.ts`). Pre-bound with this leaf's `source` (and, on the implement
+   * parallel path, the owning branch's `taskId`) by the caller.
+   */
+  readonly publishSignal: PublishSignal;
   /**
    * Output port used to write harness-rendered sidecars (`evaluation.md`) post-spawn. Per
    * audit-[09], the AI only writes `signals.json`; the harness derives every other on-
@@ -117,13 +120,6 @@ export interface EvaluatorLeafDeps {
   readonly gitRunner: GitRunner;
   readonly clock: () => IsoTimestamp;
   readonly logger: Logger;
-  /**
-   * Application bus used to publish each validated `ai-signal` event under the audit-[09]
-   * contract. Consumers (TUI panels, persistent `chain.log`, future progress.md miners)
-   * receive the typed signal verbatim along with `source: 'evaluator'` so a multi-leaf flow's
-   * events stay attributable. Mirrors the generator-leaf wiring.
-   */
-  readonly eventBus: EventBus;
 }
 
 interface EvaluatorInput {
@@ -289,7 +285,7 @@ const makeEvaluatorReinvoke =
 /**
  * Build this turn's `callEvaluate` — selects + builds + persists the prompt, spawns the reviewer,
  * validates `signals.json` with one corrective retry (self-contained against a cold resume so a
- * context-free retry can't fabricate a verdict), fans the parsed signals out to the sink/bus, and
+ * context-free retry can't fabricate a verdict), publishes the parsed signals onto the bus, and
  * renders harness-owned sidecars (`evaluation.md`). Returns the parsed signals for
  * `runEvaluatorTurnUseCase` to interpret.
  */
@@ -383,14 +379,8 @@ const makeEvaluatorCallEvaluate =
     if (!validated.ok) return Result.error(validated.error);
     const signals = validated.value;
 
-    // Fan out to BOTH the legacy `HarnessSignalSink` (TUI panels, decisions-log) and
-    // the application bus's typed `ai-signal` event. The bus carries every kind the
-    // contract accepts; the sink keeps its existing per-kind consumers happy until
-    // Wave 6 collapses the two paths.
-    for (const sig of signals) {
-      deps.signals.emit(sig);
-      deps.eventBus.publish({ type: 'ai-signal', signal: sig, source: 'evaluator' });
-    }
+    // Publish every validated signal onto the one harness-signal channel.
+    for (const sig of signals) deps.publishSignal(sig);
 
     // Render harness-owned sidecars (`evaluation.md`). Write failures log warn inside
     // `renderSidecars`; the helper always returns `Result.ok` (sidecars are operator UX

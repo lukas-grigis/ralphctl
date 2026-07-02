@@ -165,7 +165,6 @@ const stubAppDeps = (sprintRepo: SprintRepository): LaunchContext['deps']['app']
     interactiveAiFor: stubInteractiveAiFor,
     templateLoader: {} as never,
     eventBus: { publish: () => {}, subscribe: () => () => {} } as never,
-    signals: { emit: async () => {} } as never,
     gitRunner: {} as never,
     shellScriptRunner: {} as never,
     fileLocker: {} as never,

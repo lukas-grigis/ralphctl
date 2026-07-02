@@ -1,7 +1,6 @@
 import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
-import type { Sink } from '@src/business/observability/sink.ts';
-import type { EventBus } from '@src/business/observability/event-bus.ts';
+import type { PublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { Repository } from '@src/domain/entity/repository.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
@@ -34,12 +33,10 @@ export interface ProposeDetectScriptsLeafDeps {
   readonly provider: HeadlessAiProvider;
   readonly templateLoader: TemplateLoader;
   /**
-   * Legacy harness signal sink — fanned out so the TUI's per-flow signal panels keep
-   * rendering live updates while the eventBus subscriber path matures. The `eventBus`
-   * mirror below is the canonical path for new consumers.
+   * Fan-out seam for every validated signal this run emits — the ONE harness-signal channel
+   * (see `publish-signal.ts`). Pre-bound by the flow factory with `source: 'detect-scripts'`.
    */
-  readonly signals: Sink<HarnessSignal>;
-  readonly eventBus: EventBus;
+  readonly publishSignal: PublishSignal;
   readonly logger: Logger;
   readonly model: string;
   /** Optional reasoning / effort level forwarded into the AiSession. */
@@ -161,13 +158,8 @@ const proposeUseCase = async (
   }
   const signals = validated.value;
 
-  // Fan-out to BOTH the legacy sink (TUI panels) AND the typed event bus — matching the
-  // generator/evaluator dual-emit pattern. Wave 6 of the audit collapses the two paths
-  // once every TUI consumer migrates to `ai-signal` events.
-  for (const sig of signals) {
-    deps.signals.emit(sig);
-    deps.eventBus.publish({ type: 'ai-signal', signal: sig, source: 'detect-scripts' });
-  }
+  // Publish every validated signal onto the one harness-signal channel.
+  for (const sig of signals) deps.publishSignal(sig);
 
   const { setupScript, verifyScript, verifyGates } = extractProposal(signals);
 

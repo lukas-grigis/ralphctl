@@ -50,9 +50,7 @@ import type { GitRunner, GitRunResult } from '@src/integration/io/git-runner.ts'
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
-import type { HarnessSignal } from '@src/domain/signal.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
-import { createInMemorySink } from '@tests/fixtures/in-memory-sink.ts';
 import { createFileLocker } from '@src/integration/io/file-locker.ts';
 import { createAppendFile } from '@src/integration/io/append-file-adapter.ts';
 import { writeJsonAtomic } from '@src/integration/io/fs.ts';
@@ -482,7 +480,6 @@ describe('createDistillStep on the review auto-done path', () => {
         taskRepo: noopTaskRepo,
         provider: reviewProvider,
         templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-        signals: createInMemorySink<HarnessSignal>(),
         eventBus: createInMemoryEventBus(),
         logger: recordingLogger().logger,
         clock: () => FIXED_LATER,

@@ -8,7 +8,7 @@ import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.t
 import { ParseError } from '@src/domain/value/error/parse-error.ts';
 import type { AiSignalEvent, AppEvent } from '@src/business/observability/events.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
-import { createInMemorySink } from '@tests/fixtures/in-memory-sink.ts';
+import { createPublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import { absolutePath, makeProject, makeRepository } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
@@ -113,8 +113,7 @@ describe('proposeDetectSkillsLeaf — audit-[09] contract', () => {
   const buildDeps = (payload: EmitPayload, eventBus = createInMemoryEventBus()): ProposeDetectSkillsLeafDeps => ({
     provider: fakeProvider(payload),
     templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-    signals: createInMemorySink<HarnessSignal>(),
-    eventBus,
+    publishSignal: createPublishSignal(eventBus, 'detect-skills'),
     writeFile: makeWriteFile(),
     logger: noopLogger,
     skillsAdapter: noopSkillsAdapter,

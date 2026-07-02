@@ -1,8 +1,7 @@
 import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
-import type { Sink } from '@src/business/observability/sink.ts';
+import type { PublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
-import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { Repository } from '@src/domain/entity/repository.ts';
 import type { HarnessSignal, SetupSkillProposalSignal, VerifySkillProposalSignal } from '@src/domain/signal.ts';
@@ -31,12 +30,10 @@ export interface ProposeDetectSkillsLeafDeps {
   readonly provider: HeadlessAiProvider;
   readonly templateLoader: TemplateLoader;
   /**
-   * Legacy harness signal sink — fanned out so the TUI's per-flow signal panels keep
-   * rendering live updates while the eventBus subscriber path matures. The `eventBus`
-   * mirror below is the canonical path for new consumers.
+   * Fan-out seam for every validated signal this run emits — the ONE harness-signal channel
+   * (see `publish-signal.ts`). Pre-bound by the flow factory with `source: 'detect-skills'`.
    */
-  readonly signals: Sink<HarnessSignal>;
-  readonly eventBus: EventBus;
+  readonly publishSignal: PublishSignal;
   readonly writeFile: WriteFile;
   readonly logger: Logger;
   readonly skillsAdapter: SkillsAdapter;
@@ -164,13 +161,8 @@ const proposeUseCase = async (
   }
   const signals = validated.value;
 
-  // Fan-out to BOTH the legacy sink and the typed event bus — matches the generator/evaluator
-  // dual-emit pattern. Wave 6 of the audit collapses the two paths once every TUI consumer
-  // migrates to `ai-signal` events.
-  for (const sig of signals) {
-    deps.signals.emit(sig);
-    deps.eventBus.publish({ type: 'ai-signal', signal: sig, source: 'detect-skills' });
-  }
+  // Publish every validated signal onto the one harness-signal channel.
+  for (const sig of signals) deps.publishSignal(sig);
 
   // Render the operator-facing sidecars (`setup-skill.md`, `verify-skill.md`) from validated
   // signals. The confirm leaf reads from in-memory signals (ctx), not these files — the

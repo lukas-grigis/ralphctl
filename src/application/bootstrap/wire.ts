@@ -33,8 +33,6 @@ import { createPullRequestCreator } from '@src/integration/scm/pull-request-crea
 import type { StoragePaths } from '@src/application/bootstrap/storage-paths.ts';
 import type { SettingsRepository } from '@src/domain/repository/settings/settings-repository.ts';
 import { createJsonSettingsRepository } from '@src/integration/persistence/settings/json-settings-repository.ts';
-import type { AppSinks } from '@src/application/bootstrap/runtime-sinks.ts';
-import type { HarnessSignalSink } from '@src/business/observability/harness-signal-sink.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
@@ -142,8 +140,6 @@ export interface AppDeps {
    * distill session logs onto the same observability pipe.
    */
   readonly interactiveAiFor: (provider: AiProvider) => InteractiveAiProvider;
-  /** AI session signal sink — structured `<learning>` / verdict / progress events. */
-  readonly signals: HarnessSignalSink;
   /**
    * Filesystem-backed prompt template loader — every AI-touching flow needs one. Built once
    * here so flows don't each call `createFsTemplateLoader(defaultTemplatesDir())`.
@@ -244,12 +240,11 @@ export interface AppDeps {
  * build their own from a tmp directory via `storagePathsFromRoot(tmpDir)` so no test ever
  * touches the real `~/.ralphctl/` tree.
  *
- * Future injection points (AI session, signal sink, clock, logger) land here as they're
- * introduced — the test seam stays the same shape.
+ * Future injection points (AI session, clock, logger) land here as they're introduced — the
+ * test seam stays the same shape.
  */
 export interface WireOptions {
   readonly storage: StoragePaths;
-  readonly sinks: AppSinks;
   readonly settings: Settings;
   /**
    * Test seam threaded through {@link createAiProvider} into the Claude adapter. Production
@@ -297,9 +292,9 @@ const isTruthyEnvFlag = (value: string | undefined): boolean => typeof value ===
  *
  *     resolveStoragePaths() → ensureStorageRoots(paths) →
  *     createJsonSettingsRepository({ configRoot }).load() →
- *     wire({ storage: paths, sinks, settings })
+ *     wire({ storage: paths, settings })
  *
- * Tests skip the resolver and call `wire({ storage: storagePathsFromRoot(tmpDir).value, sinks,
+ * Tests skip the resolver and call `wire({ storage: storagePathsFromRoot(tmpDir).value,
  * settings: DEFAULT_SETTINGS })` directly. Same shape, different paths — the application code
  * under test is identical to production.
  */
@@ -431,7 +426,6 @@ export const wire = (opts: WireOptions): AppDeps => {
     appendFile,
     interactiveAi: createInteractiveAiProvider({ flow: 'refine', ai: opts.settings.ai, eventBus }),
     interactiveAiFor: (provider) => createInteractiveAiProviderFor(provider, eventBus),
-    signals: opts.sinks.harness,
     templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
     clock: IsoTimestamp.now,
     probes: PROBES,

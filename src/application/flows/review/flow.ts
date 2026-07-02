@@ -5,6 +5,7 @@ import type { Element } from '@src/application/chain/element.ts';
 import { guard } from '@src/application/chain/build/guard.ts';
 import { loop } from '@src/application/chain/build/loop.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
+import { createPublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import { withRepoLock } from '@src/application/flows/_shared/with-repo-lock.ts';
 import { loadAndAssertSprintSubChain } from '@src/application/flows/_shared/sprint/load-and-assert-sprint.ts';
 import type { ReviewCtx } from '@src/application/flows/review/ctx.ts';
@@ -88,7 +89,7 @@ export const createReviewFlow = (deps: ReviewDeps, opts: CreateReviewFlowOpts): 
       interactive: deps.interactive,
       provider: deps.provider,
       templateLoader: deps.templateLoader,
-      signals: deps.signals,
+      publishSignal: createPublishSignal(deps.eventBus, 'review-round'),
       eventBus: deps.eventBus,
       logger: deps.logger,
       clock: deps.clock,

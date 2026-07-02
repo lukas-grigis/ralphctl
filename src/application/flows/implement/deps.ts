@@ -1,5 +1,5 @@
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
-import type { HarnessSignalSink } from '@src/business/observability/harness-signal-sink.ts';
+import type { PublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
@@ -52,7 +52,13 @@ export interface ImplementDeps {
    */
   readonly evaluatorProvider: HeadlessAiProvider;
   readonly templateLoader: TemplateLoader;
-  readonly signals: HarnessSignalSink;
+  /**
+   * Fan-out seam for every validated signal any gen-eval turn emits — the ONE harness-signal
+   * channel (see `publish-signal.ts`). Bound by the launcher: the serial path binds a single
+   * flow-wide publisher (`source: 'implement'`); the parallel path rebuilds a per-branch
+   * publisher keyed on each task's id (see `wave-branch.ts`'s `perBranchSignalPublisher`).
+   */
+  readonly publishSignal: PublishSignal;
   readonly eventBus: EventBus;
   readonly logger: Logger;
   readonly clock: () => IsoTimestamp;

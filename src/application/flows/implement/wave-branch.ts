@@ -4,8 +4,6 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { BlockedTask, Task } from '@src/domain/entity/task.ts';
 import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
-import type { HarnessSignal } from '@src/domain/signal.ts';
-import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { join } from 'node:path';
 
@@ -14,9 +12,7 @@ import type { OnTrace, TraceEntry } from '@src/application/chain/trace.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
 import type { WaveBranch } from '@src/application/chain/run/wave-scheduler.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
-import type { Sink } from '@src/business/observability/sink.ts';
-import type { HarnessSignalSink } from '@src/business/observability/harness-signal-sink.ts';
-import { broadcastSink } from '@src/integration/observability/sinks/broadcast-sink.ts';
+import { createPublishSignal, type PublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import {
   gitDeleteBranch,
@@ -136,43 +132,27 @@ const blockTaskForFoldConflict = (task: Task, reason: string): BlockedTask => {
 };
 
 /**
- * Per-branch harness-signal sink keyed on the branch's `taskId`. Replaces the launcher's
- * old single-slot `currentTaskId` tracker — which keyed off the dead `task-attempt-started` event
+ * Per-branch signal publisher keyed on the branch's `taskId`. Replaces the launcher's old
+ * single-slot `currentTaskId` tracker — which keyed off the dead `task-attempt-started` event
  * (zero production publishers) and so always attributed signals to `undefined`. With concurrent
  * branches a single shared mutable slot would cross-attribute signals anyway; binding the taskId
  * at branch-build time is the only correct model.
  *
- * Fans every `<change>` / `<learning>` / `<note>` signal to the app-wide sink (TUI bus + the
- * opt-in events.ndjson tee) AND republishes it as a `harness-signal` EventBus event stamped with
- * THIS branch's taskId, so the per-task TUI panel groups it under the right task.
+ * Publishes EVERY validated signal kind (not just `<change>` / `<learning>` / `<note>` — that
+ * filter only ever existed because the bus event was a secondary mirror of the app-wide sink; on
+ * the single `ai-signal` channel every kind must flow or the TUI goes blind to
+ * evaluation/decision/commit signals for parallel-branch tasks) onto the `ai-signal` EventBus
+ * event, stamped with THIS branch's taskId so the per-task TUI panel groups it under the right
+ * task.
  *
  * @public
  */
-export const perBranchSignalSink = (
-  appSink: HarnessSignalSink,
-  eventBus: EventBus,
-  taskId: TaskId
-): HarnessSignalSink => {
-  const busMirror: Sink<HarnessSignal> = {
-    emit(signal) {
-      if (signal.type !== 'change' && signal.type !== 'learning' && signal.type !== 'note') return;
-      eventBus.publish({
-        type: 'harness-signal',
-        signalKind: signal.type,
-        taskId: String(taskId),
-        text: signal.text,
-        at: IsoTimestamp.now(),
-      });
-    },
-  };
-  return broadcastSink<HarnessSignal>([appSink, busMirror]);
-};
+export const perBranchSignalPublisher = (eventBus: EventBus, taskId: TaskId): PublishSignal =>
+  createPublishSignal(eventBus, 'implement', String(taskId));
 
 /** Inputs the launcher derives once and shares across every branch of every wave. */
 export interface BuildWaveBranchesDeps {
   readonly implement: ImplementDeps;
-  /** App-wide harness-signal sink (TUI bus + opt-in events.ndjson). Fanned per branch. */
-  readonly appSignals: HarnessSignalSink;
   readonly eventBus: EventBus;
   /** Shared fold mutex — every branch's fold step serialises through this one queue. */
   readonly foldQueue: FoldQueue;
@@ -485,8 +465,9 @@ const conflictFold = (
  * One {@link WaveBranch} per task: its element is the worktree adapter wrapping a `sequential` of
  * the forked per-task subchain + the serialised fold. `forkCtx` clears per-task ctx and points the
  * `RepoExecConfig` at the task's worktree; the subchain is built with `branch-preflight` OMITTED
- * (each worktree is checked out on its own ref). A per-branch {@link HarnessSignalSink} keyed on
- * the branch's `taskId` is injected so concurrent branches' signals attribute correctly.
+ * (each worktree is checked out on its own ref). A per-branch {@link PublishSignal} (see
+ * {@link perBranchSignalPublisher}) keyed on the branch's `taskId` is injected so concurrent
+ * branches' signals attribute correctly.
  *
  * Each branch runs on its own runner (provided by `runWaves`) whose `initialCtx` is the wave's
  * carried base ctx. The branch element forks that carried ctx onto the worktree at EXECUTE time
@@ -519,12 +500,12 @@ const buildOneBranch = (
   const worktreePath = worktreePathFor(opts.sprintDir, task.id);
   const branchRef = gitWorktreeRef(String(opts.sprintId), String(task.id));
 
-  // Per-branch deps clone — only the harness-signal sink differs (keyed on this task's id so
-  // concurrent branches don't cross-attribute their `<change>`/`<learning>`/`<note>` signals).
-  // Everything else, including the run's shared `journalMutex`, is inherited from `deps.implement`.
+  // Per-branch deps clone — only the signal publisher differs (keyed on this task's id so
+  // concurrent branches don't cross-attribute their signals). Everything else, including the
+  // run's shared `journalMutex`, is inherited from `deps.implement`.
   const branchDeps: ImplementDeps = {
     ...deps.implement,
-    signals: perBranchSignalSink(deps.appSignals, deps.eventBus, task.id),
+    publishSignal: perBranchSignalPublisher(deps.eventBus, task.id),
   };
 
   const subchainOpts: PerTaskSubchainOpts = {

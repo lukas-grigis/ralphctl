@@ -266,46 +266,25 @@ export interface BannerClearEvent {
 export type BannerEvent = BannerShowEvent | BannerClearEvent;
 
 /**
- * Per-task harness signal — published when the AI emits a `<change>`, `<learning>`, or
- * `<note>` tag during an in-flight task. The harness mirrors the validated `HarnessSignal`
- * onto the {@link EventBus} so the TUI's per-task panel + the persistent `<sprintDir>/chain.log`
- * retain a machine-readable record of the per-task narrative.
- *
- * Decisions stay on their own dedicated event (see {@link AiSignalEvent}) — they're surfaced
- * to the operator with extra emphasis (`progress.md` Decisions section) so flattening them
- * into this stream would lose that affordance.
- */
-export interface HarnessSignalEvent {
-  readonly type: 'harness-signal';
-  readonly signalKind: 'change' | 'learning' | 'note';
-  /**
-   * Task the signal was emitted under. Absent when the harness cannot attribute the
-   * signal — e.g. signals emitted during a non-task subchain. Renderers that group by
-   * task simply skip unattributed entries.
-   */
-  readonly taskId?: string;
-  readonly text: string;
-  readonly at: IsoTimestamp;
-}
-
-/**
  * Validated `AiSignal` published by an AI-spawning leaf AFTER the spawn's `signals.json`
  * was parsed by `validateSignalsFile` under the audit-[09] contract. Subscribers (TUI,
  * persistent `chain.log`, future progress.md miners) receive the typed signal verbatim
  * along with the originating leaf's short name in `source` so a multi-leaf flow's events
- * stay attributable.
+ * stay attributable. This is the ONE harness-signal channel — every AI-spawning leaf
+ * publishes every validated signal kind here (no separate text-bearing-only mirror).
  *
- * Distinct from {@link HarnessSignalEvent}: that one is a derived per-task slice carrying
- * only the three text-bearing kinds; this one carries every validated signal kind the
- * leaf accepted. Both coexist while the migration is in flight — `HarnessSignalEvent` is
- * still produced by the legacy stdout-parser path and consumed by the per-task chain-log
- * miner; `AiSignalEvent` is produced by the new file-contract leaves.
+ *  - `source` — short name of the AI-spawning leaf/flow that produced the signal (e.g.
+ *    `'generator'`, `'evaluator'`, `'review-round'`, `'detect-scripts'`).
+ *  - `taskId` — stamped only by the implement flow's parallel per-branch publisher, which
+ *    knows which task's worktree the signal came from. Absent on the implement serial path
+ *    and every other flow (single-task-at-a-time, so attribution isn't ambiguous); the TUI's
+ *    task-bucketing falls back to its timestamp-window heuristic when this is absent.
  */
 export interface AiSignalEvent {
   readonly type: 'ai-signal';
   readonly signal: AiSignal;
-  /** Short name of the AI-spawning leaf that produced the signal (e.g. `'generator'`). */
   readonly source: string;
+  readonly taskId?: string;
 }
 
 /**
@@ -355,6 +334,5 @@ export type AppEvent =
   | TokenUsageEvent
   | BannerShowEvent
   | BannerClearEvent
-  | HarnessSignalEvent
   | AiSignalEvent
   | ModelEscalatedEvent;

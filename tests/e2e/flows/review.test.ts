@@ -7,7 +7,6 @@ import { Result } from '@src/domain/result.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import type { AppEvent } from '@src/business/observability/events.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
-import type { HarnessSignal } from '@src/domain/signal.ts';
 import type { ReviewSprint, Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -31,7 +30,6 @@ import type { GitRunner, GitRunResult } from '@src/integration/io/git-runner.ts'
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
 import type { AskConfirmInput, Choice, InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
-import { createInMemorySink } from '@tests/fixtures/in-memory-sink.ts';
 import { createFileLocker } from '@src/integration/io/file-locker.ts';
 import { writeJsonAtomic } from '@src/integration/io/fs.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
@@ -210,7 +208,6 @@ describe('createReviewFlow', () => {
         taskRepo: noopTaskRepo,
         provider: fakeProvider,
         templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-        signals: createInMemorySink<HarnessSignal>(),
         eventBus,
         logger: noopLogger,
         clock: () => FIXED_LATER,
@@ -273,7 +270,6 @@ describe('createReviewFlow', () => {
         taskRepo: noopTaskRepo,
         provider: fakeProvider,
         templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-        signals: createInMemorySink<HarnessSignal>(),
         eventBus: createInMemoryEventBus(),
         logger: noopLogger,
         clock: () => FIXED_LATER,
@@ -342,7 +338,6 @@ describe('createReviewFlow', () => {
         taskRepo: noopTaskRepo,
         provider: capturingProvider,
         templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-        signals: createInMemorySink<HarnessSignal>(),
         eventBus: createInMemoryEventBus(),
         logger: noopLogger,
         clock: () => FIXED_LATER,
@@ -419,7 +414,6 @@ describe('createReviewFlow', () => {
         taskRepo: noopTaskRepo,
         provider: fakeProvider,
         templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-        signals: createInMemorySink<HarnessSignal>(),
         eventBus: createInMemoryEventBus(),
         logger: noopLogger,
         clock: () => FIXED_LATER,
@@ -481,7 +475,6 @@ describe('createReviewFlow', () => {
         taskRepo: noopTaskRepo,
         provider: fakeProvider,
         templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-        signals: createInMemorySink<HarnessSignal>(),
         eventBus: createInMemoryEventBus(),
         logger: noopLogger,
         clock: () => FIXED_LATER,
@@ -557,7 +550,6 @@ describe('createReviewFlow', () => {
         taskRepo: noopTaskRepo,
         provider: rateLimitedProvider,
         templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-        signals: createInMemorySink<HarnessSignal>(),
         eventBus: createInMemoryEventBus(),
         logger: noopLogger,
         clock: () => FIXED_LATER,

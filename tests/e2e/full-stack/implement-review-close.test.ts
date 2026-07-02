@@ -38,7 +38,6 @@ import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import { createFileLocker } from '@src/integration/io/file-locker.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
-import { createInMemorySink } from '@tests/fixtures/in-memory-sink.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
 import { createAppendFile } from '@src/integration/io/append-file-adapter.ts';
@@ -219,7 +218,7 @@ function runTests(): void {
     generatorProvider: provider,
     evaluatorProvider: provider,
     templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-    signals: createInMemorySink<HarnessSignal>(),
+    publishSignal: () => {},
     eventBus: createInMemoryEventBus(),
     logger: noopLogger,
     clock: () => FIXED_LATER,
@@ -411,7 +410,6 @@ function runTests(): void {
         },
       }),
       templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-      signals: createInMemorySink<HarnessSignal>(),
       eventBus: createInMemoryEventBus(),
       logger: noopLogger,
       clock: () => FIXED_LATER,

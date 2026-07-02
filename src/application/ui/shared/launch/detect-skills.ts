@@ -13,7 +13,6 @@ export const launchDetectSkills = (ctx: LaunchContext): LaunchResult => {
       projectRepo: deps.app.projectRepo,
       provider,
       templateLoader: deps.app.templateLoader,
-      signals: deps.app.signals,
       eventBus: deps.app.eventBus,
       writeFile: deps.app.writeFile,
       logger: deps.app.logger,

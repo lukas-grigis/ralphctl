@@ -18,7 +18,7 @@
 import { useMemo } from 'react';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { AppEvent } from '@src/business/observability/events.ts';
-import type { HarnessSignal } from '@src/domain/signal.ts';
+import type { SignalBusEntry } from '@src/application/ui/tui/runtime/sinks-context.tsx';
 import { useTaskRoundTracker } from '@src/application/ui/tui/runtime/use-task-round-tracker.ts';
 import {
   type BucketedExecution,
@@ -31,7 +31,7 @@ import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 interface UseBucketedInput {
   readonly descriptor: SessionDescriptor | undefined;
   readonly chainEvents: readonly AppEvent[];
-  readonly signals: readonly HarnessSignal[];
+  readonly signals: readonly SignalBusEntry[];
   readonly eventBus: EventBus;
 }
 

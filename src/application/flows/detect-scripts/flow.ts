@@ -5,6 +5,7 @@ import { sequential } from '@src/application/chain/build/sequential.ts';
 import { loadProjectLeaf } from '@src/application/flows/_shared/project/load.ts';
 import { pickRepositoryLeaf } from '@src/application/flows/_shared/project/pick-repository.ts';
 import { allocateRunDirLeaf } from '@src/application/flows/_shared/allocate-run-dir.ts';
+import { createPublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import type { DetectScriptsCtx } from '@src/application/flows/detect-scripts/ctx.ts';
 import type { DetectScriptsDeps } from '@src/application/flows/detect-scripts/deps.ts';
 import { proposeDetectScriptsLeaf } from '@src/application/flows/detect-scripts/leaves/propose.ts';
@@ -39,12 +40,15 @@ export interface CreateDetectScriptsFlowOpts {
  *     write,                     // no-op when not accepted; updateRepository + save otherwise
  *   ])
  */
+/** Canonical flow id — the sequential trace name, the run-dir segment, and the signal source. */
+const DETECT_SCRIPTS_FLOW = 'detect-scripts';
+
 export const createDetectScriptsFlow = (
   deps: DetectScriptsDeps,
   opts: CreateDetectScriptsFlowOpts
 ): Element<DetectScriptsCtx> => {
   void opts.projectId;
-  return sequential<DetectScriptsCtx>('detect-scripts', [
+  return sequential<DetectScriptsCtx>(DETECT_SCRIPTS_FLOW, [
     loadProjectLeaf<DetectScriptsCtx>({ projectRepo: deps.projectRepo }),
     pickRepositoryLeaf<DetectScriptsCtx>(
       { interactive: deps.interactive },
@@ -57,14 +61,13 @@ export const createDetectScriptsFlow = (
     allocateRunDirLeaf<DetectScriptsCtx>({
       name: 'allocate-run-dir-detect-scripts',
       runsRoot: () => deps.runsRoot,
-      flowSegment: 'detect-scripts',
+      flowSegment: DETECT_SCRIPTS_FLOW,
       write: (ctx, runDir) => ({ ...ctx, proposal: { ...ctx.proposal, runDir } }),
     }),
     proposeDetectScriptsLeaf({
       provider: deps.provider,
       templateLoader: deps.templateLoader,
-      signals: deps.signals,
-      eventBus: deps.eventBus,
+      publishSignal: createPublishSignal(deps.eventBus, DETECT_SCRIPTS_FLOW),
       logger: deps.logger,
       model: opts.model,
       ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
