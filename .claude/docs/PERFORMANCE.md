@@ -126,13 +126,20 @@ Opus in both dash-form Claude-Code/Codex ids and dot-form Copilot ids; Codex / C
 `gpt-5.4-mini` and the economic full tier `gpt-5.4` → `gpt-5.5`, kept in lockstep with
 `domain/value/settings-models/` by code review). Each exit re-reads the most-recent
 `Task.escalatedToModel` as the generator model, so the policy returns `escalate` repeatedly and the
-task climbs through every intermediate rung (bounded by `maxAttempts`). When the generator reaches the
-top of the ladder, the policy fires a single same-model **"change your approach" directive**
-(`{{PLATEAU_DIRECTIVE_SECTION}}` in the implement prompt) — a "nudge" stamped
-`escalatedFromModel === escalatedToModel`. The directive is gated on that same-model marker, NOT on a
-model bump: a bump hands the stronger model the targeted `priorCritique` instead, decoupling the
-"abandon your approach" directive from escalation so it is reserved for the top-of-ladder case where
-there is no fresh capability to lean on. A further exit after the nudge tops out — keeping the work.
+task climbs through every intermediate rung (bounded by `maxAttempts`).
+(2) **effort escalation** — when the generator reaches the top of the model ladder (no stronger rung) the
+policy tries a cheaper same-model remedy BEFORE the nudge: raise reasoning effort default → `high`
+(`escalate-effort`, target `EFFORT_ESCALATION_TARGET` in `escalation-map.ts`) when the provider exposes an
+effort dimension and the generator still has headroom below `high`. It stamps `Task.escalatedToEffort` (no
+model change), the generator leaf prefers that over the configured `effort` at spawn, and the next plateau
+sees the raised effort and falls through to the nudge (so the rung fires at most once). Skipped gracefully —
+straight to the nudge — when the provider has no effort knob or the generator is already at/above `high`.
+(3) **change-of-approach nudge** — a single same-model **"change your approach" directive**
+(`{{PLATEAU_DIRECTIVE_SECTION}}` in the implement prompt) stamped `escalatedFromModel === escalatedToModel`.
+The directive is gated on that same-model marker, NOT on a model bump: a bump hands the stronger model the
+targeted `priorCritique` instead, decoupling the "abandon your approach" directive from escalation so it is
+reserved for the top-of-ladder case where there is no fresh capability to lean on. A further exit after the
+nudge tops out — keeping the work.
 
 **Routing by exit kind.** `plateau` and `budget-exhausted` exits (including the synthesized budget-
 exhausted when no leaf set `lastExit`) both go through `decideEscalation`. A `malformed` exit —
@@ -144,18 +151,20 @@ while the attempt budget remains, falling back to done-with-warning at the cap.
 introduced have `task.maxAttempts === undefined`; `decideEscalation` and the per-task loop cap both fall
 back to `settings.harness.maxAttempts` so the attempt budget binds for them too.
 
-**Inert default ladder.** The shipped default generator model (`claude-opus-4-8`) has no key in
-`DEFAULT_ESCALATION_MAP`. With default settings the harness can never model-escalate — on a plateau it
-fires one same-model nudge, then settles done-with-warning. See `AI-SETTINGS.md § Default escalation
-posture` for how to activate a live ladder (economic presets or a custom escalationMap rung).
+**Default posture: effort rung, then nudge.** The shipped default generator model (`claude-opus-4-8`) has
+no key in `DEFAULT_ESCALATION_MAP`, so the harness never model-escalates it. But the effort rung IS live for
+the default posture: on a plateau at the top of the ladder it first raises reasoning effort default → `high`
+on the same model (a live remedy, not just a directive), then — on a further plateau — fires the same-model
+nudge, then settles done-with-warning. See `AI-SETTINGS.md § Default escalation posture` for how to also
+activate a live MODEL ladder (economic presets or a custom escalationMap rung).
 
 Escalation is generator-only by design — the evaluator's model is held constant across the task so the
 scoring rubric does not shift mid-task, which would make plateau detection meaningless. `Task`'s
-`escalatedFromModel` / `escalatedToModel` fields are re-stampable and hold the MOST-RECENT rung
-transition; the cost ceiling is enforced by the ladder top plus `maxAttempts` (each escalate/nudge
-fails the running attempt, consuming budget), not by a once-per-task cap. A non-passing exit with no
-attempt budget left, or after the top-of-ladder nudge, preserves the work (done-with-warning) — never
-blocks.
+`escalatedFromModel` / `escalatedToModel` (model bump / nudge marker) and `escalatedToEffort` (effort rung)
+fields are re-stampable and hold the MOST-RECENT transition; the cost ceiling is enforced by the ladder top
+plus `maxAttempts` (each escalate / effort-bump / nudge fails the running attempt, consuming budget), not by
+a once-per-task cap. A non-passing exit with no attempt budget left, or after the top-of-ladder nudge,
+preserves the work (done-with-warning) — never blocks.
 Cross-provider escalation (e.g. `claude-opus-4-8` → `gpt-5.5`) is intentionally deferred — switching
 providers mid-task carries auth / context / tool-availability hazards.
 

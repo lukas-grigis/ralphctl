@@ -9,6 +9,7 @@
  * and a custom key that has no default entry adds a new rung.
  */
 
+import type { AiProvider } from '@src/domain/entity/settings.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 
 /**
@@ -98,4 +99,58 @@ export const escalationLadderCyclicFrom = (map: Readonly<Record<string, string>>
     cur = map[cur];
   }
   return false;
+};
+
+/**
+ * The reasoning-effort level the graduated same-model effort rung climbs TO — the counterpart of a
+ * model-ladder rung for a generator that is already at (or has no) stronger model. Fixed at `high`:
+ * it is a member of every provider's effort vocabulary (Claude `low..max`, Copilot `none..max`,
+ * Codex `minimal..high`), so the rung never targets a level the adapter would floor away, and it is
+ * a meaningful step up from the CLI-default effort a fresh row runs at.
+ */
+export const EFFORT_ESCALATION_TARGET = 'high';
+
+/**
+ * Effort levels at or above {@link EFFORT_ESCALATION_TARGET}. A generator already running at one of
+ * these has no headroom for the effort rung — the rung is spent and the policy falls through to the
+ * same-model nudge. Uses the Claude/Copilot superset (`high | xhigh | max`); the Codex vocabulary
+ * tops out at `high`, which is covered.
+ */
+const EFFORT_AT_OR_ABOVE_TARGET: ReadonlySet<string> = new Set(['high', 'xhigh', 'max']);
+
+/**
+ * Providers that expose a reasoning-effort dimension the adapter can raise. All three current
+ * providers do (see `settings.ts` per-provider effort enums). Modelled as a set — rather than
+ * assumed for every provider — so a future provider without an effort knob (or a caller that cannot
+ * resolve one, passing `undefined`) skips the effort rung gracefully instead of stamping a level the
+ * adapter would reject.
+ */
+const EFFORT_CAPABLE_PROVIDERS: ReadonlySet<AiProvider> = new Set<AiProvider>([
+  'claude-code',
+  'github-copilot',
+  'openai-codex',
+]);
+
+/**
+ * Same-model effort rung — the cheapest remedy on the graduated escalation ladder. Given the
+ * generator's provider and its currently-resolved effort, returns the effort level to escalate TO
+ * (always {@link EFFORT_ESCALATION_TARGET}), or `undefined` when the rung is unavailable:
+ *
+ *   - the provider has no effort dimension the caller could resolve (`undefined` provider, or a
+ *     future provider outside {@link EFFORT_CAPABLE_PROVIDERS}) — skip gracefully, never error; or
+ *   - the generator is already at or above the target (`high | xhigh | max`) — no headroom left.
+ *
+ * `currentEffort` is the resolved per-flow effort (`resolveEffort`/`resolveEffortForRow`): an
+ * explicit `undefined` means "CLI default" and IS below the target, so a fresh row (the shipped
+ * default posture, which sets no effort) escalates to `high`. Pure; no I/O.
+ *
+ * @public
+ */
+export const nextEffortRung = (
+  provider: AiProvider | undefined,
+  currentEffort: string | undefined
+): string | undefined => {
+  if (provider === undefined || !EFFORT_CAPABLE_PROVIDERS.has(provider)) return undefined;
+  if (currentEffort !== undefined && EFFORT_AT_OR_ABOVE_TARGET.has(currentEffort)) return undefined;
+  return EFFORT_ESCALATION_TARGET;
 };

@@ -86,6 +86,7 @@ export const markTaskDone = (task: Task, now: IsoTimestamp): Result<DoneTask, In
     ...(guard.value.externalRefs !== undefined ? { externalRefs: guard.value.externalRefs } : {}),
     ...(guard.value.escalatedFromModel !== undefined ? { escalatedFromModel: guard.value.escalatedFromModel } : {}),
     ...(guard.value.escalatedToModel !== undefined ? { escalatedToModel: guard.value.escalatedToModel } : {}),
+    ...(guard.value.escalatedToEffort !== undefined ? { escalatedToEffort: guard.value.escalatedToEffort } : {}),
     status: 'done',
     attempts,
     finalAttemptN: verified.n,
@@ -158,4 +159,21 @@ export const recordTaskEscalation = (
   const to = parseRequiredString('task.escalatedToModel', toModel);
   if (!to.ok) return Result.error(to.error);
   return Result.ok({ ...task, escalatedFromModel: from.value, escalatedToModel: to.value });
+};
+
+/**
+ * Stamp the same-model effort escalation onto an `in_progress` task. The counterpart of
+ * {@link recordTaskEscalation} for the graduated ladder's EFFORT rung: the model is unchanged, so
+ * only {@link InProgressTask.escalatedToEffort} is recorded — the generator leaf reads it on the
+ * next attempt to spawn at the raised reasoning effort. Re-stampable, but the policy fires the rung
+ * at most once (the next plateau sees the raised effort and falls through to the nudge). Validates
+ * the effort string is non-empty; the cost ceiling is policy-enforced, not here.
+ */
+export const recordTaskEffortEscalation = (
+  task: InProgressTask,
+  toEffort: string
+): Result<InProgressTask, ValidationError> => {
+  const to = parseRequiredString('task.escalatedToEffort', toEffort);
+  if (!to.ok) return Result.error(to.error);
+  return Result.ok({ ...task, escalatedToEffort: to.value });
 };

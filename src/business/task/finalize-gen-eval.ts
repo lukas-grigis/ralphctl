@@ -2,7 +2,9 @@ import { Result } from '@src/domain/result.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { AttemptWarning } from '@src/domain/entity/attempt.ts';
+import type { AiProvider } from '@src/domain/entity/settings.ts';
 import type { InProgressTask } from '@src/domain/entity/task.ts';
+import { recordTaskEffortEscalation } from '@src/domain/entity/task-settle.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
@@ -76,6 +78,21 @@ export interface FinalizeGenEvalProps {
    * `settings.ai.implement.generator.model`, mirroring the generator-leaf resolution order.
    */
   readonly generatorModel: string;
+  /**
+   * Provider the generator role runs on — forwarded to {@link decideEscalation} so the same-model
+   * EFFORT rung (`escalate-effort`) can decide whether the provider exposes a reasoning-effort
+   * dimension. OPTIONAL: when absent (or `undefined`) the policy never returns `escalate-effort` and
+   * the pre-effort-rung behaviour is byte-identical (top-of-ladder falls straight through to the
+   * same-model nudge). The leaf resolves it from the configured generator row.
+   */
+  readonly generatorProvider?: AiProvider | undefined;
+  /**
+   * The generator's currently-resolved reasoning effort (via `resolveEffortForRow`), or `undefined`
+   * for the CLI default. The leaf reads `task.escalatedToEffort ?? configured` so a prior effort bump
+   * is reflected here — the policy then sees the raised effort and stops re-firing the rung. Forwarded
+   * to {@link decideEscalation} alongside {@link generatorProvider}; OPTIONAL for the same reason.
+   */
+  readonly generatorEffort?: string | undefined;
   readonly eventBus: EventBus;
   readonly clock: () => IsoTimestamp;
 }
@@ -165,6 +182,11 @@ const resolveEscalatableRemedy = (
     flagOn: cfg.escalateOnPlateau,
     userMap: cfg.escalationMap,
     fallbackMaxAttempts: cfg.maxAttempts,
+    // Effort-rung context. Both are optional on the policy side: when the leaf did not resolve a
+    // provider (or the row carries no effort dimension the caller could resolve) the policy never
+    // returns `escalate-effort` and behaves exactly as before.
+    generatorProvider: props.generatorProvider,
+    generatorEffort: props.generatorEffort,
   });
   const applied = applyEscalation({
     task: props.task,
@@ -175,11 +197,22 @@ const resolveEscalatableRemedy = (
     clock: props.clock,
   });
   if (!applied.ok) return Result.error(applied.error);
-  // Both a model escalation and a same-model nudge grant one more attempt: fail the running attempt
-  // so the task stays in_progress and the outer loop re-enters (modulo the effective maxAttempts).
-  const shouldFailAttempt = decision.kind === 'escalate' || decision.kind === 'nudge';
+  // The same-model effort rung stamps NOTHING in `applyEscalation` (the model is unchanged, so its
+  // model fields must stay untouched). Stamp the raised effort here so the next generator spawn
+  // reads `task.escalatedToEffort` AND the next plateau sees the raised effort (stopping a re-fire).
+  let task = applied.value.task;
+  if (decision.kind === 'escalate-effort') {
+    const stamped = recordTaskEffortEscalation(task, decision.to);
+    if (!stamped.ok) return Result.error(stamped.error);
+    task = stamped.value;
+  }
+  // A model escalation, a same-model effort bump, and a same-model nudge each grant one more
+  // attempt: fail the running attempt so the task stays in_progress and the outer loop re-enters
+  // (modulo the effective maxAttempts).
+  const shouldFailAttempt =
+    decision.kind === 'escalate' || decision.kind === 'escalate-effort' || decision.kind === 'nudge';
   return Result.ok({
-    task: applied.value.task,
+    task,
     ...(applied.value.blockedReason !== undefined ? { blockedReason: applied.value.blockedReason } : {}),
     shouldFailAttempt,
   });

@@ -15,10 +15,13 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
 import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
 import { COPILOT_MODELS } from '@src/domain/value/settings-models/copilot.ts';
+import type { AiProvider } from '@src/domain/entity/settings.ts';
 import {
   DEFAULT_ESCALATION_MAP,
+  EFFORT_ESCALATION_TARGET,
   escalationLadderCyclicFrom,
   mergeEscalationMap,
+  nextEffortRung,
   warnEscalationMapSelfLoops,
 } from '@src/business/task/escalation-map.ts';
 
@@ -183,6 +186,38 @@ describe('DEFAULT_ESCALATION_MAP — catalog lockstep (mechanizes the section 14
     expect(fingerprint(CLAUDE_MODELS)).toBe('f49667dc324c37cc');
     expect(fingerprint(CODEX_MODELS)).toBe('d0af18882f9e15ac');
     expect(fingerprint(COPILOT_MODELS)).toBe('1f51a63b2cbf93f0');
+  });
+});
+
+describe('nextEffortRung', () => {
+  it('escalates a fresh (CLI-default) row to the target on an effort-capable provider', () => {
+    // The shipped default posture: no per-flow effort set → undefined → escalate to `high`.
+    expect(nextEffortRung('claude-code', undefined)).toBe(EFFORT_ESCALATION_TARGET);
+    expect(nextEffortRung('github-copilot', undefined)).toBe(EFFORT_ESCALATION_TARGET);
+    expect(nextEffortRung('openai-codex', undefined)).toBe(EFFORT_ESCALATION_TARGET);
+  });
+
+  it('escalates a below-target explicit effort to the target', () => {
+    expect(nextEffortRung('claude-code', 'low')).toBe(EFFORT_ESCALATION_TARGET);
+    expect(nextEffortRung('claude-code', 'medium')).toBe(EFFORT_ESCALATION_TARGET);
+    expect(nextEffortRung('openai-codex', 'minimal')).toBe(EFFORT_ESCALATION_TARGET);
+  });
+
+  it('returns undefined when already at or above the target (no headroom)', () => {
+    expect(nextEffortRung('claude-code', 'high')).toBeUndefined();
+    expect(nextEffortRung('claude-code', 'xhigh')).toBeUndefined();
+    expect(nextEffortRung('claude-code', 'max')).toBeUndefined();
+  });
+
+  it('returns undefined when no provider is resolvable (skips the rung gracefully)', () => {
+    expect(nextEffortRung(undefined, undefined)).toBeUndefined();
+    expect(nextEffortRung(undefined, 'low')).toBeUndefined();
+  });
+
+  it('returns undefined for a provider outside the effort-capable set (forward-compat)', () => {
+    // A future provider with no effort dimension must skip the rung rather than stamp a level the
+    // adapter would reject.
+    expect(nextEffortRung('some-future-provider' as AiProvider, undefined)).toBeUndefined();
   });
 });
 

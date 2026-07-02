@@ -5,7 +5,7 @@ import {
   markTaskBlocked,
   unblockTask,
 } from '@src/domain/entity/task-lifecycle.ts';
-import { recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
+import { recordTaskEffortEscalation, recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
 import { applyCriteriaVerdicts } from '@src/domain/entity/task-criteria.ts';
 import type { BlockedTask } from '@src/domain/entity/task.ts';
 import { makeInProgressTaskWithRunningAttempt, makeTodoTask } from '@tests/fixtures/domain.ts';
@@ -70,7 +70,10 @@ describe('unblockTask — clean restart (drops block fields, resets budget + esc
     const inProgress = makeInProgressTaskWithRunningAttempt({ maxAttempts: 3 });
     const escalated = recordTaskEscalation(inProgress, 'claude-sonnet-4-6', 'claude-opus-4-8');
     if (!escalated.ok) throw escalated.error;
-    const blocked = markTaskBlocked(escalated.value, 'attempt budget exhausted', 'own');
+    // Also carry a raised effort — the effort rung's per-run remedy must reset too.
+    const effortEscalated = recordTaskEffortEscalation(escalated.value, 'high');
+    if (!effortEscalated.ok) throw effortEscalated.error;
+    const blocked = markTaskBlocked(effortEscalated.value, 'attempt budget exhausted', 'own');
     if (!blocked.ok) throw blocked.error;
     expect(blocked.value.attempts.length).toBeGreaterThan(0);
 
@@ -81,6 +84,7 @@ describe('unblockTask — clean restart (drops block fields, resets budget + esc
     expect(back.value.attempts).toHaveLength(0); // fresh budget
     expect((back.value as unknown as Record<string, unknown>)['escalatedFromModel']).toBeUndefined();
     expect((back.value as unknown as Record<string, unknown>)['escalatedToModel']).toBeUndefined();
+    expect((back.value as unknown as Record<string, unknown>)['escalatedToEffort']).toBeUndefined();
     // The cap itself (a planning field) survives — only the consumed budget resets.
     expect(back.value.maxAttempts).toBe(3);
   });

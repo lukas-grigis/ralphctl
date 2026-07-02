@@ -103,6 +103,16 @@ interface TaskBase extends Entity<TaskId> {
    * never affected.
    */
   readonly escalatedToModel?: string;
+  /**
+   * Reasoning-effort level the next attempt's generator leaf must spawn with — stamped by the
+   * escalation policy's same-model EFFORT rung (`escalate-effort`) when the generator has reached
+   * the top of the model ladder but still has effort headroom below `high`. Re-stampable, though
+   * the rung fires at most once per task (the next plateau sees the raised effort and falls through
+   * to the nudge). The generator leaf prefers this value over the configured `effort` when present;
+   * the model itself is unchanged, so this is orthogonal to {@link escalatedToModel}. The evaluator
+   * role is never affected.
+   */
+  readonly escalatedToEffort?: string;
 }
 
 export interface TodoTask extends TaskBase {
