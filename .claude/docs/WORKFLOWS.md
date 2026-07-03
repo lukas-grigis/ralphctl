@@ -106,8 +106,10 @@ terminals it is an inert no-op (the help overlay labels it accordingly), while `
 **Customize picker's skills step + Skills catalog view.** The pre-launch customize picker (per AI flow:
 `Start` / `Customize for this run…` / `Cancel`) gained a skills step after the provider/model/effort row
 walk(s) — a checklist pre-checked to what would currently load, then `Apply for this run only` vs `Apply
-and remember for <flow>` (remember persists into `settings.ai.skills[flow].disabled`; see
-`AI-SETTINGS.md`). Skipped entirely for a flow with no AI row or no skill candidates to offer. The Home
+and remember for <flow>` (remember persists only the flow's registry-default names into
+`settings.ai.skills[flow].disabled`, merge-preserving hand-added entries — project / operator /
+phase-folder unchecks stay run-scoped; see `AI-SETTINGS.md`). Skipped entirely for a flow with no AI
+row, no skill candidates to offer, or a degraded (partially failed) candidate listing. The Home
 menu's `Skills catalog` view (hotkey `K`) is the enable / disable / update surface across every flow's
 opt-in phase folder: `e` enable, `d` disable, `u` update one, `U` update every out-of-date copy, `r`
 reload — the filesystem under `<appRoot>/skills/<flow>/` is the source of truth (see `ARCHITECTURE.md`

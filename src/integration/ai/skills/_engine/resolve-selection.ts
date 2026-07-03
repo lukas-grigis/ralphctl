@@ -16,8 +16,10 @@
  *     to the pre-decorator behaviour.
  *
  *  2. **subtract the disabled name-set.** `flowDisabled(flow)` returns the names to remove for that
- *     flow — the launcher supplies the union of the durable `settings.ai.skills[flow].disabled`
- *     preference and the per-run `LaunchExtras.skillsOverride.disabled`. Subtraction is by exact
+ *     flow — the launcher supplies the per-run `LaunchExtras.skillsOverride.disabled` when present,
+ *     otherwise the durable `settings.ai.skills[flow].disabled` preference (the run override
+ *     REPLACES the saved row — never a union — so a run can re-enable a remembered opt-out).
+ *     Subtraction is by exact
  *     install name, so it applies to ANY skill (bundled, project, operator, or phase-folder) — the
  *     opt-out is name-based, not source-based.
  *
@@ -62,9 +64,9 @@ export interface ResolvedSkillSourceDeps {
   /** The composed union source (bundled + project + operator + phase folder, in that order). */
   readonly inner: SkillSource;
   /**
-   * Names to SUBTRACT for a flow — the launcher supplies the union of the saved
-   * `settings.ai.skills[flow].disabled` preference and the per-run `skillsOverride.disabled`.
-   * Called per `getForFlow`; the launcher's closure is run-scoped so the returned set is the same
+   * Names to SUBTRACT for a flow — the launcher supplies the per-run `skillsOverride.disabled`
+   * when present, otherwise the saved `settings.ai.skills[flow].disabled` preference (run
+   * REPLACES saved). Called per `getForFlow`; the launcher's closure is run-scoped so the returned set is the same
    * across a run. The `flowId` argument keeps the decorator generic (a v2 recommender can key on
    * it); duplicate names in the returned array are harmless — they collapse into a `Set`.
    */

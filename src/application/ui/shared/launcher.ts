@@ -527,6 +527,13 @@ export interface SkillCandidatesResult {
   readonly candidates: readonly SkillCandidate[];
   /** Names in the durable `settings.ai.skills[flow].disabled` row, before any per-run change. */
   readonly savedDisabled: readonly string[];
+  /**
+   * At least one source's listing FAILED, so `candidates` is incomplete. The caller must not
+   * show a checklist built from it (an unchecked-set complement over a partial list reads as
+   * "disable everything missing") and must never persist a "remember" choice computed from it —
+   * `flows-view.tsx` skips the skills step outright when this is set.
+   */
+  readonly degraded: boolean;
 }
 
 /**
@@ -547,17 +554,30 @@ export const buildSkillCandidates = async (
   deps: LauncherDeps,
   snapshot: AppStateSnapshot,
   flowId: string,
-  settings: Settings
+  settings: Settings,
+  providerOverride?: AiProvider
 ): Promise<SkillCandidatesResult> => {
   const aiFlow = aiFlowIdFor(flowId);
-  if (aiFlow === undefined || !flowMountsSkills(flowId)) return { candidates: [], savedDisabled: [] };
+  if (aiFlow === undefined || !flowMountsSkills(flowId)) {
+    return { candidates: [], savedDisabled: [], degraded: false };
+  }
 
-  const resolvedProvider = primaryFlowRow(settings.ai, aiFlow).provider;
+  // Operator skills are provider-scoped; the picker re-fetches with the row walk's overridden
+  // provider so the checklist matches what the run would actually install.
+  const resolvedProvider = providerOverride ?? primaryFlowRow(settings.ai, aiFlow).provider;
   const { bundled, project, operator, phase } = buildSkillSourceQuad(deps, snapshot, resolvedProvider);
 
+  // A failed listing degrades the whole result instead of silently narrowing it: the bundled
+  // source hard-fails on one unreadable SKILL.md, and a checklist missing every bundled default
+  // would let a "remember" save erase the operator's saved opt-outs over a transient read error.
+  let degraded = false;
   const tagged = async (source: SkillSource, origin: SkillCandidate['origin']): Promise<readonly SkillCandidate[]> => {
     const r = await source.getForFlow(aiFlow);
-    if (!r.ok) return [];
+    if (!r.ok) {
+      degraded = true;
+      deps.app.logger.warn(`skills checklist: ${origin} listing failed — ${r.error.message}`);
+      return [];
+    }
     return r.value.map((skill) => ({ name: skill.name, description: skill.description, origin }));
   };
 
@@ -574,20 +594,8 @@ export const buildSkillCandidates = async (
   const candidates = merged.filter((c, i) => lastIndexByName.get(c.name) === i);
 
   const savedDisabled = settings.ai.skills?.[aiFlow]?.disabled ?? [];
-  return { settingsFlow: aiFlow, candidates, savedDisabled };
+  return { settingsFlow: aiFlow, candidates, savedDisabled, degraded };
 };
-
-/**
- * Names in `candidates` whose origin is `bundled-default` — the only names the customize
- * picker's "remember" save writes into `settings.ai.skills[flow].disabled`. Project / operator /
- * phase-folder skill unchecks stay run-scoped: those sources are runtime-dependent (per-repo,
- * per-provider, per-catalog-enable) so persisting an opt-out for one would be scoped confusingly
- * against the next run's actual source contents.
- *
- * @public
- */
-export const bundledDefaultSkillNames = (candidates: readonly SkillCandidate[]): ReadonlySet<string> =>
-  new Set(candidates.filter((c) => c.origin === 'bundled-default').map((c) => c.name));
 
 /**
  * Pin the launch snapshot's project / sprint onto a successful dispatch result. create-sprint

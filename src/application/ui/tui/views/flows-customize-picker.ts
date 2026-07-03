@@ -85,9 +85,11 @@ const modelChoice = (m: string): Choice<string> => {
 /**
  * Outcome of the skills step (see {@link runSkillsStep}) — carried on every non-cancel
  * {@link CustomizePickerResult} variant. `disabled` is the full per-run disable set (any origin);
- * `saveAsDefault` tells `flows-view.tsx` whether to persist the bundled-default subset of
- * `disabled` into `settings.ai.skills[flow].disabled` (see `bundledDefaultSkillNames` in
- * `launcher.ts`). Absent `skills` on a result means the user kept the current skill set (either
+ * `saveAsDefault` tells `flows-view.tsx` whether to persist the registry-default subset of
+ * `disabled` into `settings.ai.skills[flow].disabled` (see `applySkillsRememberChoice` in
+ * `flows-launch-extras.ts` — names are matched against `skillsForFlow`, so a phase-folder copy
+ * shadowing a bundled default still persists). Absent `skills` on a result means the user kept
+ * the current skill set (either
  * the picker had no candidates to offer, or the user picked "Keep skills").
  */
 export interface SkillsCustomizeResult {
@@ -360,6 +362,14 @@ export interface RunCustomizePickerArgs {
    * skips the skills step entirely — see {@link runSkillsStep}.
    */
   readonly skillCandidates?: SkillCandidatesResult;
+  /**
+   * Re-fetch candidates for a provider the row walk just picked. The prefetched snapshot was
+   * built with the SAVED provider, but operator drop-in skills are provider-scoped — a per-run
+   * provider override changes what would actually install. When present and the walk overrode
+   * the provider, the skills step lists the rebuilt set; a failed/degraded rebuild falls back to
+   * the prefetched snapshot rather than dropping the step.
+   */
+  readonly rebuildSkillCandidates?: (provider: AiProvider) => Promise<SkillCandidatesResult | undefined>;
 }
 
 /**
@@ -384,6 +394,30 @@ const originLabel = (origin: SkillCandidate['origin']): string => {
     case 'operator':
       return 'operator';
   }
+};
+
+type RebuildSkillCandidates = (provider: AiProvider) => Promise<SkillCandidatesResult | undefined>;
+
+/** Skills-step inputs bundled so the two customize paths thread one bag, not two params. */
+interface SkillsStepInput {
+  readonly candidates?: SkillCandidatesResult;
+  readonly rebuild?: RebuildSkillCandidates;
+}
+
+/**
+ * Candidates the skills step should actually list, given the provider the row walk just chose.
+ * No override / no rebuild hook / nothing prefetched → the prefetched snapshot as-is. A rebuild
+ * that fails or comes back degraded keeps the prefetched snapshot — a stale-but-complete list
+ * beats silently dropping the step.
+ */
+const effectiveSkillCandidates = async (
+  prefetched: SkillCandidatesResult | undefined,
+  rebuild: RebuildSkillCandidates | undefined,
+  overriddenProvider: AiProvider | undefined
+): Promise<SkillCandidatesResult | undefined> => {
+  if (prefetched === undefined || rebuild === undefined || overriddenProvider === undefined) return prefetched;
+  const rebuilt = await rebuild(overriddenProvider);
+  return rebuilt !== undefined && rebuilt.degraded !== true ? rebuilt : prefetched;
 };
 
 /** Outcome of {@link runSkillsStep}. */
@@ -441,7 +475,11 @@ const runSkillsStep = async (
 
   const saveAns = await interactive.askChoice<'run-only' | 'remember'>('Remember this choice?', [
     { label: 'Apply for this run only', value: 'run-only' },
-    { label: `Apply and remember for ${flowTitle}`, value: 'remember' },
+    {
+      label: `Apply and remember for ${flowTitle}`,
+      value: 'remember',
+      description: 'Remembers bundled defaults only — other unchecks apply to this run',
+    },
   ]);
   if (!saveAns.ok) return { cancelled: true };
 
@@ -463,7 +501,7 @@ const runImplementCustomize = async (
   flowTitle: string,
   settings: Settings,
   availableModelsFor: ((provider: AiProvider) => Promise<readonly string[]>) | undefined,
-  skillCandidates: SkillCandidatesResult | undefined
+  skillsStepInput: SkillsStepInput
 ): Promise<CustomizePickerResult> => {
   const roles: readonly AiImplementRole[] = ['generator', 'evaluator'];
   const collected: {
@@ -478,7 +516,14 @@ const runImplementCustomize = async (
     if (Object.keys(result).length > 0) collected[role] = result;
   }
 
-  const skillsStep = await runSkillsStep(interactive, flowTitle, skillCandidates);
+  // Skills install under the GENERATOR's resolved provider (the flow row `buildLaunchAdapters`
+  // reads for implement), so a generator provider override re-lists the candidates.
+  const candidates = await effectiveSkillCandidates(
+    skillsStepInput.candidates,
+    skillsStepInput.rebuild,
+    collected.generator?.provider
+  );
+  const skillsStep = await runSkillsStep(interactive, flowTitle, candidates);
   if (skillsStep.cancelled) return { kind: 'cancel' };
   const skills = skillsStep.skills;
 
@@ -507,14 +552,19 @@ const runSingleRowCustomize = async (
   flowTitle: string,
   settings: Settings,
   availableModelsFor: ((provider: AiProvider) => Promise<readonly string[]>) | undefined,
-  skillCandidates: SkillCandidatesResult | undefined
+  skillsStepInput: SkillsStepInput
 ): Promise<CustomizePickerResult> => {
   const defaultRow = defaultRowFor(flowId, settings);
   if (defaultRow === undefined) return { kind: 'defaults' };
   const override = await customizeRow(interactive, header, defaultRow, settings.ai.effort, availableModelsFor);
   if (override === undefined) return { kind: 'cancel' };
 
-  const skillsStep = await runSkillsStep(interactive, flowTitle, skillCandidates);
+  const candidates = await effectiveSkillCandidates(
+    skillsStepInput.candidates,
+    skillsStepInput.rebuild,
+    override.provider
+  );
+  const skillsStep = await runSkillsStep(interactive, flowTitle, candidates);
   if (skillsStep.cancelled) return { kind: 'cancel' };
   const skills = skillsStep.skills;
 
@@ -540,6 +590,7 @@ export const runCustomizePicker = async ({
   settings,
   availableModelsFor,
   skillCandidates,
+  rebuildSkillCandidates,
 }: RunCustomizePickerArgs): Promise<CustomizePickerResult> => {
   const aiFlow = aiFlowIdForPicker(flowId);
   if (aiFlow === undefined) return { kind: 'defaults' };
@@ -557,9 +608,13 @@ export const runCustomizePicker = async ({
   if (!action.ok || action.value === 'cancel') return { kind: 'cancel' };
   if (action.value === 'start') return { kind: 'defaults' };
 
+  const skillsStepInput: SkillsStepInput = {
+    ...(skillCandidates !== undefined ? { candidates: skillCandidates } : {}),
+    ...(rebuildSkillCandidates !== undefined ? { rebuild: rebuildSkillCandidates } : {}),
+  };
   if (flowId === 'implement') {
-    return runImplementCustomize(interactive, header, flowTitle, settings, availableModelsFor, skillCandidates);
+    return runImplementCustomize(interactive, header, flowTitle, settings, availableModelsFor, skillsStepInput);
   }
 
-  return runSingleRowCustomize(interactive, header, flowId, flowTitle, settings, availableModelsFor, skillCandidates);
+  return runSingleRowCustomize(interactive, header, flowId, flowTitle, settings, availableModelsFor, skillsStepInput);
 };

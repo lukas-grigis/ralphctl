@@ -30,7 +30,6 @@ import { join } from 'node:path';
 import {
   buildComposedSkillSource,
   buildSkillCandidates,
-  bundledDefaultSkillNames,
   flowMountsSkills,
 } from '@src/application/ui/shared/launcher.ts';
 import type { LauncherDeps } from '@src/application/ui/shared/launcher.ts';
@@ -210,11 +209,11 @@ describe('buildSkillCandidates — pre-subtraction, origin-tagged candidate list
   it('returns empty for a flow with no AI row and for one flowMountsSkills rejects', async () => {
     const deps = await makeDeps();
     const nonAi = await buildSkillCandidates(deps, snapshot, 'create-sprint', DEFAULT_SETTINGS);
-    expect(nonAi).toEqual({ candidates: [], savedDisabled: [] });
+    expect(nonAi).toEqual({ candidates: [], savedDisabled: [], degraded: false });
 
     // `review` HAS an AI row (aliases implement) but its own launcher never mounts skillSource.
     const nonMounting = await buildSkillCandidates(deps, snapshot, 'review', DEFAULT_SETTINGS);
-    expect(nonMounting).toEqual({ candidates: [], savedDisabled: [] });
+    expect(nonMounting).toEqual({ candidates: [], savedDisabled: [], degraded: false });
   });
 
   it('lists every bundled-default skill for the flow, tagged with origin bundled-default', async () => {
@@ -239,20 +238,20 @@ describe('buildSkillCandidates — pre-subtraction, origin-tagged candidate list
   });
 });
 
-describe('bundledDefaultSkillNames', () => {
-  it('keeps only bundled-default-origin names, dropping project / operator / phase-folder names', async () => {
+describe('buildSkillCandidates — degraded flag + provider override', () => {
+  it('flags a healthy listing as not degraded', async () => {
     const deps = await makeDeps();
-    const { candidates } = await buildSkillCandidates(deps, snapshot, 'implement', DEFAULT_SETTINGS);
-    const withExtra = [
-      ...candidates,
-      { name: 'ralphctl-fixture-repo-setup', description: 'setup', origin: 'project' as const },
-      { name: 'ralphctl-operator-thing', description: 'operator', origin: 'operator' as const },
-      { name: 'ralphctl-opted-in', description: 'opt-in', origin: 'phase-folder' as const },
-    ];
-    const bundledNames = bundledDefaultSkillNames(withExtra);
-    expect(bundledNames.has('ralphctl-fixture-repo-setup')).toBe(false);
-    expect(bundledNames.has('ralphctl-operator-thing')).toBe(false);
-    expect(bundledNames.has('ralphctl-opted-in')).toBe(false);
-    for (const c of candidates) expect(bundledNames.has(c.name)).toBe(true);
+    const result = await buildSkillCandidates(deps, snapshot, 'implement', DEFAULT_SETTINGS);
+    expect(result.degraded).toBe(false);
+  });
+
+  it('re-lists with the overridden provider without touching the saved settings row', async () => {
+    const deps = await makeDeps();
+    const saved = await buildSkillCandidates(deps, snapshot, 'implement', DEFAULT_SETTINGS);
+    const overridden = await buildSkillCandidates(deps, snapshot, 'implement', DEFAULT_SETTINGS, 'openai-codex');
+    // Bundled defaults are provider-agnostic — both listings carry the same names in this
+    // fixture (its operator dirs are empty); the override must not degrade or reorder.
+    expect(overridden.candidates.map((c) => c.name)).toEqual(saved.candidates.map((c) => c.name));
+    expect(overridden.degraded).toBe(false);
   });
 });

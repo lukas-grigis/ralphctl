@@ -14,17 +14,17 @@ import { createSettingsSetFlow } from '@src/application/flows/settings-set/flow.
 import type { FlowEntry } from '@src/application/registry.ts';
 import {
   buildSkillCandidates,
-  bundledDefaultSkillNames,
   flowMountsSkills,
   type LaunchExtras,
   type LauncherDeps,
   type SkillCandidatesResult,
 } from '@src/application/ui/shared/launcher.ts';
+import { skillsForFlow } from '@src/integration/ai/skills/_engine/registry.ts';
 import type { AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
 import { getImplementRoleOverrides } from '@src/application/ui/tui/runtime/implement-role-overrides.ts';
 import type { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import type { CustomizePickerResult } from '@src/application/ui/tui/views/flows-customize-picker.ts';
-import type { Settings } from '@src/domain/entity/settings.ts';
+import type { AiProvider, AiSkillsSettings, Settings } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 
@@ -42,6 +42,16 @@ export const prefetchSkillCandidates = (
   flowMountsSkills(flowId)
     ? buildSkillCandidates(launcherDeps, snapshot, flowId, settings)
     : Promise.resolve(undefined);
+
+/**
+ * Closure the picker calls to re-list candidates for a provider its row walk just picked —
+ * operator drop-ins are provider-scoped, so the prefetched (saved-provider) snapshot can be
+ * stale the moment the user overrides the provider for the run.
+ */
+export const makeRebuildSkillCandidates =
+  (launcherDeps: LauncherDeps, snapshot: AppStateSnapshot, flowId: string, settings: Settings) =>
+  (provider: AiProvider): Promise<SkillCandidatesResult | undefined> =>
+    buildSkillCandidates(launcherDeps, snapshot, flowId, settings, provider);
 
 /**
  * Assemble the per-launch {@link LaunchExtras} from the resolved repository id, the customize
@@ -86,10 +96,9 @@ export const buildLaunchExtras = (
 };
 
 /**
- * Persist the "remember" half of the skills step: only the bundled-default subset of the picker's
- * disabled names (project / operator / phase-folder unchecks stay run-scoped — see
- * `bundledDefaultSkillNames`). A full read-modify-write of the already-loaded `settings` via the
- * same `settings-set` seam every other TUI mutation uses (`settings-mutations.ts`'s `persistKey`).
+ * Persist the "remember" half of the skills step. A full read-modify-write of the already-loaded
+ * `settings` via the same `settings-set` seam every other TUI mutation uses
+ * (`settings-mutations.ts`'s `persistKey`).
  */
 const persistSkillsDefault = async (
   settingsRepo: AppDeps['settingsRepo'],
@@ -97,12 +106,10 @@ const persistSkillsDefault = async (
   settingsFlow: FlowId,
   disabled: readonly string[]
 ): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }> => {
+  const skills: AiSkillsSettings = { ...settings.ai.skills, [settingsFlow]: { disabled } };
   const nextSettings: Settings = {
     ...settings,
-    ai: {
-      ...settings.ai,
-      skills: { ...settings.ai.skills, [settingsFlow]: { disabled } },
-    } as Settings['ai'],
+    ai: { ...settings.ai, skills } as Settings['ai'],
   };
   const saved = await createSettingsSetFlow({ settingsRepo }).execute({ input: { next: nextSettings } });
   if (!saved.ok) return { ok: false, message: saved.error.error.message };
@@ -111,10 +118,19 @@ const persistSkillsDefault = async (
 
 /**
  * Drive the picker's "remember" choice, if any. No-op (returns `undefined`) when the user kept
- * skills at default, picked "run only", or the flow never surfaced candidates in the first place.
- * Non-fatal on failure — the run itself already carries the full override via
- * {@link buildLaunchExtras}'s `skillsOverride`, independent of whether this save succeeds; the
- * caller surfaces the returned message as a soft warning and proceeds with the launch regardless.
+ * skills at default, picked "run only", the flow never surfaced candidates in the first place, or
+ * the candidate listing came back degraded (a complement computed over a partial list must never
+ * overwrite the saved row). Non-fatal on failure — the run itself already carries the full
+ * override via {@link buildLaunchExtras}'s `skillsOverride`, independent of whether this save
+ * succeeds; the caller surfaces the returned message as a soft warning and proceeds regardless.
+ *
+ * What persists is decided by NAME against the registry (`skillsForFlow`), not by candidate
+ * origin — a phase-folder copy shadowing a bundled default still counts as that default. The
+ * saved row is merged, not replaced: previously saved names OUTSIDE the flow's registry defaults
+ * (hand-added entries) survive; registry-default names the user re-checked drop out; only
+ * registry-default names the user unchecked are (re)added. Project / operator / phase-folder
+ * unchecks stay run-scoped — those sources are runtime-dependent (per-repo, per-provider,
+ * per-catalog-enable), so a durable opt-out for them would be scoped confusingly.
  */
 export const applySkillsRememberChoice = async (
   settingsRepo: AppDeps['settingsRepo'],
@@ -124,10 +140,17 @@ export const applySkillsRememberChoice = async (
 ): Promise<string | undefined> => {
   if (picker.kind === 'cancel' || picker.skills?.saveAsDefault !== true) return undefined;
   if (skillCandidates?.settingsFlow === undefined) return undefined;
+  if (skillCandidates.degraded) {
+    return "Skills listing was incomplete — preference not saved (this run's choice still applies).";
+  }
 
-  const bundledOnly = picker.skills.disabled.filter((name) =>
-    bundledDefaultSkillNames(skillCandidates.candidates).has(name)
-  );
-  const persisted = await persistSkillsDefault(settingsRepo, settings, skillCandidates.settingsFlow, bundledOnly);
+  const settingsFlow = skillCandidates.settingsFlow;
+  const registryDefaults = new Set(skillsForFlow(settingsFlow));
+  const previouslySaved = settings.ai.skills?.[settingsFlow]?.disabled ?? [];
+  const handAdded = previouslySaved.filter((name) => !registryDefaults.has(name));
+  const uncheckedDefaults = picker.skills.disabled.filter((name) => registryDefaults.has(name));
+  const disabled = [...new Set([...handAdded, ...uncheckedDefaults])];
+
+  const persisted = await persistSkillsDefault(settingsRepo, settings, settingsFlow, disabled);
   return persisted.ok ? undefined : `Couldn't remember skills preference: ${persisted.message}`;
 };

@@ -921,7 +921,7 @@ describe('runCustomizePicker — availableModelsFor gates the model step', () =>
   });
 });
 
-describe('runCustomizePicker — skills step (T6)', () => {
+describe('runCustomizePicker — skills step', () => {
   // Fixture candidates — two bundled-default skills for `refine`, neither saved-disabled.
   const FIXTURE_CANDIDATES: SkillCandidatesResult = {
     settingsFlow: 'refine',
@@ -930,6 +930,7 @@ describe('runCustomizePicker — skills step (T6)', () => {
       { name: 'ralphctl-iterative-review', description: 'Iterate on the review', origin: 'bundled-default' },
     ],
     savedDisabled: [],
+    degraded: false,
   };
 
   /** Row-walk script that keeps every default for `refine` — used as a customize-path prefix. */
@@ -960,7 +961,7 @@ describe('runCustomizePicker — skills step (T6)', () => {
       flowId: 'refine',
       flowTitle: 'Refine',
       settings: DEFAULT_SETTINGS,
-      skillCandidates: { settingsFlow: 'refine', candidates: [], savedDisabled: [] },
+      skillCandidates: { settingsFlow: 'refine', candidates: [], savedDisabled: [], degraded: false },
     });
     expect(result.kind).toBe('defaults');
     expect((result as { skills?: unknown }).skills).toBeUndefined();
@@ -1165,11 +1166,12 @@ describe('runCustomizePicker — skills step (T6)', () => {
   });
 });
 
-describe('runCustomizePicker — implement skills step runs once, flow-level (T6)', () => {
+describe('runCustomizePicker — implement skills step runs once, flow-level', () => {
   const FIXTURE_CANDIDATES: SkillCandidatesResult = {
     settingsFlow: 'implement',
     candidates: [{ name: 'ralphctl-alignment', description: 'Confirm scope', origin: 'bundled-default' }],
     savedDisabled: [],
+    degraded: false,
   };
 
   it('keep-all-defaults on both roles + customize skills → skills step runs exactly once', async () => {

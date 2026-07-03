@@ -43,6 +43,7 @@ import { runCustomizePicker } from '@src/application/ui/tui/views/flows-customiz
 import {
   applySkillsRememberChoice,
   buildLaunchExtras,
+  makeRebuildSkillCandidates,
   prefetchSkillCandidates,
 } from '@src/application/ui/tui/views/flows-launch-extras.ts';
 import { runRepositorySelection } from '@src/application/ui/tui/views/flows-repository-picker.ts';
@@ -330,7 +331,10 @@ const createFlowSelectHandler = (
       // exactOptionalPropertyTypes: only pass the key when defined — the picker arg is
       // `?`-optional (absent), not `| undefined`. Absent ⇒ picker falls back to modelCatalogFor.
       ...(deps.availableModelsFor !== undefined ? { availableModelsFor: deps.availableModelsFor } : {}),
-      ...(skillCandidates !== undefined ? { skillCandidates } : {}),
+      // A degraded listing (some source failed) is withheld entirely: a checklist over a partial
+      // candidate set misreads as "disable everything missing" — the failure is already logged.
+      ...(skillCandidates !== undefined && !skillCandidates.degraded ? { skillCandidates } : {}),
+      rebuildSkillCandidates: makeRebuildSkillCandidates(launcherDeps, snapshot, entry.manifest.id, settings),
     });
     if (picker.kind === 'cancel') return;
 
@@ -338,7 +342,12 @@ const createFlowSelectHandler = (
     // override via `buildLaunchExtras`'s `skillsOverride`, so a save failure only means the
     // preference didn't stick for next time.
     const rememberError = await applySkillsRememberChoice(deps.settingsRepo, settings, skillCandidates, picker);
-    if (rememberError !== undefined) setLaunchError(rememberError);
+    if (rememberError !== undefined) {
+      // Also log it: on a successful launch this view is replaced immediately, destroying the
+      // local error state before the user can read it — the session log keeps the trace.
+      launcherDeps.app.logger.warn(rememberError);
+      setLaunchError(rememberError);
+    }
 
     const launchExtras = buildLaunchExtras(picker, entry, chosenRepositoryId, ui, settings);
     const result = await runFlowLaunch(launcherDeps, entry, snapshot, launchExtras, { selection, sessions });

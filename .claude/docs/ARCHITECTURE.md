@@ -226,8 +226,8 @@ Four `SkillSource` implementations compose into one union at launch time (`build
 `createResolvedSkillSource` (`_engine/resolve-selection.ts`) wraps the composed union as the single skill-
 selection resolution seam: `getForFlow` dedupes by install name keeping the LAST occurrence (so a phase-
 folder copy of a bundled name shadows the bundled default — composition order is load-bearing), then
-subtracts a per-flow disabled-name set — the union of the durable `settings.ai.skills[flow].disabled`
-preference and the customize picker's per-run `skillsOverride` (a run override REPLACES the saved
+subtracts a per-flow disabled-name set — the customize picker's per-run `skillsOverride` when present,
+otherwise the durable `settings.ai.skills[flow].disabled` preference (a run override REPLACES the saved
 preference outright, so it can also re-enable a remembered-off skill for one run). `getByName` passes
 through unfiltered — it is a name-_resolution_ seam for the readiness flow's `offer-skill-suggestions`
 leaf, not an install seam, so opt-out never hides a name from being recognised.
