@@ -1,6 +1,6 @@
 ---
 name: ralphctl-minimal-scaffolding
-description: Cross-phase skill — question every harness component on every model bump; remove non-load-bearing pieces one at a time with measurement. Complexity drifts upward by default; subtraction requires discipline. Governs the surrounding harness's own scaffolding, not the task's application code — for code-level minimalism see ralphctl-ponytail, ralphctl-surgical-simplicity, and ralphctl-karpathy-guidelines.
+description: Cross-phase skill — question every harness component on every model bump; remove non-load-bearing pieces one at a time with measurement. Complexity drifts upward by default; subtraction requires discipline. Governs the surrounding harness's own scaffolding, not the task's application code — for code-level minimalism defer to the ralphctl-ponytail, ralphctl-surgical-simplicity, and ralphctl-karpathy-guidelines skills when installed in this session.
 ---
 
 # Minimal Scaffolding

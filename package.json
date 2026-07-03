@@ -33,7 +33,8 @@
     "ralphctl": "./dist/cli.mjs"
   },
   "files": [
-    "dist/"
+    "dist/",
+    "THIRD-PARTY-NOTICES.md"
   ],
   "publishConfig": {
     "access": "public"

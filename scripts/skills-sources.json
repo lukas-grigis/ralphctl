@@ -1,7 +1,9 @@
 {
-  "$comment": "Maintainer-only manifest mapping each UPSTREAM-DERIVED bundled skill to its upstream source. Drives `pnpm skills:update` (scripts/sync-skills.ts), which refreshes the raw-upstream cache under scripts/vendor/skills/ so `git diff scripts/vendor/` shows what changed upstream since the last sync. The maintainer then hand-re-applies the de-JS / compat adaptation to the live bundled SKILL.md under src/integration/ai/skills/bundled/<name>/. Bundled skills are FROZEN committed source — this tooling never touches src/.",
+  "$comment": "Maintainer-only manifest mapping each UPSTREAM-DERIVED bundled skill to its upstream source. Drives `pnpm skills:update` (scripts/sync-skills.ts), which refreshes the raw-upstream cache under scripts/vendor/skills/ so `git diff scripts/vendor/` shows what changed upstream since the last sync. The maintainer then hand-re-applies the de-JS / compat adaptation to the live bundled SKILL.md under src/integration/ai/skills/bundled/<name>/. Bundled skills are FROZEN committed source \u2014 this tooling never touches src/.",
   "$cleanRoom": [
-    "ralphctl-surgical-simplicity is clean-room (authored in-repo, no upstream) — intentionally omitted from `skills` below; `pnpm skills:update` does not manage it."
+    "ralphctl-surgical-simplicity is clean-room (authored in-repo, no upstream) \u2014 intentionally omitted from `skills` below; `pnpm skills:update` does not manage it.",
+    "ralphctl-karpathy-guidelines is clean-room (distilled from Andrej Karpathy's public X post https://x.com/karpathy/status/2015883857489522876 \u2014 concepts only, no upstream SKILL.md) \u2014 not sync-managed.",
+    "ralphctl-cherny-workflow is clean-room (distilled from Boris Cherny's public X thread https://x.com/bcherny/status/2007179832300581177 \u2014 concepts only, no upstream SKILL.md) \u2014 not sync-managed."
   ],
   "skills": [
     {

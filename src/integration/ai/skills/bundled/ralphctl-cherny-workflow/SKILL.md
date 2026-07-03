@@ -1,6 +1,6 @@
 ---
 name: ralphctl-cherny-workflow
-description: Session-discipline skill — settle the plan before touching code, work in small verified increments with a feedback loop that proves each change works, and record corrections so the same mistake is not repeated. Use when executing multi-step coding tasks where batching unverified work would compound risk; bundles plan-first sequencing and learning capture on top of the narrower per-change habits in ralphctl-iterative-review and ralphctl-karpathy-guidelines.
+description: Session-discipline skill — settle the plan before touching code, work in small verified increments with a feedback loop that proves each change works, and record corrections so the same mistake is not repeated. Use when executing multi-step coding tasks where batching unverified work would compound risk; bundles plan-first sequencing and learning capture on top of the narrower per-change habits in ralphctl-iterative-review and (when installed) ralphctl-karpathy-guidelines.
 ---
 
 # Cherny Workflow

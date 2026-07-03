@@ -1,6 +1,6 @@
 ---
 name: ralphctl-ponytail
-description: Anti-over-engineering ladder for choosing HOW to implement something — before writing custom code, climb the rungs in order and stop at the first that holds. Does this need to exist at all (YAGNI) → already in the codebase → standard library → native platform feature → already-installed dependency → one line → minimum code that works. Use when picking an implementation approach or evaluating a new dependency; for keeping the footprint of an already-chosen approach small, see ralphctl-surgical-simplicity.
+description: Anti-over-engineering ladder for choosing HOW to implement something — before writing custom code, climb the rungs in order and stop at the first that holds. Does this need to exist at all (YAGNI) → already in the codebase → standard library → native platform feature → already-installed dependency → one line → minimum code that works. Use when picking an implementation approach or evaluating a new dependency; for keeping the footprint of an already-chosen approach small, defer to the ralphctl-surgical-simplicity skill when installed.
 license: MIT
 ---
 

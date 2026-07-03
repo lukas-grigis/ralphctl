@@ -1,6 +1,6 @@
 ---
 name: ralphctl-karpathy-guidelines
-description: Behavioural guardrails against four empirical LLM coding failure modes — silent assumptions, over-complication, orthogonal damage to code you don't fully understand, and declaring done without verification. Use when writing, reviewing, or refactoring code to surface assumptions early, keep changes proportionate to the task, and loop until explicit success criteria pass; broader than the implementation-choice ladder in ralphctl-ponytail or the scope checklist in ralphctl-surgical-simplicity, which it complements rather than duplicates.
+description: Behavioural guardrails against four empirical LLM coding failure modes — silent assumptions, over-complication, orthogonal damage to code you don't fully understand, and declaring done without verification. Use when writing, reviewing, or refactoring code to surface assumptions early, keep changes proportionate to the task, and loop until explicit success criteria pass; broader than the implementation-choice ladder in ralphctl-ponytail or the scope checklist in ralphctl-surgical-simplicity (when those are installed), which it complements rather than duplicates.
 ---
 
 # Karpathy Guidelines

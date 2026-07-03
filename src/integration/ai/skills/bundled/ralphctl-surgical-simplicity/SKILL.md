@@ -1,6 +1,6 @@
 ---
 name: ralphctl-surgical-simplicity
-description: Execute-phase scope-containment checklist — write the minimum code the task needs and touch only the files and lines the task requires; surface out-of-scope findings as notes rather than fixing them inline. Governs the footprint of a change whose approach is already decided; for choosing that implementation approach itself, see ralphctl-ponytail.
+description: Execute-phase scope-containment checklist — write the minimum code the task needs and touch only the files and lines the task requires; surface out-of-scope findings as notes rather than fixing them inline. Governs the footprint of a change whose approach is already decided; for choosing that implementation approach itself, defer to the ralphctl-ponytail skill when installed.
 ---
 
 # Surgical Simplicity

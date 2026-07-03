@@ -2,7 +2,8 @@
  * `createBundledSkillSource` — implementation of {@link SkillSource} backed by the bundled
  * skill folders that live next to this module (`<name>/SKILL.md`).
  *
- * The set of skills returned per flow comes from {@link FLOW_SKILLS}. For each name in that
+ * The set of skills returned per flow comes from {@link skillsForFlow} (the registry's
+ * `defaultFor` derivation). For each name in that
  * list, the source reads `<bundledRoot>/<name>/SKILL.md`, parses YAML frontmatter (`name`,
  * `description` — frontmatter `name` must match the folder name per the Agent Skills spec)
  * and returns the canonical {@link Skill} record.

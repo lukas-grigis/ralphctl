@@ -19,7 +19,7 @@
  * to the emitted {@link Skill} record.
  *
  * Operator skills are provider-scoped, not flow-scoped: `getForFlow` ignores `flowId` and
- * returns the provider's full set for every skill-mounting flow. They are NOT in `FLOW_SKILLS`.
+ * returns the provider's full set for every skill-mounting flow. They are NOT in `BUNDLED_SKILLS`.
  *
  * Resilience contract (the operator owns these skills — never fail the run for a bad one):
  *  - a missing `<root>/<providerDir>` directory → empty list (no operator skills configured);
