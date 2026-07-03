@@ -1,6 +1,6 @@
 ---
 name: ralphctl-test-driven-development
-description: Execute-phase skill — write the failing test before the code that makes it pass; reproduce bugs with a test before fixing them. Use for any logic change, bug fix, or behavioural modification.
+description: Execute-phase skill — write the failing test before the code that makes it pass; for bug fixes, this is the reproduction test itself. Use for any logic change, bug fix, or behavioural modification; for the full root-cause triage pipeline around an unexpected failure, see ralphctl-debugging-and-error-recovery.
 license: MIT
 ---
 

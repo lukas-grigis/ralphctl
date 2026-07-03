@@ -76,7 +76,8 @@ export const createInkInteractivePrompt = (queue: PromptQueue): InteractivePromp
 
   async askMultiChoice<T>(
     prompt: string,
-    options: ReadonlyArray<Choice<T>>
+    options: ReadonlyArray<Choice<T>>,
+    opts?: { readonly initial?: readonly T[] }
   ): Promise<Result<readonly T[], DomainError>> {
     if (options.length === 0) return Result.ok([]) as Result<readonly T[], DomainError>;
     try {
@@ -85,6 +86,7 @@ export const createInkInteractivePrompt = (queue: PromptQueue): InteractivePromp
           kind: 'multi-choice',
           message: prompt,
           options: options as ReadonlyArray<Choice<unknown>>,
+          ...(opts?.initial !== undefined ? { initial: opts.initial as readonly unknown[] } : {}),
           resolve: (v: readonly unknown[]) => resolve(v as readonly T[]),
           reject,
         });

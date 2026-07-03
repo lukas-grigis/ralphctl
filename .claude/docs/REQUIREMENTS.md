@@ -207,12 +207,24 @@ Status flow: `draft → planned → active → review → done`.
 - [x] **Bundled skills** — `installSkillsLeaf` / `uninstallSkillsLeaf` bracket every AI session that benefits
       from defaults. Skills are copied into `<repo>/<parentDir>/skills/ralphctl-<name>/` and git-excluded via a
       single `ralphctl-*` wildcard appended to `.git/info/exclude`. Project skills always win over bundled ones.
-      Eight bundled skills ship (`ralphctl-abstraction-first`, `ralphctl-alignment`, `ralphctl-iterative-review`,
+      Thirteen bundled skills ship (`ralphctl-abstraction-first`, `ralphctl-alignment`, `ralphctl-iterative-review`,
       `ralphctl-minimal-scaffolding`, `ralphctl-debugging-and-error-recovery`, `ralphctl-code-review-and-quality`,
-      `ralphctl-test-driven-development`, `ralphctl-surgical-simplicity`). Each is validated by
-      `skill-contract-checker.ts` (hard-fail on contract violation) before it can ship.
-      Operator drop-in skills (`~/.ralphctl/skills/{claude,copilot,codex}/…`) install through the same path;
-      violations are warnings only.
+      `ralphctl-test-driven-development`, `ralphctl-surgical-simplicity`, `ralphctl-ponytail`,
+      `ralphctl-karpathy-guidelines`, `ralphctl-cherny-workflow`, `ralphctl-idea-refinement`,
+      `ralphctl-domain-driven-design` — per-skill default/recommended phases in `_engine/registry.ts`'s
+      `BUNDLED_SKILLS`). Each is validated by `skill-contract-checker.ts` (hard-fail on contract violation)
+      before it can ship. Operator drop-in skills (`~/.ralphctl/skills/{claude,copilot,codex}/…`) install
+      through the same path; violations are warnings only.
+- [x] **Opt-in phase-folder skills (#216)** — a provider-agnostic, per-flow opt-in source under
+      `<appRoot>/skills/<flow>/<name>/SKILL.md` (`createPhaseSkillSource`), composed with the bundled /
+      project / operator sources and resolved by one seam (`createResolvedSkillSource`): a phase-folder
+      copy shadows a same-named bundled default (dedupe, last wins), then the per-flow disabled set —
+      the durable `settings.ai.skills[flow].disabled` preference, or the customize picker's per-run
+      override, which replaces rather than unions with the saved preference — is subtracted. The Skills
+      catalog view (`SkillCatalogPort` / `createSkillCatalog`) drives enable (copy + `.provenance.json`
+      stamp) / disable (remove) / update / update-all, and classifies each install `manual` / `in-sync` /
+      `update-available` / `locally-modified` from that stamp. See `ARCHITECTURE.md` § Skills subsystem
+      and `AI-SETTINGS.md` § skill opt-out for the full contract.
 - [x] **Provider-native context file** — the `readiness` flow fans out across every uniquely referenced
       provider in `settings.ai`, writing one native context file per distinct provider: `CLAUDE.md`
       (claude-code), `.github/copilot-instructions.md` (github-copilot), `AGENTS.md` (openai-codex). A
@@ -315,6 +327,12 @@ See [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) for tokens, components, view patterns
 - [x] **Idle-state ticker** — tasks panel shows last-note signals when no task is `in_progress`.
 - [x] **ETA estimate** — attempt header shows a median-round-duration ETA derived from past settled
       attempts for the same task.
+- [x] **Skills catalog view (#216)** — `SkillsView` (Home menu, hotkey `K`) lists every bundled skill
+      with its per-flow install status; `e`/`d`/`u`/`U`/`r` enable / disable / update / update-all /
+      reload. A destructive `update` on a `locally-modified` install confirms first via `ConfirmCard`;
+      `updateAll` never touches `locally-modified` or `manual` installs. The pre-launch customize
+      picker's skills step (checklist, run-only vs remember) is the per-run counterpart — see
+      `WORKFLOWS.md` for the navigation walk-through.
 
 ## Build & Distribution
 

@@ -39,20 +39,21 @@ import {
   type LaunchResult,
 } from '@src/application/ui/shared/launcher.ts';
 import { launchSprintBoundFlow } from '@src/application/ui/shared/launch/sprint-bound.ts';
+import { runCustomizePicker } from '@src/application/ui/tui/views/flows-customize-picker.ts';
 import {
-  runCustomizePicker,
-  type CustomizePickerResult,
-} from '@src/application/ui/tui/views/flows-customize-picker.ts';
+  applySkillsRememberChoice,
+  buildLaunchExtras,
+  makeRebuildSkillCandidates,
+  prefetchSkillCandidates,
+} from '@src/application/ui/tui/views/flows-launch-extras.ts';
 import { runRepositorySelection } from '@src/application/ui/tui/views/flows-repository-picker.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { getRunInTerminal } from '@src/application/ui/tui/runtime/run-in-terminal.ts';
-import { getImplementRoleOverrides } from '@src/application/ui/tui/runtime/implement-role-overrides.ts';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { SprintPipeline, resolveSprintStage } from '@src/application/ui/tui/components/sprint-pipeline.tsx';
 import { sectionFor, sectionRank, visibleFlowsFor } from '@src/application/ui/tui/views/flows-visibility.ts';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Runner } from '@src/application/chain/run/runner.ts';
-import type { Settings } from '@src/domain/entity/settings.ts';
 
 // Sprint-state-machine visibility lives in `flows-visibility.ts` so it can be unit-tested
 // without a React render. The view delegates section labelling, ordering, and the
@@ -174,40 +175,6 @@ const OrientationCard = ({ snapshot, showAll }: OrientationCardProps): React.JSX
   );
 };
 
-/**
- * Assemble the per-launch {@link LaunchExtras} from the resolved repository id, the customize
- * picker's outcome, and the fresh settings snapshot. Implement role overrides prefer the
- * picker's per-role result; falling back to the CLI-derived module holder (parsed from
- * `--implement-{generator,evaluator}-{provider,model}`) only for the `implement` flow when the
- * picker ran in single-row mode (i.e. every AI flow other than implement).
- */
-const buildLaunchExtras = (
-  picker: CustomizePickerResult,
-  entry: FlowEntry,
-  chosenRepositoryId: RepositoryId | undefined,
-  ui: ReturnType<typeof useUiState>,
-  settings: Settings
-): LaunchExtras => {
-  const implementRoleOverrides =
-    picker.kind === 'implement'
-      ? picker.implementRoleOverrides
-      : entry.manifest.id === 'implement'
-        ? getImplementRoleOverrides()
-        : undefined;
-  const override = picker.kind === 'single' ? picker.override : undefined;
-  // Thread the resolved repository id as a pre-selection. When the repo-selection step ran,
-  // `chosenRepositoryId` is the user's fresh pick; otherwise (single-repo / non-repo flows) it
-  // falls back to the session pin so the flow's own `pickRepositoryLeaf` still pre-selects the
-  // lone / previously-chosen repo.
-  const repositoryId = chosenRepositoryId ?? ui.sessionRepositoryId;
-  return {
-    ...(repositoryId !== undefined ? { repositoryId } : {}),
-    ...(override !== undefined ? { override } : {}),
-    ...(implementRoleOverrides !== undefined ? { implementRoleOverrides } : {}),
-    settingsSnapshot: settings,
-  };
-};
-
 interface RunFlowLaunchDeps {
   readonly selection: ReturnType<typeof useSelection>;
   readonly sessions: SessionManager;
@@ -315,6 +282,9 @@ const createFlowSelectHandler = (
     }
 
     const interactive = createInkInteractivePrompt(queue);
+    // Built once, up-front, so both the skills-candidate lookup below and the eventual launch
+    // share the same `LauncherDeps` — no reason to reconstruct it after the picker runs.
+    const launcherDeps: LauncherDeps = { app: deps, interactive, storage, runInTerminal: getRunInTerminal() };
 
     // Re-read settings from disk now so provider/model changes made via the Settings
     // view propagate. `deps.settings` is the boot-time snapshot and goes stale across
@@ -343,11 +313,16 @@ const createFlowSelectHandler = (
     // post-completion capture below just re-affirms it (no conflict / double-prompt).
     if (chosenRepositoryId !== undefined) ui.setSessionRepositoryId(chosenRepositoryId);
 
+    // Pre-fetch skill candidates BEFORE the picker runs (no-op for a flow that doesn't mount a
+    // skillSource — see `prefetchSkillCandidates`).
+    const skillCandidates = await prefetchSkillCandidates(launcherDeps, snapshot, entry.manifest.id, settings);
+
     // Pre-launch customize picker — for AI-driven flows the user gets Start /
     // Customize / Cancel. Customize walks provider → model → effort for each row
-    // (implement walks generator then evaluator). Settings are never mutated; per-launch
-    // overrides are passed through {@link LaunchExtras}. Non-AI flows return
-    // `kind: 'defaults'` without prompting.
+    // (implement walks generator then evaluator), then (when `skillCandidates` is present) a
+    // skills step. Settings are never mutated by the picker itself; per-launch overrides are
+    // passed through {@link LaunchExtras} and a "remember" skills choice is persisted below.
+    // Non-AI flows return `kind: 'defaults'` without prompting.
     const picker = await runCustomizePicker({
       interactive,
       flowId: entry.manifest.id,
@@ -356,11 +331,25 @@ const createFlowSelectHandler = (
       // exactOptionalPropertyTypes: only pass the key when defined — the picker arg is
       // `?`-optional (absent), not `| undefined`. Absent ⇒ picker falls back to modelCatalogFor.
       ...(deps.availableModelsFor !== undefined ? { availableModelsFor: deps.availableModelsFor } : {}),
+      // A degraded listing (some source failed) is withheld entirely: a checklist over a partial
+      // candidate set misreads as "disable everything missing" — the failure is already logged.
+      ...(skillCandidates !== undefined && !skillCandidates.degraded ? { skillCandidates } : {}),
+      rebuildSkillCandidates: makeRebuildSkillCandidates(launcherDeps, snapshot, entry.manifest.id, settings),
     });
     if (picker.kind === 'cancel') return;
 
+    // "Remember for <flow>" — non-fatal on failure: the run itself already carries the full
+    // override via `buildLaunchExtras`'s `skillsOverride`, so a save failure only means the
+    // preference didn't stick for next time.
+    const rememberError = await applySkillsRememberChoice(deps.settingsRepo, settings, skillCandidates, picker);
+    if (rememberError !== undefined) {
+      // Also log it: on a successful launch this view is replaced immediately, destroying the
+      // local error state before the user can read it — the session log keeps the trace.
+      launcherDeps.app.logger.warn(rememberError);
+      setLaunchError(rememberError);
+    }
+
     const launchExtras = buildLaunchExtras(picker, entry, chosenRepositoryId, ui, settings);
-    const launcherDeps = { app: deps, interactive, storage, runInTerminal: getRunInTerminal() };
     const result = await runFlowLaunch(launcherDeps, entry, snapshot, launchExtras, { selection, sessions });
     if (!result.ok) {
       setLaunchError(`${entry.manifest.title}: ${result.reason}`);

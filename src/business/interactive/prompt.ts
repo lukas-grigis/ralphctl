@@ -52,8 +52,17 @@ export interface InteractivePrompt {
   askTextArea(prompt: string, opts?: { readonly initial?: string }): Promise<Result<string, DomainError>>;
   /** Single-select from a fixed option list. Returns the selected option's `value`. */
   askChoice<T>(prompt: string, options: ReadonlyArray<Choice<T>>): Promise<Result<T, DomainError>>;
-  /** Multi-select from a fixed option list. Returns the selected options' `value`s, order preserved. */
-  askMultiChoice<T>(prompt: string, options: ReadonlyArray<Choice<T>>): Promise<Result<readonly T[], DomainError>>;
+  /**
+   * Multi-select from a fixed option list. Returns the selected options' `value`s, order
+   * preserved. `opts.initial` pre-checks every option whose `value` appears in the list (`===`
+   * match) so callers can open the checklist reflecting an existing state — e.g. "currently
+   * enabled" — instead of forcing the user to rebuild a selection from an empty set.
+   */
+  askMultiChoice<T>(
+    prompt: string,
+    options: ReadonlyArray<Choice<T>>,
+    opts?: { readonly initial?: readonly T[] }
+  ): Promise<Result<readonly T[], DomainError>>;
   /**
    * Yes/no confirmation. Returns the user's boolean answer. Adapters define what counts as
    * yes/no (the console adapter accepts `y`/`yes` / `n`/`no`, case-insensitive); empty input

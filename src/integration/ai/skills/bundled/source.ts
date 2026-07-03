@@ -2,7 +2,8 @@
  * `createBundledSkillSource` — implementation of {@link SkillSource} backed by the bundled
  * skill folders that live next to this module (`<name>/SKILL.md`).
  *
- * The set of skills returned per flow comes from {@link FLOW_SKILLS}. For each name in that
+ * The set of skills returned per flow comes from {@link skillsForFlow} (the registry's
+ * `defaultFor` derivation). For each name in that
  * list, the source reads `<bundledRoot>/<name>/SKILL.md`, parses YAML frontmatter (`name`,
  * `description` — frontmatter `name` must match the folder name per the Agent Skills spec)
  * and returns the canonical {@link Skill} record.
@@ -27,6 +28,7 @@ import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-sourc
 import type { FlowId } from '@src/integration/ai/skills/_engine/registry.ts';
 import { skillsForFlow } from '@src/integration/ai/skills/_engine/registry.ts';
 import { errorCode, parseSkill } from '@src/integration/ai/skills/_engine/parse-skill.ts';
+import type { BundledSkillRawReader } from '@src/integration/ai/skills/_engine/bundled-skill-raw-reader.ts';
 
 // Default bundled root.
 //   Dev (tsx): this module lives at src/integration/ai/skills/bundled/source.ts — SKILL.md
@@ -118,6 +120,42 @@ export const createBundledSkillSource = (deps: BundledSkillSourceDeps = {}): Ski
       const r = await readSkillOptional(root, name);
       if (r.ok && r.value !== undefined) cache.set(name, r.value);
       return r;
+    },
+  };
+};
+
+/**
+ * Build a {@link BundledSkillRawReader} over the same bundled-root resolution as
+ * {@link createBundledSkillSource}. Kept as a separate factory (not a method tacked onto
+ * `SkillSource`) so the phase-scoped skill catalog can depend on the narrow raw-bytes port
+ * without pulling in the parsed-`Skill` surface — see the port's module doc for why the
+ * distinction matters (provenance hashing must never round-trip through a parse → re-render).
+ *
+ * A tiny per-name cache mirrors `createBundledSkillSource`'s `loadOne` cache: the catalog reads
+ * the same bundled skill repeatedly within one `list()` / `updateAll()` call, and the file never
+ * changes mid-process.
+ *
+ * @public
+ */
+export const createBundledSkillRawReader = (deps: BundledSkillSourceDeps = {}): BundledSkillRawReader => {
+  const root = deps.bundledRoot ?? defaultBundledRoot;
+  const cache = new Map<string, string>();
+
+  return {
+    async readRaw(name: string): Promise<Result<string, StorageError>> {
+      const cached = cache.get(name);
+      if (cached !== undefined) return Result.ok(cached);
+      const path = join(root, name, 'SKILL.md');
+      let raw: string;
+      try {
+        raw = await readFile(path, 'utf-8');
+      } catch (cause) {
+        return Result.error(
+          new StorageError({ subCode: 'io', message: `bundled skill not readable: ${path}`, path, cause })
+        );
+      }
+      cache.set(name, raw);
+      return Result.ok(raw);
     },
   };
 };

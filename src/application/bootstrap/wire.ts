@@ -58,7 +58,9 @@ import { warnEscalationMapSelfLoops } from '@src/business/task/escalation-map.ts
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
 import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
 import { createSkillsAdapter } from '@src/integration/ai/skills/adapter-factory.ts';
-import { createBundledSkillSource } from '@src/integration/ai/skills/bundled/source.ts';
+import { createBundledSkillRawReader, createBundledSkillSource } from '@src/integration/ai/skills/bundled/source.ts';
+import type { SkillCatalogPort } from '@src/integration/ai/skills/_engine/skill-catalog-port.ts';
+import { createSkillCatalog } from '@src/integration/ai/skills/phase/catalog.ts';
 import type { NotificationDispatcher } from '@src/business/observability/notification-dispatcher.ts';
 import { startFileLogSink } from '@src/integration/observability/sinks/file-log-sink.ts';
 import type { FileLogSink, FileLogSinkDeps } from '@src/integration/observability/_engine/file-log-sink.ts';
@@ -214,6 +216,12 @@ export interface AppDeps {
    * `composeSkillSources` in `ui/shared/launcher.ts`.
    */
   readonly skillSource: SkillSource;
+  /**
+   * TUI skill-catalog port — backs the browsable Skills view (enable / disable / update /
+   * update-all the opt-in phase-scoped skills). Built once per `wire()` call over the same
+   * `operatorSkillsRoot` and `writeFile` seam as the rest of the skills stack.
+   */
+  readonly skillCatalog: SkillCatalogPort;
   /**
    * OS-attention notifier. Hooked onto the EventBus by {@link startNotificationSubscriber} at
    * `wire()` time; exposed on `AppDeps` so flows / tests that want to surface a one-shot
@@ -401,6 +409,9 @@ export const wire = (opts: WireOptions): AppDeps => {
     availableModelsInFlight.set(provider, pending);
     return pending;
   };
+  // Hoisted so the skill catalog's provenance-stamp writes share the exact same atomic-write
+  // seam as `AppDeps.writeFile` (one factory call, two consumers).
+  const atomicWriteFile = createAtomicWriteFile();
   return {
     storage: opts.storage,
     projectRepo: createFsProjectRepository({ root: opts.storage.dataRoot }),
@@ -422,7 +433,7 @@ export const wire = (opts: WireOptions): AppDeps => {
     gitRunner: createGitRunner(),
     shellScriptRunner: createShellScriptRunner(),
     fileLocker,
-    writeFile: createAtomicWriteFile(),
+    writeFile: atomicWriteFile,
     appendFile,
     interactiveAi: createInteractiveAiProvider({ flow: 'refine', ai: opts.settings.ai, eventBus }),
     interactiveAiFor: (provider) => createInteractiveAiProviderFor(provider, eventBus),
@@ -445,6 +456,12 @@ export const wire = (opts: WireOptions): AppDeps => {
     // flow launches get the implement row's provider as the default.
     skillsAdapter: createSkillsAdapter({ provider: opts.settings.ai.implement.generator.provider, logger }),
     skillSource: createBundledSkillSource(),
+    skillCatalog: createSkillCatalog({
+      operatorSkillsRoot: opts.storage.operatorSkillsRoot,
+      writeFile: atomicWriteFile,
+      bundledRawReader: createBundledSkillRawReader(),
+      logger,
+    }),
     notificationDispatcher,
     chainLogSink,
   };

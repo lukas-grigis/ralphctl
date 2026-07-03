@@ -26,6 +26,10 @@ import type { AppStateSnapshot } from '@src/application/ui/shared/state-snapshot
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { composeSkillSources, createProjectSkillSource } from '@src/integration/ai/skills/project/source.ts';
 import { createOperatorSkillSource } from '@src/integration/ai/skills/operator/source.ts';
+import { createPhaseSkillSource } from '@src/integration/ai/skills/phase/source.ts';
+import { createResolvedSkillSource } from '@src/integration/ai/skills/_engine/resolve-selection.ts';
+import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
+import type { Skill } from '@src/integration/ai/skills/_engine/skill.ts';
 import { warnIfContractViolated as checkContract } from '@src/integration/ai/skills/_engine/skill-contract-checker.ts';
 import { type AiFlowSettings, type AiProvider, primaryFlowRow, type Settings } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
@@ -172,6 +176,17 @@ export interface LaunchExtras {
       readonly effort?: string;
     };
   };
+  /**
+   * Per-run skill opt-out, supplied by the TUI customize picker's skills step. When present its
+   * `disabled` names REPLACE the durable `settings.ai.skills[flow].disabled` preference for this
+   * launch — a run override wins outright rather than unioning with the saved list, so a per-run
+   * RE-ENABLE of a remembered-off skill is possible (pick nothing to disable this run and every
+   * saved opt-out is lifted for the duration of the run). Subtraction is by exact install name,
+   * so it applies to ANY skill — bundled, project, operator, or phase-folder. Absent = no run
+   * override; the launcher then resolves against the saved preference alone. Consumed only at the
+   * single resolution seam in `buildComposedSkillSource` ({@link createResolvedSkillSource}).
+   */
+  readonly skillsOverride?: { readonly disabled: readonly string[] };
 }
 
 export interface LauncherDeps {
@@ -266,6 +281,20 @@ const aiFlowIdFor = (flowId: string): FlowId | undefined => {
       return undefined;
   }
 };
+
+/**
+ * Flows whose launch context actually threads `ctx.skillSource` into the dispatched use case
+ * (see each `launch/<flow>.ts`) — the only flows where a per-run skills customization has any
+ * effect. `review` / `detect-scripts` / `detect-skills` reuse another flow's AI row via
+ * {@link aiFlowIdFor} but their own launchers never read `ctx.skillSource`, so a skills override
+ * for them would silently no-op; `create-pr` never reaches the chain launcher at all (routed to
+ * its own view). The customize picker's skills step is skipped entirely for a flow this returns
+ * `false` for, rather than presenting a checklist that wouldn't do anything.
+ *
+ * @public
+ */
+export const flowMountsSkills = (flowId: string): boolean =>
+  flowId === 'refine' || flowId === 'plan' || flowId === 'implement' || flowId === 'readiness' || flowId === 'ideate';
 
 /**
  * Per-field merge of `override` onto an `AiFlowSettings` row. Each field of the override is
@@ -382,30 +411,190 @@ const buildLaunchAdapters = (deps: LauncherDeps, flowId: string, settings: Setti
 };
 
 /**
- * Compose the static bundled skill source with a project-scoped source that emits per-repo
- * setup / verify skills authored via the detect-skills flow, plus the global, provider-specific
- * operator drop-in skills under `<appRoot>/skills/<providerDir>/`. The project source's closure
- * reads through `snapshot.project` so every install-skills leaf during this chain run sees the
- * latest skills as of launch time; flows that run without a project (none today) fall back
- * cleanly to bundled-only. The operator source is keyed on `resolvedProvider` so a mixed config
- * installs each flow's operator skills for that flow's provider only — installed through the
- * same adapter as bundled (same `ralphctl-` namespace + `.git/info/exclude` wildcard + tracked
- * uninstall); a missing dir yields an empty source.
+ * Build the four skill sources composed at launch — the app-wired bundled source, a
+ * project-scoped source that emits per-repo setup / verify skills authored via the detect-skills
+ * flow, the global provider-specific operator drop-in source under
+ * `<appRoot>/skills/<providerDir>/`, and the provider-agnostic phase (opt-in) source under
+ * `<appRoot>/skills/<flowDir>/`. Returned as a tuple, NOT composed — {@link buildComposedSkillSource}
+ * unions them for a real launch; {@link buildSkillCandidates} tags each one's contribution with
+ * its origin for the customize picker's skills step, which needs to know WHICH source a
+ * candidate came from rather than a flattened union.
+ *
+ * The project source's closure reads through `snapshot.project` so every caller sees the latest
+ * skills as of call time; a project-less snapshot falls back cleanly to an empty project source.
+ * The operator source is keyed on `resolvedProvider` so a mixed config only sees that flow's
+ * provider's drop-in folder; a missing dir yields an empty source. The phase source is
+ * provider-agnostic and shares the SAME `operatorSkillsRoot` + logger as the operator source; a
+ * missing flow dir is likewise an empty source.
+ *
+ * `warnIfContractViolated` is optional and shared across the operator + phase sources — the real
+ * launch composition wires the WARNING-only contract check; the read-only candidate listing
+ * passes nothing (listing a skill isn't installing it, so the check stays reserved for the
+ * source that actually gets installed).
  */
-const buildComposedSkillSource = (deps: LauncherDeps, snapshot: AppStateSnapshot, resolvedProvider: AiProvider) => {
+const buildSkillSourceQuad = (
+  deps: LauncherDeps,
+  snapshot: AppStateSnapshot,
+  resolvedProvider: AiProvider,
+  warnIfContractViolated?: (skill: Skill) => void
+): {
+  readonly bundled: SkillSource;
+  readonly project: SkillSource;
+  readonly operator: SkillSource;
+  readonly phase: SkillSource;
+} => {
   const projectSource = createProjectSkillSource({ getProject: () => snapshot.project });
   const operatorSource = createOperatorSkillSource({
     operatorSkillsRoot: deps.storage.operatorSkillsRoot,
     provider: resolvedProvider,
     logger: deps.app.logger,
-    // Operator skills run the harness-compatibility scanner as a WARNING only — a violating
-    // skill is logged and still installed (the operator owns their skills). Adapt the checker's
-    // (logger, name, content) signature to the source's `(skill) => void` warner shape.
-    warnIfContractViolated: (skill) => {
-      checkContract(deps.app.logger, skill.name, skill.content);
-    },
+    ...(warnIfContractViolated !== undefined ? { warnIfContractViolated } : {}),
   });
-  return composeSkillSources(deps.app.skillSource, projectSource, operatorSource);
+  const phaseSource = createPhaseSkillSource({
+    operatorSkillsRoot: deps.storage.operatorSkillsRoot,
+    logger: deps.app.logger,
+    ...(warnIfContractViolated !== undefined ? { warnIfContractViolated } : {}),
+  });
+  return { bundled: deps.app.skillSource, project: projectSource, operator: operatorSource, phase: phaseSource };
+};
+
+/**
+ * Compose the four {@link buildSkillSourceQuad} sources into one union, then wrap it in the
+ * single skill-selection resolution seam ({@link createResolvedSkillSource}).
+ *
+ * Composition ORDER is load-bearing: bundled → project → operator → phase, because the resolving
+ * decorator's dedupe keeps the LAST occurrence of a name, so a phase-folder copy of a bundled
+ * skill (the catalog's copy-on-enable path) shadows the bundled default.
+ *
+ * The resolving decorator is the ONE place skill selection is filtered — no leaf / adapter
+ * filters. `flowDisabled` is run-scoped: when the per-run `extras.skillsOverride` is present, its
+ * `disabled` names REPLACE the durable opt-out preference outright — a run override wins over the
+ * saved preference rather than unioning with it, so picking nothing to disable for a run
+ * RE-ENABLES every remembered-off skill for that run's duration. Absent an override, the durable
+ * row applies: the dispatched flow's settings id via {@link aiFlowIdFor} (createPr camel; review
+ * → implement; detect-* → readiness — the single aliasing rule everywhere). With no saved row, no
+ * override, and empty phase folders the decorator is a byte-for-byte no-op, preserving today's
+ * skill set and order.
+ *
+ * Exported for the launcher composition fence test (zero-config no-op + opt-out subtraction +
+ * aliased-flow row inheritance) — it is the one place skill selection is resolved, so testing it
+ * directly beats reconstructing the wiring, which could drift from the real launcher.
+ *
+ * @public
+ */
+export const buildComposedSkillSource = (
+  deps: LauncherDeps,
+  snapshot: AppStateSnapshot,
+  resolvedProvider: AiProvider,
+  flowId: string,
+  settings: Settings,
+  extras: LaunchExtras
+): SkillSource => {
+  const warnIfContractViolated = (skill: Skill): void => {
+    // Contract scanner runs as a WARNING only — a violating skill is logged and still installed
+    // (the operator owns their skills). Adapt the checker's (logger, name, content) signature to
+    // the source's `(skill) => void` warner shape. Shared by the operator + phase sources.
+    checkContract(deps.app.logger, skill.name, skill.content);
+  };
+  const { bundled, project, operator, phase } = buildSkillSourceQuad(
+    deps,
+    snapshot,
+    resolvedProvider,
+    warnIfContractViolated
+  );
+  const composed = composeSkillSources(bundled, project, operator, phase);
+
+  // Run-scoped disabled set, resolved ONCE: the per-run override REPLACES the durable row when
+  // present (run wins over remembered); otherwise the dispatched flow's durable settings row
+  // applies (via the shared aiFlowIdFor aliasing). Flows with no AI row contribute no saved names.
+  const settingsFlow = aiFlowIdFor(flowId);
+  const savedDisabled = settingsFlow !== undefined ? (settings.ai.skills?.[settingsFlow]?.disabled ?? []) : [];
+  const runDisabled = extras.skillsOverride !== undefined ? extras.skillsOverride.disabled : savedDisabled;
+  return createResolvedSkillSource({ inner: composed, flowDisabled: () => runDisabled });
+};
+
+/** One skill the customize picker's skills step can offer to disable, tagged with where it comes from. */
+export interface SkillCandidate {
+  readonly name: string;
+  readonly description: string;
+  readonly origin: 'bundled-default' | 'phase-folder' | 'project' | 'operator';
+}
+
+/** Result of {@link buildSkillCandidates} — the picker's skills-step input. */
+export interface SkillCandidatesResult {
+  /** The settings-row `FlowId` a "remember" save would target — absent when the step is skipped. */
+  readonly settingsFlow?: FlowId;
+  readonly candidates: readonly SkillCandidate[];
+  /** Names in the durable `settings.ai.skills[flow].disabled` row, before any per-run change. */
+  readonly savedDisabled: readonly string[];
+  /**
+   * At least one source's listing FAILED, so `candidates` is incomplete. The caller must not
+   * show a checklist built from it (an unchecked-set complement over a partial list reads as
+   * "disable everything missing") and must never persist a "remember" choice computed from it —
+   * `flows-view.tsx` skips the skills step outright when this is set.
+   */
+  readonly degraded: boolean;
+}
+
+/**
+ * Pre-subtraction candidate list for a flow's skills customize step — the same four-source union
+ * {@link buildComposedSkillSource} composes (bundled → project → operator → phase, LAST wins on a
+ * name collision), each entry tagged with its origin so the picker can show why it's there. Unlike
+ * the real launch composition, nothing is subtracted here — the caller (the picker) decides
+ * checked/unchecked from `savedDisabled`.
+ *
+ * Returns `{ candidates: [], savedDisabled: [] }` for a flow with no AI row ({@link aiFlowIdFor}
+ * `undefined`) or one that doesn't actually mount a `skillSource` ({@link flowMountsSkills}
+ * `false`) — the caller uses this to skip the skills step entirely rather than show a checklist
+ * that would have no effect on the launch.
+ *
+ * @public
+ */
+export const buildSkillCandidates = async (
+  deps: LauncherDeps,
+  snapshot: AppStateSnapshot,
+  flowId: string,
+  settings: Settings,
+  providerOverride?: AiProvider
+): Promise<SkillCandidatesResult> => {
+  const aiFlow = aiFlowIdFor(flowId);
+  if (aiFlow === undefined || !flowMountsSkills(flowId)) {
+    return { candidates: [], savedDisabled: [], degraded: false };
+  }
+
+  // Operator skills are provider-scoped; the picker re-fetches with the row walk's overridden
+  // provider so the checklist matches what the run would actually install.
+  const resolvedProvider = providerOverride ?? primaryFlowRow(settings.ai, aiFlow).provider;
+  const { bundled, project, operator, phase } = buildSkillSourceQuad(deps, snapshot, resolvedProvider);
+
+  // A failed listing degrades the whole result instead of silently narrowing it: the bundled
+  // source hard-fails on one unreadable SKILL.md, and a checklist missing every bundled default
+  // would let a "remember" save erase the operator's saved opt-outs over a transient read error.
+  let degraded = false;
+  const tagged = async (source: SkillSource, origin: SkillCandidate['origin']): Promise<readonly SkillCandidate[]> => {
+    const r = await source.getForFlow(aiFlow);
+    if (!r.ok) {
+      degraded = true;
+      deps.app.logger.warn(`skills checklist: ${origin} listing failed — ${r.error.message}`);
+      return [];
+    }
+    return r.value.map((skill) => ({ name: skill.name, description: skill.description, origin }));
+  };
+
+  const merged = [
+    ...(await tagged(bundled, 'bundled-default')),
+    ...(await tagged(project, 'project')),
+    ...(await tagged(operator, 'operator')),
+    ...(await tagged(phase, 'phase-folder')),
+  ];
+  // Last-wins by name, mirroring the resolution seam's dedupe (`resolve-selection.ts`) so a
+  // phase-folder / operator copy of a bundled name shows its ACTUAL shadowing origin.
+  const lastIndexByName = new Map<string, number>();
+  merged.forEach((c, i) => lastIndexByName.set(c.name, i));
+  const candidates = merged.filter((c, i) => lastIndexByName.get(c.name) === i);
+
+  const savedDisabled = settings.ai.skills?.[aiFlow]?.disabled ?? [];
+  return { settingsFlow: aiFlow, candidates, savedDisabled, degraded };
 };
 
 /**
@@ -440,7 +629,7 @@ export const launchFlow = async (
     flowId,
     settings
   );
-  const composedSkillSource = buildComposedSkillSource(deps, snapshot, resolvedProvider);
+  const composedSkillSource = buildComposedSkillSource(deps, snapshot, resolvedProvider, flowId, settings, extras);
 
   // Every launched runner gets bridged to the event bus so subscribers (TUI panels,
   // progress files, future webhooks) see chain progress without per-flow emission wiring. The

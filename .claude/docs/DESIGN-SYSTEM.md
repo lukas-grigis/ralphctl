@@ -58,7 +58,7 @@ Canonical set. If a view needs a symbol not in this list, **add it to `glyphs` f
 | Phase / status  | `phaseDone ■`, `phaseActive ◆`, `phasePending ◇`, `phaseDisabled ◌`                   |
 | Cursors         | `actionCursor ▸`, `selectMarker ›`                                                    |
 | Section markers | `badge ▣`, `sectionRule ━`                                                            |
-| State           | `check ✓`, `cross ✗`, `warningGlyph ⚠`, `infoGlyph i`                                 |
+| State           | `check ✓`, `cross ✗`, `warningGlyph ⚠`, `infoGlyph i`, `modified ✎`                   |
 | Bullets         | `bullet ·`, `inlineDot ·`, `emDash —`, `arrowRight →`, `activityArrow ↳`, `refresh ↻` |
 | Separators      | `pipe │`                                                                              |
 | Motion          | `spinner` (braille frames `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`)                                               |
@@ -222,8 +222,19 @@ Specialised components owned by `ExecuteView`. Don't import them from other view
 
 ### 4.4 Prompt family (`src/application/ui/tui/prompts/`)
 
-Never build a new prompt component. Always call the injected `InteractivePrompt` port and let
-`createInkInteractivePrompt` queue it onto the `PromptQueue` rendered by `PromptHost`.
+Two legitimate integration modes — pick by who's asking:
+
+- **Business-flow prompts** (a chain leaf / use case needs to ask the user something,
+  provider-agnostic). Never build a new prompt component for this — call the injected
+  `InteractivePrompt` port and let `createInkInteractivePrompt` queue it onto the `PromptQueue`
+  rendered by `PromptHost`.
+- **View-local ephemeral prompts** (a browse/action view needs a quick confirm or multi-select
+  before an in-view mutation — no chain involved). Mount the prompt **component** directly in the
+  view's own conditional render, driven by local React state, exactly like `<ConfirmCard>` /
+  `<ConfirmPrompt>` in `sprints-view.tsx` / `sessions-view.tsx`, or `<MultiSelectPrompt>` in
+  `skills-view.tsx`'s enable/disable flow picker. The view must `ui.claimPrompt()` for as long as
+  the component is mounted (`ConfirmCard` does this internally; a raw `MultiSelectPrompt` mount
+  does not — claim it yourself in a `useEffect`) so global hotkeys stay muted underneath it.
 
 | Method           | Returns                             | Cancel behavior                            |
 | ---------------- | ----------------------------------- | ------------------------------------------ |
@@ -238,6 +249,12 @@ renderer components selected by prompt `kind` (`text` / `textarea` / `confirm` /
 
 `askTextArea` is the Claude-style multi-line inline editor (↵ submits; `\↵` or ctrl+j inserts a newline; Esc
 cancels). No external editor spawn.
+
+`<MultiSelectPrompt>` (used both by `askMultiChoice`'s queue path and view-local mounts) supports
+`Choice.disabled` (dims the row, skips it on cursor movement and `a` select-all, rejects a direct
+toggle — same contract as `<SelectPrompt>`'s single-select cursor) and an optional
+`initialSelectedValues` prop to pre-check a starting selection (e.g. a skill's `recommendedFor`
+list) instead of forcing every choice from scratch.
 
 ## 5. State surfaces — one visual per kind
 

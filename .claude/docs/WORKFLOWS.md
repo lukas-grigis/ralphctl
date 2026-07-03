@@ -103,6 +103,18 @@ mounted; `SessionsView` lists every runner. `Ctrl+1..9` only fires under a kitty
 terminals it is an inert no-op (the help overlay labels it accordingly), while `Tab` cycling works everywhere.
 `?` opens the centralised help overlay generated from `keyboard-map.ts`.
 
+**Customize picker's skills step + Skills catalog view.** The pre-launch customize picker (per AI flow:
+`Start` / `Customize for this run…` / `Cancel`) gained a skills step after the provider/model/effort row
+walk(s) — a checklist pre-checked to what would currently load, then `Apply for this run only` vs `Apply
+and remember for <flow>` (remember persists only the flow's registry-default names into
+`settings.ai.skills[flow].disabled`, merge-preserving hand-added entries — project / operator /
+phase-folder unchecks stay run-scoped; see `AI-SETTINGS.md`). Skipped entirely for a flow with no AI
+row, no skill candidates to offer, or a degraded (partially failed) candidate listing. The Home
+menu's `Skills catalog` view (hotkey `K`) is the enable / disable / update surface across every flow's
+opt-in phase folder: `e` enable, `d` disable, `u` update one, `U` update every out-of-date copy, `r`
+reload — the filesystem under `<appRoot>/skills/<flow>/` is the source of truth (see `ARCHITECTURE.md`
+§ Skills subsystem).
+
 Execute view: three-column at `xl` (≥180), two-column at `lg` (≥140), compact-rail at `md` (100–139),
 single-column below `md`. Rail grows fluidly 36→56 cols at `xl`+ via `resolveRailWidth`. Named breakpoints
 (`sm 80 / md 100 / lg 140 / xl 180 / xxl 220`) are canonical — use `breakpointFor`, `fluid`, `responsive`

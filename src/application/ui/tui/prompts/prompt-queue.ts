@@ -53,6 +53,8 @@ export interface ChoicePrompt<T = unknown> extends BasePrompt {
 export interface MultiChoicePrompt<T = unknown> extends BasePrompt {
   readonly kind: 'multi-choice';
   readonly options: ReadonlyArray<Choice<T>>;
+  /** Values to pre-check on open — surfaced to the renderer as `initialSelectedValues`. */
+  readonly initial?: readonly T[];
   resolve(value: readonly T[]): void;
   reject(err: Error): void;
 }

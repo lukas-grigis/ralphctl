@@ -232,6 +232,41 @@ const healHarnessCrossKnobs = (harness: unknown): unknown => {
 };
 
 /**
+ * One flow's skills opt-out row. `disabled` lists skill names (`ralphctl-*`) to SUBTRACT from
+ * that flow's bundled default skill set at launch. Names are free trimmed non-empty strings —
+ * the domain cannot import the integration-side skill registry, so a name's validity against
+ * the bundled catalog is checked at launch (unknown names are harmless no-ops), never here. An
+ * empty list is valid and means "nothing disabled" (equivalent to an absent row).
+ */
+const FlowSkillsRowSchema = z.object({
+  disabled: z.array(z.string().trim().min(1, 'skill name must be a non-empty trimmed string')).readonly(),
+});
+
+/**
+ * Durable, per-flow skills opt-OUT preference — the saved counterpart of the per-run customize
+ * checklist. Structurally `Partial<Record<FlowId, { disabled: readonly string[] }>>`: every flow
+ * key is optional and an absent key (or an absent `ai.skills` altogether) means "the flow's
+ * registry defaults apply", resolved in the launcher, not here.
+ *
+ * Semantics — opt-OUT ONLY. Names under a flow's `disabled` are SUBTRACTED from that flow's
+ * bundled defaults at launch. Opt-IN (adding skills beyond the defaults) is filesystem-based —
+ * `<appRoot>/skills/<flow>/` folders — and deliberately never lives in settings.
+ *
+ * Precedence at launch: per-run override > this saved preference > registry default.
+ *
+ * Flow keys are enumerated explicitly (mirroring the `ai` rows above) so a stray/renamed flow
+ * key is tolerantly stripped by the surrounding `z.object` rather than failing the whole parse.
+ */
+const AiSkillsSchema = z.object({
+  refine: FlowSkillsRowSchema.optional(),
+  plan: FlowSkillsRowSchema.optional(),
+  implement: FlowSkillsRowSchema.optional(),
+  readiness: FlowSkillsRowSchema.optional(),
+  ideate: FlowSkillsRowSchema.optional(),
+  createPr: FlowSkillsRowSchema.optional(),
+});
+
+/**
  * Per-flow AI settings:
  *
  *   ai.effort?            // global default, used when a row omits its own effort
@@ -241,6 +276,7 @@ const healHarnessCrossKnobs = (harness: unknown): unknown => {
  *   ai.readiness          // { provider, model, effort? }
  *   ai.ideate             // { provider, model, effort? }
  *   ai.createPr           // { provider, model, effort? }
+ *   ai.skills?            // opt-OUT only: Partial<Record<FlowId, { disabled: readonly string[] }>>
  *
  * Rows are independent — refine can run on Claude while implement.evaluator runs on Codex.
  * The discriminated union on each row keeps `model` enforced against the row's provider
@@ -250,6 +286,9 @@ const healHarnessCrossKnobs = (harness: unknown): unknown => {
  * The `createPr` row was added after the original five — settings files written by
  * ralphctl ≤ 0.8.x are missing it. The preprocess seeds it from `refine` at parse time so
  * legacy files load without manual editing; the next `save()` rewrites the canonical shape.
+ *
+ * `ai.skills` is the durable opt-OUT preference — see {@link AiSkillsSchema}. Absent means
+ * "registry defaults apply"; that fallback lives in the launcher, not here.
  */
 const AiSettingsSchema = z.preprocess(
   promoteLegacyAiRows,
@@ -261,6 +300,7 @@ const AiSettingsSchema = z.preprocess(
     readiness: FlowRowSchema,
     ideate: FlowRowSchema,
     createPr: FlowRowSchema,
+    skills: AiSkillsSchema.optional(),
   })
 );
 
@@ -465,6 +505,15 @@ export type AiFlowSettings = z.infer<typeof FlowRowSchema>;
 export type AiImplementSettings = z.infer<typeof AiImplementSchema>;
 /** Roles inside {@link AiImplementSettings} — addressed in dotted-path keys and per-leaf launches. */
 export type AiImplementRole = 'generator' | 'evaluator';
+/**
+ * Durable opt-OUT preference block under `settings.ai.skills` — see {@link AiSkillsSchema}.
+ * `Partial<Record<FlowId, { disabled: readonly string[] }>>`. Exposed for the skills launcher
+ * resolution seam (#216) and the customize picker, which read a flow's saved `disabled` list to
+ * subtract from that flow's bundled defaults at launch.
+ *
+ * @public
+ */
+export type AiSkillsSettings = z.infer<typeof AiSkillsSchema>;
 export type Settings = z.infer<typeof SettingsSchema>;
 
 /**

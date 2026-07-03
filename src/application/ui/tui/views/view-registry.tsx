@@ -14,6 +14,7 @@ import { SprintDetailView } from '@src/application/ui/tui/views/sprint-detail-vi
 import { ExecuteView } from '@src/application/ui/tui/views/execute-view.tsx';
 import { SessionsView } from '@src/application/ui/tui/views/sessions-view.tsx';
 import { SettingsView } from '@src/application/ui/tui/views/settings-view.tsx';
+import { SkillsView } from '@src/application/ui/tui/views/skills-view.tsx';
 import { DoctorView } from '@src/application/ui/tui/views/doctor-view.tsx';
 import { ExportContextView } from '@src/application/ui/tui/views/export-context-view.tsx';
 import { ExportRequirementsView } from '@src/application/ui/tui/views/export-requirements-view.tsx';
@@ -45,6 +46,8 @@ export const renderView = (entry: ViewEntry): React.JSX.Element => {
       return <SessionsView />;
     case 'settings':
       return <SettingsView />;
+    case 'skills':
+      return <SkillsView />;
     case 'doctor':
       return <DoctorView />;
     case 'export-context':

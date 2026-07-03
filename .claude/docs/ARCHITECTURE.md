@@ -179,20 +179,21 @@ business/
 Service ports live under `business/<module>/` (one folder per cross-cutting concern). Repository interfaces live
 in `domain/repository/<aggregate>/`.
 
-| Port                                                  | Folder                              | Concrete adapter                                                                                                                                                            |
-| ----------------------------------------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Logger` + `Sink`                                     | `business/observability/`           | `createEventBusLogger` (re-published as `LogEvent`)                                                                                                                         |
-| `EventBus`                                            | `business/observability/`           | `InMemoryEventBus` (`integration/observability/`)                                                                                                                           |
-| `HeadlessAiProvider`                                  | `integration/ai/providers/_engine/` | `claude` / `copilot` / `codex` adapters under `providers/<tool>/`                                                                                                           |
-| `InteractiveAiProvider`                               | `integration/ai/providers/_engine/` | same per-tool adapters (interactive entrypoint)                                                                                                                             |
-| `PublishSignal` (fn type)                             | `application/flows/_shared/`        | `createPublishSignal(eventBus, source, taskId?)` — the ONE harness-signal channel (`ai-signal` AppEvent)                                                                    |
-| `TemplateLoader`                                      | `integration/ai/prompts/_engine/`   | `FsTemplateLoader` — dev: src tree, bundled: `dist/`                                                                                                                        |
-| `ReadinessProbe`                                      | `integration/ai/readiness/_engine/` | per-tool probes under `readiness/<tool>/`                                                                                                                                   |
-| `SkillsAdapter` + `SkillSource`                       | `integration/ai/skills/_engine/`    | per-tool adapter + bundled / operator / project source; `parseSkill` extracts a `Skill` from a `SKILL.md`; `checkSkillContract` validates against six harness rules (S1–S6) |
-| `GitRunner` / `ShellScriptRunner`                     | `integration/io/`                   | `createGitRunner` / `createShellScriptRunner`                                                                                                                               |
-| `WriteFile` (port) + `FileLocker` (adapter)           | `business/io/` / `integration/io/`  | atomic write helper / `createFileLocker`                                                                                                                                    |
-| `IssueFetcher` / `IssuePusher` / `PullRequestCreator` | `business/scm/`                     | `gh` / `glab` shell wrappers under `integration/scm/`                                                                                                                       |
-| `VersionChecker`                                      | `business/version/`                 | `createNpmVersionChecker` (`integration/version/`)                                                                                                                          |
+| Port                                                  | Folder                              | Concrete adapter                                                                                                                                                                                                                                                          |
+| ----------------------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Logger` + `Sink`                                     | `business/observability/`           | `createEventBusLogger` (re-published as `LogEvent`)                                                                                                                                                                                                                       |
+| `EventBus`                                            | `business/observability/`           | `InMemoryEventBus` (`integration/observability/`)                                                                                                                                                                                                                         |
+| `HeadlessAiProvider`                                  | `integration/ai/providers/_engine/` | `claude` / `copilot` / `codex` adapters under `providers/<tool>/`                                                                                                                                                                                                         |
+| `InteractiveAiProvider`                               | `integration/ai/providers/_engine/` | same per-tool adapters (interactive entrypoint)                                                                                                                                                                                                                           |
+| `PublishSignal` (fn type)                             | `application/flows/_shared/`        | `createPublishSignal(eventBus, source, taskId?)` — the ONE harness-signal channel (`ai-signal` AppEvent)                                                                                                                                                                  |
+| `TemplateLoader`                                      | `integration/ai/prompts/_engine/`   | `FsTemplateLoader` — dev: src tree, bundled: `dist/`                                                                                                                                                                                                                      |
+| `ReadinessProbe`                                      | `integration/ai/readiness/_engine/` | per-tool probes under `readiness/<tool>/`                                                                                                                                                                                                                                 |
+| `SkillsAdapter` + `SkillSource`                       | `integration/ai/skills/_engine/`    | per-tool adapter + bundled / project / operator / phase-folder source, composed and resolved by `createResolvedSkillSource`; `parseSkill` extracts a `Skill` from a `SKILL.md`; `checkSkillContract` validates against six harness rules (S1–S6) — see § Skills subsystem |
+| `SkillCatalogPort`                                    | `integration/ai/skills/_engine/`    | `createSkillCatalog` (`skills/phase/catalog.ts`) — list / enable / disable / update / updateAll over the phase folders, provenance-stamped                                                                                                                                |
+| `GitRunner` / `ShellScriptRunner`                     | `integration/io/`                   | `createGitRunner` / `createShellScriptRunner`                                                                                                                                                                                                                             |
+| `WriteFile` (port) + `FileLocker` (adapter)           | `business/io/` / `integration/io/`  | atomic write helper / `createFileLocker`                                                                                                                                                                                                                                  |
+| `IssueFetcher` / `IssuePusher` / `PullRequestCreator` | `business/scm/`                     | `gh` / `glab` shell wrappers under `integration/scm/`                                                                                                                                                                                                                     |
+| `VersionChecker`                                      | `business/version/`                 | `createNpmVersionChecker` (`integration/version/`)                                                                                                                                                                                                                        |
 
 Shared engine-level helpers (not ports — no interface boundary, but architecturally significant):
 
@@ -209,6 +210,39 @@ Shared engine-level helpers (not ports — no interface boundary, but architectu
 - **`compressSection`** (`prompts/_engine/compress-section.ts`) — tail-compresses oversized prompt
   sections (`PRIOR_PROGRESS` / `PRIOR_LEARNINGS` / `PRIOR_EPISODES`) to at most `SECTION_CHAR_CAP`
   (4,000) characters, keeping the most-recent tail and prepending a truncation notice.
+
+## Skills subsystem (`integration/ai/skills/`)
+
+Four `SkillSource` implementations compose into one union at launch time (`buildComposedSkillSource` in
+`application/ui/shared/launcher.ts`), in a fixed order — bundled → project → operator → phase:
+
+| Source     | Folder                            | Scope                                                                                                                                                |
+| ---------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bundled`  | `integration/ai/skills/bundled/`  | Committed `ralphctl-*` skills; per-skill `defaultFor` phases (`_engine/registry.ts`'s `BUNDLED_SKILLS`)                                              |
+| `project`  | `integration/ai/skills/project/`  | Per-repo `setup`/`verify` guidance materialised from `Repository.setupSkill`/`verifySkill`                                                           |
+| `operator` | `integration/ai/skills/operator/` | Global, per-provider drop-ins under `<appRoot>/skills/<claude,copilot,codex>/<name>/SKILL.md`                                                        |
+| `phase`    | `integration/ai/skills/phase/`    | Global, per-flow opt-in folders under `<appRoot>/skills/<flow>/<name>/SKILL.md` — provider-agnostic; the Skills-catalog view's copy-on-enable target |
+
+`createResolvedSkillSource` (`_engine/resolve-selection.ts`) wraps the composed union as the single skill-
+selection resolution seam: `getForFlow` dedupes by install name keeping the LAST occurrence (so a phase-
+folder copy of a bundled name shadows the bundled default — composition order is load-bearing), then
+subtracts a per-flow disabled-name set — the customize picker's per-run `skillsOverride` when present,
+otherwise the durable `settings.ai.skills[flow].disabled` preference (a run override REPLACES the saved
+preference outright, so it can also re-enable a remembered-off skill for one run). `getByName` passes
+through unfiltered — it is a name-_resolution_ seam for the readiness flow's `offer-skill-suggestions`
+leaf, not an install seam, so opt-out never hides a name from being recognised.
+
+`SkillCatalogPort` (`_engine/skill-catalog-port.ts`, implemented by `createSkillCatalog` in
+`phase/catalog.ts`) drives the TUI Skills catalog view (`views/skills-view.tsx`, Home hotkey `K`). The
+phase folder IS the enabled/disabled state: `enable` copies a bundled skill's raw `SKILL.md` bytes
+(via the narrow `BundledSkillRawReader` port — never round-tripped through `parseSkill`) into
+`<appRoot>/skills/<flow>/<name>/` and writes a `.provenance.json` sidecar (`phase/provenance.ts`: sha256
+of the copied bytes, `ralphctlVersion`, `copiedAt`); `disable` removes the folder. The sidecar lets
+`list()` classify each install as `manual` (no stamp — hand-dropped), `in-sync`, `update-available` (the
+bundle moved on upstream), or `locally-modified` (the operator edited the copy — checked first, so it
+always wins over `update-available` and `update`/`updateAll` never silently discard an edit). The
+sidecar is catalog-only bookkeeping — no `SkillSource` ever emits or installs it into a session; a
+`Skill` is always `{ name, description, content }` derived from `SKILL.md` alone.
 
 ## Repository interfaces (`src/domain/repository/`)
 
@@ -373,10 +407,17 @@ of the stack — the leaf or use-case wrapping them catches and converts to `Res
 ~/.ralphctl/                      ← override with RALPHCTL_HOME
 ├── config/
 │   └── settings.json                ← user-configurable settings (per-flow models, provider, log level, …)
-├── skills/                          ← operator drop-in skills root (operatorSkillsRoot); operator-authored,
-│   ├── claude/<name>/SKILL.md          not created by ensureStorageRoots; missing dir = no operator skills
+├── skills/                          ← operatorSkillsRoot; operator-authored, not created by
+│   │                                    ensureStorageRoots; a missing dir = no skills of that kind
+│   ├── claude/<name>/SKILL.md          per-provider operator drop-ins (operator/source.ts)
 │   ├── copilot/<name>/SKILL.md
-│   └── codex/<name>/SKILL.md
+│   ├── codex/<name>/SKILL.md
+│   ├── refine/<name>/SKILL.md          per-flow opt-in folders (phase/source.ts) — provider-agnostic;
+│   ├── plan/<name>/SKILL.md              the Skills-catalog view's copy-on-enable target; kebab dir
+│   ├── implement/<name>/SKILL.md         names via PHASE_FLOW_DIR (createPr → create-pr); a copy
+│   ├── readiness/<name>/SKILL.md         carries a `.provenance.json` sidecar when catalog-managed
+│   ├── ideate/<name>/SKILL.md
+│   └── create-pr/<name>/SKILL.md
 ├── data/
 │   ├── .ralphctl-data-version.json  ← version stamp written after auto-migration; compared on launch to detect pending migrations
 │   ├── projects/
@@ -477,7 +518,9 @@ and the non-obvious mutators.
   `ai.effort` plus one row per flow — `ai.{refine, plan, readiness, ideate, createPr}`, each
   `{ provider, model, effort? }`, and `ai.implement`, a nested `{ generator, evaluator }` pair
   where each role is its own `{ provider, model, effort? }` row. `provider` is one of
-  `'claude-code' | 'github-copilot' | 'openai-codex'`.
+  `'claude-code' | 'github-copilot' | 'openai-codex'`. Optional `ai.skills` is the durable per-flow
+  skill opt-out map (`Partial<Record<FlowId, { disabled: readonly string[] }>>`) — see
+  `AI-SETTINGS.md` § skill opt-out and § Skills subsystem above.
 
 ## Harness Signals
 
@@ -566,7 +609,7 @@ application/ui/
     ├── theme/                       ← tokens.ts (single source of visual truth)
     ├── components/                  ← ViewShell, SectionStamp, ResultCard, FieldList, Spinner, …
     ├── prompts/                     ← InkInteractivePrompt + per-kind components
-    └── views/                       ← Home, Sprints, Sprint detail, Projects, Settings, Doctor,
+    └── views/                       ← Home, Sprints, Sprint detail, Projects, Settings, Skills, Doctor,
                                        Sessions, Execute, Welcome, browse/, crud/
 ```
 
