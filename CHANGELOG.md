@@ -7,6 +7,8 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-07-03
+
 ### Added
 
 - **`harness.correctiveRetries` setting (1–5, default 2).** When a generator or evaluator AI turn
