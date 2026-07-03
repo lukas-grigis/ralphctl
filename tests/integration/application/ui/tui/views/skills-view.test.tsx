@@ -10,6 +10,8 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import { Result } from '@src/domain/result.ts';
+import type { Settings } from '@src/domain/entity/settings.ts';
+import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
@@ -26,9 +28,14 @@ const abs = (p: string): AbsolutePath => {
 };
 
 /** In-memory fake catalog: mutates a closured entry array so `enable`/`disable`/`update` are visible on the next `list()`. */
-const fakeCatalog = (initial: readonly SkillCatalogEntry[]): SkillCatalogPort => {
+const fakeCatalog = (
+  initial: readonly SkillCatalogEntry[]
+): SkillCatalogPort & { setEntries: (next: readonly SkillCatalogEntry[]) => void } => {
   let entries = initial;
   return {
+    setEntries(next) {
+      entries = next;
+    },
     async list() {
       return Result.ok(entries);
     },
@@ -44,7 +51,7 @@ const fakeCatalog = (initial: readonly SkillCatalogEntry[]): SkillCatalogPort =>
             }
           : e
       );
-      return Result.ok(undefined);
+      return Result.ok({ copied: [...flows], skipped: [] });
     },
     async disable(name, flows) {
       entries = entries.map((e) =>
@@ -78,9 +85,10 @@ const fakeCatalog = (initial: readonly SkillCatalogEntry[]): SkillCatalogPort =>
   };
 };
 
-const buildDeps = (skillCatalog: SkillCatalogPort): AppDeps =>
+const buildDeps = (skillCatalog: SkillCatalogPort, settings: Settings = DEFAULT_SETTINGS): AppDeps =>
   ({
     skillCatalog,
+    settingsRepo: { load: async () => Result.ok(settings) },
     storage: { operatorSkillsRoot: abs('/tmp/ralphctl-skills-root-test') },
   }) as unknown as AppDeps;
 
@@ -289,21 +297,131 @@ describe('SkillsView', () => {
     expect(result.lastFrame() ?? '').toContain('Failed to load the skill catalog.');
   });
 
-  it('reload (r) re-fetches after the cursor has moved', async () => {
+  it('reload (r) re-fetches: state mutated behind the view appears after r', async () => {
     const [first, second] = BUNDLED_SKILLS;
     if (first === undefined || second === undefined || first.name === second.name) {
       throw new Error('test requires at least two distinct BUNDLED_SKILLS entries');
     }
     const catalog = fakeCatalog([
       { name: first.name, description: 'x', defaultFor: [], recommendedFor: [], installs: [] },
-      { name: second.name, description: 'y', defaultFor: [], recommendedFor: [], installs: [] },
     ]);
     const { result } = renderView(<SkillsView />, { deps: buildDeps(catalog), initial: { id: 'skills' } });
     await waitForViewReady(result, (f) => f.includes(first.name));
+    expect(result.lastFrame() ?? '').not.toContain(second.name);
+    // Mutate the underlying catalog OUTSIDE the view, then reload — the new entry appearing
+    // proves `r` actually re-fetched rather than re-rendering stale state.
+    catalog.setEntries([
+      { name: first.name, description: 'x', defaultFor: [], recommendedFor: [], installs: [] },
+      { name: second.name, description: 'y', defaultFor: [], recommendedFor: [], installs: [] },
+    ]);
     result.stdin.write(DOWN);
     await tick();
     result.stdin.write('r');
-    await waitFor(() => (result.lastFrame() ?? '').includes('reloading'));
-    expect(result.lastFrame() ?? '').toContain(second.name);
+    await waitFor(() => (result.lastFrame() ?? '').includes(second.name));
+  });
+
+  it('update (u): declining the overwrite confirm leaves the copy untouched', async () => {
+    const name = bundledName();
+    const catalog = fakeCatalog([
+      {
+        name,
+        description: 'x',
+        defaultFor: [],
+        recommendedFor: [],
+        installs: [{ flow: 'plan', status: 'locally-modified' }],
+      },
+    ]);
+    const { result } = renderView(<SkillsView />, { deps: buildDeps(catalog), initial: { id: 'skills' } });
+    await waitForViewReady(result, (f) => f.includes(name));
+
+    result.stdin.write('u');
+    await waitFor(() => (result.lastFrame() ?? '').includes('Overwrite?'));
+    // Nothing written until the confirm is answered.
+    const midway = await catalog.list();
+    expect(midway.ok && midway.value[0]?.installs).toEqual([{ flow: 'plan', status: 'locally-modified' }]);
+
+    result.stdin.write('n');
+    await waitFor(() => !(result.lastFrame() ?? '').includes('Overwrite?'));
+    const declined = await catalog.list();
+    expect(declined.ok && declined.value[0]?.installs).toEqual([{ flow: 'plan', status: 'locally-modified' }]);
+  });
+
+  it('update (u): accepting the overwrite confirm updates the locally-modified copy', async () => {
+    const name = bundledName();
+    const catalog = fakeCatalog([
+      {
+        name,
+        description: 'x',
+        defaultFor: [],
+        recommendedFor: [],
+        installs: [{ flow: 'plan', status: 'locally-modified' }],
+      },
+    ]);
+    const { result } = renderView(<SkillsView />, { deps: buildDeps(catalog), initial: { id: 'skills' } });
+    await waitForViewReady(result, (f) => f.includes(name));
+
+    result.stdin.write('u');
+    await waitFor(() => (result.lastFrame() ?? '').includes('Overwrite?'));
+    result.stdin.write('y');
+    await waitFor(() => (result.lastFrame() ?? '').includes('updated'));
+    const after = await catalog.list();
+    expect(after.ok && after.value[0]?.installs).toEqual([{ flow: 'plan', status: 'in-sync' }]);
+  });
+
+  it('update (u): an in-sync-only row reports already up to date', async () => {
+    const name = bundledName();
+    const catalog = fakeCatalog([
+      { name, description: 'x', defaultFor: [], recommendedFor: [], installs: [{ flow: 'plan', status: 'in-sync' }] },
+    ]);
+    const { result } = renderView(<SkillsView />, { deps: buildDeps(catalog), initial: { id: 'skills' } });
+    await waitForViewReady(result, (f) => f.includes(name));
+    result.stdin.write('u');
+    await waitFor(() => (result.lastFrame() ?? '').includes('already up to date'));
+  });
+
+  it('never offers Create PR — the create-pr launch loads no skills', async () => {
+    const name = bundledName();
+    const catalog = fakeCatalog([
+      {
+        name,
+        description: 'defaulted onto createPr in the registry',
+        defaultFor: ['createPr'],
+        recommendedFor: ['createPr', 'plan'],
+        installs: [],
+      },
+    ]);
+    const { result } = renderView(<SkillsView />, { deps: buildDeps(catalog), initial: { id: 'skills' } });
+    await waitForViewReady(result, (f) => f.includes(name));
+    const frame = result.lastFrame() ?? '';
+    // No chip for the non-mounting flow — neither as default-on nor as not-enabled.
+    expect(frame).not.toContain('■ pr');
+    expect(frame).not.toContain('◌ pr');
+
+    result.stdin.write('e');
+    await waitFor(() => (result.lastFrame() ?? '').includes('Enable'));
+    const picker = result.lastFrame() ?? '';
+    expect(picker).not.toContain('Create PR');
+    // The mounting recommendation is still preselected.
+    expect(picker).toMatch(/\[[xX✔✓]]\s*Plan/);
+  });
+
+  it('renders "default, off (saved)" when a durable opt-out disables a default flow', async () => {
+    const name = bundledName();
+    const catalog = fakeCatalog([
+      { name, description: 'x', defaultFor: ['implement'], recommendedFor: [], installs: [] },
+    ]);
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      ai: { ...DEFAULT_SETTINGS.ai, skills: { implement: { disabled: [name] } } },
+    } as Settings;
+    const { result } = renderView(<SkillsView />, {
+      deps: buildDeps(catalog, settings),
+      initial: { id: 'skills' },
+    });
+    await waitForViewReady(result, (f) => f.includes(name));
+    const frame = result.lastFrame() ?? '';
+    // The saved opt-out demotes the "always on" chip: muted ◌ instead of highlighted ■.
+    expect(frame).toContain('◌ imp');
+    expect(frame).not.toContain('■ imp');
   });
 });

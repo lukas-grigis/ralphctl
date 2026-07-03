@@ -21,7 +21,7 @@
  * default loading doesn't go through the phase folder at all (see `flowChipVisual`'s doc comment).
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { useListWindow, type ListWindow, OverflowRow } from '@src/application/ui/tui/components/windowed-list.tsx';
@@ -37,10 +37,15 @@ import { useAsyncLoad, type AsyncLoadState } from '@src/application/ui/tui/runti
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
-import type { FlowId } from '@src/domain/value/flow-id.ts';
+import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
+import type { AiSkillsSettings } from '@src/domain/entity/settings.ts';
 import type { SkillCatalogEntry } from '@src/integration/ai/skills/_engine/skill-catalog-port.ts';
 import { SkillRow } from '@src/application/ui/tui/views/skills-view-internals/skill-row.tsx';
-import { disableOptions, enableOptions } from '@src/application/ui/tui/views/skills-view-internals/picker-options.ts';
+import {
+  disableOptions,
+  enableOptions,
+  enablePreselect,
+} from '@src/application/ui/tui/views/skills-view-internals/picker-options.ts';
 import {
   confirmTitle,
   type ConfirmState,
@@ -50,12 +55,18 @@ import {
 
 /** Non-list rows consumed by ViewShell chrome + summary line + overflow rows + feedback. */
 const CHROME_ROWS = 8;
-/** Approximate rendered height (rows) of one `SkillRow` card. */
-const ROW_HEIGHT = 6;
+/**
+ * Rendered height (rows) of one `SkillRow` card at its tallest: border top, name, description,
+ * chip strip, "recommended:" line, border bottom, plus the section margin below the card.
+ */
+const ROW_HEIGHT = 7;
 
 interface SkillsBodyProps {
   readonly helpOpen: boolean;
-  readonly state: AsyncLoadState<readonly SkillCatalogEntry[], unknown>;
+  readonly state: AsyncLoadState<
+    { readonly entries: readonly SkillCatalogEntry[]; readonly skills: AiSkillsSettings | undefined },
+    unknown
+  >;
   readonly picker: PickerState | undefined;
   readonly confirmState: ConfirmState | undefined;
   readonly entries: readonly SkillCatalogEntry[];
@@ -63,6 +74,7 @@ interface SkillsBodyProps {
   readonly visibleItems: readonly SkillCatalogEntry[];
   readonly focusedIndex: number;
   readonly bundledNames: ReadonlySet<string>;
+  readonly savedDisabled: (flowId: FlowId) => ReadonlySet<string>;
   readonly operatorSkillsRoot: string;
   readonly actionFeedback: StructuredFeedback | undefined;
   readonly onSubmitPicker: (flows: readonly FlowId[]) => void;
@@ -81,6 +93,7 @@ const SkillsBody = ({
   visibleItems,
   focusedIndex,
   bundledNames,
+  savedDisabled,
   operatorSkillsRoot,
   actionFeedback,
   onSubmitPicker,
@@ -100,7 +113,7 @@ const SkillsBody = ({
         <MultiSelectPrompt
           message="space toggle · a select-all · ↵ confirm"
           options={picker.kind === 'enable' ? enableOptions(picker.entry) : disableOptions(picker.entry)}
-          initialSelectedValues={picker.kind === 'enable' ? picker.entry.recommendedFor : []}
+          initialSelectedValues={picker.kind === 'enable' ? enablePreselect(picker.entry) : []}
           onSubmit={(values) => onSubmitPicker(values as readonly FlowId[])}
           onCancel={onCancelPicker}
         />
@@ -147,6 +160,7 @@ const SkillsBody = ({
           entry={entry}
           focused={window.start + localIdx === focusedIndex}
           isBundled={bundledNames.has(entry.name)}
+          savedDisabled={savedDisabled}
         />
       ))}
       <OverflowRow direction="below" count={entries.length - window.end} />
@@ -160,12 +174,26 @@ export const SkillsView = (): React.JSX.Element => {
   const ui = useUiState();
   const bp = useBreakpoint();
 
-  const { state, reload } = useAsyncLoad<readonly SkillCatalogEntry[]>(async () => {
+  const { state, reload } = useAsyncLoad<{
+    readonly entries: readonly SkillCatalogEntry[];
+    readonly skills: AiSkillsSettings | undefined;
+  }>(async () => {
     const r = await deps.skillCatalog.list();
     if (!r.ok) throw new Error(r.error.message);
-    return r.value;
-  }, [deps.skillCatalog]);
-  const entries = state.kind === 'ok' ? state.value : [];
+    // Saved per-flow opt-outs make a "default" chip honest ("default, off (saved)"). A settings
+    // read failure is non-fatal here — the catalog still renders, chips just lose that nuance.
+    const settingsR = await deps.settingsRepo.load();
+    return { entries: r.value, skills: settingsR.ok ? settingsR.value.ai.skills : undefined };
+  }, [deps.skillCatalog, deps.settingsRepo]);
+  const entries = state.kind === 'ok' ? state.value.entries : [];
+  const skills = state.kind === 'ok' ? state.value.skills : undefined;
+
+  const EMPTY_NAMES: ReadonlySet<string> = useMemo(() => new Set(), []);
+  const savedDisabled = useMemo(() => {
+    const byFlow = new Map<FlowId, ReadonlySet<string>>();
+    for (const flowId of FLOW_IDS) byFlow.set(flowId, new Set(skills?.[flowId]?.disabled ?? []));
+    return (flowId: FlowId): ReadonlySet<string> => byFlow.get(flowId) ?? EMPTY_NAMES;
+  }, [skills, EMPTY_NAMES]);
 
   const actions = useSkillCatalogActions(deps.skillCatalog, reload);
   const { picker, confirmState, bundledNames } = actions;
@@ -221,6 +249,7 @@ export const SkillsView = (): React.JSX.Element => {
         visibleItems={visibleItems}
         focusedIndex={focusedIndex}
         bundledNames={bundledNames}
+        savedDisabled={savedDisabled}
         operatorSkillsRoot={String(deps.storage.operatorSkillsRoot)}
         actionFeedback={actions.actionFeedback}
         onSubmitPicker={(flows) => actions.submitPicker(flows)}

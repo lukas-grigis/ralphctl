@@ -45,9 +45,14 @@ const isDestructiveDisable = (entry: SkillCatalogEntry, flows: readonly FlowId[]
     return status === LOCALLY_MODIFIED || status === 'manual';
   });
 
-/** Flows worth updating for `entry`: already-stale copies, plus edited ones (confirm-gated). */
+/**
+ * Flows worth updating for `entry`: already-stale copies, edited ones (confirm-gated), and
+ * `broken` folders (no SKILL.md — update rewrites them, which is a pure repair).
+ */
 const updateTargets = (entry: SkillCatalogEntry): readonly FlowId[] =>
-  entry.installs.filter((i) => i.status === 'update-available' || i.status === LOCALLY_MODIFIED).map((i) => i.flow);
+  entry.installs
+    .filter((i) => i.status === 'update-available' || i.status === LOCALLY_MODIFIED || i.status === 'broken')
+    .map((i) => i.flow);
 
 /** Human title for the destructive-confirm card. */
 export const confirmTitle = (cs: ConfirmState): string =>
@@ -111,7 +116,12 @@ const doSubmitPicker = (ctx: ActionCtx, picker: PickerState | undefined, flows: 
     void runCatalogOp(
       ctx,
       () => ctx.skillCatalog.enable(entry.name, flows),
-      () => `${glyphs.check} enabled "${entry.name}" for ${String(flows.length)} flow(s)`
+      // Honest outcome: `enable` deliberately skips edit-protected copies — never report a
+      // flow as enabled when the port left it untouched.
+      (outcome) =>
+        outcome.skipped.length === 0
+          ? `${glyphs.check} enabled "${entry.name}" for ${String(outcome.copied.length)} flow(s)`
+          : `${glyphs.check} enabled "${entry.name}" for ${String(outcome.copied.length)} flow(s); skipped ${String(outcome.skipped.length)} (edit-protected — u overwrites)`
     );
     return;
   }

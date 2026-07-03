@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { SkillCatalogEntry } from '@src/integration/ai/skills/_engine/skill-catalog-port.ts';
-import { disableOptions, enableOptions } from '@src/application/ui/tui/views/skills-view-internals/picker-options.ts';
+import {
+  disableOptions,
+  enableOptions,
+  enablePreselect,
+} from '@src/application/ui/tui/views/skills-view-internals/picker-options.ts';
+import { SKILL_MOUNTING_FLOW_IDS } from '@src/application/ui/tui/views/skills-view-internals/flow-visual.ts';
 
 const entry = (over: Partial<SkillCatalogEntry> = {}): SkillCatalogEntry => ({
   name: 'ralphctl-example',
@@ -12,8 +17,38 @@ const entry = (over: Partial<SkillCatalogEntry> = {}): SkillCatalogEntry => ({
 });
 
 describe('enableOptions', () => {
-  it('offers all six flows', () => {
-    expect(enableOptions(entry())).toHaveLength(6);
+  it('offers exactly the skill-mounting flows — never createPr, which loads no skills', () => {
+    const options = enableOptions(entry());
+    expect(options.map((o) => o.value)).toEqual([...SKILL_MOUNTING_FLOW_IDS]);
+    expect(options.some((o) => o.value === 'createPr')).toBe(false);
+  });
+
+  it('disables an edit-protected install (locally-modified / manual) with the overwrite hint', () => {
+    const options = enableOptions(
+      entry({
+        installs: [
+          { flow: 'plan', status: 'locally-modified' },
+          { flow: 'implement', status: 'manual' },
+        ],
+      })
+    );
+    const plan = options.find((o) => o.value === 'plan');
+    const impl = options.find((o) => o.value === 'implement');
+    expect(plan?.disabled).toBe(true);
+    expect(plan?.description).toContain('u overwrites');
+    expect(impl?.disabled).toBe(true);
+  });
+
+  it('enablePreselect keeps only selectable recommendations', () => {
+    const preselect = enablePreselect(
+      entry({
+        // createPr never mounts; refine is default-on; plan is edit-protected; implement is free.
+        recommendedFor: ['createPr', 'refine', 'plan', 'implement'],
+        defaultFor: ['refine'],
+        installs: [{ flow: 'plan', status: 'locally-modified' }],
+      })
+    );
+    expect(preselect).toEqual(['implement']);
   });
 
   it('disables a flow the skill is already default-on for, with an explanatory description', () => {

@@ -318,4 +318,72 @@ describe('createSkillCatalog', () => {
     const updated = await catalog.update('missing-bundle', ['plan']);
     expect(updated.ok).toBe(false);
   });
+
+  it('enable() reports per-flow outcomes: copies fresh flows, skips edit-protected ones', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'skill-catalog-'));
+    const name = BUNDLED_SKILLS[0]!.name;
+    const catalog = createSkillCatalog({
+      operatorSkillsRoot: abs(root),
+      writeFile: createAtomicWriteFile(),
+      bundledRawReader: createFakeRawReader(new Map(), new Set()),
+      logger: recordingLogger(),
+    });
+    // First enable: both flows fresh → both copied.
+    const first = await catalog.enable(name, ['plan', 'implement']);
+    expect(first.ok && first.value).toEqual({ copied: ['plan', 'implement'], skipped: [] });
+    // Hand-edit the plan copy → edit-protected; re-enable must skip it and re-copy implement.
+    const planDir = join(root, PHASE_FLOW_DIR.plan, name);
+    await writeFile(join(planDir, 'SKILL.md'), 'edited by the operator', 'utf-8');
+    const second = await catalog.enable(name, ['plan', 'implement']);
+    expect(second.ok && second.value).toEqual({ copied: ['implement'], skipped: ['plan'] });
+    expect(await readFile(join(planDir, 'SKILL.md'), 'utf-8')).toBe('edited by the operator');
+  });
+
+  it('enable() repairs a stranded pristine copy whose stamp write was interrupted', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'skill-catalog-'));
+    const name = BUNDLED_SKILLS[0]!.name;
+    const catalog = createSkillCatalog({
+      operatorSkillsRoot: abs(root),
+      writeFile: createAtomicWriteFile(),
+      bundledRawReader: createFakeRawReader(new Map(), new Set()),
+      logger: recordingLogger(),
+    });
+    // Simulate an interrupted enable: SKILL.md written verbatim, sidecar missing.
+    const dir = join(root, PHASE_FLOW_DIR.plan, name);
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'SKILL.md'), fakeBundledContent(name), 'utf-8');
+    const repaired = await catalog.enable(name, ['plan']);
+    expect(repaired.ok && repaired.value).toEqual({ copied: ['plan'], skipped: [] });
+    // The sidecar now exists and the install reads in-sync, not manual.
+    const stamped = await readFile(join(dir, PROVENANCE_FILENAME), 'utf-8');
+    expect(stamped).toContain(name);
+    const listed = await catalog.list();
+    expect(listed.ok).toBe(true);
+    if (!listed.ok) return;
+    expect(findEntry(listed.value, name)?.installs).toEqual([{ flow: 'plan', status: 'in-sync' }]);
+  });
+
+  it('list() surfaces a folder without SKILL.md as broken, and disable() removes it', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'skill-catalog-'));
+    const name = BUNDLED_SKILLS[0]!.name;
+    const catalog = createSkillCatalog({
+      operatorSkillsRoot: abs(root),
+      writeFile: createAtomicWriteFile(),
+      bundledRawReader: createFakeRawReader(new Map(), new Set()),
+      logger: recordingLogger(),
+    });
+    const dir = join(root, PHASE_FLOW_DIR.ideate, name);
+    await mkdir(dir, { recursive: true });
+    const listed = await catalog.list();
+    expect(listed.ok).toBe(true);
+    if (!listed.ok) return;
+    expect(findEntry(listed.value, name)?.installs).toEqual([{ flow: 'ideate', status: 'broken' }]);
+
+    const removed = await catalog.disable(name, ['ideate']);
+    expect(removed.ok).toBe(true);
+    const after = await catalog.list();
+    expect(after.ok).toBe(true);
+    if (!after.ok) return;
+    expect(findEntry(after.value, name)?.installs).toEqual([]);
+  });
 });

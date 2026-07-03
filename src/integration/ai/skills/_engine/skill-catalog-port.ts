@@ -26,10 +26,13 @@ import type { FlowId } from '@src/domain/value/flow-id.ts';
  *  - `update-available` — folder still matches its stamp, but the bundled skill changed upstream.
  *  - `locally-modified` — the folder's `SKILL.md` diverges from its stamp (the operator edited
  *                         the copy). Wins over `update-available` so an edit is never silently lost.
+ *  - `broken`           — the folder exists but has no readable `SKILL.md` (e.g. an interrupted
+ *                         copy). It loads nothing and would otherwise be invisible; `disable`
+ *                         removes it, and `update` on a bundled name repairs it.
  *
  * @public
  */
-export type SkillInstallStatus = 'manual' | 'in-sync' | 'update-available' | 'locally-modified';
+export type SkillInstallStatus = 'manual' | 'in-sync' | 'update-available' | 'locally-modified' | 'broken';
 
 /** One flow where a catalog skill is installed, plus that copy's sync status. @public */
 export interface SkillCatalogInstall {
@@ -74,10 +77,16 @@ export interface SkillCatalogPort {
   /**
    * Copy the bundled skill folder into each `<appRoot>/skills/<flow>/<name>/` and write a
    * `.provenance.json` stamp beside the copied `SKILL.md`. Idempotent for an in-sync install
-   * (re-writing identical bytes). A `locally-modified` copy is left untouched — the caller routes
-   * the operator through `update` (with confirmation) to overwrite local edits.
+   * (re-writing identical bytes); an unstamped copy whose bytes equal the current bundle is
+   * repaired (re-stamped) rather than skipped. A `locally-modified` or genuinely `manual` copy is
+   * left untouched and reported in `skipped` — the caller routes the operator through `update`
+   * (with confirmation) to overwrite local edits. The outcome names exactly which flows were
+   * written vs left alone so the caller's feedback never overstates what happened.
    */
-  enable(name: string, flows: readonly FlowId[]): Promise<Result<void, StorageError>>;
+  enable(
+    name: string,
+    flows: readonly FlowId[]
+  ): Promise<Result<{ readonly copied: readonly FlowId[]; readonly skipped: readonly FlowId[] }, StorageError>>;
   /**
    * Remove the skill folder (and its sidecar) from each named flow's phase dir. A folder that is
    * already absent is a no-op. Only touches the `ralphctl-*` copies the catalog manages — never an

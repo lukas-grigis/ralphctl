@@ -214,7 +214,13 @@ const buildInstalls = async (
     if (!(perFlowNames.get(flowId) ?? []).includes(name)) continue;
     const installR = await readInstall(ctx, flowId, name, currentBundledRaw);
     if (!installR.ok) return Result.error(installR.error);
-    if (installR.value === undefined) continue; // race: gone between readdir and read
+    if (installR.value === undefined) {
+      // The folder was listed by readdir but holds no readable SKILL.md — an interrupted copy
+      // (or a delete race). Surface it as `broken` instead of dropping it: invisible, it would
+      // be an undeletable ghost that the phase source warns about on every launch.
+      installs.push({ flow: flowId, status: 'broken' });
+      continue;
+    }
     installs.push({ flow: flowId, status: installR.value.status });
     if (firstRaw === undefined) firstRaw = installR.value.raw;
   }
@@ -317,16 +323,24 @@ const enableForFlow = async (
   flowId: FlowId,
   name: string,
   bundledRaw: string
-): Promise<Result<void, StorageError>> => {
+): Promise<Result<'copied' | 'skipped', StorageError>> => {
   const existingR = await readInstall(ctx, flowId, name, bundledRaw);
   if (!existingR.ok) return Result.error(existingR.error);
   // Never clobber operator-owned content: a hand-dropped folder (`manual`) or a copy the
-  // operator has since edited (`locally-modified`) is left untouched — the caller routes through
-  // `update` (with confirmation) if it really means to overwrite the edit.
-  if (existingR.value?.status === 'manual' || existingR.value?.status === 'locally-modified') {
-    return Result.ok(undefined);
+  // operator has since edited (`locally-modified`) is left untouched and reported as skipped —
+  // the caller routes through `update` (with confirmation) if it really means to overwrite.
+  // Exception: an unstamped copy whose bytes EQUAL the current bundle is a stranded pristine
+  // copy (interrupted stamp write), not operator content — re-writing it loses nothing and
+  // repairs the missing sidecar, so a retried enable self-heals instead of no-oping forever.
+  if (existingR.value?.status === 'manual' && existingR.value.raw === bundledRaw) {
+    const repaired = await writeInstall(ctx, flowId, name, bundledRaw);
+    return repaired.ok ? Result.ok('copied') : repaired;
   }
-  return writeInstall(ctx, flowId, name, bundledRaw);
+  if (existingR.value?.status === 'manual' || existingR.value?.status === 'locally-modified') {
+    return Result.ok('skipped');
+  }
+  const written = await writeInstall(ctx, flowId, name, bundledRaw);
+  return written.ok ? Result.ok('copied') : written;
 };
 
 export const createSkillCatalog = (deps: SkillCatalogDeps): SkillCatalogPort => {
@@ -340,14 +354,20 @@ export const createSkillCatalog = (deps: SkillCatalogDeps): SkillCatalogPort => 
   return {
     list: () => buildCatalogList(ctx, log, deps.bundledRawReader),
 
-    async enable(name: string, flows: readonly FlowId[]): Promise<Result<void, StorageError>> {
+    async enable(
+      name: string,
+      flows: readonly FlowId[]
+    ): Promise<Result<{ readonly copied: readonly FlowId[]; readonly skipped: readonly FlowId[] }, StorageError>> {
       const bundledR = await deps.bundledRawReader.readRaw(name);
       if (!bundledR.ok) return Result.error(bundledR.error);
+      const copied: FlowId[] = [];
+      const skipped: FlowId[] = [];
       for (const flowId of flows) {
         const r = await enableForFlow(ctx, flowId, name, bundledR.value);
-        if (!r.ok) return r;
+        if (!r.ok) return Result.error(r.error);
+        (r.value === 'copied' ? copied : skipped).push(flowId);
       }
-      return Result.ok(undefined);
+      return Result.ok({ copied, skipped });
     },
 
     async disable(name: string, flows: readonly FlowId[]): Promise<Result<void, StorageError>> {
