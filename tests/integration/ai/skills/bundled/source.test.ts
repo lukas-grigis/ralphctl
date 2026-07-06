@@ -2,8 +2,26 @@ import { describe, expect, it } from 'vitest';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createBundledSkillSource } from '@src/integration/ai/skills/bundled/source.ts';
+import { createBundledSkillSource, resolveBundledRoot } from '@src/integration/ai/skills/bundled/source.ts';
 import { skillsForFlow } from '@src/integration/ai/skills/_engine/registry.ts';
+
+describe('resolveBundledRoot', () => {
+  it('resolves the co-located skills/ dir when the build copied SKILL.md folders beside the bundle', () => {
+    // What decides it is the skills/ dir sitting beside the module — NOT the artifact filename.
+    // A hashed `cli-<hash>.mjs` code-split chunk (which the 0.15.0 filename check missed) resolves
+    // identically to the `cli.mjs` entry stub.
+    const beside = (p: string): boolean => p === '/pkg/dist/skills';
+    expect(resolveBundledRoot('file:///pkg/dist/cli-CKPJ5SY4.mjs', beside)).toBe('/pkg/dist/skills');
+    expect(resolveBundledRoot('file:///pkg/dist/cli.mjs', beside)).toBe('/pkg/dist/skills');
+  });
+
+  it('resolves the module dir itself in dev, where nothing sits beside source.ts', () => {
+    const never = (): boolean => false;
+    expect(resolveBundledRoot('file:///pkg/src/integration/ai/skills/bundled/source.ts', never)).toBe(
+      '/pkg/src/integration/ai/skills/bundled'
+    );
+  });
+});
 
 describe('createBundledSkillSource (production root)', () => {
   // Hits the real `src/ai/skills/bundled/` folder. Asserts the three v1 skills load.

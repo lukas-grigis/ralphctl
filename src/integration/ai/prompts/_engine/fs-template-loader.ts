@@ -1,4 +1,4 @@
-import { promises as fs } from 'node:fs';
+import { existsSync, promises as fs } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Result } from '@src/domain/result.ts';
@@ -61,16 +61,31 @@ const tryRead = async (path: string): Promise<ReadOutcome> => {
   }
 };
 
-// fs-template-loader.ts lives at src/integration/ai/prompts/_engine/; templates sit one
-// level up at src/integration/ai/prompts/<name>/template.md (and _partials/<name>.md).
-// In a tsup bundle every source module collapses into `dist/cli.mjs` — `scripts/build-assets.ts`
-// then copies the templates alongside as `dist/prompts/<name>/template.md` (+ `_partials/`).
+/**
+ * Resolve the default templates directory from a module URL. `exists` is injectable for tests.
+ *
+ * `scripts/build-assets.ts` copies templates NEXT TO the bundle as `<dist>/prompts/<name>/template.md`
+ * (+ `_partials/`); in dev (tsx) this `_engine/` module sits one level below them at
+ * `src/integration/ai/prompts/_engine/`, so they live at `../<name>/template.md`.
+ *
+ * Detection asks the filesystem, not the filename: if a `prompts/` dir sits beside this module we
+ * are running from a build, otherwise dev. This is deliberately NOT a filename check — tsup
+ * code-splitting (see tsup.config.ts) rewrites `import.meta.url` to a hashed `cli-<hash>.mjs` chunk,
+ * and a check against `cli.mjs` (or any fixed extension) silently misses it. That mismatch shipped
+ * in 0.15.0 and made the published bundle resolve templates to the package root.
+ *
+ * @public
+ */
+export const resolveTemplatesDir = (moduleUrl: string, exists: (path: string) => boolean = existsSync): string => {
+  const here = dirname(fileURLToPath(moduleUrl));
+  const beside = join(here, 'prompts');
+  return exists(beside) ? beside : join(here, '..');
+};
+
 // Resolved eagerly at module load so the invariant ("path parses as AbsolutePath") is
 // checked once at startup.
 const TEMPLATES_DIR: AbsolutePath = (() => {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const isBundled = import.meta.url.endsWith('/cli.mjs') || import.meta.url.endsWith('\\cli.mjs');
-  const path = isBundled ? join(here, 'prompts') : join(here, '..');
+  const path = resolveTemplatesDir(import.meta.url);
   const parsed = AbsolutePath.parse(path);
   if (!parsed.ok) {
     throw new Error(`fs-template-loader: bundled-templates path is not absolute: ${path}`);
