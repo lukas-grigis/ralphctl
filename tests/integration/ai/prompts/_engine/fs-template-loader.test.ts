@@ -5,7 +5,11 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
-import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
+import {
+  createFsTemplateLoader,
+  defaultTemplatesDir,
+  resolveTemplatesDir,
+} from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 
 describe('loadTemplate', () => {
   let templatesDir: AbsolutePath;
@@ -67,5 +71,23 @@ describe('defaultTemplatesDir', () => {
   it('returns an absolute path that ends in /prompts', () => {
     const dir = defaultTemplatesDir();
     expect(String(dir)).toMatch(/\/prompts$/);
+  });
+});
+
+describe('resolveTemplatesDir', () => {
+  it('resolves the co-located prompts/ dir when the build copied templates beside the bundle', () => {
+    // What decides it is the prompts/ dir sitting beside the module — NOT the artifact filename.
+    // A hashed `cli-<hash>.mjs` code-split chunk (which the 0.15.0 filename check missed) resolves
+    // identically to the `cli.mjs` entry stub.
+    const beside = (p: string): boolean => p === '/pkg/dist/prompts';
+    expect(resolveTemplatesDir('file:///pkg/dist/cli-CKPJ5SY4.mjs', beside)).toBe('/pkg/dist/prompts');
+    expect(resolveTemplatesDir('file:///pkg/dist/cli.mjs', beside)).toBe('/pkg/dist/prompts');
+  });
+
+  it('resolves the parent prompts/ dir in dev, where nothing sits beside the _engine module', () => {
+    const never = (): boolean => false;
+    expect(resolveTemplatesDir('file:///pkg/src/integration/ai/prompts/_engine/fs-template-loader.ts', never)).toBe(
+      '/pkg/src/integration/ai/prompts'
+    );
   });
 });

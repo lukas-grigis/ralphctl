@@ -20,6 +20,7 @@
 
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { Result } from '@src/domain/result.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
@@ -30,16 +31,28 @@ import { skillsForFlow } from '@src/integration/ai/skills/_engine/registry.ts';
 import { errorCode, parseSkill } from '@src/integration/ai/skills/_engine/parse-skill.ts';
 import type { BundledSkillRawReader } from '@src/integration/ai/skills/_engine/bundled-skill-raw-reader.ts';
 
-// Default bundled root.
-//   Dev (tsx): this module lives at src/integration/ai/skills/bundled/source.ts — SKILL.md
-//     folders sit next to it.
-//   Bundled (tsup): every source module collapses into `dist/cli.mjs`; `scripts/build-assets.ts`
-//     copies SKILL.md folders to `dist/skills/<name>/SKILL.md`.
-const defaultBundledRoot = (() => {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const isBundled = import.meta.url.endsWith('/cli.mjs') || import.meta.url.endsWith('\\cli.mjs');
-  return isBundled ? join(here, 'skills') : here;
-})();
+/**
+ * Resolve the default bundled-skill root from a module URL. `exists` is injectable for tests.
+ *
+ *   Dev (tsx): this module lives at src/integration/ai/skills/bundled/source.ts — SKILL.md folders
+ *     sit next to it.
+ *   Build (tsup): `scripts/build-assets.ts` copies SKILL.md folders to `<dist>/skills/<name>/SKILL.md`.
+ *
+ * Detection asks the filesystem, not the filename: if a `skills/` dir sits beside this module we are
+ * running from a build, otherwise dev. This is deliberately NOT a filename check — tsup code-splitting
+ * (see tsup.config.ts) rewrites `import.meta.url` to a hashed `cli-<hash>.mjs` chunk, and a check
+ * against `cli.mjs` (or any fixed extension) silently misses it. That mismatch shipped in 0.15.0 and
+ * made the published bundle look for SKILL.md folders one directory too shallow.
+ *
+ * @public
+ */
+export const resolveBundledRoot = (moduleUrl: string, exists: (path: string) => boolean = existsSync): string => {
+  const here = dirname(fileURLToPath(moduleUrl));
+  const beside = join(here, 'skills');
+  return exists(beside) ? beside : here;
+};
+
+const defaultBundledRoot = resolveBundledRoot(import.meta.url);
 
 export interface BundledSkillSourceDeps {
   /** Override for tests. Production resolves the bundled root next to this module. */

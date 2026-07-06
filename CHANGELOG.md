@@ -7,6 +7,16 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Freshly installed 0.15.0 could not find prompt templates or bundled skills.** Enabling tsup
+  code-splitting moved every module into a hashed `cli-<hash>.mjs` chunk, so the asset-path resolver
+  — which recognized only a literal `cli.mjs` filename — fell back to the source-tree layout and
+  looked for templates and `SKILL.md` folders at the wrong paths. Every flow failed on install with
+  `template not found` / `bundled skill not readable`. The resolver now detects the built layout by
+  probing for the co-located `prompts/` / `skills/` directory rather than sniffing the artifact
+  filename, so it survives chunk hashing and any output extension.
+
 ## [0.15.0] - 2026-07-03
 
 ### Added
