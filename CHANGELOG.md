@@ -7,6 +7,8 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-07-06
+
 ### Fixed
 
 - **Freshly installed 0.15.0 could not find prompt templates or bundled skills.** Enabling tsup
