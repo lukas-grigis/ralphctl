@@ -229,6 +229,18 @@ Status flow: `draft → planned → active → review → done`.
       provider in `settings.ai`, writing one native context file per distinct provider: `CLAUDE.md`
       (claude-code), `.github/copilot-instructions.md` (github-copilot), `AGENTS.md` (openai-codex). A
       single-provider config produces exactly one file; mixed configs produce one per distinct provider.
+- [x] **Portable, provider-native agent definitions** — a bundled + operator-authored `AgentDefinition`
+      catalog (Markdown + YAML frontmatter: `name`, `description`, optional `model`/`effort`) renders to
+      each provider's native sub-agent format at launch — `.claude/agents/*.md` (Claude),
+      `.github/agents/*.agent.md` (Copilot, `COPILOT_AGENT_MAX_BODY_CHARS` 30000-char body cap enforced by
+      the renderer), `.codex/agents/*.toml` (Codex) — via `createFilesystemAgentDefinitionAdapter`, shared
+      across the three per-provider adapters (`integration/ai/agents/{claude,copilot,codex}/`). Bundled
+      definitions (`ralphctl-generator`, `ralphctl-evaluator`) ship in `_engine/registry.ts`'s
+      `BUNDLED_AGENT_DEFINITIONS`; operator drop-ins under `<appRoot>/agents/*.md` win a name collision
+      (`composeAgentDefinitionSources`); a project-authored file already at the destination path always
+      wins over both (install skips it, leaving it untouched). `checkAgentDefinitionQuality` flags vague
+      operator definitions (short body, no structure, or an evaluator-role definition never mentioning
+      verification vocabulary) as warnings only — never blocks install.
 
 ## Per-flow model selection
 
@@ -241,6 +253,13 @@ Status flow: `draft → planned → active → review → done`.
       (`src/domain/value/settings-models/<provider>.ts`) or any non-empty trimmed custom string; the per-flow
       `effort` validates against the provider's native vocabulary. Custom (off-catalog) model ids parse at load
       time and are rejected by the provider CLI at spawn time, not by the persistence schema.
+- [x] **Agent-definition role binding** — `settings.ai.implement.agents.{generator,evaluator}` optionally
+      binds one implement role to a catalog agent-definition's `name`; either, both, or neither role may be
+      bound, and `ralphctl settings set ai.implement.agents.<role> <name>` with an empty value clears it. A
+      resolved binding's `model`/`effort` win over the role's own per-flow row, which otherwise wins over
+      the global `ai.effort` default (`resolveAgentOverride`: definition > per-flow row > global). An
+      unknown or unresolvable bound name is a logged warning, not a launch failure — the role then runs
+      unaided, exactly as if unbound.
 
 ## Doctor
 
@@ -267,7 +286,7 @@ Status flow: `draft → planned → active → review → done`.
 - [x] **Surface is deliberately smaller than the pre-TUI CLI** — interactive flows (refine / plan / ideate /
       implement / readiness / create-sprint) stay TUI-only. The CLI exposes only inspection commands +
       one-shot operations: `doctor`, `completion <shell>`, `export-context`, `export-requirements`, `create-pr`,
-      `settings {show,set,apply-preset}`, `project {list,show,remove}`,
+      `agents {list}`, `settings {show,set,apply-preset}`, `project {list,show,remove}`,
       `sprint {list,show,set-current,activate,close,remove,progress}`,
       `ticket {list,show,add,remove}`, `task {list,show,unblock}`,
       `runs {list,prune}`.
