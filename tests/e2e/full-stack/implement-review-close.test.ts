@@ -59,6 +59,7 @@ import type { HarnessSignal, EvaluationSignal } from '@src/domain/signal.ts';
 
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { noopSkillsAdapter, emptySkillSource } from '@tests/fixtures/skills-fakes.ts';
+import { noopAgentDefinitionAdapter } from '@tests/fixtures/agent-definition-fakes.ts';
 import { createWorkspaceMutatingFakeProvider } from '@tests/fixtures/workspace-mutating-fake-provider.ts';
 import { createFakeAiProvider } from '@tests/fixtures/fake-ai-provider.ts';
 import { createFakeProject, type FakeProject } from '@tests/helpers/fake-project.ts';
@@ -240,6 +241,8 @@ function runTests(): void {
     locksRoot: absolutePath(locksDir),
     skillsAdapter: noopSkillsAdapter,
     skillSource: emptySkillSource,
+    generatorAgentDefinitionAdapter: noopAgentDefinitionAdapter,
+    evaluatorAgentDefinitionAdapter: noopAgentDefinitionAdapter,
     interactive: unusedInteractive,
     writeFile: createAtomicWriteFile(),
     appendFile: createAppendFile(),

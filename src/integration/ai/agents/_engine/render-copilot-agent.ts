@@ -12,13 +12,13 @@ import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { AgentDefinition, RenderedAgentFile } from '@src/integration/ai/agents/_engine/agent-definition.ts';
-import { RALPHCTL_AGENT_PREFIX } from '@src/integration/ai/agents/_engine/agent-definition.ts';
+import { namespacedAgentFileBase } from '@src/integration/ai/agents/_engine/agent-definition.ts';
 
 /** Copilot's documented per-agent body size limit. */
 export const COPILOT_AGENT_MAX_BODY_CHARS = 30000;
 
 export const renderCopilotAgent = (definition: AgentDefinition): Result<RenderedAgentFile, StorageError> => {
-  const relPath = join('.github', 'agents', `${RALPHCTL_AGENT_PREFIX}${definition.name}.agent.md`);
+  const relPath = join('.github', 'agents', `${namespacedAgentFileBase(definition.name)}.agent.md`);
 
   if (definition.content.length > COPILOT_AGENT_MAX_BODY_CHARS) {
     return Result.error(

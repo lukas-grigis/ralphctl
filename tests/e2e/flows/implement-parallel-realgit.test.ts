@@ -74,6 +74,7 @@ import {
 } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { noopSkillsAdapter, emptySkillSource } from '@tests/fixtures/skills-fakes.ts';
+import { noopAgentDefinitionAdapter } from '@tests/fixtures/agent-definition-fakes.ts';
 import { createFakeProject, type FakeProject } from '@tests/helpers/fake-project.ts';
 
 // ─── skip on Windows — worktrees are posix-heavy ────────────────────────────
@@ -362,6 +363,8 @@ function runTests(): void {
       locksRoot: absolutePath(locksRootPath),
       skillsAdapter: noopSkillsAdapter,
       skillSource: emptySkillSource,
+      generatorAgentDefinitionAdapter: noopAgentDefinitionAdapter,
+      evaluatorAgentDefinitionAdapter: noopAgentDefinitionAdapter,
       interactive: {
         async askText() {
           throw new Error('askText not expected in parallel real-git test');

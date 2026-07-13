@@ -14,6 +14,7 @@ import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.
 import type { FileLocker } from '@src/integration/io/file-locker.ts';
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
 import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
+import type { AgentDefinitionAdapter } from '@src/integration/ai/agents/_engine/agent-definition-adapter.ts';
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { AppendFile } from '@src/business/io/append-file.ts';
@@ -69,6 +70,15 @@ export interface ImplementDeps {
   readonly locksRoot: AbsolutePath;
   readonly skillsAdapter: SkillsAdapter;
   readonly skillSource: SkillSource;
+  /**
+   * Generator-role agent-definition adapter — installs/uninstalls the generator's bound
+   * definition (when one is bound) into `repo.path`. Built by the launcher from
+   * `settings.ai.implement.generator.provider`, independently of {@link evaluatorAgentDefinitionAdapter}
+   * so the two roles can target different providers, exactly like {@link generatorProvider}.
+   */
+  readonly generatorAgentDefinitionAdapter: AgentDefinitionAdapter;
+  /** Evaluator-role agent-definition adapter — see {@link generatorAgentDefinitionAdapter}. */
+  readonly evaluatorAgentDefinitionAdapter: AgentDefinitionAdapter;
   /**
    * Used by `resolveBranchLeaf` on the first run of an implement chain to ask the user how to
    * pin the working tree: keep the current branch, auto-generate `ralphctl/<sprint-id>`, or

@@ -59,4 +59,14 @@ describe('createClaudeAgentDefinitionAdapter — golden render', () => {
     const adapter = createClaudeAgentDefinitionAdapter();
     expect(adapter.describeConvention()).toContain('.claude/agents/');
   });
+
+  it('does not double-prefix a name that already carries the ralphctl- prefix', async () => {
+    const session = await makeSession();
+    const adapter = createClaudeAgentDefinitionAdapter();
+
+    await adapter.install(session, [definition({ name: 'ralphctl-evaluator' })]);
+
+    const written = await readFile(join(String(session), '.claude/agents/ralphctl-evaluator.md'), 'utf-8');
+    expect(written).toContain('name: ralphctl-evaluator');
+  });
 });

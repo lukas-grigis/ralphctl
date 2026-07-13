@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { Task } from '@src/domain/entity/task.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
+import type { AgentDefinition } from '@src/integration/ai/agents/_engine/agent-definition.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { guard } from '@src/application/chain/build/guard.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
@@ -423,6 +424,99 @@ describe('createPerTaskSubchain — quarantine-blocked-diff placement (serial-pa
     // The terminal leaf is still the last body element on the parallel path.
     const children = taskBodyChildren(buildSubchain(false));
     expect(children[children.length - 1]?.name).toMatch(/^uninstall-skills-/);
+  });
+});
+
+describe('createPerTaskSubchain — agent-definition install/uninstall splicing', () => {
+  const readConfig = () =>
+    Promise.resolve({ maxTurns: 5, escalateOnPlateau: false, escalationMap: {}, maxAttempts: 3 });
+
+  const definition = (name: string): AgentDefinition => ({
+    name,
+    description: 'A bound persona.',
+    content: 'You are a persona.\n',
+  });
+
+  // Local re-declaration of the sibling describe block's helpers — those are scoped to their own
+  // `describe` callback, not this one. Both builders take an explicit `task` so a byte-for-byte
+  // comparison across two builds isn't perturbed by `makeTodoTask`'s fresh id per call.
+  const taskBodyChildren = (shape: ShapeNode): readonly ShapeNode[] => {
+    const body = findByName(shape, shape.name.replace('task-', 'task-body-'));
+    return body?.children ?? [];
+  };
+
+  const buildSubchainWithBindings = (
+    task: Task,
+    bindings: {
+      readonly generatorAgentDefinition?: AgentDefinition;
+      readonly evaluatorAgentDefinition?: AgentDefinition;
+    }
+  ): ShapeNode => {
+    const opts = makeOpts([task]);
+    const subchain = createPerTaskSubchain(
+      stubDeps(),
+      {
+        sprintDir: opts.sprintDir,
+        progressFile: opts.progressFile,
+        terminalLeafName: IMPLEMENT_TASK_TERMINAL_LEAF,
+        generator: { providerId: opts.generatorProviderId, model: opts.generatorModel },
+        evaluator: { providerId: opts.evaluatorProviderId, model: opts.evaluatorModel },
+        memoryRoot: opts.memoryRoot,
+        projectId: opts.projectId,
+        projectSlug: opts.projectSlug,
+        includeBranchPreflight: true,
+        ...bindings,
+      },
+      task,
+      resolveRepoOrThrow(opts.repositories, task),
+      readConfig
+    );
+    return snapshot(subchain);
+  };
+
+  it('no bindings at all means no agent-definition install/uninstall leaves anywhere in the trace', () => {
+    const allNames = names(buildSubchainWithBindings(makeTodoTask({ name: 'do-work' }), {}));
+    expect(allNames.some((n) => n.includes('agent-definition'))).toBe(false);
+  });
+
+  it('a generator-only binding installs/uninstalls only the generator leaves — the evaluator role is unaffected (AC3)', () => {
+    const allNames = names(
+      buildSubchainWithBindings(makeTodoTask({ name: 'do-work' }), {
+        generatorAgentDefinition: definition('ralphctl-generator'),
+      })
+    );
+    expect(allNames.some((n) => n.startsWith('install-generator-agent-definition-'))).toBe(true);
+    expect(allNames.some((n) => n.startsWith('uninstall-generator-agent-definition-'))).toBe(true);
+    expect(allNames.some((n) => n.startsWith('install-evaluator-agent-definition-'))).toBe(false);
+    expect(allNames.some((n) => n.startsWith('uninstall-evaluator-agent-definition-'))).toBe(false);
+  });
+
+  it('an evaluator-only binding installs/uninstalls only the evaluator leaves — the generator role is unaffected (AC3)', () => {
+    const allNames = names(
+      buildSubchainWithBindings(makeTodoTask({ name: 'do-work' }), {
+        evaluatorAgentDefinition: definition('ralphctl-evaluator'),
+      })
+    );
+    expect(allNames.some((n) => n.startsWith('install-evaluator-agent-definition-'))).toBe(true);
+    expect(allNames.some((n) => n.startsWith('uninstall-evaluator-agent-definition-'))).toBe(true);
+    expect(allNames.some((n) => n.startsWith('install-generator-agent-definition-'))).toBe(false);
+    expect(allNames.some((n) => n.startsWith('uninstall-generator-agent-definition-'))).toBe(false);
+  });
+
+  it('the uninstall leaves land BEFORE the terminal uninstall-skills leaf', () => {
+    const children = taskBodyChildren(
+      buildSubchainWithBindings(makeTodoTask({ name: 'do-work' }), {
+        generatorAgentDefinition: definition('ralphctl-generator'),
+        evaluatorAgentDefinition: definition('ralphctl-evaluator'),
+      })
+    );
+    const allNames = children.map((c) => c.name);
+    expect(allNames[allNames.length - 1]).toMatch(/^uninstall-skills-/);
+    const genIdx = allNames.findIndex((n) => n.startsWith('uninstall-generator-agent-definition-'));
+    const evalIdx = allNames.findIndex((n) => n.startsWith('uninstall-evaluator-agent-definition-'));
+    expect(genIdx).toBeGreaterThanOrEqual(0);
+    expect(evalIdx).toBeGreaterThan(genIdx);
+    expect(evalIdx).toBe(allNames.length - 2);
   });
 });
 

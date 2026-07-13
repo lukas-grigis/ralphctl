@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { AgentDefinition, RenderedAgentFile } from '@src/integration/ai/agents/_engine/agent-definition.ts';
-import { RALPHCTL_AGENT_PREFIX } from '@src/integration/ai/agents/_engine/agent-definition.ts';
+import { namespacedAgentFileBase } from '@src/integration/ai/agents/_engine/agent-definition.ts';
 
 const tomlString = (value: string): string => JSON.stringify(value);
 
@@ -26,6 +26,6 @@ export const renderCodexAgent = (definition: AgentDefinition): Result<RenderedAg
   if (definition.effort !== undefined) lines.push(`model_reasoning_effort = ${tomlString(definition.effort)}`);
 
   const content = `${lines.join('\n')}\n`;
-  const relPath = join('.codex', 'agents', `${RALPHCTL_AGENT_PREFIX}${definition.name}.toml`);
+  const relPath = join('.codex', 'agents', `${namespacedAgentFileBase(definition.name)}.toml`);
   return Result.ok({ relPath, content });
 };

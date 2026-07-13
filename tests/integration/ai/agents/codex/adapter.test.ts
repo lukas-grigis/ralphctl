@@ -65,4 +65,14 @@ describe('createCodexAgentDefinitionAdapter — golden render', () => {
     const adapter = createCodexAgentDefinitionAdapter();
     expect(adapter.describeConvention()).toContain('.codex/agents/');
   });
+
+  it('does not double-prefix a name that already carries the ralphctl- prefix', async () => {
+    const session = await makeSession();
+    const adapter = createCodexAgentDefinitionAdapter();
+
+    await adapter.install(session, [definition({ name: 'ralphctl-evaluator' })]);
+
+    const written = await readFile(join(String(session), '.codex/agents/ralphctl-evaluator.toml'), 'utf-8');
+    expect(written).toContain('name = "ralphctl-evaluator"');
+  });
 });

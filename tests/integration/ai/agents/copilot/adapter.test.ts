@@ -48,6 +48,16 @@ describe('createCopilotAgentDefinitionAdapter — golden render', () => {
     const adapter = createCopilotAgentDefinitionAdapter();
     expect(adapter.describeConvention()).toContain('.github/agents/');
   });
+
+  it('does not double-prefix a name that already carries the ralphctl- prefix', async () => {
+    const session = await makeSession();
+    const adapter = createCopilotAgentDefinitionAdapter();
+
+    await adapter.install(session, [definition({ name: 'ralphctl-evaluator' })]);
+
+    const written = await readFile(join(String(session), '.github/agents/ralphctl-evaluator.agent.md'), 'utf-8');
+    expect(written).toContain('name: ralphctl-evaluator');
+  });
 });
 
 describe('createCopilotAgentDefinitionAdapter — 30000-char body size guard', () => {

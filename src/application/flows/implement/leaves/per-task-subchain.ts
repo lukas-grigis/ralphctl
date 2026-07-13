@@ -36,6 +36,9 @@ import { settleAttemptLeaf } from '@src/application/flows/implement/leaves/settl
 import { startAttemptLeaf } from '@src/application/flows/implement/leaves/start-attempt.ts';
 import { installSkillsLeaf } from '@src/application/flows/_shared/skills/install-skills.ts';
 import { uninstallSkillsLeaf } from '@src/application/flows/_shared/skills/uninstall-skills.ts';
+import { installAgentDefinitionsLeaf } from '@src/application/flows/_shared/agents/install-agent-definitions.ts';
+import { uninstallAgentDefinitionsLeaf } from '@src/application/flows/_shared/agents/uninstall-agent-definitions.ts';
+import type { AgentDefinition } from '@src/integration/ai/agents/_engine/agent-definition.ts';
 
 /**
  * Per-task subchain factory. Returns the `sequential('task-<id>', [...])` element that runs the
@@ -141,6 +144,16 @@ export interface PerTaskSubchainOpts {
    * sprint branch.
    */
   readonly includeBranchPreflight?: boolean;
+  /**
+   * Generator-role's bound agent definition, resolved once at launch — `undefined` when the
+   * role has no binding (or the bound name didn't resolve, AC2). Installed into `repo.path`
+   * once per task, alongside the bundled skills, and removed at the terminal leaf. Spliced
+   * conditionally: an unbound role gets no install/uninstall leaves at all, so its session
+   * trace is byte-for-byte unaffected.
+   */
+  readonly generatorAgentDefinition?: AgentDefinition;
+  /** Evaluator-role's bound agent definition — same lifecycle as {@link generatorAgentDefinition}. */
+  readonly evaluatorAgentDefinition?: AgentDefinition;
 }
 
 // `installSkillsLeaf` writes the bundled skill set to `<repo>/<parentDir>/skills/ralphctl-*/`.
@@ -150,6 +163,73 @@ export interface PerTaskSubchainOpts {
 // roots. The `ralphctl-` prefix + the wildcard line the skills adapter appends to
 // `.git/info/exclude` keeps the harness-authored copies out of the user's git tree.
 const repoCwdPicker = (repoPath: AbsolutePath) => (): AbsolutePath => repoPath;
+
+/**
+ * Per-role agent-definition install leaves — spliced ONLY when that role has a bound definition
+ * (AC2/AC3): an unbound role never gets these leaves, so its session trace is unaffected. Kept as
+ * a helper (rather than inline per-role conditional spreads) so `createPerTaskSubchain` itself
+ * stays under the project's cognitive-complexity ratchet.
+ */
+const buildAgentDefinitionInstallLeaves = (
+  deps: ImplementDeps,
+  opts: PerTaskSubchainOpts,
+  repo: RepoExecConfig,
+  taskId: TaskId
+): Array<Element<ImplementCtx>> => {
+  const leaves: Array<Element<ImplementCtx>> = [];
+  if (opts.generatorAgentDefinition !== undefined) {
+    leaves.push(
+      installAgentDefinitionsLeaf<ImplementCtx>(
+        { agentDefinitionAdapter: deps.generatorAgentDefinitionAdapter },
+        {
+          name: `install-generator-agent-definition-${String(taskId)}`,
+          definition: opts.generatorAgentDefinition,
+          cwdPicker: repoCwdPicker(repo.path),
+        }
+      )
+    );
+  }
+  if (opts.evaluatorAgentDefinition !== undefined) {
+    leaves.push(
+      installAgentDefinitionsLeaf<ImplementCtx>(
+        { agentDefinitionAdapter: deps.evaluatorAgentDefinitionAdapter },
+        {
+          name: `install-evaluator-agent-definition-${String(taskId)}`,
+          definition: opts.evaluatorAgentDefinition,
+          cwdPicker: repoCwdPicker(repo.path),
+        }
+      )
+    );
+  }
+  return leaves;
+};
+
+/** Uninstall-side counterpart of {@link buildAgentDefinitionInstallLeaves} — same per-role gate. */
+const buildAgentDefinitionUninstallLeaves = (
+  deps: ImplementDeps,
+  opts: PerTaskSubchainOpts,
+  repo: RepoExecConfig,
+  taskId: TaskId
+): Array<Element<ImplementCtx>> => {
+  const leaves: Array<Element<ImplementCtx>> = [];
+  if (opts.generatorAgentDefinition !== undefined) {
+    leaves.push(
+      uninstallAgentDefinitionsLeaf<ImplementCtx>(
+        { agentDefinitionAdapter: deps.generatorAgentDefinitionAdapter },
+        { name: `uninstall-generator-agent-definition-${String(taskId)}`, cwdPicker: repoCwdPicker(repo.path) }
+      )
+    );
+  }
+  if (opts.evaluatorAgentDefinition !== undefined) {
+    leaves.push(
+      uninstallAgentDefinitionsLeaf<ImplementCtx>(
+        { agentDefinitionAdapter: deps.evaluatorAgentDefinitionAdapter },
+        { name: `uninstall-evaluator-agent-definition-${String(taskId)}`, cwdPicker: repoCwdPicker(repo.path) }
+      )
+    );
+  }
+  return leaves;
+};
 
 /**
  * Pure predicate read by the attempt loop's `shouldStop`. Looks up the task in `ctx.tasks` (the
@@ -223,6 +303,8 @@ export const createPerTaskSubchain = (
           { skillsAdapter: deps.skillsAdapter, skillSource: deps.skillSource },
           { name: `install-skills-${String(taskId)}`, flowId: 'implement', cwdPicker: repoCwdPicker(repo.path) }
         ),
+        // Per-role agent-definition install — see {@link buildAgentDefinitionInstallLeaves}.
+        ...buildAgentDefinitionInstallLeaves(deps, opts, repo, taskId),
         // Inner attempt loop. The body is the full per-attempt segment; the loop re-enters it
         // until `terminalTaskStatus` reports the settled task `done`/`blocked` or the `maxAttempts`
         // cap fires. `maxAttempts === 1` runs exactly once (single-attempt-per-launch parity); a
@@ -444,6 +526,10 @@ export const createPerTaskSubchain = (
               ),
             ]
           : []),
+        // Per-role agent-definition uninstall — see {@link buildAgentDefinitionUninstallLeaves}.
+        // MUST run before the terminal `uninstall-skills` leaf below so that leaf stays the
+        // subchain's last element (the TUI's task-completion detector keys on it).
+        ...buildAgentDefinitionUninstallLeaves(deps, opts, repo, taskId),
         uninstallSkillsLeaf<ImplementCtx>(
           { skillsAdapter: deps.skillsAdapter },
           { name: `${opts.terminalLeafName}-${String(taskId)}`, cwdPicker: repoCwdPicker(repo.path) }

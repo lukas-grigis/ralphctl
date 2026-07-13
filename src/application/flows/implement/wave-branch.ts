@@ -516,16 +516,24 @@ const buildOneBranch = (
       providerId: opts.generatorProviderId,
       model: opts.generatorModel,
       ...(opts.generatorEffort !== undefined ? { effort: opts.generatorEffort } : {}),
+      ...(opts.generatorAgentDefinitionSection !== undefined
+        ? { agentDefinitionSection: opts.generatorAgentDefinitionSection }
+        : {}),
     },
     evaluator: {
       providerId: opts.evaluatorProviderId,
       model: opts.evaluatorModel,
       ...(opts.evaluatorEffort !== undefined ? { effort: opts.evaluatorEffort } : {}),
+      ...(opts.evaluatorAgentDefinitionSection !== undefined
+        ? { agentDefinitionSection: opts.evaluatorAgentDefinitionSection }
+        : {}),
     },
     memoryRoot: opts.memoryRoot,
     projectId: opts.projectId,
     projectSlug: opts.projectSlug,
     includeBranchPreflight: false,
+    ...(opts.generatorAgentDefinition !== undefined ? { generatorAgentDefinition: opts.generatorAgentDefinition } : {}),
+    ...(opts.evaluatorAgentDefinition !== undefined ? { evaluatorAgentDefinition: opts.evaluatorAgentDefinition } : {}),
   };
 
   // The per-task subchain is built fresh on the FORKED ctx + worktree repo each time the branch

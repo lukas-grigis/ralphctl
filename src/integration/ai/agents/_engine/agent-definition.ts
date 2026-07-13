@@ -26,6 +26,19 @@ import { z } from 'zod';
 export const RALPHCTL_AGENT_PREFIX = 'ralphctl-';
 
 /**
+ * Idempotent prefixing for a native-render file base name. The bundled and operator sources
+ * already namespace `AgentDefinition.name` with {@link RALPHCTL_AGENT_PREFIX} (mirroring
+ * `Skill.name`'s convention), so a per-provider renderer that unconditionally prepended the
+ * prefix again would double it (`ralphctl-ralphctl-<name>`). Every renderer calls this instead
+ * of concatenating the prefix directly, so a bare (un-namespaced) name — as used by the
+ * renderer unit tests and any future direct caller — still gets prefixed exactly once.
+ *
+ * @public
+ */
+export const namespacedAgentFileBase = (name: string): string =>
+  name.startsWith(RALPHCTL_AGENT_PREFIX) ? name : `${RALPHCTL_AGENT_PREFIX}${name}`;
+
+/**
  * Agent definition name = kebab-case identifier. Must match the source file name on disk so
  * the file layout and the frontmatter agree.
  */
