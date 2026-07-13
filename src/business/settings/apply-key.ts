@@ -1,6 +1,13 @@
 import { Result } from '@src/domain/result.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
-import type { AiFlowSettings, AiImplementRole, AiProvider, AiSettings, Settings } from '@src/domain/entity/settings.ts';
+import type {
+  AiAgentBindings,
+  AiFlowSettings,
+  AiImplementRole,
+  AiProvider,
+  AiSettings,
+  Settings,
+} from '@src/domain/entity/settings.ts';
 import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
 
 /**
@@ -22,7 +29,11 @@ import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
  * explicitly via `ai.implement.generator.<field>` or `ai.implement.evaluator.<field>`.
  */
 const SETTINGS_KEY_HINT =
-  'supported keys: ai.effort, ai.{flow}.{provider,model,effort} (flow in {refine,plan,readiness,ideate,createPr}), ai.implement.{generator,evaluator}.{provider,model,effort}, harness.{maxTurns,maxAttempts,rateLimitRetries,idleWatchdogMs,plateauThreshold,correctiveRetries,escalateOnPlateau,skipPreVerifyOnFreshSetup}, harness.escalationMap.<fromModel>, logging.level, concurrency.maxParallelTasks, scm.postRefinementComment, ui.notifications.enabled';
+  'supported keys: ai.effort, ai.{flow}.{provider,model,effort} (flow in {refine,plan,readiness,ideate,createPr}), ai.implement.{generator,evaluator}.{provider,model,effort}, ai.implement.agents.{generator,evaluator}, harness.{maxTurns,maxAttempts,rateLimitRetries,idleWatchdogMs,plateauThreshold,correctiveRetries,escalateOnPlateau,skipPreVerifyOnFreshSetup}, harness.escalationMap.<fromModel>, logging.level, concurrency.maxParallelTasks, scm.postRefinementComment, ui.notifications.enabled';
+
+/** Hint attached to a rejected `ai.<flow>.agents.<role>` key targeting an unsupported binding. */
+const AGENT_BINDING_UNSUPPORTED_HINT =
+  'agent-definition binding is supported only for ai.implement.agents.{generator,evaluator} in this release';
 
 const BOOLEAN_VALUE_HINT = "use 'true' or 'false'";
 
@@ -151,6 +162,47 @@ const tryApplyAiImplementRoleKey = (
   return undefined;
 };
 
+/**
+ * `ai.implement.agents.<role>` — bind (or, with an empty value, clear) an agent-definition name
+ * to the implement generator/evaluator role. Every other `ai.<flow>.agents.<key>` shape —
+ * another flow, or an implement sub-key other than `generator`/`evaluator` — targets a
+ * role/flow this release does not support delegating to; that is reported explicitly here
+ * rather than falling through to the generic "unknown settings key" error, so a binding is
+ * never silently ignored.
+ */
+const tryApplyAgentsKey = (
+  current: Settings,
+  key: string,
+  raw: string
+): Result<Settings, ValidationError> | undefined => {
+  const parts = key.split('.');
+  if (parts.length !== 4 || parts[0] !== 'ai' || parts[2] !== 'agents') return undefined;
+  const flow = parts[1] ?? '';
+  const role = parts[3] ?? '';
+  if (flow !== 'implement' || !isImplementRole(role)) {
+    return Result.error(
+      new ValidationError({
+        field: key,
+        value: raw,
+        message: `'${key}' targets a role/flow not supported for agent-definition binding in this release`,
+        hint: AGENT_BINDING_UNSUPPORTED_HINT,
+      })
+    );
+  }
+  const trimmed = raw.trim();
+  const rest: Partial<Record<string, string>> = { ...current.ai.implement.agents };
+  if (trimmed.length === 0) {
+    delete rest[role];
+  } else {
+    rest[role] = trimmed;
+  }
+  const nextAgents = Object.keys(rest).length > 0 ? (rest as AiAgentBindings) : undefined;
+  return Result.ok({
+    ...current,
+    ai: { ...current.ai, implement: { ...current.ai.implement, agents: nextAgents } },
+  });
+};
+
 /** `ai.effort` — global fallback effort; empty input clears it. */
 const tryApplyAiEffortKey = (
   current: Settings,
@@ -175,6 +227,7 @@ const applyAiKey = (current: Settings, key: string, raw: string): Result<Setting
   tryApplyAiFlowKey(current, key, raw) ??
   tryRejectFlatImplementKey(key, raw) ??
   tryApplyAiImplementRoleKey(current, key, raw) ??
+  tryApplyAgentsKey(current, key, raw) ??
   tryApplyAiEffortKey(current, key, raw);
 
 /**
