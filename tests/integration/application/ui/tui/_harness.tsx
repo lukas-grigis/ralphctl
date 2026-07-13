@@ -90,6 +90,7 @@ const defaultStorage = (): StoragePaths => {
     runsRoot: absPath(cwd),
     memoryRoot: absPath(cwd),
     operatorSkillsRoot: absPath(cwd),
+    operatorAgentDefinitionsRoot: absPath(cwd),
   };
 };
 

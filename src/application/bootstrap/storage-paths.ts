@@ -38,6 +38,7 @@ export const LOCKS_SUBDIR = 'locks';
 export const RUNS_SUBDIR = 'runs';
 export const MEMORY_SUBDIR = 'memory';
 export const SKILLS_SUBDIR = 'skills';
+export const AGENTS_SUBDIR = 'agents';
 export const RALPHCTL_HOME_ENV = 'RALPHCTL_HOME';
 
 export interface StoragePaths {
@@ -77,6 +78,17 @@ export interface StoragePaths {
    * directory is a valid empty source (no operator skills configured), not an error.
    */
   readonly operatorSkillsRoot: AbsolutePath;
+  /**
+   * `<appRoot>/agents` — global, provider-agnostic operator drop-in agent definitions. The
+   * operator authors `<name>.md` files directly under this root (no per-provider subdirectory —
+   * an agent definition's body is provider-agnostic; only the per-provider renderer's placement
+   * differs); at flow launch these compose with the bundled set through
+   * {@link composeAgentDefinitionSources} in `agents/_engine/compose-agent-definition-sources.ts`.
+   *
+   * NOT created by `ensureStorageRoots`: the directory is operator-authored, and a missing
+   * directory is a valid empty source (no operator agent definitions configured), not an error.
+   */
+  readonly operatorAgentDefinitionsRoot: AbsolutePath;
 }
 
 export interface ResolveStoragePathsDeps {
@@ -132,6 +144,8 @@ export const storagePathsFromRoot = (appRoot: AbsolutePath): Result<StoragePaths
   if (!memoryRoot.ok) return Result.error(memoryRoot.error);
   const operatorSkillsRoot = AbsolutePath.parse(join(String(appRoot), SKILLS_SUBDIR));
   if (!operatorSkillsRoot.ok) return Result.error(operatorSkillsRoot.error);
+  const operatorAgentDefinitionsRoot = AbsolutePath.parse(join(String(appRoot), AGENTS_SUBDIR));
+  if (!operatorAgentDefinitionsRoot.ok) return Result.error(operatorAgentDefinitionsRoot.error);
   return Result.ok({
     appRoot,
     dataRoot: dataRoot.value,
@@ -141,6 +155,7 @@ export const storagePathsFromRoot = (appRoot: AbsolutePath): Result<StoragePaths
     runsRoot: runsRoot.value,
     memoryRoot: memoryRoot.value,
     operatorSkillsRoot: operatorSkillsRoot.value,
+    operatorAgentDefinitionsRoot: operatorAgentDefinitionsRoot.value,
   }) as Result<StoragePaths, ValidationError>;
 };
 

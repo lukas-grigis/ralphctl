@@ -52,6 +52,7 @@ const buildStorage = (dataRoot: string): StoragePaths => ({
   runsRoot: absPath(dataRoot),
   memoryRoot: absPath(dataRoot),
   operatorSkillsRoot: absPath(dataRoot),
+  operatorAgentDefinitionsRoot: absPath(dataRoot),
 });
 
 const writeProgressFile = async (dataRoot: string, body: string): Promise<void> => {

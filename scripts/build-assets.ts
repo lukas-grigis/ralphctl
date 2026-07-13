@@ -1,21 +1,24 @@
 /**
- * `build-assets.ts` — copy non-code assets (prompt templates, bundled skills)
- * from `src/integration/ai/` into `dist/` so the published `dist/cli.mjs` can
- * locate them at runtime via the bundle-mode branches in
- * `fs-template-loader.ts` and `skills/bundled/source.ts`.
+ * `build-assets.ts` — copy non-code assets (prompt templates, bundled skills,
+ * bundled agent definitions) from `src/integration/ai/` into `dist/` so the
+ * published `dist/cli.mjs` can locate them at runtime via the bundle-mode
+ * branches in `fs-template-loader.ts`, `skills/bundled/source.ts`, and
+ * `agents/bundled/source.ts`.
  *
- * Output layout (must stay in lockstep with those two loader modules):
+ * Output layout (must stay in lockstep with those loader modules):
  *
  *   dist/cli.mjs                              ← tsup output
  *   dist/prompts/<flow>/template.md           ← per-flow prompt templates
  *   dist/prompts/_partials/<name>.md          ← cross-cutting partials
  *   dist/skills/<name>/SKILL.md               ← bundled skill bodies
+ *   dist/agent-definitions/<name>.md          ← bundled agent-definition bodies
  *   dist/manifest.json                        ← startup integrity check
  *
  * The manifest is the runtime "did the build complete?" gate — a partial copy
  * silently producing a bundle that serves empty prompts is the failure mode
  * we're guarding against. Run after `tsup` has produced `dist/cli.mjs`.
- * Idempotent: re-running cleans `dist/prompts/` + `dist/skills/` before re-copying.
+ * Idempotent: re-running cleans `dist/prompts/`, `dist/skills/`, and
+ * `dist/agent-definitions/` before re-copying.
  */
 
 import { cp, mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
@@ -28,6 +31,7 @@ const ROOT = resolve(HERE, '..');
 const DIST = join(ROOT, 'dist');
 const PROMPTS_SRC = join(ROOT, 'src/integration/ai/prompts');
 const SKILLS_SRC = join(ROOT, 'src/integration/ai/skills/bundled');
+const AGENT_DEFINITIONS_SRC = join(ROOT, 'src/integration/ai/agents/bundled');
 
 if (!existsSync(DIST)) {
   console.error(`[build-assets] dist/ not found at ${DIST} — run \`tsup\` first.`);
@@ -36,8 +40,10 @@ if (!existsSync(DIST)) {
 
 await rm(join(DIST, 'prompts'), { recursive: true, force: true });
 await rm(join(DIST, 'skills'), { recursive: true, force: true });
+await rm(join(DIST, 'agent-definitions'), { recursive: true, force: true });
 await mkdir(join(DIST, 'prompts'), { recursive: true });
 await mkdir(join(DIST, 'skills'), { recursive: true });
+await mkdir(join(DIST, 'agent-definitions'), { recursive: true });
 
 const assets: string[] = [];
 
@@ -69,6 +75,18 @@ for (const entry of skillEntries) {
   for (const f of await walkFiles(dstDir)) {
     assets.push(relative(DIST, f));
   }
+}
+
+// Agent definitions: copy each <name>.md file under src/integration/ai/agents/bundled/.
+//   <name>.md              → dist/agent-definitions/<name>.md
+// (Sibling .ts files like source.ts are excluded — they're the adapter, not the asset.)
+const agentDefinitionEntries = await readdir(AGENT_DEFINITIONS_SRC, { withFileTypes: true });
+for (const entry of agentDefinitionEntries) {
+  if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
+  const src = join(AGENT_DEFINITIONS_SRC, entry.name);
+  const dst = join(DIST, 'agent-definitions', entry.name);
+  await cp(src, dst);
+  assets.push(relative(DIST, dst));
 }
 
 assets.sort();

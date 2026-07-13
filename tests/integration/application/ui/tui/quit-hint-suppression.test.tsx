@@ -54,6 +54,7 @@ const stubStorage = (): StoragePaths => {
     runsRoot: p,
     memoryRoot: p,
     operatorSkillsRoot: p,
+    operatorAgentDefinitionsRoot: p,
   };
 };
 
