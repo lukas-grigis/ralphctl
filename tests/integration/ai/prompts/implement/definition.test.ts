@@ -10,6 +10,7 @@ import { extractPlaceholders } from '@src/integration/ai/prompts/_engine/extract
 import {
   buildImplementPrompt,
   implementPromptDef,
+  renderAgentDefinitionSection,
   renderPreVerifyResultsSection,
   renderPriorCritiqueSection,
   renderProjectToolingSection,
@@ -228,6 +229,23 @@ describe('renderRetryFeedbackSection', () => {
   it('returns the empty string for empty / whitespace input', () => {
     expect(renderRetryFeedbackSection('')).toBe('');
     expect(renderRetryFeedbackSection('   ')).toBe('');
+  });
+});
+
+describe('renderAgentDefinitionSection', () => {
+  it('renders a heading + the verbatim content when provided', () => {
+    const out = renderAgentDefinitionSection('You are the "release-notes" agent. Focus on user-facing wording.');
+    expect(out).toContain('## Agent Definition');
+    expect(out).toContain('You are the "release-notes" agent. Focus on user-facing wording.');
+  });
+
+  it('returns the empty string when undefined', () => {
+    expect(renderAgentDefinitionSection(undefined)).toBe('');
+  });
+
+  it('returns the empty string for empty / whitespace input', () => {
+    expect(renderAgentDefinitionSection('')).toBe('');
+    expect(renderAgentDefinitionSection('   \n\t')).toBe('');
   });
 });
 
@@ -456,6 +474,46 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value).not.toContain('## Prior criteria verdicts');
+    expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
+  });
+
+  it('renders the agent-definition section after the base role/success-criteria blocks, leaving them intact', async () => {
+    const task = makeTaskWith({ name: 'export CSV' });
+    const result = await buildImplementPrompt(deps, {
+      task,
+      projectPath: '/tmp/ralph/main-repo',
+      progressFile: '/tmp/ralph/sprint-1/progress.md',
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
+      agentDefinition: 'You are the "release-notes" agent. Focus on user-facing wording.',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toContain('## Agent Definition');
+    expect(result.value).toContain('You are the "release-notes" agent. Focus on user-facing wording.');
+    // Additive, not destructive: the base role/success-criteria content survives verbatim.
+    expect(result.value).toContain('<role>');
+    expect(result.value).toContain('</success_criteria>');
+    const successCriteriaIdx = result.value.indexOf('</success_criteria>');
+    const agentDefinitionIdx = result.value.indexOf('## Agent Definition');
+    expect(agentDefinitionIdx).toBeGreaterThan(successCriteriaIdx);
+    expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
+  });
+
+  it('collapses the agent-definition section with no orphan heading when absent', async () => {
+    const task = makeTaskWith({ name: 'export CSV' });
+    const result = await buildImplementPrompt(deps, {
+      task,
+      projectPath: '/tmp/ralph/main-repo',
+      progressFile: '/tmp/ralph/sprint-1/progress.md',
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).not.toContain('## Agent Definition');
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
 

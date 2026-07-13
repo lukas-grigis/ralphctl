@@ -75,6 +75,8 @@ output contract section at the bottom of this prompt.
 
 </success_criteria>
 
+{{AGENT_DEFINITION_SECTION}}
+
 <task_specification>
 
 **Task:** {{TASK_NAME}}
