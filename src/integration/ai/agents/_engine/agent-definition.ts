@@ -59,3 +59,10 @@ export interface AgentDefinition {
   /** Markdown body (everything after the frontmatter block) — the agent's system prompt. */
   readonly content: string;
 }
+
+/** Output of a per-provider native renderer — {@link RALPHCTL_AGENT_PREFIX}-prefixed file. */
+export interface RenderedAgentFile {
+  /** Path relative to `sessionDir`, including the provider's parent directory. */
+  readonly relPath: string;
+  readonly content: string;
+}
