@@ -203,6 +203,14 @@ const READINESS_PROVIDERS = ['claude', 'codex', 'copilot'] as const;
 const SKILLS = ['bundled', 'claude', 'codex', 'copilot', 'operator', 'phase', 'project'] as const;
 
 /**
+ * Sibling concretes under integration/ai/agents/ — the portable agent-definitions subsystem.
+ * Same shape as SKILLS: per-tool adapter directories (`claude`, `codex`, `copilot`) implement
+ * `AgentDefinitionAdapter`; `bundled` and `operator` are definition-source directories. Cross-
+ * sibling reach goes through `agents/_engine/`.
+ */
+const AGENTS = ['bundled', 'claude', 'codex', 'copilot', 'operator'] as const;
+
+/**
  * Domain layer rule. Pure entities + value objects + errors + Result + observability interfaces.
  * May import nothing outside src/domain/. May not import I/O-bearing node modules — domain is
  * the purest layer. Pure node modules (node:path, node:url, ...) remain allowed.
@@ -505,6 +513,24 @@ export default [
     files: [`src/integration/ai/skills/${active}/**/*.{ts,tsx}`],
     rules: {
       'no-restricted-imports': siblingIsolationRule('**/integration/ai/skills', active, SKILLS, ['_engine'], 'skill'),
+    },
+  })),
+
+  // ── integration/ai/agents/<x>/ — sibling-agent-definition isolation ──────────
+  // Per-tool adapter directories (claude/codex/copilot) and definition-source directories
+  // (bundled/operator) are all independent siblings. Cross-sibling sharing goes through
+  // agents/_engine/. The composition switch over the per-tool adapters lives at
+  // agents/adapter-factory.ts (directly under agents/, outside the sibling glob).
+  ...AGENTS.map((active): Linter.Config => ({
+    files: [`src/integration/ai/agents/${active}/**/*.{ts,tsx}`],
+    rules: {
+      'no-restricted-imports': siblingIsolationRule(
+        '**/integration/ai/agents',
+        active,
+        AGENTS,
+        ['_engine'],
+        'agent definition'
+      ),
     },
   })),
 

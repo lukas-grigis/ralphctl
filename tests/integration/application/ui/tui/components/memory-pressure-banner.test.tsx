@@ -15,6 +15,12 @@
  *
  * Lightweight `AppDeps` cast: the component only reads `deps.eventBus.subscribe`, matching the
  * StatusBanner test pattern. The cast is sound — the component never reaches other deps fields.
+ *
+ * Assertions after a bus publish are wrapped in `waitFor` (polling, ~3s ceiling) rather than a
+ * single fixed `setImmediate` tick — under heavy CPU contention from concurrent vitest forks a
+ * one-shot tick can resolve before Ink's render queue has actually settled, which is exactly the
+ * class of flake `_wait.ts`'s doc comment describes and the rest of the TUI test suite already
+ * guards against.
  */
 
 import { render } from 'ink-testing-library';
@@ -24,6 +30,7 @@ import { DepsProvider } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { MemoryPressureBanner } from '@src/application/ui/tui/components/memory-pressure-banner.tsx';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
+import { waitFor } from '@tests/integration/application/ui/tui/_wait.ts';
 
 const renderBanner = (bus: ReturnType<typeof createInMemoryEventBus>): ReturnType<typeof render> => {
   const deps = { eventBus: bus } as unknown as AppDeps;
@@ -33,9 +40,6 @@ const renderBanner = (bus: ReturnType<typeof createInMemoryEventBus>): ReturnTyp
     </DepsProvider>
   );
 };
-
-/** Yield long enough for Ink to flush a bus publish into a re-render. */
-const flush = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 
 const makeEvent = (
   severity: 'warning' | 'critical' | 'recovered',
@@ -64,12 +68,12 @@ describe('MemoryPressureBanner', () => {
     const r = renderBanner(bus);
 
     bus.publish(makeEvent('warning', 0.87, 104_857_600, 120_000_000));
-    await flush();
-
-    const frame = r.lastFrame() ?? '';
-    expect(frame).toContain('87%');
-    expect(frame).toContain('consider aborting and restarting');
-    expect(frame).toContain('memory pressure');
+    await waitFor(() => {
+      const frame = r.lastFrame() ?? '';
+      expect(frame).toContain('87%');
+      expect(frame).toContain('consider aborting and restarting');
+      expect(frame).toContain('memory pressure');
+    });
     r.unmount();
   });
 
@@ -78,12 +82,12 @@ describe('MemoryPressureBanner', () => {
     const r = renderBanner(bus);
 
     bus.publish(makeEvent('critical', 0.95, 99_614_720, 104_857_600));
-    await flush();
-
-    const frame = r.lastFrame() ?? '';
-    expect(frame).toContain('95%');
-    expect(frame).toContain('auto-cleared in-memory buffers');
-    expect(frame).toContain('memory critical');
+    await waitFor(() => {
+      const frame = r.lastFrame() ?? '';
+      expect(frame).toContain('95%');
+      expect(frame).toContain('auto-cleared in-memory buffers');
+      expect(frame).toContain('memory critical');
+    });
     r.unmount();
   });
 
@@ -93,13 +97,11 @@ describe('MemoryPressureBanner', () => {
 
     // First transition to warning so there is something to clear.
     bus.publish(makeEvent('warning'));
-    await flush();
-    expect(r.lastFrame() ?? '').toContain('memory pressure');
+    await waitFor(() => expect(r.lastFrame() ?? '').toContain('memory pressure'));
 
     // Then recover — banner must disappear.
     bus.publish(makeEvent('recovered'));
-    await flush();
-    expect(r.lastFrame() ?? '').toBe('');
+    await waitFor(() => expect(r.lastFrame() ?? '').toBe(''));
     r.unmount();
   });
 
@@ -109,11 +111,8 @@ describe('MemoryPressureBanner', () => {
 
     // 104_857_600 bytes = 100 MB; 120_000_000 bytes ≈ 114 MB
     bus.publish(makeEvent('warning', 0.87, 104_857_600, 120_000_000));
-    await flush();
-
-    const frame = r.lastFrame() ?? '';
     // formatMb rounds to 0 decimal places.
-    expect(frame).toContain('100 MB');
+    await waitFor(() => expect(r.lastFrame() ?? '').toContain('100 MB'));
     r.unmount();
   });
 
@@ -122,9 +121,7 @@ describe('MemoryPressureBanner', () => {
     const r = renderBanner(bus);
 
     bus.publish({ type: 'log', level: 'info', message: 'noise', at: IsoTimestamp.now() });
-    await flush();
-
-    expect(r.lastFrame() ?? '').toBe('');
+    await waitFor(() => expect(r.lastFrame() ?? '').toBe(''));
     r.unmount();
   });
 
@@ -133,15 +130,17 @@ describe('MemoryPressureBanner', () => {
     const r = renderBanner(bus);
 
     bus.publish(makeEvent('warning', 0.75));
-    await flush();
-    expect(r.lastFrame() ?? '').toContain('memory pressure');
-    expect(r.lastFrame() ?? '').not.toContain('memory critical');
+    await waitFor(() => {
+      expect(r.lastFrame() ?? '').toContain('memory pressure');
+      expect(r.lastFrame() ?? '').not.toContain('memory critical');
+    });
 
     bus.publish(makeEvent('critical', 0.96));
-    await flush();
-    const frame = r.lastFrame() ?? '';
-    expect(frame).toContain('memory critical');
-    expect(frame).toContain('auto-cleared in-memory buffers');
+    await waitFor(() => {
+      const frame = r.lastFrame() ?? '';
+      expect(frame).toContain('memory critical');
+      expect(frame).toContain('auto-cleared in-memory buffers');
+    });
     r.unmount();
   });
 
@@ -150,8 +149,7 @@ describe('MemoryPressureBanner', () => {
     const r = renderBanner(bus);
 
     bus.publish(makeEvent('warning'));
-    await flush();
-    expect(r.lastFrame() ?? '').toContain('memory pressure');
+    await waitFor(() => expect(r.lastFrame() ?? '').toContain('memory pressure'));
 
     // After unmount the component no longer holds a listener — the bus can be used freely.
     r.unmount();

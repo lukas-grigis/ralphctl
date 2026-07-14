@@ -88,14 +88,38 @@ const CodexFlowRowSchema = z.object({
 const FlowRowSchema = z.discriminatedUnion('provider', [ClaudeFlowRowSchema, CopilotFlowRowSchema, CodexFlowRowSchema]);
 
 /**
+ * One role's opt-in agent-definition binding — the kebab-case `name` of an authored
+ * {@link AgentDefinition} to delegate that role's session to. Names are free trimmed
+ * non-empty strings — the domain cannot import the integration-side agent-definition sources,
+ * so a name's validity against the bundled/operator catalog is checked at launch (an unknown
+ * name is a harmless no-op), never here. Mirrors {@link FlowSkillsRowSchema}'s posture on
+ * skill names.
+ */
+const AgentBindingNameSchema = z.string().trim().min(1, 'agent definition name must be a non-empty trimmed string');
+
+/**
+ * Manual, opt-in binding of an agent definition to the implement generator and/or evaluator
+ * role, independently — either, both, or neither may be bound. Absent (or an absent `agents`
+ * block on {@link AiImplementSchema}) means "no binding for this role"; the launcher then runs
+ * the role's session unaided by a delegated persona, exactly as before this field existed.
+ */
+const AiAgentBindingsSchema = z.object({
+  generator: AgentBindingNameSchema.optional(),
+  evaluator: AgentBindingNameSchema.optional(),
+});
+
+/**
  * Implement runs two AI sessions per attempt — a generator that produces the change and an
  * evaluator that scores it. Each role carries its own per-flow row so they can run on
  * different providers / models / effort levels. The roles share the same row shape; only the
  * `implement` slot under `ai` carries this pair, every other flow stays on the flat row.
+ *
+ * `agents` is the optional per-role agent-definition binding — see {@link AiAgentBindingsSchema}.
  */
 const AiImplementSchema = z.object({
   generator: FlowRowSchema,
   evaluator: FlowRowSchema,
+  agents: AiAgentBindingsSchema.optional(),
 });
 
 /**
@@ -272,7 +296,7 @@ const AiSkillsSchema = z.object({
  *   ai.effort?            // global default, used when a row omits its own effort
  *   ai.refine             // { provider, model, effort? }
  *   ai.plan               // { provider, model, effort? }
- *   ai.implement          // { generator: { provider, model, effort? }, evaluator: {...} }
+ *   ai.implement          // { generator: {...}, evaluator: {...}, agents?: { generator?, evaluator? } }
  *   ai.readiness          // { provider, model, effort? }
  *   ai.ideate             // { provider, model, effort? }
  *   ai.createPr           // { provider, model, effort? }
@@ -505,6 +529,25 @@ export type AiFlowSettings = z.infer<typeof FlowRowSchema>;
 export type AiImplementSettings = z.infer<typeof AiImplementSchema>;
 /** Roles inside {@link AiImplementSettings} — addressed in dotted-path keys and per-leaf launches. */
 export type AiImplementRole = 'generator' | 'evaluator';
+/**
+ * Optional per-role agent-definition binding under `settings.ai.implement.agents` — see
+ * {@link AiAgentBindingsSchema}. An absent key (or an absent `agents` block) means the role has
+ * no bound definition.
+ *
+ * @public
+ */
+export type AiAgentBindings = z.infer<typeof AiAgentBindingsSchema>;
+
+/**
+ * Resolve the agent-definition name bound to one implement role, or `undefined` when that
+ * role has no binding (including when the whole `agents` block is absent). The "primary"
+ * naming mirrors {@link primaryFlowRow}: a single lookup a caller can use without reaching
+ * into the block's shape directly.
+ *
+ * @public
+ */
+export const primaryAgentBinding = (agents: AiAgentBindings | undefined, role: AiImplementRole): string | undefined =>
+  agents?.[role];
 /**
  * Durable opt-OUT preference block under `settings.ai.skills` — see {@link AiSkillsSchema}.
  * `Partial<Record<FlowId, { disabled: readonly string[] }>>`. Exposed for the skills launcher

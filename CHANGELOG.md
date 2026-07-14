@@ -7,6 +7,17 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Portable, authorable agent definitions, ported automatically to each provider's native format.**
+  Author a sub-agent persona once (Markdown + YAML frontmatter) and it renders to `.claude/agents/*.md`
+  (Claude Code), `.github/agents/*.agent.md` (GitHub Copilot), or `.codex/agents/*.toml` (OpenAI Codex)
+  — whichever the launch provider expects. Bundled `ralphctl-generator` / `ralphctl-evaluator`
+  definitions ship out of the box, and operator drop-ins under `<appRoot>/agents/` are reusable across
+  every project. Bind one to the implement generator or evaluator role with
+  `ralphctl settings set ai.implement.agents.<role> <name>`; `ralphctl agents list` shows what's
+  available and which role each is currently bound to.
+
 ## [0.15.1] - 2026-07-06
 
 ### Fixed

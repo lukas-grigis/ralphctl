@@ -103,6 +103,13 @@ export interface EvaluatorLeafDeps {
   readonly model: string;
   /** Optional reasoning / effort level forwarded into every `implementSession` AiSession. */
   readonly effort?: string;
+  /**
+   * Pre-composed "## Agent Definition" prompt section (raw content, not yet rendered) — see
+   * `GenEvalLoopRoleConfig.agentDefinitionSection`. Threaded into the FULL evaluate prompt's
+   * `agentDefinition` slot only (round 1 of a session thread); a resumed continuation already
+   * carries it in-conversation.
+   */
+  readonly agentDefinition?: string;
   readonly verifyScript?: string;
   /** From `settings.harness.plateauThreshold` (2–5). */
   readonly plateauThreshold: number;
@@ -197,7 +204,10 @@ const readCappedProgress = async (path: string, currentTaskId: string, model: st
  * prompt automatically — the discriminant is the same field `--resume` consumes.
  */
 const buildEvaluatorPrompt = async (
-  deps: Pick<EvaluatorLeafDeps, 'templateLoader' | 'cwd' | 'progressFile' | 'verifyScript' | 'model'>,
+  deps: Pick<
+    EvaluatorLeafDeps,
+    'templateLoader' | 'cwd' | 'progressFile' | 'verifyScript' | 'model' | 'agentDefinition'
+  >,
   args: {
     readonly task: InProgressTask;
     readonly workspaceRoot: AbsolutePath;
@@ -214,6 +224,9 @@ const buildEvaluatorPrompt = async (
   const priorProgress = await readCappedProgress(String(deps.progressFile), String(args.task.id), deps.model);
   const contractPath = join(String(args.workspaceRoot), 'contract.md');
   const hintsCarry = args.generatorHints.length > 0 ? { generatorHints: args.generatorHints } : {};
+  // Agent-definition section rides ONLY the full prompt — a resumed continuation already carries
+  // it in-conversation.
+  const agentDefinitionCarry = deps.agentDefinition !== undefined ? { agentDefinition: deps.agentDefinition } : {};
 
   if (args.priorEvaluatorSessionId === undefined) {
     return buildEvaluatePrompt(deps.templateLoader, {
@@ -224,6 +237,7 @@ const buildEvaluatorPrompt = async (
       priorProgress,
       ...(deps.verifyScript !== undefined ? { verifyScript: deps.verifyScript } : {}),
       ...hintsCarry,
+      ...agentDefinitionCarry,
     });
   }
   return buildEvaluateContinuationPrompt(deps.templateLoader, {

@@ -291,6 +291,42 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
 
+  it('renders the agent-definition section after the base role/success-criteria blocks, leaving them intact', async () => {
+    const task = makeTaskWith({ name: 'export CSV' });
+    const result = await buildEvaluatePrompt(deps, {
+      task,
+      projectPath: '/tmp/ralph/main-repo',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
+      agentDefinition: 'You are the "release-notes" agent. Focus on user-facing wording.',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toContain('## Agent Definition');
+    expect(result.value).toContain('You are the "release-notes" agent. Focus on user-facing wording.');
+    // Additive, not destructive: the base role/success-criteria content survives verbatim.
+    expect(result.value).toContain('<role>');
+    expect(result.value).toContain('</success_criteria>');
+    const successCriteriaIdx = result.value.indexOf('</success_criteria>');
+    const agentDefinitionIdx = result.value.indexOf('## Agent Definition');
+    expect(agentDefinitionIdx).toBeGreaterThan(successCriteriaIdx);
+    expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
+  });
+
+  it('collapses the agent-definition section with no orphan heading when absent', async () => {
+    const task = makeTaskWith({ name: 'export CSV' });
+    const result = await buildEvaluatePrompt(deps, {
+      task,
+      projectPath: '/tmp/ralph/main-repo',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).not.toContain('## Agent Definition');
+    expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
+  });
+
   it('renders extra dimensions after the floor dimensions when planner attached them', async () => {
     const ticket = makeApprovedTicket();
     const task = unwrap(

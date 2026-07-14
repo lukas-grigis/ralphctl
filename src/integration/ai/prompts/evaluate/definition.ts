@@ -7,6 +7,7 @@ import { buildPrompt, type BuildPromptError } from '@src/integration/ai/prompts/
 import type { PromptDefinition } from '@src/integration/ai/prompts/_engine/definition.ts';
 import { renderFloorRubricSection } from '@src/integration/ai/prompts/_engine/renderers/floor-rubric.ts';
 import {
+  renderAgentDefinitionSection,
   renderExtraDimensionsSection,
   renderGeneratorHintsSection,
   renderProjectToolingSection,
@@ -95,6 +96,13 @@ export interface EvaluatePromptParams {
    * always supplies it (empty string when there is no history).
    */
   readonly priorCriteriaVerdictsSection?: string;
+  /**
+   * Optional "## Agent Definition" block rendered strictly AFTER the base `<role>` /
+   * `<success_criteria>` blocks — the seam a bound agent definition's persona renders into, and
+   * (for a provider with no native agent format) the in-session direct-fallback body. Absent or
+   * empty → `{{AGENT_DEFINITION_SECTION}}` collapses cleanly with no orphan heading.
+   */
+  readonly agentDefinitionSection?: string;
 }
 
 const requireNonEmpty =
@@ -186,6 +194,13 @@ export const evaluatePromptDef: PromptDefinition<EvaluatePromptParams> = {
         'Durable per-criterion k-of-N checklist carried across rounds (`Task.criteriaVerdicts`), rendered ' +
         'by `composeCriteriaHistory`. Context only — re-verify independently. Empty → `{{PRIOR_CRITERIA_VERDICTS}}` collapses.',
     },
+    agentDefinitionSection: {
+      placeholder: 'AGENT_DEFINITION_SECTION',
+      optional: true,
+      description:
+        'Optional "## Agent Definition" block rendered after the base role/success-criteria blocks — the ' +
+        'seam for a bound agent persona or in-session direct fallback. Empty → `{{AGENT_DEFINITION_SECTION}}` collapses.',
+    },
   },
   partials: {
     HARNESS_CONTEXT: 'harness-context',
@@ -221,6 +236,12 @@ export interface BuildEvaluatePromptInput {
    * Omitted or empty → `{{GENERATOR_HINTS_SECTION}}` collapses cleanly.
    */
   readonly generatorHints?: string;
+  /**
+   * Raw "## Agent Definition" content — the seam a bound agent definition's persona renders
+   * into, and (for a provider with no native agent format) the in-session direct-fallback body.
+   * Absent or empty → `{{AGENT_DEFINITION_SECTION}}` collapses cleanly with no orphan heading.
+   */
+  readonly agentDefinition?: string;
 }
 
 /**
@@ -266,4 +287,5 @@ export const buildEvaluatePrompt = async (
       verificationCriteria: input.task.verificationCriteria,
       verdicts: input.task.criteriaVerdicts,
     }),
+    agentDefinitionSection: renderAgentDefinitionSection(input.agentDefinition),
   });

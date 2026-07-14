@@ -294,6 +294,22 @@ export const renderRetryFeedbackSection = (retryFeedback: string | undefined): s
 };
 
 /**
+ * Render the optional "## Agent Definition" section appended strictly AFTER the base
+ * `<role>`/`<success_criteria>` blocks in both the generator and evaluator prompts. This is the
+ * seam a bound agent definition's persona/instructions render into — and, for a provider with no
+ * native agent format, the in-session direct-fallback body. Because the placeholder always sits
+ * after the base blocks, its content can only ADD instructions, never remove or override the base
+ * role. Absent or empty → empty string so `{{AGENT_DEFINITION_SECTION}}` collapses without leaving
+ * an orphan heading.
+ */
+export const renderAgentDefinitionSection = (agentDefinition: string | undefined): string => {
+  if (agentDefinition === undefined) return '';
+  const trimmed = agentDefinition.trim();
+  if (trimmed.length === 0) return '';
+  return ['## Agent Definition', '', trimmed].join('\n');
+};
+
+/**
  * "Change your approach" directive injected when this task is a plateau-break attempt — i.e. the
  * gen-eval loop stalled (the same evaluator dimensions kept failing across rounds with no real
  * progress) and the escalation policy granted one more attempt. Empty when not a plateau-break

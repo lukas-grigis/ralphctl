@@ -83,6 +83,13 @@ export interface GenEvalLoopRoleConfig {
   readonly providerId: string;
   readonly model: string;
   readonly effort?: string;
+  /**
+   * Pre-composed "## Agent Definition" prompt section for this role, resolved once at launch —
+   * absent when the role has no bound definition. Threaded into the generator/evaluator leaf as
+   * `agentDefinition` and rides only the FULL prompt of a session thread (round 1); a resumed
+   * continuation already carries it in-conversation.
+   */
+  readonly agentDefinitionSection?: string;
 }
 
 export interface GenEvalLoopOpts {
@@ -127,6 +134,9 @@ export const createGenEvalLoop = (
     provider: deps.generatorProvider,
     model: opts.generator.model,
     ...(opts.generator.effort !== undefined ? { effort: opts.generator.effort } : {}),
+    ...(opts.generator.agentDefinitionSection !== undefined
+      ? { agentDefinition: opts.generator.agentDefinitionSection }
+      : {}),
   };
   const evaluatorLeafDeps = {
     ...sharedLeafDeps,
@@ -136,6 +146,9 @@ export const createGenEvalLoop = (
     provider: deps.evaluatorProvider,
     model: opts.evaluator.model,
     ...(opts.evaluator.effort !== undefined ? { effort: opts.evaluator.effort } : {}),
+    ...(opts.evaluator.agentDefinitionSection !== undefined
+      ? { agentDefinition: opts.evaluator.agentDefinitionSection }
+      : {}),
   };
 
   // ---------------------------------------------------------------------------

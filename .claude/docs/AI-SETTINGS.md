@@ -47,6 +47,30 @@ Precedence at launch: per-run override > this saved preference > registry defaul
 the customize picker's checklist; the saved preference is this key; the registry default is the flow's
 bundled skill set.
 
+**Agent-definition role binding — `settings.ai.implement.agents`.** An optional per-role binding of shape
+`{ generator?: string, evaluator?: string }` under `ai.implement.agents`; either, both, or neither role may
+be bound, and an absent block (or absent role key) means that role runs unaided — exactly as before this
+field existed. The bound value is an `AgentDefinition` name resolved against the composed bundled +
+operator catalog (`integration/ai/agents/`; see `ARCHITECTURE.md § Agent definitions subsystem`) — a name
+that doesn't resolve is a logged warning, not a launch failure, and the role falls back to running unaided.
+
+```json
+"implement": {
+  "generator": { "provider": "claude-code", "model": "claude-opus-4-8" },
+  "evaluator": { "provider": "claude-code", "model": "claude-opus-4-8" },
+  "agents": { "generator": "ralphctl-generator" }
+}
+```
+
+Set or clear via `ralphctl settings set ai.implement.agents.<role> <name>` (empty value clears); list
+what's available (bundled + operator, and which role each is currently bound to) via `ralphctl agents list`.
+
+**Precedence when a role is bound — definition > per-flow row > global default.** `resolveAgentOverride`
+(`business/settings/resolve-agent-override.ts`) resolves the effective `model` as the definition's `model`
+when set, else the role's own per-flow row `model` (always present); `effort` follows the same order but
+falls through to the existing per-flow-row → global-default resolution (**Effort resolution** above) when
+neither the definition nor the row set one explicitly.
+
 **Twenty presets across five families** stamp the entire `ai` section plus `harness.escalateOnPlateau`
 in one shot — all equally first-class (none is marked default). Each family carries four variants:
 `mixed` (best-fit provider per flow), `claude-only`, `copilot-only`, `codex-only`. The families:

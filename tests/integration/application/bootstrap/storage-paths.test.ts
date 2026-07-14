@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  AGENTS_SUBDIR,
   APP_ROOT_DIR,
   CONFIG_SUBDIR,
   DATA_SUBDIR,
@@ -30,6 +31,7 @@ describe('resolveStoragePaths', () => {
     expect(String(result.value.runsRoot)).toBe('/home/alice/.ralphctl/data/runs');
     expect(String(result.value.memoryRoot)).toBe('/home/alice/.ralphctl/data/memory');
     expect(String(result.value.operatorSkillsRoot)).toBe('/home/alice/.ralphctl/skills');
+    expect(String(result.value.operatorAgentDefinitionsRoot)).toBe('/home/alice/.ralphctl/agents');
   });
 
   it('uses os.homedir() by default', () => {
@@ -44,6 +46,7 @@ describe('resolveStoragePaths', () => {
     expect(String(result.value.runsRoot)).toContain(`${DATA_SUBDIR}/${RUNS_SUBDIR}`);
     expect(String(result.value.memoryRoot)).toContain(`${DATA_SUBDIR}/${MEMORY_SUBDIR}`);
     expect(String(result.value.operatorSkillsRoot)).toContain(`${APP_ROOT_DIR}/${SKILLS_SUBDIR}`);
+    expect(String(result.value.operatorAgentDefinitionsRoot)).toContain(`${APP_ROOT_DIR}/${AGENTS_SUBDIR}`);
   });
 
   it('returns ValidationError when homedir is not absolute', () => {
@@ -63,6 +66,7 @@ describe('resolveStoragePaths', () => {
     expect(String(result.value.locksRoot)).toBe('/var/lib/ralphctl-test/state/locks');
     expect(String(result.value.memoryRoot)).toBe('/var/lib/ralphctl-test/data/memory');
     expect(String(result.value.operatorSkillsRoot)).toBe('/var/lib/ralphctl-test/skills');
+    expect(String(result.value.operatorAgentDefinitionsRoot)).toBe('/var/lib/ralphctl-test/agents');
   });
 
   it('falls back to homedir layout when RALPHCTL_HOME is empty', () => {
@@ -130,6 +134,20 @@ describe('ensureStorageRoots', () => {
 
     // The skills root is operator-created; ensureStorageRoots must not materialise it.
     await expect(fs.stat(String(paths.value.operatorSkillsRoot))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('computes operatorAgentDefinitionsRoot but does NOT create it (operator-authored, missing = empty)', async () => {
+    const paths = resolveStoragePaths({ homedir: () => fakeHome, env: {} });
+    if (!paths.ok) throw new Error('resolveStoragePaths failed');
+    expect(String(paths.value.operatorAgentDefinitionsRoot)).toBe(`${fakeHome}/.ralphctl/${AGENTS_SUBDIR}`);
+
+    const result = await ensureStorageRoots(paths.value);
+    expect(result.ok).toBe(true);
+
+    // The agents root is operator-created; ensureStorageRoots must not materialise it.
+    await expect(fs.stat(String(paths.value.operatorAgentDefinitionsRoot))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
   });
 
   it('is idempotent — running twice does not fail or duplicate work', async () => {

@@ -45,6 +45,7 @@ import { createImplementFlow } from '@src/application/flows/implement/flow.ts';
 import { createFoldQueue } from '@src/application/flows/implement/wave-branch.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { emptySkillSource, noopSkillsAdapter } from '@tests/fixtures/skills-fakes.ts';
+import { noopAgentDefinitionAdapter } from '@tests/fixtures/agent-definition-fakes.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
 import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
@@ -350,6 +351,8 @@ const buildDeps = (
   locksRoot: absolutePath(locksRoot),
   skillsAdapter: noopSkillsAdapter,
   skillSource: emptySkillSource,
+  generatorAgentDefinitionAdapter: noopAgentDefinitionAdapter,
+  evaluatorAgentDefinitionAdapter: noopAgentDefinitionAdapter,
   interactive: unusedInteractive,
   writeFile: createAtomicWriteFile(),
   appendFile: createAppendFile(),

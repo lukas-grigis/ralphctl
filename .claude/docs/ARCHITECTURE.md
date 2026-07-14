@@ -42,8 +42,8 @@ ESLint `no-restricted-imports` (in `eslint.config.ts`) enforces every direction.
 - **No barrel files anywhere under `src/`** — every import names what it pulls in directly. `export *` is banned.
 - **Sibling-isolation in `integration/ai/<concept>/`** — each per-tool / per-variant adapter directory is
   independent. Cross-sibling reach goes through a shared `_engine/` sub-namespace (or `_partials/` for prompts).
-  Applies to `prompts/<flow>/`, `providers/<tool>/`, `readiness/<tool>/`, `skills/<source>/`; per-signal Zod schemas are
-  isolated under `contract/_engine/signals/<kind>/`.
+  Applies to `prompts/<flow>/`, `providers/<tool>/`, `readiness/<tool>/`, `skills/<source>/`,
+  `agents/<source>/`; per-signal Zod schemas are isolated under `contract/_engine/signals/<kind>/`.
 - **Port-shaped names live in `_engine/`** — interfaces / type aliases named `*Port`, `*Adapter`, `*Provider`,
   `*Sink`, `*Loader`, `*Probe`, `*Reader`, `*Writer`, `*Renderer`, `*Detector` must be declared in a concept's
   `_engine/` sub-namespace. Factory inputs named `*Deps` are exempt.
@@ -179,21 +179,22 @@ business/
 Service ports live under `business/<module>/` (one folder per cross-cutting concern). Repository interfaces live
 in `domain/repository/<aggregate>/`.
 
-| Port                                                  | Folder                              | Concrete adapter                                                                                                                                                                                                                                                          |
-| ----------------------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Logger` + `Sink`                                     | `business/observability/`           | `createEventBusLogger` (re-published as `LogEvent`)                                                                                                                                                                                                                       |
-| `EventBus`                                            | `business/observability/`           | `InMemoryEventBus` (`integration/observability/`)                                                                                                                                                                                                                         |
-| `HeadlessAiProvider`                                  | `integration/ai/providers/_engine/` | `claude` / `copilot` / `codex` adapters under `providers/<tool>/`                                                                                                                                                                                                         |
-| `InteractiveAiProvider`                               | `integration/ai/providers/_engine/` | same per-tool adapters (interactive entrypoint)                                                                                                                                                                                                                           |
-| `PublishSignal` (fn type)                             | `application/flows/_shared/`        | `createPublishSignal(eventBus, source, taskId?)` — the ONE harness-signal channel (`ai-signal` AppEvent)                                                                                                                                                                  |
-| `TemplateLoader`                                      | `integration/ai/prompts/_engine/`   | `FsTemplateLoader` — dev: src tree, bundled: `dist/`                                                                                                                                                                                                                      |
-| `ReadinessProbe`                                      | `integration/ai/readiness/_engine/` | per-tool probes under `readiness/<tool>/`                                                                                                                                                                                                                                 |
-| `SkillsAdapter` + `SkillSource`                       | `integration/ai/skills/_engine/`    | per-tool adapter + bundled / project / operator / phase-folder source, composed and resolved by `createResolvedSkillSource`; `parseSkill` extracts a `Skill` from a `SKILL.md`; `checkSkillContract` validates against six harness rules (S1–S6) — see § Skills subsystem |
-| `SkillCatalogPort`                                    | `integration/ai/skills/_engine/`    | `createSkillCatalog` (`skills/phase/catalog.ts`) — list / enable / disable / update / updateAll over the phase folders, provenance-stamped                                                                                                                                |
-| `GitRunner` / `ShellScriptRunner`                     | `integration/io/`                   | `createGitRunner` / `createShellScriptRunner`                                                                                                                                                                                                                             |
-| `WriteFile` (port) + `FileLocker` (adapter)           | `business/io/` / `integration/io/`  | atomic write helper / `createFileLocker`                                                                                                                                                                                                                                  |
-| `IssueFetcher` / `IssuePusher` / `PullRequestCreator` | `business/scm/`                     | `gh` / `glab` shell wrappers under `integration/scm/`                                                                                                                                                                                                                     |
-| `VersionChecker`                                      | `business/version/`                 | `createNpmVersionChecker` (`integration/version/`)                                                                                                                                                                                                                        |
+| Port                                                  | Folder                              | Concrete adapter                                                                                                                                                                                                                                                                                                                                                                    |
+| ----------------------------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Logger` + `Sink`                                     | `business/observability/`           | `createEventBusLogger` (re-published as `LogEvent`)                                                                                                                                                                                                                                                                                                                                 |
+| `EventBus`                                            | `business/observability/`           | `InMemoryEventBus` (`integration/observability/`)                                                                                                                                                                                                                                                                                                                                   |
+| `HeadlessAiProvider`                                  | `integration/ai/providers/_engine/` | `claude` / `copilot` / `codex` adapters under `providers/<tool>/`                                                                                                                                                                                                                                                                                                                   |
+| `InteractiveAiProvider`                               | `integration/ai/providers/_engine/` | same per-tool adapters (interactive entrypoint)                                                                                                                                                                                                                                                                                                                                     |
+| `PublishSignal` (fn type)                             | `application/flows/_shared/`        | `createPublishSignal(eventBus, source, taskId?)` — the ONE harness-signal channel (`ai-signal` AppEvent)                                                                                                                                                                                                                                                                            |
+| `TemplateLoader`                                      | `integration/ai/prompts/_engine/`   | `FsTemplateLoader` — dev: src tree, bundled: `dist/`                                                                                                                                                                                                                                                                                                                                |
+| `ReadinessProbe`                                      | `integration/ai/readiness/_engine/` | per-tool probes under `readiness/<tool>/`                                                                                                                                                                                                                                                                                                                                           |
+| `SkillsAdapter` + `SkillSource`                       | `integration/ai/skills/_engine/`    | per-tool adapter + bundled / project / operator / phase-folder source, composed and resolved by `createResolvedSkillSource`; `parseSkill` extracts a `Skill` from a `SKILL.md`; `checkSkillContract` validates against six harness rules (S1–S6) — see § Skills subsystem                                                                                                           |
+| `SkillCatalogPort`                                    | `integration/ai/skills/_engine/`    | `createSkillCatalog` (`skills/phase/catalog.ts`) — list / enable / disable / update / updateAll over the phase folders, provenance-stamped                                                                                                                                                                                                                                          |
+| `AgentDefinitionAdapter` + `AgentDefinitionSource`    | `integration/ai/agents/_engine/`    | per-provider adapter (`claude` / `copilot` / `codex` under `agents/<tool>/`, all backed by `createFilesystemAgentDefinitionAdapter`) + bundled / operator sources composed by `composeAgentDefinitionSources`; `parseAgentDefinition` extracts an `AgentDefinition` from frontmatter Markdown; `checkAgentDefinitionQuality` flags vague bodies — see § Agent definitions subsystem |
+| `GitRunner` / `ShellScriptRunner`                     | `integration/io/`                   | `createGitRunner` / `createShellScriptRunner`                                                                                                                                                                                                                                                                                                                                       |
+| `WriteFile` (port) + `FileLocker` (adapter)           | `business/io/` / `integration/io/`  | atomic write helper / `createFileLocker`                                                                                                                                                                                                                                                                                                                                            |
+| `IssueFetcher` / `IssuePusher` / `PullRequestCreator` | `business/scm/`                     | `gh` / `glab` shell wrappers under `integration/scm/`                                                                                                                                                                                                                                                                                                                               |
+| `VersionChecker`                                      | `business/version/`                 | `createNpmVersionChecker` (`integration/version/`)                                                                                                                                                                                                                                                                                                                                  |
 
 Shared engine-level helpers (not ports — no interface boundary, but architecturally significant):
 
@@ -243,6 +244,61 @@ bundle moved on upstream), or `locally-modified` (the operator edited the copy �
 always wins over `update-available` and `update`/`updateAll` never silently discard an edit). The
 sidecar is catalog-only bookkeeping — no `SkillSource` ever emits or installs it into a session; a
 `Skill` is always `{ name, description, content }` derived from `SKILL.md` alone.
+
+## Agent definitions subsystem (`integration/ai/agents/`)
+
+An `AgentDefinition` (`_engine/agent-definition.ts`) is a named sub-agent persona — Markdown body + YAML
+frontmatter (`name`, `description`, optional `model` / `effort`) — an AI session can delegate to. Unlike
+skills, definitions are not flow-scoped: every source's `list()` returns its full set unconditionally.
+
+| Source     | Folder                            | Scope                                                                                                                                                               |
+| ---------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bundled`  | `integration/ai/agents/bundled/`  | Committed `ralphctl-*` definitions (`_engine/registry.ts`'s `BUNDLED_AGENT_DEFINITIONS`: `ralphctl-generator`, `ralphctl-evaluator`)                                |
+| `operator` | `integration/ai/agents/operator/` | Global drop-ins under `<appRoot>/agents/<name>.md` — one flat directory, no per-provider subfolder (the body is provider-agnostic; only rendering/placement varies) |
+
+`composeAgentDefinitionSources(bundled, operator)` (`_engine/compose-agent-definition-sources.ts`) merges
+the two into one `AgentDefinitionSource`, later-source-wins on a name collision — an operator definition
+overrides a bundled one of the same name. There is no enumerable "project" source: a project-authored file
+already lives where the provider's CLI looks for it, so project-wins precedence is realised one layer down,
+in the adapter's install step (below). `parseAgentDefinition` / `splitFrontmatter` / `parseSimpleYaml`
+(`_engine/parse-agent-definition.ts`) share the same flat-frontmatter reader as `SKILL.md` parsing, and
+assert the frontmatter `name` matches the source file's base name.
+
+Three per-provider renderers (`_engine/render-{claude,copilot,codex}-agent.ts`) turn one canonical
+`AgentDefinition` into a `RenderedAgentFile` (`relPath` + `content`) in that provider's native sub-agent
+format:
+
+| Provider | Renderer             | Native file                               | Notes                                                                                                                                                                                 |
+| -------- | -------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Claude   | `renderClaudeAgent`  | `.claude/agents/ralphctl-<name>.md`       | YAML frontmatter (`name`, `description`, `model?`, `effort?`) + Markdown body                                                                                                         |
+| Copilot  | `renderCopilotAgent` | `.github/agents/ralphctl-<name>.agent.md` | Same frontmatter shape minus `effort`; rejects a body over `COPILOT_AGENT_MAX_BODY_CHARS` (30000 chars) with a `StorageError` rather than writing a file Copilot would refuse to load |
+| Codex    | `renderCodexAgent`   | `.codex/agents/ralphctl-<name>.toml`      | TOML (`name`, `description`, `developer_instructions`, optional `model` / `model_reasoning_effort`)                                                                                   |
+
+`namespacedAgentFileBase` (`_engine/agent-definition.ts`) applies the `ralphctl-` prefix idempotently so a
+bundled/operator name (already namespaced by its source) is never doubled.
+
+`createFilesystemAgentDefinitionAdapter` (`_engine/filesystem-agent-definition-adapter.ts`) is the one
+`AgentDefinitionAdapter` implementation shared by all three providers — `claude/adapter.ts`,
+`copilot/adapter.ts`, `codex/adapter.ts` each just supply `parentDir` + `renderer` + convention text,
+selected at composition time by `adapter-factory.ts`'s `createAgentDefinitionAdapter` — mirroring
+`createFilesystemSkillsAdapter`. Install is idempotent and **project-definitions-win**: a destination path
+that already exists is left untouched. A manifest-tracked `uninstall` removes only the files a matching
+`install` wrote, then tidies empty parent directories. A wildcard `ralphctl-*` line is appended to
+`.git/info/exclude` on first install so ralphctl-owned agent files stay out of `git status`, exactly as
+skills do.
+
+`checkAgentDefinitionQuality` (`_engine/agent-definition-quality.ts`) is a pure, I/O-free scanner over three
+rules (Q1 body under 40 words, Q2 no headings/list structure, Q3 an evaluator-role definition never
+mentions verification vocabulary) — advisory only. `warnIfVague` runs it against every operator-authored
+definition at load time and logs a warning per concern; a vague definition is still returned for install.
+
+The implement flow is the only current consumer: `settings.ai.implement.agents.{generator,evaluator}`
+optionally binds one composed-catalog definition per role (see `AI-SETTINGS.md § Agent-definition role
+binding` for the settings shape and model/effort precedence); `resolveImplementAgentBindings`
+(`application/ui/shared/launch/implement-agent-bindings.ts`) resolves the binding, installs/uninstalls the
+definition around the per-task subchain (`installAgentDefinitionsLeaf` / `uninstallAgentDefinitionsLeaf` in
+`application/flows/_shared/agents/`), and splices a short "bound sub-agent" announcement into the
+generator/evaluator prompt's `{{AGENT_DEFINITION_SECTION}}`.
 
 ## Repository interfaces (`src/domain/repository/`)
 

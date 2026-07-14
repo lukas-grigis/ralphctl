@@ -35,6 +35,8 @@ only after every declared step is done and every verification command passes.
 
 </success_criteria>
 
+{{AGENT_DEFINITION_SECTION}}
+
 <inputs>
 
 ## Task

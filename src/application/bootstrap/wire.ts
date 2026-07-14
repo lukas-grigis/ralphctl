@@ -61,6 +61,12 @@ import { createSkillsAdapter } from '@src/integration/ai/skills/adapter-factory.
 import { createBundledSkillRawReader, createBundledSkillSource } from '@src/integration/ai/skills/bundled/source.ts';
 import type { SkillCatalogPort } from '@src/integration/ai/skills/_engine/skill-catalog-port.ts';
 import { createSkillCatalog } from '@src/integration/ai/skills/phase/catalog.ts';
+import type { AgentDefinitionAdapter } from '@src/integration/ai/agents/_engine/agent-definition-adapter.ts';
+import type { AgentDefinitionSource } from '@src/integration/ai/agents/_engine/agent-definition-source.ts';
+import { createAgentDefinitionAdapter } from '@src/integration/ai/agents/adapter-factory.ts';
+import { composeAgentDefinitionSources } from '@src/integration/ai/agents/_engine/compose-agent-definition-sources.ts';
+import { createBundledAgentDefinitionSource } from '@src/integration/ai/agents/bundled/source.ts';
+import { createOperatorAgentDefinitionSource } from '@src/integration/ai/agents/operator/source.ts';
 import type { NotificationDispatcher } from '@src/business/observability/notification-dispatcher.ts';
 import { startFileLogSink } from '@src/integration/observability/sinks/file-log-sink.ts';
 import type { FileLogSink, FileLogSinkDeps } from '@src/integration/observability/_engine/file-log-sink.ts';
@@ -223,6 +229,21 @@ export interface AppDeps {
    */
   readonly skillCatalog: SkillCatalogPort;
   /**
+   * Wire-time seed — keyed on the generator role's provider. The implement launcher rebuilds a
+   * role-scoped adapter per role (generator / evaluator may target different providers) via
+   * `createAgentDefinitionAdapter`; this field is the sensible default for any path that consults
+   * `app.agentDefinitionAdapter` before a launch. Mirrors {@link skillsAdapter}'s wire-time-seed
+   * posture.
+   */
+  readonly agentDefinitionAdapter: AgentDefinitionAdapter;
+  /**
+   * Composed bundled + operator agent-definition source (operator overrides bundled on a name
+   * collision — see `composeAgentDefinitionSources`'s doc comment). Unlike {@link skillSource},
+   * agent definitions have no per-project / phase tier: a project-authored definition already
+   * lives where the provider's CLI looks for it, so there is nothing further to compose here.
+   */
+  readonly agentDefinitionSource: AgentDefinitionSource;
+  /**
    * OS-attention notifier. Hooked onto the EventBus by {@link startNotificationSubscriber} at
    * `wire()` time; exposed on `AppDeps` so flows / tests that want to surface a one-shot
    * "ralphctl needs you" cue can call it directly. Production: terminal bell + Darwin
@@ -356,6 +377,17 @@ const noopNotificationDispatcher: NotificationDispatcher = {
   },
 };
 
+/** Wire-time seed adapter, keyed on the generator role's provider — see `AppDeps.agentDefinitionAdapter`. */
+const buildWireAgentDefinitionAdapter = (settings: Settings, logger: Logger): AgentDefinitionAdapter =>
+  createAgentDefinitionAdapter({ provider: settings.ai.implement.generator.provider, logger });
+
+/** Composed bundled + operator agent-definition source — see `AppDeps.agentDefinitionSource`. */
+const buildWireAgentDefinitionSource = (storage: StoragePaths, logger: Logger): AgentDefinitionSource =>
+  composeAgentDefinitionSources(
+    createBundledAgentDefinitionSource(),
+    createOperatorAgentDefinitionSource({ operatorAgentDefinitionsRoot: storage.operatorAgentDefinitionsRoot, logger })
+  );
+
 export const wire = (opts: WireOptions): AppDeps => {
   const spawn: Spawn = opts.spawn ?? defaultPipeSpawn;
   // Env-gated chain.log writes. Reading `process.env` here keeps the integration adapter
@@ -456,6 +488,8 @@ export const wire = (opts: WireOptions): AppDeps => {
     // flow launches get the implement row's provider as the default.
     skillsAdapter: createSkillsAdapter({ provider: opts.settings.ai.implement.generator.provider, logger }),
     skillSource: createBundledSkillSource(),
+    agentDefinitionAdapter: buildWireAgentDefinitionAdapter(opts.settings, logger),
+    agentDefinitionSource: buildWireAgentDefinitionSource(opts.storage, logger),
     skillCatalog: createSkillCatalog({
       operatorSkillsRoot: opts.storage.operatorSkillsRoot,
       writeFile: atomicWriteFile,

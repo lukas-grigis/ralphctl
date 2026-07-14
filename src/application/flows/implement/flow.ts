@@ -30,6 +30,7 @@ import { transitionSprintToReviewLeaf } from '@src/application/flows/implement/l
 import { withRepoLock } from '@src/application/flows/_shared/with-repo-lock.ts';
 import { loadLearningsLeaf } from '@src/application/flows/_shared/memory/load-learnings.ts';
 import { resolveLearningsLedgerPath } from '@src/application/flows/_shared/memory/ledger-path.ts';
+import type { AgentDefinition } from '@src/integration/ai/agents/_engine/agent-definition.ts';
 
 export type { RepoExecConfig };
 
@@ -91,6 +92,23 @@ export interface CreateImplementFlowOpts {
   readonly evaluatorModel: string;
   /** Evaluator-role effort / reasoning level — threaded into the evaluator AiSession. */
   readonly evaluatorEffort?: string;
+  /**
+   * Generator-role's bound agent definition, resolved once at launch by the launcher —
+   * `undefined` when the role has no binding (or the bound name didn't resolve, AC2). Threaded
+   * into the per-task subchain's install/uninstall leaves.
+   */
+  readonly generatorAgentDefinition?: AgentDefinition;
+  /**
+   * Pre-composed "## Agent Definition" prompt section for the generator role — announces the
+   * native file the launcher installed (or, for a provider with no native discovery format,
+   * the raw definition body). Threaded into every gen-eval turn's generator prompt (round 1 of
+   * a session thread only — a resumed continuation already carries it in-conversation).
+   */
+  readonly generatorAgentDefinitionSection?: string;
+  /** Evaluator-role's bound agent definition — see {@link generatorAgentDefinition}. */
+  readonly evaluatorAgentDefinition?: AgentDefinition;
+  /** Evaluator-role's "## Agent Definition" prompt section — see {@link generatorAgentDefinitionSection}. */
+  readonly evaluatorAgentDefinitionSection?: string;
   /**
    * How preflight handles a dirty working tree. Default `'prompt'` — interactive recovery
    * (Keep / Stash / Reset / Cancel). Non-interactive callers (CI, headless harness) should
@@ -454,15 +472,27 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
           providerId: opts.generatorProviderId,
           model: opts.generatorModel,
           ...(opts.generatorEffort !== undefined ? { effort: opts.generatorEffort } : {}),
+          ...(opts.generatorAgentDefinitionSection !== undefined
+            ? { agentDefinitionSection: opts.generatorAgentDefinitionSection }
+            : {}),
         },
         evaluator: {
           providerId: opts.evaluatorProviderId,
           model: opts.evaluatorModel,
           ...(opts.evaluatorEffort !== undefined ? { effort: opts.evaluatorEffort } : {}),
+          ...(opts.evaluatorAgentDefinitionSection !== undefined
+            ? { agentDefinitionSection: opts.evaluatorAgentDefinitionSection }
+            : {}),
         },
         memoryRoot: opts.memoryRoot,
         projectId: opts.projectId,
         projectSlug: opts.projectSlug,
+        ...(opts.generatorAgentDefinition !== undefined
+          ? { generatorAgentDefinition: opts.generatorAgentDefinition }
+          : {}),
+        ...(opts.evaluatorAgentDefinition !== undefined
+          ? { evaluatorAgentDefinition: opts.evaluatorAgentDefinition }
+          : {}),
       },
       task,
       resolveRepoOrThrow(opts.repositories, task),

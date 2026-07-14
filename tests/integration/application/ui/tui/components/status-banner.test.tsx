@@ -13,6 +13,12 @@
  *
  * Lightweight `AppDeps` cast: the component only reads `deps.eventBus.subscribe`, faking the
  * rest would add noise. Same shape the sibling `ChainLogDegradedBanner` test uses.
+ *
+ * Assertions after a bus publish are wrapped in `waitFor` (polling, ~3s ceiling) rather than a
+ * single fixed `setImmediate` tick — under heavy CPU contention from concurrent vitest forks a
+ * one-shot tick can resolve before Ink's render queue has actually settled, which is exactly the
+ * class of flake `_wait.ts`'s doc comment describes and the rest of the TUI test suite already
+ * guards against.
  */
 
 import { render } from 'ink-testing-library';
@@ -22,6 +28,7 @@ import { DepsProvider } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { StatusBanner } from '@src/application/ui/tui/components/status-banner.tsx';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
+import { waitFor } from '@tests/integration/application/ui/tui/_wait.ts';
 
 const renderBanner = (bus: ReturnType<typeof createInMemoryEventBus>): ReturnType<typeof render> => {
   const deps = { eventBus: bus } as unknown as AppDeps;
@@ -31,8 +38,6 @@ const renderBanner = (bus: ReturnType<typeof createInMemoryEventBus>): ReturnTyp
     </DepsProvider>
   );
 };
-
-const flush = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 
 const tick = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -55,12 +60,12 @@ describe('StatusBanner', () => {
       message: 'Rate limit — waiting 30s',
       at: IsoTimestamp.now(),
     });
-    await flush();
-
-    const frame = r.lastFrame() ?? '';
-    expect(frame).toContain('Rate limit — waiting 30s');
-    expect(frame).toContain('i ');
-    expect(frame).toContain('press d to dismiss');
+    await waitFor(() => {
+      const frame = r.lastFrame() ?? '';
+      expect(frame).toContain('Rate limit — waiting 30s');
+      expect(frame).toContain('i ');
+      expect(frame).toContain('press d to dismiss');
+    });
     r.unmount();
   });
 
@@ -75,11 +80,11 @@ describe('StatusBanner', () => {
       message: 'Watchdog killed stuck process (90s idle)',
       at: IsoTimestamp.now(),
     });
-    await flush();
-
-    const frame = r.lastFrame() ?? '';
-    expect(frame).toContain('Watchdog killed stuck process (90s idle)');
-    expect(frame).toContain('⚠');
+    await waitFor(() => {
+      const frame = r.lastFrame() ?? '';
+      expect(frame).toContain('Watchdog killed stuck process (90s idle)');
+      expect(frame).toContain('⚠');
+    });
     r.unmount();
   });
 
@@ -94,11 +99,11 @@ describe('StatusBanner', () => {
       message: 'Setup script failed for /tmp/repo: pnpm install',
       at: IsoTimestamp.now(),
     });
-    await flush();
-
-    const frame = r.lastFrame() ?? '';
-    expect(frame).toContain('Setup script failed for /tmp/repo: pnpm install');
-    expect(frame).toContain('✗');
+    await waitFor(() => {
+      const frame = r.lastFrame() ?? '';
+      expect(frame).toContain('Setup script failed for /tmp/repo: pnpm install');
+      expect(frame).toContain('✗');
+    });
     r.unmount();
   });
 
@@ -110,15 +115,15 @@ describe('StatusBanner', () => {
     bus.publish({ type: 'banner-show', id: 'info-1', tier: 'info', message: 'Info one', at: IsoTimestamp.now() });
     bus.publish({ type: 'banner-show', id: 'err-1', tier: 'error', message: 'Error one', at: IsoTimestamp.now() });
     bus.publish({ type: 'banner-show', id: 'warn-1', tier: 'warn', message: 'Warn one', at: IsoTimestamp.now() });
-    await flush();
-
-    const frame = r.lastFrame() ?? '';
-    const errIdx = frame.indexOf('Error one');
-    const warnIdx = frame.indexOf('Warn one');
-    const infoIdx = frame.indexOf('Info one');
-    expect(errIdx).toBeGreaterThanOrEqual(0);
-    expect(warnIdx).toBeGreaterThan(errIdx);
-    expect(infoIdx).toBeGreaterThan(warnIdx);
+    await waitFor(() => {
+      const frame = r.lastFrame() ?? '';
+      const errIdx = frame.indexOf('Error one');
+      const warnIdx = frame.indexOf('Warn one');
+      const infoIdx = frame.indexOf('Info one');
+      expect(errIdx).toBeGreaterThanOrEqual(0);
+      expect(warnIdx).toBeGreaterThan(errIdx);
+      expect(infoIdx).toBeGreaterThan(warnIdx);
+    });
     r.unmount();
   });
 
@@ -130,15 +135,15 @@ describe('StatusBanner', () => {
     bus.publish({ type: 'banner-show', id: 'b2', tier: 'warn', message: 'second', at: IsoTimestamp.now() });
     bus.publish({ type: 'banner-show', id: 'b3', tier: 'warn', message: 'third', at: IsoTimestamp.now() });
     bus.publish({ type: 'banner-show', id: 'b4', tier: 'warn', message: 'fourth', at: IsoTimestamp.now() });
-    await flush();
-
-    const frame = r.lastFrame() ?? '';
-    // 3 visible, the 4th is hidden behind the collapse marker.
-    expect(frame).toContain('first');
-    expect(frame).toContain('second');
-    expect(frame).toContain('third');
-    expect(frame).not.toContain('fourth');
-    expect(frame).toContain('+1 more');
+    await waitFor(() => {
+      const frame = r.lastFrame() ?? '';
+      // 3 visible, the 4th is hidden behind the collapse marker.
+      expect(frame).toContain('first');
+      expect(frame).toContain('second');
+      expect(frame).toContain('third');
+      expect(frame).not.toContain('fourth');
+      expect(frame).toContain('+1 more');
+    });
     r.unmount();
   });
 
@@ -147,13 +152,10 @@ describe('StatusBanner', () => {
     const r = renderBanner(bus);
 
     bus.publish({ type: 'banner-show', id: 'b1', tier: 'warn', message: 'hello', at: IsoTimestamp.now() });
-    await flush();
-    expect(r.lastFrame() ?? '').toContain('hello');
+    await waitFor(() => expect(r.lastFrame() ?? '').toContain('hello'));
 
     bus.publish({ type: 'banner-clear', id: 'b1', at: IsoTimestamp.now() });
-    await flush();
-
-    expect(r.lastFrame() ?? '').toBe('');
+    await waitFor(() => expect(r.lastFrame() ?? '').toBe(''));
     r.unmount();
   });
 
@@ -162,15 +164,15 @@ describe('StatusBanner', () => {
     const r = renderBanner(bus);
 
     bus.publish({ type: 'banner-show', id: 'b1', tier: 'warn', message: 'first text', at: IsoTimestamp.now() });
-    await flush();
+    await waitFor(() => expect(r.lastFrame() ?? '').toContain('first text'));
     bus.publish({ type: 'banner-show', id: 'b1', tier: 'warn', message: 'updated text', at: IsoTimestamp.now() });
-    await flush();
-
-    const frame = r.lastFrame() ?? '';
-    expect(frame).toContain('updated text');
-    expect(frame).not.toContain('first text');
-    // Not "+1 more" — same id replaced in place.
-    expect(frame).not.toContain('more');
+    await waitFor(() => {
+      const frame = r.lastFrame() ?? '';
+      expect(frame).toContain('updated text');
+      expect(frame).not.toContain('first text');
+      // Not "+1 more" — same id replaced in place.
+      expect(frame).not.toContain('more');
+    });
     r.unmount();
   });
 
@@ -180,14 +182,15 @@ describe('StatusBanner', () => {
 
     bus.publish({ type: 'banner-show', id: 'info-1', tier: 'info', message: 'info line', at: IsoTimestamp.now() });
     bus.publish({ type: 'banner-show', id: 'err-1', tier: 'error', message: 'error line', at: IsoTimestamp.now() });
-    await flush();
-
-    expect(r.lastFrame() ?? '').toContain('error line');
-    expect(r.lastFrame() ?? '').toContain('info line');
+    await waitFor(() => {
+      expect(r.lastFrame() ?? '').toContain('error line');
+      expect(r.lastFrame() ?? '').toContain('info line');
+    });
 
     r.stdin.write('d');
     // useInput dispatches asynchronously; give Ink a tick to flush the keystroke through
-    // its raw-input handler and re-render. flush() alone races the keystroke.
+    // its raw-input handler and re-render — a single microtask/macrotask yield alone races
+    // the keystroke.
     await tick(80);
 
     const frame = r.lastFrame() ?? '';
@@ -202,9 +205,7 @@ describe('StatusBanner', () => {
     const r = renderBanner(bus);
 
     bus.publish({ type: 'log', level: 'info', message: 'noise', at: IsoTimestamp.now() });
-    await flush();
-
-    expect(r.lastFrame() ?? '').toBe('');
+    await waitFor(() => expect(r.lastFrame() ?? '').toBe(''));
     r.unmount();
   });
 
@@ -230,17 +231,17 @@ describe('StatusBanner', () => {
         at: IsoTimestamp.now(),
       });
     }
-    await flush();
-
-    const frame = r.lastFrame() ?? '';
-    // The early error MUST still render (it was never evicted).
-    expect(frame).toContain('critical issue');
-    // Retained count is the cap (50): 1 error + 49 most-recent infos. The oldest infos are
-    // evicted; `noise 0` through `noise 10` are gone (49 infos retained → noise 11..noise 59).
-    // The "+N more" row reports overflow past MAX_VISIBLE — 50 retained - 3 visible = 47 more.
-    expect(frame).toContain('+47 more');
-    expect(frame).not.toContain('noise 0 ');
-    expect(frame).not.toContain('noise 10 ');
+    await waitFor(() => {
+      const frame = r.lastFrame() ?? '';
+      // The early error MUST still render (it was never evicted).
+      expect(frame).toContain('critical issue');
+      // Retained count is the cap (50): 1 error + 49 most-recent infos. The oldest infos are
+      // evicted; `noise 0` through `noise 10` are gone (49 infos retained → noise 11..noise 59).
+      // The "+N more" row reports overflow past MAX_VISIBLE — 50 retained - 3 visible = 47 more.
+      expect(frame).toContain('+47 more');
+      expect(frame).not.toContain('noise 0 ');
+      expect(frame).not.toContain('noise 10 ');
+    });
     r.unmount();
   });
 
@@ -256,11 +257,11 @@ describe('StatusBanner', () => {
       cause: 'attempt 2/4',
       at: IsoTimestamp.now(),
     });
-    await flush();
-
-    const frame = r.lastFrame() ?? '';
-    expect(frame).toContain('Rate limit — waiting 30s');
-    expect(frame).toContain('attempt 2/4');
+    await waitFor(() => {
+      const frame = r.lastFrame() ?? '';
+      expect(frame).toContain('Rate limit — waiting 30s');
+      expect(frame).toContain('attempt 2/4');
+    });
     r.unmount();
   });
 });

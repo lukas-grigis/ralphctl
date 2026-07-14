@@ -44,6 +44,9 @@ const parseProviderKey = (key: string): { readonly flow: FlowId; readonly role?:
  *      flow in {refine, plan, readiness, ideate}
  *   ai.implement.{generator|evaluator}.{provider,model,effort}
  *                                                      implement splits into a generator + evaluator pair
+ *   ai.implement.agents.{generator|evaluator}          bind an agent-definition name to that role (empty value clears it);
+ *                                                      see `ralphctl agents list` for the available names — any other
+ *                                                      role/flow target is reported as unsupported, not silently accepted
  *   harness.maxTurns | maxAttempts | rateLimitRetries | idleWatchdogMs | plateauThreshold    integer (range-checked)
  *   harness.escalateOnPlateau                          boolean (escalate generator model on plateau)
  *   harness.skipPreVerifyOnFreshSetup                  boolean (skip first pre-verify when this run's setup verified the tree)

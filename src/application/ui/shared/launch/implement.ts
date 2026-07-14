@@ -7,7 +7,6 @@ import {
   IMPLEMENT_TASK_TERMINAL_LEAF,
   planImplementWaves,
   type CreateImplementFlowOpts,
-  type RepoExecConfig,
 } from '@src/application/flows/implement/flow.ts';
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
 import {
@@ -24,20 +23,19 @@ import { renderTaskGraphIssue, validateTaskGraph } from '@src/domain/entity/task
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
-import type { Repository } from '@src/domain/entity/repository.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { Project } from '@src/domain/entity/project.ts';
-import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { createPublishSignal, type PublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
-import type { AiFlowSettings, AiImplementSettings, Settings } from '@src/domain/entity/settings.ts';
-import { createAiProvider } from '@src/application/bootstrap/provider-factory.ts';
-import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
-import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
-import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
-import { resolveEffortForRow } from '@src/business/settings/resolve-effort.ts';
+import { type AiFlowSettings, type AiImplementSettings, type Settings } from '@src/domain/entity/settings.ts';
+import { resolveImplementAgentBindings } from '@src/application/ui/shared/launch/implement-agent-bindings.ts';
+import {
+  buildImplementDepsBag,
+  buildImplementOptsBag,
+  buildImplementProviders,
+} from '@src/application/ui/shared/launch/implement-bags.ts';
 import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts';
-import type { LaunchResult, LauncherDeps } from '@src/application/ui/shared/launcher.ts';
+import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
 import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
 
 /**
@@ -250,119 +248,6 @@ const resolveImplementSprintPaths = (
   });
 };
 
-/** Project repositories → `RepoExecConfig` map keyed by id, the per-task subchain's repo lookup. */
-const buildRepoExecConfigs = (repositories: readonly Repository[]): Map<RepositoryId, RepoExecConfig> => {
-  const configs = new Map<RepositoryId, RepoExecConfig>();
-  for (const r of repositories) {
-    configs.set(r.id, {
-      path: r.path,
-      name: r.name,
-      ...(r.verifyScript !== undefined ? { verifyScript: r.verifyScript } : {}),
-      ...(r.verifyGates !== undefined ? { verifyGates: r.verifyGates } : {}),
-      ...(r.verifyTimeout !== undefined ? { verifyTimeout: r.verifyTimeout } : {}),
-      ...(r.setupScript !== undefined ? { setupScript: r.setupScript } : {}),
-    });
-  }
-  return configs;
-};
-
-/**
- * Build one `HeadlessAiProvider` per role from the effective implement pair. The two roles may
- * target distinct providers — they're constructed independently rather than routed through
- * `primaryFlowRow` so a cross-provider configuration spawns the right CLI per role. `ctx.provider`
- * (the launcher-rebuilt primary adapter) is deliberately left unused by the implement launcher —
- * implement bypasses the single-row seam.
- */
-const buildImplementProviders = (
-  implementPair: AiImplementSettings,
-  effectiveSettings: Settings,
-  deps: LauncherDeps
-): {
-  readonly generatorProvider: HeadlessAiProvider;
-  readonly evaluatorProvider: HeadlessAiProvider;
-  readonly generatorEffort: string | undefined;
-  readonly evaluatorEffort: string | undefined;
-} => {
-  const generatorProvider = createAiProvider({
-    row: implementPair.generator,
-    harnessConfig: effectiveSettings.harness,
-    eventBus: deps.app.eventBus,
-  });
-  const evaluatorProvider = createAiProvider({
-    row: implementPair.evaluator,
-    harnessConfig: effectiveSettings.harness,
-    eventBus: deps.app.eventBus,
-  });
-  const generatorEffort = resolveEffortForRow(implementPair.generator, effectiveSettings.ai.effort);
-  const evaluatorEffort = resolveEffortForRow(implementPair.evaluator, effectiveSettings.ai.effort);
-  return { generatorProvider, evaluatorProvider, generatorEffort, evaluatorEffort };
-};
-
-/** Assemble the `ImplementDeps` bag handed to `createImplementFlow` / `buildParallelElement`. */
-const buildImplementDepsBag = (
-  deps: LauncherDeps,
-  effectiveSettings: Settings,
-  publishSignal: PublishSignal,
-  providers: { readonly generatorProvider: HeadlessAiProvider; readonly evaluatorProvider: HeadlessAiProvider },
-  skillsAdapter: SkillsAdapter,
-  skillSource: SkillSource
-): ImplementDeps => ({
-  sprintRepo: deps.app.sprintRepo,
-  sprintExecutionRepo: deps.app.sprintExecutionRepo,
-  taskRepo: deps.app.taskRepo,
-  generatorProvider: providers.generatorProvider,
-  evaluatorProvider: providers.evaluatorProvider,
-  templateLoader: deps.app.templateLoader,
-  publishSignal,
-  eventBus: deps.app.eventBus,
-  logger: deps.app.logger,
-  clock: deps.app.clock,
-  config: effectiveSettings,
-  gitRunner: deps.app.gitRunner,
-  shellScriptRunner: deps.app.shellScriptRunner,
-  fileLocker: deps.app.fileLocker,
-  locksRoot: deps.storage.locksRoot,
-  skillsAdapter,
-  skillSource,
-  interactive: deps.interactive,
-  writeFile: deps.app.writeFile,
-  appendFile: deps.app.appendFile,
-  // ONE journal mutex per run. Every parallel branch inherits this instance (branches spread this
-  // deps bag), so their `progress-journal-<taskId>` leaves serialise their read-regenerate-write
-  // of the shared `progress.md` through it; the serial path is a single caller, so it is a no-op.
-  journalMutex: createFoldQueue(),
-});
-
-/**
- * Assemble the `CreateImplementFlowOpts` bag — pure object-literal assembly, no branching.
- * `repositories` is derived here (via {@link buildRepoExecConfigs}) rather than passed in, so
- * callers only need to hand over the raw project.
- */
-const buildImplementOptsBag = (
-  sprint: Pick<Sprint, 'id'>,
-  project: Pick<Project, 'id' | 'slug' | 'repositories'>,
-  todoTasks: readonly Task[],
-  sprintPaths: { readonly progressPath: AbsolutePath; readonly sprintDirPath: AbsolutePath },
-  implementPair: AiImplementSettings,
-  providers: { readonly generatorEffort: string | undefined; readonly evaluatorEffort: string | undefined },
-  memoryRoot: AbsolutePath
-): CreateImplementFlowOpts => ({
-  sprintId: sprint.id,
-  todoTasks,
-  repositories: buildRepoExecConfigs(project.repositories),
-  progressFile: sprintPaths.progressPath,
-  sprintDir: sprintPaths.sprintDirPath,
-  generatorProviderId: implementPair.generator.provider,
-  generatorModel: implementPair.generator.model,
-  ...(providers.generatorEffort !== undefined ? { generatorEffort: providers.generatorEffort } : {}),
-  evaluatorProviderId: implementPair.evaluator.provider,
-  evaluatorModel: implementPair.evaluator.model,
-  ...(providers.evaluatorEffort !== undefined ? { evaluatorEffort: providers.evaluatorEffort } : {}),
-  memoryRoot,
-  projectId: String(project.id),
-  projectSlug: project.slug,
-});
-
 /**
  * Stop the file-log + bus subscriptions when the runner reaches a terminal state. Pending writes
  * still drain in the background — events.ndjson remains consistent post-exit. The subscription
@@ -438,6 +323,7 @@ const buildImplementElement = (
     readonly implementPair: AiImplementSettings;
     readonly publishSignal: PublishSignal;
     readonly providers: ReturnType<typeof buildImplementProviders>;
+    readonly agentBindings: Awaited<ReturnType<typeof resolveImplementAgentBindings>>;
     readonly sprint: Sprint;
     readonly project: Project;
     readonly todoTasks: readonly Task[];
@@ -452,7 +338,8 @@ const buildImplementElement = (
     args.publishSignal,
     args.providers,
     skillsAdapter,
-    skillSource
+    skillSource,
+    { generator: args.agentBindings.generatorAdapter, evaluator: args.agentBindings.evaluatorAdapter }
   );
   const implementOpts = buildImplementOptsBag(
     args.sprint,
@@ -461,7 +348,8 @@ const buildImplementElement = (
     { progressPath: args.progressPath, sprintDirPath: args.sprintDirPath },
     args.implementPair,
     args.providers,
-    deps.storage.memoryRoot
+    deps.storage.memoryRoot,
+    { generator: args.agentBindings.generator, evaluator: args.agentBindings.evaluator }
   );
   const maxParallel = clampParallel(args.effectiveSettings.concurrency.maxParallelTasks);
   return maxParallel === 1
@@ -513,15 +401,23 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
   // rebuilds its own per-branch publisher in `wave-branch.ts` (keyed on each task's `taskId`), so
   // this instance is never reused there.
   const publishSignal = createPublishSignal(deps.app.eventBus, 'implement');
+  // Resolve each role's opt-in agent-definition binding (AC2: an unknown bound name is reported
+  // and the role runs unaided) BEFORE building the providers — a bound definition's model/effort
+  // overrides the row (AC5).
+  const agentBindings = await resolveImplementAgentBindings(deps, implementPair);
   // Two independent per-role adapters — the roles may target distinct providers (see
   // `buildImplementProviders`'s doc comment for why `ctx.provider` is unused here).
-  const providers = buildImplementProviders(implementPair, effectiveSettings, deps);
-  const { generatorEffort, evaluatorEffort } = providers;
+  const providers = buildImplementProviders(implementPair, effectiveSettings, deps, {
+    ...(agentBindings.generator.definition !== undefined ? { generator: agentBindings.generator.definition } : {}),
+    ...(agentBindings.evaluator.definition !== undefined ? { evaluator: agentBindings.evaluator.definition } : {}),
+  });
+  const { generatorModel, evaluatorModel, generatorEffort, evaluatorEffort } = providers;
   const element = buildImplementElement(ctx, {
     effectiveSettings,
     implementPair,
     publishSignal,
     providers,
+    agentBindings,
     sprint: snapshot.sprint,
     project: snapshot.project,
     todoTasks,
@@ -541,11 +437,10 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
   const flattened = flattenLeaves(element);
   const plannedLeaves = flattened.map((e) => e.name);
   const planLabelByName = computePlanLabels(flattened);
-  // Both role models are drawn from the post-merge implementPair so per-launch role overrides
-  // (TUI customize picker or CLI flags) flow through to the rail/banner without a second
-  // settings read.
-  const generatorModel = implementPair.generator.model;
-  const evaluatorModel = implementPair.evaluator.model;
+  // Providers are drawn from the post-merge implementPair, and the models from `providers`
+  // (which already carry a bound definition's override — see `buildImplementProviders`), so
+  // per-launch role overrides AND agent-definition bindings both flow through to the
+  // rail/banner without a second settings read.
   const generatorProviderId = implementPair.generator.provider;
   const evaluatorProviderId = implementPair.evaluator.provider;
   return {

@@ -106,6 +106,13 @@ export interface GeneratorLeafDeps {
   readonly model: string;
   /** Optional reasoning / effort level forwarded into every `implementSession` AiSession. */
   readonly effort?: string;
+  /**
+   * Pre-composed "## Agent Definition" prompt section (raw content, not yet rendered) — see
+   * `GenEvalLoopRoleConfig.agentDefinitionSection`. Threaded into the FULL implement prompt's
+   * `agentDefinition` slot only (round 1 of a session thread); a resumed continuation already
+   * carries it in-conversation, matching {@link priorLearnings}'s rule.
+   */
+  readonly agentDefinition?: string;
   readonly verifyScript?: string;
   readonly clock: () => IsoTimestamp;
   readonly logger: Logger;
@@ -306,7 +313,10 @@ const isPlateauBreakAttempt = (task: InProgressTask): boolean => {
  *    (best-effort log reads) and passed in as `preVerifyOutput` / `retryFeedback`.
  */
 const buildGeneratorPrompt = async (
-  deps: Pick<GeneratorLeafDeps, 'templateLoader' | 'cwd' | 'progressFile' | 'verifyScript' | 'model'>,
+  deps: Pick<
+    GeneratorLeafDeps,
+    'templateLoader' | 'cwd' | 'progressFile' | 'verifyScript' | 'model' | 'agentDefinition'
+  >,
   args: {
     readonly task: InProgressTask;
     readonly workspaceRoot: AbsolutePath;
@@ -360,6 +370,9 @@ const buildGeneratorPrompt = async (
   const priorLearningsCarry = args.priorLearnings.length > 0 ? { priorLearnings: args.priorLearnings } : {};
   // Prior-episodes (R4) rides ONLY the full prompt — same rule as prior-learnings.
   const priorEpisodesCarry = args.priorEpisodes.length > 0 ? { priorEpisodes: args.priorEpisodes } : {};
+  // Agent-definition section rides ONLY the full prompt (a resumed continuation already carries
+  // it in-conversation) — same rule as prior-learnings / prior-episodes.
+  const agentDefinitionCarry = deps.agentDefinition !== undefined ? { agentDefinition: deps.agentDefinition } : {};
 
   if (args.priorGeneratorSessionId === undefined) {
     return buildImplementPrompt(deps.templateLoader, {
@@ -375,6 +388,7 @@ const buildGeneratorPrompt = async (
       ...trajectoryCarry,
       ...priorLearningsCarry,
       ...priorEpisodesCarry,
+      ...agentDefinitionCarry,
       ...preVerifyCarry,
       ...retryFeedbackCarry,
     });

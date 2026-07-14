@@ -155,6 +155,59 @@ describe('applySettingsKey', () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error.message).toContain('not a boolean');
   });
+
+  it('binds an agent-definition name to the evaluator role under ai.implement.agents.evaluator', () => {
+    const result = applySettingsKey(DEFAULT_SETTINGS, 'ai.implement.agents.evaluator', 'ralphctl-evaluator');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.ai.implement.agents?.evaluator).toBe('ralphctl-evaluator');
+      // Generator left untouched — per-role keys edit one role at a time.
+      expect(result.value.ai.implement.agents?.generator).toBeUndefined();
+    }
+  });
+
+  it('binds an agent-definition name to the generator role under ai.implement.agents.generator', () => {
+    const result = applySettingsKey(DEFAULT_SETTINGS, 'ai.implement.agents.generator', 'ralphctl-generator');
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.ai.implement.agents?.generator).toBe('ralphctl-generator');
+  });
+
+  it('clears an agent-definition binding when given an empty string', () => {
+    const seeded = applySettingsKey(DEFAULT_SETTINGS, 'ai.implement.agents.evaluator', 'ralphctl-evaluator');
+    expect(seeded.ok).toBe(true);
+    if (!seeded.ok) return;
+    const cleared = applySettingsKey(seeded.value, 'ai.implement.agents.evaluator', '');
+    expect(cleared.ok).toBe(true);
+    if (cleared.ok) expect(cleared.value.ai.implement.agents?.evaluator).toBeUndefined();
+  });
+
+  it('drops the whole agents block once every role binding is cleared', () => {
+    const seeded = applySettingsKey(DEFAULT_SETTINGS, 'ai.implement.agents.evaluator', 'ralphctl-evaluator');
+    expect(seeded.ok).toBe(true);
+    if (!seeded.ok) return;
+    const cleared = applySettingsKey(seeded.value, 'ai.implement.agents.evaluator', '');
+    expect(cleared.ok).toBe(true);
+    if (cleared.ok) expect(cleared.value.ai.implement.agents).toBeUndefined();
+  });
+
+  it('rejects binding an agent definition to a flow other than implement', () => {
+    const result = applySettingsKey(DEFAULT_SETTINGS, 'ai.refine.agents.evaluator', 'ralphctl-evaluator');
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toBeInstanceOf(ValidationError);
+      expect(result.error.message).toContain('not supported for agent-definition binding in this release');
+      expect(result.error.hint).toContain('ai.implement.agents.{generator,evaluator}');
+    }
+  });
+
+  it('rejects binding an agent definition to an implement role other than generator/evaluator', () => {
+    const result = applySettingsKey(DEFAULT_SETTINGS, 'ai.implement.agents.reviewer', 'ralphctl-evaluator');
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toBeInstanceOf(ValidationError);
+      expect(result.error.message).toContain('not supported for agent-definition binding in this release');
+    }
+  });
 });
 
 describe('parseSettingsKvSyntax', () => {

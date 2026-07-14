@@ -6,6 +6,7 @@ import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { buildPrompt, type BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
 import type { PromptDefinition } from '@src/integration/ai/prompts/_engine/definition.ts';
 import {
+  renderAgentDefinitionSection,
   renderPlateauDirectiveSection,
   renderPreVerifyResultsSection,
   renderPriorCritiqueSection,
@@ -24,6 +25,7 @@ import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/templat
 // `renderers/task.ts`. The originals lived here historically; the actual implementations are
 // now in the shared module.
 export {
+  renderAgentDefinitionSection,
   renderVerifyScriptSection,
   renderPriorCritiqueSection,
   renderPriorLearningsSection,
@@ -134,6 +136,14 @@ export interface ImplementPromptParams {
    * fail. Absent or empty (no criterion graded yet) → `{{PRIOR_CRITERIA_VERDICTS}}` collapses cleanly.
    */
   readonly priorCriteriaVerdictsSection?: string;
+  /**
+   * Optional "## Agent Definition" block rendered strictly AFTER the base `<role>` /
+   * `<success_criteria>` blocks — the seam a bound agent definition's persona renders into, and
+   * (for a provider with no native agent format) the in-session direct-fallback body. Absent or
+   * empty → `{{AGENT_DEFINITION_SECTION}}` collapses cleanly with no orphan heading. Default
+   * undefined (empty).
+   */
+  readonly agentDefinitionSection?: string;
 }
 
 const requireNonEmpty =
@@ -250,6 +260,13 @@ export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
         'Durable per-criterion k-of-N checklist carried across rounds (`Task.criteriaVerdicts`), rendered ' +
         'by `composeCriteriaHistory`. Empty (no criterion graded yet) → `{{PRIOR_CRITERIA_VERDICTS}}` collapses.',
     },
+    agentDefinitionSection: {
+      placeholder: 'AGENT_DEFINITION_SECTION',
+      optional: true,
+      description:
+        'Optional "## Agent Definition" block rendered after the base role/success-criteria blocks — the ' +
+        'seam for a bound agent persona or in-session direct fallback. Empty → `{{AGENT_DEFINITION_SECTION}}` collapses.',
+    },
   },
   partials: {
     HARNESS_CONTEXT: 'harness-context',
@@ -334,6 +351,12 @@ export interface BuildImplementPromptInput {
    * Absent or empty → `{{PRIOR_EPISODES}}` collapses (no `<prior_task_episodes>` block emitted).
    */
   readonly priorEpisodes?: string;
+  /**
+   * Raw "## Agent Definition" content — the seam a bound agent definition's persona renders
+   * into, and (for a provider with no native agent format) the in-session direct-fallback body.
+   * Absent or empty → `{{AGENT_DEFINITION_SECTION}}` collapses cleanly with no orphan heading.
+   */
+  readonly agentDefinition?: string;
 }
 
 /**
@@ -381,4 +404,5 @@ export const buildImplementPrompt = async (
       verificationCriteria: input.task.verificationCriteria,
       verdicts: input.task.criteriaVerdicts,
     }),
+    agentDefinitionSection: renderAgentDefinitionSection(input.agentDefinition),
   });
