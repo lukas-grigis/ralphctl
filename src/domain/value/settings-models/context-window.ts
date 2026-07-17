@@ -50,6 +50,17 @@ export const contextWindowFor = (model: string | undefined): number | undefined 
 };
 
 /**
+ * The largest window in the table — the single figure any window-scaled budget derived from
+ * this catalog (e.g. `progressCapBudgetForModel`'s sibling-section budget, or a backstop cap
+ * sized to never fire below the largest legitimate window-scaled output) must stay pinned to.
+ * Recomputed from the table itself so a new catalog entry with a bigger window is picked up
+ * automatically rather than requiring a second hand-maintained constant.
+ *
+ * @public
+ */
+export const MAX_CONTEXT_WINDOW = Math.max(...Object.values(CONTEXT_WINDOW));
+
+/**
  * Compact display label for a model's context window size:
  *   `200_000` → `"200K"`, `1_000_000` → `"1M"`, `1_200_000` → `"1.2M"`.
  * Returns `undefined` when the model is unknown or unset — callers should omit the label.
