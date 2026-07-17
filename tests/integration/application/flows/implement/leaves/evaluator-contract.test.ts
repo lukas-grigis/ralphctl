@@ -17,6 +17,8 @@ import { createMockHeadlessProvider, type SpawnFixture } from '@tests/helpers/mo
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { EvaluatorLeafDeps } from '@src/application/flows/implement/leaves/evaluator.ts';
 import { evaluatorLeaf } from '@src/application/flows/implement/leaves/evaluator.ts';
+import type { GeneratorLeafDeps } from '@src/application/flows/implement/leaves/generator.ts';
+import { generatorLeaf } from '@src/application/flows/implement/leaves/generator.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
 /** Clean-tree git stub — the post-spawn fingerprint call is inert in these contract tests. */
@@ -448,6 +450,8 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
     expect(result.value.ctx.lastEvaluation?.status).toBe('passed');
     // Exactly two spawns: the original + ONE corrective retry (no loop).
     expect(mock.invocations).toHaveLength(2);
+    // Cost-visibility tally: the one nudge that recovered the verdict lands on ctx.
+    expect(result.value.ctx.currentAttemptEvaluatorNudges).toBe(1);
     // Forensic body mirror: the initial spawn captures `body.txt`, the corrective nudge captures a
     // distinct `body-corrective-1.txt` so a nudge never clobbers the original spawn's capture.
     expect(String(mock.invocations[0]?.session.bodyFile)).toMatch(/\/rounds\/\d+\/evaluator\/body\.txt$/);
@@ -557,6 +561,8 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
     expect(result.value.ctx.lastExit?.kind).toBe('passed');
     // Original spawn + 2 corrective nudges.
     expect(mock.invocations).toHaveLength(3);
+    // Cost-visibility tally: BOTH nudges this turn needed land on ctx (the second one recovered).
+    expect(result.value.ctx.currentAttemptEvaluatorNudges).toBe(2);
   });
 
   it('corrective retry exhausted after two nudges (correctiveRetries=2 → 3 spawns) → self-block', async () => {
@@ -571,6 +577,100 @@ describe('evaluatorLeaf — audit-[09] contract', () => {
     expectSelfBlock(result, 'schema');
     // Original spawn + 2 corrective nudges, then self-block.
     expect(mock.invocations).toHaveLength(3);
+    // Cost-visibility tally is scoped to RECOVERED turns (see corrective-retry.ts docstring): an
+    // exhausted/self-blocked turn is already loud via the block reason, so no count lands on ctx.
+    if (result.ok) expect(result.value.ctx.currentAttemptEvaluatorNudges).toBeUndefined();
+  });
+
+  // ── Cross-role: generator + evaluator nudge tallies accumulate independently on the same ctx ──
+  it('generator and evaluator nudge tallies land on separate ctx fields without clobbering each other', async () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    const generatorSignalsPath = join(String(root.root), 'rounds', '1', 'generator', 'signals.json');
+    const generatorSequences = new Map<string, readonly SpawnFixture[]>([
+      [
+        generatorSignalsPath,
+        [
+          {
+            kind: 'ok',
+            payload: {
+              schemaVersion: 1,
+              signals: [
+                { type: 'commit-message', subject: 'first', timestamp: '2026-05-22T10:00:00.000Z' },
+                { type: 'commit-message', subject: 'second', timestamp: '2026-05-22T10:00:01.000Z' },
+              ],
+            },
+          },
+          {
+            kind: 'ok',
+            payload: {
+              schemaVersion: 1,
+              signals: [{ type: 'commit-message', subject: 'fixed', timestamp: '2026-05-22T10:00:02.000Z' }],
+            },
+          },
+        ],
+      ],
+    ]);
+    const generatorMock = createMockHeadlessProvider({ sequences: generatorSequences });
+    const generatorWriteFile: GeneratorLeafDeps['writeFile'] = async (path, content) => {
+      await fs.mkdir(join(String(path), '..'), { recursive: true });
+      await fs.writeFile(String(path), content, 'utf8');
+      return Result.ok(undefined);
+    };
+    const generatorDeps: GeneratorLeafDeps = {
+      provider: generatorMock.provider,
+      templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
+      publishSignal: createPublishSignal(createInMemoryEventBus(), 'generator'),
+      writeFile: generatorWriteFile,
+      cwd: absolutePath('/tmp/ralph/fake-cwd'),
+      sprintDir: absolutePath('/tmp/ralph/fake-sprint-dir'),
+      progressFile: absolutePath('/tmp/ralph/fake-sprint-dir/progress.md'),
+      model: 'test-model',
+      clock: () => FIXED_NOW,
+      logger: noopLogger,
+      eventBus: createInMemoryEventBus(),
+      maxTurns: 5,
+      plateauThreshold: 2,
+      correctiveRetries: 1,
+    };
+
+    const genResult = await generatorLeaf(generatorDeps, task.id).execute(baseCtx(task));
+    expect(genResult.ok).toBe(true);
+    if (!genResult.ok) return;
+    expect(genResult.value.ctx.currentAttemptGeneratorNudges).toBe(1);
+    expect(genResult.value.ctx.currentAttemptEvaluatorNudges).toBeUndefined();
+
+    // Feed the generator's ctx straight into the evaluator leaf — same attempt, next role.
+    const sequences = new Map<string, readonly SpawnFixture[]>([
+      [
+        signalsFilePath(),
+        [
+          {
+            kind: 'ok',
+            payload: {
+              schemaVersion: 1,
+              signals: [
+                {
+                  type: 'evaluation',
+                  status: 'passed',
+                  dimensions: [{ dimension: 'correctness', passed: true, finding: 'all good' }],
+                  timestamp: '2026-05-22T10:00:00.000Z',
+                },
+              ],
+            },
+          },
+          { kind: 'ok', payload: { schemaVersion: 1, signals: [passedEvaluation] } },
+        ],
+      ],
+    ]);
+    const mock = createMockHeadlessProvider({ sequences });
+    const evalResult = await evaluatorLeaf(twoRetryDeps(mock), task.id).execute(genResult.value.ctx);
+
+    expect(evalResult.ok).toBe(true);
+    if (!evalResult.ok) return;
+    // Both tallies are present, independently — the evaluator's nudge did not clobber the
+    // generator's, and vice versa.
+    expect(evalResult.value.ctx.currentAttemptGeneratorNudges).toBe(1);
+    expect(evalResult.value.ctx.currentAttemptEvaluatorNudges).toBe(1);
   });
 
   // ── Stale-clear: a self-blocked round must CLEAR a prior round's lastEvaluation ──

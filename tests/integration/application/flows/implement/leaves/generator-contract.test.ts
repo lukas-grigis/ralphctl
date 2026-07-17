@@ -333,4 +333,88 @@ describe('generatorLeaf — audit-[09] contract', () => {
     if (result.ok) return;
     expect(result.error.error).toBeInstanceOf(AbortError);
   });
+
+  // ── Corrective retry — cost-visibility tally lands on ctx.currentAttemptGeneratorNudges ──
+  describe('corrective retry — cost-visibility tally', () => {
+    // Two commit-message signals fail the "at most one commit-message" refinement (case 5 above)
+    // — a correctable schema failure that triggers a nudge.
+    const twoCommitMessages: SpawnFixture = {
+      kind: 'ok',
+      payload: {
+        schemaVersion: 1,
+        signals: [
+          { type: 'commit-message', subject: 'first', timestamp: '2026-05-22T10:00:00.000Z' },
+          { type: 'commit-message', subject: 'second', timestamp: '2026-05-22T10:00:01.000Z' },
+        ],
+      },
+    };
+    const oneCommitMessage: SpawnFixture = {
+      kind: 'ok',
+      payload: {
+        schemaVersion: 1,
+        signals: [{ type: 'commit-message', subject: 'fixed', timestamp: '2026-05-22T10:00:02.000Z' }],
+      },
+    };
+
+    it('recovers on the first nudge: ctx.currentAttemptGeneratorNudges is 1', async () => {
+      const task = makeInProgressTaskWithRunningAttempt();
+      const sequences = new Map<string, readonly SpawnFixture[]>([
+        [signalsFilePath(), [twoCommitMessages, oneCommitMessage]],
+      ]);
+      const mock = createMockHeadlessProvider({ sequences });
+      const deps: GeneratorLeafDeps = { ...buildDeps(new Map()), provider: mock.provider };
+      const leaf = generatorLeaf(deps, task.id);
+
+      const result = await leaf.execute(baseCtx(task));
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.value.ctx.lastExit).toBeUndefined();
+      expect(mock.invocations).toHaveLength(2);
+      expect(result.value.ctx.currentAttemptGeneratorNudges).toBe(1);
+    });
+
+    it('exhausted retries (self-block): ctx.currentAttemptGeneratorNudges stays unset', async () => {
+      const task = makeInProgressTaskWithRunningAttempt();
+      // correctiveRetries: 2 on buildDeps — three vacuous spawns exhaust every nudge.
+      const sequences = new Map<string, readonly SpawnFixture[]>([
+        [signalsFilePath(), [twoCommitMessages, twoCommitMessages, twoCommitMessages]],
+      ]);
+      const mock = createMockHeadlessProvider({ sequences });
+      const deps: GeneratorLeafDeps = { ...buildDeps(new Map()), provider: mock.provider };
+      const leaf = generatorLeaf(deps, task.id);
+
+      const result = await leaf.execute(baseCtx(task));
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.value.ctx.lastExit?.kind).toBe('self-blocked');
+      expect(mock.invocations).toHaveLength(3);
+      // An exhausted/self-blocked turn is already loud via the block reason — no tally lands on
+      // ctx (see corrective-retry.ts's docstring for the scoping rationale).
+      expect(result.value.ctx.currentAttemptGeneratorNudges).toBeUndefined();
+    });
+
+    it('accumulates across successive rounds of the same attempt', async () => {
+      const task = makeInProgressTaskWithRunningAttempt();
+      const round1Signals = join(String(root.root), 'rounds', '1', 'generator', 'signals.json');
+      const round2Signals = join(String(root.root), 'rounds', '2', 'generator', 'signals.json');
+      const sequences = new Map<string, readonly SpawnFixture[]>([
+        [round1Signals, [twoCommitMessages, oneCommitMessage]],
+        [round2Signals, [twoCommitMessages, oneCommitMessage]],
+      ]);
+      const mock = createMockHeadlessProvider({ sequences });
+      const deps: GeneratorLeafDeps = { ...buildDeps(new Map()), provider: mock.provider };
+      const leaf = generatorLeaf(deps, task.id);
+
+      const round1 = await leaf.execute(baseCtx(task));
+      expect(round1.ok).toBe(true);
+      if (!round1.ok) return;
+      expect(round1.value.ctx.currentAttemptGeneratorNudges).toBe(1);
+
+      const round2 = await leaf.execute({ ...round1.value.ctx, currentRoundNum: 2 });
+      expect(round2.ok).toBe(true);
+      if (!round2.ok) return;
+      // Second round's nudge ADDS onto the first — same attempt, not reset per-round.
+      expect(round2.value.ctx.currentAttemptGeneratorNudges).toBe(2);
+    });
+  });
 });

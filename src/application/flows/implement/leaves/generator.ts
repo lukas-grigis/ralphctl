@@ -47,6 +47,7 @@ import {
 } from '@src/application/flows/implement/leaves/round-artifacts.ts';
 import { capProgressBody, progressCapBudgetForModel } from '@src/application/flows/_shared/progress/cap-progress.ts';
 import { composeProjectTooling } from '@src/application/flows/implement/leaves/_shared/compose-project-tooling.ts';
+import { positiveCountCarry } from '@src/application/flows/implement/leaves/_shared/nudge-count-carry.ts';
 import {
   formatPreVerifyResults,
   formatRetryFeedback,
@@ -252,6 +253,13 @@ interface GeneratorOutput {
    * so the journal leaf can render the per-attempt `### Notes` subsection.
    */
   readonly notesEmitted: readonly string[];
+  /**
+   * Corrective `signals.json` nudges this turn needed (`0` on a clean first parse) — read from
+   * `validateSignalsFileWithCorrectiveRetry`'s `nudgeCount`. Accumulates onto
+   * `ctx.currentAttemptGeneratorNudges` so the journal leaf can render the cost-visibility clause.
+   * Pure observability; never affects retry semantics.
+   */
+  readonly correctiveNudgeCount: number;
 }
 
 /**
@@ -513,12 +521,19 @@ const composeVerifyBlocks = async (
   };
 };
 
-/** Per-turn signal-text accumulators — mutated in place by {@link accumulateAndEmitSignals}. */
+/**
+ * Per-turn signal-text accumulators — mutated in place by {@link accumulateAndEmitSignals}.
+ * `correctiveNudgeCount` is a sibling out-channel of the same shape: `callImplement` is bound to
+ * the business use case's fixed `Result<readonly HarnessSignal[], DomainError>>` signature, so the
+ * nudge tally rides out via this closure-captured mutable object instead of widening that return
+ * type.
+ */
 interface GeneratorTurnAccumulators {
   readonly decisionsEmitted: string[];
   readonly changesEmitted: string[];
   readonly learningsEmitted: LearningEntry[];
   readonly notesEmitted: string[];
+  correctiveNudgeCount: number;
 }
 
 /**
@@ -744,7 +759,10 @@ const makeGeneratorCallImplement =
       generatorOutputContract
     );
     if (!validated.ok) return Result.error(validated.error);
-    const signals = validated.value;
+    const signals = validated.value.signals;
+    // Cost-visibility out-channel — see GeneratorTurnAccumulators' docstring for why this rides
+    // a mutated field rather than widening `callImplement`'s return type.
+    args.accumulators.correctiveNudgeCount = validated.value.nudgeCount;
 
     accumulateAndEmitSignals(deps, signals, args.accumulators);
 
@@ -796,6 +814,7 @@ const makeGeneratorExecute =
       changesEmitted: [],
       learningsEmitted: [],
       notesEmitted: [],
+      correctiveNudgeCount: 0,
     };
     const logTailReader = deps.logTailReader ?? createFsLogTailReader();
     const callImplement = makeGeneratorCallImplement(deps, taskId, {
@@ -940,6 +959,14 @@ const generatorOutput = (ctx: ImplementCtx, out: GeneratorOutput): ImplementCtx 
     out.notesEmitted.length > 0
       ? { currentAttemptNotes: [...(ctx.currentAttemptNotes ?? []), ...out.notesEmitted] }
       : {};
+  // Cost-visibility tally — accumulates across every turn of the attempt, same lifecycle as the
+  // signal accumulators above. Zero-noise: a turn with no nudge contributes nothing (ctx field
+  // stays undefined until the first nudge fires).
+  const generatorNudgesCarry = positiveCountCarry(
+    'currentAttemptGeneratorNudges',
+    out.correctiveNudgeCount,
+    ctx.currentAttemptGeneratorNudges
+  );
   // Per-turn signal-kind distribution (R2) — stamped fresh every turn (overwrites the prior
   // turn's map) so the entropy-plateau heuristic in the gen-eval loop sees the current turn's
   // action diversity, never an accumulation across turns.
@@ -969,6 +996,7 @@ const generatorOutput = (ctx: ImplementCtx, out: GeneratorOutput): ImplementCtx 
       ...changesCarry,
       ...learningsCarry,
       ...notesCarry,
+      ...generatorNudgesCarry,
       ...actionCountsCarry,
     };
   }
@@ -984,6 +1012,7 @@ const generatorOutput = (ctx: ImplementCtx, out: GeneratorOutput): ImplementCtx 
     ...changesCarry,
     ...learningsCarry,
     ...notesCarry,
+    ...generatorNudgesCarry,
     ...actionCountsCarry,
   };
 };

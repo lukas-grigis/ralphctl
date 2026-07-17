@@ -179,6 +179,19 @@ export interface ImplementCtx {
    */
   readonly currentAttemptNotes?: readonly string[] | undefined;
   /**
+   * Per-attempt count of corrective `signals.json` nudges the GENERATOR needed this attempt
+   * (see `validateSignalsFileWithCorrectiveRetry`). Nudges consume no turn/attempt budget by
+   * design (near-miss recovery must not eat the real budget), so a persistently malformed AI can
+   * burn `correctiveRetries × turns` hidden extra spawns that appear in no other operator-facing
+   * counter — this field is the ONLY surface for them. Pure observability: never read by any
+   * business decision. Accumulated across every turn of the attempt by the generator leaf, read
+   * by `progress-journal-<taskId>` to render the outcome clause, then cleared alongside the other
+   * per-attempt accumulators. Undefined until the first turn that needed a nudge.
+   */
+  readonly currentAttemptGeneratorNudges?: number | undefined;
+  /** Evaluator mirror of {@link currentAttemptGeneratorNudges} — same lifecycle, same rationale. */
+  readonly currentAttemptEvaluatorNudges?: number | undefined;
+  /**
    * Cross-sprint procedural memory loaded ONCE in the implement prologue (`load-prior-learnings`)
    * from this project's append-only learnings ledger (`<memoryRoot>/<projectId>/learnings.ndjson`),
    * filtered to the not-yet-promoted records (`promotedAt === null` — promoted ones already live in

@@ -82,6 +82,12 @@ interface JournalInput {
   readonly decisions: readonly string[];
   readonly learnings: readonly LearningEntry[];
   readonly notes: readonly string[];
+  /**
+   * Per-attempt corrective-nudge tally (generator + evaluator), present only when at least one
+   * nudge fired this attempt — zero-noise on the well-formed path. See
+   * `ImplementCtx.currentAttemptGeneratorNudges` for the full rationale.
+   */
+  readonly correctiveNudges?: { readonly generator: number; readonly evaluator: number };
   /** Canonical sprint identity + lifecycle, for the derived state header. Undefined → identity is preserved from the file. */
   readonly sprint?: Sprint | undefined;
   /** Branch / PR url for the derived state header. */
@@ -267,6 +273,7 @@ const buildAttemptSection = (input: JournalInput, totalRounds: number, clock: ()
     learnings: input.learnings,
     notes: input.notes,
     ...(attempt?.commitSha !== undefined ? { commitSha: String(attempt.commitSha) } : {}),
+    ...(input.correctiveNudges !== undefined ? { correctiveNudges: input.correctiveNudges } : {}),
     timestamp: clock(),
   });
 };
@@ -368,6 +375,14 @@ export const progressJournalLeaf = (
         });
       }
       const roundN = ctx.currentRoundNum ?? task.attempts.length;
+      // Zero-noise gate: only surface the tally when at least one nudge fired this attempt — a
+      // well-formed attempt renders no additional line.
+      const generatorNudges = ctx.currentAttemptGeneratorNudges ?? 0;
+      const evaluatorNudges = ctx.currentAttemptEvaluatorNudges ?? 0;
+      const correctiveNudgesCarry =
+        generatorNudges + evaluatorNudges > 0
+          ? { correctiveNudges: { generator: generatorNudges, evaluator: evaluatorNudges } }
+          : {};
       return {
         progressFile: opts.progressFile,
         task,
@@ -379,21 +394,25 @@ export const progressJournalLeaf = (
         sprint: ctx.sprint,
         execution: ctx.execution,
         allTasks,
+        ...correctiveNudgesCarry,
       };
     },
-    // settle-attempt clears its own per-attempt fields but leaves the signal accumulators for
-    // us to read. We clear all four here so the next ATTEMPT (and the next task) starts with
-    // empty accumulators. This is the per-attempt reset boundary: the journal leaf is the LAST
-    // element of the attempt-body sequential and runs UNCONDITIONALLY on every loop iteration —
-    // including a red-post-verify retry (T6) where the task settled `in_progress`. So a retried
-    // attempt never inherits the REJECTED attempt's change/learning/note hints; the next
-    // generator turn (and the evaluator hints derived from these accumulators) sees only its own
-    // attempt's signals, not the prior failed attempt's leftovers.
+    // settle-attempt clears its own per-attempt fields but leaves the signal accumulators (and the
+    // corrective-nudge tallies) for us to read. We clear all six here so the next ATTEMPT (and the
+    // next task) starts with empty accumulators. This is the per-attempt reset boundary: the
+    // journal leaf is the LAST element of the attempt-body sequential and runs UNCONDITIONALLY on
+    // every loop iteration — including a red-post-verify retry (T6) where the task settled
+    // `in_progress`. So a retried attempt never inherits the REJECTED attempt's change/learning/
+    // note hints (or nudge tally); the next generator turn (and the evaluator hints derived from
+    // these accumulators) sees only its own attempt's signals, not the prior failed attempt's
+    // leftovers.
     output: (ctx) => ({
       ...ctx,
       currentAttemptDecisions: undefined,
       currentAttemptChanges: undefined,
       currentAttemptLearnings: undefined,
       currentAttemptNotes: undefined,
+      currentAttemptGeneratorNudges: undefined,
+      currentAttemptEvaluatorNudges: undefined,
     }),
   });

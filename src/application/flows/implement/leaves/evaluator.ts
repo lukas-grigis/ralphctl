@@ -47,6 +47,7 @@ import {
   composeGeneratorHints,
   type GeneratorHintsInput,
 } from '@src/application/flows/implement/leaves/_shared/generator-hints.ts';
+import { positiveCountCarry } from '@src/application/flows/implement/leaves/_shared/nudge-count-carry.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { PlateauTurnRecord } from '@src/business/task/plateau-detection.ts';
 
@@ -180,6 +181,24 @@ interface EvaluatorOutput {
    * projection so the next round's evaluator can resume the same thread.
    */
   readonly capturedSessionId?: SessionId;
+  /**
+   * Corrective `signals.json` nudges this turn needed (`0` on a clean first parse) — read from
+   * `validateSignalsFileWithCorrectiveRetry`'s `nudgeCount`. Accumulates onto
+   * `ctx.currentAttemptEvaluatorNudges` so the journal leaf can render the cost-visibility
+   * clause. Pure observability; never affects retry semantics.
+   */
+  readonly correctiveNudgeCount: number;
+}
+
+/**
+ * Per-turn out-channel for the corrective-nudge tally — mutated in place after
+ * `validateSignalsFileWithCorrectiveRetry` resolves. Mirrors the generator leaf's
+ * `GeneratorTurnAccumulators`: `callEvaluate` is bound to the business use case's fixed
+ * `Result<readonly HarnessSignal[], DomainError>>` signature, so the count rides out via this
+ * closure-captured mutable object instead of widening that return type.
+ */
+interface EvaluatorTurnMeta {
+  correctiveNudgeCount: number;
 }
 
 /**
@@ -359,6 +378,7 @@ const makeEvaluatorCallEvaluate =
       readonly signalsFile: AbsolutePath;
       readonly outputDir: AbsolutePath;
       readonly signal: AbortSignal | undefined;
+      readonly meta: EvaluatorTurnMeta;
     }
   ): RunEvaluatorTurnProps['callEvaluate'] =>
   async (task) => {
@@ -439,7 +459,10 @@ const makeEvaluatorCallEvaluate =
       evaluatorOutputContract
     );
     if (!validated.ok) return Result.error(validated.error);
-    const signals = validated.value;
+    const signals = validated.value.signals;
+    // Cost-visibility out-channel — see EvaluatorTurnMeta's docstring for why this rides a
+    // mutated field rather than widening `callEvaluate`'s return type.
+    args.meta.correctiveNudgeCount = validated.value.nudgeCount;
 
     // Publish every validated signal onto the one harness-signal channel.
     for (const sig of signals) deps.publishSignal(sig);
@@ -480,7 +503,10 @@ const makeEvaluatorExecute =
     if (!outputDirPath.ok) return Result.error(outputDirPath.error);
     const outputDir = outputDirPath.value;
 
-    const callEvaluate = makeEvaluatorCallEvaluate(deps, { input, signalsFile, outputDir, signal });
+    // Cost-visibility out-channel for this turn's corrective-nudge tally — closure-captured so
+    // `execute` can stamp it onto `EvaluatorOutput` after the use case returns.
+    const meta: EvaluatorTurnMeta = { correctiveNudgeCount: 0 };
+    const callEvaluate = makeEvaluatorCallEvaluate(deps, { input, signalsFile, outputDir, signal, meta });
 
     // Fingerprint the working tree's uncommitted changes for this round so the plateau
     // predicate's progress exemption measures real code change instead of commit-message
@@ -507,6 +533,7 @@ const makeEvaluatorExecute =
 
     return Result.ok({
       task: result.value.task,
+      correctiveNudgeCount: meta.correctiveNudgeCount,
       ...(result.value.evaluation !== undefined ? { evaluation: result.value.evaluation } : {}),
       ...(result.value.exit !== undefined ? { exit: result.value.exit } : {}),
       ...(result.value.turnRecord !== undefined ? { turnRecord: result.value.turnRecord } : {}),
@@ -578,6 +605,13 @@ const evaluatorOutput = (ctx: ImplementCtx, out: EvaluatorOutput): ImplementCtx 
   // Latest captured evaluator sessionId wins; only OVERWRITE when this turn produced one
   // (preserves the prior turn's thread when this spawn failed to report an id).
   const sessionCarry = out.capturedSessionId !== undefined ? { priorEvaluatorSessionId: out.capturedSessionId } : {};
+  // Cost-visibility tally — accumulates across every turn of the attempt, same lifecycle as the
+  // generator leaf's mirror field. Zero-noise: a turn with no nudge contributes nothing.
+  const evaluatorNudgesCarry = positiveCountCarry(
+    'currentAttemptEvaluatorNudges',
+    out.correctiveNudgeCount,
+    ctx.currentAttemptEvaluatorNudges
+  );
   const next: ImplementCtx = {
     ...ctx,
     currentTask: out.task,
@@ -589,6 +623,7 @@ const evaluatorOutput = (ctx: ImplementCtx, out: EvaluatorOutput): ImplementCtx 
     lastEvaluation: out.evaluation,
     ...(nextHistory !== undefined ? { plateauHistory: nextHistory } : {}),
     ...sessionCarry,
+    ...evaluatorNudgesCarry,
   };
   if (out.exit === undefined) return next;
   return { ...next, lastExit: out.exit };
