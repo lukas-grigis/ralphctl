@@ -58,6 +58,8 @@ export interface TasksPanelHostProps {
   readonly taskState: readonly Task[] | undefined;
   /** Optional callback — fired (deduped) when the focused card id changes. See `TasksPanel`. */
   readonly onFocusedCardChange?: (taskId: string | undefined) => void;
+  /** Optional callback — fired (deduped) when the focused card's expansion state changes. See `TasksPanel`. */
+  readonly onExpandedCardChange?: (expanded: boolean) => void;
 }
 
 const TasksPanelHostImpl = ({
@@ -70,6 +72,7 @@ const TasksPanelHostImpl = ({
   now,
   taskState,
   onFocusedCardChange,
+  onExpandedCardChange,
 }: TasksPanelHostProps): React.JSX.Element | null => {
   const taskCriteriaById = useMemo<ReadonlyMap<string, readonly string[]> | undefined>(() => {
     if (taskState === undefined) return undefined;
@@ -185,6 +188,7 @@ const TasksPanelHostImpl = ({
       inputActive={inputActive}
       nowMs={now}
       {...(onFocusedCardChange !== undefined ? { onFocusedCardChange } : {})}
+      {...(onExpandedCardChange !== undefined ? { onExpandedCardChange } : {})}
       {...(descriptor.taskNames !== undefined ? { nameById: descriptor.taskNames } : {})}
       {...(descriptor.taskRecovering !== undefined ? { recoveringByTaskId: descriptor.taskRecovering } : {})}
       {...(taskCriteriaById !== undefined ? { taskCriteriaById } : {})}
