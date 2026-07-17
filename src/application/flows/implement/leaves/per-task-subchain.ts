@@ -247,6 +247,19 @@ export const terminalTaskStatus = (ctx: ImplementCtx, taskId: TaskId): boolean =
   return task.status === 'done' || task.status === 'blocked';
 };
 
+/**
+ * Fold a role's already-resolved bound agent-definition NAME onto its `GenEvalLoopRoleConfig` —
+ * the same `AgentDefinition` {@link buildAgentDefinitionInstallLeaves} installs, read again here
+ * so the FULL prompt's `{{PROJECT_TOOLING}}` catalog can name the same binding
+ * `agentDefinitionSection` already announces in prose. A no-op (returns `role` unchanged) when
+ * the role has no binding. Split out of `createPerTaskSubchain` so this call site's extra branch
+ * doesn't grow that function's own complexity budget.
+ */
+const withAgentDefinitionName = (
+  role: GenEvalLoopRoleConfig,
+  definition: AgentDefinition | undefined
+): GenEvalLoopRoleConfig => (definition !== undefined ? { ...role, agentDefinitionName: definition.name } : role);
+
 export const createPerTaskSubchain = (
   deps: ImplementDeps,
   opts: PerTaskSubchainOpts,
@@ -359,6 +372,9 @@ export const createPerTaskSubchain = (
                 templateLoader: deps.templateLoader,
                 publishSignal: deps.publishSignal,
                 writeFile: deps.writeFile,
+                // Threaded so the FULL prompt's `{{PROJECT_TOOLING}}` catalog can name this
+                // task's installed skills — the same source `installSkillsLeaf` above reads.
+                skillSource: deps.skillSource,
                 gitRunner: deps.gitRunner,
                 clock: deps.clock,
                 logger: deps.logger,
@@ -373,8 +389,11 @@ export const createPerTaskSubchain = (
                 sprintDir: opts.sprintDir,
                 progressFile: opts.progressFile,
                 ...(repo.verifyScript !== undefined ? { verifyScript: repo.verifyScript } : {}),
-                generator: opts.generator,
-                evaluator: opts.evaluator,
+                // Fold in each role's bound agent-definition NAME (already resolved for the
+                // install/uninstall leaves above) so `{{PROJECT_TOOLING}}` names the same
+                // binding `{{AGENT_DEFINITION_SECTION}}` already announces in prose.
+                generator: withAgentDefinitionName(opts.generator, opts.generatorAgentDefinition),
+                evaluator: withAgentDefinitionName(opts.evaluator, opts.evaluatorAgentDefinition),
               },
               taskId
             ),

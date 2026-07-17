@@ -18,6 +18,7 @@ import type { AiSignal, EvaluationSignal, HarnessSignal } from '@src/domain/sign
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
+import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
 import type { PublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import { buildEvaluatePrompt } from '@src/integration/ai/prompts/evaluate/definition.ts';
 import { buildEvaluateContinuationPrompt } from '@src/integration/ai/prompts/evaluate-continuation/definition.ts';
@@ -41,6 +42,7 @@ import {
   writeRoundPrompt,
 } from '@src/application/flows/implement/leaves/round-artifacts.ts';
 import { capProgressBody, progressCapBudgetForModel } from '@src/application/flows/_shared/progress/cap-progress.ts';
+import { composeProjectTooling } from '@src/application/flows/implement/leaves/_shared/compose-project-tooling.ts';
 import {
   composeGeneratorHints,
   type GeneratorHintsInput,
@@ -104,12 +106,28 @@ export interface EvaluatorLeafDeps {
   /** Optional reasoning / effort level forwarded into every `implementSession` AiSession. */
   readonly effort?: string;
   /**
-   * Pre-composed "## Agent Definition" prompt section (raw content, not yet rendered) — see
+   * Pre-composed bound-agent-definition prompt body (raw content — `renderAgentDefinitionSection`
+   * wraps it under the "## Agent Definition" heading at render time) — see
    * `GenEvalLoopRoleConfig.agentDefinitionSection`. Threaded into the FULL evaluate prompt's
    * `agentDefinition` slot only (round 1 of a session thread); a resumed continuation already
    * carries it in-conversation.
    */
   readonly agentDefinition?: string;
+  /**
+   * This role's bound agent-definition NAME (the portable-agents feature's bare identifier, not
+   * the rendered {@link agentDefinition} section) — threaded separately so the FULL prompt's
+   * `{{PROJECT_TOOLING}}` catalog can name the same binding `{{AGENT_DEFINITION_SECTION}}`
+   * already announces, without re-parsing the rendered prose. Absent when the role has no
+   * binding. See `compose-project-tooling.ts`.
+   */
+  readonly agentDefinitionName?: string;
+  /**
+   * Per-flow skill catalog port — the same source `installSkillsLeaf` reads to install this
+   * task's skills into the session sandbox. Read again here (best-effort) to name each installed
+   * skill in the FULL prompt's `{{PROJECT_TOOLING}}` catalog (round 1 of a session thread only).
+   * Absent → the catalog simply omits the skills lines.
+   */
+  readonly skillSource?: SkillSource;
   readonly verifyScript?: string;
   /** From `settings.harness.plateauThreshold` (2–5). */
   readonly plateauThreshold: number;
@@ -203,10 +221,38 @@ const readCappedProgress = async (path: string, currentTaskId: string, model: st
  * re-send the full context. A provider that never reports a session id keeps getting the full
  * prompt automatically — the discriminant is the same field `--resume` consumes.
  */
+
+/**
+ * Resolve the FULL prompt's `{{PROJECT_TOOLING}}` carry (round 1 of a session thread only — the
+ * continuation prompt does not declare the placeholder, mirroring `agentDefinition`'s
+ * full-prompt-only rule). Mirrors the generator leaf's `resolveGeneratorProjectToolingCarry` —
+ * same facts, same `'implement'` flow id (the skill catalog is flow-wide, shared by both roles).
+ * Returns the ready-to-spread `{ projectTooling }` fragment (or `{}`) so the caller stays a flat,
+ * branch-free spread. Best-effort: a skill-source read failure degrades to naming only the bound
+ * agent definition (or to nothing at all) rather than failing the turn.
+ */
+const resolveEvaluatorProjectToolingCarry = async (
+  deps: Pick<EvaluatorLeafDeps, 'agentDefinitionName' | 'skillSource'>
+): Promise<{ readonly projectTooling?: string }> => {
+  const skills = deps.skillSource !== undefined ? await deps.skillSource.getForFlow('implement') : undefined;
+  const projectTooling = composeProjectTooling({
+    ...(deps.agentDefinitionName !== undefined ? { agentDefinitionName: deps.agentDefinitionName } : {}),
+    ...(skills?.ok === true ? { skills: skills.value } : {}),
+  });
+  return projectTooling.length > 0 ? { projectTooling } : {};
+};
+
 const buildEvaluatorPrompt = async (
   deps: Pick<
     EvaluatorLeafDeps,
-    'templateLoader' | 'cwd' | 'progressFile' | 'verifyScript' | 'model' | 'agentDefinition'
+    | 'templateLoader'
+    | 'cwd'
+    | 'progressFile'
+    | 'verifyScript'
+    | 'model'
+    | 'agentDefinition'
+    | 'agentDefinitionName'
+    | 'skillSource'
   >,
   args: {
     readonly task: InProgressTask;
@@ -229,6 +275,7 @@ const buildEvaluatorPrompt = async (
   const agentDefinitionCarry = deps.agentDefinition !== undefined ? { agentDefinition: deps.agentDefinition } : {};
 
   if (args.priorEvaluatorSessionId === undefined) {
+    const projectToolingCarry = await resolveEvaluatorProjectToolingCarry(deps);
     return buildEvaluatePrompt(deps.templateLoader, {
       task: args.task,
       projectPath: String(deps.cwd),
@@ -236,6 +283,7 @@ const buildEvaluatorPrompt = async (
       outputContractSection: args.outputContractSection,
       priorProgress,
       ...(deps.verifyScript !== undefined ? { verifyScript: deps.verifyScript } : {}),
+      ...projectToolingCarry,
       ...hintsCarry,
       ...agentDefinitionCarry,
     });
