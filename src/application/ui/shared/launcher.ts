@@ -26,13 +26,13 @@ import type { AppStateSnapshot } from '@src/application/ui/shared/state-snapshot
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { composeSkillSources, createProjectSkillSource } from '@src/integration/ai/skills/project/source.ts';
 import { createOperatorSkillSource } from '@src/integration/ai/skills/operator/source.ts';
-import { createPhaseSkillSource } from '@src/integration/ai/skills/phase/source.ts';
+import { createPhaseSkillSource, PHASE_FLOW_DIR } from '@src/integration/ai/skills/phase/source.ts';
 import { createResolvedSkillSource } from '@src/integration/ai/skills/_engine/resolve-selection.ts';
 import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
 import type { Skill } from '@src/integration/ai/skills/_engine/skill.ts';
 import { warnIfContractViolated as checkContract } from '@src/integration/ai/skills/_engine/skill-contract-checker.ts';
 import { type AiFlowSettings, type AiProvider, primaryFlowRow, type Settings } from '@src/domain/entity/settings.ts';
-import type { FlowId } from '@src/domain/value/flow-id.ts';
+import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
 import { resolveEffort } from '@src/business/settings/resolve-effort.ts';
 import type { RunInTerminal } from '@src/application/ui/shared/run-in-terminal.ts';
 import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts';
@@ -295,6 +295,20 @@ const aiFlowIdFor = (flowId: string): FlowId | undefined => {
  */
 export const flowMountsSkills = (flowId: string): boolean =>
   flowId === 'refine' || flowId === 'plan' || flowId === 'implement' || flowId === 'readiness' || flowId === 'ideate';
+
+/**
+ * Every {@link FlowId} whose launch context actually mounts a skill source, derived from
+ * {@link flowMountsSkills} (the single source of truth) keyed back to `FlowId` via
+ * {@link PHASE_FLOW_DIR}. Shared by the TUI skill catalog (row chips — see
+ * `ui/tui/views/skills-view-internals/flow-visual.ts`) and `ralphctl skills list` (the
+ * "enabled flows" column) so the two surfaces can never drift on which flows a skill can
+ * actually load into.
+ *
+ * @public
+ */
+export const SKILL_MOUNTING_FLOW_IDS: readonly FlowId[] = FLOW_IDS.filter((flowId) =>
+  flowMountsSkills(PHASE_FLOW_DIR[flowId])
+);
 
 /**
  * Per-field merge of `override` onto an `AiFlowSettings` row. Each field of the override is
