@@ -357,8 +357,19 @@ See [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) for tokens, components, view patterns
 
 - [x] **Two-stage build** — `tsup` compiles `dist/cli.mjs`; `tsx scripts/build-assets.ts` copies prompts +
       bundled skills into `dist/{prompts,skills}/` and writes `dist/manifest.json`.
-- [x] **Dual-mode loading** — `FsTemplateLoader` and `bundledSkillSource` detect bundled mode via
-      `import.meta.url`. Dev reads from `src/`; bundled reads from `dist/`.
+- [x] **Dual-mode loading** — `FsTemplateLoader` and `bundledSkillSource` detect bundled mode by probing the
+      filesystem for a co-located `prompts/` / `skills/` dir beside the running module, never by artifact
+      filename — tsup code-splitting rewrites `import.meta.url` to a hashed `cli-<hash>.mjs` chunk, and an
+      earlier filename check (`import.meta.url.endsWith('/cli.mjs')`) missed that chunk, shipping a bundle
+      that silently served empty prompts in 0.15.0. Fixed in 0.15.1 (`resolveTemplatesDir` / `resolveBundledRoot`).
+- [x] **Startup bundle-integrity probe** — `integration/system/bundle-integrity.ts` runs once per process
+      (wired into both `ui/cli/bootstrap.ts` and `ui/tui/launch.ts`, right after `wire()`, via the shared
+      `run-bundle-integrity-check.ts`). Bundle-mode-only, detected the same filesystem-probe way as the item
+      above (a `manifest.json` sitting beside the running module; absent in `tsx` dev, so dev silently skips):
+      existence-checks every asset `scripts/build-assets.ts` recorded and cross-checks the manifest's
+      `packageVersion` against `cli-metadata.ts`'s running version. A missing asset or version mismatch
+      surfaces a one-line `StorageError` naming the count/mismatch plus a "reinstall ralphctl" hint; a
+      malformed/unparseable manifest degrades to a warning log, never a hard crash.
 - [x] **CI tarball smoke** — `pnpm pack` + `npm install` into a tmp dir + `ralphctl --version` from arbitrary
       cwd exits 0 and prints the version from `package.json`.
 - [x] **`--provenance`** flag on npm publish.
@@ -389,8 +400,6 @@ See [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) for tokens, components, view patterns
 - **Cross-provider escalation** — escalation today stays within a provider (e.g. Sonnet → Opus); switching
   providers mid-task carries auth/context/tool hazards and is deferred.
 - **Real-provider e2e tests** — every Claude / Copilot / Codex provider test uses a fake `spawn`.
-- **Bundle-mode detection robustness** — `import.meta.url.endsWith('/cli.mjs')` is a fragile detection; a
-  follow-up should switch to `existsSync(<here>/manifest.json)`.
 - **Onboarding-status doctor probe** — no per-(project, repo) "onboarding state" is modeled in the domain
   (`Project` / `Repository` carry no onboarding field), so doctor reports none. Per-(project, repo) health is
   instead covered by the `integrity` probes (repo-path resolution, default-branch resolution, sprint/execution
@@ -399,11 +408,6 @@ See [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) for tokens, components, view patterns
   queue (`prompt-queue.ts`) is a strict serial mutex that shifts resolved prompts off and discards them. A
   transcript keeping resolved prompts visible (dim, clearing after an idle window) was specced but never built
   and runs counter to the modal-queue design; deferred.
-- **Asset-integrity check** — `scripts/build-assets.ts` writes `dist/manifest.json` as a build-completeness
-  record, but no runtime code reads it: a missing template / skill surfaces only a generic `StorageError` from
-  the loaders, with no manifest cross-check and no repair hint. A startup integrity pass against the manifest
-  (with a "reinstall the package" hint) is deferred — it pairs with the bundle-mode item above (both would give
-  the write-only manifest a runtime role).
 
 ## Procedural memory
 

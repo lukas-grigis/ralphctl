@@ -719,8 +719,15 @@ Two-stage pipeline:
 Template / skill loading is dual-mode:
 
 - **Dev (`tsx`)** — reads from `src/integration/ai/{prompts,skills}/`. `FsTemplateLoader` and `bundledSkillSource`
-  detect mode via `import.meta.url`.
-- **Bundled (`dist/cli.mjs`)** — reads from `dist/{prompts,skills}/`. Missing assets fail fast with a repair hint.
+  detect mode by probing the filesystem for a co-located `prompts/` / `skills/` dir beside the running module —
+  never by artifact filename. tsup code-splitting rewrites `import.meta.url` to a hashed `cli-<hash>.mjs` chunk,
+  and an earlier filename check (`import.meta.url.endsWith('/cli.mjs')`) missed that chunk and shipped a bundle
+  that silently served empty prompts in 0.15.0; fixed in 0.15.1 (`resolveTemplatesDir` / `resolveBundledRoot`).
+- **Bundled (`dist/cli.mjs`)** — reads from `dist/{prompts,skills}/`. `integration/system/bundle-integrity.ts`
+  runs once at startup (bundle mode only, same filesystem-probe detection against `dist/manifest.json`) and
+  existence-checks every asset the manifest names plus a `packageVersion` cross-check, so a partial install
+  fails fast at boot with a "reinstall ralphctl" hint instead of surfacing a generic `StorageError` the first
+  time a flow touches a missing template.
 
 CI smoke-tests `node dist/cli.mjs --version` from arbitrary cwd plus a real `npm install` from the packed tarball.
 
@@ -728,8 +735,6 @@ CI smoke-tests `node dist/cli.mjs --version` from arbitrary cwd plus a real `npm
 
 - **Real-provider e2e** — every Claude / Copilot / Codex provider test uses a fake `spawn`. Vendor JSON-shape
   drift will surface here first. Same gap as v0.6.x; deferred.
-- **Bundle-mode detection robustness** — `import.meta.url.endsWith('/cli.mjs')` would silently no-op if the
-  published bin is renamed. Candidate replacement: `existsSync(<here>/manifest.json)`.
 - **Cross-provider escalation** — plateau escalation today stays within a provider (e.g. Sonnet → Opus);
   switching providers mid-task carries auth/context/tool hazards and is deferred.
 - **Learning-ledger retrieval / embeddings** — the distill step reads the full ledger (no retrieval engine).
