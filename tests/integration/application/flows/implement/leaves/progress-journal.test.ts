@@ -150,6 +150,32 @@ describe('progressJournalLeaf', () => {
     expect(written).not.toContain('Task completed successfully.');
   });
 
+  it('includes the plateau detector attribution in Outcome detail when the warning carries a source', async () => {
+    const inProgress = makeInProgressTaskWithRunningAttempt();
+    const warned = unwrap(
+      recordRunningAttemptWarning(inProgress, { kind: 'plateau', dimensions: ['C1'], source: 'diversity' })
+    );
+    const verified = unwrap(recordRunningAttemptVerification(warned));
+    const done = unwrap(markTaskDone(verified, FIXED_LATER));
+    const leaf = progressJournalLeaf(journalDeps(createAtomicWriteFile()), { progressFile, totalRounds: 5 }, done.id);
+    const result = await leaf.execute(ctxFor([done], { currentRoundNum: 3 }));
+    expect(result.ok).toBe(true);
+    const written = await read();
+    expect(written).toContain('(detector: diversity)');
+  });
+
+  it('omits the detector parenthetical when the warning carries no source (legacy record)', async () => {
+    const inProgress = makeInProgressTaskWithRunningAttempt();
+    const warned = unwrap(recordRunningAttemptWarning(inProgress, { kind: 'plateau', dimensions: ['C1'] }));
+    const verified = unwrap(recordRunningAttemptVerification(warned));
+    const done = unwrap(markTaskDone(verified, FIXED_LATER));
+    const leaf = progressJournalLeaf(journalDeps(createAtomicWriteFile()), { progressFile, totalRounds: 5 }, done.id);
+    const result = await leaf.execute(ctxFor([done], { currentRoundNum: 3 }));
+    expect(result.ok).toBe(true);
+    const written = await read();
+    expect(written).not.toContain('(detector:');
+  });
+
   it('derives verdict=escalated for an in_progress task whose attempt failed and climbed a rung', async () => {
     const inProgress = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     const warned = unwrap(recordRunningAttemptWarning(inProgress, { kind: 'plateau', dimensions: ['C1'] }));

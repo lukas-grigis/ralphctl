@@ -30,6 +30,25 @@ export interface Evaluation {
 }
 
 /**
+ * Which of the three gen-eval plateau detectors produced a `plateau` exit — pure instrumentation
+ * for the periodic "is this detector still load-bearing or redundant scaffolding?" audit (see
+ * `.claude/docs/HARNESS-PRINCIPLES.md` § 14 and the "Model-bump audit checklist"); no detection
+ * behaviour hinges on this value. 1:1 with the `banner-show` `cause` strings the loop-diversity /
+ * entropy guards publish in `gen-eval-loop.ts`:
+ *
+ *  - `threshold` — the count-based consecutive-non-improving-turns check (`plateauThreshold`,
+ *                  `computePlateauVerdict` in `business/task/plateau-detection.ts`, wired through
+ *                  `runEvaluatorTurnUseCase`). No banner — this detector runs deep in the business
+ *                  layer, ahead of any `EventBus` wiring.
+ *  - `diversity` — the loop-diversity guard (banner cause `'loop-diversity-exhausted'`).
+ *  - `entropy`   — the action-entropy guard (banner cause `'low-action-entropy'`).
+ *
+ * OPTIONAL everywhere it appears: absent on every persisted record written before this field
+ * existed — old on-disk `tasks.json` rows must keep parsing without it.
+ */
+export type PlateauSource = 'threshold' | 'diversity' | 'entropy';
+
+/**
  * Structured warning attached to an attempt when the gen-eval inner loop terminates without a
  * passed evaluation but the task still settles as `done` (vs `blocked`), OR when an attempt is
  * failed-and-retried. The kinds:
@@ -51,7 +70,7 @@ export interface Evaluation {
  */
 export type AttemptWarning =
   | { readonly kind: 'budget-exhausted'; readonly turnsUsed: number; readonly turnBudget: number }
-  | { readonly kind: 'plateau'; readonly dimensions: readonly string[] }
+  | { readonly kind: 'plateau'; readonly dimensions: readonly string[]; readonly source?: PlateauSource }
   | { readonly kind: 'malformed'; readonly detail: string }
   | { readonly kind: 'verify-failed'; readonly exitCode: number | null; readonly stderr: string }
   | { readonly kind: 'crashed'; readonly detail: string };

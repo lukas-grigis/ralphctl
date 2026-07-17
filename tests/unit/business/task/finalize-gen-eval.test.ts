@@ -296,6 +296,58 @@ describe('finalizeGenEvalUseCase', () => {
     expect(events.some((e) => e.type === 'model-escalated')).toBe(true);
   });
 
+  it('plateau escalate with an attributed exit: source threads onto both the warning and the model-escalated event', async () => {
+    // Pure instrumentation — the escalation DECISION is unaffected by which detector fired; only
+    // the attribution on the warning + event changes.
+    const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
+    const bus = newBus();
+    const events: Array<{ type: string; plateauSource?: string }> = [];
+    bus.subscribe((e) => events.push(e as { type: string; plateauSource?: string }));
+    const result = await finalizeGenEvalUseCase({
+      task,
+      sprintId,
+      exit: { kind: 'plateau', dimensions: ['correctness'], source: 'entropy' },
+      turnsUsed: 3,
+      readConfig: cfg({ escalateOnPlateau: true, maxAttempts: 5 }),
+      taskRepo: okRepo,
+      logger: noopLogger,
+      eventBus: bus,
+      clock: fixedClock,
+      generatorModel: 'claude-sonnet-4-6',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'], source: 'entropy' });
+    const escalated = events.find((e) => e.type === 'model-escalated');
+    expect(escalated?.plateauSource).toBe('entropy');
+  });
+
+  it('plateau exit without a source (legacy in-flight ctx) → warning + event carry no source', async () => {
+    const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
+    const bus = newBus();
+    const events: Array<{ type: string; plateauSource?: string }> = [];
+    bus.subscribe((e) => events.push(e as { type: string; plateauSource?: string }));
+    const result = await finalizeGenEvalUseCase({
+      task,
+      sprintId,
+      exit: { kind: 'plateau', dimensions: ['correctness'] },
+      turnsUsed: 3,
+      readConfig: cfg({ escalateOnPlateau: true, maxAttempts: 5 }),
+      taskRepo: okRepo,
+      logger: noopLogger,
+      eventBus: bus,
+      clock: fixedClock,
+      generatorModel: 'claude-sonnet-4-6',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'] });
+    expect('source' in (result.value.warning ?? {})).toBe(false);
+    const escalated = events.find((e) => e.type === 'model-escalated');
+    expect(escalated?.plateauSource).toBeUndefined();
+    expect('plateauSource' in (escalated ?? {})).toBe(false);
+  });
+
   it('plateau topped-out (nudged then plateaued again): verdict failed, plateau warning, no shouldFailAttempt, no blockedReason (preserves work)', async () => {
     // Mutant-kill: a mutant that drops the topped-out guard would incorrectly set shouldFailAttempt.
     const initial = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });

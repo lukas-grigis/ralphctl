@@ -184,6 +184,28 @@ describe('renderJournalEntry', () => {
     expect(out).toContain('Remedy: kept the attempt with the warning attached');
   });
 
+  it('appends the detector attribution parenthetical when the plateau warning carries a source', () => {
+    const out = renderJournalEntry(
+      baseInput({
+        verdict: 'pass-with-warning',
+        warning: { kind: 'plateau', dimensions: ['C1'], source: 'threshold' },
+      })
+    );
+    expect(out).toContain('plateaued');
+    expect(out).toContain('(detector: threshold)');
+  });
+
+  it('omits the detector parenthetical when the plateau warning carries no source', () => {
+    const out = renderJournalEntry(
+      baseInput({
+        verdict: 'pass-with-warning',
+        warning: { kind: 'plateau', dimensions: ['C1'] },
+      })
+    );
+    expect(out).toContain('plateaued');
+    expect(out).not.toContain('(detector:');
+  });
+
   it('renders budget-exhausted turn counts in the Outcome detail prose', () => {
     const out = renderJournalEntry(
       baseInput({

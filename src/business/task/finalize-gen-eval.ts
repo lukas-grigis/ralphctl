@@ -133,7 +133,14 @@ const mapExit = (exit: GenEvalExit): { verdict: RunTaskVerdict; warning?: Attemp
     case 'malformed':
       return { verdict: 'malformed', warning: { kind: 'malformed', detail: exit.detail } };
     case 'plateau':
-      return { verdict: 'failed', warning: { kind: 'plateau', dimensions: exit.dimensions } };
+      return {
+        verdict: 'failed',
+        warning: {
+          kind: 'plateau',
+          dimensions: exit.dimensions,
+          ...(exit.source !== undefined ? { source: exit.source } : {}),
+        },
+      };
     case BUDGET_EXHAUSTED_EXIT:
       return {
         verdict: 'failed',
@@ -192,6 +199,10 @@ const resolveEscalatableRemedy = (
     task: props.task,
     decision,
     trigger,
+    // Forward WHICH plateau detector fired (undefined on a budget-exhausted trigger, or a legacy
+    // plateau exit that predates this field) so the `model-escalated` event carries the same
+    // attribution the progress journal records.
+    ...(exit.kind === 'plateau' && exit.source !== undefined ? { plateauSource: exit.source } : {}),
     eventBus: props.eventBus,
     logger: props.logger,
     clock: props.clock,

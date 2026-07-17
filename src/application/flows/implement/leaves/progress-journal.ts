@@ -152,7 +152,11 @@ const toJournalWarning = (warning: AttemptWarning): JournalWarning => {
     case 'budget-exhausted':
       return { kind: 'budget-exhausted', turnsUsed: warning.turnsUsed, turnBudget: warning.turnBudget };
     case 'plateau':
-      return { kind: 'plateau', dimensions: warning.dimensions };
+      return {
+        kind: 'plateau',
+        dimensions: warning.dimensions,
+        ...(warning.source !== undefined ? { source: warning.source } : {}),
+      };
     case 'malformed':
       return { kind: 'malformed', detail: warning.detail };
     case 'verify-failed': {

@@ -1,6 +1,7 @@
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { AiSignal } from '@src/domain/signal.ts';
+import type { PlateauSource } from '@src/domain/entity/attempt.ts';
 
 /**
  * Application-wide structured events. Producers (chain runner, use cases,
@@ -305,6 +306,12 @@ export interface AiSignalEvent {
  *                  ladder. `'plateau'` is kept as a member so any consumer that matched the
  *                  prior single-literal shape still narrows. `'malformed'` is deliberately
  *                  absent — that exit is the evaluator's failure and never escalates the model.
+ *  - `plateauSource` — WHICH plateau detector fired (see {@link PlateauSource} for the 1:1
+ *                  mapping to the loop-diversity / entropy guards' banner causes), only present
+ *                  when `reason === 'plateau'`. Pure instrumentation for the periodic
+ *                  detector-load-bearing audit (`.claude/docs/HARNESS-PRINCIPLES.md` § 14) —
+ *                  OPTIONAL and additive, absent on a `budget-exhausted` reason or a legacy
+ *                  event emitted before this field existed.
  */
 export interface ModelEscalatedEvent {
   readonly type: 'model-escalated';
@@ -313,6 +320,7 @@ export interface ModelEscalatedEvent {
   readonly from: string;
   readonly to: string;
   readonly reason: 'plateau' | 'budget-exhausted';
+  readonly plateauSource?: PlateauSource;
   readonly at: IsoTimestamp;
 }
 

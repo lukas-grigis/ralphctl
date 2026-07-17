@@ -31,12 +31,19 @@ export type JournalVerdict = 'pass' | 'pass-with-warning' | 'escalated' | 'block
  *  - `detail`      — one-line human detail (malformed parse error, verify stderr head, crash
  *                    exit/signal text, …).
  *  - `dimensions`  — failed-criterion ids, present only for the `plateau` kind.
+ *  - `source`      — WHICH of the three plateau detectors fired (`threshold` / `diversity` /
+ *                    `entropy` — mirrors the domain `PlateauSource`, redeclared here rather than
+ *                    imported so the renderer stays decoupled from the entity), present only for
+ *                    the `plateau` kind and only when the leaf could resolve it. Pure
+ *                    instrumentation for the periodic detector-load-bearing audit — never changes
+ *                    which sentence renders, only appends a parenthetical.
  *  - `turnsUsed` / `turnBudget` — present only for the `budget-exhausted` kind.
  */
 export interface JournalWarning {
   readonly kind: 'budget-exhausted' | 'plateau' | 'malformed' | 'verify-failed' | 'crashed';
   readonly detail?: string;
   readonly dimensions?: readonly string[];
+  readonly source?: 'threshold' | 'diversity' | 'entropy';
   readonly turnsUsed?: number;
   readonly turnBudget?: number;
 }
@@ -219,7 +226,10 @@ const warningSentence = (warning: JournalWarning): string => {
         warning.dimensions !== undefined && warning.dimensions.length > 0
           ? ` on the same failed dimension${warning.dimensions.length === 1 ? '' : 's'}: ${warning.dimensions.join(', ')}`
           : '';
-      return `The evaluator plateaued — two consecutive evaluations flagged the identical failure${dims}.`;
+      // Detector attribution — pure instrumentation, appended as a parenthetical so the main
+      // clause stays byte-identical for records written before this field existed.
+      const detector = warning.source !== undefined ? ` (detector: ${warning.source})` : '';
+      return `The evaluator plateaued — two consecutive evaluations flagged the identical failure${dims}${detector}.`;
     }
     case 'malformed':
       return `The evaluator output could not be parsed${parenDetail(warning.detail)}.`;

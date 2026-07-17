@@ -272,7 +272,7 @@ export const createGenEvalLoop = (
       },
       output: (ctx, out) => {
         if (!out.shouldExit || out.dimensions === undefined) return ctx;
-        return { ...ctx, lastExit: { kind: 'plateau', dimensions: out.dimensions } };
+        return { ...ctx, lastExit: { kind: 'plateau', dimensions: out.dimensions, source: 'diversity' } };
       },
     }
   );
@@ -348,7 +348,7 @@ export const createGenEvalLoop = (
       output: (ctx, out) => {
         if (!out.shouldExit) return ctx;
         // Re-use the plateau exit kind so the escalation ladder applies the same remedy.
-        return { ...ctx, lastExit: { kind: 'plateau', dimensions: [] } };
+        return { ...ctx, lastExit: { kind: 'plateau', dimensions: [], source: 'entropy' } };
       },
     }
   );

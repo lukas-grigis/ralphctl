@@ -12,9 +12,14 @@ const BudgetExhaustedWarningSchema = z.object({
   turnsUsed: z.number().int().nonnegative(),
   turnBudget: z.number().int().positive(),
 });
+/** Mirrors {@link PlateauSource} — see `domain/entity/attempt.ts` for the detector mapping. */
+const PlateauSourceSchema = z.enum(['threshold', 'diversity', 'entropy']);
 const PlateauWarningSchema = z.object({
   kind: z.literal('plateau'),
   dimensions: z.array(z.string()).readonly(),
+  // Optional — absent on every record written before this field existed; old on-disk rows must
+  // keep parsing without it.
+  source: PlateauSourceSchema.optional(),
 });
 const MalformedWarningSchema = z.object({
   kind: z.literal('malformed'),
