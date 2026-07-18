@@ -206,6 +206,46 @@ describe('renderJournalEntry', () => {
     expect(out).not.toContain('(detector:');
   });
 
+  it('renders the "identical failure" wording for the threshold detector', () => {
+    const out = renderJournalEntry(
+      baseInput({
+        verdict: 'pass-with-warning',
+        warning: { kind: 'plateau', dimensions: ['C1'], source: 'threshold' },
+      })
+    );
+    expect(out).toContain('two consecutive evaluations flagged the identical failure');
+    expect(out).toContain('on the same failed dimension: C1');
+    expect(out).toContain('(detector: threshold)');
+  });
+
+  it('renders the repeated-approach wording (not "identical failure") for the diversity detector', () => {
+    const out = renderJournalEntry(
+      baseInput({
+        verdict: 'pass-with-warning',
+        warning: { kind: 'plateau', dimensions: ['C1', 'C2'], source: 'diversity' },
+      })
+    );
+    expect(out).toContain(
+      'the generator repeated the same failed-dimension pattern across the last 3 consecutive turns without changing approach'
+    );
+    expect(out).toContain('on the same failed dimensions: C1, C2');
+    expect(out).toContain('(detector: diversity)');
+    expect(out).not.toContain('identical failure');
+  });
+
+  it('renders the signal-kind-collapse wording with no dimensions clause for the entropy detector', () => {
+    const out = renderJournalEntry(
+      baseInput({
+        verdict: 'pass-with-warning',
+        warning: { kind: 'plateau', dimensions: [], source: 'entropy' },
+      })
+    );
+    expect(out).toContain("the generator's reported actions collapsed onto a narrow set of signal kinds");
+    expect(out).toContain('(detector: entropy)');
+    expect(out).not.toContain('identical failure');
+    expect(out).not.toContain('on the same failed dimension');
+  });
+
   it('renders budget-exhausted turn counts in the Outcome detail prose', () => {
     const out = renderJournalEntry(
       baseInput({

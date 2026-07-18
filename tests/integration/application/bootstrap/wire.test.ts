@@ -13,6 +13,7 @@ import { ensureStorageRoots, storagePathsFromRoot } from '@src/application/boots
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
 import { RALPHCTL_DEBUG_TRACE_ENV, wire } from '@src/application/bootstrap/wire.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
+import type { LogEvent } from '@src/business/observability/events.ts';
 import { createRefineFlow } from '@src/application/flows/refine/flow.ts';
 import { makeDraftSprint, makeDraftSprintBundle, makePendingTicket, makeProject } from '@tests/fixtures/domain.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
@@ -119,6 +120,35 @@ describe('wire', () => {
 
     expect(a.projectRepo).not.toBe(b.projectRepo);
     expect(a.sprintRepo).not.toBe(b.sprintRepo);
+  });
+
+  it('wires the operator quality guard so a vague agent definition logs a warning through agentDefinitionSource', async () => {
+    const appRoot = AbsolutePath.parse(`${tmpHome}/.ralphctl-test`);
+    if (!appRoot.ok) throw new Error('appRoot parse failed');
+    const paths = storagePathsFromRoot(appRoot.value);
+    if (!paths.ok) throw new Error('storagePathsFromRoot failed');
+    await ensureStorageRoots(paths.value);
+
+    // A vague operator definition: short body, no headings/list items — trips Q1 and Q2.
+    const operatorRoot = String(paths.value.operatorAgentDefinitionsRoot);
+    await fs.mkdir(operatorRoot, { recursive: true });
+    await fs.writeFile(
+      join(operatorRoot, 'vague.md'),
+      '---\nname: vague\ndescription: vague guidance\n---\n\ntoo short\n',
+      'utf-8'
+    );
+
+    const deps = wire({ storage: paths.value, settings: DEFAULT_SETTINGS });
+    const logs: LogEvent[] = [];
+    deps.eventBus.subscribe((e) => {
+      if (e.type === 'log') logs.push(e);
+    });
+
+    const result = await deps.agentDefinitionSource.list();
+    expect(result.ok).toBe(true);
+
+    const qualityWarnings = logs.filter((l) => l.level === 'warn' && l.message === 'agent definition quality concern');
+    expect(qualityWarnings.length).toBeGreaterThan(0);
   });
 
   it('exposes a real provider built from config; refine runs end-to-end with a fake spawn', async () => {

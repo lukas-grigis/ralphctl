@@ -58,13 +58,31 @@ describe('resolveAgentOverride', () => {
     expect(resolved).toEqual({ model: 'claude-sonnet-5', effort: 'max' });
   });
 
-  it('a bound definition effort still composes with the provider floor when it is the global that supplies it', () => {
-    // The definition wins outright here — 'xhigh' passes through verbatim, unfloored, because
-    // a definition-supplied effort bypasses resolveEffortForRow's provider-floor table
-    // entirely (that table only applies to the global-default fallback path).
+  it('floors a binding-supplied xhigh to the codex provider ceiling', () => {
+    // A definition-bound effort still goes through the same provider floor as the
+    // global-default path — codex only accepts minimal|low|medium|high and rejects
+    // unknown levels, so an unclamped xhigh would fail every spawn for this role.
     const row = codexRow();
     const resolved = resolveAgentOverride(row, 'medium', { effort: 'xhigh' });
-    expect(resolved).toEqual({ model: 'gpt-5.5', effort: 'xhigh' });
+    expect(resolved).toEqual({ model: 'gpt-5.5', effort: 'high' });
+  });
+
+  it('floors a binding-supplied max to the codex provider ceiling', () => {
+    const row = codexRow();
+    const resolved = resolveAgentOverride(row, 'medium', { effort: 'max' });
+    expect(resolved).toEqual({ model: 'gpt-5.5', effort: 'high' });
+  });
+
+  it('leaves a binding-supplied xhigh untouched on a claude-code row (identity)', () => {
+    const row = claudeRow();
+    const resolved = resolveAgentOverride(row, 'medium', { effort: 'xhigh' });
+    expect(resolved).toEqual({ model: 'claude-sonnet-5', effort: 'xhigh' });
+  });
+
+  it('passes an unknown/out-of-vocabulary binding effort through unchanged', () => {
+    const row = codexRow();
+    const resolved = resolveAgentOverride(row, 'medium', { effort: 'ultra-mega' });
+    expect(resolved).toEqual({ model: 'gpt-5.5', effort: 'ultra-mega' });
   });
 
   it('floors the global default to the codex provider ceiling when no definition/row effort is set', () => {

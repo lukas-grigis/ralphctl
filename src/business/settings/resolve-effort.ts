@@ -38,6 +38,24 @@ export const resolveEffortForRow = (
 };
 
 /**
+ * Clamp an arbitrary effort string to a value the provider's adapter accepts.
+ *
+ * Exported so callers that source effort from somewhere other than the global-default fallback
+ * (e.g. an agent-definition binding — see `resolveAgentOverride`) can still apply the same
+ * per-provider floor. Without this, a binding-supplied `xhigh`/`max` reaches the codex CLI
+ * verbatim; codex only accepts `minimal | low | medium | high` and rejects unknown levels,
+ * so an unclamped value fails every spawn for that role.
+ *
+ * Only the known-dangerous codex case is floored — any other string (including values outside
+ * the superset) passes through unchanged, letting the provider CLI be the final arbiter of
+ * genuinely unknown effort levels.
+ */
+export const clampEffortToProvider = (effort: string, provider: AiProvider): string => {
+  if (provider === 'openai-codex' && (effort === 'xhigh' || effort === 'max')) return 'high';
+  return effort;
+};
+
+/**
  * Clamp the unified global effort to a value the provider's adapter accepts.
  *
  * - claude-code: identity (its native vocabulary IS the superset).
@@ -45,14 +63,5 @@ export const resolveEffortForRow = (
  *   surfaced as a per-flow opt-out and never selected globally).
  * - openai-codex: `minimal | low | medium | high`. `xhigh` / `max` clamp to `high`.
  */
-const _floorForProvider = (effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max', provider: AiProvider): string => {
-  switch (provider) {
-    case 'claude-code':
-    case 'github-copilot':
-      return effort;
-    case 'openai-codex': {
-      if (effort === 'xhigh' || effort === 'max') return 'high';
-      return effort;
-    }
-  }
-};
+const _floorForProvider = (effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max', provider: AiProvider): string =>
+  clampEffortToProvider(effort, provider);

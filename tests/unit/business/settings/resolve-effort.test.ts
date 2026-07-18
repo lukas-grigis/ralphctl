@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Settings } from '@src/domain/entity/settings.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
-import { resolveEffort } from '@src/business/settings/resolve-effort.ts';
+import { clampEffortToProvider, resolveEffort } from '@src/business/settings/resolve-effort.ts';
 
 const withGlobalEffort = (effort: Settings['ai']['effort']): Settings => ({
   ...DEFAULT_SETTINGS,
@@ -92,5 +92,22 @@ describe('resolveEffort', () => {
 
   it('returns the per-flow value verbatim for the configured provider', () => {
     expect(resolveEffort('plan', withPerFlowEffort('plan', 'low'))).toBe('low');
+  });
+});
+
+describe('clampEffortToProvider', () => {
+  it('floors xhigh/max to high for codex', () => {
+    expect(clampEffortToProvider('xhigh', 'openai-codex')).toBe('high');
+    expect(clampEffortToProvider('max', 'openai-codex')).toBe('high');
+  });
+
+  it('passes effort through unchanged for claude-code and github-copilot', () => {
+    expect(clampEffortToProvider('xhigh', 'claude-code')).toBe('xhigh');
+    expect(clampEffortToProvider('max', 'github-copilot')).toBe('max');
+  });
+
+  it('passes an unknown effort string through unchanged for every provider', () => {
+    expect(clampEffortToProvider('ultra-mega', 'openai-codex')).toBe('ultra-mega');
+    expect(clampEffortToProvider('ultra-mega', 'claude-code')).toBe('ultra-mega');
   });
 });

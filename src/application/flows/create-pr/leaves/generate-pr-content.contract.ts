@@ -8,11 +8,13 @@ import type { AiOutputContract, SidecarRule } from '@src/integration/ai/contract
 /**
  * Per-leaf I/O contract for the create-pr flow's optional AI authoring step — audit-[09].
  *
- * Accepts ONLY `pr-content`. No narrative fan-out (`learning` / `note` / `decision`): the
- * create-pr session runs post-implement, after the sprint reaches review/done. There is no
- * active progress journal to enrich at that point — narrative signals would be silently
- * dropped on the floor, and the prompt instructs the AI to focus solely on authoring the PR
- * title + body.
+ * Keeps ONLY `pr-content`. Any narrative fan-out (`learning` / `note` / `decision`) a mounted
+ * skill may coach is DROPPED, not rejected: the create-pr session runs post-implement, after
+ * the sprint reaches review/done, so there is no active progress journal to enrich — such
+ * signals are silently dropped on the floor rather than failing the whole array, so a single
+ * stray signal can't quietly defeat AI PR authoring (the leaf would otherwise fall back to the
+ * generic template body). The prompt still instructs the AI to focus solely on authoring the
+ * PR title + body.
  *
  * `pr-content` is constrained to exactly one occurrence so the leaf has a single
  * deterministic { title, body } to thread downstream.
@@ -32,9 +34,21 @@ const PR_CONTENT_KIND = 'pr-content';
 const exactlyOnePrContent = (signals: ReadonlyArray<{ readonly type: string }>): boolean =>
   signals.filter((s) => s.type === PR_CONTENT_KIND).length === 1;
 
+/** Structural pre-filter — the pipe below validates each survivor's full `pr-content` shape. */
+const isPrContentSignal = (signal: unknown): boolean =>
+  typeof signal === 'object' && signal !== null && (signal as { readonly type?: unknown }).type === PR_CONTENT_KIND;
+
+// Tolerant by design (see the module doc): drop any non-`pr-content` signal a mounted skill may
+// have coached (a stray `<note>` / `<decision>` / `<learning>`) BEFORE validation, then validate
+// the surviving pr-content signals and require exactly one. Filtering first means one stray
+// narrative signal no longer fails the whole array — which would have silently defeated AI PR
+// authoring. A malformed pr-content still fails the pipe; zero pr-content still fails the refine.
 const signalsArraySchemaRaw = z
-  .array(prContentSignalSchema)
-  .refine(exactlyOnePrContent, 'exactly one pr-content signal per create-pr spawn');
+  .array(z.unknown())
+  .transform((signals) => signals.filter(isPrContentSignal))
+  .pipe(
+    z.array(prContentSignalSchema).refine(exactlyOnePrContent, 'exactly one pr-content signal per create-pr spawn')
+  );
 
 /**
  * Cast bridge between Zod's inferred shape (optional fields widened to `T | undefined`

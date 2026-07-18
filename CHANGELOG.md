@@ -7,6 +7,8 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-07-18
+
 ### Added
 
 - **Portable, authorable agent definitions, ported automatically to each provider's native format.**
@@ -21,8 +23,10 @@ to [Semantic Versioning](https://semver.org/).
   it is enabled for (saved opt-outs applied), and its provenance (in sync / update available / locally
   modified) — for scripting and quick inspection outside the TUI.
 - **Skills in the Create PR flow.** The PR-drafting session now mounts the same curated skills as the
-  other flows. The code-review skill stays a recommended opt-in there rather than a default — its
-  review-signal guidance can conflict with the flow's single-summary output contract.
+  other flows. Its output contract keeps only the authored PR title/body and quietly drops any stray
+  narrative signal (`note` / `decision` / `learning`) a mounted skill might coach, so a skill can't
+  derail PR authoring by nudging the model off-contract. The code-review skill is offered as a
+  recommended opt-in there rather than a default.
 - **Clear a saved skill opt-out from the catalog.** Press `c` on a skill in the catalog (hotkey `K`)
   to clear a remembered per-flow opt-out — previously only possible by re-answering the remember
   prompt on a later run.

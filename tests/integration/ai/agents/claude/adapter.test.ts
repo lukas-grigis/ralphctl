@@ -32,10 +32,10 @@ describe('createClaudeAgentDefinitionAdapter — golden render', () => {
     expect(written).toBe(
       [
         '---',
-        'name: implementer',
-        'description: Writes features, fixes bugs, adds tests.',
-        'model: claude-sonnet-5',
-        'effort: high',
+        'name: "implementer"',
+        'description: "Writes features, fixes bugs, adds tests."',
+        'model: "claude-sonnet-5"',
+        'effort: "high"',
         '---',
         '',
         'You are an implementer.',
@@ -67,6 +67,32 @@ describe('createClaudeAgentDefinitionAdapter — golden render', () => {
     await adapter.install(session, [definition({ name: 'ralphctl-evaluator' })]);
 
     const written = await readFile(join(String(session), '.claude/agents/ralphctl-evaluator.md'), 'utf-8');
-    expect(written).toContain('name: ralphctl-evaluator');
+    expect(written).toContain('name: "ralphctl-evaluator"');
+  });
+});
+
+describe('createClaudeAgentDefinitionAdapter — YAML frontmatter escaping', () => {
+  it('quotes and escapes a description containing a colon-space, a leading #, and a double-quote', async () => {
+    const session = await makeSession();
+    const adapter = createClaudeAgentDefinitionAdapter();
+    const tricky = 'Reviews diffs: focuses on security, flags "#unsafe" patterns';
+
+    await adapter.install(session, [definition({ description: tricky })]);
+
+    const written = await readFile(join(String(session), '.claude/agents/ralphctl-implementer.md'), 'utf-8');
+    expect(written).toContain(`description: ${JSON.stringify(tricky)}`);
+    expect(written).not.toContain(`description: ${tricky}`);
+  });
+
+  it('does not let an embedded newline in the description inject a second frontmatter line', async () => {
+    const session = await makeSession();
+    const adapter = createClaudeAgentDefinitionAdapter();
+
+    await adapter.install(session, [definition({ description: 'Line one\nname: injected' })]);
+
+    const written = await readFile(join(String(session), '.claude/agents/ralphctl-implementer.md'), 'utf-8');
+    const frontmatterLines = written.split('---')[1]?.split('\n').filter(Boolean) ?? [];
+    expect(frontmatterLines).toHaveLength(2);
+    expect(written).toContain('description: "Line one\\nname: injected"');
   });
 });
