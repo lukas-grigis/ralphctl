@@ -2,6 +2,7 @@ import type { Command } from 'commander';
 import type { AgentDefinition } from '@src/integration/ai/agents/_engine/agent-definition.ts';
 import { createBundledAgentDefinitionSource } from '@src/integration/ai/agents/bundled/source.ts';
 import { createOperatorAgentDefinitionSource } from '@src/integration/ai/agents/operator/source.ts';
+import { warnIfVague } from '@src/integration/ai/agents/_engine/agent-definition-quality.ts';
 import { createSettingsShowFlow } from '@src/application/flows/settings-show/flow.ts';
 import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
 import type { AiImplementRole } from '@src/domain/entity/settings.ts';
@@ -39,6 +40,7 @@ export const registerAgentsCommand = (program: Command): void => {
       const operatorSource = createOperatorAgentDefinitionSource({
         operatorAgentDefinitionsRoot: storage.operatorAgentDefinitionsRoot,
         logger: deps.logger,
+        warnIfVague: (definition) => warnIfVague(deps.logger, definition),
       });
 
       const [bundled, operator] = await Promise.all([bundledSource.list(), operatorSource.list()]);

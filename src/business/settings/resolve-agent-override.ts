@@ -1,5 +1,5 @@
 import type { AiFlowSettings, Settings } from '@src/domain/entity/settings.ts';
-import { resolveEffortForRow } from '@src/business/settings/resolve-effort.ts';
+import { clampEffortToProvider, resolveEffortForRow } from '@src/business/settings/resolve-effort.ts';
 
 /**
  * The subset of an `AgentDefinition` this resolver needs. Declared locally rather than
@@ -24,9 +24,10 @@ export interface ResolvedAgentOverride {
  *
  * - `model`: the definition's `model` when set, otherwise the row's own `model` (always
  *   present — every {@link AiFlowSettings} row is fully stamped with a provider-catalog model).
- * - `effort`: the definition's `effort` when set, otherwise {@link resolveEffortForRow}'s
- *   result (per-flow row effort, falling through to the global default floored to the row's
- *   provider).
+ * - `effort`: the definition's `effort` when set, but floored to the row's provider (e.g. an
+ *   agent definition's `xhigh`/`max` clamps to `high` on a codex row, same as the global-default
+ *   path — see {@link clampEffortToProvider}); otherwise {@link resolveEffortForRow}'s result
+ *   (per-flow row effort, falling through to the global default floored to the row's provider).
  *
  * `binding` is `undefined` when the role has no bound definition — resolution then falls
  * straight through to the per-flow row / global default, identical to `resolveEffortForRow`
@@ -38,5 +39,8 @@ export const resolveAgentOverride = (
   binding: AgentOverrideHints | undefined
 ): ResolvedAgentOverride => ({
   model: binding?.model ?? row.model,
-  effort: binding?.effort ?? resolveEffortForRow(row, globalEffort),
+  effort:
+    binding?.effort !== undefined
+      ? clampEffortToProvider(binding.effort, row.provider)
+      : resolveEffortForRow(row, globalEffort),
 });

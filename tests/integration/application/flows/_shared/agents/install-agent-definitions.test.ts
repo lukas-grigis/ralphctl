@@ -35,7 +35,9 @@ describe('installAgentDefinitionsLeaf', () => {
     expect(result.ok).toBe(true);
 
     const written = await readFile(join(String(session), '.claude/agents/ralphctl-evaluator.md'), 'utf-8');
-    expect(written).toContain('name: ralphctl-evaluator');
+    // Frontmatter scalars are emitted as YAML double-quoted strings (JSON.stringify) so a
+    // description/name containing a colon or newline can't corrupt the block — see renderClaudeAgent.
+    expect(written).toContain('name: "ralphctl-evaluator"');
   });
 
   it('is a no-op when the role has no bound definition (definition undefined)', async () => {

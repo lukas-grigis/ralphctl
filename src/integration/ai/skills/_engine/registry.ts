@@ -80,12 +80,11 @@ export const BUNDLED_SKILLS: readonly BundledSkillEntry[] = [
     recommendedFor: ['plan', 'readiness'],
   },
   {
-    // createPr is opt-in only, not default: this skill's guidance coaches emitting <note> /
-    // <decision> signals, but create-pr's output contract
-    // (generate-pr-content.contract.ts) accepts ONLY a single pr-content signal — a model
-    // following the skill's default advice there produces an invalid signals.json and the leaf
-    // silently falls back to the template body, defeating AI authoring. Conscious opt-in via
-    // the catalog avoids that conflict by default while keeping it discoverable.
+    // createPr is recommended opt-in, not default. This skill coaches emitting review-oriented
+    // <note> / <decision> signals; create-pr's output contract keeps only the single pr-content
+    // signal and DROPS any such narrative signal (generate-pr-content.contract.ts is tolerant by
+    // design), so recommending it here is safe. It stays opt-in rather than default because
+    // review-signal guidance is only sometimes what you want while authoring a PR body.
     name: 'ralphctl-code-review-and-quality',
     defaultFor: ['implement'],
     recommendedFor: ['readiness', 'createPr'],

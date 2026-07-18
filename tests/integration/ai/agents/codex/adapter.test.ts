@@ -76,3 +76,29 @@ describe('createCodexAgentDefinitionAdapter — golden render', () => {
     expect(written).toContain('name = "ralphctl-evaluator"');
   });
 });
+
+describe('createCodexAgentDefinitionAdapter — TOML string escaping', () => {
+  it('quotes and escapes a description containing a colon-space, a leading #, and a double-quote', async () => {
+    const session = await makeSession();
+    const adapter = createCodexAgentDefinitionAdapter();
+    const tricky = 'Reviews diffs: focuses on security, flags "#unsafe" patterns';
+
+    await adapter.install(session, [definition({ description: tricky })]);
+
+    const written = await readFile(join(String(session), '.codex/agents/ralphctl-implementer.toml'), 'utf-8');
+    expect(written).toContain(`description = ${JSON.stringify(tricky)}`);
+    expect(written).not.toContain(`description = ${tricky}`);
+  });
+
+  it('does not let an embedded newline in the description inject a second line', async () => {
+    const session = await makeSession();
+    const adapter = createCodexAgentDefinitionAdapter();
+
+    await adapter.install(session, [definition({ description: 'Line one\nname = "injected"' })]);
+
+    const written = await readFile(join(String(session), '.codex/agents/ralphctl-implementer.toml'), 'utf-8');
+    const lines = written.split('\n').filter(Boolean);
+    expect(lines).toHaveLength(3);
+    expect(written).toContain('description = "Line one\\nname = \\"injected\\""');
+  });
+});

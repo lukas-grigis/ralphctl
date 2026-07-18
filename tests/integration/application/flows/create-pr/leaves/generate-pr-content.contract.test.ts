@@ -30,12 +30,35 @@ describe('generatePrContentOutputContract', () => {
     }
   });
 
-  it('rejects non-pr-content signal kinds (narrative fan-out is not part of the contract)', () => {
+  it('drops non-pr-content signal kinds and keeps the single pr-content (tolerant fan-out)', () => {
+    // A mounted skill may coach a stray `<note>` / `<decision>` / `<learning>` during PR
+    // authoring. The contract drops those rather than failing the whole array, so one stray
+    // signal cannot silently defeat AI PR authoring — it keeps exactly the pr-content signal.
     const result = generatePrContentOutputContract.signalsSchema.safeParse([
-      { type: 'pr-content', title: 't', body: 'b', timestamp: TS },
-      // `learning` is intentionally NOT part of the create-pr contract — narrative signals
-      // would be silently dropped at post-implement time. Schema must reject.
       { type: 'learning', text: 'a learning', timestamp: TS },
+      { type: 'pr-content', title: 't', body: 'b', timestamp: TS },
+      { type: 'note', text: 'a note', timestamp: TS },
+    ]);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0]).toMatchObject({ type: 'pr-content', title: 't', body: 'b' });
+    }
+  });
+
+  it('still rejects a stray-signal array with zero pr-content (drops to empty, then refine fails)', () => {
+    const result = generatePrContentOutputContract.signalsSchema.safeParse([
+      { type: 'note', text: 'only a note', timestamp: TS },
+    ]);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.message).toContain('exactly one pr-content');
+    }
+  });
+
+  it('still rejects a malformed pr-content signal (missing body) after filtering', () => {
+    const result = generatePrContentOutputContract.signalsSchema.safeParse([
+      { type: 'pr-content', title: 'no body', timestamp: TS },
     ]);
     expect(result.success).toBe(false);
   });

@@ -34,9 +34,12 @@ export type JournalVerdict = 'pass' | 'pass-with-warning' | 'escalated' | 'block
  *  - `source`      — WHICH of the three plateau detectors fired (`threshold` / `diversity` /
  *                    `entropy` — mirrors the domain `PlateauSource`, redeclared here rather than
  *                    imported so the renderer stays decoupled from the entity), present only for
- *                    the `plateau` kind and only when the leaf could resolve it. Pure
- *                    instrumentation for the periodic detector-load-bearing audit — never changes
- *                    which sentence renders, only appends a parenthetical.
+ *                    the `plateau` kind and only when the leaf could resolve it. Selects which of
+ *                    the three plateau sentences renders (see `warningSentence`'s `plateau`
+ *                    branch) — each detector observes something different, so only `threshold`
+ *                    legitimately reads as "two consecutive evaluations flagged the identical
+ *                    failure". Absent `source` (legacy records written before this field existed)
+ *                    falls back to the `threshold` wording.
  *  - `turnsUsed` / `turnBudget` — present only for the `budget-exhausted` kind.
  */
 export interface JournalWarning {
@@ -216,6 +219,38 @@ const parenDetail = (detail: string | undefined): string =>
   detail !== undefined && detail.trim().length > 0 ? ` (${detail.trim()})` : '';
 
 /**
+ * The plateau warning's sentence — branched on `source` because the three detectors observe
+ * genuinely different things (see `PlateauSource` in `domain/entity/attempt.ts`); reusing one
+ * clause would misattribute the `threshold` detector's "identical failure" wording to detectors
+ * that never compare two evaluations' failure sets. A `(detector: …)` parenthetical is appended
+ * when the source is known; an absent `source` (legacy records) falls back to `threshold` wording.
+ */
+const plateauSentence = (warning: JournalWarning): string => {
+  const dims =
+    warning.dimensions !== undefined && warning.dimensions.length > 0
+      ? ` on the same failed dimension${warning.dimensions.length === 1 ? '' : 's'}: ${warning.dimensions.join(', ')}`
+      : '';
+  const detector = warning.source !== undefined ? ` (detector: ${warning.source})` : '';
+  if (warning.source === 'diversity') {
+    // `loop-diversity-check` (gen-eval-loop.ts) — the generator re-emitted the same failed-
+    // dimension fingerprint for the last 3 consecutive turns without changing approach;
+    // dimensions carries that repeated failed set, same as `threshold`.
+    return `The evaluator plateaued — the generator repeated the same failed-dimension pattern across the last 3 consecutive turns without changing approach${dims}${detector}.`;
+  }
+  if (warning.source === 'entropy') {
+    // `entropy-check` (gen-eval-loop.ts) — Shannon entropy over the generator's reported signal-
+    // kind distribution for the latest turn collapsed below threshold. This detector never
+    // compares two evaluations' failure sets, so it always carries `dimensions: []` — `dims` is
+    // deliberately not interpolated into this sentence.
+    return `The evaluator plateaued — the generator's reported actions collapsed onto a narrow set of signal kinds this turn (low action-kind diversity)${detector}.`;
+  }
+  // `threshold` (business/task/plateau-detection.ts) is the only detector that compares two
+  // consecutive evaluations' failed-dimension sets — also the fallback wording for legacy records
+  // written before `source` existed.
+  return `The evaluator plateaued — two consecutive evaluations flagged the identical failure${dims}${detector}.`;
+};
+
+/**
  * One plain-prose sentence describing what the warning means for the next attempt. The journal
  * is the generator's cross-attempt memory, so this names the failure mode explicitly instead of
  * leaning on a glyph or jargon.
@@ -229,16 +264,8 @@ const warningSentence = (warning: JournalWarning): string => {
           : ' after exhausting the turn budget';
       return `The evaluator did not pass${turns}.`;
     }
-    case 'plateau': {
-      const dims =
-        warning.dimensions !== undefined && warning.dimensions.length > 0
-          ? ` on the same failed dimension${warning.dimensions.length === 1 ? '' : 's'}: ${warning.dimensions.join(', ')}`
-          : '';
-      // Detector attribution — pure instrumentation, appended as a parenthetical so the main
-      // clause stays byte-identical for records written before this field existed.
-      const detector = warning.source !== undefined ? ` (detector: ${warning.source})` : '';
-      return `The evaluator plateaued — two consecutive evaluations flagged the identical failure${dims}${detector}.`;
-    }
+    case 'plateau':
+      return plateauSentence(warning);
     case 'malformed':
       return `The evaluator output could not be parsed${parenDetail(warning.detail)}.`;
     case 'verify-failed': {

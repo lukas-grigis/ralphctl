@@ -6,6 +6,9 @@
  * Copilot rejects an agent file whose body exceeds 30000 characters — the renderer enforces
  * that limit up front and returns a {@link StorageError} instead of producing a file the CLI
  * would refuse to load.
+ *
+ * Frontmatter scalars are emitted as YAML double-quoted strings via `JSON.stringify` — YAML's
+ * double-quoted scalar escaping (`\"`, `\\`, `\n`, `\t`, …) is a compatible subset of JSON's.
  */
 
 import { join } from 'node:path';
@@ -16,6 +19,8 @@ import { namespacedAgentFileBase } from '@src/integration/ai/agents/_engine/agen
 
 /** Copilot's documented per-agent body size limit. */
 export const COPILOT_AGENT_MAX_BODY_CHARS = 30000;
+
+const yamlString = (value: string): string => JSON.stringify(value);
 
 export const renderCopilotAgent = (definition: AgentDefinition): Result<RenderedAgentFile, StorageError> => {
   const relPath = join('.github', 'agents', `${namespacedAgentFileBase(definition.name)}.agent.md`);
@@ -30,8 +35,8 @@ export const renderCopilotAgent = (definition: AgentDefinition): Result<Rendered
     );
   }
 
-  const lines = ['---', `description: ${definition.description}`, `name: ${definition.name}`];
-  if (definition.model !== undefined) lines.push(`model: ${definition.model}`);
+  const lines = ['---', `description: ${yamlString(definition.description)}`, `name: ${yamlString(definition.name)}`];
+  if (definition.model !== undefined) lines.push(`model: ${yamlString(definition.model)}`);
   lines.push('---');
 
   const content = `${lines.join('\n')}\n\n${definition.content.replace(/\s+$/u, '')}\n`;

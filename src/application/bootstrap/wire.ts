@@ -65,6 +65,7 @@ import { createAgentDefinitionAdapter } from '@src/integration/ai/agents/adapter
 import { composeAgentDefinitionSources } from '@src/integration/ai/agents/_engine/compose-agent-definition-sources.ts';
 import { createBundledAgentDefinitionSource } from '@src/integration/ai/agents/bundled/source.ts';
 import { createOperatorAgentDefinitionSource } from '@src/integration/ai/agents/operator/source.ts';
+import { warnIfVague } from '@src/integration/ai/agents/_engine/agent-definition-quality.ts';
 import type { NotificationDispatcher } from '@src/business/observability/notification-dispatcher.ts';
 import { startFileLogSink } from '@src/integration/observability/sinks/file-log-sink.ts';
 import type { FileLogSink, FileLogSinkDeps } from '@src/integration/observability/_engine/file-log-sink.ts';
@@ -372,7 +373,11 @@ const buildWireAgentDefinitionAdapter = (settings: Settings, logger: Logger): Ag
 const buildWireAgentDefinitionSource = (storage: StoragePaths, logger: Logger): AgentDefinitionSource =>
   composeAgentDefinitionSources(
     createBundledAgentDefinitionSource(),
-    createOperatorAgentDefinitionSource({ operatorAgentDefinitionsRoot: storage.operatorAgentDefinitionsRoot, logger })
+    createOperatorAgentDefinitionSource({
+      operatorAgentDefinitionsRoot: storage.operatorAgentDefinitionsRoot,
+      logger,
+      warnIfVague: (definition) => warnIfVague(logger, definition),
+    })
   );
 
 export const wire = (opts: WireOptions): AppDeps => {
