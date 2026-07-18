@@ -9,6 +9,8 @@ import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
+import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
+import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
 
 /**
  * Dependency contract for the create-pr flow.
@@ -51,4 +53,13 @@ export interface CreatePrDeps {
   readonly logger: Logger;
   /** Model identifier — picked from `settings.ai.createPr.model` by the CLI / TUI surfaces. */
   readonly model: string;
+  /**
+   * Composed skill source for the `createPr` flow — the CLI / TUI surfaces build this via
+   * `buildComposedSkillSource` directly (create-pr never reaches `launchFlow`'s dispatch), so it
+   * always resolves the settings/registry default set; there is no per-run customize-picker
+   * override for this flow.
+   */
+  readonly skillSource: SkillSource;
+  /** Provider-matched skills adapter — installs into the AI sub-chain's unit-root sandbox. */
+  readonly skillsAdapter: SkillsAdapter;
 }

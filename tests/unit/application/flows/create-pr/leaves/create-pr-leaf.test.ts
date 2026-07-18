@@ -22,6 +22,7 @@ import {
 } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
+import { emptySkillSource, noopSkillsAdapter } from '@tests/fixtures/skills-fakes.ts';
 import { createCreatePrLeaf } from '@src/application/flows/create-pr/leaves/create-pr-leaf.ts';
 import type { CreatePrDeps } from '@src/application/flows/create-pr/deps.ts';
 import type { CreatePrCtx } from '@src/application/flows/create-pr/ctx.ts';
@@ -105,6 +106,8 @@ const buildDeps = (sprint: Sprint, exec: SprintExecution, creator: PullRequestCr
   writeFile: stubWriteFile,
   logger: noopLogger,
   model: 'test-model',
+  skillSource: emptySkillSource,
+  skillsAdapter: noopSkillsAdapter,
 });
 
 describe('createCreatePrLeaf — title/body precedence', () => {

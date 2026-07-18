@@ -33,6 +33,7 @@ import { dirname } from 'node:path';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import type { AiSignalEvent } from '@src/business/observability/events.ts';
+import { emptySkillSource, noopSkillsAdapter } from '@tests/fixtures/skills-fakes.ts';
 
 const fakeSprintRepo = (sprint: Sprint): SprintRepository =>
   ({
@@ -137,7 +138,12 @@ const stubAiDeps = {
   writeFile: refusingWriteFile,
   logger: noopLogger,
   model: 'test-model',
-} satisfies Pick<CreatePrDeps, 'provider' | 'templateLoader' | 'writeFile' | 'logger' | 'model'>;
+  skillSource: emptySkillSource,
+  skillsAdapter: noopSkillsAdapter,
+} satisfies Pick<
+  CreatePrDeps,
+  'provider' | 'templateLoader' | 'writeFile' | 'logger' | 'model' | 'skillSource' | 'skillsAdapter'
+>;
 
 describe('create-pr flow — happy path', () => {
   it('pushes the branch, then opens the PR and persists the URL on the sprint execution', async () => {
@@ -447,6 +453,8 @@ describe('create-pr flow — useAi=true happy path', () => {
           writeFile: realWriteFile,
           logger: noopLogger,
           model: 'test-model',
+          skillSource: emptySkillSource,
+          skillsAdapter: noopSkillsAdapter,
         },
         { useAi: true }
       );
@@ -509,6 +517,8 @@ describe('create-pr flow — useAi=true happy path', () => {
           writeFile: realWriteFile,
           logger: noopLogger,
           model: 'test-model',
+          skillSource: emptySkillSource,
+          skillsAdapter: noopSkillsAdapter,
         },
         { useAi: true }
       );

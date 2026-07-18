@@ -1,9 +1,9 @@
 /**
  * Action state + handlers for the Skills catalog view — enable / disable / update / update-all,
- * plus the enable/disable flow-picker and destructive-confirm state they drive. Extracted from
- * `skills-view.tsx` so the view stays a thin render + key-dispatch layer; the sequencing rules
- * (when a confirm is required, what "up to date" means) live here where they're one hook away
- * from a unit test.
+ * plus the enable/disable flow-picker, the destructive-confirm state they drive, and clearing a
+ * durable `settings.ai.skills` opt-out. Extracted from `skills-view.tsx` so the view stays a thin
+ * render + key-dispatch layer; the sequencing rules (when a confirm is required, what "up to
+ * date" means) live here where they're one hook away from a unit test.
  *
  * Handlers are module-level functions taking an explicit {@link ActionCtx} rather than closures
  * inside the hook — keeps `useSkillCatalogActions` itself a thin dispatch table and each rule
@@ -14,7 +14,10 @@ import { useMemo, useState } from 'react';
 import type { RefObject } from 'react';
 import type { Result } from '@src/domain/result.ts';
 import type { StorageError } from '@src/domain/value/error/storage-error.ts';
-import type { FlowId } from '@src/domain/value/flow-id.ts';
+import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
+import type { Settings } from '@src/domain/entity/settings.ts';
+import type { SettingsRepository } from '@src/domain/repository/settings/settings-repository.ts';
+import { createSettingsSetFlow } from '@src/application/flows/settings-set/flow.ts';
 import { BUNDLED_SKILLS } from '@src/integration/ai/skills/_engine/registry.ts';
 import type {
   SkillCatalogEntry,
@@ -22,6 +25,7 @@ import type {
   SkillInstallStatus,
 } from '@src/integration/ai/skills/_engine/skill-catalog-port.ts';
 import { feedback, type StructuredFeedback } from '@src/application/ui/tui/components/feedback-line.tsx';
+import { FLOW_LABEL } from '@src/application/ui/tui/views/skills-view-internals/flow-visual.ts';
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import { useIsMounted } from '@src/application/ui/tui/runtime/use-is-mounted.ts';
 
@@ -63,6 +67,7 @@ export const confirmTitle = (cs: ConfirmState): string =>
 /** Threaded through every module-level handler below — one bag, one signature per handler. */
 interface ActionCtx {
   readonly skillCatalog: SkillCatalogPort;
+  readonly settingsRepo: SettingsRepository;
   readonly mountedRef: RefObject<boolean>;
   readonly reload: () => void;
   readonly setBusy: (busy: boolean) => void;
@@ -70,6 +75,14 @@ interface ActionCtx {
   readonly setPicker: (value: PickerState | undefined) => void;
   readonly setConfirmState: (value: ConfirmState | undefined) => void;
 }
+
+/**
+ * Flows where `settings.ai.skills[flow].disabled` currently names `skillName` — the ONLY way
+ * this state can be cleared today is by re-running a flow's customize picker and choosing
+ * "remember" again with the skill re-checked. {@link doClearSavedOptOut} is the direct clear.
+ */
+const savedOptOutFlowsFor = (settings: Settings | undefined, skillName: string): readonly FlowId[] =>
+  FLOW_IDS.filter((flowId) => (settings?.ai.skills?.[flowId]?.disabled ?? []).includes(skillName));
 
 /** Run one catalog mutation, translate the Result into feedback, and reload the list on success. */
 const runCatalogOp = async <T>(
@@ -181,6 +194,38 @@ const doRunUpdateAll = (ctx: ActionCtx): void => {
   );
 };
 
+/** Persist a settings mutation via the same seam the customize picker's "remember" writes. */
+const runSettingsOp = async (ctx: ActionCtx, next: Settings, successLabel: () => string): Promise<void> => {
+  ctx.setBusy(true);
+  const saved = await createSettingsSetFlow({ settingsRepo: ctx.settingsRepo }).execute({ input: { next } });
+  if (!ctx.mountedRef.current) return;
+  ctx.setBusy(false);
+  if (!saved.ok) {
+    ctx.setActionFeedback(feedback('error', `${glyphs.cross} ${saved.error.error.message}`));
+    return;
+  }
+  ctx.setActionFeedback(feedback('success', successLabel()));
+  ctx.reload();
+};
+
+/**
+ * Remove `entry.name` from every flow's `settings.ai.skills[flow].disabled` row — the direct
+ * counterpart to the customize picker's "remember" opt-out, which today is the only other way to
+ * touch this state. No-op (and never called by the view — see the hint's `enabledWhen`) when
+ * settings failed to load or the entry has no saved opt-out anywhere.
+ */
+const doClearSavedOptOut = (ctx: ActionCtx, settings: Settings | undefined, entry: SkillCatalogEntry): void => {
+  const flows = savedOptOutFlowsFor(settings, entry.name);
+  if (settings === undefined || flows.length === 0) return;
+  const nextSkills = { ...settings.ai.skills };
+  for (const flowId of flows) {
+    nextSkills[flowId] = { disabled: (nextSkills[flowId]?.disabled ?? []).filter((n) => n !== entry.name) };
+  }
+  const next: Settings = { ...settings, ai: { ...settings.ai, skills: nextSkills } };
+  const flowLabels = flows.map((f) => FLOW_LABEL[f]).join(', ');
+  void runSettingsOp(ctx, next, () => `${glyphs.check} cleared saved opt-out for "${entry.name}" (${flowLabels})`);
+};
+
 export interface UseSkillCatalogActionsResult {
   readonly picker: PickerState | undefined;
   readonly confirmState: ConfirmState | undefined;
@@ -196,10 +241,15 @@ export interface UseSkillCatalogActionsResult {
   readonly submitPicker: (flows: readonly FlowId[]) => void;
   readonly submitConfirm: (confirmed: boolean) => void;
   readonly flashInfo: (text: string) => void;
+  /** Flows where the entry currently has a saved opt-out — gates the clear-opt-out hint/key. */
+  readonly savedOptOutFlows: (entry: SkillCatalogEntry) => readonly FlowId[];
+  readonly clearSavedOptOut: (entry: SkillCatalogEntry) => void;
 }
 
 export const useSkillCatalogActions = (
   skillCatalog: SkillCatalogPort,
+  settingsRepo: SettingsRepository,
+  settings: Settings | undefined,
   reload: () => void
 ): UseSkillCatalogActionsResult => {
   const mountedRef = useIsMounted();
@@ -210,7 +260,16 @@ export const useSkillCatalogActions = (
   const [actionFeedback, setActionFeedback] = useState<StructuredFeedback | undefined>(undefined);
   const [busy, setBusy] = useState(false);
 
-  const ctx: ActionCtx = { skillCatalog, mountedRef, reload, setBusy, setActionFeedback, setPicker, setConfirmState };
+  const ctx: ActionCtx = {
+    skillCatalog,
+    settingsRepo,
+    mountedRef,
+    reload,
+    setBusy,
+    setActionFeedback,
+    setPicker,
+    setConfirmState,
+  };
 
   return {
     picker,
@@ -226,5 +285,7 @@ export const useSkillCatalogActions = (
     submitPicker: (flows) => doSubmitPicker(ctx, picker, flows),
     submitConfirm: (confirmed) => doSubmitConfirm(ctx, confirmState, confirmed),
     flashInfo: (text) => setActionFeedback(feedback('info', text)),
+    savedOptOutFlows: (entry) => savedOptOutFlowsFor(settings, entry.name),
+    clearSavedOptOut: (entry) => doClearSavedOptOut(ctx, settings, entry),
   };
 };

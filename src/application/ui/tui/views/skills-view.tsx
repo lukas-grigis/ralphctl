@@ -15,6 +15,9 @@
  *             locally-modified copy)
  *   U         update every install whose status is update-available, catalog-wide (never touches
  *             locally-modified or manual installs — no confirm needed)
+ *   c         clear the focused skill's saved opt-out (`settings.ai.skills.<flow>.disabled`) —
+ *             only offered when it actually has one; otherwise the only way to clear it is
+ *             re-running a flow's customize picker and choosing "remember" again
  *   r         reload
  *
  * A `defaultFor` flow always renders "always on (default)" regardless of any phase-folder copy —
@@ -38,7 +41,8 @@ import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx
 import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
 import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
-import type { AiSkillsSettings } from '@src/domain/entity/settings.ts';
+import type { Settings } from '@src/domain/entity/settings.ts';
+import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { SkillCatalogEntry } from '@src/integration/ai/skills/_engine/skill-catalog-port.ts';
 import { SkillRow } from '@src/application/ui/tui/views/skills-view-internals/skill-row.tsx';
 import {
@@ -61,12 +65,28 @@ const CHROME_ROWS = 8;
  */
 const ROW_HEIGHT = 7;
 
+interface SkillsViewState {
+  readonly entries: readonly SkillCatalogEntry[];
+  readonly settings: Settings | undefined;
+}
+
+/**
+ * Loader for `useAsyncLoad` — the catalog listing plus a settings read, used both to make a
+ * "default" chip honest ("default, off (saved)") and to drive the clear-opt-out action. A
+ * settings read failure is non-fatal — the catalog still renders, chips just lose that nuance
+ * and the clear-opt-out action has nothing to clear. Extracted so `SkillsView` stays under the
+ * per-function line budget.
+ */
+const loadSkillsViewState = async (deps: AppDeps): Promise<SkillsViewState> => {
+  const r = await deps.skillCatalog.list();
+  if (!r.ok) throw new Error(r.error.message);
+  const settingsR = await deps.settingsRepo.load();
+  return { entries: r.value, settings: settingsR.ok ? settingsR.value : undefined };
+};
+
 interface SkillsBodyProps {
   readonly helpOpen: boolean;
-  readonly state: AsyncLoadState<
-    { readonly entries: readonly SkillCatalogEntry[]; readonly skills: AiSkillsSettings | undefined },
-    unknown
-  >;
+  readonly state: AsyncLoadState<SkillsViewState, unknown>;
   readonly picker: PickerState | undefined;
   readonly confirmState: ConfirmState | undefined;
   readonly entries: readonly SkillCatalogEntry[];
@@ -174,19 +194,13 @@ export const SkillsView = (): React.JSX.Element => {
   const ui = useUiState();
   const bp = useBreakpoint();
 
-  const { state, reload } = useAsyncLoad<{
-    readonly entries: readonly SkillCatalogEntry[];
-    readonly skills: AiSkillsSettings | undefined;
-  }>(async () => {
-    const r = await deps.skillCatalog.list();
-    if (!r.ok) throw new Error(r.error.message);
-    // Saved per-flow opt-outs make a "default" chip honest ("default, off (saved)"). A settings
-    // read failure is non-fatal here — the catalog still renders, chips just lose that nuance.
-    const settingsR = await deps.settingsRepo.load();
-    return { entries: r.value, skills: settingsR.ok ? settingsR.value.ai.skills : undefined };
-  }, [deps.skillCatalog, deps.settingsRepo]);
+  const { state, reload } = useAsyncLoad<SkillsViewState>(
+    () => loadSkillsViewState(deps),
+    [deps.skillCatalog, deps.settingsRepo]
+  );
   const entries = state.kind === 'ok' ? state.value.entries : [];
-  const skills = state.kind === 'ok' ? state.value.skills : undefined;
+  const settings = state.kind === 'ok' ? state.value.settings : undefined;
+  const skills = settings?.ai.skills;
 
   const EMPTY_NAMES: ReadonlySet<string> = useMemo(() => new Set(), []);
   const savedDisabled = useMemo(() => {
@@ -195,7 +209,7 @@ export const SkillsView = (): React.JSX.Element => {
     return (flowId: FlowId): ReadonlySet<string> => byFlow.get(flowId) ?? EMPTY_NAMES;
   }, [skills, EMPTY_NAMES]);
 
-  const actions = useSkillCatalogActions(deps.skillCatalog, reload);
+  const actions = useSkillCatalogActions(deps.skillCatalog, deps.settingsRepo, settings, reload);
   const { picker, confirmState, bundledNames } = actions;
 
   const claimPrompt = ui.claimPrompt;
@@ -210,12 +224,17 @@ export const SkillsView = (): React.JSX.Element => {
     active: listActive,
   });
 
+  // Gates both the footer hint and the key handler below — pressing `c` only does something
+  // when the focused entry actually has a durable opt-out saved somewhere.
+  const canClearOptOut = focusedItem !== undefined && actions.savedOptOutFlows(focusedItem).length > 0;
+
   useViewHints([
     { keys: '↑/↓/j/k', label: 'move' },
     { keys: 'e', label: 'enable' },
     { keys: 'd', label: 'disable' },
     { keys: 'u', label: 'update' },
     { keys: 'U', label: 'update all' },
+    { keys: 'c', label: 'clear opt-out', enabledWhen: canClearOptOut },
     { keys: 'r', label: 'reload' },
   ]);
 
@@ -235,6 +254,7 @@ export const SkillsView = (): React.JSX.Element => {
     if (input === 'e') actions.startEnable(target);
     else if (input === 'd') actions.startDisable(target);
     else if (input === 'u') actions.runUpdate(target);
+    else if (input === 'c' && canClearOptOut) actions.clearSavedOptOut(target);
   });
 
   return (

@@ -22,6 +22,8 @@ import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { createCreatePrFlow } from '@src/application/flows/create-pr/flow.ts';
 import { createAiProvider } from '@src/application/bootstrap/provider-factory.ts';
+import { createSkillsAdapter } from '@src/integration/ai/skills/adapter-factory.ts';
+import { buildComposedSkillSource } from '@src/application/ui/shared/launcher.ts';
 import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
 import { resolveSprintDir } from '@src/integration/persistence/storage.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
@@ -197,15 +199,32 @@ interface ExecuteCreatePrFlowArgs {
  * row) — in a mixed-provider config that would hand the createPr model string to the implement
  * provider's CLI, a provider/model mismatch. The model is already sourced from
  * `ai.createPr.model`, so the provider must match it.
+ *
+ * The composed skill source is built directly via `buildComposedSkillSource` rather than through
+ * `launchFlow` — this view never reaches that dispatch switch (see `flowMountsSkills`'s doc
+ * comment). The snapshot is intentionally project-less: this is a one-shot summarisation step
+ * over an already-pushed diff, not a per-repo engineering session, so the project-scoped skill
+ * source (detect-skills output) contributes nothing here by design, and omitting it keeps this
+ * view's composition symmetric with the CLI command's (which has no project on hand either).
  */
 const executeCreatePrFlow = async (args: ExecuteCreatePrFlowArgs): Promise<RunState> => {
   const { deps, sprintId, sprintDir, cwd, useAi } = args;
+  const resolvedProvider = deps.settings.ai.createPr.provider;
   const provider = createAiProvider({
     flow: 'createPr',
     ai: deps.settings.ai,
     harnessConfig: deps.settings.harness,
     eventBus: deps.eventBus,
   });
+  const skillSource = buildComposedSkillSource(
+    { app: deps, storage: deps.storage },
+    {},
+    resolvedProvider,
+    'create-pr',
+    deps.settings,
+    {}
+  );
+  const skillsAdapter = createSkillsAdapter({ provider: resolvedProvider, logger: deps.logger });
   const flow = createCreatePrFlow(
     {
       sprintRepo: deps.sprintRepo,
@@ -220,6 +239,8 @@ const executeCreatePrFlow = async (args: ExecuteCreatePrFlowArgs): Promise<RunSt
       writeFile: deps.writeFile,
       logger: deps.logger,
       model: deps.settings.ai.createPr.model,
+      skillSource,
+      skillsAdapter,
     },
     { useAi }
   );

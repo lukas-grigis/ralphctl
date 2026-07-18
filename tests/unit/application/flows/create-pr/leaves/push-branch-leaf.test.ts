@@ -14,6 +14,7 @@ import { createInMemoryEventBus } from '@src/integration/observability/in-memory
 import { absolutePath, FIXED_LATER, makeReviewSprint } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { createPushBranchLeaf } from '@src/application/flows/create-pr/leaves/push-branch-leaf.ts';
+import { emptySkillSource, noopSkillsAdapter } from '@tests/fixtures/skills-fakes.ts';
 import type { CreatePrDeps } from '@src/application/flows/create-pr/deps.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
@@ -95,6 +96,8 @@ const stubCreatePrDeps = (overrides: {
   writeFile: stubWriteFile,
   logger: noopLogger,
   model: 'test-model',
+  skillSource: emptySkillSource,
+  skillsAdapter: noopSkillsAdapter,
 });
 
 const sprint = makeReviewSprint();

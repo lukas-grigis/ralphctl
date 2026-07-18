@@ -1,12 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import { glyphs, inkColors } from '@src/application/ui/tui/theme/tokens.ts';
 import type { SkillCatalogEntry } from '@src/integration/ai/skills/_engine/skill-catalog-port.ts';
+import type { FlowId } from '@src/domain/value/flow-id.ts';
 import {
   chipFlowsFor,
   flowChipVisual,
   SKILL_MOUNTING_FLOW_IDS,
   statusVisual,
 } from '@src/application/ui/tui/views/skills-view-internals/flow-visual.ts';
+
+/**
+ * Every real `FlowId` mounts skills now (create-pr included — see `flowMountsSkills`), so
+ * `SKILL_MOUNTING_FLOW_IDS` is currently the full `FlowId` set. The "non-mounting flow" branches
+ * in `flowChipVisual` / `chipFlowsFor` stay defensively coded for a future flow that ships
+ * without skill-mounting support; this synthetic id exercises that branch since no real `FlowId`
+ * can anymore.
+ */
+const NON_MOUNTING_FLOW = 'legacy-flow' as unknown as FlowId;
 
 const entry = (over: Partial<SkillCatalogEntry> = {}): SkillCatalogEntry => ({
   name: 'ralphctl-example',
@@ -73,20 +83,20 @@ describe('flowChipVisual', () => {
   });
 
   it('renders a non-mounting flow as inactive even when default-on in the registry', () => {
-    const e = entry({ defaultFor: ['createPr'] });
-    expect(flowChipVisual('createPr', e).label).toBe('inactive (flow loads no skills)');
+    const e = entry({ defaultFor: [NON_MOUNTING_FLOW] });
+    expect(flowChipVisual(NON_MOUNTING_FLOW, e).label).toBe('inactive (flow loads no skills)');
   });
 });
 
 describe('SKILL_MOUNTING_FLOW_IDS / chipFlowsFor', () => {
-  it('excludes createPr — no create-pr launch mounts a skill source', () => {
-    expect(SKILL_MOUNTING_FLOW_IDS).not.toContain('createPr');
+  it('includes createPr — the create-pr view / CLI mount a composed skill source directly', () => {
+    expect(SKILL_MOUNTING_FLOW_IDS).toContain('createPr');
     expect(SKILL_MOUNTING_FLOW_IDS).toContain('implement');
   });
 
   it('chips cover the mounting flows, plus a leftover install on a non-mounting flow', () => {
     expect(chipFlowsFor(entry())).toEqual([...SKILL_MOUNTING_FLOW_IDS]);
-    const leftover = entry({ installs: [{ flow: 'createPr', status: 'in-sync' }] });
-    expect(chipFlowsFor(leftover)).toEqual([...SKILL_MOUNTING_FLOW_IDS, 'createPr']);
+    const leftover = entry({ installs: [{ flow: NON_MOUNTING_FLOW, status: 'in-sync' }] });
+    expect(chipFlowsFor(leftover)).toEqual([...SKILL_MOUNTING_FLOW_IDS, NON_MOUNTING_FLOW]);
   });
 });

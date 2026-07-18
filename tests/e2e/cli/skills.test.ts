@@ -17,11 +17,12 @@ describe('ralphctl skills list', () => {
     expect(result.exitCode).toBe(0);
 
     // Descends from v1's global default bundle — default-ON for every flow whose launcher
-    // actually mounts skills (createPr is excluded, see skills.ts's module doc).
+    // actually mounts skills, createPr included (its view / CLI compose a skill source
+    // directly — see `flowMountsSkills`'s doc comment in launcher.ts).
     const alignmentLine = result.stdout.split('\n').find((line) => line.startsWith('ralphctl-alignment'));
     expect(alignmentLine).toBeDefined();
     expect(alignmentLine).toContain('bundled');
-    expect(alignmentLine).toContain('flows: refine, plan, implement, readiness, ideate');
+    expect(alignmentLine).toContain('flows: refine, plan, implement, readiness, ideate, createPr');
 
     // Curated addition scoped to a single phase — proves the column isn't just "every flow".
     const ideationLine = result.stdout.split('\n').find((line) => line.startsWith('ralphctl-idea-refinement'));
@@ -43,6 +44,6 @@ describe('ralphctl skills list', () => {
     expect(alignmentLine).toBeDefined();
     // "implement" no longer sits between "plan," and "readiness," once opted out — a plain
     // `not.toContain('implement')` would false-positive on unrelated description prose.
-    expect(alignmentLine).toContain('flows: refine, plan, readiness, ideate');
+    expect(alignmentLine).toContain('flows: refine, plan, readiness, ideate, createPr');
   });
 });

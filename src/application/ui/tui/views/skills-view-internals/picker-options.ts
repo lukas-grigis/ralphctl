@@ -14,13 +14,13 @@ import {
 } from '@src/application/ui/tui/views/skills-view-internals/flow-visual.ts';
 
 /**
- * Every skill-MOUNTING flow is offered (a flow whose launch never mounts a skill source —
- * createPr today — is not listed at all: enabling there would advertise an effect that never
- * happens). A flow the skill is already default-ON for is disabled (opting it in would be a
- * no-op — it loads regardless, see `flowChipVisual`'s doc comment) but still shown so the
- * operator understands why it's greyed out; likewise an edit-protected copy (`locally-modified`
- * / `manual`) is shown disabled — `enable` deliberately skips those, `u` (update, with confirm)
- * is the overwrite path.
+ * Every skill-MOUNTING flow is offered (a flow whose launch never mounts a skill source — none
+ * today; every real `FlowId` mounts, createPr included — is not listed at all: enabling there
+ * would advertise an effect that never happens). A flow the skill is already default-ON for is
+ * disabled (opting it in would be a no-op — it loads regardless, see `flowChipVisual`'s doc
+ * comment) but still shown so the operator understands why it's greyed out; likewise an
+ * edit-protected copy (`locally-modified` / `manual`) is shown disabled — `enable` deliberately
+ * skips those, `u` (update, with confirm) is the overwrite path.
  */
 export const enableOptions = (entry: SkillCatalogEntry): ReadonlyArray<Choice<FlowId>> =>
   SKILL_MOUNTING_FLOW_IDS.map((flowId) => {

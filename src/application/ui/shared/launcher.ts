@@ -200,6 +200,16 @@ export interface LauncherDeps {
   readonly runInTerminal: RunInTerminal;
 }
 
+/**
+ * The subset of {@link LauncherDeps} that skill-source composition actually reads — narrower
+ * than the full bag so a caller with no `InteractivePrompt` / `RunInTerminal` (a one-shot CLI
+ * command, or a TUI view that never pauses the host) can compose a skill source without
+ * inventing ports it never uses. A full `LauncherDeps` object still satisfies this structurally.
+ *
+ * @public
+ */
+export type SkillCompositionDeps = Pick<LauncherDeps, 'app' | 'storage'>;
+
 const sessionId = (): string => `r-${Math.random().toString(36).slice(2, 10)}-${String(Date.now())}`;
 
 /** The `ok: true` branch of {@link LaunchResult} — the shape {@link sessionHintsFromLaunchResult} reads. */
@@ -283,18 +293,29 @@ const aiFlowIdFor = (flowId: string): FlowId | undefined => {
 };
 
 /**
- * Flows whose launch context actually threads `ctx.skillSource` into the dispatched use case
- * (see each `launch/<flow>.ts`) — the only flows where a per-run skills customization has any
- * effect. `review` / `detect-scripts` / `detect-skills` reuse another flow's AI row via
- * {@link aiFlowIdFor} but their own launchers never read `ctx.skillSource`, so a skills override
- * for them would silently no-op; `create-pr` never reaches the chain launcher at all (routed to
- * its own view). The customize picker's skills step is skipped entirely for a flow this returns
- * `false` for, rather than presenting a checklist that wouldn't do anything.
+ * Flows whose AI session actually gets a composed skill source installed — the only flows
+ * where a per-run skills customization has any effect. `review` / `detect-scripts` /
+ * `detect-skills` reuse another flow's AI row via {@link aiFlowIdFor} but their own launchers
+ * never read `ctx.skillSource`, so a skills override for them would silently no-op.
+ *
+ * `create-pr` mounts skills too, but never reaches `launchFlow`'s dispatch switch — it's routed
+ * to its own view (`create-pr-view.tsx`) and its own CLI command, each calling
+ * {@link buildComposedSkillSource} directly around the `generate-pr-content` leaf. It therefore
+ * has no customize-picker skills step (no per-run checklist / opt-out UI); it always installs
+ * the settings/registry-resolved default set for the `createPr` row.
+ *
+ * The customize picker's skills step is skipped entirely for a flow this returns `false` for,
+ * rather than presenting a checklist that wouldn't do anything.
  *
  * @public
  */
 export const flowMountsSkills = (flowId: string): boolean =>
-  flowId === 'refine' || flowId === 'plan' || flowId === 'implement' || flowId === 'readiness' || flowId === 'ideate';
+  flowId === 'refine' ||
+  flowId === 'plan' ||
+  flowId === 'implement' ||
+  flowId === 'readiness' ||
+  flowId === 'ideate' ||
+  flowId === 'create-pr';
 
 /**
  * Every {@link FlowId} whose launch context actually mounts a skill source, derived from
@@ -447,8 +468,8 @@ const buildLaunchAdapters = (deps: LauncherDeps, flowId: string, settings: Setti
  * source that actually gets installed).
  */
 const buildSkillSourceQuad = (
-  deps: LauncherDeps,
-  snapshot: AppStateSnapshot,
+  deps: SkillCompositionDeps,
+  snapshot: Pick<AppStateSnapshot, 'project'>,
   resolvedProvider: AiProvider,
   warnIfContractViolated?: (skill: Skill) => void
 ): {
@@ -497,8 +518,8 @@ const buildSkillSourceQuad = (
  * @public
  */
 export const buildComposedSkillSource = (
-  deps: LauncherDeps,
-  snapshot: AppStateSnapshot,
+  deps: SkillCompositionDeps,
+  snapshot: Pick<AppStateSnapshot, 'project'>,
   resolvedProvider: AiProvider,
   flowId: string,
   settings: Settings,
@@ -565,8 +586,8 @@ export interface SkillCandidatesResult {
  * @public
  */
 export const buildSkillCandidates = async (
-  deps: LauncherDeps,
-  snapshot: AppStateSnapshot,
+  deps: SkillCompositionDeps,
+  snapshot: Pick<AppStateSnapshot, 'project'>,
   flowId: string,
   settings: Settings,
   providerOverride?: AiProvider

@@ -379,7 +379,7 @@ describe('SkillsView', () => {
     await waitFor(() => (result.lastFrame() ?? '').includes('already up to date'));
   });
 
-  it('never offers Create PR — the create-pr launch loads no skills', async () => {
+  it('offers Create PR — its view / CLI compose a skill source directly, same as any mounting flow', async () => {
     const name = bundledName();
     const catalog = fakeCatalog([
       {
@@ -393,15 +393,17 @@ describe('SkillsView', () => {
     const { result } = renderView(<SkillsView />, { deps: buildDeps(catalog), initial: { id: 'skills' } });
     await waitForViewReady(result, (f) => f.includes(name));
     const frame = result.lastFrame() ?? '';
-    // No chip for the non-mounting flow — neither as default-on nor as not-enabled.
-    expect(frame).not.toContain('■ pr');
+    // createPr is default-on: the phaseDone glyph ('■') marks it like any other mounting flow.
+    expect(frame).toContain('■ pr');
     expect(frame).not.toContain('◌ pr');
 
     result.stdin.write('e');
     await waitFor(() => (result.lastFrame() ?? '').includes('Enable'));
     const picker = result.lastFrame() ?? '';
-    expect(picker).not.toContain('Create PR');
-    // The mounting recommendation is still preselected.
+    // Offered but disabled — it's already default-on for createPr, same treatment as any flow.
+    expect(picker).toContain('Create PR');
+    expect(picker).toContain('already default-on');
+    // Plan is recommended (not default-on): still preselected.
     expect(picker).toMatch(/\[[xX✔✓]]\s*Plan/);
   });
 
@@ -423,5 +425,60 @@ describe('SkillsView', () => {
     // The saved opt-out demotes the "always on" chip: muted ◌ instead of highlighted ■.
     expect(frame).toContain('◌ imp');
     expect(frame).not.toContain('■ imp');
+  });
+
+  it('clear opt-out (c): removes a durable disable and the row reflects it after reload', async () => {
+    const name = bundledName();
+    const catalog = fakeCatalog([
+      { name, description: 'x', defaultFor: ['implement'], recommendedFor: [], installs: [] },
+    ]);
+    // `load` mirrors the repository's read-after-write: the second load (triggered by the
+    // action's reload()) must see whatever `save` last wrote, not the original fixture.
+    let current: Settings = {
+      ...DEFAULT_SETTINGS,
+      ai: { ...DEFAULT_SETTINGS.ai, skills: { implement: { disabled: [name] } } },
+    };
+    const deps = {
+      skillCatalog: catalog,
+      settingsRepo: {
+        load: async () => Result.ok(current),
+        save: async (next: Settings) => {
+          current = next;
+          return Result.ok(undefined);
+        },
+      },
+      storage: { operatorSkillsRoot: abs('/tmp/ralphctl-skills-root-test') },
+    } as unknown as AppDeps;
+
+    const { result } = renderView(<SkillsView />, { deps, initial: { id: 'skills' } });
+    await waitForViewReady(result, (f) => f.includes(name));
+    expect(result.lastFrame() ?? '').toContain('◌ imp');
+
+    result.stdin.write('c');
+    await waitFor(() => (result.lastFrame() ?? '').includes('■ imp'));
+
+    expect(current.ai.skills?.implement?.disabled).toEqual([]);
+  });
+
+  it('clear opt-out (c) is a no-op when the focused skill has no saved opt-out anywhere', async () => {
+    const name = bundledName();
+    const catalog = fakeCatalog([
+      { name, description: 'x', defaultFor: ['implement'], recommendedFor: [], installs: [] },
+    ]);
+    const save = vi.fn(async () => Result.ok(undefined));
+    const deps = {
+      skillCatalog: catalog,
+      settingsRepo: { load: async () => Result.ok(DEFAULT_SETTINGS), save },
+      storage: { operatorSkillsRoot: abs('/tmp/ralphctl-skills-root-test') },
+    } as unknown as AppDeps;
+
+    const { result } = renderView(<SkillsView />, { deps, initial: { id: 'skills' } });
+    await waitForViewReady(result, (f) => f.includes(name));
+    // No saved opt-out anywhere for this entry — the always-on chip is already showing.
+    expect(result.lastFrame() ?? '').toContain('■ imp');
+
+    result.stdin.write('c');
+    await tick();
+    expect(save).not.toHaveBeenCalled();
   });
 });

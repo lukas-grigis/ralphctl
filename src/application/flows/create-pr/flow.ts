@@ -9,6 +9,8 @@ import { createPushBranchLeaf } from '@src/application/flows/create-pr/leaves/pu
 import { createCreatePrLeaf } from '@src/application/flows/create-pr/leaves/create-pr-leaf.ts';
 import { createLoadCreatePrContextLeaf } from '@src/application/flows/create-pr/leaves/load-create-pr-context-leaf.ts';
 import { generatePrContentLeaf } from '@src/application/flows/create-pr/leaves/generate-pr-content-leaf.ts';
+import { installSkillsLeaf } from '@src/application/flows/_shared/skills/install-skills.ts';
+import { uninstallSkillsLeaf } from '@src/application/flows/_shared/skills/uninstall-skills.ts';
 import { buildUnitLeaf } from '@src/application/flows/_shared/build-unit.ts';
 import { renderPromptToFileLeaf } from '@src/application/flows/_shared/render-prompt-to-file.ts';
 import {
@@ -40,7 +42,9 @@ export interface CreateCreatePrFlowOpts {
  *     load-create-pr-context,         // hydrate sprint + tasks + headBranch onto ctx
  *     build-create-pr-unit,           // mkdir <sprintDir>/create-pr/<run-slug>/
  *     render-prompt-to-file,          // write prompt.md
+ *     install-skills,                 // copy the createPr flow's skills into the unit root
  *     generate-pr-content,            // headless AI authoring → ctx.aiContent
+ *     uninstall-skills,               // remove them again (skipped if an abort short-circuits)
  *     create-pr,                      // gh pr create / glab mr create + persist URL
  *   ])
  *
@@ -113,6 +117,10 @@ export const createCreatePrFlow = (deps: CreatePrDeps, opts: CreateCreatePrFlowO
           write: (ctx, path) => ({ ...ctx, currentPromptFile: path }),
         }
       ),
+      installSkillsLeaf<CreatePrCtx>(
+        { skillsAdapter: deps.skillsAdapter, skillSource: deps.skillSource },
+        { name: 'install-skills', flowId: 'createPr', cwdPicker: unitRootCwdPicker('install-skills') }
+      ),
       generatePrContentLeaf({
         provider: deps.provider,
         templateLoader: deps.templateLoader,
@@ -120,7 +128,11 @@ export const createCreatePrFlow = (deps: CreatePrDeps, opts: CreateCreatePrFlowO
         eventBus: deps.eventBus,
         logger: deps.logger,
         model: deps.model,
-      })
+      }),
+      uninstallSkillsLeaf<CreatePrCtx>(
+        { skillsAdapter: deps.skillsAdapter },
+        { name: 'uninstall-skills', cwdPicker: unitRootCwdPicker('uninstall-skills') }
+      )
     );
   }
 
@@ -128,6 +140,21 @@ export const createCreatePrFlow = (deps: CreatePrDeps, opts: CreateCreatePrFlowO
 
   return sequential<CreatePrCtx>('create-pr', children);
 };
+
+/**
+ * Shared `cwdPicker` for the install/uninstall-skills leaves bracketing `generate-pr-content` —
+ * both must target the same sandbox (`ctx.currentUnitRoot`, populated by `build-create-pr-unit`).
+ * `leafName` names the failing leaf in the thrown error so a misordered chain surfaces at the
+ * leaf that actually broke, not a generic message.
+ */
+const unitRootCwdPicker =
+  (leafName: string) =>
+  (ctx: CreatePrCtx): AbsolutePath => {
+    if (ctx.currentUnitRoot === undefined) {
+      throw new Error(`${leafName}: currentUnitRoot missing — build-create-pr-unit must run first`);
+    }
+    return ctx.currentUnitRoot;
+  };
 
 /**
  * Slugify a branch name so it can be used as a stable folder name. Replaces `/` and any

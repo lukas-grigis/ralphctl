@@ -183,23 +183,30 @@ describe('buildComposedSkillSource — aliased-flow row inheritance', () => {
 
   it('maps the create-pr orchestration id to the createPr settings row', async () => {
     const deps = await makeDeps();
-    const settings = withSkills({ createPr: { disabled: ['ralphctl-code-review-and-quality'] } });
+    // ralphctl-alignment is one of the four ALL_FLOWS defaults (content-generic, no contract
+    // tension with create-pr's single-signal output contract) — it's actually present by
+    // default for createPr, so disabling it proves the opt-out subtraction, unlike a skill
+    // that's createPr-recommendedFor-only (e.g. ralphctl-code-review-and-quality) and was
+    // never in the resolved set to begin with.
+    const settings = withSkills({ createPr: { disabled: ['ralphctl-alignment'] } });
     const resolved = buildComposedSkillSource(deps, snapshot, 'claude-code', 'create-pr', settings, {});
 
     const names = (await forFlow(resolved, 'createPr')).map((s) => s.name);
-    expect(names).not.toContain('ralphctl-code-review-and-quality');
+    expect(names).not.toContain('ralphctl-alignment');
   });
 });
 
 describe('flowMountsSkills — gate for the customize picker skills step', () => {
-  it('returns true only for the five flows whose launch context threads ctx.skillSource', () => {
-    for (const id of ['refine', 'plan', 'implement', 'readiness', 'ideate']) {
+  it('returns true for every flow whose AI session gets a composed skill source', () => {
+    // create-pr mounts too, but via its own view / CLI calling buildComposedSkillSource
+    // directly — it never reaches launchFlow's dispatch, so it has no customize-picker step.
+    for (const id of ['refine', 'plan', 'implement', 'readiness', 'ideate', 'create-pr']) {
       expect(flowMountsSkills(id)).toBe(true);
     }
   });
 
-  it('returns false for aliased / non-mounting flows and non-AI flows', () => {
-    for (const id of ['review', 'detect-scripts', 'detect-skills', 'create-pr', 'create-sprint', 'close-sprint']) {
+  it('returns false for aliased flows and non-AI flows', () => {
+    for (const id of ['review', 'detect-scripts', 'detect-skills', 'create-sprint', 'close-sprint']) {
       expect(flowMountsSkills(id)).toBe(false);
     }
   });
