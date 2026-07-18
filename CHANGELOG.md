@@ -17,6 +17,44 @@ to [Semantic Versioning](https://semver.org/).
   every project. Bind one to the implement generator or evaluator role with
   `ralphctl settings set ai.implement.agents.<role> <name>`; `ralphctl agents list` shows what's
   available and which role each is currently bound to.
+- **`ralphctl skills list`.** CLI counterpart to the TUI skills catalog: each skill's tier, the flows
+  it is enabled for (saved opt-outs applied), and its provenance (in sync / update available / locally
+  modified) — for scripting and quick inspection outside the TUI.
+- **Skills in the Create PR flow.** The PR-drafting session now mounts the same curated skills as the
+  other flows. The code-review skill stays a recommended opt-in there rather than a default — its
+  review-signal guidance can conflict with the flow's single-summary output contract.
+- **Clear a saved skill opt-out from the catalog.** Press `c` on a skill in the catalog (hotkey `K`)
+  to clear a remembered per-flow opt-out — previously only possible by re-answering the remember
+  prompt on a later run.
+- **Startup install-integrity check.** A broken or half-upgraded global install (missing bundled
+  prompt/skill assets, or a `dist/` built for a different version) is now caught at launch with a
+  one-line "reinstall ralphctl" hint, instead of failing mid-flow with a generic storage error — the
+  failure class behind the 0.15.1 patch release.
+- **Plateau exits name their detector.** `progress.md` and escalation events now record which plateau
+  detector fired (threshold / diversity / entropy), so a long run's exit behaviour can be audited from
+  the journal instead of guessed at.
+- **Corrective-nudge visibility.** When a session produces an invalid `signals.json` and the harness
+  re-prompts it, the per-task journal outcome now reports how many corrective nudges were spent (they
+  remain exempt from the turn/attempt budget).
+- **Sessions are told what tooling they have.** Implement generator and evaluator prompts now name the
+  bound sub-agent persona and the skills installed for the run, instead of always rendering
+  "(none detected)".
+
+### Fixed
+
+- **Long-sprint context was silently truncated.** A fixed 4,000-character substitution backstop chopped
+  the carefully capped progress journal and prior learnings down to their last 4K characters —
+  discarding the sprint state header, pinned lifecycle breadcrumbs, and earlier-attempt history that
+  the prompts explicitly tell the model to honor. The backstop now only fires on true overflow, and a
+  fence test ties its ceiling to the largest supported context window.
+- **Esc in the wide Implement layout.** With a task card expanded, Esc now collapses the card first; a
+  second Esc leaves the view as before.
+
+### Changed
+
+- **The bundled minimal-scaffolding skill speaks downstream language.** Internal orchestrator
+  vocabulary was removed from its body; the discipline it teaches — question every component, remove
+  one at a time, measure, default to subtraction — is unchanged.
 
 ## [0.15.1] - 2026-07-06
 

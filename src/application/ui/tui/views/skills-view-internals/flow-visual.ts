@@ -3,22 +3,17 @@
  * so the glyph/colour/label decisions are unit-testable without mounting Ink.
  */
 
-import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
+import type { FlowId } from '@src/domain/value/flow-id.ts';
 import type { SkillCatalogEntry, SkillInstallStatus } from '@src/integration/ai/skills/_engine/skill-catalog-port.ts';
-import { PHASE_FLOW_DIR } from '@src/integration/ai/skills/phase/source.ts';
-import { flowMountsSkills } from '@src/application/ui/shared/launcher.ts';
+import { SKILL_MOUNTING_FLOW_IDS } from '@src/application/ui/shared/launcher.ts';
 import { glyphs, inkColors } from '@src/application/ui/tui/theme/tokens.ts';
 
 /**
- * Flows whose launch context actually mounts a skill source — derived from the launcher's
- * `flowMountsSkills` (the single source of truth), keyed back to `FlowId` via the phase-dir
- * mapping (dir names equal the orchestration dispatch ids). The catalog offers, preselects, and
- * renders chips ONLY for these: advertising an enable target no launch ever consumes (createPr
- * today — its flow has no skill-mounting dispatch) would misrepresent effect.
+ * Re-exported for existing consumers (`picker-options.ts`, this module's own tests) — the
+ * canonical derivation now lives in `ui/shared/launcher.ts` next to `flowMountsSkills` so the
+ * TUI catalog and `ralphctl skills list` can never drift on which flows a skill can load into.
  */
-export const SKILL_MOUNTING_FLOW_IDS: readonly FlowId[] = FLOW_IDS.filter((flowId) =>
-  flowMountsSkills(PHASE_FLOW_DIR[flowId])
-);
+export { SKILL_MOUNTING_FLOW_IDS };
 
 /**
  * Flows a row renders chips for: every mounting flow, plus any NON-mounting flow that already

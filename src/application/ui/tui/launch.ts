@@ -42,6 +42,7 @@ import { startHeapWatchdog } from '@src/integration/observability/heap-watchdog.
 import { writeHeapSnapshotToDir } from '@src/integration/observability/heap-snapshot.ts';
 import { createOsNotificationDispatcher } from '@src/integration/observability/os-notification-dispatcher.ts';
 import { startNotificationSubscriber } from '@src/business/observability/notification-subscriber.ts';
+import { runBundleIntegrityCheck } from '@src/application/bootstrap/run-bundle-integrity-check.ts';
 
 interface Bootstrapped {
   readonly app: Parameters<typeof App>[0];
@@ -271,6 +272,12 @@ const bootstrap = async (): Promise<Bootstrapped> => {
   const logBus = createBusSink<LogEvent>({ maxEntries: 2000 });
 
   const deps = wire({ storage: paths.value, settings: settings.value });
+
+  // Runs once per process: `launchTui` is the single bare-`ralphctl` entry point and `bootstrap`
+  // runs exactly once per invocation. A hard failure throws here and is caught by `launchTui`
+  // below, which renders it as a one-line stderr message instead of a raw stack trace. See
+  // run-bundle-integrity-check.ts for the full story.
+  await runBundleIntegrityCheck(deps.logger);
 
   // Forward EventBus 'ai-signal' events into the TUI's harness bus. See createSignalForwarder
   // for the full rationale.

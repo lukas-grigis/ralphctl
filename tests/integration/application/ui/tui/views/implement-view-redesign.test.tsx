@@ -20,6 +20,7 @@ import { render } from 'ink-testing-library';
 import { describe, expect, it, vi } from 'vitest';
 import { ImplementSidebar } from '@src/application/ui/tui/views/execute-view-internals/implement-sidebar.tsx';
 import { ExecuteBody } from '@src/application/ui/tui/views/execute-view-internals/body.tsx';
+import { UiStateProvider } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/use-responsive-layout.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
 import type { BucketedExecution, TaskBucket } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
@@ -234,37 +235,43 @@ describe('ExecuteBody — wide layout redesign at 180×50', () => {
     // "now" is (BASE_MS + 3 min) so the label's `Date.now()` seed is deterministic; restored
     // immediately after the synchronous render + frame capture.
     vi.useFakeTimers({ now: BASE_MS + 180_000 });
+    // ImplementMainArea (mounted by ExecuteBody's wide-layout path) reads `useUiState()` to
+    // claim `esc` while an expanded card is focused — needs a UiStateProvider ancestor.
     const { lastFrame, unmount } = render(
-      React.createElement(ExecuteBody, {
-        descriptor,
-        sessionList: [],
-        sessionId: 'sess-visual-test-001',
-        isRunning: true,
-        now: BASE_MS + 180_000,
-        elapsed: '3m00s',
-        layout,
-        termColumns: cols,
-        termRows: rows,
-        bucketed,
-        executionState: undefined,
-        taskState: undefined,
-        tokenUsage: makeCumulativeTokenUsage(),
-        tasksDone: 0,
-        tasksTotal: 2,
-        currentTask: task,
-        currentTaskIdx: 0,
-        currentTaskName: 'Implement auth middleware',
-        currentSubStep: 'generator',
-        tasksPanel: null,
-        logEntries: [],
-        cancelScopeOpen: false,
-        attemptElapsedMs: 8500,
-        remainingTaskCount: 1,
-        onCancelAttempt: vi.fn(),
-        onCancelFlow: vi.fn(),
-        onDismissCancelScope: vi.fn(),
-        pinnedSprintStale: false,
-      })
+      React.createElement(
+        UiStateProvider,
+        null,
+        React.createElement(ExecuteBody, {
+          descriptor,
+          sessionList: [],
+          sessionId: 'sess-visual-test-001',
+          isRunning: true,
+          now: BASE_MS + 180_000,
+          elapsed: '3m00s',
+          layout,
+          termColumns: cols,
+          termRows: rows,
+          bucketed,
+          executionState: undefined,
+          taskState: undefined,
+          tokenUsage: makeCumulativeTokenUsage(),
+          tasksDone: 0,
+          tasksTotal: 2,
+          currentTask: task,
+          currentTaskIdx: 0,
+          currentTaskName: 'Implement auth middleware',
+          currentSubStep: 'generator',
+          tasksPanel: null,
+          logEntries: [],
+          cancelScopeOpen: false,
+          attemptElapsedMs: 8500,
+          remainingTaskCount: 1,
+          onCancelAttempt: vi.fn(),
+          onCancelFlow: vi.fn(),
+          onDismissCancelScope: vi.fn(),
+          pinnedSprintStale: false,
+        })
+      )
     );
     const frame = lastFrame() ?? '';
     vi.useRealTimers();
@@ -318,37 +325,42 @@ describe('ExecuteBody — wide layout redesign at 220×60', () => {
     // See the 180×50 describe block above — HeaderCard's elapsed text ticks via its own
     // internal `useLiveClock`, so the system clock is frozen for the render + frame capture.
     vi.useFakeTimers({ now: BASE_MS + 180_000 });
+    // See the 180×50 describe block above — ImplementMainArea needs a UiStateProvider ancestor.
     const { lastFrame, unmount } = render(
-      React.createElement(ExecuteBody, {
-        descriptor,
-        sessionList: [],
-        sessionId: 'sess-visual-test-001',
-        isRunning: true,
-        now: BASE_MS + 180_000,
-        elapsed: '3m00s',
-        layout,
-        termColumns: cols,
-        termRows: rows,
-        bucketed,
-        executionState: undefined,
-        taskState: undefined,
-        tokenUsage: makeCumulativeTokenUsage(),
-        tasksDone: 0,
-        tasksTotal: 2,
-        currentTask: task,
-        currentTaskIdx: 0,
-        currentTaskName: 'Implement auth middleware',
-        currentSubStep: 'generator',
-        tasksPanel: null,
-        logEntries: [],
-        cancelScopeOpen: false,
-        attemptElapsedMs: 8500,
-        remainingTaskCount: 1,
-        onCancelAttempt: vi.fn(),
-        onCancelFlow: vi.fn(),
-        onDismissCancelScope: vi.fn(),
-        pinnedSprintStale: false,
-      })
+      React.createElement(
+        UiStateProvider,
+        null,
+        React.createElement(ExecuteBody, {
+          descriptor,
+          sessionList: [],
+          sessionId: 'sess-visual-test-001',
+          isRunning: true,
+          now: BASE_MS + 180_000,
+          elapsed: '3m00s',
+          layout,
+          termColumns: cols,
+          termRows: rows,
+          bucketed,
+          executionState: undefined,
+          taskState: undefined,
+          tokenUsage: makeCumulativeTokenUsage(),
+          tasksDone: 0,
+          tasksTotal: 2,
+          currentTask: task,
+          currentTaskIdx: 0,
+          currentTaskName: 'Implement auth middleware',
+          currentSubStep: 'generator',
+          tasksPanel: null,
+          logEntries: [],
+          cancelScopeOpen: false,
+          attemptElapsedMs: 8500,
+          remainingTaskCount: 1,
+          onCancelAttempt: vi.fn(),
+          onCancelFlow: vi.fn(),
+          onDismissCancelScope: vi.fn(),
+          pinnedSprintStale: false,
+        })
+      )
     );
     const frame = lastFrame() ?? '';
     vi.useRealTimers();

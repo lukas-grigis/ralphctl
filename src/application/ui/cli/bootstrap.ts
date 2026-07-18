@@ -19,6 +19,7 @@ import {
 } from '@src/application/bootstrap/storage-paths.ts';
 import { detectLegacyLayout, renderLegacyLayoutMessage } from '@src/application/bootstrap/legacy-layout-detector.ts';
 import { createJsonSettingsRepository } from '@src/integration/persistence/settings/json-settings-repository.ts';
+import { runBundleIntegrityCheck } from '@src/application/bootstrap/run-bundle-integrity-check.ts';
 
 export interface CliBootstrap {
   readonly deps: AppDeps;
@@ -57,5 +58,10 @@ export const bootstrapCli = async (): Promise<CliBootstrap> => {
   if (!settings.ok) throw new Error(`settings: ${settings.error.message}`);
 
   const deps = wire({ storage: paths.value, settings: settings.value });
+
+  // Runs once per process: a CLI invocation is one subcommand per process, and `bootstrapCli`
+  // is called exactly once per invocation. See run-bundle-integrity-check.ts for the full story.
+  await runBundleIntegrityCheck(deps.logger);
+
   return { deps, storage: paths.value };
 };

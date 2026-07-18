@@ -6,3 +6,4 @@
   sub-chain, attempt outer loop, task-graph validation
 - [project_windowed_list_review.md](project_windowed_list_review.md) — Windowed-list / ScrollRegion review findings: WindowedList dead export, new flaky windowing test, pick-sprint-view not migrated
 - [project_coalesced_buffer_review.md](project_coalesced_buffer_review.md) — CoalescedBuffer onCritical window-not-cleared bug + double-seed nit from 0.10.0 commit-storm fix
+- [project_esc_collapse_claim_seam.md](project_esc_collapse_claim_seam.md) — Wide Implement view Esc-collapse-before-pop: claimEscape suppresses pop, keymap collapses; undefined-sentinel ref establishes mount-time claim

@@ -16,7 +16,9 @@
  *
  * The manifest is the runtime "did the build complete?" gate — a partial copy
  * silently producing a bundle that serves empty prompts is the failure mode
- * we're guarding against. Run after `tsup` has produced `dist/cli.mjs`.
+ * we're guarding against. `integration/system/bundle-integrity.ts` reads it once at startup
+ * (bundle mode only) and existence-checks every listed asset plus `packageVersion` against the
+ * running package. Run after `tsup` has produced `dist/cli.mjs`.
  * Idempotent: re-running cleans `dist/prompts/`, `dist/skills/`, and
  * `dist/agent-definitions/` before re-copying.
  */
@@ -25,6 +27,7 @@ import { cp, mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import pkg from '../package.json' with { type: 'json' };
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(HERE, '..');
@@ -92,7 +95,14 @@ for (const entry of agentDefinitionEntries) {
 assets.sort();
 
 const manifest = {
-  version: 1,
+  // Manifest layout version — bump when the shape below changes, independent of the package
+  // release cadence. `integration/system/bundle-integrity.ts` doesn't read this today; it's
+  // recorded for a future schema migration.
+  schemaVersion: 1,
+  // Package release this manifest was generated for. `bundle-integrity.ts`'s startup probe
+  // cross-checks this against `cli-metadata.ts`'s running version to catch a half-upgraded
+  // global install (e.g. `dist/cli.mjs` replaced but stale `dist/prompts/` left behind).
+  packageVersion: pkg.version,
   generatedAt: new Date().toISOString(),
   assets,
 };

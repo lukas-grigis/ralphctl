@@ -20,6 +20,7 @@ import type { AiSignal, HarnessSignal, LearningEntry } from '@src/domain/signal.
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
+import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
 import type { PublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import { buildImplementPrompt } from '@src/integration/ai/prompts/implement/definition.ts';
 import { buildImplementContinuationPrompt } from '@src/integration/ai/prompts/implement-continuation/definition.ts';
@@ -45,6 +46,8 @@ import {
   writeRoundPrompt,
 } from '@src/application/flows/implement/leaves/round-artifacts.ts';
 import { capProgressBody, progressCapBudgetForModel } from '@src/application/flows/_shared/progress/cap-progress.ts';
+import { composeProjectTooling } from '@src/application/flows/implement/leaves/_shared/compose-project-tooling.ts';
+import { positiveCountCarry } from '@src/application/flows/implement/leaves/_shared/nudge-count-carry.ts';
 import {
   formatPreVerifyResults,
   formatRetryFeedback,
@@ -107,12 +110,28 @@ export interface GeneratorLeafDeps {
   /** Optional reasoning / effort level forwarded into every `implementSession` AiSession. */
   readonly effort?: string;
   /**
-   * Pre-composed "## Agent Definition" prompt section (raw content, not yet rendered) — see
+   * Pre-composed bound-agent-definition prompt body (raw content — `renderAgentDefinitionSection`
+   * wraps it under the "## Agent Definition" heading at render time) — see
    * `GenEvalLoopRoleConfig.agentDefinitionSection`. Threaded into the FULL implement prompt's
    * `agentDefinition` slot only (round 1 of a session thread); a resumed continuation already
    * carries it in-conversation, matching {@link priorLearnings}'s rule.
    */
   readonly agentDefinition?: string;
+  /**
+   * This role's bound agent-definition NAME (the portable-agents feature's bare identifier, not
+   * the rendered {@link agentDefinition} section) — threaded separately so the FULL prompt's
+   * `{{PROJECT_TOOLING}}` catalog can name the same binding `{{AGENT_DEFINITION_SECTION}}`
+   * already announces, without re-parsing the rendered prose. Absent when the role has no
+   * binding. See `compose-project-tooling.ts`.
+   */
+  readonly agentDefinitionName?: string;
+  /**
+   * Per-flow skill catalog port — the same source `installSkillsLeaf` reads to install this
+   * task's skills into the session sandbox. Read again here (best-effort) to name each installed
+   * skill in the FULL prompt's `{{PROJECT_TOOLING}}` catalog (round 1 of a session thread only).
+   * Absent → the catalog simply omits the skills lines.
+   */
+  readonly skillSource?: SkillSource;
   readonly verifyScript?: string;
   readonly clock: () => IsoTimestamp;
   readonly logger: Logger;
@@ -234,6 +253,13 @@ interface GeneratorOutput {
    * so the journal leaf can render the per-attempt `### Notes` subsection.
    */
   readonly notesEmitted: readonly string[];
+  /**
+   * Corrective `signals.json` nudges this turn needed (`0` on a clean first parse) — read from
+   * `validateSignalsFileWithCorrectiveRetry`'s `nudgeCount`. Accumulates onto
+   * `ctx.currentAttemptGeneratorNudges` so the journal leaf can render the cost-visibility clause.
+   * Pure observability; never affects retry semantics.
+   */
+  readonly correctiveNudgeCount: number;
 }
 
 /**
@@ -312,10 +338,38 @@ const isPlateauBreakAttempt = (task: InProgressTask): boolean => {
  *  - the `<pre_verify_results>` / `<retry_feedback>` verify blocks — already composed by the leaf
  *    (best-effort log reads) and passed in as `preVerifyOutput` / `retryFeedback`.
  */
+
+/**
+ * Resolve the FULL prompt's `{{PROJECT_TOOLING}}` carry (round 1 of a session thread only — the
+ * continuation prompt does not declare the placeholder, mirroring `agentDefinition`'s
+ * full-prompt-only rule). Returns the ready-to-spread `{ projectTooling }` fragment (or `{}` when
+ * there is nothing to name) so the caller stays a flat, branch-free spread — matching the shape
+ * of every other `*Carry` in {@link buildGeneratorPrompt}. Best-effort: a skill-source read
+ * failure degrades to naming only the bound agent definition (or to nothing at all) rather than
+ * failing the turn — tooling-catalog enrichment must never block a generator round.
+ */
+const resolveGeneratorProjectToolingCarry = async (
+  deps: Pick<GeneratorLeafDeps, 'agentDefinitionName' | 'skillSource'>
+): Promise<{ readonly projectTooling?: string }> => {
+  const skills = deps.skillSource !== undefined ? await deps.skillSource.getForFlow('implement') : undefined;
+  const projectTooling = composeProjectTooling({
+    ...(deps.agentDefinitionName !== undefined ? { agentDefinitionName: deps.agentDefinitionName } : {}),
+    ...(skills?.ok === true ? { skills: skills.value } : {}),
+  });
+  return projectTooling.length > 0 ? { projectTooling } : {};
+};
+
 const buildGeneratorPrompt = async (
   deps: Pick<
     GeneratorLeafDeps,
-    'templateLoader' | 'cwd' | 'progressFile' | 'verifyScript' | 'model' | 'agentDefinition'
+    | 'templateLoader'
+    | 'cwd'
+    | 'progressFile'
+    | 'verifyScript'
+    | 'model'
+    | 'agentDefinition'
+    | 'agentDefinitionName'
+    | 'skillSource'
   >,
   args: {
     readonly task: InProgressTask;
@@ -375,6 +429,7 @@ const buildGeneratorPrompt = async (
   const agentDefinitionCarry = deps.agentDefinition !== undefined ? { agentDefinition: deps.agentDefinition } : {};
 
   if (args.priorGeneratorSessionId === undefined) {
+    const projectToolingCarry = await resolveGeneratorProjectToolingCarry(deps);
     return buildImplementPrompt(deps.templateLoader, {
       task: args.task,
       projectPath: String(deps.cwd),
@@ -383,6 +438,7 @@ const buildGeneratorPrompt = async (
       priorProgress,
       outputContractSection: args.outputContractSection,
       ...(deps.verifyScript !== undefined ? { verifyScript: deps.verifyScript } : {}),
+      ...projectToolingCarry,
       ...(priorCritique !== undefined ? { priorCritique } : {}),
       ...(plateauBreak ? { plateauBreak: true } : {}),
       ...trajectoryCarry,
@@ -465,12 +521,19 @@ const composeVerifyBlocks = async (
   };
 };
 
-/** Per-turn signal-text accumulators — mutated in place by {@link accumulateAndEmitSignals}. */
+/**
+ * Per-turn signal-text accumulators — mutated in place by {@link accumulateAndEmitSignals}.
+ * `correctiveNudgeCount` is a sibling out-channel of the same shape: `callImplement` is bound to
+ * the business use case's fixed `Result<readonly HarnessSignal[], DomainError>>` signature, so the
+ * nudge tally rides out via this closure-captured mutable object instead of widening that return
+ * type.
+ */
 interface GeneratorTurnAccumulators {
   readonly decisionsEmitted: string[];
   readonly changesEmitted: string[];
   readonly learningsEmitted: LearningEntry[];
   readonly notesEmitted: string[];
+  correctiveNudgeCount: number;
 }
 
 /**
@@ -696,7 +759,10 @@ const makeGeneratorCallImplement =
       generatorOutputContract
     );
     if (!validated.ok) return Result.error(validated.error);
-    const signals = validated.value;
+    const signals = validated.value.signals;
+    // Cost-visibility out-channel — see GeneratorTurnAccumulators' docstring for why this rides
+    // a mutated field rather than widening `callImplement`'s return type.
+    args.accumulators.correctiveNudgeCount = validated.value.nudgeCount;
 
     accumulateAndEmitSignals(deps, signals, args.accumulators);
 
@@ -748,6 +814,7 @@ const makeGeneratorExecute =
       changesEmitted: [],
       learningsEmitted: [],
       notesEmitted: [],
+      correctiveNudgeCount: 0,
     };
     const logTailReader = deps.logTailReader ?? createFsLogTailReader();
     const callImplement = makeGeneratorCallImplement(deps, taskId, {
@@ -892,6 +959,14 @@ const generatorOutput = (ctx: ImplementCtx, out: GeneratorOutput): ImplementCtx 
     out.notesEmitted.length > 0
       ? { currentAttemptNotes: [...(ctx.currentAttemptNotes ?? []), ...out.notesEmitted] }
       : {};
+  // Cost-visibility tally — accumulates across every turn of the attempt, same lifecycle as the
+  // signal accumulators above. Zero-noise: a turn with no nudge contributes nothing (ctx field
+  // stays undefined until the first nudge fires).
+  const generatorNudgesCarry = positiveCountCarry(
+    'currentAttemptGeneratorNudges',
+    out.correctiveNudgeCount,
+    ctx.currentAttemptGeneratorNudges
+  );
   // Per-turn signal-kind distribution (R2) — stamped fresh every turn (overwrites the prior
   // turn's map) so the entropy-plateau heuristic in the gen-eval loop sees the current turn's
   // action diversity, never an accumulation across turns.
@@ -921,6 +996,7 @@ const generatorOutput = (ctx: ImplementCtx, out: GeneratorOutput): ImplementCtx 
       ...changesCarry,
       ...learningsCarry,
       ...notesCarry,
+      ...generatorNudgesCarry,
       ...actionCountsCarry,
     };
   }
@@ -936,6 +1012,7 @@ const generatorOutput = (ctx: ImplementCtx, out: GeneratorOutput): ImplementCtx 
     ...changesCarry,
     ...learningsCarry,
     ...notesCarry,
+    ...generatorNudgesCarry,
     ...actionCountsCarry,
   };
 };

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ParseError } from '@src/domain/value/error/parse-error.ts';
 import { assertTemplateKeysFilled, substitute } from '@src/integration/ai/prompts/_engine/substitute.ts';
+import { PRECAPPED_SECTION_CHAR_CAP, SECTION_CHAR_CAP } from '@src/integration/ai/prompts/_engine/compress-section.ts';
 
 describe('substitute', () => {
   it('replaces a single placeholder with the matching value', () => {
@@ -86,5 +87,57 @@ describe('assertTemplateKeysFilled — template-side fence', () => {
     const result = assertTemplateKeysFilled(rendered, template, [partialBody], values, 'test-builder');
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.message).toContain('{{VERIFY_SCRIPT}}');
+  });
+});
+
+describe('COMPRESSIBLE_KEYS — two-tier compression (regression)', () => {
+  /**
+   * Builds a `capProgressBody`-shaped value: a header band, a full current-task attempt section,
+   * and several sibling sections — well over the old 4,000-char `SECTION_CHAR_CAP` but nowhere near
+   * `PRECAPPED_SECTION_CHAR_CAP`. Doesn't need to come from the real `capProgressBody` — the bug is
+   * that ANY pre-capped value over 4K chars got blindly re-truncated regardless of its producer.
+   */
+  const buildPreCappedProgressBody = (): string => {
+    const header = '# Sprint: demo\n\n- id: s-1\n- created: 2026-06-09T00:00:00.000Z\n\n';
+    const currentTaskSection =
+      `## Task: implement-thing — Attempt 3 · id:task-current\n\n` +
+      `_2026-06-09T00:00:00.000Z_\n\n${'earlier attempt warnings and remedies. '.repeat(150)}\n`;
+    const siblingSection = (name: string): string =>
+      `## Task: ${name} — Attempt 1 · id:task-${name}\n\n_2026-06-09T00:00:00.000Z_\n\n${'sibling work. '.repeat(50)}\n`;
+    return header + currentTaskSection + siblingSection('a') + siblingSection('b') + siblingSection('c');
+  };
+
+  it('PRIOR_PROGRESS over the old 4K cap but under PRECAPPED_SECTION_CHAR_CAP rides byte-for-byte (head retained, no truncation notice)', () => {
+    const body = buildPreCappedProgressBody();
+    expect(body.length).toBeGreaterThan(SECTION_CHAR_CAP);
+    expect(body.length).toBeLessThan(PRECAPPED_SECTION_CHAR_CAP);
+
+    const rendered = substitute('Journal:\n{{PRIOR_PROGRESS}}', { PRIOR_PROGRESS: body });
+
+    expect(rendered).toBe(`Journal:\n${body}`);
+    expect(rendered).not.toContain('earlier content omitted');
+    // The head — sprint header + the current task's own history — survives verbatim.
+    expect(rendered).toContain('# Sprint: demo');
+    expect(rendered).toContain('## Task: implement-thing — Attempt 3 · id:task-current');
+  });
+
+  it('PRIOR_LEARNINGS over the old 4K cap but under PRECAPPED_SECTION_CHAR_CAP rides byte-for-byte', () => {
+    const body = `- ${'a learning. '.repeat(400)}`;
+    expect(body.length).toBeGreaterThan(SECTION_CHAR_CAP);
+    expect(body.length).toBeLessThan(PRECAPPED_SECTION_CHAR_CAP);
+
+    const rendered = substitute('Learnings:\n{{PRIOR_LEARNINGS}}', { PRIOR_LEARNINGS: body });
+
+    expect(rendered).toBe(`Learnings:\n${body}`);
+    expect(rendered).not.toContain('earlier content omitted');
+  });
+
+  it('a PRIOR_PROGRESS value that genuinely overflows PRECAPPED_SECTION_CHAR_CAP still gets tail-compressed with the notice', () => {
+    const body = 'x'.repeat(PRECAPPED_SECTION_CHAR_CAP + 500);
+    const rendered = substitute('Journal:\n{{PRIOR_PROGRESS}}', { PRIOR_PROGRESS: body });
+
+    expect(rendered).toContain('earlier content omitted');
+    const tail = body.slice(-PRECAPPED_SECTION_CHAR_CAP);
+    expect(rendered.endsWith(tail)).toBe(true);
   });
 });

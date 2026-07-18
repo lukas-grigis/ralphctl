@@ -25,21 +25,34 @@ import { validateSignalsFile } from '@src/integration/ai/contract/_engine/valida
  * primitives are still banned; this is the in-leaf loop CLAUDE.md explicitly allows, mirroring
  * `providers/_engine/run-with-rate-limit-retry.ts`'s idiom):
  *
- *   1. {@link validateSignalsFile} the spawn's output dir. On success, return immediately.
+ *   1. {@link validateSignalsFile} the spawn's output dir. On success, return immediately with
+ *      `nudgeCount: 0`.
  *   2. On a NON-correctable failure (user abort, rate-limit, or a `MigrationGapError` the AI
  *      cannot fix by re-emitting), return the error verbatim — the caller self-blocks.
  *   3. On a CORRECTABLE failure (signals-missing / invalid-json / schema-mismatch), loop up to
  *      `correctiveRetries` times: build a short corrective prompt gated by the LATEST error class,
  *      re-invoke the provider via the caller-supplied {@link reinvoke} callback (the leaf owns the
  *      resumed spawn so session / resume / abort threading stays there), then re-validate. Return
- *      on the first fixed file; a spawn-level error short-circuits; exhausting every nudge returns
- *      the last contract error so the caller self-blocks.
+ *      on the first fixed file, with `nudgeCount` set to the 1-based attempt index that fixed it; a
+ *      spawn-level error short-circuits; exhausting every nudge returns the last contract error so
+ *      the caller self-blocks.
  *
  * `reinvoke(corrective, attempt)` MUST spawn the provider on the SAME resumed session (so the model
  * sees the corrective message as a follow-up turn) targeting the SAME `signals.json` path, then
  * resolve once the spawn has returned. A spawn-level error (`Result.error`) short-circuits — the
  * caller self-blocks with that error. `AbortError` from the re-invoke propagates transparently. The
  * `attempt` index (1-based) lets the leaf name per-nudge forensic artifacts.
+ *
+ * `nudgeCount` on the success path is pure cost-visibility instrumentation: nudges consume no
+ * turn/attempt budget by design (near-miss recovery must not eat the real budget), so it is the
+ * ONLY operator-facing counter for them. The caller accumulates it per-attempt onto `ImplementCtx`
+ * for the progress journal to render — never touches when/how retries fire.
+ *
+ * Deliberately scoped to the SUCCESS path only: an exhausted retry sequence self-blocks the task,
+ * which is already loud (blocked status + reason) through an existing channel. The audit finding
+ * this closes is the OPPOSITE case — a persistently-malformed-but-self-correcting AI that recovers
+ * every time and so never surfaces as a problem, silently burning `correctiveRetries × turns ×
+ * attempts` spawns across a whole run. That is what `nudgeCount` makes visible.
  */
 export interface CorrectiveRetryDeps {
   readonly outputDir: AbsolutePath;
@@ -142,15 +155,28 @@ const correctiveBody = (err: DomainError, signalsPath: string, selfContainedCont
 };
 
 /**
+ * Success payload — the validated signals plus the corrective-nudge tally that produced them.
+ */
+export interface CorrectiveRetryOutcome<TSig extends AiSignal> {
+  readonly signals: readonly TSig[];
+  /**
+   * Number of corrective nudges consumed before a valid `signals.json` landed — `0` when the
+   * FIRST parse already succeeded (the common case). Pure observability; see the module
+   * docstring's closing paragraph for why this never affects retry semantics.
+   */
+  readonly nudgeCount: number;
+}
+
+/**
  * Validate the spawn's `signals.json`; on a correctable contract failure, re-prompt once on the
  * resumed session and re-validate. See the module docstring for the full flow + rationale.
  */
 export const validateSignalsFileWithCorrectiveRetry = async <TSig extends AiSignal>(
   deps: CorrectiveRetryDeps,
   contract: AiOutputContract<TSig>
-): Promise<Result<readonly TSig[], DomainError>> => {
+): Promise<Result<CorrectiveRetryOutcome<TSig>, DomainError>> => {
   const first = await validateSignalsFile(deps.outputDir, contract);
-  if (first.ok) return first;
+  if (first.ok) return Result.ok({ signals: first.value, nudgeCount: 0 });
 
   let lastErr: DomainError = first.error;
   if (!isCorrectableContractError(lastErr)) return Result.error(lastErr);
@@ -185,7 +211,7 @@ export const validateSignalsFileWithCorrectiveRetry = async <TSig extends AiSign
     const revalidated = await validateSignalsFile(deps.outputDir, contract);
     if (revalidated.ok) {
       log.info('corrective retry produced a valid signals.json', { outputDir: String(deps.outputDir), attempt });
-      return revalidated;
+      return Result.ok({ signals: revalidated.value, nudgeCount: attempt });
     }
     lastErr = revalidated.error;
   }

@@ -53,7 +53,10 @@ export type EvaluatorTurnExit =
   | { readonly kind: 'passed' }
   | { readonly kind: 'self-blocked'; readonly reason: string }
   | { readonly kind: 'malformed'; readonly detail: string }
-  | { readonly kind: 'plateau'; readonly dimensions: readonly string[] };
+  // `source: 'threshold'` — this is the ONLY plateau detector this use case ever produces (the
+  // loop-diversity / entropy detectors run downstream in `gen-eval-loop.ts`, outside the
+  // business layer). See `PlateauSource` (`domain/entity/attempt.ts`) for the full 1:1 mapping.
+  | { readonly kind: 'plateau'; readonly dimensions: readonly string[]; readonly source: 'threshold' };
 
 export interface RunEvaluatorTurnProps {
   readonly task: InProgressTask;
@@ -261,7 +264,13 @@ const handleWarningVerdict = (
   evaluation: EvaluationSignal,
   log: Logger
 ): TurnResult => {
-  const warned = recordRunningAttemptWarning(task, { kind: 'plateau', dimensions: verdict.dimensions });
+  // Soft variant of the count-based detector — stamp the same source the hard exit carries, so
+  // done-with-warning attempts feed the per-detector audit too.
+  const warned = recordRunningAttemptWarning(task, {
+    kind: 'plateau',
+    dimensions: verdict.dimensions,
+    source: 'threshold',
+  });
   if (!warned.ok) {
     log.error('cannot record plateau warning on attempt', { taskId: task.id, error: warned.error.message });
     return Result.error(warned.error);
@@ -330,7 +339,7 @@ export const runEvaluatorTurnUseCase = async (props: RunEvaluatorTurnProps): Pro
     return Result.ok({
       task: recorded.value,
       evaluation,
-      exit: { kind: 'plateau', dimensions: verdict.dimensions },
+      exit: { kind: 'plateau', dimensions: verdict.dimensions, source: 'threshold' },
       turnRecord: currentRecord,
     });
   }

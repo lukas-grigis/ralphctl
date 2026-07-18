@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { compressSection, SECTION_CHAR_CAP } from '@src/integration/ai/prompts/_engine/compress-section.ts';
+import {
+  compressSection,
+  PRECAPPED_SECTION_CHAR_CAP,
+  SECTION_CHAR_CAP,
+} from '@src/integration/ai/prompts/_engine/compress-section.ts';
+import { MAX_CONTEXT_WINDOW } from '@src/domain/value/settings-models/context-window.ts';
 
 describe('compressSection', () => {
   it('returns content unchanged when at or below the default cap', () => {
@@ -77,5 +82,28 @@ describe('compressSection', () => {
     const result = compressSection(content, cap);
     expect(typeof result).toBe('string');
     expect(result).toContain(`showing last ${String(cap)} chars of ${String(content.length)} total`);
+  });
+});
+
+describe('PRECAPPED_SECTION_CHAR_CAP — drift fence', () => {
+  // Mirrors the arithmetic in `progressCapBudgetForModel`
+  // (`src/application/flows/_shared/progress/cap-progress.ts`): a sibling-section token budget of
+  // `round(window * PROGRESS_BUDGET_FRACTION)` tokens, at `CHARS_PER_TOKEN` chars/token. Duplicated
+  // here (rather than imported) because `compress-section.ts` is an integration-layer module and
+  // must not import from `application/**` — this test may cross that boundary, the module itself
+  // may not.
+  const CHARS_PER_TOKEN = 4;
+  const PROGRESS_BUDGET_FRACTION = 0.04;
+  /** Matches the depth allowance baked into {@link PRECAPPED_SECTION_CHAR_CAP}'s derivation. */
+  const DEPTH_ALLOWANCE_CHARS = 40_000;
+
+  it('never fires below the largest legitimate pre-capped output the model catalog can produce', () => {
+    const maxSiblingBudgetChars = Math.round(MAX_CONTEXT_WINDOW * PROGRESS_BUDGET_FRACTION) * CHARS_PER_TOKEN;
+    const maxLegitimatePreCappedChars = maxSiblingBudgetChars + DEPTH_ALLOWANCE_CHARS;
+    expect(PRECAPPED_SECTION_CHAR_CAP).toBeGreaterThanOrEqual(maxLegitimatePreCappedChars);
+  });
+
+  it('stays a strictly larger tier than the default SECTION_CHAR_CAP', () => {
+    expect(PRECAPPED_SECTION_CHAR_CAP).toBeGreaterThan(SECTION_CHAR_CAP);
   });
 });

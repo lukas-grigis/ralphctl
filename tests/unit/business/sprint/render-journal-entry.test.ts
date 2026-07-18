@@ -184,6 +184,28 @@ describe('renderJournalEntry', () => {
     expect(out).toContain('Remedy: kept the attempt with the warning attached');
   });
 
+  it('appends the detector attribution parenthetical when the plateau warning carries a source', () => {
+    const out = renderJournalEntry(
+      baseInput({
+        verdict: 'pass-with-warning',
+        warning: { kind: 'plateau', dimensions: ['C1'], source: 'threshold' },
+      })
+    );
+    expect(out).toContain('plateaued');
+    expect(out).toContain('(detector: threshold)');
+  });
+
+  it('omits the detector parenthetical when the plateau warning carries no source', () => {
+    const out = renderJournalEntry(
+      baseInput({
+        verdict: 'pass-with-warning',
+        warning: { kind: 'plateau', dimensions: ['C1'] },
+      })
+    );
+    expect(out).toContain('plateaued');
+    expect(out).not.toContain('(detector:');
+  });
+
   it('renders budget-exhausted turn counts in the Outcome detail prose', () => {
     const out = renderJournalEntry(
       baseInput({
@@ -233,6 +255,37 @@ describe('renderJournalEntry', () => {
     expect(out).toContain('### Outcome detail');
     expect(out).toContain('verify script ran red');
     expect(out).toContain('exit 1 — 2 tests failed');
+  });
+
+  it('renders the corrective-nudge cost-visibility clause with a per-role breakdown when present', () => {
+    const out = renderJournalEntry(baseInput({ correctiveNudges: { generator: 2, evaluator: 1 } }));
+    expect(out).toContain('### Outcome detail');
+    expect(out).toContain('3 corrective signals.json nudges issued this attempt');
+    expect(out).toContain('(generator: 2, evaluator: 1)');
+    expect(out).toContain('do not count against the turn/attempt budget');
+  });
+
+  it('singularises the nudge noun when exactly one nudge fired', () => {
+    const out = renderJournalEntry(baseInput({ correctiveNudges: { generator: 1, evaluator: 0 } }));
+    expect(out).toContain('1 corrective signals.json nudge issued this attempt');
+    expect(out).toContain('(generator: 1)');
+    expect(out).not.toContain('evaluator:');
+  });
+
+  it('a clean pass with zero nudges omits the clause entirely (zero-noise)', () => {
+    const out = renderJournalEntry(baseInput());
+    expect(out).not.toContain('corrective signals.json');
+    expect(out).not.toContain('### Outcome detail');
+  });
+
+  it('renders the nudge clause on an otherwise-clean pass (independent of warning/escalation)', () => {
+    // A corrective nudge can fire on a turn that still ends in a clean pass — the clause must not
+    // be gated on `warning`/`escalation` being present.
+    const out = renderJournalEntry(baseInput({ verdict: 'pass', correctiveNudges: { generator: 1, evaluator: 0 } }));
+    expect(out).toContain('- Verdict: pass');
+    expect(out).toContain('### Outcome detail');
+    expect(out).toContain('1 corrective signals.json nudge issued this attempt');
+    expect(out).not.toContain('Remedy:');
   });
 });
 

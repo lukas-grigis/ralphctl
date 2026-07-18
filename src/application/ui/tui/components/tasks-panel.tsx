@@ -156,6 +156,14 @@ export interface TasksPanelProps {
    * the panel is fully self-contained (existing callers are unaffected).
    */
   readonly onFocusedCardChange?: (taskId: string | undefined) => void;
+  /**
+   * Optional callback fired when the focused card's expansion state changes (deduplicated —
+   * only called when the boolean value differs from the previous call). The wide-layout
+   * `ImplementMainArea` uses this to claim the `esc` keystroke (via `useUiState().claimEscape()`)
+   * while an expanded card is focused, so pressing Esc collapses the card instead of popping the
+   * route. Absent ⇒ the panel is fully self-contained (existing callers are unaffected).
+   */
+  readonly onExpandedCardChange?: (expanded: boolean) => void;
 }
 
 interface TaskCardState {
@@ -179,7 +187,8 @@ interface TaskCardState {
  */
 const useTaskCardState = (
   bucketed: BucketedExecution,
-  onFocusedCardChange: ((taskId: string | undefined) => void) | undefined
+  onFocusedCardChange: ((taskId: string | undefined) => void) | undefined,
+  onExpandedCardChange: ((expanded: boolean) => void) | undefined
 ): TaskCardState => {
   // The active (first non-completed) task — anchor for the `e` criteria hotkey AND the
   // default card-cursor position. Recomputed each render so the `useInput` callback always
@@ -258,6 +267,23 @@ const useTaskCardState = (
     }
   });
 
+  // Report the focused card's expansion state upward (Esc-claim seam). Same dedup + ref
+  // pattern as `onFocusedCardChange` above, with one deliberate difference: the "previous"
+  // ref seeds as `undefined` (not the current value) so the FIRST post-mount effect run always
+  // reports the mount-time state. The active task auto-expands from the lazy initial state (see
+  // above), so `focusedCardExpanded` is frequently already `true` on the very first render —
+  // seeding the ref with that same value (as `onFocusedCardChange` does) would suppress the one
+  // report the caller needs to claim `esc` before the operator's first keystroke.
+  const prevFocusedCardExpandedRef = useRef<boolean | undefined>(undefined);
+  const onExpandedCardChangeRef = useRef(onExpandedCardChange);
+  onExpandedCardChangeRef.current = onExpandedCardChange;
+  useEffect(() => {
+    if (focusedCardExpanded !== prevFocusedCardExpandedRef.current) {
+      prevFocusedCardExpandedRef.current = focusedCardExpanded;
+      onExpandedCardChangeRef.current?.(focusedCardExpanded);
+    }
+  });
+
   return {
     activeTaskIdx,
     activeTaskId,
@@ -303,7 +329,14 @@ type TaskBlockProps = React.ComponentProps<typeof TaskBlock>;
  */
 type TaskRowProps = Omit<
   TasksPanelProps,
-  'bucketed' | 'maxSignalsPerTask' | 'maxTasks' | 'maxOrphanSignals' | 'inputActive' | 'nowMs' | 'onFocusedCardChange'
+  | 'bucketed'
+  | 'maxSignalsPerTask'
+  | 'maxTasks'
+  | 'maxOrphanSignals'
+  | 'inputActive'
+  | 'nowMs'
+  | 'onFocusedCardChange'
+  | 'onExpandedCardChange'
 >;
 
 /**
@@ -411,6 +444,7 @@ export const TasksPanel = ({
   inputActive = false,
   nowMs,
   onFocusedCardChange,
+  onExpandedCardChange,
   ...rest
 }: TasksPanelProps): React.JSX.Element => {
   // Render-time fallback for the idle-ticker clock. The execute view passes a polled `now` so
@@ -439,7 +473,7 @@ export const TasksPanel = ({
   // Card-cursor / expansion state — see `useTaskCardState`. Spread wholesale below (into both
   // `useTasksPanelInput` and `derived`) rather than destructured field-by-field so this
   // orchestrator stays a thin threading layer instead of re-enumerating the cluster's shape.
-  const cardState = useTaskCardState(bucketed, onFocusedCardChange);
+  const cardState = useTaskCardState(bucketed, onFocusedCardChange, onExpandedCardChange);
 
   const focusedIndex = focusedKey !== undefined ? flatKeys.indexOf(focusedKey) : -1;
   const effectiveFocusedKey = focusedIndex >= 0 ? focusedKey : undefined;

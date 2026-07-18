@@ -4,7 +4,8 @@ import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/h
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import type { ReadinessState } from '@src/integration/ai/readiness/_engine/state.ts';
-import type { AssistantTool } from '@src/integration/ai/readiness/_engine/tool.ts';
+import { providerForTool, type AssistantTool } from '@src/integration/ai/readiness/_engine/tool.ts';
+import { PROVIDER_TRAITS } from '@src/integration/ai/providers/_engine/provider-traits.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { Repository } from '@src/domain/entity/repository.ts';
@@ -12,24 +13,16 @@ import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 
 /**
- * Per-tool target path for the readiness artefact, relative to the repo root. Centralised so
- * the chain leaf, the CLI's "where will it write?" preview, and any doctor command agree on the
- * convention.
+ * Per-tool target path for the readiness artefact, relative to the repo root — derived from
+ * {@link PROVIDER_TRAITS}. Centralised so the chain leaf, the CLI's "where will it write?"
+ * preview, and any doctor command agree on the convention.
  *
  *  - `claude-code`  → `CLAUDE.md` (Claude's project memory).
  *  - `copilot`      → `.github/copilot-instructions.md` (Copilot's canonical instructions file).
  *  - `codex`        → `AGENTS.md` (cross-tool spec; Codex reads it when present).
  */
-export const targetPathFor = (tool: AssistantTool): string => {
-  switch (tool) {
-    case 'claude-code':
-      return 'CLAUDE.md';
-    case 'copilot':
-      return '.github/copilot-instructions.md';
-    case 'codex':
-      return 'AGENTS.md';
-  }
-};
+export const targetPathFor = (tool: AssistantTool): string =>
+  PROVIDER_TRAITS[providerForTool(tool)].contextFileTargetPath;
 
 /**
  * Function-injection contract for the prompt builder. The chain leaf supplies a closure that

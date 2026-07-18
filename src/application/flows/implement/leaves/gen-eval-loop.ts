@@ -1,5 +1,6 @@
 import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
+import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
 import type { PublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
@@ -64,6 +65,13 @@ export interface GenEvalLoopDeps {
   readonly publishSignal: PublishSignal;
   readonly writeFile: WriteFile;
   /**
+   * Per-flow skill catalog port — threaded into both gen-eval leaves so the FULL prompt's
+   * `{{PROJECT_TOOLING}}` catalog can name this task's installed skills (the same source
+   * `installSkillsLeaf` already reads). Optional so a caller that doesn't care about tooling
+   * naming (most tests) can omit it.
+   */
+  readonly skillSource?: SkillSource;
+  /**
    * Git transport — threaded into the evaluator leaf so it can fingerprint the working tree's
    * uncommitted changes each round for the plateau predicate's work-product exemption.
    */
@@ -90,6 +98,13 @@ export interface GenEvalLoopRoleConfig {
    * continuation already carries it in-conversation.
    */
   readonly agentDefinitionSection?: string;
+  /**
+   * This role's bound agent-definition NAME (bare identifier) — threaded into the generator/
+   * evaluator leaf as `agentDefinitionName` so the FULL prompt's `{{PROJECT_TOOLING}}` catalog
+   * can name the same binding `agentDefinitionSection` already announces in prose. Absent when
+   * the role has no bound definition.
+   */
+  readonly agentDefinitionName?: string;
 }
 
 export interface GenEvalLoopOpts {
@@ -128,6 +143,7 @@ export const createGenEvalLoop = (
     plateauThreshold: deps.plateauThreshold,
     correctiveRetries: deps.correctiveRetries,
     ...(opts.verifyScript !== undefined ? { verifyScript: opts.verifyScript } : {}),
+    ...(deps.skillSource !== undefined ? { skillSource: deps.skillSource } : {}),
   };
   const generatorLeafDeps = {
     ...sharedLeafDeps,
@@ -136,6 +152,9 @@ export const createGenEvalLoop = (
     ...(opts.generator.effort !== undefined ? { effort: opts.generator.effort } : {}),
     ...(opts.generator.agentDefinitionSection !== undefined
       ? { agentDefinition: opts.generator.agentDefinitionSection }
+      : {}),
+    ...(opts.generator.agentDefinitionName !== undefined
+      ? { agentDefinitionName: opts.generator.agentDefinitionName }
       : {}),
   };
   const evaluatorLeafDeps = {
@@ -148,6 +167,9 @@ export const createGenEvalLoop = (
     ...(opts.evaluator.effort !== undefined ? { effort: opts.evaluator.effort } : {}),
     ...(opts.evaluator.agentDefinitionSection !== undefined
       ? { agentDefinition: opts.evaluator.agentDefinitionSection }
+      : {}),
+    ...(opts.evaluator.agentDefinitionName !== undefined
+      ? { agentDefinitionName: opts.evaluator.agentDefinitionName }
       : {}),
   };
 
@@ -250,7 +272,7 @@ export const createGenEvalLoop = (
       },
       output: (ctx, out) => {
         if (!out.shouldExit || out.dimensions === undefined) return ctx;
-        return { ...ctx, lastExit: { kind: 'plateau', dimensions: out.dimensions } };
+        return { ...ctx, lastExit: { kind: 'plateau', dimensions: out.dimensions, source: 'diversity' } };
       },
     }
   );
@@ -326,7 +348,7 @@ export const createGenEvalLoop = (
       output: (ctx, out) => {
         if (!out.shouldExit) return ctx;
         // Re-use the plateau exit kind so the escalation ladder applies the same remedy.
-        return { ...ctx, lastExit: { kind: 'plateau', dimensions: [] } };
+        return { ...ctx, lastExit: { kind: 'plateau', dimensions: [], source: 'entropy' } };
       },
     }
   );

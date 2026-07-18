@@ -44,9 +44,7 @@ import type { ModelAvailabilityProbeRegistry } from '@src/integration/ai/provide
 import { claudeModelAvailabilityProbe } from '@src/integration/ai/providers/claude/model-availability-probe.ts';
 import { codexModelAvailabilityProbe } from '@src/integration/ai/providers/codex/model-availability-probe.ts';
 import { copilotModelAvailabilityProbe } from '@src/integration/ai/providers/copilot/model-availability-probe.ts';
-import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
-import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
-import { COPILOT_MODELS } from '@src/domain/value/settings-models/copilot.ts';
+import { PROVIDER_TRAITS } from '@src/integration/ai/providers/_engine/provider-traits.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
@@ -349,17 +347,6 @@ const PROBES: ReadinessProbeRegistry = {
 };
 
 /**
- * Static model catalog per provider — the full official list the availability probe filters
- * down. Mirrors `modelCatalogFor` in the picker; both read the same domain CATALOG arrays so a
- * model bump can never drift between the picker fallback and the probe input.
- */
-const MODEL_CATALOGS: Readonly<Record<AiProvider, readonly string[]>> = {
-  'claude-code': CLAUDE_MODELS,
-  'github-copilot': COPILOT_MODELS,
-  'openai-codex': CODEX_MODELS,
-};
-
-/**
  * Model-availability probe registry, keyed by {@link AiProvider}. Static module-level singletons
  * bundled here so `wire()` can dispatch per-provider without each caller carrying a registry
  * literal. Keyed on the provider union (vs. {@link PROBES}, which is keyed on `AssistantTool`).
@@ -437,7 +424,7 @@ export const wire = (opts: WireOptions): AppDeps => {
   const availableModelsFor = (provider: AiProvider): Promise<readonly string[]> => {
     const existing = availableModelsInFlight.get(provider);
     if (existing !== undefined) return existing;
-    const pending = MODEL_AVAILABILITY_PROBES[provider].availableModels(MODEL_CATALOGS[provider]);
+    const pending = MODEL_AVAILABILITY_PROBES[provider].availableModels(PROVIDER_TRAITS[provider].modelCatalog);
     availableModelsInFlight.set(provider, pending);
     return pending;
   };

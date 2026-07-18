@@ -122,6 +122,9 @@ describe('runEvaluatorTurnUseCase — turnRecord verdict stamp (D2)', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.exit?.kind).toBe('plateau');
+    // The count-based threshold detector always stamps 'threshold' — instrumentation only, no
+    // effect on the decision itself.
+    expect(result.value.exit?.kind === 'plateau' && result.value.exit.source).toBe('threshold');
     expect(result.value.turnRecord).toBeDefined();
     expect(result.value.turnRecord?.verdict).toBe('plateau');
   });

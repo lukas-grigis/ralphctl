@@ -18,6 +18,7 @@ import type { AiSignal, EvaluationSignal, HarnessSignal } from '@src/domain/sign
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
+import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
 import type { PublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import { buildEvaluatePrompt } from '@src/integration/ai/prompts/evaluate/definition.ts';
 import { buildEvaluateContinuationPrompt } from '@src/integration/ai/prompts/evaluate-continuation/definition.ts';
@@ -41,10 +42,12 @@ import {
   writeRoundPrompt,
 } from '@src/application/flows/implement/leaves/round-artifacts.ts';
 import { capProgressBody, progressCapBudgetForModel } from '@src/application/flows/_shared/progress/cap-progress.ts';
+import { composeProjectTooling } from '@src/application/flows/implement/leaves/_shared/compose-project-tooling.ts';
 import {
   composeGeneratorHints,
   type GeneratorHintsInput,
 } from '@src/application/flows/implement/leaves/_shared/generator-hints.ts';
+import { positiveCountCarry } from '@src/application/flows/implement/leaves/_shared/nudge-count-carry.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { PlateauTurnRecord } from '@src/business/task/plateau-detection.ts';
 
@@ -104,12 +107,28 @@ export interface EvaluatorLeafDeps {
   /** Optional reasoning / effort level forwarded into every `implementSession` AiSession. */
   readonly effort?: string;
   /**
-   * Pre-composed "## Agent Definition" prompt section (raw content, not yet rendered) — see
+   * Pre-composed bound-agent-definition prompt body (raw content — `renderAgentDefinitionSection`
+   * wraps it under the "## Agent Definition" heading at render time) — see
    * `GenEvalLoopRoleConfig.agentDefinitionSection`. Threaded into the FULL evaluate prompt's
    * `agentDefinition` slot only (round 1 of a session thread); a resumed continuation already
    * carries it in-conversation.
    */
   readonly agentDefinition?: string;
+  /**
+   * This role's bound agent-definition NAME (the portable-agents feature's bare identifier, not
+   * the rendered {@link agentDefinition} section) — threaded separately so the FULL prompt's
+   * `{{PROJECT_TOOLING}}` catalog can name the same binding `{{AGENT_DEFINITION_SECTION}}`
+   * already announces, without re-parsing the rendered prose. Absent when the role has no
+   * binding. See `compose-project-tooling.ts`.
+   */
+  readonly agentDefinitionName?: string;
+  /**
+   * Per-flow skill catalog port — the same source `installSkillsLeaf` reads to install this
+   * task's skills into the session sandbox. Read again here (best-effort) to name each installed
+   * skill in the FULL prompt's `{{PROJECT_TOOLING}}` catalog (round 1 of a session thread only).
+   * Absent → the catalog simply omits the skills lines.
+   */
+  readonly skillSource?: SkillSource;
   readonly verifyScript?: string;
   /** From `settings.harness.plateauThreshold` (2–5). */
   readonly plateauThreshold: number;
@@ -162,6 +181,24 @@ interface EvaluatorOutput {
    * projection so the next round's evaluator can resume the same thread.
    */
   readonly capturedSessionId?: SessionId;
+  /**
+   * Corrective `signals.json` nudges this turn needed (`0` on a clean first parse) — read from
+   * `validateSignalsFileWithCorrectiveRetry`'s `nudgeCount`. Accumulates onto
+   * `ctx.currentAttemptEvaluatorNudges` so the journal leaf can render the cost-visibility
+   * clause. Pure observability; never affects retry semantics.
+   */
+  readonly correctiveNudgeCount: number;
+}
+
+/**
+ * Per-turn out-channel for the corrective-nudge tally — mutated in place after
+ * `validateSignalsFileWithCorrectiveRetry` resolves. Mirrors the generator leaf's
+ * `GeneratorTurnAccumulators`: `callEvaluate` is bound to the business use case's fixed
+ * `Result<readonly HarnessSignal[], DomainError>>` signature, so the count rides out via this
+ * closure-captured mutable object instead of widening that return type.
+ */
+interface EvaluatorTurnMeta {
+  correctiveNudgeCount: number;
 }
 
 /**
@@ -203,10 +240,38 @@ const readCappedProgress = async (path: string, currentTaskId: string, model: st
  * re-send the full context. A provider that never reports a session id keeps getting the full
  * prompt automatically — the discriminant is the same field `--resume` consumes.
  */
+
+/**
+ * Resolve the FULL prompt's `{{PROJECT_TOOLING}}` carry (round 1 of a session thread only — the
+ * continuation prompt does not declare the placeholder, mirroring `agentDefinition`'s
+ * full-prompt-only rule). Mirrors the generator leaf's `resolveGeneratorProjectToolingCarry` —
+ * same facts, same `'implement'` flow id (the skill catalog is flow-wide, shared by both roles).
+ * Returns the ready-to-spread `{ projectTooling }` fragment (or `{}`) so the caller stays a flat,
+ * branch-free spread. Best-effort: a skill-source read failure degrades to naming only the bound
+ * agent definition (or to nothing at all) rather than failing the turn.
+ */
+const resolveEvaluatorProjectToolingCarry = async (
+  deps: Pick<EvaluatorLeafDeps, 'agentDefinitionName' | 'skillSource'>
+): Promise<{ readonly projectTooling?: string }> => {
+  const skills = deps.skillSource !== undefined ? await deps.skillSource.getForFlow('implement') : undefined;
+  const projectTooling = composeProjectTooling({
+    ...(deps.agentDefinitionName !== undefined ? { agentDefinitionName: deps.agentDefinitionName } : {}),
+    ...(skills?.ok === true ? { skills: skills.value } : {}),
+  });
+  return projectTooling.length > 0 ? { projectTooling } : {};
+};
+
 const buildEvaluatorPrompt = async (
   deps: Pick<
     EvaluatorLeafDeps,
-    'templateLoader' | 'cwd' | 'progressFile' | 'verifyScript' | 'model' | 'agentDefinition'
+    | 'templateLoader'
+    | 'cwd'
+    | 'progressFile'
+    | 'verifyScript'
+    | 'model'
+    | 'agentDefinition'
+    | 'agentDefinitionName'
+    | 'skillSource'
   >,
   args: {
     readonly task: InProgressTask;
@@ -229,6 +294,7 @@ const buildEvaluatorPrompt = async (
   const agentDefinitionCarry = deps.agentDefinition !== undefined ? { agentDefinition: deps.agentDefinition } : {};
 
   if (args.priorEvaluatorSessionId === undefined) {
+    const projectToolingCarry = await resolveEvaluatorProjectToolingCarry(deps);
     return buildEvaluatePrompt(deps.templateLoader, {
       task: args.task,
       projectPath: String(deps.cwd),
@@ -236,6 +302,7 @@ const buildEvaluatorPrompt = async (
       outputContractSection: args.outputContractSection,
       priorProgress,
       ...(deps.verifyScript !== undefined ? { verifyScript: deps.verifyScript } : {}),
+      ...projectToolingCarry,
       ...hintsCarry,
       ...agentDefinitionCarry,
     });
@@ -311,6 +378,7 @@ const makeEvaluatorCallEvaluate =
       readonly signalsFile: AbsolutePath;
       readonly outputDir: AbsolutePath;
       readonly signal: AbortSignal | undefined;
+      readonly meta: EvaluatorTurnMeta;
     }
   ): RunEvaluatorTurnProps['callEvaluate'] =>
   async (task) => {
@@ -391,7 +459,10 @@ const makeEvaluatorCallEvaluate =
       evaluatorOutputContract
     );
     if (!validated.ok) return Result.error(validated.error);
-    const signals = validated.value;
+    const signals = validated.value.signals;
+    // Cost-visibility out-channel — see EvaluatorTurnMeta's docstring for why this rides a
+    // mutated field rather than widening `callEvaluate`'s return type.
+    args.meta.correctiveNudgeCount = validated.value.nudgeCount;
 
     // Publish every validated signal onto the one harness-signal channel.
     for (const sig of signals) deps.publishSignal(sig);
@@ -432,7 +503,10 @@ const makeEvaluatorExecute =
     if (!outputDirPath.ok) return Result.error(outputDirPath.error);
     const outputDir = outputDirPath.value;
 
-    const callEvaluate = makeEvaluatorCallEvaluate(deps, { input, signalsFile, outputDir, signal });
+    // Cost-visibility out-channel for this turn's corrective-nudge tally — closure-captured so
+    // `execute` can stamp it onto `EvaluatorOutput` after the use case returns.
+    const meta: EvaluatorTurnMeta = { correctiveNudgeCount: 0 };
+    const callEvaluate = makeEvaluatorCallEvaluate(deps, { input, signalsFile, outputDir, signal, meta });
 
     // Fingerprint the working tree's uncommitted changes for this round so the plateau
     // predicate's progress exemption measures real code change instead of commit-message
@@ -459,6 +533,7 @@ const makeEvaluatorExecute =
 
     return Result.ok({
       task: result.value.task,
+      correctiveNudgeCount: meta.correctiveNudgeCount,
       ...(result.value.evaluation !== undefined ? { evaluation: result.value.evaluation } : {}),
       ...(result.value.exit !== undefined ? { exit: result.value.exit } : {}),
       ...(result.value.turnRecord !== undefined ? { turnRecord: result.value.turnRecord } : {}),
@@ -530,6 +605,13 @@ const evaluatorOutput = (ctx: ImplementCtx, out: EvaluatorOutput): ImplementCtx 
   // Latest captured evaluator sessionId wins; only OVERWRITE when this turn produced one
   // (preserves the prior turn's thread when this spawn failed to report an id).
   const sessionCarry = out.capturedSessionId !== undefined ? { priorEvaluatorSessionId: out.capturedSessionId } : {};
+  // Cost-visibility tally — accumulates across every turn of the attempt, same lifecycle as the
+  // generator leaf's mirror field. Zero-noise: a turn with no nudge contributes nothing.
+  const evaluatorNudgesCarry = positiveCountCarry(
+    'currentAttemptEvaluatorNudges',
+    out.correctiveNudgeCount,
+    ctx.currentAttemptEvaluatorNudges
+  );
   const next: ImplementCtx = {
     ...ctx,
     currentTask: out.task,
@@ -541,6 +623,7 @@ const evaluatorOutput = (ctx: ImplementCtx, out: EvaluatorOutput): ImplementCtx 
     lastEvaluation: out.evaluation,
     ...(nextHistory !== undefined ? { plateauHistory: nextHistory } : {}),
     ...sessionCarry,
+    ...evaluatorNudgesCarry,
   };
   if (out.exit === undefined) return next;
   return { ...next, lastExit: out.exit };

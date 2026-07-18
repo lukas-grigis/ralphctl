@@ -3,6 +3,7 @@ import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import { escalationLadderCyclicFrom, mergeEscalationMap, nextEffortRung } from '@src/business/task/escalation-map.ts';
 import type { AiProvider } from '@src/domain/entity/settings.ts';
+import type { PlateauSource } from '@src/domain/entity/attempt.ts';
 import type { InProgressTask } from '@src/domain/entity/task.ts';
 import { recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
@@ -279,6 +280,15 @@ export interface ApplyEscalationProps {
    * banner / log copy so a budget-exhausted-driven escalation is not mislabeled as a plateau.
    */
   readonly trigger: EscalationTrigger;
+  /**
+   * WHICH plateau detector fired (threshold / diversity / entropy — see {@link PlateauSource}),
+   * forwarded onto the `model-escalated` event so the periodic detector-load-bearing audit (see
+   * `.claude/docs/HARNESS-PRINCIPLES.md` § 14) can attribute escalations without re-deriving them
+   * from the progress journal. OPTIONAL: absent on a `budget-exhausted` trigger (no plateau
+   * detector involved) and on a legacy in-flight `plateau` exit that predates this field — pure
+   * instrumentation, never gates the decision.
+   */
+  readonly plateauSource?: PlateauSource;
   readonly eventBus: EventBus;
   readonly logger: Logger;
   readonly clock: () => IsoTimestamp;
@@ -326,6 +336,7 @@ export const applyEscalation = (props: ApplyEscalationProps): Result<ApplyEscala
         from: decision.from,
         to: decision.to,
         reason: trigger,
+        ...(props.plateauSource !== undefined ? { plateauSource: props.plateauSource } : {}),
         at: now,
       });
       eventBus.publish({

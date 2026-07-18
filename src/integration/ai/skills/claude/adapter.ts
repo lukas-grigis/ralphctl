@@ -11,6 +11,7 @@
 import { createFilesystemSkillsAdapter } from '@src/integration/ai/skills/_engine/filesystem-skills-adapter.ts';
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
 import type { CreateClaudeSkillsAdapterDeps } from '@src/integration/ai/skills/_engine/claude-skills-adapter-deps.ts';
+import { PROVIDER_TRAITS } from '@src/integration/ai/providers/_engine/provider-traits.ts';
 
 const CONVENTION = [
   'Skills live under `.claude/skills/<name>/SKILL.md` in this repository. Each `SKILL.md`',
@@ -22,7 +23,7 @@ const CONVENTION = [
 export const createClaudeSkillsAdapter = (deps: CreateClaudeSkillsAdapterDeps = {}): SkillsAdapter =>
   createFilesystemSkillsAdapter({
     providerId: 'claude-code',
-    parentDir: '.claude',
+    parentDir: PROVIDER_TRAITS['claude-code'].skillsParentDir,
     convention: CONVENTION,
     ...(deps.logger !== undefined ? { logger: deps.logger } : {}),
   });

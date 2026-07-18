@@ -8,7 +8,10 @@
  *  - regenerate-in-place preserves prior attempt sections verbatim (append-only sections)
  *  - per-attempt signal accumulators render as deduped subsections; empty lists drop their heading
  *  - the `created` timestamp is preserved across regenerations
- *  - all four accumulators clear on the output ctx
+ *  - all six per-attempt accumulators (four signal kinds + generator/evaluator nudge tallies)
+ *    clear on the output ctx
+ *  - the corrective-nudge cost-visibility clause renders when the ctx tally is non-zero and is
+ *    omitted entirely on a well-formed attempt
  *  - FAIL-LOUD section write: retry-once self-heal, and a visible gap marker when writes keep failing
  *  - missing task on ctx throws an InvalidStateError (chain-shape contract)
  *
@@ -150,6 +153,32 @@ describe('progressJournalLeaf', () => {
     expect(written).not.toContain('Task completed successfully.');
   });
 
+  it('includes the plateau detector attribution in Outcome detail when the warning carries a source', async () => {
+    const inProgress = makeInProgressTaskWithRunningAttempt();
+    const warned = unwrap(
+      recordRunningAttemptWarning(inProgress, { kind: 'plateau', dimensions: ['C1'], source: 'diversity' })
+    );
+    const verified = unwrap(recordRunningAttemptVerification(warned));
+    const done = unwrap(markTaskDone(verified, FIXED_LATER));
+    const leaf = progressJournalLeaf(journalDeps(createAtomicWriteFile()), { progressFile, totalRounds: 5 }, done.id);
+    const result = await leaf.execute(ctxFor([done], { currentRoundNum: 3 }));
+    expect(result.ok).toBe(true);
+    const written = await read();
+    expect(written).toContain('(detector: diversity)');
+  });
+
+  it('omits the detector parenthetical when the warning carries no source (legacy record)', async () => {
+    const inProgress = makeInProgressTaskWithRunningAttempt();
+    const warned = unwrap(recordRunningAttemptWarning(inProgress, { kind: 'plateau', dimensions: ['C1'] }));
+    const verified = unwrap(recordRunningAttemptVerification(warned));
+    const done = unwrap(markTaskDone(verified, FIXED_LATER));
+    const leaf = progressJournalLeaf(journalDeps(createAtomicWriteFile()), { progressFile, totalRounds: 5 }, done.id);
+    const result = await leaf.execute(ctxFor([done], { currentRoundNum: 3 }));
+    expect(result.ok).toBe(true);
+    const written = await read();
+    expect(written).not.toContain('(detector:');
+  });
+
   it('derives verdict=escalated for an in_progress task whose attempt failed and climbed a rung', async () => {
     const inProgress = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     const warned = unwrap(recordRunningAttemptWarning(inProgress, { kind: 'plateau', dimensions: ['C1'] }));
@@ -251,7 +280,7 @@ describe('progressJournalLeaf', () => {
     expect(written).toContain('### Notes');
   });
 
-  it('clears all four signal accumulators on the output ctx so the next task starts fresh', async () => {
+  it('clears all six per-attempt accumulators on the output ctx so the next task starts fresh', async () => {
     const task = makeDoneTask({ name: 'clears' });
     const leaf = progressJournalLeaf(
       journalDeps(createAtomicWriteFile(), () => FIXED_NOW),
@@ -264,6 +293,8 @@ describe('progressJournalLeaf', () => {
         currentAttemptChanges: ['c'],
         currentAttemptLearnings: [{ text: 'l' }],
         currentAttemptNotes: ['n'],
+        currentAttemptGeneratorNudges: 2,
+        currentAttemptEvaluatorNudges: 1,
       })
     );
     if (!result.ok) throw result.error;
@@ -271,6 +302,39 @@ describe('progressJournalLeaf', () => {
     expect(result.value.ctx.currentAttemptChanges).toBeUndefined();
     expect(result.value.ctx.currentAttemptLearnings).toBeUndefined();
     expect(result.value.ctx.currentAttemptNotes).toBeUndefined();
+    expect(result.value.ctx.currentAttemptGeneratorNudges).toBeUndefined();
+    expect(result.value.ctx.currentAttemptEvaluatorNudges).toBeUndefined();
+  });
+
+  it('renders the corrective-nudge clause with a per-role breakdown when the ctx tally is non-zero', async () => {
+    const task = makeDoneTask({ name: 'nudged' });
+    const leaf = progressJournalLeaf(
+      journalDeps(createAtomicWriteFile(), () => FIXED_NOW),
+      { progressFile, totalRounds: 5 },
+      task.id
+    );
+    const result = await leaf.execute(
+      ctxFor([task], { currentAttemptGeneratorNudges: 2, currentAttemptEvaluatorNudges: 1 })
+    );
+    expect(result.ok).toBe(true);
+    const written = await read();
+    expect(written).toContain('### Outcome detail');
+    expect(written).toContain('3 corrective signals.json nudges issued this attempt');
+    expect(written).toContain('(generator: 2, evaluator: 1)');
+  });
+
+  it('omits the corrective-nudge clause when neither role needed a nudge (zero-noise)', async () => {
+    const task = makeDoneTask({ name: 'well-formed' });
+    const leaf = progressJournalLeaf(
+      journalDeps(createAtomicWriteFile(), () => FIXED_NOW),
+      { progressFile, totalRounds: 5 },
+      task.id
+    );
+    const result = await leaf.execute(ctxFor([task]));
+    expect(result.ok).toBe(true);
+    const written = await read();
+    expect(written).not.toContain('corrective signals.json');
+    expect(written).not.toContain('### Outcome detail');
   });
 
   it('fail-loud: a first write failure self-heals on the retry (content lands, chain proceeds)', async () => {

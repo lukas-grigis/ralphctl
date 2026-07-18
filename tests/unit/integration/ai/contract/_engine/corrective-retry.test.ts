@@ -69,6 +69,11 @@ describe('validateSignalsFileWithCorrectiveRetry', () => {
     );
     expect(result.ok).toBe(true);
     expect(calls).toBe(0);
+    // Cost-visibility tally: a clean first parse needed zero nudges.
+    if (result.ok) {
+      expect(result.value.nudgeCount).toBe(0);
+      expect(result.value.signals).toHaveLength(1);
+    }
   });
 
   it('re-invokes once with a Zod-issue corrective prompt and recovers when the retry writes valid output', async () => {
@@ -100,6 +105,8 @@ describe('validateSignalsFileWithCorrectiveRetry', () => {
     expect(correctiveSeen).toContain('OUTPUT CONTRACT SECTION (self-contained)');
     expect(correctiveSeen).toContain('do NOT invent a verdict');
     expect(correctiveSeen).toMatch(/at `0`:/);
+    // Cost-visibility tally: exactly one nudge fixed it.
+    if (result.ok) expect(result.value.nudgeCount).toBe(1);
   });
 
   it('self-blocks (returns the last error) after a single nudge when correctiveRetries=1', async () => {
@@ -143,6 +150,8 @@ describe('validateSignalsFileWithCorrectiveRetry', () => {
     );
     expect(result.ok).toBe(true);
     expect(attemptsSeen).toEqual([1, 2]);
+    // Cost-visibility tally: the SECOND nudge is the one that fixed it.
+    if (result.ok) expect(result.value.nudgeCount).toBe(2);
   });
 
   it('exhausts all nudges (correctiveRetries=2 → 3 spawns total) then self-blocks with the last error', async () => {

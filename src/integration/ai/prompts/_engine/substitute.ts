@@ -2,7 +2,7 @@ import { Result } from '@src/domain/result.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import { ParseError } from '@src/domain/value/error/parse-error.ts';
 import { extractPlaceholders } from '@src/integration/ai/prompts/_engine/extract-placeholders.ts';
-import { compressSection, SECTION_CHAR_CAP } from '@src/integration/ai/prompts/_engine/compress-section.ts';
+import { compressSection, PRECAPPED_SECTION_CHAR_CAP } from '@src/integration/ai/prompts/_engine/compress-section.ts';
 
 /**
  * Placeholder substitution for `.md` prompt templates.
@@ -35,14 +35,24 @@ import { compressSection, SECTION_CHAR_CAP } from '@src/integration/ai/prompts/_
 const PLACEHOLDER_PATTERN = /\{\{([A-Z][A-Z0-9_]*)\}\}/g;
 
 /**
- * Keys whose substituted values are tail-compressed when they exceed {@link SECTION_CHAR_CAP}.
- * These are large dynamic sections (progress journals, learning ledgers) that grow unboundedly
- * over a long sprint. Keeping the tail (most recent content) follows the "Lost in the Middle"
- * guidance — older entries are less useful and pushing them into the middle of the context
- * degrades model attention on the task-critical sections that follow.
+ * Keys whose substituted values are tail-compressed when they overflow {@link PRECAPPED_SECTION_CHAR_CAP}.
+ * These are large dynamic sections (progress journals, learning ledgers) that grow unboundedly over
+ * a long sprint. Keeping the tail (most recent content) follows the "Lost in the Middle" guidance —
+ * older entries are less useful and pushing them into the middle of the context degrades model
+ * attention on the task-critical sections that follow.
+ *
+ * Two-tier scheme: every key here has a PRODUCER that already applies its own window-scaled,
+ * section-aware cap before substitution (`capProgressBody` for `PRIOR_PROGRESS`,
+ * `composePriorLearnings` for `PRIOR_LEARNINGS`) — so this pass maps them to
+ * {@link PRECAPPED_SECTION_CHAR_CAP}, the large overflow backstop, rather than the original
+ * `SECTION_CHAR_CAP`. Re-applying the tight 4K cap on top of an already-capped value
+ * destroyed the producer's head-first prioritisation (sprint state header, pinned lifecycle
+ * breadcrumbs, current-task depth) by tail-slicing it away. `SECTION_CHAR_CAP` remains the default
+ * tier — reach for it directly (not via this set) for any future compressible key with no
+ * producer-side cap of its own.
  *
  * Episode summaries are deliberately excluded: they are hard-bounded to a handful of short items
- * well under the cap, and their substituted value self-wraps in an opening/closing tag (unlike
+ * well under either cap, and their substituted value self-wraps in an opening/closing tag (unlike
  * the wrappers for the keys below, which live in template.md). Tail-slicing would drop the
  * leading open tag, leaving a dangling close tag outside any tag — malformed.
  */
@@ -56,8 +66,8 @@ export const substitute = (template: string, values: Readonly<Record<string, str
     // the literal "undefined".
     const value = values[key];
     if (value === undefined) return match;
-    if (COMPRESSIBLE_KEYS.has(key) && value.length > SECTION_CHAR_CAP) {
-      return compressSection(value);
+    if (COMPRESSIBLE_KEYS.has(key) && value.length > PRECAPPED_SECTION_CHAR_CAP) {
+      return compressSection(value, PRECAPPED_SECTION_CHAR_CAP);
     }
     return value;
   });

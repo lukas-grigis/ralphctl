@@ -25,6 +25,7 @@ import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { ENTER, tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { absolutePath, makeReviewSprint } from '@tests/fixtures/domain.ts';
+import { emptySkillSource } from '@tests/fixtures/skills-fakes.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 
@@ -112,7 +113,8 @@ const makeDeps = (overrides: Partial<AppDeps> = {}): AppDeps =>
         return Result.ok(undefined);
       },
     },
-    storage: { dataRoot: absolutePath('/tmp/data') },
+    storage: { dataRoot: absolutePath('/tmp/data'), operatorSkillsRoot: absolutePath('/tmp/data/skills') },
+    skillSource: emptySkillSource,
     eventBus: {
       publish() {},
       subscribe() {

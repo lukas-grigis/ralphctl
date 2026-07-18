@@ -14,6 +14,7 @@
 import { createFilesystemSkillsAdapter } from '@src/integration/ai/skills/_engine/filesystem-skills-adapter.ts';
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
 import type { CreateCopilotSkillsAdapterDeps } from '@src/integration/ai/skills/_engine/copilot-skills-adapter-deps.ts';
+import { PROVIDER_TRAITS } from '@src/integration/ai/providers/_engine/provider-traits.ts';
 
 const CONVENTION = [
   'Skills live under `.github/skills/<name>/SKILL.md` in this repository. Each `SKILL.md`',
@@ -25,7 +26,7 @@ const CONVENTION = [
 export const createCopilotSkillsAdapter = (deps: CreateCopilotSkillsAdapterDeps = {}): SkillsAdapter =>
   createFilesystemSkillsAdapter({
     providerId: 'github-copilot',
-    parentDir: '.github',
+    parentDir: PROVIDER_TRAITS['github-copilot'].skillsParentDir,
     convention: CONVENTION,
     ...(deps.logger !== undefined ? { logger: deps.logger } : {}),
   });

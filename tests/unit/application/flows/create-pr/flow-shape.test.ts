@@ -23,7 +23,9 @@ describe('createCreatePrFlow — chain-shape fence', () => {
       'load-create-pr-context',
       'build-create-pr-unit',
       'render-prompt-to-file',
+      'install-skills',
       'generate-pr-content',
+      'uninstall-skills',
       'create-pr',
     ]);
   });

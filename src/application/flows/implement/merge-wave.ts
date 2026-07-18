@@ -76,6 +76,9 @@ const _exhaustive = {
   currentAttemptChanges: SIGNAL_ACCUM,
   currentAttemptLearnings: SIGNAL_ACCUM,
   currentAttemptNotes: SIGNAL_ACCUM,
+  // Corrective-nudge tallies — same per-attempt lifecycle as the signal accumulators above.
+  currentAttemptGeneratorNudges: SIGNAL_ACCUM,
+  currentAttemptEvaluatorNudges: SIGNAL_ACCUM,
 } satisfies Record<keyof ImplementCtx, MergeClass>;
 
 // Reference the guard so it is not dead-code-eliminated / lint-flagged; its whole purpose is the

@@ -17,10 +17,10 @@ const entry = (over: Partial<SkillCatalogEntry> = {}): SkillCatalogEntry => ({
 });
 
 describe('enableOptions', () => {
-  it('offers exactly the skill-mounting flows — never createPr, which loads no skills', () => {
+  it('offers exactly the skill-mounting flows, createPr included', () => {
     const options = enableOptions(entry());
     expect(options.map((o) => o.value)).toEqual([...SKILL_MOUNTING_FLOW_IDS]);
-    expect(options.some((o) => o.value === 'createPr')).toBe(false);
+    expect(options.some((o) => o.value === 'createPr')).toBe(true);
   });
 
   it('disables an edit-protected install (locally-modified / manual) with the overwrite hint', () => {
@@ -42,13 +42,13 @@ describe('enableOptions', () => {
   it('enablePreselect keeps only selectable recommendations', () => {
     const preselect = enablePreselect(
       entry({
-        // createPr never mounts; refine is default-on; plan is edit-protected; implement is free.
+        // refine is default-on; plan is edit-protected; createPr and implement are free.
         recommendedFor: ['createPr', 'refine', 'plan', 'implement'],
         defaultFor: ['refine'],
         installs: [{ flow: 'plan', status: 'locally-modified' }],
       })
     );
-    expect(preselect).toEqual(['implement']);
+    expect(preselect).toEqual(['createPr', 'implement']);
   });
 
   it('disables a flow the skill is already default-on for, with an explanatory description', () => {

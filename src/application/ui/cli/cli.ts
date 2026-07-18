@@ -14,6 +14,7 @@ import { registerTicketCommand } from '@src/application/ui/cli/commands/ticket.t
 import { registerTaskCommand } from '@src/application/ui/cli/commands/task.ts';
 import { registerRunsCommand } from '@src/application/ui/cli/commands/runs.ts';
 import { registerAgentsCommand } from '@src/application/ui/cli/commands/agents.ts';
+import { registerSkillsCommand } from '@src/application/ui/cli/commands/skills.ts';
 import { CLI_METADATA } from '@src/business/version/cli-metadata.ts';
 
 /**
@@ -103,6 +104,7 @@ export const runCli = async (argv: readonly string[]): Promise<void> => {
   registerTaskCommand(program);
   registerRunsCommand(program);
   registerAgentsCommand(program);
+  registerSkillsCommand(program);
 
   await program.parseAsync([...argv]);
 };

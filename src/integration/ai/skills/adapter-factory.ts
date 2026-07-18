@@ -3,13 +3,11 @@
  * implementation matching the configured AI provider.
  *
  * All three providers now have a real filesystem adapter (the on-disk shape is identical —
- * Agent Skills SKILL.md folders — only the parent directory varies):
- *  - claude  → `.claude/skills/`
- *  - codex   → `.agents/skills/`
- *  - copilot → `.github/skills/`
+ * Agent Skills SKILL.md folders — only the parent directory varies, per provider, via
+ * `skillsParentDir` in `providers/_engine/provider-traits.ts`).
  *
- * Adding a new provider is one arm here plus a sibling `skills/<provider>/adapter.ts` that
- * delegates to {@link createFilesystemSkillsAdapter}.
+ * Adding a new provider is one row in `provider-traits.ts` plus one arm here plus a sibling
+ * `skills/<provider>/adapter.ts` that delegates to {@link createFilesystemSkillsAdapter}.
  */
 
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';

@@ -2,10 +2,16 @@ import type { Command } from 'commander';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { resolveSprintDir } from '@src/integration/persistence/storage.ts';
 import { createCreatePrFlow } from '@src/application/flows/create-pr/flow.ts';
+import type { CreatePrCtx } from '@src/application/flows/create-pr/ctx.ts';
 import { createAiProvider } from '@src/application/bootstrap/provider-factory.ts';
+import { createSkillsAdapter } from '@src/integration/ai/skills/adapter-factory.ts';
+import { buildComposedSkillSource } from '@src/application/ui/shared/launcher.ts';
 import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
 import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
 import { pinFallbackNotice, resolveSprintId } from '@src/application/ui/cli/resolve-sprint-selection.ts';
+import type { AppDeps } from '@src/application/bootstrap/wire.ts';
+import type { StoragePaths } from '@src/application/bootstrap/storage-paths.ts';
+import type { Element } from '@src/application/chain/element.ts';
 
 interface Opts {
   readonly sprint?: string;
@@ -16,6 +22,53 @@ interface Opts {
   readonly body?: string;
   readonly ai: boolean;
 }
+
+/**
+ * Build the createPr provider + composed skill source + flow. Extracted from the command action
+ * to keep it under the per-function line budget. The skill source is composed directly (not via
+ * `launchFlow` — this command never reaches that dispatch, see `flowMountsSkills`'s doc comment)
+ * with a project-less snapshot: a one-shot PR-summary spawn over an already-pushed diff has no
+ * use for the project-scoped (detect-skills) source.
+ */
+const buildCreatePrFlow = (deps: AppDeps, storage: StoragePaths, useAi: boolean): Element<CreatePrCtx> => {
+  // Rebuild the provider from the `createPr` settings row — `deps.provider` is wired from the
+  // `implement` row at boot, which mismatches the createPr model in a mixed-provider config.
+  const resolvedProvider = deps.settings.ai.createPr.provider;
+  const provider = createAiProvider({
+    flow: 'createPr',
+    ai: deps.settings.ai,
+    harnessConfig: deps.settings.harness,
+    eventBus: deps.eventBus,
+  });
+  const skillSource = buildComposedSkillSource(
+    { app: deps, storage },
+    {},
+    resolvedProvider,
+    'create-pr',
+    deps.settings,
+    {}
+  );
+  const skillsAdapter = createSkillsAdapter({ provider: resolvedProvider, logger: deps.logger });
+  return createCreatePrFlow(
+    {
+      sprintRepo: deps.sprintRepo,
+      sprintExecutionRepo: deps.sprintExecutionRepo,
+      taskRepo: deps.taskRepo,
+      pullRequestCreator: deps.pullRequestCreator,
+      gitRunner: deps.gitRunner,
+      eventBus: deps.eventBus,
+      clock: deps.clock,
+      provider,
+      templateLoader: deps.templateLoader,
+      writeFile: deps.writeFile,
+      logger: deps.logger,
+      model: deps.settings.ai.createPr.model,
+      skillSource,
+      skillsAdapter,
+    },
+    { useAi }
+  );
+};
 
 /**
  * Register the `create-pr` CLI command.
@@ -88,31 +141,7 @@ export const registerCreatePrCommand = (program: Command): void => {
         process.exitCode = 1;
         return;
       }
-      // Rebuild the provider from the `createPr` settings row — `deps.provider` is wired from the
-      // `implement` row at boot, which mismatches the createPr model in a mixed-provider config.
-      const provider = createAiProvider({
-        flow: 'createPr',
-        ai: deps.settings.ai,
-        harnessConfig: deps.settings.harness,
-        eventBus: deps.eventBus,
-      });
-      const flow = createCreatePrFlow(
-        {
-          sprintRepo: deps.sprintRepo,
-          sprintExecutionRepo: deps.sprintExecutionRepo,
-          taskRepo: deps.taskRepo,
-          pullRequestCreator: deps.pullRequestCreator,
-          gitRunner: deps.gitRunner,
-          eventBus: deps.eventBus,
-          clock: deps.clock,
-          provider,
-          templateLoader: deps.templateLoader,
-          writeFile: deps.writeFile,
-          logger: deps.logger,
-          model: deps.settings.ai.createPr.model,
-        },
-        { useAi: opts.ai }
-      );
+      const flow = buildCreatePrFlow(deps, storage, opts.ai);
       const result = await flow.execute({
         input: {
           sprintId,

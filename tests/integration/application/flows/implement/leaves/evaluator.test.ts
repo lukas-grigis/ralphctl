@@ -9,7 +9,9 @@ import { absolutePath, FIXED_NOW, makeInProgressTaskWithRunningAttempt } from '@
 import { recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
+import { emptySkillSource } from '@tests/fixtures/skills-fakes.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
+import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
 import { evaluatorLeaf } from '@src/application/flows/implement/leaves/evaluator.ts';
 
 describe('evaluatorLeaf', () => {
@@ -237,6 +239,59 @@ describe('evaluatorLeaf', () => {
       expect(await readPrompt(1)).toContain('independent code reviewer');
       expect(await readPrompt(2)).toContain('independent code reviewer');
       expect(await readPrompt(2)).not.toContain('# Re-evaluate — Round');
+    });
+  });
+
+  // `{{PROJECT_TOOLING}}` naming (research-quickwins): mirrors the generator leaf's equivalent
+  // block — the FULL evaluate prompt threads the same bound agent-definition name + this flow's
+  // installed skills so the evaluator sees explicitly-named tooling instead of the template's
+  // default "(none detected)" fallback.
+  describe('project tooling catalog', () => {
+    const fakeSkillSource = (): SkillSource => ({
+      getForFlow: async () =>
+        Result.ok([
+          {
+            name: 'alignment',
+            description: 'Confirm scope before diving into work',
+            content: '# alignment\n',
+          },
+        ]),
+      getByName: async () => Result.ok(undefined),
+    });
+
+    const baseCtx = (task: ReturnType<typeof makeInProgressTaskWithRunningAttempt>): ImplementCtx => ({
+      sprintId: task.id as unknown as ImplementCtx['sprintId'],
+      tasks: [task],
+      currentTask: task,
+      currentRoundNum: 1,
+      taskWorkspaceRoot: root.root,
+    });
+
+    it('names the bound agent definition and installed skills in the FULL prompt', async () => {
+      const task = makeInProgressTaskWithRunningAttempt();
+      const leaf = evaluatorLeaf(
+        { ...buildDeps(), agentDefinitionName: 'code-reviewer', skillSource: fakeSkillSource() },
+        task.id
+      );
+      const result = await leaf.execute(baseCtx(task));
+      expect(result.ok).toBe(true);
+
+      const content = await fs.readFile(join(String(root.root), 'rounds', '1', 'evaluator', 'prompt.md'), 'utf8');
+      expect(content).toContain('- Subagent: `code-reviewer`');
+      expect(content).toContain('- Skill: `alignment` — Confirm scope before diving into work');
+      expect(content).not.toContain('(none detected)');
+    });
+
+    it('falls back to the template default when neither an agent definition nor skills are available', async () => {
+      const task = makeInProgressTaskWithRunningAttempt();
+      const leaf = evaluatorLeaf({ ...buildDeps(), skillSource: emptySkillSource }, task.id);
+      const result = await leaf.execute(baseCtx(task));
+      expect(result.ok).toBe(true);
+
+      const content = await fs.readFile(join(String(root.root), 'rounds', '1', 'evaluator', 'prompt.md'), 'utf8');
+      expect(content).toContain('(none detected)');
+      expect(content).not.toContain('- Subagent:');
+      expect(content).not.toContain('- Skill:');
     });
   });
 });

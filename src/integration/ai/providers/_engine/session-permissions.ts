@@ -28,6 +28,20 @@
  *    expose, and may write signals.json to outputDir, but Edit / MultiEdit / Bash are denied.
  *  - {@link FULL_AUTO}: implement (generator + evaluator) and apply-feedback (review). The
  *    AI may modify any file in the cwd / additionalRoots topology + run shell commands.
+ *
+ * ## When a CLI's gate is coarser than these booleans
+ *
+ * Not every underlying CLI exposes a permission gate this granular. When a CLI's native modes
+ * don't line up one-to-one with `canModifyRepoFiles` / `canRunShell` / `canAccessNetwork`, the
+ * adapter maps to the nearest supported mode and documents the resulting over-grant or
+ * under-grant inline, at the mapping site — never by adding a tool-specific field here (see the
+ * port-not-mechanism rule above). The reference precedent is the codex adapter's `sandboxFor`
+ * (`providers/codex/headless.ts`): Codex `exec` has only `read-only` (blocks the mandatory
+ * `signals.json` write, so it's unusable under audit-[09]) and `workspace-write` (allows any
+ * write inside the mounted topology). Every codex profile therefore maps to `workspace-write`,
+ * which over-grants relative to `canModifyRepoFiles=false` — the comment beside `sandboxFor`
+ * names this explicitly and defers to cwd + `additionalRoots` + `outputDir` as the real
+ * boundary, exactly as the topology-over-permissions note above describes.
  */
 export interface SessionPermissions {
   /**

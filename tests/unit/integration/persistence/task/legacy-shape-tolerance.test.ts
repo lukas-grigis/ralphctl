@@ -78,6 +78,39 @@ describe('Attempt round-trip — legacy verification body silently dropped on lo
     }
   });
 
+  it('a pre-attribution plateau warning (no `source` field) loads cleanly', () => {
+    // Pre-instrumentation `tasks.json` rows recorded a plateau warning with no `source` — the
+    // field is additive/optional, so old on-disk data must keep parsing without it.
+    const legacyAttempt = {
+      n: 3,
+      startedAt: '2026-05-01T10:00:00.000Z',
+      status: 'failed',
+      finishedAt: '2026-05-01T10:45:00.000Z',
+      warning: { kind: 'plateau', dimensions: ['correctness', 'completeness'] },
+    };
+    const parsed = fromJsonAttempt(legacyAttempt);
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.value.warning).toEqual({ kind: 'plateau', dimensions: ['correctness', 'completeness'] });
+      expect((parsed.value.warning as Record<string, unknown> | undefined)?.['source']).toBeUndefined();
+    }
+  });
+
+  it('a plateau warning WITH a `source` round-trips it', () => {
+    const attempt = {
+      n: 4,
+      startedAt: '2026-05-01T10:00:00.000Z',
+      status: 'failed',
+      finishedAt: '2026-05-01T11:00:00.000Z',
+      warning: { kind: 'plateau', dimensions: ['robustness'], source: 'diversity' },
+    };
+    const parsed = fromJsonAttempt(attempt);
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.value.warning).toEqual({ kind: 'plateau', dimensions: ['robustness'], source: 'diversity' });
+    }
+  });
+
   it('a pre-refactor attempt with a legacy evaluation drops the evaluation body too', () => {
     const legacyAttempt = {
       n: 2,

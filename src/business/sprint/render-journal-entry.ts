@@ -31,12 +31,19 @@ export type JournalVerdict = 'pass' | 'pass-with-warning' | 'escalated' | 'block
  *  - `detail`      — one-line human detail (malformed parse error, verify stderr head, crash
  *                    exit/signal text, …).
  *  - `dimensions`  — failed-criterion ids, present only for the `plateau` kind.
+ *  - `source`      — WHICH of the three plateau detectors fired (`threshold` / `diversity` /
+ *                    `entropy` — mirrors the domain `PlateauSource`, redeclared here rather than
+ *                    imported so the renderer stays decoupled from the entity), present only for
+ *                    the `plateau` kind and only when the leaf could resolve it. Pure
+ *                    instrumentation for the periodic detector-load-bearing audit — never changes
+ *                    which sentence renders, only appends a parenthetical.
  *  - `turnsUsed` / `turnBudget` — present only for the `budget-exhausted` kind.
  */
 export interface JournalWarning {
   readonly kind: 'budget-exhausted' | 'plateau' | 'malformed' | 'verify-failed' | 'crashed';
   readonly detail?: string;
   readonly dimensions?: readonly string[];
+  readonly source?: 'threshold' | 'diversity' | 'entropy';
   readonly turnsUsed?: number;
   readonly turnBudget?: number;
 }
@@ -129,6 +136,14 @@ export interface JournalEntryInput {
   readonly notes: readonly string[];
   /** Commit sha that landed (truncated). Missing when the attempt blocked. */
   readonly commitSha?: string;
+  /**
+   * Per-attempt corrective-nudge tally (generator + evaluator `signals.json` contract-failure
+   * retries — see `validateSignalsFileWithCorrectiveRetry`). Nudges consume no turn/attempt
+   * budget by design, so this is the ONLY operator-facing surface for them — pure cost-visibility
+   * instrumentation, never a failure signal on its own. Present only when at least one nudge
+   * fired this attempt; absent renders no additional line (zero-noise on the well-formed path).
+   */
+  readonly correctiveNudges?: { readonly generator: number; readonly evaluator: number };
   readonly timestamp: IsoTimestamp;
 }
 
@@ -219,7 +234,10 @@ const warningSentence = (warning: JournalWarning): string => {
         warning.dimensions !== undefined && warning.dimensions.length > 0
           ? ` on the same failed dimension${warning.dimensions.length === 1 ? '' : 's'}: ${warning.dimensions.join(', ')}`
           : '';
-      return `The evaluator plateaued — two consecutive evaluations flagged the identical failure${dims}.`;
+      // Detector attribution — pure instrumentation, appended as a parenthetical so the main
+      // clause stays byte-identical for records written before this field existed.
+      const detector = warning.source !== undefined ? ` (detector: ${warning.source})` : '';
+      return `The evaluator plateaued — two consecutive evaluations flagged the identical failure${dims}${detector}.`;
     }
     case 'malformed':
       return `The evaluator output could not be parsed${parenDetail(warning.detail)}.`;
@@ -259,15 +277,32 @@ const remedySentence = (
 };
 
 /**
- * Append the `### Outcome detail` subsection — the plain-prose explanation of a non-clean exit.
- * No-op when there is neither a warning nor an escalation (the clean-pass path), so a pass entry
- * stays byte-identical to the pre-widening output.
+ * One plain-prose sentence naming how many `signals.json` corrective nudges the generator /
+ * evaluator needed this attempt. Independent of `warning`/`escalation` — a corrective nudge can
+ * fire on an otherwise clean pass, so this bullet is gated on its own presence, not the others'.
+ */
+const correctiveNudgesSentence = (nudges: { readonly generator: number; readonly evaluator: number }): string => {
+  const total = nudges.generator + nudges.evaluator;
+  const parts: string[] = [];
+  if (nudges.generator > 0) parts.push(`generator: ${String(nudges.generator)}`);
+  if (nudges.evaluator > 0) parts.push(`evaluator: ${String(nudges.evaluator)}`);
+  const breakdown = parts.length > 0 ? ` (${parts.join(', ')})` : '';
+  const noun = total === 1 ? 'nudge' : 'nudges';
+  return `${String(total)} corrective signals.json ${noun} issued this attempt${breakdown} — these do not count against the turn/attempt budget.`;
+};
+
+/**
+ * Append the `### Outcome detail` subsection — the plain-prose explanation of a non-clean exit,
+ * plus the corrective-nudge cost-visibility line when present. No-op when there is neither a
+ * warning, an escalation, nor a nudge tally (the clean-pass path), so a pass entry stays
+ * byte-identical to the pre-widening output.
  */
 const appendOutcomeDetail = (lines: string[], input: JournalEntryInput): void => {
   const bullets: string[] = [];
   if (input.warning !== undefined) bullets.push(warningSentence(input.warning));
   const remedy = remedySentence(input.verdict, input.escalation, input.warning);
   if (remedy !== undefined) bullets.push(remedy);
+  if (input.correctiveNudges !== undefined) bullets.push(correctiveNudgesSentence(input.correctiveNudges));
   if (bullets.length === 0) return;
   lines.push('### Outcome detail');
   for (const b of bullets) lines.push(`- ${b}`);

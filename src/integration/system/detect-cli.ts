@@ -1,5 +1,6 @@
 import { commandExists } from '@src/integration/io/command-exists.ts';
 import type { AiProvider } from '@src/domain/entity/settings.ts';
+import { PROVIDER_TRAITS } from '@src/integration/ai/providers/_engine/provider-traits.ts';
 import type {
   DetectInstalledProvidersOptions,
   InstallPlatform,
@@ -16,59 +17,25 @@ import type {
  * the real spawn fail (`gh` is a separate SCM dependency for create-pr / issue sync, not the
  * Copilot AI backend).
  *
- * Single source of truth — used by `detectInstalledProviders`, the apply-preset warning surface,
- * and the fail-fast launch helper.
+ * Derived from {@link PROVIDER_TRAITS} — used by `detectInstalledProviders`, the apply-preset
+ * warning surface, and the fail-fast launch helper.
  */
 export const PROVIDER_BINARY: Readonly<Record<AiProvider, string>> = {
-  'claude-code': 'claude',
-  'github-copilot': 'copilot',
-  'openai-codex': 'codex',
+  'claude-code': PROVIDER_TRAITS['claude-code'].binary,
+  'github-copilot': PROVIDER_TRAITS['github-copilot'].binary,
+  'openai-codex': PROVIDER_TRAITS['openai-codex'].binary,
 };
 
-const NPM_INSTALL_CLAUDE = 'npm install -g @anthropic-ai/claude-code';
-const NPM_INSTALL_COPILOT = 'npm install -g @github/copilot';
-const NPM_INSTALL_CODEX = 'npm install -g @openai/codex';
-
 /**
- * Per-vendor install guidance entries. Sources (verified against vendor docs at the time of
- * writing):
- *   - claude-code:    https://docs.claude.com/en/docs/claude-code/setup
- *   - github-copilot: https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-in-the-cli
- *                     plus https://cli.github.com (for the underlying `gh` install)
- *   - openai-codex:   https://github.com/openai/codex
- *
- * Single source of truth — adding a new provider means one entry here plus the existing entry
- * in `PROVIDER_BINARY`. Port-shaped types ({@link ProviderInstallGuidance}, {@link InstallPlatform})
- * live in `_engine/detect-cli.ts`.
+ * Per-vendor install guidance entries, derived from {@link PROVIDER_TRAITS}. Adding a new
+ * provider means one row in `provider-traits.ts` — this map and {@link PROVIDER_BINARY} pick
+ * it up automatically. Port-shaped types ({@link ProviderInstallGuidance}) live in
+ * `_engine/detect-cli.ts`.
  */
 export const PROVIDER_INSTALL_GUIDANCE: Readonly<Record<AiProvider, ProviderInstallGuidance>> = {
-  'claude-code': {
-    docsUrl: 'https://docs.claude.com/en/docs/claude-code/setup',
-    commandsByPlatform: {
-      darwin: ['brew install --cask claude-code', 'curl -fsSL https://claude.ai/install.sh | bash', NPM_INSTALL_CLAUDE],
-      linux: ['curl -fsSL https://claude.ai/install.sh | bash', NPM_INSTALL_CLAUDE],
-      win32: ['winget install Anthropic.ClaudeCode', 'irm https://claude.ai/install.ps1 | iex', NPM_INSTALL_CLAUDE],
-    },
-  },
-  'github-copilot': {
-    docsUrl: 'https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli',
-    commandsByPlatform: {
-      darwin: ['brew install copilot-cli', NPM_INSTALL_COPILOT],
-      linux: [NPM_INSTALL_COPILOT, 'brew install copilot-cli'],
-      win32: ['winget install GitHub.Copilot', NPM_INSTALL_COPILOT],
-    },
-  },
-  'openai-codex': {
-    docsUrl: 'https://github.com/openai/codex',
-    commandsByPlatform: {
-      darwin: ['brew install --cask codex', 'curl -fsSL https://chatgpt.com/codex/install.sh | sh', NPM_INSTALL_CODEX],
-      linux: ['curl -fsSL https://chatgpt.com/codex/install.sh | sh', NPM_INSTALL_CODEX],
-      win32: [
-        'powershell -ExecutionPolicy ByPass -c "irm https://chatgpt.com/codex/install.ps1 | iex"',
-        NPM_INSTALL_CODEX,
-      ],
-    },
-  },
+  'claude-code': PROVIDER_TRAITS['claude-code'].installGuidance,
+  'github-copilot': PROVIDER_TRAITS['github-copilot'].installGuidance,
+  'openai-codex': PROVIDER_TRAITS['openai-codex'].installGuidance,
 };
 
 /**

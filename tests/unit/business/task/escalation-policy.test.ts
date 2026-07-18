@@ -369,6 +369,53 @@ describe('applyEscalation', () => {
     expect(banner?.id).toBe(escalationBannerId(String(task.id)));
   });
 
+  it('on escalate: forwards plateauSource onto the model-escalated event when supplied', () => {
+    // Pure instrumentation: the caller (finalize-gen-eval) forwards WHICH plateau detector fired
+    // so the model-bump audit can attribute the escalation without re-deriving it from the
+    // progress journal.
+    const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
+    const { bus, events } = captureBus();
+
+    const applied = applyEscalation({
+      task,
+      decision: { kind: 'escalate', from: 'claude-sonnet-4-6', to: 'claude-opus-4-8' },
+      trigger: 'plateau',
+      plateauSource: 'diversity',
+      eventBus: bus,
+      logger: noopLogger,
+      clock: fixedClock,
+    });
+    expect(applied.ok).toBe(true);
+
+    const escalated = events.find(
+      (e): e is Extract<AppEvent, { type: 'model-escalated' }> => e.type === 'model-escalated'
+    );
+    expect(escalated?.plateauSource).toBe('diversity');
+  });
+
+  it('on escalate: omits plateauSource from the event when the caller does not supply it', () => {
+    // Legacy/budget-exhausted path — no plateau detector involved, so the field is absent
+    // (never `undefined`-valued) rather than defaulting to a guessed source.
+    const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
+    const { bus, events } = captureBus();
+
+    applyEscalation({
+      task,
+      decision: { kind: 'escalate', from: 'claude-sonnet-4-6', to: 'claude-opus-4-8' },
+      trigger: 'budget-exhausted',
+      eventBus: bus,
+      logger: noopLogger,
+      clock: fixedClock,
+    });
+
+    const escalated = events.find(
+      (e): e is Extract<AppEvent, { type: 'model-escalated' }> => e.type === 'model-escalated'
+    );
+    expect(escalated).toBeDefined();
+    expect(escalated?.plateauSource).toBeUndefined();
+    expect('plateauSource' in (escalated ?? {})).toBe(false);
+  });
+
   it('on escalate-effort: info banner naming the effort bump, NO stamping, no model-escalated event', () => {
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     const { bus, events } = captureBus();
