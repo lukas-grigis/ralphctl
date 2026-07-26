@@ -42,7 +42,7 @@ describe('resolveEffort', () => {
     expect(resolveEffort('refine', withGlobalEffort('high'))).toBe('high');
   });
 
-  it('floors a global effort to the codex provider ceiling (xhigh / max → high)', () => {
+  it('passes a global xhigh through unclamped for codex (xhigh is now universal across the catalog)', () => {
     // Set every row to codex so `resolveEffort` always sees the codex floor table.
     const codexEverywhere: Settings = {
       ...DEFAULT_SETTINGS,
@@ -51,19 +51,38 @@ describe('resolveEffort', () => {
         refine: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
         plan: { provider: 'openai-codex', model: 'gpt-5.5' },
         implement: {
-          generator: { provider: 'openai-codex', model: 'gpt-5.3-codex' },
-          evaluator: { provider: 'openai-codex', model: 'gpt-5.3-codex' },
+          generator: { provider: 'openai-codex', model: 'gpt-5.6-sol' },
+          evaluator: { provider: 'openai-codex', model: 'gpt-5.6-sol' },
         },
         readiness: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
         ideate: { provider: 'openai-codex', model: 'gpt-5.5' },
         createPr: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
       },
     };
-    expect(resolveEffort('implement', codexEverywhere)).toBe('high');
-    expect(resolveEffort('plan', { ...codexEverywhere, ai: { ...codexEverywhere.ai, effort: 'max' } })).toBe('high');
+    expect(resolveEffort('implement', codexEverywhere)).toBe('xhigh');
     expect(resolveEffort('readiness', { ...codexEverywhere, ai: { ...codexEverywhere.ai, effort: 'medium' } })).toBe(
       'medium'
     );
+  });
+
+  it('floors a global max to xhigh for codex — only the 5.6 family accepts max, and this clamp has no model context', () => {
+    const codexEverywhere: Settings = {
+      ...DEFAULT_SETTINGS,
+      ai: {
+        effort: 'max',
+        refine: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
+        plan: { provider: 'openai-codex', model: 'gpt-5.5' },
+        implement: {
+          generator: { provider: 'openai-codex', model: 'gpt-5.5' },
+          evaluator: { provider: 'openai-codex', model: 'gpt-5.5' },
+        },
+        readiness: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
+        ideate: { provider: 'openai-codex', model: 'gpt-5.5' },
+        createPr: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
+      },
+    };
+    expect(resolveEffort('implement', codexEverywhere)).toBe('xhigh');
+    expect(resolveEffort('plan', codexEverywhere)).toBe('xhigh');
   });
 
   it('passes a global effort through identity for claude-code rows', () => {
@@ -74,20 +93,20 @@ describe('resolveEffort', () => {
     const settings: Settings = {
       ...DEFAULT_SETTINGS,
       ai: {
-        effort: 'xhigh',
-        refine: { provider: 'openai-codex', model: 'gpt-5.4-mini', effort: 'minimal' },
+        effort: 'max',
+        refine: { provider: 'openai-codex', model: 'gpt-5.4-mini', effort: 'low' },
         plan: { provider: 'openai-codex', model: 'gpt-5.5' },
         implement: {
-          generator: { provider: 'openai-codex', model: 'gpt-5.3-codex' },
-          evaluator: { provider: 'openai-codex', model: 'gpt-5.3-codex' },
+          generator: { provider: 'openai-codex', model: 'gpt-5.6-sol' },
+          evaluator: { provider: 'openai-codex', model: 'gpt-5.6-sol' },
         },
         readiness: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
         ideate: { provider: 'openai-codex', model: 'gpt-5.5' },
         createPr: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
       },
     };
-    expect(resolveEffort('refine', settings)).toBe('minimal');
-    expect(resolveEffort('plan', settings)).toBe('high'); // floored from xhigh
+    expect(resolveEffort('refine', settings)).toBe('low');
+    expect(resolveEffort('plan', settings)).toBe('xhigh'); // floored from max
   });
 
   it('returns the per-flow value verbatim for the configured provider', () => {
@@ -96,9 +115,13 @@ describe('resolveEffort', () => {
 });
 
 describe('clampEffortToProvider', () => {
-  it('floors xhigh/max to high for codex', () => {
-    expect(clampEffortToProvider('xhigh', 'openai-codex')).toBe('high');
-    expect(clampEffortToProvider('max', 'openai-codex')).toBe('high');
+  it('passes xhigh through unclamped for codex but floors max to xhigh', () => {
+    expect(clampEffortToProvider('xhigh', 'openai-codex')).toBe('xhigh');
+    expect(clampEffortToProvider('max', 'openai-codex')).toBe('xhigh');
+  });
+
+  it('passes ultra through unclamped for codex — plan-gated, explicit-only, the CLI is the final arbiter', () => {
+    expect(clampEffortToProvider('ultra', 'openai-codex')).toBe('ultra');
   });
 
   it('passes effort through unchanged for claude-code and github-copilot', () => {

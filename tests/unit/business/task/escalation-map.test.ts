@@ -17,6 +17,7 @@ import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
 import { COPILOT_MODELS } from '@src/domain/value/settings-models/copilot.ts';
 import type { AiProvider } from '@src/domain/entity/settings.ts';
 import {
+  CODEX_EFFORT_ESCALATION_TARGET,
   DEFAULT_ESCALATION_MAP,
   EFFORT_ESCALATION_TARGET,
   escalationLadderCyclicFrom,
@@ -53,13 +54,27 @@ describe('DEFAULT_ESCALATION_MAP', () => {
     expect(DEFAULT_ESCALATION_MAP['claude-sonnet-4.6']).toBe('claude-opus-4.8');
   });
 
-  it('climbs the dash-form Claude-Code/Codex ladder via Sonnet 5 (haiku → sonnet-5 → opus)', () => {
+  it('climbs the dash-form Claude-Code/Codex ladder via Sonnet 5 (haiku → sonnet-5 → opus-5)', () => {
     expect(DEFAULT_ESCALATION_MAP['claude-haiku-4-5']).toBe('claude-sonnet-5');
-    expect(DEFAULT_ESCALATION_MAP['claude-sonnet-5']).toBe('claude-opus-4-8');
+    expect(DEFAULT_ESCALATION_MAP['claude-sonnet-5']).toBe('claude-opus-5');
   });
 
   it('retains the legacy claude-sonnet-4-6 → claude-opus-4-8 rung so pinned 4.6 configs still climb', () => {
     expect(DEFAULT_ESCALATION_MAP['claude-sonnet-4-6']).toBe('claude-opus-4-8');
+  });
+
+  it('gives pinned Opus-4.8 configs a live rung to the same-price successor (claude-opus-4-8 → claude-opus-5)', () => {
+    expect(DEFAULT_ESCALATION_MAP['claude-opus-4-8']).toBe('claude-opus-5');
+  });
+
+  it('climbs the codex 5.6 family within itself, chaining in from the old generation', () => {
+    expect(DEFAULT_ESCALATION_MAP['gpt-5.5']).toBe('gpt-5.6-sol');
+    expect(DEFAULT_ESCALATION_MAP['gpt-5.6-luna']).toBe('gpt-5.6-terra');
+    expect(DEFAULT_ESCALATION_MAP['gpt-5.6-terra']).toBe('gpt-5.6-sol');
+  });
+
+  it('does not steer the dot-form Copilot ladder into the plan-gated claude-opus-5', () => {
+    expect(DEFAULT_ESCALATION_MAP['claude-opus-4.8']).toBeUndefined();
   });
 });
 
@@ -183,9 +198,9 @@ describe('DEFAULT_ESCALATION_MAP — catalog lockstep (mechanizes the section 14
       .slice(0, 16);
 
   it('catalog fingerprints are unchanged — a failure means a model bump landed; run the model-bump audit', () => {
-    expect(fingerprint(CLAUDE_MODELS)).toBe('f49667dc324c37cc');
-    expect(fingerprint(CODEX_MODELS)).toBe('d0af18882f9e15ac');
-    expect(fingerprint(COPILOT_MODELS)).toBe('1f51a63b2cbf93f0');
+    expect(fingerprint(CLAUDE_MODELS)).toBe('7aa37ba5efb83173');
+    expect(fingerprint(CODEX_MODELS)).toBe('dce39d8df173e3d8');
+    expect(fingerprint(COPILOT_MODELS)).toBe('16647e8dcb879ea9');
   });
 });
 
@@ -231,19 +246,31 @@ describe('nextEffortRung', () => {
     expect(nextEffortRung('claude-code', HAIKU, 'low')).toBeUndefined();
   });
 
-  // ── Copilot / Codex keep the original fixed-`high` semantics; model plays no role. ──
+  // ── Copilot keeps the original fixed-`high` semantics; model plays no role. ──
 
-  it('copilot/codex escalate a fresh or below-target row to the fixed target `high`', () => {
+  it('copilot escalates a fresh or below-target row to the fixed target `high`', () => {
     expect(nextEffortRung('github-copilot', 'gpt-5.5', undefined)).toBe(EFFORT_ESCALATION_TARGET);
-    expect(nextEffortRung('openai-codex', 'gpt-5.5', undefined)).toBe(EFFORT_ESCALATION_TARGET);
     expect(nextEffortRung('github-copilot', 'gpt-5.5', 'low')).toBe(EFFORT_ESCALATION_TARGET);
-    expect(nextEffortRung('openai-codex', 'gpt-5.5', 'minimal')).toBe(EFFORT_ESCALATION_TARGET);
   });
 
-  it('copilot/codex return undefined when already at/above the fixed target (no headroom)', () => {
+  it('copilot returns undefined when already at/above the fixed target (no headroom)', () => {
     expect(nextEffortRung('github-copilot', 'gpt-5.5', 'high')).toBeUndefined();
     expect(nextEffortRung('github-copilot', 'gpt-5.5', 'xhigh')).toBeUndefined();
-    expect(nextEffortRung('openai-codex', 'gpt-5.5', 'high')).toBeUndefined();
+  });
+
+  // ── Codex targets the fixed `xhigh` rung — universal across the codex catalog since the
+  //    vocabulary change, so every codex preset (which stamps `high`) has a live rung. ──
+
+  it('codex escalates a fresh, below-target, or legacy `minimal` row to the fixed target `xhigh`', () => {
+    expect(nextEffortRung('openai-codex', 'gpt-5.6-sol', undefined)).toBe(CODEX_EFFORT_ESCALATION_TARGET);
+    expect(nextEffortRung('openai-codex', 'gpt-5.5', 'high')).toBe(CODEX_EFFORT_ESCALATION_TARGET);
+    expect(nextEffortRung('openai-codex', 'gpt-5.5', 'minimal')).toBe(CODEX_EFFORT_ESCALATION_TARGET);
+  });
+
+  it('codex returns undefined when already at/above the fixed target (no headroom)', () => {
+    expect(nextEffortRung('openai-codex', 'gpt-5.5', 'xhigh')).toBeUndefined();
+    expect(nextEffortRung('openai-codex', 'gpt-5.5', 'max')).toBeUndefined();
+    expect(nextEffortRung('openai-codex', 'gpt-5.5', 'ultra')).toBeUndefined();
   });
 
   it('returns undefined when no provider is resolvable (skips the rung gracefully)', () => {

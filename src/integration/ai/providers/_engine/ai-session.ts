@@ -38,7 +38,8 @@ export interface AiSession {
   /**
    * Effort / reasoning level the AI should run at, resolved by the launcher via
    * `resolveEffort(flowId, settings)`. Provider-native vocabulary (Claude:
-   * `low|medium|high|xhigh|max`; Copilot adds `none`; Codex: `minimal|low|medium|high`).
+   * `low|medium|high|xhigh|max`; Copilot adds `none`; Codex: `low|medium|high|xhigh|max|ultra`,
+   * with `max`/`ultra` model-narrowed by the CLI).
    * The adapter is responsible for translating this string into its CLI flag
    * (`--model-reasoning-effort` for Codex, etc.). Adapters that do not support a
    * reasoning flag MUST silently ignore the field — never surface an error for an

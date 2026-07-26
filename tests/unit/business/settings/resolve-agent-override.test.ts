@@ -58,19 +58,19 @@ describe('resolveAgentOverride', () => {
     expect(resolved).toEqual({ model: 'claude-sonnet-5', effort: 'max' });
   });
 
-  it('floors a binding-supplied xhigh to the codex provider ceiling', () => {
+  it('passes a binding-supplied xhigh through unclamped for codex (xhigh is now universal across the catalog)', () => {
     // A definition-bound effort still goes through the same provider floor as the
-    // global-default path — codex only accepts minimal|low|medium|high and rejects
-    // unknown levels, so an unclamped xhigh would fail every spawn for this role.
+    // global-default path — codex now accepts low|medium|high|xhigh|max|ultra, so xhigh
+    // passes through identity.
     const row = codexRow();
     const resolved = resolveAgentOverride(row, 'medium', { effort: 'xhigh' });
-    expect(resolved).toEqual({ model: 'gpt-5.5', effort: 'high' });
+    expect(resolved).toEqual({ model: 'gpt-5.5', effort: 'xhigh' });
   });
 
-  it('floors a binding-supplied max to the codex provider ceiling', () => {
+  it('floors a binding-supplied max to the codex provider ceiling (xhigh)', () => {
     const row = codexRow();
     const resolved = resolveAgentOverride(row, 'medium', { effort: 'max' });
-    expect(resolved).toEqual({ model: 'gpt-5.5', effort: 'high' });
+    expect(resolved).toEqual({ model: 'gpt-5.5', effort: 'xhigh' });
   });
 
   it('leaves a binding-supplied xhigh untouched on a claude-code row (identity)', () => {
@@ -85,9 +85,15 @@ describe('resolveAgentOverride', () => {
     expect(resolved).toEqual({ model: 'gpt-5.5', effort: 'ultra-mega' });
   });
 
-  it('floors the global default to the codex provider ceiling when no definition/row effort is set', () => {
+  it('passes a global xhigh default through unclamped for codex when no definition/row effort is set', () => {
     const row = codexRow();
     const resolved = resolveAgentOverride(row, 'xhigh', undefined);
-    expect(resolved).toEqual({ model: 'gpt-5.5', effort: 'high' });
+    expect(resolved).toEqual({ model: 'gpt-5.5', effort: 'xhigh' });
+  });
+
+  it('floors a global max default to xhigh for codex when no definition/row effort is set', () => {
+    const row = codexRow();
+    const resolved = resolveAgentOverride(row, 'max', undefined);
+    expect(resolved).toEqual({ model: 'gpt-5.5', effort: 'xhigh' });
   });
 });

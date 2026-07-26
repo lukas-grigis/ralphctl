@@ -204,7 +204,7 @@ export const escalationTargetsFor = (from: string): readonly string[] => {
 };
 
 export interface EscalationChain {
-  /** Model ids in climb order, e.g. `['claude-haiku-4-5', 'claude-sonnet-4-6', 'claude-opus-4-8']`. */
+  /** Model ids in climb order, e.g. `['claude-haiku-4-5', 'claude-sonnet-5', 'claude-opus-5']`. */
   readonly models: readonly string[];
   /** True when any rung on the chain comes from the user's overrides (not the built-in map). */
   readonly customised: boolean;

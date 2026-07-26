@@ -620,14 +620,9 @@ describe('buildCopilotArgs — AiSession → CLI flag translation', () => {
     expect(r.error.message).toContain("'claude-haiku-4-5'");
   });
 
-  it('rejects the suspended claude-fable-5 with InvalidStateError(model-suspended)', () => {
-    const r = buildCopilotArgs(session({ model: 'claude-fable-5' }));
-    expect(r.ok).toBe(false);
-    if (r.ok) return;
-    expect(r.error.code).toBe('invalid-state');
-    expect(r.error.currentState).toBe('model-suspended');
-    expect(r.error.message).toContain('suspended');
-    expect(r.error.message).toContain("'claude-fable-5'");
+  it('builds args for the un-suspended claude-fable-5 — the suspension was lifted at GA (2026-07)', () => {
+    const args = unwrapArgs(session({ model: 'claude-fable-5' }));
+    expect(args).toContain('--model=claude-fable-5');
   });
 
   it('still builds args for a non-suspended copilot model (claude-opus-4.8)', () => {

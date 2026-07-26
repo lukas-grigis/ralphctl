@@ -42,16 +42,18 @@ export const resolveEffortForRow = (
  *
  * Exported so callers that source effort from somewhere other than the global-default fallback
  * (e.g. an agent-definition binding — see `resolveAgentOverride`) can still apply the same
- * per-provider floor. Without this, a binding-supplied `xhigh`/`max` reaches the codex CLI
- * verbatim; codex only accepts `minimal | low | medium | high` and rejects unknown levels,
- * so an unclamped value fails every spawn for that role.
+ * per-provider floor. Codex accepts `low..xhigh` on every catalog model, so `xhigh` now passes
+ * through unclamped; `max` still clamps because only the 5.6 family accepts it and this clamp
+ * has no model context to narrow further. Explicit per-flow `max` / `ultra` bypasses this clamp
+ * entirely (row effort returns verbatim, below) with the codex CLI as the final arbiter — same
+ * policy as custom model ids.
  *
  * Only the known-dangerous codex case is floored — any other string (including values outside
  * the superset) passes through unchanged, letting the provider CLI be the final arbiter of
  * genuinely unknown effort levels.
  */
 export const clampEffortToProvider = (effort: string, provider: AiProvider): string => {
-  if (provider === 'openai-codex' && (effort === 'xhigh' || effort === 'max')) return 'high';
+  if (provider === 'openai-codex' && effort === 'max') return 'xhigh';
   return effort;
 };
 
@@ -61,7 +63,7 @@ export const clampEffortToProvider = (effort: string, provider: AiProvider): str
  * - claude-code: identity (its native vocabulary IS the superset).
  * - github-copilot: identity (Copilot accepts everything in the superset; `none` is only
  *   surfaced as a per-flow opt-out and never selected globally).
- * - openai-codex: `minimal | low | medium | high`. `xhigh` / `max` clamp to `high`.
+ * - openai-codex: `max` clamps to `xhigh`; everything else identity.
  */
 const _floorForProvider = (effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max', provider: AiProvider): string =>
   clampEffortToProvider(effort, provider);

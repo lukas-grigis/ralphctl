@@ -17,7 +17,8 @@ import type { AiSettings, Settings } from '@src/domain/entity/settings.ts';
  *                   only family that splits generator and evaluator onto different models.
  *   fast          — cheapest viable tier at `low` effort, optimising speed/cost over quality;
  *                   the only family with `escalateOnPlateau` stamped OFF so a plateau settles.
- *   frontier      — flagship everywhere at `max` effort (codex floored to `high`).
+ *   frontier      — flagship everywhere at `max` effort (tops out at Opus 5 / GPT-5.6 Sol; codex
+ *                   is no longer floored — the 5.6 flagship accepts `max` directly).
  *
  * Applying a preset stamps the AI section AND `harness.escalateOnPlateau`. Preset identity is
  * NOT persisted; the next per-row edit sticks and nothing remembers which preset was applied.
@@ -71,20 +72,27 @@ export const isPresetName = (raw: string): raw is PresetName => (PRESET_NAMES as
 
 // Provider and model identifiers referenced across the preset matrices below, hoisted so each
 // literal appears once. The dash vs dot spelling is provider-specific and load-bearing:
-// claude-code uses the dash form (`claude-opus-4-8`, `claude-sonnet-5` → OPUS / SONNET / HAIKU)
+// claude-code uses the dash form (`claude-opus-5`, `claude-sonnet-5` → OPUS / SONNET / HAIKU)
 // while github-copilot uses the dotted form (`claude-…-4.8` → COPILOT_OPUS / COPILOT_SONNET). Do
 // not normalise one into the other. Sonnet 5 is the default Sonnet for Claude Code; Copilot's
 // curated presets stay on Sonnet 4.6 (its slug collides with the Claude-Code id — see escalation-map).
+// `COPILOT_OPUS` deliberately stays `claude-opus-4.8` — `claude-opus-5` is plan-gated on Copilot
+// (Pro+/Max/Business/Enterprise), so steering the curated Copilot presets there would brick spawns
+// on lower plans; `claude-opus-5` is catalog + pin-only on Copilot. Like `claude-sonnet-5`,
+// `claude-opus-5` is an undotted shared-slug id — identical on both the Claude-Code and Copilot
+// catalogs — see escalation-map.ts.
 const CLAUDE = 'claude-code';
 const COPILOT = 'github-copilot';
 const CODEX = 'openai-codex';
-const OPUS = 'claude-opus-4-8';
+const OPUS = 'claude-opus-5';
 const SONNET = 'claude-sonnet-5';
 const HAIKU = 'claude-haiku-4-5';
 const COPILOT_OPUS = 'claude-opus-4.8';
 const COPILOT_SONNET = 'claude-sonnet-4.6';
 const GPT_5_MINI = 'gpt-5-mini';
 const GPT_5_4_MINI = 'gpt-5.4-mini';
+const GPT_5_6_SOL = 'gpt-5.6-sol';
+const GPT_5_6_TERRA = 'gpt-5.6-terra';
 
 /**
  * The `mixed` preset matrix — best-of-breed across the three providers. Effort pattern:
@@ -97,7 +105,7 @@ const GPT_5_4_MINI = 'gpt-5.4-mini';
  */
 const MIXED: AiSettings = {
   effort: 'high',
-  refine: { provider: CODEX, model: 'gpt-5.5' },
+  refine: { provider: CODEX, model: GPT_5_6_SOL },
   plan: { provider: COPILOT, model: COPILOT_SONNET, effort: 'xhigh' },
   implement: {
     generator: { provider: CLAUDE, model: OPUS, effort: 'xhigh' },
@@ -117,8 +125,8 @@ const MIXED: AiSettings = {
  *   readiness → light (cheap, single-shot)
  *   refine → mid-tier
  *
- * Effort matrix mirrors Mixed: `implement` and `plan` at `xhigh` (Codex floors `xhigh`
- * back to `high` at resolve time via the provider ceiling), `readiness` at `medium`,
+ * Effort matrix mirrors Mixed: `implement` and `plan` at `xhigh` (Codex now accepts `xhigh` on
+ * every catalog model — the vocabulary no longer floors it), `readiness` at `medium`,
  * `refine` and `ideate` inherit global `high`. Implement.generator and implement.evaluator
  * share the same row — the preset story is "every flow on this provider".
  */
@@ -150,16 +158,14 @@ const COPILOT_ONLY: AiSettings = {
 
 const CODEX_ONLY: AiSettings = {
   effort: 'high',
-  refine: { provider: CODEX, model: 'gpt-5.4' },
-  plan: { provider: CODEX, model: 'gpt-5.5', effort: 'high' },
+  refine: { provider: CODEX, model: GPT_5_6_TERRA },
+  plan: { provider: CODEX, model: GPT_5_6_SOL, effort: 'xhigh' },
   implement: {
-    // gpt-5.3-codex is deprecated for ChatGPT sign-in — implement now rides the frontier
-    // default so the everyday autonomous loop keeps working under ChatGPT auth.
-    generator: { provider: CODEX, model: 'gpt-5.5', effort: 'high' },
-    evaluator: { provider: CODEX, model: 'gpt-5.5', effort: 'high' },
+    generator: { provider: CODEX, model: GPT_5_6_SOL, effort: 'xhigh' },
+    evaluator: { provider: CODEX, model: GPT_5_6_SOL, effort: 'xhigh' },
   },
   readiness: { provider: CODEX, model: GPT_5_4_MINI, effort: 'medium' },
-  ideate: { provider: CODEX, model: 'gpt-5.5' },
+  ideate: { provider: CODEX, model: GPT_5_6_SOL },
   createPr: { provider: CODEX, model: GPT_5_4_MINI },
 };
 
@@ -176,8 +182,8 @@ const CODEX_ONLY: AiSettings = {
  * share the same row — splitting roles is an explicit per-row edit, not a preset.
  *
  * `refine` / `readiness` / `createPr` drop to the cheap tier across all four; `ideate` drops a
- * tier too, EXCEPT `codex-economic` where it stays on `gpt-5.5` — Codex has no cheaper
- * coding-grade tier that suits single-shot ideation, so the row matches `codex-only`.
+ * tier too, in every family including `codex-economic` — the GPT-5.6 family's `terra` tier is
+ * the intermediate tier the cheap-ideation row needed.
  */
 const MIXED_ECONOMIC: AiSettings = {
   effort: 'high',
@@ -221,13 +227,13 @@ const COPILOT_ECONOMIC: AiSettings = {
 const CODEX_ECONOMIC: AiSettings = {
   effort: 'high',
   refine: { provider: CODEX, model: GPT_5_4_MINI },
-  plan: { provider: CODEX, model: 'gpt-5.4', effort: 'high' },
+  plan: { provider: CODEX, model: GPT_5_6_TERRA, effort: 'high' },
   implement: {
-    generator: { provider: CODEX, model: 'gpt-5.4', effort: 'high' },
-    evaluator: { provider: CODEX, model: 'gpt-5.4', effort: 'high' },
+    generator: { provider: CODEX, model: GPT_5_6_TERRA, effort: 'high' },
+    evaluator: { provider: CODEX, model: GPT_5_6_TERRA, effort: 'high' },
   },
   readiness: { provider: CODEX, model: GPT_5_4_MINI, effort: 'medium' },
-  ideate: { provider: CODEX, model: 'gpt-5.5' },
+  ideate: { provider: CODEX, model: GPT_5_6_TERRA },
   createPr: { provider: CODEX, model: GPT_5_4_MINI },
 };
 
@@ -272,8 +278,9 @@ const CLAUDE_STRONG_GATE: AiSettings = {
  * rejecting it, never escalating the author. The evaluator stays flagship regardless: the gate
  * is strong from the first round, generation is cheap until a task proves it needs more.
  *
- * Codex's `gpt-5.4`→`gpt-5.5` gate is the NARROWEST of the family — the two Codex tiers sit one
- * rung apart with a small capability gap, so the cheap author is already close to the gate.
+ * Codex's `gpt-5.6-terra`→`gpt-5.6-sol` gate is the NARROWEST of the family — the two Codex
+ * tiers sit one rung apart with a small capability gap, so the cheap author is already close
+ * to the gate.
  */
 const MIXED_STRONG_GATE: AiSettings = {
   effort: 'high',
@@ -304,14 +311,15 @@ const COPILOT_STRONG_GATE: AiSettings = {
 const CODEX_STRONG_GATE: AiSettings = {
   effort: 'high',
   refine: { provider: CODEX, model: GPT_5_4_MINI },
-  plan: { provider: CODEX, model: 'gpt-5.5', effort: 'high' },
+  plan: { provider: CODEX, model: GPT_5_6_SOL, effort: 'xhigh' },
   implement: {
-    // Narrowest gate of the family: gpt-5.4 author climbs the single rung to the gpt-5.5 gate.
-    generator: { provider: CODEX, model: 'gpt-5.4', effort: 'high' },
-    evaluator: { provider: CODEX, model: 'gpt-5.5', effort: 'high' },
+    // Narrowest gate of the family: terra author climbs the single default-ladder rung to the
+    // sol gate.
+    generator: { provider: CODEX, model: GPT_5_6_TERRA, effort: 'high' },
+    evaluator: { provider: CODEX, model: GPT_5_6_SOL, effort: 'xhigh' },
   },
   readiness: { provider: CODEX, model: GPT_5_4_MINI, effort: 'medium' },
-  ideate: { provider: CODEX, model: 'gpt-5.5' },
+  ideate: { provider: CODEX, model: GPT_5_6_SOL },
   createPr: { provider: CODEX, model: GPT_5_4_MINI },
 };
 
@@ -323,8 +331,8 @@ const CODEX_STRONG_GATE: AiSettings = {
  * Implement deliberately uses sonnet / gpt-mini, NOT haiku: haiku (and the codex nano tier) is
  * too weak to author code reliably, so the cheapest model that can still complete a task gates
  * the implement rows even in the fast family. Light flows (refine / readiness / ideate / createPr)
- * drop further — `codex-fast` leans on `minimal` effort for those light flows where Codex offers
- * a cheaper-than-low rung.
+ * drop further — `codex-fast`'s light flows leave `effort` unset so they inherit the family's
+ * global `low`; Codex no longer has a below-`low` rung (`minimal` was retired).
  */
 const MIXED_FAST: AiSettings = {
   effort: 'low',
@@ -367,30 +375,35 @@ const COPILOT_FAST: AiSettings = {
 
 const CODEX_FAST: AiSettings = {
   effort: 'low',
-  refine: { provider: CODEX, model: GPT_5_4_MINI, effort: 'minimal' },
+  refine: { provider: CODEX, model: GPT_5_4_MINI },
   plan: { provider: CODEX, model: GPT_5_4_MINI, effort: 'low' },
   implement: {
     generator: { provider: CODEX, model: GPT_5_4_MINI, effort: 'low' },
     evaluator: { provider: CODEX, model: GPT_5_4_MINI, effort: 'low' },
   },
-  readiness: { provider: CODEX, model: GPT_5_4_MINI, effort: 'minimal' },
+  readiness: { provider: CODEX, model: GPT_5_4_MINI },
   ideate: { provider: CODEX, model: GPT_5_4_MINI },
-  createPr: { provider: CODEX, model: GPT_5_4_MINI, effort: 'minimal' },
+  createPr: { provider: CODEX, model: GPT_5_4_MINI },
 };
 
 /**
  * Frontier family — flagship everywhere at MAX effort: quality over cost, every flow on the
- * strongest model. Codex is floored to `high` (its effort ceiling — global `ai.effort` stays
- * `high` on `codex-frontier` so nothing implies a `max` codex row, which the schema would reject).
+ * strongest model. Codex is no longer floored: the GPT-5.6 flagship (`gpt-5.6-sol`) accepts
+ * `max`, so `codex-frontier` stamps the global effort AND the plan/implement rows at `max`
+ * directly (readiness stays `high`; refine/ideate/createPr leave effort unset and inherit the
+ * global `max`, which the codex provider clamp floors to `xhigh` at resolve time). `ultra` is
+ * deliberately NOT stamped anywhere in this family — it is plan-gated to Plus+ and would brick
+ * spawns on lower plans; operators opt in per-row.
  *
- * The family tops out at opus. `claude-fable-5` is intentionally NOT referenced even though it
- * is the catalog tier above opus: it is export-control-suspended and would be rejected at launch,
- * so the flagship-everywhere story stops at opus. Restoring fable when the suspension lifts is a
- * one-line model swap on the implement / plan rows here.
+ * The family tops out at Opus 5 / GPT-5.6 Sol. `claude-fable-5` is intentionally NOT referenced
+ * even though it is the catalog tier above Opus 5: Fable is 2x the Opus price, an operator spend
+ * decision rather than a flagship default, so the flagship-everywhere story stops at Opus 5.
+ * Opting in is a one-line model swap on the implement / plan rows here, or an `escalationMap`
+ * rung (`'claude-opus-5': 'claude-fable-5'`).
  */
 const MIXED_FRONTIER: AiSettings = {
   effort: 'max',
-  refine: { provider: CODEX, model: 'gpt-5.5' },
+  refine: { provider: CODEX, model: GPT_5_6_SOL },
   plan: { provider: CLAUDE, model: OPUS, effort: 'max' },
   implement: {
     generator: { provider: CLAUDE, model: OPUS, effort: 'max' },
@@ -398,7 +411,7 @@ const MIXED_FRONTIER: AiSettings = {
   },
   readiness: { provider: CLAUDE, model: OPUS, effort: 'high' },
   ideate: { provider: CLAUDE, model: OPUS },
-  createPr: { provider: CODEX, model: 'gpt-5.5' },
+  createPr: { provider: CODEX, model: GPT_5_6_SOL },
 };
 
 const CLAUDE_FRONTIER: AiSettings = {
@@ -428,17 +441,16 @@ const COPILOT_FRONTIER: AiSettings = {
 };
 
 const CODEX_FRONTIER: AiSettings = {
-  // Codex ceiling — global stays `high` so nothing implies a `max` codex row.
-  effort: 'high',
-  refine: { provider: CODEX, model: 'gpt-5.5' },
-  plan: { provider: CODEX, model: 'gpt-5.5', effort: 'high' },
+  effort: 'max',
+  refine: { provider: CODEX, model: GPT_5_6_SOL },
+  plan: { provider: CODEX, model: GPT_5_6_SOL, effort: 'max' },
   implement: {
-    generator: { provider: CODEX, model: 'gpt-5.5', effort: 'high' },
-    evaluator: { provider: CODEX, model: 'gpt-5.5', effort: 'high' },
+    generator: { provider: CODEX, model: GPT_5_6_SOL, effort: 'max' },
+    evaluator: { provider: CODEX, model: GPT_5_6_SOL, effort: 'max' },
   },
-  readiness: { provider: CODEX, model: 'gpt-5.5', effort: 'high' },
-  ideate: { provider: CODEX, model: 'gpt-5.5' },
-  createPr: { provider: CODEX, model: 'gpt-5.5' },
+  readiness: { provider: CODEX, model: GPT_5_6_SOL, effort: 'high' },
+  ideate: { provider: CODEX, model: GPT_5_6_SOL },
+  createPr: { provider: CODEX, model: GPT_5_6_SOL },
 };
 
 /**

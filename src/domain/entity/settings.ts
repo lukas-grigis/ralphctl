@@ -34,13 +34,15 @@ const LogLevelSchema = z.enum(['silent', 'debug', 'info', 'warn', 'error']) sati
  */
 export type AiProvider = 'claude-code' | 'github-copilot' | 'openai-codex';
 
-/** The `claude-code` provider id — reused by the schema enum/literal and the legacy-row migration check. */
+/** Provider ids — reused by the schema enum/literals and the legacy-row migration checks below. */
 const PROVIDER_CLAUDE_CODE = 'claude-code';
+const PROVIDER_GITHUB_COPILOT = 'github-copilot';
+const PROVIDER_OPENAI_CODEX = 'openai-codex';
 
 const AiProviderSchema = z.enum([
   PROVIDER_CLAUDE_CODE,
-  'github-copilot',
-  'openai-codex',
+  PROVIDER_GITHUB_COPILOT,
+  PROVIDER_OPENAI_CODEX,
 ]) satisfies z.ZodType<AiProvider>;
 
 /**
@@ -48,10 +50,14 @@ const AiProviderSchema = z.enum([
  * provider's native enum at parse time (a Copilot-only level on a Claude row would surface as
  * a schema error). The unified global `ai.effort` accepts the superset; `resolveEffort` floors
  * it to a provider-supported level at read time.
+ *
+ * Codex now carries `xhigh` (all catalog models) plus `max` / `ultra` (5.6-family /
+ * sol-terra-only, CLI-enforced); `minimal` was retired by codex ≥ 0.145 and migrates to `low`
+ * at parse time (see {@link migrateStaleRow}).
  */
 const ClaudeEffortSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
 const CopilotEffortSchema = z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max']);
-const CodexEffortSchema = z.enum(['minimal', 'low', 'medium', 'high']);
+const CodexEffortSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
 
 /** Superset across providers. The global `ai.effort` accepts any of these; `resolveEffort` floors. */
 const GlobalEffortSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
@@ -74,13 +80,13 @@ const ClaudeFlowRowSchema = z.object({
 });
 
 const CopilotFlowRowSchema = z.object({
-  provider: z.literal('github-copilot'),
+  provider: z.literal(PROVIDER_GITHUB_COPILOT),
   model: CopilotModelSchema,
   effort: CopilotEffortSchema.optional(),
 });
 
 const CodexFlowRowSchema = z.object({
-  provider: z.literal('openai-codex'),
+  provider: z.literal(PROVIDER_OPENAI_CODEX),
   model: CodexModelSchema,
   effort: CodexEffortSchema.optional(),
 });
@@ -169,26 +175,49 @@ const seedLegacyCreatePrRow = (ai: unknown): unknown => {
   return { ...aiObj, createPr: { ...(refine as Record<string, unknown>) } };
 };
 
-/** Retired Claude model slug and its catalog successor — rewritten at parse time. */
-const RETIRED_CLAUDE_OPUS = 'claude-opus-4-7';
-const SUCCESSOR_CLAUDE_OPUS = 'claude-opus-4-8';
+/**
+ * Retired model slugs and their catalog successors, per provider — rewritten at parse time.
+ * Provider-guarded so a colliding custom string on another provider's row is never touched.
+ * (Same silence/idempotence policy as {@link promoteLegacyImplementRow}. Cite each retirement:
+ * `claude-opus-4-7` retired for `claude-opus-4-8`; Copilot delisted `claude-opus-4.6-fast` for
+ * `claude-opus-4.8-fast`; codex ≥ 0.145 dropped `gpt-5.2` / `gpt-5.3-codex` /
+ * `gpt-5.3-codex-spark` — `gpt-5.5` is the conservative successor and the default ladder climbs
+ * it to `gpt-5.6-sol` on plateau.)
+ */
+const RETIRED_MODEL_REMAPS: ReadonlyArray<{
+  readonly provider: AiProvider;
+  readonly from: string;
+  readonly to: string;
+}> = [
+  { provider: PROVIDER_CLAUDE_CODE, from: 'claude-opus-4-7', to: 'claude-opus-4-8' },
+  { provider: PROVIDER_GITHUB_COPILOT, from: 'claude-opus-4.6-fast', to: 'claude-opus-4.8-fast' },
+  { provider: PROVIDER_OPENAI_CODEX, from: 'gpt-5.2', to: 'gpt-5.5' },
+  { provider: PROVIDER_OPENAI_CODEX, from: 'gpt-5.3-codex', to: 'gpt-5.5' },
+  { provider: PROVIDER_OPENAI_CODEX, from: 'gpt-5.3-codex-spark', to: 'gpt-5.5' },
+];
 
-/** Rewrite a single row in place when it pins the retired Claude Opus model. */
-const migrateRetiredOpusRow = (row: unknown): unknown => {
+/** Codex retired the 'minimal' reasoning-effort level (codex CLI >= 0.145); 'low' succeeds it. */
+const RETIRED_CODEX_EFFORT = 'minimal';
+
+/** Rewrite one row: retired-model remap by (provider, model), then codex 'minimal' -> 'low'. */
+const migrateStaleRow = (row: unknown): unknown => {
   if (typeof row !== 'object' || row === null) return row;
-  const rowObj = row as Record<string, unknown>;
-  if (rowObj['provider'] === PROVIDER_CLAUDE_CODE && rowObj['model'] === RETIRED_CLAUDE_OPUS) {
-    return { ...rowObj, model: SUCCESSOR_CLAUDE_OPUS };
+  let next = row as Record<string, unknown>;
+  const remap = RETIRED_MODEL_REMAPS.find((r) => next['provider'] === r.provider && next['model'] === r.from);
+  if (remap !== undefined) next = { ...next, model: remap.to };
+  if (next['provider'] === PROVIDER_OPENAI_CODEX && next['effort'] === RETIRED_CODEX_EFFORT) {
+    next = { ...next, effort: 'low' };
   }
-  return row;
+  return next;
 };
 
 /**
- * Rewrite any AI row pinned to the now-removed Claude model `claude-opus-4-7` to its catalog
- * successor `claude-opus-4-8`. The settings schema accepts off-catalog model strings, so a
- * persisted `claude-opus-4-7` row LOADS fine — but the Claude adapter rejects non-catalog
- * models at spawn time with `InvalidStateError`. Rewriting at parse time keeps existing users
- * on a working model across the catalog change.
+ * Rewrite any AI row pinned to a retired model slug (see {@link RETIRED_MODEL_REMAPS}) to its
+ * catalog successor, and any codex row carrying the retired `minimal` effort level to `low`.
+ * The settings schema accepts off-catalog model strings, so a persisted retired-model row LOADS
+ * fine — but the adapter rejects non-catalog models at spawn time with `InvalidStateError`.
+ * Rewriting at parse time keeps existing users on a working model/effort across the catalog
+ * change.
  *
  * Covers the five flat rows (`refine` / `plan` / `readiness` / `ideate` / `createPr`) and the
  * nested `implement.{generator,evaluator}` pair. Runs at parse time without bumping
@@ -199,20 +228,20 @@ const migrateRetiredOpusRow = (row: unknown): unknown => {
  * Returns the input untouched for non-object / null shapes — it runs on raw `unknown` before
  * validation, so schema validation still surfaces the real error message for malformed input.
  */
-const migrateRetiredClaudeOpus = (ai: unknown): unknown => {
+const migrateStaleAiRows = (ai: unknown): unknown => {
   if (typeof ai !== 'object' || ai === null) return ai;
   const aiObj = ai as Record<string, unknown>;
   const next: Record<string, unknown> = { ...aiObj };
   for (const flow of ['refine', 'plan', 'readiness', 'ideate', 'createPr'] as const) {
-    if (flow in next) next[flow] = migrateRetiredOpusRow(next[flow]);
+    if (flow in next) next[flow] = migrateStaleRow(next[flow]);
   }
   const implement = next['implement'];
   if (typeof implement === 'object' && implement !== null) {
     const implObj = implement as Record<string, unknown>;
     next['implement'] = {
       ...implObj,
-      generator: migrateRetiredOpusRow(implObj['generator']),
-      evaluator: migrateRetiredOpusRow(implObj['evaluator']),
+      generator: migrateStaleRow(implObj['generator']),
+      evaluator: migrateStaleRow(implObj['evaluator']),
     };
   }
   return next;
@@ -220,12 +249,13 @@ const migrateRetiredClaudeOpus = (ai: unknown): unknown => {
 
 /**
  * Compose the parse-time preprocessors so they all fire on every parse. Order matters:
- * {@link migrateRetiredClaudeOpus} runs LAST so it sees the implement row already nested into
- * `{ generator, evaluator }` (so a legacy flat `claude-opus-4-7` implement row migrates both
- * roles) and the createPr row already seeded from refine (so a 4-7 seeded createPr migrates too).
+ * {@link migrateStaleAiRows} runs LAST so it sees the implement row already nested into
+ * `{ generator, evaluator }` (so a legacy flat retired-model/`minimal`-effort implement row
+ * migrates both roles) and the createPr row already seeded from refine (so a seeded createPr
+ * migrates too).
  */
 const promoteLegacyAiRows = (ai: unknown): unknown =>
-  migrateRetiredClaudeOpus(seedLegacyCreatePrRow(promoteLegacyImplementRow(ai)));
+  migrateStaleAiRows(seedLegacyCreatePrRow(promoteLegacyImplementRow(ai)));
 
 /**
  * Parse-time self-heal for the `maxTurns ≥ plateauThreshold` cross-knob invariant.

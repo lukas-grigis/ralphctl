@@ -145,17 +145,19 @@ describe('decideEscalation — user-only and edge cases', () => {
 
   it('tops out only after a same-model nudge at the top of the ladder', () => {
     const base = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
-    const nudged = withEscalation(base, 'claude-opus-4-8', 'claude-opus-4-8');
+    // claude-opus-5 is the true top of the dash-form ladder — claude-opus-4-8 now carries a live
+    // rung to it, so the top-of-ladder / nudge / topped-out sequence must exercise opus-5.
+    const nudged = withEscalation(base, 'claude-opus-5', 'claude-opus-5');
     const decision = decideEscalation({
       task: nudged,
-      generatorModel: 'claude-opus-4-8',
+      generatorModel: 'claude-opus-5',
       flagOn: true,
       userMap: {},
       fallbackMaxAttempts: 3,
     });
 
     expect(decision.kind).toBe('topped-out');
-    if (decision.kind === 'topped-out') expect(decision.model).toBe('claude-opus-4-8');
+    if (decision.kind === 'topped-out') expect(decision.model).toBe('claude-opus-5');
   });
 });
 

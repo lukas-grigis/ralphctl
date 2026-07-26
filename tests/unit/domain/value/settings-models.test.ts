@@ -3,36 +3,43 @@ import { CODEX_MODELS, isCodexModel } from '@src/domain/value/settings-models/co
 import { COPILOT_MODELS, isCopilotModel } from '@src/domain/value/settings-models/copilot.ts';
 
 describe('settings-models / codex catalog', () => {
-  const added = ['gpt-5.3-codex-spark'] as const;
-  // Deprecated for ChatGPT sign-in but kept available via API-key auth — must not be dropped.
-  const keptDeprecated = ['gpt-5.2', 'gpt-5.3-codex'] as const;
+  // Verified against the live CLI model cache (codex CLI v0.145.0, 2026-07-26).
+  const kept = ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'codex-auto-review'] as const;
+  const added = ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'] as const;
+  // Gone from the codex CLI entirely — persisted rows are remapped to `gpt-5.5` at parse time.
+  const removed = ['gpt-5.2', 'gpt-5.3-codex', 'gpt-5.3-codex-spark'] as const;
 
-  it('keeps all six previously-shipped entries plus the synthetic review id', () => {
-    for (const m of ['gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.3-codex', 'gpt-5.2', 'codex-auto-review']) {
+  it('keeps the previously-shipped entries plus the synthetic review id', () => {
+    for (const m of kept) {
       expect(CODEX_MODELS).toContain(m);
     }
   });
 
-  it('adds the new codex 0.138 research-preview model', () => {
+  it('adds the GPT-5.6 family from the 0.145.0 model cache', () => {
     for (const m of added) {
       expect(CODEX_MODELS).toContain(m);
       expect(isCodexModel(m)).toBe(true);
     }
   });
 
-  it('keeps the deprecated-but-API-valid models in the allowlist', () => {
-    for (const m of keptDeprecated) {
-      expect(isCodexModel(m)).toBe(true);
+  it('drops every model removed from the live CLI cache', () => {
+    for (const m of removed) {
+      expect(CODEX_MODELS).not.toContain(m);
+      expect(isCodexModel(m)).toBe(false);
     }
   });
 
   it('rejects unknown ids', () => {
     expect(isCodexModel('gpt-9000')).toBe(false);
   });
+
+  it('rejects the bare gpt-5.6 alias — API-only, deliberately absent', () => {
+    expect(isCodexModel('gpt-5.6')).toBe(false);
+  });
 });
 
 describe('settings-models / copilot catalog', () => {
-  // Reconciled to GitHub's official supported-models doc (as of 2026-06-10).
+  // Reconciled to GitHub's official supported-models doc (as of 2026-07-26).
   const official = [
     // OpenAI
     'gpt-5-mini',
@@ -41,13 +48,17 @@ describe('settings-models / copilot catalog', () => {
     'gpt-5.4-mini',
     'gpt-5.4-nano',
     'gpt-5.5',
+    'gpt-5.6-sol',
+    'gpt-5.6-terra',
+    'gpt-5.6-luna',
     // Anthropic
     'claude-haiku-4.5',
     'claude-opus-4.5',
     'claude-opus-4.6',
-    'claude-opus-4.6-fast',
     'claude-opus-4.7',
     'claude-opus-4.8',
+    'claude-opus-4.8-fast',
+    'claude-opus-5',
     'claude-fable-5',
     'claude-sonnet-4.5',
     'claude-sonnet-4.6',
@@ -57,8 +68,11 @@ describe('settings-models / copilot catalog', () => {
     'gemini-3-flash',
     'gemini-3.1-pro-preview',
     'gemini-3.5-flash',
+    'gemini-3.6-flash',
     // Microsoft
     'mai-code-1-flash',
+    // Moonshot
+    'kimi-k2.7-code',
     // Fine-tuned
     'raptor-mini-preview',
   ] as const;
@@ -75,6 +89,7 @@ describe('settings-models / copilot catalog', () => {
     'claude-sonnet-4',
     'gemini-3-pro-preview',
     'gemini-3-flash-preview',
+    'claude-opus-4.6-fast',
   ] as const;
 
   it('contains exactly the official supported-models list', () => {

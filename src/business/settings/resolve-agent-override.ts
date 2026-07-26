@@ -24,10 +24,11 @@ export interface ResolvedAgentOverride {
  *
  * - `model`: the definition's `model` when set, otherwise the row's own `model` (always
  *   present — every {@link AiFlowSettings} row is fully stamped with a provider-catalog model).
- * - `effort`: the definition's `effort` when set, but floored to the row's provider (e.g. an
- *   agent definition's `xhigh`/`max` clamps to `high` on a codex row, same as the global-default
- *   path — see {@link clampEffortToProvider}); otherwise {@link resolveEffortForRow}'s result
- *   (per-flow row effort, falling through to the global default floored to the row's provider).
+ * - `effort`: the definition's `effort` when set, but floored to the row's provider (e.g. a
+ *   binding-supplied `xhigh` passes through unclamped on a codex row, `max` floors to `xhigh`,
+ *   and `ultra` passes through with the CLI as arbiter — same as the global-default path, see
+ *   {@link clampEffortToProvider}); otherwise {@link resolveEffortForRow}'s result (per-flow row
+ *   effort, falling through to the global default floored to the row's provider).
  *
  * `binding` is `undefined` when the role has no bound definition — resolution then falls
  * straight through to the per-flow row / global default, identical to `resolveEffortForRow`

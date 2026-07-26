@@ -13,6 +13,21 @@ Only the latest version is supported — no backporting, no parallel branches.
 The sections below give per-version context for what changed and why, in case
 you're crossing a big jump and want to know what to expect.
 
+## 0.16.x → 0.17.0
+
+Nothing to do by hand. July 2026 model refresh — defaults, presets, and the escalation ladder move to
+Claude Opus 5 and the GPT-5.6 family (Sol / Terra / Luna). Silent parse-time remaps keep pinned configs
+working: Copilot `claude-opus-4.6-fast` → `claude-opus-4.8-fast`; Codex `gpt-5.2` / `gpt-5.3-codex` /
+`gpt-5.3-codex-spark` → `gpt-5.5`; Codex effort `minimal` → `low` (the level no longer exists). Canonical
+shape lands on the next `save()`. Notes: GPT-5.6 models require codex CLI ≥ ~0.145; Claude Opus 5 and
+Fable 5 on Copilot depend on your Copilot plan (unavailable models fail at spawn with a clear message);
+Fable 5 is un-suspended and pickable again (still opt-in only — nothing selects it by default);
+`claude-opus-4.8-fast` (the Copilot remap target) is a convention-derived slug not yet verified against
+a live Copilot CLI — if it's rejected at spawn, re-pin the row to `claude-opus-4.8`. One deliberate
+depth/spend increase: an existing global `ai.effort: xhigh` or `max` combined with codex rows now
+resolves to `xhigh` (was floored to `high`) — pin a per-row `effort` to keep the old level. See
+[CHANGELOG](./CHANGELOG.md#unreleased).
+
 ## 0.8.x → 0.9.0
 
 Nothing to do on upgrade. Parallel task execution is opt-in — `settings.concurrency.maxParallelTasks`

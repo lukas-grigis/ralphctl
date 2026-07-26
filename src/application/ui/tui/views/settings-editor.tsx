@@ -34,9 +34,11 @@ import { contextWindowLabel } from '@src/domain/value/settings-models/context-wi
  *
  *   'claude-sonnet-4-6'    →  'claude-sonnet-4-6  ·  200K'
  *   'claude-opus-4-8[1m]' →  'claude-opus-4-8[1m]  ·  1M'
- *   'claude-fable-5[1m]'  →  'claude-fable-5[1m]  ·  1M  (suspended)'
- *   'claude-fable-5'      →  'claude-fable-5  ·  (suspended)'
+ *   'claude-opus-5'        →  'claude-opus-5  ·  1M'
  *   'gpt-5.5'             →  'gpt-5.5'   (no window known — no annotation)
+ *
+ * The `(suspended)` suffix only appears while `SUSPENDED_MODELS` is non-empty — the kill-switch
+ * is currently unused (see suspended-models.ts) so no catalog id renders it today.
  */
 const annotateModelLabel = (model: string): string => {
   const windowPart = contextWindowLabel(model);
