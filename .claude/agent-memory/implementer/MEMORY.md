@@ -84,3 +84,6 @@
 - [project_plateau_predicate_count_based.md](project_plateau_predicate_count_based.md) — plateau predicate is
   failed-dim-COUNT based (not identical-set); critique-shift (Jaccard<0.5) is the lever to keep a multi-turn loop test
   running; R2 entropy guard reads ctx.lastTurnActionCounts (signal-kind proxy) stamped by generator every turn
+- [project_provider_literal_duplication_lint_cap.md](project_provider_literal_duplication_lint_cap.md) — a new
+  provider-keyed table in settings.ts (raw 'github-copilot'/'openai-codex' literals) can tip sonarjs/no-duplicate-string
+  and blow the ratcheted lint cap; hoist PROVIDER_GITHUB_COPILOT/PROVIDER_OPENAI_CODEX like PROVIDER_CLAUDE_CODE
