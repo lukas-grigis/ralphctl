@@ -15,6 +15,7 @@ in the sprint's decisions log.
   convention). Obvious changes do not need a decision entry.
 - **One sentence per decision** — lead with the choice, then the rationale: "Used X over Y because Z." Use
   two sentences only when the rationale genuinely cannot be compressed without losing the key tradeoff.
+- Keep `text` under roughly 500 characters.
 - The harness appends task id automatically — do not include it yourself, but DO include the `timestamp`
   field (ISO 8601).
 - Emit one signal per decision rather than packing several choices into one `text` body.

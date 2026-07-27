@@ -10,7 +10,7 @@ invocation, not as a tutorial or README.
 - At most seven H2 sections (`## Build & Run`, `## Testing`, `## Architecture`, …). Fewer is better.
 - No H4 headings or deeper — three heading levels (`#`, `##`, `###`) is the practical maximum.
 - Prefer tight bullet lists over prose paragraphs; each bullet should be one verifiable claim.
-- Hard line cap: 200 lines. Instruction adherence measurably degrades on longer context files, so
+- Hard line cap: 200 lines. Instruction adherence degrades on longer context files, so
   brevity is load-bearing.
 
 **"Read on demand" pattern** — for sections that an agent rarely needs mid-task, list them under a
@@ -19,8 +19,8 @@ invocation, not as a tutorial or README.
 ```
 ## References
 
-- `.claude/docs/ARCHITECTURE.md` — module layout and layering rules
-- `.claude/docs/DESIGN-SYSTEM.md` — TUI tokens and component copy rules
+- `docs/architecture.md` — module layout and layering rules
+- `docs/style-guide.md` — UI style guide and component copy rules
 ```
 
 This keeps the primary file short while keeping the information reachable.
@@ -48,12 +48,11 @@ Node.js 20 + TypeScript. Run `<install command>` once, then `<dev command>` to s
 
 ## Architecture
 
-- Four-module Clean Architecture: `domain → business → integration → application`.
-- No barrel `index.ts` files under `src/` — name every import explicitly.
-- Business code must not import I/O-bearing `node:*` modules — pure `node:path` / `node:url` ok.
+- <your layering rule> — e.g. which modules may import which, and which direction is forbidden.
+- <your module-boundary rule> — e.g. no cross-module reach-arounds; go through the declared seam.
 
 ## Conventions
 
-- Return `Result<T, DomainError>` from every business operation — do not throw.
-- Em-dash (`—`) for explanatory clauses in comments and docs.
+- <your error-handling convention> — e.g. return a typed result instead of throwing.
+- <your formatting or naming convention> — state it as a checkable rule, not general advice.
 ```

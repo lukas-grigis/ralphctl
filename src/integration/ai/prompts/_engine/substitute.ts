@@ -13,9 +13,10 @@ import { compressSection, PRECAPPED_SECTION_CHAR_CAP } from '@src/integration/ai
  *  - When a key is **present** with the empty string, the placeholder is replaced with the
  *    empty string (so callers can opt a section out by passing `''`).
  *  - When a key is **absent**, the placeholder is **left intact** in the output. This is
- *    fail-soft on purpose: builders compose multi-pass substitutions (partials filled first,
- *    then the outer template), and a soft pass means a placeholder inside an injected partial
- *    isn't accidentally consumed by the first pass.
+ *    fail-soft on purpose: `buildPrompt` runs a SINGLE pass over the outer template, with
+ *    partial bodies pre-loaded as substitution values. Those values are inserted verbatim and
+ *    never re-scanned, so a `{{KEY}}` placeholder living inside a partial's own body ships as
+ *    an inert literal in the rendered prompt instead of being resolved.
  *  - All occurrences of the same key are replaced.
  *  - Replacement values are inserted verbatim — `$&` and other regex replacement specials in
  *    the value do not trigger backreferences (we use a plain function callback, not a string

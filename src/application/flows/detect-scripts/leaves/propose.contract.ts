@@ -70,23 +70,23 @@ const wrapLegacyArray = (raw: unknown): unknown => {
 const EXAMPLE_TS = '2026-05-22T10:00:00.000Z' as IsoTimestamp;
 
 const EXAMPLE_SIGNALS: readonly DetectScriptsSignal[] = [
-  { type: 'setup-script', command: 'pnpm install', timestamp: EXAMPLE_TS },
+  { type: 'setup-script', command: '<tool> install', timestamp: EXAMPLE_TS },
   {
     type: 'verify-script',
-    command: 'pnpm typecheck && pnpm lint && pnpm test',
+    command: '<tool> typecheck && <tool> lint && <tool> test',
     timestamp: EXAMPLE_TS,
   },
   {
     type: 'verify-gates',
     gates: [
-      { pathPrefix: 'services/api/', command: 'pnpm --filter api test' },
-      { pathPrefix: 'services/web/', command: 'pnpm --filter web test' },
+      { pathPrefix: 'services/api/', command: '<tool> --filter api test' },
+      { pathPrefix: 'services/web/', command: '<tool> --filter web test' },
     ],
     timestamp: EXAMPLE_TS,
   },
   {
     type: 'note',
-    text: 'Commands lifted verbatim from CLAUDE.md.',
+    text: 'Commands lifted verbatim from the coding-agent context file.',
     timestamp: EXAMPLE_TS,
   },
 ];

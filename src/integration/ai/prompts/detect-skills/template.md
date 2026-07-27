@@ -25,15 +25,16 @@ covers that responsibility for this repo.
 
 <inputs>
 <repository_path>{{REPOSITORY_PATH}}</repository_path>
-<skills_convention>See the full skills convention in the constraints section below.</skills_convention>
+<skills_convention_pointer>See the full skills convention in the constraints section below.</skills_convention_pointer>
 </inputs>
 
 {{HARNESS_CONTEXT}}
 
 <capabilities>
 You can read files anywhere in the repository at `{{REPOSITORY_PATH}}`. You cannot run shell commands,
-modify files, or create files — this invocation is read-only. The harness owns execution; your output
-is a proposal the operator reviews before anything lands.
+modify files, or create files — this invocation is read-only — except the single `signals.json` write
+the output contract names. The harness owns execution; your output is a proposal the operator reviews
+before anything lands.
 </capabilities>
 
 <constraints>
@@ -81,8 +82,8 @@ what it needs to know up front.
 **Verify skill** (`verify-skill-proposal`) — teaches a future AI session how to interpret verification
 results in this repo: which commands gate correctness, where the signal lives (test output, type
 errors, lint reports), and how to interpret common failure modes for this stack. The reader will run
-the verify script (a single shell command defined elsewhere on the repository entity) and needs to
-know how to read its output and diagnose failures.
+the verify script (a single shell command configured separately in the harness) and needs to know how
+to read its output and diagnose failures.
 </skill_shapes>
 
 <inspection_protocol>
@@ -119,7 +120,7 @@ signals.json
   "signals": [
     {
       "type": "setup-skill-proposal",
-      "content": "This repo pins tool versions with mise. Before editing anything, run `mise install` to activate the exact versions declared in `mise.toml`. Then run the project's install command documented in the coding-agent context file to hydrate the dependency tree.\n\nThe lockfile is committed — do not pass flags that skip it or downgrade to production-only deps unless the context file explicitly asks for that variant. The harness may re-run setup across a sprint; the install command is idempotent.",
+      "content": "This repo pins tool versions with mise. Before editing anything, run `mise install` to activate the exact versions declared in `mise.toml`. Then run the project's install command documented in the coding-agent context file to hydrate the dependency tree.\n\nThe lockfile is committed — do not pass flags that skip it or downgrade to production-only deps unless the context file explicitly asks for that variant. Setup may run more than once; keep this procedure idempotent.",
       "timestamp": "2026-05-22T10:00:00.000Z"
     },
     {

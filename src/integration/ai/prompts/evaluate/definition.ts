@@ -26,9 +26,10 @@ import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/templat
  * evaluator's `AiOutputContract`.
  *
  * The evaluate template runs an independent reviewer agent: it reads the task description /
- * steps / verification criteria, runs the verify script as authoritative ground truth, scores
- * five floor dimensions (correctness, completeness, safety, consistency, robustness), and writes
- * exactly one `evaluation` signal to `signals.json` carrying the PASS / FAIL verdict +
+ * steps / verification criteria, runs each `auto` criterion's command directly as its primary
+ * evidence source (the harness runs the verify script separately as the post-task commit gate),
+ * scores five floor dimensions (correctness, completeness, safety, consistency, robustness), and
+ * writes exactly one `evaluation` signal to `signals.json` carrying the PASS / FAIL verdict +
  * per-dimension findings.
  */
 export interface EvaluatePromptParams {

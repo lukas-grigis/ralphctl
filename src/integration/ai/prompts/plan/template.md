@@ -29,8 +29,8 @@ Produce a dependency-ordered task array and write it as a `task-plan` signal to
 </success_criteria>
 
 <session_topology>
-Your working directory for this session is the per-sprint plan unit root
-(`<sprintDir>/plan/<run-slug>/`). You are NOT running inside any project repository.
+Your working directory for this session is a harness-managed session directory — you are NOT
+running inside any project repository.
 
 The project repositories listed under `<repositories>` are mounted as read-only sources
 you can explore — each one has equal access weight; no single repository is primary. Read
@@ -332,6 +332,8 @@ them; do not re-litigate a prior decision without surfacing why in the plan.
 
 <existing_tasks>{{EXISTING_TASKS}}</existing_tasks>
 
+If `<existing_tasks>` is empty, this is a fresh plan — there is nothing to replace.
+
 </inputs>
 
 ## Protocol
@@ -344,7 +346,9 @@ and sequence dependencies.
 Read the repositories mounted under `<repositories>` to:
 
 1. Read repo instruction files (`CLAUDE.md`, `AGENTS.md`, `.github/copilot-instructions.md`)
-   when present.
+   when present. Also check major subdirectories for nested context files (for example a
+   nested `AGENTS.md`) — note directory-local conventions in the plan when they differ from
+   the root.
 2. Skim project structure and manifests (`package.json`, `pyproject.toml`, etc.).
 3. Run `git log --oneline -20` per repository so you don't plan tasks that re-implement
    already-landed work.
@@ -368,7 +372,9 @@ Draft the plan first, before writing JSON.
 
 For genuinely contested decisions, ask the user a structured multiple-choice question — one
 at a time, 2–4 labelled options per question, recommendation as the first option. Use your
-runtime's interactive question capability to present the question.
+runtime's interactive question capability to present the question. Labels are 1–5 words;
+headers are 12 characters or fewer (UI rendering constraints). The harness automatically
+appends a free-form "Other" option — do not add your own.
 
 Good questions:
 
@@ -430,5 +436,11 @@ proceed to Step 5.
 Once the user has answered "Approved, write it" in Step 4 AND every checklist item above is
 satisfied, write the `task-plan` signal into `signals.json` per the output contract below.
 The task array goes into the signal's `tasksJson` field as a JSON-encoded string.
+
+**Optional signals** (emit when relevant):
+
+- `note` — for status updates or observations worth surfacing.
+- `learning` — for non-obvious repo facts discovered during exploration.
+- `decision` — for architectural choices made during planning (body capped at 500 chars).
 
 {{OUTPUT_CONTRACT_SECTION}}

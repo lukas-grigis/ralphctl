@@ -58,6 +58,7 @@ describe('readinessPromptDef — completeness', () => {
       'verify-skill-proposal',
       'skill-suggestions',
       'note',
+      'learning',
     ]);
   });
 });

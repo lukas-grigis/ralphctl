@@ -135,7 +135,7 @@ const generatorExampleSignals: readonly GeneratorSignal[] = [
     appliesTo: 'config / io layer',
     timestamp: EXAMPLE_TS,
   },
-  { type: 'task-verified', output: '$ pnpm test\n... 42 passed', timestamp: EXAMPLE_TS },
+  { type: 'task-verified', output: '$ <project test command>\n... 42 passed', timestamp: EXAMPLE_TS },
   {
     type: COMMIT_MESSAGE_KIND,
     subject: 'feat(foo): add helper for bar',

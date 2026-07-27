@@ -120,7 +120,7 @@ const evaluatorExampleSignals: readonly EvaluatorSignal[] = [
         dimension: 'correctness',
         passed: false,
         finding: 'C1 command exited 1: empty-input test failed at src/foo.ts:23',
-        executionEvidence: 'npm test -- src/foo.test.ts\n  ✗ handles empty input (expected 400, got 500)\n  1 failing',
+        executionEvidence: '<project test command>\n  ✗ handles empty input (expected 400, got 500)\n  1 failing',
       },
       { dimension: 'completeness', passed: true, finding: 'all declared steps shipped' },
       { dimension: 'safety', passed: true, finding: 'inputs validated at the request boundary' },
@@ -128,7 +128,11 @@ const evaluatorExampleSignals: readonly EvaluatorSignal[] = [
       { dimension: 'robustness', passed: true, finding: 'error path retries the write once before surfacing' },
     ],
     criteria: [
-      { id: 'C1', passed: false, evidence: 'npm test exited 1 — empty-input case failed at src/foo.ts:23' },
+      {
+        id: 'C1',
+        passed: false,
+        evidence: '<project test command> exited 1 — empty-input case failed at src/foo.ts:23',
+      },
       { id: 'C2', passed: true, evidence: 'request boundary validates input at src/foo.ts:11' },
     ],
     critique: 'Correctness: add edge-case handling for empty input at src/foo.ts:23.',

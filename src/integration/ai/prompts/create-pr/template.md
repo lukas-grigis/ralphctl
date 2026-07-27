@@ -15,10 +15,7 @@ Inspect the commit history and diff of `{{HEAD_BRANCH}}` against `{{BASE_BRANCH}
 
 <success_criteria>
 
-- The signal carries a `title` of ≤70 characters, imperative present-tense (e.g. "Add CSV export for transactions").
-- The `body` has three sections in order: a 1–3 sentence summary, a `## Changes` bullet list, and a `## Test plan`
-  markdown checklist.
-- The `body` is ≤80 lines — concise summaries are a feature, not a limitation.
+- The `title` and `body` follow the format and length rules in the Constraints section below.
 - Every claim in `body` is supported by the actual diff or commit messages — nothing is invented.
 - Issue references, when present, appear verbatim at the end of `body`.
 
@@ -42,7 +39,8 @@ Inspect the commit history and diff of `{{HEAD_BRANCH}}` against `{{BASE_BRANCH}
 </inputs>
 
 <constraints>
-Gather context by running shell commands in the repository before writing anything:
+Gather context by running shell commands in the repository before writing anything. You are already on
+`{{HEAD_BRANCH}}` — the commands below use `HEAD` directly, no checkout needed:
 
 - Inspect the commit history: `git log {{BASE_BRANCH}}..HEAD`
 - Inspect the file-level change summary: `git diff {{BASE_BRANCH}}...HEAD --stat`
@@ -69,7 +67,7 @@ Body rules:
 - Body length: ≤80 lines. Prefer fewer lines over more — reviewers skim.
 - Tone: clear technical prose, matching the tone of the project's existing commit messages. Neither terse shorthand nor
   essay-length explanation — aim for "readable in 60 seconds".
-- Use em-dash `—` for explanatory clauses, matching the project's house style.
+- Use em-dash `—` for explanatory clauses.
 
 Issue references:
 
@@ -86,8 +84,8 @@ Hard constraints:
 - Emit ONLY the `pr-content` signal. Do not emit narrative signals (`note`, `learning`, `decision`, `change`) — they are
   not consumed by this flow and represent wasted tokens.
 - If you cannot produce a meaningful title and body (e.g. the repository is inaccessible, the diff is empty, or there is
-  nothing to summarise), write `signals.json` as an empty array `[]` and stop. Do not invent PR content. The harness
-  falls back to a template-derived description in that case.
+  nothing to summarise), write `signals.json` as `{"schemaVersion": 1, "signals": []}` and stop. Do not invent PR
+  content. The harness falls back to a template-derived description in that case.
 
 </constraints>
 
