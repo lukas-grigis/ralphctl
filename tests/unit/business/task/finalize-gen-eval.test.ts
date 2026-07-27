@@ -351,8 +351,8 @@ describe('finalizeGenEvalUseCase', () => {
   it('plateau topped-out (nudged then plateaued again): verdict failed, plateau warning, no shouldFailAttempt, no blockedReason (preserves work)', async () => {
     // Mutant-kill: a mutant that drops the topped-out guard would incorrectly set shouldFailAttempt.
     const initial = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
-    // Task was nudged at the top of the ladder (from === to === opus); plateauing again tops out.
-    const stamped = recordTaskEscalation(initial, 'claude-opus-4-8', 'claude-opus-4-8');
+    // Task was nudged at the top of the ladder (from === to === opus-5); plateauing again tops out.
+    const stamped = recordTaskEscalation(initial, 'claude-opus-5', 'claude-opus-5');
     if (!stamped.ok) throw stamped.error;
     const bus = newBus();
     const events: Array<{ type: string }> = [];
@@ -367,7 +367,7 @@ describe('finalizeGenEvalUseCase', () => {
       logger: noopLogger,
       eventBus: bus,
       clock: fixedClock,
-      generatorModel: 'claude-opus-4-8',
+      generatorModel: 'claude-opus-5',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -395,15 +395,15 @@ describe('finalizeGenEvalUseCase', () => {
       logger: noopLogger,
       eventBus: bus,
       clock: fixedClock,
-      generatorModel: 'claude-opus-4-8',
+      generatorModel: 'claude-opus-5',
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     // Nudge: same model stamped (arms the directive + once-per-task cap), one more attempt granted.
     expect(result.value.verdict).toBe('failed');
     expect(result.value.warning).toEqual({ kind: 'plateau', dimensions: ['correctness'] }); // plateau warning attached
-    expect(result.value.task.escalatedFromModel).toBe('claude-opus-4-8');
-    expect(result.value.task.escalatedToModel).toBe('claude-opus-4-8');
+    expect(result.value.task.escalatedFromModel).toBe('claude-opus-5');
+    expect(result.value.task.escalatedToModel).toBe('claude-opus-5');
     expect(result.value.shouldFailAttempt).toBe(true);
     expect(result.value.blockedReason).toBeUndefined();
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
@@ -867,7 +867,7 @@ describe('finalizeGenEvalUseCase', () => {
 
   it('provider without a resolvable effort dimension → same-model nudge as before (no escalatedToEffort, no model bump)', async () => {
     // No generatorProvider passed → the policy can never return escalate-effort. Top-of-ladder
-    // opus falls through to the same-model nudge exactly as it did before the rung existed.
+    // opus-5 falls through to the same-model nudge exactly as it did before the rung existed.
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     const bus = newBus();
     const events: Array<{ type: string }> = [];
@@ -882,21 +882,21 @@ describe('finalizeGenEvalUseCase', () => {
       logger: noopLogger,
       eventBus: bus,
       clock: fixedClock,
-      generatorModel: 'claude-opus-4-8',
+      generatorModel: 'claude-opus-5',
       // generatorProvider intentionally omitted.
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     // Same-model nudge stamp (from === to), one more attempt granted, no effort stamp.
-    expect(result.value.task.escalatedFromModel).toBe('claude-opus-4-8');
-    expect(result.value.task.escalatedToModel).toBe('claude-opus-4-8');
+    expect(result.value.task.escalatedFromModel).toBe('claude-opus-5');
+    expect(result.value.task.escalatedToModel).toBe('claude-opus-5');
     expect(result.value.task.escalatedToEffort).toBeUndefined();
     expect(result.value.shouldFailAttempt).toBe(true);
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
   });
 
   it('generator already at max effort → nudge (no headroom): no escalatedToEffort stamped', async () => {
-    // `max` is the top of Claude's effort ladder — the rung is spent, so a top-of-ladder opus
+    // `max` is the top of Claude's effort ladder — the rung is spent, so a top-of-ladder opus-5
     // plateau falls through to the same-model nudge (an explicit `high` would still climb to xhigh;
     // only the ceiling exhausts the rung). This is the wiring of `nextEffortRung` returning
     // undefined at the ceiling → the finalize leaf stamps no effort, only the same-model nudge.
@@ -911,7 +911,7 @@ describe('finalizeGenEvalUseCase', () => {
       logger: noopLogger,
       eventBus: newBus(),
       clock: fixedClock,
-      generatorModel: 'claude-opus-4-8',
+      generatorModel: 'claude-opus-5',
       generatorProvider: 'claude-code',
       generatorEffort: 'max',
     });
@@ -919,13 +919,13 @@ describe('finalizeGenEvalUseCase', () => {
     if (!result.ok) return;
     // No effort headroom → the top-of-ladder nudge (same-model stamp), never an effort bump.
     expect(result.value.task.escalatedToEffort).toBeUndefined();
-    expect(result.value.task.escalatedFromModel).toBe('claude-opus-4-8');
-    expect(result.value.task.escalatedToModel).toBe('claude-opus-4-8');
+    expect(result.value.task.escalatedFromModel).toBe('claude-opus-5');
+    expect(result.value.task.escalatedToModel).toBe('claude-opus-5');
     expect(result.value.shouldFailAttempt).toBe(true);
   });
 
   it('generator at explicit high effort → escalate-effort to xhigh (headroom on an xhigh-capable model)', async () => {
-    // opus is xhigh-capable, so an explicit `high` still has headroom: the rung climbs to `xhigh`
+    // opus-5 is xhigh-capable, so an explicit `high` still has headroom: the rung climbs to `xhigh`
     // (the raised effort is stamped for the next spawn; a later plateau at xhigh would reach max).
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     const result = await finalizeGenEvalUseCase({
@@ -938,7 +938,7 @@ describe('finalizeGenEvalUseCase', () => {
       logger: noopLogger,
       eventBus: newBus(),
       clock: fixedClock,
-      generatorModel: 'claude-opus-4-8',
+      generatorModel: 'claude-opus-5',
       generatorProvider: 'claude-code',
       generatorEffort: 'high',
     });

@@ -48,7 +48,7 @@ interface HeaderCardProps {
  * operator can clearly see each role, even when generator === evaluator. When the role's provider
  * id is known it renders dim before the model (secondary context) — model stays highlighted.
  *
- *   ↳ generator  github-copilot · claude-opus-4-8 · high
+ *   ↳ generator  github-copilot · claude-opus-4.8 · high
  *   ↳ evaluator  openai-codex · gpt-5.5 · medium
  *
  * Non-implement flows (at most one model set): single `model <name>` line, optionally prefixed

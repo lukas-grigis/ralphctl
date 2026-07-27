@@ -31,14 +31,15 @@ describe('Settings defaults + schema', () => {
   });
 
   it("rejects an effort value outside the row provider's native vocabulary", () => {
-    // Codex does not expose `xhigh`; setting it on a codex row must fail at parse time.
+    // Codex does not expose `none` (a Copilot-only opt-out level); setting it on a codex row
+    // must fail at parse time.
     const bad = {
       ...DEFAULT_SETTINGS,
       ai: {
         ...DEFAULT_SETTINGS.ai,
         implement: {
-          generator: { provider: 'openai-codex' as const, model: 'gpt-5.3-codex', effort: 'xhigh' },
-          evaluator: { provider: 'openai-codex' as const, model: 'gpt-5.3-codex' },
+          generator: { provider: 'openai-codex' as const, model: 'gpt-5.5', effort: 'none' },
+          evaluator: { provider: 'openai-codex' as const, model: 'gpt-5.5' },
         },
       },
     };
@@ -98,11 +99,11 @@ describe('JsonSettingsRepository', () => {
     const codex: Settings = {
       schemaVersion: CURRENT_SCHEMA_VERSION,
       ai: {
-        refine: { provider: 'openai-codex', model: 'gpt-5.3-codex' },
+        refine: { provider: 'openai-codex', model: 'gpt-5.6-terra' },
         plan: { provider: 'openai-codex', model: 'gpt-5.4' },
         implement: {
-          generator: { provider: 'openai-codex', model: 'gpt-5.3-codex' },
-          evaluator: { provider: 'openai-codex', model: 'gpt-5.3-codex' },
+          generator: { provider: 'openai-codex', model: 'gpt-5.6-sol' },
+          evaluator: { provider: 'openai-codex', model: 'gpt-5.6-sol' },
         },
         readiness: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
         ideate: { provider: 'openai-codex', model: 'gpt-5.4-mini' },

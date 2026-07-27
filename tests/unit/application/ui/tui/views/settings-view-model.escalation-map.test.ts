@@ -74,17 +74,26 @@ describe('escalation model helpers', () => {
 });
 
 describe('effectiveEscalationChains', () => {
-  it('renders the built-in haiku→sonnet→opus chain uncustomised with no overrides', () => {
+  it('renders the built-in haiku→sonnet-5→opus-5 chain uncustomised with no overrides', () => {
     const chains = effectiveEscalationChains({});
     const claude = chains.find((c) => c.models[0] === 'claude-haiku-4-5');
-    expect(claude?.models).toEqual(['claude-haiku-4-5', 'claude-sonnet-5', 'claude-opus-4-8']);
+    expect(claude?.models).toEqual(['claude-haiku-4-5', 'claude-sonnet-5', 'claude-opus-5']);
     expect(claude?.customised).toBe(false);
   });
 
+  it('renders the legacy sonnet-4-6→opus-4-8→opus-5 chain uncustomised with no overrides', () => {
+    const chains = effectiveEscalationChains({});
+    const legacy = chains.find((c) => c.models[0] === 'claude-sonnet-4-6');
+    expect(legacy?.models).toEqual(['claude-sonnet-4-6', 'claude-opus-4-8', 'claude-opus-5']);
+    expect(legacy?.customised).toBe(false);
+  });
+
   it('extends a chain through a user rung and marks it customised', () => {
-    const chains = effectiveEscalationChains({ 'claude-opus-4-8': 'claude-fable-5' });
+    // claude-opus-5 has no default rung — the documented opt-in promotion path
+    // (`'claude-opus-5': 'claude-fable-5'`) extends the dash-form ladder's real top.
+    const chains = effectiveEscalationChains({ 'claude-opus-5': 'claude-fable-5' });
     const claude = chains.find((c) => c.models[0] === 'claude-haiku-4-5');
-    expect(claude?.models).toEqual(['claude-haiku-4-5', 'claude-sonnet-5', 'claude-opus-4-8', 'claude-fable-5']);
+    expect(claude?.models).toEqual(['claude-haiku-4-5', 'claude-sonnet-5', 'claude-opus-5', 'claude-fable-5']);
     expect(claude?.customised).toBe(true);
   });
 

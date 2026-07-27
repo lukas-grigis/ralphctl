@@ -461,3 +461,13 @@ this checklist before updating the recorded hash:
    is it now overhead?" (§ 14 — remove non-load-bearing pieces one at a time, with measurement.)
 4. **Update the recorded fingerprint** in the test only after steps 1–3, so the hash bump is a deliberate
    record that the audit ran, not a reflex to make CI green.
+
+**Model-bump audit log.**
+
+- **2026-07-26 — Claude Opus 5 / GPT-5.6 (Sol, Terra, Luna) refresh.** Step 1 (orphaned rungs) is
+  mechanized and passed — `DEFAULT_ESCALATION_MAP` was updated in lockstep with the catalog edits, no
+  stranded key/destination. Step 2: the only `partial`/`gap` rows in this doc are §14 and §18, both
+  self-referential to this audit mechanism — neither is closed by a same-generation model tier bump, so
+  no promotion. Step 3: rows 1–13 and 15–17 (`applied`) reviewed — this bump is a same-architecture tier
+  refresh (higher-capability models within the existing Claude / Codex / Copilot families, not a new
+  capability class), so no component was identified as newly non-load-bearing; no removals.

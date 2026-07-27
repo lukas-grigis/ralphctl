@@ -7,6 +7,45 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Claude Opus 5** (`claude-opus-5`) — the Opus 4.8 successor at the same price, natively 1M context (no
+  `[1m]` variant, same as Sonnet 5). It's now the default Opus across `DEFAULT_SETTINGS`, every curated
+  preset, and the built-in escalation ladder; `claude-opus-4-8` stays in the catalog for pinned configs
+  and now carries a live ladder rung up to Opus 5.
+- **GPT-5.6 family for Codex and Copilot** — `gpt-5.6-sol` (flagship), `gpt-5.6-terra` (balanced), and
+  `gpt-5.6-luna` (most cost-efficient), verified against the codex CLI 0.145.0 model cache. New ladder
+  rungs: `gpt-5.5 → gpt-5.6-sol` and `gpt-5.6-luna → gpt-5.6-terra → gpt-5.6-sol`. Requires codex CLI ≥
+  ~0.145; older CLIs reject the new models with a clear error.
+- **New Codex effort levels `xhigh` / `max` / `ultra`.** The Codex effort vocabulary is no longer floored
+  to `high` — `xhigh` is valid on every catalog model, `max` on the 5.6 family, and `ultra` (plan-gated) on
+  Sol/Terra. `minimal` is retired; persisted rows silently migrate to `low`.
+- **Copilot catalog additions**: `claude-opus-4.8-fast`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`,
+  `gemini-3.6-flash`, `kimi-k2.7-code`, and `claude-opus-5` (catalog + pin-only — plan-gated on Copilot, so
+  curated presets and the default ladder stay on `claude-opus-4.8`). `gpt-5.6-sol` is CLI-verified;
+  `claude-opus-4.8-fast`, `gemini-3.6-flash`, and `kimi-k2.7-code` are convention-derived from GitHub's
+  docs and could not be validated on the reference account.
+
+### Changed
+
+- Implement evaluator default → `openai-codex` / `gpt-5.6-sol` (was `gpt-5.5`).
+- Codex presets re-tiered onto the GPT-5.6 family (`gpt-5.5` → `gpt-5.6-sol`, `gpt-5.4` → `gpt-5.6-terra`
+  across the affected rows); `codex-economic`'s ideate row moves off its former mini/full-tier gap onto
+  `gpt-5.6-terra`. `codex-frontier` now genuinely stamps `max` effort instead of being floored to `high`.
+- Codex plateau effort-escalation target rises from `high` to `xhigh` (`high` was permanently dead for
+  every codex preset, which stamps implement at `high` already).
+- **Fable 5's export-control suspension is lifted** — `claude-fable-5` is pickable again. It remains
+  opt-in only (no preset row, no default escalation rung): at 2× the Opus price, adding it is an operator
+  spend decision, not something ralphctl steers a task into automatically.
+
+### Removed
+
+- Codex `gpt-5.2`, `gpt-5.3-codex`, `gpt-5.3-codex-spark` — gone from the codex CLI's model cache; pinned
+  rows silently remap to `gpt-5.5` on load (`gpt-5.3-codex` is unaffected on the **Copilot** catalog, where
+  GitHub still lists it).
+- Copilot `claude-opus-4.6-fast` — delisted by GitHub; pinned rows remap to `claude-opus-4.8-fast`.
+- Codex effort `minimal` — no longer a valid reasoning-effort level; persisted rows remap to `low`.
+
 ## [0.16.0] - 2026-07-18
 
 ### Added

@@ -7,25 +7,21 @@ import {
 } from '@src/domain/value/settings-models/suspended-models.ts';
 
 describe('suspended-models', () => {
-  it('flags both fable ids as suspended', () => {
-    expect(isSuspendedModel('claude-fable-5')).toBe(true);
-    expect(isSuspendedModel('claude-fable-5[1m]')).toBe(true);
+  it('SUSPENDED_MODELS is empty — the kill-switch mechanism is deliberately retained with no active entries', () => {
+    expect(SUSPENDED_MODELS).toEqual([]);
   });
 
-  it('does not flag a live catalog model, a custom string, or empty', () => {
-    expect(isSuspendedModel('claude-opus-4-8')).toBe(false);
-    expect(isSuspendedModel('my-custom-model')).toBe(false);
+  it('does not flag any model as suspended (fable is un-suspended, GA again)', () => {
+    expect(isSuspendedModel('claude-fable-5')).toBe(false);
+    expect(isSuspendedModel('claude-fable-5[1m]')).toBe(false);
+    expect(isSuspendedModel('claude-opus-5')).toBe(false);
     expect(isSuspendedModel('')).toBe(false);
   });
 
-  it('SUSPENDED_MODELS contains exactly the two fable ids', () => {
-    expect([...SUSPENDED_MODELS].sort()).toEqual(['claude-fable-5', 'claude-fable-5[1m]']);
-  });
-
   it('message names the model and carries the suspension note tag', () => {
-    const msg = suspendedModelMessage('claude-fable-5');
-    expect(msg).toContain("'claude-fable-5'");
-    expect(msg).toContain(SUSPENSION_NOTE);
+    const msg = suspendedModelMessage('x');
+    expect(msg).toContain('x');
+    expect(msg).toContain('suspended');
     expect(SUSPENSION_NOTE).toBe('suspended');
   });
 });

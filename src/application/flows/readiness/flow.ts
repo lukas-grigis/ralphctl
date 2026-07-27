@@ -31,6 +31,7 @@ import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.t
 import { type AssistantTool, toolForProvider } from '@src/integration/ai/readiness/_engine/tool.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import { FLOW_IDS } from '@src/domain/value/flow-id.ts';
+import { clampEffortToProvider } from '@src/business/settings/resolve-effort.ts';
 
 export interface CreateReadinessFlowOpts {
   readonly projectId: ProjectId;
@@ -82,7 +83,7 @@ const pickRowForProvider = (ai: AiSettings, provider: AiProvider): FlowId => {
 /**
  * Per-tool effort resolution. Mirrors `resolveEffort(flowId, settings)` semantics but reads
  * just the `AiSettings` slice the flow holds — per-row effort wins, otherwise the global
- * effort is floored to what the provider's CLI accepts. Floor table matches
+ * effort is floored via the shared {@link clampEffortToProvider} clamp from
  * `business/settings/resolve-effort.ts`. For `implement` reads from the generator role.
  */
 const resolveEffortForRow = (ai: AiSettings, flow: FlowId): string | undefined => {
@@ -90,8 +91,7 @@ const resolveEffortForRow = (ai: AiSettings, flow: FlowId): string | undefined =
   if (row.effort !== undefined) return row.effort;
   const globalEffort = ai.effort;
   if (globalEffort === undefined) return undefined;
-  if (row.provider === 'openai-codex' && (globalEffort === 'xhigh' || globalEffort === 'max')) return 'high';
-  return globalEffort;
+  return clampEffortToProvider(globalEffort, row.provider);
 };
 
 /**

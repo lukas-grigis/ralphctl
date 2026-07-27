@@ -154,7 +154,8 @@ describe('presets', () => {
     // …while presets and the built-in escalation ladder deliberately do NOT reference it: the
     // catalog-top = ladder-top = preset-flagship invariant intentionally excludes the fable tier
     // until a deliberate flagship swap. Promoting it later means deleting this fence on purpose.
-    // The frontier family tops out at opus for exactly this reason (fable is export-suspended).
+    // The frontier family tops out at Opus 5 for exactly this reason — fable is 2x the Opus
+    // price, an operator spend decision, opt-in only via a per-row pick or an escalationMap rung.
     for (const preset of PRESET_NAMES) {
       const out = applyPreset(preset, DEFAULT_SETTINGS);
       for (const flow of FLOW_IDS) {
@@ -182,10 +183,10 @@ describe('presets', () => {
       out.ai.createPr.model,
     ];
     expect(models).not.toContain('gpt-5.3-codex');
-    expect(out.ai.implement.generator.model).toBe('gpt-5.5');
-    expect(out.ai.implement.evaluator.model).toBe('gpt-5.5');
-    expect(out.ai.implement.generator.effort).toBe('high');
-    expect(out.ai.implement.evaluator.effort).toBe('high');
+    expect(out.ai.implement.generator.model).toBe('gpt-5.6-sol');
+    expect(out.ai.implement.evaluator.model).toBe('gpt-5.6-sol');
+    expect(out.ai.implement.generator.effort).toBe('xhigh');
+    expect(out.ai.implement.evaluator.effort).toBe('xhigh');
   });
 
   it('isPresetName accepts all twenty preset names and rejects garbage', () => {
@@ -296,12 +297,11 @@ describe('presets', () => {
       }
     });
 
-    it('frontier presets stamp global ai.effort to max — except codex-frontier which floors to high', () => {
+    it('frontier presets stamp global ai.effort to max — codex-frontier included, the 5.6 flagship accepts max directly', () => {
       expect(applyPreset('mixed-frontier', DEFAULT_SETTINGS).ai.effort).toBe('max');
       expect(applyPreset('claude-frontier', DEFAULT_SETTINGS).ai.effort).toBe('max');
       expect(applyPreset('copilot-frontier', DEFAULT_SETTINGS).ai.effort).toBe('max');
-      // Codex has no max/xhigh effort rung, so the global stays high to avoid implying a max row.
-      expect(applyPreset('codex-frontier', DEFAULT_SETTINGS).ai.effort).toBe('high');
+      expect(applyPreset('codex-frontier', DEFAULT_SETTINGS).ai.effort).toBe('max');
     });
 
     describe("'mixed' preset matrix", () => {
@@ -344,7 +344,7 @@ describe('presets', () => {
         expect(out.ai.effort).toBe('high');
         expect(out.ai.refine.model).toBe('claude-sonnet-5');
         expect(out.ai.refine.effort).toBeUndefined();
-        expect(out.ai.plan.model).toBe('claude-opus-4-8');
+        expect(out.ai.plan.model).toBe('claude-opus-5');
         expect(out.ai.plan.effort).toBe('xhigh');
         expect(out.ai.readiness.model).toBe('claude-haiku-4-5');
         expect(out.ai.readiness.effort).toBe('medium');
@@ -357,7 +357,7 @@ describe('presets', () => {
         // The novel property no other family has: generator weaker than evaluator.
         expect(out.ai.implement.generator.provider).toBe(out.ai.implement.evaluator.provider);
         expect(out.ai.implement.generator.model).toBe('claude-sonnet-5');
-        expect(out.ai.implement.evaluator.model).toBe('claude-opus-4-8');
+        expect(out.ai.implement.evaluator.model).toBe('claude-opus-5');
         expect(out.ai.implement.generator.model).not.toBe(out.ai.implement.evaluator.model);
         expect(out.ai.implement.generator.effort).toBe('high');
         expect(out.ai.implement.evaluator.effort).toBe('xhigh');
@@ -367,24 +367,25 @@ describe('presets', () => {
     describe("'codex-strong-gate' preset matrix — the narrowest gate", () => {
       const out = applyPreset('codex-strong-gate', DEFAULT_SETTINGS);
 
-      it('pairs a gpt-5.4 author with a gpt-5.5 evaluator one rung apart', () => {
+      it('pairs a gpt-5.6-terra author with a gpt-5.6-sol evaluator one default-ladder rung apart', () => {
         expect(out.ai.implement.generator.provider).toBe('openai-codex');
         expect(out.ai.implement.evaluator.provider).toBe('openai-codex');
-        expect(out.ai.implement.generator.model).toBe('gpt-5.4');
-        expect(out.ai.implement.evaluator.model).toBe('gpt-5.5');
-        // Codex never carries xhigh/max — both rows floor at high.
+        expect(out.ai.implement.generator.model).toBe('gpt-5.6-terra');
+        expect(out.ai.implement.evaluator.model).toBe('gpt-5.6-sol');
+        // Cheap author at high, strong gate at xhigh — the terra→sol rung is now live (xhigh is
+        // universal across the codex catalog since the vocabulary change).
         expect(out.ai.implement.generator.effort).toBe('high');
-        expect(out.ai.implement.evaluator.effort).toBe('high');
+        expect(out.ai.implement.evaluator.effort).toBe('xhigh');
       });
     });
 
     describe("'codex-fast' preset matrix", () => {
       const out = applyPreset('codex-fast', DEFAULT_SETTINGS);
 
-      it('leans on minimal effort for light flows and low effort for implement', () => {
-        expect(out.ai.refine.effort).toBe('minimal');
-        expect(out.ai.readiness.effort).toBe('minimal');
-        expect(out.ai.createPr.effort).toBe('minimal');
+      it('light flows inherit the global low (minimal was retired) and implement stays low', () => {
+        expect(out.ai.refine.effort).toBeUndefined();
+        expect(out.ai.readiness.effort).toBeUndefined();
+        expect(out.ai.createPr.effort).toBeUndefined();
         expect(out.ai.implement.generator.effort).toBe('low');
         expect(out.ai.implement.evaluator.effort).toBe('low');
       });
@@ -407,13 +408,13 @@ describe('presets', () => {
       });
     });
 
-    describe('frontier family tops out at opus / gpt-5.5 (never fable)', () => {
-      it('routes implement to the provider flagship at max effort (codex floored to high)', () => {
-        const cases: ReadonlyArray<[PresetName, string, 'max' | 'high']> = [
-          ['mixed-frontier', 'claude-opus-4-8', 'max'],
-          ['claude-frontier', 'claude-opus-4-8', 'max'],
+    describe('frontier family tops out at Opus 5 / gpt-5.6-sol (never fable)', () => {
+      it('routes implement to the provider flagship at max effort', () => {
+        const cases: ReadonlyArray<[PresetName, string, 'max']> = [
+          ['mixed-frontier', 'claude-opus-5', 'max'],
+          ['claude-frontier', 'claude-opus-5', 'max'],
           ['copilot-frontier', 'claude-opus-4.8', 'max'],
-          ['codex-frontier', 'gpt-5.5', 'high'],
+          ['codex-frontier', 'gpt-5.6-sol', 'max'],
         ];
         for (const [preset, model, effort] of cases) {
           const out = applyPreset(preset, DEFAULT_SETTINGS);
@@ -445,11 +446,10 @@ describe('presets', () => {
           }
         });
 
-        it('matches the effort matrix (implement+plan xhigh / codex high, readiness medium, refine+ideate unset)', () => {
-          const heavyEffort = provider === 'openai-codex' ? 'high' : 'xhigh';
-          expect(out.ai.implement.generator.effort).toBe(heavyEffort);
-          expect(out.ai.implement.evaluator.effort).toBe(heavyEffort);
-          expect(out.ai.plan.effort).toBe(heavyEffort);
+        it('matches the effort matrix (implement+plan xhigh across all three providers, readiness medium, refine+ideate unset)', () => {
+          expect(out.ai.implement.generator.effort).toBe('xhigh');
+          expect(out.ai.implement.evaluator.effort).toBe('xhigh');
+          expect(out.ai.plan.effort).toBe('xhigh');
           expect(out.ai.readiness.effort).toBe('medium');
           expect(out.ai.refine.effort).toBeUndefined();
           expect(out.ai.ideate.effort).toBeUndefined();

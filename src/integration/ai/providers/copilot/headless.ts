@@ -110,8 +110,8 @@ export const buildCopilotArgs = (session: AiSession): Result<readonly string[], 
       })
     );
   }
-  // Catalog-valid but temporarily suspended server-side (see suspended-models.ts). For Copilot
-  // this hits the Anthropic-served claude-fable-5 entry — fail fast with a clear message.
+  // Catalog-valid but temporarily suspended server-side (see suspended-models.ts) — the list is
+  // currently empty; the guard stays wired for the next incident.
   if (isSuspendedModel(session.model)) {
     return Result.error(
       new InvalidStateError({

@@ -17,13 +17,14 @@ provider's native vocabulary.
 
 **Effort resolution** at every AI-spawning leaf (`src/business/settings/resolve-effort.ts`): per-flow
 `ai.<flow>.effort` wins; otherwise the global `ai.effort` floored to the row's provider ceiling;
-otherwise the provider CLI's default. Codex caps at `high` — `xhigh` and `max` collapse to `high` when
-floored from the global value; `minimal` is reachable only via an explicit per-flow override. The
-implement generator's resolved effort also feeds the escalation policy's same-model effort rung, whose
-target is provider- and model-aware: a Claude generator at the top of the model ladder climbs its own effort
-tiers (Claude Code's default is `xhigh` on xhigh-capable models, so the shipped default `claude-opus-4-8`
-with effort unset escalates to `max`, not `high`), while Copilot/Codex escalate to a fixed `high` — see
-`PERFORMANCE.md § plateau escalation`).
+otherwise the provider CLI's default. Codex accepts `low..ultra` — from the **global** value, `max` floors
+to `xhigh` (only the GPT-5.6 family accepts `max`); `ultra` (sol/terra-only, plan-gated) is reachable only
+via an explicit per-flow effort; `minimal` no longer exists — persisted rows migrate to `low` at parse
+time. The implement generator's resolved effort also feeds the escalation policy's same-model effort rung,
+whose target is provider- and model-aware: a Claude generator at the top of the model ladder climbs its own
+effort tiers (Claude Code's default is `xhigh` on xhigh-capable models, so the shipped default
+`claude-opus-5` with effort unset escalates to `max`, not `high`), while Copilot escalates to a fixed
+`high` and Codex to a fixed `xhigh` — see `PERFORMANCE.md § plateau escalation`).
 
 **Single-provider configurations are first-class.** Every row may point at the same provider, or every row
 at a different one; the launcher rebuilds the provider / interactive-AI / skills-adapter trio per launch
@@ -85,26 +86,28 @@ in one shot — all equally first-class (none is marked default). Each family ca
   — cheap generate tier paired with a permanently-flagship evaluator gate — the only family that
   intentionally splits `implement.generator` and `implement.evaluator` onto different models. The generator
   climbs to the flagship on plateau via the escalation ladder (`escalateOnPlateau` stamped `true`). The
-  Codex variant (`gpt-5.4` gen → `gpt-5.5` gate) has the narrowest gap of the family.
+  Codex variant (`gpt-5.6-terra` gen → `gpt-5.6-sol` gate) has the narrowest gap of the family.
 - **fast** (`mixed-fast`, `claude-fast`, `copilot-fast`, `codex-fast`) — cheapest viable tier at `low`
   effort across the board. Implement uses sonnet/mini (not haiku — too weak to author code reliably); light
   flows drop further. This is the only family with `escalateOnPlateau` stamped **`false`** — a plateau
   settles (done-with-warning) rather than climbing the ladder, which is what keeps the family genuinely
-  cheap and predictable. `codex-fast` uses `minimal` effort for the lightest Codex rows.
+  cheap and predictable.
 - **frontier** (`mixed-frontier`, `claude-frontier`, `copilot-frontier`, `codex-frontier`) — flagship
-  everywhere at `max` effort. Codex is floored to `high` (its effort ceiling). Tops out at opus;
-  `claude-fable-5` is intentionally not referenced — it is export-control-suspended and would be rejected
-  at launch. Restoring fable is a one-line model swap when the suspension lifts.
+  everywhere at `max` effort. Codex now genuinely stamps `max` too (`gpt-5.6-sol` is the only tier that
+  accepts it); `ultra` is deliberately not used (plan-gated to Plus+, would brick spawns on lower plans).
+  Tops out at Opus 5 / GPT-5.6 Sol; `claude-fable-5` is intentionally not referenced — it is priced at 2×
+  Opus and stays opt-in only (not a suspension — see below).
 
 **`applyPreset` stamps `harness.escalateOnPlateau`** alongside the AI section. Standard / economic /
 strong-gate / frontier all stamp it `true`; fast stamps it `false`. The rest of `harness` (`maxTurns`,
 `escalationMap`, `plateauThreshold`, …) plus all other top-level settings keys are preserved verbatim.
 
 **Model-tier ordering.** The ladders each family relies on are grounded in SWE-bench rankings (June
-2026 data): Claude haiku < sonnet < opus < fable; GPT mini < 5.4 < 5.5. These orderings explain why
-the cheap-to-strong tier progressions are wired the way they are — not as guaranteed scores (OpenAI
-stopped publishing SWE-bench Verified after contamination concerns, and results swing significantly with
-scaffolding). Treat this as relative-ordering rationale, not a performance promise.
+2026 data): Claude haiku < sonnet < opus < fable; GPT mini < 5.4 < 5.5 < 5.6 (luna < terra < sol). These
+orderings explain why the cheap-to-strong tier progressions are wired the way they are — not as
+guaranteed scores (OpenAI stopped publishing SWE-bench Verified after contamination concerns, and
+results swing significantly with scaffolding). Treat this as relative-ordering rationale, not a
+performance promise.
 
 Apply via `ralphctl settings apply-preset <name>` or from the TUI settings view. Re-applying overwrites
 every `ai` row plus `harness.escalateOnPlateau` in one transaction; subsequent per-key edits via
@@ -112,54 +115,68 @@ every `ai` row plus `harness.escalateOnPlateau` in one transaction; subsequent p
 
 **Model catalog versions used by the presets** (verified against the tool versions noted per row):
 
-- Claude Code — `claude-haiku-4-5` / `claude-sonnet-4-6` / `claude-sonnet-5` / `claude-opus-4-8`
-  (verified against Claude Code v2.1.197; `claude-sonnet-5` requires v2.1.197+). `claude-sonnet-5` is
-  the Sonnet-5 successor to Sonnet 4.6 and the **default Sonnet** across presets, the new-install
-  defaults, and the escalation ladder; `claude-sonnet-4-6` is kept alongside it (both Active at
-  Anthropic) so pinned 4.6 configs keep working. Sonnet 5 has **no `[1m]` variant** — on the Anthropic
-  API it always runs at its native 1M window in Claude Code, so the 1M figure is recorded against the
-  bare id in the context-window tables (the only base id, not a `[1m]` variant, to carry 1M). The
-  catalog additionally lists the frontier tier `claude-fable-5` plus the 1M-context variants
-  `claude-opus-4-8[1m]` and `claude-fable-5[1m]` (the `[1m]` suffix is Claude Code's long-context
-  syntax for models whose Claude-Code default is 200K, passed through verbatim — on large repos the 1M
-  window avoids mid-session compaction during deep implement runs) as **opt-in only** — no preset,
-  default, or built-in escalation rung references them; pick per row or add an
-  `'claude-opus-4-8': 'claude-fable-5'` rung via `settings.harness.escalationMap`. **Temporarily
-  suspended (2026-06-12 Anthropic export-control directive):** the `claude-fable-5` family stays in the
-  catalog but is currently rejected at launch with a clear message and flagged `(suspended)` in the
-  pickers; it will be restored when access returns (single-list revert in
-  `settings-models/suspended-models.ts`).
-- GitHub Copilot — lists 22 models reconciled to GitHub's supported-models doc (as of 2026-06-30;
-  Sonnet 5 went GA for Copilot that day): OpenAI `gpt-5-mini`, `gpt-5.3-codex`, `gpt-5.4`,
-  `gpt-5.4-mini`, `gpt-5.4-nano`, `gpt-5.5`; Anthropic `claude-haiku-4.5`, `claude-opus-4.5`,
-  `claude-opus-4.6`, `claude-opus-4.6-fast`, `claude-opus-4.7`, `claude-opus-4.8`, `claude-fable-5`,
-  `claude-sonnet-4.5` (default), `claude-sonnet-4.6`, `claude-sonnet-5`; Google `gemini-2.5-pro`,
-  `gemini-3-flash`, `gemini-3.1-pro-preview`, `gemini-3.5-flash`; Microsoft `mai-code-1-flash`;
-  fine-tuned `raptor-mini-preview`. Note: Sonnet 5's Copilot slug carries no dot/date, so it is the
-  SAME string (`claude-sonnet-5`) as the Claude-Code id — the escalation map has one value per key,
-  so the dash-form (Claude-Code) rung `claude-sonnet-5 → claude-opus-4-8` wins it and Copilot's
-  curated presets stay on `claude-sonnet-4.6` (see `escalation-map.ts`).
-- OpenAI Codex — adds `gpt-5.3-codex-spark` (text-only research preview, ChatGPT Pro only);
-  `gpt-5.2` and `gpt-5.3-codex` are deprecated for ChatGPT sign-in but kept in the allowlist because
-  they remain available via API-key auth. `gpt-5.5` is the frontier default — the model `codex-only`
-  runs implement on and the top rung of the Codex escalation ladder; `gpt-5.4` is the strong frontier
-  coder one tier below it, where `codex-economic` starts implement (verified against Codex CLI
-  v0.138.0). The `codex-only` preset moves implement off the deprecated `gpt-5.3-codex` to `gpt-5.5`.
+- Claude Code — `claude-haiku-4-5` / `claude-sonnet-4-6` / `claude-sonnet-5` / `claude-opus-4-8` /
+  `claude-opus-5` (verified against Claude Code v2.1.197; `claude-sonnet-5` requires v2.1.197+;
+  `claude-opus-5` ships at the same price as Opus 4.8 — vendor-stated drop-in). `claude-opus-5` is the
+  Opus 4.8 successor and the **default Opus** across presets, the new-install defaults, and the
+  escalation ladder; `claude-opus-4-8` is kept alongside it (both Active at Anthropic) so pinned 4.8
+  configs keep working, and now carries a ladder rung up to Opus 5. Like Sonnet 5, Opus 5 has
+  **no `[1m]` variant** — on the Anthropic API it always runs at its native 1M window in Claude Code, so
+  the 1M figure is recorded against the bare id in the context-window tables (Sonnet 5 and Opus 5 are now
+  both base ids, not `[1m]` variants, that carry native 1M); 128K output; a separate rate-limit bucket
+  from the Opus 4.x family. The catalog additionally lists the frontier tier `claude-fable-5` plus the
+  1M-context variants `claude-opus-4-8[1m]` and `claude-fable-5[1m]` (the `[1m]` suffix is Claude Code's
+  long-context syntax for models whose Claude-Code default is 200K, passed through verbatim — on large
+  repos the 1M window avoids mid-session compaction during deep implement runs) as **opt-in only** — no
+  preset, default, or built-in escalation rung references them; pick per row or add a
+  `'claude-opus-5': 'claude-fable-5'` rung via `settings.harness.escalationMap`. Fable is **GA as of July
+  2026** — the 2026-06-12 export-control suspension has been lifted (`settings-models/suspended-models.ts`
+  keeps the kill-switch mechanism, now empty) — it stays opt-in for a different reason: 2× the Opus price
+  is an operator spend decision, not a capability gate.
+- GitHub Copilot — lists 28 models reconciled to GitHub's supported-models doc (as of 2026-07-26):
+  OpenAI `gpt-5-mini`, `gpt-5.3-codex`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.4-nano`, `gpt-5.5`,
+  `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`; Anthropic `claude-haiku-4.5`, `claude-opus-4.5`,
+  `claude-opus-4.6`, `claude-opus-4.7`, `claude-opus-4.8`, `claude-opus-4.8-fast`, `claude-opus-5`,
+  `claude-fable-5`, `claude-sonnet-4.5` (default), `claude-sonnet-4.6`, `claude-sonnet-5`; Google
+  `gemini-2.5-pro`, `gemini-3-flash`, `gemini-3.1-pro-preview`, `gemini-3.5-flash`, `gemini-3.6-flash`;
+  Microsoft `mai-code-1-flash`; Moonshot `kimi-k2.7-code`; fine-tuned `raptor-mini-preview`. Added since
+  the last reconciliation: `claude-opus-4.8-fast`, `claude-opus-5`, `gpt-5.6-sol`, `gpt-5.6-terra`,
+  `gpt-5.6-luna`, `gemini-3.6-flash`, `kimi-k2.7-code` — `gpt-5.6-sol` is CLI-verified (Copilot CLI
+  1.0.75); `claude-opus-4.8-fast`, `gemini-3.6-flash`, and `kimi-k2.7-code` are convention-derived (could
+  not be validated on the reference account). Removed: `claude-opus-4.6-fast` (delisted; remaps to
+  `claude-opus-4.8-fast`). Note: `claude-opus-5`'s Copilot slug carries no dot/date, so — like Sonnet 5
+  and Fable 5 — it is the SAME string (`claude-opus-5`) as the Claude-Code id; it is also plan-gated
+  (Pro+/Max/Business/Enterprise) on Copilot, and per the existing passthrough-probe policy fails at spawn
+  with a clear error on gated accounts, so Copilot's curated presets and the dot-form escalation ladder
+  deliberately stay on `claude-opus-4.8` (see `escalation-map.ts`).
+- OpenAI Codex — verified against the live CLI model cache (codex CLI v0.145.0,
+  `~/.codex/models_cache.json`, 2026-07-26). `gpt-5.6-sol` is the flagship and the top rung of the Codex
+  escalation ladder — the model `codex-only` / `codex-frontier` run implement on; `gpt-5.6-terra` is the
+  balanced everyday tier (`codex-economic` / `codex-strong-gate`'s author role); `gpt-5.6-luna` is the
+  most cost-efficient 5.6 tier (ladder: luna → terra → sol). `gpt-5.5` / `gpt-5.4` / `gpt-5.4-mini` remain
+  in the catalog for pinned configs and chain into the 5.6 family (`gpt-5.5 → gpt-5.6-sol`). The 5.6
+  family requires codex CLI ≥ ~0.145 — older CLIs reject with "requires a newer version of Codex". Bare
+  `gpt-5.6` is an API-only alias rejected under ChatGPT auth and is deliberately NOT listed. `gpt-5.2` /
+  `gpt-5.3-codex` / `gpt-5.3-codex-spark` are gone from the CLI entirely and were REMOVED from the
+  catalog; persisted rows silently remap to `gpt-5.5` at parse time (`gpt-5.3-codex` stays in the
+  **Copilot** catalog — GitHub still lists it — so the remap is codex-provider-guarded). Effort
+  vocabulary is now `low..ultra`; `minimal` was retired and persisted rows migrate to `low`.
 
 **Default escalation posture (effort rung, no model ladder).** `DEFAULT_SETTINGS.ai.implement.generator` is
-`claude-opus-4-8`, which has no key in `DEFAULT_ESCALATION_MAP` — so the shipped default never
-model-escalates. It is NOT inert, though: at the top of the model ladder the graduated policy first raises
-reasoning effort on the same model (the `escalate-effort` rung). opus is xhigh-capable and its effort is
-unset, so Claude Code's implicit default is already `xhigh` — the rung therefore climbs to `max` in a single
-step (a fixed `high` would be a no-op or a downgrade). Then — on a further plateau, opus now at `max` — it
-fires the same-model nudge (a change-of-approach directive), then settles `done-with-warning`. For the shipped
-default the effort rung fires exactly once (unset `→ max`; the next plateau sees `max` and falls through to
-the nudge). To also activate a live MODEL ladder, use one
-of the `*-economic` presets (where `implement.generator` starts on Sonnet and escalates to Opus) or add a
-custom rung via `settings.harness.escalationMap`:
+`claude-opus-5`, which has no key in `DEFAULT_ESCALATION_MAP` — so the shipped default never
+model-escalates. (A pinned `claude-opus-4-8` generator DOES model-escalate now — it carries a live rung up
+to `claude-opus-5` — before the effort rung below applies.) The default's effort rung is NOT inert, though:
+at the top of the model ladder the graduated policy first raises reasoning effort on the same model (the
+`escalate-effort` rung). opus is xhigh-capable and its effort is unset, so Claude Code's implicit default is
+already `xhigh` — the rung therefore climbs to `max` in a single step (a fixed `high` would be a no-op or a
+downgrade). Then — on a further plateau, opus now at `max` — it fires the same-model nudge (a
+change-of-approach directive), then settles `done-with-warning`. For the shipped default the effort rung
+fires exactly once (unset `→ max`; the next plateau sees `max` and falls through to the nudge). To also
+activate a live MODEL ladder, use one of the `*-economic` presets (where `implement.generator` starts on
+Sonnet and escalates to Opus) or add a custom rung via `settings.harness.escalationMap`:
 
 ```json
-"escalationMap": { "claude-opus-4-8": "claude-fable-5" }
+"escalationMap": { "claude-opus-5": "claude-fable-5" }
 ```
 
 `claude-fable-5` and its 1M-context variant `claude-fable-5[1m]` are in the Claude catalog as

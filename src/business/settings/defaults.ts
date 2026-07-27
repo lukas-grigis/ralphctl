@@ -7,12 +7,13 @@ import {
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 
 // Model identifiers referenced more than once below, hoisted to named constants so each literal
-// appears once. The dash spelling (`claude-sonnet-5`, `claude-opus-4-8`) is the claude-code
-// catalog form. Sonnet 5 is the default Sonnet for Claude Code.
+// appears once. The dash spelling (`claude-sonnet-5`, `claude-opus-5`) is the claude-code
+// catalog form. Sonnet 5 is the default Sonnet for Claude Code; Opus 5 is the default Opus.
 const CLAUDE_SONNET = 'claude-sonnet-5';
-const CLAUDE_OPUS = 'claude-opus-4-8';
+const CLAUDE_OPUS = 'claude-opus-5';
 const GPT_5_MINI = 'gpt-5-mini';
 const GPT_5_4_MINI = 'gpt-5.4-mini';
+const GPT_5_6_SOL = 'gpt-5.6-sol';
 
 /**
  * Per-provider, per-flow default model picks. Used by the welcome flow when the user picks a
@@ -43,13 +44,12 @@ const DEFAULT_MODELS_BY_PROVIDER: Readonly<Record<AiProvider, Readonly<Record<Fl
   },
   'openai-codex': {
     refine: GPT_5_4_MINI,
-    plan: 'gpt-5.5',
-    // `gpt-5.3-codex` is deprecated for ChatGPT sign-in — the "reset implement to Codex" path
-    // rides the frontier default `gpt-5.5` instead, matching the CODEX_ONLY preset decision so
-    // the everyday autonomous loop works under ChatGPT auth and sits at the top of the ladder.
-    implement: 'gpt-5.5',
+    plan: GPT_5_6_SOL,
+    // `gpt-5.6-sol` is the codex flagship (codex CLI ≥ 0.145); it tops the Codex escalation
+    // ladder, so the reset-to-codex implement default and the ladder top stay aligned.
+    implement: GPT_5_6_SOL,
     readiness: GPT_5_4_MINI,
-    ideate: 'gpt-5.5',
+    ideate: GPT_5_6_SOL,
     createPr: GPT_5_4_MINI,
   },
 };
@@ -86,8 +86,10 @@ export const defaultAiSettingsForProvider = (provider: AiProvider): AiSettings =
  * settings via the TUI settings panel or `ralphctl settings set <key> <value>`.
  *
  * The implement row deliberately splits roles across providers: Claude Opus drives the
- * generator (deep coder reasoning) while Codex GPT-5.5 drives the evaluator (independent
- * second opinion). Single-provider users override via a preset.
+ * generator (deep coder reasoning) while Codex GPT-5.6 Sol drives the evaluator (independent
+ * second opinion). Effort is deliberately left unset on the evaluator row per the fresh-default
+ * policy above — the CLI's own default applies; raise `ai.effort` to deepen the gate.
+ * Single-provider users override via a preset.
  */
 export const DEFAULT_SETTINGS: Settings = {
   schemaVersion: CURRENT_SCHEMA_VERSION,
@@ -95,7 +97,7 @@ export const DEFAULT_SETTINGS: Settings = {
     ...defaultAiSettingsForProvider('claude-code'),
     implement: {
       generator: { provider: 'claude-code', model: CLAUDE_OPUS },
-      evaluator: { provider: 'openai-codex', model: 'gpt-5.5' },
+      evaluator: { provider: 'openai-codex', model: GPT_5_6_SOL },
     },
   },
   harness: {

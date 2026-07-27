@@ -107,7 +107,7 @@ const tempBodyFile = () => {
 const session = (overrides: Partial<AiSession> = {}): AiSession => ({
   prompt: PROMPT,
   cwd: CWD,
-  model: 'gpt-5.3-codex',
+  model: 'gpt-5.5',
   permissions: READ_ONLY,
   signalsFile: tempSignalsFile(),
   ...overrides,

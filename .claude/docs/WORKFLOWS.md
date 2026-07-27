@@ -55,7 +55,7 @@ single-attempt behaviour.
 `{ generator, evaluator }` pair — each role carries its own `{ provider, model, effort? }` row, so
 the two sessions can run on different providers / models / effort levels (effort resolution rules
 described in `AI-SETTINGS.md` apply per-row). Default: generator runs `claude-code` /
-`claude-opus-4-8`, evaluator runs `openai-codex` / `gpt-5.5` — deep-coder reasoning on the produce
+`claude-opus-5`, evaluator runs `openai-codex` / `gpt-5.6-sol` — deep-coder reasoning on the produce
 side, an independent reviewer on the score side. Every other flow (`refine` / `plan` / `readiness` /
 `ideate` / `createPr`) keeps the flat `{ provider, model, effort? }` row shape; the analogous
 generator-evaluator split for the `plan` flow is deferred to future work.

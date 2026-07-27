@@ -671,15 +671,12 @@ describe('buildClaudeArgs — AiSession → CLI flag translation', () => {
   });
 
   it.each([['claude-fable-5'], ['claude-fable-5[1m]']])(
-    'rejects the suspended model %s with InvalidStateError(model-suspended)',
+    'builds args for the un-suspended fable model %s — the suspension was lifted at GA (2026-07)',
     (model) => {
-      const r = buildClaudeArgs(session({ model }));
-      expect(r.ok).toBe(false);
-      if (r.ok) return;
-      expect(r.error.code).toBe('invalid-state');
-      expect(r.error.currentState).toBe('model-suspended');
-      expect(r.error.message).toContain('suspended');
-      expect(r.error.message).toContain(`'${model}'`);
+      const args = unwrapArgs(session({ model }));
+      const idx = args.indexOf('--model');
+      expect(idx).toBeGreaterThanOrEqual(0);
+      expect(args[idx + 1]).toBe(model);
     }
   );
 

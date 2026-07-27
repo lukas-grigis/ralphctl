@@ -54,10 +54,10 @@ const triggerLabel = (trigger: EscalationTrigger): string =>
  * At the top — before spending the same-model `nudge` — the policy tries a same-model EFFORT rung
  * (`escalate-effort`) when the provider/model exposes an effort dimension and the generator has
  * headroom. The target is provider-aware ({@link nextEffortRung}): Claude climbs its own tiers (…→
- * `xhigh` → `max`) because Claude Code's default is already `xhigh` on xhigh-capable models, while
- * Copilot/Codex step to a fixed `high`. A further failure then nudges, and a failure after the nudge
+ * `xhigh` → `max`) because Claude Code's default is already `xhigh` on xhigh-capable models;
+ * Copilot steps to a fixed `high`; Codex to a fixed `xhigh`. A further failure then nudges, and a failure after the nudge
  * tops out. The effort rung is what activates a live remedy for the shipped default posture
- * (`claude-opus-4-8`, effort unset → `max`, which sits at the top of the model ladder with no
+ * (`claude-opus-5`, effort unset → `max`, which sits at the top of the model ladder with no
  * stronger rung above it).
  *
  * Outputs (discriminated):
@@ -121,9 +121,9 @@ export interface DecideEscalationProps {
    * `undefined` for the CLI default. Read alongside {@link generatorProvider} and
    * {@link generatorModel} to decide whether the effort rung has headroom — the target is
    * provider/model-aware ({@link nextEffortRung}): Claude climbs its own tiers (unset on an
-   * xhigh-capable model → `max`), Copilot/Codex step to a fixed `high`, and a generator already at
-   * its ceiling falls through to the nudge. OPTIONAL for the same backward-compatibility reason as
-   * {@link generatorProvider}.
+   * xhigh-capable model → `max`), Copilot steps to a fixed `high`, Codex to a fixed `xhigh`, and a
+   * generator already at its ceiling falls through to the nudge. OPTIONAL for the same
+   * backward-compatibility reason as {@link generatorProvider}.
    */
   readonly generatorEffort?: string | undefined;
 }
@@ -180,10 +180,11 @@ export const decideEscalation = (props: DecideEscalationProps): EscalationDecisi
   // Cheapest remedy before the change-of-approach nudge: raise reasoning effort on the SAME model
   // when the provider/model exposes an effort dimension and there is headroom. The target is
   // provider/model-aware (nextEffortRung): Claude climbs its own tiers (unset on an xhigh-capable
-  // model → `max`, so the shipped default `claude-opus-4-8` gets a live escalation step instead of
-  // settling done-with-warning after one nudge), Copilot/Codex step to a fixed `high`. Skipped
-  // gracefully (falls through to the nudge) when the caller supplied no provider/effort context,
-  // the provider/model has no effort knob, or the generator is already at its ceiling.
+  // model → `max`, so the shipped default `claude-opus-5` gets a live escalation step instead of
+  // settling done-with-warning after one nudge), Copilot steps to a fixed `high`, Codex to a fixed
+  // `xhigh`. Skipped gracefully (falls through to the nudge) when the caller supplied no
+  // provider/effort context, the provider/model has no effort knob, or the generator is already
+  // at its ceiling.
   const effortTarget = nextEffortRung(props.generatorProvider, props.generatorModel, props.generatorEffort);
   if (effortTarget !== undefined) {
     return {
