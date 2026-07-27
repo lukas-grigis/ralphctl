@@ -28,6 +28,17 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **Prompt-layer research audit** — every research source behind the prompt templates was verified against
+  the live originals and the templates hardened with evidence-backed techniques: the evaluator now audits
+  diffs for verification tampering (weakened/deleted tests, hardcoded expectations) and needs concrete
+  evidence for FAIL verdicts too; command output in signals is bounded (~50 lines, overflow to a cited log
+  file); failed rounds distill their dead ends into a `note` for the next fresh session; plateau nudges name
+  the specific stall mode; generators recite goal/criteria before coding, trust the repo over stale prior
+  learnings, and discover nested context files in monorepos. Fixed contract contradictions in
+  `ideate`/`detect-scripts`/`detect-skills`/`create-pr` that could produce invalid `signals.json`, and
+  genericized provider-biased example commands out of five signal contracts. New
+  `.claude/docs/RESEARCH-REFERENCES.md` maps every source → claim → usage, including evaluated-but-rejected
+  techniques.
 - Implement evaluator default → `openai-codex` / `gpt-5.6-sol` (was `gpt-5.5`).
 - Codex presets re-tiered onto the GPT-5.6 family (`gpt-5.5` → `gpt-5.6-sol`, `gpt-5.4` → `gpt-5.6-terra`
   across the affected rows); `codex-economic`'s ideate row moves off its former mini/full-tier gap onto
