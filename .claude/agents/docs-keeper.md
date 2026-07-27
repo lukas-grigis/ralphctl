@@ -38,8 +38,9 @@ diff lands, or on demand when someone asks "is this still accurate?"
 
 > **Note:** Only `CLAUDE.md` is auto-imported (via the `@` directive at its top). The five docs under
 > `.claude/docs/` are loaded on demand — when you start a docs-keeper run, explicitly `Read` the doc(s)
-> you're going to edit. The empirical guidance (arXiv 2511.12884, 2509.14744) that drove dropping the
-> auto-imports is recorded in `memory:reference-agents-md-convention`.
+> you're going to edit. Descriptive AGENTS.md studies (arXiv 2509.14744, 2511.12884) inform the house
+> budget that drove dropping the auto-imports; the reasoning is recorded in
+> `memory:reference-agents-md-convention`.
 
 Before editing anything:
 
@@ -97,7 +98,8 @@ You should NOT edit when:
   a product decision — flag it for the user, don't ship it.
 - **Keep the version pointer accurate.** `CLAUDE.md`'s opening paragraph references `package.json` and the
   cli-metadata module; if the major/minor changed, bump any prose that mentions it.
-- **Respect AGENTS.md empirical guidance.** `CLAUDE.md` is held to ≤7 H2 sections, no H4+, <300 lines.
+- **Respect the house context-file budget.** `CLAUDE.md` is held to ≤7 H2 sections, no H4+, <300 lines —
+  informed by descriptive AGENTS.md studies of in-the-wild context files, not a limit those studies prescribe.
   Don't bloat it with content that belongs in on-demand reference docs.
 - **Update `MEMORY.md` index only when an architectural memory becomes obsolete** — that file is auto-
   managed by the runtime, edit cautiously.
@@ -165,7 +167,7 @@ commit.
 - [ ] Tables and bulleted lists keep their column / marker shape
 - [ ] Checkbox additions reflect shipped behaviour, not aspirations
 - [ ] Stale anti-pattern bullets removed when the code now prevents them
-- [ ] `CLAUDE.md` stays within the empirical guidance (≤7 H2, no H4+, <300 lines)
+- [ ] `CLAUDE.md` stays within the house context-file budget (≤7 H2, no H4+, <300 lines)
 - [ ] Version-source pointer in `CLAUDE.md` matches `package.json` + `src/business/version/cli-metadata.ts`
 - [ ] No accidental change to a `MEMORY.md` index entry
 

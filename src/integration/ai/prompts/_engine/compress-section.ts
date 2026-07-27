@@ -1,11 +1,12 @@
 /**
  * Tail-compression for large dynamic prompt sections.
  *
- * Research basis: "Lost in the Middle" (Liu et al., arXiv 2307.03172) shows that LLMs attend
- * poorly to content placed in the middle of long contexts. Long PRIOR_PROGRESS / PRIOR_LEARNINGS
- * substitutions push task-critical sections (goal, success-criteria, output contract) toward the
- * middle. Keeping the MOST RECENT content (the tail) and dropping the oldest bytes is the correct
- * strategy — the harness already applies the same principle to stderr via BoundedTail.
+ * Research basis: "Lost in the Middle" (Liu et al., arXiv 2307.03172) shows a U-shaped positional
+ * curve — LLMs attend well to the beginning and end of a long context, poorly to the middle. Long
+ * PRIOR_PROGRESS / PRIOR_LEARNINGS substitutions push task-critical sections (goal, success-criteria,
+ * output contract) toward that poorly-attended middle, which is why these sections are bounded at all.
+ * Which end to keep is a recency judgement, not a paper finding: the newest progress/learnings are
+ * the most relevant, so the tail is retained (same heuristic as BoundedTail for stderr).
  *
  * The one-line notice is prepended (not appended) so it appears before the retained content and
  * makes the truncation visible to the model without burying it after the dropped material.

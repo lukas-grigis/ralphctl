@@ -7,7 +7,7 @@ description: Cross-phase skill — design the shape of the change (entities, bou
 
 > Concept
 >
-> from [Martin Fowler — "Abstraction-First"](https://martinfowler.com/articles/structured-prompt-driven/abstraction-first.html).
+> from [SPDD (Zhang & Xia, martinfowler.com) — "Abstraction-First"](https://martinfowler.com/articles/structured-prompt-driven/abstraction-first.html).
 > Adapted for ralphctl's three phases.
 
 The shape of the change comes before the words that describe it. Name the entities, the boundaries, and the

@@ -1,6 +1,6 @@
 # Harness Principles
 
-Distilled from the two Anthropic harness articles and the Martin Fowler structured-prompt series. Each
+Distilled from the two Anthropic harness articles and the martinfowler.com structured-prompt series. Each
 principle below carries a **ralphctl status** (`applied` / `partial` / `gap`) and a **code anchor** — the
 exact path where the principle is exercised today. `partial` and `gap` rows each name a concrete next step.
 
@@ -11,7 +11,7 @@ a principle's rationale needs its full framing:
 
 - **Anthropic — Harness Design** → [Harness Design for Long-Running Application Development](https://www.anthropic.com/engineering/harness-design-long-running-apps)
 - **Anthropic — Effective Harnesses** → [Effective Harnesses for Long-Running Agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents)
-- **Martin Fowler — Structured Prompt Driven** → [Structured-Prompt-Driven Development (SPDD)](https://martinfowler.com/articles/structured-prompt-driven/) — companion piece: [Harness Engineering for Coding Agent Users](https://martinfowler.com/articles/harness-engineering.html)
+- **Zhang & Xia (martinfowler.com) — Structured Prompt Driven** → [Structured-Prompt-Driven Development (SPDD)](https://martinfowler.com/articles/structured-prompt-driven/) — companion piece by Birgitta Böckeler: [Harness Engineering for Coding Agent Users](https://martinfowler.com/articles/harness-engineering.html)
 
 **When to read this doc:**
 
@@ -241,8 +241,8 @@ gate run. Default-off keeps the symmetry intact for everyone who has not made th
 **Rule.** Each AI CLI discovers its context file from cwd (`CLAUDE.md`, `.github/copilot-instructions.md`,
 `AGENTS.md`). The harness writes one file per distinct provider — no symlinks, no pointer schemes.
 
-**Source.** Anthropic — Effective Harnesses: _"Cwd is the repo because Claude / Copilot / Codex only
-auto-discover their context file from cwd — not from `--add-dir` roots."_
+**Source.** ralphctl design decision — the Anthropic articles motivate cwd-anchored externalized state but
+do not discuss per-CLI context-file auto-discovery.
 
 **ralphctl status.** `applied`
 
@@ -259,7 +259,7 @@ auto-discover their context file from cwd — not from `--add-dir` roots."_
 **Rule.** Run the cheapest check after each meaningful change, not at the end of the whole diff. The harness
 check gate is the deployed form of this loop; the same posture belongs inside each phase's work.
 
-**Source.** Martin Fowler — Structured Prompt Driven: iterative review concept.
+**Source.** Zhang & Xia (martinfowler.com) — Structured Prompt Driven: iterative review concept.
 
 **ralphctl status.** `applied`
 
@@ -274,7 +274,7 @@ check gate is the deployed form of this loop; the same posture belongs inside ea
 **Rule.** Name the entities, boundaries, and seams the change touches before generating code, tasks, or
 acceptance criteria. "Big blob" output is a failure to align first.
 
-**Source.** Martin Fowler — Structured Prompt Driven: alignment concept.
+**Source.** Zhang & Xia (martinfowler.com) — Structured Prompt Driven: alignment concept.
 
 **ralphctl status.** `applied`
 
@@ -289,7 +289,7 @@ acceptance criteria. "Big blob" output is a failure to align first.
 **Rule.** Design the shape of the change (entities, boundaries, seams) before generating code, tasks, or
 acceptance criteria.
 
-**Source.** Martin Fowler — Structured Prompt Driven: abstraction-first concept.
+**Source.** Zhang & Xia (martinfowler.com) — Structured Prompt Driven: abstraction-first concept.
 
 **ralphctl status.** `applied`
 
@@ -366,9 +366,10 @@ over-praising."_
 or continue from a prior one. Ambiguity here causes the AI to behave as though it has context it doesn't, or
 to compact unnecessarily.
 
-**Source.** Anthropic — Harness Design: _"Resets > compaction for models with context anxiety. Opus 4.5 had
-strong context anxiety; Opus 4.6 largely eliminated it. Automatic compaction can handle context growth in
-continuous sessions with capable models."_
+**Source.** Anthropic — Harness Design: the article reports that Claude Sonnet 4.5 exhibited context anxiety
+strongly enough that compaction alone was insufficient (context resets became essential), and that Opus 4.5
+largely removed that behavior, allowing context resets to be dropped; automatic compaction handles context
+growth in continuous sessions with capable models.
 
 **ralphctl status.** `applied`
 
