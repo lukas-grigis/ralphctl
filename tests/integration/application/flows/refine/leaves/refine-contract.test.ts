@@ -212,15 +212,15 @@ describe('refineTicketInteractiveLeaf — audit-[09] contract', () => {
   // ── 2b. Resilience: valid refined-ticket + malformed auxiliary signal ──────────
   it('resilience: keeps the refinement when only auxiliary signals are malformed', async () => {
     await ensureUnitDir();
-    // One valid refined-ticket plus a malformed `decision` (carries `body` where the schema
-    // wants `text`). The lenient refine contract drops the decision and keeps the refinement.
+    // One valid refined-ticket plus an auxiliary `decision` with no recoverable prose field at
+    // all. The lenient refine contract drops the decision and keeps the refinement.
     await fs.writeFile(
       signalsFilePath(),
       JSON.stringify({
         schemaVersion: 1,
         signals: [
           refinedTicketSignal('## Refined\n\n- the essential body survives'),
-          { type: 'decision', body: 'wrong field — should be text', timestamp: '2026-05-22T10:00:00.000Z' },
+          { type: 'decision', rationale: 'no text, no body', timestamp: '2026-05-22T10:00:00.000Z' },
         ],
       }),
       'utf8'
@@ -241,6 +241,38 @@ describe('refineTicketInteractiveLeaf — audit-[09] contract', () => {
     const approved = result.value.ctx.refinedTickets?.[0];
     expect(approved?.status).toBe('approved');
     expect(approved?.requirements).toBe('## Refined\n\n- the essential body survives');
+  });
+
+  // ── 2c. Recovery: the `body` / `text` near-miss on an auxiliary signal ─────────
+  it('recovers a `decision` that carries `body` instead of `text` rather than dropping it', async () => {
+    await ensureUnitDir();
+    // `body` is the field the neighbouring refined-ticket signal uses, so models reach for it on
+    // the narrative kinds too. That near-miss used to cost the decision (here) or the entire
+    // round (plan / ideate, whose contracts are strict); the validator now rewrites it.
+    await fs.writeFile(
+      signalsFilePath(),
+      JSON.stringify({
+        schemaVersion: 1,
+        signals: [
+          refinedTicketSignal('## Refined\n\n- the essential body survives'),
+          { type: 'decision', body: 'wrong field — should be text', timestamp: '2026-05-22T10:00:00.000Z' },
+        ],
+      }),
+      'utf8'
+    );
+    const { events, eventBus } = captureBus();
+    const provider = fakeAi(async () => {});
+    const { ctx, ticket } = buildCtx();
+    const leaf = refineTicketInteractiveLeaf(buildDeps(provider, eventBus), ticket);
+
+    const result = await leaf.execute(ctx);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const aiSignals = events.filter((e): e is AiSignalEvent => e.type === 'ai-signal');
+    expect(aiSignals.map((e) => e.signal.type)).toEqual(['refined-ticket', 'decision']);
+    const decision = aiSignals[1]?.signal;
+    expect(decision?.type === 'decision' ? decision.text : undefined).toBe('wrong field — should be text');
   });
 
   // ── 3. Malformed JSON ─────────────────────────────────────────────────────────

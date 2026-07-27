@@ -650,9 +650,10 @@ describe('createRefineFlow — interactive', () => {
       schemaVersion: 1,
       signals: [
         { type: 'refined-ticket', body: refinedBody, timestamp: '2026-05-22T10:00:00.000Z' },
-        // Malformed: `decision` carries `body` where the schema wants `text`. The exact drift
-        // that previously discarded the whole refinement. Now it is dropped, not fatal.
-        { type: 'decision', body: 'wrong field', timestamp: '2026-05-22T10:00:00.000Z' },
+        // Malformed beyond recovery: a `decision` with no prose field the schema can use. The
+        // `body` near-miss is now rewritten to `text` upstream, so this case uses a shape that
+        // genuinely cannot be salvaged. Dropped, not fatal.
+        { type: 'decision', rationale: 'no text, no body', timestamp: '2026-05-22T10:00:00.000Z' },
       ],
     }));
 

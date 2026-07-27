@@ -151,6 +151,16 @@ const readinessExampleSignals: readonly ReadinessSignal[] = [
     timestamp: EXAMPLE_TS,
   },
   { type: 'skill-suggestions', names: ['typescript-strict', 'code-style-conventions'], timestamp: EXAMPLE_TS },
+  {
+    type: 'learning',
+    text: 'The verify command lives in a workspace package script, not the repo root manifest.',
+    timestamp: EXAMPLE_TS,
+  },
+  {
+    type: 'note',
+    text: 'No lint config found, so the proposed verify skill covers typecheck + test only.',
+    timestamp: EXAMPLE_TS,
+  },
 ];
 
 /**

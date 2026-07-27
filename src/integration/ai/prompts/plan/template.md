@@ -437,10 +437,11 @@ Once the user has answered "Approved, write it" in Step 4 AND every checklist it
 satisfied, write the `task-plan` signal into `signals.json` per the output contract below.
 The task array goes into the signal's `tasksJson` field as a JSON-encoded string.
 
-**Optional signals** (emit when relevant):
+**Optional signals** (emit when relevant). Each carries its prose in a `text` field — never
+`body`; the output contract below shows the exact shape:
 
 - `note` — for status updates or observations worth surfacing.
 - `learning` — for non-obvious repo facts discovered during exploration.
-- `decision` — for architectural choices made during planning (body capped at 500 chars).
+- `decision` — for architectural choices made during planning.
 
 {{OUTPUT_CONTRACT_SECTION}}

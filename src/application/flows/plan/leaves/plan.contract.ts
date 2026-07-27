@@ -62,13 +62,33 @@ const EXAMPLE_TS = '2026-05-22T10:00:00.000Z' as IsoTimestamp;
 /**
  * Representative plan payload. The required `task-plan` carries the AI-authored task list as
  * a JSON string in `tasksJson` — opaque to the contract validator (parsed downstream by
- * `parsePlanOutput` against the task-import JSON Schema).
+ * `parsePlanOutput` against the task-import JSON Schema). The optional narrative signals
+ * (`decision` / `learning` / `note`) each carry their prose in a `text` field — NOT `body`.
+ * All shapes are shown here so the rendered `{{OUTPUT_CONTRACT_SECTION}}` is the authoritative
+ * source the AI copies, rather than relying on prose in the template that can drift from the
+ * schemas — a `decision` emitted with `body` fails whole-array validation and sinks an entire
+ * approved plan session.
  */
 const planExampleSignals: readonly PlanSignal[] = [
   {
     type: 'task-plan',
     tasksJson:
       '[{"name":"Wire export endpoint","ticketRef":"<ticket-uuid>","projectPath":"/abs/repo","steps":["..."],"verificationCriteria":["..."]}]',
+    timestamp: EXAMPLE_TS,
+  },
+  {
+    type: 'decision',
+    text: 'Split the export work into endpoint + serializer tasks so the shared file is owned by exactly one task.',
+    timestamp: EXAMPLE_TS,
+  },
+  {
+    type: 'learning',
+    text: 'The repo runs its integration suite from a separate config; the root test command does not cover it.',
+    timestamp: EXAMPLE_TS,
+  },
+  {
+    type: 'note',
+    text: 'Two approved tickets touch the same route file; sequenced them via blockedBy rather than splitting the file.',
     timestamp: EXAMPLE_TS,
   },
 ];

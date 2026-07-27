@@ -140,7 +140,7 @@ export const validateSignalsFile = async <TSig extends AiSignal>(
   // schema validation on a missable field is bad ergonomics for what the timestamp
   // ultimately drives (display-only). Stamp any signal missing `timestamp` at
   // validation time — spawn-time is within seconds of when the AI wrote the field.
-  const defaulted = defaultMissingTimestamps(inner);
+  const defaulted = renameNarrativeBodyToText(defaultMissingTimestamps(inner));
   const parsed = contract.signalsSchema.safeParse(defaulted);
   if (!parsed.success) {
     return Result.error(
@@ -158,6 +158,35 @@ export const validateSignalsFile = async <TSig extends AiSignal>(
 const describeJsonError = (cause: unknown): string => {
   if (cause instanceof Error) return cause.message;
   return String(cause);
+};
+
+/**
+ * Signal kinds whose prose lives in `text`. `body` is a real, required field on OTHER kinds
+ * (`refined-ticket`, `pr-content`, `commit-message`), so the alias rewrite below is scoped to
+ * this set rather than applied blind — renaming `body` on a `refined-ticket` would destroy it.
+ */
+const NARRATIVE_SIGNAL_KINDS = new Set(['learning', 'note', 'decision']);
+
+/**
+ * Be lenient on the `body` / `text` alias for the three narrative kinds. Every prompt invites
+ * the AI to emit optional `note` / `learning` / `decision` signals alongside the round's
+ * required payload, and models reach for `body` — the field name the neighbouring
+ * `refined-ticket` / `pr-content` signals actually use. Because the array parse is
+ * all-or-nothing, one such near-miss on a signal the harness only renders into `progress.md`
+ * would discard the round's real payload — for the interactive flows (plan / ideate), an
+ * entire user-approved session with no retry path. The rewrite fires only when `text` is
+ * absent and `body` is a string, so a correctly-shaped signal is never touched.
+ */
+const renameNarrativeBodyToText = (inner: unknown): unknown => {
+  if (!Array.isArray(inner)) return inner;
+  return inner.map((sig) => {
+    if (typeof sig !== 'object' || sig === null) return sig;
+    const s = sig as Record<string, unknown>;
+    if (typeof s.type !== 'string' || !NARRATIVE_SIGNAL_KINDS.has(s.type)) return sig;
+    if (typeof s.text === 'string' || typeof s.body !== 'string') return sig;
+    const { body, ...rest } = s;
+    return { ...rest, text: body };
+  });
 };
 
 const defaultMissingTimestamps = (inner: unknown): unknown => {

@@ -5,6 +5,22 @@ All notable changes to RalphCTL will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres
 to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Planning no longer fails when the AI names a narrative signal field `body`.** 0.17.0 added an "optional
+  signals" block to the plan and ideate prompts inviting `note` / `learning` / `decision` — but their
+  rendered `signals.json` example only showed the required payload, and the prose said "body capped at 500
+  chars". Models followed the prose and wrote `body` where the schema wants `text`. Because contract
+  validation is all-or-nothing, one wrong field on a throwaway commentary signal discarded the entire
+  file — including a complete, user-approved task plan — leaving the sprint in `draft` with no tasks and
+  no retry path. The plan and ideate contracts now demonstrate every narrative signal they accept (refine,
+  readiness, and the implement generator / evaluator gained their missing examples too), the misleading
+  prose is gone, and the validator rewrites `body` → `text` on those three kinds so a near-miss can never
+  sink a round again. Scoped to the narrative kinds: `body` stays untouched on `refined-ticket`,
+  `pr-content`, and `commit-message`, where it is a real field.
+
 ## [0.17.0] - 2026-07-27
 
 ### Added

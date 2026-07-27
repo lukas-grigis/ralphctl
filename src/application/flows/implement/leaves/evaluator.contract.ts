@@ -138,6 +138,16 @@ const evaluatorExampleSignals: readonly EvaluatorSignal[] = [
     critique: 'Correctness: add edge-case handling for empty input at src/foo.ts:23.',
     timestamp: EXAMPLE_TS,
   },
+  {
+    type: 'learning',
+    text: 'The suite needs a built fixture; a cold checkout fails the C1 command for reasons unrelated to the task.',
+    timestamp: EXAMPLE_TS,
+  },
+  {
+    type: 'note',
+    text: 'C2 was checked by reading the call site — the criterion is manual, so no command was run.',
+    timestamp: EXAMPLE_TS,
+  },
 ];
 
 /**
