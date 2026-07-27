@@ -30,10 +30,9 @@ advice the model already follows by default.
 ```markdown
 ## Architecture
 
-- Four-module Clean Architecture: `domain → business → integration → application` — inner layers
-  must not import outer ones. ESLint enforces this; a lint failure means a layering violation.
-- No barrel `index.ts` files — every import names what it pulls in. This keeps dead-code analysis
-  accurate; barrel files silently re-export unused symbols.
+- <your layering rule> — e.g. inner layers must not import outer ones. State the enforcement
+  mechanism (linter, review checklist) so the model knows a violation is checkable.
+- <your module-boundary rule> — e.g. no barrel re-export files; every import names what it pulls in.
 
 ## Testing
 
@@ -42,9 +41,8 @@ advice the model already follows by default.
 
 ## Conventions
 
-- Every business operation returns `Result<T, DomainError>` — do not throw. Throws are reserved for
-  programmer errors (invariant violations inside leaf projections).
-- Em-dash (`—`) for explanatory clauses in comments and documentation — not a hyphen.
+- <your error-handling convention> — e.g. return a typed result instead of throwing; reserve throws
+  for programmer errors.
 
 ## Security
 

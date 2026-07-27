@@ -47,14 +47,14 @@ break the shared lockfile.
 
 ## Architecture
 
-- Clean Architecture: `domain → business → integration → application`. No reverse imports.
-- No barrel files (`index.ts` re-exports) — every import names its symbol explicitly.
+- <your layering rule> — e.g. which modules may import which, and which direction is forbidden.
+- <your module-boundary rule> — e.g. no barrel re-export files; every import names its symbol explicitly.
 
 ## Conventions
 
-- Business operations return a `Result` type — do not throw for domain errors.
-- All file writes go through the atomic-write helper in `business/io/`; direct `fs.writeFile`
-  is banned from business code.
+- <your error-handling convention> — e.g. return a typed result instead of throwing for domain errors.
+- <your I/O convention> — e.g. all writes go through one shared helper; direct filesystem calls
+  are banned elsewhere.
 
 ## Security
 

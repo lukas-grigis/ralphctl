@@ -110,7 +110,9 @@ Skip any dimension the idea description already resolves.
 
 Ask focused questions one at a time. For each question, present it as a structured interactive prompt with
 a header, 2–4 labelled options, and your recommendation first. Use whichever interactive question
-capability your runtime exposes. Work through the dimensions above in priority order.
+capability your runtime exposes. Labels are 1–5 words; headers are 12 characters or fewer (UI rendering
+constraints). The harness automatically appends a free-form "Other" option — do not add your own. Work
+through the dimensions above in priority order.
 
 Stop asking when ALL of the following are true:
 
@@ -127,10 +129,11 @@ and Edge Cases. Then ask:
 
 ```
 Question: "Does this look correct? Any changes needed?"
-Header: "Phase 1 — Requirements approval"
+Header: "Requirements"
 Options:
-  - "Approved — proceed to planning"
-  - "Needs changes — I'll describe what to adjust"
+  - "Approved" — "Proceed to planning."
+  - "Needs changes" — "I'll describe what to adjust."
+  - "Give feedback" — "Type specific corrections in my own words."
 ```
 
 Iterate until approved. Record the approved requirements text for the `requirements` field of
@@ -189,6 +192,21 @@ For each task, provide:
     inspection. Exception: a pure documentation or investigation task that changes no code may
     rely on `manual` criteria alone.
 - **`blockedBy`** — array of `id` strings that must complete before this task starts.
+- **`extraDimensions`** — optional kebab-case evaluator dimensions beyond the five floor dimensions
+  (correctness, completeness, safety, consistency, robustness). Attach an extra dimension ONLY when an
+  acceptance criterion explicitly demands a measurable property that no floor dimension covers AND no
+  manual criterion already encodes it. When in doubt, omit — the floor dimensions are almost always
+  sufficient. Example of a justified attachment: `migration-safety` when the requirement demands a
+  zero-downtime schema change that the five floor dimensions cannot score on their own. Cap: 2–3 per
+  task; hard max 6.
+
+**Task sizing (brief):** size each task as one coherent feature — a vertical slice a single AI session
+can implement and verify end-to-end. Do not split a utility from its first caller, or a feature from its
+tests — those stay one task. Split when two chunks touch different repositories, or when a natural,
+independently verifiable boundary exists partway through (e.g. schema lands before consumer wiring).
+Avoid `blockedBy` chains for trivial reasons, one task per file, or micro-refactor tasks — fold those
+into the task that needs them. Soft ceiling, not a target: if a task would touch more than ~10 files or
+~500 lines of meaningful change AND a natural split point exists, split it; otherwise keep it whole.
 
 For genuinely contested implementation decisions (library choice, architecture), ask the user a
 structured multiple-choice question before finalising those tasks. Do not ask about routine questions
@@ -201,10 +219,11 @@ dependencies, and a short summary. Show the dependency order. Then ask:
 
 ```
 Question: "Does this task breakdown look correct? Any changes needed?"
-Header: "Phase 2 — Task plan approval"
+Header: "Task plan"
 Options:
-  - "Approved — write signals.json"
-  - "Needs changes — I'll describe what to adjust"
+  - "Approved, write it" — "Write signals.json."
+  - "Needs changes" — "I'll describe what to adjust."
+  - "Give feedback" — "Type specific corrections in my own words."
 ```
 
 Iterate until approved. If rejected, revise and re-present from Step 2.2 — Phase 1 approval stands
@@ -249,8 +268,9 @@ Emit nothing else. No prose responses, no explanatory comments outside the signa
 
 **Failure mode.** If you cannot produce a plan (contradictory requirements, missing context that the user
 cannot resolve interactively): emit one `ideated-tickets` signal with `requirements` set to whatever you
-have gathered and `tasks` set to `[]`. Emit one `note` signal with `reason` set to one of:
-`missing-input`, `contradictory-input`, or `environment-failure`. Then stop — do not invent tasks.
+have gathered and `tasks` set to `[]`. Also emit one `note` signal whose `text` starts with one of:
+`missing-input`, `contradictory-input`, or `environment-failure`, followed by a short explanation. Then
+stop — do not invent tasks.
 
 {{OUTPUT_CONTRACT_SECTION}}
 </output_contract>

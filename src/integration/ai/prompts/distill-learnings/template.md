@@ -34,6 +34,8 @@ hand-authored or owned by another tool — preserve it byte-for-byte.
   prior state and reconcile the candidates against them (see the idempotency rule below).
 - When the file has no such section yet, append one at the end of the file — after the last existing
   section, separated by a single blank line.
+- When `{{TARGET_FILENAME}}` does not exist yet, create it (and any missing parent directory) containing
+  only the owned section.
 - Never create a second `## {{LEARNINGS_SECTION_HEADING}}` section — there must be exactly one.
   </owned_section>
 

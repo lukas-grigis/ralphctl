@@ -21,8 +21,9 @@ import type { TaskKind } from '@src/business/task/derive-task-kind.ts';
  * — the most recent N by append order — so a caller that cannot resolve the current task's repo/kind
  * still gets a well-formed, bounded block.
  *
- * Deliberately minimal per the implement template's own arXiv 2602.11988 citation (redundant context
- * measurably reduces agent success): only the Insight (`text`) and the optional Applies-to ride —
+ * Deliberately minimal per the implement template's own arXiv 2602.11988 citation (redundant always-loaded
+ * context measurably raises cost without improving success): only the Insight (`text`) and the optional
+ * Applies-to ride —
  * never the full record (sprint/task ids, timestamps, repo paths are noise to the generator). A hard
  * cap keeps the block bounded on a project with a long memory.
  *

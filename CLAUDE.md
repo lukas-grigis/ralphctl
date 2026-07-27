@@ -42,8 +42,10 @@ Not auto-imported — open with the `Read` tool when the work touches the area.
 - `.claude/docs/REQUIREMENTS.md` — acceptance-criteria checklist
 - `.claude/docs/DESIGN-SYSTEM.md` — TUI tokens, components, copy rules
 - `.claude/docs/MANUAL-TEST-PLAYBOOK.md` — manual smoke-test script
-- `.claude/docs/HARNESS-PRINCIPLES.md` — distilled harness research (Anthropic + Fowler); consult before structural
+- `.claude/docs/HARNESS-PRINCIPLES.md` — distilled harness research (Anthropic + martinfowler.com); consult before structural
   changes to the chain framework, flow registry, or provider engine
+- `.claude/docs/RESEARCH-REFERENCES.md` — verified source table (papers/articles → claims → where used), adopted
+  techniques, and rejected ideas with reasons; consult before adding a citation or re-proposing a technique
 - `.claude/docs/diagrams/` — Mermaid sequence / data-flow diagrams: chain framework, flow lifecycle, sprint lifecycle,
   task lifecycle, AI-session data flow
 

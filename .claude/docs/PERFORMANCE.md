@@ -230,10 +230,13 @@ before each spawn; `settle-attempt-leaf` writes `rounds/<N>/outcome.md` after se
 are tail-compressed to at most `SECTION_CHAR_CAP` (4,000) characters each before prompt substitution
 (`src/integration/ai/prompts/_engine/compress-section.ts`). When a section overflows, the oldest bytes are
 dropped and a one-line notice is prepended at the truncation boundary so the model sees where content was
-omitted. Keeping the _most-recent_ tail follows the "Lost in the Middle" finding (Liu et al.,
-arXiv 2307.03172): LLMs attend poorly to content placed in the middle of long contexts, so
-pushing task-critical sections (goal, success-criteria, output contract) toward the middle is the
-failure mode being avoided. The harness already applies the same principle to stderr via `BoundedTail`.
+omitted. Bounding these sections at all follows the "Lost in the Middle" finding (Liu et al.,
+arXiv 2307.03172): LLMs attend well to the beginning and end of a long context but poorly to the middle, so
+letting a section grow unbounded pushes task-critical sections (goal, success-criteria, output contract)
+toward that poorly-attended middle; the 4,000-character cap itself is an engineering budget, not a value
+from the paper. Keeping the _most-recent_ tail specifically (rather than the head) is a recency heuristic,
+not a paper finding — the newest content is judged most relevant, mirroring the same choice the harness
+makes for stderr via `BoundedTail`.
 
 **AI signal routing.** `<change>` / `<decision>` / `<learning>` / `<note>` signals accumulate per-attempt on the
 implement ctx (`ctx.currentAttempt{Changes,Decisions,Learnings,Notes}`) as the generator / evaluator leaves parse them;
@@ -325,5 +328,5 @@ it). NPM publish uses `--provenance`. Pre-releases are tags containing `-`.
 Principles distilled in `.claude/docs/HARNESS-PRINCIPLES.md`; consult before structural
 changes to the chain framework, flow registry, or provider engine. Sources: [Anthropic — Effective
 Harnesses](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents), [Anthropic
-— Harness Design](https://www.anthropic.com/engineering/harness-design-long-running-apps), [Martin Fowler
+— Harness Design](https://www.anthropic.com/engineering/harness-design-long-running-apps), [Böckeler
 — Harness Engineering](https://martinfowler.com/articles/harness-engineering.html).

@@ -137,20 +137,20 @@ const readinessExampleSignals: readonly ReadinessSignal[] = [
   {
     type: 'agents-md-proposal',
     tag: 'claude-md',
-    content: '# Project Context\n\n## Build & Run\n\n`pnpm dev` — runs the dev server.',
+    content: '# Project Context\n\n## Build & Run\n\n`<dev server command>` — runs the dev server.',
     timestamp: EXAMPLE_TS,
   },
   {
     type: 'setup-skill-proposal',
-    content: '# Setup\n\nRun `pnpm install` to install dependencies.',
+    content: '# Setup\n\nRun `<install command>` to install dependencies.',
     timestamp: EXAMPLE_TS,
   },
   {
     type: 'verify-skill-proposal',
-    content: '# Verify\n\nRun `pnpm verify` (typecheck + lint + test).',
+    content: '# Verify\n\nRun `<verify command>` (typecheck + lint + test).',
     timestamp: EXAMPLE_TS,
   },
-  { type: 'skill-suggestions', names: ['typescript-strict', 'pnpm'], timestamp: EXAMPLE_TS },
+  { type: 'skill-suggestions', names: ['typescript-strict', 'code-style-conventions'], timestamp: EXAMPLE_TS },
 ];
 
 /**

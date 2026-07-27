@@ -329,5 +329,10 @@ export const renderPlateauDirectiveSection = (plateauBreak: boolean): string => 
     'that led the earlier attempts astray, and implement a **fundamentally different** solution — a',
     'different design, data flow, or code path. Then verify the failing criteria directly before',
     'signalling completion.',
+    '',
+    'Before you choose that different approach, name which failure mode you were stuck in —',
+    're-exploring code you already understood, looping on the same failing edit, over-polishing',
+    'criteria that already pass, or fixing the wrong',
+    'location entirely — then change that specific behaviour, not just "try something different."',
   ].join('\n');
 };

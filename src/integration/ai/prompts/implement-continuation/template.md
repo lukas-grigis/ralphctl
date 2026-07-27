@@ -46,15 +46,23 @@ For the complete history — older than the excerpt above — read `{{PROGRESS_F
 
 <goal>
 Address every dimension the evaluator flagged in `<prior_critique>`, then run each `auto`
-criterion's command once. Do NOT run the verify script — the harness runs it after your turn as
-the independent commit gate. Exception: when the task defines no `auto` criteria, run the verify
-script once yourself. Emit `task-verified` with the verbatim command output, propose a
-`commit-message` when you touched any file, and emit `task-complete` only after every flagged
-dimension is resolved and every criterion command passes. Removing or disabling a test to make
-verify pass counts as task failure — fix the implementation, not the test. When a flagged item is
-genuinely blocked (missing dependency, contradictory input, unresolvable ambiguity), emit
-`task-blocked` with the concrete reason instead of guessing. Emit `change`, `learning`, and
-`note` signals as applicable — the harness records them in the sprint journal.
+criterion's command once. If a command fails intermittently, re-run it once; if the two runs
+disagree, report the inconsistency as evidence in `task-verified` rather than asserting a clean
+pass or fail. Do NOT run the verify script — the harness runs it after your turn as the
+independent commit gate. Exception: when the task defines no `auto` criteria, run the verify
+script once yourself. Emit `task-verified` with each command, its exit code, every failing
+test/check name, and roughly the last 50 lines of output per command — when a command's output
+exceeds that, write the full log to a file in your session working directory (never inside the
+repository) and cite its path — propose a `commit-message` when you touched any file, and emit
+`task-complete` only after every flagged dimension is resolved and every criterion command
+passes. Removing or disabling a test to make verify pass counts as task failure — fix the
+implementation, not the test — except when a declared step explicitly changes the behaviour the
+test asserts. When a flagged item is genuinely blocked (missing dependency, contradictory input,
+unresolvable ambiguity), emit `task-blocked` with the concrete reason instead of guessing. Emit
+`change`, `learning`, and `note` signals as applicable — the harness records them in the sprint
+journal. When this round ends without `task-complete` or with criteria still failing, also emit
+one `note` signal distilling the approaches attempted, the dead ends ruled out and why, and the
+most promising untried direction.
 </goal>
 
 {{OUTPUT_CONTRACT_SECTION}}

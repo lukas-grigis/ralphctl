@@ -43,10 +43,12 @@ export {
  * produce each block from domain types; callers can also build the strings by hand for tests.
  *
  * The implement template tells one task implementer agent how to execute a single
- * pre-planned task: read the description / steps / verification criteria, run the verify
- * script as the post-task gate, then emit signals plus `<task-complete>`. The harness
- * renders those signals into `progress.md` on the next snapshot — the agent must NOT write
- * to the file directly. Every slot below is a typed string the chain leaf renders before
+ * pre-planned task: read the description / steps / verification criteria, then emit
+ * signals plus a `task-complete` signal. The harness runs the verify script itself as the
+ * post-task commit gate, after the agent's turn — the agent does not run it as its own
+ * evidence source except in the documented no-`auto`-criteria fallback. The harness renders
+ * the emitted signals into `progress.md` on the next snapshot — the agent must NOT write to
+ * the file directly. Every slot below is a typed string the chain leaf renders before
  * calling `buildPrompt`.
  */
 export interface ImplementPromptParams {
@@ -146,6 +148,25 @@ export interface ImplementPromptParams {
   readonly agentDefinitionSection?: string;
 }
 
+/*
+ * Maintainer documentation for the rules encoded in the template's constraints section (the
+ * 200-line cap, 7-H2 structure cap, and the exclusion list for editing the project's AI context
+ * file). Not rendered to the agent — moved out of the template body so the per-task prompt does
+ * not ship citation text on every invocation.
+ *
+ * - Anthropic — Claude Code memory documentation (code.claude.com/docs/en/memory) — source of the
+ *   200-line target and the adherence-degradation guidance.
+ * - Chatlatanagulchai et al., AGENTS.md context-file studies (arXiv 2511.12884, 2509.14744) —
+ *   descriptive medians (~5-7 H2 sections, shallow hierarchies) behind the 7-H2 structure cap.
+ * - Anthropic — Claude Code best practices (code.claude.com/docs/en/best-practices) — context
+ *   files hold only broadly-applicable rules; slash commands, hooks, MCP servers, and editor
+ *   settings have dedicated configuration homes. The exact exclusion list in the template's
+ *   constraints section is this harness's convention derived from that guidance.
+ * - Gloaguen et al., _Evaluating AGENTS.md_ (arXiv 2602.11988) — redundant always-loaded context
+ *   measurably raises cost without improving agent success; the finding behind pruning this very
+ *   references block out of the per-task prompt.
+ */
+
 const requireNonEmpty =
   (field: string, message: string) =>
   (v: string): Result<string, ValidationError> =>
@@ -154,7 +175,7 @@ const requireNonEmpty =
 export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
   templateName: 'implement',
   description:
-    'One-shot task execution. The agent reads the task body, runs the verify script, and emits harness signals; the harness snapshots those signals into progress.md.',
+    'One-shot task execution. The agent reads the task body and emits harness signals; the harness runs the verify script as the post-task gate and snapshots the signals into progress.md.',
   parameters: {
     taskName: {
       placeholder: 'TASK_NAME',

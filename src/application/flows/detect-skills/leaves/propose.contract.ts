@@ -67,18 +67,18 @@ const EXAMPLE_SIGNALS: readonly DetectSkillsSignal[] = [
   {
     type: SETUP_SKILL_PROPOSAL,
     content:
-      'This repo pins tool versions with mise. Before editing anything, run mise install to activate the exact versions declared in mise.toml. Then run the project install command documented in CLAUDE.md to hydrate the dependency tree.',
+      'This repo pins tool versions with mise. Before editing anything, run mise install to activate the exact versions declared in mise.toml. Then run the project install command documented in the coding-agent context file to hydrate the dependency tree.',
     timestamp: EXAMPLE_TS,
   },
   {
     type: VERIFY_SKILL_PROPOSAL,
     content:
-      'Verification runs three gates in sequence documented in CLAUDE.md: typecheck, lint, then tests. A failure in any gate stops the chain; read the first failing gate output — later gates have not run yet.',
+      'Verification runs three gates in sequence documented in the coding-agent context file: typecheck, lint, then tests. A failure in any gate stops the chain; read the first failing gate output — later gates have not run yet.',
     timestamp: EXAMPLE_TS,
   },
   {
     type: 'note',
-    text: 'Skills authored from CLAUDE.md and mise.toml.',
+    text: 'Skills authored from the coding-agent context file and mise.toml.',
     timestamp: EXAMPLE_TS,
   },
 ];

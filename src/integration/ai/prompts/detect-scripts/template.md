@@ -21,10 +21,8 @@ module — so the harness can scope verification to the part of the tree a task 
 - If no evidence exists for a script class, that signal is absent rather than fabricated.
 - Per-module verify gates appear only when the repository has distinct module roots — a
   single-module repository proposes the verify script alone and no gates.
-- When the project's documented contract names a command for starting the product in a running
-  state (a dev-server start script, application entry point, or end-to-end / smoke suite), a
-  `note` signal describes it: the exact invocation, what it starts, and any declared port or
-  environment prerequisite.
+- When the project's documented contract names a run command, a `note` signal describes it — see
+  the Protocol's Phase 1 step 5 and Phase 2 below for what counts and what the note must contain.
 
 </success_criteria>
 
@@ -67,8 +65,9 @@ what the project documented. Omit a signal only when the project's own files are
 class entirely.
 
 **Script safety.** Reject pipe-to-shell shapes (`curl … | sh`, `wget -O- … | bash`), `eval`, and
-`rm -rf`. One shell line per script — multi-line bodies, sub-shells, and heredocs are out of
-contract; the harness collapses whitespace before execution.
+`rm -rf`. One shell line per script — multi-line bodies and heredocs are out of contract, and so
+are sub-shells except the single `(cd <path> && …)` fallback named above; the harness collapses
+whitespace before execution.
 
 **Idempotence.** Prefer commands that are safe to re-run (e.g. the plain install invocation for
 the project's package manager rather than a frozen-lockfile / production-only variant, unless the
@@ -106,6 +105,8 @@ emit gates for it. When gates apply:
 
 <output_contract>
 
+Only `signals.json` is read by the harness; all other session output is forensic and not persisted as data.
+
 {{OUTPUT_CONTRACT_SECTION}}
 
 Emit only `setup-script`, `verify-script`, `verify-gates`, and `note` signals — no other signal
@@ -123,6 +124,7 @@ test`" and the manifest declares those scripts:
 
 ```json
 {
+  "schemaVersion": 1,
   "signals": [
     {
       "type": "setup-script",
@@ -147,6 +149,7 @@ When only a manifest exists with install + test scripts and no context file:
 
 ```json
 {
+  "schemaVersion": 1,
   "signals": [
     {
       "type": "setup-script",
@@ -172,6 +175,7 @@ verify steps:
 
 ```json
 {
+  "schemaVersion": 1,
   "signals": [
     {
       "type": "setup-script",
@@ -199,6 +203,7 @@ point:
 
 ```json
 {
+  "schemaVersion": 1,
   "signals": [
     {
       "type": "setup-script",
@@ -254,8 +259,6 @@ Before writing any output, cover, in order:
    verify script: the verify script confirms correctness after a change; a run command starts
    the live product so it can be exercised as a real user would. List the command and the file
    that documents it.
-
-Only `signals.json` is read by the harness; all other session output is forensic and not persisted as data.
 
 Then read only the configuration and metadata files in scope above. Do NOT read source trees,
 tests, vendored directories, or generated output.

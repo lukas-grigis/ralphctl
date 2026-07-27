@@ -160,7 +160,14 @@ export const readinessPromptDef: PromptDefinition<ReadinessPromptParams> = {
   partials: {
     HARNESS_CONTEXT: 'harness-context',
   },
-  expectedSignals: ['agents-md-proposal', 'setup-skill-proposal', 'verify-skill-proposal', 'skill-suggestions', 'note'],
+  expectedSignals: [
+    'agents-md-proposal',
+    'setup-skill-proposal',
+    'verify-skill-proposal',
+    'skill-suggestions',
+    'note',
+    'learning',
+  ],
 };
 
 /** Render the `currentTool` parameter as the same string the AssistantTool variant carries. */

@@ -7,8 +7,9 @@ from any earlier session is assumed; read `<prior_progress>` below to orient you
 
 <goal>
 Produce a single `refined-ticket` signal written to `signals.json` in the output directory. The
-signal's `body` field carries the approved requirements markdown. Success = the body is operator-
-approved, covers the happy path plus edge/error cases, and contains no implementation details.
+signal's `body` field carries the approved requirements markdown. Success = the body is
+operator-approved, covers the happy path plus edge/error cases, and contains no implementation
+details.
 </goal>
 
 <success_criteria>
@@ -28,12 +29,12 @@ approved, covers the happy path plus edge/error cases, and contains no implement
 <inputs>
 <ticket>{{TICKET}}</ticket>
 
-<issue_context>{{ISSUE_CONTEXT}}</issue_context>
+{{ISSUE_CONTEXT}}
 
 <prior_progress>{{PRIOR_PROGRESS}}</prior_progress>
 
 If `<prior_progress>` is empty, no prior work has been recorded for this sprint yet.
-If `<issue_context>` is empty, no upstream issue body was available.
+If the `<context>` block above is empty or absent, no upstream issue body was available.
 </inputs>
 
 {{HARNESS_CONTEXT}}
@@ -43,8 +44,8 @@ If `<issue_context>` is empty, no upstream issue body was available.
   date range"), not technical decisions ("add a SQL WHERE clause"). The planner that runs after you
   needs maximum flexibility on HOW; your job is WHAT.
 - MUST NOT explore the repository. No source files are mounted in this session — only the output
-  directory is writable. If a question requires source context, capture it under `proposed_default`
-  as "requires repo investigation".
+  directory is writable. If a question requires source context, note it in the requirements body
+  as an open question requiring repo investigation.
 - One concern per question. Combining "what should it do AND how should it look" forces a fuzzy
   answer to both — ask each dimension separately.
 - Honor prior decisions in `<prior_progress>`. Do not re-open a dimension the sprint has already
@@ -58,7 +59,7 @@ If `<issue_context>` is empty, no upstream issue body was available.
 ### Step 1 — Analyse the ticket
 
 Before producing any output, work through what is clear, what is ambiguous, and what edge cases the
-ticket omits. Only `signals.json` is read by the harness.
+ticket omits.
 
 Then identify, in order:
 
@@ -143,13 +144,7 @@ Options:
 
 ### Step 3 — Stop interviewing
 
-Stop when ALL of these are true:
-
-1. The problem statement is clear and agreed.
-2. Every functional requirement has at least one acceptance criterion.
-3. Scope boundaries (in / out / deferred) are explicit.
-4. Major edge cases and error states are addressed.
-5. Two engineers reading these requirements would build the same thing.
+Stop asking questions once every item in the Step 5 pre-output quality checklist would pass.
 
 ### Step 4 — Present requirements for approval
 
@@ -249,9 +244,10 @@ them with `---`:
 ```
 
 <output_contract>
-Write `signals.json` to the output directory. The file MUST contain exactly one `refined-ticket`
-signal. The harness validates this file after the session exits; a missing file, unparseable JSON,
-or zero/multiple `refined-ticket` entries are all validation failures.
+Write `signals.json` to the output directory. Only `signals.json` is read by the harness; all
+other session output is forensic and not persisted as data. The file MUST contain exactly one
+`refined-ticket` signal. The harness validates this file after the session exits; a missing file,
+unparseable JSON, or zero/multiple `refined-ticket` entries are all validation failures.
 
 Permitted signal kinds:
 

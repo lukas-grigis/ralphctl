@@ -433,7 +433,7 @@ Run `ralphctl <command> --help` for flag-level detail.
 
 **Further reading:**
 [AI Agent Harnesses: A Field Guide](https://lukasgrigis.dev/blog/guides/agent-harnesses/) — Lukas Grigis
-| [Harness Engineering for Coding Agent Users](https://martinfowler.com/articles/harness-engineering.html) — Martin Fowler (April 2026)
+| [Harness Engineering for Coding Agent Users](https://martinfowler.com/articles/harness-engineering.html) — Birgitta Böckeler, martinfowler.com (April 2026)
 | [Harness Design for Long-Running Application Development](https://www.anthropic.com/engineering/harness-design-long-running-apps) — Anthropic Engineering
 
 ---
