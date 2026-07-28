@@ -135,6 +135,16 @@ const generatorExampleSignals: readonly GeneratorSignal[] = [
     appliesTo: 'config / io layer',
     timestamp: EXAMPLE_TS,
   },
+  {
+    type: 'decision',
+    text: 'Centralised the parse in one helper rather than patching both call sites, to avoid future drift.',
+    timestamp: EXAMPLE_TS,
+  },
+  {
+    type: 'note',
+    text: 'Left the unrelated typo at src/baz.ts:8 alone — out of scope for this task.',
+    timestamp: EXAMPLE_TS,
+  },
   { type: 'task-verified', output: '$ <project test command>\n... 42 passed', timestamp: EXAMPLE_TS },
   {
     type: COMMIT_MESSAGE_KIND,

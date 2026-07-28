@@ -60,13 +60,33 @@ const EXAMPLE_TS = '2026-05-22T10:00:00.000Z' as IsoTimestamp;
 /**
  * Representative ideate payload. The required `ideated-tickets` carries the AI-authored
  * combined refine + plan envelope as a JSON string in `outputJson` — opaque to the contract
- * validator (parsed downstream by `parseIdeateOutput`).
+ * validator (parsed downstream by `parseIdeateOutput`). The optional narrative signals
+ * (`decision` / `learning` / `note`) each carry their prose in a `text` field — NOT `body`.
+ * All shapes are shown here so the rendered `{{OUTPUT_CONTRACT_SECTION}}` is the authoritative
+ * source the AI copies, rather than relying on prose in the template that can drift from the
+ * schemas — a `decision` emitted with `body` fails whole-array validation and sinks an entire
+ * approved ideate session.
  */
 const ideateExampleSignals: readonly IdeateSignal[] = [
   {
     type: 'ideated-tickets',
     outputJson:
       '{"requirements":"# Export CSV\\n\\n## Problem\\n…","tasks":[{"name":"Wire endpoint","projectPath":"/abs/repo","steps":["…"],"verificationCriteria":["…"]}]}',
+    timestamp: EXAMPLE_TS,
+  },
+  {
+    type: 'decision',
+    text: 'Scoped export to CSV only for v1; XLSX deferred to a follow-up ticket.',
+    timestamp: EXAMPLE_TS,
+  },
+  {
+    type: 'learning',
+    text: 'The repo runs its integration suite from a separate config; the root test command does not cover it.',
+    timestamp: EXAMPLE_TS,
+  },
+  {
+    type: 'note',
+    text: 'The user ruled out changing the existing download endpoint, so the new route is additive.',
     timestamp: EXAMPLE_TS,
   },
 ];

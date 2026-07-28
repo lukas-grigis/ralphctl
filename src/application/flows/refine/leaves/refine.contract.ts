@@ -151,6 +151,16 @@ const refineExampleSignals: readonly RefineSignal[] = [
     text: 'Scoped export to CSV only for v1; XLSX deferred to a follow-up ticket.',
     timestamp: EXAMPLE_TS,
   },
+  {
+    type: 'learning',
+    text: 'The export path already streams; the ticket must not assume an in-memory buffer.',
+    timestamp: EXAMPLE_TS,
+  },
+  {
+    type: 'note',
+    text: 'The user ruled column ordering out of scope — captured as a deferred item rather than an AC.',
+    timestamp: EXAMPLE_TS,
+  },
 ];
 
 /**

@@ -258,11 +258,12 @@ The `outputJson` field is a JSON-encoded string. When decoded it has exactly two
 
 **Required signals:** exactly one `ideated-tickets`.
 
-**Optional signals** (emit when relevant):
+**Optional signals** (emit when relevant). Each carries its prose in a `text` field — never
+`body`; the output contract below shows the exact shape:
 
 - `note` — for status updates or observations worth surfacing.
 - `learning` — for non-obvious repo facts discovered during exploration.
-- `decision` — for architectural choices made during planning (body capped at 500 chars).
+- `decision` — for architectural choices made during planning.
 
 Emit nothing else. No prose responses, no explanatory comments outside the signals file.
 

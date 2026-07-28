@@ -7,14 +7,16 @@ import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { MigrationGapError } from '@src/domain/value/error/migration-gap-error.ts';
 import { ParseError } from '@src/domain/value/error/parse-error.ts';
+import { brandSignalArray } from '@src/integration/ai/contract/_engine/brand-signal-array.ts';
 import { changeSignalSchema } from '@src/integration/ai/contract/_engine/signals/change/schema.ts';
+import { commitMessageSignalSchema } from '@src/integration/ai/contract/_engine/signals/commit-message/schema.ts';
 import { decisionSignalSchema } from '@src/integration/ai/contract/_engine/signals/decision/schema.ts';
 import type { AiOutputContract } from '@src/integration/ai/contract/_engine/types.ts';
 import {
   SIGNALS_FILE_MAX_BYTES,
   validateSignalsFile,
 } from '@src/integration/ai/contract/_engine/validate-signals-file.ts';
-import type { ChangeSignal, DecisionSignal } from '@src/domain/signal.ts';
+import type { ChangeSignal, CommitMessageSignal, DecisionSignal } from '@src/domain/signal.ts';
 
 const unwrapPath = (s: string): AbsolutePath => {
   const r = AbsolutePath.parse(s);
@@ -79,6 +81,82 @@ describe('validateSignalsFile', () => {
     expect(result.value).toHaveLength(2);
     expect(result.value[0]?.type).toBe('change');
     expect(result.value[1]?.type).toBe('decision');
+  });
+
+  it('rewrites `body` to `text` on a narrative signal so a near-miss does not sink the round', async () => {
+    // Regression: every prompt invites optional note/learning/decision signals, and models reach
+    // for `body` — the field name the neighbouring refined-ticket / pr-content / commit-message
+    // signals use. The array parse is all-or-nothing, so one such near-miss on a signal that only
+    // feeds progress.md used to discard the round's real payload (a whole approved plan session).
+    const path = join(tmp, 'signals.json');
+    writeFileSync(
+      path,
+      JSON.stringify({
+        schemaVersion: 1,
+        signals: [
+          { type: 'change', text: 'added foo', timestamp: '2026-05-22T10:00:00.000Z' },
+          { type: 'decision', body: 'we go with X', timestamp: '2026-05-22T10:00:01.000Z' },
+        ],
+      })
+    );
+
+    const result = await validateSignalsFile(unwrapPath(tmp), sampleContract);
+    if (!result.ok) throw new Error(`expected ok: ${result.error.message}`);
+    expect(result.value).toHaveLength(2);
+    const decision = result.value[1] as DecisionSignal & { readonly body?: string };
+    expect(decision.text).toBe('we go with X');
+    expect(decision.body).toBeUndefined();
+  });
+
+  it('leaves a narrative signal alone when it already carries `text`', async () => {
+    const path = join(tmp, 'signals.json');
+    writeFileSync(
+      path,
+      JSON.stringify({
+        schemaVersion: 1,
+        signals: [
+          { type: 'change', text: 'added foo', timestamp: '2026-05-22T10:00:00.000Z' },
+          { type: 'decision', text: 'canonical', body: 'stray', timestamp: '2026-05-22T10:00:01.000Z' },
+        ],
+      })
+    );
+
+    const result = await validateSignalsFile(unwrapPath(tmp), sampleContract);
+    if (!result.ok) throw new Error(`expected ok: ${result.error.message}`);
+    expect((result.value[1] as DecisionSignal).text).toBe('canonical');
+  });
+
+  it('does NOT rewrite `body` on a non-narrative signal that legitimately uses it', async () => {
+    // `body` is a real, required field on refined-ticket / pr-content / commit-message. A blanket
+    // rewrite would destroy them, so the alias is scoped to the three narrative kinds.
+    const contract: AiOutputContract<CommitMessageSignal> = {
+      schemaVersion: 1,
+      // Same brand bridge the real contracts use — Zod widens optional fields to `T | undefined`
+      // under exactOptionalPropertyTypes; the runtime check is the source of truth.
+      signalsSchema: brandSignalArray<CommitMessageSignal>(z.array(commitMessageSignalSchema)),
+      sidecars: [],
+      migrations: {},
+      exampleSignals: [],
+    };
+    const path = join(tmp, 'signals.json');
+    writeFileSync(
+      path,
+      JSON.stringify({
+        schemaVersion: 1,
+        signals: [
+          {
+            type: 'commit-message',
+            subject: 'feat: x',
+            body: 'why this',
+            timestamp: '2026-05-22T10:00:00.000Z',
+          },
+        ],
+      })
+    );
+
+    const result = await validateSignalsFile(unwrapPath(tmp), contract);
+    if (!result.ok) throw new Error(`expected ok: ${result.error.message}`);
+    expect(result.value[0]?.body).toBe('why this');
   });
 
   it('returns InvalidStateError when signals.json is missing', async () => {
