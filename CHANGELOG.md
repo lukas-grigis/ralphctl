@@ -7,6 +7,8 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-07-28
+
 ### Fixed
 
 - **Planning no longer fails when the AI names a narrative signal field `body`.** 0.17.0 added an "optional
