@@ -118,3 +118,172 @@ describe('node:child_process spawn/exec fence', () => {
     expect(isRestrictedImportError(messages)).toBe(false);
   });
 });
+
+/**
+ * Liveness probes for every no-restricted-imports fence. ESLint flat config REPLACES a
+ * same-key rule entry when a later block matches the same file — it never merges options —
+ * so a block that narrows a broader glob silently wipes the broader block's restrictions
+ * (and vice versa) unless the surviving entry carries the union of both. These probes pin
+ * that every fence actually fires in the directories where two blocks overlap; each one was
+ * dead (or is the still-live control) when the composition flaw was found.
+ */
+describe('fence liveness under overlapping config blocks', () => {
+  const linter = new Linter();
+  const config = eslintConfig as LinterTypes.Config[];
+
+  const restrictedMessages = (code: string, filename: string): string =>
+    linter
+      .verify(code, config, filename)
+      .filter((m) => m.ruleId === 'no-restricted-imports')
+      .map((m) => m.message)
+      .join('\n');
+
+  const AI_FAMILIES = [
+    { constant: 'PROMPTS', root: 'src/integration/ai/prompts' },
+    { constant: 'PROVIDERS', root: 'src/integration/ai/providers' },
+    { constant: 'READINESS_PROVIDERS', root: 'src/integration/ai/readiness' },
+    { constant: 'SKILLS', root: 'src/integration/ai/skills' },
+    { constant: 'AGENTS', root: 'src/integration/ai/agents' },
+  ] as const;
+
+  for (const { constant, root } of AI_FAMILIES) {
+    describe(`${root}/<sibling>/`, () => {
+      const [a, b] = constantFromEslintConfig(constant);
+
+      it('sibling isolation fires', () => {
+        expect(
+          restrictedMessages(
+            `import { x } from '@${root}/${b!}/thing.ts';\nexport const y = x;\n`,
+            `${root}/${a!}/probe.ts`
+          )
+        ).toMatch(/Sibling-/);
+      });
+
+      it('the integration layer rule survives in a sibling directory', () => {
+        expect(
+          restrictedMessages(
+            "import { x } from '@src/application/registry.ts';\nexport const y = x;\n",
+            `${root}/${a!}/probe.ts`
+          )
+        ).toMatch(/Layer dependency violation/);
+      });
+
+      it('the node:child_process spawn fence survives in a sibling directory', () => {
+        expect(
+          restrictedMessages(
+            "import { spawn } from 'node:child_process';\nexport const y = spawn;\n",
+            `${root}/${a!}/probe.ts`
+          )
+        ).toMatch(/child_process/);
+      });
+    });
+  }
+
+  describe('src/business/<sibling>/', () => {
+    const [a, b] = constantFromEslintConfig('BUSINESS_SIBLINGS');
+
+    it('sibling isolation fires', () => {
+      expect(
+        restrictedMessages(
+          `import { x } from '@src/business/${b!}/thing.ts';\nexport const y = x;\n`,
+          `src/business/${a!}/probe.ts`
+        )
+      ).toMatch(/Sibling-business/);
+    });
+
+    it('the I/O-bearing node module ban survives in a sibling directory', () => {
+      expect(
+        restrictedMessages(
+          "import { readFileSync } from 'node:fs';\nexport const y = readFileSync;\n",
+          `src/business/${a!}/probe.ts`
+        )
+      ).toMatch(/I\/O-bearing/);
+    });
+
+    it('the composite *Repository ban survives in a sibling directory', () => {
+      expect(
+        restrictedMessages(
+          "import { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';\nexport const y = 0;\n",
+          `src/business/${a!}/probe.ts`
+        )
+      ).toMatch(/slim sub-ports/);
+    });
+  });
+
+  describe('src/domain/repository/<sibling>/', () => {
+    const [a, b] = constantFromEslintConfig('REPOSITORY_SIBLINGS');
+
+    it('sibling isolation fires', () => {
+      expect(
+        restrictedMessages(
+          `import { x } from '@src/domain/repository/${b!}/thing.ts';\nexport const y = x;\n`,
+          `src/domain/repository/${a!}/probe.ts`
+        )
+      ).toMatch(/Sibling-repository/);
+    });
+
+    it('the domain layer rule survives in a sibling directory', () => {
+      expect(
+        restrictedMessages(
+          "import { readFileSync } from 'node:fs';\nexport const y = readFileSync;\n",
+          `src/domain/repository/${a!}/probe.ts`
+        )
+      ).toMatch(/I\/O-bearing|Layer dependency violation/);
+    });
+  });
+
+  describe('src/application/flows/<flow>/', () => {
+    const [a, b] = constantFromEslintConfig('FLOWS');
+
+    it('sibling isolation fires', () => {
+      expect(
+        restrictedMessages(
+          `import { x } from '@src/application/flows/${b!}/flow.ts';\nexport const y = x;\n`,
+          `src/application/flows/${a!}/probe.ts`
+        )
+      ).toMatch(/Sibling-flow/);
+    });
+
+    it('the no-concrete-adapters chains rule survives in a sibling directory', () => {
+      expect(
+        restrictedMessages(
+          "import { x } from '@src/integration/ai/providers/claude/headless.ts';\nexport const y = x;\n",
+          `src/application/flows/${a!}/probe.ts`
+        )
+      ).toMatch(/concrete provider adapters/);
+    });
+
+    it('bans per-signal schema imports from ordinary flow code', () => {
+      expect(
+        restrictedMessages(
+          "import { x } from '@src/integration/ai/contract/_engine/signals/note/schema.ts';\nexport const y = x;\n",
+          `src/application/flows/${a!}/leaves/probe.ts`
+        )
+      ).toMatch(/per-signal Zod schemas/);
+    });
+
+    it('lifts the schema ban for per-leaf *.contract.ts files — the audit-[09] composition point', () => {
+      expect(
+        restrictedMessages(
+          "import { x } from '@src/integration/ai/contract/_engine/signals/note/schema.ts';\nexport const y = x;\n",
+          `src/application/flows/${a!}/leaves/probe.contract.ts`
+        )
+      ).toBe('');
+    });
+
+    it('keeps sibling isolation and the concrete-adapter ban inside *.contract.ts files', () => {
+      expect(
+        restrictedMessages(
+          `import { x } from '@src/application/flows/${b!}/flow.ts';\nexport const y = x;\n`,
+          `src/application/flows/${a!}/leaves/probe.contract.ts`
+        )
+      ).toMatch(/Sibling-flow/);
+      expect(
+        restrictedMessages(
+          "import { x } from '@src/integration/ai/providers/claude/headless.ts';\nexport const y = x;\n",
+          `src/application/flows/${a!}/leaves/probe.contract.ts`
+        )
+      ).toMatch(/concrete provider adapters/);
+    });
+  });
+});

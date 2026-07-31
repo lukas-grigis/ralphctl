@@ -12,4 +12,4 @@
 - [project_duplicate_codex_effort_clamp.md](project_duplicate_codex_effort_clamp.md) — RESOLVED: readiness's duplicate codex effort floor deleted + pinned by a test; watch for a new copy appearing outside resolve-effort.ts
 - [project_model_refresh_review_2026-07-26.md](project_model_refresh_review_2026-07-26.md) — Opus 5 / GPT-5.6 refresh review: what the catalog-fingerprint gate catches vs. where drift actually lands
 - [project_unwired_ratelimit_jitter.md](project_unwired_ratelimit_jitter.md) — RESOLVED: applyJitter now wired + test-pinned; durable lesson: knip can't flag test-only exports because tests are entry points
-- [project_eslint_sibling_isolation_dead.md](project_eslint_sibling_isolation_dead.md) — Sibling-isolation fences under src/integration/ai/** never fire; the later general integration block replaces the rule
+- [project_eslint_sibling_isolation_dead.md](project_eslint_sibling_isolation_dead.md) — RESOLVED: dead fences fixed via mergeRestrictedImports composition + liveness suite; durable lesson: flat config replaces same-key rule entries, verify fences by probe
