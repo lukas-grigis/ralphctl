@@ -6,7 +6,7 @@ most needs are already covered.
 
 Companion docs:
 
-- [REQUIREMENTS.md § UI Contract](./REQUIREMENTS.md#ui-contract) — the testable acceptance criteria.
+- [REQUIREMENTS.md § TUI](./REQUIREMENTS.md#tui) — the testable acceptance criteria.
 - [ARCHITECTURE.md § Terminal UI Layer](./ARCHITECTURE.md#terminal-ui-layer-srcapplicationui) — file layout and
   runtime wiring.
 - `src/application/ui/tui/theme/tokens.ts` — the tokens themselves, in code.

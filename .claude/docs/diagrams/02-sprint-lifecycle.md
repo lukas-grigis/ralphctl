@@ -71,6 +71,10 @@ state to revert.
 
 ## On-disk shape
 
+Mirrors [ARCHITECTURE.md § Storage layout](../ARCHITECTURE.md#storage-layout) — see there for the full tree
+(per-flow sandbox contents, `skills/`, `memory/`, lock directory, …); this is an abbreviated view of the
+`<sprintDir>/` subtree only.
+
 ```
 <dataRoot>/sprints/<id>--<slug>/
 ├── sprint.json          ← planning aggregate (tickets, status, project ref)

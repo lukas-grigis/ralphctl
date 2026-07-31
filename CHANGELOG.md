@@ -7,6 +7,32 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Corrective retry no longer burns resumed spawns on a harness-side I/O failure.** A read failure on an
+  already-written `signals.json` (e.g. a permission error) was misclassified as "the AI forgot to write the
+  file" and retried up to `harness.correctiveRetries` times with a misleading nudge before self-blocking with
+  the same error. Only genuinely re-promptable failures (missing file, invalid JSON, schema mismatch) are
+  retried now; a harness-side I/O fault self-blocks immediately.
+- **Sprint picker cursor no longer jumps away from a manually navigated row.** Toggling "hide done" (`f`)
+  could reshuffle the row list and snap the cursor back onto the currently-selected sprint instead of
+  staying on the row the user had navigated to.
+- **Plateau early-warning line no longer under-reports the longest stall streak** on tasks with more than 8
+  concurrently-failing grading dimensions — the generator's "K stalled round(s)" nudge could previously miss
+  a dimension that had actually stalled the longest.
+- **Interactive refine / plan / ideate / readiness sessions now honor a suspended model**, matching the
+  headless implement / evaluate guard. Dormant today (no models are currently suspended) but closes the gap
+  for the next incident — previously an interactive session on a suspended model would spawn and fail with an
+  opaque CLI error instead of a clear one.
+
+### Changed
+
+- **Sprint and project listing reads every entity file concurrently** instead of one at a time, speeding up
+  TUI and CLI startup for installations with many historical sprints or projects.
+- **Tightened the implement prompt's project-context-file rule** — secrets and credentials are now an
+  unconditional "never" with no exception; the existing declared-step exception still applies to slash
+  commands, hooks, MCP server config, and IDE settings.
+
 ## [0.17.1] - 2026-07-28
 
 ### Fixed
