@@ -306,11 +306,11 @@ export const PathPickerPrompt = ({
           <Text color={inkColors.error}>{error}</Text>
         </Box>
       )}
-      <Box flexDirection="column" marginTop={1}>
+      <Box flexDirection="column" marginTop={spacing.section}>
         <PathPickerRows rows={rows} start={start} end={end} cursor={cursor} />
       </Box>
       {typing ? (
-        <Box flexDirection="column" marginTop={1} paddingX={spacing.indent}>
+        <Box flexDirection="column" marginTop={spacing.section} paddingX={spacing.indent}>
           <Text dimColor>Type an absolute path (~/ allowed). Enter validates; esc returns to the picker.</Text>
           <TextPrompt
             message="Path"
@@ -320,7 +320,7 @@ export const PathPickerPrompt = ({
           />
         </Box>
       ) : (
-        <Box paddingX={spacing.indent} marginTop={1}>
+        <Box paddingX={spacing.indent} marginTop={spacing.section}>
           <Text dimColor>
             ↵ open/select · ⌫ up · esc cancel · ~ home · t type · . {showHidden ? 'hide' : 'show'} hidden
           </Text>

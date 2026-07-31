@@ -127,7 +127,7 @@ export const Breadcrumb = (): React.JSX.Element => {
                 [S]
               </Text>
               {atLeast('md') && effectiveSprintStatus !== undefined && (
-                <Box marginLeft={1}>
+                <Box marginLeft={spacing.gutter}>
                   <StatusChip label={effectiveSprintStatus} kind={sprintStatusKind(effectiveSprintStatus)} />
                 </Box>
               )}

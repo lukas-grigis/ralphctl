@@ -54,7 +54,7 @@ export const ConfirmPrompt = ({
   return (
     <Box flexDirection="column" paddingX={spacing.indent}>
       <ScrollableMessage message={message} />
-      <Box marginTop={1}>
+      <Box marginTop={spacing.section}>
         <Pill on={yes} label="Yes" />
         <Text> </Text>
         <Pill on={!yes} label="No" />

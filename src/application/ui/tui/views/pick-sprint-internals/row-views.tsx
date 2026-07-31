@@ -1,60 +1,97 @@
 /**
- * Row presentation for the sprint picker. Pure render components — the orchestrator owns
- * cursor + window state; this file only knows how to draw a given row at a given focus state.
+ * Row presentation for the sprint picker. `PickerRowList` owns cursor + windowing via the shared
+ * `useListWindow` primitive (id-keyed on the cursorable subset — sprint + create rows); the row
+ * components below are pure presentation, driven entirely by props.
  */
 
 import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
 import { sprintStatusKind, StatusChip } from '@src/application/ui/tui/components/status-chip.tsx';
+import { computeListWindow, OverflowRow, useListWindow } from '@src/application/ui/tui/components/windowed-list.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
-import type { FlatRow, HeaderRow } from '@src/application/ui/tui/views/pick-sprint-internals/types.ts';
-import { computeWindow } from '@src/application/ui/tui/views/pick-sprint-internals/window.ts';
+import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
+import {
+  type CreateActionRow,
+  type FlatRow,
+  type HeaderRow,
+  type SprintRow,
+} from '@src/application/ui/tui/views/pick-sprint-internals/types.ts';
+import { cursorableRowId, cursorableRows } from '@src/application/ui/tui/views/pick-sprint-internals/group-builder.ts';
 
-interface RowWindowViewProps {
+interface PickerRowListProps {
   readonly rows: readonly FlatRow[];
-  readonly cursor: number;
   readonly visibleRows: number;
-  readonly currentSprintId: string | undefined;
+  readonly active: boolean;
+  readonly initialCursorId: string;
+  readonly currentSprintId: SprintId | undefined;
+  readonly onSubmit: (row: SprintRow | CreateActionRow) => void;
 }
 
-export const RowWindowView = ({
+/**
+ * Windowed row list — id-keyed cursor via `useListWindow` over the cursorable subset (sprint +
+ * create rows) drives focus and keyboard handling. The RENDER slice is a separate window over
+ * the full flat row list (headers included), centred on the focused row's index in that full
+ * list, so the rendered height stays bounded by `visibleRows` regardless of how many group
+ * headers (empty or otherwise) sit inside or outside the window. This mirrors the pre-migration
+ * `computeWindow`-over-full-rows behaviour: a header only renders when it falls inside the
+ * slice, exactly like any other row — no exemption for empty groups.
+ */
+export const PickerRowList = ({
   rows,
-  cursor,
   visibleRows,
+  active,
+  initialCursorId,
   currentSprintId,
-}: RowWindowViewProps): React.JSX.Element => {
-  const window = useMemo(() => computeWindow(rows.length, cursor, visibleRows), [rows.length, cursor, visibleRows]);
-  const slice = rows.slice(window.start, window.end);
+  onSubmit,
+}: PickerRowListProps): React.JSX.Element => {
+  const items = useMemo(() => cursorableRows(rows), [rows]);
+
+  const { focusedItem } = useListWindow<SprintRow | CreateActionRow>({
+    items,
+    getId: cursorableRowId,
+    visibleRows,
+    active,
+    initialCursorId,
+    onSubmit,
+  });
+
+  const focusedId = focusedItem !== undefined ? cursorableRowId(focusedItem) : undefined;
+
+  // Index of the focused row within the FULL flat row list (headers included) — the anchor for
+  // the render window. Falls back to 0 when nothing is focused yet (e.g. list still empty).
+  const focusedRowIndex = useMemo(() => {
+    if (focusedId === undefined) return 0;
+    const idx = rows.findIndex((row) => row.kind !== 'header' && cursorableRowId(row) === focusedId);
+    return idx < 0 ? 0 : idx;
+  }, [rows, focusedId]);
+
+  const renderWindow = useMemo(
+    () => computeListWindow(rows.length, focusedRowIndex, visibleRows),
+    [rows.length, focusedRowIndex, visibleRows]
+  );
+
+  const renderRows = useMemo(
+    () => rows.slice(renderWindow.start, renderWindow.end),
+    [rows, renderWindow.start, renderWindow.end]
+  );
+
   return (
     <Box flexDirection="column">
-      {window.hiddenAbove > 0 && (
-        <Box paddingX={spacing.indent}>
-          <Text dimColor>▲ {String(window.hiddenAbove)} more above</Text>
-        </Box>
-      )}
-      {slice.map((row, i) => {
-        const absoluteIndex = i + window.start;
-        if (row.kind === 'header') {
-          return <HeaderRowView key={`h-${row.groupKey}-${String(absoluteIndex)}`} row={row} />;
-        }
-        if (row.kind === 'create') {
-          return <CreateRowView key={`create-${String(absoluteIndex)}`} focused={absoluteIndex === cursor} />;
-        }
+      <OverflowRow direction="above" count={renderWindow.start} />
+      {renderRows.map((row) => {
+        if (row.kind === 'header') return <HeaderRowView key={`h-${row.groupKey}`} row={row} />;
+        if (row.kind === 'create') return <CreateRowView key="create" focused={focusedId === cursorableRowId(row)} />;
         return (
           <SprintRowView
             key={row.sprint.id}
             sprint={row.sprint}
-            focused={absoluteIndex === cursor}
+            focused={focusedId === row.sprint.id}
             isCurrent={currentSprintId === row.sprint.id}
           />
         );
       })}
-      {window.hiddenBelow > 0 && (
-        <Box paddingX={spacing.indent}>
-          <Text dimColor>▼ {String(window.hiddenBelow)} more below</Text>
-        </Box>
-      )}
+      <OverflowRow direction="below" count={rows.length - renderWindow.end} />
     </Box>
   );
 };

@@ -171,7 +171,7 @@ export const MultiSelectPrompt = ({
       <Text color={inkColors.primary} bold>
         {glyphs.actionCursor} {message}
       </Text>
-      <Box flexDirection="column" marginTop={1}>
+      <Box flexDirection="column" marginTop={spacing.section}>
         {options.slice(start, end).map((opt, localIdx) => {
           const i = start + localIdx;
           const focused = i === cursor && opt.disabled !== true;

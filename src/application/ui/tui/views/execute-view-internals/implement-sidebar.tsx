@@ -70,7 +70,7 @@ const TASK_STATUS_COLOR: Readonly<Record<TaskBucketStatus, string>> = {
 // ---------------------------------------------------------------------------
 
 const SidebarDivider = ({ width }: { readonly width: number }): React.JSX.Element => (
-  <Box paddingX={1} marginTop={spacing.gutter}>
+  <Box paddingX={spacing.gutter} marginTop={spacing.gutter}>
     <Text color={inkColors.rule}>{glyphs.sectionRule.repeat(Math.max(0, width - 2))}</Text>
   </Box>
 );

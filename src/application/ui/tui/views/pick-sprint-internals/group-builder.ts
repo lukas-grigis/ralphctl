@@ -1,15 +1,18 @@
 /**
- * Pure list-shaping helpers for the sprint picker: bucket sprints into project groups,
- * flatten the groups into the cursor-navigable row list, and walk that list to the next
- * cursorable index. Headers and overflow indicators are never cursor targets.
+ * Pure list-shaping helpers for the sprint picker: bucket sprints into project groups, flatten
+ * the groups into the cursor-navigable row list, and derive the id-keyed cursorable subset that
+ * feeds the shared `useListWindow` primitive. Headers are never cursor targets.
  */
 
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
+import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import {
+  type CreateActionRow,
   type FlatRow,
   type PickerData,
   type SprintGroup,
+  type SprintRow,
   UNKNOWN_PROJECT_KEY,
   UNKNOWN_PROJECT_LABEL,
 } from '@src/application/ui/tui/views/pick-sprint-internals/types.ts';
@@ -105,51 +108,31 @@ export const flatten = (groups: readonly SprintGroup[], includeCreate: boolean):
   return rows;
 };
 
-/** Indices of the rows the cursor is allowed to land on (sprint + create rows; never headers). */
-export const cursorableRowIndices = (rows: readonly FlatRow[]): readonly number[] => {
-  const indices: number[] = [];
-  for (let i = 0; i < rows.length; i += 1) {
-    const kind = rows[i]?.kind;
-    if (kind === 'sprint' || kind === 'create') indices.push(i);
-  }
-  return indices;
-};
+/** Sentinel id for the synthetic `+ Create new sprint` row — never collides with a real sprint id. */
+const CREATE_ROW_ID = '__create__';
 
-export const nextCursorableIndex = (rows: readonly FlatRow[], from: number, direction: 1 | -1): number => {
-  const candidates = cursorableRowIndices(rows);
-  if (candidates.length === 0) return from;
-  if (direction === 1) {
-    const next = candidates.find((i) => i > from);
-    return next ?? from;
-  }
-  // direction === -1
-  let prev = from;
-  for (const i of candidates) {
-    if (i < from) prev = i;
-    else break;
-  }
-  return prev === from && candidates.includes(from) ? from : prev;
-};
+/** Rows the cursor is allowed to land on (sprint + create rows; never headers). */
+export const cursorableRows = (rows: readonly FlatRow[]): ReadonlyArray<SprintRow | CreateActionRow> =>
+  rows.filter((r): r is SprintRow | CreateActionRow => r.kind !== 'header');
+
+/** Stable id for a cursorable row — the `getId` fed to `useListWindow`. */
+export const cursorableRowId = (row: SprintRow | CreateActionRow): string =>
+  row.kind === 'create' ? CREATE_ROW_ID : row.sprint.id;
 
 /**
- * Snap an arbitrary (clamped) target index to the nearest cursorable row, biased in `direction`.
- * Used by PageUp/PageDown, where a raw `cursor ± visibleRows` jump may land on a header or off the
- * end of the list. When the exact target is already cursorable it is returned unchanged; otherwise
- * we step toward the bias direction (Page**Down** prefers the next cursorable below, Page**Up** the
- * previous above), then fall back to the closest cursorable on the other side so a jump always
- * lands on a selectable row.
+ * Preferred landing id within `rows`: the row for `preferredSprintId` if present, else the first
+ * sprint row, else the first cursorable row (the synthetic create row), else `''`. Used to seed
+ * `useListWindow`'s `initialCursorId` — both on first mount (once the async load settles) and on
+ * an explicit scope-toggle remount — so "Enter is a one-keystroke confirm" pre-seeds onto the
+ * already-selected sprint whenever possible.
  */
-export const cursorableNear = (rows: readonly FlatRow[], target: number, direction: 1 | -1): number => {
-  const candidates = cursorableRowIndices(rows);
-  if (candidates.length === 0) return target;
-  if (candidates.includes(target)) return target;
-  const below = candidates.find((i) => i > target);
-  let above: number | undefined;
-  for (const i of candidates) {
-    if (i < target) above = i;
-    else break;
+export const preferredCursorId = (rows: readonly FlatRow[], preferredSprintId: SprintId | undefined): string => {
+  if (preferredSprintId !== undefined) {
+    const match = rows.find((r): r is SprintRow => r.kind === 'sprint' && r.sprint.id === preferredSprintId);
+    if (match !== undefined) return match.sprint.id;
   }
-  const preferred = direction === 1 ? below : above;
-  const fallback = direction === 1 ? above : below;
-  return preferred ?? fallback ?? target;
+  const firstSprint = rows.find((r): r is SprintRow => r.kind === 'sprint');
+  if (firstSprint !== undefined) return firstSprint.sprint.id;
+  const firstCreate = rows.find((r): r is CreateActionRow => r.kind === 'create');
+  return firstCreate !== undefined ? CREATE_ROW_ID : '';
 };

@@ -24,7 +24,7 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
-import { glyphs, inkColors } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
 import { resolveAttemptCoords, type TaskBucket } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import { contextWindowLabel } from '@src/domain/value/settings-models/context-window.ts';
@@ -180,7 +180,7 @@ const HeaderCardImpl = ({
             </>
           )}
           {isRunning && (
-            <Box marginLeft={2}>
+            <Box marginLeft={spacing.indent}>
               <Spinner active={isRunning} color={inkColors.info} label="live" />
             </Box>
           )}

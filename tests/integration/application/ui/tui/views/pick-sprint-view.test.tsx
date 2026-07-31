@@ -189,6 +189,50 @@ describe('PickSprintView', () => {
     expect(result.lastFrame() ?? '').toContain('live sprint');
   });
 
+  it('f key does not teleport the cursor off a manually-navigated row onto the selected sprint', async () => {
+    // Regression test for the index-based cursor teleport: a `done` sprint sorts BETWEEN the
+    // user's manually-navigated row and the globally-selected sprint, so filtering it out shifts
+    // every row below it up by one. An id-keyed cursor must stay on the row the user is looking
+    // at; an index-keyed cursor previously snapped back onto the selected sprint whenever that
+    // shift changed the selected sprint's own row index.
+    const SID_LIVE_NEW = sprintId('01900000-0000-7000-8000-000000030000');
+    const SID_CLOSED_MID = sprintId('01900000-0000-7000-8000-000000020000');
+    const SID_LIVE_OLD = sprintId('01900000-0000-7000-8000-000000010000');
+    const sprints = [
+      makeSprint({ id: SID_LIVE_NEW, projectId: PID_A, name: 'live-new sprint' }),
+      makeSprint({ id: SID_CLOSED_MID, projectId: PID_A, name: 'closed-mid sprint', status: 'done' }),
+      makeSprint({ id: SID_LIVE_OLD, projectId: PID_A, name: 'live-old sprint' }),
+    ];
+    const { result } = renderView(<PickSprintView />, {
+      deps: stubDeps(sprints, [projectAlpha]),
+      initial: { id: 'pick-sprint' },
+      // The currently-selected sprint is the OLDEST row (last in the newest-first list) — the
+      // initial cursor pre-seeds there.
+      selection: {
+        projectId: PID_A,
+        projectLabel: 'Alpha Project',
+        sprintId: SID_LIVE_OLD,
+        sprintLabel: 'live-old sprint',
+      },
+    });
+    await waitFor(() => expect(result.lastFrame() ?? '').toContain('closed-mid sprint'));
+    // Confirm the pre-seed landed on the selected sprint before navigating away from it.
+    expect(focusedLine(result.lastFrame() ?? '')).toContain('live-old sprint');
+
+    // Navigate up past the done sprint onto the newest sprint — two rows above the selection.
+    result.stdin.write('k');
+    await tick(20);
+    result.stdin.write('k');
+    await waitFor(() => expect(focusedLine(result.lastFrame() ?? '')).toContain('live-new sprint'));
+
+    // Hiding done sprints removes `closed-mid sprint` and shifts every row below it up by one —
+    // exactly the condition that used to desync an index-based cursor. Focus must stay put.
+    result.stdin.write('f');
+    await waitFor(() => expect(result.lastFrame() ?? '').not.toContain('closed-mid sprint'));
+    expect(focusedLine(result.lastFrame() ?? '')).toContain('live-new sprint');
+    expect(focusedLine(result.lastFrame() ?? '')).not.toContain('live-old sprint');
+  });
+
   it('empty state names the f escape hatch when the filter hid every sprint in scope', async () => {
     const sprints = [makeSprint({ id: SID_A2, projectId: PID_A, name: 'closed sprint', status: 'done' })];
     const { result } = renderView(<PickSprintView />, {
@@ -366,5 +410,35 @@ describe('PickSprintView', () => {
       expect(frame).toContain('Gamma Project');
       expect(frame).toContain('no sprints');
     });
+  });
+
+  it('render height stays bounded by the visible window even with many empty project groups in scope', async () => {
+    // `scopeAll` (the default) pre-seeds a header for every known project, including empty ones.
+    // Twenty empty projects — sorted alphabetically after the current (Alpha) project — comfortably
+    // exceed the ~12-row window a 24-row test terminal allows. With the cursor pre-seeded onto
+    // Alpha's newest sprint (near the top of the full row list), only the empty groups that fall
+    // inside that window should render; a group sorted near the bottom must not.
+    const manyEmptyProjects = Array.from({ length: 20 }, (_unused, i) => {
+      const n = String(i + 1).padStart(2, '0');
+      return makeProject({
+        id: projectId(`01900000-0000-7000-8000-0000000e00${n}`),
+        displayName: `Empty${n}`,
+        slug: `empty-${n}`,
+      });
+    });
+    const sprints = [
+      makeSprint({ id: SID_A1, projectId: PID_A, name: 'alpha sprint one' }),
+      makeSprint({ id: SID_A2, projectId: PID_A, name: 'alpha sprint two' }),
+    ];
+    const { result } = renderView(<PickSprintView />, {
+      deps: stubDeps(sprints, [projectAlpha, ...manyEmptyProjects]),
+      initial: { id: 'pick-sprint' },
+      selection: { projectId: PID_A, projectLabel: 'Alpha Project' },
+    });
+    // Cursor pre-seeds onto the newest Alpha sprint — the second row in the full flat row list.
+    await waitFor(() => expect(focusedLine(result.lastFrame() ?? '')).toContain('alpha sprint two'));
+    const frame = result.lastFrame() ?? '';
+    expect(frame).toContain('Empty01');
+    expect(frame).not.toContain('Empty20');
   });
 });
