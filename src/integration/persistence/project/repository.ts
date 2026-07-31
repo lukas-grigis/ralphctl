@@ -42,38 +42,53 @@ const reconcileStaleProjectSiblings = async (root: AbsolutePath, id: string, can
   }
 };
 
-export const createFsProjectRepository = (deps: FsProjectRepositoryDeps): ProjectRepository => {
-  const list = async (): Promise<Result<readonly Project[], StorageError>> => {
-    const dir = projectsDir(deps.root);
-    const entries = await listDir(dir);
-    if (!entries.ok) return Result.error(entries.error);
+/**
+ * Lists every project under `<root>/projects/`. Extracted to module scope (rather than nested in
+ * the factory) purely to keep `createFsProjectRepository`'s own line count in check —
+ * behaviourally it is the repo's `list()`.
+ */
+const listProjects = async (root: AbsolutePath): Promise<Result<readonly Project[], StorageError>> => {
+  const dir = projectsDir(root);
+  const entries = await listDir(dir);
+  if (!entries.ok) return Result.error(entries.error);
 
-    const jsonFiles = entries.value.filter((f) => f.endsWith('.json')).sort();
-    const items: Project[] = [];
-    // Dedupe by project id: if a legacy bare `<id>.json` and a slugged `<id>--<slug>.json` transiently
-    // coexist (a crash between save's write + stale-sibling cleanup), the list must not show the project
-    // twice. The slugged (canonical) name wins EXPLICITLY — sort order cannot arbitrate here: `-` < `.`
-    // in ASCII puts `<id>--<slug>.json` before `<id>.json`, so the bare (stale) file is read last.
-    const byId = new Map<string, Project>();
-    const canonicalIds = new Set<string>();
-    for (const file of jsonFiles) {
+  const jsonFiles = entries.value.filter((f) => f.endsWith('.json')).sort();
+  // Read every project file concurrently — each read is an independent disk round-trip, and
+  // Promise.all preserves the input array's order regardless of settle order, so the sorted
+  // order established above survives untouched.
+  const reads = await Promise.all(
+    jsonFiles.map(async (file) => {
       const path = `${dir}/${file}`;
-      const json = await readJson(path);
-      if (!json.ok) {
-        if (json.error instanceof NotFoundError) continue; // race: file deleted between list and read
-        return Result.error(json.error);
-      }
-      const decoded = decode(fromJsonProject, json.value, { entity: 'project', path });
-      if (!decoded.ok) return Result.error(decoded.error);
-      const id = String(decoded.value.id);
-      const isCanonical = file.includes('--');
-      if (!isCanonical && canonicalIds.has(id)) continue; // slugged sibling already read — it wins
-      byId.set(id, decoded.value);
-      if (isCanonical) canonicalIds.add(id);
+      return { file, path, json: await readJson(path) };
+    })
+  );
+
+  const items: Project[] = [];
+  // Dedupe by project id: if a legacy bare `<id>.json` and a slugged `<id>--<slug>.json` transiently
+  // coexist (a crash between save's write + stale-sibling cleanup), the list must not show the project
+  // twice. The slugged (canonical) name wins EXPLICITLY — sort order cannot arbitrate here: `-` < `.`
+  // in ASCII puts `<id>--<slug>.json` before `<id>.json`, so the bare (stale) file is read last.
+  const byId = new Map<string, Project>();
+  const canonicalIds = new Set<string>();
+  for (const { file, path, json } of reads) {
+    if (!json.ok) {
+      if (json.error instanceof NotFoundError) continue; // race: file deleted between list and read
+      return Result.error(json.error);
     }
-    items.push(...byId.values());
-    return Result.ok(items);
-  };
+    const decoded = decode(fromJsonProject, json.value, { entity: 'project', path });
+    if (!decoded.ok) return Result.error(decoded.error);
+    const id = String(decoded.value.id);
+    const isCanonical = file.includes('--');
+    if (!isCanonical && canonicalIds.has(id)) continue; // slugged sibling already read — it wins
+    byId.set(id, decoded.value);
+    if (isCanonical) canonicalIds.add(id);
+  }
+  items.push(...byId.values());
+  return Result.ok(items);
+};
+
+export const createFsProjectRepository = (deps: FsProjectRepositoryDeps): ProjectRepository => {
+  const list = (): Promise<Result<readonly Project[], StorageError>> => listProjects(deps.root);
 
   return {
     async findById(id) {

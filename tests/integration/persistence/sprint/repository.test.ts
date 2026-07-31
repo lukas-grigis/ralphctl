@@ -261,6 +261,49 @@ describe('createFsSprintRepository', () => {
     expect(all.value.filter((s) => s.id === sprint.id)).toHaveLength(1);
   });
 
+  it('reads sprint.json files concurrently while preserving id-asc list order and NotFound tolerance', async () => {
+    const repo = createFsSprintRepository({ root });
+    const a = makeDraftSprintBundle({ slug: 'a' }).sprint;
+    await new Promise((r) => setTimeout(r, 5)); // ensure UUIDv7 timestamps differ
+    const b = makeDraftSprintBundle({ slug: 'b' }).sprint;
+    await new Promise((r) => setTimeout(r, 5));
+    const c = makeDraftSprintBundle({ slug: 'c' }).sprint;
+    await repo.save(a);
+    await repo.save(b);
+    await repo.save(c);
+    // A stray file alongside the per-sprint dirs — proves the NotFound/ENOTDIR tolerance also
+    // survives running the reads concurrently, not just sequentially.
+    await fs.writeFile(`${String(root)}/sprints/.DS_Store`, 'Mac Finder metadata\n');
+
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const aPath = sprintFile(root, a.id, a.slug);
+    const realReadFile = fs.readFile.bind(fs);
+    // Every sprint.json read holds briefly before resolving, and `a` (which sorts FIRST) is held
+    // LONGEST. A sequential implementation never overlaps (maxInFlight stays 1); an implementation
+    // that pushes results in completion order (rather than preserving array position) would also
+    // put `a` last. Only true concurrent reads via Promise.all satisfy both assertions below.
+    const readFileSpy = vi.spyOn(fs, 'readFile').mockImplementation((async (path: string, encoding: string) => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((r) => setTimeout(r, path === aPath ? 20 : 5));
+      try {
+        return await realReadFile(path, encoding as BufferEncoding);
+      } finally {
+        inFlight -= 1;
+      }
+    }) as typeof fs.readFile);
+
+    try {
+      const all = await repo.list();
+      if (!all.ok) throw new Error('list failed');
+      expect(all.value.map((s) => s.id)).toEqual([a.id, b.id, c.id]);
+      expect(maxInFlight).toBeGreaterThan(1);
+    } finally {
+      readFileSpy.mockRestore();
+    }
+  });
+
   it('list parses the id from the leading --segment of a mixed (legacy + slugged) dir set', async () => {
     const repo = createFsSprintRepository({ root });
     const a = makeDraftSprintBundle({ slug: 'a' }).sprint;
