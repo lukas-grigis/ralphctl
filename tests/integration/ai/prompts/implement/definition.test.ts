@@ -89,6 +89,25 @@ describe('implementPromptDef — completeness', () => {
     }
   });
 
+  it('never licenses an exception for the secrets/credentials rule in the AI context-file constraints', async () => {
+    // The context-file constraint block DOES carve out a "when a declared step calls for it"
+    // exception for slash commands / hooks / MCP config / IDE settings — those have a legitimate
+    // "document it here on purpose" use case. Secrets and credentials never do: a committed
+    // context file is git-tracked, so embedding one is a real exposure. This pins that rule as
+    // exception-free so a future prose rewrite (e.g. the project's "absolute rules name their
+    // exception" style pass) can't silently regrant the exception to this specific clause.
+    const path = `${String(defaultTemplatesDir())}/implement/template.md`;
+    const template = await fs.readFile(path, 'utf8');
+    const flattened = template.replace(/\s+/g, ' ');
+    const secretsClauses = flattened.match(/[^.]*\b(?:secrets|credentials)\b[^.]*\./gi) ?? [];
+    expect(secretsClauses.length).toBeGreaterThan(0);
+    for (const clause of secretsClauses) {
+      expect(clause, `clause mentioning secrets/credentials must stay exception-free: "${clause}"`).not.toMatch(
+        /\bexcept\b/i
+      );
+    }
+  });
+
   it('declares the documented harness signals the implement response is expected to carry', () => {
     // Aligned with `generator.contract.ts` accepted union: narrative fan-out (`change`,
     // `decision`, `learning`, `note`) + lifecycle signals (`task-verified`, `task-complete`,

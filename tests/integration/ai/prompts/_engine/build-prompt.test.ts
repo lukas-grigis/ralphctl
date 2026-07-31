@@ -164,6 +164,27 @@ describe('buildPrompt — error paths', () => {
     if (result.ok) expect(result.value).toContain('{{ROUND_NUMBER}}');
   });
 
+  it('returns ValidationError when a parameter placeholder collides with a partial slot key', async () => {
+    // A parameter's placeholder must never share a name with an auto-loaded partial slot —
+    // buildPrompt populates `values` from partials first, then parameters, so a collision would
+    // silently clobber the partial's rendered content with the parameter's value instead of
+    // failing loudly. This pins the collision as a construction-time ValidationError.
+    await writePromptTemplate(dir, 'greeting', '{{NAME}}\n');
+    await fs.mkdir(join(String(dir), '_partials'), { recursive: true });
+    await fs.writeFile(join(String(dir), '_partials', 'name-partial.md'), 'PARTIAL BODY\n');
+
+    const collidingDef: PromptDefinition<SimpleParams> = {
+      ...simpleDef,
+      partials: { NAME: 'name-partial' },
+    };
+    const result = await buildPrompt(createFsTemplateLoader(dir), collidingDef, { name: 'Ada' });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toBeInstanceOf(ValidationError);
+      expect(result.error.message).toContain('NAME');
+    }
+  });
+
   it('returns ParseError when the template carries a placeholder the manifest does not declare', async () => {
     // Template references {{UNKNOWN}} but the def has no spec for it — drift detected at the
     // template-side assertTemplateKeysFilled fence.

@@ -4,6 +4,7 @@ import { Result } from '@src/domain/result.ts';
 import type { InteractiveAiProvider } from '@src/integration/ai/providers/_engine/interactive-ai-provider.ts';
 import type { RunInTerminal } from '@src/integration/io/run-in-terminal.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
+import { renderProjectToolingSection } from '@src/integration/ai/prompts/_engine/renderers/task.ts';
 import { buildDistillLearningsPrompt } from '@src/integration/ai/prompts/distill-learnings/definition.ts';
 import type { AssistantTool } from '@src/integration/ai/readiness/_engine/tool.ts';
 import { targetPathFor } from '@src/integration/ai/readiness/_engine/setup.ts';
@@ -157,14 +158,15 @@ const renderCandidateList = (candidates: readonly LearningRecord[]): string =>
 
 /**
  * Project the repository's known tooling into the prompt's `PROJECT_TOOLING` section — the only
- * place a package-manager command may appear. Falls back to an explicit "(none detected)" line so
- * the prompt copy never hardcodes an ecosystem's commands.
+ * place a package-manager command may appear. Delegates the empty-fallback rendering to
+ * {@link renderProjectToolingSection} (shared with the implement / evaluate prompts) so the
+ * fallback markup can't drift between the two renderers.
  */
 const renderProjectTooling = (repository: Repository): string => {
   const lines: string[] = [];
   if (repository.setupScript !== undefined) lines.push(`- Setup: ${repository.setupScript}`);
   if (repository.verifyScript !== undefined) lines.push(`- Verify: ${repository.verifyScript}`);
-  return lines.length > 0 ? lines.join('\n') : '(none detected)';
+  return renderProjectToolingSection(lines.length > 0 ? lines.join('\n') : undefined);
 };
 
 const safeReadText = async (path: string): Promise<string | undefined> => {
