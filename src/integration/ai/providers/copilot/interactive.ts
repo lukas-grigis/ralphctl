@@ -18,6 +18,7 @@ import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.t
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { isCopilotModel } from '@src/domain/value/settings-models/copilot.ts';
+import { validateModel } from '@src/integration/ai/providers/_engine/validate-model.ts';
 import { uuidv7 } from '@src/domain/value/uuid7.ts';
 
 /**
@@ -60,16 +61,12 @@ export const createInteractiveCopilotProvider = (deps: InteractiveCopilotDeps): 
 
   return {
     async run(input: InteractiveAiProviderInput) {
-      if (!isCopilotModel(input.model)) {
-        return Result.error(
-          new InvalidStateError({
-            entity: PROVIDER,
-            currentState: 'model-validation',
-            attemptedAction: 'run',
-            message: `interactive-copilot: '${input.model}' is not a known Copilot model`,
-          })
-        );
-      }
+      const validated = validateModel(input.model, isCopilotModel, {
+        entity: PROVIDER,
+        attemptedAction: 'run',
+        notKnownMessage: `interactive-copilot: '${input.model}' is not a known Copilot model`,
+      });
+      if (!validated.ok) return Result.error(validated.error);
 
       let prompt: string;
       try {

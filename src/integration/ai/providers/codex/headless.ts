@@ -10,9 +10,10 @@ import type { CodexProviderDeps } from '@src/integration/ai/providers/_engine/co
 import { resolveWritableRoots } from '@src/integration/ai/providers/_engine/resolve-roots.ts';
 import type { SessionPermissions } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
-import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { isCodexModel } from '@src/domain/value/settings-models/codex.ts';
+import { validateModel } from '@src/integration/ai/providers/_engine/validate-model.ts';
 import { type ProviderSpawn, defaultProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import { DEFAULT_RATE_LIMIT_RE } from '@src/integration/ai/providers/_engine/classify-spawn-exit.ts';
 import { truncateField } from '@src/integration/ai/providers/_engine/truncate-debug-field.ts';
@@ -138,16 +139,12 @@ export const buildCodexArgs = (
   session: AiSession,
   opts: BuildCodexArgsOpts
 ): Result<readonly string[], InvalidStateError> => {
-  if (!isCodexModel(session.model)) {
-    return Result.error(
-      new InvalidStateError({
-        entity: PROVIDER_NAME,
-        currentState: 'model-validation',
-        attemptedAction: 'build argv',
-        message: `codex-provider: '${session.model}' is not a known Codex model`,
-      })
-    );
-  }
+  const validated = validateModel(session.model, isCodexModel, {
+    entity: PROVIDER_NAME,
+    attemptedAction: 'build argv',
+    notKnownMessage: `codex-provider: '${session.model}' is not a known Codex model`,
+  });
+  if (!validated.ok) return Result.error(validated.error);
   const perms = sandboxFor(session.permissions);
   if (!perms.ok) return Result.error(perms.error);
 

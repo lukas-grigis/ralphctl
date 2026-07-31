@@ -13,6 +13,13 @@
  *
  * `sleepCancellable` short-circuits on `abortSignal` so Ctrl-C / TUI cancel doesn't have to
  * wait two hours for the in-flight retry timer.
+ *
+ * `delayForRetry` stays a pure function of `retryIndex` — two branches at the same retry index
+ * get the identical base delay by design (that's what the "matches the documented 1m → 5m →
+ * 30m → 2h sequence" test pins). {@link applyJitter} is the paired primitive a caller applies to
+ * that base delay before sleeping, so concurrent parallel branches sharing one account-level
+ * rate limit disperse their wake times instead of retrying in lockstep and re-tripping the same
+ * limit their synchronized burst of 429s just hit.
  */
 
 const ONE_MINUTE = 60_000;
@@ -30,6 +37,25 @@ export const delayForRetry = (retryIndex: number, schedule: readonly number[] = 
   if (retryIndex < 1) return 0;
   const clamped = Math.min(retryIndex - 1, schedule.length - 1);
   return schedule[clamped] ?? 0;
+};
+
+/** Proportional jitter window applied by {@link applyJitter} — +/- 20% of the base delay. */
+export const JITTER_RATIO = 0.2;
+
+/**
+ * Spread a base delay by up to {@link JITTER_RATIO} in either direction so concurrent callers
+ * that computed the SAME base delay (e.g. several parallel branches hitting the same
+ * account-level rate limit at essentially the same instant) don't wake and retry in lockstep.
+ *
+ * `random` is an injectable `[0, 1)` source, defaulting to `Math.random` — tests pin a fake
+ * (e.g. `() => 0`, `() => 0.999999`) to assert the exact jittered bound instead of asserting on
+ * live randomness. `delayMs <= 0` (the "no wait" sentinel `delayForRetry` returns past the
+ * defensive `retryIndex < 1` guard) passes through unchanged — there is nothing to disperse.
+ */
+export const applyJitter = (delayMs: number, random: () => number = Math.random): number => {
+  if (delayMs <= 0) return delayMs;
+  const spread = delayMs * JITTER_RATIO;
+  return Math.round(delayMs - spread + random() * spread * 2);
 };
 
 /**
