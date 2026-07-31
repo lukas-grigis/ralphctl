@@ -1,5 +1,6 @@
 import type { Attempt, Evaluation } from '@src/domain/entity/attempt.ts';
 import type { DimensionScore, EvaluationSignal } from '@src/domain/signal.ts';
+import { formatDuration } from '@src/business/_shared/format-duration.ts';
 
 /**
  * Render an `outcome.md` for a single settled gen-eval round.
@@ -180,25 +181,3 @@ const formatFailedDimensions = (evaluation: EvaluationSignal | undefined): strin
 
 const SHA_DISPLAY_LENGTH = 7;
 const shortSha = (sha: string): string => sha.slice(0, SHA_DISPLAY_LENGTH);
-
-const MS_PER_SECOND = 1000;
-const MS_PER_MINUTE = 60 * MS_PER_SECOND;
-const MS_PER_HOUR = 60 * MS_PER_MINUTE;
-
-/** Human-readable duration. Mirrors `render-progress-markdown.ts`'s formatter for consistency. */
-const formatDuration = (ms: number | undefined): string => {
-  if (ms === undefined) return EM_DASH;
-  if (ms < 0) return `${String(ms)}ms`;
-  if (ms < MS_PER_SECOND) return `${String(ms)}ms`;
-  if (ms < MS_PER_MINUTE) {
-    return `${String(Math.floor(ms / MS_PER_SECOND))}s`;
-  }
-  if (ms < MS_PER_HOUR) {
-    const minutes = Math.floor(ms / MS_PER_MINUTE);
-    const seconds = Math.floor((ms % MS_PER_MINUTE) / MS_PER_SECOND);
-    return seconds > 0 ? `${String(minutes)}m ${String(seconds)}s` : `${String(minutes)}m`;
-  }
-  const hours = Math.floor(ms / MS_PER_HOUR);
-  const minutes = Math.floor((ms % MS_PER_HOUR) / MS_PER_MINUTE);
-  return minutes > 0 ? `${String(hours)}h ${String(minutes)}m` : `${String(hours)}h`;
-};

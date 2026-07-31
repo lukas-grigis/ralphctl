@@ -1,38 +1,39 @@
 import { describe, expect, it } from 'vitest';
-import { splitFrontmatter } from '@src/integration/ai/skills/_engine/parse-skill.ts';
+import { parseSkill } from '@src/integration/ai/skills/_engine/parse-skill.ts';
 
-describe('splitFrontmatter', () => {
-  it('splits frontmatter from a body that follows immediately after the closing fence', () => {
-    const { frontmatter, body } = splitFrontmatter('---\nname: x\n---\nbody line\n');
-    expect(frontmatter).toBe('name: x');
-    expect(body).toBe('body line\n');
+// splitFrontmatter / parseSimpleYaml / errorCode moved to the shared
+// tests/unit/integration/ai/skills/frontmatter.test.ts suite — this file now tests parseSkill's
+// own validation behavior on top of that shared parsing.
+
+describe('parseSkill', () => {
+  it('parses a valid skill round-trip', () => {
+    const raw = '---\nname: alignment\ndescription: Confirm scope before diving into work.\n---\nBody text.\n';
+    const result = parseSkill('bundled skill', '/path/alignment/SKILL.md', 'alignment', raw);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value).toEqual({
+        name: 'alignment',
+        description: 'Confirm scope before diving into work.',
+        content: 'Body text.\n',
+      });
+    }
   });
 
-  it('strips the blank separator line after the closing fence (standard SKILL.md shape)', () => {
-    const { frontmatter, body } = splitFrontmatter('---\nname: x\n---\n\nbody line\n');
-    expect(frontmatter).toBe('name: x');
-    expect(body).toBe('body line\n');
+  it('returns a parse StorageError when the description is missing', () => {
+    const raw = '---\nname: alignment\n---\nBody text.\n';
+    const result = parseSkill('bundled skill', '/path/alignment/SKILL.md', 'alignment', raw);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.subCode).toBe('parse');
+    }
   });
 
-  it('strips CRLF blank lines after the closing fence', () => {
-    const { body } = splitFrontmatter('---\r\nname: x\r\n---\r\n\r\nbody line\r\n');
-    expect(body).toBe('body line\r\n');
-  });
-
-  it('does not accumulate blank lines across parse → render round-trips', () => {
-    // Mirror the render shape from filesystem-skills-adapter: fence + ONE blank separator + body.
-    const render = (frontmatter: string, content: string): string =>
-      `---\n${frontmatter}\n---\n\n${content.replace(/\s+$/u, '')}\n`;
-
-    const once = splitFrontmatter(render('name: x', 'body line'));
-    const twice = splitFrontmatter(render(once.frontmatter, once.body));
-    expect(twice.body).toBe(once.body);
-    expect(twice.body.startsWith('\n')).toBe(false);
-  });
-
-  it('returns the body verbatim when no frontmatter is present', () => {
-    const { frontmatter, body } = splitFrontmatter('just a body\n');
-    expect(frontmatter).toBe('');
-    expect(body).toBe('just a body\n');
+  it('returns a parse StorageError when the frontmatter name does not match the folder name', () => {
+    const raw = '---\nname: other\ndescription: Some description.\n---\nBody text.\n';
+    const result = parseSkill('bundled skill', '/path/alignment/SKILL.md', 'alignment', raw);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.subCode).toBe('parse');
+    }
   });
 });

@@ -1,25 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { parseAgentDefinition, splitFrontmatter } from '@src/integration/ai/agents/_engine/parse-agent-definition.ts';
+import { parseAgentDefinition } from '@src/integration/ai/agents/_engine/parse-agent-definition.ts';
 
-describe('splitFrontmatter', () => {
-  it('splits frontmatter from a body that follows immediately after the closing fence', () => {
-    const { frontmatter, body } = splitFrontmatter('---\nname: x\n---\nbody line\n');
-    expect(frontmatter).toBe('name: x');
-    expect(body).toBe('body line\n');
-  });
-
-  it('strips the blank separator line after the closing fence', () => {
-    const { frontmatter, body } = splitFrontmatter('---\nname: x\n---\n\nbody line\n');
-    expect(frontmatter).toBe('name: x');
-    expect(body).toBe('body line\n');
-  });
-
-  it('returns the body verbatim when no frontmatter is present', () => {
-    const { frontmatter, body } = splitFrontmatter('just a body\n');
-    expect(frontmatter).toBe('');
-    expect(body).toBe('just a body\n');
-  });
-});
+// splitFrontmatter / parseSimpleYaml / errorCode moved to the shared
+// tests/unit/integration/ai/skills/frontmatter.test.ts suite — this file now tests
+// parseAgentDefinition's own validation behavior on top of that shared parsing.
 
 describe('parseAgentDefinition', () => {
   it('parses a valid agent definition round-trip', () => {
