@@ -109,4 +109,22 @@ describe('composeDimensionTrajectory', () => {
     const b = composeDimensionTrajectory({ history, plateauThreshold: 3, roundNum: 2, maxTurns: 5 });
     expect(a).toBe(b);
   });
+
+  it('computes the longest stall streak over the FULL still-failing set, not the display-truncated one', () => {
+    // 'longStall' has been failing since round 1 (streak 3 by the latest turn). Eight more
+    // dimensions ('a'..'h') only start failing at round 2, so by the latest turn they only have a
+    // streak of 2. Sorted alphabetically, 'a'..'h' sort BEFORE 'longStall' — the display cap
+    // (MAX_DIMENSIONS_PER_CLASS = 8) keeps exactly 'a'..'h' and drops 'longStall' from the rendered
+    // "still failing" bullets. The budget-pressure line must still reflect 'longStall''s streak of 3,
+    // not the truncated set's max of 2.
+    const eightDims = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+    const history = [turn(['longStall']), turn(['longStall', ...eightDims]), turn(['longStall', ...eightDims])];
+
+    // threshold 4 → pressure fires at streak >= 3. The truncated set's max streak (2, from 'a'..'h')
+    // would NOT fire it; only 'longStall''s untruncated streak of 3 does.
+    const out = composeDimensionTrajectory({ history, plateauThreshold: 4, roundNum: 3, maxTurns: 8 });
+
+    expect(out).toContain('stalled round(s)');
+    expect(out).toContain('3 stalled round(s)');
+  });
 });
