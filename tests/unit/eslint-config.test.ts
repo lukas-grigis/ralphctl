@@ -2,6 +2,9 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { Linter } from 'eslint';
+import type { Linter as LinterTypes } from 'eslint';
+import eslintConfig from '../../eslint.config.ts';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const ESLINT_CONFIG_PATH = join(REPO_ROOT, 'eslint.config.ts');
@@ -60,5 +63,58 @@ describe('eslint.config.ts constants ↔ src/ directory parity', () => {
 
   it('REPOSITORY_SIBLINGS matches src/domain/repository/<sibling>/ (excluding underscore-prefixed)', () => {
     expect(constantFromEslintConfig('REPOSITORY_SIBLINGS')).toEqual(directorySiblings('src/domain/repository', ['_']));
+  });
+});
+
+describe('node:child_process spawn/exec fence', () => {
+  const linter = new Linter();
+  const config = eslintConfig as LinterTypes.Config[];
+
+  const isRestrictedImportError = (messages: readonly LinterTypes.LintMessage[]): boolean =>
+    messages.some((m) => m.ruleId === 'no-restricted-imports');
+
+  it('flags a raw spawn import outside the sanctioned wrappers', () => {
+    const messages = linter.verify(
+      "import { spawn } from 'node:child_process';\nexport const x = () => spawn('echo', []);\n",
+      config,
+      'src/integration/io/some-new-adapter.ts'
+    );
+    expect(isRestrictedImportError(messages)).toBe(true);
+  });
+
+  it('flags a raw execFile import outside the sanctioned wrappers', () => {
+    const messages = linter.verify(
+      "import { execFile } from 'node:child_process';\nexport const x = execFile;\n",
+      config,
+      'src/integration/scm/some-new-adapter.ts'
+    );
+    expect(isRestrictedImportError(messages)).toBe(true);
+  });
+
+  it('does not flag shell-script-runner.ts, the documented shell:true exception', () => {
+    const messages = linter.verify(
+      "import { spawn } from 'node:child_process';\nexport const x = () => spawn('sh', ['-c', 'echo hi'], { shell: true });\n",
+      config,
+      'src/integration/io/shell-script-runner.ts'
+    );
+    expect(isRestrictedImportError(messages)).toBe(false);
+  });
+
+  it('does not flag os-notification-dispatcher.ts, the documented promisified-execFile exception', () => {
+    const messages = linter.verify(
+      "import { execFile } from 'node:child_process';\nexport const x = execFile;\n",
+      config,
+      'src/integration/observability/os-notification-dispatcher.ts'
+    );
+    expect(isRestrictedImportError(messages)).toBe(false);
+  });
+
+  it('does not flag type-only ChildProcess imports anywhere under integration/', () => {
+    const messages = linter.verify(
+      "import { type ChildProcess } from 'node:child_process';\nexport type X = ChildProcess;\n",
+      config,
+      'src/integration/ai/providers/claude/some-adapter.ts'
+    );
+    expect(isRestrictedImportError(messages)).toBe(false);
   });
 });

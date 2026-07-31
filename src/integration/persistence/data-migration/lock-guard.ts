@@ -2,21 +2,23 @@ import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { listDir } from '@src/integration/io/fs.ts';
+import { DEFAULT_STALE_AFTER_MS } from '@src/integration/io/file-locker.ts';
 
 const LOCKS_SUBDIR = 'locks';
 
 /**
  * How fresh a lock's mtime must be to count as HELD. `proper-lockfile` heartbeats a live holder's
- * lock directory (default stale window 30s, refreshed ~3×), so a genuinely-held lock always has an
- * mtime within the stale window. A crashed holder stops heartbeating and its mtime ages past it; we
- * deliberately use a generous window (matching the file-locker default) so we never start a migration
- * that races a long-running implement flow, while still ignoring a stale crash-leftover lock.
+ * lock directory (default stale window {@link DEFAULT_STALE_AFTER_MS}, refreshed ~3×), so a
+ * genuinely-held lock always has an mtime within the stale window. A crashed holder stops
+ * heartbeating and its mtime ages past it; we deliberately reuse the same generous window the
+ * file-locker itself uses so we never start a migration that races a long-running implement flow,
+ * while still ignoring a stale crash-leftover lock.
  *
- * MUST stay in sync with `DEFAULT_STALE_AFTER_MS` in `integration/io/file-locker.ts` (currently 30_000):
- * if the locker's stale window changes, this one must move with it, or the migration's notion of "held"
- * diverges from the locker's notion of "live".
+ * Imported (not re-declared) so this can never drift from the locker's actual stale-reclaim
+ * window — a caller passing a non-default `staleAfterMs` to `createFileLocker` is a separate,
+ * narrower gap this alone doesn't close (see the audit note in the file-locker module).
  */
-const HELD_WITHIN_MS = 30_000;
+const HELD_WITHIN_MS: number = DEFAULT_STALE_AFTER_MS;
 
 /**
  * Whether ANY advisory flow lock is currently HELD under `<stateRoot>/locks/`. The migration's

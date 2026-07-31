@@ -22,8 +22,8 @@
  * Spawn is injected so unit tests can script stdin / exit codes deterministically.
  */
 
-import { spawn as nodeSpawn } from 'node:child_process';
 import { Result } from '@src/domain/result.ts';
+import { crossPlatformSpawn } from '@src/integration/io/cross-platform-spawn.ts';
 import type { Spawn } from '@src/integration/io/spawn.ts';
 
 /** Sentinel error tag so callers can branch on the cause without parsing strings. */
@@ -128,7 +128,7 @@ const runHelper = (spawn: Spawn, helper: HelperCommand, text: string): Promise<R
 
 /** @public */
 export interface CreateCopyToClipboardOptions {
-  /** Override `node:child_process.spawn` in tests. */
+  /** Override `crossPlatformSpawn` in tests. */
   readonly spawn?: Spawn;
   /** Override `process.platform` in tests. */
   readonly platform?: NodeJS.Platform;
@@ -143,7 +143,7 @@ export interface CreateCopyToClipboardOptions {
  * invocation so the TUI hotkey can surface "clipboard unavailable" without spawning anything.
  */
 export const createCopyToClipboard = (opts: CreateCopyToClipboardOptions = {}): CopyToClipboard => {
-  const spawn = opts.spawn ?? (nodeSpawn as Spawn);
+  const spawn = opts.spawn ?? (crossPlatformSpawn as unknown as Spawn);
   const platform = opts.platform ?? process.platform;
   const env = opts.env ?? process.env;
   const helpers = resolveHelpers({ platform, env });

@@ -53,9 +53,17 @@ import type { ESLint, Linter } from 'eslint';
  *   AI may use I/O-bearing node:* modules — it owns the provider/template/skill I/O.
  */
 
-const restrictImports = (forbidden: readonly string[]): Linter.RuleEntry => [
+const restrictImports = (
+  forbidden: readonly string[],
+  extraPaths: readonly {
+    readonly name: string;
+    readonly importNames?: readonly string[];
+    readonly message: string;
+  }[] = []
+): Linter.RuleEntry => [
   'error',
   {
+    paths: extraPaths,
     patterns: forbidden.map((layer) => ({
       group: [`**/${layer}/**`],
       message: `Layer dependency violation: cannot import from '${layer}'.`,
@@ -72,6 +80,32 @@ const resultLibBan = {
   name: 'typescript-result',
   message:
     "Import `Result` from '@src/domain/result.ts' (the single re-export point) instead. The underlying `typescript-result` library may only be imported by that one file so the implementation can be swapped without churning callers.",
+} as const;
+
+/**
+ * `node:child_process`'s spawn-family functions are fenced to the sanctioned wrappers everywhere
+ * outside domain/business (which ban the whole module via `nodeIoBans` already). Every
+ * external-binary spawn routes through `integration/io/cross-platform-spawn.ts`
+ * (`crossPlatformSpawn`) — see SECURITY.md. Two named exceptions carry their own justification and
+ * are excluded from this rule instead of routed through the wrapper:
+ *   - `shell-script-runner.ts` — runs a user-authored shell command *string* and needs `shell: true`,
+ *     which `crossPlatformSpawn` intentionally does not support.
+ *   - `os-notification-dispatcher.ts` — needs the *promisified* `execFile` API: a single awaited
+ *     call that buffers stdout/stderr and rejects on a non-zero exit (used both to run
+ *     `osascript` / `notify-send` and to probe `which notify-send`), a shape `crossPlatformSpawn`'s
+ *     event-based `spawn` wrapper doesn't provide. (`spawn` does accept a `timeout` option, so a
+ *     wall-clock cap alone would not justify the exception — it's specifically the buffered,
+ *     promise-shaped result that's missing.)
+ *
+ * Scoped by `importNames` (not the whole module) so type-only imports (`ChildProcess`,
+ * `ChildProcessWithoutNullStreams`, `SpawnOptions`, …) — used all over the AI provider adapters for
+ * test-seam typing — stay unaffected.
+ */
+const childProcessSpawnBan = {
+  name: 'node:child_process',
+  importNames: ['spawn', 'execFile', 'exec', 'fork', 'execSync', 'spawnSync', 'execFileSync'],
+  message:
+    'Direct node:child_process spawn/exec imports are fenced outside the sanctioned wrappers — route external-binary spawns through integration/io/cross-platform-spawn.ts (crossPlatformSpawn). shell-script-runner.ts and os-notification-dispatcher.ts are the two named exceptions — see the rationale above this rule (childProcessSpawnBan in eslint.config.ts) and the header comment in each file.',
 } as const;
 
 /**
@@ -627,6 +661,21 @@ export default [
     files: ['src/integration/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-imports': restrictImports(['application']),
+    },
+  },
+
+  // ── integration — node:child_process spawn/exec fence ───────────────────────
+  // Overrides the block above (same glob, declared later) to additionally ban raw spawn/exec
+  // imports everywhere under integration/ EXCEPT the two named exceptions, which keep the base
+  // layer-direction check only. See `childProcessSpawnBan` for the full rationale.
+  {
+    files: ['src/integration/**/*.{ts,tsx}'],
+    ignores: [
+      'src/integration/io/shell-script-runner.ts',
+      'src/integration/observability/os-notification-dispatcher.ts',
+    ],
+    rules: {
+      'no-restricted-imports': restrictImports(['application'], [childProcessSpawnBan]),
     },
   },
 

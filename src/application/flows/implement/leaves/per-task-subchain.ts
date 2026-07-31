@@ -303,7 +303,7 @@ export const createPerTaskSubchain = (
             ]
           : []),
         buildTaskWorkspaceLeaf(
-          { templateLoader: deps.templateLoader, logger: deps.logger },
+          { templateLoader: deps.templateLoader, logger: deps.logger, writeFile: deps.writeFile },
           {
             sprintDir: opts.sprintDir,
             cwd: repo.path,

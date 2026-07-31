@@ -4,10 +4,14 @@ import { join } from 'node:path';
 import { realpath } from 'node:fs/promises';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { absolutePath, makeTodoTask } from '@tests/fixtures/domain.ts';
+import { Result } from '@src/domain/result.ts';
 import type { VerificationCriterion } from '@src/domain/entity/task.ts';
+import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import { buildTaskWorkspaceLeaf } from '@src/application/flows/implement/leaves/build-task-workspace.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
+import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 
 describe('buildTaskWorkspaceLeaf', () => {
@@ -27,7 +31,11 @@ describe('buildTaskWorkspaceLeaf', () => {
     const cwd = absolutePath(dir);
     const progressFile = absolutePath(join(dir, 'progress.md'));
     const leaf = buildTaskWorkspaceLeaf(
-      { templateLoader: createFsTemplateLoader(defaultTemplatesDir()), logger: noopLogger },
+      {
+        templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
+        logger: noopLogger,
+        writeFile: createAtomicWriteFile(),
+      },
       { sprintDir, cwd, progressFile },
       task.id
     );
@@ -112,6 +120,38 @@ describe('buildTaskWorkspaceLeaf', () => {
     expect(contractAfter).toContain('# v2-name');
     expect(contractAfter).toContain('fresh criterion');
     expect(contractAfter).not.toContain('old criterion');
+  });
+
+  it('writes both files through the injected WriteFile port, not raw fs', async () => {
+    const task = {
+      ...makeTodoTask({ name: 'ported-write' }),
+      verificationCriteria: [] as readonly VerificationCriterion[],
+    };
+    const sprintDir = absolutePath(dir);
+    const cwd = absolutePath(dir);
+    const progressFile = absolutePath(join(dir, 'progress.md'));
+    const calls: Array<{ readonly path: AbsolutePath; readonly content: string }> = [];
+    const fakeWriteFile: WriteFile = (path, content) => {
+      calls.push({ path, content });
+      return Promise.resolve(Result.ok(undefined));
+    };
+    const leaf = buildTaskWorkspaceLeaf(
+      { templateLoader: createFsTemplateLoader(defaultTemplatesDir()), logger: noopLogger, writeFile: fakeWriteFile },
+      { sprintDir, cwd, progressFile },
+      task.id
+    );
+
+    const result = await leaf.execute({
+      sprintId: task.id as unknown as ImplementCtx['sprintId'],
+      tasks: [task],
+    } satisfies ImplementCtx);
+
+    expect(result.ok).toBe(true);
+    const root = join(dir, 'implement', String(task.id));
+    expect(calls.map((c) => c.path).sort()).toEqual([join(root, 'contract.md'), join(root, 'prompt.md')].sort());
+    // Nothing hit the real filesystem — proof the leaf no longer shells out to raw fs itself.
+    await expect(fs.access(join(root, 'prompt.md'))).rejects.toThrow();
+    await expect(fs.access(join(root, 'contract.md'))).rejects.toThrow();
   });
 
   it('fails fast when ctx.tasks does not contain the task', async () => {

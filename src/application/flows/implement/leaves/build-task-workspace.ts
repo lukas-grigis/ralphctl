@@ -1,4 +1,3 @@
-import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
@@ -6,7 +5,6 @@ import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
-import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { buildImplementPrompt } from '@src/integration/ai/prompts/implement/definition.ts';
@@ -14,6 +12,7 @@ import { renderContractMd } from '@src/integration/ai/prompts/_engine/renderers/
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
 import { generatorOutputContract } from '@src/application/flows/implement/leaves/generator.contract.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
+import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
 /**
@@ -43,6 +42,7 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 export interface BuildTaskWorkspaceLeafDeps {
   readonly templateLoader: TemplateLoader;
   readonly logger: Logger;
+  readonly writeFile: WriteFile;
 }
 
 export interface BuildTaskWorkspaceLeafOpts {
@@ -59,23 +59,6 @@ interface LeafInput {
 interface LeafOutput {
   readonly workspaceRoot: AbsolutePath;
 }
-
-const writeOrError = async (path: string, content: string): Promise<Result<void, StorageError>> => {
-  try {
-    await fs.mkdir(path.slice(0, path.lastIndexOf('/')), { recursive: true });
-    await fs.writeFile(path, content, 'utf8');
-    return Result.ok(undefined);
-  } catch (cause) {
-    return Result.error(
-      new StorageError({
-        subCode: 'io',
-        message: `failed to write task workspace file: ${path}`,
-        path,
-        cause,
-      })
-    );
-  }
-};
 
 export const buildTaskWorkspaceLeaf = (
   deps: BuildTaskWorkspaceLeafDeps,
@@ -94,6 +77,10 @@ export const buildTaskWorkspaceLeaf = (
         if (!previewOutputDir.ok) return Result.error(previewOutputDir.error);
 
         const contractPath = join(workspaceRoot, 'contract.md');
+        const parsedContractPath = AbsolutePath.parse(contractPath);
+        if (!parsedContractPath.ok) return Result.error(parsedContractPath.error);
+        const parsedPromptPath = AbsolutePath.parse(join(workspaceRoot, 'prompt.md'));
+        if (!parsedPromptPath.ok) return Result.error(parsedPromptPath.error);
 
         // build-task-workspace materialises a static prompt.md as an audit artifact only —
         // the live generator leaf re-reads `progress.md` immediately before each spawn, so
@@ -110,13 +97,13 @@ export const buildTaskWorkspaceLeaf = (
         });
         if (!prompt.ok) return Result.error(prompt.error);
 
-        const wrotePrompt = await writeOrError(join(workspaceRoot, 'prompt.md'), String(prompt.value));
+        const wrotePrompt = await deps.writeFile(parsedPromptPath.value, String(prompt.value));
         if (!wrotePrompt.ok) return Result.error(wrotePrompt.error);
 
         // Persist the canonical contract sidecar — overwritten on every leaf run so it always
         // reflects the current task spec. The generator and evaluator both read this file
         // (their prompts cite `{{CONTRACT_PATH}}`), so the harness owns the writer.
-        const wroteContract = await writeOrError(contractPath, renderContractMd(input.task));
+        const wroteContract = await deps.writeFile(parsedContractPath.value, renderContractMd(input.task));
         if (!wroteContract.ok) return Result.error(wroteContract.error);
 
         log.debug('task workspace built', { taskId: input.task.id, workspaceRoot });
