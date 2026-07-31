@@ -13,11 +13,13 @@ import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { Result } from '@src/domain/result.ts';
+import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import { recordingWriteFile } from '@tests/fixtures/recording-write-file.ts';
 import { dryRun } from '@src/integration/persistence/data-migration/dry-run.ts';
-import { apply, type ApplyCtx } from '@src/integration/persistence/data-migration/apply.ts';
-import { readDataVersion } from '@src/integration/persistence/data-migration/version-marker.ts';
+import { apply, type ApplyCtx, type ApplyWriteFile } from '@src/integration/persistence/data-migration/apply.ts';
+import { DATA_VERSION_FILENAME, readDataVersion } from '@src/integration/persistence/data-migration/version-marker.ts';
 import { resolveSprintDir, resolveProjectPath } from '@src/integration/persistence/storage.ts';
 import { ProjectId } from '@src/domain/value/id/project-id.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -286,6 +288,84 @@ describe('apply — crash safety', () => {
     expect((await readDataVersion(absolutePath(dataRoot))).dataVersion).toBe(2);
     await expect(fs.stat(join(dataRoot, 'sprints', `${a}--one`))).resolves.toBeTruthy();
     await expect(fs.stat(join(dataRoot, 'sprints', `${b}--two`))).resolves.toBeTruthy();
+  });
+
+  it('a merge ledger write that throws ⇒ marker NOT stamped, legacy memory dir survives ⇒ a clean re-run finishes', async () => {
+    const row = (id: string, text: string): string => `${JSON.stringify({ v: 1, id, text, promotedAt: null })}\n`;
+    const pid = freshId();
+    await seedLegacyProject(dataRoot, pid, 'alpha');
+    // Both-dirs present so the dry-run classifies this project's memory as a MERGE, not a plain rename.
+    await seedNewMemory(dataRoot, pid, 'alpha', row('a', 'from slugged A'));
+    await seedLegacyMemory(dataRoot, pid, row('c', 'from legacy C'));
+
+    const report = await dryRun(absolutePath(dataRoot));
+    expect(report.merges).toHaveLength(1);
+
+    // Simulate a real I/O fault writing the merged ledger — the module docstring's crash-safety
+    // contract ("a real I/O fault STOPS before the stamp") applies to this write exactly like a
+    // rename. The legacy dir must still be gone-only-after-a-durable-write, so it must survive.
+    const failingWriteFile: ApplyWriteFile = async (path, content) => {
+      if (String(path).endsWith('learnings.ndjson')) {
+        return Result.error(new StorageError({ subCode: 'io', message: 'simulated EACCES', path: String(path) }));
+      }
+      return writer.fn(path, content);
+    };
+
+    const failed = await apply(absolutePath(dataRoot), report, { ...ctx(), writeFile: failingWriteFile });
+
+    expect(failed.kind).toBe('failed');
+    if (failed.kind === 'failed') expect(failed.error).toBeInstanceOf(StorageError);
+    // The marker was NOT stamped — a re-run must resume.
+    expect((await readDataVersion(absolutePath(dataRoot))).dataVersion).toBe(1);
+    // The legacy memory dir is untouched: `mergeOne` only removes it AFTER a durable write, so a
+    // crash here must leave the legacy records on disk for the next run to re-merge.
+    await expect(fs.stat(join(dataRoot, 'memory', pid))).resolves.toBeTruthy();
+    await expect(fs.stat(join(dataRoot, 'memory', pid, 'learnings.ndjson'))).resolves.toBeTruthy();
+
+    // Re-run with a working writer → the merge completes (idempotently re-unioning) and stamps.
+    const resume = await apply(absolutePath(dataRoot), await dryRun(absolutePath(dataRoot)), ctx());
+    expect(resume.kind).toBe('ok');
+    expect((await readDataVersion(absolutePath(dataRoot))).dataVersion).toBe(2);
+    await expect(fs.stat(join(dataRoot, 'memory', pid))).rejects.toThrow();
+    await expect(fs.stat(join(dataRoot, 'memory', `${pid}--alpha`))).resolves.toBeTruthy();
+    const merged = writer.read(absolutePath(join(dataRoot, 'memory', `${pid}--alpha`, 'learnings.ndjson'))) ?? '';
+    const ids = merged
+      .split('\n')
+      .filter((l) => l.trim().length > 0)
+      .map((l) => (JSON.parse(l) as { id: string }).id);
+    expect(ids.sort()).toEqual(['a', 'c']);
+  });
+
+  it('a marker stamp write that throws ⇒ marker NOT stamped even though every rename already landed ⇒ a clean re-run stamps', async () => {
+    const sid = freshId();
+    await seedLegacySprint(dataRoot, sid, 'beta');
+
+    const report = await dryRun(absolutePath(dataRoot));
+
+    // Simulate a crash writing the FINAL version marker — the one raw `fs.writeFile` call site in
+    // the data-migration module (version-marker.ts). Every rename above has already landed for real.
+    const realWriteFile = fs.writeFile.bind(fs);
+    const writeFileSpy = vi.spyOn(fs, 'writeFile').mockImplementation((async (path: string, data: string) => {
+      if (path.endsWith(DATA_VERSION_FILENAME)) {
+        throw Object.assign(new Error('simulated ENOSPC'), { code: 'ENOSPC' });
+      }
+      return realWriteFile(path, data, 'utf8');
+    }) as typeof fs.writeFile);
+
+    const failed = await apply(absolutePath(dataRoot), report, ctx());
+    writeFileSpy.mockRestore();
+
+    expect(failed.kind).toBe('failed');
+    if (failed.kind === 'failed') expect(failed.error).toBeInstanceOf(StorageError);
+    // The marker was NOT stamped — still v1, even though the rename below already completed for real.
+    expect((await readDataVersion(absolutePath(dataRoot))).dataVersion).toBe(1);
+    await expect(fs.stat(join(dataRoot, 'sprints', `${sid}--beta`))).resolves.toBeTruthy();
+
+    // Re-run: every rename is now an idempotent no-op skip; only the stamp needs to land.
+    const resume = await runFull();
+    expect(resume.kind).toBe('ok');
+    if (resume.kind === 'ok') expect(resume.applied.every((a) => a.status === 'skipped')).toBe(true);
+    expect((await readDataVersion(absolutePath(dataRoot))).dataVersion).toBe(2);
   });
 });
 
