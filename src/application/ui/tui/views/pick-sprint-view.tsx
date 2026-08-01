@@ -11,12 +11,19 @@
  * `setProject` + `setSprint` would briefly null the sprint cursor (setProject side effect)
  * and fire the persistence write twice.
  *
- * List shaping (group/flatten/cursor walk) lives under `pick-sprint-internals/`; this file is
- * the orchestrator that wires data → hooks → row presentation.
+ * Cursor + windowing are owned by the shared `useListWindow` primitive (id-keyed on the
+ * cursorable row subset — see `pick-sprint-internals/row-views.tsx`'s `PickerRowList`), not a
+ * bespoke index. The `t` scope toggle forces an explicit reseat to the preferred sprint by
+ * remounting `PickerRowList` (`key` includes `scopeAll`); the `f` done-filter does NOT remount,
+ * so a manually-navigated row that survives the filter keeps focus — `useListWindow`'s own
+ * id-resolution (snap to nearest survivor by prior index on eviction) handles the rest.
+ *
+ * List shaping (group/flatten/cursorable-subset) lives under `pick-sprint-internals/`; this file
+ * is the orchestrator that wires data → hooks → row presentation.
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
-import { Box, Text, useInput, type Key } from 'ink';
+import React, { useMemo, useState } from 'react';
+import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { LoadErrorRow, LoadingRow } from '@src/application/ui/tui/components/async-rows.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
@@ -34,38 +41,25 @@ import type { Project } from '@src/domain/entity/project.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import type { FlatRow, PickerData } from '@src/application/ui/tui/views/pick-sprint-internals/types.ts';
+import type {
+  CreateActionRow,
+  FlatRow,
+  PickerData,
+  SprintRow,
+} from '@src/application/ui/tui/views/pick-sprint-internals/types.ts';
 import {
   buildGroups,
-  cursorableNear,
-  cursorableRowIndices,
   flatten,
-  nextCursorableIndex,
+  preferredCursorId,
 } from '@src/application/ui/tui/views/pick-sprint-internals/group-builder.ts';
 import {
   computeWindow,
   MIN_VISIBLE_ROWS,
   VERTICAL_CHROME_ROWS,
 } from '@src/application/ui/tui/views/pick-sprint-internals/window.ts';
-import { RowWindowView } from '@src/application/ui/tui/views/pick-sprint-internals/row-views.tsx';
+import { PickerRowList } from '@src/application/ui/tui/views/pick-sprint-internals/row-views.tsx';
 
 type Selection = ReturnType<typeof useSelection>;
-
-/**
- * Preferred cursor index within `rows`: the row for `preferredSprintId` if present, else the
- * first sprint row, else the first cursorable row (the synthetic create row), else 0. Shared by
- * the initial-mount seed and the scope-toggle reseat — both want the same "best landing spot"
- * rule, just against a (possibly different) row list.
- */
-const preferredCursorIndex = (rows: readonly FlatRow[], preferredSprintId: SprintId | undefined): number => {
-  if (preferredSprintId !== undefined) {
-    const i = rows.findIndex((r) => r.kind === 'sprint' && r.sprint.id === preferredSprintId);
-    if (i !== -1) return i;
-  }
-  const firstSprint = rows.findIndex((r) => r.kind === 'sprint');
-  if (firstSprint !== -1) return firstSprint;
-  return cursorableRowIndices(rows)[0] ?? 0;
-};
 
 interface UsePickerRowsResult {
   readonly state: AsyncLoadState<PickerData, unknown>;
@@ -78,8 +72,6 @@ interface UsePickerRowsResult {
   readonly hideDone: boolean;
   readonly setHideDone: React.Dispatch<React.SetStateAction<boolean>>;
   readonly toggleScope: () => void;
-  readonly cursor: number;
-  readonly setCursor: React.Dispatch<React.SetStateAction<number>>;
 }
 
 /**
@@ -145,39 +137,7 @@ const usePickerRows = (deps: AppDeps, selection: Selection): UsePickerRowsResult
     return flatten(buildGroups(data, selection.projectId, scopeAll), false).some((r) => r.kind === 'sprint');
   }, [hideDone, sprintCount, data, selection.projectId, scopeAll]);
 
-  // Pre-seed the cursor to the already-selected sprint so Enter is a one-keystroke confirm.
-  // Otherwise, prefer the first sprint row over the synthetic `+ create` row so users with
-  // existing sprints can still press Enter to pick the topmost one — the create row sits at
-  // the very top but is intentionally NOT the initial focus (the common case is "switch", not
-  // "create"). When the picker is completely empty (no sprints anywhere), the create row IS
-  // first cursorable, so the fallback still lands on it.
-  const initialIdx = useMemo(() => preferredCursorIndex(rows, selection.sprintId), [rows, selection.sprintId]);
-
-  const [cursor, setCursor] = useState<number>(initialIdx);
-  useEffect(() => {
-    setCursor((c) => {
-      if (rows.length === 0) return 0;
-      if (c >= rows.length) return Math.max(0, rows.length - 1);
-      // Snap cursor back onto a cursorable row if a re-group landed it on a header.
-      const focused = rows[c];
-      if (focused?.kind !== 'sprint' && focused?.kind !== 'create') {
-        return cursorableRowIndices(rows)[0] ?? c;
-      }
-      return c;
-    });
-  }, [rows]);
-  useEffect(() => {
-    setCursor(initialIdx);
-  }, [initialIdx]);
-
-  const toggleScope = (): void => {
-    const next = !scopeAll;
-    setScopeAll(next);
-    // Recompute the cursor: prefer the already-selected sprint, then the first sprint row,
-    // then the create row (only relevant on a totally empty picker).
-    const nextRows = flatten(buildGroups(visibleData, selection.projectId, next), includeCreate);
-    setCursor(preferredCursorIndex(nextRows, selection.sprintId));
-  };
+  const toggleScope = (): void => setScopeAll((v) => !v);
 
   return {
     state,
@@ -190,38 +150,7 @@ const usePickerRows = (deps: AppDeps, selection: Selection): UsePickerRowsResult
     hideDone,
     setHideDone,
     toggleScope,
-    cursor,
-    setCursor,
   };
-};
-
-/** Whether `input`/`key` is one of the six cursor-navigation keys (arrows, j/k, page, home/end). */
-const isNavigationInput = (input: string, key: Key): boolean =>
-  key.upArrow || key.downArrow || key.pageUp || key.pageDown || key.home || key.end || input === 'j' || input === 'k';
-
-/**
- * Resolve the cursor's next index for the six pure-navigation keys (arrows, j/k, page up/down,
- * home/end); `undefined` for any other key. Called from inside the `setCursor` updater (see
- * {@link usePickerInput}) so `cursor` is always the truly-latest committed state, not whatever
- * value the `useInput` closure captured at its last render.
- */
-const resolveArrowMove = (
-  rows: readonly FlatRow[],
-  cursor: number,
-  visibleRows: number,
-  input: string,
-  key: Key
-): number | undefined => {
-  if (key.upArrow || input === 'k') return nextCursorableIndex(rows, cursor, -1);
-  if (key.downArrow || input === 'j') return nextCursorableIndex(rows, cursor, 1);
-  if (key.pageUp) return cursorableNear(rows, Math.max(0, cursor - visibleRows), -1);
-  if (key.pageDown) return cursorableNear(rows, Math.min(rows.length - 1, cursor + visibleRows), 1);
-  if (key.home) return cursorableRowIndices(rows)[0] ?? 0;
-  if (key.end) {
-    const candidates = cursorableRowIndices(rows);
-    return candidates[candidates.length - 1] ?? cursor;
-  }
-  return undefined;
 };
 
 interface PickerBodyProps {
@@ -232,11 +161,14 @@ interface PickerBodyProps {
   readonly scopeAll: boolean;
   readonly hideDone: boolean;
   readonly rows: readonly FlatRow[];
-  readonly cursor: number;
   readonly visibleRows: number;
+  readonly listActive: boolean;
+  readonly initialCursorId: string;
+  readonly listKey: string;
   readonly currentSprintId: SprintId | undefined;
   readonly currentSprintLabel: string | undefined;
   readonly feedback: string | undefined;
+  readonly onRowSubmit: (row: SprintRow | CreateActionRow) => void;
 }
 
 /** Loading / error / empty / list-of-rows presentation — pure props in, no state of its own. */
@@ -248,11 +180,14 @@ const PickerBody = ({
   scopeAll,
   hideDone,
   rows,
-  cursor,
   visibleRows,
+  listActive,
+  initialCursorId,
+  listKey,
   currentSprintId,
   currentSprintLabel,
   feedback,
+  onRowSubmit,
 }: PickerBodyProps): React.JSX.Element =>
   helpOpen ? (
     <HelpOverlay />
@@ -294,7 +229,15 @@ const PickerBody = ({
           )}
         </Text>
       </Box>
-      <RowWindowView rows={rows} cursor={cursor} visibleRows={visibleRows} currentSprintId={currentSprintId} />
+      <PickerRowList
+        key={listKey}
+        rows={rows}
+        visibleRows={visibleRows}
+        active={listActive}
+        initialCursorId={initialCursorId}
+        currentSprintId={currentSprintId}
+        onSubmit={onRowSubmit}
+      />
       <Box marginTop={spacing.section} paddingX={spacing.indent}>
         <Text dimColor>
           {glyphs.bullet} ↵ use the highlighted sprint {glyphs.bullet} t toggle scope {glyphs.bullet} f{' '}
@@ -302,70 +245,12 @@ const PickerBody = ({
         </Text>
       </Box>
       {feedback !== undefined && (
-        <Box paddingX={spacing.indent} marginTop={1}>
+        <Box paddingX={spacing.indent} marginTop={spacing.section}>
           <Text color={inkColors.error}>{feedback}</Text>
         </Box>
       )}
     </Box>
   );
-
-interface UsePickerInputArgs {
-  readonly modalOpen: boolean;
-  readonly rows: readonly FlatRow[];
-  readonly cursor: number;
-  readonly visibleRows: number;
-  readonly setCursor: React.Dispatch<React.SetStateAction<number>>;
-  readonly pick: (sprint: Sprint) => void;
-  readonly launchCreateSprint: () => Promise<void>;
-  readonly toggleScope: () => void;
-  readonly setHideDone: React.Dispatch<React.SetStateAction<boolean>>;
-  readonly reload: () => void;
-}
-
-/**
- * Sole `useInput` registration for the picker — the six navigation keys resolve through
- * {@link resolveArrowMove}; everything else (confirm / scope toggle / done filter / create /
- * reload) is a flat one-branch-each dispatch.
- */
-const usePickerInput = ({
-  modalOpen,
-  rows,
-  cursor,
-  visibleRows,
-  setCursor,
-  pick,
-  launchCreateSprint,
-  toggleScope,
-  setHideDone,
-  reload,
-}: UsePickerInputArgs): void => {
-  useInput((input, key) => {
-    if (modalOpen) return;
-    if (isNavigationInput(input, key)) {
-      setCursor((c) => resolveArrowMove(rows, c, visibleRows, input, key) ?? c);
-      return;
-    }
-    if (key.return) {
-      const row = rows[cursor];
-      if (row?.kind === 'sprint') pick(row.sprint);
-      else if (row?.kind === 'create') void launchCreateSprint();
-      return;
-    }
-    if (input === 't') {
-      toggleScope();
-      return;
-    }
-    if (input === 'f') {
-      setHideDone((v) => !v);
-      return;
-    }
-    if (input === '+' || input === 'c') {
-      void launchCreateSprint();
-      return;
-    }
-    if (input === 'r') reload();
-  });
-};
 
 /**
  * Re-export of the windowing helper. Kept at this canonical path so the existing unit-test
@@ -383,20 +268,8 @@ export const PickSprintView = (): React.JSX.Element => {
   const ui = useUiState();
   const [feedback, setFeedback] = useState<string | undefined>(undefined);
 
-  const {
-    state,
-    reload,
-    data,
-    rows,
-    sprintCount,
-    hiddenByDoneFilter,
-    scopeAll,
-    hideDone,
-    setHideDone,
-    toggleScope,
-    cursor,
-    setCursor,
-  } = usePickerRows(deps, selection);
+  const { state, reload, data, rows, sprintCount, hiddenByDoneFilter, scopeAll, hideDone, setHideDone, toggleScope } =
+    usePickerRows(deps, selection);
 
   useViewHints([
     { keys: '↑/↓/j/k', label: 'move' },
@@ -436,18 +309,40 @@ export const PickSprintView = (): React.JSX.Element => {
     noProjectMessage: `${glyphs.cross} select a project first`,
   });
 
-  usePickerInput({
-    modalOpen: ui.modalOpen,
-    rows,
-    cursor,
-    visibleRows,
-    setCursor,
-    pick,
-    launchCreateSprint,
-    toggleScope,
-    setHideDone,
-    reload,
+  const onRowSubmit = (row: SprintRow | CreateActionRow): void => {
+    if (row.kind === 'sprint') pick(row.sprint);
+    else void launchCreateSprint();
+  };
+
+  // Non-navigation keys only — `PickerRowList`'s `useListWindow` owns ↑/↓/j/k/PgUp/PgDn/Home/End/Enter.
+  useInput((input) => {
+    if (ui.modalOpen) return;
+    if (input === 't') {
+      toggleScope();
+      return;
+    }
+    if (input === 'f') {
+      setHideDone((v) => !v);
+      return;
+    }
+    if (input === '+' || input === 'c') {
+      void launchCreateSprint();
+      return;
+    }
+    if (input === 'r') reload();
   });
+
+  // The preferred landing id — the already-selected sprint if present, else the first sprint,
+  // else the create row. Recomputed every render but only actually consumed by `useListWindow`
+  // at (re)mount time (see `listKey` below); it never forces a reseat on an already-mounted list.
+  const initialCursorId = useMemo(() => preferredCursorId(rows, selection.sprintId), [rows, selection.sprintId]);
+
+  // Remount the row list — and so its `useListWindow` cursor — on an explicit scope toggle (`t`)
+  // or when the persisted selection changes (covers the selection context arriving a tick after
+  // first render). This is the ONLY case that force-reseats onto `initialCursorId`; the `f`
+  // done-filter does NOT change this key, so a manually-navigated row that survives the filter
+  // keeps focus via `useListWindow`'s own id resolution (see the module doc comment above).
+  const listKey = `${String(scopeAll)}-${selection.sprintId ?? 'unseeded'}`;
 
   return (
     <ViewShell title="Pick a sprint" subtitle="Switch sprint (and project) in one step" suppressScrollArrows>
@@ -459,11 +354,14 @@ export const PickSprintView = (): React.JSX.Element => {
         scopeAll={scopeAll}
         hideDone={hideDone}
         rows={rows}
-        cursor={cursor}
         visibleRows={visibleRows}
+        listActive={!ui.modalOpen}
+        initialCursorId={initialCursorId}
+        listKey={listKey}
         currentSprintId={selection.sprintId}
         currentSprintLabel={selection.sprintLabel}
         feedback={feedback}
+        onRowSubmit={onRowSubmit}
       />
     </ViewShell>
   );

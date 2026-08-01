@@ -32,4 +32,13 @@ describe('truncateField', () => {
   it('returns undefined for empty string input', () => {
     expect(truncateField('')).toBeUndefined();
   });
+
+  it('returns undefined for whitespace-only input, matching the documented contract', () => {
+    expect(truncateField('   ')).toBeUndefined();
+    expect(truncateField('\n\t ')).toBeUndefined();
+  });
+
+  it('does NOT trim a string that has non-whitespace content — only the whitespace-only case is special-cased', () => {
+    expect(truncateField('  hello  ')).toBe('  hello  ');
+  });
 });

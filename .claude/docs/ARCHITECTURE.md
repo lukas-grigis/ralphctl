@@ -510,7 +510,9 @@ of the stack — the leaf or use-case wrapping them catches and converts to `Res
 │           │           └── session-id.txt
 │           ├── feedback.md            ← human review feedback input (read by the review flow)
 │           ├── distill/               ← learning-distill AI session sandbox (opt-in at close)
-│           └── review/                ← apply-feedback per-round forensics
+│           ├── review/                ← apply-feedback per-round forensics
+│           ├── logs/setup/<repository-id>.log            ← full setup-script stdout/stderr per repo
+│           └── logs/verify/<task-id>/{pre,post}-attempt-<N>.log  ← full verify-script stdout/stderr per task per attempt
 └── state/
     └── locks/
         └── repo-<worktree-hash>.lock/ ← cross-process advisory lock directory (one per sprint, keyed by sha1 of the sprint dir path — implement and review share the same key)
@@ -518,7 +520,9 @@ of the stack — the leaf or use-case wrapping them catches and converts to `Res
 
 Path resolution lives in `src/application/bootstrap/storage-paths.ts` (`resolveStoragePaths`,
 `storagePathsFromRoot`, `ensureStorageRoots`). On-disk path helpers for the sprint subtree live in
-`src/integration/persistence/storage.ts`.
+`src/integration/persistence/storage.ts`. This tree is canonical — the abbreviated `<sprintDir>/`
+subtree in [diagrams/02-sprint-lifecycle.md § On-disk shape](./diagrams/02-sprint-lifecycle.md#on-disk-shape)
+mirrors it and should stay in sync.
 
 The `RALPHCTL_HOME` env var, when set to an absolute path, replaces the entire `<home>/.ralphctl` prefix.
 Used by integration tests that spawn real subprocesses, and by users who want a non-default data location.
@@ -626,18 +630,19 @@ EventBus events emitted by the chain runner / adapters (not parsed from AI outpu
 All domain errors extend `DomainError` (`src/domain/value/error/domain-error.ts`) and carry a machine-readable
 `code` plus optional `cause`. The error class is one of the few legitimate places `class` is allowed.
 
-| Class               | Folder                | Cause                                                                  |
-| ------------------- | --------------------- | ---------------------------------------------------------------------- |
-| `NotFoundError`     | `domain/value/error/` | Aggregate (project / sprint / ticket / task) not found by id           |
-| `ConflictError`     | `domain/value/error/` | Uniqueness or cardinality violation (e.g. duplicate slug, repo path)   |
-| `InvalidStateError` | `domain/value/error/` | Operation invalid for the entity's current status                      |
-| `ValidationError`   | `domain/value/error/` | Smart-constructor or schema validation failed (carries `field`/`path`) |
-| `ParseError`        | `domain/value/error/` | JSON / output parser rejection                                         |
-| `StorageError`      | `domain/value/error/` | Read/write failure in the persistence layer                            |
-| `RateLimitError`    | `domain/value/error/` | AI process rate-limited (wraps spawn outcome)                          |
-| `AbortError`        | `domain/value/error/` | User-initiated cancellation; propagates through chains                 |
-| `ProbeError`        | `domain/value/error/` | Readiness probe rejection                                              |
-| `MigrationGapError` | `domain/value/error/` | On-disk schemaVersion older than expected and no migration registered  |
+| Class               | Folder                | Cause                                                                                                                                                                                  |
+| ------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `NotFoundError`     | `domain/value/error/` | Aggregate (project / sprint / ticket / task) not found by id                                                                                                                           |
+| `ConflictError`     | `domain/value/error/` | Uniqueness or cardinality violation (e.g. duplicate slug, repo path)                                                                                                                   |
+| `InvalidStateError` | `domain/value/error/` | Operation invalid for the entity's current status                                                                                                                                      |
+| `ValidationError`   | `domain/value/error/` | Smart-constructor or schema validation failed (carries `field`/`path`)                                                                                                                 |
+| `ParseError`        | `domain/value/error/` | JSON / output parser rejection                                                                                                                                                         |
+| `StorageError`      | `domain/value/error/` | Read/write failure in the persistence layer                                                                                                                                            |
+| `RateLimitError`    | `domain/value/error/` | AI process rate-limited (wraps spawn outcome)                                                                                                                                          |
+| `AbortError`        | `domain/value/error/` | User-initiated cancellation; propagates through chains                                                                                                                                 |
+| `ProbeError`        | `domain/value/error/` | Readiness probe rejection                                                                                                                                                              |
+| `MigrationGapError` | `domain/value/error/` | On-disk schemaVersion older than expected and no migration registered                                                                                                                  |
+| `ProcessCrashError` | `domain/value/error/` | Transient AI-process death (watchdog kill, spawn failure, exit before `signals.json`) — retried within `maxAttempts` rather than blocked after one attempt, unlike `InvalidStateError` |
 
 ## Exit Codes
 

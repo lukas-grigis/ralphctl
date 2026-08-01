@@ -65,7 +65,7 @@ export const FeedbackLine = ({ text }: FeedbackLineProps): React.JSX.Element | n
   if (typeof text === 'string') {
     const { color, body } = resolveStructured(text);
     return (
-      <Box paddingX={spacing.indent} marginTop={1}>
+      <Box paddingX={spacing.indent} marginTop={spacing.section}>
         <Text color={color}>{body}</Text>
       </Box>
     );
@@ -74,7 +74,7 @@ export const FeedbackLine = ({ text }: FeedbackLineProps): React.JSX.Element | n
   // Structured form
   const { glyph, color } = toneConfig(text.tone);
   return (
-    <Box paddingX={spacing.indent} marginTop={1}>
+    <Box paddingX={spacing.indent} marginTop={spacing.section}>
       <Text color={color}>
         {glyph.length > 0 ? `${glyph} ` : ''}
         {text.text}

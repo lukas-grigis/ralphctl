@@ -18,6 +18,7 @@ import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.t
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { isClaudeModel } from '@src/domain/value/settings-models/claude.ts';
+import { validateModel } from '@src/integration/ai/providers/_engine/validate-model.ts';
 import { uuidv7 } from '@src/domain/value/uuid7.ts';
 
 /**
@@ -71,16 +72,12 @@ export const createInteractiveClaudeProvider = (deps: InteractiveClaudeDeps): In
 
   return {
     async run(input: InteractiveAiProviderInput) {
-      if (!isClaudeModel(input.model)) {
-        return Result.error(
-          new InvalidStateError({
-            entity: PROVIDER,
-            currentState: 'model-validation',
-            attemptedAction: 'run',
-            message: `interactive-claude: '${input.model}' is not a known Claude model`,
-          })
-        );
-      }
+      const validated = validateModel(input.model, isClaudeModel, {
+        entity: PROVIDER,
+        attemptedAction: 'run',
+        notKnownMessage: `interactive-claude: '${input.model}' is not a known Claude model`,
+      });
+      if (!validated.ok) return Result.error(validated.error);
 
       // Read the prompt file in Node.js so its content can be passed as a direct argv
       // element to claude. This avoids the bash $(cat ...) expansion that broke on Windows

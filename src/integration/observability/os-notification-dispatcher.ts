@@ -22,6 +22,13 @@
  *
  * Platform detection is done once at adapter construction time via `os.platform()`. Tests inject
  * a fake `platform()` to exercise each branch without depending on the host OS.
+ *
+ * This file is one of two named, sanctioned exceptions to the repo-wide
+ * `node:child_process` spawn/exec fence (`childProcessSpawnBan` in `eslint.config.ts`; the other
+ * is `shell-script-runner.ts`) — it needs the *promisified* `execFile` API (a single awaited call
+ * that buffers stdout/stderr and rejects on a non-zero exit), a shape
+ * `integration/io/cross-platform-spawn.ts` doesn't provide since it only wraps the event-based
+ * `spawn`.
  */
 
 import { execFile as execFileCb } from 'node:child_process';

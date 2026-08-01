@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -8,6 +8,7 @@ import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { RateLimitError } from '@src/domain/value/error/rate-limit-error.ts';
 import { MigrationGapError } from '@src/domain/value/error/migration-gap-error.ts';
+import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import { changeSignalSchema } from '@src/integration/ai/contract/_engine/signals/change/schema.ts';
@@ -290,5 +291,58 @@ describe('validateSignalsFileWithCorrectiveRetry', () => {
     expect(result.ok).toBe(false);
     expect(calls).toBe(0);
     if (!result.ok) expect(result.error).toBeInstanceOf(MigrationGapError);
+  });
+
+  it('skips the retry entirely on a non-correctable StorageError (harness-side I/O fault) from the FIRST validate', async () => {
+    // A directory at signals.json's path reproduces a real StorageError (EISDIR is neither
+    // ENOENT nor ENOTDIR, so validateSignalsFile falls into its generic read-failure branch)
+    // without relying on a permission trick that behaves differently as root. Re-prompting the
+    // AI to "write signals.json" cannot fix a harness-side path collision it did not cause.
+    mkdirSync(signalsPath);
+    let calls = 0;
+    const result = await validateSignalsFileWithCorrectiveRetry(
+      {
+        outputDir: unwrapPath(tmp),
+        logger: noopLogger,
+        correctiveRetries: 2,
+        selfContainedContext: 'OUTPUT CONTRACT SECTION (self-contained)',
+        reinvoke: async () => {
+          calls += 1;
+          return Result.ok(undefined);
+        },
+      },
+      contract
+    );
+    expect(result.ok).toBe(false);
+    expect(calls).toBe(0);
+    if (!result.ok) expect(result.error).toBeInstanceOf(StorageError);
+  });
+
+  it('self-blocks WITHOUT a further nudge when a later revalidation turns non-correctable (StorageError) mid-loop', async () => {
+    // First validate: correctable schema-mismatch → one nudge fires. The corrective spawn's
+    // rewrite leaves a directory at signals.json's path instead of a file (e.g. a confused
+    // AI turn) → the SECOND validateSignalsFile call hits the same EISDIR StorageError. The
+    // loop must not spend a second nudge re-prompting for something re-emitting content can't
+    // fix — `calls` must stay at 1, not reach `correctiveRetries` (2).
+    writeFileSync(signalsPath, BAD_SHAPE);
+    let calls = 0;
+    const result = await validateSignalsFileWithCorrectiveRetry(
+      {
+        outputDir: unwrapPath(tmp),
+        logger: noopLogger,
+        correctiveRetries: 2,
+        selfContainedContext: 'OUTPUT CONTRACT SECTION (self-contained)',
+        reinvoke: async () => {
+          calls += 1;
+          rmSync(signalsPath, { recursive: true, force: true });
+          mkdirSync(signalsPath);
+          return Result.ok(undefined);
+        },
+      },
+      contract
+    );
+    expect(result.ok).toBe(false);
+    expect(calls).toBe(1);
+    if (!result.ok) expect(result.error).toBeInstanceOf(StorageError);
   });
 });

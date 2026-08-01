@@ -11,6 +11,23 @@ import type { ParameterSpec, PromptDefinition } from '@src/integration/ai/prompt
 export type BuildPromptError = StorageError | ParseError | ValidationError;
 
 /**
+ * A parameter can never share a placeholder with an auto-loaded partial slot — `buildPrompt`
+ * populates `values` from partials first, so a colliding parameter would silently clobber the
+ * partial's rendered content instead of failing loudly. Returns the first collision found (a
+ * `[field, placeholder]` pair), or `undefined` when there is none. Definition-authoring bug,
+ * caught once up front rather than left to whichever field happens to iterate last.
+ */
+const findPartialParameterCollision = <TInput extends object>(
+  def: PromptDefinition<TInput>,
+  partialPlaceholders: ReadonlySet<string>
+): readonly [field: string, placeholder: string] | undefined => {
+  for (const [field, rawSpec] of Object.entries(def.parameters) as Array<[string, ParameterSpec<unknown>]>) {
+    if (partialPlaceholders.has(rawSpec.placeholder)) return [field, rawSpec.placeholder];
+  }
+  return undefined;
+};
+
+/**
  * Generic prompt builder. Reads a `PromptDefinition` and a typed input bag, loads the
  * template + any partials, validates each input field via its spec, runs substitution, and
  * brands the result as `Prompt` after `assertTemplateKeysFilled` confirms every placeholder
@@ -37,6 +54,22 @@ export const buildPrompt = async <TInput extends object>(
 
   const values: Record<string, string> = {};
   const partialBodies: string[] = [];
+  const partialPlaceholders = new Set<string>(def.partials !== undefined ? Object.keys(def.partials) : []);
+
+  const collision = findPartialParameterCollision(def, partialPlaceholders);
+  if (collision !== undefined) {
+    const [field, placeholder] = collision;
+    return Result.error(
+      new ValidationError({
+        field,
+        value: placeholder,
+        message:
+          `buildPrompt(${def.templateName}): parameter '${field}' declares placeholder ` +
+          `{{${placeholder}}}, which collides with an auto-loaded partial slot of the same ` +
+          `name — rename one of them.`,
+      })
+    );
+  }
 
   // Auto-loaded partials. Bodies are trimmed so trailing whitespace from the partial file
   // doesn't bleed into the rendered prompt. The bodies are also kept for the template-side

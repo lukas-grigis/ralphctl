@@ -89,4 +89,19 @@ describe('distillProposeLeaf — abort signal threading', () => {
     expect(result.ok).toBe(true);
     expect(sink.input?.abortSignal).toBe(controller.signal);
   });
+
+  it('renders the same "(none detected)" PROJECT_TOOLING fallback markdown as the implement/evaluate renderer', async () => {
+    // Pins distill-propose's local renderProjectTooling to the same italic fallback markup as
+    // renderProjectToolingSection (task.ts) — the two renderers must not drift apart.
+    const sink: { input?: InteractiveAiProviderInput } = {};
+    const leaf = distillProposeLeaf(buildDeps(fakeAi(sink)), 'claude-code');
+
+    const result = await leaf.execute(buildCtx());
+    expect(result.ok).toBe(true);
+
+    const promptPath = join(String(distillRoot), 'claude-code', 'prompt.md');
+    const promptBody = await fs.readFile(promptPath, 'utf8');
+    expect(promptBody).toContain('_(none detected)_');
+    expect(promptBody).not.toMatch(/(?<!_)\(none detected\)(?!_)/);
+  });
 });

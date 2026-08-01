@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { crossPlatformSpawn } from '@src/integration/io/cross-platform-spawn.ts';
 
 /**
  * Check whether a named executable resolves on the current `PATH`. Cross-platform — the single
@@ -28,8 +28,8 @@ export const commandExists = (name: string): Promise<boolean> =>
   new Promise((resolve) => {
     const child =
       process.platform === 'win32'
-        ? spawn('where', [name], { stdio: 'ignore' })
-        : spawn('sh', ['-c', 'command -v "$0"', name], { stdio: 'ignore' });
+        ? crossPlatformSpawn('where', [name], { stdio: 'ignore' })
+        : crossPlatformSpawn('sh', ['-c', 'command -v "$0"', name], { stdio: 'ignore' });
     let settled = false;
     const settle = (value: boolean): void => {
       if (settled) return;

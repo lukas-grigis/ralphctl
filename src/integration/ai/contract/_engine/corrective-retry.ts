@@ -2,7 +2,7 @@ import { ZodError } from 'zod';
 import { Result } from '@src/domain/result.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
-import { ErrorCode } from '@src/domain/value/error/error-code.ts';
+import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { ParseError } from '@src/domain/value/error/parse-error.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { AiSignal } from '@src/domain/signal.ts';
@@ -88,16 +88,27 @@ export interface CorrectiveRetryDeps {
 /**
  * A contract failure is *correctable by re-prompting* when the AI could plausibly fix it on a
  * follow-up turn: it forgot to write the file, wrote invalid JSON, or wrote the wrong shape.
+ * This is an ALLOW-list of the three shapes {@link validateSignalsFile}'s own docstring names as
+ * genuinely re-promptable — `InvalidStateError` (signals-missing) and `ParseError` (invalid-json
+ * / schema-mismatch, its only two subcodes). Fail CLOSED by construction: any future
+ * `DomainError` variant `validateSignalsFile` starts returning defaults to "not correctable"
+ * (straight to self-block) instead of silently being retried until someone remembers to add it
+ * to a deny-list — which is exactly how a harness-side `StorageError` (EACCES, EISDIR, transient
+ * I/O — nothing the AI wrote caused it) used to slip through as "correctable" and burn up to
+ * `correctiveRetries` wasted resumed spawns on a corrective prompt that could never fix it.
  *
- * NOT correctable, so we skip the retry and let the caller self-block immediately:
+ * NOT correctable, so we skip the retry and let the caller self-block immediately — everything
+ * outside the two classes above, notably:
  *   - `Aborted` — user cancel; the retry would race the teardown and the corrective spawn would
  *     just re-abort. AbortError must propagate transparently (CLAUDE.md §AbortError).
  *   - `RateLimit` — the adapter already exhausted its 429 retries; re-spawning re-hits the wall.
  *   - `MigrationGap` — an on-disk version older than the contract with a missing migration step;
  *     the AI cannot fix a harness-side migration gap by re-emitting signals.
+ *   - `StorageError` — a harness-side I/O fault (EACCES, EISDIR, …) reading the file the AI
+ *     already wrote; re-emitting the same content will not change whether the harness can read it.
  */
 const isCorrectableContractError = (err: DomainError): boolean =>
-  err.code !== ErrorCode.Aborted && err.code !== ErrorCode.RateLimit && err.code !== ErrorCode.MigrationGap;
+  err instanceof InvalidStateError || err instanceof ParseError;
 
 /**
  * Build the corrective message body, gated by error class. Zod issue lists exist ONLY for
@@ -214,6 +225,18 @@ export const validateSignalsFileWithCorrectiveRetry = async <TSig extends AiSign
       return Result.ok({ signals: revalidated.value, nudgeCount: attempt });
     }
     lastErr = revalidated.error;
+    // A nudge can turn a correctable failure into a non-correctable one (e.g. the AI's rewrite
+    // replaced signals.json with a directory, or a transient StorageError appears on re-read) —
+    // re-check every round, not just before the loop starts, so a shape that stopped being
+    // correctable self-blocks immediately instead of burning the remaining nudges.
+    if (!isCorrectableContractError(lastErr)) {
+      log.warn('corrective retry produced a non-correctable error — self-blocking without a further nudge', {
+        outputDir: String(deps.outputDir),
+        attempt,
+        error: lastErr.message,
+      });
+      return Result.error(lastErr);
+    }
   }
 
   log.warn('corrective retries exhausted — self-blocking', {

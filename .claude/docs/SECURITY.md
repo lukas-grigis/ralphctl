@@ -46,11 +46,18 @@ fenced from business code by the layer rules.
 
 **Cross-platform process spawning** goes through `integration/io/cross-platform-spawn.ts`
 (`crossPlatformSpawn`, backed by `cross-spawn`) — the single primitive every external-CLI spawn
-(`claude` / `codex` / `gh` / `glab` / `git`, headless + interactive) delegates to. Never call
-`node:child_process.spawn` directly for a binary: on Node 24 Windows a bare spawn cannot launch the
-npm/winget `.cmd` shims, and `shell: true` mis-quotes arguments with spaces or `& | % "`. The
-exception is the setup/verify-script runner (`shell-script-runner.ts`), which intentionally keeps
-`shell: true` because it runs a user-authored command _string_, not a binary + args.
+(`claude` / `codex` / `gh` / `glab` / `git`, headless + interactive) delegates to, including
+`clipboard.ts` and `command-exists.ts`. Never call `node:child_process.spawn` directly for a
+binary: on Node 24 Windows a bare spawn cannot launch the npm/winget `.cmd` shims, and
+`shell: true` mis-quotes arguments with spaces or `& | % "`. There are two named exceptions: the
+setup/verify-script runner (`shell-script-runner.ts`), which intentionally keeps `shell: true`
+because it runs a user-authored command _string_, not a binary + args; and
+`os-notification-dispatcher.ts`, which uses promisified `execFile` for its buffered-stdout,
+reject-on-nonzero semantics against `osascript` / `notify-send` / `which`. An ESLint
+`no-restricted-imports` rule (`childProcessSpawnBan` in `eslint.config.ts`, scoped by
+`importNames` to the spawn/exec family) fences every other file under `src/integration/**` from
+importing `node:child_process`'s spawn functions directly, so the two-exception list above is
+enforced at lint time, not by convention.
 
 **`AbortError` is the one error chains propagate transparently.** User-initiated cancellation (Ctrl+C, the
 TUI abort hotkey) flows through every wrapper without being absorbed by guards or fallbacks. Anywhere a guard

@@ -17,6 +17,7 @@ import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.t
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { isCodexModel } from '@src/domain/value/settings-models/codex.ts';
+import { validateModel } from '@src/integration/ai/providers/_engine/validate-model.ts';
 
 /**
  * Interactive `codex` adapter. Spawns the Codex CLI with `stdio: 'inherit'` so the user sees
@@ -64,16 +65,12 @@ export const createInteractiveCodexProvider = (deps: InteractiveCodexDeps): Inte
 
   return {
     async run(input: InteractiveAiProviderInput) {
-      if (!isCodexModel(input.model)) {
-        return Result.error(
-          new InvalidStateError({
-            entity: PROVIDER,
-            currentState: 'model-validation',
-            attemptedAction: 'run',
-            message: `interactive-codex: '${input.model}' is not a known Codex model`,
-          })
-        );
-      }
+      const validated = validateModel(input.model, isCodexModel, {
+        entity: PROVIDER,
+        attemptedAction: 'run',
+        notKnownMessage: `interactive-codex: '${input.model}' is not a known Codex model`,
+      });
+      if (!validated.ok) return Result.error(validated.error);
 
       // Read the prompt file in Node.js so its content can be passed as a direct argv
       // element to codex. This avoids the bash $(cat ...) expansion that broke on Windows

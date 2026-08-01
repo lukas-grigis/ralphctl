@@ -32,7 +32,14 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 
 const DEFAULT_RETRY_DELAY_MS = 50;
 const DEFAULT_MAX_RETRIES = 100;
-const DEFAULT_STALE_AFTER_MS = 30_000;
+/**
+ * Default crash-reclaim latency (ms). Exported as the single source of truth for any consumer
+ * that needs to reason about "is a `proper-lockfile`-heartbeated lock still fresh" without
+ * constructing a `FileLocker` — e.g. `data-migration/lock-guard.ts`'s `anyLockHeld`, which must
+ * treat a lock as HELD using the exact same window the locker itself uses, or the migration's
+ * notion of "held" silently diverges from the locker's notion of "live".
+ */
+export const DEFAULT_STALE_AFTER_MS = 30_000;
 // `proper-lockfile` does not enforce a floor, but a too-small `stale` would let a lock be judged
 // stale between heartbeats. Keep a sane floor and refresh well inside the window (see below).
 const STALE_LOWER_BOUND_MS = 2_000;

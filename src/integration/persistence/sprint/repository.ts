@@ -92,40 +92,55 @@ const reconcileSprintDir = async (root: AbsolutePath, id: string, canonicalDir: 
   }
 };
 
-export const createFsSprintRepository = (deps: FsSprintRepositoryDeps): SprintRepository => {
-  const list = async (): Promise<Result<readonly Sprint[], StorageError>> => {
-    const dir = sprintsDir(deps.root);
-    const entries = await listDir(dir);
-    if (!entries.ok) return Result.error(entries.error);
+/**
+ * Lists every sprint under `<root>/sprints/`. Extracted to module scope (rather than nested in the
+ * factory) purely to keep `createFsSprintRepository`'s own line count in check — behaviourally it
+ * is the repo's `list()`.
+ */
+const listSprints = async (root: AbsolutePath): Promise<Result<readonly Sprint[], StorageError>> => {
+  const dir = sprintsDir(root);
+  const entries = await listDir(dir);
+  if (!entries.ok) return Result.error(entries.error);
 
-    // Sort by the leading id (split on `--`) so chronological UUIDv7 order survives the slug
-    // suffix — a `<id>--zzz` dir must still sort by its id, not the whole name.
-    const sortedEntries = [...entries.value].sort((a, b) => parseIdFromName(a).localeCompare(parseIdFromName(b)));
-    const items: Sprint[] = [];
-    // Dedupe by sprint id: if a legacy bare `<id>/` and a slugged `<id>--<slug>/` dir transiently
-    // coexist (a crash between reconcile's rename + cleanup), the list must not show the sprint twice.
-    // The slugged (canonical) entry wins EXPLICITLY — the id-only comparator above returns 0 for the
-    // colliding pair, so sort order (stable sort over unspecified readdir order) cannot arbitrate.
-    const byId = new Map<string, Sprint>();
-    const canonicalIds = new Set<string>();
-    for (const entry of sortedEntries) {
+  // Sort by the leading id (split on `--`) so chronological UUIDv7 order survives the slug
+  // suffix — a `<id>--zzz` dir must still sort by its id, not the whole name.
+  const sortedEntries = [...entries.value].sort((a, b) => parseIdFromName(a).localeCompare(parseIdFromName(b)));
+  // Read every entry's sprint.json concurrently — each read is an independent disk round-trip,
+  // and Promise.all preserves the input array's order regardless of settle order, so the
+  // chronological order established above survives untouched.
+  const reads = await Promise.all(
+    sortedEntries.map(async (entry) => {
       const path = `${dir}/${entry}/sprint.json`;
-      const json = await readJson(path);
-      if (!json.ok) {
-        if (json.error instanceof NotFoundError) continue; // race or stray dir without sprint.json
-        return Result.error(json.error);
-      }
-      const decoded = decode((input) => fromJsonSprint(input, path), json.value, { entity: 'sprint', path });
-      if (!decoded.ok) return Result.error(decoded.error);
-      const id = String(decoded.value.id);
-      const isCanonical = entry.includes('--');
-      if (!isCanonical && canonicalIds.has(id)) continue; // slugged sibling already read — it wins
-      byId.set(id, decoded.value);
-      if (isCanonical) canonicalIds.add(id);
+      return { entry, path, json: await readJson(path) };
+    })
+  );
+
+  const items: Sprint[] = [];
+  // Dedupe by sprint id: if a legacy bare `<id>/` and a slugged `<id>--<slug>/` dir transiently
+  // coexist (a crash between reconcile's rename + cleanup), the list must not show the sprint twice.
+  // The slugged (canonical) entry wins EXPLICITLY — the id-only comparator above returns 0 for the
+  // colliding pair, so sort order (stable sort over unspecified readdir order) cannot arbitrate.
+  const byId = new Map<string, Sprint>();
+  const canonicalIds = new Set<string>();
+  for (const { entry, path, json } of reads) {
+    if (!json.ok) {
+      if (json.error instanceof NotFoundError) continue; // race or stray dir without sprint.json
+      return Result.error(json.error);
     }
-    items.push(...byId.values());
-    return Result.ok(items);
-  };
+    const decoded = decode((input) => fromJsonSprint(input, path), json.value, { entity: 'sprint', path });
+    if (!decoded.ok) return Result.error(decoded.error);
+    const id = String(decoded.value.id);
+    const isCanonical = entry.includes('--');
+    if (!isCanonical && canonicalIds.has(id)) continue; // slugged sibling already read — it wins
+    byId.set(id, decoded.value);
+    if (isCanonical) canonicalIds.add(id);
+  }
+  items.push(...byId.values());
+  return Result.ok(items);
+};
+
+export const createFsSprintRepository = (deps: FsSprintRepositoryDeps): SprintRepository => {
+  const list = (): Promise<Result<readonly Sprint[], StorageError>> => listSprints(deps.root);
 
   return {
     async findById(id) {

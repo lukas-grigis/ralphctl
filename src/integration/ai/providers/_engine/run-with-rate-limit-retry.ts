@@ -9,6 +9,7 @@ import type { AttemptOutcome } from '@src/integration/ai/providers/_engine/attem
 import type { ProviderOutput } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
 import {
+  applyJitter,
   DEFAULT_BACKOFF_SCHEDULE,
   delayForRetry,
   sleepCancellable,
@@ -52,6 +53,12 @@ export interface RunWithRateLimitRetryOptions {
   readonly rateLimitRetries: number;
   /** Wait schedule between retries. Defaults to {@link DEFAULT_BACKOFF_SCHEDULE}. */
   readonly backoffSchedule?: readonly number[];
+  /**
+   * `[0, 1)` source for the {@link applyJitter} spread on each backoff wait, defaulting to
+   * `Math.random`. Injectable so tests pin the exact jittered delay instead of asserting on
+   * live randomness.
+   */
+  readonly random?: () => number;
   readonly eventBus: EventBus;
   /**
    * Short provider tag for log lines / banner ids (`'claude'` / `'codex'` / `'copilot'`). Keeps
@@ -107,6 +114,7 @@ interface HandleRateLimitOutcomeParams {
   readonly maxAttempts: number;
   readonly schedule: readonly number[];
   readonly error: RateLimitError;
+  readonly random?: (() => number) | undefined;
 }
 
 /**
@@ -132,6 +140,7 @@ const handleRateLimitOutcome = async ({
   maxAttempts,
   schedule,
   error,
+  random,
 }: HandleRateLimitOutcomeParams): Promise<RateLimitOutcomeResult> => {
   const bannerId = `rate-limit-${providerSlug}-${error.sessionId ?? String(attemptIdx + 1)}`;
   eventBus.publish({
@@ -152,7 +161,9 @@ const handleRateLimitOutcome = async ({
   if (attemptIdx >= maxAttempts - 1) {
     return { type: 'continue', session: nextSession };
   }
-  const delayMs = delayForRetry(attemptIdx + 1, schedule);
+  // Jitter disperses concurrent branches that computed the SAME base delay off a shared
+  // account-level limit, so they don't wake and re-collide in lockstep.
+  const delayMs = applyJitter(delayForRetry(attemptIdx + 1, schedule), random ?? Math.random);
   if (delayMs <= 0) {
     return { type: 'continue', session: nextSession };
   }
@@ -253,6 +264,7 @@ export const runWithRateLimitRetry = async (
         maxAttempts,
         schedule,
         error: outcome.error,
+        random: opts.random,
       });
       if (result.type === 'aborted') {
         return Result.error(result.error) as Result<ProviderOutput, DomainError>;

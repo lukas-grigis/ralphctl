@@ -75,7 +75,10 @@ export const composeDimensionTrajectory = (input: DimensionTrajectoryInput): str
 
   const fixed = sortedLimited([...priorFailed].filter((d) => !latestFailed.has(d)));
   const newlyFailing = sortedLimited([...latestFailed].filter((d) => !priorFailed.has(d)));
-  const stillFailing = sortedLimited([...latestFailed].filter((d) => priorFailed.has(d)));
+  // Keep the FULL (untruncated) still-failing set for the stall-streak computation below — only the
+  // rendered bullet lines apply the MAX_DIMENSIONS_PER_CLASS display cap.
+  const stillFailingAll = [...latestFailed].filter((d) => priorFailed.has(d));
+  const stillFailing = sortedLimited(stillFailingAll);
 
   const lines: string[] = [];
 
@@ -94,9 +97,11 @@ export const composeDimensionTrajectory = (input: DimensionTrajectoryInput): str
 
   // Budget-pressure line: the loop plateaus after `plateauThreshold` consecutive stalled rounds.
   // Fire the warning one round early (the longest still-failing streak has reached
-  // `plateauThreshold - 1`) so the generator can change approach before the harness gives up.
+  // `plateauThreshold - 1`) so the generator can change approach before the harness gives up. Uses
+  // `stillFailingAll` (untruncated) — a dimension sorted out of the rendered bullets by the display
+  // cap can still hold the true longest stall and must not be silently dropped from this check.
   const threshold = Math.max(2, Math.trunc(input.plateauThreshold));
-  const longestStall = stillFailing.reduce((max, d) => Math.max(max, consecutiveFailing(history, d)), 0);
+  const longestStall = stillFailingAll.reduce((max, d) => Math.max(max, consecutiveFailing(history, d)), 0);
   const pressure =
     longestStall >= threshold - 1
       ? [

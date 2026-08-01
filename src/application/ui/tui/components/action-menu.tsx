@@ -24,6 +24,7 @@ import React, { useMemo } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useListWindow, OverflowRow } from '@src/application/ui/tui/components/windowed-list.tsx';
+import { listKeys } from '@src/application/ui/tui/runtime/keyboard-map.ts';
 
 export interface MenuItem {
   readonly id: string;
@@ -62,6 +63,18 @@ export interface ActionMenuProps {
 
 const isEnabled = (item: MenuItem): boolean => item.disabledReason === undefined;
 
+/**
+ * Single-character nav aliases reserved by the windowed-list contract (DESIGN-SYSTEM §6.4) —
+ * derived from `listKeys` so it can never drift from the actual `useListWindow` bindings. A
+ * `MenuItem.hotkey` on one of these would double-fire: `useListWindow`'s own `useInput` (mounted
+ * alongside this component's) moves the cursor on the same keystroke that `matchHotkey` would
+ * fire the item's `onSelect`. `matchHotkey` refuses to match them outright, so a future item
+ * defining `hotkey: 'j'` fails closed (hotkey silently inert) instead of double-firing.
+ */
+const RESERVED_NAV_KEYS: ReadonlySet<string> = new Set(
+  [...listKeys.up.keys, ...listKeys.down.keys].filter((k) => /^[a-z]$/.test(k))
+);
+
 /** Seed the cursor from `initialIndex` (index into the full items array). */
 const findInitialCursorId = (
   items: readonly MenuItem[],
@@ -75,9 +88,14 @@ const findInitialCursorId = (
   return enabledItems[0]?.id ?? '';
 };
 
-/** Hotkey match for the space-as-select / hotkey `useInput` handler (skips global hotkeys). */
-const matchHotkey = (items: readonly MenuItem[], input: string): MenuItem | undefined =>
-  items.find((it) => it.hotkey === input && it.globalHotkey !== true && isEnabled(it));
+/**
+ * Hotkey match for the space-as-select / hotkey `useInput` handler (skips global hotkeys and the
+ * reserved `j`/`k` list-nav aliases — see {@link RESERVED_NAV_KEYS}).
+ */
+const matchHotkey = (items: readonly MenuItem[], input: string): MenuItem | undefined => {
+  if (RESERVED_NAV_KEYS.has(input)) return undefined;
+  return items.find((it) => it.hotkey === input && it.globalHotkey !== true && isEnabled(it));
+};
 
 interface RenderRow {
   readonly item: MenuItem;

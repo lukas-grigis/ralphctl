@@ -53,9 +53,17 @@ import type { ESLint, Linter } from 'eslint';
  *   AI may use I/O-bearing node:* modules — it owns the provider/template/skill I/O.
  */
 
-const restrictImports = (forbidden: readonly string[]): Linter.RuleEntry => [
+const restrictImports = (
+  forbidden: readonly string[],
+  extraPaths: readonly {
+    readonly name: string;
+    readonly importNames?: readonly string[];
+    readonly message: string;
+  }[] = []
+): Linter.RuleEntry => [
   'error',
   {
+    paths: extraPaths,
     patterns: forbidden.map((layer) => ({
       group: [`**/${layer}/**`],
       message: `Layer dependency violation: cannot import from '${layer}'.`,
@@ -73,6 +81,41 @@ const resultLibBan = {
   message:
     "Import `Result` from '@src/domain/result.ts' (the single re-export point) instead. The underlying `typescript-result` library may only be imported by that one file so the implementation can be swapped without churning callers.",
 } as const;
+
+/**
+ * `node:child_process`'s spawn-family functions are fenced to the sanctioned wrappers everywhere
+ * outside domain/business (which ban the whole module via `nodeIoBans` already). Every
+ * external-binary spawn routes through `integration/io/cross-platform-spawn.ts`
+ * (`crossPlatformSpawn`) — see SECURITY.md. Two named exceptions carry their own justification and
+ * are excluded from this rule instead of routed through the wrapper:
+ *   - `shell-script-runner.ts` — runs a user-authored shell command *string* and needs `shell: true`,
+ *     which `crossPlatformSpawn` intentionally does not support.
+ *   - `os-notification-dispatcher.ts` — needs the *promisified* `execFile` API: a single awaited
+ *     call that buffers stdout/stderr and rejects on a non-zero exit (used both to run
+ *     `osascript` / `notify-send` and to probe `which notify-send`), a shape `crossPlatformSpawn`'s
+ *     event-based `spawn` wrapper doesn't provide. (`spawn` does accept a `timeout` option, so a
+ *     wall-clock cap alone would not justify the exception — it's specifically the buffered,
+ *     promise-shaped result that's missing.)
+ *
+ * Scoped by `importNames` (not the whole module) so type-only imports (`ChildProcess`,
+ * `ChildProcessWithoutNullStreams`, `SpawnOptions`, …) — used all over the AI provider adapters for
+ * test-seam typing — stay unaffected.
+ */
+const childProcessSpawnBan = {
+  name: 'node:child_process',
+  importNames: ['spawn', 'execFile', 'exec', 'fork', 'execSync', 'spawnSync', 'execFileSync'],
+  message:
+    'Direct node:child_process spawn/exec imports are fenced outside the sanctioned wrappers — route external-binary spawns through integration/io/cross-platform-spawn.ts (crossPlatformSpawn). shell-script-runner.ts and os-notification-dispatcher.ts are the two named exceptions — see the rationale above this rule (childProcessSpawnBan in eslint.config.ts) and the header comment in each file.',
+} as const;
+
+/** Base layer rule for src/integration/** — no imports from application. */
+const integrationLayerRule = restrictImports(['application']);
+
+/**
+ * The integration rule most files get: layer direction + the spawn/exec fence. Also the base
+ * the integration/ai sibling-isolation blocks compose over (see `mergeRestrictedImports`).
+ */
+const integrationSpawnFencedRule = restrictImports(['application'], [childProcessSpawnBan]);
 
 /**
  * Node modules that perform I/O or expose host-environment state. Banned in domain + business so
@@ -130,6 +173,39 @@ const siblingIsolationRule = (
       })),
     },
   ];
+};
+
+/**
+ * Union several `no-restricted-imports` entries into one. ESLint flat config REPLACES a
+ * same-key rule entry wholesale when a later block matches the same file — options are never
+ * merged — so a block that narrows a broader glob (a sibling-isolation block inside a layer
+ * glob) silently wipes the broader block's restrictions for its files, and vice versa. Every
+ * narrower block therefore composes its own restrictions WITH the broader block's via this
+ * helper, so whichever entry survives carries the full set regardless of declaration order.
+ * Duplicate paths/patterns (e.g. `resultLibBan`, present in both inputs) are deduped so one
+ * violation reports once. The liveness suite in tests/unit/eslint-config.test.ts pins every
+ * overlap this composes.
+ */
+const mergeRestrictedImports = (...entries: readonly Linter.RuleEntry[]): Linter.RuleEntry => {
+  const paths: unknown[] = [];
+  const patterns: unknown[] = [];
+  const seen = new Set<string>();
+  const push = (bucket: unknown[], items: readonly unknown[] | undefined, tag: string): void => {
+    for (const item of items ?? []) {
+      const key = `${tag}:${JSON.stringify(item)}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        bucket.push(item);
+      }
+    }
+  };
+  for (const entry of entries) {
+    if (!Array.isArray(entry)) continue;
+    const options = entry[1] as { readonly paths?: readonly unknown[]; readonly patterns?: readonly unknown[] };
+    push(paths, options.paths, 'path');
+    push(patterns, options.patterns, 'pattern');
+  }
+  return ['error', { paths, patterns }] as Linter.RuleEntry;
 };
 
 const FLOWS = [
@@ -267,37 +343,53 @@ const businessLayerRule: Linter.RuleEntry = [
  * are picked by the composition root. Chain compositions speak only port-level vocabulary so
  * the provider can be swapped without changing flow code.
  */
+const chainsBasePatterns = [
+  { group: ['**/application/ui/**'], message: 'Chains may not import from UI.' },
+  { group: ['**/application/bootstrap/**'], message: 'Chains may not import from bootstrap.' },
+  {
+    group: PROVIDERS.map((p) => `**/integration/ai/providers/${p}/**`),
+    message:
+      'Chains may not import concrete provider adapters — depend on integration/ai/providers/_engine/ port instead. Bootstrap selects the concrete provider.',
+  },
+  {
+    group: READINESS_PROVIDERS.map((p) => `**/integration/ai/readiness/${p}/**`),
+    message:
+      'Chains may not import concrete readiness probes — depend on integration/ai/readiness/_engine/ port instead. Bootstrap wires concrete probes.',
+  },
+  {
+    group: [...SKILLS.map((s) => `**/integration/ai/skills/${s}/**`), '**/integration/ai/skills/adapter-factory.ts'],
+    message:
+      'Chains may not import concrete skill adapters / sources — depend on integration/ai/skills/_engine/ ports instead. Bootstrap selects concrete skills.',
+  },
+];
+
+/**
+ * Per-signal Zod schemas are private to the contract engine, with ONE sanctioned exception:
+ * per-leaf `*.contract.ts` files, which the audit-[09] contract makes the single composition
+ * point declaring which signals a leaf consumes. The contract-file config blocks below use
+ * `chainsContractFileRule` (this pattern omitted); everything else under flows/ gets
+ * `chainsLayerRule` (this pattern included).
+ */
+const chainsSignalSchemaBan = {
+  group: ['**/integration/ai/contract/_engine/signals/**'],
+  message:
+    'Chains may not import per-signal Zod schemas directly — go through the leaf contract (validateSignalsFile / renderSidecars / renderContractSection) under integration/ai/contract/_engine/. Per-signal schemas are private to the contract engine; a per-leaf *.contract.ts file is the one sanctioned import point.',
+};
+
 const chainsLayerRule: Linter.RuleEntry = [
   'error',
   {
     paths: [resultLibBan],
-    patterns: [
-      { group: ['**/application/ui/**'], message: 'Chains may not import from UI.' },
-      { group: ['**/application/bootstrap/**'], message: 'Chains may not import from bootstrap.' },
-      {
-        group: PROVIDERS.map((p) => `**/integration/ai/providers/${p}/**`),
-        message:
-          'Chains may not import concrete provider adapters — depend on integration/ai/providers/_engine/ port instead. Bootstrap selects the concrete provider.',
-      },
-      {
-        group: READINESS_PROVIDERS.map((p) => `**/integration/ai/readiness/${p}/**`),
-        message:
-          'Chains may not import concrete readiness probes — depend on integration/ai/readiness/_engine/ port instead. Bootstrap wires concrete probes.',
-      },
-      {
-        group: [
-          ...SKILLS.map((s) => `**/integration/ai/skills/${s}/**`),
-          '**/integration/ai/skills/adapter-factory.ts',
-        ],
-        message:
-          'Chains may not import concrete skill adapters / sources — depend on integration/ai/skills/_engine/ ports instead. Bootstrap selects concrete skills.',
-      },
-      {
-        group: ['**/integration/ai/contract/_engine/signals/**'],
-        message:
-          'Chains may not import per-signal Zod schemas directly — go through the leaf contract (validateSignalsFile / renderSidecars / renderContractSection) under integration/ai/contract/_engine/. Per-signal schemas are private to the contract engine.',
-      },
-    ],
+    patterns: [...chainsBasePatterns, chainsSignalSchemaBan],
+  },
+];
+
+/** The chains rule for per-leaf `*.contract.ts` files — everything except the schema ban. */
+const chainsContractFileRule: Linter.RuleEntry = [
+  'error',
+  {
+    paths: [resultLibBan],
+    patterns: chainsBasePatterns,
   },
 ];
 
@@ -459,81 +551,6 @@ export default [
     },
   },
 
-  // ── integration/ai/prompts/<x>/ — sibling-prompt isolation ───────────────────
-  // Each prompt is independent. Shared machinery lives under prompts/_engine/.
-  ...PROMPTS.map((active): Linter.Config => ({
-    files: [`src/integration/ai/prompts/${active}/**/*.{ts,tsx}`],
-    rules: {
-      'no-restricted-imports': siblingIsolationRule(
-        '**/integration/ai/prompts',
-        active,
-        PROMPTS,
-        ['_engine', '_partials'],
-        'prompt'
-      ),
-    },
-  })),
-
-  // ── integration/ai/providers/<x>/ — sibling-provider isolation ───────────────
-  // Each tool adapter is independent. Cross-tool sharing goes through providers/_engine/.
-  ...PROVIDERS.map((active): Linter.Config => ({
-    files: [`src/integration/ai/providers/${active}/**/*.{ts,tsx}`],
-    rules: {
-      'no-restricted-imports': siblingIsolationRule(
-        '**/integration/ai/providers',
-        active,
-        PROVIDERS,
-        ['_engine'],
-        'provider'
-      ),
-    },
-  })),
-
-  // ── integration/ai/readiness/<x>/ — sibling-readiness-probe isolation ────────
-  // Each per-tool readiness probe is independent. Cross-tool sharing goes through readiness/_engine/.
-  ...READINESS_PROVIDERS.map((active): Linter.Config => ({
-    files: [`src/integration/ai/readiness/${active}/**/*.{ts,tsx}`],
-    rules: {
-      'no-restricted-imports': siblingIsolationRule(
-        '**/integration/ai/readiness',
-        active,
-        READINESS_PROVIDERS,
-        ['_engine'],
-        'readiness probe'
-      ),
-    },
-  })),
-
-  // ── integration/ai/skills/<x>/ — sibling-skill isolation ─────────────────────
-  // Per-tool adapter directories (claude/codex/copilot) and skill-source directories
-  // (bundled/project) are all independent siblings. Cross-sibling sharing goes through
-  // skills/_engine/. The composition switch over the per-tool adapters lives at
-  // skills/adapter-factory.ts (directly under skills/, outside the sibling glob).
-  ...SKILLS.map((active): Linter.Config => ({
-    files: [`src/integration/ai/skills/${active}/**/*.{ts,tsx}`],
-    rules: {
-      'no-restricted-imports': siblingIsolationRule('**/integration/ai/skills', active, SKILLS, ['_engine'], 'skill'),
-    },
-  })),
-
-  // ── integration/ai/agents/<x>/ — sibling-agent-definition isolation ──────────
-  // Per-tool adapter directories (claude/codex/copilot) and definition-source directories
-  // (bundled/operator) are all independent siblings. Cross-sibling sharing goes through
-  // agents/_engine/. The composition switch over the per-tool adapters lives at
-  // agents/adapter-factory.ts (directly under agents/, outside the sibling glob).
-  ...AGENTS.map((active): Linter.Config => ({
-    files: [`src/integration/ai/agents/${active}/**/*.{ts,tsx}`],
-    rules: {
-      'no-restricted-imports': siblingIsolationRule(
-        '**/integration/ai/agents',
-        active,
-        AGENTS,
-        ['_engine'],
-        'agent definition'
-      ),
-    },
-  })),
-
   // ── integration/ai/** — port declarations must live in _engine/ ──────────────
   // Port-shaped names (`*Port`, `*Adapter`, `*Provider`, `*Sink`, `*Loader`, `*Probe`,
   // `*Reader`, `*Writer`, `*Renderer`, `*Detector`) define cross-tool contracts. They
@@ -594,12 +611,17 @@ export default [
   ...BUSINESS_SIBLINGS.map((active): Linter.Config => ({
     files: [`src/business/${active}/**/*.{ts,tsx}`],
     rules: {
-      'no-restricted-imports': siblingIsolationRule(
-        '**/business',
-        active,
-        BUSINESS_SIBLINGS,
-        ['_engine', '_shared', 'observability'],
-        'business module'
+      // Composed over the layer rule — this block wins over the src/business/** block above
+      // (same key, later declaration), so it must carry the layer bans too.
+      'no-restricted-imports': mergeRestrictedImports(
+        businessLayerRule,
+        siblingIsolationRule(
+          '**/business',
+          active,
+          BUSINESS_SIBLINGS,
+          ['_engine', '_shared', 'observability'],
+          'business module'
+        )
       ),
     },
   })),
@@ -609,12 +631,10 @@ export default [
   ...REPOSITORY_SIBLINGS.map((active): Linter.Config => ({
     files: [`src/domain/repository/${active}/**/*.{ts,tsx}`],
     rules: {
-      'no-restricted-imports': siblingIsolationRule(
-        '**/domain/repository',
-        active,
-        REPOSITORY_SIBLINGS,
-        ['_base'],
-        'repository module'
+      // Composed over the domain layer rule — same-key replacement, see mergeRestrictedImports.
+      'no-restricted-imports': mergeRestrictedImports(
+        domainLayerRule,
+        siblingIsolationRule('**/domain/repository', active, REPOSITORY_SIBLINGS, ['_base'], 'repository module')
       ),
     },
   })),
@@ -626,9 +646,91 @@ export default [
   {
     files: ['src/integration/**/*.{ts,tsx}'],
     rules: {
-      'no-restricted-imports': restrictImports(['application']),
+      'no-restricted-imports': integrationLayerRule,
     },
   },
+
+  // ── integration — node:child_process spawn/exec fence ───────────────────────
+  // Overrides the block above (same glob, declared later) to additionally ban raw spawn/exec
+  // imports everywhere under integration/ EXCEPT the two named exceptions, which keep the base
+  // layer-direction check only. See `childProcessSpawnBan` for the full rationale.
+  {
+    files: ['src/integration/**/*.{ts,tsx}'],
+    ignores: [
+      'src/integration/io/shell-script-runner.ts',
+      'src/integration/observability/os-notification-dispatcher.ts',
+    ],
+    rules: {
+      'no-restricted-imports': integrationSpawnFencedRule,
+    },
+  },
+
+  // ── integration/ai/<concept>/<x>/ — sibling isolation ────────────────────────
+  // Declared AFTER the two src/integration/** blocks above: flat config replaces a same-key
+  // rule entry per file (last matching block wins), so these must win for sibling files —
+  // and each entry composes the integration base back in via `mergeRestrictedImports` so the
+  // layer direction + spawn fence keep firing inside sibling directories.
+
+  // Each prompt is independent. Shared machinery lives under prompts/_engine/.
+  ...PROMPTS.map((active): Linter.Config => ({
+    files: [`src/integration/ai/prompts/${active}/**/*.{ts,tsx}`],
+    rules: {
+      'no-restricted-imports': mergeRestrictedImports(
+        integrationSpawnFencedRule,
+        siblingIsolationRule('**/integration/ai/prompts', active, PROMPTS, ['_engine', '_partials'], 'prompt')
+      ),
+    },
+  })),
+
+  // Each tool adapter is independent. Cross-tool sharing goes through providers/_engine/.
+  ...PROVIDERS.map((active): Linter.Config => ({
+    files: [`src/integration/ai/providers/${active}/**/*.{ts,tsx}`],
+    rules: {
+      'no-restricted-imports': mergeRestrictedImports(
+        integrationSpawnFencedRule,
+        siblingIsolationRule('**/integration/ai/providers', active, PROVIDERS, ['_engine'], 'provider')
+      ),
+    },
+  })),
+
+  // Each per-tool readiness probe is independent. Cross-tool sharing goes through readiness/_engine/.
+  ...READINESS_PROVIDERS.map((active): Linter.Config => ({
+    files: [`src/integration/ai/readiness/${active}/**/*.{ts,tsx}`],
+    rules: {
+      'no-restricted-imports': mergeRestrictedImports(
+        integrationSpawnFencedRule,
+        siblingIsolationRule('**/integration/ai/readiness', active, READINESS_PROVIDERS, ['_engine'], 'readiness probe')
+      ),
+    },
+  })),
+
+  // Per-tool adapter directories (claude/codex/copilot) and skill-source directories
+  // (bundled/project) are all independent siblings. Cross-sibling sharing goes through
+  // skills/_engine/. The composition switch over the per-tool adapters lives at
+  // skills/adapter-factory.ts (directly under skills/, outside the sibling glob).
+  ...SKILLS.map((active): Linter.Config => ({
+    files: [`src/integration/ai/skills/${active}/**/*.{ts,tsx}`],
+    rules: {
+      'no-restricted-imports': mergeRestrictedImports(
+        integrationSpawnFencedRule,
+        siblingIsolationRule('**/integration/ai/skills', active, SKILLS, ['_engine'], 'skill')
+      ),
+    },
+  })),
+
+  // Per-tool adapter directories (claude/codex/copilot) and definition-source directories
+  // (bundled/operator) are all independent siblings. Cross-sibling sharing goes through
+  // agents/_engine/. The composition switch over the per-tool adapters lives at
+  // agents/adapter-factory.ts (directly under agents/, outside the sibling glob).
+  ...AGENTS.map((active): Linter.Config => ({
+    files: [`src/integration/ai/agents/${active}/**/*.{ts,tsx}`],
+    rules: {
+      'no-restricted-imports': mergeRestrictedImports(
+        integrationSpawnFencedRule,
+        siblingIsolationRule('**/integration/ai/agents', active, AGENTS, ['_engine'], 'agent definition')
+      ),
+    },
+  })),
 
   // ── application ──────────────────────────────────────────────────────────────
   // Composition root + chain framework + flow compositions + UI runtime. May depend on
@@ -651,13 +753,40 @@ export default [
     },
   },
 
-  // ── application/flows/<x>/ — sibling-flow isolation ──────────────────────────
-  ...FLOWS.map((active): Linter.Config => ({
-    files: [`src/application/flows/${active}/**/*.{ts,tsx}`],
+  // ── application/flows/**/*.contract.ts — per-leaf signal contracts ──────────
+  // The audit-[09] sanctioned composition point for per-signal Zod schemas: the schema ban is
+  // lifted here (and only here); every other chains restriction still applies.
+  {
+    files: ['src/application/flows/**/*.contract.ts'],
     rules: {
-      'no-restricted-imports': siblingIsolationRule('**/application/flows', active, FLOWS, [], 'flow'),
+      'no-restricted-imports': chainsContractFileRule,
     },
-  })),
+  },
+
+  // ── application/flows/<x>/ — sibling-flow isolation ──────────────────────────
+  // Two blocks per flow: the second re-lifts the schema ban for that flow's *.contract.ts
+  // files (same-key replacement would otherwise re-impose it via the first block).
+  ...FLOWS.flatMap((active): Linter.Config[] => [
+    {
+      files: [`src/application/flows/${active}/**/*.{ts,tsx}`],
+      rules: {
+        // Composed over the chains rule — same-key replacement, see mergeRestrictedImports.
+        'no-restricted-imports': mergeRestrictedImports(
+          chainsLayerRule,
+          siblingIsolationRule('**/application/flows', active, FLOWS, [], 'flow')
+        ),
+      },
+    },
+    {
+      files: [`src/application/flows/${active}/**/*.contract.ts`],
+      rules: {
+        'no-restricted-imports': mergeRestrictedImports(
+          chainsContractFileRule,
+          siblingIsolationRule('**/application/flows', active, FLOWS, [], 'flow')
+        ),
+      },
+    },
+  ]),
 
   // ── tests ────────────────────────────────────────────────────────────────────
   // Tests wire every layer together — only the typescript-result rule applies.

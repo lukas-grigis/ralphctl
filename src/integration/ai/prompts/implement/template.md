@@ -133,9 +133,11 @@ repository now, trust the repository and record the conflict as a `learning` sig
     measurably raises cost without improving agent success.
   - Be specific and verifiable. "Use 2-space indentation" beats "format properly".
   - Stay under 200 lines, max 7 H2 sections, no H4+. Adherence degrades past these limits.
-  - Never embed slash commands, hooks, MCP server config, IDE settings, secrets, or credentials —
-    except when a declared step explicitly calls for adding one of these items to the project context
-    file. Those artefacts otherwise have dedicated homes and do not belong there.
+  - Never embed secrets or credentials — those belong in `.env` files or a secret manager, never a
+    committed context file, with no exception.
+  - Never embed slash commands, hooks, MCP server config, or IDE settings — except when a declared
+    step explicitly calls for adding one of these items to the project context file. Those artefacts
+    otherwise have dedicated homes and do not belong there.
 
 </constraints>
 

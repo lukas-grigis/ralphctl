@@ -5,10 +5,10 @@ import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session
 import type { ClaudeProviderDeps } from '@src/integration/ai/providers/_engine/claude-provider-deps.ts';
 import { resolveWritableRoots } from '@src/integration/ai/providers/_engine/resolve-roots.ts';
 import type { SessionPermissions } from '@src/integration/ai/providers/_engine/session-permissions.ts';
-import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { isClaudeModel } from '@src/domain/value/settings-models/claude.ts';
-import { isSuspendedModel, suspendedModelMessage } from '@src/domain/value/settings-models/suspended-models.ts';
+import { validateModel } from '@src/integration/ai/providers/_engine/validate-model.ts';
 import { createClaudeStreamParser } from '@src/integration/ai/providers/claude/parse-stream.ts';
 import type { ClaudeStreamLine } from '@src/integration/ai/providers/_engine/claude-stream.ts';
 import { type ProviderSpawn, defaultProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
@@ -274,28 +274,12 @@ const disallowedToolsFor = (p: SessionPermissions): readonly string[] => {
  * for unknowns; `Result.ok(args)` otherwise.
  */
 export const buildClaudeArgs = (session: AiSession): Result<readonly string[], InvalidStateError> => {
-  if (!isClaudeModel(session.model)) {
-    return Result.error(
-      new InvalidStateError({
-        entity: PROVIDER_NAME,
-        currentState: 'model-validation',
-        attemptedAction: 'build argv',
-        message: `claude-provider: '${session.model}' is not a known Claude model`,
-      })
-    );
-  }
-  // Catalog-valid but temporarily suspended server-side (see suspended-models.ts) — fail fast
-  // with a clear message rather than dispatching a --model the provider will reject opaquely.
-  if (isSuspendedModel(session.model)) {
-    return Result.error(
-      new InvalidStateError({
-        entity: PROVIDER_NAME,
-        currentState: 'model-suspended',
-        attemptedAction: 'build argv',
-        message: suspendedModelMessage(session.model),
-      })
-    );
-  }
+  const validated = validateModel(session.model, isClaudeModel, {
+    entity: PROVIDER_NAME,
+    attemptedAction: 'build argv',
+    notKnownMessage: `claude-provider: '${session.model}' is not a known Claude model`,
+  });
+  if (!validated.ok) return Result.error(validated.error);
   // `-p` is the print-mode flag — without it `claude` launches its interactive TUI and the
   // stdin-piped prompt is silently discarded. v1 hit the same gotcha; mirror the fix here.
   // `--verbose` is required alongside `--output-format stream-json` in non-interactive `-p`

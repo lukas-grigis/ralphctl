@@ -5,85 +5,7 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { BranchOutcome } from '@src/application/chain/run/wave-scheduler.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { RepoExecConfig } from '@src/application/flows/implement/leaves/resolve-repo.ts';
-
-/**
- * Classification of every {@link ImplementCtx} field for the parallel-wave fan-in.
- *
- *  - `'sprint'`       — sprint-scoped invariant; carried straight from `base` (the ctx that
- *                       entered the wave). Same across every branch.
- *  - `'tasks'`        — the task list; the only field a wave actually mutates. Folded as a
- *                       task-keyed overlay of every branch's settled task copy onto `base.tasks`.
- *  - `'per-task'`     — single-slot state scoped to ONE in-flight task. Meaningless between waves
- *                       (each branch carried its own); reset to `undefined` in the merged ctx.
- *  - `'signal-accum'` — per-attempt signal accumulators. Likewise per-branch; reset to `undefined`.
- */
-type MergeClass = 'sprint' | 'tasks' | 'per-task' | 'signal-accum';
-
-// Named so the classification map reads as labels, not repeated string literals.
-const SPRINT = 'sprint' satisfies MergeClass;
-const TASKS = 'tasks' satisfies MergeClass;
-const PER_TASK = 'per-task' satisfies MergeClass;
-const SIGNAL_ACCUM = 'signal-accum' satisfies MergeClass;
-
-/**
- * THE exhaustiveness guard. A single object literal keyed over EVERY field of
- * {@link ImplementCtx}, `satisfies Record<keyof ImplementCtx, MergeClass>`. It is derived from the
- * interface, not a hand-maintained list: add a new field to `ImplementCtx` and this object stops
- * satisfying the constraint until the new field is classified here — a compile-time forcing
- * function so a future ctx field can never silently skip the merge/fork projection below.
- *
- * The merge/fork logic reads NOTHING from this object at runtime — it exists purely so the
- * classification is type-checked. The actual projection is hand-written below (and must be kept in
- * agreement with these labels), which is exactly the pairing the guard enforces.
- */
-const _exhaustive = {
-  // sprint-scoped → from base
-  sprintId: SPRINT,
-  sprint: SPRINT,
-  execution: SPRINT,
-  progressFile: SPRINT,
-  setupVerifiedRepoIdsThisRun: SPRINT,
-  // Loaded once in the prologue; every branch reads the same cross-sprint memory → run-scoped.
-  priorLearnings: SPRINT,
-  // task list → overlay
-  tasks: TASKS,
-  // per-task single-slot → undefined
-  taskWorkspaceRoot: PER_TASK,
-  currentTaskId: PER_TASK,
-  currentTask: PER_TASK,
-  genEvalTurn: PER_TASK,
-  currentRoundNum: PER_TASK,
-  lastEvaluation: PER_TASK,
-  plateauHistory: PER_TASK,
-  // Per-turn signal-kind distribution for the in-flight task's current gen-eval turn — meaningless
-  // between waves (each branch carries its own), reset to undefined in the merged ctx.
-  lastTurnActionCounts: PER_TASK,
-  lastExit: PER_TASK,
-  lastVerdict: PER_TASK,
-  lastBlockReason: PER_TASK,
-  lastWarning: PER_TASK,
-  lastShouldFailAttempt: PER_TASK,
-  lastVerifyResult: PER_TASK,
-  lastPreVerifyOutcome: PER_TASK,
-  priorPostVerifyOutcome: PER_TASK,
-  lastCommitSha: PER_TASK,
-  proposedCommitMessage: PER_TASK,
-  expectedBranch: PER_TASK,
-  priorGeneratorSessionId: PER_TASK,
-  priorEvaluatorSessionId: PER_TASK,
-  // signal accumulators → undefined
-  currentAttemptDecisions: SIGNAL_ACCUM,
-  currentAttemptChanges: SIGNAL_ACCUM,
-  currentAttemptLearnings: SIGNAL_ACCUM,
-  currentAttemptNotes: SIGNAL_ACCUM,
-  // Corrective-nudge tallies — same per-attempt lifecycle as the signal accumulators above.
-  currentAttemptGeneratorNudges: SIGNAL_ACCUM,
-  currentAttemptEvaluatorNudges: SIGNAL_ACCUM,
-} satisfies Record<keyof ImplementCtx, MergeClass>;
-
-// Reference the guard so it is not dead-code-eliminated / lint-flagged; its whole purpose is the
-// compile-time `satisfies` check above.
-void _exhaustive;
+import { projectSprintScopedFields } from '@src/application/flows/implement/sprint-scoped-projection.ts';
 
 /**
  * Whether a branch genuinely SETTLED its task, versus the scheduler killing it before it advanced.
@@ -111,7 +33,7 @@ const branchSettled = <TCtx>(outcome: BranchOutcome<TCtx>): boolean =>
  * `outcomes` produces an identical merged ctx. The reducer therefore needs no ordering guarantees
  * from the scheduler beyond "these outcomes all belong to the same wave."
  *
- *  - sprint-scoped fields → carried verbatim from `base`.
+ *  - sprint-scoped fields → carried verbatim from `base` via {@link projectSprintScopedFields}.
  *  - `tasks` → `base.tasks` with each settled branch's task copy overlaid by id; an unsettled
  *    (killed) branch contributes nothing, leaving its base task untouched for reset/re-run.
  *  - per-task + signal-accum fields → reset to `undefined`; they have no meaning between waves.
@@ -133,15 +55,7 @@ export const mergeImplementWave = (
   const tasks = base.tasks?.map((t) => byId.get(t.id) ?? t);
 
   return {
-    // sprint-scoped → base
-    sprintId: base.sprintId,
-    ...(base.sprint !== undefined ? { sprint: base.sprint } : {}),
-    ...(base.execution !== undefined ? { execution: base.execution } : {}),
-    ...(base.progressFile !== undefined ? { progressFile: base.progressFile } : {}),
-    ...(base.setupVerifiedRepoIdsThisRun !== undefined
-      ? { setupVerifiedRepoIdsThisRun: base.setupVerifiedRepoIdsThisRun }
-      : {}),
-    ...(base.priorLearnings !== undefined ? { priorLearnings: base.priorLearnings } : {}),
+    ...projectSprintScopedFields(base),
     // task list → overlay
     ...(tasks !== undefined ? { tasks } : {}),
     // per-task + signal-accum classes intentionally omitted → undefined in the merged ctx.
@@ -161,7 +75,8 @@ export const mergeImplementWave = (
  * pure place rather than splitting ctx-clearing from repo-redirection across the launcher.
  *
  * Projection:
- *  - sprint-scoped fields → carried from `base` (same sprint, execution, progress file).
+ *  - sprint-scoped fields → carried from `base` via {@link projectSprintScopedFields} (same sprint,
+ *    execution, progress file).
  *  - per-task single-slot + signal-accum classes → cleared (`undefined`); a fresh branch starts a
  *    fresh task with no carried per-attempt state.
  *  - `priorPostVerifyOutcome` → DROPPED (accepted cost): a parallel branch starts on its own
@@ -183,19 +98,8 @@ export const forkCtx = (
   worktreePath: AbsolutePath
 ): { readonly ctx: ImplementCtx; readonly repo: RepoExecConfig } => {
   const ctx: ImplementCtx = {
-    // sprint-scoped → base
-    sprintId: base.sprintId,
-    ...(base.sprint !== undefined ? { sprint: base.sprint } : {}),
-    ...(base.execution !== undefined ? { execution: base.execution } : {}),
-    ...(base.progressFile !== undefined ? { progressFile: base.progressFile } : {}),
+    ...projectSprintScopedFields(base),
     ...(base.tasks !== undefined ? { tasks: base.tasks } : {}),
-    // run-scoped (like `execution`): the set of repos this launch's setup verified survives the
-    // fork so a parallel branch's first pre-task-verify can also take the fresh-setup skip.
-    ...(base.setupVerifiedRepoIdsThisRun !== undefined
-      ? { setupVerifiedRepoIdsThisRun: base.setupVerifiedRepoIdsThisRun }
-      : {}),
-    // run-scoped cross-sprint memory: every branch's generator reads the same loaded ledger.
-    ...(base.priorLearnings !== undefined ? { priorLearnings: base.priorLearnings } : {}),
     // per-task + signal-accum classes cleared (omitted → undefined); `priorPostVerifyOutcome`
     // dropped (accepted cost). `expectedBranch` is intentionally NOT set here — see the docstring:
     // the branch element omits `branch-preflight`, so leaving it `undefined` is correct.

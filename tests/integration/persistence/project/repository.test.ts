@@ -1,5 +1,5 @@
 import { promises as fs } from 'node:fs';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
@@ -91,6 +91,48 @@ describe('createFsProjectRepository', () => {
     if (all.ok) {
       const expectedOrder = [a.id, b.id, c.id].sort();
       expect(all.value.map((p) => p.id)).toEqual(expectedOrder);
+    }
+  });
+
+  it('reads project files concurrently while preserving id-asc list order', async () => {
+    const repo = createFsProjectRepository({ root });
+    const a = makeProject({ id: ProjectId.generate(), slug: 'a' });
+    const b = makeProject({ id: ProjectId.generate(), slug: 'b' });
+    const c = makeProject({ id: ProjectId.generate(), slug: 'c' });
+    const expectedOrder = [a.id, b.id, c.id].sort();
+    await repo.save(a);
+    await repo.save(b);
+    await repo.save(c);
+
+    // Make the FIRST file in sort order settle LAST and hold every read briefly. A sequential
+    // implementation never overlaps (maxInFlight stays 1); an implementation that pushes results
+    // in completion order (rather than preserving array position) would also misorder the first
+    // entry. Only true concurrent reads via Promise.all satisfy both assertions below.
+    const firstId = expectedOrder[0];
+    const firstProject = [a, b, c].find((p) => p.id === firstId);
+    if (firstProject === undefined) throw new Error('expected a matching project');
+    const delayedPath = projectFile(root, firstProject.id, firstProject.slug);
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const realReadFile = fs.readFile.bind(fs);
+    const readFileSpy = vi.spyOn(fs, 'readFile').mockImplementation((async (path: string, encoding: string) => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((r) => setTimeout(r, path === delayedPath ? 20 : 5));
+      try {
+        return await realReadFile(path, encoding as BufferEncoding);
+      } finally {
+        inFlight -= 1;
+      }
+    }) as typeof fs.readFile);
+
+    try {
+      const all = await repo.list();
+      if (!all.ok) throw new Error('list failed');
+      expect(all.value.map((p) => p.id)).toEqual(expectedOrder);
+      expect(maxInFlight).toBeGreaterThan(1);
+    } finally {
+      readFileSpy.mockRestore();
     }
   });
 

@@ -9,10 +9,10 @@ import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session
 import type { CopilotProviderDeps } from '@src/integration/ai/providers/_engine/copilot-provider-deps.ts';
 import { resolveWritableRoots } from '@src/integration/ai/providers/_engine/resolve-roots.ts';
 import type { SessionPermissions } from '@src/integration/ai/providers/_engine/session-permissions.ts';
-import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { isCopilotModel } from '@src/domain/value/settings-models/copilot.ts';
-import { isSuspendedModel, suspendedModelMessage } from '@src/domain/value/settings-models/suspended-models.ts';
+import { validateModel } from '@src/integration/ai/providers/_engine/validate-model.ts';
 import { createCopilotStreamParser } from '@src/integration/ai/providers/copilot/parse-stream.ts';
 import type { CopilotStreamLine, CopilotUsage } from '@src/integration/ai/providers/_engine/copilot-stream.ts';
 import { type ProviderSpawn, defaultProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
@@ -100,28 +100,14 @@ const PROVIDER_NAME = 'copilot-provider';
  * {@link CopilotModel}; surfaces `InvalidStateError` for unknowns.
  */
 export const buildCopilotArgs = (session: AiSession): Result<readonly string[], InvalidStateError> => {
-  if (!isCopilotModel(session.model)) {
-    return Result.error(
-      new InvalidStateError({
-        entity: PROVIDER_NAME,
-        currentState: 'model-validation',
-        attemptedAction: 'build argv',
-        message: `copilot-provider: '${session.model}' is not a known Copilot model`,
-      })
-    );
-  }
   // Catalog-valid but temporarily suspended server-side (see suspended-models.ts) — the list is
   // currently empty; the guard stays wired for the next incident.
-  if (isSuspendedModel(session.model)) {
-    return Result.error(
-      new InvalidStateError({
-        entity: PROVIDER_NAME,
-        currentState: 'model-suspended',
-        attemptedAction: 'build argv',
-        message: suspendedModelMessage(session.model),
-      })
-    );
-  }
+  const validated = validateModel(session.model, isCopilotModel, {
+    entity: PROVIDER_NAME,
+    attemptedAction: 'build argv',
+    notKnownMessage: `copilot-provider: '${session.model}' is not a known Copilot model`,
+  });
+  if (!validated.ok) return Result.error(validated.error);
   // `--autopilot` is required for autonomous continuation; without it Copilot may pause
   // between actions in non-interactive mode and never finish the turn. v1's working headless
   // adapter sets this flag too — keeping the patterns aligned across versions.

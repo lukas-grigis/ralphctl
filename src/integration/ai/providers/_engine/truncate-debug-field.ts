@@ -19,7 +19,7 @@
  */
 export const truncateField = (value: string | undefined, max = 120): string | undefined => {
   if (value === undefined || value === null) return undefined;
-  if (value.length === 0) return undefined;
+  if (value.trim().length === 0) return undefined;
   if (value.length <= max) return value;
   return `${value.slice(0, max)}…`;
 };

@@ -262,26 +262,64 @@ describe('forkCtx', () => {
 });
 
 /**
- * Compile-time guard demonstration. `mergeImplementWave`'s `_exhaustive` object is
- * `satisfies Record<keyof ImplementCtx, MergeClass>`. Adding a new field to `ImplementCtx` WITHOUT
- * classifying it in that object is a TYPE ERROR (the object stops satisfying the constraint), so a
- * future ctx field can never silently bypass the merge/fork projection.
+ * Compile-time guard demonstration. `mergeImplementWave` and `forkCtx` both build their
+ * sprint-scoped slice by spreading `projectSprintScopedFields(base)` (see
+ * `sprint-scoped-projection.ts`) — the ONLY place either function reads a `'sprint'`-classified
+ * field off `base`. That module's internal `CTX_FIELD_CLASS` object is
+ * `satisfies Record<keyof ImplementCtx, MergeClass>`, so adding a new `ImplementCtx` field without
+ * classifying it there is a TYPE ERROR (classification is exhaustive).
  *
- * The block below documents what a deliberately-unclassified field would look like. It cannot be
- * left uncommented in a green suite (by design it would fail typecheck), so it is preserved here as
- * the contract record:
+ * Classification alone is not enough to force the PROJECTION to keep up (every `ImplementCtx` field
+ * except `sprintId` is optional, so a hand-written return object can legally omit an optional key)
+ * — which is exactly the gap this guard closes. `projectSprintScopedFields` declares its return
+ * type as `Required<Pick<ImplementCtx, SprintScopedKey>>`, where `SprintScopedKey` is derived by
+ * mapped type from the fields classified `'sprint'`. `Required<>` strips the optional modifier, so
+ * every sprint-scoped key MUST be explicitly present in the returned object literal — omitting one
+ * is a compile error, not a silently-accepted gap.
  *
- *   // In ctx.ts, adding:  readonly someNewField?: string | undefined;
- *   // …without adding `someNewField: '…'` to `_exhaustive` produces, at `pnpm typecheck`:
- *   //   error TS2353 / TS2741: Property 'someNewField' is missing in type '…'
- *   //   but required in type 'Record<keyof ImplementCtx, MergeClass>'.
+ * The block below documents what happens if a NEW field is classified `'sprint'` but the projection
+ * function is not updated to assign it. It cannot be left uncommented in a green suite (by design it
+ * would fail typecheck), so it is preserved here as the contract record:
+ *
+ *   // In ctx.ts, adding:                readonly someNewField?: string | undefined;
+ *   // In sprint-scoped-projection.ts's CTX_FIELD_CLASS, classifying:  someNewField: SPRINT,
+ *   // …without adding `someNewField: ctx.someNewField` to `projectSprintScopedFields`'s return
+ *   // object produces, at `pnpm typecheck`:
+ *   //   error TS2741: Property 'someNewField' is missing in type '{ sprintId: …; … }' but
+ *   //   required in type 'Required<Pick<ImplementCtx, SprintScopedKey>>'.
  *
  * This `expectTypeOf`-free note is the test surface for the guard — the actual enforcement is the
- * `satisfies` in merge-wave.ts, verified every `pnpm typecheck`.
+ * `Required<Pick<…>>` return type in sprint-scoped-projection.ts, verified every `pnpm typecheck`.
  */
 describe('exhaustiveness guard (compile-time)', () => {
-  it('is enforced by the satisfies Record<keyof ImplementCtx, MergeClass> in merge-wave.ts', () => {
+  it('is enforced by projectSprintScopedFields returning Required<Pick<ImplementCtx, SprintScopedKey>>', () => {
     // Runtime no-op: the guarantee is structural (typecheck-time), asserted by the doc above.
     expect(true).toBe(true);
+  });
+
+  it('both mergeImplementWave and forkCtx carry an unset sprint-scoped field through as undefined, not a stale prior value', () => {
+    // `setupVerifiedRepoIdsThisRun` / `priorLearnings` are deliberately left unset on this base
+    // (unlike makeBaseCtx, which always populates every sprint-scoped field) to exercise the
+    // projection's handling of an absent optional field through the shared helper.
+    const t1 = makeTodoTask();
+    const base: ImplementCtx = {
+      sprintId: sprint.id,
+      sprint,
+      execution: makeExecution(sprint.id),
+      progressFile: absolutePath('/sprints/s1/progress.md'),
+      tasks: [t1],
+    };
+
+    const merged = mergeImplementWave(base, []);
+    const { ctx: forked } = forkCtx(
+      base,
+      { path: absolutePath('/repos/main'), name: 'main-repo' },
+      absolutePath('/repos/.worktrees/wt-1')
+    );
+
+    expect(merged.setupVerifiedRepoIdsThisRun).toBeUndefined();
+    expect(merged.priorLearnings).toBeUndefined();
+    expect(forked.setupVerifiedRepoIdsThisRun).toBeUndefined();
+    expect(forked.priorLearnings).toBeUndefined();
   });
 });

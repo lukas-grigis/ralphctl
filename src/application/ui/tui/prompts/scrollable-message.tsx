@@ -70,7 +70,7 @@ export const ScrollableMessage = ({ message, ownsArrows = true }: ScrollableMess
         {glyphs.actionCursor} {header}
       </Text>
       {body.length > 0 && (
-        <Box flexDirection="column" marginTop={1}>
+        <Box flexDirection="column" marginTop={spacing.section}>
           <Box flexDirection="column" borderStyle="single" borderColor={inkColors.rule} paddingX={spacing.cardPadX}>
             {visible.map((line, i) => (
               <Text key={`body-${String(offset + i)}`}>{line.length === 0 ? ' ' : line}</Text>
