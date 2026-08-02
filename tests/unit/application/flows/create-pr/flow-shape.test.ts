@@ -24,6 +24,7 @@ describe('createCreatePrFlow — chain-shape fence', () => {
       'build-create-pr-unit',
       'render-prompt-to-file',
       'install-skills',
+      'stamp-meta-create-pr',
       'generate-pr-content',
       'uninstall-skills',
       'create-pr',

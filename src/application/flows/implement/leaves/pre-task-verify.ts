@@ -2,12 +2,13 @@ import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
-import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { VerifyRun, VerifyRunOutcome } from '@src/domain/entity/attempt.ts';
 import { normalizeVerifyGates, runVerifyGatesUseCase } from '@src/business/task/run-verify-script.ts';
 import type { RunVerifyScriptOutput } from '@src/business/task/run-verify-script.ts';
 import type { VerifyGate } from '@src/domain/entity/repository.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
+import type { WriteFile } from '@src/business/io/write-file.ts';
 import { appendAttemptVerifyRun, markAttemptBaselineBroken } from '@src/domain/entity/task-attempts.ts';
 import type { InProgressTask, Task } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
@@ -91,7 +92,16 @@ export interface PreTaskVerifyLeafDeps {
    * mutating the global process object.
    */
   readonly environment?: PreTaskVerifyEnvironment;
+  /**
+   * Atomic whole-file writer for the persisted verify log — see `persistPreVerifyLog`. Optional:
+   * callers that don't wire the port fall back to the direct `writeTextAtomic` adapter via
+   * {@link defaultWriteFile}, so behaviour is unchanged either way.
+   */
+  readonly writeFile?: WriteFile;
 }
+
+/** Fallback `WriteFile` for callers that don't (yet) wire the port — same atomic adapter either way. */
+const defaultWriteFile: WriteFile = (path, content) => writeTextAtomic(String(path), content);
 
 /**
  * Narrow surface the leaf needs from the process environment to detect interactive context.
@@ -345,7 +355,18 @@ const persistPreVerifyLog = async (
     String(input.task.id),
     `pre-attempt-${String(attemptN)}.log`
   );
-  const wrote = await writeTextAtomic(logPath, rawOutput);
+  const parsedPath = AbsolutePath.parse(logPath);
+  if (!parsedPath.ok) {
+    deps.eventBus.publish({
+      type: 'log',
+      level: 'warn',
+      message: `pre-task-verify ${String(opts.cwd)}: could not resolve log path ${logPath} — ${parsedPath.error.message}`,
+      at: deps.clock(),
+    });
+    return;
+  }
+  const writeFile = deps.writeFile ?? defaultWriteFile;
+  const wrote = await writeFile(parsedPath.value, rawOutput);
   if (!wrote.ok) {
     deps.eventBus.publish({
       type: 'log',

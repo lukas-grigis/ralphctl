@@ -22,19 +22,87 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Text } from 'ink';
 import type { BucketedExecution, TaskBucket } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
-import type { SprintState, TaskProjection } from '@src/application/ui/tui/components/tasks-projection.ts';
+import type { SprintState, TaskOverlay } from '@src/application/ui/tui/components/tasks-projection.ts';
 import type { TaskEvaluation } from '@src/application/ui/tui/components/tasks-panel-internals/evaluation-row.tsx';
 import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
 import { glyphs, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { computeListWindow, OverflowRow } from '@src/application/ui/tui/components/windowed-list.tsx';
 import { collectKinds, InlineKindsBar } from '@src/application/ui/tui/components/tasks-panel-internals/signal-rows.tsx';
-import { OrphanSignals, TaskBlock } from '@src/application/ui/tui/components/tasks-panel-internals/task-row.tsx';
+import { TaskBlock } from '@src/application/ui/tui/components/tasks-panel-internals/task-row.tsx';
+import { OrphanSignals } from '@src/application/ui/tui/components/tasks-panel-internals/orphan-signals.tsx';
 import { buildFlatFocusKeys } from '@src/application/ui/tui/components/tasks-panel-internals/focus-keys.ts';
 import { useTasksPanelInput } from '@src/application/ui/tui/components/tasks-panel-internals/keymap.ts';
 
 export { SIGNAL_LABEL_COLOR } from '@src/application/ui/tui/components/tasks-panel-internals/signal-rows.tsx';
 
-export interface TasksPanelProps {
+/**
+ * The per-task extras the host view supplies as parallel id-keyed maps. They arrive separately
+ * because each is derived from a different source (the session descriptor, the polled task
+ * entities, the planned-leaf list, the sprint projection), but the panel immediately folds them
+ * into one {@link TaskOverlay} per task so a card looks its extras up once.
+ */
+interface TaskOverlaySources {
+  /**
+   * Optional `taskId → RecoveryContext` map for tasks the launcher detected as resuming a
+   * prior aborted attempt. When set for a given task id the active-task header gets a second
+   * row: `↳ attempt N · resumed from aborted M at HH:MM (CAUSE)`. Absent / empty when no
+   * task in the run is a resume.
+   */
+  readonly recoveringByTaskId?: ReadonlyMap<string, RecoveryContext>;
+  /**
+   * Map of task id → `verificationCriteria` bullets, sourced directly from `Task.verificationCriteria`
+   * by the host view (no disk read, no async loader). When supplied, each non-pending task's
+   * header renders a collapsed 3-line summary of the criteria with a `press e to expand` hint;
+   * pressing `e` while the panel owns input toggles the active task's full criteria block.
+   */
+  readonly taskCriteriaById?: ReadonlyMap<string, readonly string[]>;
+  /**
+   * Optional `taskId → blockedReason` map sourced from the polled task entities. When a task is
+   * blocked, its reason renders under the card header so the operator sees WHY (own failure vs
+   * `blocked upstream — …`) rather than a bare `blocked` status. Absent for runs with no blocks.
+   */
+  readonly blockedReasonById?: ReadonlyMap<string, string>;
+  /**
+   * Optional `taskId → warning summary` map sourced from the polled task entities. When a task
+   * settled `done` but its FINAL attempt carries an `AttemptWarning`, its one-line summary renders
+   * under the card header with the warning glyph so a flagged completion never reads as a clean
+   * pass. Absent for runs whose done tasks are all clean.
+   */
+  readonly warningSummaryById?: ReadonlyMap<string, string>;
+  /**
+   * Optional `taskId → authoritative evaluation verdict` map sourced from the polled task
+   * entities (the LAST attempt's `evaluation.status`, keyed by task id). The card renders THIS
+   * verdict — never the timestamp-bucketed `TaskBucket.evaluations` signal stream, which mis-
+   * attributes evaluator signals to the wrong task under parallel/wave sprints (overlapping
+   * windows + AI-fabricated timestamps). Absent / no key for a task ⇒ "awaiting eval" while the
+   * card is active, or no verdict line otherwise.
+   */
+  readonly taskEvaluationById?: ReadonlyMap<string, TaskEvaluation>;
+  /**
+   * Optional `taskId → pending leaf names` map for upcoming (not-yet-run) sub-steps.
+   * Derived from `descriptor.plannedLeaves` by filtering to UUID-suffixed entries for each
+   * task id and subtracting already-executed leaves. Rendered as grey `◇` rows below the
+   * executed sub-steps so the operator sees the planned flow ahead, matching the Steps rail.
+   *
+   * Only FIXED surrounding leaves are included — dynamic generator/evaluator round-leaves are
+   * excluded so the pending list doesn't imply a fixed round count.
+   *
+   * Absent when `descriptor.plannedLeaves` is not available.
+   */
+  readonly pendingSubStepsByTaskId?: ReadonlyMap<string, readonly string[]>;
+  /**
+   * Optional projected sprint state. When supplied the per-task header appends an ETA derived
+   * from `state.tasks[i].medianRoundDurationMs * (max - currentRound)`. Absent ⇒ ETA is
+   * silently omitted (the existing `round N/M` rendering is unchanged). The view is the source
+   * of truth for whether to project: tests render TasksPanel in isolation without a projection,
+   * and the live dashboard threads it once `taskState` is polled.
+   *
+   * Stored by `order`, so entries are matched onto bucketed tasks by id rather than position.
+   */
+  readonly sprintState?: SprintState;
+}
+
+export interface TasksPanelProps extends TaskOverlaySources {
   readonly bucketed: BucketedExecution;
   readonly running: boolean;
   /** Optional id → friendly name. Falls back to first 8 chars of the id. */
@@ -74,46 +142,6 @@ export interface TasksPanelProps {
    */
   readonly maxSubStepsPerTask?: number;
   /**
-   * Optional `taskId → RecoveryContext` map for tasks the launcher detected as resuming a
-   * prior aborted attempt. When set for a given task id the active-task header gets a second
-   * row: `↳ attempt N · resumed from aborted M at HH:MM (CAUSE)`. Absent / empty when no
-   * task in the run is a resume.
-   */
-  readonly recoveringByTaskId?: ReadonlyMap<string, RecoveryContext>;
-  /**
-   * Map of task id → `verificationCriteria` bullets, sourced directly from `Task.verificationCriteria`
-   * by the host view (no disk read, no async loader). When supplied, each non-pending task's
-   * header renders a collapsed 3-line summary of the criteria with a `press e to expand` hint;
-   * pressing `e` while the panel owns input toggles the active task's full criteria block.
-   *
-   * Audit [05]: replaces the prior `readDoneCriteria` lazy loader that read from a now-deleted
-   * `<sprintDir>/implement/<task-id>/done-criteria.md`. The criteria live on the task entity,
-   * the view already polls those entities, and the file is gone.
-   */
-  readonly taskCriteriaById?: ReadonlyMap<string, readonly string[]>;
-  /**
-   * Optional `taskId → blockedReason` map sourced from the polled task entities. When a task is
-   * blocked, its reason renders under the card header so the operator sees WHY (own failure vs
-   * `blocked upstream — …`) rather than a bare `blocked` status. Absent for runs with no blocks.
-   */
-  readonly blockedReasonById?: ReadonlyMap<string, string>;
-  /**
-   * Optional `taskId → warning summary` map sourced from the polled task entities. When a task
-   * settled `done` but its FINAL attempt carries an `AttemptWarning`, its one-line summary renders
-   * under the card header with the warning glyph so a flagged completion never reads as a clean
-   * pass. Absent for runs whose done tasks are all clean.
-   */
-  readonly warningSummaryById?: ReadonlyMap<string, string>;
-  /**
-   * Optional `taskId → authoritative evaluation verdict` map sourced from the polled task
-   * entities (the LAST attempt's `evaluation.status`, keyed by task id). The card renders THIS
-   * verdict — never the timestamp-bucketed `TaskBucket.evaluations` signal stream, which mis-
-   * attributes evaluator signals to the wrong task under parallel/wave sprints (overlapping
-   * windows + AI-fabricated timestamps). Absent / no key for a task ⇒ "awaiting eval" while the
-   * card is active, or no verdict line otherwise.
-   */
-  readonly taskEvaluationById?: ReadonlyMap<string, TaskEvaluation>;
-  /**
    * Dev-only flag — when `true`, failing evaluator rows render via
    * `<EvaluatorFailurePanel>` (per-dimension colour-coded view + critique excerpt with
    * expand affordance) instead of the canonical single-line summary. Defaults `false` so
@@ -122,26 +150,6 @@ export interface TasksPanelProps {
    * .showEvaluatorFailureUI` by the launcher.
    */
   readonly showEvaluatorFailureUI?: boolean;
-  /**
-   * Optional `taskId → pending leaf names` map for upcoming (not-yet-run) sub-steps.
-   * Derived from `descriptor.plannedLeaves` by filtering to UUID-suffixed entries for each
-   * task id and subtracting already-executed leaves. Rendered as grey `◇` rows below the
-   * executed sub-steps so the operator sees the planned flow ahead, matching the Steps rail.
-   *
-   * Only FIXED surrounding leaves are included — dynamic generator/evaluator round-leaves are
-   * excluded so the pending list doesn't imply a fixed round count.
-   *
-   * Absent when `descriptor.plannedLeaves` is not available.
-   */
-  readonly pendingSubStepsByTaskId?: ReadonlyMap<string, readonly string[]>;
-  /**
-   * Optional projected sprint state. When supplied the per-task header appends an ETA derived
-   * from `state.tasks[i].medianRoundDurationMs * (max - currentRound)`. Absent ⇒ ETA is
-   * silently omitted (the existing `round N/M` rendering is unchanged). The view is the source
-   * of truth for whether to project: tests render TasksPanel in isolation without a projection,
-   * and the live dashboard threads it once `taskState` is polled.
-   */
-  readonly sprintState?: SprintState;
   /**
    * Wall-clock reference in milliseconds — used by the idle-ticker to compute the gap between
    * the latest stream signal and "now". The execute view polls every 1s and passes the latest
@@ -297,54 +305,63 @@ const useTaskCardState = (
   };
 };
 
+type TaskBlockProps = React.ComponentProps<typeof TaskBlock>;
+
+/** Shared instance for tasks with no extras at all — keeps a card's `overlay` prop reference-stable. */
+const EMPTY_OVERLAY: TaskOverlay = {};
+
 /**
- * Collapses the repeated `value !== undefined ? { key: value } : {}` conditional-spread
- * pattern into one call — keeps only the defined fields of a partial props bag. The return
- * type strips `| undefined` per field (unlike `Partial<T>`, which would keep it) so the
- * result satisfies `exactOptionalPropertyTypes` targets such as `TaskBlockProps`, matching
- * the guarantee the ternary-spread idiom got "for free" from `!== undefined` narrowing.
+ * Merge one id-keyed source into the accumulating overlays. `toField` turns a source value into
+ * the overlay fragment it contributes, or `undefined` when it contributes nothing — which is how
+ * an empty criteria / pending-sub-step list stays absent rather than rendering an empty block.
  */
-const pickDefined = <T extends Record<string, unknown>>(fields: T): { [K in keyof T]?: NonNullable<T[K]> } => {
-  const result: Record<string, unknown> = {};
-  for (const key of Object.keys(fields) as Array<keyof T>) {
-    const value = fields[key];
-    if (value !== undefined) result[key as string] = value;
+const mergeOverlaySource = <V,>(
+  into: Map<string, TaskOverlay>,
+  source: ReadonlyMap<string, V> | undefined,
+  toField: (value: V) => TaskOverlay | undefined
+): void => {
+  for (const [taskId, value] of source ?? []) {
+    const field = toField(value);
+    if (field !== undefined) into.set(taskId, { ...into.get(taskId), ...field });
   }
-  return result as { [K in keyof T]?: NonNullable<T[K]> };
 };
 
 /**
- * `undefined` and an empty array both mean "nothing to show" for a criteria / pending-sub-step
- * list — collapses the length check formerly repeated at each of those two call sites.
+ * Fold the host's parallel id-keyed maps into one `taskId → TaskOverlay` lookup. Built once per
+ * change of the source maps rather than once per card per render, which also turns the sprint
+ * projection from a linear scan per card into a single keyed pass.
+ *
+ * The key set is the union of the sources' keys — a task with no extras never gets an entry and
+ * falls back to {@link EMPTY_OVERLAY} at lookup time.
  */
-const nonEmptyOrUndefined = <T,>(arr: readonly T[] | undefined): readonly T[] | undefined =>
-  arr !== undefined && arr.length > 0 ? arr : undefined;
-
-type TaskBlockProps = React.ComponentProps<typeof TaskBlock>;
-
-/**
- * The `TasksPanelProps` fields consumed only inside {@link buildTaskRowProps} — everything
- * except the handful `TasksPanel` also needs directly, which it destructures by name and
- * therefore excludes from its own `...rest` binding (see the component below).
- */
-type TaskRowProps = Omit<
-  TasksPanelProps,
-  | 'bucketed'
-  | 'maxSignalsPerTask'
-  | 'maxTasks'
-  | 'maxOrphanSignals'
-  | 'inputActive'
-  | 'nowMs'
-  | 'onFocusedCardChange'
-  | 'onExpandedCardChange'
->;
+const buildOverlayByTaskId = (sources: TaskOverlaySources): ReadonlyMap<string, TaskOverlay> => {
+  const overlays = new Map<string, TaskOverlay>();
+  mergeOverlaySource(overlays, sources.recoveringByTaskId, (recovering) => ({ recovering }));
+  mergeOverlaySource(overlays, sources.taskCriteriaById, (b) => (b.length > 0 ? { taskCriteria: b } : undefined));
+  mergeOverlaySource(overlays, sources.blockedReasonById, (blockedReason) => ({ blockedReason }));
+  mergeOverlaySource(overlays, sources.warningSummaryById, (warningSummary) => ({ warningSummary }));
+  mergeOverlaySource(overlays, sources.taskEvaluationById, (taskEvaluation) => ({ taskEvaluation }));
+  mergeOverlaySource(overlays, sources.pendingSubStepsByTaskId, (l) =>
+    l.length > 0 ? { pendingSubSteps: l } : undefined
+  );
+  // Keyed by id (not position) so the projection order — stored by `order` — doesn't have to
+  // mirror the bucketed order, which tracks the runtime sequence.
+  const projections = new Map((sources.sprintState?.tasks ?? []).map((p) => [p.id, p]));
+  mergeOverlaySource(overlays, projections, (taskProjection) => ({ taskProjection }));
+  return overlays;
+};
 
 /**
  * Render-derived values shared by every row this render — the card-cursor/expansion state
- * (via `useTaskCardState`) plus the row-focus key and first-run flag, bundled so
- * {@link buildTaskRowProps} takes one argument instead of a dozen positional ones.
+ * (via `useTaskCardState`), the folded per-task overlays, and the panel-level settings each card
+ * needs, bundled so {@link buildTaskRowProps} takes one argument instead of a dozen positional ones.
  */
 interface TaskRowDerived {
+  readonly running: boolean;
+  readonly nameById: ReadonlyMap<string, string> | undefined;
+  readonly maxSubSteps: number;
+  readonly showEvaluatorFailureUI: boolean;
+  readonly overlayByTaskId: ReadonlyMap<string, TaskOverlay>;
   readonly effectiveFocusedKey: string | undefined;
   readonly expandedKeys: ReadonlySet<string>;
   readonly criteriaExpandedIds: ReadonlySet<string>;
@@ -357,57 +374,65 @@ interface TaskRowDerived {
 }
 
 /**
- * Pure per-task derivation for one `TaskBlock` row — absolute index, display name, and the
- * optional-prop lookups (recovery / criteria / projection / blocked reason / warning / eval /
- * pending sub-steps), each omitted when its map has no entry for this task.
+ * Pure per-task derivation for one `TaskBlock` row — absolute index, display name, the signal
+ * slice bounds, and this task's overlay.
  */
-const buildTaskRowProps = (
-  task: TaskBucket,
-  idx: number,
-  rest: TaskRowProps,
-  derived: TaskRowDerived
-): TaskBlockProps => {
+const buildTaskRowProps = (task: TaskBucket, idx: number, derived: TaskRowDerived): TaskBlockProps => {
   // Deliberate stylistic 8-char short-uuid fallback (NOT a width-driven clip) — keeps
   // the header readable when the launcher hasn't supplied a friendly name. The friendly
   // name path goes through `nameById` and renders verbatim; if a future design makes
   // the name itself overflow, wrap that path in a `<Box flexGrow>` + `wrap="truncate-end"`.
-  const display = rest.nameById?.get(task.id) ?? `${task.id.slice(0, 8)}${glyphs.clipEllipsis}`;
+  const display = derived.nameById?.get(task.id) ?? `${task.id.slice(0, 8)}${glyphs.clipEllipsis}`;
   const sliceLen = Math.min(task.signals.length, derived.maxSignalsPerTask);
   const sliceStart = task.signals.length - sliceLen;
-  // Match by id when a projection is supplied so the order of `sprintState.tasks`
-  // doesn't have to mirror the bucketed order (projections are stored by `order`; bucketed
-  // tasks track the runtime sequence).
-  const taskProjection = rest.sprintState?.tasks.find((t: TaskProjection) => t.id === task.id);
   return {
     task,
-    running: rest.running,
+    running: derived.running,
     display,
     maxSignals: derived.maxSignalsPerTask,
-    // `maxSubStepsPerTask` defaults to 12 on `TasksPanelProps` — reapplied here since this
-    // field is read straight off `rest`, not destructured with a default in `TasksPanel`.
-    maxSubSteps: rest.maxSubStepsPerTask ?? 12,
+    maxSubSteps: derived.maxSubSteps,
     focusedKey: derived.effectiveFocusedKey,
     expandedKeys: derived.expandedKeys,
     scopeId: task.id,
     sliceStart,
     criteriaExpanded: derived.criteriaExpandedIds.has(task.id),
-    // `showEvaluatorFailureUI` defaults to `false` on `TasksPanelProps` — same reapplication.
-    showEvaluatorFailureUI: rest.showEvaluatorFailureUI ?? false,
+    showEvaluatorFailureUI: derived.showEvaluatorFailureUI,
     isActive: idx === derived.activeTaskIdx,
     firstRun: derived.noSignalsYet,
     cardExpanded: derived.isCardExpanded(task.id),
     cardFocused: idx === derived.effectiveCardCursor,
     nowMs: derived.effectiveNowMs,
-    ...pickDefined({
-      recovering: rest.recoveringByTaskId?.get(task.id),
-      taskCriteria: nonEmptyOrUndefined(rest.taskCriteriaById?.get(task.id)),
-      taskProjection,
-      blockedReason: rest.blockedReasonById?.get(task.id),
-      warningSummary: rest.warningSummaryById?.get(task.id),
-      taskEvaluation: rest.taskEvaluationById?.get(task.id),
-      pendingSubSteps: nonEmptyOrUndefined(rest.pendingSubStepsByTaskId?.get(task.id)),
-    }),
+    overlay: derived.overlayByTaskId.get(task.id) ?? EMPTY_OVERLAY,
   };
+};
+
+/**
+ * The windowed run of task cards. Keeping the active / focused card visible caps the rendered card
+ * count at the terminal-derived budget so the column stops growing past the viewport; an absent
+ * `maxTasks` means "no cap", preserving isolated-render behaviour (`computeListWindow` treats a
+ * non-positive budget the same way, so an explicit `0` degrades identically).
+ */
+const TaskCards = ({
+  tasks,
+  maxTasks,
+  derived,
+}: {
+  readonly tasks: readonly TaskBucket[];
+  readonly maxTasks: number | undefined;
+  readonly derived: TaskRowDerived;
+}): React.JSX.Element => {
+  const window = computeListWindow(tasks.length, derived.effectiveCardCursor, maxTasks ?? tasks.length);
+  return (
+    <>
+      <OverflowRow direction="above" count={window.hiddenAbove} label="more above" />
+      {tasks.slice(window.start, window.end).map((task, sliceIdx) => (
+        // `isActive` / `cardFocused` compare against absolute indices, so recover the absolute
+        // position from the slice offset.
+        <TaskBlock key={task.id} {...buildTaskRowProps(task, window.start + sliceIdx, derived)} />
+      ))}
+      <OverflowRow direction="below" count={window.hiddenBelow} label="more below" />
+    </>
+  );
 };
 
 /** Empty-run placeholder — no tasks and no orphan signals yet. */
@@ -419,16 +444,40 @@ const EmptyTasksPanel = (): React.JSX.Element => (
   </Box>
 );
 
+/**
+ * Memoized {@link buildOverlayByTaskId}. Keyed on the individual source maps rather than the
+ * `sources` bag, which is a fresh rest-object on every render — so a card's `overlay` prop keeps
+ * its reference (and with it the `TaskBlock` memo bail-out) until a source map actually changes.
+ */
+const useTaskOverlays = (sources: TaskOverlaySources): ReadonlyMap<string, TaskOverlay> =>
+  useMemo(
+    () => buildOverlayByTaskId(sources),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see the docstring: `sources` itself is a new object identity every render; its maps are the real inputs.
+    [
+      sources.recoveringByTaskId,
+      sources.taskCriteriaById,
+      sources.blockedReasonById,
+      sources.warningSummaryById,
+      sources.taskEvaluationById,
+      sources.pendingSubStepsByTaskId,
+      sources.sprintState,
+    ]
+  );
+
 export const TasksPanel = ({
   bucketed,
+  running,
+  nameById,
   maxSignalsPerTask = 8,
   maxTasks,
   maxOrphanSignals = 6,
   inputActive = false,
+  maxSubStepsPerTask = 12,
+  showEvaluatorFailureUI = false,
   nowMs,
   onFocusedCardChange,
   onExpandedCardChange,
-  ...rest
+  ...overlaySources
 }: TasksPanelProps): React.JSX.Element => {
   // Render-time fallback for the idle-ticker clock. The execute view passes a polled `now` so
   // the ticker can re-evaluate on each heartbeat; isolated unit renders fall through to this
@@ -452,6 +501,10 @@ export const TasksPanel = ({
   // Task ids whose criteria block is currently expanded (full bullet list). Default state is
   // the 3-line summary. Toggled by pressing `e` while the panel owns input.
   const [criteriaExpandedIds, setCriteriaExpandedIds] = useState<ReadonlySet<string>>(() => new Set());
+
+  // One folded `taskId → TaskOverlay` lookup replacing the host's parallel maps — see
+  // `buildOverlayByTaskId`.
+  const overlayByTaskId = useTaskOverlays(overlaySources);
 
   // Card-cursor / expansion state — see `useTaskCardState`. Spread wholesale below (into both
   // `useTasksPanelInput` and `derived`) rather than destructured field-by-field so this
@@ -485,18 +538,13 @@ export const TasksPanel = ({
     bucketed.orphanSignals.length === 0 &&
     bucketed.tasks.every((t) => t.signals.length === 0 && t.evaluations.length === 0);
   const orphanSliceStart = bucketed.orphanSignals.length - Math.min(bucketed.orphanSignals.length, maxOrphanSignals);
-  // Anchored card window: keep the active / focused card visible and cap the rendered card
-  // count to the terminal-derived budget so the column stops growing past the viewport. Absent
-  // `maxTasks` ⇒ full range (no windowing), preserving isolated-render behaviour — `undefined`
-  // falls through to `bucketed.tasks.length` and `computeListWindow` itself treats a non-positive
-  // budget as "no cap" too, so an explicit `0` degrades the same way.
-  const taskWindow = computeListWindow(
-    bucketed.tasks.length,
-    cardState.effectiveCardCursor,
-    maxTasks ?? bucketed.tasks.length
-  );
   const derived: TaskRowDerived = {
     ...cardState,
+    running,
+    nameById,
+    maxSubSteps: maxSubStepsPerTask,
+    showEvaluatorFailureUI,
+    overlayByTaskId,
     effectiveFocusedKey,
     expandedKeys,
     criteriaExpandedIds,
@@ -514,15 +562,7 @@ export const TasksPanel = ({
         expandedKeys={expandedKeys}
         sliceStart={orphanSliceStart}
       />
-      <OverflowRow direction="above" count={taskWindow.hiddenAbove} label="more above" />
-      {bucketed.tasks.slice(taskWindow.start, taskWindow.end).map((task, sliceIdx) => {
-        // Absolute index into `bucketed.tasks` — the window slices a sub-range, but `isActive`
-        // and `cardFocused` compare against absolute indices (`activeTaskIdx`,
-        // `effectiveCardCursor`), so recover the absolute position from the slice offset.
-        const idx = taskWindow.start + sliceIdx;
-        return <TaskBlock key={task.id} {...buildTaskRowProps(task, idx, rest, derived)} />;
-      })}
-      <OverflowRow direction="below" count={taskWindow.hiddenBelow} label="more below" />
+      <TaskCards tasks={bucketed.tasks} maxTasks={maxTasks} derived={derived} />
     </Box>
   );
 };

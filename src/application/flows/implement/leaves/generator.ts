@@ -1,5 +1,4 @@
-import { dirname, join } from 'node:path';
-import { promises as fs } from 'node:fs';
+import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import {
   type GeneratorTurnExit,
@@ -7,47 +6,37 @@ import {
   runGeneratorTurnUseCase,
 } from '@src/business/task/run-generator-turn.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
-import type { Logger } from '@src/business/observability/logger.ts';
-import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { InProgressTask } from '@src/domain/entity/task.ts';
 import { latestCritique } from '@src/domain/entity/task-graph.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
-import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
-import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { AiSignal, HarnessSignal, LearningEntry } from '@src/domain/signal.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
-import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
-import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
-import type { PublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import { buildImplementPrompt } from '@src/integration/ai/prompts/implement/definition.ts';
 import { buildImplementContinuationPrompt } from '@src/integration/ai/prompts/implement-continuation/definition.ts';
 import type { BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
-import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
-import { renderSidecars } from '@src/integration/ai/contract/_engine/render-sidecars.ts';
-import { validateSignalsFileWithCorrectiveRetry } from '@src/integration/ai/contract/_engine/corrective-retry.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
-import { implementSession } from '@src/application/flows/implement/leaves/implement-session.ts';
 import { generatorOutputContract } from '@src/application/flows/implement/leaves/generator.contract.ts';
 import { escalationBannerId } from '@src/business/task/escalation-policy.ts';
 import { composeDimensionTrajectory } from '@src/business/task/dimension-trajectory.ts';
 import { composeTaskEpisodes } from '@src/business/task/compose-task-episodes.ts';
 import { summariseEpisodes } from '@src/business/task/episode-summary.ts';
 import { composePriorLearnings } from '@src/application/flows/_shared/memory/compose-prior-learnings.ts';
-import {
-  readRoundSessionId,
-  roundBodyPath,
-  roundCorrectiveBodyPath,
-  roundSignalsPath,
-  writeRoundPrompt,
-} from '@src/application/flows/implement/leaves/round-artifacts.ts';
-import { capProgressBody, progressCapBudgetForModel } from '@src/application/flows/_shared/progress/cap-progress.ts';
-import { composeProjectTooling } from '@src/application/flows/implement/leaves/_shared/compose-project-tooling.ts';
+import { readRoundSessionId } from '@src/application/flows/implement/leaves/round-artifacts.ts';
 import { positiveCountCarry } from '@src/application/flows/implement/leaves/_shared/nudge-count-carry.ts';
+import {
+  readCappedProgress,
+  requireRoleTurnCtx,
+  resolveProjectToolingCarry,
+  resolveRoundPaths,
+  type RoleLeafDeps,
+  runRoleTurn,
+  selfContainedGrounding,
+} from '@src/application/flows/implement/leaves/_shared/run-role-turn.ts';
 import {
   formatPreVerifyResults,
   formatRetryFeedback,
@@ -76,65 +65,7 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
  * `lastExitKind` + `lastBlockReason` to ctx so the surrounding `loop`'s `shouldStop` predicate
  * exits cleanly without running the evaluator.
  */
-export interface GeneratorLeafDeps {
-  readonly provider: HeadlessAiProvider;
-  readonly templateLoader: TemplateLoader;
-  /**
-   * Fan-out seam for every validated signal this turn — the ONE harness-signal channel
-   * (see `publish-signal.ts`). Pre-bound with this leaf's `source` (and, on the implement
-   * parallel path, the owning branch's `taskId`) by the caller.
-   */
-  readonly publishSignal: PublishSignal;
-  /**
-   * Output port used to write harness-rendered sidecars (`commit-message.txt`) post-spawn.
-   * Per audit-[09], the AI only writes `signals.json`; the harness derives every other on-
-   * disk artifact from the validated signal array. Threaded through from the flow factory's
-   * `deps.writeFile` (atomic write-to-temp+rename in production; in-memory recorder in tests).
-   */
-  readonly writeFile: WriteFile;
-  readonly cwd: AbsolutePath;
-  /**
-   * Sprint directory — mounted as a second `--add-dir` on every implement spawn so the AI
-   * can read sprint-wide artifacts (`progress.md` in particular) that live outside the
-   * per-task sandbox. Threaded down from the flow factory.
-   */
-  readonly sprintDir: AbsolutePath;
-  /**
-   * Absolute path to `<sprintDir>/progress.md` — passed straight to `buildImplementPrompt`'s
-   * `progressFile` slot so the AI's prompt names the journal file it must read for prior
-   * context (audit-[07]). The file is materialised by `create-sprint`'s init-progress-journal
-   * leaf and grows append-only thereafter; the implement chain never writes the header itself.
-   */
-  readonly progressFile: AbsolutePath;
-  readonly model: string;
-  /** Optional reasoning / effort level forwarded into every `implementSession` AiSession. */
-  readonly effort?: string;
-  /**
-   * Pre-composed bound-agent-definition prompt body (raw content — `renderAgentDefinitionSection`
-   * wraps it under the "## Agent Definition" heading at render time) — see
-   * `GenEvalLoopRoleConfig.agentDefinitionSection`. Threaded into the FULL implement prompt's
-   * `agentDefinition` slot only (round 1 of a session thread); a resumed continuation already
-   * carries it in-conversation, matching {@link priorLearnings}'s rule.
-   */
-  readonly agentDefinition?: string;
-  /**
-   * This role's bound agent-definition NAME (the portable-agents feature's bare identifier, not
-   * the rendered {@link agentDefinition} section) — threaded separately so the FULL prompt's
-   * `{{PROJECT_TOOLING}}` catalog can name the same binding `{{AGENT_DEFINITION_SECTION}}`
-   * already announces, without re-parsing the rendered prose. Absent when the role has no
-   * binding. See `compose-project-tooling.ts`.
-   */
-  readonly agentDefinitionName?: string;
-  /**
-   * Per-flow skill catalog port — the same source `installSkillsLeaf` reads to install this
-   * task's skills into the session sandbox. Read again here (best-effort) to name each installed
-   * skill in the FULL prompt's `{{PROJECT_TOOLING}}` catalog (round 1 of a session thread only).
-   * Absent → the catalog simply omits the skills lines.
-   */
-  readonly skillSource?: SkillSource;
-  readonly verifyScript?: string;
-  readonly clock: () => IsoTimestamp;
-  readonly logger: Logger;
+export interface GeneratorLeafDeps extends RoleLeafDeps {
   /**
    * Application bus used to publish the discrete `task-round-started` boundary marker. The
    * trace records back-to-back `generator-<id>` / `evaluator-<id>` leaves with no round number;
@@ -146,20 +77,9 @@ export interface GeneratorLeafDeps {
    * Configured gen-eval-loop budget (`settings.harness.maxTurns`). Stamped onto every
    * `task-round-started` event so subscribers can render `round N/M` without a second config
    * lookup; matches the value the surrounding `loop`'s `shouldContinue` predicate enforces.
+   * Also feeds the dimension-trajectory block's budget-pressure line.
    */
   readonly maxTurns: number;
-  /**
-   * Configured plateau threshold (`settings.harness.plateauThreshold`). Used by the input
-   * projection to compose the dimension-trajectory block's budget-pressure line — the loop
-   * plateau-exits after this many consecutive stalled rounds, so the generator gets the warning
-   * one round early. Matches the value the evaluator leaf feeds the plateau predicate.
-   */
-  readonly plateauThreshold: number;
-  /**
-   * Bounded corrective in-round nudges before a signals.json contract failure self-blocks the task
-   * (`settings.harness.correctiveRetries`, 1–5). Threaded into `validateSignalsFileWithCorrectiveRetry`.
-   */
-  readonly correctiveRetries: number;
   /**
    * Best-effort reader for the trailing bytes of the harness verify-script logs under
    * `<sprintDir>/logs/verify/<taskId>/{pre,post}-attempt-<n>.log`. Used to enrich the
@@ -278,33 +198,6 @@ const countTurnActionKinds = (out: GeneratorOutput): Map<string, number> => {
 };
 
 /**
- * Read the current `progress.md` body to inline into the prompt, CAPPED to the sprint header,
- * ALL of the current task's own attempt sections, and the last N other-task sections (see
- * {@link capProgressBody}). `progress.md` is sprint-wide and append-only, so a late-sprint
- * journal is dozens of sections long; inlining the whole body into every generator turn grew
- * token cost superlinearly. The cap bounds breadth across siblings — the current task's own
- * history rides in full because its earlier warnings / escalations / remedies are the depth the
- * next attempt must honour — while the FULL file stays on disk, reachable to the AI via the
- * `sprintDir` `--add-dir` mount named in the prompt, with every elision marked in place. Applied
- * to both the full implement prompt (round 1 / fresh session) and the continuation prompt.
- *
- * Best-effort: a missing / unreadable file returns the empty string so the template's
- * surrounding prose handles the empty case without a per-flow special branch. The current task's
- * own history is matched on its STABLE id (not its name); the sibling breadth bound scales to the
- * configured generator model's context window.
- */
-const readCappedProgress = async (path: string, currentTaskId: string, model: string): Promise<string> => {
-  try {
-    return capProgressBody(await fs.readFile(path, 'utf8'), {
-      currentTaskId,
-      recentBudgetTokens: progressCapBudgetForModel(model),
-    });
-  } catch {
-    return '';
-  }
-};
-
-/**
  * True when this turn is a top-of-ladder same-model nudge that should arm the "change your
  * approach" directive — `escalatedFromModel === escalatedToModel` (the same-model marker, NOT a
  * model bump) AND the retry was DRIVEN by a stall (the last settled attempt carries a `plateau` /
@@ -332,134 +225,59 @@ const isPlateauBreakAttempt = (task: InProgressTask): boolean => {
  * getting the full prompt automatically — the discriminant is the same field `--resume` consumes,
  * so the prompt and the resume target can never disagree.
  *
- * Shared between both branches:
- *  - `priorProgress` — the capped sprint-journal excerpt (full file stays on disk).
- *  - `plateauBreak` — see {@link isPlateauBreakAttempt} for the same-model-nudge arming rule.
- *  - the `<pre_verify_results>` / `<retry_feedback>` verify blocks — already composed by the leaf
- *    (best-effort log reads) and passed in as `preVerifyOutput` / `retryFeedback`.
+ * `sharedValues` below is exactly what both branches send. The full-prompt-only extras —
+ * prior-learnings, prior-episodes, the agent-definition section, the tooling catalog — are
+ * deliberately absent from the continuation: a resumed thread already carries them
+ * in-conversation, so re-sending would be redundant context.
  */
-
-/**
- * Resolve the FULL prompt's `{{PROJECT_TOOLING}}` carry (round 1 of a session thread only — the
- * continuation prompt does not declare the placeholder, mirroring `agentDefinition`'s
- * full-prompt-only rule). Returns the ready-to-spread `{ projectTooling }` fragment (or `{}` when
- * there is nothing to name) so the caller stays a flat, branch-free spread — matching the shape
- * of every other `*Carry` in {@link buildGeneratorPrompt}. Best-effort: a skill-source read
- * failure degrades to naming only the bound agent definition (or to nothing at all) rather than
- * failing the turn — tooling-catalog enrichment must never block a generator round.
- */
-const resolveGeneratorProjectToolingCarry = async (
-  deps: Pick<GeneratorLeafDeps, 'agentDefinitionName' | 'skillSource'>
-): Promise<{ readonly projectTooling?: string }> => {
-  const skills = deps.skillSource !== undefined ? await deps.skillSource.getForFlow('implement') : undefined;
-  const projectTooling = composeProjectTooling({
-    ...(deps.agentDefinitionName !== undefined ? { agentDefinitionName: deps.agentDefinitionName } : {}),
-    ...(skills?.ok === true ? { skills: skills.value } : {}),
-  });
-  return projectTooling.length > 0 ? { projectTooling } : {};
-};
-
 const buildGeneratorPrompt = async (
-  deps: Pick<
-    GeneratorLeafDeps,
-    | 'templateLoader'
-    | 'cwd'
-    | 'progressFile'
-    | 'verifyScript'
-    | 'model'
-    | 'agentDefinition'
-    | 'agentDefinitionName'
-    | 'skillSource'
-  >,
+  deps: GeneratorLeafDeps,
   args: {
     readonly task: InProgressTask;
-    readonly workspaceRoot: AbsolutePath;
-    readonly roundNum: number;
+    readonly input: GeneratorInput;
     readonly outputContractSection: string;
-    readonly priorGeneratorSessionId: SessionId | undefined;
-    /**
-     * Pre-composed dimension-trajectory block (round 2+) — threaded into the builder's
-     * `dimensionTrajectory` slot only when non-empty so the `PRIOR_CRITIQUE_SECTION` placeholder
-     * collapses cleanly on round 1.
-     */
-    readonly dimensionTrajectory: string;
-    /**
-     * Pre-composed prior-learnings block — threaded into the FULL implement prompt's
-     * `priorLearnings` slot only when non-empty. Ignored on the continuation branch (the resumed
-     * thread already carries it).
-     */
-    readonly priorLearnings: string;
-    /**
-     * Pre-composed prior-episodes block (R4) — threaded into the FULL implement prompt's
-     * `priorEpisodes` slot only when non-empty. Ignored on the continuation branch (the resumed
-     * thread already carries it), exactly like `priorLearnings`.
-     */
-    readonly priorEpisodes: string;
     /**
      * Pre-rendered `<pre_verify_results>` body — the current attempt's harness pre-verify run +
-     * log tail (T4). Empty string when no pre-verify ran. Passed through to the builder's
-     * `preVerifyOutput` slot only when non-empty so the placeholder collapses cleanly otherwise.
+     * log tail. Empty string when no pre-verify ran, which collapses the placeholder cleanly.
      */
     readonly preVerifyOutput: string;
     /**
      * Pre-rendered `<retry_feedback>` body — the prior attempt's failing post-verify run + log
-     * tail (T4 stub for T6). Empty string when there is no failing prior post-verify.
+     * tail. Empty string when there is no failing prior post-verify.
      */
     readonly retryFeedback: string;
   }
 ): Promise<Result<Prompt, BuildPromptError>> => {
+  const { input } = args;
   const priorCritique = latestCritique(args.task);
-  const priorProgress = await readCappedProgress(String(deps.progressFile), String(args.task.id), deps.model);
-  const contractPath = join(String(args.workspaceRoot), 'contract.md');
   const plateauBreak = isPlateauBreakAttempt(args.task);
-
-  // Thread the verify blocks through only when non-empty so the renderer's absent-branch
-  // collapses the `<pre_verify_results>` / `<retry_feedback>` placeholders cleanly.
-  const preVerifyCarry = args.preVerifyOutput.length > 0 ? { preVerifyOutput: args.preVerifyOutput } : {};
-  const retryFeedbackCarry = args.retryFeedback.length > 0 ? { retryFeedback: args.retryFeedback } : {};
-  // Dimension trajectory rides inside PRIOR_CRITIQUE_SECTION — thread only when non-empty so the
-  // round-1 case (no trajectory to diff) collapses the section without an orphan heading.
-  const trajectoryCarry = args.dimensionTrajectory.length > 0 ? { dimensionTrajectory: args.dimensionTrajectory } : {};
-  // Prior-learnings rides ONLY the full prompt (continuation already carries it in-conversation).
-  const priorLearningsCarry = args.priorLearnings.length > 0 ? { priorLearnings: args.priorLearnings } : {};
-  // Prior-episodes (R4) rides ONLY the full prompt — same rule as prior-learnings.
-  const priorEpisodesCarry = args.priorEpisodes.length > 0 ? { priorEpisodes: args.priorEpisodes } : {};
-  // Agent-definition section rides ONLY the full prompt (a resumed continuation already carries
-  // it in-conversation) — same rule as prior-learnings / prior-episodes.
-  const agentDefinitionCarry = deps.agentDefinition !== undefined ? { agentDefinition: deps.agentDefinition } : {};
-
-  if (args.priorGeneratorSessionId === undefined) {
-    const projectToolingCarry = await resolveGeneratorProjectToolingCarry(deps);
-    return buildImplementPrompt(deps.templateLoader, {
-      task: args.task,
-      projectPath: String(deps.cwd),
-      contractPath,
-      progressFile: String(deps.progressFile),
-      priorProgress,
-      outputContractSection: args.outputContractSection,
-      ...(deps.verifyScript !== undefined ? { verifyScript: deps.verifyScript } : {}),
-      ...projectToolingCarry,
-      ...(priorCritique !== undefined ? { priorCritique } : {}),
-      ...(plateauBreak ? { plateauBreak: true } : {}),
-      ...trajectoryCarry,
-      ...priorLearningsCarry,
-      ...priorEpisodesCarry,
-      ...agentDefinitionCarry,
-      ...preVerifyCarry,
-      ...retryFeedbackCarry,
-    });
-  }
-  return buildImplementContinuationPrompt(deps.templateLoader, {
-    roundNumber: args.roundNum,
-    contractPath,
+  // Each block rides only when non-empty so the renderer's absent-branch collapses its
+  // placeholder — no orphan headings on round 1 or on a turn with no verify history. The
+  // dimension trajectory rides inside PRIOR_CRITIQUE_SECTION.
+  const sharedValues = {
+    contractPath: join(String(input.workspaceRoot), 'contract.md'),
     progressFile: String(deps.progressFile),
-    priorProgress,
+    priorProgress: await readCappedProgress(String(deps.progressFile), String(args.task.id), deps.model),
     outputContractSection: args.outputContractSection,
     ...(priorCritique !== undefined ? { priorCritique } : {}),
     ...(plateauBreak ? { plateauBreak: true } : {}),
-    ...trajectoryCarry,
-    ...preVerifyCarry,
-    ...retryFeedbackCarry,
+    ...(input.dimensionTrajectory !== undefined ? { dimensionTrajectory: input.dimensionTrajectory } : {}),
+    ...(args.preVerifyOutput.length > 0 ? { preVerifyOutput: args.preVerifyOutput } : {}),
+    ...(args.retryFeedback.length > 0 ? { retryFeedback: args.retryFeedback } : {}),
+  };
+
+  if (input.priorGeneratorSessionId !== undefined) {
+    return buildImplementContinuationPrompt(deps.templateLoader, { ...sharedValues, roundNumber: input.roundNum });
+  }
+  return buildImplementPrompt(deps.templateLoader, {
+    ...sharedValues,
+    task: args.task,
+    projectPath: String(deps.cwd),
+    ...(deps.verifyScript !== undefined ? { verifyScript: deps.verifyScript } : {}),
+    ...(await resolveProjectToolingCarry(deps)),
+    ...(input.priorLearnings !== undefined ? { priorLearnings: input.priorLearnings } : {}),
+    ...(input.priorEpisodes !== undefined ? { priorEpisodes: input.priorEpisodes } : {}),
+    ...(deps.agentDefinition !== undefined ? { agentDefinition: deps.agentDefinition } : {}),
   });
 };
 
@@ -600,56 +418,9 @@ const announceRoundStart = (
 };
 
 /**
- * Build one generator turn's corrective-retry `reinvoke` callback — resumes the just-spawned
- * thread (falling back to the prior round's session id when this spawn never reported one to
- * disk) so the corrective message lands as a follow-up turn on the SAME conversation the AI
- * just wrote invalid/missing signals from.
- */
-const makeGeneratorReinvoke =
-  (
-    deps: Pick<GeneratorLeafDeps, 'provider' | 'cwd' | 'sprintDir'>,
-    args: {
-      readonly workspaceRoot: AbsolutePath;
-      readonly roundNum: number;
-      readonly signalsFile: AbsolutePath;
-      readonly effectiveModel: string;
-      /** Effort the initial spawn ran at (`task.escalatedToEffort ?? deps.effort`) — the corrective respawn matches it. */
-      readonly effectiveEffort: string | undefined;
-      readonly priorGeneratorSessionId: SessionId | undefined;
-      readonly signal: AbortSignal | undefined;
-    }
-  ): ((corrective: Prompt, attempt: number) => Promise<Result<void, DomainError>>) =>
-  async (corrective, attempt) => {
-    const resume =
-      (await readRoundSessionId(args.workspaceRoot, args.roundNum, 'generator')) ?? args.priorGeneratorSessionId;
-    // Per-nudge forensic body mirror so a 2nd/3rd nudge never clobbers an earlier capture. Parse is
-    // best-effort — a bad path just omits the mirror, never fails the spawn.
-    const bodyFile = AbsolutePath.parse(
-      roundCorrectiveBodyPath(args.workspaceRoot, args.roundNum, 'generator', attempt)
-    );
-    const respawn = await deps.provider.generate(
-      implementSession(
-        args.workspaceRoot,
-        deps.cwd,
-        deps.sprintDir,
-        corrective as Prompt,
-        args.effectiveModel,
-        args.signalsFile,
-        'generator',
-        resume,
-        args.effectiveEffort,
-        args.signal,
-        bodyFile.ok ? bodyFile.value : undefined
-      )
-    );
-    return respawn.ok ? Result.ok(undefined) : Result.error(respawn.error);
-  };
-
-/**
- * Build this turn's `callImplement` — composes the harness-verify prompt blocks, builds + persists
- * the prompt, spawns the generator (on the task's escalated model when present), validates
- * `signals.json` with one corrective retry, publishes the parsed signals onto the bus while
- * accumulating their texts, and renders harness-owned sidecars. Returns the parsed signals for
+ * Build this turn's `callImplement` — composes the harness-verify prompt blocks + the generator
+ * prompt, then hands the rest of the turn to {@link runRoleTurn} (persist prompt, spawn, validate
+ * with bounded corrective nudges, render sidecars). Returns the parsed signals for
  * `runGeneratorTurnUseCase` to interpret.
  */
 const makeGeneratorCallImplement =
@@ -669,114 +440,58 @@ const makeGeneratorCallImplement =
   async (task) => {
     const outputContractSection = renderContractSectionFor(generatorOutputContract, args.outputDir);
 
-    // T4: surface the harness's pre-task verify result (so the generator reviews baseline
-    // state instead of re-running the verify script in-turn) and the prior attempt's failing
-    // post-verify (so a retry fixes the regression first). All best-effort — see helper.
-    const { preVerifyOutput, retryFeedback } = await composeVerifyBlocks(
-      args.logTailReader,
-      deps.sprintDir,
-      taskId,
-      task
-    );
-
-    const prompt = await buildGeneratorPrompt(deps, {
-      task,
+    const turn = await runRoleTurn(deps, {
+      role: 'generator',
       workspaceRoot: args.input.workspaceRoot,
       roundNum: args.roundNum,
-      outputContractSection,
-      priorGeneratorSessionId: args.input.priorGeneratorSessionId,
-      dimensionTrajectory: args.input.dimensionTrajectory ?? '',
-      priorLearnings: args.input.priorLearnings ?? '',
-      priorEpisodes: args.input.priorEpisodes ?? '',
-      preVerifyOutput,
-      retryFeedback,
-    });
-    if (!prompt.ok) return Result.error(prompt.error) as Result<readonly HarnessSignal[], DomainError>;
-    // Persist the rendered prompt under `rounds/<N>/generator/prompt.md` BEFORE the AI
-    // call so a crash mid-spawn still leaves the prompt that triggered it on disk for
-    // post-hoc replay. Best-effort: the writer logs and swallows on failure (the audit
-    // trail must never take down the chain).
-    await writeRoundPrompt(args.input.workspaceRoot, args.roundNum, 'generator', String(prompt.value), deps.logger);
-
-    // Per-task generator-model escalation: when the task carries an `escalatedToModel`
-    // (stamped by the prior plateau's escalation policy), spawn the generator on that
-    // upgraded model instead of the configured row. Evaluator model is intentionally
-    // unaffected — escalation only touches the generator role.
-    const effectiveModel = task.escalatedToModel ?? deps.model;
-    // Per-task generator-EFFORT escalation: the same-model effort rung stamps `escalatedToEffort`
-    // (default → high) when the generator topped out on the model ladder but still had effort
-    // headroom. Prefer it over the configured `deps.effort` at spawn — mirrors the model override
-    // above. Without this read the effort bump the policy granted would never reach the spawn.
-    const effectiveEffort = task.escalatedToEffort ?? deps.effort;
-    // Forensic mirror of the initial spawn's raw body — best-effort parse; a bad path omits it.
-    const initialBodyFile = AbsolutePath.parse(roundBodyPath(args.input.workspaceRoot, args.roundNum, 'generator'));
-    const spawn = await deps.provider.generate(
-      implementSession(
-        args.input.workspaceRoot,
-        deps.cwd,
-        deps.sprintDir,
-        prompt.value,
-        effectiveModel,
-        args.signalsFile,
-        'generator',
-        args.input.priorGeneratorSessionId,
-        effectiveEffort,
-        args.signal,
-        initialBodyFile.ok ? initialBodyFile.value : undefined
-      )
-    );
-    if (!spawn.ok) return Result.error(spawn.error);
-
-    // Validate `signals.json` against the generator contract. On a RECOVERABLE failure
-    // (signals-missing / invalid-json / schema-mismatch) re-prompt the generator ONCE on
-    // the resumed session with a corrective message + the Zod issue list, then re-validate.
-    // `runGeneratorTurnUseCase` converts a still-failing validation into a `self-blocked`
-    // exit (task settles as blocked, run continues); only a fatal `Aborted`/`RateLimit`
-    // propagates and aborts the run.
-    const validated = await validateSignalsFileWithCorrectiveRetry(
-      {
-        outputDir: args.outputDir,
-        logger: deps.logger,
-        correctiveRetries: deps.correctiveRetries,
-        // Self-containment for a COLD corrective spawn (no resumable id / codex stale-resume
-        // fallback): the per-round output contract + the on-disk task spec, so a fresh
-        // session re-reads its grounding instead of emitting signals from the error text.
-        selfContainedContext: [
-          `Task spec (read it): \`${join(String(args.input.workspaceRoot), 'contract.md')}\``,
-          '',
+      signalsFile: args.signalsFile,
+      outputDir: args.outputDir,
+      // Per-task generator-model escalation: when the task carries an `escalatedToModel`
+      // (stamped by the prior plateau's escalation policy), spawn the generator on that
+      // upgraded model instead of the configured row. Evaluator model is intentionally
+      // unaffected — escalation only touches the generator role.
+      model: task.escalatedToModel ?? deps.model,
+      // Per-task generator-EFFORT escalation: the same-model effort rung stamps `escalatedToEffort`
+      // (default → high) when the generator topped out on the model ladder but still had effort
+      // headroom. Prefer it over the configured `deps.effort` at spawn — mirrors the model override
+      // above. Without this read the effort bump the policy granted would never reach the spawn.
+      effort: task.escalatedToEffort ?? deps.effort,
+      priorSessionId: args.input.priorGeneratorSessionId,
+      signal: args.signal,
+      contract: generatorOutputContract,
+      buildPrompt: async () => {
+        // T4: surface the harness's pre-task verify result (so the generator reviews baseline
+        // state instead of re-running the verify script in-turn) and the prior attempt's failing
+        // post-verify (so a retry fixes the regression first). All best-effort — see helper.
+        const { preVerifyOutput, retryFeedback } = await composeVerifyBlocks(
+          args.logTailReader,
+          deps.sprintDir,
+          taskId,
+          task
+        );
+        return buildGeneratorPrompt(deps, {
+          task,
+          input: args.input,
           outputContractSection,
-        ].join('\n'),
-        reinvoke: makeGeneratorReinvoke(deps, {
-          workspaceRoot: args.input.workspaceRoot,
-          roundNum: args.roundNum,
-          signalsFile: args.signalsFile,
-          effectiveModel,
-          effectiveEffort,
-          priorGeneratorSessionId: args.input.priorGeneratorSessionId,
-          signal: args.signal,
-        }),
+          preVerifyOutput,
+          retryFeedback,
+        });
       },
-      generatorOutputContract
-    );
-    if (!validated.ok) return Result.error(validated.error);
-    const signals = validated.value.signals;
+      selfContainedContext: selfContainedGrounding(args.input.workspaceRoot, outputContractSection),
+      onSignals: (signals) => {
+        accumulateAndEmitSignals(deps, signals, args.accumulators);
+      },
+    });
+    if (!turn.ok) return Result.error(turn.error) as Result<readonly HarnessSignal[], DomainError>;
     // Cost-visibility out-channel — see GeneratorTurnAccumulators' docstring for why this rides
     // a mutated field rather than widening `callImplement`'s return type.
-    args.accumulators.correctiveNudgeCount = validated.value.nudgeCount;
-
-    accumulateAndEmitSignals(deps, signals, args.accumulators);
-
-    // Render harness-owned sidecars (`commit-message.txt` when present). Write
-    // failures log warn inside `renderSidecars`; the helper always returns
-    // `Result.ok` (sidecars are operator UX only — downstream leaves read in-memory
-    // signals from ctx, never the sidecar file).
-    await renderSidecars(deps.writeFile, args.outputDir, signals, generatorOutputContract.sidecars, deps.logger);
+    args.accumulators.correctiveNudgeCount = turn.value.nudgeCount;
 
     // `runGeneratorTurnUseCase` expects `readonly HarnessSignal[]`. `GeneratorContractSignal`
     // is a strict subset of `HarnessSignal`, but TS's array variance doesn't infer
     // that automatically — cast through `AiSignal[]` (the canonical union alias) to
     // keep the call site honest about the underlying domain shape.
-    return Result.ok(signals as readonly AiSignal[]) as Result<readonly HarnessSignal[], DomainError>;
+    return Result.ok(turn.value.signals as readonly AiSignal[]) as Result<readonly HarnessSignal[], DomainError>;
   };
 
 /**
@@ -792,19 +507,10 @@ const makeGeneratorExecute =
   ): ((input: GeneratorInput, signal?: AbortSignal) => Promise<Result<GeneratorOutput, DomainError>>) =>
   async (input, signal) => {
     const roundNum = input.roundNum;
-    const signalsFilePath = AbsolutePath.parse(roundSignalsPath(input.workspaceRoot, roundNum, 'generator'));
-    if (!signalsFilePath.ok) return Result.error(signalsFilePath.error);
-    const signalsFile = signalsFilePath.value;
+    const paths = resolveRoundPaths(input.workspaceRoot, roundNum, 'generator');
+    if (!paths.ok) return Result.error(paths.error);
 
     announceRoundStart(deps, taskId, input.task, roundNum);
-
-    // `outputDir` is the per-round directory (`rounds/<N>/generator/`); `validateSignalsFile`
-    // resolves `<outputDir>/signals.json` and `renderSidecars` writes harness-rendered
-    // sidecars into the same directory. We derive it once from `signalsFile` so the two
-    // paths stay structurally coupled.
-    const outputDirPath = AbsolutePath.parse(dirname(String(signalsFile)));
-    if (!outputDirPath.ok) return Result.error(outputDirPath.error);
-    const outputDir = outputDirPath.value;
 
     // Per-turn signal accumulators — closure-captured so the leaf can stamp the
     // emitted texts onto ctx in `output(...)`. The journal leaf reads the aggregate
@@ -820,8 +526,7 @@ const makeGeneratorExecute =
     const callImplement = makeGeneratorCallImplement(deps, taskId, {
       input,
       roundNum,
-      signalsFile,
-      outputDir,
+      ...paths.value,
       logTailReader,
       signal,
       accumulators,
@@ -865,39 +570,7 @@ const makeGeneratorInput =
     taskId: TaskId
   ): ((ctx: ImplementCtx) => GeneratorInput) =>
   (ctx) => {
-    const PRE_GENERATOR_STATE = 'pre-generator';
-    if (ctx.currentTask === undefined || ctx.currentTask.id !== taskId) {
-      throw new InvalidStateError({
-        entity: 'chain',
-        currentState: PRE_GENERATOR_STATE,
-        attemptedAction: `generator-${String(taskId)}`,
-        message: `generator-${String(taskId)}: ctx.currentTask missing or mismatched`,
-      });
-    }
-    if (ctx.currentTask.status !== 'in_progress') {
-      throw new InvalidStateError({
-        entity: 'task',
-        currentState: ctx.currentTask.status,
-        attemptedAction: `generator-${String(taskId)}`,
-        message: `generator-${String(taskId)}: expected in_progress task`,
-      });
-    }
-    if (ctx.taskWorkspaceRoot === undefined) {
-      throw new InvalidStateError({
-        entity: 'chain',
-        currentState: PRE_GENERATOR_STATE,
-        attemptedAction: `generator-${String(taskId)}`,
-        message: `generator-${String(taskId)}: ctx.taskWorkspaceRoot missing — buildTaskWorkspaceLeaf must run first`,
-      });
-    }
-    if (ctx.currentRoundNum === undefined) {
-      throw new InvalidStateError({
-        entity: 'chain',
-        currentState: PRE_GENERATOR_STATE,
-        attemptedAction: `generator-${String(taskId)}`,
-        message: `generator-${String(taskId)}: ctx.currentRoundNum missing — resolve-round-num must run first`,
-      });
-    }
+    const { task, workspaceRoot, roundNum } = requireRoleTurnCtx(ctx, 'generator', taskId);
     // Compose the dimension-trajectory feed-forward (principles 6 + 15) from the per-attempt
     // evaluator-turn history. Pure ctx read — `composeDimensionTrajectory` returns '' until there
     // are two turns to diff (round 1 has none), so the prompt's PRIOR_CRITIQUE_SECTION collapses
@@ -905,7 +578,7 @@ const makeGeneratorInput =
     const dimensionTrajectory = composeDimensionTrajectory({
       history: ctx.plateauHistory ?? [],
       plateauThreshold: deps.plateauThreshold,
-      roundNum: ctx.currentRoundNum,
+      roundNum,
       maxTurns: deps.maxTurns,
     });
     // Cross-sprint procedural memory (principle 3) loaded once by the prologue's `load-learnings`.
@@ -915,10 +588,10 @@ const makeGeneratorInput =
     // read; '' until a sibling has settled (done/blocked) so the prompt placeholder collapses.
     const priorEpisodes = summariseEpisodes(composeTaskEpisodes(ctx.tasks ?? [], taskId, ctx.sprintId));
     return {
-      task: ctx.currentTask,
+      task,
       turn: (ctx.genEvalTurn ?? 0) + 1,
-      workspaceRoot: ctx.taskWorkspaceRoot,
-      roundNum: ctx.currentRoundNum,
+      workspaceRoot,
+      roundNum,
       ...(ctx.priorGeneratorSessionId !== undefined ? { priorGeneratorSessionId: ctx.priorGeneratorSessionId } : {}),
       ...(dimensionTrajectory.length > 0 ? { dimensionTrajectory } : {}),
       ...(priorLearnings.length > 0 ? { priorLearnings } : {}),
@@ -971,36 +644,7 @@ const generatorOutput = (ctx: ImplementCtx, out: GeneratorOutput): ImplementCtx 
   // turn's map) so the entropy-plateau heuristic in the gen-eval loop sees the current turn's
   // action diversity, never an accumulation across turns.
   const actionCountsCarry = { lastTurnActionCounts: countTurnActionKinds(out) };
-  if (out.exit !== undefined) {
-    // Both exit kinds stop the inner loop + skip the evaluator (both key on `lastExit`), but
-    // they diverge on `lastBlockReason`:
-    //  - `self-blocked` (generator emitted `<task-blocked>` / codex-copilot signals-contract
-    //    failure) sets it → settle terminal-blocks the task after one attempt (unchanged).
-    //  - `crashed` (watchdog kill / spawn crash) sets ONLY `lastExit`. It must NOT set
-    //    `lastBlockReason`: finalize is the sole authority for whether a crash blocks (it grants
-    //    a retry within maxAttempts, then blocks at the cap). Because `finalizeGenEvalLeaf` only
-    //    ADDS a block reason (conditional spread) and never CLEARS a stale one, a block reason
-    //    stamped here would leak past finalize into settle and wrongly terminal-block the task.
-    const blockReasonCarry = out.exit.kind === 'self-blocked' ? { lastBlockReason: out.exit.reason } : {};
-    return {
-      ...ctx,
-      currentTask: out.task,
-      tasks,
-      genEvalTurn: out.turn,
-      currentRoundNum: out.roundNum,
-      lastExit: { kind: out.exit.kind, reason: out.exit.reason },
-      ...blockReasonCarry,
-      ...carry,
-      ...sessionCarry,
-      ...decisionsCarry,
-      ...changesCarry,
-      ...learningsCarry,
-      ...notesCarry,
-      ...generatorNudgesCarry,
-      ...actionCountsCarry,
-    };
-  }
-  return {
+  const next: ImplementCtx = {
     ...ctx,
     currentTask: out.task,
     tasks,
@@ -1015,6 +659,18 @@ const generatorOutput = (ctx: ImplementCtx, out: GeneratorOutput): ImplementCtx 
     ...generatorNudgesCarry,
     ...actionCountsCarry,
   };
+  if (out.exit === undefined) return next;
+  // Both exit kinds stop the inner loop + skip the evaluator (both key on `lastExit`), but
+  // they diverge on `lastBlockReason`:
+  //  - `self-blocked` (generator emitted `<task-blocked>` / codex-copilot signals-contract
+  //    failure) sets it → settle terminal-blocks the task after one attempt (unchanged).
+  //  - `crashed` (watchdog kill / spawn crash) sets ONLY `lastExit`. It must NOT set
+  //    `lastBlockReason`: finalize is the sole authority for whether a crash blocks (it grants
+  //    a retry within maxAttempts, then blocks at the cap). Because `finalizeGenEvalLeaf` only
+  //    ADDS a block reason (conditional spread) and never CLEARS a stale one, a block reason
+  //    stamped here would leak past finalize into settle and wrongly terminal-block the task.
+  const blockReasonCarry = out.exit.kind === 'self-blocked' ? { lastBlockReason: out.exit.reason } : {};
+  return { ...next, lastExit: { kind: out.exit.kind, reason: out.exit.reason }, ...blockReasonCarry };
 };
 
 export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<ImplementCtx> =>

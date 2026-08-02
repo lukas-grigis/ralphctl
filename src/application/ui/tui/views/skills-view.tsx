@@ -25,20 +25,20 @@
  */
 
 import React, { useEffect, useMemo } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
 import { useListWindow, type ListWindow, OverflowRow } from '@src/application/ui/tui/components/windowed-list.tsx';
-import { LoadErrorRow, LoadingRow } from '@src/application/ui/tui/components/async-rows.tsx';
+import { AsyncListFrame } from '@src/application/ui/tui/components/async-list-frame.tsx';
 import { EmptyState } from '@src/application/ui/tui/components/empty-state.tsx';
 import { ConfirmCard } from '@src/application/ui/tui/components/confirm-card.tsx';
 import { FeedbackLine, type StructuredFeedback } from '@src/application/ui/tui/components/feedback-line.tsx';
 import { MultiSelectPrompt } from '@src/application/ui/tui/prompts/multi-select-prompt.tsx';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
-import { glyphs, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs, listCapacity, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useAsyncLoad, type AsyncLoadState } from '@src/application/ui/tui/runtime/use-async-load.ts';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
-import { useViewHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
+import { useViewKeys, type ViewKeyBinding } from '@src/application/ui/tui/runtime/use-view-keys.ts';
 import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
 import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
 import type { Settings } from '@src/domain/entity/settings.ts';
@@ -102,12 +102,32 @@ interface SkillsBodyProps {
   readonly onSubmitConfirm: (confirmed: boolean) => void;
 }
 
-/** Loading / error / picker / confirm / empty / list-of-rows presentation — pure props in. */
-const SkillsBody = ({
-  helpOpen,
-  state,
+/** Multi-select over the flows an enable / disable action should touch. */
+const SkillFlowPicker = ({
   picker,
-  confirmState,
+  onSubmit,
+  onCancel,
+}: {
+  readonly picker: PickerState;
+  readonly onSubmit: (flows: readonly FlowId[]) => void;
+  readonly onCancel: () => void;
+}): React.JSX.Element => (
+  <Box flexDirection="column" paddingX={spacing.indent}>
+    <Text bold>
+      {picker.kind === 'enable' ? 'Enable' : 'Disable'} &quot;{picker.entry.name}&quot; for:
+    </Text>
+    <MultiSelectPrompt
+      message="space toggle · a select-all · ↵ confirm"
+      options={picker.kind === 'enable' ? enableOptions(picker.entry) : disableOptions(picker.entry)}
+      initialSelectedValues={picker.kind === 'enable' ? enablePreselect(picker.entry) : []}
+      onSubmit={(values) => onSubmit(values as readonly FlowId[])}
+      onCancel={onCancel}
+    />
+  </Box>
+);
+
+/** Summary line + windowed catalog rows + action feedback. */
+const SkillsList = ({
   entries,
   window,
   visibleItems,
@@ -116,47 +136,17 @@ const SkillsBody = ({
   savedDisabled,
   operatorSkillsRoot,
   actionFeedback,
-  onSubmitPicker,
-  onCancelPicker,
-  onSubmitConfirm,
-}: SkillsBodyProps): React.JSX.Element => {
-  if (helpOpen) return <HelpOverlay />;
-  if (state.kind === 'loading' || state.kind === 'idle') return <LoadingRow label="Loading skill catalog…" />;
-  if (state.kind === 'error') return <LoadErrorRow message="Failed to load the skill catalog." />;
-
-  if (picker !== undefined) {
-    return (
-      <Box flexDirection="column" paddingX={spacing.indent}>
-        <Text bold>
-          {picker.kind === 'enable' ? 'Enable' : 'Disable'} &quot;{picker.entry.name}&quot; for:
-        </Text>
-        <MultiSelectPrompt
-          message="space toggle · a select-all · ↵ confirm"
-          options={picker.kind === 'enable' ? enableOptions(picker.entry) : disableOptions(picker.entry)}
-          initialSelectedValues={picker.kind === 'enable' ? enablePreselect(picker.entry) : []}
-          onSubmit={(values) => onSubmitPicker(values as readonly FlowId[])}
-          onCancel={onCancelPicker}
-        />
-      </Box>
-    );
-  }
-
-  if (confirmState !== undefined) {
-    return (
-      <ConfirmCard
-        title={<Text bold>{confirmTitle(confirmState)}</Text>}
-        body={<Text dimColor>Local edits in the selected flow(s) will be permanently lost.</Text>}
-        message={confirmState.kind === 'disable' ? 'Remove?' : 'Overwrite?'}
-        onSubmit={onSubmitConfirm}
-        onCancel={() => onSubmitConfirm(false)}
-      />
-    );
-  }
-
-  if (entries.length === 0) {
-    return <EmptyState title="No skills bundled" hint="Nothing to browse — this build ships no skills." />;
-  }
-
+}: Pick<
+  SkillsBodyProps,
+  | 'entries'
+  | 'window'
+  | 'visibleItems'
+  | 'focusedIndex'
+  | 'bundledNames'
+  | 'savedDisabled'
+  | 'operatorSkillsRoot'
+  | 'actionFeedback'
+>): React.JSX.Element => {
   const updateAvailableCount = entries.reduce(
     (acc, e) => acc + e.installs.filter((i) => i.status === 'update-available').length,
     0
@@ -173,7 +163,7 @@ const SkillsBody = ({
             ` ${glyphs.bullet} no opt-in copies yet — press e to enable one (folder: ${operatorSkillsRoot}/<flow>/<skill>)`}
         </Text>
       </Box>
-      <OverflowRow direction="above" count={window.start} />
+      <OverflowRow direction="above" count={window.hiddenAbove} />
       {visibleItems.map((entry, localIdx) => (
         <SkillRow
           key={entry.name}
@@ -183,11 +173,110 @@ const SkillsBody = ({
           savedDisabled={savedDisabled}
         />
       ))}
-      <OverflowRow direction="below" count={entries.length - window.end} />
+      <OverflowRow direction="below" count={window.hiddenBelow} />
       <FeedbackLine text={actionFeedback} />
     </Box>
   );
 };
+
+/** Loading / error / picker / confirm / empty / list-of-rows presentation — pure props in. */
+const SkillsBody = ({
+  helpOpen,
+  state,
+  picker,
+  confirmState,
+  onSubmitPicker,
+  onCancelPicker,
+  onSubmitConfirm,
+  ...list
+}: SkillsBodyProps): React.JSX.Element => {
+  // The help screen, the flow picker and the destructive-overwrite confirm each take over the
+  // whole frame; everything below them is the ordinary async ladder.
+  const overlay = helpOpen ? (
+    <HelpOverlay />
+  ) : picker !== undefined ? (
+    <SkillFlowPicker picker={picker} onSubmit={onSubmitPicker} onCancel={onCancelPicker} />
+  ) : confirmState !== undefined ? (
+    <ConfirmCard
+      title={<Text bold>{confirmTitle(confirmState)}</Text>}
+      body={<Text dimColor>Local edits in the selected flow(s) will be permanently lost.</Text>}
+      message={confirmState.kind === 'disable' ? 'Remove?' : 'Overwrite?'}
+      onSubmit={onSubmitConfirm}
+      onCancel={() => onSubmitConfirm(false)}
+    />
+  ) : undefined;
+
+  return (
+    <AsyncListFrame
+      {...(overlay !== undefined ? { overlay } : {})}
+      state={state}
+      loadingLabel="Loading skill catalog…"
+      errorMessage="Failed to load the skill catalog."
+      isEmpty={list.entries.length === 0}
+      empty={<EmptyState title="No skills bundled" hint="Nothing to browse — this build ships no skills." />}
+    >
+      <SkillsList {...list} />
+    </AsyncListFrame>
+  );
+};
+
+interface SkillsKeysInput {
+  readonly actions: ReturnType<typeof useSkillCatalogActions>;
+  readonly focusedItem: SkillCatalogEntry | undefined;
+  readonly canClearOptOut: boolean;
+  readonly reload: () => void;
+}
+
+/**
+ * The catalog key map. Extracted from the view body so the component stays a wiring surface and
+ * the table of "key → what it does → when it is live" reads in one place.
+ */
+const skillsKeyBindings = ({
+  actions,
+  focusedItem,
+  canClearOptOut,
+  reload,
+}: SkillsKeysInput): readonly ViewKeyBinding[] => [
+  { keys: ['↑', '↓', 'j', 'k'], hint: 'move' },
+  {
+    keys: ['e'],
+    hint: 'enable',
+    run: () => {
+      if (focusedItem !== undefined) actions.startEnable(focusedItem);
+    },
+  },
+  {
+    keys: ['d'],
+    hint: 'disable',
+    run: () => {
+      if (focusedItem !== undefined) actions.startDisable(focusedItem);
+    },
+  },
+  {
+    keys: ['u'],
+    hint: 'update',
+    run: () => {
+      if (focusedItem !== undefined) actions.runUpdate(focusedItem);
+    },
+  },
+  { keys: ['U'], hint: 'update all', run: () => actions.runUpdateAll() },
+  {
+    keys: ['c'],
+    hint: 'clear opt-out',
+    enabled: canClearOptOut,
+    run: () => {
+      if (focusedItem !== undefined) actions.clearSavedOptOut(focusedItem);
+    },
+  },
+  {
+    keys: ['r'],
+    hint: 'reload',
+    run: () => {
+      actions.flashInfo(`${glyphs.refresh} reloading…`);
+      reload();
+    },
+  },
+];
 
 export const SkillsView = (): React.JSX.Element => {
   const deps = useDeps();
@@ -216,45 +305,19 @@ export const SkillsView = (): React.JSX.Element => {
   useEffect(() => (picker !== undefined ? claimPrompt() : undefined), [picker, claimPrompt]);
 
   const listActive = !ui.modalOpen && picker === undefined && confirmState === undefined;
-  const visibleRows = Math.max(2, Math.min(6, Math.floor((bp.rows - CHROME_ROWS) / ROW_HEIGHT)));
   const { window, visibleItems, focusedIndex, focusedItem } = useListWindow<SkillCatalogEntry>({
     items: entries,
     getId: (e) => e.name,
-    visibleRows,
+    visibleRows: listCapacity(bp.rows, { rowHeight: ROW_HEIGHT, chromeRows: CHROME_ROWS, min: 2, max: 6 }),
     active: listActive,
   });
 
-  // Gates both the footer hint and the key handler below — pressing `c` only does something
-  // when the focused entry actually has a durable opt-out saved somewhere.
+  // One flag for the hint and the handler — pressing `c` only does something when the focused
+  // entry actually has a durable opt-out saved somewhere, so the hint hides in lockstep.
   const canClearOptOut = focusedItem !== undefined && actions.savedOptOutFlows(focusedItem).length > 0;
 
-  useViewHints([
-    { keys: '↑/↓/j/k', label: 'move' },
-    { keys: 'e', label: 'enable' },
-    { keys: 'd', label: 'disable' },
-    { keys: 'u', label: 'update' },
-    { keys: 'U', label: 'update all' },
-    { keys: 'c', label: 'clear opt-out', enabledWhen: canClearOptOut },
-    { keys: 'r', label: 'reload' },
-  ]);
-
-  useInput((input) => {
-    if (!listActive || actions.busy) return;
-    if (input === 'U') {
-      actions.runUpdateAll();
-      return;
-    }
-    if (input === 'r') {
-      actions.flashInfo(`${glyphs.refresh} reloading…`);
-      reload();
-      return;
-    }
-    const target = focusedItem;
-    if (target === undefined) return;
-    if (input === 'e') actions.startEnable(target);
-    else if (input === 'd') actions.startDisable(target);
-    else if (input === 'u') actions.runUpdate(target);
-    else if (input === 'c' && canClearOptOut) actions.clearSavedOptOut(target);
+  useViewKeys(skillsKeyBindings({ actions, focusedItem, canClearOptOut, reload }), {
+    active: listActive && !actions.busy,
   });
 
   return (

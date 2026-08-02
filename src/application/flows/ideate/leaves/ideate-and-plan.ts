@@ -12,6 +12,7 @@ import type { Task } from '@src/domain/entity/task.ts';
 import { type ApprovedTicket, createTicket } from '@src/domain/entity/ticket.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { IdeatedTicketsSignal } from '@src/domain/signal.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
@@ -87,82 +88,121 @@ interface IdeateAndPlanOutput {
 /** Leaf name, reused as the `entity` / `attemptedAction` on the leaf's error states. */
 const LEAF_NAME = 'ideate-and-plan';
 
+/**
+ * Phase 1 — hand the terminal to the AI and wait for the session to exit. On success resolves
+ * the per-unit output directory (the AI's `signals.json` lands directly under it) so the next
+ * phase can validate it.
+ */
+const runInteractiveSession = async (
+  deps: IdeateAndPlanLeafDeps,
+  input: IdeateAndPlanInput,
+  signal: AbortSignal | undefined
+): Promise<Result<AbsolutePath, DomainError>> => {
+  const session = await deps.runInTerminal(async () =>
+    deps.interactiveAi.run({
+      cwd: input.cwd,
+      promptFile: input.promptFile,
+      outputFile: input.outputFile,
+      model: deps.model,
+      ...(deps.effort !== undefined ? { effort: deps.effort } : {}),
+      // Thread the leaf's abort signal so a TUI cancel tears the stdio-inherit child down
+      // (attachAbortKill) rather than leaving it running — and the adapter classifies the
+      // resulting non-zero exit as AbortError, not InvalidStateError.
+      ...(signal !== undefined ? { abortSignal: signal } : {}),
+    })
+  );
+  if (!session.ok) return Result.error(session.error);
+
+  // audit-[09]: the AI writes `signals.json` directly under the unit root per the
+  // contract section in the prompt. The leaf validates that file.
+  const outputDirRaw = dirname(String(input.outputFile));
+  return AbsolutePath.parse(outputDirRaw);
+};
+
+/**
+ * Phase 2 — validate the AI-written `signals.json` against the ideate contract, fan every
+ * validated signal out to the bus, render sidecars (none for ideate today), then project the
+ * `ideated-tickets` payload out for phase 3 to consume.
+ */
+const validateAndParseOutput = async (
+  deps: IdeateAndPlanLeafDeps,
+  outputDir: AbsolutePath
+): Promise<Result<IdeatedTicketsSignal, DomainError>> => {
+  const validated = await validateSignalsFile(outputDir, ideateOutputContract);
+  if (!validated.ok) return Result.error(validated.error);
+  const signals = validated.value;
+
+  for (const sig of signals) {
+    deps.eventBus.publish({ type: 'ai-signal', signal: sig, source: 'ideate' });
+  }
+
+  await renderSidecars(deps.writeFile, outputDir, signals, ideateOutputContract.sidecars, deps.logger);
+
+  const ideatedSignal = signals.find((s) => s.type === 'ideated-tickets') as IdeatedTicketsSignal | undefined;
+  if (ideatedSignal === undefined) {
+    return Result.error(
+      new InvalidStateError({
+        entity: LEAF_NAME,
+        currentState: 'post-validation',
+        attemptedAction: 'project-signal',
+        message: 'ideate: validated signals contained no ideated-tickets signal',
+      })
+    );
+  }
+  return Result.ok(ideatedSignal);
+};
+
+/**
+ * Phase 3 — mint the pending ticket, parse the AI's resolved ticket + task envelope against
+ * the project/sprint, then delegate the ticket approval + sprint mutation to
+ * {@link addApprovedTicketUseCase}.
+ */
+const applyResult = (
+  deps: IdeateAndPlanLeafDeps,
+  input: IdeateAndPlanInput,
+  ideatedSignal: IdeatedTicketsSignal
+): Result<IdeateAndPlanOutput, DomainError> => {
+  const pending = createTicket({
+    title: input.ideaTitle,
+    ...(input.ideaText.trim().length > 0 ? { description: input.ideaText } : {}),
+  });
+  if (!pending.ok) return Result.error(pending.error);
+
+  const parsed = parseIdeateOutput(ideatedSignal.outputJson, {
+    project: input.project,
+    sprintId: input.sprintId,
+    ticketId: pending.value.id,
+    // Pass the freshly minted ticket so any `externalRef` on it (currently unused by the
+    // ideate input surface, but ready when added) propagates to every generated task.
+    ticket: pending.value,
+    logger: deps.logger,
+    defaultMaxAttempts: deps.maxAttempts,
+  });
+  if (!parsed.ok) return Result.error(parsed.error);
+
+  const added = addApprovedTicketUseCase({
+    sprint: input.sprint,
+    ticket: pending.value,
+    requirementsBody: parsed.value.requirements,
+    logger: deps.logger,
+  });
+  if (!added.ok) return Result.error(added.error);
+
+  const tasks: readonly Task[] = [...input.existingTasks, ...parsed.value.tasks];
+  return Result.ok({ sprint: added.value.sprint, ticket: added.value.ticket, tasks });
+};
+
 export const ideateAndPlanLeaf = (deps: IdeateAndPlanLeafDeps): Element<IdeateCtx> =>
   leaf<IdeateCtx, IdeateAndPlanInput, IdeateAndPlanOutput>(LEAF_NAME, {
     useCase: {
       execute: async (input, signal) => {
-        const session = await deps.runInTerminal(async () =>
-          deps.interactiveAi.run({
-            cwd: input.cwd,
-            promptFile: input.promptFile,
-            outputFile: input.outputFile,
-            model: deps.model,
-            ...(deps.effort !== undefined ? { effort: deps.effort } : {}),
-            // Thread the leaf's abort signal so a TUI cancel tears the stdio-inherit child down
-            // (attachAbortKill) rather than leaving it running — and the adapter classifies the
-            // resulting non-zero exit as AbortError, not InvalidStateError.
-            ...(signal !== undefined ? { abortSignal: signal } : {}),
-          })
-        );
-        if (!session.ok) return Result.error(session.error);
+        const outputDir = await runInteractiveSession(deps, input, signal);
+        if (!outputDir.ok) return Result.error(outputDir.error);
 
-        // audit-[09]: the AI writes `signals.json` directly under the unit root per the
-        // contract section in the prompt. The leaf validates that file.
-        const outputDirRaw = dirname(String(input.outputFile));
-        const outputDirResult = AbsolutePath.parse(outputDirRaw);
-        if (!outputDirResult.ok) return Result.error(outputDirResult.error);
-        const outputDir = outputDirResult.value;
+        const ideatedSignal = await validateAndParseOutput(deps, outputDir.value);
+        if (!ideatedSignal.ok) return Result.error(ideatedSignal.error);
 
-        const validated = await validateSignalsFile(outputDir, ideateOutputContract);
-        if (!validated.ok) return Result.error(validated.error);
-        const signals = validated.value;
-
-        for (const sig of signals) {
-          deps.eventBus.publish({ type: 'ai-signal', signal: sig, source: 'ideate' });
-        }
-
-        await renderSidecars(deps.writeFile, outputDir, signals, ideateOutputContract.sidecars, deps.logger);
-
-        const ideatedSignal = signals.find((s) => s.type === 'ideated-tickets') as IdeatedTicketsSignal | undefined;
-        if (ideatedSignal === undefined) {
-          return Result.error(
-            new InvalidStateError({
-              entity: LEAF_NAME,
-              currentState: 'post-validation',
-              attemptedAction: 'project-signal',
-              message: 'ideate: validated signals contained no ideated-tickets signal',
-            })
-          );
-        }
-
-        const pending = createTicket({
-          title: input.ideaTitle,
-          ...(input.ideaText.trim().length > 0 ? { description: input.ideaText } : {}),
-        });
-        if (!pending.ok) return Result.error(pending.error);
-
-        const parsed = parseIdeateOutput(ideatedSignal.outputJson, {
-          project: input.project,
-          sprintId: input.sprintId,
-          ticketId: pending.value.id,
-          // Pass the freshly minted ticket so any `externalRef` on it (currently unused by the
-          // ideate input surface, but ready when added) propagates to every generated task.
-          ticket: pending.value,
-          logger: deps.logger,
-          defaultMaxAttempts: deps.maxAttempts,
-        });
-        if (!parsed.ok) return Result.error(parsed.error);
-
-        const added = addApprovedTicketUseCase({
-          sprint: input.sprint,
-          ticket: pending.value,
-          requirementsBody: parsed.value.requirements,
-          logger: deps.logger,
-        });
-        if (!added.ok) return Result.error(added.error);
-
-        const tasks: readonly Task[] = [...input.existingTasks, ...parsed.value.tasks];
-        return Result.ok({ sprint: added.value.sprint, ticket: added.value.ticket, tasks });
+        return applyResult(deps, input, ideatedSignal.value);
       },
     },
     input: (ctx) => {

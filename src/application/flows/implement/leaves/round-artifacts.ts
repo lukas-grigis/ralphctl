@@ -1,9 +1,10 @@
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
-import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
 import { listDir, writeTextAtomic } from '@src/integration/io/fs.ts';
+import type { WriteFile } from '@src/business/io/write-file.ts';
 
 /**
  * Per-task on-disk audit trail at `<sprintDir>/implement/<task-id>/rounds/<N>/{generator,
@@ -114,6 +115,9 @@ export const roundEvaluationRelativePath = (round: number): string =>
 const roundDir = (workspaceRoot: AbsolutePath, round: number, role: 'generator' | 'evaluator'): string =>
   join(String(workspaceRoot), 'rounds', String(round), role);
 
+/** Fallback `WriteFile` for callers that don't (yet) wire the port — same atomic adapter either way. */
+const defaultWriteFile: WriteFile = (path, content) => writeTextAtomic(String(path), content);
+
 /**
  * Persist the rendered prompt the harness handed to the AI provider for a given gen-eval round
  * to `<workspaceRoot>/rounds/<N>/<role>/prompt.md`. Called from the generator + evaluator
@@ -122,19 +126,34 @@ const roundDir = (workspaceRoot: AbsolutePath, round: number, role: 'generator' 
  * (or diff it against a later round's prompt to see how the prior critique reshaped the brief)
  * without re-running the chain.
  *
- * Atomic write via `writeTextAtomic` (tmp+rename): a crash mid-write cannot leave a half-written
- * file on disk. Best-effort: a write failure is logged and swallowed so the audit trail can't
- * take down the chain.
+ * Atomic write via the injected `WriteFile` port (tmp+rename): a crash mid-write cannot leave a
+ * half-written file on disk. `writeFile` is optional — a caller that doesn't wire the port falls
+ * back to the direct `writeTextAtomic` adapter via {@link defaultWriteFile}, so behaviour is
+ * unchanged either way. Best-effort: a write failure is logged and swallowed so the audit trail
+ * can't take down the chain.
  */
 export const writeRoundPrompt = async (
   workspaceRoot: AbsolutePath,
   round: number,
   role: 'generator' | 'evaluator',
   prompt: string,
-  logger?: Logger
+  logger?: Logger,
+  writeFile?: WriteFile
 ): Promise<void> => {
   const base = roundDir(workspaceRoot, round, role);
-  const wrote = await writeTextAtomic(join(base, 'prompt.md'), prompt);
+  const path = join(base, 'prompt.md');
+  const parsedPath = AbsolutePath.parse(path);
+  if (!parsedPath.ok) {
+    logger?.warn('failed to write round prompt — could not resolve path', {
+      round,
+      role,
+      base,
+      error: parsedPath.error.message,
+    });
+    return;
+  }
+  const write = writeFile ?? defaultWriteFile;
+  const wrote = await write(parsedPath.value, prompt);
   if (!wrote.ok) {
     logger?.warn('failed to write round prompt', { round, role, base, error: wrote.error.message });
   }

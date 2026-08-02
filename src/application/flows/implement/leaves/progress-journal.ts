@@ -11,7 +11,7 @@ import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.t
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
-import type { Task } from '@src/domain/entity/task.ts';
+import type { BlockedTask, Task } from '@src/domain/entity/task.ts';
 import type { Attempt, AttemptWarning } from '@src/domain/entity/attempt.ts';
 import {
   renderJournalEntry,
@@ -27,6 +27,7 @@ import { dedupeTexts } from '@src/application/flows/implement/leaves/_shared/ded
 import type { LearningEntry } from '@src/domain/signal.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { FoldQueue } from '@src/application/flows/implement/wave-branch.ts';
+import { resetSignalAccumulators } from '@src/application/flows/implement/sprint-scoped-projection.ts';
 
 /**
  * Write the just-settled task-attempt section into `<sprintDir>/progress.md` (audit-[07]) and
@@ -96,41 +97,48 @@ interface JournalInput {
   readonly allTasks: readonly Task[];
 }
 
-const renderOutcomeParagraph = (task: Task, attempt: Attempt | undefined): string => {
-  if (task.status === 'blocked') {
-    return task.blockedReason.trim().length > 0
-      ? `Blocked: ${task.blockedReason.trim()}`
-      : 'Blocked — no reason recorded.';
-  }
-  if (task.status === 'done') {
-    // A PASSED final evaluation outranks a stale critique: the critique on the attempt may be
-    // left over from an earlier failing round of the same attempt (the warn-then-pass shape),
-    // and printing it as the outcome would feed a false failure narrative to the next prompts.
-    if (attempt?.evaluation?.status === 'passed') {
-      return attempt.warning !== undefined
-        ? 'Task settled as done with a warning attached.'
-        : 'Task completed successfully.';
-    }
-    const critique = attempt?.critique?.trim();
-    if (critique !== undefined && critique.length > 0) {
-      return critique;
-    }
-    // Never claim a clean success when the final attempt carries a warning — the journal feeds
-    // the next attempt's generator, so a budget / plateau / malformed / verify-failed exit must
-    // read as "done, but flagged" and let the `### Outcome detail` subsection state why.
-    return attempt?.warning !== undefined
+const renderBlockedOutcome = (task: BlockedTask): string =>
+  task.blockedReason.trim().length > 0 ? `Blocked: ${task.blockedReason.trim()}` : 'Blocked — no reason recorded.';
+
+/**
+ * A PASSED final evaluation outranks a stale critique: the critique on the attempt may be left
+ * over from an earlier failing round of the same attempt (the warn-then-pass shape), and printing
+ * it as the outcome would feed a false failure narrative to the next prompts. Never claim a clean
+ * success when the final attempt carries a warning — the journal feeds the next attempt's
+ * generator, so a budget / plateau / malformed / verify-failed exit must read as "done, but
+ * flagged" and let the `### Outcome detail` subsection state why.
+ */
+const renderDoneOutcome = (attempt: Attempt | undefined): string => {
+  if (attempt?.evaluation?.status === 'passed') {
+    return attempt.warning !== undefined
       ? 'Task settled as done with a warning attached.'
       : 'Task completed successfully.';
   }
-  // in_progress: the attempt failed and the escalation / malformed-retry policy reopened the
-  // task for another attempt (the journal leaf runs inside the per-attempt loop, so it appends
-  // before the next attempt starts). Surface the critique that drives the retry when present.
-  if (task.status === 'in_progress') {
-    const critique = attempt?.critique?.trim();
-    return critique !== undefined && critique.length > 0
-      ? `Attempt did not pass; the harness is retrying. ${critique}`
-      : 'Attempt did not pass; the harness is retrying.';
+  const critique = attempt?.critique?.trim();
+  if (critique !== undefined && critique.length > 0) {
+    return critique;
   }
+  return attempt?.warning !== undefined
+    ? 'Task settled as done with a warning attached.'
+    : 'Task completed successfully.';
+};
+
+/**
+ * The attempt failed and the escalation / malformed-retry policy reopened the task for another
+ * attempt (the journal leaf runs inside the per-attempt loop, so it appends before the next
+ * attempt starts). Surface the critique that drives the retry when present.
+ */
+const renderInProgressOutcome = (attempt: Attempt | undefined): string => {
+  const critique = attempt?.critique?.trim();
+  return critique !== undefined && critique.length > 0
+    ? `Attempt did not pass; the harness is retrying. ${critique}`
+    : 'Attempt did not pass; the harness is retrying.';
+};
+
+const renderOutcomeParagraph = (task: Task, attempt: Attempt | undefined): string => {
+  if (task.status === 'blocked') return renderBlockedOutcome(task);
+  if (task.status === 'done') return renderDoneOutcome(attempt);
+  if (task.status === 'in_progress') return renderInProgressOutcome(attempt);
   // todo shouldn't reach the journal-append point (settle ran first); safe fallback.
   return `Settled with task status \`${task.status}\`.`;
 };
@@ -398,21 +406,17 @@ export const progressJournalLeaf = (
       };
     },
     // settle-attempt clears its own per-attempt fields but leaves the signal accumulators (and the
-    // corrective-nudge tallies) for us to read. We clear all six here so the next ATTEMPT (and the
-    // next task) starts with empty accumulators. This is the per-attempt reset boundary: the
-    // journal leaf is the LAST element of the attempt-body sequential and runs UNCONDITIONALLY on
-    // every loop iteration — including a red-post-verify retry (T6) where the task settled
-    // `in_progress`. So a retried attempt never inherits the REJECTED attempt's change/learning/
-    // note hints (or nudge tally); the next generator turn (and the evaluator hints derived from
-    // these accumulators) sees only its own attempt's signals, not the prior failed attempt's
-    // leftovers.
+    // corrective-nudge tallies) for us to read. `resetSignalAccumulators` clears all six (the
+    // type-derived projection over the `merge: 'signal-accum'` bucket — see
+    // `sprint-scoped-projection.ts`) so the next ATTEMPT (and the next task) starts with empty
+    // accumulators. This is the per-attempt reset boundary: the journal leaf is the LAST element of
+    // the attempt-body sequential and runs UNCONDITIONALLY on every loop iteration — including a
+    // red-post-verify retry (T6) where the task settled `in_progress`. So a retried attempt never
+    // inherits the REJECTED attempt's change/learning/note hints (or nudge tally); the next
+    // generator turn (and the evaluator hints derived from these accumulators) sees only its own
+    // attempt's signals, not the prior failed attempt's leftovers.
     output: (ctx) => ({
       ...ctx,
-      currentAttemptDecisions: undefined,
-      currentAttemptChanges: undefined,
-      currentAttemptLearnings: undefined,
-      currentAttemptNotes: undefined,
-      currentAttemptGeneratorNudges: undefined,
-      currentAttemptEvaluatorNudges: undefined,
+      ...resetSignalAccumulators(),
     }),
   });

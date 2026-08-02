@@ -1,15 +1,12 @@
-import { join } from 'node:path';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { type PendingTicket, type Ticket } from '@src/domain/entity/ticket.ts';
-import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import { type AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { Slug } from '@src/domain/value/slug.ts';
 import { toKebabCase } from '@src/domain/value/kebab-case.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
 import { saveSprintLeaf } from '@src/application/flows/_shared/sprint/save.ts';
 import { loadAndAssertSprintSubChain } from '@src/application/flows/_shared/sprint/load-and-assert-sprint.ts';
-import { buildUnitLeaf } from '@src/application/flows/_shared/build-unit.ts';
-import { renderPromptToFileLeaf } from '@src/application/flows/_shared/render-prompt-to-file.ts';
 import type { RefineCtx } from '@src/application/flows/refine/ctx.ts';
 import type { RefineDeps } from '@src/application/flows/refine/deps.ts';
 import { fetchIssueContextLeaf } from '@src/application/flows/refine/leaves/fetch-issue-context.ts';
@@ -18,10 +15,8 @@ import { buildRefinePrompt } from '@src/integration/ai/prompts/refine/definition
 import { readCappedSprintProgress } from '@src/application/flows/_shared/progress/read-sprint-progress.ts';
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
 import { refineOutputContract } from '@src/application/flows/refine/leaves/refine.contract.ts';
-import { installSkillsLeaf } from '@src/application/flows/_shared/skills/install-skills.ts';
-import { uninstallSkillsLeaf } from '@src/application/flows/_shared/skills/uninstall-skills.ts';
-import { stampSessionMetaLeaf } from '@src/application/flows/_shared/stamp-session-meta.ts';
-import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import { aiUnitEpilogue, aiUnitPrelude } from '@src/application/flows/_shared/ai-unit-segment.ts';
+import { assertCtxField } from '@src/application/flows/_shared/_engine/assert-ctx-field.ts';
 
 export interface CreateRefineFlowOpts {
   readonly sprintId: SprintId;
@@ -53,7 +48,10 @@ export interface CreateRefineFlowOpts {
  *         fetch-issue-context-<id>,         // pre-fetch upstream issue body via gh/glab
  *         build-refine-unit-<id>,           // mkdir <refinementRoot>/<ticket-slug>/
  *         render-prompt-to-file-<id>,       // write prompt.md
+ *         install-skills-<id>,              // copy the refine flow's skills into the unit root
+ *         stamp-meta-refine-<id>,           // <unit-root>/meta.json — provider/model attribution
  *         refine-ticket-<id>,               // hand TTY to Claude, await, read requirements.md back
+ *         uninstall-skills-<id>,            // remove them again
  *         save-after-<id>,                  // persist sprint with the approved ticket
  *       ]),
  *       …,
@@ -74,97 +72,48 @@ export const createRefineFlow = (deps: RefineDeps, opts: CreateRefineFlowOpts): 
     return `t-${String(ticket.id).slice(0, 8)}`;
   };
 
-  const perTicketChains: ReadonlyArray<Element<RefineCtx>> = opts.pendingTickets.map((ticket) =>
-    sequential<RefineCtx>(`refine-${String(ticket.id)}`, [
+  const perTicketChains: ReadonlyArray<Element<RefineCtx>> = opts.pendingTickets.map((ticket) => {
+    const ticketId = String(ticket.id);
+    const unitOpts = {
+      unitName: 'refine',
+      flowId: 'refine' as const,
+      nameSuffix: `-${ticketId}`,
+      parent: () => opts.refinementRoot,
+      slug: () => ticketSlug(ticket),
+      buildPrompt: async (ctx: RefineCtx) => {
+        const currentUnitRoot = assertCtxField(
+          ctx,
+          'currentUnitRoot',
+          `render-prompt-to-file-${ticketId}`,
+          'pre-render-prompt'
+        );
+        const priorProgress = await readCappedSprintProgress(opts.refinementRoot, opts.model);
+        return buildRefinePrompt(deps.templateLoader, {
+          ticket,
+          outputContractSection: renderContractSectionFor(refineOutputContract, currentUnitRoot),
+          priorProgress,
+          ...(ctx.currentIssueContext !== undefined ? { issueContext: ctx.currentIssueContext } : {}),
+        });
+      },
+      providerId: opts.providerId,
+      model: opts.model,
+      ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
+      ticketId,
+    } satisfies Parameters<typeof aiUnitPrelude<RefineCtx>>[1];
+
+    return sequential<RefineCtx>(`refine-${ticketId}`, [
       fetchIssueContextLeaf(
         { eventBus: deps.eventBus, ...(deps.issueFetcher !== undefined ? { issueFetcher: deps.issueFetcher } : {}) },
         ticket
       ),
-      buildUnitLeaf<RefineCtx>({
-        name: `build-refine-unit-${String(ticket.id)}`,
-        parent: () => opts.refinementRoot,
-        slug: () => ticketSlug(ticket),
-        write: (ctx, root) => {
-          const promptPath = AbsolutePath.parse(join(String(root), 'prompt.md'));
-          // audit-[09]: the AI writes `signals.json` directly under the unit root; the leaf
-          // validates that file via the refine contract. The legacy `requirements.md` body
-          // file is gone.
-          const outputPath = AbsolutePath.parse(join(String(root), 'signals.json'));
-          if (!promptPath.ok || !outputPath.ok) {
-            // Rare — `root` is already an AbsolutePath, so joining a basename produces an
-            // absolute path. If the parser disagrees, surface as a chain abort.
-            throw promptPath.ok ? (outputPath.ok ? new Error('unreachable') : outputPath.error) : promptPath.error;
-          }
-          return {
-            ...ctx,
-            currentUnitRoot: root,
-            currentPromptFile: promptPath.value,
-            currentOutputFile: outputPath.value,
-          };
+      ...aiUnitPrelude<RefineCtx>(
+        {
+          writeFile: deps.writeFile,
+          skillsAdapter: deps.skillsAdapter,
+          skillSource: deps.skillSource,
+          clock: deps.clock,
         },
-      }),
-      renderPromptToFileLeaf<RefineCtx>(
-        { writeFile: deps.writeFile },
-        {
-          name: `render-prompt-to-file-${String(ticket.id)}`,
-          path: (ctx) => {
-            if (ctx.currentPromptFile === undefined) throw new Error('currentPromptFile missing');
-            return ctx.currentPromptFile;
-          },
-          buildPrompt: async (ctx) => {
-            if (ctx.currentUnitRoot === undefined) throw new Error('currentUnitRoot missing');
-            const priorProgress = await readCappedSprintProgress(opts.refinementRoot, opts.model);
-            return buildRefinePrompt(deps.templateLoader, {
-              ticket,
-              outputContractSection: renderContractSectionFor(refineOutputContract, ctx.currentUnitRoot),
-              priorProgress,
-              ...(ctx.currentIssueContext !== undefined ? { issueContext: ctx.currentIssueContext } : {}),
-            });
-          },
-          write: (ctx, path) => ({ ...ctx, currentPromptFile: path }),
-        }
-      ),
-      installSkillsLeaf<RefineCtx>(
-        { skillsAdapter: deps.skillsAdapter, skillSource: deps.skillSource },
-        {
-          name: `install-skills-${String(ticket.id)}`,
-          flowId: 'refine',
-          // Skills land in the AI session's cwd — for refine that's the per-ticket unit root
-          // (`<sprintDir>/refinement/<ticket-slug>/`), not the user's repo. Refinement is
-          // implementation-agnostic, so we keep the AI out of the repo's auto-discovered context.
-          cwdPicker: (ctx) => {
-            if (ctx.currentUnitRoot === undefined) {
-              throw new Error(
-                `install-skills-${String(ticket.id)}: currentUnitRoot missing — build-refine-unit must run first`
-              );
-            }
-            return ctx.currentUnitRoot;
-          },
-        }
-      ),
-      stampSessionMetaLeaf<RefineCtx>(
-        { writeFile: deps.writeFile, clock: deps.clock },
-        {
-          name: `stamp-meta-refine-${String(ticket.id)}`,
-          resolve: (ctx) => {
-            if (ctx.currentUnitRoot === undefined) {
-              throw new InvalidStateError({
-                entity: 'chain',
-                currentState: 'pre-stamp-meta',
-                attemptedAction: `stamp-meta-refine-${String(ticket.id)}`,
-                message: `stamp-meta-refine-${String(ticket.id)}: currentUnitRoot missing — build-refine-unit must run first`,
-              });
-            }
-            return {
-              outputDir: ctx.currentUnitRoot,
-              flow: 'refine',
-              provider: opts.providerId,
-              model: opts.model,
-              effort: opts.effort ?? null,
-              ticketId: String(ticket.id),
-            };
-          },
-        }
+        unitOpts
       ),
       refineTicketInteractiveLeaf(
         {
@@ -182,23 +131,10 @@ export const createRefineFlow = (deps: RefineDeps, opts: CreateRefineFlowOpts): 
         },
         ticket
       ),
-      uninstallSkillsLeaf<RefineCtx>(
-        { skillsAdapter: deps.skillsAdapter },
-        {
-          name: `uninstall-skills-${String(ticket.id)}`,
-          cwdPicker: (ctx) => {
-            if (ctx.currentUnitRoot === undefined) {
-              throw new Error(
-                `uninstall-skills-${String(ticket.id)}: currentUnitRoot missing — build-refine-unit must run first`
-              );
-            }
-            return ctx.currentUnitRoot;
-          },
-        }
-      ),
-      saveSprintLeaf<RefineCtx>({ sprintRepo: deps.sprintRepo }, `save-after-${String(ticket.id)}`),
-    ])
-  );
+      ...aiUnitEpilogue<RefineCtx>({ skillsAdapter: deps.skillsAdapter }, unitOpts),
+      saveSprintLeaf<RefineCtx>({ sprintRepo: deps.sprintRepo }, `save-after-${ticketId}`),
+    ]);
+  });
 
   return sequential<RefineCtx>('refine', [
     loadAndAssertSprintSubChain<RefineCtx>({ sprintRepo: deps.sprintRepo }, ['draft']),

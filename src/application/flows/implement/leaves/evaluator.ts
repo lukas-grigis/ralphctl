@@ -1,53 +1,44 @@
-import { dirname, join } from 'node:path';
-import { promises as fs } from 'node:fs';
+import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import {
   type EvaluatorTurnExit,
   type RunEvaluatorTurnProps,
   runEvaluatorTurnUseCase,
 } from '@src/business/task/run-evaluator-turn.ts';
-import type { Logger } from '@src/business/observability/logger.ts';
-import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { InProgressTask } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
-import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
-import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
-import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { AiSignal, EvaluationSignal, HarnessSignal } from '@src/domain/signal.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
-import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
-import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
-import type { PublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import { buildEvaluatePrompt } from '@src/integration/ai/prompts/evaluate/definition.ts';
 import { buildEvaluateContinuationPrompt } from '@src/integration/ai/prompts/evaluate-continuation/definition.ts';
 import type { BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
-import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
-import { renderSidecars } from '@src/integration/ai/contract/_engine/render-sidecars.ts';
-import { validateSignalsFileWithCorrectiveRetry } from '@src/integration/ai/contract/_engine/corrective-retry.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import { computeWorkProductFingerprint } from '@src/application/flows/implement/leaves/work-product-fingerprint.ts';
-import { implementSession } from '@src/application/flows/implement/leaves/implement-session.ts';
 import { evaluatorOutputContract } from '@src/application/flows/implement/leaves/evaluator.contract.ts';
 import {
   readRoundSessionId,
-  roundBodyPath,
-  roundCorrectiveBodyPath,
   roundEvaluationRelativePath,
-  roundSignalsPath,
-  writeRoundPrompt,
 } from '@src/application/flows/implement/leaves/round-artifacts.ts';
-import { capProgressBody, progressCapBudgetForModel } from '@src/application/flows/_shared/progress/cap-progress.ts';
-import { composeProjectTooling } from '@src/application/flows/implement/leaves/_shared/compose-project-tooling.ts';
 import {
   composeGeneratorHints,
   type GeneratorHintsInput,
 } from '@src/application/flows/implement/leaves/_shared/generator-hints.ts';
 import { positiveCountCarry } from '@src/application/flows/implement/leaves/_shared/nudge-count-carry.ts';
+import {
+  readCappedProgress,
+  requireRoleTurnCtx,
+  resolveProjectToolingCarry,
+  resolveRoundPaths,
+  type RoleLeafDeps,
+  runRoleTurn,
+  selfContainedGrounding,
+} from '@src/application/flows/implement/leaves/_shared/run-role-turn.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { PlateauTurnRecord } from '@src/business/task/plateau-detection.ts';
 
@@ -73,79 +64,14 @@ import type { PlateauTurnRecord } from '@src/business/task/plateau-detection.ts'
  * terminal `exit`, the leaf writes the matching ctx fields so the surrounding `loop`'s
  * `shouldStop` predicate exits cleanly.
  */
-export interface EvaluatorLeafDeps {
-  readonly provider: HeadlessAiProvider;
-  readonly templateLoader: TemplateLoader;
-  /**
-   * Fan-out seam for every validated signal this turn — the ONE harness-signal channel
-   * (see `publish-signal.ts`). Pre-bound with this leaf's `source` (and, on the implement
-   * parallel path, the owning branch's `taskId`) by the caller.
-   */
-  readonly publishSignal: PublishSignal;
-  /**
-   * Output port used to write harness-rendered sidecars (`evaluation.md`) post-spawn. Per
-   * audit-[09], the AI only writes `signals.json`; the harness derives every other on-
-   * disk artifact from the validated signal array. Threaded through from the flow factory's
-   * `deps.writeFile` (atomic write-to-temp+rename in production; in-memory recorder in tests).
-   */
-  readonly writeFile: WriteFile;
-  readonly cwd: AbsolutePath;
-  /**
-   * Sprint directory — mounted as a second `--add-dir` on every implement spawn so the AI
-   * can read sprint-wide artifacts (`progress.md` in particular) that live outside the
-   * per-task sandbox. Threaded down from the flow factory.
-   */
-  readonly sprintDir: AbsolutePath;
-  /**
-   * Absolute path to `<sprintDir>/progress.md` — the reviewer reads the current journal body
-   * pre-spawn and inlines it into the `## Prior progress` section of the evaluator prompt so
-   * the reviewer can judge this round's work against what already shipped (mirrors the
-   * generator's prior-progress wiring).
-   */
-  readonly progressFile: AbsolutePath;
-  readonly model: string;
-  /** Optional reasoning / effort level forwarded into every `implementSession` AiSession. */
-  readonly effort?: string;
-  /**
-   * Pre-composed bound-agent-definition prompt body (raw content — `renderAgentDefinitionSection`
-   * wraps it under the "## Agent Definition" heading at render time) — see
-   * `GenEvalLoopRoleConfig.agentDefinitionSection`. Threaded into the FULL evaluate prompt's
-   * `agentDefinition` slot only (round 1 of a session thread); a resumed continuation already
-   * carries it in-conversation.
-   */
-  readonly agentDefinition?: string;
-  /**
-   * This role's bound agent-definition NAME (the portable-agents feature's bare identifier, not
-   * the rendered {@link agentDefinition} section) — threaded separately so the FULL prompt's
-   * `{{PROJECT_TOOLING}}` catalog can name the same binding `{{AGENT_DEFINITION_SECTION}}`
-   * already announces, without re-parsing the rendered prose. Absent when the role has no
-   * binding. See `compose-project-tooling.ts`.
-   */
-  readonly agentDefinitionName?: string;
-  /**
-   * Per-flow skill catalog port — the same source `installSkillsLeaf` reads to install this
-   * task's skills into the session sandbox. Read again here (best-effort) to name each installed
-   * skill in the FULL prompt's `{{PROJECT_TOOLING}}` catalog (round 1 of a session thread only).
-   * Absent → the catalog simply omits the skills lines.
-   */
-  readonly skillSource?: SkillSource;
-  readonly verifyScript?: string;
-  /** From `settings.harness.plateauThreshold` (2–5). */
-  readonly plateauThreshold: number;
-  /**
-   * Bounded corrective in-round nudges before a signals.json contract failure self-blocks the task
-   * (`settings.harness.correctiveRetries`, 1–5). Threaded into `validateSignalsFileWithCorrectiveRetry`.
-   */
-  readonly correctiveRetries: number;
+export interface EvaluatorLeafDeps extends RoleLeafDeps {
   /**
    * Git transport — used post-spawn to compute the round's work-product fingerprint (a content
-   * hash of `git status --porcelain` + `git diff HEAD` against {@link cwd}). Fed into the
-   * plateau predicate so its progress exemption measures real code change, not commit-message
+   * hash of `git status --porcelain` + `git diff HEAD` against the repo working tree). Fed into
+   * the plateau predicate so its progress exemption measures real code change, not commit-message
    * rewording. Threaded down from `ImplementDeps.gitRunner`.
    */
   readonly gitRunner: GitRunner;
-  readonly clock: () => IsoTimestamp;
-  readonly logger: Logger;
 }
 
 interface EvaluatorInput {
@@ -202,34 +128,6 @@ interface EvaluatorTurnMeta {
 }
 
 /**
- * Read the current `progress.md` body to inline into the evaluator prompt, CAPPED to the sprint
- * header, ALL of the current task's own attempt sections, and the last N other-task sections
- * (see {@link capProgressBody}). `progress.md` is sprint-wide and append-only, so a late-sprint
- * journal is dozens of sections long; inlining the whole body into every evaluator turn grew
- * token cost superlinearly. The cap bounds breadth across siblings — the current task's own
- * history rides in full because its earlier warnings / escalations / remedies are the depth the
- * verdict must account for — while the FULL file stays on disk, reachable to the AI via the
- * `sprintDir` `--add-dir` mount named in the prompt, with every elision marked in place. Applied
- * to both the full evaluate prompt (round 1 / fresh session) and the continuation prompt.
- * Mirrors the generator-leaf helper so both sides of the gen-eval loop see the same journal body.
- *
- * Best-effort: a missing / unreadable file returns the empty string so the template's
- * surrounding prose handles the empty case without a per-flow special branch. The current task's
- * own history is matched on its STABLE id (not its name); the sibling breadth bound scales to the
- * configured evaluator model's context window.
- */
-const readCappedProgress = async (path: string, currentTaskId: string, model: string): Promise<string> => {
-  try {
-    return capProgressBody(await fs.readFile(path, 'utf8'), {
-      currentTaskId,
-      recentBudgetTokens: progressCapBudgetForModel(model),
-    });
-  } catch {
-    return '';
-  }
-};
-
-/**
  * Select and build this turn's evaluator prompt by session continuity. Mirrors the generator
  * leaf's {@link import('./generator.ts')} helper.
  *
@@ -241,38 +139,8 @@ const readCappedProgress = async (path: string, currentTaskId: string, model: st
  * prompt automatically — the discriminant is the same field `--resume` consumes.
  */
 
-/**
- * Resolve the FULL prompt's `{{PROJECT_TOOLING}}` carry (round 1 of a session thread only — the
- * continuation prompt does not declare the placeholder, mirroring `agentDefinition`'s
- * full-prompt-only rule). Mirrors the generator leaf's `resolveGeneratorProjectToolingCarry` —
- * same facts, same `'implement'` flow id (the skill catalog is flow-wide, shared by both roles).
- * Returns the ready-to-spread `{ projectTooling }` fragment (or `{}`) so the caller stays a flat,
- * branch-free spread. Best-effort: a skill-source read failure degrades to naming only the bound
- * agent definition (or to nothing at all) rather than failing the turn.
- */
-const resolveEvaluatorProjectToolingCarry = async (
-  deps: Pick<EvaluatorLeafDeps, 'agentDefinitionName' | 'skillSource'>
-): Promise<{ readonly projectTooling?: string }> => {
-  const skills = deps.skillSource !== undefined ? await deps.skillSource.getForFlow('implement') : undefined;
-  const projectTooling = composeProjectTooling({
-    ...(deps.agentDefinitionName !== undefined ? { agentDefinitionName: deps.agentDefinitionName } : {}),
-    ...(skills?.ok === true ? { skills: skills.value } : {}),
-  });
-  return projectTooling.length > 0 ? { projectTooling } : {};
-};
-
 const buildEvaluatorPrompt = async (
-  deps: Pick<
-    EvaluatorLeafDeps,
-    | 'templateLoader'
-    | 'cwd'
-    | 'progressFile'
-    | 'verifyScript'
-    | 'model'
-    | 'agentDefinition'
-    | 'agentDefinitionName'
-    | 'skillSource'
-  >,
+  deps: EvaluatorLeafDeps,
   args: {
     readonly task: InProgressTask;
     readonly workspaceRoot: AbsolutePath;
@@ -286,91 +154,49 @@ const buildEvaluatorPrompt = async (
     readonly generatorHints: string;
   }
 ): Promise<Result<Prompt, BuildPromptError>> => {
-  const priorProgress = await readCappedProgress(String(deps.progressFile), String(args.task.id), deps.model);
-  const contractPath = join(String(args.workspaceRoot), 'contract.md');
-  const hintsCarry = args.generatorHints.length > 0 ? { generatorHints: args.generatorHints } : {};
-  // Agent-definition section rides ONLY the full prompt — a resumed continuation already carries
-  // it in-conversation.
-  const agentDefinitionCarry = deps.agentDefinition !== undefined ? { agentDefinition: deps.agentDefinition } : {};
+  const sharedValues = {
+    contractPath: join(String(args.workspaceRoot), 'contract.md'),
+    priorProgress: await readCappedProgress(String(deps.progressFile), String(args.task.id), deps.model),
+    outputContractSection: args.outputContractSection,
+    // Threaded only when non-empty so the `<generator_hints>` placeholder collapses cleanly.
+    ...(args.generatorHints.length > 0 ? { generatorHints: args.generatorHints } : {}),
+  };
 
-  if (args.priorEvaluatorSessionId === undefined) {
-    const projectToolingCarry = await resolveEvaluatorProjectToolingCarry(deps);
-    return buildEvaluatePrompt(deps.templateLoader, {
-      task: args.task,
-      projectPath: String(deps.cwd),
-      contractPath,
-      outputContractSection: args.outputContractSection,
-      priorProgress,
-      ...(deps.verifyScript !== undefined ? { verifyScript: deps.verifyScript } : {}),
-      ...projectToolingCarry,
-      ...hintsCarry,
-      ...agentDefinitionCarry,
+  if (args.priorEvaluatorSessionId !== undefined) {
+    return buildEvaluateContinuationPrompt(deps.templateLoader, {
+      ...sharedValues,
+      roundNumber: args.roundNum,
+      progressFile: String(deps.progressFile),
     });
   }
-  return buildEvaluateContinuationPrompt(deps.templateLoader, {
-    roundNumber: args.roundNum,
-    contractPath,
-    progressFile: String(deps.progressFile),
-    priorProgress,
-    outputContractSection: args.outputContractSection,
-    ...hintsCarry,
+  return buildEvaluatePrompt(deps.templateLoader, {
+    ...sharedValues,
+    task: args.task,
+    projectPath: String(deps.cwd),
+    ...(deps.verifyScript !== undefined ? { verifyScript: deps.verifyScript } : {}),
+    ...(await resolveProjectToolingCarry(deps)),
+    // The agent-definition section rides ONLY the full prompt — a resumed continuation already
+    // carries it in-conversation.
+    ...(deps.agentDefinition !== undefined ? { agentDefinition: deps.agentDefinition } : {}),
   });
 };
 
 /**
- * Build one evaluator turn's corrective-retry `reinvoke` callback — resumes the just-spawned
- * thread (falling back to the prior round's session id when this spawn never reported one to
- * disk) so the corrective message lands as a follow-up turn on the SAME conversation the AI
- * just wrote invalid/missing signals from. Mirrors the generator-leaf helper of the same shape.
+ * The reviewer's own grounding lines for a COLD corrective spawn — without them a context-free
+ * retry's whole prompt is the error text, which is exactly enough scaffolding to fabricate a
+ * schema-valid verdict for work the reviewer never saw.
  */
-const makeEvaluatorReinvoke =
-  (
-    deps: Pick<EvaluatorLeafDeps, 'provider' | 'cwd' | 'sprintDir' | 'model'>,
-    args: {
-      readonly workspaceRoot: AbsolutePath;
-      readonly roundNum: number;
-      readonly signalsFile: AbsolutePath;
-      /** Effort the initial spawn ran at (`task.escalatedToEvaluatorEffort ?? deps.effort`) — the corrective respawn matches it. */
-      readonly effectiveEffort: string | undefined;
-      readonly priorEvaluatorSessionId: SessionId | undefined;
-      readonly signal: AbortSignal | undefined;
-    }
-  ): ((corrective: Prompt, attempt: number) => Promise<Result<void, DomainError>>) =>
-  async (corrective, attempt) => {
-    // Resume the reviewer's just-spawned thread so the corrective lands as a follow-up turn —
-    // read the session id this spawn captured to disk. Falls back to the prior-round id when
-    // this spawn never reported one.
-    const resume =
-      (await readRoundSessionId(args.workspaceRoot, args.roundNum, 'evaluator')) ?? args.priorEvaluatorSessionId;
-    // Per-nudge forensic body mirror so a 2nd/3rd nudge never clobbers an earlier capture. Parse is
-    // best-effort — a bad path just omits the mirror, never fails the spawn.
-    const bodyFile = AbsolutePath.parse(
-      roundCorrectiveBodyPath(args.workspaceRoot, args.roundNum, 'evaluator', attempt)
-    );
-    const respawn = await deps.provider.generate(
-      implementSession(
-        args.workspaceRoot,
-        deps.cwd,
-        deps.sprintDir,
-        corrective as Prompt,
-        deps.model,
-        args.signalsFile,
-        'evaluator',
-        resume,
-        args.effectiveEffort,
-        args.signal,
-        bodyFile.ok ? bodyFile.value : undefined
-      )
-    );
-    return respawn.ok ? Result.ok(undefined) : Result.error(respawn.error);
-  };
+const EVALUATOR_GROUNDING = [
+  'Your PRIMARY INPUT is the uncommitted working-tree diff — inspect it via shell',
+  '(`git status` / `git diff HEAD`) before grading. A verdict must reflect the actual',
+  'work, never this message.',
+] as const;
 
 /**
- * Build this turn's `callEvaluate` — selects + builds + persists the prompt, spawns the reviewer,
- * validates `signals.json` with one corrective retry (self-contained against a cold resume so a
- * context-free retry can't fabricate a verdict), publishes the parsed signals onto the bus, and
- * renders harness-owned sidecars (`evaluation.md`). Returns the parsed signals for
- * `runEvaluatorTurnUseCase` to interpret.
+ * Build this turn's `callEvaluate` — selects + builds the prompt, then hands the rest of the turn
+ * to {@link runRoleTurn} (persist prompt, spawn, validate with bounded corrective nudges, render
+ * the `evaluation.md` sidecar). Returns the parsed signals for `runEvaluatorTurnUseCase` to
+ * interpret.
  */
 const makeEvaluatorCallEvaluate =
   (
@@ -385,108 +211,53 @@ const makeEvaluatorCallEvaluate =
   ): RunEvaluatorTurnProps['callEvaluate'] =>
   async (task) => {
     const outputContractSection = renderContractSectionFor(evaluatorOutputContract, args.outputDir);
-    const prompt = await buildEvaluatorPrompt(deps, {
-      task,
+
+    const turn = await runRoleTurn(deps, {
+      role: 'evaluator',
       workspaceRoot: args.input.workspaceRoot,
       roundNum: args.input.roundNum,
-      outputContractSection,
-      priorEvaluatorSessionId: args.input.priorEvaluatorSessionId,
-      generatorHints: args.input.generatorHints,
-    });
-    if (!prompt.ok) return Result.error(prompt.error) as Result<readonly HarnessSignal[], DomainError>;
-    // Persist the rendered prompt under `rounds/<N>/evaluator/prompt.md` BEFORE the AI
-    // call so a crash mid-spawn still leaves the prompt on disk for post-hoc replay.
-    // Best-effort: the writer logs and swallows on failure.
-    await writeRoundPrompt(
-      args.input.workspaceRoot,
-      args.input.roundNum,
-      'evaluator',
-      String(prompt.value),
-      deps.logger
-    );
-
-    // Forensic mirror of the initial spawn's raw body — best-effort parse; a bad path omits it.
-    const initialBodyFile = AbsolutePath.parse(
-      roundBodyPath(args.input.workspaceRoot, args.input.roundNum, 'evaluator')
-    );
-    // Per-task evaluator-EFFORT escalation: the escalation policy's lockstep bump stamps
-    // `escalatedToEvaluatorEffort` (computed against the evaluator's own ladder, never copied from
-    // the generator's target) when it fires alongside the generator's same-model effort rung.
-    // Prefer it over the configured `deps.effort` at spawn — the MODEL always stays `deps.model`,
-    // unconditionally, on both this spawn and the corrective respawn below.
-    const effectiveEffort = task.escalatedToEvaluatorEffort ?? deps.effort;
-    const spawn = await deps.provider.generate(
-      implementSession(
-        args.input.workspaceRoot,
-        deps.cwd,
-        deps.sprintDir,
-        prompt.value,
-        deps.model,
-        args.signalsFile,
-        'evaluator',
-        args.input.priorEvaluatorSessionId,
-        effectiveEffort,
-        args.signal,
-        initialBodyFile.ok ? initialBodyFile.value : undefined
-      )
-    );
-    if (!spawn.ok) return Result.error(spawn.error);
-
-    // Validate `signals.json` against the evaluator contract. On a RECOVERABLE failure
-    // (signals-missing / invalid-json / schema-mismatch) re-prompt the reviewer ONCE on
-    // the resumed session with a corrective message + the Zod issue list, then re-validate
-    // — one near-miss element no longer blocks the whole verdict. `runEvaluatorTurnUseCase`
-    // converts a still-failing validation into a `self-blocked` exit (task settles as
-    // blocked — the ungraded change is NOT marked done; run continues); only a fatal
-    // `Aborted`/`RateLimit` propagates.
-    const validated = await validateSignalsFileWithCorrectiveRetry(
-      {
-        outputDir: args.outputDir,
-        logger: deps.logger,
-        correctiveRetries: deps.correctiveRetries,
-        // Self-containment for a COLD corrective spawn (no resumable id / codex stale-resume
-        // fallback): the per-round output contract plus the reviewer's grounding — without
-        // this, a context-free retry's whole prompt is the error text, which is exactly
-        // enough scaffolding to fabricate a schema-valid verdict for unseen work.
-        selfContainedContext: [
-          `Task spec (read it): \`${join(String(args.input.workspaceRoot), 'contract.md')}\``,
-          'Your PRIMARY INPUT is the uncommitted working-tree diff — inspect it via shell',
-          '(`git status` / `git diff HEAD`) before grading. A verdict must reflect the actual',
-          'work, never this message.',
-          '',
-          outputContractSection,
-        ].join('\n'),
-        reinvoke: makeEvaluatorReinvoke(deps, {
+      signalsFile: args.signalsFile,
+      outputDir: args.outputDir,
+      // The evaluator MODEL is never escalated — it always stays the configured row, on both the
+      // initial spawn and every corrective respawn.
+      model: deps.model,
+      // Per-task evaluator-EFFORT escalation: the escalation policy's lockstep bump stamps
+      // `escalatedToEvaluatorEffort` (computed against the evaluator's own ladder, never copied
+      // from the generator's target) when it fires alongside the generator's same-model effort
+      // rung. Prefer it over the configured `deps.effort` at spawn.
+      effort: task.escalatedToEvaluatorEffort ?? deps.effort,
+      priorSessionId: args.input.priorEvaluatorSessionId,
+      signal: args.signal,
+      contract: evaluatorOutputContract,
+      buildPrompt: async () =>
+        buildEvaluatorPrompt(deps, {
+          task,
           workspaceRoot: args.input.workspaceRoot,
           roundNum: args.input.roundNum,
-          signalsFile: args.signalsFile,
-          effectiveEffort,
+          outputContractSection,
           priorEvaluatorSessionId: args.input.priorEvaluatorSessionId,
-          signal: args.signal,
+          generatorHints: args.input.generatorHints,
         }),
+      selfContainedContext: selfContainedGrounding(
+        args.input.workspaceRoot,
+        outputContractSection,
+        EVALUATOR_GROUNDING
+      ),
+      // Publish every validated signal onto the one harness-signal channel.
+      onSignals: (signals) => {
+        for (const sig of signals) deps.publishSignal(sig);
       },
-      evaluatorOutputContract
-    );
-    if (!validated.ok) return Result.error(validated.error);
-    const signals = validated.value.signals;
+    });
+    if (!turn.ok) return Result.error(turn.error) as Result<readonly HarnessSignal[], DomainError>;
     // Cost-visibility out-channel — see EvaluatorTurnMeta's docstring for why this rides a
     // mutated field rather than widening `callEvaluate`'s return type.
-    args.meta.correctiveNudgeCount = validated.value.nudgeCount;
-
-    // Publish every validated signal onto the one harness-signal channel.
-    for (const sig of signals) deps.publishSignal(sig);
-
-    // Render harness-owned sidecars (`evaluation.md`). Write failures log warn inside
-    // `renderSidecars`; the helper always returns `Result.ok` (sidecars are operator UX
-    // only — `runEvaluatorTurnUseCase` consumes the in-memory `evaluation` signal, never
-    // the rendered file).
-    await renderSidecars(deps.writeFile, args.outputDir, signals, evaluatorOutputContract.sidecars, deps.logger);
+    args.meta.correctiveNudgeCount = turn.value.nudgeCount;
 
     // `runEvaluatorTurnUseCase` expects `readonly HarnessSignal[]`. `EvaluatorContractSignal`
     // is a strict subset of `HarnessSignal`, but TS's array variance doesn't infer that
     // automatically — cast through `AiSignal[]` (the canonical union alias) to keep the
     // call site honest about the underlying domain shape.
-    return Result.ok(signals as readonly AiSignal[]) as Result<readonly HarnessSignal[], DomainError>;
+    return Result.ok(turn.value.signals as readonly AiSignal[]) as Result<readonly HarnessSignal[], DomainError>;
   };
 
 /**
@@ -500,22 +271,13 @@ const makeEvaluatorExecute =
     deps: EvaluatorLeafDeps
   ): ((input: EvaluatorInput, signal?: AbortSignal) => Promise<Result<EvaluatorOutput, DomainError>>) =>
   async (input, signal) => {
-    const signalsFilePath = AbsolutePath.parse(roundSignalsPath(input.workspaceRoot, input.roundNum, 'evaluator'));
-    if (!signalsFilePath.ok) return Result.error(signalsFilePath.error);
-    const signalsFile = signalsFilePath.value;
-
-    // `outputDir` is the per-round directory (`rounds/<N>/evaluator/`);
-    // `validateSignalsFile` resolves `<outputDir>/signals.json` and `renderSidecars`
-    // writes harness-rendered sidecars into the same directory. We derive it once from
-    // `signalsFile` so the two paths stay structurally coupled.
-    const outputDirPath = AbsolutePath.parse(dirname(String(signalsFile)));
-    if (!outputDirPath.ok) return Result.error(outputDirPath.error);
-    const outputDir = outputDirPath.value;
+    const paths = resolveRoundPaths(input.workspaceRoot, input.roundNum, 'evaluator');
+    if (!paths.ok) return Result.error(paths.error);
 
     // Cost-visibility out-channel for this turn's corrective-nudge tally — closure-captured so
     // `execute` can stamp it onto `EvaluatorOutput` after the use case returns.
     const meta: EvaluatorTurnMeta = { correctiveNudgeCount: 0 };
-    const callEvaluate = makeEvaluatorCallEvaluate(deps, { input, signalsFile, outputDir, signal, meta });
+    const callEvaluate = makeEvaluatorCallEvaluate(deps, { input, ...paths.value, signal, meta });
 
     // Fingerprint the working tree's uncommitted changes for this round so the plateau
     // predicate's progress exemption measures real code change instead of commit-message
@@ -558,30 +320,7 @@ const makeEvaluatorExecute =
 const makeEvaluatorInput =
   (taskId: TaskId): ((ctx: ImplementCtx) => EvaluatorInput) =>
   (ctx) => {
-    if (ctx.currentTask === undefined || ctx.currentTask.id !== taskId) {
-      throw new InvalidStateError({
-        entity: 'chain',
-        currentState: 'pre-evaluator',
-        attemptedAction: `evaluator-${String(taskId)}`,
-        message: `evaluator-${String(taskId)}: ctx.currentTask missing or mismatched`,
-      });
-    }
-    if (ctx.currentTask.status !== 'in_progress') {
-      throw new InvalidStateError({
-        entity: 'task',
-        currentState: ctx.currentTask.status,
-        attemptedAction: `evaluator-${String(taskId)}`,
-        message: `evaluator-${String(taskId)}: expected in_progress task`,
-      });
-    }
-    if (ctx.taskWorkspaceRoot === undefined || ctx.currentRoundNum === undefined) {
-      throw new InvalidStateError({
-        entity: 'chain',
-        currentState: 'pre-evaluator',
-        attemptedAction: `evaluator-${String(taskId)}`,
-        message: `evaluator-${String(taskId)}: ctx.taskWorkspaceRoot/currentRoundNum missing — generator leaf must run first`,
-      });
-    }
+    const { task, workspaceRoot, roundNum } = requireRoleTurnCtx(ctx, 'evaluator', taskId);
     const currentCommitSubject = ctx.proposedCommitMessage?.subject;
     // T5: compose the same-round generator hints from the per-attempt ctx accumulators. Pure
     // read — `composeGeneratorHints` caps + clamps so a deep multi-round attempt's accumulators
@@ -593,10 +332,10 @@ const makeEvaluatorInput =
       ...(ctx.currentAttemptNotes !== undefined ? { notes: ctx.currentAttemptNotes } : {}),
     };
     return {
-      task: ctx.currentTask,
+      task,
       priorTurns: ctx.plateauHistory ?? [],
-      workspaceRoot: ctx.taskWorkspaceRoot,
-      roundNum: ctx.currentRoundNum,
+      workspaceRoot,
+      roundNum,
       generatorHints: composeGeneratorHints(hintsInput),
       ...(currentCommitSubject !== undefined ? { currentCommitSubject } : {}),
       ...(ctx.priorEvaluatorSessionId !== undefined ? { priorEvaluatorSessionId: ctx.priorEvaluatorSessionId } : {}),

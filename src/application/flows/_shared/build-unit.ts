@@ -8,9 +8,10 @@ import { leaf } from '@src/application/chain/build/leaf.ts';
 
 /**
  * Generic leaf that materialises a per-item directory under a parent. Used by interactive
- * chains (refine, plan-interactive) to create a stable per-ticket / per-task location for
- * `prompt.md` (input) and the AI's output file. `mkdir -p` semantics — already-existing
- * directories are not an error.
+ * AI-authoring chains (refine, plan, ideate, create-pr — via the shared `aiUnitPrelude` bracket
+ * in `ai-unit-segment.ts`) to create a stable per-ticket / per-run location for `prompt.md`
+ * (input) and the AI's output file. `mkdir -p` semantics — already-existing directories are not
+ * an error.
  *
  * Why a leaf and not done in the surrounding chain factory: each per-item sub-chain runs
  * lazily during `runner.start()`. Materialising the dir at construction time would create

@@ -8,7 +8,7 @@ import type { Attempt, AttemptWarning } from '@src/domain/entity/attempt.ts';
 import type { InProgressTask, Task } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { CriterionVerdict, EvaluationSignal } from '@src/domain/signal.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
@@ -19,7 +19,9 @@ import { boundVerifyExcerpt } from '@src/business/task/bound-verify-excerpt.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import { gitHasUncommittedChanges } from '@src/integration/io/git-operations.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
+import type { WriteFile } from '@src/business/io/write-file.ts';
 import { renderRoundOutcome, type RoundVerdict } from '@src/business/task/render-round-outcome.ts';
+import { resetSettleScratch } from '@src/application/flows/implement/sprint-scoped-projection.ts';
 
 export interface SettleAttemptLeafDeps {
   readonly taskRepo: SettleAttemptProps['taskRepo'];
@@ -31,12 +33,25 @@ export interface SettleAttemptLeafDeps {
    * Production wires the real GitRunner so dirty-tree settles are refused.
    */
   readonly gitRunner?: GitRunner;
+  /**
+   * Atomic whole-file writer for the per-round `outcome.md` audit artefact — see
+   * `writeRoundOutcome`. Optional: callers that don't wire the port (legacy / test call sites
+   * outside this leaf's own ownership) fall back to the direct `writeTextAtomic` adapter via
+   * {@link defaultWriteFile}, so behaviour is unchanged either way.
+   */
+  readonly writeFile?: WriteFile;
 }
 
 export interface SettleAttemptLeafOpts {
   /** Worktree the commit-task leaf ran against — used for the dirty-tree guardrail. */
   readonly cwd: AbsolutePath;
 }
+
+/** Shared `logger.named(...)` scope for every outcome.md diagnostic below. */
+const OUTCOME_LOGGER_NAME = 'settle-attempt.outcome';
+
+/** Fallback `WriteFile` for callers that don't (yet) wire the port — same atomic adapter either way. */
+const defaultWriteFile: WriteFile = (path, content) => writeTextAtomic(String(path), content);
 
 interface SettleInput {
   readonly task: InProgressTask;
@@ -75,6 +90,95 @@ interface SettleInput {
  * dimension scores, critique, session ids, commit. The write is best-effort: a failure is
  * logged and swallowed because the audit artefact must never take down the chain.
  */
+/**
+ * Builds the `hasUncommittedChanges` probe `settleAttemptUseCase` uses for the worktree-clean
+ * guardrail. Split out so the leaf's construction body reads as one line per collaborator.
+ */
+const checkWorktreeClean =
+  (gitRunner: GitRunner, cwd: AbsolutePath): SettleAttemptProps['hasUncommittedChanges'] =>
+  () =>
+    gitHasUncommittedChanges(gitRunner, cwd);
+
+/**
+ * Best-effort write of the per-round `outcome.md` for the just-settled attempt. Only fires when
+ * BOTH `workspaceRoot` and `roundNum` are known on the input (absent on a zero-turn self-block, where
+ * there is no round to describe). Split out of `execute` so that closure's own line count stays
+ * under the project's per-function ceiling.
+ */
+const maybeWriteRoundOutcome = async (
+  deps: SettleAttemptLeafDeps,
+  input: SettleInput,
+  settled: SettleAttemptOutput
+): Promise<void> => {
+  if (input.workspaceRoot === undefined || input.roundNum === undefined) return;
+  // The settle leaf is the only chain point where we have BOTH the latest evaluator signal (still
+  // on ctx) AND the post-settle attempt state (with finishedAt and the final verdict). Anywhere
+  // earlier would be missing one of those.
+  await writeRoundOutcome({
+    workspaceRoot: input.workspaceRoot,
+    roundNum: input.roundNum,
+    task: settled,
+    verdict: deriveRoundVerdict(input.verdict, input.warning),
+    // `shouldFailAttempt === true` is set (in finalize-gen-eval) exactly when a fresh attempt is
+    // granted, so it reliably means "another round follows"; a self-blocked or budget-exhausted
+    // terminal round leaves it unset.
+    willRetryNextRound: input.shouldFailAttempt === true,
+    ...(input.evaluation !== undefined ? { evaluation: input.evaluation } : {}),
+    ...(input.generatorSessionId !== undefined ? { generatorSessionId: input.generatorSessionId } : {}),
+    ...(input.evaluatorSessionId !== undefined ? { evaluatorSessionId: input.evaluatorSessionId } : {}),
+    logger: deps.logger,
+    writeFile: deps.writeFile ?? defaultWriteFile,
+  });
+};
+
+/**
+ * Derive this round's {@link AttemptWarning} from ctx: a `verify-failed` `lastVerifyResult`
+ * overrides any generic `lastWarning` (the harness's own gate outranks a signal-derived warning),
+ * bounding the persisted excerpt so the attempt's warning never re-creates the
+ * `Verification.output` OOM (see `bound-verify-excerpt.ts`) — the untruncated body lives on disk at
+ * `<sprintDir>/logs/verify/<task-id>/...`. Falls back to `ctx.lastWarning` otherwise.
+ */
+const deriveSettleWarning = (ctx: ImplementCtx): AttemptWarning | undefined =>
+  ctx.lastVerifyResult !== undefined && ctx.lastVerifyResult.kind === 'verify-failed'
+    ? {
+        kind: 'verify-failed',
+        exitCode: ctx.lastVerifyResult.exitCode,
+        stderr: boundVerifyExcerpt(ctx.lastVerifyResult.stderr),
+      }
+    : ctx.lastWarning;
+
+/**
+ * Project every OPTIONAL {@link SettleInput} field straight off ctx (present only when the source
+ * field is set). Split out of `input()` so that projection's own guard-clause + verdict/warning
+ * derivation stays under the project's complexity ceiling — this helper is a flat list of
+ * independent conditional spreads, not branching logic.
+ */
+const projectOptionalSettleFields = (
+  ctx: ImplementCtx,
+  warning: AttemptWarning | undefined
+): Pick<
+  SettleInput,
+  | 'blockedReason'
+  | 'warning'
+  | 'workspaceRoot'
+  | 'roundNum'
+  | 'evaluation'
+  | 'criteria'
+  | 'shouldFailAttempt'
+  | 'generatorSessionId'
+  | 'evaluatorSessionId'
+> => ({
+  ...(ctx.lastBlockReason !== undefined ? { blockedReason: ctx.lastBlockReason } : {}),
+  ...(warning !== undefined ? { warning } : {}),
+  ...(ctx.taskWorkspaceRoot !== undefined ? { workspaceRoot: ctx.taskWorkspaceRoot } : {}),
+  ...(ctx.currentRoundNum !== undefined ? { roundNum: ctx.currentRoundNum } : {}),
+  ...(ctx.lastEvaluation !== undefined ? { evaluation: ctx.lastEvaluation } : {}),
+  ...(ctx.lastEvaluation?.criteria !== undefined ? { criteria: ctx.lastEvaluation.criteria } : {}),
+  ...(ctx.lastShouldFailAttempt === true ? { shouldFailAttempt: true } : {}),
+  ...(ctx.priorGeneratorSessionId !== undefined ? { generatorSessionId: String(ctx.priorGeneratorSessionId) } : {}),
+  ...(ctx.priorEvaluatorSessionId !== undefined ? { evaluatorSessionId: String(ctx.priorEvaluatorSessionId) } : {}),
+});
+
 export const settleAttemptLeaf = (
   deps: SettleAttemptLeafDeps,
   opts: SettleAttemptLeafOpts,
@@ -82,7 +186,7 @@ export const settleAttemptLeaf = (
 ): Element<ImplementCtx> => {
   const { gitRunner } = deps;
   const hasUncommittedChanges: SettleAttemptProps['hasUncommittedChanges'] | undefined =
-    gitRunner !== undefined ? () => gitHasUncommittedChanges(gitRunner, opts.cwd) : undefined;
+    gitRunner !== undefined ? checkWorktreeClean(gitRunner, opts.cwd) : undefined;
   return leaf<ImplementCtx, SettleInput, SettleAttemptOutput>(`settle-attempt-${String(taskId)}`, {
     useCase: {
       execute: async (input) => {
@@ -93,26 +197,7 @@ export const settleAttemptLeaf = (
           ...(hasUncommittedChanges !== undefined ? { hasUncommittedChanges } : {}),
         });
         if (!settled.ok) return settled;
-        // Write the per-round outcome.md from the final round of the just-settled attempt.
-        // The settle leaf is the only chain point where we have BOTH the latest evaluator
-        // signal (still on ctx) AND the post-settle attempt state (with finishedAt and the
-        // final verdict). Anywhere earlier would be missing one of those.
-        if (input.workspaceRoot !== undefined && input.roundNum !== undefined) {
-          await writeRoundOutcome({
-            workspaceRoot: input.workspaceRoot,
-            roundNum: input.roundNum,
-            task: settled.value,
-            verdict: deriveRoundVerdict(input.verdict, input.warning),
-            // `shouldFailAttempt === true` is set (in finalize-gen-eval) exactly when a fresh
-            // attempt is granted, so it reliably means "another round follows"; a self-blocked or
-            // budget-exhausted terminal round leaves it unset.
-            willRetryNextRound: input.shouldFailAttempt === true,
-            ...(input.evaluation !== undefined ? { evaluation: input.evaluation } : {}),
-            ...(input.generatorSessionId !== undefined ? { generatorSessionId: input.generatorSessionId } : {}),
-            ...(input.evaluatorSessionId !== undefined ? { evaluatorSessionId: input.evaluatorSessionId } : {}),
-            logger: deps.logger,
-          });
-        }
+        await maybeWriteRoundOutcome(deps, input, settled.value);
         return settled;
       },
     },
@@ -141,52 +226,22 @@ export const settleAttemptLeaf = (
           message: `settle-attempt-${String(taskId)}: no verdict or block reason on ctx — at least one turn must run`,
         });
       }
-      const warning: AttemptWarning | undefined =
-        ctx.lastVerifyResult !== undefined && ctx.lastVerifyResult.kind === 'verify-failed'
-          ? {
-              kind: 'verify-failed',
-              exitCode: ctx.lastVerifyResult.exitCode,
-              // Bound the excerpt persisted onto the attempt: the warning lives on the task in
-              // ctx.tasks + tasks.json for the whole sprint, so storing the full (≤50 MB) verify
-              // body here re-creates the Verification.output OOM (see bound-verify-excerpt.ts).
-              // The untruncated body is on disk at <sprintDir>/logs/verify/<task-id>/...
-              stderr: boundVerifyExcerpt(ctx.lastVerifyResult.stderr),
-            }
-          : ctx.lastWarning;
       return {
         task: ctx.currentTask,
         sprintId: ctx.sprintId,
         verdict: ctx.lastVerdict ?? 'failed',
-        ...(ctx.lastBlockReason !== undefined ? { blockedReason: ctx.lastBlockReason } : {}),
-        ...(warning !== undefined ? { warning } : {}),
-        ...(ctx.taskWorkspaceRoot !== undefined ? { workspaceRoot: ctx.taskWorkspaceRoot } : {}),
-        ...(ctx.currentRoundNum !== undefined ? { roundNum: ctx.currentRoundNum } : {}),
-        ...(ctx.lastEvaluation !== undefined ? { evaluation: ctx.lastEvaluation } : {}),
-        ...(ctx.lastEvaluation?.criteria !== undefined ? { criteria: ctx.lastEvaluation.criteria } : {}),
-        ...(ctx.lastShouldFailAttempt === true ? { shouldFailAttempt: true } : {}),
-        ...(ctx.priorGeneratorSessionId !== undefined
-          ? { generatorSessionId: String(ctx.priorGeneratorSessionId) }
-          : {}),
-        ...(ctx.priorEvaluatorSessionId !== undefined
-          ? { evaluatorSessionId: String(ctx.priorEvaluatorSessionId) }
-          : {}),
+        ...projectOptionalSettleFields(ctx, deriveSettleWarning(ctx)),
       };
     },
+    // Cleared via the type-derived per-settle reset (see `sprint-scoped-projection.ts`) —
+    // deliberately distinct from `start-attempt`'s reset: `progress-journal` runs right after this
+    // leaf and still needs `ctx.currentRoundNum` / `ctx.lastEvaluation` / the rest of that bucket.
     output: (ctx, settled) => {
       const tasks = (ctx.tasks ?? []).map((t) => (t.id === settled.id ? (settled as Task) : t));
       return {
         ...ctx,
+        ...resetSettleScratch(),
         tasks,
-        currentTask: undefined,
-        currentTaskId: undefined,
-        lastVerdict: undefined,
-        lastBlockReason: undefined,
-        lastExit: undefined,
-        lastWarning: undefined,
-        lastVerifyResult: undefined,
-        lastPreVerifyOutcome: undefined,
-        lastCommitSha: undefined,
-        lastShouldFailAttempt: undefined,
       };
     },
   });
@@ -223,11 +278,12 @@ const writeRoundOutcome = async (params: {
   readonly generatorSessionId?: string;
   readonly evaluatorSessionId?: string;
   readonly logger: SettleAttemptProps['logger'];
+  readonly writeFile: WriteFile;
 }): Promise<void> => {
   const attempt = latestAttempt(params.task);
   if (attempt === undefined) {
     params.logger
-      .named('settle-attempt.outcome')
+      .named(OUTCOME_LOGGER_NAME)
       .warn('no attempt recorded on task; skipping outcome.md', { taskId: String(params.task.id) });
     return;
   }
@@ -245,9 +301,17 @@ const writeRoundOutcome = async (params: {
     ...(attemptDurationMs(attempt) !== undefined ? { durationMs: attemptDurationMs(attempt)! } : {}),
   });
   const path = join(String(params.workspaceRoot), 'rounds', String(params.roundNum), 'outcome.md');
-  const wrote = await writeTextAtomic(path, content);
+  const parsedPath = AbsolutePath.parse(path);
+  if (!parsedPath.ok) {
+    params.logger.named(OUTCOME_LOGGER_NAME).warn('outcome.md write failed — could not resolve path', {
+      path,
+      error: parsedPath.error.message,
+    });
+    return;
+  }
+  const wrote = await params.writeFile(parsedPath.value, content);
   if (!wrote.ok) {
-    params.logger.named('settle-attempt.outcome').warn('outcome.md write failed', {
+    params.logger.named(OUTCOME_LOGGER_NAME).warn('outcome.md write failed', {
       path,
       error: wrote.error.message,
     });

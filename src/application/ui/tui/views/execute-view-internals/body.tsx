@@ -59,115 +59,170 @@ export interface ExecuteBodyProps {
   readonly pinnedSprintStale: boolean;
 }
 
-export const ExecuteBody = ({
-  descriptor,
-  sessionList,
-  sessionId,
-  isRunning,
-  now,
-  elapsed,
+/**
+ * The rail / tasks / context region between the header card and the log panel. Which composition
+ * renders is a width decision: at ≥140 cols the sidebar layout owns the region, below that the
+ * column-switching `ExecuteLayout` does. Both take the same already-derived data, so the choice is
+ * the only thing this component adds.
+ */
+const MainRegion = ({
   layout,
+  descriptor,
+  isRunning,
+  sessionId,
   termColumns,
   termRows,
   bucketed,
+  cancelScopeOpen,
+  tasksPanel,
   executionState,
   taskState,
+  now,
   tokenUsage,
-  tasksDone,
-  tasksTotal,
-  currentTask,
-  currentTaskIdx,
-  currentTaskName,
-  currentSubStep,
-  tasksPanel,
-  logEntries,
+  pinnedSprintStale,
+}: Pick<
+  ExecuteBodyProps,
+  | 'layout'
+  | 'descriptor'
+  | 'isRunning'
+  | 'sessionId'
+  | 'termColumns'
+  | 'termRows'
+  | 'bucketed'
+  | 'cancelScopeOpen'
+  | 'tasksPanel'
+  | 'executionState'
+  | 'taskState'
+  | 'now'
+  | 'tokenUsage'
+  | 'pinnedSprintStale'
+>): React.JSX.Element =>
+  layout.sidebarLayout ? (
+    <ImplementLayout
+      layout={layout}
+      bucketed={bucketed}
+      termRows={termRows}
+      inputActive={!cancelScopeOpen}
+      descriptor={descriptor}
+      isRunning={isRunning}
+      sessionId={sessionId}
+      termColumns={termColumns}
+      tasksPanel={tasksPanel}
+      executionState={executionState}
+      taskState={taskState}
+      now={now}
+      tokenUsage={tokenUsage}
+      pinnedSprintStale={pinnedSprintStale}
+    />
+  ) : (
+    <ExecuteLayout
+      descriptor={descriptor}
+      isRunning={isRunning}
+      sessionId={sessionId}
+      termColumns={termColumns}
+      flowStepsRows={layout.flowStepsRows}
+      threeColRailWidth={layout.threeColRailWidth}
+      labelledRailWidth={layout.labelledRailWidth}
+      contextWidth={layout.contextWidth}
+      threeColumn={layout.threeColumn}
+      twoColumn={layout.twoColumn}
+      compactTwoColumn={layout.compactTwoColumn}
+      tasksPanel={tasksPanel}
+      executionState={executionState}
+      taskState={taskState}
+      now={now}
+      tokenUsage={tokenUsage}
+      pinnedSprintStale={pinnedSprintStale}
+    />
+  );
+
+/**
+ * Cancel-scope picker — mounted only while running AND the operator pressed `c`. While mounted it
+ * claims keyboard input via its own useInput hook; the surrounding view's `c` handler is gated
+ * behind `cancelScopeOpen` so the keystroke isn't consumed twice. Self-gates on both flags.
+ */
+const CancelScopePicker = ({
+  isRunning,
   cancelScopeOpen,
   attemptElapsedMs,
   remainingTaskCount,
   onCancelAttempt,
   onCancelFlow,
   onDismissCancelScope,
-  pinnedSprintStale,
-}: ExecuteBodyProps): React.JSX.Element => (
-  <Box flexDirection="column">
-    {/* Multi-flow chip strip — renders only when ≥2 sessions are running, so a single-
+}: Pick<
+  ExecuteBodyProps,
+  | 'isRunning'
+  | 'cancelScopeOpen'
+  | 'attemptElapsedMs'
+  | 'remainingTaskCount'
+  | 'onCancelAttempt'
+  | 'onCancelFlow'
+  | 'onDismissCancelScope'
+>): React.JSX.Element | null => {
+  if (!isRunning || !cancelScopeOpen) return null;
+  return (
+    <CancelScopeOverlay
+      attemptElapsedMs={attemptElapsedMs}
+      remainingTaskCount={remainingTaskCount}
+      onCancelAttempt={onCancelAttempt}
+      onCancelFlow={onCancelFlow}
+      onDismiss={onDismissCancelScope}
+    />
+  );
+};
+
+/**
+ * `MainRegion` and `CancelScopePicker` each declare the exact slice of {@link ExecuteBodyProps}
+ * they consume, so the whole bag is spread into them rather than re-listing two dozen names here.
+ */
+export const ExecuteBody = (props: ExecuteBodyProps): React.JSX.Element => {
+  const {
+    descriptor,
+    sessionList,
+    sessionId,
+    isRunning,
+    now,
+    elapsed,
+    layout,
+    tasksDone,
+    tasksTotal,
+    currentTask,
+    currentTaskIdx,
+    currentTaskName,
+    currentSubStep,
+    logEntries,
+  } = props;
+  return (
+    <Box flexDirection="column">
+      {/* Multi-flow chip strip — renders only when ≥2 sessions are running, so a single-
         flow run pays zero pixels. */}
-    <MultiFlowStrip sessions={sessionList} activeId={sessionId} now={now} />
-    {/* HeaderCard — rendered at all widths. At ≥140 cols the BaselineHealthCard lives in the
-        sidebar (user ask #1); at <140 cols it appears in the narrow layout via ExecuteLayout.
-        The baseline chip that used to appear here has been removed. */}
-    <HeaderCard
-      descriptor={descriptor}
-      isRunning={isRunning}
-      tasksDone={tasksDone}
-      tasksTotal={tasksTotal}
-      currentTask={currentTask}
-      currentTaskIdx={currentTaskIdx}
-      currentTaskName={currentTaskName}
-      currentSubStep={currentSubStep}
-    />
-
-    {layout.sidebarLayout ? (
-      <ImplementLayout
-        layout={layout}
-        bucketed={bucketed}
-        termRows={termRows}
-        inputActive={!cancelScopeOpen}
+      <MultiFlowStrip sessions={sessionList} activeId={sessionId} now={now} />
+      {/* HeaderCard — rendered at all widths. At ≥140 cols the BaselineHealthCard lives in the
+        sidebar; at <140 cols it appears in the narrow layout via ExecuteLayout. */}
+      <HeaderCard
         descriptor={descriptor}
         isRunning={isRunning}
-        sessionId={sessionId}
-        termColumns={termColumns}
-        tasksPanel={tasksPanel}
-        executionState={executionState}
-        taskState={taskState}
-        now={now}
-        tokenUsage={tokenUsage}
-        pinnedSprintStale={pinnedSprintStale}
+        tasksDone={tasksDone}
+        tasksTotal={tasksTotal}
+        currentTask={currentTask}
+        currentTaskIdx={currentTaskIdx}
+        currentTaskName={currentTaskName}
+        currentSubStep={currentSubStep}
       />
-    ) : (
-      <ExecuteLayout
+
+      <MainRegion {...props} />
+
+      <LogPanel entries={logEntries} maxRows={layout.logRows} />
+
+      <ResultFooter
         descriptor={descriptor}
         isRunning={isRunning}
-        sessionId={sessionId}
-        termColumns={termColumns}
-        flowStepsRows={layout.flowStepsRows}
-        threeColRailWidth={layout.threeColRailWidth}
-        labelledRailWidth={layout.labelledRailWidth}
-        contextWidth={layout.contextWidth}
-        threeColumn={layout.threeColumn}
-        twoColumn={layout.twoColumn}
-        compactTwoColumn={layout.compactTwoColumn}
-        tasksPanel={tasksPanel}
-        executionState={executionState}
-        taskState={taskState}
-        now={now}
-        tokenUsage={tokenUsage}
-        pinnedSprintStale={pinnedSprintStale}
+        tasksDone={tasksDone}
+        tasksTotal={tasksTotal}
+        elapsed={elapsed}
       />
-    )}
 
-    <LogPanel entries={logEntries} maxRows={layout.logRows} />
-
-    <ResultFooter
-      descriptor={descriptor}
-      isRunning={isRunning}
-      tasksDone={tasksDone}
-      tasksTotal={tasksTotal}
-      elapsed={elapsed}
-    />
-
-    {/* Cancel-scope picker — mounted only while running AND the operator pressed `c`.
-        While mounted it claims keyboard input via its own useInput hook; the surrounding
-        view's `c` handler is gated behind `cancelScopeOpen` so the keystroke isn't
-        consumed twice. */}
-    {isRunning && cancelScopeOpen && (
-      <CancelScopeOverlay
-        attemptElapsedMs={attemptElapsedMs}
-        remainingTaskCount={remainingTaskCount}
-        onCancelAttempt={onCancelAttempt}
-        onCancelFlow={onCancelFlow}
-        onDismiss={onDismissCancelScope}
-      />
-    )}
-  </Box>
-);
+      <CancelScopePicker {...props} />
+    </Box>
+  );
+};

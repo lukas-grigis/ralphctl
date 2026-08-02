@@ -24,22 +24,6 @@ export const SIGNAL_LABEL_WIDTH = 16;
 export const padLabel = (label: string): string => label.padEnd(SIGNAL_LABEL_WIDTH, ' ');
 
 /**
- * Disclosure / focus-cursor glyphs for collapsible commit-message rows and the focused signal
- * row. The canonical values now live in `tokens.ts` (`glyphs.disclosureCollapsed` /
- * `glyphs.disclosureExpanded` / `glyphs.selectMarker`). Re-exported here under their historical
- * names so `signal-rows.tsx` / `task-row.tsx` keep resolving without churn; new code should
- * import the `glyphs.*` tokens directly instead of adding to this alias list.
- *
- * The focus cursor deliberately stays on `selectMarker` (`›`), NOT `actionCursor` (`▸`) — a
- * focused-but-collapsed commit row would otherwise render the disclosure caret and the focus
- * caret as the same glyph in the same row, collapsing two distinct pieces of information
- * ("this row can expand" vs "this row is focused") into one indistinguishable mark.
- */
-export const COLLAPSED_DISCLOSURE = glyphs.disclosureCollapsed;
-export const EXPANDED_DISCLOSURE = glyphs.disclosureExpanded;
-export const FOCUS_CURSOR = glyphs.selectMarker;
-
-/**
  * Render the parenthetical detail block of a `context-compacted` marker. Returns `undefined`
  * when neither token counts nor preserved topics were reported by the provider — the marker
  * then degrades gracefully to the bare "context compacted" boundary.

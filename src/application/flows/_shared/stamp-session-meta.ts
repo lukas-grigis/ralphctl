@@ -16,9 +16,10 @@ import { leaf } from '@src/application/chain/build/leaf.ts';
  *   - `chain.log` is debug-grade trace data, not a queryable surface.
  *   - Codex's `session-id.txt` capture is incomplete (the CLI does not always emit one), so
  *     attribution must NOT depend on it.
- *   - Some flows (refine / plan / ideate / readiness / detect-{skills,scripts} / review) write
- *     no audit beyond `signals.json` itself; meta.json gives them the same forensic baseline
- *     as implement's per-round dirs.
+ *   - Some flows (detect-{skills,scripts} / review) write no audit beyond `signals.json`
+ *     itself; meta.json gives them the same forensic baseline as implement's per-round dirs.
+ *     refine / plan / ideate / readiness / create-pr all stamp it too, via the shared
+ *     `aiUnitPrelude` bracket in `ai-unit-segment.ts`.
  *
  * Pure write leaf: the resolver projects ctx to {@link SessionMetaInput}, the leaf stamps the
  * timestamp from {@link StampSessionMetaDeps.clock}, and the leaf serialises + atomically

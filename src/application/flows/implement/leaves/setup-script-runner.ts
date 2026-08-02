@@ -1,9 +1,10 @@
 import { basename, join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
+import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
-import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import {
   appendExecutionSetupRun,
   type SetupRun,
@@ -85,7 +86,16 @@ export interface SetupScriptRunnerLeafDeps {
   readonly eventBus: EventBus;
   readonly sprintExecutionRepo: Save<SprintExecution>;
   readonly logger: Logger;
+  /**
+   * Atomic whole-file writer for the persisted setup log — see `persistSetupLog`. Optional:
+   * callers that don't wire the port fall back to the direct `writeTextAtomic` adapter via
+   * {@link defaultWriteFile}, so behaviour is unchanged either way.
+   */
+  readonly writeFile?: WriteFile;
 }
+
+/** Fallback `WriteFile` for callers that don't (yet) wire the port — same atomic adapter either way. */
+const defaultWriteFile: WriteFile = (path, content) => writeTextAtomic(String(path), content);
 
 export interface SetupRepoEntry {
   readonly repositoryId: RepositoryId;
@@ -366,9 +376,107 @@ const buildSetupFailureError = (
 };
 
 /**
- * Iterates every repo, running (or skipping) its configured setup script per the
- * resume/command-drift/no-script gates documented above the leaf. See `setupScriptRunnerLeaf`
- * for the full outcome/audit contract.
+ * Audit [01] / [03]: persist the full untruncated setup-script output to
+ * `<sprintDir>/logs/setup/<repo-id>.log` so the operator can grep / tail the real failure.
+ * Best-effort — a write failure logs warn and never aborts the chain (the audit row remains
+ * canonical). No-op when `opts.sprintDir` is unset (test paths that don't care about disk logs).
+ */
+const persistSetupLog = async (
+  deps: SetupScriptRunnerLeafDeps,
+  opts: SetupScriptRunnerLeafOpts,
+  repo: SetupRepoEntry,
+  output: string
+): Promise<void> => {
+  if (opts.sprintDir === undefined) return;
+  const logPath = join(String(opts.sprintDir), 'logs', 'setup', `${String(repo.repositoryId)}.log`);
+  const parsedPath = AbsolutePath.parse(logPath);
+  if (!parsedPath.ok) {
+    deps.eventBus.publish({
+      type: 'log',
+      level: 'warn',
+      message: `setup-script ${String(repo.path)}: could not resolve log path ${logPath} — ${parsedPath.error.message}`,
+      at: deps.clock(),
+    });
+    return;
+  }
+  const writeFile = deps.writeFile ?? defaultWriteFile;
+  const wrote = await writeFile(parsedPath.value, output);
+  if (!wrote.ok) {
+    deps.eventBus.publish({
+      type: 'log',
+      level: 'warn',
+      message: `setup-script ${String(repo.path)}: failed to persist full log to ${logPath} — ${wrote.error.message}`,
+      at: deps.clock(),
+    });
+  }
+};
+
+/** Outcome of running (or skipping) ONE repo's setup script — folded by `executeSetupScriptRunner`. */
+type RepoSetupOutcome =
+  | { readonly kind: 'skipped'; readonly execution: SprintExecution }
+  | { readonly kind: 'succeeded'; readonly execution: SprintExecution; readonly repositoryId: RepositoryId }
+  | { readonly kind: 'failed'; readonly error: DomainError };
+
+/**
+ * Runs (or skips) ONE repo's configured setup script per the resume / no-script / spawn gates
+ * documented above the leaf, folding the result into a single {@link RepoSetupOutcome}. Split out
+ * of `executeSetupScriptRunner` so the per-repo branch count (already-run guard, script-missing
+ * guard, spawn + audit + failure classification) doesn't accumulate onto that function's own
+ * cognitive-complexity budget — the loop body becomes one call plus a 3-way fold.
+ */
+const runRepoSetup = async (
+  repo: SetupRepoEntry,
+  execution: SprintExecution,
+  opts: SetupScriptRunnerLeafOpts,
+  deps: SetupScriptRunnerLeafDeps,
+  signal?: AbortSignal
+): Promise<RepoSetupOutcome> => {
+  const command = repo.setupScript?.trim() ?? '';
+
+  // Already-run guard: a prior chain on this sprint already validated this repo's command.
+  if (command.length > 0 && shouldSkipOnResume(execution, repo, command, deps)) {
+    return { kind: 'skipped', execution };
+  }
+  // Script-missing guard: nothing configured to validate for this repo.
+  if (command.length === 0) {
+    return { kind: 'skipped', execution: await runNoScriptSkip(execution, repo, deps) };
+  }
+
+  const startedAt = deps.clock();
+  const spawnResult = await runSetupSpawn(repo, command, opts, execution, deps, signal);
+  if (!spawnResult.ok) {
+    return { kind: 'failed', error: spawnResult.error };
+  }
+
+  const { passed, exitCode, output, durationMs } = spawnResult.value;
+  await persistSetupLog(deps, opts, repo, output);
+
+  const run = makeSetupRun({
+    repositoryId: repo.repositoryId,
+    ranAt: startedAt,
+    command,
+    exitCode: exitCode ?? -1,
+    durationMs,
+    outcome: passed ? 'success' : ('failed' satisfies SetupRunOutcome),
+  });
+  const nextExecution = await persistRun(execution, run, deps);
+
+  // Failure classification: a spawned-but-red script fails the leaf; a green one verifies the repo.
+  if (!passed) {
+    return { kind: 'failed', error: buildSetupFailureError(repo, command, exitCode, output, deps) };
+  }
+  deps.eventBus.publish({
+    type: 'log',
+    level: 'info',
+    message: `setup-script ${String(repo.path)}: success (exit=0, ${String(durationMs)}ms)`,
+    at: deps.clock(),
+  });
+  return { kind: 'succeeded', execution: nextExecution, repositoryId: repo.repositoryId };
+};
+
+/**
+ * Iterates every repo, running (or skipping) its configured setup script via {@link runRepoSetup}.
+ * See `setupScriptRunnerLeaf` for the full outcome/audit contract.
  */
 const executeSetupScriptRunner = async (
   deps: SetupScriptRunnerLeafDeps,
@@ -383,63 +491,10 @@ const executeSetupScriptRunner = async (
   // the tree was verified by this launch.
   const verifiedThisRun: RepositoryId[] = [];
   for (const repo of opts.repos) {
-    const command = repo.setupScript?.trim() ?? '';
-
-    if (command.length > 0 && shouldSkipOnResume(execution, repo, command, deps)) {
-      continue;
-    }
-    if (command.length === 0) {
-      execution = await runNoScriptSkip(execution, repo, deps);
-      continue;
-    }
-
-    const startedAt = deps.clock();
-    const spawnResult = await runSetupSpawn(repo, command, opts, execution, deps, signal);
-    if (!spawnResult.ok) {
-      return spawnResult;
-    }
-
-    const { passed, exitCode, output, durationMs } = spawnResult.value;
-
-    // Audit [01] / [03]: persist the full untruncated output to `<sprintDir>/logs/setup/`
-    // so the operator can grep / tail the real failure. Best-effort — a write failure
-    // logs warn and never aborts the chain (the audit row remains canonical).
-    if (opts.sprintDir !== undefined) {
-      const logPath = join(String(opts.sprintDir), 'logs', 'setup', `${String(repo.repositoryId)}.log`);
-      const wrote = await writeTextAtomic(logPath, output);
-      if (!wrote.ok) {
-        deps.eventBus.publish({
-          type: 'log',
-          level: 'warn',
-          message: `setup-script ${String(repo.path)}: failed to persist full log to ${logPath} — ${wrote.error.message}`,
-          at: deps.clock(),
-        });
-      }
-    }
-    const normalisedExit = exitCode ?? -1;
-    const outcome: SetupRunOutcome = passed ? 'success' : 'failed';
-    const run = makeSetupRun({
-      repositoryId: repo.repositoryId,
-      ranAt: startedAt,
-      command,
-      exitCode: normalisedExit,
-      durationMs,
-      outcome,
-    });
-    execution = await persistRun(execution, run, deps);
-
-    if (passed) {
-      verifiedThisRun.push(repo.repositoryId);
-      deps.eventBus.publish({
-        type: 'log',
-        level: 'info',
-        message: `setup-script ${String(repo.path)}: success (exit=0, ${String(durationMs)}ms)`,
-        at: deps.clock(),
-      });
-      continue;
-    }
-
-    return Result.error(buildSetupFailureError(repo, command, exitCode, output, deps));
+    const outcome = await runRepoSetup(repo, execution, opts, deps, signal);
+    if (outcome.kind === 'failed') return Result.error(outcome.error);
+    execution = outcome.execution;
+    if (outcome.kind === 'succeeded') verifiedThisRun.push(outcome.repositoryId);
   }
   return Result.ok({ execution, verifiedThisRun });
 };

@@ -26,33 +26,37 @@ const PROVIDER_LABEL: Record<AiProvider, string> = {
   'openai-codex': 'OpenAI Codex',
 };
 
+/** Build a {@link ProbeResult} — `hint` is included only when supplied. */
+const mkProbe = (
+  id: string,
+  label: string,
+  status: ProbeResult['status'],
+  detail: string,
+  group: ProbeGroup,
+  hint?: string
+): ProbeResult => ({ id, label, status, detail, group, ...(hint !== undefined ? { hint } : {}) });
+
 const probePath = async (id: string, label: string, path: AbsolutePath, group: ProbeGroup): Promise<ProbeResult> => {
   const result = await pathIsDirectory(String(path));
-  if (!result.ok) return { id, label, status: 'fail', detail: result.error.message, group };
-  return { id, label, status: result.value ? 'pass' : 'fail', detail: String(path), group };
+  if (!result.ok) return mkProbe(id, label, 'fail', result.error.message, group);
+  return mkProbe(id, label, result.value ? 'pass' : 'fail', String(path), group);
 };
 
 const probeWritable = async (id: string, label: string, path: AbsolutePath): Promise<ProbeResult> => {
   const result = await pathIsWritable(String(path));
   if (!result.ok) {
-    return {
+    return mkProbe(
       id,
       label,
-      status: 'fail',
-      detail: result.error.message,
-      group: 'storage',
-      hint: `check filesystem permissions on ${String(path)}`,
-    };
+      'fail',
+      result.error.message,
+      'storage',
+      `check filesystem permissions on ${String(path)}`
+    );
   }
-  if (result.value) return { id, label, status: 'pass', detail: String(path), group: 'storage' };
-  return {
-    id,
-    label,
-    status: 'fail',
-    detail: `${String(path)} — not writable by the current user`,
-    group: 'storage',
-    hint: `chmod / re-own ${String(path)} so ralphctl can persist sprints + settings`,
-  };
+  if (result.value) return mkProbe(id, label, 'pass', String(path), 'storage');
+  const hint = `chmod / re-own ${String(path)} so ralphctl can persist sprints + settings`;
+  return mkProbe(id, label, 'fail', `${String(path)} — not writable by the current user`, 'storage', hint);
 };
 
 /**
@@ -65,32 +69,26 @@ const probeNodeVersion = (nodeVersion: string): ProbeResult => {
   const NODE_VERSION_LABEL = 'Node version';
   const match = /^v(\d+)\./.exec(nodeVersion);
   if (match === null || match[1] === undefined) {
-    return {
-      id: NODE_VERSION_ID,
-      label: NODE_VERSION_LABEL,
-      status: 'warn',
-      detail: `could not parse '${nodeVersion}'`,
-      group: 'runtime',
-    };
+    return mkProbe(NODE_VERSION_ID, NODE_VERSION_LABEL, 'warn', `could not parse '${nodeVersion}'`, 'runtime');
   }
   const major = Number.parseInt(match[1], 10);
   if (major < MIN_NODE_MAJOR) {
-    return {
-      id: NODE_VERSION_ID,
-      label: NODE_VERSION_LABEL,
-      status: 'fail',
-      detail: `${nodeVersion} — ralphctl requires Node ≥ ${String(MIN_NODE_MAJOR)} (mise.toml)`,
-      group: 'runtime',
-      hint: `run \`mise install\` or upgrade Node to v${String(MIN_NODE_MAJOR)}+`,
-    };
+    return mkProbe(
+      NODE_VERSION_ID,
+      NODE_VERSION_LABEL,
+      'fail',
+      `${nodeVersion} — ralphctl requires Node ≥ ${String(MIN_NODE_MAJOR)} (mise.toml)`,
+      'runtime',
+      `run \`mise install\` or upgrade Node to v${String(MIN_NODE_MAJOR)}+`
+    );
   }
-  return {
-    id: NODE_VERSION_ID,
-    label: NODE_VERSION_LABEL,
-    status: 'pass',
-    detail: `${nodeVersion} (mise.toml expects ≥ v${String(MIN_NODE_MAJOR)})`,
-    group: 'runtime',
-  };
+  return mkProbe(
+    NODE_VERSION_ID,
+    NODE_VERSION_LABEL,
+    'pass',
+    `${nodeVersion} (mise.toml expects ≥ v${String(MIN_NODE_MAJOR)})`,
+    'runtime'
+  );
 };
 
 const probeBinary = async (
@@ -102,14 +100,8 @@ const probeBinary = async (
   hint: string
 ): Promise<ProbeResult> => {
   const installed = await commandExists(binary);
-  return {
-    id,
-    label,
-    status: installed ? 'pass' : 'fail',
-    detail: installed ? `${binary} found on PATH` : `${binary} not found on PATH`,
-    group,
-    ...(installed ? {} : { hint }),
-  };
+  const detail = installed ? `${binary} found on PATH` : `${binary} not found on PATH`;
+  return mkProbe(id, label, installed ? 'pass' : 'fail', detail, group, installed ? undefined : hint);
 };
 
 /**
@@ -127,10 +119,8 @@ const probeGitConfig = async (
 ): Promise<ProbeResult> => {
   const r = await runCommand('git', ['config', '--get', key]);
   const value = r.stdout.trim();
-  if (r.ok && value.length > 0) {
-    return { id, label, status: 'pass', detail: value, group: 'vcs' };
-  }
-  return { id, label, status: 'warn', detail: `${key} not set`, hint, group: 'vcs' };
+  if (r.ok && value.length > 0) return mkProbe(id, label, 'pass', value, 'vcs');
+  return mkProbe(id, label, 'warn', `${key} not set`, 'vcs', hint);
 };
 
 const probeCliAuth = async (
@@ -143,59 +133,120 @@ const probeCliAuth = async (
   group: ProbeGroup = 'vcs'
 ): Promise<ProbeResult> => {
   const r = await runCommand(binary, args);
-  if (r.ok) {
-    return { id, label, status: 'pass', detail: 'authenticated', group };
-  }
+  if (r.ok) return mkProbe(id, label, 'pass', 'authenticated', group);
   const detail =
     r.stderr
       .split('\n')
       .find((line) => line.trim().length > 0)
       ?.trim() ?? 'not authenticated';
-  return { id, label, status: 'warn', detail, hint, group };
+  return mkProbe(id, label, 'warn', detail, group, hint);
 };
 
-/** Probe storage paths for readability and writability. */
+/** Storage paths to probe for readability + writability — data root and config root. */
+const STORAGE_PATHS = [
+  { id: 'data-root', label: 'Data root', path: (input: DoctorInput) => input.dataRoot },
+  { id: 'config-root', label: 'Config root', path: (input: DoctorInput) => input.configRoot },
+];
+
+/**
+ * Probe storage paths for readability and writability. Readability is checked for every path
+ * first, then writability — preserves the historical probe order (`data-root`, `config-root`,
+ * `data-root-writable`, `config-root-writable`) callers key off.
+ */
 const probeStorageGroup = async (input: DoctorInput): Promise<readonly ProbeResult[]> => {
   const probes: ProbeResult[] = [];
-  probes.push(await probePath('data-root', 'Data root readable', input.dataRoot, 'storage'));
-  probes.push(await probePath('config-root', 'Config root readable', input.configRoot, 'storage'));
-  probes.push(await probeWritable('data-root-writable', 'Data root writable', input.dataRoot));
-  probes.push(await probeWritable('config-root-writable', 'Config root writable', input.configRoot));
+  for (const config of STORAGE_PATHS) {
+    probes.push(await probePath(config.id, `${config.label} readable`, config.path(input), 'storage'));
+  }
+  for (const config of STORAGE_PATHS) {
+    probes.push(await probeWritable(`${config.id}-writable`, `${config.label} writable`, config.path(input)));
+  }
   return probes;
 };
 
 /** Probe settings file persistence. */
 const probeSettingsGroup = async (deps: DoctorDeps): Promise<readonly ProbeResult[]> => {
-  const probes: ProbeResult[] = [];
   const SETTINGS_PERSISTED_ID = 'settings-persisted';
   const SETTINGS_PRESENT_LABEL = 'Settings file present';
   const settingsPath = deps.settingsRepo.path;
   const settingsExists = await deps.settingsRepo.exists();
   if (!settingsExists.ok) {
-    probes.push({
-      id: SETTINGS_PERSISTED_ID,
-      label: SETTINGS_PRESENT_LABEL,
-      status: 'fail',
-      detail: `${settingsPath} — ${settingsExists.error.message}`,
-      group: 'settings',
-    });
-  } else if (settingsExists.value) {
-    probes.push({
-      id: SETTINGS_PERSISTED_ID,
-      label: SETTINGS_PRESENT_LABEL,
-      status: 'pass',
-      detail: settingsPath,
-      group: 'settings',
-    });
-  } else {
-    probes.push({
-      id: SETTINGS_PERSISTED_ID,
-      label: SETTINGS_PRESENT_LABEL,
-      status: 'warn',
-      detail: `${settingsPath} — using built-in defaults (first run)`,
-      hint: 'open the welcome flow to pick a provider and persist your settings',
-      group: 'settings',
-    });
+    const detail = `${settingsPath} — ${settingsExists.error.message}`;
+    return [mkProbe(SETTINGS_PERSISTED_ID, SETTINGS_PRESENT_LABEL, 'fail', detail, 'settings')];
+  }
+  if (settingsExists.value) {
+    return [mkProbe(SETTINGS_PERSISTED_ID, SETTINGS_PRESENT_LABEL, 'pass', settingsPath, 'settings')];
+  }
+  const detail = `${settingsPath} — using built-in defaults (first run)`;
+  const hint = 'open the welcome flow to pick a provider and persist your settings';
+  return [mkProbe(SETTINGS_PERSISTED_ID, SETTINGS_PRESENT_LABEL, 'warn', detail, 'settings', hint)];
+};
+
+/** `git config` identity keys to probe — `user.name` and `user.email`. */
+const GIT_IDENTITY_KEYS = [
+  {
+    id: 'git-user-name',
+    label: 'Git user.name',
+    key: 'user.name',
+    hint: 'run `git config --global user.name "<your name>"` so commits are attributed correctly',
+  },
+  {
+    id: 'git-user-email',
+    label: 'Git user.email',
+    key: 'user.email',
+    hint: 'run `git config --global user.email "<you@example.com>"` so commits are attributed correctly',
+  },
+];
+
+/** Optional VCS-host CLIs to probe — install check, then (if present) its auth probe. */
+const OPTIONAL_VCS_CLIS = [
+  {
+    idPrefix: 'gh',
+    label: 'GitHub CLI (`gh`)',
+    binary: 'gh',
+    installHint: 'install gh from https://cli.github.com if you target GitHub',
+    authArgs: ['auth', 'status'],
+    authHint: 'run `gh auth login` to sign in',
+  },
+  {
+    idPrefix: 'glab',
+    label: 'GitLab CLI (`glab`)',
+    binary: 'glab',
+    installHint: 'install glab from https://gitlab.com/gitlab-org/cli if you target GitLab',
+    authArgs: ['auth', 'status'],
+    authHint: 'run `glab auth login` to sign in',
+  },
+];
+
+/** Installed check + (if present) the auth probe for one optional VCS-host CLI. */
+const probeOptionalVcsCli = async (
+  deps: DoctorDeps,
+  config: (typeof OPTIONAL_VCS_CLIS)[number]
+): Promise<readonly ProbeResult[]> => {
+  const probes: ProbeResult[] = [];
+  const installed = await deps.commandExists(config.binary);
+  const detail = installed ? `${config.binary} found on PATH` : `${config.binary} not found on PATH`;
+  probes.push(
+    mkProbe(
+      `${config.idPrefix}-installed`,
+      `${config.label} installed`,
+      installed ? 'pass' : 'warn',
+      detail,
+      'vcs',
+      installed ? undefined : config.installHint
+    )
+  );
+  if (installed) {
+    probes.push(
+      await probeCliAuth(
+        `${config.idPrefix}-auth`,
+        `${config.label} authenticated`,
+        config.binary,
+        config.authArgs,
+        config.authHint,
+        deps.runCommand
+      )
+    );
   }
   return probes;
 };
@@ -205,77 +256,24 @@ const probeVcsToolingGroup = async (deps: DoctorDeps): Promise<readonly ProbeRes
   const probes: ProbeResult[] = [];
 
   const gitInstalled = await deps.commandExists('git');
-  probes.push({
-    id: 'git-installed',
-    label: 'Git installed',
-    status: gitInstalled ? 'pass' : 'fail',
-    detail: gitInstalled ? 'git found on PATH' : 'git not found on PATH',
-    group: 'vcs',
-    ...(gitInstalled ? {} : { hint: 'install git — required for implement / review flows' }),
-  });
+  probes.push(
+    mkProbe(
+      'git-installed',
+      'Git installed',
+      gitInstalled ? 'pass' : 'fail',
+      gitInstalled ? 'git found on PATH' : 'git not found on PATH',
+      'vcs',
+      gitInstalled ? undefined : 'install git — required for implement / review flows'
+    )
+  );
   if (gitInstalled) {
-    probes.push(
-      await probeGitConfig(
-        'git-user-name',
-        'Git user.name',
-        'user.name',
-        deps.runCommand,
-        'run `git config --global user.name "<your name>"` so commits are attributed correctly'
-      )
-    );
-    probes.push(
-      await probeGitConfig(
-        'git-user-email',
-        'Git user.email',
-        'user.email',
-        deps.runCommand,
-        'run `git config --global user.email "<you@example.com>"` so commits are attributed correctly'
-      )
-    );
+    for (const identity of GIT_IDENTITY_KEYS) {
+      probes.push(await probeGitConfig(identity.id, identity.label, identity.key, deps.runCommand, identity.hint));
+    }
   }
 
-  const ghInstalled = await deps.commandExists('gh');
-  probes.push({
-    id: 'gh-installed',
-    label: 'GitHub CLI (`gh`) installed',
-    status: ghInstalled ? 'pass' : 'warn',
-    detail: ghInstalled ? 'gh found on PATH' : 'gh not found on PATH',
-    group: 'vcs',
-    ...(ghInstalled ? {} : { hint: 'install gh from https://cli.github.com if you target GitHub' }),
-  });
-  if (ghInstalled) {
-    probes.push(
-      await probeCliAuth(
-        'gh-auth',
-        'GitHub CLI authenticated',
-        'gh',
-        ['auth', 'status'],
-        'run `gh auth login` to sign in',
-        deps.runCommand
-      )
-    );
-  }
-
-  const glabInstalled = await deps.commandExists('glab');
-  probes.push({
-    id: 'glab-installed',
-    label: 'GitLab CLI (`glab`) installed',
-    status: glabInstalled ? 'pass' : 'warn',
-    detail: glabInstalled ? 'glab found on PATH' : 'glab not found on PATH',
-    group: 'vcs',
-    ...(glabInstalled ? {} : { hint: 'install glab from https://gitlab.com/gitlab-org/cli if you target GitLab' }),
-  });
-  if (glabInstalled) {
-    probes.push(
-      await probeCliAuth(
-        'glab-auth',
-        'GitLab CLI authenticated',
-        'glab',
-        ['auth', 'status'],
-        'run `glab auth login` to sign in',
-        deps.runCommand
-      )
-    );
+  for (const config of OPTIONAL_VCS_CLIS) {
+    probes.push(...(await probeOptionalVcsCli(deps, config)));
   }
 
   return probes;
@@ -288,16 +286,19 @@ const probeAiProvidersGroup = async (deps: DoctorDeps): Promise<readonly ProbeRe
   const settings = await deps.settingsRepo.load();
   // Per-flow rows can each pick a provider; surface every provider that appears on any row
   // as "configured" so the doctor flags binaries the user actually relies on.
-  const configuredProviders: ReadonlySet<AiProvider> = settings.ok
-    ? new Set<AiProvider>([
-        settings.value.ai.refine.provider,
-        settings.value.ai.plan.provider,
-        settings.value.ai.implement.generator.provider,
-        settings.value.ai.implement.evaluator.provider,
-        settings.value.ai.readiness.provider,
-        settings.value.ai.ideate.provider,
-      ])
-    : new Set<AiProvider>();
+  const ai = settings.ok ? settings.value.ai : undefined;
+  const configuredProviders: ReadonlySet<AiProvider> = new Set<AiProvider>(
+    ai === undefined
+      ? []
+      : [
+          ai.refine.provider,
+          ai.plan.provider,
+          ai.implement.generator.provider,
+          ai.implement.evaluator.provider,
+          ai.readiness.provider,
+          ai.ideate.provider,
+        ]
+  );
 
   let codexInstalled = false;
   for (const provider of Object.keys(PROVIDER_BINARY) as readonly AiProvider[]) {
@@ -312,11 +313,7 @@ const probeAiProvidersGroup = async (deps: DoctorDeps): Promise<readonly ProbeRe
       `install the '${binary}' CLI and ensure it is on your PATH`
     );
     if (provider === 'openai-codex') codexInstalled = probe.status === 'pass';
-    if (probe.status === 'fail') {
-      probes.push({ ...probe, status: 'warn' });
-    } else {
-      probes.push(probe);
-    }
+    probes.push(probe.status === 'fail' ? { ...probe, status: 'warn' } : probe);
   }
 
   if (configuredProviders.has('openai-codex') && codexInstalled) {
@@ -341,22 +338,26 @@ const probeRepositoriesAndIntegrityGroup = async (deps: DoctorDeps): Promise<rea
   const probes: ProbeResult[] = [];
 
   const projects = await deps.projectRepo.list();
-  probes.push({
-    id: 'projects-list',
-    label: 'Project repository responds',
-    status: projects.ok ? 'pass' : 'fail',
-    detail: projects.ok ? `${String(projects.value.length)} project(s)` : projects.error.message,
-    group: 'repositories',
-  });
+  probes.push(
+    mkProbe(
+      'projects-list',
+      'Project repository responds',
+      projects.ok ? 'pass' : 'fail',
+      projects.ok ? `${String(projects.value.length)} project(s)` : projects.error.message,
+      'repositories'
+    )
+  );
 
   const sprints = await deps.sprintRepo.list();
-  probes.push({
-    id: 'sprints-list',
-    label: 'Sprint repository responds',
-    status: sprints.ok ? 'pass' : 'fail',
-    detail: sprints.ok ? `${String(sprints.value.length)} sprint(s)` : sprints.error.message,
-    group: 'repositories',
-  });
+  probes.push(
+    mkProbe(
+      'sprints-list',
+      'Sprint repository responds',
+      sprints.ok ? 'pass' : 'fail',
+      sprints.ok ? `${String(sprints.value.length)} sprint(s)` : sprints.error.message,
+      'repositories'
+    )
+  );
 
   if (projects.ok && projects.value.length > 0) {
     probes.push(...(await probeProjectRepoPaths(projects.value)));
@@ -407,24 +408,20 @@ const probeProjectRepoPaths = async (projects: readonly Project[]): Promise<read
       const r = await pathIsDirectory(String(repo.path));
       if (!r.ok || !r.value) missing.push(`${repo.slug} → ${String(repo.path)}`);
     }
-    if (missing.length === 0) {
-      out.push({
-        id: `project-paths-${project.slug}`,
-        label: `Project '${project.slug}': repo paths resolve`,
-        status: 'pass',
-        detail: `${String(project.repositories.length)} repo(s) present`,
-        group: 'integrity',
-      });
-    } else {
-      out.push({
-        id: `project-paths-${project.slug}`,
-        label: `Project '${project.slug}': repo paths resolve`,
-        status: 'fail',
-        detail: `missing: ${missing.join('; ')}`,
-        hint: 'remove the project, re-clone the repo, or update its path via the TUI',
-        group: 'integrity',
-      });
-    }
+    const id = `project-paths-${project.slug}`;
+    const label = `Project '${project.slug}': repo paths resolve`;
+    out.push(
+      missing.length === 0
+        ? mkProbe(id, label, 'pass', `${String(project.repositories.length)} repo(s) present`, 'integrity')
+        : mkProbe(
+            id,
+            label,
+            'fail',
+            `missing: ${missing.join('; ')}`,
+            'integrity',
+            'remove the project, re-clone the repo, or update its path via the TUI'
+          )
+    );
   }
   return out;
 };
@@ -438,24 +435,20 @@ const probeProjectDefaultBranches = async (
     for (const repo of project.repositories) {
       const result = await runCommand('git', ['-C', String(repo.path), 'rev-parse', '--abbrev-ref', 'origin/HEAD']);
       const branch = result.stdout.trim();
-      if (result.ok && branch.length > 0) {
-        out.push({
-          id: `default-branch-${project.slug}-${repo.slug}`,
-          label: `${project.slug}/${repo.slug}: default branch`,
-          status: 'pass',
-          detail: branch,
-          group: 'integrity',
-        });
-      } else {
-        out.push({
-          id: `default-branch-${project.slug}-${repo.slug}`,
-          label: `${project.slug}/${repo.slug}: default branch`,
-          status: 'warn',
-          detail: 'no resolvable origin/HEAD',
-          hint: `run \`git -C ${String(repo.path)} remote set-head origin --auto\` to discover it`,
-          group: 'integrity',
-        });
-      }
+      const id = `default-branch-${project.slug}-${repo.slug}`;
+      const label = `${project.slug}/${repo.slug}: default branch`;
+      out.push(
+        result.ok && branch.length > 0
+          ? mkProbe(id, label, 'pass', branch, 'integrity')
+          : mkProbe(
+              id,
+              label,
+              'warn',
+              'no resolvable origin/HEAD',
+              'integrity',
+              `run \`git -C ${String(repo.path)} remote set-head origin --auto\` to discover it`
+            )
+      );
     }
   }
   return out;
@@ -478,21 +471,17 @@ const probeSprintExecutionPairing = async (
       recoverable.push(sprint.slug);
     }
   }
+  const id = 'sprint-execution-pairing';
+  const label = 'Pending sprints have a paired execution record';
   if (recoverable.length === 0) {
-    return {
-      id: 'sprint-execution-pairing',
-      label: 'Pending sprints have a paired execution record',
-      status: 'pass',
-      detail: `${String(sprints.length)} sprint(s) verified`,
-      group: 'integrity',
-    };
+    return mkProbe(id, label, 'pass', `${String(sprints.length)} sprint(s) verified`, 'integrity');
   }
-  return {
-    id: 'sprint-execution-pairing',
-    label: 'Pending sprints have a paired execution record',
-    status: 'warn',
-    detail: `missing execution for pending sprint(s): ${recoverable.join(', ')}`,
-    hint: 'recreate the execution by re-running create-sprint, or remove the sprint if it is no longer needed',
-    group: 'integrity',
-  };
+  return mkProbe(
+    id,
+    label,
+    'warn',
+    `missing execution for pending sprint(s): ${recoverable.join(', ')}`,
+    'integrity',
+    'recreate the execution by re-running create-sprint, or remove the sprint if it is no longer needed'
+  );
 };

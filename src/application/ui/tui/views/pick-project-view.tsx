@@ -15,10 +15,10 @@
 import React, { useMemo } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
-import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { Card } from '@src/application/ui/tui/components/card.tsx';
-import { OverflowRow, useListWindow } from '@src/application/ui/tui/components/windowed-list.tsx';
-import { glyphs, inkColors, responsive, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { AsyncListFrame } from '@src/application/ui/tui/components/async-list-frame.tsx';
+import { WindowedList } from '@src/application/ui/tui/components/windowed-list.tsx';
+import { glyphs, inkColors, listCapacity, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
@@ -55,83 +55,72 @@ const ProjectList = ({
   selectedLabel,
   initialCursorId,
   onPick,
-}: ProjectListProps): React.JSX.Element => {
-  const { window, visibleItems, focusedItem } = useListWindow<Project>({
-    items: projects,
-    getId: projectIdOf,
-    visibleRows,
-    active,
-    onSubmit: onPick,
-    ...(initialCursorId !== undefined ? { initialCursorId } : {}),
-  });
-
-  return (
-    <Box flexDirection="column">
-      <Box paddingX={spacing.indent} marginBottom={spacing.section}>
-        <Text dimColor>
-          {String(projects.length)} project{projects.length === 1 ? '' : 's'} {glyphs.bullet}{' '}
-          {selectedLabel !== undefined ? (
-            <Text>
-              last used:{' '}
-              <Text color={inkColors.primary} bold>
-                {selectedLabel}
-              </Text>
+}: ProjectListProps): React.JSX.Element => (
+  <Box flexDirection="column">
+    <Box paddingX={spacing.indent} marginBottom={spacing.section}>
+      <Text dimColor>
+        {String(projects.length)} project{projects.length === 1 ? '' : 's'} {glyphs.bullet}{' '}
+        {selectedLabel !== undefined ? (
+          <Text>
+            last used:{' '}
+            <Text color={inkColors.primary} bold>
+              {selectedLabel}
             </Text>
-          ) : (
-            <Text>press ↵ to confirm</Text>
-          )}
-        </Text>
-      </Box>
-      <Box flexDirection="column">
-        <OverflowRow direction="above" count={window.start} />
-        {visibleItems.map((p) => {
-          const focused = focusedItem !== undefined && p.id === focusedItem.id;
-          const isLast = selectedId === p.id;
-          return (
-            <Box key={p.id} flexDirection="column" paddingX={spacing.indent}>
-              <Box>
-                <Text color={focused ? inkColors.primary : inkColors.rule}>{focused ? '▍' : ' '}</Text>
-                <Text>
-                  {' '}
-                  <Text color={focused ? inkColors.primary : inkColors.muted} bold={focused}>
-                    {p.displayName}
-                  </Text>
-                  {isLast && (
-                    <Text dimColor italic>
-                      {' '}
-                      {glyphs.bullet} last used
-                    </Text>
-                  )}
-                </Text>
-              </Box>
-              {focused && (
-                <Box paddingLeft={3}>
-                  <Text dimColor>
-                    {glyphs.activityArrow} {p.slug} {glyphs.bullet} {String(p.repositories.length)} repo
-                    {p.repositories.length === 1 ? '' : 's'}
-                  </Text>
-                </Box>
-              )}
-            </Box>
-          );
-        })}
-        <OverflowRow direction="below" count={projects.length - window.end} />
-      </Box>
-      <Box marginTop={spacing.section} paddingX={spacing.indent}>
-        <Text dimColor>
-          {glyphs.bullet} ↵ use the highlighted project {glyphs.bullet} + create a new one
-        </Text>
-      </Box>
+          </Text>
+        ) : (
+          <Text>press ↵ to confirm</Text>
+        )}
+      </Text>
     </Box>
-  );
-};
+    <WindowedList<Project>
+      items={projects}
+      getId={projectIdOf}
+      visibleRows={visibleRows}
+      active={active}
+      onSubmit={onPick}
+      {...(initialCursorId !== undefined ? { initialCursorId } : {})}
+      renderItem={(p, focused) => (
+        <Box flexDirection="column" paddingX={spacing.indent}>
+          <Box>
+            <Text color={focused ? inkColors.primary : inkColors.rule}>{focused ? glyphs.actionCursor : ' '}</Text>
+            <Text>
+              {' '}
+              <Text color={focused ? inkColors.primary : inkColors.muted} bold={focused}>
+                {p.displayName}
+              </Text>
+              {selectedId === p.id && (
+                <Text dimColor italic>
+                  {' '}
+                  {glyphs.bullet} last used
+                </Text>
+              )}
+            </Text>
+          </Box>
+          {focused && (
+            <Box paddingLeft={spacing.indent}>
+              <Text dimColor>
+                {glyphs.activityArrow} {p.slug} {glyphs.bullet} {String(p.repositories.length)} repo
+                {p.repositories.length === 1 ? '' : 's'}
+              </Text>
+            </Box>
+          )}
+        </Box>
+      )}
+    />
+    <Box marginTop={spacing.section} paddingX={spacing.indent}>
+      <Text dimColor>
+        {glyphs.bullet} ↵ use the highlighted project {glyphs.bullet} + create a new one
+      </Text>
+    </Box>
+  </Box>
+);
 
 export const PickProjectView = (): React.JSX.Element => {
   const deps = useDeps();
   const router = useRouter();
   const selection = useSelection();
   const ui = useUiState();
-  const { columns } = useBreakpoint();
+  const { rows } = useBreakpoint();
   useViewHints([
     { keys: '↑/↓', label: 'move' },
     { keys: '↵', label: 'use project' },
@@ -152,10 +141,12 @@ export const PickProjectView = (): React.JSX.Element => {
   // The picker owns its list cursor, so the page ScrollRegion must not also grab the arrows.
   const listActive = !ui.modalOpen && projects.length > 0;
 
-  // Each unfocused project is one row; the focused one adds a detail sub-line. Window count is
-  // generous on tall terminals and clamps down on short ones so the focused row + its detail and
-  // the overflow cues always fit. Reserve ~10 rows for banner / breadcrumb / stamp / footer hint.
-  const visibleRows = useMemo(() => responsive(columns, { sm: 8, md: 10, lg: 12, xl: 14 }), [columns]);
+  // Each unfocused project is one row; the focused one adds a detail sub-line. The budget follows
+  // terminal HEIGHT (it used to be derived from the column count, which grew the row count on a
+  // wide-but-short terminal and pushed the list off-screen). `listCapacity`'s default chrome
+  // reserve covers the banner / breadcrumb / summary line / footer hint; 8 is the floor on very
+  // short terminals and 14 the ceiling so a tall window still reads as a list, not a wall.
+  const visibleRows = listCapacity(rows, { min: 8, max: 14 });
 
   const pick = (project: Project): void => {
     selection.setProject(project.id, project.displayName);
@@ -178,26 +169,24 @@ export const PickProjectView = (): React.JSX.Element => {
       subtitle="The rest of the session targets the one you choose"
       suppressScrollArrows
     >
-      {ui.helpOpen ? (
-        <HelpOverlay />
-      ) : state.kind === 'loading' || state.kind === 'idle' ? (
-        <Box paddingX={spacing.indent}>
-          <Spinner label="Loading projects…" />
-        </Box>
-      ) : state.kind === 'error' ? (
-        <Box paddingX={spacing.indent}>
-          <Text color={inkColors.error}>Failed to load projects.</Text>
-        </Box>
-      ) : projects.length === 0 ? (
-        <Card title={`${glyphs.actionCursor} No projects yet`} tone="primary">
-          <Box flexDirection="column" paddingX={spacing.indent}>
-            <Text>A project binds one or more repositories together. Press + to create one.</Text>
-          </Box>
-        </Card>
-      ) : (
-        // Remount on a persisted-selection change so the cursor re-seeds to the last-used project
-        // even if that selection arrives after the first render (launch sets it before mount in
-        // production; the seed can lag by a tick under async wiring).
+      <AsyncListFrame
+        {...(ui.helpOpen ? { overlay: <HelpOverlay /> } : {})}
+        state={state}
+        loadingLabel="Loading projects…"
+        errorMessage="Failed to load projects."
+        errorColor={inkColors.error}
+        isEmpty={projects.length === 0}
+        empty={
+          <Card title={`${glyphs.actionCursor} No projects yet`} tone="primary">
+            <Box flexDirection="column" paddingX={spacing.indent}>
+              <Text>A project binds one or more repositories together. Press + to create one.</Text>
+            </Box>
+          </Card>
+        }
+      >
+        {/* Remount on a persisted-selection change so the cursor re-seeds to the last-used project
+            even if that selection arrives after the first render (launch sets it before mount in
+            production; the seed can lag by a tick under async wiring). */}
         <ProjectList
           key={selection.projectId ?? 'unseeded'}
           projects={projects}
@@ -208,7 +197,7 @@ export const PickProjectView = (): React.JSX.Element => {
           initialCursorId={selection.projectId}
           onPick={pick}
         />
-      )}
+      </AsyncListFrame>
     </ViewShell>
   );
 };

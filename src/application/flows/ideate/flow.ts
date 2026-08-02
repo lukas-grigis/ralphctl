@@ -1,8 +1,7 @@
-import { join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { type PlannedSprint, type Sprint, planSprint } from '@src/domain/entity/sprint.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
@@ -12,8 +11,6 @@ import { loadProjectLeaf } from '@src/application/flows/_shared/project/load.ts'
 import { loadTasksLeaf } from '@src/application/flows/_shared/task/load.ts';
 import { saveSprintLeaf } from '@src/application/flows/_shared/sprint/save.ts';
 import { saveTasksLeaf } from '@src/application/flows/_shared/task/save.ts';
-import { buildUnitLeaf } from '@src/application/flows/_shared/build-unit.ts';
-import { renderPromptToFileLeaf } from '@src/application/flows/_shared/render-prompt-to-file.ts';
 import { buildIdeatePrompt } from '@src/integration/ai/prompts/ideate/definition.ts';
 import { readCappedSprintProgress } from '@src/application/flows/_shared/progress/read-sprint-progress.ts';
 import { composePriorLearnings } from '@src/application/flows/_shared/memory/compose-prior-learnings.ts';
@@ -23,11 +20,8 @@ import { ideateOutputContract } from '@src/application/flows/ideate/leaves/ideat
 import type { IdeateCtx } from '@src/application/flows/ideate/ctx.ts';
 import type { IdeateDeps } from '@src/application/flows/ideate/deps.ts';
 import { ideateAndPlanLeaf } from '@src/application/flows/ideate/leaves/ideate-and-plan.ts';
-import { installSkillsLeaf } from '@src/application/flows/_shared/skills/install-skills.ts';
-import { uninstallSkillsLeaf } from '@src/application/flows/_shared/skills/uninstall-skills.ts';
-import { stampSessionMetaLeaf } from '@src/application/flows/_shared/stamp-session-meta.ts';
+import { aiUnitEpilogue, aiUnitPrelude } from '@src/application/flows/_shared/ai-unit-segment.ts';
 import { assertCtxField } from '@src/application/flows/_shared/_engine/assert-ctx-field.ts';
-import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 
 export interface CreateIdeateFlowOpts {
   readonly sprintId: SprintId;
@@ -72,7 +66,10 @@ export interface CreateIdeateFlowOpts {
  *     load-tasks,                  // existing tasks; ideate-and-plan appends
  *     build-ideate-unit,           // mkdir <sprintDir>/ideate/<run-slug>/
  *     render-prompt-to-file,       // <unit-root>/prompt.md
+ *     install-skills,              // copy the ideate flow's skills into the repo cwd
+ *     stamp-meta-ideate,           // <unit-root>/meta.json — provider/model attribution
  *     ideate-and-plan,             // interactive Claude → reads <unit-root>/ideate.json
+ *     uninstall-skills,            // remove them again
  *     transition-to-planned,       // draft → planned (same domain transition as plan)
  *     save-tasks,
  *     save-sprint,                 // sprint.status = 'planned'
@@ -116,93 +113,53 @@ const transitionToPlannedLeaf = (deps: Pick<IdeateDeps, 'clock'>): Element<Ideat
 export const createIdeateFlow = (deps: IdeateDeps, opts: CreateIdeateFlowOpts): Element<IdeateCtx> => {
   const slug = opts.runSlug ?? `session-${String(Date.now())}`;
 
+  const unitOpts = {
+    unitName: 'ideate',
+    flowId: 'ideate' as const,
+    parent: () => opts.ideateRoot,
+    slug: () => slug,
+    // Skills land in the AI session's cwd (the repo) — the provider-native conventions
+    // only auto-discover skills from cwd, not from `--add-dir` roots.
+    cwdPicker: () => opts.cwd,
+    buildPrompt: async (ctx: IdeateCtx) => {
+      const project = assertCtxField(ctx, 'project', 'render-prompt-to-file', 'pre-render-prompt');
+      const currentUnitRoot = assertCtxField(ctx, 'currentUnitRoot', 'render-prompt-to-file', 'pre-render-prompt');
+      const priorProgress = await readCappedSprintProgress(opts.ideateRoot, opts.model);
+      // Cross-sprint procedural memory (read side). Ideate runs in a single session repo
+      // (`opts.cwd`), so relevance is weighted toward records earned in that repo; a missing
+      // ledger resolves to an empty list, so the block degrades cleanly.
+      const priorLearnings =
+        opts.memoryRoot === undefined
+          ? ''
+          : composePriorLearnings(await loadCandidateLearnings(opts.memoryRoot, opts.projectId, deps.logger), {
+              repo: String(opts.cwd),
+            });
+      return buildIdeatePrompt(deps.templateLoader, {
+        ideaTitle: opts.ideaTitle,
+        ideaDescription: opts.ideaText,
+        project,
+        outputContractSection: renderContractSectionFor(ideateOutputContract, currentUnitRoot),
+        priorProgress,
+        priorLearnings,
+      });
+    },
+    providerId: opts.providerId,
+    model: opts.model,
+    ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
+  } satisfies Parameters<typeof aiUnitPrelude<IdeateCtx>>[1];
+
   return sequential<IdeateCtx>('ideate', [
     loadAndAssertSprintSubChain<IdeateCtx>({ sprintRepo: deps.sprintRepo }, ['draft']),
     loadProjectLeaf<IdeateCtx>({ projectRepo: deps.projectRepo }),
     loadTasksLeaf<IdeateCtx>({ taskRepo: deps.taskRepo }),
-    buildUnitLeaf<IdeateCtx>({
-      name: 'build-ideate-unit',
-      parent: () => opts.ideateRoot,
-      slug: () => slug,
-      write: (ctx, root) => {
-        const promptPath = AbsolutePath.parse(join(String(root), 'prompt.md'));
-        // audit-[09]: the AI writes `signals.json` directly under the unit root; the leaf
-        // validates that file via the ideate contract.
-        const outputPath = AbsolutePath.parse(join(String(root), 'signals.json'));
-        if (!promptPath.ok) throw promptPath.error;
-        if (!outputPath.ok) throw outputPath.error;
-        return {
-          ...ctx,
-          currentUnitRoot: root,
-          currentPromptFile: promptPath.value,
-          currentOutputFile: outputPath.value,
-        };
+    ...aiUnitPrelude<IdeateCtx>(
+      {
+        writeFile: deps.writeFile,
+        skillsAdapter: deps.skillsAdapter,
+        skillSource: deps.skillSource,
+        clock: deps.clock,
       },
-    }),
-    renderPromptToFileLeaf<IdeateCtx>(
-      { writeFile: deps.writeFile },
-      {
-        name: 'render-prompt-to-file',
-        path: (ctx) => {
-          if (ctx.currentPromptFile === undefined) throw new Error('currentPromptFile missing');
-          return ctx.currentPromptFile;
-        },
-        buildPrompt: async (ctx) => {
-          if (ctx.project === undefined) throw new Error('project missing');
-          if (ctx.currentUnitRoot === undefined) throw new Error('currentUnitRoot missing');
-          const priorProgress = await readCappedSprintProgress(opts.ideateRoot, opts.model);
-          // Cross-sprint procedural memory (read side). Ideate runs in a single session repo
-          // (`opts.cwd`), so relevance is weighted toward records earned in that repo; a missing
-          // ledger resolves to an empty list, so the block degrades cleanly.
-          const priorLearnings =
-            opts.memoryRoot === undefined
-              ? ''
-              : composePriorLearnings(await loadCandidateLearnings(opts.memoryRoot, opts.projectId, deps.logger), {
-                  repo: String(opts.cwd),
-                });
-          return buildIdeatePrompt(deps.templateLoader, {
-            ideaTitle: opts.ideaTitle,
-            ideaDescription: opts.ideaText,
-            project: ctx.project,
-            outputContractSection: renderContractSectionFor(ideateOutputContract, ctx.currentUnitRoot),
-            priorProgress,
-            priorLearnings,
-          });
-        },
-        write: (ctx, path) => ({ ...ctx, currentPromptFile: path }),
-      }
-    ),
-    installSkillsLeaf<IdeateCtx>(
-      { skillsAdapter: deps.skillsAdapter, skillSource: deps.skillSource },
-      {
-        flowId: 'ideate',
-        // Skills land in the AI session's cwd (the repo) — the provider-native conventions
-        // only auto-discover skills from cwd, not from `--add-dir` roots.
-        cwdPicker: () => opts.cwd,
-      }
-    ),
-    stampSessionMetaLeaf<IdeateCtx>(
-      { writeFile: deps.writeFile, clock: deps.clock },
-      {
-        name: 'stamp-meta-ideate',
-        resolve: (ctx) => {
-          if (ctx.currentUnitRoot === undefined) {
-            throw new InvalidStateError({
-              entity: 'chain',
-              currentState: 'pre-stamp-meta',
-              attemptedAction: 'stamp-meta-ideate',
-              message: 'stamp-meta-ideate: currentUnitRoot missing — build-ideate-unit must run first',
-            });
-          }
-          return {
-            outputDir: ctx.currentUnitRoot,
-            flow: 'ideate',
-            provider: opts.providerId,
-            model: opts.model,
-            effort: opts.effort ?? null,
-          };
-        },
-      }
+      unitOpts
     ),
     ideateAndPlanLeaf({
       interactiveAi: deps.interactiveAi,
@@ -214,7 +171,7 @@ export const createIdeateFlow = (deps: IdeateDeps, opts: CreateIdeateFlowOpts): 
       maxAttempts: opts.maxAttempts,
       ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
     }),
-    uninstallSkillsLeaf<IdeateCtx>({ skillsAdapter: deps.skillsAdapter }, { cwdPicker: () => opts.cwd }),
+    ...aiUnitEpilogue<IdeateCtx>({ skillsAdapter: deps.skillsAdapter }, unitOpts),
     transitionToPlannedLeaf({ clock: deps.clock }),
     saveTasksLeaf<IdeateCtx>({ taskRepo: deps.taskRepo }),
     saveSprintLeaf<IdeateCtx>({ sprintRepo: deps.sprintRepo }),
