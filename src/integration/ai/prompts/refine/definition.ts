@@ -1,10 +1,10 @@
-import { Result } from '@src/domain/result.ts';
+import { type Result } from '@src/domain/result.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import type { Ticket } from '@src/domain/entity/ticket.ts';
-import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { buildPrompt, type BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
 import type { PromptDefinition } from '@src/integration/ai/prompts/_engine/definition.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
+import { requireNonEmpty } from '@src/integration/ai/prompts/_engine/validators.ts';
 
 /**
  * Pre-rendered string parameters for the refine template. `ticket` and `issueContext` are
@@ -39,12 +39,7 @@ export const refinePromptDef: PromptDefinition<RefinePromptParams> = {
     ticket: {
       placeholder: 'TICKET',
       description: 'Markdown block rendering the ticket title, id, link (when set), and description (when set).',
-      validate: (v: string) =>
-        v.trim().length === 0
-          ? Result.error(
-              new ValidationError({ field: 'ticket', value: v, message: 'rendered ticket block must not be empty' })
-            )
-          : Result.ok(v),
+      validate: requireNonEmpty('ticket', 'rendered ticket block must not be empty'),
     },
     issueContext: {
       placeholder: 'ISSUE_CONTEXT',
@@ -56,16 +51,7 @@ export const refinePromptDef: PromptDefinition<RefinePromptParams> = {
       placeholder: 'OUTPUT_CONTRACT_SECTION',
       description:
         'Audit-[09] output contract block rendered from the refine contract — instructs the AI to write `signals.json` directly with one `refined-ticket` signal.',
-      validate: (v: string) =>
-        v.trim().length === 0
-          ? Result.error(
-              new ValidationError({
-                field: 'outputContractSection',
-                value: v,
-                message: 'output-contract section must not be empty',
-              })
-            )
-          : Result.ok(v),
+      validate: requireNonEmpty('outputContractSection', 'output-contract section must not be empty'),
     },
     priorProgress: {
       placeholder: 'PRIOR_PROGRESS',

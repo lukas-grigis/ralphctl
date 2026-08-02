@@ -11,6 +11,7 @@
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { Result } from '@src/domain/result.ts';
+import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { PickSprintView } from '@src/application/ui/tui/views/pick-sprint-view.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Project } from '@src/domain/entity/project.ts';
@@ -55,6 +56,42 @@ const fakeSprintRepo = (sprints: readonly Sprint[]): SprintRepository =>
     },
   }) as unknown as SprintRepository;
 
+/** A `sprintRepo.list()` that always rejects — drives the picker into its `error` load state. */
+const rejectingSprintRepo = (message: string): SprintRepository =>
+  ({
+    async list() {
+      return Result.error(new StorageError({ subCode: 'io', message }));
+    },
+    async remove() {
+      return Result.ok(undefined);
+    },
+  }) as unknown as SprintRepository;
+
+/**
+ * A `sprintRepo` whose backing sprint list can be mutated AFTER the view has already mounted and
+ * fetched once — `list()` always reads the live array, so a subsequent `r` reload observes the
+ * mutation while a stale re-render of the first fetch would not.
+ */
+const mutableSprintRepo = (
+  initial: readonly Sprint[]
+): { readonly repo: SprintRepository; setSprints: (next: readonly Sprint[]) => void } => {
+  let sprints = [...initial];
+  const repo: SprintRepository = {
+    async list() {
+      return Result.ok([...sprints]);
+    },
+    async remove() {
+      return Result.ok(undefined);
+    },
+  } as unknown as SprintRepository;
+  return {
+    repo,
+    setSprints: (next) => {
+      sprints = [...next];
+    },
+  };
+};
+
 const fakeProjectRepo = (projects: readonly Project[]): ProjectRepository =>
   ({
     async list() {
@@ -68,6 +105,17 @@ const fakeProjectRepo = (projects: readonly Project[]): ProjectRepository =>
 const stubDeps = (sprints: readonly Sprint[], projects: readonly Project[]): AppDeps =>
   ({
     sprintRepo: fakeSprintRepo(sprints),
+    projectRepo: fakeProjectRepo(projects),
+    sprintExecutionRepo: {} as never,
+    taskRepo: {} as never,
+    settingsRepo: {} as never,
+  }) as unknown as AppDeps;
+
+/** Same shape as {@link stubDeps} but takes an already-built `sprintRepo` directly — for tests
+ * that need a rejecting or mutable repo rather than the plain in-memory `fakeSprintRepo`. */
+const stubDepsWithSprintRepo = (sprintRepo: SprintRepository, projects: readonly Project[]): AppDeps =>
+  ({
+    sprintRepo,
     projectRepo: fakeProjectRepo(projects),
     sprintExecutionRepo: {} as never,
     taskRepo: {} as never,
@@ -122,6 +170,35 @@ const projectGamma = makeProject({
 });
 
 describe('PickSprintView', () => {
+  it('renders a load-error row when sprintRepo.list() rejects', async () => {
+    const { result } = renderView(<PickSprintView />, {
+      deps: stubDepsWithSprintRepo(rejectingSprintRepo('boom'), [projectAlpha]),
+      initial: { id: 'pick-sprint' },
+      selection: { projectId: PID_A, projectLabel: 'Alpha Project' },
+    });
+    await waitFor(() => expect(result.lastFrame() ?? '').toContain('Failed to load sprints.'));
+  });
+
+  it('reload (r) re-fetches: a sprint added behind the view after mount appears once r is pressed', async () => {
+    const sprints = mutableSprintRepo([makeSprint({ id: SID_A1, projectId: PID_A, name: 'alpha sprint one' })]);
+    const { result } = renderView(<PickSprintView />, {
+      deps: stubDepsWithSprintRepo(sprints.repo, [projectAlpha]),
+      initial: { id: 'pick-sprint' },
+      selection: { projectId: PID_A, projectLabel: 'Alpha Project' },
+    });
+    await waitFor(() => expect(result.lastFrame() ?? '').toContain('alpha sprint one'));
+    expect(result.lastFrame() ?? '').not.toContain('alpha sprint two');
+
+    // Mutate the underlying repo OUTSIDE the view, then reload — the new row appearing proves
+    // `r` actually re-fetched rather than re-rendering stale state.
+    sprints.setSprints([
+      makeSprint({ id: SID_A1, projectId: PID_A, name: 'alpha sprint one' }),
+      makeSprint({ id: SID_A2, projectId: PID_A, name: 'alpha sprint two' }),
+    ]);
+    result.stdin.write('r');
+    await waitFor(() => expect(result.lastFrame() ?? '').toContain('alpha sprint two'));
+  });
+
   it('renders all sprints grouped by project when scopeAll is true', async () => {
     const sprints = [
       makeSprint({ id: SID_A1, projectId: PID_A, name: 'alpha sprint one' }),

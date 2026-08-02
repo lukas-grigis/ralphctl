@@ -15,44 +15,48 @@ export interface LoopOptions<TCtx> {
   readonly maxIterations?: number;
 }
 
-export const loop = <TCtx>(name: string, body: Element<TCtx>, opts: LoopOptions<TCtx> = {}): Element<TCtx> => ({
-  name,
-  children: [body],
-  async execute(ctx, signal, onTrace): Promise<ElementResult<TCtx>> {
-    const aborted = checkAborted<TCtx>(name, signal, onTrace);
-    if (aborted) return aborted;
+const DEFAULT_MAX_ITERATIONS = 1000;
 
-    const max = opts.maxIterations ?? 1000;
-    const trace: TraceEntry[] = [];
-    let currentCtx = ctx;
+export const loop = <TCtx>(name: string, body: Element<TCtx>, opts: LoopOptions<TCtx> = {}): Element<TCtx> => {
+  // Normalise the optional predicates once, at construction. An omitted `shouldContinue` means
+  // "never exit early" and an omitted `shouldStop` means "never stop after the body", so the
+  // iteration below can call both unconditionally.
+  const shouldContinue = opts.shouldContinue ?? ((): boolean => true);
+  const shouldStop = opts.shouldStop ?? ((): boolean => false);
+  const max = opts.maxIterations ?? DEFAULT_MAX_ITERATIONS;
 
-    for (let i = 1; i <= max; i++) {
-      if (signal?.aborted) {
-        const entry = abortedEntry(name);
-        trace.push(entry);
-        onTrace?.(entry);
-        return Result.error({ error: entry.error!, trace });
+  return {
+    name,
+    children: [body],
+    async execute(ctx, signal, onTrace): Promise<ElementResult<TCtx>> {
+      const aborted = checkAborted<TCtx>(name, signal, onTrace);
+      if (aborted) return aborted;
+
+      const trace: TraceEntry[] = [];
+      let currentCtx = ctx;
+
+      for (let i = 1; i <= max; i++) {
+        if (signal?.aborted) {
+          const entry = abortedEntry(name);
+          trace.push(entry);
+          onTrace?.(entry);
+          return Result.error({ error: entry.error!, trace });
+        }
+
+        if (!(await shouldContinue(currentCtx, i))) return Result.ok({ ctx: currentCtx, trace });
+
+        const result = await body.execute(currentCtx, signal, onTrace);
+        if (!result.ok) {
+          trace.push(...result.error.trace);
+          return Result.error({ error: result.error.error, trace });
+        }
+        trace.push(...result.value.trace);
+        currentCtx = result.value.ctx;
+
+        if (await shouldStop(currentCtx, i)) return Result.ok({ ctx: currentCtx, trace });
       }
 
-      if (opts.shouldContinue !== undefined) {
-        const cont = await opts.shouldContinue(currentCtx, i);
-        if (!cont) return Result.ok({ ctx: currentCtx, trace });
-      }
-
-      const result = await body.execute(currentCtx, signal, onTrace);
-      if (!result.ok) {
-        trace.push(...result.error.trace);
-        return Result.error({ error: result.error.error, trace });
-      }
-      trace.push(...result.value.trace);
-      currentCtx = result.value.ctx;
-
-      if (opts.shouldStop !== undefined) {
-        const stop = await opts.shouldStop(currentCtx, i);
-        if (stop) return Result.ok({ ctx: currentCtx, trace });
-      }
-    }
-
-    return Result.ok({ ctx: currentCtx, trace });
-  },
-});
+      return Result.ok({ ctx: currentCtx, trace });
+    },
+  };
+};

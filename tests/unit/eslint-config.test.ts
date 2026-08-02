@@ -57,6 +57,14 @@ describe('eslint.config.ts constants ↔ src/ directory parity', () => {
     expect(constantFromEslintConfig('SKILLS')).toEqual(directorySiblings('src/integration/ai/skills', ['_']));
   });
 
+  it('AGENTS matches src/integration/ai/agents/<sibling>/ (excluding underscore-prefixed)', () => {
+    expect(constantFromEslintConfig('AGENTS')).toEqual(directorySiblings('src/integration/ai/agents', ['_']));
+  });
+
+  it('AI_CONCEPTS matches src/integration/ai/<concept>/ (excluding underscore-prefixed)', () => {
+    expect(constantFromEslintConfig('AI_CONCEPTS')).toEqual(directorySiblings('src/integration/ai', ['_']));
+  });
+
   it('BUSINESS_SIBLINGS matches src/business/<sibling>/ (excluding underscore-prefixed)', () => {
     expect(constantFromEslintConfig('BUSINESS_SIBLINGS')).toEqual(directorySiblings('src/business', ['_']));
   });
@@ -253,6 +261,30 @@ describe('fence liveness under overlapping config blocks', () => {
       ).toMatch(/concrete provider adapters/);
     });
 
+    it('bans concrete agent-definition adapters and the agents adapter factory', () => {
+      expect(
+        restrictedMessages(
+          "import { x } from '@src/integration/ai/agents/claude/adapter.ts';\nexport const y = x;\n",
+          `src/application/flows/${a!}/probe.ts`
+        )
+      ).toMatch(/concrete agent-definition adapters/);
+      expect(
+        restrictedMessages(
+          "import { x } from '@src/integration/ai/agents/adapter-factory.ts';\nexport const y = x;\n",
+          `src/application/flows/${a!}/probe.ts`
+        )
+      ).toMatch(/concrete agent-definition adapters/);
+    });
+
+    it('allows the agents port namespace', () => {
+      expect(
+        restrictedMessages(
+          "import { x } from '@src/integration/ai/agents/_engine/agent-definition.ts';\nexport const y = x;\n",
+          `src/application/flows/${a!}/probe.ts`
+        )
+      ).toBe('');
+    });
+
     it('bans per-signal schema imports from ordinary flow code', () => {
       expect(
         restrictedMessages(
@@ -262,7 +294,7 @@ describe('fence liveness under overlapping config blocks', () => {
       ).toMatch(/per-signal Zod schemas/);
     });
 
-    it('lifts the schema ban for per-leaf *.contract.ts files — the audit-[09] composition point', () => {
+    it('lifts the schema ban for per-leaf *.contract.ts files — the one sanctioned composition point', () => {
       expect(
         restrictedMessages(
           "import { x } from '@src/integration/ai/contract/_engine/signals/note/schema.ts';\nexport const y = x;\n",
@@ -285,5 +317,206 @@ describe('fence liveness under overlapping config blocks', () => {
         )
       ).toMatch(/concrete provider adapters/);
     });
+  });
+
+  describe('src/application/chain/** — the kernel layer fence', () => {
+    it('bans business imports so the kernel stays ignorant of what it executes', () => {
+      expect(
+        restrictedMessages(
+          "import { x } from '@src/business/task/turn-error-policy.ts';\nexport const y = x;\n",
+          'src/application/chain/run/probe.ts'
+        )
+      ).toMatch(/Layer dependency violation/);
+    });
+
+    it('bans integration imports', () => {
+      expect(
+        restrictedMessages(
+          "import { x } from '@src/integration/io/write-file.ts';\nexport const y = x;\n",
+          'src/application/chain/run/probe.ts'
+        )
+      ).toMatch(/Layer dependency violation/);
+    });
+
+    it('bans the outer application surfaces that compose over the kernel', () => {
+      expect(
+        restrictedMessages(
+          "import { x } from '@src/application/flows/implement/flow.ts';\nexport const y = x;\n",
+          'src/application/chain/probe.ts'
+        )
+      ).toMatch(/may not import from a flow/);
+      expect(
+        restrictedMessages(
+          "import { x } from '@src/application/ui/shared/launcher.ts';\nexport const y = x;\n",
+          'src/application/chain/probe.ts'
+        )
+      ).toMatch(/may not import from UI/);
+      expect(
+        restrictedMessages(
+          "import { x } from '@src/application/bootstrap/wire.ts';\nexport const y = x;\n",
+          'src/application/chain/probe.ts'
+        )
+      ).toMatch(/composition root/);
+    });
+
+    it('allows domain vocabulary and the session scope the runner needs', () => {
+      expect(
+        restrictedMessages(
+          "import { isFatalChainError } from '@src/domain/value/error/is-fatal-chain-error.ts';\nexport const y = isFatalChainError;\n",
+          'src/application/chain/run/probe.ts'
+        )
+      ).toBe('');
+      expect(
+        restrictedMessages(
+          "import { x } from '@src/application/session/session.ts';\nexport const y = x;\n",
+          'src/application/chain/run/probe.ts'
+        )
+      ).toBe('');
+    });
+  });
+
+  describe('integration/ai/<concept>/ — cross-concept isolation', () => {
+    const CONCEPT_SIBLINGS = {
+      agents: constantFromEslintConfig('AGENTS'),
+      prompts: constantFromEslintConfig('PROMPTS'),
+      providers: constantFromEslintConfig('PROVIDERS'),
+      readiness: constantFromEslintConfig('READINESS_PROVIDERS'),
+      skills: constantFromEslintConfig('SKILLS'),
+    } as const;
+
+    const pairs = Object.keys(CONCEPT_SIBLINGS).flatMap((from) =>
+      Object.keys(CONCEPT_SIBLINGS)
+        .filter((to) => to !== from)
+        .map((to) => [from, to] as const)
+    );
+
+    for (const [from, to] of pairs) {
+      const fromSibling = CONCEPT_SIBLINGS[from as keyof typeof CONCEPT_SIBLINGS][0] as string;
+      const toSibling = CONCEPT_SIBLINGS[to as keyof typeof CONCEPT_SIBLINGS][0] as string;
+
+      it(`bans ${from} → ${to}/${toSibling}/ and allows ${from} → ${to}/_engine/`, () => {
+        expect(
+          restrictedMessages(
+            `import { x } from '@src/integration/ai/${to}/${toSibling}/thing.ts';\nexport const y = x;\n`,
+            `src/integration/ai/${from}/${fromSibling}/probe.ts`
+          )
+        ).toMatch(/Cross-concept import violation/);
+
+        expect(
+          restrictedMessages(
+            `import { x } from '@src/integration/ai/${to}/_engine/thing.ts';\nexport const y = x;\n`,
+            `src/integration/ai/${from}/${fromSibling}/probe.ts`
+          )
+        ).toBe('');
+      });
+    }
+
+    it('applies to a concept that has no siblings of its own', () => {
+      expect(
+        restrictedMessages(
+          "import { x } from '@src/integration/ai/providers/claude/headless.ts';\nexport const y = x;\n",
+          'src/integration/ai/contract/_engine/probe.ts'
+        )
+      ).toMatch(/Cross-concept import violation/);
+    });
+
+    it('leaves a concept free to reach into its own siblings from its root', () => {
+      expect(
+        restrictedMessages(
+          "import { x } from '@src/integration/ai/skills/claude/adapter.ts';\nexport const y = x;\n",
+          'src/integration/ai/skills/adapter-factory.ts'
+        )
+      ).toBe('');
+    });
+  });
+});
+
+/**
+ * Liveness probes for the `no-restricted-syntax` fences. Same flat-config replacement hazard as
+ * the import fences: a narrower block (the port-shape check under integration/ai/, the class ban
+ * under domain/, the reserved-path guard) declares its own selector list and would silently drop
+ * the tree-wide barrel and `fs.appendFile` bans for every file it matches unless it composes them
+ * back in. These probes pin that each ban still fires in every directory where blocks overlap.
+ */
+describe('syntax-fence liveness under overlapping config blocks', () => {
+  const linter = new Linter();
+  const config = eslintConfig as LinterTypes.Config[];
+
+  const syntaxMessages = (code: string, filename: string): string =>
+    linter
+      .verify(code, config, filename)
+      .filter((m) => m.ruleId === 'no-restricted-syntax')
+      .map((m) => m.message)
+      .join('\n');
+
+  const BARREL = "export * from './other.ts';\n";
+  const FS_APPEND = "import fs from 'node:fs';\nexport const x = () => fs.appendFile('a', 'b', () => undefined);\n";
+  const FS_PROMISES_APPEND =
+    "import fs from 'node:fs';\nexport const x = async () => fs.promises.appendFile('a', 'b');\n";
+
+  // One representative file per directory where a narrower no-restricted-syntax block overlaps
+  // the tree-wide bans.
+  const OVERLAP_FILES = [
+    'src/domain/probe.ts',
+    'src/domain/value/error/probe.ts',
+    'src/domain/repository/task/probe.ts',
+    'src/business/task/probe.ts',
+    'src/integration/ai/prompts/plan/probe.ts',
+    'src/integration/ai/providers/claude/probe.ts',
+    'src/integration/ai/signals/probe.ts',
+    'src/application/flows/implement/probe.ts',
+  ];
+
+  for (const filename of OVERLAP_FILES) {
+    describe(filename, () => {
+      it('bans barrel exports', () => {
+        expect(syntaxMessages(BARREL, filename)).toMatch(/No barrel exports/);
+      });
+
+      it('bans fs.appendFile', () => {
+        expect(syntaxMessages(FS_APPEND, filename)).toMatch(/fs\.appendFile is banned/);
+      });
+
+      it('bans fs.promises.appendFile', () => {
+        expect(syntaxMessages(FS_PROMISES_APPEND, filename)).toMatch(/fs\.promises\.appendFile is banned/);
+      });
+    });
+  }
+
+  it('bans class declarations across domain and business', () => {
+    expect(syntaxMessages('export class X {}\n', 'src/domain/probe.ts')).toMatch(/must be modeled as `interface`/);
+    expect(syntaxMessages('export class X {}\n', 'src/business/task/probe.ts')).toMatch(
+      /must be modeled as `interface`/
+    );
+  });
+
+  it('lifts only the class ban under src/domain/value/error/', () => {
+    expect(syntaxMessages('export class X {}\n', 'src/domain/value/error/probe.ts')).toBe('');
+  });
+
+  it('exempts src/integration/io/ from the append ban but not from the barrel ban', () => {
+    expect(syntaxMessages(FS_APPEND, 'src/integration/io/probe.ts')).toBe('');
+    expect(syntaxMessages(BARREL, 'src/integration/io/probe.ts')).toMatch(/No barrel exports/);
+  });
+
+  it('keeps the port-shape check inside an integration/ai sibling directory', () => {
+    expect(
+      syntaxMessages('export interface ThingAdapter { readonly a: string }\n', 'src/integration/ai/skills/claude/x.ts')
+    ).toMatch(/Port-shaped interfaces/);
+  });
+
+  it('keeps the reserved-path guard on src/integration/ai/signals/', () => {
+    expect(syntaxMessages('export const x = 1;\n', 'src/integration/ai/signals/probe.ts')).toMatch(
+      /src\/integration\/ai\/signals\/ is reserved/
+    );
+  });
+
+  it('keeps the *Output-is-not-a-Result-envelope check under src/business/', () => {
+    expect(
+      syntaxMessages(
+        "import type { Result } from '@src/domain/result.ts';\nexport type FooOutput = Result<string, Error>;\n",
+        'src/business/task/probe.ts'
+      )
+    ).toMatch(/success-side data shape/);
   });
 });

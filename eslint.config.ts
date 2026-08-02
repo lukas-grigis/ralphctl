@@ -24,13 +24,15 @@ import type { ESLint, Linter } from 'eslint';
  *
  * Sub-layer rules inside application:
  *
- *   application/flows/** may not import concrete provider/probe/skill impls under integration/ai/
- *   — chain compositions speak port-level vocabulary only; bootstrap selects the concrete impls.
+ *   application/flows/** may not import concrete provider/probe/skill/agent impls under
+ *   integration/ai/ — chain compositions speak port-level vocabulary only; the composition root
+ *   and the UI launch path select the concrete impls.
+ *   application/chain/**   is the generic kernel flows compose over — it may not import business,
+ *                          integration, or the outer application surfaces (ui, bootstrap, flows).
  *
  * Sibling rules (enforced via per-folder overrides at the bottom):
  *
  *   integration/ai/prompts/<x>    may not import from integration/ai/prompts/<y>
- *   integration/ai/signals/<x>    may not import from integration/ai/signals/<y>
  *   integration/ai/providers/<x>  may not import from integration/ai/providers/<y>
  *   integration/ai/readiness/<x>  may not import from integration/ai/readiness/<y>
  *   integration/ai/skills/<x>     may not import from integration/ai/skills/<y>
@@ -38,12 +40,13 @@ import type { ESLint, Linter } from 'eslint';
  *                                  implementations and Skill source providers — the
  *                                  one switch over them is `skills/adapter-factory.ts`,
  *                                  which sits directly under skills/ and is not a sibling)
+ *   integration/ai/agents/<x>     may not import from integration/ai/agents/<y>
  *   application/flows/<x>       may not import from application/flows/<y>
  *
  *   In each AI concept, the `_engine/` sub-namespace is the shared abstraction layer — every concrete
  *   sibling may import freely from its own `_engine/`. Cross-concept access goes through the other
- *   concept's `_engine/` (e.g. integration/ai/prompts/refine may import integration/ai/signals/_engine/
- *   signal.ts to declare expected signals on a prompt definition).
+ *   concept's `_engine/` too, and never into its concrete siblings (e.g. integration/ai/prompts/evaluate
+ *   may import integration/ai/evaluation/_engine/ to declare the dimensions it renders).
  *
  * Module-level rules:
  *
@@ -208,6 +211,30 @@ const mergeRestrictedImports = (...entries: readonly Linter.RuleEntry[]): Linter
   return ['error', { paths, patterns }] as Linter.RuleEntry;
 };
 
+/**
+ * Union several `no-restricted-syntax` entries into one. Same flat-config hazard as
+ * {@link mergeRestrictedImports}: a later block matching the same file REPLACES the whole rule
+ * entry, so a narrow block (the port-shape check under integration/ai/, the class ban under
+ * domain/) silently drops the broad bans (barrels, `fs.appendFile`) unless it composes them back
+ * in. `no-restricted-syntax` options are a flat selector list rather than a `{ paths, patterns }`
+ * object, so entries are concatenated and deduped by selector identity. The liveness suite in
+ * tests/unit/eslint-config.test.ts pins every overlap this composes.
+ */
+const mergeRestrictedSyntax = (...entries: readonly Linter.RuleEntry[]): Linter.RuleEntry => {
+  const selectors: unknown[] = [];
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    if (!Array.isArray(entry)) continue;
+    for (const selector of entry.slice(1)) {
+      const key = JSON.stringify(selector);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      selectors.push(selector);
+    }
+  }
+  return ['error', ...selectors] as Linter.RuleEntry;
+};
+
 const FLOWS = [
   'close-sprint',
   'create-pr',
@@ -262,7 +289,7 @@ const BUSINESS_SIBLINGS = [
   'version',
 ] as const;
 
-const REPOSITORY_SIBLINGS = ['episode', 'project', 'settings', 'sprint', 'task'] as const;
+const REPOSITORY_SIBLINGS = ['project', 'settings', 'sprint', 'task'] as const;
 
 const PROVIDERS = ['claude', 'codex', 'copilot'] as const;
 
@@ -285,6 +312,51 @@ const SKILLS = ['bundled', 'claude', 'codex', 'copilot', 'operator', 'phase', 'p
  * sibling reach goes through `agents/_engine/`.
  */
 const AGENTS = ['bundled', 'claude', 'codex', 'copilot', 'operator'] as const;
+
+/**
+ * Concept namespaces under src/integration/ai/. A concept exposes itself to the rest of the tree
+ * through its own `_engine/` sub-namespace; its concrete sibling directories are private to it.
+ */
+const AI_CONCEPTS = [
+  'agents',
+  'contract',
+  'evaluation',
+  'prompts',
+  'providers',
+  'readiness',
+  'runs',
+  'skills',
+] as const;
+
+/**
+ * The concrete sibling directories each AI concept owns. Concepts absent from this map (`contract`,
+ * `evaluation`, `runs`) have no per-tool/per-variant siblings — nothing to fence.
+ */
+const AI_CONCEPT_SIBLINGS: Partial<Record<(typeof AI_CONCEPTS)[number], readonly string[]>> = {
+  agents: AGENTS,
+  prompts: PROMPTS,
+  providers: PROVIDERS,
+  readiness: READINESS_PROVIDERS,
+  skills: SKILLS,
+};
+
+/**
+ * Cross-concept isolation for one AI concept: files under `integration/ai/<active>/` may not reach
+ * into any OTHER concept's concrete siblings. Cross-concept access goes through the target
+ * concept's `_engine/` sub-namespace (e.g. a prompt definition importing an evaluation contract).
+ */
+const crossConceptRule = (active: string): Linter.RuleEntry => [
+  'error',
+  {
+    paths: [],
+    patterns: Object.entries(AI_CONCEPT_SIBLINGS)
+      .filter(([concept]) => concept !== active)
+      .map(([concept, siblings]) => ({
+        group: (siblings ?? []).map((sibling) => `**/integration/ai/${concept}/${sibling}/**`),
+        message: `Cross-concept import violation: '${active}' may not reach into a concrete '${concept}' sibling. Import from integration/ai/${concept}/_engine/ instead — a concept's siblings are private to it.`,
+      })),
+  },
+];
 
 /**
  * Domain layer rule. Pure entities + value objects + errors + Result + observability interfaces.
@@ -349,23 +421,28 @@ const chainsBasePatterns = [
   {
     group: PROVIDERS.map((p) => `**/integration/ai/providers/${p}/**`),
     message:
-      'Chains may not import concrete provider adapters — depend on integration/ai/providers/_engine/ port instead. Bootstrap selects the concrete provider.',
+      'Chains may not import concrete provider adapters — depend on integration/ai/providers/_engine/ port instead. The composition root (application/bootstrap/provider-factory.ts) picks the concrete provider from settings.',
   },
   {
     group: READINESS_PROVIDERS.map((p) => `**/integration/ai/readiness/${p}/**`),
     message:
-      'Chains may not import concrete readiness probes — depend on integration/ai/readiness/_engine/ port instead. Bootstrap wires concrete probes.',
+      'Chains may not import concrete readiness probes — depend on integration/ai/readiness/_engine/ port instead. The composition root (application/bootstrap/wire.ts) wires the concrete probes.',
   },
   {
     group: [...SKILLS.map((s) => `**/integration/ai/skills/${s}/**`), '**/integration/ai/skills/adapter-factory.ts'],
     message:
-      'Chains may not import concrete skill adapters / sources — depend on integration/ai/skills/_engine/ ports instead. Bootstrap selects concrete skills.',
+      'Chains may not import concrete skill adapters / sources — depend on integration/ai/skills/_engine/ ports instead. The composition root and the UI launch path (application/ui/shared/launcher.ts) select the concrete skills adapter.',
+  },
+  {
+    group: [...AGENTS.map((a) => `**/integration/ai/agents/${a}/**`), '**/integration/ai/agents/adapter-factory.ts'],
+    message:
+      'Chains may not import concrete agent-definition adapters / sources — depend on integration/ai/agents/_engine/ ports instead. The composition root and the UI launch path (application/ui/shared/launch/implement-agent-bindings.ts) select the concrete agent adapter.',
   },
 ];
 
 /**
  * Per-signal Zod schemas are private to the contract engine, with ONE sanctioned exception:
- * per-leaf `*.contract.ts` files, which the audit-[09] contract makes the single composition
+ * per-leaf `*.contract.ts` files, which the signal contract makes the single composition
  * point declaring which signals a leaf consumes. The contract-file config blocks below use
  * `chainsContractFileRule` (this pattern omitted); everything else under flows/ gets
  * `chainsLayerRule` (this pattern included).
@@ -394,8 +471,35 @@ const chainsContractFileRule: Linter.RuleEntry = [
 ];
 
 /**
+ * Sub-rule for application/chain/** — the chain framework kernel (`element` / `leaf` / `sequential`
+ * / `loop` / `guard`, the runner, the wave scheduler). It is the generic execution machinery every
+ * flow composes over, so it stays ignorant of what is being executed: no integration adapters, no
+ * business use cases, and none of the outer application surfaces (UI, composition root, flows) that
+ * consume it. Domain types (`Result`, `DomainError`, the fatal-error predicate) are its whole
+ * vocabulary.
+ */
+const chainKernelRule: Linter.RuleEntry = mergeRestrictedImports(restrictImports(['business', 'integration']), [
+  'error',
+  {
+    paths: [resultLibBan],
+    patterns: [
+      { group: ['**/application/ui/**'], message: 'The chain framework may not import from UI.' },
+      {
+        group: ['**/application/bootstrap/**'],
+        message: 'The chain framework may not import from the composition root.',
+      },
+      {
+        group: ['**/application/flows/**'],
+        message:
+          'The chain framework may not import from a flow — flows compose over the kernel, never the other way around.',
+      },
+    ],
+  },
+]);
+
+/**
  * Ban direct `fs.appendFile` / `fs.promises.appendFile` calls outside `integration/io/`. The
- * harness routes every append-stream write through the `AppendFile` port (audit-[07]); a
+ * harness routes every append-stream write through the `AppendFile` port; a
  * stray `fs.appendFile` would silently bypass the atomicity + structured-error guarantees
  * the port adds. Matches both `fs.appendFile(...)` and `fs.promises.appendFile(...)` shapes.
  */
@@ -432,6 +536,60 @@ const noBarrels: Linter.RuleEntry = [
   {
     selector: 'ExportAllDeclaration',
     message: 'No barrel exports — every import must name what it pulls in directly.',
+  },
+];
+
+/**
+ * The syntax bans that hold across the whole of src/ (outside `integration/io/`, which owns the
+ * append primitive). Every narrower `no-restricted-syntax` block composes over this — flat config
+ * replaces a same-key entry wholesale, so a block that only declared its own selectors would
+ * silently un-ban barrels and `fs.appendFile` for the files it matches.
+ */
+const baseSyntaxRule: Linter.RuleEntry = mergeRestrictedSyntax(noBarrels, noFsAppendFile);
+
+/**
+ * Port-shaped names (`*Port`, `*Adapter`, `*Provider`, `*Sink`, `*Loader`, `*Probe`, `*Reader`,
+ * `*Writer`, `*Renderer`, `*Detector`, `*Contract`) define cross-tool contracts, so they belong in
+ * the concept's `_engine/` sub-namespace — concrete siblings then depend on a contract rather than
+ * on each other. Factory-input shapes named `*Deps` don't match the pattern and are unaffected.
+ */
+const portShapesLiveInEngine: Linter.RuleEntry = [
+  'error',
+  {
+    selector:
+      'TSInterfaceDeclaration[id.name=/(Port|Adapter|Provider|Sink|Loader|Probe|Reader|Writer|Renderer|Detector|Contract)$/]',
+    message:
+      'Port-shaped interfaces must live under integration/ai/<concept>/_engine/. Either move this declaration or rename it (e.g. `*Deps` for factory inputs).',
+  },
+  {
+    selector:
+      'TSTypeAliasDeclaration[id.name=/(Port|Adapter|Provider|Sink|Loader|Probe|Reader|Writer|Renderer|Detector|Contract)$/]',
+    message:
+      'Port-shaped type aliases must live under integration/ai/<concept>/_engine/. Either move this declaration or rename it.',
+  },
+];
+
+/** `*Output` types are the success-side data shape, never the `Result` envelope itself. */
+const outputIsNotAResultEnvelope: Linter.RuleEntry = [
+  'error',
+  {
+    selector: "TSTypeAliasDeclaration[id.name=/Output$/] > TSTypeReference[typeName.name='Result']",
+    message:
+      '*Output types must be the success-side data shape, not the Result envelope. Put `Result<FooOutput, ErrorUnion>` in the function signature instead.',
+  },
+];
+
+/**
+ * `src/integration/ai/signals/` is a reserved path — the contract pipeline that replaced the
+ * removed XML-tag parser lives at `src/integration/ai/contract/`. Any file added under the old
+ * path errors on sight so the deleted design can't be resurrected by accident.
+ */
+const reservedSignalsPath: Linter.RuleEntry = [
+  'error',
+  {
+    selector: 'Program',
+    message:
+      'src/integration/ai/signals/ is reserved — the signal contract pipeline lives at src/integration/ai/contract/. Add new signal kinds as Zod schemas under src/integration/ai/contract/_engine/signals/<kind>/schema.ts instead.',
   },
 ];
 
@@ -536,7 +694,7 @@ export default [
     files: ['src/**/*.{ts,tsx}'],
     ignores: ['src/integration/io/**'],
     rules: {
-      'no-restricted-syntax': [noFsAppendFile[0], noFsAppendFile[1], noFsAppendFile[2], noBarrels[1]],
+      'no-restricted-syntax': baseSyntaxRule,
     },
   },
 
@@ -547,36 +705,19 @@ export default [
     files: ['src/domain/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-imports': domainLayerRule,
-      'no-restricted-syntax': [noClassInDomainOrBusiness[0], noClassInDomainOrBusiness[1], noBarrels[1]],
+      'no-restricted-syntax': mergeRestrictedSyntax(baseSyntaxRule, noClassInDomainOrBusiness),
     },
   },
 
   // ── integration/ai/** — port declarations must live in _engine/ ──────────────
-  // Port-shaped names (`*Port`, `*Adapter`, `*Provider`, `*Sink`, `*Loader`, `*Probe`,
-  // `*Reader`, `*Writer`, `*Renderer`, `*Detector`) define cross-tool contracts. They
-  // belong inside the concept's `_engine/` sub-namespace so concrete siblings depend on
-  // a contract, not on a sibling adapter. Factory-input shapes named `*Deps` don't match
-  // the pattern and are unaffected.
+  // See `portShapesLiveInEngine` for the rationale. Composed over `baseSyntaxRule` so the barrel
+  // and `fs.appendFile` bans keep firing under integration/ai/ — a bare selector list here would
+  // replace them for every file this block matches.
   {
     files: ['src/integration/ai/**/*.{ts,tsx}'],
     ignores: ['src/integration/ai/**/_engine/**', 'src/integration/ai/**/_partials/**'],
     rules: {
-      'no-restricted-syntax': [
-        'error',
-        noBarrels[1],
-        {
-          selector:
-            'TSInterfaceDeclaration[id.name=/(Port|Adapter|Provider|Sink|Loader|Probe|Reader|Writer|Renderer|Detector|Contract)$/]',
-          message:
-            'Port-shaped interfaces must live under integration/ai/<concept>/_engine/. Either move this declaration or rename it (e.g. `*Deps` for factory inputs).',
-        },
-        {
-          selector:
-            'TSTypeAliasDeclaration[id.name=/(Port|Adapter|Provider|Sink|Loader|Probe|Reader|Writer|Renderer|Detector|Contract)$/]',
-          message:
-            'Port-shaped type aliases must live under integration/ai/<concept>/_engine/. Either move this declaration or rename it.',
-        },
-      ],
+      'no-restricted-syntax': mergeRestrictedSyntax(baseSyntaxRule, portShapesLiveInEngine),
     },
   },
 
@@ -590,16 +731,11 @@ export default [
     files: ['src/business/**/*.{ts,tsx}'],
     rules: {
       'no-restricted-imports': businessLayerRule,
-      'no-restricted-syntax': [
-        noClassInDomainOrBusiness[0],
-        noClassInDomainOrBusiness[1],
-        noBarrels[1],
-        {
-          selector: "TSTypeAliasDeclaration[id.name=/Output$/] > TSTypeReference[typeName.name='Result']",
-          message:
-            '*Output types must be the success-side data shape, not the Result envelope. Put `Result<FooOutput, ErrorUnion>` in the function signature instead.',
-        },
-      ],
+      'no-restricted-syntax': mergeRestrictedSyntax(
+        baseSyntaxRule,
+        noClassInDomainOrBusiness,
+        outputIsNotAResultEnvelope
+      ),
     },
   },
 
@@ -665,11 +801,23 @@ export default [
     },
   },
 
+  // ── integration/ai/<concept>/ — cross-concept isolation ──────────────────────
+  // A concept talks to another concept through that concept's `_engine/` sub-namespace, never to
+  // its concrete siblings. Declared after the two src/integration/** blocks so it wins for files
+  // under a concept, and composed over the integration base so layer direction + the spawn fence
+  // keep firing. The per-sibling blocks below compose this back in for the same reason.
+  ...AI_CONCEPTS.map((concept): Linter.Config => ({
+    files: [`src/integration/ai/${concept}/**/*.{ts,tsx}`],
+    rules: {
+      'no-restricted-imports': mergeRestrictedImports(integrationSpawnFencedRule, crossConceptRule(concept)),
+    },
+  })),
+
   // ── integration/ai/<concept>/<x>/ — sibling isolation ────────────────────────
-  // Declared AFTER the two src/integration/** blocks above: flat config replaces a same-key
-  // rule entry per file (last matching block wins), so these must win for sibling files —
-  // and each entry composes the integration base back in via `mergeRestrictedImports` so the
-  // layer direction + spawn fence keep firing inside sibling directories.
+  // Declared AFTER the blocks above: flat config replaces a same-key rule entry per file (last
+  // matching block wins), so these must win for sibling files — and each entry composes the
+  // integration base and the cross-concept fence back in via `mergeRestrictedImports` so every
+  // broader restriction keeps firing inside sibling directories.
 
   // Each prompt is independent. Shared machinery lives under prompts/_engine/.
   ...PROMPTS.map((active): Linter.Config => ({
@@ -677,6 +825,7 @@ export default [
     rules: {
       'no-restricted-imports': mergeRestrictedImports(
         integrationSpawnFencedRule,
+        crossConceptRule('prompts'),
         siblingIsolationRule('**/integration/ai/prompts', active, PROMPTS, ['_engine', '_partials'], 'prompt')
       ),
     },
@@ -688,6 +837,7 @@ export default [
     rules: {
       'no-restricted-imports': mergeRestrictedImports(
         integrationSpawnFencedRule,
+        crossConceptRule('providers'),
         siblingIsolationRule('**/integration/ai/providers', active, PROVIDERS, ['_engine'], 'provider')
       ),
     },
@@ -699,6 +849,7 @@ export default [
     rules: {
       'no-restricted-imports': mergeRestrictedImports(
         integrationSpawnFencedRule,
+        crossConceptRule('readiness'),
         siblingIsolationRule('**/integration/ai/readiness', active, READINESS_PROVIDERS, ['_engine'], 'readiness probe')
       ),
     },
@@ -713,6 +864,7 @@ export default [
     rules: {
       'no-restricted-imports': mergeRestrictedImports(
         integrationSpawnFencedRule,
+        crossConceptRule('skills'),
         siblingIsolationRule('**/integration/ai/skills', active, SKILLS, ['_engine'], 'skill')
       ),
     },
@@ -727,6 +879,7 @@ export default [
     rules: {
       'no-restricted-imports': mergeRestrictedImports(
         integrationSpawnFencedRule,
+        crossConceptRule('agents'),
         siblingIsolationRule('**/integration/ai/agents', active, AGENTS, ['_engine'], 'agent definition')
       ),
     },
@@ -742,10 +895,21 @@ export default [
     },
   },
 
+  // ── application/chain/** — the chain framework kernel ───────────────────────
+  // Generic execution machinery (element / leaf / sequential / loop / guard, the runner, the wave
+  // scheduler). Speaks domain vocabulary only — no business use cases, no integration adapters,
+  // and none of the outer application surfaces that compose over it. See `chainKernelRule`.
+  {
+    files: ['src/application/chain/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': chainKernelRule,
+    },
+  },
+
   // ── application/flows/** — chain compositions ───────────────────────────────
   // Flows + _shared Element factories. May freely use domain, business,
-  // integration (port-level), and the chain framework — but NOT concrete provider/probe/skill
-  // adapters under integration/ai/. Bootstrap selects those.
+  // integration (port-level), and the chain framework — but NOT concrete provider / probe / skill /
+  // agent adapters under integration/ai/. The composition root and the UI launch path select those.
   {
     files: ['src/application/flows/**/*.{ts,tsx}'],
     rules: {
@@ -754,7 +918,7 @@ export default [
   },
 
   // ── application/flows/**/*.contract.ts — per-leaf signal contracts ──────────
-  // The audit-[09] sanctioned composition point for per-signal Zod schemas: the schema ban is
+  // The one sanctioned composition point for per-signal Zod schemas: the schema ban is
   // lifted here (and only here); every other chains restriction still applies.
   {
     files: ['src/application/flows/**/*.contract.ts'],
@@ -804,27 +968,20 @@ export default [
       'no-restricted-imports': 'off',
     },
   },
-  // Domain errors extend the domain Error class — class declarations are intentional here.
+  // Domain errors extend the domain Error class — class declarations are intentional here, and
+  // only the class ban is lifted: the barrel + `fs.appendFile` bans still apply.
   {
     files: ['src/domain/value/error/**/*.{ts,tsx}'],
     rules: {
-      'no-restricted-syntax': noBarrels,
+      'no-restricted-syntax': baseSyntaxRule,
     },
   },
   // ── Reserved path: src/integration/ai/signals/ is gone (replaced by ai/contract/_engine/).
-  // Block any future addition under that path so the deleted XML-tag parser pipeline can't be
-  // resurrected by accident. To re-introduce the path, remove this entry deliberately.
+  // To re-introduce the path, remove this entry deliberately. See `reservedSignalsPath`.
   {
     files: ['src/integration/ai/signals/**/*.{ts,tsx}'],
     rules: {
-      'no-restricted-syntax': [
-        'error',
-        {
-          selector: 'Program',
-          message:
-            'src/integration/ai/signals/ is reserved — the audit-[09] contract pipeline lives at src/integration/ai/contract/. Add new signal kinds as Zod schemas under src/integration/ai/contract/_engine/signals/<kind>/schema.ts instead.',
-        },
-      ],
+      'no-restricted-syntax': mergeRestrictedSyntax(baseSyntaxRule, reservedSignalsPath),
     },
   },
 ] satisfies Linter.Config[];

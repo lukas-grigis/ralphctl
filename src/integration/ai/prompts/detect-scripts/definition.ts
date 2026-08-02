@@ -11,12 +11,12 @@
  * in place and only want the scripts.
  */
 
-import { Result } from '@src/domain/result.ts';
+import { type Result } from '@src/domain/result.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
-import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { buildPrompt, type BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
 import type { PromptDefinition } from '@src/integration/ai/prompts/_engine/definition.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
+import { requireNonEmpty } from '@src/integration/ai/prompts/_engine/validators.ts';
 
 export interface DetectScriptsPromptParams {
   readonly repositoryPath: string;
@@ -28,11 +28,6 @@ export interface DetectScriptsPromptParams {
    */
   readonly outputContractSection: string;
 }
-
-const requireNonEmpty =
-  (field: string, message: string) =>
-  (v: string): Result<string, ValidationError> =>
-    v.trim().length === 0 ? Result.error(new ValidationError({ field, value: v, message })) : Result.ok(v);
 
 export const detectScriptsPromptDef: PromptDefinition<DetectScriptsPromptParams> = {
   templateName: 'detect-scripts',

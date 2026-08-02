@@ -1,10 +1,10 @@
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 
 /**
- * A single episodic record capturing the outcome of one completed task execution. Episodes
- * are stored per-sprint and injected as a summary into the implement prompt so subsequent
- * tasks within the same sprint (and later, across sprints) can learn from prior outcomes
- * without re-discovering what worked or what didn't.
+ * A single episodic record capturing the outcome of one completed task execution. Episodes are
+ * derived per-sprint from the tasks already in hand — there is no episode repository — and
+ * injected as a summary into the implement prompt so subsequent tasks within the same sprint can
+ * learn from prior outcomes without re-discovering what worked or what didn't.
  *
  * Rationale: injecting a compact history of prior task outcomes lets a later task avoid
  * re-discovering what an earlier task in the same sprint already solved or got blocked on.

@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import { dirname } from 'node:path';
 import properLockfile from 'proper-lockfile';
 import { Result } from '@src/domain/result.ts';
+import { messageOf } from '@src/domain/value/error/error-message.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 
@@ -161,7 +162,7 @@ const clampStaleAfter = (value: number | undefined): number => {
 const acquireErrorMessage = (cause: unknown, maxRetries: number): string =>
   errnoCode(cause) === 'ELOCKED'
     ? `failed to acquire lock after ${String(maxRetries)} retries`
-    : `failed to acquire lock: ${stringifyError(cause)}`;
+    : `failed to acquire lock: ${messageOf(cause)}`;
 
 const BENIGN_RELEASE_CODES = new Set(['ERELEASED', 'ENOTACQUIRED']);
 const isBenignReleaseError = (cause: unknown): boolean => BENIGN_RELEASE_CODES.has(errnoCode(cause) ?? '');
@@ -173,5 +174,3 @@ const errnoCode = (cause: unknown): string | undefined => {
   }
   return undefined;
 };
-
-const stringifyError = (cause: unknown): string => (cause instanceof Error ? cause.message : String(cause));

@@ -31,6 +31,14 @@ export interface FlowTriggers {
   readonly requiresProject?: boolean;
   /** Sprint must be in one of the listed statuses. */
   readonly currentSprintStatus?: readonly SprintStatus[];
+  /**
+   * Sentence shown when the sprint exists but its status isn't in `currentSprintStatus`.
+   * Owned by the flow, not derived from the shape of the allowed-status list — two flows can
+   * declare the exact same allowed set and still want different copy (e.g. `close-sprint` vs a
+   * hypothetical future flow also gated on `['review']`). Omit to fall back to a generated
+   * sentence naming the allowed statuses.
+   */
+  readonly currentSprintStatusHint?: string;
   /** Sprint must have at least this many pending (un-refined) tickets. */
   readonly minPendingTickets?: number;
   /** Sprint must have at least this many approved tickets (ready to plan). */

@@ -26,8 +26,9 @@ import {
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
 import type { ReviewDeps } from '@src/application/flows/review/deps.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
-import type { GitRunner, GitRunResult } from '@src/integration/io/git-runner.ts';
+import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
+import { okGit } from '@tests/fixtures/git-result.ts';
 import type { AskConfirmInput, Choice, InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { createFileLocker } from '@src/integration/io/file-locker.ts';
@@ -37,7 +38,6 @@ import { createReviewFlow } from '@src/application/flows/review/flow.ts';
 import { createAppendFile } from '@src/integration/io/append-file-adapter.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import type { ReviewCtx } from '@src/application/flows/review/ctx.ts';
-import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 
 void makeApprovedTicket;
 const FAKE_CWD = absolutePath('/tmp/ralph/fake-cwd');
@@ -74,9 +74,6 @@ const noopTaskRepo: TaskRepository = {
     return Result.ok(undefined);
   },
 };
-
-const okGit = (stdout = '', exitCode = 0): Result<GitRunResult, StorageError> =>
-  Result.ok({ stdout, stderr: '', exitCode });
 
 const cleanTreeRunner: GitRunner = {
   async run() {

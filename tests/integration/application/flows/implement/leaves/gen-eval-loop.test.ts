@@ -642,4 +642,87 @@ describe('createGenEvalLoop — loop-diversity guard (R1) live behavior', () => 
     expect(diversityBanner).toBeDefined();
     if (diversityBanner?.type === 'banner-show') expect(diversityBanner.cause).toBe('loop-diversity-exhausted');
   });
+
+  /**
+   * Budget-precedence pin: when `maxTurns` is set to EXACTLY `DIVERSITY_WINDOW_SIZE` (3), the
+   * diversity guard's fingerprint collapses on the very same turn the budget is exhausted. The
+   * budget-precedence check inside `loopDiversityCheckLeaf` must win — the loop must NOT
+   * pre-empt with a `plateau` exit; it must leave `ctx.lastExit` undefined so `finalize`
+   * downstream synthesises the truthful `budget-exhausted` terminal state instead. This pins the
+   * documented invariant that a run failing identically from turn 1 exits as budget-exhausted,
+   * never as a premature plateau escalation.
+   */
+  it('leaves ctx.lastExit undefined when maxTurns === DIVERSITY_WINDOW_SIZE (3) — budget precedence wins over the diversity plateau', async () => {
+    const generatorProvider = createFakeAiProvider({
+      responses: { implement: '' },
+      signals: { implement: [taskVerified('ok'), decision('d'), change('c'), learning('l'), note('n')] },
+    });
+    let evalTurn = 0;
+    const evaluatorProvider = createFakeAiProvider({
+      responses: { evaluate: '' },
+      signals: {
+        evaluate: () => {
+          const sig = failSameDim(evalTurn);
+          evalTurn += 1;
+          return [sig];
+        },
+      },
+    });
+    const task = makeInProgressTaskWithRunningAttempt();
+    const eventBus = createInMemoryEventBus();
+    const banners: AppEvent[] = [];
+    eventBus.subscribe((e) => {
+      if (e.type === 'banner-show') banners.push(e);
+    });
+    const loop = createGenEvalLoop(
+      {
+        generatorProvider,
+        evaluatorProvider,
+        templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
+        publishSignal: () => {},
+        writeFile: async () => Result.ok(undefined),
+        clock: () => FIXED_NOW,
+        logger: noopLogger,
+        eventBus,
+        readConfig: async () => ({ maxTurns: 3 }),
+        maxTurns: 3,
+        plateauThreshold: 2,
+        correctiveRetries: 2,
+        gitRunner: {
+          async run() {
+            return Result.ok({ stdout: '', stderr: '', exitCode: 0 });
+          },
+        },
+      },
+      {
+        cwd: absolutePath('/tmp/ralph/fake-cwd'),
+        sprintDir: root.root,
+        progressFile: absolutePath('/tmp/ralph/fake-sprint-dir/progress.md'),
+        generator: { providerId: 'claude-code', model: 'claude-opus-4-8' },
+        evaluator: { providerId: 'claude-code', model: 'claude-opus-4-8' },
+      },
+      task.id
+    );
+
+    const ctx: ImplementCtx = {
+      sprintId: task.id as unknown as ImplementCtx['sprintId'],
+      tasks: [task],
+      currentTask: task,
+      taskWorkspaceRoot: root.root,
+    };
+
+    const result = await loop.execute(ctx);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // The turn budget ran out on the SAME turn the fingerprint collapsed — budget precedence
+    // wins, so no plateau exit is synthesised here. Downstream `finalize` reads the undefined
+    // exit and produces `budget-exhausted` itself.
+    expect(result.value.ctx.lastExit).toBeUndefined();
+    expect(result.value.ctx.genEvalTurn).toBe(3);
+    const diversityBanner = banners.find(
+      (e) => e.type === 'banner-show' && e.id === `loop-diversity-${String(task.id)}`
+    );
+    expect(diversityBanner).toBeUndefined();
+  });
 });

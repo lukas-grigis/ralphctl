@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { TaskEpisode } from '@src/domain/repository/episode/episode-types.ts';
+import type { TaskEpisode } from '@src/domain/entity/task-episode.ts';
 import { summariseEpisodes } from '@src/business/task/episode-summary.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 

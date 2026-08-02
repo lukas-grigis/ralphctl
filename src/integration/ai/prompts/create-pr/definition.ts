@@ -1,9 +1,9 @@
-import { Result } from '@src/domain/result.ts';
+import { type Result } from '@src/domain/result.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
-import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { buildPrompt, type BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
 import type { PromptDefinition } from '@src/integration/ai/prompts/_engine/definition.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
+import { requireNonEmpty } from '@src/integration/ai/prompts/_engine/validators.ts';
 
 /**
  * Pre-rendered string parameters for the create-pr template. `ticketSummary` is a markdown
@@ -45,22 +45,12 @@ export const createPrPromptDef: PromptDefinition<CreatePrPromptParams> = {
     baseBranch: {
       placeholder: 'BASE_BRANCH',
       description: 'PR target branch (e.g. `main`).',
-      validate: (v: string) =>
-        v.trim().length === 0
-          ? Result.error(
-              new ValidationError({ field: 'baseBranch', value: v, message: 'baseBranch must not be empty' })
-            )
-          : Result.ok(v),
+      validate: requireNonEmpty('baseBranch', 'baseBranch must not be empty'),
     },
     headBranch: {
       placeholder: 'HEAD_BRANCH',
       description: 'Head branch — already pushed to origin by the upstream push-branch leaf.',
-      validate: (v: string) =>
-        v.trim().length === 0
-          ? Result.error(
-              new ValidationError({ field: 'headBranch', value: v, message: 'headBranch must not be empty' })
-            )
-          : Result.ok(v),
+      validate: requireNonEmpty('headBranch', 'headBranch must not be empty'),
     },
     ticketSummary: {
       placeholder: 'TICKET_SUMMARY',
@@ -78,16 +68,7 @@ export const createPrPromptDef: PromptDefinition<CreatePrPromptParams> = {
       placeholder: 'OUTPUT_CONTRACT_SECTION',
       description:
         'Audit-[09] output contract block rendered from the create-pr contract — instructs the AI to write `signals.json` directly with one `pr-content` signal.',
-      validate: (v: string) =>
-        v.trim().length === 0
-          ? Result.error(
-              new ValidationError({
-                field: 'outputContractSection',
-                value: v,
-                message: 'output-contract section must not be empty',
-              })
-            )
-          : Result.ok(v),
+      validate: requireNonEmpty('outputContractSection', 'output-contract section must not be empty'),
     },
   },
   partials: {

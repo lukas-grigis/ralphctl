@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { FlowTriggers } from '@src/application/registry.ts';
+import { flowRegistry, type FlowTriggers } from '@src/application/registry.ts';
 import { evaluateTriggers, type TriggerInputs } from '@src/application/registry-triggers.ts';
 import { refineManifest } from '@src/application/flows/refine/manifest.ts';
+import { reviewManifest } from '@src/application/flows/review/manifest.ts';
+import { closeSprintManifest } from '@src/application/flows/close-sprint/manifest.ts';
+import { createPrManifest } from '@src/application/flows/create-pr/manifest.ts';
 
 const baseInputs: TriggerInputs = {
   hasProject: true,
@@ -56,12 +59,26 @@ describe('evaluateTriggers', () => {
       });
     });
 
-    it('fails with an action-oriented reason when the current status is not allowed', () => {
+    it('falls back to a generated sentence naming the allowed statuses when the manifest declares no hint', () => {
+      // evaluateTriggers no longer reverse-engineers a flow's identity from the shape of the
+      // allowed-status array — a bare trigger declaration with no `currentSprintStatusHint` gets
+      // the generic, allowed-status-naming fallback rather than shape-sniffed copy.
       const triggers: FlowTriggers = { currentSprintStatus: ['draft'] };
       const result = evaluateTriggers(triggers, { ...baseInputs, currentSprintStatus: 'active' });
       expect(result.enabled).toBe(false);
-      // Reason must mention the relevant sprint state, not raw system names.
-      if (!result.enabled) expect(result.reason).toMatch(/draft sprint/i);
+      if (!result.enabled) {
+        expect(result.reason).toMatch(/draft/i);
+        expect(result.reason).toMatch(/active/i);
+      }
+    });
+
+    it('prefers the manifest-supplied currentSprintStatusHint over the generated fallback', () => {
+      const triggers: FlowTriggers = {
+        currentSprintStatus: ['draft'],
+        currentSprintStatusHint: 'Custom hint naming draft explicitly.',
+      };
+      const result = evaluateTriggers(triggers, { ...baseInputs, currentSprintStatus: 'active' });
+      expect(result).toEqual({ enabled: false, reason: 'Custom hint naming draft explicitly.' });
     });
 
     it('fails with a "create or pick" reason when no sprint is loaded', () => {
@@ -69,6 +86,32 @@ describe('evaluateTriggers', () => {
       const result = evaluateTriggers(triggers, { ...baseInputs, currentSprintStatus: undefined });
       expect(result.enabled).toBe(false);
       if (!result.enabled) expect(result.reason).toMatch(/no sprint|create|pick/i);
+    });
+
+    it('characterizes the review-only gate (bare trigger, no hint): falls back to the generated sentence', () => {
+      const triggers: FlowTriggers = { currentSprintStatus: ['review'] };
+      for (const current of ['draft', 'planned', 'active', 'done'] as const) {
+        const result = evaluateTriggers(triggers, { ...baseInputs, currentSprintStatus: current });
+        expect(result).toEqual({
+          enabled: false,
+          reason: `Sprint must be review to run this flow (currently ${current}).`,
+        });
+      }
+    });
+
+    it('characterizes the review-or-done gate (bare trigger, no hint): names both allowed statuses', () => {
+      // This is the create-pr shape. Previously this hit the same shape-sniffed "review-status
+      // sprint" copy as the review-only gate above (because `allowed[0] === 'review'`), which
+      // wrongly implied `done` did not also satisfy it. The generated fallback now names every
+      // allowed status instead of just the first.
+      const triggers: FlowTriggers = { currentSprintStatus: ['review', 'done'] };
+      for (const current of ['draft', 'planned', 'active'] as const) {
+        const result = evaluateTriggers(triggers, { ...baseInputs, currentSprintStatus: current });
+        expect(result).toEqual({
+          enabled: false,
+          reason: `Sprint must be review or done to run this flow (currently ${current}).`,
+        });
+      }
     });
   });
 
@@ -146,8 +189,8 @@ describe('evaluateTriggers', () => {
         pendingTicketCount: 0,
       });
       expect(result.enabled).toBe(false);
-      // Status gate fires first — reason should mention draft sprints, not pending tickets.
-      if (!result.enabled) expect(result.reason).toMatch(/draft sprint/i);
+      // Status gate fires first — reason should mention the draft status, not pending tickets.
+      if (!result.enabled) expect(result.reason).toMatch(/draft/i);
     });
 
     it('fails on a later trigger when earlier triggers pass', () => {
@@ -226,4 +269,68 @@ describe('refineManifest', () => {
     });
     expect(result.enabled).toBe(false);
   });
+});
+
+describe('review and close-sprint manifests', () => {
+  it('both declare the same review-status hint', () => {
+    expect(reviewManifest.triggers.currentSprintStatusHint).toBe(
+      'Run Implement to completion first — this flow needs a review-status sprint.'
+    );
+    expect(closeSprintManifest.triggers.currentSprintStatusHint).toBe(reviewManifest.triggers.currentSprintStatusHint);
+  });
+});
+
+describe('createPrManifest — the review-or-done correction', () => {
+  it('no longer claims the sprint must specifically be review-status when done also passes', () => {
+    // Before this fix, evaluateTriggers picked a message purely off `allowed[0] === 'review'`,
+    // so create-pr (allowed: ['review', 'done']) got the exact same "needs a review-status
+    // sprint" copy as the review-only flows — wrongly implying `done` did not also satisfy it.
+    const result = evaluateTriggers(createPrManifest.triggers, { ...baseInputs, currentSprintStatus: 'active' });
+    expect(result.enabled).toBe(false);
+    if (!result.enabled) {
+      expect(result.reason).toMatch(/review/i);
+      expect(result.reason).toMatch(/done/i);
+      expect(result.reason).not.toBe(reviewManifest.triggers.currentSprintStatusHint);
+    }
+  });
+});
+
+describe('flowRegistry — every currentSprintStatus gate produces a usable reason', () => {
+  const withSprintGate = flowRegistry
+    .map((entry) => entry.manifest)
+    .filter((manifest) => manifest.triggers.currentSprintStatus !== undefined);
+
+  it('has at least one manifest under test with a currentSprintStatus gate', () => {
+    expect(withSprintGate.length).toBeGreaterThan(0);
+  });
+
+  it.each(withSprintGate.map((manifest) => [manifest.id, manifest] as const))(
+    '%s: disabled reason is non-empty and names every one of its allowed statuses',
+    (_id, manifest) => {
+      const allowed = manifest.triggers.currentSprintStatus ?? [];
+      const disallowed = (['draft', 'planned', 'active', 'review', 'done'] as const).find(
+        (status) => !allowed.includes(status)
+      );
+      // Every flow in the registry that gates on currentSprintStatus allows at least one status
+      // it doesn't allow all five — otherwise the gate could never fail.
+      if (disallowed === undefined) return;
+
+      const inputs: TriggerInputs = {
+        ...baseInputs,
+        hasProject: true,
+        currentSprintStatus: disallowed,
+        pendingTicketCount: 999,
+        approvedTicketCount: 999,
+        resumableTaskCount: 999,
+      };
+      const result = evaluateTriggers(manifest.triggers, inputs);
+      expect(result.enabled).toBe(false);
+      if (!result.enabled) {
+        expect(result.reason.length).toBeGreaterThan(0);
+        for (const status of allowed) {
+          expect(result.reason.toLowerCase()).toContain(status);
+        }
+      }
+    }
+  );
 });

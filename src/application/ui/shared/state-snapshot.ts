@@ -47,10 +47,17 @@ export interface LoadSnapshotDeps {
   readonly taskRepo: TaskRepository;
 }
 
-export const loadAppStateSnapshot = async (
+/** Project + sprint + the sprint's tasks resolved from the current selection, if any. */
+interface ProjectAndSprint {
+  readonly project?: Project;
+  readonly sprint?: Sprint;
+  readonly tasks: readonly Task[];
+}
+
+const loadProjectAndSprint = async (
   deps: LoadSnapshotDeps,
   selection: { readonly projectId?: ProjectId; readonly sprintId?: SprintId }
-): Promise<AppStateSnapshot> => {
+): Promise<ProjectAndSprint> => {
   let project: Project | undefined;
   if (selection.projectId !== undefined) {
     const r = await deps.projectRepo.findById(selection.projectId);
@@ -69,6 +76,21 @@ export const loadAppStateSnapshot = async (
     if (r.ok) tasks = r.value;
   }
 
+  return {
+    ...(project !== undefined ? { project } : {}),
+    ...(sprint !== undefined ? { sprint } : {}),
+    tasks,
+  };
+};
+
+/** Storage-wide inventory counts, independent of what (if anything) is currently selected. */
+interface InventoryCounts {
+  readonly projectCount: number;
+  readonly sprintCount: number;
+  readonly recentSprints: readonly Sprint[];
+}
+
+const loadInventoryCounts = async (deps: LoadSnapshotDeps, project: Project | undefined): Promise<InventoryCounts> => {
   // Inventory: total projects and total sprints scoped to the selected project. Used by the
   // home view to differentiate "no projects yet" from "many projects, none picked" — the
   // CTAs differ ("create a project" vs "pick a project").
@@ -91,6 +113,15 @@ export const loadAppStateSnapshot = async (
     }
   }
 
+  return { projectCount, sprintCount, recentSprints };
+};
+
+/** Reduce the resolved project/sprint/tasks to the {@link TriggerInputs} the registry consumes. */
+const computeTriggerInputs = (
+  project: Project | undefined,
+  sprint: Sprint | undefined,
+  tasks: readonly Task[]
+): TriggerInputs => {
   const pendingTicketCount = sprint !== undefined ? sprint.tickets.filter((t) => t.status === 'pending').length : 0;
   const approvedTicketCount = sprint !== undefined ? sprint.tickets.filter((t) => t.status === 'approved').length : 0;
   // Resumable = anything `launchImplement` would pick up. `todo` is the obvious case;
@@ -99,13 +130,22 @@ export const loadAppStateSnapshot = async (
   // out Implement after a crash, defeating resume.
   const resumableTaskCount = tasks.filter((t) => t.status === 'todo' || t.status === 'in_progress').length;
 
-  const triggerInputs: TriggerInputs = {
+  return {
     hasProject: project !== undefined,
     ...(sprint !== undefined ? { currentSprintStatus: sprint.status } : {}),
     pendingTicketCount,
     approvedTicketCount,
     resumableTaskCount,
   };
+};
+
+export const loadAppStateSnapshot = async (
+  deps: LoadSnapshotDeps,
+  selection: { readonly projectId?: ProjectId; readonly sprintId?: SprintId }
+): Promise<AppStateSnapshot> => {
+  const { project, sprint, tasks } = await loadProjectAndSprint(deps, selection);
+  const { projectCount, sprintCount, recentSprints } = await loadInventoryCounts(deps, project);
+  const triggerInputs = computeTriggerInputs(project, sprint, tasks);
 
   return {
     ...(project !== undefined ? { project } : {}),

@@ -17,14 +17,14 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { render } from 'ink-testing-library';
 
 import { Result } from '@src/domain/result.ts';
-import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import { createSprintExecution, setExecutionBranch } from '@src/domain/entity/sprint-execution.ts';
 
-import type { GitRunner, GitRunResult } from '@src/integration/io/git-runner.ts';
+import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
+import { okGit } from '@tests/fixtures/git-result.ts';
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import { createFileLocker } from '@src/integration/io/file-locker.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
@@ -109,8 +109,6 @@ function runTests(): void {
   });
 
   // ─── Scripted GitRunner ──────────────────────────────────────────────────────
-  const okGit = (stdout = '', exitCode = 0): Result<GitRunResult, StorageError> =>
-    Result.ok({ stdout, stderr: '', exitCode });
 
   const makeScriptedGit = (): GitRunner => {
     let head = SPRINT_BRANCH;

@@ -46,9 +46,8 @@ import type { CloseSprintCtx } from '@src/application/flows/close-sprint/ctx.ts'
 import { createReviewFlow } from '@src/application/flows/review/flow.ts';
 import type { ReviewCtx } from '@src/application/flows/review/ctx.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
-import type { GitRunner, GitRunResult } from '@src/integration/io/git-runner.ts';
+import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
-import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { createFileLocker } from '@src/integration/io/file-locker.ts';
@@ -66,6 +65,7 @@ import {
 } from '@tests/fixtures/domain.ts';
 import { recordingAppendFile } from '@tests/fixtures/recording-append-file.ts';
 import { buildSluggedName } from '@src/integration/persistence/storage.ts';
+import { okGit } from '@tests/fixtures/git-result.ts';
 
 const FIXED_NOW = isoTimestamp('2026-05-30T10:00:00.000Z');
 const PROJECT_ID = projectId('01900000-0000-7000-8000-0000000000aa');
@@ -349,9 +349,6 @@ describe('createDistillStep composed into the close paths', () => {
 // The review flow transitions the sprint to `done` automatically when the user submits an empty
 // round. The distill step must fire on THAT path too — the same opt-in sub-chain runs
 // whether the user closes explicitly or lets review auto-finish.
-
-const okGit = (stdout = '', exitCode = 0): Result<GitRunResult, StorageError> =>
-  Result.ok({ stdout, stderr: '', exitCode });
 
 const cleanTreeRunner: GitRunner = {
   async run() {
