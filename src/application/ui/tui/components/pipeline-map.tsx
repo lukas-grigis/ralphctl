@@ -29,72 +29,57 @@ export const phases: readonly PipelinePhase[] = [
 
 type PhaseState = 'done' | 'active' | 'pending' | 'disabled';
 
+/**
+ * Which phases are already `done` and which one is `active` for a given sprint status. Every
+ * phase not named in either bucket falls back to `pending`. Reading this table replaces the
+ * nested id/status branch cascade that used to live in {@link phaseStateFor}.
+ */
+const STATUS_PHASE_PROGRESS: Record<
+  SprintStatus,
+  { readonly done: readonly PhaseId[]; readonly active: PhaseId | undefined }
+> = {
+  draft: { done: [], active: 'refine' },
+  planned: { done: ['refine', 'plan'], active: 'implement' },
+  active: { done: ['refine', 'plan'], active: 'implement' },
+  review: { done: ['refine', 'plan', 'implement'], active: 'close' },
+  done: { done: ['refine', 'plan', 'implement', 'close'], active: undefined },
+};
+
 const phaseStateFor = (id: PhaseId, status: SprintStatus | undefined): PhaseState => {
   if (status === undefined) return id === 'refine' ? 'active' : 'disabled';
-  switch (status) {
-    case 'draft':
-      return id === 'refine' ? 'active' : 'pending';
-    case 'planned':
-      if (id === 'refine' || id === 'plan') return 'done';
-      if (id === 'implement') return 'active';
-      return 'pending';
-    case 'active':
-      if (id === 'refine' || id === 'plan') return 'done';
-      if (id === 'implement') return 'active';
-      return 'pending';
-    case 'review':
-      if (id === 'refine' || id === 'plan' || id === 'implement') return 'done';
-      return 'active';
-    case 'done':
-      return 'done';
-    default:
-      return 'pending';
-  }
+  const progress = STATUS_PHASE_PROGRESS[status];
+  if (progress.done.includes(id)) return 'done';
+  if (progress.active === id) return 'active';
+  return 'pending';
 };
 
-const stateGlyph = (state: PhaseState): string => {
-  switch (state) {
-    case 'done':
-      return glyphs.phaseDone;
-    case 'active':
-      return glyphs.phaseActive;
-    case 'pending':
-      return glyphs.phasePending;
-    case 'disabled':
-      return glyphs.phaseDisabled;
-  }
-};
-
-const stateColor = (state: PhaseState): string => {
-  switch (state) {
-    case 'done':
-      return inkColors.success;
-    case 'active':
-      return inkColors.highlight;
-    case 'pending':
-      return inkColors.muted;
-    case 'disabled':
-      return inkColors.muted;
-  }
+/** Glyph + color pairing for each phase state, read from the shared token tables. */
+const STATUS_PRESENTATION: Record<PhaseState, { readonly glyph: string; readonly color: string }> = {
+  done: { glyph: glyphs.phaseDone, color: inkColors.success },
+  active: { glyph: glyphs.phaseActive, color: inkColors.highlight },
+  pending: { glyph: glyphs.phasePending, color: inkColors.muted },
+  disabled: { glyph: glyphs.phaseDisabled, color: inkColors.muted },
 };
 
 export interface PipelineMapProps {
   readonly status: SprintStatus | undefined;
 }
 
+const renderPhase = (phase: PipelinePhase, status: SprintStatus | undefined, isLast: boolean): React.JSX.Element => {
+  const state = phaseStateFor(phase.id, status);
+  const { glyph, color } = STATUS_PRESENTATION[state];
+  return (
+    <Box key={phase.id}>
+      <Text color={color} bold={state === 'active'}>
+        {glyph} {phase.label}
+      </Text>
+      {!isLast && <Text dimColor> {glyphs.arrowRight} </Text>}
+    </Box>
+  );
+};
+
 export const PipelineMap = ({ status }: PipelineMapProps): React.JSX.Element => (
   <Box paddingX={spacing.indent}>
-    {phases.map((phase, idx) => {
-      const state = phaseStateFor(phase.id, status);
-      const color = stateColor(state);
-      return (
-        <Box key={phase.id}>
-          <Text color={color} bold={state === 'active'}>
-            {stateGlyph(state)} {phase.label}
-          </Text>
-          {idx < phases.length - 1 && <Text dimColor> {glyphs.arrowRight} </Text>}
-        </Box>
-      );
-    })}
+    {phases.map((phase, idx) => renderPhase(phase, status, idx === phases.length - 1))}
   </Box>
 );

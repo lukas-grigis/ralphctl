@@ -20,11 +20,26 @@
  */
 
 import React, { useState } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text, useInput, type Key } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 
 const VISIBLE_BODY_ROWS = 12;
 const HALF_PAGE = Math.max(1, Math.floor(VISIBLE_BODY_ROWS / 2));
+
+/**
+ * Resolve the scroll-offset delta for a keypress, or `undefined` for a key this component
+ * doesn't handle. Extracted from the `useInput` callback so each scroll action reads as one
+ * `if`/`return` rather than a single branchy handler.
+ */
+const resolveScrollDelta = (input: string, key: Key, ownsArrows: boolean): number | undefined => {
+  if (ownsArrows && key.upArrow) return -1;
+  if (ownsArrows && key.downArrow) return 1;
+  if (key.pageUp || (key.ctrl && input === 'b')) return -VISIBLE_BODY_ROWS;
+  if (key.pageDown || (key.ctrl && input === 'f')) return VISIBLE_BODY_ROWS;
+  if (key.ctrl && input === 'u') return -HALF_PAGE;
+  if (key.ctrl && input === 'd') return HALF_PAGE;
+  return undefined;
+};
 
 const splitHeaderBody = (msg: string): { readonly header: string; readonly body: readonly string[] } => {
   const sep = msg.indexOf('\n\n');
@@ -52,12 +67,8 @@ export const ScrollableMessage = ({ message, ownsArrows = true }: ScrollableMess
 
   useInput((input, key) => {
     if (!overflows) return;
-    if (ownsArrows && key.upArrow) setOffset((o) => clamp(o - 1));
-    else if (ownsArrows && key.downArrow) setOffset((o) => clamp(o + 1));
-    else if (key.pageUp || (key.ctrl && input === 'b')) setOffset((o) => clamp(o - VISIBLE_BODY_ROWS));
-    else if (key.pageDown || (key.ctrl && input === 'f')) setOffset((o) => clamp(o + VISIBLE_BODY_ROWS));
-    else if (key.ctrl && input === 'u') setOffset((o) => clamp(o - HALF_PAGE));
-    else if (key.ctrl && input === 'd') setOffset((o) => clamp(o + HALF_PAGE));
+    const delta = resolveScrollDelta(input, key, ownsArrows);
+    if (delta !== undefined) setOffset((o) => clamp(o + delta));
   });
 
   const visible = body.slice(offset, offset + VISIBLE_BODY_ROWS);

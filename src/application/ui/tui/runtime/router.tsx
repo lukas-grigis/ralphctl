@@ -11,11 +11,12 @@
 import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import { Box, Text } from 'ink';
 import { inkColors } from '@src/application/ui/tui/theme/tokens.ts';
+import type { ViewId } from '@src/application/ui/tui/views/view-registry.tsx';
 
 export type ViewProps = Readonly<Record<string, unknown>>;
 
 export interface ViewEntry {
-  readonly id: string;
+  readonly id: ViewId;
   readonly props?: ViewProps;
 }
 

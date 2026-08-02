@@ -53,6 +53,7 @@ import { SettingsEditor } from '@src/application/ui/tui/views/settings-editor.ts
 import { applyPreset, submitField } from '@src/application/ui/tui/views/settings-mutations.ts';
 import { SectionBody, SectionStrip } from '@src/application/ui/tui/views/settings-sections.tsx';
 import {
+  activateField,
   buildSections,
   type EditableField,
   type SettingsSection,
@@ -96,25 +97,6 @@ const renderFieldValue = (activeFields: readonly EditableField[], cursor: number
       {value}
     </Text>
   );
-};
-
-interface FieldActivationSetters {
-  readonly setFeedback: (feedback: SettingsFeedback) => void;
-  readonly setPresetWarnings: (warnings: readonly PresetWarning[]) => void;
-  readonly setPendingPreset: (preset: PresetName) => void;
-  readonly setEditingField: (field: EditableField) => void;
-}
-
-/** `↵/e` activation for the focused field — opens the preset-confirm prompt or the field editor. */
-const activateField = (field: EditableField, setters: FieldActivationSetters): void => {
-  setters.setFeedback(undefined);
-  if (field.kind === 'preset') {
-    setters.setPresetWarnings([]);
-    setters.setPendingPreset(field.preset);
-    return;
-  }
-  setters.setPresetWarnings([]);
-  setters.setEditingField(field);
 };
 
 interface SettingsDataParams {
@@ -217,11 +199,15 @@ const useInstalledProviders = (): ReadonlySet<AiProvider> | undefined => {
  */
 const useAvailableModelsMap = (
   settings: Settings | undefined,
-  availableModelsFor: ((provider: AiProvider) => Promise<readonly string[]>) | undefined
+  availableModelsFor: (provider: AiProvider) => Promise<readonly string[]>
 ): ReadonlyMap<AiProvider, readonly string[]> => {
   const [availableModels, setAvailableModels] = useState<ReadonlyMap<AiProvider, readonly string[]>>(new Map());
   useEffect(() => {
-    if (settings === undefined || availableModelsFor === undefined) return;
+    // `availableModelsFor` is a required `AppDeps` field in production (`wire()` always assigns
+    // it), but several tests build an `AppDeps` by hand via `{} as unknown as AppDeps` and the
+    // cast suppresses the missing-field typecheck — the runtime value can still be `undefined`
+    // there, so this guard stays even though the parameter type says otherwise.
+    if (settings === undefined || typeof availableModelsFor !== 'function') return;
     let cancelled = false;
     for (const provider of uniqueProvidersFromAi(settings.ai)) {
       void availableModelsFor(provider).then((models) => {

@@ -17,6 +17,7 @@ import React from 'react';
 import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { SprintDetailView } from '@src/application/ui/tui/views/sprint-detail-view.tsx';
+import type { ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -57,7 +58,7 @@ const stubDeps = (sprint: Sprint): AppDeps =>
     settingsRepo: {} as never,
   }) as unknown as AppDeps;
 
-const initial = { id: 'sprint-detail', props: { sprintId: FIXED_SPRINT_ID } };
+const initial: ViewEntry = { id: 'sprint-detail', props: { sprintId: FIXED_SPRINT_ID } };
 
 /**
  * Spy component: wraps the view and records every `setSprint` call.
@@ -160,7 +161,7 @@ describe('SprintDetailView — no auto-sync', () => {
 describe('SprintDetailView — setSprint is reachable via m key after redesign', () => {
   it('renders without error when a draft sprint is loaded', async () => {
     const sprint = makeDraftSprint({ name: 'Renderable Sprint' });
-    const initialWithId = { id: 'sprint-detail', props: { sprintId: sprint.id } };
+    const initialWithId: ViewEntry = { id: 'sprint-detail', props: { sprintId: sprint.id } };
 
     const deps: AppDeps = {
       sprintRepo: {

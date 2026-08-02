@@ -1,6 +1,10 @@
 /**
- * Maps view ids to their component. The `App` reads `router.current.id` and renders the
- * matching entry; unknown ids fall through to the registry-level fallback.
+ * Maps view ids to their component. `ViewId` is derived from this table's keys, so registering a
+ * new view here is the one edit that makes it a valid `ViewEntry.id` everywhere the id is
+ * type-checked — the router, launch routing, the home menu builder, and the global keyboard
+ * shortcuts all consume this same union. `App` reads `router.current.id` and renders the
+ * matching entry; an id that somehow isn't registered at runtime (e.g. a stale persisted route)
+ * falls through to the registry-level fallback.
  */
 
 import React from 'react';
@@ -26,49 +30,42 @@ import { AddTicketView } from '@src/application/ui/tui/views/add-ticket-view.tsx
 import { PickProjectView } from '@src/application/ui/tui/views/pick-project-view.tsx';
 import { PickSprintView } from '@src/application/ui/tui/views/pick-sprint-view.tsx';
 
+/**
+ * The single source of truth for every navigable view. `satisfies` (rather than annotating this
+ * with `Record<ViewId, …>`) is what lets `ViewId` be derived from the table's own keys below —
+ * the annotation would otherwise have to name the type it's defining.
+ */
+const VIEW_REGISTRY = {
+  home: HomeView,
+  flows: FlowsView,
+  projects: ProjectsView,
+  'project-detail': ProjectDetailView,
+  sprints: SprintsView,
+  'sprint-detail': SprintDetailView,
+  execute: ExecuteView,
+  sessions: SessionsView,
+  settings: SettingsView,
+  skills: SkillsView,
+  doctor: DoctorView,
+  'export-context': ExportContextView,
+  'export-requirements': ExportRequirementsView,
+  'create-pr': CreatePrView,
+  welcome: WelcomeView,
+  'create-project': CreateProjectView,
+  'add-repository': AddRepositoryView,
+  'add-ticket': AddTicketView,
+  'pick-project': PickProjectView,
+  'pick-sprint': PickSprintView,
+} as const satisfies Record<string, React.ComponentType>;
+
+/** Every valid destination for a `ViewEntry.id` — add a view by appending one entry above. */
+export type ViewId = keyof typeof VIEW_REGISTRY;
+
 export const renderView = (entry: ViewEntry): React.JSX.Element => {
-  switch (entry.id) {
-    case 'home':
-      return <HomeView />;
-    case 'flows':
-      return <FlowsView />;
-    case 'projects':
-      return <ProjectsView />;
-    case 'project-detail':
-      return <ProjectDetailView />;
-    case 'sprints':
-      return <SprintsView />;
-    case 'sprint-detail':
-      return <SprintDetailView />;
-    case 'execute':
-      return <ExecuteView />;
-    case 'sessions':
-      return <SessionsView />;
-    case 'settings':
-      return <SettingsView />;
-    case 'skills':
-      return <SkillsView />;
-    case 'doctor':
-      return <DoctorView />;
-    case 'export-context':
-      return <ExportContextView />;
-    case 'export-requirements':
-      return <ExportRequirementsView />;
-    case 'create-pr':
-      return <CreatePrView />;
-    case 'welcome':
-      return <WelcomeView />;
-    case 'create-project':
-      return <CreateProjectView />;
-    case 'add-repository':
-      return <AddRepositoryView />;
-    case 'add-ticket':
-      return <AddTicketView />;
-    case 'pick-project':
-      return <PickProjectView />;
-    case 'pick-sprint':
-      return <PickSprintView />;
-    default:
-      return <UnknownViewFallback id={entry.id} />;
-  }
+  // `ViewId` guarantees every literal in the tree is registered at compile time, but a runtime id
+  // can still miss the table (a persisted route from a since-removed view) — index through a
+  // widened view so the miss falls through to the fallback instead of `undefined` blowing up.
+  const Component = (VIEW_REGISTRY as Record<string, React.ComponentType | undefined>)[entry.id];
+  if (Component === undefined) return <UnknownViewFallback id={entry.id} />;
+  return <Component />;
 };

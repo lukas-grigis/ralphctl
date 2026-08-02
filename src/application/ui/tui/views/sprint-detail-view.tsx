@@ -52,7 +52,7 @@ import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { createTicketRemoveFlow } from '@src/application/flows/remove-ticket/flow.ts';
 import type { TicketRemoveDeps } from '@src/application/flows/remove-ticket/deps.ts';
-import { type UnblockTaskProps, unblockTaskUseCase } from '@src/business/task/unblock-task.ts';
+import { type UnblockTask, useUnblockTask } from '@src/application/ui/tui/runtime/use-unblock-task.ts';
 import { NextPhaseCard, SprintHeader } from '@src/application/ui/tui/views/sprint-detail-internals/header-card.tsx';
 import { TicketsSection } from '@src/application/ui/tui/views/sprint-detail-internals/ticket-list.tsx';
 import { TasksSection } from '@src/application/ui/tui/views/sprint-detail-internals/task-summary.tsx';
@@ -278,19 +278,10 @@ export const SprintDetailView = (): React.JSX.Element => {
     });
   };
 
+  const unblockTask = useUnblockTask();
   const handleUnblock = async (target: Task): Promise<void> => {
     if (sprint === undefined) return;
-    await runUnblock({
-      target,
-      sprintId: sprint.id,
-      taskRepo: deps.taskRepo,
-      sprintRepo: deps.sprintRepo,
-      clock: deps.clock,
-      logger: deps.logger,
-      mountedRef,
-      setFeedback,
-      reload,
-    });
+    await runUnblock({ target, sprintId: sprint.id, unblockTask, mountedRef, setFeedback, reload });
   };
 
   useSprintDetailShortcuts({
@@ -365,24 +356,21 @@ export const SprintDetailView = (): React.JSX.Element => {
 interface RunUnblockArgs {
   readonly target: Task;
   readonly sprintId: SprintId;
-  readonly taskRepo: UnblockTaskProps['taskRepo'];
-  readonly sprintRepo: UnblockTaskProps['sprintRepo'];
-  readonly clock: UnblockTaskProps['clock'];
-  readonly logger: UnblockTaskProps['logger'];
+  readonly unblockTask: UnblockTask;
   readonly mountedRef: RefObject<boolean>;
   readonly setFeedback: (message: string) => void;
   readonly reload: () => void;
 }
 
 /**
- * Run the unblock use case for one stuck task (the `u` chord) and thread the result to
- * feedback + reload. `mountedRef` guards the post-await writes — see the comment on the
- * component's own `mountedRef` declaration for why they can otherwise fire into an unmounted
- * tree.
+ * Run the unblock use case (via the shared `useUnblockTask` hook) for one stuck task (the `u`
+ * chord) and thread the result to feedback + reload. `mountedRef` guards the post-await writes —
+ * see the comment on the component's own `mountedRef` declaration for why they can otherwise
+ * fire into an unmounted tree.
  */
 const runUnblock = async (args: RunUnblockArgs): Promise<void> => {
-  const { target, sprintId, taskRepo, sprintRepo, clock, logger, mountedRef, setFeedback, reload } = args;
-  const r = await unblockTaskUseCase({ task: target, sprintId, taskRepo, sprintRepo, clock, logger });
+  const { target, sprintId, unblockTask, mountedRef, setFeedback, reload } = args;
+  const r = await unblockTask(target, sprintId);
   if (!r.ok) {
     if (mountedRef.current) setFeedback(`${glyphs.cross} ${r.error.message}`);
     return;

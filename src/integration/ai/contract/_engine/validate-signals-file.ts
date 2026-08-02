@@ -27,6 +27,112 @@ const SCHEMA_MISMATCH = 'schema-mismatch';
 export const SIGNALS_FILE_MAX_BYTES = 4 * 1024 * 1024;
 
 /**
+ * Bound the body before reading it. The provider writes signals.json itself, so a runaway model
+ * can emit an implausibly large file that would OOM inside readFile/JSON.parse before Zod runs.
+ * Stat first and reject over the cap WITHOUT reading. A missing file (ENOENT) or any other stat
+ * error is deliberately swallowed here — the caller's subsequent `readFile` produces the
+ * canonical missing/IO error shapes, so this check only ever narrows (never widens) the failure
+ * surface.
+ */
+const checkFileSizeCap = async (path: string): Promise<Result<void, ParseError>> => {
+  try {
+    const stats = await fs.stat(path);
+    if (stats.size > SIGNALS_FILE_MAX_BYTES) {
+      return Result.error(
+        new ParseError({
+          subCode: SCHEMA_MISMATCH,
+          message: `signals-invalid (too large) at ${path}: signals.json is ${stats.size} bytes, over the ${SIGNALS_FILE_MAX_BYTES}-byte (4 MB) cap — the AI wrote an implausibly large signals file; treating as malformed`,
+          hint: 'The AI wrote a signals.json far larger than any plausible signals body. Inspect the per-spawn directory; the file was not parsed.',
+        })
+      );
+    }
+  } catch {
+    // ignore — let readFile below produce the canonical missing/IO error shapes
+  }
+  return Result.ok(undefined);
+};
+
+/** Read the signals file body, translating a missing file into the `signals-missing` shape. */
+const readSignalsFile = async (path: string): Promise<Result<string, InvalidStateError | StorageError>> => {
+  try {
+    return Result.ok(await fs.readFile(path, 'utf8'));
+  } catch (cause) {
+    if (isNodeErrnoCode(cause, 'ENOENT') || isNodeErrnoCode(cause, 'ENOTDIR')) {
+      return Result.error(
+        new InvalidStateError({
+          entity: 'ai-session',
+          currentState: 'post-spawn',
+          attemptedAction: 'validate-signals',
+          message: `signals-missing: ${path}`,
+          hint: 'The AI exited without writing signals.json. Inspect the per-spawn directory (session-id.txt, and body.txt / body-corrective-<n>.txt when the spawn captured one) and re-run.',
+        })
+      );
+    }
+    return Result.error(new StorageError({ subCode: 'io', message: `read failed: ${path}`, path, cause }));
+  }
+};
+
+/** Parse the raw file body as JSON, surfacing malformed input as a `ParseError`. */
+const parseSignalsJson = (bytes: string, path: string): Result<unknown, ParseError> => {
+  try {
+    return Result.ok(JSON.parse(bytes));
+  } catch (cause) {
+    return Result.error(
+      new ParseError({
+        subCode: 'invalid-json',
+        message: `signals-invalid (malformed JSON) at ${path}: ${describeJsonError(cause)}`,
+        cause,
+        hint: 'The spawn wrote signals.json but the body was not valid JSON. Inspect the file directly.',
+      })
+    );
+  }
+};
+
+/** Walk the migration chain forward from the file's declared `schemaVersion` to the contract's. */
+const migrateToCurrentSchema = <TSig extends AiSignal>(
+  raw: unknown,
+  contract: AiOutputContract<TSig>,
+  path: string
+): Result<unknown, MigrationGapError> => {
+  const fileVersion =
+    typeof raw === 'object' && raw !== null && typeof (raw as { schemaVersion?: unknown }).schemaVersion === 'number'
+      ? (raw as { schemaVersion: number }).schemaVersion
+      : 0;
+
+  let current: unknown = raw;
+  for (let v = fileVersion; v < contract.schemaVersion; v++) {
+    const step = contract.migrations[v];
+    if (step === undefined) {
+      return Result.error(new MigrationGapError({ from: v, to: contract.schemaVersion, file: path }));
+    }
+    current = step(current);
+  }
+  return Result.ok(current);
+};
+
+/**
+ * Guard the root shape before the `signals` property access. `JSON.parse('null')` succeeds and
+ * the generator-contract v0 migration passes non-arrays through untouched, so a provider that
+ * writes literal `null` (a real failure mode) can reach here — a bare `wrapper.signals` access
+ * on `null` would throw a TypeError, which is NOT a DomainError and would escape the Result
+ * channel and crash the whole run instead of blocking the single task (turn-error-policy routes
+ * ParseError to a per-task block). Surface it as the same schema-mismatch ParseError as any
+ * other malformed signals body.
+ */
+const guardRootIsObject = (current: unknown, path: string): Result<{ signals?: unknown }, ParseError> => {
+  if (typeof current !== 'object' || current === null) {
+    return Result.error(
+      new ParseError({
+        subCode: SCHEMA_MISMATCH,
+        message: `signals-invalid (schema) at ${path}: signals.json root is not an object`,
+        hint: 'The AI wrote signals.json but its root was not a JSON object (e.g. literal `null` or a string).',
+      })
+    );
+  }
+  return Result.ok(current as { signals?: unknown });
+};
+
+/**
  * Per-spawn contract loader. Reads `<outputDir>/signals.json`, walks the migration chain
  * forward to the contract's current `schemaVersion`, then Zod-parses the final shape.
  *
@@ -50,91 +156,22 @@ export const validateSignalsFile = async <TSig extends AiSignal>(
 ): Promise<Result<readonly TSig[], InvalidStateError | ParseError | MigrationGapError | StorageError>> => {
   const path = join(String(outputDir), SIGNALS_FILENAME);
 
-  // Bound the body before reading it. The provider writes signals.json itself, so a runaway model
-  // can emit an implausibly large file that would OOM inside readFile/JSON.parse before Zod runs.
-  // Stat first and bail over the cap WITHOUT reading. A missing file (ENOENT) falls through to the
-  // readFile branch below so the "signals-missing" InvalidStateError shape is preserved; other stat
-  // errors (EACCES, etc.) likewise fall through and surface as the StorageError from readFile.
-  try {
-    const stats = await fs.stat(path);
-    if (stats.size > SIGNALS_FILE_MAX_BYTES) {
-      return Result.error(
-        new ParseError({
-          subCode: SCHEMA_MISMATCH,
-          message: `signals-invalid (too large) at ${path}: signals.json is ${stats.size} bytes, over the ${SIGNALS_FILE_MAX_BYTES}-byte (4 MB) cap — the AI wrote an implausibly large signals file; treating as malformed`,
-          hint: 'The AI wrote a signals.json far larger than any plausible signals body. Inspect the per-spawn directory; the file was not parsed.',
-        })
-      );
-    }
-  } catch {
-    // ignore — let readFile below produce the canonical missing/IO error shapes
-  }
+  const sizeCheck = await checkFileSizeCap(path);
+  if (!sizeCheck.ok) return Result.error(sizeCheck.error);
 
-  let bytes: string;
-  try {
-    bytes = await fs.readFile(path, 'utf8');
-  } catch (cause) {
-    if (isNodeErrnoCode(cause, 'ENOENT') || isNodeErrnoCode(cause, 'ENOTDIR')) {
-      return Result.error(
-        new InvalidStateError({
-          entity: 'ai-session',
-          currentState: 'post-spawn',
-          attemptedAction: 'validate-signals',
-          message: `signals-missing: ${path}`,
-          hint: 'The AI exited without writing signals.json. Inspect the per-spawn directory (session-id.txt, and body.txt / body-corrective-<n>.txt when the spawn captured one) and re-run.',
-        })
-      );
-    }
-    return Result.error(new StorageError({ subCode: 'io', message: `read failed: ${path}`, path, cause }));
-  }
+  const bytes = await readSignalsFile(path);
+  if (!bytes.ok) return Result.error(bytes.error);
 
-  let raw: unknown;
-  try {
-    raw = JSON.parse(bytes);
-  } catch (cause) {
-    return Result.error(
-      new ParseError({
-        subCode: 'invalid-json',
-        message: `signals-invalid (malformed JSON) at ${path}: ${describeJsonError(cause)}`,
-        cause,
-        hint: 'The spawn wrote signals.json but the body was not valid JSON. Inspect the file directly.',
-      })
-    );
-  }
+  const raw = parseSignalsJson(bytes.value, path);
+  if (!raw.ok) return Result.error(raw.error);
 
-  const fileVersion =
-    typeof raw === 'object' && raw !== null && typeof (raw as { schemaVersion?: unknown }).schemaVersion === 'number'
-      ? (raw as { schemaVersion: number }).schemaVersion
-      : 0;
+  const migrated = migrateToCurrentSchema(raw.value, contract, path);
+  if (!migrated.ok) return Result.error(migrated.error);
 
-  let current: unknown = raw;
-  for (let v = fileVersion; v < contract.schemaVersion; v++) {
-    const step = contract.migrations[v];
-    if (step === undefined) {
-      return Result.error(new MigrationGapError({ from: v, to: contract.schemaVersion, file: path }));
-    }
-    current = step(current);
-  }
+  const wrapper = guardRootIsObject(migrated.value, path);
+  if (!wrapper.ok) return Result.error(wrapper.error);
 
-  // Guard the root shape before the property access below. `JSON.parse('null')` succeeds and the
-  // generator-contract v0 migration passes non-arrays through untouched, so a provider that writes
-  // literal `null` (a real failure mode) reaches here — a bare `wrapper.signals` access on null
-  // would throw a TypeError, which is NOT a DomainError and would escape the Result channel and
-  // crash the whole run instead of blocking the single task (turn-error-policy routes ParseError
-  // to a per-task block). Surface it as the same schema-mismatch ParseError as any other malformed
-  // signals body.
-  if (typeof current !== 'object' || current === null) {
-    return Result.error(
-      new ParseError({
-        subCode: SCHEMA_MISMATCH,
-        message: `signals-invalid (schema) at ${path}: signals.json root is not an object`,
-        hint: 'The AI wrote signals.json but its root was not a JSON object (e.g. literal `null` or a string).',
-      })
-    );
-  }
-
-  const wrapper = current as { signals?: unknown };
-  const inner = wrapper.signals;
+  const inner = wrapper.value.signals;
   // Be lenient on `timestamp`: AIs frequently omit it on signals they think of as
   // "terminal" (commit-message, task-complete, evaluation). A 4-minute round failing
   // schema validation on a missable field is bad ergonomics for what the timestamp

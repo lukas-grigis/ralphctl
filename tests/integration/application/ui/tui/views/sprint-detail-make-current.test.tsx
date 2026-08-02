@@ -12,6 +12,7 @@ import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { SprintDetailView } from '@src/application/ui/tui/views/sprint-detail-view.tsx';
+import type { ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -51,7 +52,7 @@ const stubDeps = (sprint: Sprint): AppDeps =>
     settingsRepo: {} as never,
   }) as unknown as AppDeps;
 
-const initial = { id: 'sprint-detail', props: { sprintId: SPRINT_ID } };
+const initial: ViewEntry = { id: 'sprint-detail', props: { sprintId: SPRINT_ID } };
 
 /**
  * Intercept spy: patches `setSprint` on the selection context via Object.assign after mount.

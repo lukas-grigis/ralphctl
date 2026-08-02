@@ -12,6 +12,7 @@ import { createFilesystemAgentDefinitionAdapter } from '@src/integration/ai/agen
 import { renderCopilotAgent } from '@src/integration/ai/agents/_engine/render-copilot-agent.ts';
 import type { AgentDefinitionAdapter } from '@src/integration/ai/agents/_engine/agent-definition-adapter.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
+import { PROVIDER_TRAITS } from '@src/integration/ai/providers/_engine/provider-traits.ts';
 
 export interface CreateCopilotAgentDefinitionAdapterDeps {
   readonly logger?: Logger;
@@ -30,7 +31,7 @@ export const createCopilotAgentDefinitionAdapter = (
 ): AgentDefinitionAdapter =>
   createFilesystemAgentDefinitionAdapter({
     providerId: 'github-copilot',
-    parentDir: '.github',
+    parentDir: PROVIDER_TRAITS['github-copilot'].agentsParentDir,
     renderer: renderCopilotAgent,
     convention: CONVENTION,
     ...(deps.logger !== undefined ? { logger: deps.logger } : {}),

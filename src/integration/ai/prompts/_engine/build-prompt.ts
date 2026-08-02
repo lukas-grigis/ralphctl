@@ -28,6 +28,65 @@ const findPartialParameterCollision = <TInput extends object>(
 };
 
 /**
+ * Validates each declared parameter against `input` and fills the substitution map with its
+ * rendered string value. Extracted from `buildPrompt` so the per-parameter validation logic is
+ * independently testable. `partialPlaceholders` is a defensive re-check — `buildPrompt` already
+ * rejects a field/partial placeholder collision up front via `findPartialParameterCollision`
+ * before any partial is loaded, but a caller that reuses this helper directly (without running
+ * that up-front check first) still gets a loud error instead of a silently clobbered value.
+ */
+const validateAndFillParameters = <TInput extends object>(
+  def: PromptDefinition<TInput>,
+  input: TInput,
+  partialPlaceholders: ReadonlySet<string>
+): Result<Record<string, string>, ValidationError> => {
+  const values: Record<string, string> = {};
+
+  // Iterating typed entries is impossible without a runtime cast — we lose `TInput`'s shape
+  // when iterating Object.entries. The cast is safe: `def.parameters` is constructed from
+  // `TInput` at the type level, and `input` is typed as `TInput` at the call site.
+  for (const [field, rawSpec] of Object.entries(def.parameters) as Array<[string, ParameterSpec<unknown>]>) {
+    const spec = rawSpec;
+
+    if (partialPlaceholders.has(spec.placeholder)) {
+      return Result.error(
+        new ValidationError({
+          field,
+          value: spec.placeholder,
+          message:
+            `buildPrompt(${def.templateName}): parameter '${field}' declares placeholder ` +
+            `{{${spec.placeholder}}}, which collides with an auto-loaded partial slot of the same ` +
+            `name — rename one of them.`,
+        })
+      );
+    }
+
+    const rawValue = (input as Record<string, unknown>)[field];
+
+    if (rawValue === undefined || rawValue === null) {
+      if (spec.optional === true) {
+        values[spec.placeholder] = '';
+        continue;
+      }
+      return Result.error(
+        new ValidationError({
+          field,
+          value: rawValue,
+          message: `buildPrompt(${def.templateName}): required parameter '${field}' (placeholder ${spec.placeholder}) is missing`,
+        })
+      );
+    }
+
+    const validated = spec.validate ? spec.validate(rawValue) : Result.ok(rawValue);
+    if (!validated.ok) return Result.error(validated.error);
+
+    values[spec.placeholder] = String(validated.value as unknown);
+  }
+
+  return Result.ok(values);
+};
+
+/**
  * Generic prompt builder. Reads a `PromptDefinition` and a typed input bag, loads the
  * template + any partials, validates each input field via its spec, runs substitution, and
  * brands the result as `Prompt` after `assertTemplateKeysFilled` confirms every placeholder
@@ -85,32 +144,9 @@ export const buildPrompt = async <TInput extends object>(
   }
 
   // Per-parameter validation + substitution.
-  // Iterating typed entries is impossible without a runtime cast — we lose `TInput`'s shape
-  // when iterating Object.entries. The cast is safe: `def.parameters` is constructed from
-  // `TInput` at the type level, and `input` is typed as `TInput` at the call site.
-  for (const [field, rawSpec] of Object.entries(def.parameters) as Array<[string, ParameterSpec<unknown>]>) {
-    const spec = rawSpec;
-    const rawValue = (input as Record<string, unknown>)[field];
-
-    if (rawValue === undefined || rawValue === null) {
-      if (spec.optional === true) {
-        values[spec.placeholder] = '';
-        continue;
-      }
-      return Result.error(
-        new ValidationError({
-          field,
-          value: rawValue,
-          message: `buildPrompt(${def.templateName}): required parameter '${field}' (placeholder ${spec.placeholder}) is missing`,
-        })
-      );
-    }
-
-    const validated = spec.validate ? spec.validate(rawValue) : Result.ok(rawValue);
-    if (!validated.ok) return Result.error(validated.error);
-
-    values[spec.placeholder] = String(validated.value as unknown);
-  }
+  const filled = validateAndFillParameters(def, input, partialPlaceholders);
+  if (!filled.ok) return Result.error(filled.error);
+  Object.assign(values, filled.value);
 
   const rendered = substitute(template.value, values);
   return assertTemplateKeysFilled(rendered, template.value, partialBodies, values, `buildPrompt(${def.templateName})`);

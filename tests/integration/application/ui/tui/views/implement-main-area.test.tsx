@@ -72,7 +72,7 @@ const Harness = (): React.JSX.Element => {
   React.useEffect(() => {
     if (pushedRef.current) return;
     pushedRef.current = true;
-    router.push({ id: 'implement-second' });
+    router.push({ id: 'sessions' });
   }, [router]);
 
   const [mounted, setMounted] = React.useState(true);
@@ -102,14 +102,14 @@ const Harness = (): React.JSX.Element => {
 };
 
 const mount = (): ReturnType<typeof renderView> =>
-  renderView(<Harness />, { deps: stubDeps(), initial: { id: 'implement-first' } });
+  renderView(<Harness />, { deps: stubDeps(), initial: { id: 'execute' } });
 
 describe('ImplementMainArea — Esc collapse-before-pop', () => {
   it('Esc collapses the expanded focused card and does NOT pop the route', async () => {
     const { result } = mount();
     await waitForViewReady(result, (f) => f.includes(LIVE_SIGNAL_TEXT));
     // Confirm the second route + the live claim's precondition (card expanded) both settled.
-    await waitFor(() => (result.lastFrame() ?? '').includes('ROUTE:implement-second:2'));
+    await waitFor(() => (result.lastFrame() ?? '').includes('ROUTE:sessions:2'));
 
     result.stdin.write(ESC);
     await tick(60);
@@ -118,7 +118,7 @@ describe('ImplementMainArea — Esc collapse-before-pop', () => {
     // Card collapsed — its signal stream is no longer rendered.
     expect(frame).not.toContain(LIVE_SIGNAL_TEXT);
     // The route did NOT pop — the claim kept the global handler's router.pop() from firing.
-    expect(frame).toContain('ROUTE:implement-second:2');
+    expect(frame).toContain('ROUTE:sessions:2');
 
     result.unmount();
   });
@@ -126,18 +126,18 @@ describe('ImplementMainArea — Esc collapse-before-pop', () => {
   it('Esc with no expanded card pops the route as before', async () => {
     const { result } = mount();
     await waitForViewReady(result, (f) => f.includes(LIVE_SIGNAL_TEXT));
-    await waitFor(() => (result.lastFrame() ?? '').includes('ROUTE:implement-second:2'));
+    await waitFor(() => (result.lastFrame() ?? '').includes('ROUTE:sessions:2'));
 
     // First Esc collapses the auto-expanded card (releasing the claim).
     result.stdin.write(ESC);
     await tick(60);
     expect(result.lastFrame() ?? '').not.toContain(LIVE_SIGNAL_TEXT);
-    expect(result.lastFrame() ?? '').toContain('ROUTE:implement-second:2');
+    expect(result.lastFrame() ?? '').toContain('ROUTE:sessions:2');
 
     // Second Esc — no card expanded, no claim held — the global handler pops the route.
     result.stdin.write(ESC);
-    await waitFor(() => (result.lastFrame() ?? '').includes('ROUTE:implement-first:1'));
-    expect(result.lastFrame() ?? '').toContain('ROUTE:implement-first:1');
+    await waitFor(() => (result.lastFrame() ?? '').includes('ROUTE:execute:1'));
+    expect(result.lastFrame() ?? '').toContain('ROUTE:execute:1');
 
     result.unmount();
   });
@@ -145,7 +145,7 @@ describe('ImplementMainArea — Esc collapse-before-pop', () => {
   it('unmounting while expanded releases the claim (no stale claim blocking Esc elsewhere)', async () => {
     const { result } = mount();
     await waitForViewReady(result, (f) => f.includes(LIVE_SIGNAL_TEXT));
-    await waitFor(() => (result.lastFrame() ?? '').includes('ROUTE:implement-second:2'));
+    await waitFor(() => (result.lastFrame() ?? '').includes('ROUTE:sessions:2'));
 
     // Unmount ImplementMainArea while its focused card is still expanded — the claim is live.
     result.stdin.write('u');
@@ -154,8 +154,8 @@ describe('ImplementMainArea — Esc collapse-before-pop', () => {
 
     // A leaked claim would swallow this Esc forever; the unmount cleanup must have released it.
     result.stdin.write(ESC);
-    await waitFor(() => (result.lastFrame() ?? '').includes('ROUTE:implement-first:1'));
-    expect(result.lastFrame() ?? '').toContain('ROUTE:implement-first:1');
+    await waitFor(() => (result.lastFrame() ?? '').includes('ROUTE:execute:1'));
+    expect(result.lastFrame() ?? '').toContain('ROUTE:execute:1');
 
     result.unmount();
   });

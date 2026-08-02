@@ -38,37 +38,74 @@ interface HelpRow {
   readonly color?: string | undefined;
 }
 
+/** Renders one row of the flattened help list — a section title, a key-chord binding, or a
+ * plain reference row (signal vocabulary etc. with no key chord). `isFirst` suppresses the
+ * top margin on the very first section title. */
+const HelpRowView = ({ row, isFirst }: { readonly row: HelpRow; readonly isFirst: boolean }): React.JSX.Element => {
+  if (row.kind === SECTION_TITLE) {
+    return (
+      <Box marginTop={isFirst ? 0 : spacing.section}>
+        <Text bold>{row.title}</Text>
+      </Box>
+    );
+  }
+  const rowKeys = row.keys ?? [];
+  if (rowKeys.length > 0) {
+    return (
+      <Box>
+        <Box width={20}>
+          <Text color={inkColors.highlight}>{rowKeys.join(' · ')}</Text>
+        </Box>
+        <Text dimColor>{row.label}</Text>
+      </Box>
+    );
+  }
+  return (
+    <Box>
+      <Box width={20}>
+        <Text color={row.color ?? SIGNAL_LABEL_COLOR[row.label ?? ''] ?? inkColors.info} bold>
+          {row.label}
+        </Text>
+      </Box>
+      <Text dimColor>{row.description ?? ''}</Text>
+    </Box>
+  );
+};
+
+/** Flattens the local view hints + every static keymap section into one renderable row list. */
+const buildHelpRows = (localHints: ReturnType<typeof useActiveHints>): readonly HelpRow[] => {
+  const rows: HelpRow[] = [];
+
+  if (localHints.length > 0) {
+    rows.push({ kind: SECTION_TITLE, title: 'This view' });
+    for (const h of localHints) {
+      rows.push({ kind: 'binding', keys: [h.keys], label: h.label });
+    }
+  }
+
+  for (const section of keySections) {
+    rows.push({ kind: SECTION_TITLE, title: section.title });
+    for (const b of section.bindings) {
+      rows.push({
+        kind: 'binding',
+        keys: b.keys,
+        label: b.label,
+        description: b.description,
+        color: b.color,
+      });
+    }
+  }
+
+  return rows;
+};
+
 export const HelpOverlay = (): React.JSX.Element => {
   const localHints = useActiveHints();
   const term = useTerminalSize();
   const [offset, setOffset] = useState(0);
 
   // Build a flat array of renderable rows from all sections so we can window them.
-  const allRows = useMemo((): readonly HelpRow[] => {
-    const rows: HelpRow[] = [];
-
-    if (localHints.length > 0) {
-      rows.push({ kind: SECTION_TITLE, title: 'This view' });
-      for (const h of localHints) {
-        rows.push({ kind: 'binding', keys: [h.keys], label: h.label });
-      }
-    }
-
-    for (const section of keySections) {
-      rows.push({ kind: SECTION_TITLE, title: section.title });
-      for (const b of section.bindings) {
-        rows.push({
-          kind: 'binding',
-          keys: b.keys,
-          label: b.label,
-          description: b.description,
-          color: b.color,
-        });
-      }
-    }
-
-    return rows;
-  }, [localHints]);
+  const allRows = useMemo((): readonly HelpRow[] => buildHelpRows(localHints), [localHints]);
 
   const bodyRows = Math.max(MIN_BODY_ROWS, term.rows - CHROME_ROWS);
   const lineCount = allRows.length;
@@ -120,38 +157,9 @@ export const HelpOverlay = (): React.JSX.Element => {
           <Text dimColor>esc · ? to close</Text>
         </Box>
         <Box flexDirection="column" marginTop={spacing.section}>
-          {visibleRows.map((row, idx) => {
-            if (row.kind === SECTION_TITLE) {
-              return (
-                <Box key={`title-${String(offset + idx)}`} marginTop={idx === 0 ? 0 : spacing.section}>
-                  <Text bold>{row.title}</Text>
-                </Box>
-              );
-            }
-            // Binding row
-            const rowKeys = row.keys ?? [];
-            if (rowKeys.length > 0) {
-              return (
-                <Box key={`binding-${String(offset + idx)}`}>
-                  <Box width={20}>
-                    <Text color={inkColors.highlight}>{rowKeys.join(' · ')}</Text>
-                  </Box>
-                  <Text dimColor>{row.label}</Text>
-                </Box>
-              );
-            }
-            // Reference row (signal vocabulary etc.) — no key chord, label coloured.
-            return (
-              <Box key={`ref-${String(offset + idx)}`}>
-                <Box width={20}>
-                  <Text color={row.color ?? SIGNAL_LABEL_COLOR[row.label ?? ''] ?? inkColors.info} bold>
-                    {row.label}
-                  </Text>
-                </Box>
-                <Text dimColor>{row.description ?? ''}</Text>
-              </Box>
-            );
-          })}
+          {visibleRows.map((row, idx) => (
+            <HelpRowView key={`${row.kind}-${String(offset + idx)}`} row={row} isFirst={idx === 0} />
+          ))}
         </Box>
         {maxOffset > 0 && (
           <Box marginTop={spacing.section} justifyContent="space-between">

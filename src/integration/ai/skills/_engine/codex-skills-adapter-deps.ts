@@ -1,10 +1,7 @@
-import type { Logger } from '@src/business/observability/logger.ts';
-
 /**
- * Composition-root inputs for {@link createCodexSkillsAdapter}. Shape mirrors the claude and
- * copilot variants; lives in `_engine/` so each per-tool adapter file imports a port-shaped
- * contract instead of declaring its inputs next to the implementation.
+ * Alias for the shared {@link SkillsAdapterDeps} shape, kept under the Codex-specific name so
+ * `skills/codex/adapter.ts` (a sibling-isolated per-tool directory) doesn't need to import a
+ * differently-named type than its claude / copilot counterparts expect of their own alias files.
+ * See `skills-adapter-deps.ts` for the single canonical interface body.
  */
-export interface CreateCodexSkillsAdapterDeps {
-  readonly logger?: Logger;
-}
+export type { SkillsAdapterDeps as CreateCodexSkillsAdapterDeps } from '@src/integration/ai/skills/_engine/skills-adapter-deps.ts';

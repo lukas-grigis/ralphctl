@@ -13,6 +13,7 @@ import { createFilesystemAgentDefinitionAdapter } from '@src/integration/ai/agen
 import { renderClaudeAgent } from '@src/integration/ai/agents/_engine/render-claude-agent.ts';
 import type { AgentDefinitionAdapter } from '@src/integration/ai/agents/_engine/agent-definition-adapter.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
+import { PROVIDER_TRAITS } from '@src/integration/ai/providers/_engine/provider-traits.ts';
 
 export interface CreateClaudeAgentDefinitionAdapterDeps {
   readonly logger?: Logger;
@@ -30,7 +31,7 @@ export const createClaudeAgentDefinitionAdapter = (
 ): AgentDefinitionAdapter =>
   createFilesystemAgentDefinitionAdapter({
     providerId: 'claude-code',
-    parentDir: '.claude',
+    parentDir: PROVIDER_TRAITS['claude-code'].agentsParentDir,
     renderer: renderClaudeAgent,
     convention: CONVENTION,
     ...(deps.logger !== undefined ? { logger: deps.logger } : {}),

@@ -269,17 +269,43 @@ const readTextOrEmpty = async (path: string): Promise<string> => {
 };
 
 /**
- * One-time backfill of `learnings.md` across all memory dirs. For each `<memory>/<dir>/` that has a
- * `learnings.ndjson` but no `learnings.md`, render the markdown from the ledger body and write it.
- * Best-effort throughout — an empty render, an unreadable ledger, or a failed write is swallowed and
- * never fails the migration; the runtime mirror heals it on the next append/promote.
+ * Best-effort backfill of `learnings.md` for ONE memory dir. Each guard below is one early-return
+ * step; a `continue` in the caller's loop becomes a `return` here since the function now covers
+ * exactly one dir's worth of work.
  *
- * Two guards combine in the same loop:
- *  - SECURITY: only trusted in-tree entries ({@link isTrustedMemoryEntry} — a bare `<uuid>` or a
- *    slugged `<uuid>--<slug>`) are followed. A planted symlink whose name is neither is skipped, so a
- *    backfill write can never be redirected outside the data tree.
- *  - OOM: a single `fs.stat` precedes each read; a ledger past {@link MIRROR_BACKFILL_CEILING_BYTES}
+ *  - SECURITY: only a trusted in-tree name ({@link isTrustedMemoryEntry} — a bare `<uuid>` or a
+ *    slugged `<uuid>--<slug>`) is followed. A planted symlink whose name is neither is skipped, so
+ *    a backfill write can never be redirected outside the data tree.
+ *  - OOM: a single `fs.stat` precedes the read; a ledger past {@link MIRROR_BACKFILL_CEILING_BYTES}
  *    is skipped (never read), so a heap abort mid-backfill is impossible. The runtime mirror heals it.
+ */
+const backfillOneMemoryDir = async (memoryRoot: string, dir: string, ctx: ApplyCtx): Promise<void> => {
+  if (!isTrustedMemoryEntry(dir)) return; // untrusted name (possible symlink redirect) — skip
+  const ledgerPath = join(memoryRoot, dir, LEARNINGS_NDJSON);
+  const mdPath = join(memoryRoot, dir, LEARNINGS_MD);
+  if (await ledgerExceedsCeiling(ledgerPath)) return; // oversized — runtime mirror heals it
+  if (!(await pathPresent(ledgerPath))) return;
+  if (await pathPresent(mdPath)) return; // already has a mirror — leave it
+
+  let body: string;
+  try {
+    body = await fs.readFile(ledgerPath, 'utf8');
+  } catch {
+    return;
+  }
+  const md = ctx.renderLearnings(body);
+  if (md === undefined) return;
+  const parsed = AbsolutePath.parse(mdPath);
+  if (!parsed.ok) return;
+  await ctx.writeFile(parsed.value, md); // best-effort — ignore the result
+};
+
+/**
+ * One-time backfill of `learnings.md` across all memory dirs. For each `<memory>/<dir>/` that has a
+ * `learnings.ndjson` but no `learnings.md`, render the markdown from the ledger body and write it —
+ * see {@link backfillOneMemoryDir} for the per-dir guards. Best-effort throughout — an empty render,
+ * an unreadable ledger, or a failed write is swallowed and never fails the migration; the runtime
+ * mirror heals it on the next append/promote.
  */
 const backfillLearningsMd = async (dataRoot: AbsolutePath, ctx: ApplyCtx): Promise<void> => {
   const memoryRoot = join(String(dataRoot), MEMORY_DIR);
@@ -287,24 +313,7 @@ const backfillLearningsMd = async (dataRoot: AbsolutePath, ctx: ApplyCtx): Promi
   if (!dirs.ok) return;
 
   for (const dir of dirs.value) {
-    if (!isTrustedMemoryEntry(dir)) continue; // untrusted name (possible symlink redirect) — skip
-    const ledgerPath = join(memoryRoot, dir, LEARNINGS_NDJSON);
-    const mdPath = join(memoryRoot, dir, LEARNINGS_MD);
-    if (await ledgerExceedsCeiling(ledgerPath)) continue; // oversized — runtime mirror heals it
-    if (!(await pathPresent(ledgerPath))) continue;
-    if (await pathPresent(mdPath)) continue; // already has a mirror — leave it
-
-    let body: string;
-    try {
-      body = await fs.readFile(ledgerPath, 'utf8');
-    } catch {
-      continue;
-    }
-    const md = ctx.renderLearnings(body);
-    if (md === undefined) continue;
-    const parsed = AbsolutePath.parse(mdPath);
-    if (!parsed.ok) continue;
-    await ctx.writeFile(parsed.value, md); // best-effort — ignore the result
+    await backfillOneMemoryDir(memoryRoot, dir, ctx);
   }
 };
 

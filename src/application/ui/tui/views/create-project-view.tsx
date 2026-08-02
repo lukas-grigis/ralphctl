@@ -201,6 +201,131 @@ interface StepViewProps {
   readonly onSubmit: (s: Extract<Step, { kind: 'confirm' }>) => Promise<void>;
 }
 
+const renderNameStep = (onChange: StepViewProps['onChange'], cancelOrBack: () => void): React.JSX.Element => (
+  <TextPrompt
+    key="name"
+    message="Project display name"
+    onSubmit={(value) => {
+      const trimmed = value.trim();
+      if (trimmed.length === 0) return;
+      onChange({ kind: 'slug', name: trimmed });
+    }}
+    onCancel={cancelOrBack}
+  />
+);
+
+const renderSlugStep = (
+  step: Extract<Step, { kind: 'slug' }>,
+  onChange: StepViewProps['onChange'],
+  cancelOrBack: () => void
+): React.JSX.Element => (
+  <TextPrompt
+    key="slug"
+    message="Project slug (kebab-case, blank for default)"
+    initial={toKebabCase(step.name)}
+    onSubmit={(value) => onChange({ kind: 'description', name: step.name, slug: value })}
+    onCancel={cancelOrBack}
+  />
+);
+
+const renderDescriptionStep = (
+  step: Extract<Step, { kind: 'description' }>,
+  onChange: StepViewProps['onChange'],
+  cancelOrBack: () => void
+): React.JSX.Element => (
+  <TextPrompt
+    key="description"
+    message="Description (optional, Enter to skip)"
+    onSubmit={(value) => onChange({ kind: 'repo-path', name: step.name, slug: step.slug, description: value })}
+    onCancel={cancelOrBack}
+  />
+);
+
+const renderRepoPathStep = (
+  step: Extract<Step, { kind: 'repo-path' }>,
+  onChange: StepViewProps['onChange'],
+  cancelOrBack: () => void
+): React.JSX.Element => (
+  <PathPickerPrompt
+    key="repo-path"
+    message="Repository directory"
+    onSubmit={(value) =>
+      onChange({
+        kind: 'repo-name',
+        name: step.name,
+        slug: step.slug,
+        description: step.description,
+        repoPath: value,
+      })
+    }
+    onCancel={cancelOrBack}
+  />
+);
+
+const renderRepoNameStep = (
+  step: Extract<Step, { kind: 'repo-name' }>,
+  onChange: StepViewProps['onChange'],
+  cancelOrBack: () => void
+): React.JSX.Element => {
+  const fallback = basename(expandHome(step.repoPath));
+  return (
+    <TextPrompt
+      key="repo-name"
+      message="Repository name (blank for default)"
+      initial={fallback}
+      onSubmit={(value) =>
+        onChange({
+          kind: 'confirm',
+          name: step.name,
+          slug: step.slug,
+          description: step.description,
+          repoPath: step.repoPath,
+          repoName: value,
+        })
+      }
+      onCancel={cancelOrBack}
+    />
+  );
+};
+
+const renderConfirmStep = (
+  step: Extract<Step, { kind: 'confirm' }>,
+  onSubmit: StepViewProps['onSubmit'],
+  cancelOrBack: () => void
+): React.JSX.Element => (
+  <Box flexDirection="column">
+    <FieldList
+      fields={[
+        { label: 'Name', value: <Text bold>{step.name}</Text> },
+        { label: 'Slug', value: step.slug.trim().length > 0 ? step.slug : toKebabCase(step.name) },
+        ...(step.description.trim().length > 0 ? [{ label: 'Description', value: step.description }] : []),
+        { label: 'Repo path', value: <Text dimColor>{expandHome(step.repoPath)}</Text> },
+        {
+          label: 'Repo name',
+          value: step.repoName.trim().length > 0 ? step.repoName : basename(expandHome(step.repoPath)),
+        },
+      ]}
+    />
+    <Box marginTop={spacing.section}>
+      <ConfirmPrompt
+        message="Save this project?"
+        onSubmit={(value) => {
+          if (value) void onSubmit(step);
+          else cancelOrBack();
+        }}
+        onCancel={cancelOrBack}
+      />
+    </Box>
+  </Box>
+);
+
+const renderErrorStep = (step: Extract<Step, { kind: 'error' }>): React.JSX.Element => (
+  <Box flexDirection="column" paddingX={spacing.indent}>
+    <Text color={inkColors.error}>✗ {step.message}</Text>
+    <Text dimColor>Press esc to go back.</Text>
+  </Box>
+);
+
 const StepView = ({ step, onChange, onCancel, onSubmit }: StepViewProps): React.JSX.Element => {
   // Per-step `key` so each TextPrompt is a fresh instance — otherwise React's reconciliation
   // preserves the previous step's buffer at the same tree position and the next field pre-fills
@@ -212,110 +337,20 @@ const StepView = ({ step, onChange, onCancel, onSubmit }: StepViewProps): React.
   const cancelOrBack = prev !== undefined ? (): void => onChange(prev) : onCancel;
   switch (step.kind) {
     case 'name':
-      return (
-        <TextPrompt
-          key="name"
-          message="Project display name"
-          onSubmit={(value) => {
-            const trimmed = value.trim();
-            if (trimmed.length === 0) return;
-            onChange({ kind: 'slug', name: trimmed });
-          }}
-          onCancel={cancelOrBack}
-        />
-      );
+      return renderNameStep(onChange, cancelOrBack);
     case 'slug':
-      return (
-        <TextPrompt
-          key="slug"
-          message="Project slug (kebab-case, blank for default)"
-          initial={toKebabCase(step.name)}
-          onSubmit={(value) => onChange({ kind: 'description', name: step.name, slug: value })}
-          onCancel={cancelOrBack}
-        />
-      );
+      return renderSlugStep(step, onChange, cancelOrBack);
     case 'description':
-      return (
-        <TextPrompt
-          key="description"
-          message="Description (optional, Enter to skip)"
-          onSubmit={(value) => onChange({ kind: 'repo-path', name: step.name, slug: step.slug, description: value })}
-          onCancel={cancelOrBack}
-        />
-      );
+      return renderDescriptionStep(step, onChange, cancelOrBack);
     case 'repo-path':
-      return (
-        <PathPickerPrompt
-          key="repo-path"
-          message="Repository directory"
-          onSubmit={(value) =>
-            onChange({
-              kind: 'repo-name',
-              name: step.name,
-              slug: step.slug,
-              description: step.description,
-              repoPath: value,
-            })
-          }
-          onCancel={cancelOrBack}
-        />
-      );
-    case 'repo-name': {
-      const fallback = basename(expandHome(step.repoPath));
-      return (
-        <TextPrompt
-          key="repo-name"
-          message="Repository name (blank for default)"
-          initial={fallback}
-          onSubmit={(value) =>
-            onChange({
-              kind: 'confirm',
-              name: step.name,
-              slug: step.slug,
-              description: step.description,
-              repoPath: step.repoPath,
-              repoName: value,
-            })
-          }
-          onCancel={cancelOrBack}
-        />
-      );
-    }
+      return renderRepoPathStep(step, onChange, cancelOrBack);
+    case 'repo-name':
+      return renderRepoNameStep(step, onChange, cancelOrBack);
     case 'confirm':
-      return (
-        <Box flexDirection="column">
-          <FieldList
-            fields={[
-              { label: 'Name', value: <Text bold>{step.name}</Text> },
-              { label: 'Slug', value: step.slug.trim().length > 0 ? step.slug : toKebabCase(step.name) },
-              ...(step.description.trim().length > 0 ? [{ label: 'Description', value: step.description }] : []),
-              { label: 'Repo path', value: <Text dimColor>{expandHome(step.repoPath)}</Text> },
-              {
-                label: 'Repo name',
-                value: step.repoName.trim().length > 0 ? step.repoName : basename(expandHome(step.repoPath)),
-              },
-            ]}
-          />
-          <Box marginTop={spacing.section}>
-            <ConfirmPrompt
-              message="Save this project?"
-              onSubmit={(value) => {
-                if (value) void onSubmit(step);
-                else cancelOrBack();
-              }}
-              onCancel={cancelOrBack}
-            />
-          </Box>
-        </Box>
-      );
+      return renderConfirmStep(step, onSubmit, cancelOrBack);
     case 'saving':
       return <Spinner label="saving project…" />;
     case 'error':
-      return (
-        <Box flexDirection="column" paddingX={spacing.indent}>
-          <Text color={inkColors.error}>✗ {step.message}</Text>
-          <Text dimColor>Press esc to go back.</Text>
-        </Box>
-      );
+      return renderErrorStep(step);
   }
 };

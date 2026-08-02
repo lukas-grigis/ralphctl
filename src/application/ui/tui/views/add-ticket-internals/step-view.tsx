@@ -25,6 +25,181 @@ interface StepViewProps {
   readonly onSubmit: (s: Extract<Step, { kind: 'confirm' }>) => Promise<void>;
 }
 
+/** Shared context every per-step renderer below needs: how to step back (or cancel on the first
+ *  step) and the label esc should carry in the prompt's own footer hint. */
+interface StepRenderCtx {
+  readonly onChange: (next: Step) => void;
+  readonly cancelOrBack: () => void;
+  readonly escLabel: string;
+}
+
+const renderLinkStep = (ctx: StepRenderCtx): React.JSX.Element => (
+  <TextPrompt
+    key="link"
+    message="Issue link (GitHub/GitLab URL — ↵ to skip)"
+    escLabel={ctx.escLabel}
+    onSubmit={(value) => {
+      const trimmed = value.trim();
+      if (trimmed.length === 0) {
+        ctx.onChange({ kind: 'title', link: '', titleInitial: '', descriptionInitial: '' });
+        return;
+      }
+      ctx.onChange({ kind: 'fetching', link: trimmed });
+    }}
+    onCancel={ctx.cancelOrBack}
+  />
+);
+
+const renderFetchingStep = (step: Extract<Step, { kind: 'fetching' }>): React.JSX.Element => (
+  <Spinner label={`fetching ${step.link}…`} />
+);
+
+const renderFetchFailedStep = (
+  step: Extract<Step, { kind: 'fetch-failed' }>,
+  ctx: StepRenderCtx
+): React.JSX.Element => (
+  <Box flexDirection="column" paddingX={spacing.indent}>
+    <Text color={inkColors.warning}>! fetch failed: {step.reason}</Text>
+    <Text dimColor>Falling back to manual entry — the URL is preserved on the link field.</Text>
+    <Box marginTop={spacing.section}>
+      <ConfirmPrompt
+        message="Continue with manual entry?"
+        onSubmit={(value) => {
+          if (value) {
+            ctx.onChange({
+              kind: 'title',
+              link: step.link,
+              titleInitial: '',
+              descriptionInitial: '',
+            });
+          } else {
+            ctx.cancelOrBack();
+          }
+        }}
+        onCancel={ctx.cancelOrBack}
+      />
+    </Box>
+  </Box>
+);
+
+const renderTitleStep = (step: Extract<Step, { kind: 'title' }>, ctx: StepRenderCtx): React.JSX.Element => (
+  <TextPrompt
+    key="title"
+    message="Title"
+    initial={step.titleInitial}
+    escLabel={ctx.escLabel}
+    onSubmit={(value) => {
+      const trimmed = value.trim();
+      if (trimmed.length === 0) return;
+      ctx.onChange({
+        kind: 'description',
+        link: step.link,
+        title: trimmed,
+        descriptionInitial: step.descriptionInitial,
+      });
+    }}
+    onCancel={ctx.cancelOrBack}
+  />
+);
+
+const renderDescriptionStep = (step: Extract<Step, { kind: 'description' }>, ctx: StepRenderCtx): React.JSX.Element => (
+  <TextAreaPrompt
+    key="description"
+    message="Description"
+    initial={step.descriptionInitial}
+    escLabel={ctx.escLabel}
+    onSubmit={(value) => {
+      const trimmed = value.trim();
+      if (trimmed.length === 0) return;
+      ctx.onChange({
+        kind: 'confirm',
+        link: step.link,
+        title: step.title,
+        description: value,
+      });
+    }}
+    onCancel={ctx.cancelOrBack}
+  />
+);
+
+const renderConfirmStep = (
+  step: Extract<Step, { kind: 'confirm' }>,
+  ctx: StepRenderCtx,
+  onSubmit: StepViewProps['onSubmit']
+): React.JSX.Element => {
+  const descTrim = step.description.trim();
+  const linkTrim = step.link.trim();
+  return (
+    <Box flexDirection="column">
+      <Card title="Review ticket" tone="info">
+        <Box flexDirection="column" paddingX={spacing.indent}>
+          <FieldList
+            fields={[
+              { label: 'Title', value: <Text bold>{step.title}</Text> },
+              { label: 'Description', value: <ReviewScrollableDescription text={descTrim} /> },
+              {
+                label: 'Link',
+                value:
+                  linkTrim.length > 0 ? (
+                    <Text dimColor>{linkTrim}</Text>
+                  ) : (
+                    <Text dimColor italic>
+                      (skipped)
+                    </Text>
+                  ),
+              },
+            ]}
+          />
+        </Box>
+      </Card>
+      <Box marginTop={spacing.section}>
+        <ConfirmPrompt
+          message="Add this ticket?"
+          onSubmit={(value) => {
+            if (value) void onSubmit(step);
+            else ctx.cancelOrBack();
+          }}
+          onCancel={ctx.cancelOrBack}
+        />
+      </Box>
+    </Box>
+  );
+};
+
+const renderSavingStep = (): React.JSX.Element => <Spinner label="saving sprint…" />;
+
+const renderAddedStep = (
+  step: Extract<Step, { kind: 'added' }>,
+  onChange: StepViewProps['onChange'],
+  onCancel: StepViewProps['onCancel']
+): React.JSX.Element => {
+  const plural = step.count === 1 ? 'ticket' : 'tickets';
+  return (
+    <Box flexDirection="column" paddingX={spacing.indent}>
+      <Text color={inkColors.success}>
+        {glyphs.check} added &quot;{step.title}&quot; — {step.count} {plural} added this session
+      </Text>
+      <Box marginTop={spacing.section}>
+        <ConfirmPrompt
+          message="Add another ticket?"
+          onSubmit={(value) => {
+            if (value) onChange({ kind: 'link' });
+            else onCancel();
+          }}
+          onCancel={onCancel}
+        />
+      </Box>
+    </Box>
+  );
+};
+
+const renderErrorStep = (step: Extract<Step, { kind: 'error' }>): React.JSX.Element => (
+  <Box flexDirection="column" paddingX={spacing.indent}>
+    <Text color={inkColors.error}>✗ {step.message}</Text>
+    <Text dimColor>Press esc to go back.</Text>
+  </Box>
+);
+
 export const StepView = ({ step, onChange, onCancel, onSubmit }: StepViewProps): React.JSX.Element => {
   // Per-step `key` so each TextPrompt is a fresh instance — otherwise React's reconciliation
   // preserves the previous step's buffer at the same tree position. Esc on a non-first step
@@ -32,159 +207,26 @@ export const StepView = ({ step, onChange, onCancel, onSubmit }: StepViewProps):
   const prev = backStep(step);
   const cancelOrBack = prev !== undefined ? (): void => onChange(prev) : onCancel;
   const escLabel = prev !== undefined ? 'back' : 'cancel';
+  const ctx: StepRenderCtx = { onChange, cancelOrBack, escLabel };
   switch (step.kind) {
     case 'link':
-      return (
-        <TextPrompt
-          key="link"
-          message="Issue link (GitHub/GitLab URL — ↵ to skip)"
-          escLabel={escLabel}
-          onSubmit={(value) => {
-            const trimmed = value.trim();
-            if (trimmed.length === 0) {
-              onChange({ kind: 'title', link: '', titleInitial: '', descriptionInitial: '' });
-              return;
-            }
-            onChange({ kind: 'fetching', link: trimmed });
-          }}
-          onCancel={cancelOrBack}
-        />
-      );
+      return renderLinkStep(ctx);
     case 'fetching':
-      return <Spinner label={`fetching ${step.link}…`} />;
+      return renderFetchingStep(step);
     case 'fetch-failed':
-      return (
-        <Box flexDirection="column" paddingX={spacing.indent}>
-          <Text color={inkColors.warning}>! fetch failed: {step.reason}</Text>
-          <Text dimColor>Falling back to manual entry — the URL is preserved on the link field.</Text>
-          <Box marginTop={spacing.section}>
-            <ConfirmPrompt
-              message="Continue with manual entry?"
-              onSubmit={(value) => {
-                if (value) {
-                  onChange({
-                    kind: 'title',
-                    link: step.link,
-                    titleInitial: '',
-                    descriptionInitial: '',
-                  });
-                } else {
-                  cancelOrBack();
-                }
-              }}
-              onCancel={cancelOrBack}
-            />
-          </Box>
-        </Box>
-      );
+      return renderFetchFailedStep(step, ctx);
     case 'title':
-      return (
-        <TextPrompt
-          key="title"
-          message="Title"
-          initial={step.titleInitial}
-          escLabel={escLabel}
-          onSubmit={(value) => {
-            const trimmed = value.trim();
-            if (trimmed.length === 0) return;
-            onChange({
-              kind: 'description',
-              link: step.link,
-              title: trimmed,
-              descriptionInitial: step.descriptionInitial,
-            });
-          }}
-          onCancel={cancelOrBack}
-        />
-      );
+      return renderTitleStep(step, ctx);
     case 'description':
-      return (
-        <TextAreaPrompt
-          key="description"
-          message="Description"
-          initial={step.descriptionInitial}
-          escLabel={escLabel}
-          onSubmit={(value) => {
-            const trimmed = value.trim();
-            if (trimmed.length === 0) return;
-            onChange({
-              kind: 'confirm',
-              link: step.link,
-              title: step.title,
-              description: value,
-            });
-          }}
-          onCancel={cancelOrBack}
-        />
-      );
-    case 'confirm': {
-      const descTrim = step.description.trim();
-      const linkTrim = step.link.trim();
-      return (
-        <Box flexDirection="column">
-          <Card title="Review ticket" tone="info">
-            <Box flexDirection="column" paddingX={spacing.indent}>
-              <FieldList
-                fields={[
-                  { label: 'Title', value: <Text bold>{step.title}</Text> },
-                  { label: 'Description', value: <ReviewScrollableDescription text={descTrim} /> },
-                  {
-                    label: 'Link',
-                    value:
-                      linkTrim.length > 0 ? (
-                        <Text dimColor>{linkTrim}</Text>
-                      ) : (
-                        <Text dimColor italic>
-                          (skipped)
-                        </Text>
-                      ),
-                  },
-                ]}
-              />
-            </Box>
-          </Card>
-          <Box marginTop={spacing.section}>
-            <ConfirmPrompt
-              message="Add this ticket?"
-              onSubmit={(value) => {
-                if (value) void onSubmit(step);
-                else cancelOrBack();
-              }}
-              onCancel={cancelOrBack}
-            />
-          </Box>
-        </Box>
-      );
-    }
+      return renderDescriptionStep(step, ctx);
+    case 'confirm':
+      return renderConfirmStep(step, ctx, onSubmit);
     case 'saving':
-      return <Spinner label="saving sprint…" />;
-    case 'added': {
-      const plural = step.count === 1 ? 'ticket' : 'tickets';
-      return (
-        <Box flexDirection="column" paddingX={spacing.indent}>
-          <Text color={inkColors.success}>
-            {glyphs.check} added &quot;{step.title}&quot; — {step.count} {plural} added this session
-          </Text>
-          <Box marginTop={spacing.section}>
-            <ConfirmPrompt
-              message="Add another ticket?"
-              onSubmit={(value) => {
-                if (value) onChange({ kind: 'link' });
-                else onCancel();
-              }}
-              onCancel={onCancel}
-            />
-          </Box>
-        </Box>
-      );
-    }
+      return renderSavingStep();
+    case 'added':
+      return renderAddedStep(step, onChange, onCancel);
     case 'error':
-      return (
-        <Box flexDirection="column" paddingX={spacing.indent}>
-          <Text color={inkColors.error}>✗ {step.message}</Text>
-          <Text dimColor>Press esc to go back.</Text>
-        </Box>
-      );
+      return renderErrorStep(step);
   }
 };
 

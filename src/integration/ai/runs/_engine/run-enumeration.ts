@@ -150,6 +150,64 @@ export const formatRelativeAge = (timestamp: Date | null, now: Date = new Date()
 };
 
 /**
+ * Read a directory's entries, tolerating a missing path. Returns `undefined` (not an error) when
+ * `path` doesn't exist (`ENOENT`) — callers decide their own recovery: the runs-root call site
+ * treats a missing root as "no runs yet" ( `[]` ), while the per-flow call site treats a missing
+ * flow dir (a race with a concurrent delete) as "skip this flow". Any other I/O error is surfaced
+ * as a `ValidationError` tagged with `field` so the caller's context (root vs. one flow dir) is
+ * visible in the message.
+ */
+const readDirTolerant = async (
+  path: string,
+  field: string
+): Promise<Result<readonly Dirent[] | undefined, ValidationError>> => {
+  try {
+    return Result.ok(await fs.readdir(path, { withFileTypes: true }));
+  } catch (cause) {
+    if (isErrnoException(cause) && cause.code === 'ENOENT') return Result.ok(undefined);
+    return Result.error(
+      new ValidationError({
+        field,
+        value: path,
+        message: `unable to read ${field}: ${isErrnoException(cause) ? (cause.code ?? 'unknown') : 'unknown'}`,
+      })
+    );
+  }
+};
+
+/**
+ * Enumerate every run dir under one flow directory (`<runsRoot>/<flowName>/`). A missing flow
+ * dir (race with a concurrent delete) yields `[]` rather than an error — the scan simply has
+ * nothing to report for that flow.
+ */
+const listRunsForFlow = async (
+  root: string,
+  flowName: string
+): Promise<Result<readonly RunEntry[], ValidationError>> => {
+  const flowPath = join(root, flowName);
+  const runDirs = await readDirTolerant(flowPath, 'flow-dir');
+  if (!runDirs.ok) return Result.error(runDirs.error);
+  if (runDirs.value === undefined) return Result.ok([]);
+
+  const entries: RunEntry[] = [];
+  for (const runDir of runDirs.value) {
+    if (!runDir.isDirectory()) continue;
+    const runPath = join(flowPath, runDir.name);
+    const parsedPath = AbsolutePath.parse(runPath);
+    if (!parsedPath.ok) continue;
+    const sizeBytes = await computeDirSize(runPath);
+    entries.push({
+      flow: flowName,
+      runId: runDir.name,
+      timestamp: parseRunTimestamp(runDir.name),
+      sizeBytes,
+      path: parsedPath.value,
+    });
+  }
+  return Result.ok(entries);
+};
+
+/**
  * Enumerate every run dir under `runsRoot`. Returns one `RunEntry` per `<runsRoot>/<flow>/<run-id>/`
  * directory. ENOENT on `runsRoot` returns `[]`. Per-flow / per-run ENOENT (race with a concurrent
  * delete) is also tolerated — the affected entry is skipped. Other I/O errors propagate as
@@ -160,51 +218,16 @@ export const formatRelativeAge = (timestamp: Date | null, now: Date = new Date()
  */
 export const listRuns = async (runsRoot: AbsolutePath): Promise<Result<readonly RunEntry[], ValidationError>> => {
   const root = String(runsRoot);
-  let flowDirs: Dirent[];
-  try {
-    flowDirs = await fs.readdir(root, { withFileTypes: true });
-  } catch (cause) {
-    if (isErrnoException(cause) && cause.code === 'ENOENT') return Result.ok([]);
-    return Result.error(
-      new ValidationError({
-        field: 'runs-root',
-        value: root,
-        message: `unable to read runs root: ${isErrnoException(cause) ? (cause.code ?? 'unknown') : 'unknown'}`,
-      })
-    );
-  }
+  const flowDirs = await readDirTolerant(root, 'runs-root');
+  if (!flowDirs.ok) return Result.error(flowDirs.error);
+  if (flowDirs.value === undefined) return Result.ok([]);
 
   const entries: RunEntry[] = [];
-  for (const flowDir of flowDirs) {
+  for (const flowDir of flowDirs.value) {
     if (!flowDir.isDirectory()) continue;
-    const flowPath = join(root, flowDir.name);
-    let runDirs: Dirent[];
-    try {
-      runDirs = await fs.readdir(flowPath, { withFileTypes: true });
-    } catch (cause) {
-      if (isErrnoException(cause) && cause.code === 'ENOENT') continue;
-      return Result.error(
-        new ValidationError({
-          field: 'runs-root',
-          value: flowPath,
-          message: `unable to read flow dir: ${isErrnoException(cause) ? (cause.code ?? 'unknown') : 'unknown'}`,
-        })
-      );
-    }
-    for (const runDir of runDirs) {
-      if (!runDir.isDirectory()) continue;
-      const runPath = join(flowPath, runDir.name);
-      const parsedPath = AbsolutePath.parse(runPath);
-      if (!parsedPath.ok) continue;
-      const sizeBytes = await computeDirSize(runPath);
-      entries.push({
-        flow: flowDir.name,
-        runId: runDir.name,
-        timestamp: parseRunTimestamp(runDir.name),
-        sizeBytes,
-        path: parsedPath.value,
-      });
-    }
+    const forFlow = await listRunsForFlow(root, flowDir.name);
+    if (!forFlow.ok) return Result.error(forFlow.error);
+    entries.push(...forFlow.value);
   }
   return Result.ok(entries);
 };

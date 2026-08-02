@@ -23,10 +23,8 @@ import {
   primaryFlowRow,
   type Settings,
 } from '@src/domain/entity/settings.ts';
-import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
-import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
-import { COPILOT_MODELS } from '@src/domain/value/settings-models/copilot.ts';
 import { PROVIDER_EFFORT_LEVELS } from '@src/domain/value/settings-models/effort.ts';
+import { PROVIDER_TRAITS } from '@src/integration/ai/providers/_engine/provider-traits.ts';
 import { isSuspendedModel, SUSPENSION_NOTE } from '@src/domain/value/settings-models/suspended-models.ts';
 import { contextWindowLabel } from '@src/domain/value/settings-models/context-window.ts';
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
@@ -35,19 +33,11 @@ import type { FlowId } from '@src/domain/value/flow-id.ts';
 import type { LaunchExtras, SkillCandidate, SkillCandidatesResult } from '@src/application/ui/shared/launcher.ts';
 
 /**
- * Catalog lookup for the customize picker — imported from the same domain modules
- * `settings-view.tsx` reads so the two surfaces can never drift on a model bump.
+ * Catalog lookup for the customize picker — delegates to {@link PROVIDER_TRAITS} so the TUI
+ * carries zero copies of the provider-to-catalog switch (`settings-view-model.ts`'s
+ * `modelOptionsFor` does the same).
  */
-export const modelCatalogFor = (provider: AiProvider): readonly string[] => {
-  switch (provider) {
-    case 'claude-code':
-      return CLAUDE_MODELS;
-    case 'github-copilot':
-      return COPILOT_MODELS;
-    case 'openai-codex':
-      return CODEX_MODELS;
-  }
-};
+export const modelCatalogFor = (provider: AiProvider): readonly string[] => PROVIDER_TRAITS[provider].modelCatalog;
 
 const AI_PROVIDERS: readonly AiProvider[] = ['claude-code', 'github-copilot', 'openai-codex'];
 

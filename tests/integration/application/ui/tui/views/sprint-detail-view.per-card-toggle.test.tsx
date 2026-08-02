@@ -15,6 +15,7 @@
 import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { SprintDetailView } from '@src/application/ui/tui/views/sprint-detail-view.tsx';
+import type { ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -64,7 +65,7 @@ const stubReadOnlyDeps = (sprint: Sprint, tasks: readonly Task[]): AppDeps =>
     logger: noopLogger,
   }) as unknown as AppDeps;
 
-const initial = { id: 'sprint-detail', props: { sprintId: FIXED_SPRINT_ID } };
+const initial: ViewEntry = { id: 'sprint-detail', props: { sprintId: FIXED_SPRINT_ID } };
 
 describe('SprintDetailView — per-card expand/collapse', () => {
   it('opens two cards independently — both remain expanded', async () => {
@@ -221,7 +222,7 @@ describe('SprintDetailView — per-card expand/collapse', () => {
       logger: noopLogger,
     } as unknown as AppDeps;
 
-    const initialWithRealId = { id: 'sprint-detail', props: { sprintId: storedSprint.id } };
+    const initialWithRealId: ViewEntry = { id: 'sprint-detail', props: { sprintId: storedSprint.id } };
     const { result } = renderView(<SprintDetailView />, { deps, initial: initialWithRealId });
     await waitForViewReady(result, (f) => f.includes('alpha card'));
 

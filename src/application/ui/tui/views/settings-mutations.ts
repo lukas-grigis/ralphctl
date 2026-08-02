@@ -28,6 +28,100 @@ export type PresetOutcome =
   | { readonly kind: 'ok'; readonly text: string; readonly warnings: readonly PresetWarning[] }
   | { readonly kind: 'error'; readonly text: string };
 
+/** Provider-switch key shapes: implement carries a generator + evaluator pair addressed via a
+ * 4-segment key; every other flow is the 3-segment shape. */
+const IMPLEMENT_ROLE_PROVIDER_KEY = /^ai\.implement\.(generator|evaluator)\.provider$/;
+const FLAT_PROVIDER_KEY = /^ai\.(refine|plan|readiness|ideate|createPr)\.provider$/;
+
+/** One `submitField` routing rule — same declarative shape as `evaluateTriggers`'s gate array. */
+interface SubmitRoute {
+  readonly match: (field: EditableField) => boolean;
+  readonly handle: (
+    settings: Settings,
+    field: EditableField,
+    raw: string,
+    settingsRepo: SettingsRepository
+  ) => Promise<MutationOutcome>;
+}
+
+/** Route: any per-flow / per-role provider picker. Rebuilds the row's model from the target
+ * provider's defaults via `settings-set-provider` instead of the generic apply-key path. */
+const handleProviderRoute = async (
+  _settings: Settings,
+  field: EditableField,
+  raw: string,
+  settingsRepo: SettingsRepository
+): Promise<MutationOutcome> => {
+  const implementRoleProviderMatch = IMPLEMENT_ROLE_PROVIDER_KEY.exec(field.key);
+  const flatProviderMatch = FLAT_PROVIDER_KEY.exec(field.key);
+  const providerFlow = createSettingsSetProviderFlow({ settingsRepo });
+  const flow: FlowId = implementRoleProviderMatch !== null ? 'implement' : (flatProviderMatch![1] as FlowId);
+  const role = implementRoleProviderMatch?.[1] as 'generator' | 'evaluator' | undefined;
+  const saved = await providerFlow.execute({
+    input: { flow, provider: raw as AiProvider, ...(role !== undefined ? { role } : {}) },
+  });
+  if (!saved.ok) return { kind: 'error', text: saved.error.error.message };
+  const label = role !== undefined ? `Implement (${role})` : capitalize(flow);
+  return { kind: 'ok', text: `${label} provider = ${raw} · model reset to default` };
+};
+
+/** Route: the escalation-map "add a rung" action row — submits a `from=to` pair built by the
+ * two-step picker, reusing the `harness.escalationMap.<from>` key the CLI's `settings set` speaks. */
+const handleMapAddRoute = async (
+  settings: Settings,
+  _field: EditableField,
+  raw: string,
+  settingsRepo: SettingsRepository
+): Promise<MutationOutcome> => {
+  const pair = parseSettingsKvSyntax(raw);
+  if (pair === undefined || pair.value.length === 0) {
+    return { kind: 'error', text: `malformed escalation pair '${raw}' — expected <fromModel>=<toModel>` };
+  }
+  return persistKey(settings, `harness.escalationMap.${pair.key}`, pair.value, settingsRepo, {
+    okText: `escalation rung added: ${pair.key} ${glyphs.arrowRight} ${pair.value}`,
+  });
+};
+
+/** Route: one editable escalation-map override row — an empty submitted value deletes it (the
+ * apply-key grammar's clear semantic). */
+const handleMapEntryRoute = async (
+  settings: Settings,
+  field: EditableField,
+  raw: string,
+  settingsRepo: SettingsRepository
+): Promise<MutationOutcome> => {
+  if (field.kind !== 'map-entry') throw new Error('handleMapEntryRoute requires a map-entry field');
+  const okText =
+    raw.trim().length === 0
+      ? `removed escalation override for ${field.from}`
+      : `escalation rung updated: ${field.from} ${glyphs.arrowRight} ${raw}`;
+  return persistKey(settings, field.key, raw, settingsRepo, { okText });
+};
+
+/** Fallback route: every other key through the generic `applySettingsKey` → `settings-set`
+ * pipeline. `Default` clears effort overrides. */
+const handleDefaultRoute = async (
+  settings: Settings,
+  field: EditableField,
+  raw: string,
+  settingsRepo: SettingsRepository
+): Promise<MutationOutcome> => {
+  const normalised = raw === DEFAULT_TOKEN ? '' : raw;
+  return persistKey(settings, field.key, normalised, settingsRepo, { okText: `${field.label} = ${raw}` });
+};
+
+/** Ordered submit routes — first match wins, mirroring `evaluateTriggers`'s gate array. The
+ * fallback route always matches, so it must stay last. */
+const SUBMIT_ROUTES: readonly SubmitRoute[] = [
+  {
+    match: (field) => IMPLEMENT_ROLE_PROVIDER_KEY.test(field.key) || FLAT_PROVIDER_KEY.test(field.key),
+    handle: handleProviderRoute,
+  },
+  { match: (field) => field.kind === 'map-add', handle: handleMapAddRoute },
+  { match: (field) => field.kind === 'map-entry', handle: handleMapEntryRoute },
+  { match: () => true, handle: handleDefaultRoute },
+];
+
 /**
  * Persist a single field edit. Routes provider switches through `settings-set-provider`
  * (rebuilds the row's model from the target provider's defaults) and every other key through
@@ -43,43 +137,8 @@ export const submitField = async (
   raw: string,
   settingsRepo: SettingsRepository
 ): Promise<MutationOutcome> => {
-  // Implement carries a generator + evaluator pair and is addressed via a 4-segment key;
-  // every other flow is the 3-segment shape.
-  const implementRoleProviderMatch = /^ai\.implement\.(generator|evaluator)\.provider$/.exec(field.key);
-  const flatProviderMatch = /^ai\.(refine|plan|readiness|ideate|createPr)\.provider$/.exec(field.key);
-  if (implementRoleProviderMatch !== null || flatProviderMatch !== null) {
-    const providerFlow = createSettingsSetProviderFlow({ settingsRepo });
-    const flow: FlowId = implementRoleProviderMatch !== null ? 'implement' : (flatProviderMatch![1] as FlowId);
-    const role = implementRoleProviderMatch?.[1] as 'generator' | 'evaluator' | undefined;
-    const saved = await providerFlow.execute({
-      input: { flow, provider: raw as AiProvider, ...(role !== undefined ? { role } : {}) },
-    });
-    if (!saved.ok) return { kind: 'error', text: saved.error.error.message };
-    const label = role !== undefined ? `Implement (${role})` : capitalize(flow);
-    return { kind: 'ok', text: `${label} provider = ${raw} · model reset to default` };
-  }
-  // Escalation-map fields: the add-row submits a `from=to` pair (built by the two-step
-  // picker); per-entry rows submit a bare target — empty string deletes (the apply-key
-  // grammar's clear semantic). Both reuse the same `harness.escalationMap.<from>` key the
-  // CLI's `settings set` speaks, so the mutation grammar stays one truth.
-  if (field.kind === 'map-add') {
-    const pair = parseSettingsKvSyntax(raw);
-    if (pair === undefined || pair.value.length === 0) {
-      return { kind: 'error', text: `malformed escalation pair '${raw}' — expected <fromModel>=<toModel>` };
-    }
-    return persistKey(settings, `harness.escalationMap.${pair.key}`, pair.value, settingsRepo, {
-      okText: `escalation rung added: ${pair.key} ${glyphs.arrowRight} ${pair.value}`,
-    });
-  }
-  if (field.kind === 'map-entry') {
-    const okText =
-      raw.trim().length === 0
-        ? `removed escalation override for ${field.from}`
-        : `escalation rung updated: ${field.from} ${glyphs.arrowRight} ${raw}`;
-    return persistKey(settings, field.key, raw, settingsRepo, { okText });
-  }
-  const normalised = raw === DEFAULT_TOKEN ? '' : raw;
-  return persistKey(settings, field.key, normalised, settingsRepo, { okText: `${field.label} = ${raw}` });
+  const route = SUBMIT_ROUTES.find((r) => r.match(field));
+  return route!.handle(settings, field, raw, settingsRepo);
 };
 
 /** Shared applySettingsKey → settings-set tail used by every non-provider route above. */

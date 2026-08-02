@@ -79,6 +79,54 @@ const collapseEvidence = (text: string): string => {
   return `${collapsed.slice(0, EVIDENCE_EXCERPT_CHARS).trimEnd()}${glyphs.clipEllipsis}`;
 };
 
+/** Verdict-line color by evaluation status — read once instead of a nested ternary. */
+const VERDICT_COLOR: Record<EvaluationSignal['status'], string> = {
+  failed: inkColors.error,
+  passed: inkColors.success,
+  malformed: inkColors.warning,
+};
+
+/** Glyph / color / verdict word for a single dimension row, keyed on pass/fail. */
+const DIMENSION_PRESENTATION: Record<
+  'pass' | 'fail',
+  { readonly glyph: string; readonly color: string; readonly verdict: string }
+> = {
+  pass: { glyph: glyphs.check, color: inkColors.success, verdict: 'pass' },
+  fail: { glyph: glyphs.cross, color: inkColors.error, verdict: 'fail' },
+};
+
+/** One dimension's finding + optional command-evidence excerpt. */
+const DimensionRow = ({
+  dimension,
+}: {
+  readonly dimension: EvaluationSignal['dimensions'][number];
+}): React.JSX.Element => {
+  const { glyph, color, verdict } = DIMENSION_PRESENTATION[dimension.passed ? 'pass' : 'fail'];
+  return (
+    <Box flexDirection="column">
+      <Box>
+        <Text color={color}>{glyph} </Text>
+        <Text>
+          {dimension.dimension}: {verdict}
+        </Text>
+        {dimension.finding.length > 0 && (
+          <Text dimColor>
+            {' '}
+            {glyphs.emDash} {dimension.finding}
+          </Text>
+        )}
+      </Box>
+      {dimension.executionEvidence !== undefined && dimension.executionEvidence.trim().length > 0 && (
+        <Box paddingLeft={spacing.indent}>
+          <Text dimColor wrap="truncate-end">
+            {glyphs.activityArrow} {collapseEvidence(dimension.executionEvidence)}
+          </Text>
+        </Box>
+      )}
+    </Box>
+  );
+};
+
 export const EvaluatorFailurePanel = ({
   evaluation,
   isFinalRound,
@@ -96,12 +144,7 @@ export const EvaluatorFailurePanel = ({
     { isActive: interactive }
   );
 
-  const verdictColor =
-    evaluation.status === 'failed'
-      ? inkColors.error
-      : evaluation.status === 'passed'
-        ? inkColors.success
-        : inkColors.warning;
+  const verdictColor = VERDICT_COLOR[evaluation.status];
 
   const critique = evaluation.critique?.trim() ?? '';
   const hasCritique = critique.length > 0;
@@ -120,34 +163,9 @@ export const EvaluatorFailurePanel = ({
       </Box>
       {evaluation.dimensions.length > 0 && (
         <Box flexDirection="column" paddingLeft={4}>
-          {evaluation.dimensions.map((d) => {
-            const color = d.passed ? inkColors.success : inkColors.error;
-            const glyph = d.passed ? glyphs.check : glyphs.cross;
-            const verdict = d.passed ? 'pass' : 'fail';
-            return (
-              <Box key={d.dimension} flexDirection="column">
-                <Box>
-                  <Text color={color}>{glyph} </Text>
-                  <Text>
-                    {d.dimension}: {verdict}
-                  </Text>
-                  {d.finding.length > 0 && (
-                    <Text dimColor>
-                      {' '}
-                      {glyphs.emDash} {d.finding}
-                    </Text>
-                  )}
-                </Box>
-                {d.executionEvidence !== undefined && d.executionEvidence.trim().length > 0 && (
-                  <Box paddingLeft={spacing.indent}>
-                    <Text dimColor wrap="truncate-end">
-                      {glyphs.activityArrow} {collapseEvidence(d.executionEvidence)}
-                    </Text>
-                  </Box>
-                )}
-              </Box>
-            );
-          })}
+          {evaluation.dimensions.map((d) => (
+            <DimensionRow key={d.dimension} dimension={d} />
+          ))}
         </Box>
       )}
       {hasCritique && !expanded && (

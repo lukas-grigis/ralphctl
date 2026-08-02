@@ -8,8 +8,8 @@
  *  - copilot → `.github/agents/*.agent.md` (Markdown + YAML frontmatter)
  *  - codex   → `.codex/agents/*.toml`  (TOML)
  *
- * Adding a new provider is one arm here plus a sibling `agents/<provider>/adapter.ts` that
- * delegates to {@link createFilesystemAgentDefinitionAdapter}.
+ * Adding a new provider is one row in {@link AGENT_ADAPTERS} plus a sibling
+ * `agents/<provider>/adapter.ts` that delegates to {@link createFilesystemAgentDefinitionAdapter}.
  */
 
 import type { AiProvider } from '@src/domain/entity/settings.ts';
@@ -25,14 +25,18 @@ export interface AgentDefinitionAdapterFactoryDeps {
   readonly logger?: Logger;
 }
 
+/**
+ * One concrete agent-definition-adapter factory per {@link AiProvider}. `Record<AiProvider, …>`
+ * is checked exhaustively by the compiler — adding a member to the `AiProvider` union without a
+ * row here is a compile error.
+ */
+const AGENT_ADAPTERS: Readonly<Record<AiProvider, (deps?: { readonly logger?: Logger }) => AgentDefinitionAdapter>> = {
+  'claude-code': createClaudeAgentDefinitionAdapter,
+  'github-copilot': createCopilotAgentDefinitionAdapter,
+  'openai-codex': createCodexAgentDefinitionAdapter,
+};
+
 export const createAgentDefinitionAdapter = (deps: AgentDefinitionAdapterFactoryDeps): AgentDefinitionAdapter => {
   const logger = deps.logger;
-  switch (deps.provider) {
-    case 'claude-code':
-      return createClaudeAgentDefinitionAdapter(logger !== undefined ? { logger } : undefined);
-    case 'github-copilot':
-      return createCopilotAgentDefinitionAdapter(logger !== undefined ? { logger } : undefined);
-    case 'openai-codex':
-      return createCodexAgentDefinitionAdapter(logger !== undefined ? { logger } : undefined);
-  }
+  return AGENT_ADAPTERS[deps.provider](logger !== undefined ? { logger } : undefined);
 };

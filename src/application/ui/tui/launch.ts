@@ -12,6 +12,7 @@
 
 import React from 'react';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import type { Settings } from '@src/domain/entity/settings.ts';
 import type { LogEvent } from '@src/business/observability/events.ts';
 import { ensureStorageRoots, resolveStoragePaths } from '@src/application/bootstrap/storage-paths.ts';
 import { detectLegacyLayout, renderLegacyLayoutMessage } from '@src/application/bootstrap/legacy-layout-detector.ts';
@@ -35,8 +36,11 @@ import {
 } from '@src/integration/persistence/data-migration/run-data-migration.ts';
 import { CLI_METADATA } from '@src/business/version/cli-metadata.ts';
 import type { SelectionSeed } from '@src/application/ui/tui/runtime/selection-context.tsx';
-import { resolveInitialState } from '@src/application/ui/tui/launch-routing.ts';
-import { createLastSelectionStore } from '@src/integration/persistence/selection/last-selection-store.ts';
+import { type InitialState, resolveInitialState } from '@src/application/ui/tui/launch-routing.ts';
+import {
+  createLastSelectionStore,
+  type LastSelectionStore,
+} from '@src/integration/persistence/selection/last-selection-store.ts';
 import { type LogLevelGate, createLogLevelGate, passesLogLevel } from '@src/business/observability/log-level-filter.ts';
 import { startHeapWatchdog } from '@src/integration/observability/heap-watchdog.ts';
 import { writeHeapSnapshotToDir } from '@src/integration/observability/heap-snapshot.ts';
@@ -126,6 +130,42 @@ const createSignalForwarder = (eventBus: AppDeps['eventBus'], harnessBus: BusSin
       ...(event.taskId !== undefined ? { taskId: event.taskId } : {}),
     });
   });
+
+interface ObservabilityWiring {
+  readonly harnessBus: BusSink<SignalBusEntry>;
+  readonly logBus: BusSink<LogEvent>;
+  readonly logLevelGate: LogLevelGate;
+  readonly logForwarder: CoalescedBuffer<LogEvent>;
+  readonly unsubSignalForward: () => void;
+  readonly unsubLogForward: () => void;
+}
+
+/**
+ * Wire both observability buses off the composition root's EventBus: build the harness-signal
+ * bus + log bus, forward `'ai-signal'` into the harness bus (see {@link createSignalForwarder})
+ * and `'log'` into the log bus through the log-level gate (see {@link createLogForwarder}).
+ * Extracted so `bootstrap` reads as a linear sequence of phases rather than inlining both
+ * forwarders' setup.
+ */
+const wireObservability = (eventBus: AppDeps['eventBus'], settings: Settings): ObservabilityWiring => {
+  // Both buses are populated below by subscribing to the wired EventBus's `'ai-signal'` / `'log'`
+  // events — no separate sink is threaded through `wire()`.
+  const harnessBus = createBusSink<SignalBusEntry>({ maxEntries: 1000 });
+  const logBus = createBusSink<LogEvent>({ maxEntries: 2000 });
+
+  // Forward EventBus 'ai-signal' events into the TUI's harness bus. See createSignalForwarder
+  // for the full rationale.
+  const unsubSignalForward = createSignalForwarder(eventBus, harnessBus);
+
+  // Forward EventBus 'log' events into the TUI's log bus (coalesced, gate-at-ingest). See
+  // createLogForwarder for the full rationale. Log-level gate is a small mutable holder seeded
+  // from `settings.logging.level`; the Settings view swaps the floor at runtime via
+  // `gate.set(newLevel)` through the LogLevelContext, and the forwarder reads it per event.
+  const logLevelGate = createLogLevelGate(settings.logging.level);
+  const { buffer: logForwarder, unsubscribe: unsubLogForward } = createLogForwarder(eventBus, logBus, logLevelGate);
+
+  return { harnessBus, logBus, logLevelGate, logForwarder, unsubSignalForward, unsubLogForward };
+};
 
 /**
  * Build the heap-watchdog `onWarning` callback — early, non-disruptive relief on entering the
@@ -246,6 +286,46 @@ const startPerfTimelineGuard = (): { readonly stop: () => void } => {
   return { stop: (): void => clearInterval(handle) };
 };
 
+/**
+ * Wire OS-attention notifications. Kept out of `wire()` so tests that build `wire()` never
+ * accidentally pop NotificationCenter dings on the dev machine — only the TUI bootstrap attaches
+ * the real adapter + subscriber. Disable gate reads the boot-time settings snapshot (a runtime
+ * toggle requires relaunch; see wire.ts comment).
+ */
+const wireOsNotifications = (deps: AppDeps, settings: Settings): (() => void) => {
+  const osNotificationDispatcher = createOsNotificationDispatcher({ logger: deps.logger });
+  return startNotificationSubscriber({
+    eventBus: deps.eventBus,
+    dispatcher: osNotificationDispatcher,
+    disabled: () => settings.ui.notifications.enabled === false,
+  });
+};
+
+/**
+ * Resolve the launch-time view state — first-run detection lives in launch-routing.ts as a pure
+ * function; here we resolve its side-effecting inputs (settings + projects + persisted
+ * last-selection) and hand them off. Extracted so `bootstrap` reads as a linear sequence of
+ * phases rather than inlining every read this phase needs.
+ */
+const resolveLaunchViewState = async (
+  deps: AppDeps,
+  stateRoot: AbsolutePath
+): Promise<InitialState & { readonly lastSelectionStore: LastSelectionStore }> => {
+  const settingsExists = await deps.settingsRepo.exists();
+  const projectsList = await deps.projectRepo.list();
+  const sprintsResult = await deps.sprintRepo.list();
+  const lastSelectionStore = createLastSelectionStore(stateRoot);
+  const lastSelection = await lastSelectionStore.read();
+  const initialState = resolveInitialState({
+    settingsExist: settingsExists.ok ? settingsExists.value : false,
+    projects: projectsList.ok ? projectsList.value : [],
+    sprints: sprintsResult.ok ? sprintsResult.value : [],
+    ...(lastSelection !== undefined ? { lastProjectId: lastSelection.projectId } : {}),
+    ...(lastSelection?.sprintId !== undefined ? { lastSprintId: lastSelection.sprintId } : {}),
+  });
+  return { ...initialState, lastSelectionStore };
+};
+
 const bootstrap = async (): Promise<Bootstrapped> => {
   const paths = resolveStoragePaths();
   if (!paths.ok) throw new Error(`storage-paths: ${paths.error.message}`);
@@ -266,11 +346,6 @@ const bootstrap = async (): Promise<Bootstrapped> => {
   const settings = await settingsRepo.load();
   if (!settings.ok) throw new Error(`settings: ${settings.error.message}`);
 
-  // Both buses are populated below by subscribing to the wired EventBus's `'ai-signal'` / `'log'`
-  // events — no separate sink is threaded through `wire()`.
-  const harnessBus = createBusSink<SignalBusEntry>({ maxEntries: 1000 });
-  const logBus = createBusSink<LogEvent>({ maxEntries: 2000 });
-
   const deps = wire({ storage: paths.value, settings: settings.value });
 
   // Runs once per process: `launchTui` is the single bare-`ralphctl` entry point and `bootstrap`
@@ -279,19 +354,9 @@ const bootstrap = async (): Promise<Bootstrapped> => {
   // run-bundle-integrity-check.ts for the full story.
   await runBundleIntegrityCheck(deps.logger);
 
-  // Forward EventBus 'ai-signal' events into the TUI's harness bus. See createSignalForwarder
-  // for the full rationale.
-  const unsubSignalForward = createSignalForwarder(deps.eventBus, harnessBus);
-
-  // Forward EventBus 'log' events into the TUI's log bus (coalesced, gate-at-ingest). See
-  // createLogForwarder for the full rationale. Log-level gate is a small mutable holder seeded
-  // from `settings.logging.level`; the Settings view swaps the floor at runtime via
-  // `gate.set(newLevel)` through the LogLevelContext, and the forwarder reads it per event.
-  const logLevelGate = createLogLevelGate(settings.value.logging.level);
-  const { buffer: logForwarder, unsubscribe: unsubLogForward } = createLogForwarder(
+  const { harnessBus, logBus, logLevelGate, logForwarder, unsubSignalForward, unsubLogForward } = wireObservability(
     deps.eventBus,
-    logBus,
-    logLevelGate
+    settings.value
   );
 
   // Session manager is created BEFORE the heap watchdog so the critical handler can reach it to
@@ -316,16 +381,7 @@ const bootstrap = async (): Promise<Bootstrapped> => {
   // also clear it the moment real pressure fires. No-op under a production React build.
   const perfTimelineGuard = startPerfTimelineGuard();
 
-  // OS-attention notifications. Wired here (not inside wire()) so tests that build wire() never
-  // accidentally pop NotificationCenter dings on the dev machine — only the TUI bootstrap
-  // attaches the real adapter + subscriber. Disable gate reads the boot-time settings snapshot
-  // (a runtime toggle requires relaunch; see wire.ts comment).
-  const osNotificationDispatcher = createOsNotificationDispatcher({ logger: deps.logger });
-  const unsubNotifications = startNotificationSubscriber({
-    eventBus: deps.eventBus,
-    dispatcher: osNotificationDispatcher,
-    disabled: () => settings.value.ui.notifications.enabled === false,
-  });
+  const unsubNotifications = wireOsNotifications(deps, settings.value);
 
   const queue = createPromptQueue();
 
@@ -334,20 +390,10 @@ const bootstrap = async (): Promise<Bootstrapped> => {
   // adapter via the launcher.
   void createInkInteractivePrompt(queue);
 
-  // First-run detection lives in launch-routing.ts as a pure function. Here we resolve the
-  // side-effecting inputs (settings + projects + persisted last-selection) and hand them off.
-  const settingsExists = await deps.settingsRepo.exists();
-  const projectsList = await deps.projectRepo.list();
-  const sprintsResult = await deps.sprintRepo.list();
-  const lastSelectionStore = createLastSelectionStore(paths.value.stateRoot);
-  const lastSelection = await lastSelectionStore.read();
-  const { initialView, initialSelection } = resolveInitialState({
-    settingsExist: settingsExists.ok ? settingsExists.value : false,
-    projects: projectsList.ok ? projectsList.value : [],
-    sprints: sprintsResult.ok ? sprintsResult.value : [],
-    ...(lastSelection !== undefined ? { lastProjectId: lastSelection.projectId } : {}),
-    ...(lastSelection?.sprintId !== undefined ? { lastSprintId: lastSelection.sprintId } : {}),
-  });
+  const { initialView, initialSelection, lastSelectionStore } = await resolveLaunchViewState(
+    deps,
+    paths.value.stateRoot
+  );
 
   // Pending-migration pre-flight. Runs AFTER ensureStorageRoots, BEFORE the App mount. The engine
   // is a pure factory; `needsMigration` only reads the marker file (absent ⇒ pending). When pending,

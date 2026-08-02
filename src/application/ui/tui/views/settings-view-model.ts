@@ -8,12 +8,14 @@
 import { PRESET_NAMES, type PresetName } from '@src/business/settings/presets.ts';
 import { mergeEscalationMap } from '@src/business/task/escalation-map.ts';
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
+import type { PresetWarning } from '@src/application/flows/settings-apply-preset/ctx.ts';
 import type { AiFlowSettings, AiProvider, Settings } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
 import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
 import { COPILOT_MODELS } from '@src/domain/value/settings-models/copilot.ts';
 import { PROVIDER_EFFORT_LEVELS } from '@src/domain/value/settings-models/effort.ts';
+import { PROVIDER_TRAITS } from '@src/integration/ai/providers/_engine/provider-traits.ts';
 
 export const AI_PROVIDERS: readonly AiProvider[] = ['claude-code', 'github-copilot', 'openai-codex'];
 
@@ -239,16 +241,13 @@ export const effectiveEscalationChains = (user: Readonly<Record<string, string>>
   return chains;
 };
 
-export const modelOptionsFor = (provider: AiProvider): readonly string[] => {
-  switch (provider) {
-    case 'claude-code':
-      return CLAUDE_MODELS;
-    case 'github-copilot':
-      return COPILOT_MODELS;
-    case 'openai-codex':
-      return CODEX_MODELS;
-  }
-};
+/**
+ * Full static model catalog for `provider` — delegates to {@link PROVIDER_TRAITS} so this file
+ * carries no copy of the provider-to-catalog switch. Kept as a named export (rather than inlined
+ * at its one call site) because it is also the reference catalog the availability-map tests
+ * compare narrowed subsets against.
+ */
+export const modelOptionsFor = (provider: AiProvider): readonly string[] => PROVIDER_TRAITS[provider].modelCatalog;
 
 export const capitalize = (s: string): string => (s.length === 0 ? s : s[0]!.toUpperCase() + s.slice(1));
 
@@ -286,11 +285,8 @@ const buildFlowFields = (
   },
 ];
 
-export const buildSections = (
-  s: Settings,
-  availableModels?: ReadonlyMap<AiProvider, readonly string[]>
-): readonly SettingsSection[] => {
-  const presetFields: readonly EditableField[] = PRESET_NAMES.map((preset) => ({
+const buildPresetFields = (): readonly EditableField[] =>
+  PRESET_NAMES.map((preset) => ({
     kind: 'preset' as const,
     key: `presets.${preset}`,
     label: PRESET_LABEL[preset],
@@ -298,31 +294,54 @@ export const buildSections = (
     current: '↵ apply',
   }));
 
-  const globalFields: readonly EditableField[] = [
-    {
-      kind: 'select',
-      key: 'ai.effort',
-      label: 'Global effort',
-      options: [DEFAULT_TOKEN, ...GLOBAL_EFFORT_LEVELS],
-      current: s.ai.effort ?? DEFAULT_TOKEN,
-    },
-  ];
+const buildGlobalFields = (s: Settings): readonly EditableField[] => [
+  {
+    kind: 'select',
+    key: 'ai.effort',
+    label: 'Global effort',
+    options: [DEFAULT_TOKEN, ...GLOBAL_EFFORT_LEVELS],
+    current: s.ai.effort ?? DEFAULT_TOKEN,
+  },
+];
 
-  const implementFields: readonly EditableField[] = [
-    ...buildFlowFields('ai.implement.generator', 'Generator', s.ai.implement.generator, availableModels),
-    ...buildFlowFields('ai.implement.evaluator', 'Evaluator', s.ai.implement.evaluator, availableModels),
-  ];
+const buildImplementFields = (
+  s: Settings,
+  availableModels: ReadonlyMap<AiProvider, readonly string[]> | undefined
+): readonly EditableField[] => [
+  ...buildFlowFields('ai.implement.generator', 'Generator', s.ai.implement.generator, availableModels),
+  ...buildFlowFields('ai.implement.evaluator', 'Evaluator', s.ai.implement.evaluator, availableModels),
+];
 
-  const flowSection = (flow: Exclude<FlowId, 'implement'>): SettingsSection => ({
-    id: flow,
-    label: flowLabel(flow),
-    title: `AI — ${flowLabel(flow)}`,
-    fields: buildFlowFields(`ai.${flow}`, flowLabel(flow), s.ai[flow], availableModels),
-    readonly: false,
-  });
+const buildFlowSection = (
+  s: Settings,
+  flow: Exclude<FlowId, 'implement'>,
+  availableModels: ReadonlyMap<AiProvider, readonly string[]> | undefined
+): SettingsSection => ({
+  id: flow,
+  label: flowLabel(flow),
+  title: `AI — ${flowLabel(flow)}`,
+  fields: buildFlowFields(`ai.${flow}`, flowLabel(flow), s.ai[flow], availableModels),
+  readonly: false,
+});
 
+/**
+ * One editable row per escalation-map user override, directly under the add-row so the group
+ * reads as one unit. Keys reuse the CLI grammar (`harness.escalationMap.<from>`) — submit routes
+ * through the same `applySettingsKey` path `settings set` uses.
+ */
+const buildEscalationOverrideFields = (escalationOverrides: ReadonlyArray<readonly [string, string]>) =>
+  escalationOverrides.map(([from, to]): EditableField => ({
+    kind: 'map-entry',
+    key: `harness.escalationMap.${from}`,
+    label: `  ${from}`,
+    current: `${glyphs.arrowRight} ${to}`,
+    from,
+    to,
+  }));
+
+const buildHarnessFields = (s: Settings): readonly EditableField[] => {
   const escalationOverrides = Object.entries(s.harness.escalationMap);
-  const harnessFields: readonly EditableField[] = [
+  return [
     { kind: 'text', key: 'harness.maxTurns', label: 'Max turns', current: String(s.harness.maxTurns) },
     { kind: 'text', key: 'harness.maxAttempts', label: 'Max attempts', current: String(s.harness.maxAttempts) },
     {
@@ -372,43 +391,42 @@ export const buildSections = (
           ? `defaults apply ${glyphs.bullet} ↵ add rung`
           : `${String(escalationOverrides.length)} override${escalationOverrides.length === 1 ? '' : 's'} ${glyphs.bullet} ↵ add rung`,
     },
-    // One editable row per user override, directly under the add-row so the group reads as one
-    // unit. Keys reuse the CLI grammar (`harness.escalationMap.<from>`) — submit routes through
-    // the same applySettingsKey path `settings set` uses.
-    ...escalationOverrides.map(([from, to]): EditableField => ({
-      kind: 'map-entry',
-      key: `harness.escalationMap.${from}`,
-      label: `  ${from}`,
-      current: `${glyphs.arrowRight} ${to}`,
-      from,
-      to,
-    })),
-  ];
-
-  const otherFields: readonly EditableField[] = [
-    { kind: 'select', key: 'logging.level', label: 'Log level', options: LOG_LEVELS, current: s.logging.level },
-    {
-      kind: 'text',
-      key: 'concurrency.maxParallelTasks',
-      label: 'Concurrency',
-      current: String(s.concurrency.maxParallelTasks),
-    },
-  ];
-
-  return [
-    { id: 'presets', label: 'Presets', title: 'Presets', fields: presetFields, readonly: false },
-    { id: 'global', label: 'Global', title: 'AI — global', fields: globalFields, readonly: false },
-    flowSection('refine'),
-    flowSection('plan'),
-    { id: 'implement', label: 'Implement', title: 'AI — Implement', fields: implementFields, readonly: false },
-    flowSection('readiness'),
-    flowSection('ideate'),
-    flowSection('createPr'),
-    { id: 'harness', label: 'Harness', title: 'Harness budgets', fields: harnessFields, readonly: false },
-    { id: 'other', label: 'Other', title: 'Other', fields: otherFields, readonly: false },
-    { id: 'storage', label: 'Storage', title: 'Storage paths', fields: [], readonly: true },
+    ...buildEscalationOverrideFields(escalationOverrides),
   ];
 };
+
+const buildOtherFields = (s: Settings): readonly EditableField[] => [
+  { kind: 'select', key: 'logging.level', label: 'Log level', options: LOG_LEVELS, current: s.logging.level },
+  {
+    kind: 'text',
+    key: 'concurrency.maxParallelTasks',
+    label: 'Concurrency',
+    current: String(s.concurrency.maxParallelTasks),
+  },
+];
+
+export const buildSections = (
+  s: Settings,
+  availableModels?: ReadonlyMap<AiProvider, readonly string[]>
+): readonly SettingsSection[] => [
+  { id: 'presets', label: 'Presets', title: 'Presets', fields: buildPresetFields(), readonly: false },
+  { id: 'global', label: 'Global', title: 'AI — global', fields: buildGlobalFields(s), readonly: false },
+  buildFlowSection(s, 'refine', availableModels),
+  buildFlowSection(s, 'plan', availableModels),
+  {
+    id: 'implement',
+    label: 'Implement',
+    title: 'AI — Implement',
+    fields: buildImplementFields(s, availableModels),
+    readonly: false,
+  },
+  buildFlowSection(s, 'readiness', availableModels),
+  buildFlowSection(s, 'ideate', availableModels),
+  buildFlowSection(s, 'createPr', availableModels),
+  { id: 'harness', label: 'Harness', title: 'Harness budgets', fields: buildHarnessFields(s), readonly: false },
+  { id: 'other', label: 'Other', title: 'Other', fields: buildOtherFields(s), readonly: false },
+  { id: 'storage', label: 'Storage', title: 'Storage paths', fields: [], readonly: true },
+];
 
 /**
  * `true` when `field` is a per-flow / per-role provider picker. Provider fields surface the
@@ -417,6 +435,33 @@ export const buildSections = (
  */
 export const isProviderField = (field: EditableField): boolean =>
   field.kind === 'select' && (field.key.endsWith('.provider') || field.key === 'ai.provider');
+
+/**
+ * Setter bag {@link activateField} needs to open the right sub-view for a field's `kind`. Typed
+ * against `undefined` (not the view's `SettingsFeedback` union) because the only call clears the
+ * banner — a React state setter for the wider union is still assignable here.
+ */
+export interface FieldActivationSetters {
+  readonly setFeedback: (feedback: undefined) => void;
+  readonly setPresetWarnings: (warnings: readonly PresetWarning[]) => void;
+  readonly setPendingPreset: (preset: PresetName) => void;
+  readonly setEditingField: (field: EditableField) => void;
+}
+
+/**
+ * `↵/e` activation for the focused field — opens the preset-confirm prompt for a `preset` field,
+ * the field editor for every other kind.
+ */
+export const activateField = (field: EditableField, setters: FieldActivationSetters): void => {
+  setters.setFeedback(undefined);
+  if (field.kind === 'preset') {
+    setters.setPresetWarnings([]);
+    setters.setPendingPreset(field.preset);
+    return;
+  }
+  setters.setPresetWarnings([]);
+  setters.setEditingField(field);
+};
 
 /**
  * `true` when `field` is a per-flow / per-role model picker — its options are model ids, so the
