@@ -92,6 +92,9 @@ const TaskBaseShape = {
   // Same-model effort-rung override. Optional on read so `tasks.json` files written before the
   // field existed load unchanged (a missing value heals to `undefined`). Never planner-authored.
   escalatedToEffort: z.string().optional(),
+  // Evaluator-side counterpart of escalatedToEffort — same tolerant-read rationale. The evaluator
+  // MODEL never escalates, so there is no evaluator equivalent of escalatedToModel.
+  escalatedToEvaluatorEffort: z.string().optional(),
 };
 
 const TodoTaskSchema = z.object({ ...TaskBaseShape, status: z.literal('todo') });

@@ -147,7 +147,14 @@ spawn, and the next plateau sees the raised effort. Fires once for the shipped d
 single step) and is strictly bounded generally — the stamped effort climbs monotonically to the terminal
 `max`, from which the rung is spent and falls through to the nudge. Skipped gracefully — straight to the
 nudge — when the provider/model has no effort knob (e.g. Claude Haiku) or the generator is already at its
-ceiling.
+ceiling. The EVALUATOR gets the same effort rung in lockstep, computed independently: whenever the
+generator's `escalate-effort` fires, `decideEscalation` also calls `nextEffortRung` against the
+evaluator's OWN provider/model/effort triple (never copied from the generator's target) and, when it
+returns a target, stamps `Task.escalatedToEvaluatorEffort` alongside `escalatedToEffort` in the same
+persist. The evaluator's MODEL never changes — only its reasoning effort advances, at the same attempt
+boundary as the generator's rung. Absent when the caller supplies no evaluator context, the evaluator
+provider/model has no effort dimension, or the evaluator is already at its own ceiling; it never fires
+independently of the generator's own `escalate-effort` event.
 (3) **change-of-approach nudge** — a single same-model **"change your approach" directive**
 (`{{PLATEAU_DIRECTIVE_SECTION}}` in the implement prompt) stamped `escalatedFromModel === escalatedToModel`.
 The directive is gated on that same-model marker, NOT on a model bump: a bump hands the stronger model the
@@ -174,12 +181,13 @@ of that implicit `xhigh`. A further plateau (opus already at `max`, rung spent) 
 then settles done-with-warning. See `AI-SETTINGS.md § Default escalation posture` for how to also activate a
 live MODEL ladder (economic presets or a custom escalationMap rung).
 
-Escalation is generator-only by design — the evaluator's model is held constant across the task so the
-scoring rubric does not shift mid-task, which would make plateau detection meaningless. `Task`'s
-`escalatedFromModel` / `escalatedToModel` (model bump / nudge marker) and `escalatedToEffort` (effort rung)
-fields are re-stampable and hold the MOST-RECENT transition; the cost ceiling is enforced by the ladder top
-plus `maxAttempts` (each escalate / effort-bump / nudge fails the running attempt, consuming budget), not by
-a once-per-task cap. A non-passing exit with no attempt budget left, or after the top-of-ladder nudge,
+The evaluator's MODEL stays frozen for the whole task — the scoring rubric must not shift mid-task, which
+would make plateau detection meaningless — but its EFFORT now advances in lockstep with the generator's
+effort rung (see bullet (2) above). `Task`'s `escalatedFromModel` / `escalatedToModel` (model bump / nudge
+marker), `escalatedToEffort` (generator effort rung), and `escalatedToEvaluatorEffort` (evaluator effort
+rung) fields are re-stampable and hold the MOST-RECENT transition; the cost ceiling is enforced by the
+ladder top plus `maxAttempts` (each escalate / effort-bump / nudge fails the running attempt, consuming
+budget), not by a once-per-task cap. A non-passing exit with no attempt budget left, or after the top-of-ladder nudge,
 preserves the work (done-with-warning) — never blocks.
 Cross-provider escalation (e.g. `claude-opus-5` → `gpt-5.6-sol`) is intentionally deferred — switching
 providers mid-task carries auth / context / tool-availability hazards.

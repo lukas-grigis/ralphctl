@@ -325,11 +325,13 @@ const buildEvaluatorPrompt = async (
  */
 const makeEvaluatorReinvoke =
   (
-    deps: Pick<EvaluatorLeafDeps, 'provider' | 'cwd' | 'sprintDir' | 'model' | 'effort'>,
+    deps: Pick<EvaluatorLeafDeps, 'provider' | 'cwd' | 'sprintDir' | 'model'>,
     args: {
       readonly workspaceRoot: AbsolutePath;
       readonly roundNum: number;
       readonly signalsFile: AbsolutePath;
+      /** Effort the initial spawn ran at (`task.escalatedToEvaluatorEffort ?? deps.effort`) — the corrective respawn matches it. */
+      readonly effectiveEffort: string | undefined;
       readonly priorEvaluatorSessionId: SessionId | undefined;
       readonly signal: AbortSignal | undefined;
     }
@@ -355,7 +357,7 @@ const makeEvaluatorReinvoke =
         args.signalsFile,
         'evaluator',
         resume,
-        deps.effort,
+        args.effectiveEffort,
         args.signal,
         bodyFile.ok ? bodyFile.value : undefined
       )
@@ -407,6 +409,12 @@ const makeEvaluatorCallEvaluate =
     const initialBodyFile = AbsolutePath.parse(
       roundBodyPath(args.input.workspaceRoot, args.input.roundNum, 'evaluator')
     );
+    // Per-task evaluator-EFFORT escalation: the escalation policy's lockstep bump stamps
+    // `escalatedToEvaluatorEffort` (computed against the evaluator's own ladder, never copied from
+    // the generator's target) when it fires alongside the generator's same-model effort rung.
+    // Prefer it over the configured `deps.effort` at spawn — the MODEL always stays `deps.model`,
+    // unconditionally, on both this spawn and the corrective respawn below.
+    const effectiveEffort = task.escalatedToEvaluatorEffort ?? deps.effort;
     const spawn = await deps.provider.generate(
       implementSession(
         args.input.workspaceRoot,
@@ -417,7 +425,7 @@ const makeEvaluatorCallEvaluate =
         args.signalsFile,
         'evaluator',
         args.input.priorEvaluatorSessionId,
-        deps.effort,
+        effectiveEffort,
         args.signal,
         initialBodyFile.ok ? initialBodyFile.value : undefined
       )
@@ -452,6 +460,7 @@ const makeEvaluatorCallEvaluate =
           workspaceRoot: args.input.workspaceRoot,
           roundNum: args.input.roundNum,
           signalsFile: args.signalsFile,
+          effectiveEffort,
           priorEvaluatorSessionId: args.input.priorEvaluatorSessionId,
           signal: args.signal,
         }),

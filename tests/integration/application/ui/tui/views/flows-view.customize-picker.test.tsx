@@ -25,6 +25,7 @@ import { Result } from '@src/domain/result.ts';
 import type { Choice, InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
+import { resolveEffort } from '@src/business/settings/resolve-effort.ts';
 import type { AiProvider, Settings } from '@src/domain/entity/settings.ts';
 import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
 import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
@@ -156,6 +157,14 @@ const driveSettings = (overrides: Partial<Settings['ai']> = {}): Settings => ({
 
 const SIMPLE_FLOWS = ['refine', 'plan', 'readiness', 'ideate'] as const;
 
+/**
+ * Effort step's Keep-default label for a simple flow's resolved default under DEFAULT_SETTINGS.
+ * `plan` / `ideate` carry a shipped `high` default (see `resolve-effort.ts`); the others still
+ * resolve to `undefined`, rendered as 'auto'.
+ */
+const keepDefaultEffortLabel = (flowId: (typeof SIMPLE_FLOWS)[number]): string =>
+  `Keep default (${resolveEffort(flowId, DEFAULT_SETTINGS) ?? 'auto'})`;
+
 describe('runCustomizePicker — single-row flows (refine / plan / readiness / ideate)', () => {
   for (const flowId of SIMPLE_FLOWS) {
     describe(`flow=${flowId}`, () => {
@@ -184,10 +193,10 @@ describe('runCustomizePicker — single-row flows (refine / plan / readiness / i
           // provider step: Keep default — exact label matches the row's default provider id
           { action: 'pick', choice: `Keep default (${DEFAULT_SETTINGS.ai[flowId].provider})` },
           { action: 'pick', choice: `Keep default (${DEFAULT_SETTINGS.ai[flowId].model})` },
-          // The default row carries no per-flow effort and DEFAULT_SETTINGS has no global
-          // effort either, so resolveEffortForRow returns undefined and Keep default's label
-          // renders 'unset'.
-          { action: 'pick', choice: 'Keep default (auto)' },
+          // The default row carries no per-flow effort, so the label shows whatever
+          // resolveEffort resolves to under DEFAULT_SETTINGS (the shipped per-flow default for
+          // plan/ideate, 'auto' for everything else).
+          { action: 'pick', choice: keepDefaultEffortLabel(flowId) },
         ]);
         const result = await runCustomizePicker({
           interactive,
@@ -233,7 +242,7 @@ describe('runCustomizePicker — single-row flows (refine / plan / readiness / i
           { action: 'pick', choice: 'Customize for this run…' },
           { action: 'pick', choice: `Keep default (${DEFAULT_SETTINGS.ai[flowId].provider})` },
           { action: 'pick', choice: otherModel },
-          { action: 'pick', choice: 'Keep default (auto)' },
+          { action: 'pick', choice: keepDefaultEffortLabel(flowId) },
         ]);
         const result = await runCustomizePicker({
           interactive,

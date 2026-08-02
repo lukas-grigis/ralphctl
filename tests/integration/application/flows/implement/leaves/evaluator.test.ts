@@ -6,7 +6,7 @@ import type { HarnessSignal } from '@src/domain/signal.ts';
 import { createFakeAiProvider } from '@tests/fixtures/fake-ai-provider.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
 import { absolutePath, FIXED_NOW, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
-import { recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
+import { recordTaskEscalation, recordTaskEvaluatorEffortEscalation } from '@src/domain/entity/task-settle.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
 import { emptySkillSource } from '@tests/fixtures/skills-fakes.ts';
@@ -131,6 +131,44 @@ describe('evaluatorLeaf', () => {
     };
     await leaf.execute(ctx);
     expect(deps.provider.recordedSessions[0]?.model).toBe('evaluator-model-fixed');
+  });
+
+  it('uses task.escalatedToEvaluatorEffort as the spawn effort when the task carries an evaluator effort escalation', async () => {
+    // Evaluator lockstep effort bump: the model is unchanged (no escalatedToModel), but the raised
+    // effort must reach the spawn. Without the leaf preferring `escalatedToEvaluatorEffort`, the
+    // bump the escalation policy granted would never take effect.
+    const initial = makeInProgressTaskWithRunningAttempt();
+    const stamped = recordTaskEvaluatorEffortEscalation(initial, 'high');
+    if (!stamped.ok) throw stamped.error;
+    const task = stamped.value;
+    const deps = buildDeps();
+    const leaf = evaluatorLeaf({ ...deps, model: 'evaluator-model-fixed', effort: 'medium' }, task.id);
+    const ctx: ImplementCtx = {
+      sprintId: task.id as unknown as ImplementCtx['sprintId'],
+      tasks: [task],
+      currentTask: task,
+      currentRoundNum: 1,
+      taskWorkspaceRoot: root.root,
+    };
+    await leaf.execute(ctx);
+    expect(deps.provider.recordedSessions[0]?.effort).toBe('high');
+    // Model stays the configured value — the effort rung never touches the evaluator model.
+    expect(deps.provider.recordedSessions[0]?.model).toBe('evaluator-model-fixed');
+  });
+
+  it('falls back to the configured evaluator effort when the task has no escalatedToEvaluatorEffort', async () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    const deps = buildDeps();
+    const leaf = evaluatorLeaf({ ...deps, model: 'evaluator-model-fixed', effort: 'medium' }, task.id);
+    const ctx: ImplementCtx = {
+      sprintId: task.id as unknown as ImplementCtx['sprintId'],
+      tasks: [task],
+      currentTask: task,
+      currentRoundNum: 1,
+      taskWorkspaceRoot: root.root,
+    };
+    await leaf.execute(ctx);
+    expect(deps.provider.recordedSessions[0]?.effort).toBe('medium');
   });
 
   // Abort wire (keystone for #1/#5): the evaluator, like the generator, must carry the chain's

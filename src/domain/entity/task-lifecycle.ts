@@ -64,6 +64,8 @@ export const unblockTask = (task: Task): Result<TodoTask, InvalidStateError> => 
     // The raised effort is a per-run remedy like the model bump — a clean restart drops it so the
     // fresh run begins on the configured effort again.
     escalatedToEffort: _effort,
+    // Evaluator-side counterpart of the effort remedy above — same clean-restart rationale.
+    escalatedToEvaluatorEffort: _evaluatorEffort,
     // A clean restart drops the prior run's per-criterion verdicts too — a freshly-planned task
     // carries no k-of-N history; stale verdicts would mislead the next run's checklist.
     criteriaVerdicts: _verdicts,
@@ -74,6 +76,7 @@ export const unblockTask = (task: Task): Result<TodoTask, InvalidStateError> => 
   void _from;
   void _to;
   void _effort;
+  void _evaluatorEffort;
   void _verdicts;
   return Result.ok({ ...rest, status: 'todo', attempts: [] });
 };

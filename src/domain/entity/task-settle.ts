@@ -87,6 +87,9 @@ export const markTaskDone = (task: Task, now: IsoTimestamp): Result<DoneTask, In
     ...(guard.value.escalatedFromModel !== undefined ? { escalatedFromModel: guard.value.escalatedFromModel } : {}),
     ...(guard.value.escalatedToModel !== undefined ? { escalatedToModel: guard.value.escalatedToModel } : {}),
     ...(guard.value.escalatedToEffort !== undefined ? { escalatedToEffort: guard.value.escalatedToEffort } : {}),
+    ...(guard.value.escalatedToEvaluatorEffort !== undefined
+      ? { escalatedToEvaluatorEffort: guard.value.escalatedToEvaluatorEffort }
+      : {}),
     status: 'done',
     attempts,
     finalAttemptN: verified.n,
@@ -176,4 +179,20 @@ export const recordTaskEffortEscalation = (
   const to = parseRequiredString('task.escalatedToEffort', toEffort);
   if (!to.ok) return Result.error(to.error);
   return Result.ok({ ...task, escalatedToEffort: to.value });
+};
+
+/**
+ * Stamp the same-model EVALUATOR effort escalation onto an `in_progress` task — the evaluator-side
+ * counterpart of {@link recordTaskEffortEscalation}. The evaluator's model never changes, so only
+ * {@link InProgressTask.escalatedToEvaluatorEffort} is recorded; the evaluator leaf reads it on the
+ * next attempt to spawn at the raised reasoning effort. Validates the effort string is non-empty;
+ * the cost ceiling is policy-enforced (the evaluator's own effort ladder), not here.
+ */
+export const recordTaskEvaluatorEffortEscalation = (
+  task: InProgressTask,
+  toEffort: string
+): Result<InProgressTask, ValidationError> => {
+  const to = parseRequiredString('task.escalatedToEvaluatorEffort', toEffort);
+  if (!to.ok) return Result.error(to.error);
+  return Result.ok({ ...task, escalatedToEvaluatorEffort: to.value });
 };

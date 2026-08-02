@@ -27,6 +27,15 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **`plan` and `ideate` now default to `high` reasoning effort.** Both flows shape everything downstream of
+  them, so they get the deeper default out of the box. It ranks below `settings.ai.effort` and below a
+  per-flow effort — an operator who has set either keeps exactly what they chose — and clamps to the
+  provider's ceiling where `high` isn't available. Every other flow resolves as before.
+- **A plateau now raises the evaluator's reasoning effort in lockstep with the generator's.** When the
+  same-model effort rung fires, the evaluator's own ladder is consulted independently — against its own
+  provider, model, and current effort, never copied from the generator's target — and bumped if it has
+  headroom, so grading rigor keeps pace with a strengthening generator instead of falling behind it. The
+  evaluator's model is never escalated, only its effort, and the plateau banner names both bumps.
 - **Sprint and project listing reads every entity file concurrently** instead of one at a time, speeding up
   TUI and CLI startup for installations with many historical sprints or projects.
 - **Tightened the implement prompt's project-context-file rule** — secrets and credentials are now an

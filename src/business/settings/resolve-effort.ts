@@ -2,12 +2,27 @@ import { type AiFlowSettings, type AiProvider, primaryFlowRow, type Settings } f
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 
 /**
+ * Shipped per-flow effort default, consulted only when neither the row nor the global effort
+ * is set. Deliberately narrow — `plan` and `ideate` only — since every other flow must keep
+ * resolving to `undefined` (CLI default) exactly as it does today. Passed through
+ * {@link clampEffortToProvider} at the call site so a provider that caps below `high` still
+ * resolves to its highest supported level instead of an invalid value.
+ */
+const FLOW_DEFAULT_EFFORT: Partial<Record<FlowId, 'high'>> = {
+  plan: 'high',
+  ideate: 'high',
+};
+
+/**
  * Resolve the effort level the AI provider adapter should request for one flow.
  *
  * Resolution order:
  *   1. Per-flow `settings.ai[flow].effort` if explicitly set.
  *   2. Global `settings.ai.effort`, floored to the flow's provider ceiling.
- *   3. `undefined` — the adapter falls back to the CLI's built-in default.
+ *   3. The flow's shipped default effort (see {@link FLOW_DEFAULT_EFFORT}), floored to the
+ *      flow's provider ceiling — deliberately BELOW the global default: an operator who set
+ *      `ai.effort` has made a deliberate choice, and the shipped default must not override it.
+ *   4. `undefined` — the adapter falls back to the CLI's built-in default.
  *
  * Floor table (per provider): the global effort vocabulary is the Claude superset
  * (`low | medium | high | xhigh | max`). Each provider may not expose every level, so a
@@ -19,7 +34,7 @@ import type { FlowId } from '@src/domain/value/flow-id.ts';
  */
 export const resolveEffort = (flow: FlowId, settings: Settings): string | undefined => {
   const row = primaryFlowRow(settings.ai, flow);
-  return resolveEffortForRow(row, settings.ai.effort);
+  return resolveEffortForRow(row, settings.ai.effort, flow);
 };
 
 /**
@@ -27,14 +42,22 @@ export const resolveEffort = (flow: FlowId, settings: Settings): string | undefi
  * value rather than looking the row up through {@link primaryFlowRow}. Used by the implement
  * launcher to resolve effort per role (generator / evaluator) when the two roles may carry
  * different providers and effort floors.
+ *
+ * `flow` is optional and consulted only for the third resolution layer (the shipped per-flow
+ * default) — existing two-argument call sites (`resolveAgentOverride`, and through it the
+ * implement launcher) are unaffected, since `implement` carries no entry in
+ * {@link FLOW_DEFAULT_EFFORT} regardless.
  */
 export const resolveEffortForRow = (
   row: AiFlowSettings,
-  globalEffort: Settings['ai']['effort']
+  globalEffort: Settings['ai']['effort'],
+  flow?: FlowId
 ): string | undefined => {
   if (row.effort !== undefined) return row.effort;
-  if (globalEffort === undefined) return undefined;
-  return _floorForProvider(globalEffort, row.provider);
+  if (globalEffort !== undefined) return _floorForProvider(globalEffort, row.provider);
+  const flowDefault = flow !== undefined ? FLOW_DEFAULT_EFFORT[flow] : undefined;
+  if (flowDefault !== undefined) return clampEffortToProvider(flowDefault, row.provider);
+  return undefined;
 };
 
 /**

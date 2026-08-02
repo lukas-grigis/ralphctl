@@ -5,7 +5,11 @@ import {
   markTaskBlocked,
   unblockTask,
 } from '@src/domain/entity/task-lifecycle.ts';
-import { recordTaskEffortEscalation, recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
+import {
+  recordTaskEffortEscalation,
+  recordTaskEscalation,
+  recordTaskEvaluatorEffortEscalation,
+} from '@src/domain/entity/task-settle.ts';
 import { applyCriteriaVerdicts } from '@src/domain/entity/task-criteria.ts';
 import type { BlockedTask } from '@src/domain/entity/task.ts';
 import { makeInProgressTaskWithRunningAttempt, makeTodoTask } from '@tests/fixtures/domain.ts';
@@ -73,7 +77,10 @@ describe('unblockTask — clean restart (drops block fields, resets budget + esc
     // Also carry a raised effort — the effort rung's per-run remedy must reset too.
     const effortEscalated = recordTaskEffortEscalation(escalated.value, 'high');
     if (!effortEscalated.ok) throw effortEscalated.error;
-    const blocked = markTaskBlocked(effortEscalated.value, 'attempt budget exhausted', 'own');
+    // And the evaluator's own lockstep effort bump — same clean-restart rationale.
+    const evaluatorEffortEscalated = recordTaskEvaluatorEffortEscalation(effortEscalated.value, 'high');
+    if (!evaluatorEffortEscalated.ok) throw evaluatorEffortEscalated.error;
+    const blocked = markTaskBlocked(evaluatorEffortEscalated.value, 'attempt budget exhausted', 'own');
     if (!blocked.ok) throw blocked.error;
     expect(blocked.value.attempts.length).toBeGreaterThan(0);
 
@@ -85,6 +92,7 @@ describe('unblockTask — clean restart (drops block fields, resets budget + esc
     expect((back.value as unknown as Record<string, unknown>)['escalatedFromModel']).toBeUndefined();
     expect((back.value as unknown as Record<string, unknown>)['escalatedToModel']).toBeUndefined();
     expect((back.value as unknown as Record<string, unknown>)['escalatedToEffort']).toBeUndefined();
+    expect((back.value as unknown as Record<string, unknown>)['escalatedToEvaluatorEffort']).toBeUndefined();
     // The cap itself (a planning field) survives — only the consumed budget resets.
     expect(back.value.maxAttempts).toBe(3);
   });
