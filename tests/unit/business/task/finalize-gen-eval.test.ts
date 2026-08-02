@@ -951,6 +951,158 @@ describe('finalizeGenEvalUseCase', () => {
     expect(result.value.shouldFailAttempt).toBe(true);
   });
 
+  // ── Evaluator lockstep effort bump (activated via evaluatorProvider/evaluatorModel/evaluatorEffort) ──
+
+  it('escalate-effort with evaluator context: both escalatedToEffort and escalatedToEvaluatorEffort land in the same persist', async () => {
+    const generatorRow = DEFAULT_SETTINGS.ai.implement.generator;
+    const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
+    const persisted: Array<{ escalatedToEffort: string | undefined; escalatedToEvaluatorEffort: string | undefined }> =
+      [];
+    const repo: UpdateTask = {
+      async update(_sprintId, t) {
+        persisted.push({
+          escalatedToEffort: t.escalatedToEffort,
+          escalatedToEvaluatorEffort: t.escalatedToEvaluatorEffort,
+        });
+        return Result.ok(undefined);
+      },
+    };
+    const result = await finalizeGenEvalUseCase({
+      task,
+      sprintId,
+      exit: { kind: 'plateau', dimensions: ['correctness'] },
+      turnsUsed: 3,
+      readConfig: cfg({ escalateOnPlateau: true, maxAttempts: 5 }),
+      taskRepo: repo,
+      logger: noopLogger,
+      eventBus: newBus(),
+      clock: fixedClock,
+      generatorModel: generatorRow.model,
+      generatorProvider: generatorRow.provider,
+      generatorEffort: resolveEffort('implement', DEFAULT_SETTINGS),
+      evaluatorProvider: 'github-copilot',
+      evaluatorModel: 'gpt-5.5',
+      evaluatorEffort: undefined,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.task.escalatedToEffort).toBe('max');
+    expect(result.value.task.escalatedToEvaluatorEffort).toBe('high');
+    // Both landed together in the single persist call — no separate write for the evaluator field.
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0]).toEqual({ escalatedToEffort: 'max', escalatedToEvaluatorEffort: 'high' });
+  });
+
+  it('plain model escalate: escalatedToEvaluatorEffort is NOT stamped even when evaluator context is supplied', async () => {
+    const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
+    const result = await finalizeGenEvalUseCase({
+      task,
+      sprintId,
+      exit: { kind: 'plateau', dimensions: ['correctness'] },
+      turnsUsed: 3,
+      readConfig: cfg({ escalateOnPlateau: true, maxAttempts: 5 }),
+      taskRepo: okRepo,
+      logger: noopLogger,
+      eventBus: newBus(),
+      clock: fixedClock,
+      generatorModel: 'claude-sonnet-4-6',
+      generatorProvider: 'claude-code',
+      generatorEffort: undefined,
+      evaluatorProvider: 'github-copilot',
+      evaluatorModel: 'gpt-5.5',
+      evaluatorEffort: undefined,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.task.escalatedToModel).toBe('claude-opus-4-8');
+    expect(result.value.task.escalatedToEvaluatorEffort).toBeUndefined();
+  });
+
+  it('top-of-ladder nudge: escalatedToEvaluatorEffort is NOT stamped even when evaluator context is supplied', async () => {
+    // Generator has no effort dimension (Haiku) → falls through to the nudge; the evaluator bump
+    // only rides the generator's OWN escalate-effort event, so it stays unstamped here too. A
+    // self-loop user-map entry keeps Haiku at the top of ITS ladder (the default map would
+    // otherwise climb it to Sonnet, which is escalatable and not what this test exercises).
+    const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
+    const result = await finalizeGenEvalUseCase({
+      task,
+      sprintId,
+      exit: { kind: 'plateau', dimensions: ['correctness'] },
+      turnsUsed: 3,
+      readConfig: async () => ({
+        maxTurns: 5,
+        escalateOnPlateau: true,
+        escalationMap: { 'claude-haiku-4-5': 'claude-haiku-4-5' },
+        maxAttempts: 5,
+      }),
+      taskRepo: okRepo,
+      logger: noopLogger,
+      eventBus: newBus(),
+      clock: fixedClock,
+      generatorModel: 'claude-haiku-4-5',
+      generatorProvider: 'claude-code',
+      generatorEffort: undefined,
+      evaluatorProvider: 'github-copilot',
+      evaluatorModel: 'gpt-5.5',
+      evaluatorEffort: undefined,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.task.escalatedFromModel).toBe('claude-haiku-4-5');
+    expect(result.value.task.escalatedToModel).toBe('claude-haiku-4-5');
+    expect(result.value.task.escalatedToEvaluatorEffort).toBeUndefined();
+  });
+
+  it('flag-off: escalatedToEvaluatorEffort is NOT stamped even when evaluator context is supplied', async () => {
+    const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
+    const result = await finalizeGenEvalUseCase({
+      task,
+      sprintId,
+      exit: { kind: 'plateau', dimensions: ['correctness'] },
+      turnsUsed: 3,
+      readConfig: cfg({ escalateOnPlateau: false, maxAttempts: 5 }),
+      taskRepo: okRepo,
+      logger: noopLogger,
+      eventBus: newBus(),
+      clock: fixedClock,
+      generatorModel: 'claude-opus-5',
+      generatorProvider: 'claude-code',
+      generatorEffort: undefined,
+      evaluatorProvider: 'github-copilot',
+      evaluatorModel: 'gpt-5.5',
+      evaluatorEffort: undefined,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.task.escalatedToEvaluatorEffort).toBeUndefined();
+    expect(result.value.shouldFailAttempt).toBeUndefined();
+  });
+
+  it('evaluator already at its own effort ceiling: generator still escalates, evaluator field absent, no evaluator stamp', async () => {
+    const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
+    const result = await finalizeGenEvalUseCase({
+      task,
+      sprintId,
+      exit: { kind: 'plateau', dimensions: ['correctness'] },
+      turnsUsed: 3,
+      readConfig: cfg({ escalateOnPlateau: true, maxAttempts: 5 }),
+      taskRepo: okRepo,
+      logger: noopLogger,
+      eventBus: newBus(),
+      clock: fixedClock,
+      generatorModel: 'claude-opus-5',
+      generatorProvider: 'claude-code',
+      generatorEffort: undefined,
+      evaluatorProvider: 'claude-code',
+      evaluatorModel: 'claude-opus-5',
+      evaluatorEffort: 'max',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.task.escalatedToEffort).toBe('max');
+    expect(result.value.task.escalatedToEvaluatorEffort).toBeUndefined();
+  });
+
   it('forwards a StorageError from the repo', async () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const failing: UpdateTask = {

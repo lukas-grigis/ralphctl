@@ -6,7 +6,11 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { makeInProgressTaskWithRunningAttempt, makeTodoTask } from '@tests/fixtures/domain.ts';
-import { recordTaskEffortEscalation, recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
+import {
+  recordTaskEffortEscalation,
+  recordTaskEscalation,
+  recordTaskEvaluatorEffortEscalation,
+} from '@src/domain/entity/task-settle.ts';
 import { join } from 'node:path';
 import { createFsTaskRepository } from '@src/integration/persistence/task/repository.ts';
 import { sprintsDir } from '@src/integration/persistence/storage.ts';
@@ -140,6 +144,29 @@ describe('createFsTaskRepository', () => {
     const reloaded = await repo.findById(sprintId, legacy.id);
     if (!reloaded.ok) throw new Error('expected ok');
     expect(reloaded.value.escalatedToEffort).toBeUndefined();
+  });
+
+  it('round-trips escalatedToEvaluatorEffort across save → load (evaluator lockstep resume path)', async () => {
+    const repo = createFsTaskRepository({ root });
+    const inProgress = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
+    const bumped = recordTaskEvaluatorEffortEscalation(inProgress, 'high');
+    if (!bumped.ok) throw bumped.error;
+    await repo.saveAll(sprintId, [bumped.value]);
+
+    const reloaded = await repo.findById(sprintId, bumped.value.id);
+    if (!reloaded.ok) throw new Error('expected ok');
+    expect(reloaded.value.escalatedToEvaluatorEffort).toBe('high');
+  });
+
+  it('loads a legacy tasks.json entry without escalatedToEvaluatorEffort unchanged (tolerant additive field)', async () => {
+    const repo = createFsTaskRepository({ root });
+    // A task saved before the field existed carries no escalatedToEvaluatorEffort — it must load fine.
+    const legacy = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
+    await repo.saveAll(sprintId, [legacy]);
+
+    const reloaded = await repo.findById(sprintId, legacy.id);
+    if (!reloaded.ok) throw new Error('expected ok');
+    expect(reloaded.value.escalatedToEvaluatorEffort).toBeUndefined();
   });
 
   it('surfaces a non-array tasks file as StorageError(parse)', async () => {

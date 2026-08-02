@@ -90,7 +90,21 @@ const triggerLabel = (trigger: EscalationTrigger): string =>
  */
 export type EscalationDecision =
   | { readonly kind: 'escalate'; readonly from: string; readonly to: string }
-  | { readonly kind: 'escalate-effort'; readonly model: string; readonly from: string; readonly to: string }
+  | {
+      readonly kind: 'escalate-effort';
+      readonly model: string;
+      readonly from: string;
+      readonly to: string;
+      /**
+       * The evaluator's own same-model effort bump, fired in lockstep with the generator's rung
+       * above — computed independently against the evaluator's OWN provider/model/effort triple
+       * via {@link nextEffortRung}, never copied from the generator's `from`/`to`. Absent when the
+       * caller supplied no evaluator context, the evaluator provider/model has no effort dimension,
+       * or the evaluator is already at its own effort ceiling. The evaluator MODEL is never part of
+       * this — only reasoning effort.
+       */
+      readonly evaluator?: { readonly from: string; readonly to: string };
+    }
   | { readonly kind: 'nudge'; readonly currentModel: string }
   | { readonly kind: 'flag-off' }
   | { readonly kind: 'topped-out'; readonly model: string }
@@ -126,6 +140,28 @@ export interface DecideEscalationProps {
    * backward-compatibility reason as {@link generatorProvider}.
    */
   readonly generatorEffort?: string | undefined;
+  /**
+   * Provider the EVALUATOR role runs on — read only to compute the evaluator half of an
+   * `escalate-effort` decision ({@link EscalationDecision} `evaluator`). The evaluator's model
+   * never changes, so this is consulted purely for the effort-dimension lookup, independent of
+   * {@link generatorProvider}. OPTIONAL: a caller that omits it (or supplies `undefined`) gets no
+   * `evaluator` field on the decision — the pre-lockstep behaviour is unchanged.
+   */
+  readonly evaluatorProvider?: AiProvider | undefined;
+  /**
+   * The model the evaluator role spawns with — fixed for the whole task (never escalated). Read
+   * alongside {@link evaluatorProvider} so {@link nextEffortRung} can classify the evaluator's own
+   * effort ladder (e.g. Claude's model-aware xhigh/max split). OPTIONAL for the same reason as
+   * {@link evaluatorProvider}.
+   */
+  readonly evaluatorModel?: string | undefined;
+  /**
+   * The evaluator's currently-resolved reasoning effort, or `undefined` for the CLI default. Read
+   * alongside {@link evaluatorProvider} / {@link evaluatorModel} to decide whether the EVALUATOR'S
+   * OWN effort rung has headroom — computed independently of {@link generatorEffort}, never copied
+   * from it. OPTIONAL for the same reason as {@link evaluatorProvider}.
+   */
+  readonly evaluatorEffort?: string | undefined;
 }
 
 /**
@@ -187,11 +223,23 @@ export const decideEscalation = (props: DecideEscalationProps): EscalationDecisi
   // at its ceiling.
   const effortTarget = nextEffortRung(props.generatorProvider, props.generatorModel, props.generatorEffort);
   if (effortTarget !== undefined) {
+    // Lockstep evaluator bump: computed independently against the evaluator's OWN provider/model/
+    // effort triple — never copied from the generator's target. Absent when the caller supplied no
+    // evaluator context or the evaluator has no headroom left (already at its own ceiling).
+    const evaluatorEffortTarget =
+      props.evaluatorModel !== undefined
+        ? nextEffortRung(props.evaluatorProvider, props.evaluatorModel, props.evaluatorEffort)
+        : undefined;
+    const evaluatorCarry =
+      evaluatorEffortTarget !== undefined
+        ? { evaluator: { from: props.evaluatorEffort ?? 'default', to: evaluatorEffortTarget } }
+        : {};
     return {
       kind: 'escalate-effort',
       model: props.generatorModel,
       from: props.generatorEffort ?? 'default',
       to: effortTarget,
+      ...evaluatorCarry,
     };
   }
   // Top of the ladder, no effort headroom, not yet nudged. Grant one more attempt on the same model
@@ -362,12 +410,19 @@ export const applyEscalation = (props: ApplyEscalationProps): Result<ApplyEscala
       // the escalation model fields are NOT stamped (leaving them untouched keeps the same-model
       // change-of-approach marker for the LATER nudge accurate) and no `model-escalated` event fires
       // — the banner names the effort bump so the operator sees the remedy. The generator leaf reads
-      // the raised effort on the next attempt; this policy half only announces the decision.
+      // the raised effort on the next attempt; this policy half only announces the decision. Neither
+      // the generator nor the evaluator model fields are stamped here — the evaluator effort stamp
+      // (when `decision.evaluator` is present) happens in the caller (finalize-gen-eval), alongside
+      // the generator's, in the same `taskRepo.update` persist.
+      const evaluatorClause =
+        decision.evaluator !== undefined
+          ? `; evaluator effort: ${decision.evaluator.from} → ${decision.evaluator.to}`
+          : '';
       eventBus.publish({
         type: BANNER_SHOW_EVENT,
         id: bannerId,
         tier: 'info',
-        message: `raised generator effort on '${decision.model}': ${decision.from} → ${decision.to}`,
+        message: `raised generator effort on '${decision.model}': ${decision.from} → ${decision.to}${evaluatorClause}`,
         cause,
         at: now,
       });
@@ -377,6 +432,9 @@ export const applyEscalation = (props: ApplyEscalationProps): Result<ApplyEscala
         from: decision.from,
         to: decision.to,
         reason: trigger,
+        ...(decision.evaluator !== undefined
+          ? { evaluatorFrom: decision.evaluator.from, evaluatorTo: decision.evaluator.to }
+          : {}),
       });
       return Result.ok({ task });
     }

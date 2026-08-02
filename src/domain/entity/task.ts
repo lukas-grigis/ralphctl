@@ -113,6 +113,15 @@ interface TaskBase extends Entity<TaskId> {
    * role is never affected.
    */
   readonly escalatedToEffort?: string;
+  /**
+   * Reasoning-effort level the next attempt's evaluator leaf must spawn with — the evaluator-side
+   * counterpart of {@link escalatedToEffort}. Stamped by the escalation policy's same-model EFFORT
+   * rung alongside the generator stamp, computed independently against the evaluator's OWN
+   * provider/model ladder (never copied from the generator's target). Effort only — the evaluator
+   * MODEL never changes, so this field has no `escalatedToModel`-shaped counterpart. The evaluator
+   * leaf prefers this value over the configured evaluator effort when present.
+   */
+  readonly escalatedToEvaluatorEffort?: string;
 }
 
 export interface TodoTask extends TaskBase {

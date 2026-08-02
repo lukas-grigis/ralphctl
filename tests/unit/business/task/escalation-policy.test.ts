@@ -347,6 +347,130 @@ describe('decideEscalation — same-model effort rung', () => {
   });
 });
 
+describe('decideEscalation — evaluator lockstep effort bump', () => {
+  it('computes the evaluator target from its OWN provider/model/effort — not copied from the generator target', () => {
+    // Generator: shipped default (opus, effort unset) → climbs to `max` (Claude xhigh-capable).
+    // Evaluator: a DIFFERENT provider/model (Copilot) → climbs to a DIFFERENT target (`high`). If the
+    // evaluator field were ever copied from the generator's `to`, this would assert `max` and fail.
+    const generatorRow = DEFAULT_SETTINGS.ai.implement.generator;
+    const decision = decideEscalation({
+      task: makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
+      generatorModel: generatorRow.model,
+      flagOn: true,
+      userMap: {},
+      fallbackMaxAttempts: 3,
+      generatorProvider: generatorRow.provider,
+      generatorEffort: resolveEffort('implement', DEFAULT_SETTINGS),
+      evaluatorProvider: 'github-copilot',
+      evaluatorModel: 'gpt-5.5',
+      evaluatorEffort: undefined,
+    });
+    expect(decision.kind).toBe('escalate-effort');
+    if (decision.kind !== 'escalate-effort') return;
+    expect(decision.to).toBe('max');
+    expect(decision.evaluator).toEqual({ from: 'default', to: 'high' });
+  });
+
+  it('is absent on a plain model escalate — no evaluator context leaks onto a `escalate` decision', () => {
+    const decision = decideEscalation({
+      task: makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
+      generatorModel: 'claude-sonnet-4-6',
+      flagOn: true,
+      userMap: {},
+      fallbackMaxAttempts: 3,
+      evaluatorProvider: 'github-copilot',
+      evaluatorModel: 'gpt-5.5',
+      evaluatorEffort: undefined,
+    });
+    expect(decision.kind).toBe('escalate');
+    expect('evaluator' in decision).toBe(false);
+  });
+
+  it('is absent on a same-model nudge (generator has no effort headroom of its own)', () => {
+    // Claude Haiku has no effort dimension, so the GENERATOR rung never fires (falls through to
+    // nudge) even though evaluator context is supplied — the evaluator bump only rides the
+    // generator's OWN escalate-effort event, never fires independently.
+    const decision = decideEscalation({
+      task: makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
+      generatorModel: 'claude-haiku-4-5',
+      flagOn: true,
+      userMap: { 'claude-haiku-4-5': 'claude-haiku-4-5' },
+      fallbackMaxAttempts: 3,
+      generatorProvider: 'claude-code',
+      generatorEffort: undefined,
+      evaluatorProvider: 'github-copilot',
+      evaluatorModel: 'gpt-5.5',
+      evaluatorEffort: undefined,
+    });
+    expect(decision.kind).toBe('nudge');
+    expect('evaluator' in decision).toBe(false);
+  });
+
+  it('is absent on flag-off', () => {
+    const decision = decideEscalation({
+      task: makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
+      generatorModel: 'claude-opus-5',
+      flagOn: false,
+      userMap: {},
+      fallbackMaxAttempts: 3,
+      generatorProvider: 'claude-code',
+      generatorEffort: undefined,
+      evaluatorProvider: 'github-copilot',
+      evaluatorModel: 'gpt-5.5',
+      evaluatorEffort: undefined,
+    });
+    expect(decision.kind).toBe('flag-off');
+    expect('evaluator' in decision).toBe(false);
+  });
+
+  it('is absent when the evaluator is already at its own effort ceiling, even while the generator rung fires', () => {
+    const decision = decideEscalation({
+      task: makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
+      // Top of the model ladder (no outbound rung) so the generator hits the effort rung, not a
+      // model climb — `claude-opus-4-8` would climb to `claude-opus-5` instead.
+      generatorModel: 'claude-opus-5',
+      flagOn: true,
+      userMap: {},
+      fallbackMaxAttempts: 3,
+      generatorProvider: 'claude-code',
+      generatorEffort: undefined,
+      evaluatorProvider: 'claude-code',
+      evaluatorModel: 'claude-opus-5',
+      evaluatorEffort: 'max',
+    });
+    expect(decision.kind).toBe('escalate-effort');
+    if (decision.kind !== 'escalate-effort') return;
+    // The generator still climbed (max headroom) — only the evaluator half is missing.
+    expect(decision.to).toBe('max');
+    expect(decision.evaluator).toBeUndefined();
+  });
+
+  it('a single-step Copilot evaluator ladder jumps to `high` once and stays there on a later round', () => {
+    const base = {
+      task: makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
+      // Top of the model ladder so the generator's own rung is the effort rung both rounds.
+      generatorModel: 'claude-opus-5',
+      flagOn: true,
+      userMap: {},
+      fallbackMaxAttempts: 3,
+      generatorProvider: 'claude-code' as const,
+      generatorEffort: undefined,
+      evaluatorProvider: 'github-copilot' as const,
+      evaluatorModel: 'gpt-5.5',
+    };
+    const first = decideEscalation({ ...base, evaluatorEffort: undefined });
+    expect(first.kind).toBe('escalate-effort');
+    if (first.kind === 'escalate-effort') expect(first.evaluator).toEqual({ from: 'default', to: 'high' });
+
+    // A later round reads the raised effort back — Copilot's single-step ladder has no rung above
+    // `high`, so the evaluator field disappears (spent) even though the generator's own effort rung
+    // fires again on a different model.
+    const second = decideEscalation({ ...base, evaluatorEffort: 'high' });
+    expect(second.kind).toBe('escalate-effort');
+    if (second.kind === 'escalate-effort') expect(second.evaluator).toBeUndefined();
+  });
+});
+
 describe('applyEscalation', () => {
   it('on escalate: stamps task, publishes model-escalated event and info banner', () => {
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });

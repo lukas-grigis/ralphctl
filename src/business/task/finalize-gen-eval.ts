@@ -4,7 +4,7 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import type { AttemptWarning } from '@src/domain/entity/attempt.ts';
 import type { AiProvider } from '@src/domain/entity/settings.ts';
 import type { InProgressTask } from '@src/domain/entity/task.ts';
-import { recordTaskEffortEscalation } from '@src/domain/entity/task-settle.ts';
+import { recordTaskEffortEscalation, recordTaskEvaluatorEffortEscalation } from '@src/domain/entity/task-settle.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
@@ -93,6 +93,26 @@ export interface FinalizeGenEvalProps {
    * to {@link decideEscalation} alongside {@link generatorProvider}; OPTIONAL for the same reason.
    */
   readonly generatorEffort?: string | undefined;
+  /**
+   * Provider the EVALUATOR role runs on — forwarded to {@link decideEscalation} so the same-model
+   * EFFORT rung can compute the evaluator's OWN lockstep bump (never copied from the generator's
+   * target). OPTIONAL: absent → no `evaluator` field on an `escalate-effort` decision, unchanged
+   * from the generator-only behaviour. The leaf resolves it from the configured evaluator row.
+   */
+  readonly evaluatorProvider?: AiProvider | undefined;
+  /**
+   * The model the evaluator role spawns with — fixed for the whole task, never escalated. Read
+   * alongside {@link evaluatorProvider} so the policy can classify the evaluator's own effort
+   * ladder. OPTIONAL for the same reason as {@link evaluatorProvider}.
+   */
+  readonly evaluatorModel?: string | undefined;
+  /**
+   * The evaluator's currently-resolved reasoning effort (`task.escalatedToEvaluatorEffort ??
+   * configured`), or `undefined` for the CLI default — mirrors {@link generatorEffort}'s
+   * resolution order so a prior evaluator effort bump is reflected here and the policy stops
+   * re-firing the rung. OPTIONAL for the same reason as {@link evaluatorProvider}.
+   */
+  readonly evaluatorEffort?: string | undefined;
   readonly eventBus: EventBus;
   readonly clock: () => IsoTimestamp;
 }
@@ -194,6 +214,11 @@ const resolveEscalatableRemedy = (
     // returns `escalate-effort` and behaves exactly as before.
     generatorProvider: props.generatorProvider,
     generatorEffort: props.generatorEffort,
+    // Evaluator lockstep context — same optionality: absent context means the policy never
+    // returns an `evaluator` field on the decision.
+    evaluatorProvider: props.evaluatorProvider,
+    evaluatorModel: props.evaluatorModel,
+    evaluatorEffort: props.evaluatorEffort,
   });
   const applied = applyEscalation({
     task: props.task,
@@ -216,6 +241,13 @@ const resolveEscalatableRemedy = (
     const stamped = recordTaskEffortEscalation(task, decision.to);
     if (!stamped.ok) return Result.error(stamped.error);
     task = stamped.value;
+    // Evaluator's lockstep bump — stamped right beside the generator's so both land in the single
+    // `taskRepo.update` persist below. Absent when the policy found no evaluator headroom.
+    if (decision.evaluator !== undefined) {
+      const evaluatorStamped = recordTaskEvaluatorEffortEscalation(task, decision.evaluator.to);
+      if (!evaluatorStamped.ok) return Result.error(evaluatorStamped.error);
+      task = evaluatorStamped.value;
+    }
   }
   // A model escalation, a same-model effort bump, and a same-model nudge each grant one more
   // attempt: fail the running attempt so the task stays in_progress and the outer loop re-enters

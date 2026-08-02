@@ -412,6 +412,13 @@ export const createPerTaskSubchain = (
                 // `nextEffortRung` skips gracefully for any non-effort provider or model.
                 configuredGeneratorProvider: opts.generator.providerId as AiProvider,
                 ...(opts.generator.effort !== undefined ? { configuredGeneratorEffort: opts.generator.effort } : {}),
+                // Same lockstep wiring for the EVALUATOR role: the policy computes its bump
+                // independently against this triple, never copying the generator's target. The
+                // evaluator MODEL is never escalated, but it still rides through so `nextEffortRung`
+                // can classify the evaluator's own effort ladder.
+                configuredEvaluatorProvider: opts.evaluator.providerId as AiProvider,
+                configuredEvaluatorModel: opts.evaluator.model,
+                ...(opts.evaluator.effort !== undefined ? { configuredEvaluatorEffort: opts.evaluator.effort } : {}),
               },
               taskId
             ),

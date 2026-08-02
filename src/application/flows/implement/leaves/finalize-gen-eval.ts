@@ -29,6 +29,13 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
  * policy's same-model effort rung: the leaf forwards the provider plus `task.escalatedToEffort ??
  * configured` so a top-of-ladder plateau raises reasoning effort before spending the nudge. Absent
  * (a provider with no effort dimension, or a caller that never wired them) → the rung is skipped.
+ *
+ * `configuredEvaluatorProvider` / `configuredEvaluatorModel` / `configuredEvaluatorEffort` are the
+ * same triple for the EVALUATOR role, mirroring the generator resolution order
+ * (`task.escalatedToEvaluatorEffort ?? configured`) so the policy's lockstep evaluator bump is
+ * computed against the evaluator's own, already-raised effort rather than re-firing on a stale
+ * baseline. The evaluator MODEL is never escalated, so `configuredEvaluatorModel` rides straight
+ * through with no task-field override.
  */
 export interface FinalizeGenEvalLeafDeps {
   readonly taskRepo: UpdateTask;
@@ -44,6 +51,9 @@ export interface FinalizeGenEvalLeafDeps {
   readonly configuredGeneratorModel: string;
   readonly configuredGeneratorProvider?: AiProvider;
   readonly configuredGeneratorEffort?: string;
+  readonly configuredEvaluatorProvider?: AiProvider;
+  readonly configuredEvaluatorModel?: string;
+  readonly configuredEvaluatorEffort?: string;
 }
 
 interface FinalizeInput {
@@ -54,6 +64,9 @@ interface FinalizeInput {
   readonly generatorModel: string;
   readonly generatorProvider?: AiProvider;
   readonly generatorEffort?: string;
+  readonly evaluatorProvider?: AiProvider;
+  readonly evaluatorModel?: string;
+  readonly evaluatorEffort?: string;
 }
 
 export const finalizeGenEvalLeaf = (deps: FinalizeGenEvalLeafDeps, taskId: TaskId): Element<ImplementCtx> =>
@@ -73,6 +86,9 @@ export const finalizeGenEvalLeaf = (deps: FinalizeGenEvalLeafDeps, taskId: TaskI
           generatorModel: input.generatorModel,
           ...(input.generatorProvider !== undefined ? { generatorProvider: input.generatorProvider } : {}),
           ...(input.generatorEffort !== undefined ? { generatorEffort: input.generatorEffort } : {}),
+          ...(input.evaluatorProvider !== undefined ? { evaluatorProvider: input.evaluatorProvider } : {}),
+          ...(input.evaluatorModel !== undefined ? { evaluatorModel: input.evaluatorModel } : {}),
+          ...(input.evaluatorEffort !== undefined ? { evaluatorEffort: input.evaluatorEffort } : {}),
         }),
     },
     input: (ctx) => {
@@ -100,6 +116,10 @@ export const finalizeGenEvalLeaf = (deps: FinalizeGenEvalLeafDeps, taskId: TaskI
       // configured`) so the policy sees the effort the just-finished attempt actually ran at — a
       // prior effort bump reads back as the raised level, stopping the effort rung from re-firing.
       const generatorEffort = ctx.currentTask.escalatedToEffort ?? deps.configuredGeneratorEffort;
+      // Evaluator effort mirrors the same resolution order — a prior lockstep bump reads back as
+      // the raised level, so the ladder advances one step per event instead of re-firing. The
+      // evaluator MODEL is never escalated, so `configuredEvaluatorModel` rides through unchanged.
+      const evaluatorEffort = ctx.currentTask.escalatedToEvaluatorEffort ?? deps.configuredEvaluatorEffort;
       return {
         task: ctx.currentTask,
         sprintId: ctx.sprintId,
@@ -110,6 +130,11 @@ export const finalizeGenEvalLeaf = (deps: FinalizeGenEvalLeafDeps, taskId: TaskI
           ? { generatorProvider: deps.configuredGeneratorProvider }
           : {}),
         ...(generatorEffort !== undefined ? { generatorEffort } : {}),
+        ...(deps.configuredEvaluatorProvider !== undefined
+          ? { evaluatorProvider: deps.configuredEvaluatorProvider }
+          : {}),
+        ...(deps.configuredEvaluatorModel !== undefined ? { evaluatorModel: deps.configuredEvaluatorModel } : {}),
+        ...(evaluatorEffort !== undefined ? { evaluatorEffort } : {}),
       };
     },
     output: (ctx, out) => {
