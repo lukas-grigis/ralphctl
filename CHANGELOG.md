@@ -7,6 +7,8 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-08-02
+
 ### Fixed
 
 - **Corrective retry no longer burns resumed spawns on a harness-side I/O failure.** A read failure on an
