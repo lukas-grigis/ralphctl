@@ -25,8 +25,9 @@
 import React, { useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
-import { LoadErrorRow, LoadingRow } from '@src/application/ui/tui/components/async-rows.tsx';
-import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { AsyncListFrame } from '@src/application/ui/tui/components/async-list-frame.tsx';
+import { EmptyState } from '@src/application/ui/tui/components/empty-state.tsx';
+import { glyphs, inkColors, listCapacity, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
@@ -52,11 +53,6 @@ import {
   flatten,
   preferredCursorId,
 } from '@src/application/ui/tui/views/pick-sprint-internals/group-builder.ts';
-import {
-  computeWindow,
-  MIN_VISIBLE_ROWS,
-  VERTICAL_CHROME_ROWS,
-} from '@src/application/ui/tui/views/pick-sprint-internals/window.ts';
 import { PickerRowList } from '@src/application/ui/tui/views/pick-sprint-internals/row-views.tsx';
 
 type Selection = ReturnType<typeof useSelection>;
@@ -188,30 +184,28 @@ const PickerBody = ({
   currentSprintLabel,
   feedback,
   onRowSubmit,
-}: PickerBodyProps): React.JSX.Element =>
-  helpOpen ? (
-    <HelpOverlay />
-  ) : state.kind === 'loading' || state.kind === 'idle' ? (
-    <LoadingRow label="Loading sprints…" />
-  ) : state.kind === 'error' ? (
-    <LoadErrorRow message="Failed to load sprints." color={inkColors.error} />
-  ) : sprintCount === 0 ? (
-    <Box flexDirection="column" paddingX={spacing.indent}>
-      {hiddenByDoneFilter ? (
-        <>
-          <Text>All sprints here are done (hidden).</Text>
-          <Text dimColor>Press f to show them, or + to create a new one.</Text>
-        </>
+}: PickerBodyProps): React.JSX.Element => (
+  <AsyncListFrame
+    overlay={helpOpen ? <HelpOverlay /> : undefined}
+    state={state}
+    loadingLabel="Loading sprints…"
+    errorMessage="Failed to load sprints."
+    errorColor={inkColors.error}
+    isEmpty={sprintCount === 0}
+    empty={
+      hiddenByDoneFilter ? (
+        <EmptyState
+          title="All sprints here are done (hidden)."
+          hint="Press f to show them, or + to create a new one."
+        />
       ) : (
-        <>
-          <Text>No sprints yet.</Text>
-          <Text dimColor>
-            {scopeAll ? 'Press + to create one.' : 'Press t to show all projects, or + to create one.'}
-          </Text>
-        </>
-      )}
-    </Box>
-  ) : (
+        <EmptyState
+          title="No sprints yet."
+          hint={scopeAll ? 'Press + to create one.' : 'Press t to show all projects, or + to create one.'}
+        />
+      )
+    }
+  >
     <Box flexDirection="column">
       <Box paddingX={spacing.indent} marginBottom={spacing.section}>
         <Text dimColor>
@@ -250,16 +244,8 @@ const PickerBody = ({
         </Box>
       )}
     </Box>
-  );
-
-/**
- * Re-export of the windowing helper. Kept at this canonical path so the existing unit-test
- * import (`@src/application/ui/tui/views/pick-sprint-view.tsx`) continues to resolve without
- * churn after the split.
- *
- * @public
- */
-export { computeWindow };
+  </AsyncListFrame>
+);
 
 export const PickSprintView = (): React.JSX.Element => {
   const deps = useDeps();
@@ -282,9 +268,11 @@ export const PickSprintView = (): React.JSX.Element => {
 
   // Window the rendered slice so a user with hundreds of sprints across many projects doesn't
   // pay an Ink reconciliation cost proportional to the full row list. Capacity tracks terminal
-  // height so the visible slice always fills the viewport without overflowing it.
+  // height so the visible slice always fills the viewport without overflowing it. `8` is the
+  // floor for very short terminals; `listCapacity`'s default chrome budget already covers this
+  // picker's title bar, subtitle, summary header, footer hint, and scroll indicators.
   const bp = useBreakpoint();
-  const visibleRows = Math.max(MIN_VISIBLE_ROWS, bp.rows - VERTICAL_CHROME_ROWS);
+  const visibleRows = listCapacity(bp.rows, { min: 8 });
 
   const pick = (sprint: Sprint): void => {
     if (sprint.projectId !== selection.projectId) {

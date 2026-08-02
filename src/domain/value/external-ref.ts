@@ -20,6 +20,25 @@
  *   `https://github.com/foo/bar/pull/42`              → `undefined`
  *   `https://example.com/anything`                    → `undefined`
  */
+/** Render `segment` as a `#<number>` ref, or `undefined` when it is not a positive integer. */
+const toIssueRef = (segment: string | undefined): string | undefined => {
+  const num = Number(segment);
+  return Number.isInteger(num) && num > 0 ? `#${String(num)}` : undefined;
+};
+
+/** GitHub: `/<owner>/<repo>/issues/<number>`. */
+const parseGithubIssueRef = (segments: readonly string[]): string | undefined => {
+  if (segments.length < 4 || segments[2] !== 'issues') return undefined;
+  return toIssueRef(segments[3]);
+};
+
+/** GitLab (incl. self-hosted): `/<group...>/<project>/-/issues/<number>`. */
+const parseGitlabIssueRef = (segments: readonly string[]): string | undefined => {
+  const dashIdx = segments.indexOf('-');
+  if (dashIdx < 2 || segments[dashIdx + 1] !== 'issues') return undefined;
+  return toIssueRef(segments[dashIdx + 2]);
+};
+
 export const parseExternalRefFromUrl = (url: string): string | undefined => {
   let parsed: URL;
   try {
@@ -30,22 +49,9 @@ export const parseExternalRefFromUrl = (url: string): string | undefined => {
   if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return undefined;
   const segments = parsed.pathname.split('/').filter((s) => s.length > 0);
 
-  // GitHub: /<owner>/<repo>/issues/<number>
-  if (parsed.hostname.includes('github')) {
-    if (segments.length >= 4 && segments[2] === 'issues') {
-      const num = Number(segments[3]);
-      if (Number.isInteger(num) && num > 0) return `#${String(num)}`;
-    }
-    return undefined;
-  }
-
-  // GitLab (incl. self-hosted): /<group...>/<project>/-/issues/<number>
-  const dashIdx = segments.indexOf('-');
-  if (dashIdx >= 2 && segments[dashIdx + 1] === 'issues') {
-    const num = Number(segments[dashIdx + 2]);
-    if (Number.isInteger(num) && num > 0) return `#${String(num)}`;
-  }
-  return undefined;
+  // A GitHub host is matched exclusively — a `/pull/` URL there must not fall through to the
+  // GitLab shape and pick up a ref the PR never should have carried.
+  return parsed.hostname.includes('github') ? parseGithubIssueRef(segments) : parseGitlabIssueRef(segments);
 };
 
 /**

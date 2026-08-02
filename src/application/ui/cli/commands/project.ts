@@ -3,11 +3,86 @@ import type { Project } from '@src/domain/entity/project.ts';
 import { ProjectId } from '@src/domain/value/id/project-id.ts';
 import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
 import { confirmDestructive } from '@src/application/ui/cli/confirm-destructive.ts';
+import { fail } from '@src/application/ui/cli/report-cli-error.ts';
 import { createLastSelectionStore } from '@src/integration/persistence/selection/last-selection-store.ts';
 
 interface RemoveOpts {
   readonly yes?: boolean;
 }
+
+const listProjectsAction = async (): Promise<void> => {
+  const { deps } = await bootstrapCli();
+  const result = await deps.projectRepo.list();
+  if (!result.ok) {
+    fail(result.error.message);
+    return;
+  }
+  if (result.value.length === 0) {
+    process.stdout.write('(no projects yet — create one in the TUI)\n');
+    return;
+  }
+  for (const p of result.value) {
+    process.stdout.write(`${formatProjectLine(p)}\n`);
+  }
+};
+
+const showProjectAction = async (raw?: string): Promise<void> => {
+  const { deps, storage } = await bootstrapCli();
+  // Fall back to the pinned selection when no id is given. The pinned id still funnels
+  // through ProjectId.parse — the store's read is silent on corruption, so a stale or
+  // hand-edited file must fail with the same message an invalid explicit argument gets.
+  let effectiveRaw = raw;
+  if (effectiveRaw === undefined) {
+    const pinned = await createLastSelectionStore(storage.stateRoot).read();
+    if (pinned?.projectId === undefined) {
+      fail('no current project — pick one in the TUI or pass an id');
+      return;
+    }
+    effectiveRaw = String(pinned.projectId);
+  }
+  const id = ProjectId.parse(effectiveRaw);
+  if (!id.ok) {
+    fail(`invalid project id: ${id.error.message}`);
+    return;
+  }
+  const result = await deps.projectRepo.findById(id.value);
+  if (!result.ok) {
+    fail(result.error.message);
+    return;
+  }
+  process.stdout.write(`${JSON.stringify(result.value, null, 2)}\n`);
+};
+
+const removeProjectAction = async (raw: string, opts: RemoveOpts): Promise<void> => {
+  const id = ProjectId.parse(raw);
+  if (!id.ok) {
+    fail(`invalid project id: ${id.error.message}`);
+    return;
+  }
+  // Mirrors the TUI's ConfirmCard gate on the same projectRepo.remove call
+  // (projects-view.tsx) — the CLI has no interactive overlay, so a TTY-gated y/N prompt
+  // (or --yes for scripts) stands in for it.
+  const confirmed = await confirmDestructive({
+    yes: opts.yes === true,
+    action: `remove project ${String(id.value)}`,
+    confirmPrompt: `remove project ${String(id.value)}? [y/N] `,
+  });
+  if (!confirmed) return;
+
+  const { deps, storage } = await bootstrapCli();
+  const result = await deps.projectRepo.remove(id.value);
+  if (!result.ok) {
+    fail(result.error.message);
+    return;
+  }
+  // Clear a dangling pin: a removed project would otherwise keep resolving as the default
+  // for `project show` and re-seed the TUI on next launch. The sprint pin lives under the
+  // project, so the whole file goes (write(undefined) deletes it).
+  const store = createLastSelectionStore(storage.stateRoot);
+  const cur = await store.read();
+  if (cur?.projectId === id.value) await store.write(undefined);
+  process.stdout.write(`removed project ${String(id.value)}\n`);
+};
 
 /**
  * Register the `project` command group.
@@ -24,95 +99,18 @@ interface RemoveOpts {
 export const registerProjectCommand = (program: Command): void => {
   const project = program.command('project').description('inspect and manage projects');
 
-  project
-    .command('list')
-    .description('list all registered projects')
-    .action(async () => {
-      const { deps } = await bootstrapCli();
-      const result = await deps.projectRepo.list();
-      if (!result.ok) {
-        process.stderr.write(`error: ${result.error.message}\n`);
-        process.exitCode = 1;
-        return;
-      }
-      if (result.value.length === 0) {
-        process.stdout.write('(no projects yet — create one in the TUI)\n');
-        return;
-      }
-      for (const p of result.value) {
-        process.stdout.write(`${formatProjectLine(p)}\n`);
-      }
-    });
+  project.command('list').description('list all registered projects').action(listProjectsAction);
 
   project
     .command('show [id]')
     .description('print a single project as JSON (defaults to the current project)')
-    .action(async (raw?: string) => {
-      const { deps, storage } = await bootstrapCli();
-      // Fall back to the pinned selection when no id is given. The pinned id still funnels
-      // through ProjectId.parse — the store's read is silent on corruption, so a stale or
-      // hand-edited file must fail with the same message an invalid explicit argument gets.
-      let effectiveRaw = raw;
-      if (effectiveRaw === undefined) {
-        const pinned = await createLastSelectionStore(storage.stateRoot).read();
-        if (pinned?.projectId === undefined) {
-          process.stderr.write('error: no current project — pick one in the TUI or pass an id\n');
-          process.exitCode = 1;
-          return;
-        }
-        effectiveRaw = String(pinned.projectId);
-      }
-      const id = ProjectId.parse(effectiveRaw);
-      if (!id.ok) {
-        process.stderr.write(`error: invalid project id: ${id.error.message}\n`);
-        process.exitCode = 1;
-        return;
-      }
-      const result = await deps.projectRepo.findById(id.value);
-      if (!result.ok) {
-        process.stderr.write(`error: ${result.error.message}\n`);
-        process.exitCode = 1;
-        return;
-      }
-      process.stdout.write(`${JSON.stringify(result.value, null, 2)}\n`);
-    });
+    .action(showProjectAction);
 
   project
     .command('remove <id>')
     .description('delete a project (does not touch sprints or repository contents)')
     .option('-y, --yes', 'skip the interactive y/N confirmation')
-    .action(async (raw: string, opts: RemoveOpts) => {
-      const id = ProjectId.parse(raw);
-      if (!id.ok) {
-        process.stderr.write(`error: invalid project id: ${id.error.message}\n`);
-        process.exitCode = 1;
-        return;
-      }
-      // Mirrors the TUI's ConfirmCard gate on the same projectRepo.remove call
-      // (projects-view.tsx) — the CLI has no interactive overlay, so a TTY-gated y/N prompt
-      // (or --yes for scripts) stands in for it.
-      const confirmed = await confirmDestructive({
-        yes: opts.yes === true,
-        action: `remove project ${String(id.value)}`,
-        confirmPrompt: `remove project ${String(id.value)}? [y/N] `,
-      });
-      if (!confirmed) return;
-
-      const { deps, storage } = await bootstrapCli();
-      const result = await deps.projectRepo.remove(id.value);
-      if (!result.ok) {
-        process.stderr.write(`error: ${result.error.message}\n`);
-        process.exitCode = 1;
-        return;
-      }
-      // Clear a dangling pin: a removed project would otherwise keep resolving as the default
-      // for `project show` and re-seed the TUI on next launch. The sprint pin lives under the
-      // project, so the whole file goes (write(undefined) deletes it).
-      const store = createLastSelectionStore(storage.stateRoot);
-      const cur = await store.read();
-      if (cur?.projectId === id.value) await store.write(undefined);
-      process.stdout.write(`removed project ${String(id.value)}\n`);
-    });
+    .action(removeProjectAction);
 };
 
 const formatProjectLine = (p: Project): string => {

@@ -10,9 +10,9 @@ import { applyCriteriaVerdicts } from '@src/domain/entity/task-criteria.ts';
 import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import type { CriterionVerdict } from '@src/domain/signal.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import { type InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
-import { StorageError } from '@src/domain/value/error/storage-error.ts';
+import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 
 /**
@@ -152,8 +152,10 @@ export const settleAttemptUseCase = async (
       const message = `cannot settle task '${props.task.id}' as done: worktree${cwdHint} has uncommitted changes; the commit-task leaf must have failed or the AI wrote files after committing`;
       log.error(message, { taskId: props.task.id, verdict: props.verdict });
       return Result.error(
-        new StorageError({
-          subCode: 'io',
+        new InvalidStateError({
+          entity: 'working-tree',
+          currentState: 'dirty',
+          attemptedAction: 'settle-attempt',
           message,
           hint: 'Inspect the diff in the task worktree, fix the cause (e.g. commit-message hook, untracked files), then rerun the sprint. The task remains in_progress.',
         })

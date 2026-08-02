@@ -26,7 +26,7 @@ import type { SprintState, TaskProjection } from '@src/application/ui/tui/compon
 import type { TaskEvaluation } from '@src/application/ui/tui/components/tasks-panel-internals/evaluation-row.tsx';
 import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
 import { glyphs, spacing } from '@src/application/ui/tui/theme/tokens.ts';
-import { computeAnchoredWindow } from '@src/application/ui/tui/components/windowed-anchor.ts';
+import { computeListWindow, OverflowRow } from '@src/application/ui/tui/components/windowed-list.tsx';
 import { collectKinds, InlineKindsBar } from '@src/application/ui/tui/components/tasks-panel-internals/signal-rows.tsx';
 import { OrphanSignals, TaskBlock } from '@src/application/ui/tui/components/tasks-panel-internals/task-row.tsx';
 import { buildFlatFocusKeys } from '@src/application/ui/tui/components/tasks-panel-internals/focus-keys.ts';
@@ -419,23 +419,6 @@ const EmptyTasksPanel = (): React.JSX.Element => (
   </Box>
 );
 
-/** Dim "N more above/below" cue for the anchored card window's elided rows. */
-const HiddenCountHint = ({
-  glyph,
-  count,
-  label,
-}: {
-  readonly glyph: string;
-  readonly count: number;
-  readonly label: string;
-}): React.JSX.Element => (
-  <Box paddingX={spacing.indent}>
-    <Text dimColor>
-      {glyph} {count} {label}
-    </Text>
-  </Box>
-);
-
 export const TasksPanel = ({
   bucketed,
   maxSignalsPerTask = 8,
@@ -504,8 +487,10 @@ export const TasksPanel = ({
   const orphanSliceStart = bucketed.orphanSignals.length - Math.min(bucketed.orphanSignals.length, maxOrphanSignals);
   // Anchored card window: keep the active / focused card visible and cap the rendered card
   // count to the terminal-derived budget so the column stops growing past the viewport. Absent
-  // `maxTasks` ⇒ full range (no windowing), preserving isolated-render behaviour.
-  const taskWindow = computeAnchoredWindow(
+  // `maxTasks` ⇒ full range (no windowing), preserving isolated-render behaviour — `undefined`
+  // falls through to `bucketed.tasks.length` and `computeListWindow` itself treats a non-positive
+  // budget as "no cap" too, so an explicit `0` degrades the same way.
+  const taskWindow = computeListWindow(
     bucketed.tasks.length,
     cardState.effectiveCardCursor,
     maxTasks ?? bucketed.tasks.length
@@ -529,9 +514,7 @@ export const TasksPanel = ({
         expandedKeys={expandedKeys}
         sliceStart={orphanSliceStart}
       />
-      {taskWindow.hiddenBefore > 0 && (
-        <HiddenCountHint glyph={glyphs.moreAbove} count={taskWindow.hiddenBefore} label="more above" />
-      )}
+      <OverflowRow direction="above" count={taskWindow.hiddenAbove} label="more above" />
       {bucketed.tasks.slice(taskWindow.start, taskWindow.end).map((task, sliceIdx) => {
         // Absolute index into `bucketed.tasks` — the window slices a sub-range, but `isActive`
         // and `cardFocused` compare against absolute indices (`activeTaskIdx`,
@@ -539,9 +522,7 @@ export const TasksPanel = ({
         const idx = taskWindow.start + sliceIdx;
         return <TaskBlock key={task.id} {...buildTaskRowProps(task, idx, rest, derived)} />;
       })}
-      {taskWindow.hiddenAfter > 0 && (
-        <HiddenCountHint glyph={glyphs.moreBelow} count={taskWindow.hiddenAfter} label="more below" />
-      )}
+      <OverflowRow direction="below" count={taskWindow.hiddenBelow} label="more below" />
     </Box>
   );
 };

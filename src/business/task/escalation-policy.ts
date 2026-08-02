@@ -355,6 +355,157 @@ export interface ApplyEscalationOutput {
 }
 
 /**
+ * Everything the per-decision announcers share: the task under remedy, the originating exit kind
+ * (plus its human-readable {@link triggerLabel}), the bus / logger they narrate on, and the one
+ * timestamp + banner id the whole announcement uses so a single remedy never straddles two clock
+ * reads or two banner slots.
+ */
+interface AnnounceContext {
+  readonly task: InProgressTask;
+  readonly trigger: EscalationTrigger;
+  readonly plateauSource?: PlateauSource;
+  readonly eventBus: EventBus;
+  readonly log: Logger;
+  readonly bannerId: string;
+  readonly now: IsoTimestamp;
+  readonly cause: string;
+}
+
+/** Publish the operator banner every remedy shows, with the shared id / cause / timestamp filled in. */
+const publishBanner = (ctx: AnnounceContext, tier: 'info' | 'warn', message: string, cause = ctx.cause): void => {
+  ctx.eventBus.publish({ type: BANNER_SHOW_EVENT, id: ctx.bannerId, tier, message, cause, at: ctx.now });
+};
+
+/** A stronger model rung exists — stamp the bump on the task and narrate it. */
+const announceModelEscalation = (
+  ctx: AnnounceContext,
+  decision: Extract<EscalationDecision, { kind: 'escalate' }>
+): Result<ApplyEscalationOutput, ValidationError> => {
+  const stamped = recordTaskEscalation(ctx.task, decision.from, decision.to);
+  if (!stamped.ok) return Result.error(stamped.error);
+  ctx.eventBus.publish({
+    type: 'model-escalated',
+    taskId: String(ctx.task.id),
+    attemptN: ctx.task.attempts.length,
+    from: decision.from,
+    to: decision.to,
+    reason: ctx.trigger,
+    ...(ctx.plateauSource !== undefined ? { plateauSource: ctx.plateauSource } : {}),
+    at: ctx.now,
+  });
+  publishBanner(ctx, 'info', `escalated generator model: ${decision.from} → ${decision.to}`);
+  ctx.log.info(`escalating generator model: ${decision.from} → ${decision.to}`, {
+    taskId: String(ctx.task.id),
+    attemptN: ctx.task.attempts.length,
+    from: decision.from,
+    to: decision.to,
+    reason: ctx.trigger,
+  });
+  return Result.ok({ task: stamped.value });
+};
+
+/**
+ * Cheapest same-model remedy: raise reasoning effort on the unchanged model. No model bump, so
+ * the escalation model fields are NOT stamped (leaving them untouched keeps the same-model
+ * change-of-approach marker for the LATER nudge accurate) and no `model-escalated` event fires
+ * — the banner names the effort bump so the operator sees the remedy. The generator leaf reads
+ * the raised effort on the next attempt; this policy half only announces the decision. Neither
+ * the generator nor the evaluator model fields are stamped here — the evaluator effort stamp
+ * (when `decision.evaluator` is present) happens in the caller (finalize-gen-eval), alongside
+ * the generator's, in the same `taskRepo.update` persist.
+ */
+const announceEffortEscalation = (
+  ctx: AnnounceContext,
+  decision: Extract<EscalationDecision, { kind: 'escalate-effort' }>
+): Result<ApplyEscalationOutput, ValidationError> => {
+  const evaluatorClause =
+    decision.evaluator !== undefined ? `; evaluator effort: ${decision.evaluator.from} → ${decision.evaluator.to}` : '';
+  publishBanner(
+    ctx,
+    'info',
+    `raised generator effort on '${decision.model}': ${decision.from} → ${decision.to}${evaluatorClause}`
+  );
+  ctx.log.info(`raising generator effort on the same model: ${decision.from} → ${decision.to}`, {
+    taskId: String(ctx.task.id),
+    model: decision.model,
+    from: decision.from,
+    to: decision.to,
+    reason: ctx.trigger,
+    ...(decision.evaluator !== undefined
+      ? { evaluatorFrom: decision.evaluator.from, evaluatorTo: decision.evaluator.to }
+      : {}),
+  });
+  return Result.ok({ task: ctx.task });
+};
+
+/**
+ * Top of the in-provider ladder: no stronger model to climb to. Keep the model but grant one
+ * more attempt with a change-of-approach directive (armed in the generator via the
+ * same-model marker `escalatedFromModel === escalatedToModel`). Stamp from===to so the next
+ * failure detects the top-of-ladder nudge and returns `topped-out`. No model-escalated event —
+ * the model did not change; the banner names the nudge so the operator sees what happened.
+ */
+const announceNudge = (
+  ctx: AnnounceContext,
+  decision: Extract<EscalationDecision, { kind: 'nudge' }>
+): Result<ApplyEscalationOutput, ValidationError> => {
+  const stamped = recordTaskEscalation(ctx.task, decision.currentModel, decision.currentModel);
+  if (!stamped.ok) return Result.error(stamped.error);
+  publishBanner(
+    ctx,
+    'info',
+    `${ctx.cause} on '${decision.currentModel}' (top of ladder) — retrying with a change-of-approach directive`
+  );
+  ctx.log.info('top-of-ladder nudge: retrying on the same model with a change-of-approach directive', {
+    taskId: String(ctx.task.id),
+    currentModel: decision.currentModel,
+    reason: ctx.trigger,
+  });
+  return Result.ok({ task: stamped.value });
+};
+
+/**
+ * The generator climbed to the top of the ladder and the top-of-ladder nudge also failed.
+ * Preserve the work (done-with-warning) rather than blocking — matches the flag-off path; an
+ * escalatable exit never throws the work away. The warn banner tells the operator the ladder
+ * exhausted.
+ */
+const announceToppedOut = (
+  ctx: AnnounceContext,
+  decision: Extract<EscalationDecision, { kind: 'topped-out' }>
+): Result<ApplyEscalationOutput, ValidationError> => {
+  publishBanner(ctx, 'warn', 'ladder exhausted — keeping the work');
+  ctx.log.warn(`ladder exhausted on '${decision.model}' (${ctx.cause}); keeping the work`, {
+    taskId: String(ctx.task.id),
+    model: decision.model,
+    reason: ctx.trigger,
+  });
+  return Result.ok({ task: ctx.task });
+};
+
+/**
+ * Escalatable exit on the final allowed attempt — no attempt budget left to retry. Preserve
+ * the work.
+ */
+const announceBudgetExhausted = (
+  ctx: AnnounceContext,
+  decision: Extract<EscalationDecision, { kind: 'budget-exhausted' }>
+): Result<ApplyEscalationOutput, ValidationError> => {
+  const budget = `attempts=${String(decision.attemptsUsed)}/${String(decision.maxAttempts)}`;
+  publishBanner(ctx, 'warn', `${ctx.cause}, attempt budget exhausted — keeping the work`, budget);
+  ctx.log.warn(
+    `${ctx.cause} with attempt budget exhausted (attempts=${String(decision.attemptsUsed)}, maxAttempts=${String(decision.maxAttempts)}); keeping the work`,
+    {
+      taskId: String(ctx.task.id),
+      attemptsUsed: decision.attemptsUsed,
+      maxAttempts: decision.maxAttempts,
+      reason: ctx.trigger,
+    }
+  );
+  return Result.ok({ task: ctx.task });
+};
+
+/**
  * Side-effecting half of the policy — given a {@link decideEscalation} verdict, emit the
  * matching banner + log lines and (for the model-bump path) return the task with the escalation
  * fields stamped. The same-model effort rung (escalate-effort) announces the remedy but stamps
@@ -367,140 +518,29 @@ export interface ApplyEscalationOutput {
  */
 export const applyEscalation = (props: ApplyEscalationProps): Result<ApplyEscalationOutput, ValidationError> => {
   const { task, decision, trigger, eventBus, clock } = props;
-  const log = props.logger.named('task.escalation-policy');
-  const bannerId = escalationBannerId(String(task.id));
-  const now = clock();
-  const cause = triggerLabel(trigger);
+  const ctx: AnnounceContext = {
+    task,
+    trigger,
+    ...(props.plateauSource !== undefined ? { plateauSource: props.plateauSource } : {}),
+    eventBus,
+    log: props.logger.named('task.escalation-policy'),
+    bannerId: escalationBannerId(String(task.id)),
+    now: clock(),
+    cause: triggerLabel(trigger),
+  };
 
   switch (decision.kind) {
     case 'flag-off':
       return Result.ok({ task });
-    case 'escalate': {
-      const stamped = recordTaskEscalation(task, decision.from, decision.to);
-      if (!stamped.ok) return Result.error(stamped.error);
-      eventBus.publish({
-        type: 'model-escalated',
-        taskId: String(task.id),
-        attemptN: task.attempts.length,
-        from: decision.from,
-        to: decision.to,
-        reason: trigger,
-        ...(props.plateauSource !== undefined ? { plateauSource: props.plateauSource } : {}),
-        at: now,
-      });
-      eventBus.publish({
-        type: BANNER_SHOW_EVENT,
-        id: bannerId,
-        tier: 'info',
-        message: `escalated generator model: ${decision.from} → ${decision.to}`,
-        cause,
-        at: now,
-      });
-      log.info(`escalating generator model: ${decision.from} → ${decision.to}`, {
-        taskId: String(task.id),
-        attemptN: task.attempts.length,
-        from: decision.from,
-        to: decision.to,
-        reason: trigger,
-      });
-      return Result.ok({ task: stamped.value });
-    }
-    case 'escalate-effort': {
-      // Cheapest same-model remedy: raise reasoning effort on the unchanged model. No model bump, so
-      // the escalation model fields are NOT stamped (leaving them untouched keeps the same-model
-      // change-of-approach marker for the LATER nudge accurate) and no `model-escalated` event fires
-      // — the banner names the effort bump so the operator sees the remedy. The generator leaf reads
-      // the raised effort on the next attempt; this policy half only announces the decision. Neither
-      // the generator nor the evaluator model fields are stamped here — the evaluator effort stamp
-      // (when `decision.evaluator` is present) happens in the caller (finalize-gen-eval), alongside
-      // the generator's, in the same `taskRepo.update` persist.
-      const evaluatorClause =
-        decision.evaluator !== undefined
-          ? `; evaluator effort: ${decision.evaluator.from} → ${decision.evaluator.to}`
-          : '';
-      eventBus.publish({
-        type: BANNER_SHOW_EVENT,
-        id: bannerId,
-        tier: 'info',
-        message: `raised generator effort on '${decision.model}': ${decision.from} → ${decision.to}${evaluatorClause}`,
-        cause,
-        at: now,
-      });
-      log.info(`raising generator effort on the same model: ${decision.from} → ${decision.to}`, {
-        taskId: String(task.id),
-        model: decision.model,
-        from: decision.from,
-        to: decision.to,
-        reason: trigger,
-        ...(decision.evaluator !== undefined
-          ? { evaluatorFrom: decision.evaluator.from, evaluatorTo: decision.evaluator.to }
-          : {}),
-      });
-      return Result.ok({ task });
-    }
-    case 'nudge': {
-      // Top of the in-provider ladder: no stronger model to climb to. Keep the model but grant one
-      // more attempt with a change-of-approach directive (armed in the generator via the
-      // same-model marker `escalatedFromModel === escalatedToModel`). Stamp from===to so the next
-      // failure detects the top-of-ladder nudge and returns `topped-out`. No model-escalated event —
-      // the model did not change; the banner names the nudge so the operator sees what happened.
-      const stamped = recordTaskEscalation(task, decision.currentModel, decision.currentModel);
-      if (!stamped.ok) return Result.error(stamped.error);
-      eventBus.publish({
-        type: BANNER_SHOW_EVENT,
-        id: bannerId,
-        tier: 'info',
-        message: `${cause} on '${decision.currentModel}' (top of ladder) — retrying with a change-of-approach directive`,
-        cause,
-        at: now,
-      });
-      log.info('top-of-ladder nudge: retrying on the same model with a change-of-approach directive', {
-        taskId: String(task.id),
-        currentModel: decision.currentModel,
-        reason: trigger,
-      });
-      return Result.ok({ task: stamped.value });
-    }
-    case 'topped-out': {
-      // The generator climbed to the top of the ladder and the top-of-ladder nudge also failed.
-      // Preserve the work (done-with-warning) rather than blocking — matches the flag-off path; an
-      // escalatable exit never throws the work away. The warn banner tells the operator the ladder
-      // exhausted.
-      const message = `ladder exhausted on '${decision.model}' (${cause}); keeping the work`;
-      eventBus.publish({
-        type: BANNER_SHOW_EVENT,
-        id: bannerId,
-        tier: 'warn',
-        message: 'ladder exhausted — keeping the work',
-        cause,
-        at: now,
-      });
-      log.warn(message, {
-        taskId: String(task.id),
-        model: decision.model,
-        reason: trigger,
-      });
-      return Result.ok({ task });
-    }
-    case 'budget-exhausted': {
-      // Escalatable exit on the final allowed attempt — no attempt budget left to retry. Preserve
-      // the work.
-      const message = `${cause} with attempt budget exhausted (attempts=${String(decision.attemptsUsed)}, maxAttempts=${String(decision.maxAttempts)}); keeping the work`;
-      eventBus.publish({
-        type: BANNER_SHOW_EVENT,
-        id: bannerId,
-        tier: 'warn',
-        message: `${cause}, attempt budget exhausted — keeping the work`,
-        cause: `attempts=${String(decision.attemptsUsed)}/${String(decision.maxAttempts)}`,
-        at: now,
-      });
-      log.warn(message, {
-        taskId: String(task.id),
-        attemptsUsed: decision.attemptsUsed,
-        maxAttempts: decision.maxAttempts,
-        reason: trigger,
-      });
-      return Result.ok({ task });
-    }
+    case 'escalate':
+      return announceModelEscalation(ctx, decision);
+    case 'escalate-effort':
+      return announceEffortEscalation(ctx, decision);
+    case 'nudge':
+      return announceNudge(ctx, decision);
+    case 'topped-out':
+      return announceToppedOut(ctx, decision);
+    case 'budget-exhausted':
+      return announceBudgetExhausted(ctx, decision);
   }
 };

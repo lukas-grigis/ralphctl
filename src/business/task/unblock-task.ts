@@ -70,48 +70,105 @@ export interface UnblockTaskProps {
 
 export type UnblockTaskOutput = TodoTask;
 
+/**
+ * Reopen a `review` sprint to `active` so the implement gate re-arms now there's `todo` work.
+ * Best-effort: the unblock has already persisted by the time this runs, so a failed reopen is
+ * logged and swallowed rather than failing the operation — re-running unblock retries it.
+ */
+const reopenSprintIfReview = async (props: UnblockTaskProps, log: Logger): Promise<void> => {
+  const loaded = await props.sprintRepo.findById(props.sprintId);
+  if (!loaded.ok) {
+    log.warn('could not load sprint to reopen after unblock', {
+      sprintId: props.sprintId,
+      error: loaded.error.message,
+    });
+    return;
+  }
+  if (loaded.value.status !== 'review') return;
+  const reopened = revertSprintToActive(loaded.value, props.clock());
+  if (!reopened.ok) {
+    log.warn('could not reopen sprint after unblock', {
+      sprintId: props.sprintId,
+      error: reopened.error.message,
+    });
+    return;
+  }
+  const saved = await props.sprintRepo.save(reopened.value);
+  if (!saved.ok) {
+    log.warn('could not persist reopened sprint after unblock', {
+      sprintId: props.sprintId,
+      error: saved.error.message,
+    });
+    return;
+  }
+  log.info(`sprint '${reopened.value.slug}' reopened review → active to resume unblocked work`, {
+    sprintId: props.sprintId,
+  });
+};
+
+/** Persist only the revived task via the single-task `update` — no whole-list rewrite needed. */
+const persistPrimaryOnly = async (
+  props: UnblockTaskProps,
+  primary: TodoTask,
+  log: Logger
+): Promise<Result<UnblockTaskOutput, InvalidStateError | NotFoundError | StorageError>> => {
+  const persisted = await props.taskRepo.update(props.sprintId, primary);
+  if (!persisted.ok) {
+    log.error(PERSIST_FAILED_MSG, { taskId: primary.id, error: persisted.error.message });
+    return Result.error(persisted.error);
+  }
+  log.info(`unblocked task '${primary.name}'`, { taskId: primary.id, sprintId: props.sprintId });
+  await reopenSprintIfReview(props, log);
+  return Result.ok(primary);
+};
+
+/**
+ * Rewrite the whole task list atomically so the primary AND its re-armed upstream-blocked
+ * dependents land in one transaction.
+ */
+const persistCascade = async (
+  props: UnblockTaskProps,
+  primary: TodoTask,
+  siblings: readonly Task[],
+  dependentIds: ReadonlySet<Task['id']>,
+  log: Logger
+): Promise<Result<UnblockTaskOutput, InvalidStateError | NotFoundError | StorageError>> => {
+  const cascaded: TodoTask[] = [];
+  const nextTasks = siblings.map((t) => {
+    if (t.id === primary.id) return primary;
+    if (!dependentIds.has(t.id)) return t;
+    const reset = unblockTask(t);
+    if (!reset.ok) return t; // defensive: closure already filtered to blocked tasks
+    cascaded.push(reset.value);
+    return reset.value;
+  });
+
+  const saved = await props.taskRepo.saveAll(props.sprintId, nextTasks);
+  if (!saved.ok) {
+    log.error(PERSIST_FAILED_MSG, { taskId: primary.id, error: saved.error.message });
+    return Result.error(saved.error);
+  }
+
+  log.info(
+    `unblocked task '${primary.name}' (+${String(cascaded.length)} upstream dependent${cascaded.length === 1 ? '' : 's'} re-armed)`,
+    {
+      taskId: primary.id,
+      sprintId: props.sprintId,
+      cascaded: cascaded.map((t) => String(t.id)),
+    }
+  );
+  await reopenSprintIfReview(props, log);
+  return Result.ok(primary);
+};
+
 export const unblockTaskUseCase = async (
   props: UnblockTaskProps
 ): Promise<Result<UnblockTaskOutput, InvalidStateError | NotFoundError | StorageError>> => {
   const log = props.logger.named('task.unblock');
 
-  // Reopen a `review` sprint to `active` so the implement gate re-arms now there's `todo` work.
-  // Best-effort: the unblock has already persisted by the time this runs, so a failed reopen is
-  // logged and swallowed rather than failing the operation — re-running unblock retries it.
-  const reopenSprintIfReview = async (): Promise<void> => {
-    const loaded = await props.sprintRepo.findById(props.sprintId);
-    if (!loaded.ok) {
-      log.warn('could not load sprint to reopen after unblock', {
-        sprintId: props.sprintId,
-        error: loaded.error.message,
-      });
-      return;
-    }
-    if (loaded.value.status !== 'review') return;
-    const reopened = revertSprintToActive(loaded.value, props.clock());
-    if (!reopened.ok) {
-      log.warn('could not reopen sprint after unblock', {
-        sprintId: props.sprintId,
-        error: reopened.error.message,
-      });
-      return;
-    }
-    const saved = await props.sprintRepo.save(reopened.value);
-    if (!saved.ok) {
-      log.warn('could not persist reopened sprint after unblock', {
-        sprintId: props.sprintId,
-        error: saved.error.message,
-      });
-      return;
-    }
-    log.info(`sprint '${reopened.value.slug}' reopened review → active to resume unblocked work`, {
-      sprintId: props.sprintId,
-    });
-  };
-
   if (props.task.status === 'todo') {
     log.debug('already todo, skipping task transition', { taskId: props.task.id, sprintId: props.sprintId });
-    await reopenSprintIfReview();
+    await reopenSprintIfReview(props, log);
     return Result.ok(props.task);
   }
 
@@ -139,57 +196,12 @@ export const unblockTaskUseCase = async (
       taskId: primary.id,
       error: all.error.message,
     });
-    const persisted = await props.taskRepo.update(props.sprintId, primary);
-    if (!persisted.ok) {
-      log.error(PERSIST_FAILED_MSG, { taskId: primary.id, error: persisted.error.message });
-      return Result.error(persisted.error);
-    }
-    log.info(`unblocked task '${primary.name}'`, { taskId: primary.id, sprintId: props.sprintId });
-    await reopenSprintIfReview();
-    return Result.ok(primary);
+    return persistPrimaryOnly(props, primary, log);
   }
 
   const dependentIds = new Set(upstreamBlockedDependents(all.value, primary.id));
+  // Common case — no upstream-blocked dependents to re-arm.
+  if (dependentIds.size === 0) return persistPrimaryOnly(props, primary, log);
 
-  // Common case — no upstream-blocked dependents to re-arm. Persist just the primary via the
-  // single-task `update` (no need to rewrite the whole list).
-  if (dependentIds.size === 0) {
-    const persisted = await props.taskRepo.update(props.sprintId, primary);
-    if (!persisted.ok) {
-      log.error(PERSIST_FAILED_MSG, { taskId: primary.id, error: persisted.error.message });
-      return Result.error(persisted.error);
-    }
-    log.info(`unblocked task '${primary.name}'`, { taskId: primary.id, sprintId: props.sprintId });
-    await reopenSprintIfReview();
-    return Result.ok(primary);
-  }
-
-  // Cascade — rewrite the whole task list atomically so the primary AND its re-armed dependents
-  // land in one transaction.
-  const cascaded: TodoTask[] = [];
-  const nextTasks = all.value.map((t) => {
-    if (t.id === primary.id) return primary;
-    if (!dependentIds.has(t.id)) return t;
-    const reset = unblockTask(t);
-    if (!reset.ok) return t; // defensive: closure already filtered to blocked tasks
-    cascaded.push(reset.value);
-    return reset.value;
-  });
-
-  const saved = await props.taskRepo.saveAll(props.sprintId, nextTasks);
-  if (!saved.ok) {
-    log.error(PERSIST_FAILED_MSG, { taskId: primary.id, error: saved.error.message });
-    return Result.error(saved.error);
-  }
-
-  log.info(
-    `unblocked task '${primary.name}' (+${String(cascaded.length)} upstream dependent${cascaded.length === 1 ? '' : 's'} re-armed)`,
-    {
-      taskId: primary.id,
-      sprintId: props.sprintId,
-      cascaded: cascaded.map((t) => String(t.id)),
-    }
-  );
-  await reopenSprintIfReview();
-  return Result.ok(primary);
+  return persistCascade(props, primary, all.value, dependentIds, log);
 };

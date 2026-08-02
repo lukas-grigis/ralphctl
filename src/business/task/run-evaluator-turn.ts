@@ -149,8 +149,6 @@ const resolveCritique = (evaluation: EvaluationSignal): string | undefined => {
   return synthesized.length > 0 ? synthesized : undefined;
 };
 
-type TurnResult = Result<RunEvaluatorTurnOutput, DomainError>;
-
 /**
  * Handle a `callEvaluate` failure. Fatal errors (user abort, rate-limit-after-retries) must
  * abort the whole run — propagate. Everything else is a recoverable signals-contract failure:
@@ -158,7 +156,11 @@ type TurnResult = Result<RunEvaluatorTurnOutput, DomainError>;
  * marked-done ungraded — commit is gated on no block reason). Routing to `malformed` instead
  * would mark the change done.
  */
-const handleEvaluateFailure = (err: DomainError, task: InProgressTask, log: Logger): TurnResult => {
+const handleEvaluateFailure = (
+  err: DomainError,
+  task: InProgressTask,
+  log: Logger
+): Result<RunEvaluatorTurnOutput, DomainError> => {
   if (!isRecoverableTurnError(err)) {
     log.error('evaluate call failed (fatal — propagating)', { taskId: task.id, error: err.message });
     return Result.error(err);
@@ -178,7 +180,7 @@ const handleTerminalStatus = (
   evaluation: EvaluationSignal,
   task: InProgressTask,
   log: Logger
-): TurnResult | undefined => {
+): Result<RunEvaluatorTurnOutput, DomainError> | undefined => {
   if (evaluation.status === 'passed') {
     log.info('evaluator passed the attempt', { taskId: task.id });
     return Result.ok({ task, evaluation, exit: { kind: 'passed' } });
@@ -229,7 +231,7 @@ const finishContinuing = (
   turnRecord: PlateauTurnRecord,
   log: Logger,
   announce: boolean
-): TurnResult => {
+): Result<RunEvaluatorTurnOutput, DomainError> => {
   if (critique !== undefined && critique.trim().length > 0) {
     const recordedCritique = recordRunningAttemptCritique(task, critique);
     if (!recordedCritique.ok) {
@@ -263,7 +265,7 @@ const handleWarningVerdict = (
   turnRecord: PlateauTurnRecord,
   evaluation: EvaluationSignal,
   log: Logger
-): TurnResult => {
+): Result<RunEvaluatorTurnOutput, DomainError> => {
   // Soft variant of the count-based detector — stamp the same source the hard exit carries, so
   // done-with-warning attempts feed the per-detector audit too.
   const warned = recordRunningAttemptWarning(task, {
@@ -284,7 +286,9 @@ const handleWarningVerdict = (
   return finishContinuing(warned.value, evaluation, critique, turnRecord, log, false);
 };
 
-export const runEvaluatorTurnUseCase = async (props: RunEvaluatorTurnProps): Promise<TurnResult> => {
+export const runEvaluatorTurnUseCase = async (
+  props: RunEvaluatorTurnProps
+): Promise<Result<RunEvaluatorTurnOutput, DomainError>> => {
   const log = props.logger.named('task.evaluator-turn');
   log.debug('running evaluator turn', { taskId: props.task.id });
 

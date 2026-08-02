@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { ChildProcess } from 'node:child_process';
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
@@ -7,16 +7,10 @@ import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
 import { createInteractiveClaudeProvider } from '@src/integration/ai/providers/claude/interactive.ts';
 import type { InteractiveSpawn } from '@src/integration/ai/providers/_engine/interactive-spawn.ts';
 
-// `SUSPENDED_MODELS` ships empty (see suspended-models.ts) — mock it so the suspended-model
-// regression test below (interactive adapters used to skip this check entirely, unlike the
-// headless adapters) can exercise the guard without waiting for a real suspension incident.
-// Every OTHER test in this file spawns `CLAUDE_MODELS[0]`, so the mock targets `CLAUDE_MODELS[1]`
-// exclusively to avoid perturbing them.
-vi.mock('@src/domain/value/settings-models/suspended-models.ts', () => ({
-  isSuspendedModel: (s: string) => s === CLAUDE_MODELS[1],
-  suspendedModelMessage: (m: string) =>
-    `'${m}' is temporarily suspended by its provider — pick another model until access is restored`,
-}));
+// The session skeleton this adapter delegates to — model validation, prompt-file reads, spawn
+// failures, abort precedence, the exit-code branch, the session-id sidechannel — is covered once
+// in tests/integration/ai/providers/_engine/run-interactive-session.test.ts. What stays here is
+// the part that is genuinely Claude-specific: the argv it builds.
 
 interface CapturingSpawnState {
   readonly spawn: InteractiveSpawn;
@@ -56,7 +50,7 @@ const OUTPUT_FILE = absolutePath('/tmp/claude-output.md');
 const CWD = absolutePath('/tmp/claude-interactive-cwd');
 
 describe('createInteractiveClaudeProvider', () => {
-  it('rejects an unknown model with InvalidStateError', async () => {
+  it('rejects a model outside the Claude catalog with InvalidStateError', async () => {
     const cap = createCapturingBus();
     const { spawn } = makeSpawn();
     const provider = createInteractiveClaudeProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
@@ -70,41 +64,7 @@ describe('createInteractiveClaudeProvider', () => {
     if (r.ok) return;
     expect(r.error.code).toBe('invalid-state');
     expect(r.error.message).toContain("'gpt-5'");
-  });
-
-  it('rejects a suspended-but-catalog-known model with InvalidStateError, without spawning — the headless adapter enforces this guard and interactive must match', async () => {
-    const cap = createCapturingBus();
-    const { spawn, calls } = makeSpawn();
-    const provider = createInteractiveClaudeProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
-    const r = await provider.run({
-      cwd: CWD,
-      promptFile: PROMPT_FILE,
-      outputFile: OUTPUT_FILE,
-      model: CLAUDE_MODELS[1]!,
-    });
-    expect(r.ok).toBe(false);
-    if (r.ok) return;
-    expect(r.error.code).toBe('invalid-state');
-    expect(r.error.message).toContain('temporarily suspended');
-    expect(calls).toHaveLength(0);
-  });
-
-  it('returns StorageError when the prompt file cannot be read', async () => {
-    const cap = createCapturingBus();
-    const { spawn } = makeSpawn();
-    const failRead = (): Promise<string> => Promise.reject(new Error('ENOENT: no such file'));
-    const provider = createInteractiveClaudeProvider({ eventBus: cap.bus, spawn, readFile: failRead });
-
-    const r = await provider.run({
-      cwd: CWD,
-      promptFile: PROMPT_FILE,
-      outputFile: OUTPUT_FILE,
-      model: CLAUDE_MODELS[0]!,
-    });
-    expect(r.ok).toBe(false);
-    if (r.ok) return;
-    expect(r.error.code).toBe('storage-error');
-    expect(r.error.message).toContain('failed to read prompt file');
+    expect(r.error.message).toContain('Claude model');
   });
 
   it('spawns claude directly (no bash wrapper) and passes prompt content as positional arg', async () => {
@@ -126,20 +86,55 @@ describe('createInteractiveClaudeProvider', () => {
     // No bash wrapper — command is claude directly.
     expect(calls[0]!.command).toBe('claude');
     const args = calls[0]!.args;
+    expect(args).toContain('--model');
+    expect(args).toContain(CLAUDE_MODELS[0]!);
     // --permission-mode and prompt content are present as raw argv elements.
     expect(args).toContain('--permission-mode');
     expect(args).toContain('acceptEdits');
     expect(args).toContain(STUB_PROMPT);
+    // The prompt is the trailing positional so claude reads it as the opening message.
+    expect(args.at(-1)).toBe(STUB_PROMPT);
     // No -lc / bash remnants.
     expect(args).not.toContain('-lc');
     expect(args).not.toContain('bash');
+    expect(calls[0]!.cwd).toBe(String(CWD));
+  });
+
+  it('forwards the resolved effort as --effort <level>, and omits the flag when unset', async () => {
+    const cap = createCapturingBus();
+    const { spawn, calls, emitExit } = makeSpawn();
+    const provider = createInteractiveClaudeProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
+
+    const withEffort = provider.run({
+      cwd: CWD,
+      promptFile: PROMPT_FILE,
+      outputFile: OUTPUT_FILE,
+      model: CLAUDE_MODELS[0]!,
+      effort: 'high',
+    });
+    emitExit(0);
+    await withEffort;
+
+    const args = calls[0]!.args;
+    const effortIndex = args.indexOf('--effort');
+    expect(effortIndex).toBeGreaterThanOrEqual(0);
+    expect(args[effortIndex + 1]).toBe('high');
+
+    const withoutEffort = provider.run({
+      cwd: CWD,
+      promptFile: PROMPT_FILE,
+      outputFile: OUTPUT_FILE,
+      model: CLAUDE_MODELS[0]!,
+    });
+    emitExit(0);
+    await withoutEffort;
+    expect(calls[1]!.args).not.toContain('--effort');
   });
 
   it('auto-mounts dirname(outputFile) and dirname(promptFile) so framework-controlled writes never prompt', async () => {
-    // This is the bug fix: the user was hit by "Create file?" prompts inside refine because
-    // the output file lives under `~/.ralphctl/data/sprints/…` (outside the project cwd)
-    // and `acceptEdits` only auto-approves writes inside `--add-dir` roots. The adapter
-    // now mounts the prompt/output dirs unconditionally.
+    // The output file lives under `~/.ralphctl/data/sprints/…` (outside the project cwd) and
+    // `acceptEdits` only auto-approves writes inside `--add-dir` roots, so without mounting the
+    // prompt / output dirs the user is hit by "Create file?" prompts mid-refine.
     const cap = createCapturingBus();
     const { spawn, calls, emitExit } = makeSpawn();
     const provider = createInteractiveClaudeProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
@@ -155,8 +150,6 @@ describe('createInteractiveClaudeProvider', () => {
     const result = await runPromise;
     expect(result.ok).toBe(true);
 
-    expect(calls).toHaveLength(1);
-    expect(calls[0]!.command).toBe('claude');
     const args = calls[0]!.args;
     // Flat argv: --add-dir followed by the path value.
     expect(args).toContain('--add-dir');
@@ -193,10 +186,15 @@ describe('createInteractiveClaudeProvider', () => {
     expect(cwdHits).toHaveLength(1);
   });
 
-  it('returns InvalidStateError when the session exits non-zero', async () => {
+  it('passes a pre-generated session id via --session-id <uuid>', async () => {
     const cap = createCapturingBus();
-    const { spawn, emitExit } = makeSpawn();
-    const provider = createInteractiveClaudeProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
+    const { spawn, calls, emitExit } = makeSpawn();
+    const provider = createInteractiveClaudeProvider({
+      eventBus: cap.bus,
+      spawn,
+      readFile: stubReadFile,
+      newSessionId: () => 'fixed-session-id',
+    });
 
     const runPromise = provider.run({
       cwd: CWD,
@@ -204,36 +202,12 @@ describe('createInteractiveClaudeProvider', () => {
       outputFile: OUTPUT_FILE,
       model: CLAUDE_MODELS[0]!,
     });
-    emitExit(7);
-    const result = await runPromise;
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error.code).toBe('invalid-state');
-    expect(result.error.message).toContain('code 7');
-  });
+    emitExit(0);
+    await runPromise;
 
-  it('returns AbortError (not InvalidStateError) when aborted before a non-zero exit', async () => {
-    // A TUI cancel fires: attachAbortKill SIGTERMs the stdio-inherit child, which exits non-zero.
-    // The adapter must classify this as AbortError (the one error chains propagate transparently),
-    // NOT the generic session-exit InvalidStateError a downstream guard could catch and continue.
-    const cap = createCapturingBus();
-    const { spawn, emitExit } = makeSpawn();
-    const provider = createInteractiveClaudeProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
-    const controller = new AbortController();
-
-    const runPromise = provider.run({
-      cwd: CWD,
-      promptFile: PROMPT_FILE,
-      outputFile: OUTPUT_FILE,
-      model: CLAUDE_MODELS[0]!,
-      abortSignal: controller.signal,
-    });
-    controller.abort();
-    emitExit(143);
-    const result = await runPromise;
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error.code).toBe('aborted');
-    expect(result.error.name).toBe('AbortError');
+    const args = calls[0]!.args;
+    const sidIndex = args.indexOf('--session-id');
+    expect(sidIndex).toBeGreaterThanOrEqual(0);
+    expect(args[sidIndex + 1]).toBe('fixed-session-id');
   });
 });

@@ -6,7 +6,7 @@ import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/h
 import { RATE_LIMIT_SCAN_TAIL_CAP } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
 import { isRecord, numberField, stringField } from '@src/integration/ai/providers/_engine/json-field.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
-import type { CodexProviderDeps } from '@src/integration/ai/providers/_engine/codex-provider-deps.ts';
+import type { CodexProviderDeps } from '@src/integration/ai/providers/_engine/headless-provider-deps.ts';
 import { resolveWritableRoots } from '@src/integration/ai/providers/_engine/resolve-roots.ts';
 import type { SessionPermissions } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
@@ -16,7 +16,11 @@ import { isCodexModel } from '@src/domain/value/settings-models/codex.ts';
 import { validateModel } from '@src/integration/ai/providers/_engine/validate-model.ts';
 import { type ProviderSpawn, defaultProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import { DEFAULT_RATE_LIMIT_RE } from '@src/integration/ai/providers/_engine/classify-spawn-exit.ts';
-import { truncateField } from '@src/integration/ai/providers/_engine/truncate-debug-field.ts';
+import {
+  publishAssistantEvent,
+  publishToolResultEvent,
+  publishToolUseEvent,
+} from '@src/integration/ai/providers/_engine/stream-debug-events.ts';
 import type { AttemptOutcome } from '@src/integration/ai/providers/_engine/attempt-outcome.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import {
@@ -290,66 +294,26 @@ const consumeMetaLines = (
 
 /** `item.completed` / `item.type === 'agent_message'` → one `assistant` debug event. */
 const publishAgentMessageEvent = (eventBus: EventBus, item: Record<string, unknown>): void => {
-  const text = truncateField(stringField(item, 'text'));
-  if (text === undefined) return;
-  eventBus.publish({
-    type: 'log',
-    level: 'debug',
-    message: 'codex-provider: assistant',
-    meta: { text },
-    at: IsoTimestamp.now(),
-  });
+  publishAssistantEvent(eventBus, PROVIDER_NAME, stringField(item, 'text'));
 };
 
 /** `item.completed` / `item.type === 'command_execution'` → one `tool_use` debug event. */
 const publishCommandExecutionEvent = (eventBus: EventBus, item: Record<string, unknown>): void => {
-  const args = truncateField(stringField(item, 'command'));
-  eventBus.publish({
-    type: 'log',
-    level: 'debug',
-    message: 'codex-provider: tool_use',
-    meta: {
-      tool: 'command_execution',
-      ...(args !== undefined ? { args } : {}),
-    },
-    at: IsoTimestamp.now(),
-  });
+  publishToolUseEvent(eventBus, PROVIDER_NAME, 'command_execution', stringField(item, 'command'));
 };
 
 /** `item.completed` / `item.type === 'function_call'` → one `tool_use` debug event. */
 const publishFunctionCallEvent = (eventBus: EventBus, item: Record<string, unknown>): void => {
-  const tool = stringField(item, 'name') ?? '';
   const rawArgs = item['arguments'];
   const argsPreview = typeof rawArgs === 'string' ? rawArgs : safeJson(rawArgs);
-  const args = truncateField(argsPreview);
-  eventBus.publish({
-    type: 'log',
-    level: 'debug',
-    message: 'codex-provider: tool_use',
-    meta: {
-      tool,
-      ...(args !== undefined ? { args } : {}),
-    },
-    at: IsoTimestamp.now(),
-  });
+  publishToolUseEvent(eventBus, PROVIDER_NAME, stringField(item, 'name') ?? '', argsPreview);
 };
 
 /** `item.completed` / `item.type === 'function_call_output'` → one `tool_result` debug event. */
 const publishFunctionCallOutputEvent = (eventBus: EventBus, item: Record<string, unknown>): void => {
   const tool = stringField(item, 'name') ?? stringField(item, 'call_id') ?? '';
   const status = item['is_error'] === true || stringField(item, 'status') === 'error' ? 'error' : 'ok';
-  const preview = truncateField(stringField(item, 'output'));
-  eventBus.publish({
-    type: 'log',
-    level: 'debug',
-    message: 'codex-provider: tool_result',
-    meta: {
-      tool,
-      status,
-      ...(preview !== undefined ? { preview } : {}),
-    },
-    at: IsoTimestamp.now(),
-  });
+  publishToolResultEvent(eventBus, PROVIDER_NAME, tool, status, stringField(item, 'output'));
 };
 
 /**

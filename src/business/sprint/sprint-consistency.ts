@@ -3,7 +3,7 @@ import type { Project } from '@src/domain/entity/project.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import type { Task } from '@src/domain/entity/task.ts';
-import { type TaskGraphIssue, validateTaskGraph } from '@src/domain/entity/task-graph.ts';
+import { renderTaskGraphIssue, type TaskGraphIssue, validateTaskGraph } from '@src/domain/entity/task-graph.ts';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 
 export interface SprintConsistencyInput {
@@ -77,3 +77,14 @@ export const validateSprintConsistency = (
 
   return validateTaskGraph(tasks);
 };
+
+/**
+ * Render either half of {@link validateSprintConsistency}'s two-shaped error channel as one
+ * human-readable line: a referential-integrity fault carries its own message, a graph fault goes
+ * through the canonical {@link renderTaskGraphIssue} phrasing so both producers and consumers of
+ * a graph issue keep saying the same thing.
+ *
+ * @public
+ */
+export const renderSprintConsistencyIssue = (issue: ValidationError | TaskGraphIssue): string =>
+  issue instanceof ValidationError ? issue.message : renderTaskGraphIssue(issue);

@@ -34,6 +34,12 @@ export const glyphs = {
   actionCursor: '▸',
   selectMarker: '›',
   bullet: '·',
+  // Disclosure carets for collapsible rows (Tasks-panel commit-message rows today).
+  // Right-pointing → collapsed, down-pointing → expanded — folded in from the stray
+  // `COLLAPSED_DISCLOSURE` / `EXPANDED_DISCLOSURE` pair that used to live next to
+  // `tasks-panel-internals/format.ts`'s other formatting helpers.
+  disclosureCollapsed: '▸',
+  disclosureExpanded: '▾',
   // Filled circle for the gen-eval busy indicator — the small `bullet` reads as a separator,
   // so the busy role needs a heavier dot to register as an activity affordance. Common-Unicode;
   // renders on vt220-class emulators.
@@ -143,6 +149,44 @@ export const fluid = (
   columns: number,
   opts: { readonly min: number; readonly max: number; readonly ratio: number }
 ): number => Math.min(opts.max, Math.max(opts.min, Math.floor(columns * opts.ratio)));
+
+/**
+ * Default vertical chrome a windowed-list view reserves outside the list itself: the
+ * `ViewShell` header (banner + breadcrumb), the `StatusBanner` / `PromptHost` slots (collapsed
+ * when empty, but budgeted for so a banner popping up doesn't shove the list off-screen), and
+ * the footer `StatusBar` rule + hint row. Individual views commonly add their own chrome on top
+ * (a section stamp, a summary line, a footer hint) — pass an explicit `chromeRows` to
+ * {@link listCapacity} to account for it; this default is the shared floor every view pays.
+ */
+export const LIST_CHROME_ROWS = 12;
+
+/**
+ * Visible-row (or visible-card) budget for a windowed list, derived from the terminal height.
+ * Generalises the `Math.max(min, terminalRows - chrome)` arithmetic every windowed view used to
+ * repeat with its own locally-scoped chrome constant (the sprint picker's `VERTICAL_CHROME_ROWS`
+ * / `MIN_VISIBLE_ROWS` pair, now retired in favour of this one helper).
+ *
+ * `rowHeight` generalises the calculation to multi-line rows (e.g. a card-based list where each
+ * item spans several terminal lines) — defaults to `1` for the common single-line-per-row case.
+ * `chromeRows` defaults to {@link LIST_CHROME_ROWS}; pass an override when a view's own chrome
+ * (section stamp, summary line, footer hint, …) differs from the shared floor. `max` is optional
+ * — omit it for a list that should keep growing with the terminal.
+ */
+export const listCapacity = (
+  rows: number,
+  opts: {
+    readonly rowHeight?: number;
+    readonly chromeRows?: number;
+    readonly min: number;
+    readonly max?: number;
+  }
+): number => {
+  const rowHeight = opts.rowHeight ?? 1;
+  const chromeRows = opts.chromeRows ?? LIST_CHROME_ROWS;
+  const available = Math.floor(Math.max(0, rows - chromeRows) / rowHeight);
+  const floored = Math.max(opts.min, available);
+  return opts.max !== undefined ? Math.min(opts.max, floored) : floored;
+};
 
 /**
  * Pick a value per breakpoint. Falls through to smaller breakpoints when the active one isn't

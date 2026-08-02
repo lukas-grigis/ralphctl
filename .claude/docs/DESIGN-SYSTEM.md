@@ -53,17 +53,19 @@ Rules:
 
 Canonical set. If a view needs a symbol not in this list, **add it to `glyphs` first** (and document it here).
 
-| Group           | Tokens                                                                                |
-| --------------- | ------------------------------------------------------------------------------------- |
-| Phase / status  | `phaseDone ■`, `phaseActive ◆`, `phasePending ◇`, `phaseDisabled ◌`                   |
-| Cursors         | `actionCursor ▸`, `selectMarker ›`                                                    |
-| Section markers | `badge ▣`, `sectionRule ━`                                                            |
-| State           | `check ✓`, `cross ✗`, `warningGlyph ⚠`, `infoGlyph i`, `modified ✎`                   |
-| Bullets         | `bullet ·`, `inlineDot ·`, `emDash —`, `arrowRight →`, `activityArrow ↳`, `refresh ↻` |
-| Separators      | `pipe │`                                                                              |
-| Motion          | `spinner` (braille frames `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`)                                               |
-| Clip markers    | `clipEllipsis …`, `collapseExpand ▼ more`                                             |
-| Personality     | `quoteRail ┃`                                                                         |
+| Group           | Tokens                                                                                               |
+| --------------- | ---------------------------------------------------------------------------------------------------- |
+| Phase / status  | `phaseDone ■`, `phaseActive ◆`, `phasePending ◇`, `phaseDisabled ◌`                                  |
+| Cursors         | `actionCursor ▸`, `selectMarker ›`                                                                   |
+| Disclosure      | `disclosureCollapsed ▸`, `disclosureExpanded ▾` (collapsible rows, e.g. Tasks-panel commit messages) |
+| Section markers | `badge ▣`, `sectionRule ━`                                                                           |
+| State           | `check ✓`, `cross ✗`, `warningGlyph ⚠`, `infoGlyph i`, `modified ✎`                                  |
+| Bullets         | `bullet ·`, `inlineDot ·`, `emDash —`, `arrowRight →`, `activityArrow ↳`, `refresh ↻`                |
+| Separators      | `pipe │`                                                                                             |
+| Motion          | `spinner` (braille frames `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`)                                                              |
+| Clip markers    | `clipEllipsis …`, `collapseExpand ▼ more`                                                            |
+| Overflow cues   | `moreAbove ▴`, `moreBelow ▾` (windowed-list `OverflowRow` "N more" rows)                             |
+| Personality     | `quoteRail ┃`                                                                                        |
 
 Do not mix glyph families (no `✔` from one set and `✓` from another). No emoji in TUI surfaces.
 
@@ -127,6 +129,14 @@ All terminal-width decisions use the named breakpoints exported from `src/applic
   Use for numeric widths that should grow proportionally but never overwhelm or vanish.
 - `responsive<T>(columns, { sm, md?, lg?, xl?, xxl? }): T` — picks the value for the active breakpoint,
   falling through to the next smaller specified value. `sm` is required as the floor.
+- `listCapacity(rows, { rowHeight?, chromeRows?, min, max? }): number` — the row-count counterpart to
+  `fluid`, for windowed lists. Computes `floor(max(0, rows - chromeRows) / rowHeight)`, floored at `min`
+  and (if supplied) capped at `max`. `chromeRows` defaults to `LIST_CHROME_ROWS` (12 — the `ViewShell`
+  header + `StatusBanner` + `PromptHost` + footer stack every view pays); pass an explicit `chromeRows`
+  when a view's own chrome (section stamp, summary line, footer hint, …) adds more. `rowHeight` defaults
+  to `1`; set it higher for a card-based list whose rows span several terminal lines. Replaces the
+  per-view `Math.max(min, terminalRows - ownChromeConstant)` idiom (the sprint picker used to hand-roll
+  this as `VERTICAL_CHROME_ROWS` / `MIN_VISIBLE_ROWS`).
 
 **React hook**: `useBreakpoint(): { breakpoint, columns, rows, atLeast(target) }` — re-derives on every
 `SIGWINCH`, so layouts react cleanly on terminal resize. Import from
@@ -195,7 +205,8 @@ the same job.
 | `StatusChip`     | `[DRAFT]` / `[ACTIVE]` / `[REVIEW]` / `[DONE]` bracketed tag.                                                                                                                                                                                                                                    |
 | `Spinner`        | Braille-frame loading indicator with trailing label.                                                                                                                                                                                                                                             |
 | `EmptyState`     | "Nothing here yet" surface with optional next-step pointer.                                                                                                                                                                                                                                      |
-| `OverflowRow`    | `▴ N more` / `▾ N more` cue row emitted by `WindowedList` when items are clipped above or below the visible window.                                                                                                                                                                              |
+| `OverflowRow`    | `▴ N more` / `▾ N more` cue row emitted by `WindowedList` when items are clipped above or below the visible window. Optional `label` overrides the trailing word (default `more`) for a caller with its own copy.                                                                                |
+| `AsyncListFrame` | Owns the `overlay → loading → error → empty → children` ladder for a `useAsyncLoad`-backed view (`async-list-frame.tsx`). Reuses `LoadingRow` / `LoadErrorRow`; pass an `EmptyState` as `empty`. First consumer: the sprint picker's `PickerBody`.                                               |
 | `Divider`        | Horizontal rule.                                                                                                                                                                                                                                                                                 |
 | `ScrollRegion`   | Scrollable viewport with PgUp/PgDn.                                                                                                                                                                                                                                                              |
 | `PipelineMap`    | Home phase map (refine → plan → implement → close).                                                                                                                                                                                                                                              |

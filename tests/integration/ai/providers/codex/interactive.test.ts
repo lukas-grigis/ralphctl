@@ -7,6 +7,11 @@ import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
 import { createInteractiveCodexProvider } from '@src/integration/ai/providers/codex/interactive.ts';
 import type { InteractiveSpawn } from '@src/integration/ai/providers/_engine/interactive-spawn.ts';
 
+// The session skeleton this adapter delegates to — model validation, prompt-file reads, spawn
+// failures, abort precedence, the exit-code branch — is covered once in
+// tests/integration/ai/providers/_engine/run-interactive-session.test.ts. What stays here is the
+// part that is genuinely Codex-specific: the argv it builds.
+
 interface CapturingSpawnState {
   readonly spawn: InteractiveSpawn;
   readonly calls: ReadonlyArray<{ readonly command: string; readonly args: readonly string[]; readonly cwd: string }>;
@@ -45,7 +50,7 @@ const OUTPUT_FILE = absolutePath('/tmp/codex-output.md');
 const CWD = absolutePath('/tmp/codex-interactive-cwd');
 
 describe('createInteractiveCodexProvider', () => {
-  it('rejects an unknown model with InvalidStateError', async () => {
+  it('rejects a model outside the Codex catalog with InvalidStateError', async () => {
     const cap = createCapturingBus();
     const { spawn } = makeSpawn();
     const provider = createInteractiveCodexProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
@@ -54,24 +59,7 @@ describe('createInteractiveCodexProvider', () => {
     if (r.ok) return;
     expect(r.error.code).toBe('invalid-state');
     expect(r.error.message).toContain("'gpt-4.1'");
-  });
-
-  it('returns StorageError when the prompt file cannot be read', async () => {
-    const cap = createCapturingBus();
-    const { spawn } = makeSpawn();
-    const failRead = (): Promise<string> => Promise.reject(new Error('ENOENT'));
-    const provider = createInteractiveCodexProvider({ eventBus: cap.bus, spawn, readFile: failRead });
-
-    const r = await provider.run({
-      cwd: CWD,
-      promptFile: PROMPT_FILE,
-      outputFile: OUTPUT_FILE,
-      model: CODEX_MODELS[0]!,
-    });
-    expect(r.ok).toBe(false);
-    if (r.ok) return;
-    expect(r.error.code).toBe('storage-error');
-    expect(r.error.message).toContain('failed to read prompt file');
+    expect(r.error.message).toContain('Codex model');
   });
 
   it('spawns codex directly (no bash wrapper) with --cd, --add-dir, -s, -a, and prompt content', async () => {
@@ -102,9 +90,41 @@ describe('createInteractiveCodexProvider', () => {
     expect(args).toContain('-a');
     expect(args).toContain('never');
     expect(args).toContain(STUB_PROMPT);
+    expect(args.at(-1)).toBe(STUB_PROMPT);
     // No bash remnants.
     expect(args).not.toContain('-lc');
     expect(calls[0]!.cwd).toBe(String(CWD));
+  });
+
+  it('forwards the resolved effort as -c model_reasoning_effort=<level>, and omits it when unset', async () => {
+    const cap = createCapturingBus();
+    const { spawn, calls, emitExit } = makeSpawn();
+    const provider = createInteractiveCodexProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
+
+    const withEffort = provider.run({
+      cwd: CWD,
+      promptFile: PROMPT_FILE,
+      outputFile: OUTPUT_FILE,
+      model: CODEX_MODELS[0]!,
+      effort: 'xhigh',
+    });
+    emitExit(0);
+    await withEffort;
+
+    const args = calls[0]!.args;
+    const cIndex = args.indexOf('-c');
+    expect(cIndex).toBeGreaterThanOrEqual(0);
+    expect(args[cIndex + 1]).toBe('model_reasoning_effort=xhigh');
+
+    const withoutEffort = provider.run({
+      cwd: CWD,
+      promptFile: PROMPT_FILE,
+      outputFile: OUTPUT_FILE,
+      model: CODEX_MODELS[0]!,
+    });
+    emitExit(0);
+    await withoutEffort;
+    expect(calls[1]!.args).not.toContain('-c');
   });
 
   it('emits --add-dir for cwd, every additionalRoot, and the prompt / output dirs (deduped)', async () => {
@@ -137,9 +157,9 @@ describe('createInteractiveCodexProvider', () => {
     expect(addDirCount).toBe(4); // cwd + repoA + repoB + /tmp (deduped prompt/output dir)
   });
 
-  it('returns InvalidStateError when the session exits non-zero', async () => {
+  it('leaves sessionId unset — codex accepts no harness-supplied id at launch', async () => {
     const cap = createCapturingBus();
-    const { spawn, emitExit } = makeSpawn();
+    const { spawn, calls, emitExit } = makeSpawn();
     const provider = createInteractiveCodexProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
 
     const runPromise = provider.run({
@@ -148,36 +168,11 @@ describe('createInteractiveCodexProvider', () => {
       outputFile: OUTPUT_FILE,
       model: CODEX_MODELS[0]!,
     });
-    emitExit(2);
+    emitExit(0);
     const result = await runPromise;
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error.code).toBe('invalid-state');
-    expect(result.error.message).toContain('exited with code 2');
-  });
-
-  it('returns AbortError (not InvalidStateError) when aborted before a non-zero exit', async () => {
-    // A TUI cancel fires: attachAbortKill SIGTERMs the stdio-inherit child, which exits non-zero.
-    // The adapter must classify this as AbortError (the one error chains propagate transparently),
-    // NOT the generic session-exit InvalidStateError a downstream guard could catch and continue.
-    const cap = createCapturingBus();
-    const { spawn, emitExit } = makeSpawn();
-    const provider = createInteractiveCodexProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
-    const controller = new AbortController();
-
-    const runPromise = provider.run({
-      cwd: CWD,
-      promptFile: PROMPT_FILE,
-      outputFile: OUTPUT_FILE,
-      model: CODEX_MODELS[0]!,
-      abortSignal: controller.signal,
-    });
-    controller.abort();
-    emitExit(130);
-    const result = await runPromise;
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error.code).toBe('aborted');
-    expect(result.error.name).toBe('AbortError');
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.sessionId).toBeUndefined();
+    expect(calls[0]!.args).not.toContain('--session-id');
   });
 });

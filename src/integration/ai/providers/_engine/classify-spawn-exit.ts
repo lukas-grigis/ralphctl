@@ -24,8 +24,8 @@ export const DEFAULT_RATE_LIMIT_RE = /rate.?limit|quota|\b429\b/i;
  * presence of `signals.json`, and decides whether the attempt is a success, a rate-limit
  * retry, an aborted operation, or a hard failure.
  *
- * Why centralise: the same five-step decision tree was implicit (and partially wrong) in
- * every adapter. Two bugs surfaced that this helper fixes:
+ * Why centralise: the same decision tree was implicit (and partially wrong) in every adapter.
+ * Two bugs surfaced that this helper fixes:
  *
  *  1. **Audit-[09] violation.** The contract says `signals.json` is authoritative — the AI
  *     writes it directly via its `Write` tool, the harness validates it post-spawn. The
@@ -61,11 +61,11 @@ export const DEFAULT_RATE_LIMIT_RE = /rate.?limit|quota|\b429\b/i;
  *
  * **Retryable crash vs. non-retryable config error.** Two failure branches surface a
  * `ProcessCrashError` (a TRANSIENT process death worth retrying within the attempt budget):
- * step 2 (spawn-failed — the child never ran) and step 7 (non-zero exit with no signals.json —
- * the idle-stdout watchdog SIGTERM shape). Both let the harness re-run the generator and only
- * block once `maxAttempts` is exhausted. Step 5 (model-unavailable) deliberately stays an
- * `InvalidStateError`: a model-availability failure is a CONFIG error, so retrying just burns the
- * whole budget on the same misconfiguration — it must keep blocking after one attempt.
+ * spawn-failed (the child never ran) and non-zero exit with no signals.json (the idle-stdout
+ * watchdog SIGTERM shape). Both let the harness re-run the generator and only block once
+ * `maxAttempts` is exhausted. Model-unavailable deliberately stays an `InvalidStateError`: a
+ * model-availability failure is a CONFIG error, so retrying just burns the whole budget on the
+ * same misconfiguration — it must keep blocking after one attempt.
  */
 export type ProviderName = 'claude-provider' | 'codex-provider' | 'copilot-provider';
 
@@ -131,22 +131,24 @@ export interface ClassifySpawnExitInput {
   readonly onSuccess: () => AttemptOutcome | Promise<AttemptOutcome>;
 }
 
-export const classifySpawnExit = async (input: ClassifySpawnExitInput): Promise<AttemptOutcome> => {
-  const {
-    session,
-    exit,
-    stderr,
-    rateLimitRe,
-    stdoutTail,
-    capturedSessionId,
-    providerName,
-    eventBus,
-    watchdogBannerId,
-    onSuccess,
-  } = input;
+/** Shared `code=N (signal=S): <stderr tail>` prefix used by both non-zero-exit failure shapes. */
+const exitSummary = (exit: ClassifySpawnExitInput['exit'], stderr: string): string =>
+  `process exited with code ${String(exit.code)}${exit.signal !== null ? ` (signal=${exit.signal})` : ''}: ${stderr.trim() || '<empty stderr>'}`;
 
-  // 1. Abort precedence. A user cancel that races a clean exit still surfaces as
-  // AbortError so the chain runner can propagate it transparently per CLAUDE.md §267.
+/**
+ * The two branches that are decided BEFORE the exit code is even looked at. Returns `undefined`
+ * when neither applies and the ladder should continue. Pure and synchronous.
+ *
+ *  - **Abort.** A user cancel that races a clean exit still surfaces as `AbortError` so the
+ *    chain runner can propagate it transparently per the AbortError rule.
+ *  - **Spawn error.** The child never ran — a missing / non-executable binary (ENOENT / EACCES)
+ *    or a death before stdin drained. Without this the unhandled `'error'` event would have
+ *    killed the whole process; `runHeadlessSpawn` captured it so a typed, actionable failure
+ *    surfaces instead. Classified as a RETRYABLE `ProcessCrash` (distinct from the
+ *    model-unavailable config error): a spawn that died transiently is worth re-running within
+ *    the attempt budget rather than blocking after one attempt.
+ */
+const classifyPreExit = ({ session, exit, providerName }: ClassifySpawnExitInput): AttemptOutcome | undefined => {
   if (session.abortSignal?.aborted === true) {
     return {
       kind: 'error',
@@ -157,12 +159,6 @@ export const classifySpawnExit = async (input: ClassifySpawnExitInput): Promise<
     };
   }
 
-  // 2. Spawn error precedence (before any exit-code branch). The child never ran — a missing /
-  // non-executable binary (ENOENT / EACCES) or a death before stdin drained. Without this the
-  // unhandled `'error'` event would have killed the whole process; runHeadlessSpawn captured it
-  // so we surface a typed, actionable failure instead. Classified as a RETRYABLE `ProcessCrash`
-  // (distinct from step 5's non-retryable config error): a spawn that died transiently is worth
-  // re-running within the attempt budget rather than blocking after one attempt.
   if (exit.spawnError !== undefined) {
     const errno = exit.spawnError.code ?? exit.spawnError.name;
     return {
@@ -176,14 +172,40 @@ export const classifySpawnExit = async (input: ClassifySpawnExitInput): Promise<
     };
   }
 
-  // 3. Clean exit — adapter's own success block owns the data plumbing.
-  if (exit.code === 0) {
-    return await onSuccess();
-  }
+  return undefined;
+};
 
-  // 4. Rate-limit — backoff/retry takes precedence over signals-recovery. Scan stderr AND any
-  // provider-parsed stdout error body: claude's stream-json mode reports quota in stdout, not
-  // stderr, so a stderr-only scan misses the most common real-world throttle.
+/**
+ * The two non-zero-exit branches that BEAT signals-recovery. Returns `undefined` when neither
+ * applies and the exit should fall through to recovery. Pure and synchronous.
+ *
+ *  - **Rate-limit** wins over recovery because backoff/retry is the right response even if a
+ *    partial `signals.json` from a previous attempt happens to be on disk. The haystack is
+ *    stderr PLUS any provider-parsed stdout error body: claude's stream-json mode reports quota
+ *    in stdout, not stderr, so a stderr-only scan misses the most common real-world throttle.
+ *  - **Model unavailable** is a configuration failure, not recoverable work. It wins over
+ *    recovery because a model-not-available exit means the run never produced valid work for
+ *    this model; a stale signals.json must not mask the real cause. The actionable hint is
+ *    folded into `.message` (not just the separate `.hint` field) so it survives unchanged
+ *    through `run-generator-turn`'s blockedReason string and into the TUI without touching the
+ *    render layer.
+ *
+ *    **stderr ONLY (unlike rate-limit).** All three provider CLIs report model-availability
+ *    errors on stderr. Scanning `stdoutTail` here would be a false-positive hazard: stdoutTail
+ *    carries assistant-generated task output (Claude envelope body / Copilot event text / Codex
+ *    agent message), where benign phrases like "the model is not available in TensorFlow" or
+ *    "the model checkpoint was not found" appear in NORMAL responses and would be misclassified
+ *    as a config failure. The rate-limit branch legitimately needs stdoutTail (claude reports
+ *    quota in its stream-json result envelope); model-availability has no such stdout-only case.
+ */
+const classifyFailureExit = ({
+  exit,
+  stderr,
+  rateLimitRe,
+  stdoutTail,
+  capturedSessionId,
+  providerName,
+}: ClassifySpawnExitInput): AttemptOutcome | undefined => {
   const rateLimitHaystack = stdoutTail !== undefined ? `${stderr}\n${stdoutTail}` : stderr;
   if (rateLimitRe.test(rateLimitHaystack)) {
     return {
@@ -196,19 +218,6 @@ export const classifySpawnExit = async (input: ClassifySpawnExitInput): Promise<
     };
   }
 
-  // 5. Model unavailable — a configuration failure, not recoverable work. It wins over
-  // signals-recovery because a model-not-available exit means the run never produced valid work
-  // for this model; a stale signals.json must not mask the real cause. The actionable hint is
-  // folded into `.message` (not just the separate `.hint` field) so it survives unchanged through
-  // `run-generator-turn`'s blockedReason string and into the TUI without touching the render layer.
-  //
-  // **stderr ONLY (unlike rate-limit).** All three provider CLIs report model-availability errors
-  // on stderr. Scanning `stdoutTail` here would be a false-positive hazard: stdoutTail carries
-  // assistant-generated task output (Claude envelope body / Copilot event text / Codex agent
-  // message), where benign phrases like "the model is not available in TensorFlow" or "the model
-  // checkpoint was not found" appear in NORMAL responses and would be misclassified as a config
-  // failure. The rate-limit branch above legitimately needs stdoutTail (claude reports quota in
-  // its stream-json result envelope); model-availability has no such stdout-only case.
   if (MODEL_UNAVAILABLE_RE.test(stderr)) {
     const hint = 'model not available — it may not be on your plan or CLI version; pick another model in settings';
     return {
@@ -217,52 +226,86 @@ export const classifySpawnExit = async (input: ClassifySpawnExitInput): Promise<
         entity: providerName,
         currentState: `exit-${String(exit.code ?? 'null')}`,
         attemptedAction: 'complete generation',
-        message: `${providerName}: process exited with code ${String(exit.code)}${exit.signal !== null ? ` (signal=${exit.signal})` : ''}: ${stderr.trim() || '<empty stderr>'} — ${hint}`,
+        message: `${providerName}: ${exitSummary(exit, stderr)} — ${hint}`,
         hint,
       }),
     };
   }
 
-  // 6. Recovery — audit-[09]: signals.json is authoritative. Existence-check only; the
-  // downstream validator catches malformed content.
+  return undefined;
+};
+
+/**
+ * The tail of the ladder, and the only branch that touches the filesystem.
+ *
+ *  - **Recovery** — signals.json is authoritative, so a non-zero exit with the envelope on disk
+ *    preserves the work: the watchdog banner is cleared, the adapter's own success block runs,
+ *    and `recoveredFromExit` is spliced in so the caller can tell it apart from a clean exit.
+ *    Existence-check only; the downstream validator catches malformed content.
+ *  - **Hard fail** — non-zero exit with no signals.json. This is the
+ *    watchdog-SIGTERM-before-signals shape (idle-stdout kill of a wedged child): a TRANSIENT
+ *    process death worth retrying, so it surfaces a RETRYABLE `ProcessCrash` (distinct from the
+ *    non-retryable model-unavailable config error). The message text is unchanged from the
+ *    historical per-adapter exit-N shape so logs / progress read the same.
+ */
+const recoverOrCrash = async ({
+  session,
+  exit,
+  stderr,
+  providerName,
+  eventBus,
+  watchdogBannerId,
+  onSuccess,
+}: ClassifySpawnExitInput): Promise<AttemptOutcome> => {
   const exists = await pathExists(String(session.signalsFile));
-  if (exists.ok && exists.value) {
-    eventBus.publish({
-      type: 'log',
-      level: 'warn',
-      message: `${providerName}: non-zero exit (code=${String(exit.code)}, signal=${String(exit.signal ?? 'null')}) but signals.json captured — preserving work`,
-      meta: { code: exit.code, signal: exit.signal, providerName },
-      at: IsoTimestamp.now(),
-    });
-    eventBus.publish({
-      type: 'banner-clear',
-      id: watchdogBannerId,
-      at: IsoTimestamp.now(),
-    });
-    const outcome = await onSuccess();
-    if (outcome.kind === 'success') {
-      return {
-        kind: 'success',
-        output: {
-          ...outcome.output,
-          recoveredFromExit: { code: exit.code, signal: exit.signal },
-        },
-      };
-    }
-    return outcome;
+  if (!exists.ok || !exists.value) {
+    return {
+      kind: 'error',
+      error: new ProcessCrashError({
+        entity: providerName,
+        state: `exit-${String(exit.code ?? 'null')}`,
+        message: `${providerName}: ${exitSummary(exit, stderr)}`,
+      }),
+    };
   }
 
-  // 7. Hard fail — non-zero exit with no signals.json. This is the watchdog-SIGTERM-before-signals
-  // shape (idle-stdout kill of a wedged child): a TRANSIENT process death worth retrying, so it
-  // surfaces a RETRYABLE `ProcessCrash` (distinct from step 5's non-retryable config error). The
-  // message text is unchanged from the historical per-adapter exit-N shape so logs / progress read
-  // the same (exit code + signal + stderr tail).
+  eventBus.publish({
+    type: 'log',
+    level: 'warn',
+    message: `${providerName}: non-zero exit (code=${String(exit.code)}, signal=${String(exit.signal ?? 'null')}) but signals.json captured — preserving work`,
+    meta: { code: exit.code, signal: exit.signal, providerName },
+    at: IsoTimestamp.now(),
+  });
+  eventBus.publish({
+    type: 'banner-clear',
+    id: watchdogBannerId,
+    at: IsoTimestamp.now(),
+  });
+
+  const outcome = await onSuccess();
+  if (outcome.kind !== 'success') return outcome;
   return {
-    kind: 'error',
-    error: new ProcessCrashError({
-      entity: providerName,
-      state: `exit-${String(exit.code ?? 'null')}`,
-      message: `${providerName}: process exited with code ${String(exit.code)}${exit.signal !== null ? ` (signal=${exit.signal})` : ''}: ${stderr.trim() || '<empty stderr>'}`,
-    }),
+    kind: 'success',
+    output: {
+      ...outcome.output,
+      recoveredFromExit: { code: exit.code, signal: exit.signal },
+    },
   };
+};
+
+/**
+ * The precedence ladder, in order: the two pre-exit branches (abort, spawn error) beat everything;
+ * a clean exit hands straight to the adapter's success block; the two failure branches
+ * (rate-limit, model unavailable) beat signals-recovery; everything else recovers-or-crashes.
+ */
+export const classifySpawnExit = async (input: ClassifySpawnExitInput): Promise<AttemptOutcome> => {
+  const preExit = classifyPreExit(input);
+  if (preExit !== undefined) return preExit;
+
+  if (input.exit.code === 0) return await input.onSuccess();
+
+  const failure = classifyFailureExit(input);
+  if (failure !== undefined) return failure;
+
+  return await recoverOrCrash(input);
 };
