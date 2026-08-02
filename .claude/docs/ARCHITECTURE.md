@@ -397,9 +397,11 @@ interface FlowManifest {
 ```
 
 `FlowTriggers` declares the conjunction of conditions that gate a flow: `requiresProject`,
-`currentSprintStatus`, `minPendingTickets`, `minApprovedTickets`, `minResumableTasks`. Empty triggers means
-"always available". The TUI evaluates triggers against the current session state to enable / disable menu
-entries and surface a human-readable hint when a flow isn't ready.
+`currentSprintStatus` (optionally paired with a flow-owned `currentSprintStatusHint` sentence),
+`minPendingTickets`, `minApprovedTickets`, `minResumableTasks`. Empty triggers means "always available". The
+TUI evaluates triggers against the current session state (`evaluateTriggers` in `registry-triggers.ts`) to
+enable / disable menu entries; the disabled hint is the manifest's own `currentSprintStatusHint` when the
+flow declares one, falling back to a generated sentence naming the allowed statuses otherwise.
 
 Concrete flow factories live next to the manifest in each flow folder (`src/application/flows/<flow>/`) and
 are imported by the launcher (`application/ui/shared/launch/<flow>.ts`) or the CLI command
@@ -563,7 +565,7 @@ and the non-obvious mutators.
   planner's per-task grading rubric beyond the five floor dimensions (Correctness / Completeness / Safety /
   Consistency / Robustness — single-sourced from `src/integration/ai/evaluation/_engine/floor-dimensions.ts`). Optional `maxAttempts` overrides the global cap. Optional `escalatedFromModel` /
   `escalatedToModel` are stamped on first plateau-escalation.
-- **`TaskEpisode`** (`src/domain/repository/episode/episode-types.ts`) — an in-memory value type (no
+- **`TaskEpisode`** (`src/domain/entity/task-episode.ts`) — an in-memory value type (no
   on-disk persistence in this release) capturing the outcome of one settled task: `taskId`, `sprintId`,
   `goal`, `outcome` (`success | partial | blocked | abandoned`), `keyLearnings`, `timestamp`. Derived
   in-memory from settled siblings by `composeTaskEpisodes` (`business/task/`) and rendered to a compact

@@ -9,14 +9,10 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Box, Text, useInput } from 'ink';
+import { Text, useInput } from 'ink';
 import { ViewShell } from '@src/application/ui/tui/components/view-shell.tsx';
-import { Card } from '@src/application/ui/tui/components/card.tsx';
-import { FieldList } from '@src/application/ui/tui/components/field-list.tsx';
 import { LoadErrorRow, LoadingRow } from '@src/application/ui/tui/components/async-rows.tsx';
-import { FeedbackLine } from '@src/application/ui/tui/components/feedback-line.tsx';
 import { ConfirmCard } from '@src/application/ui/tui/components/confirm-card.tsx';
-import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { type Project, removeRepository, setProjectDisplayName, updateRepository } from '@src/domain/entity/project.ts';
 import type { Repository } from '@src/domain/entity/repository.ts';
 import { setRepositorySetupScript, setRepositoryVerifyScript } from '@src/domain/entity/repository.ts';
@@ -41,13 +37,14 @@ import { openFlowSession } from '@src/application/ui/tui/runtime/open-flow-sessi
 import { launchFlow } from '@src/application/ui/shared/launcher.ts';
 import { loadAppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
+import { Body } from '@src/application/ui/tui/views/project-detail-internals/field-groups.tsx';
 
 interface ProjectDetailProps extends Readonly<Record<string, unknown>> {
   readonly projectId: ProjectId;
 }
 
 type RepoFieldKey = 'name' | 'setupScript' | 'verifyScript';
-type Field =
+export type Field =
   | { readonly kind: 'project'; readonly field: 'displayName' }
   | { readonly kind: 'repo'; readonly field: RepoFieldKey; readonly repo: Repository };
 
@@ -486,90 +483,4 @@ const removeRepoFromProject = async (
   const saved = await projectRepo.save(updated.value);
   if (!saved.ok) return { ok: false, error: saved.error.message };
   return { ok: true };
-};
-
-interface BodyProps {
-  readonly project: Project;
-  readonly focused: Field | undefined;
-  readonly feedback: string | undefined;
-}
-
-/** Wrap a field value with the action-cursor glyph + primary color when focused. Mirrors the
- *  pattern from settings-view.tsx so the focus signal stays consistent across detail views. */
-const focusable = (focused: boolean, node: React.ReactNode): React.ReactNode => (
-  <Text {...(focused ? { color: inkColors.primary } : {})} bold={focused}>
-    {focused ? `${glyphs.actionCursor} ` : '  '}
-    {node}
-  </Text>
-);
-
-const noneText = (
-  <Text dimColor italic>
-    (none)
-  </Text>
-);
-
-interface RepoCardProps {
-  readonly repo: Repository;
-  readonly focused: Field | undefined;
-}
-
-const RepoCard = ({ repo, focused }: RepoCardProps): React.JSX.Element => {
-  const repoFocused = focused?.kind === 'repo' && focused.repo.id === repo.id;
-  const nameFocused = repoFocused && focused.field === 'name';
-  const setupFocused = repoFocused && focused.field === 'setupScript';
-  const verifyFocused = repoFocused && focused.field === 'verifyScript';
-  return (
-    <Box
-      flexDirection="column"
-      borderStyle="round"
-      borderColor={inkColors.rule}
-      paddingX={spacing.cardPadX}
-      marginTop={spacing.section}
-    >
-      <Text bold {...(nameFocused ? { color: inkColors.primary } : {})}>
-        {nameFocused ? `${glyphs.actionCursor} ` : '  '}
-        {repo.name} <Text dimColor>({repo.slug})</Text>
-      </Text>
-      <FieldList
-        fields={[
-          { label: 'Path', value: <Text dimColor>{repo.path}</Text> },
-          { label: 'Setup', value: focusable(setupFocused, repo.setupScript ?? noneText) },
-          { label: 'Verify', value: focusable(verifyFocused, repo.verifyScript ?? noneText) },
-        ]}
-      />
-    </Box>
-  );
-};
-
-const Body = ({ project, focused, feedback }: BodyProps): React.JSX.Element => {
-  const projectNameFocused = focused?.kind === 'project';
-  return (
-    <Box flexDirection="column">
-      <Card title="Project" tone="primary">
-        <FieldList
-          fields={[
-            {
-              label: 'Name',
-              value: focusable(projectNameFocused, <Text bold>{project.displayName}</Text>),
-            },
-            { label: 'Slug', value: project.slug },
-            { label: 'Id', value: <Text dimColor>{project.id}</Text> },
-            ...(project.description !== undefined ? [{ label: 'Description', value: project.description }] : []),
-            { label: 'Repositories', value: String(project.repositories.length) },
-          ]}
-        />
-      </Card>
-      <Box marginTop={spacing.section} flexDirection="column">
-        <Text bold>{glyphs.badge} Repositories</Text>
-        {project.repositories.map((repo) => (
-          <RepoCard key={repo.id} repo={repo} focused={focused} />
-        ))}
-        {/* Key affordances are published through the router's hint strip (`useViewHints`), the
-            single source of truth that gates the repo-only `d`/`c`/`S` chords on the focused row.
-            An inline duplicate would re-advertise them ungated and contradict the gate. */}
-        <FeedbackLine text={feedback} />
-      </Box>
-    </Box>
-  );
 };
