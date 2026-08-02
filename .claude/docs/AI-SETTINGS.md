@@ -17,7 +17,10 @@ provider's native vocabulary.
 
 **Effort resolution** at every AI-spawning leaf (`src/business/settings/resolve-effort.ts`): per-flow
 `ai.<flow>.effort` wins; otherwise the global `ai.effort` floored to the row's provider ceiling;
-otherwise the provider CLI's default. Codex accepts `low..ultra` — from the **global** value, `max` floors
+otherwise, for `plan` and `ideate` only, a shipped default of `high` (floored to the row's provider
+ceiling) — deliberately the lowest-precedence layer, below the global default, so an operator who has
+set `ai.effort` keeps that deliberate choice untouched; otherwise the provider CLI's default. Codex
+accepts `low..ultra` — from the **global** value, `max` floors
 to `xhigh` (only the GPT-5.6 family accepts `max`); `ultra` (sol/terra-only, plan-gated) is reachable only
 via an explicit per-flow effort; `minimal` no longer exists — persisted rows migrate to `low` at parse
 time. The implement generator's resolved effort also feeds the escalation policy's same-model effort rung,

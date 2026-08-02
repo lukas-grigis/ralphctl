@@ -17,9 +17,26 @@ const withPerFlowEffort = (flow: 'refine' | 'plan' | 'readiness' | 'ideate', eff
 });
 
 describe('resolveEffort', () => {
-  it('returns undefined when neither per-flow nor global effort is set', () => {
+  it('resolves plan and ideate to the shipped high default when neither the row nor the global effort is set', () => {
+    expect(resolveEffort('plan', DEFAULT_SETTINGS)).toBe('high');
+    expect(resolveEffort('ideate', DEFAULT_SETTINGS)).toBe('high');
+  });
+
+  it('leaves every other flow resolving to undefined when neither the row nor the global effort is set', () => {
     expect(resolveEffort('refine', DEFAULT_SETTINGS)).toBeUndefined();
-    expect(resolveEffort('plan', DEFAULT_SETTINGS)).toBeUndefined();
+    expect(resolveEffort('readiness', DEFAULT_SETTINGS)).toBeUndefined();
+    expect(resolveEffort('createPr', DEFAULT_SETTINGS)).toBeUndefined();
+    expect(resolveEffort('implement', DEFAULT_SETTINGS)).toBeUndefined();
+  });
+
+  it('an explicit global effort wins over the new plan/ideate flow default', () => {
+    expect(resolveEffort('plan', withGlobalEffort('low'))).toBe('low');
+    expect(resolveEffort('ideate', withGlobalEffort('medium'))).toBe('medium');
+  });
+
+  it('an explicit per-flow row effort wins over the new plan/ideate flow default', () => {
+    expect(resolveEffort('plan', withPerFlowEffort('plan', 'low'))).toBe('low');
+    expect(resolveEffort('ideate', withPerFlowEffort('ideate', 'medium'))).toBe('medium');
   });
 
   it('returns the per-flow value when set, ignoring the global', () => {

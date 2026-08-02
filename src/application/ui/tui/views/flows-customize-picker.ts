@@ -158,8 +158,8 @@ const defaultRowFor = (flowId: string, settings: Settings): AiFlowSettings | und
 
 const labelKeepDefault = (value: string | undefined): string => `Keep default (${value ?? 'unset'})`;
 
-const formatRow = (row: AiFlowSettings, globalEffort: Settings['ai']['effort']): string => {
-  const resolved = resolveEffortForRow(row, globalEffort);
+const formatRow = (row: AiFlowSettings, globalEffort: Settings['ai']['effort'], flow: FlowId): string => {
+  const resolved = resolveEffortForRow(row, globalEffort, flow);
   return `${row.provider} / ${row.model} / ${resolved ?? 'auto'}`;
 };
 
@@ -263,10 +263,11 @@ const pickEffortStep = async (
   globalEffort: Settings['ai']['effort'],
   effectiveProvider: AiProvider,
   providerChanged: boolean,
-  modelChanged: boolean
+  modelChanged: boolean,
+  flow: FlowId
 ): Promise<string | undefined> => {
   const effortCatalog = PROVIDER_EFFORT_LEVELS[effectiveProvider];
-  const resolvedRowEffort = resolveEffortForRow(defaultRow, globalEffort);
+  const resolvedRowEffort = resolveEffortForRow(defaultRow, globalEffort, flow);
   const effortDefaultLabel = computeEffortDefaultLabel(
     defaultRow,
     globalEffort,
@@ -314,7 +315,8 @@ const customizeRow = async (
   header: string,
   defaultRow: AiFlowSettings,
   globalEffort: Settings['ai']['effort'],
-  availableModelsFor: ((provider: AiProvider) => Promise<readonly string[]>) | undefined
+  availableModelsFor: ((provider: AiProvider) => Promise<readonly string[]>) | undefined,
+  flow: FlowId
 ): Promise<NonNullable<LaunchExtras['override']> | undefined> => {
   const providerStep = await pickProviderStep(interactive, header, defaultRow);
   if (providerStep === undefined) return undefined;
@@ -338,7 +340,8 @@ const customizeRow = async (
     globalEffort,
     effectiveProvider,
     providerChanged,
-    modelChanged
+    modelChanged,
+    flow
   );
   if (effortValue === undefined) return undefined;
 
@@ -377,10 +380,10 @@ export interface RunCustomizePickerArgs {
  * current defaults are. For implement we render both gen and eval; for everything else we
  * render the single resolved row.
  */
-const buildPickerHeader = (flowId: string, flowTitle: string, settings: Settings): string =>
+const buildPickerHeader = (flowId: string, flowTitle: string, settings: Settings, aiFlow: FlowId): string =>
   flowId === 'implement'
-    ? `${flowTitle} — current defaults:\n  generator: ${formatRow(settings.ai.implement.generator, settings.ai.effort)}\n  evaluator: ${formatRow(settings.ai.implement.evaluator, settings.ai.effort)}`
-    : `${flowTitle} — current default: ${formatRow(defaultRowFor(flowId, settings)!, settings.ai.effort)}`;
+    ? `${flowTitle} — current defaults:\n  generator: ${formatRow(settings.ai.implement.generator, settings.ai.effort, aiFlow)}\n  evaluator: ${formatRow(settings.ai.implement.evaluator, settings.ai.effort, aiFlow)}`
+    : `${flowTitle} — current default: ${formatRow(defaultRowFor(flowId, settings)!, settings.ai.effort, aiFlow)}`;
 
 /** Human label for a skill candidate's origin, shown next to its name in the skills checklist. */
 const originLabel = (origin: SkillCandidate['origin']): string => {
@@ -501,7 +504,8 @@ const runImplementCustomize = async (
   flowTitle: string,
   settings: Settings,
   availableModelsFor: ((provider: AiProvider) => Promise<readonly string[]>) | undefined,
-  skillsStepInput: SkillsStepInput
+  skillsStepInput: SkillsStepInput,
+  aiFlow: FlowId
 ): Promise<CustomizePickerResult> => {
   const roles: readonly AiImplementRole[] = ['generator', 'evaluator'];
   const collected: {
@@ -511,7 +515,7 @@ const runImplementCustomize = async (
   for (const role of roles) {
     const row = role === 'generator' ? settings.ai.implement.generator : settings.ai.implement.evaluator;
     const roleHeader = `${header}\n\nRole: ${role}`;
-    const result = await customizeRow(interactive, roleHeader, row, settings.ai.effort, availableModelsFor);
+    const result = await customizeRow(interactive, roleHeader, row, settings.ai.effort, availableModelsFor, aiFlow);
     if (result === undefined) return { kind: 'cancel' };
     if (Object.keys(result).length > 0) collected[role] = result;
   }
@@ -552,11 +556,12 @@ const runSingleRowCustomize = async (
   flowTitle: string,
   settings: Settings,
   availableModelsFor: ((provider: AiProvider) => Promise<readonly string[]>) | undefined,
-  skillsStepInput: SkillsStepInput
+  skillsStepInput: SkillsStepInput,
+  aiFlow: FlowId
 ): Promise<CustomizePickerResult> => {
   const defaultRow = defaultRowFor(flowId, settings);
   if (defaultRow === undefined) return { kind: 'defaults' };
-  const override = await customizeRow(interactive, header, defaultRow, settings.ai.effort, availableModelsFor);
+  const override = await customizeRow(interactive, header, defaultRow, settings.ai.effort, availableModelsFor, aiFlow);
   if (override === undefined) return { kind: 'cancel' };
 
   const candidates = await effectiveSkillCandidates(
@@ -595,7 +600,7 @@ export const runCustomizePicker = async ({
   const aiFlow = aiFlowIdForPicker(flowId);
   if (aiFlow === undefined) return { kind: 'defaults' };
 
-  const header = buildPickerHeader(flowId, flowTitle, settings);
+  const header = buildPickerHeader(flowId, flowTitle, settings, aiFlow);
 
   const action = await interactive.askChoice<'start' | 'customize' | 'cancel'>(
     `${header}\n\nWhat would you like to do?`,
@@ -613,8 +618,17 @@ export const runCustomizePicker = async ({
     ...(rebuildSkillCandidates !== undefined ? { rebuild: rebuildSkillCandidates } : {}),
   };
   if (flowId === 'implement') {
-    return runImplementCustomize(interactive, header, flowTitle, settings, availableModelsFor, skillsStepInput);
+    return runImplementCustomize(interactive, header, flowTitle, settings, availableModelsFor, skillsStepInput, aiFlow);
   }
 
-  return runSingleRowCustomize(interactive, header, flowId, flowTitle, settings, availableModelsFor, skillsStepInput);
+  return runSingleRowCustomize(
+    interactive,
+    header,
+    flowId,
+    flowTitle,
+    settings,
+    availableModelsFor,
+    skillsStepInput,
+    aiFlow
+  );
 };
