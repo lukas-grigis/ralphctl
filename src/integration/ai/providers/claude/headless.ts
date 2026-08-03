@@ -2,17 +2,20 @@ import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import { isRecord } from '@src/integration/ai/providers/_engine/json-field.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
-import type { ClaudeProviderDeps } from '@src/integration/ai/providers/_engine/claude-provider-deps.ts';
+import type { HeadlessProviderDeps } from '@src/integration/ai/providers/_engine/headless-provider-deps.ts';
 import { resolveWritableRoots } from '@src/integration/ai/providers/_engine/resolve-roots.ts';
 import type { SessionPermissions } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
-import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { isClaudeModel } from '@src/domain/value/settings-models/claude.ts';
 import { validateModel } from '@src/integration/ai/providers/_engine/validate-model.ts';
 import { createClaudeStreamParser } from '@src/integration/ai/providers/claude/parse-stream.ts';
 import type { ClaudeStreamLine } from '@src/integration/ai/providers/_engine/claude-stream.ts';
 import { type ProviderSpawn, defaultProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
-import { truncateField } from '@src/integration/ai/providers/_engine/truncate-debug-field.ts';
+import {
+  publishAssistantEvent,
+  publishToolResultEvent,
+  publishToolUseEvent,
+} from '@src/integration/ai/providers/_engine/stream-debug-events.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import {
   createHeadlessProvider,
@@ -67,8 +70,8 @@ import {
  * Docs: https://code.claude.com/docs/en/cli-reference (`--model`, `--add-dir`,
  * `--permission-mode`, `--output-format`, `--resume`).
  *
- * Composition-root inputs ({@link ClaudeProviderDeps}) live in `_engine/` so the contract is
- * a port, not an implementation detail of this file.
+ * Composition-root inputs ({@link HeadlessProviderDeps}) live in `_engine/` so the contract is
+ * a port shared with the sibling adapters, not an implementation detail of this file.
  */
 
 /**
@@ -127,25 +130,69 @@ const previewToolResult = (content: unknown): string | undefined => {
   return undefined;
 };
 
+interface ClaudeToolUse {
+  readonly name: string;
+  readonly input: unknown;
+}
+
+interface AssistantBlocks {
+  readonly texts: readonly string[];
+  readonly toolUses: readonly ClaudeToolUse[];
+}
+
 /**
- * Per-line debug publisher. Inspects Claude's stream-json envelope and fans out one
- * `{ type: 'log', level: 'debug' }` event per recognised content block:
+ * Split one assistant line's `message.content[]` into its `text` blocks and its `tool_use`
+ * blocks in stream order. Pure — every unrecognised or malformed block is skipped.
+ */
+const collectAssistantBlocks = (content: readonly unknown[]): AssistantBlocks => {
+  const texts: string[] = [];
+  const toolUses: ClaudeToolUse[] = [];
+  for (const block of content) {
+    if (!isRecord(block)) continue;
+    const blockType = asString(block['type']);
+    if (blockType === 'text') {
+      const t = asString(block['text']);
+      if (t !== undefined) texts.push(t);
+    } else if (blockType === 'tool_use') {
+      toolUses.push({ name: asString(block['name']) ?? '', input: block['input'] });
+    }
+  }
+  return { texts, toolUses };
+};
+
+/**
+ * One `assistant` event whose `meta.text` is the concatenation of every `text` block on the line,
+ * plus one `tool_use` event per nested tool call (`args` omitted when the call carries no input).
+ */
+const publishAssistantLine = (eventBus: EventBus, content: readonly unknown[]): void => {
+  const { texts, toolUses } = collectAssistantBlocks(content);
+  publishAssistantEvent(eventBus, PROVIDER_NAME, texts.join('\n'));
+  for (const tool of toolUses) {
+    publishToolUseEvent(eventBus, PROVIDER_NAME, tool.name, previewArgs(tool.input));
+  }
+};
+
+/** One `tool_result` event per `tool_result` block on a `type:"user"` line. */
+const publishToolResults = (eventBus: EventBus, content: readonly unknown[]): void => {
+  for (const block of content) {
+    if (!isRecord(block)) continue;
+    if (asString(block['type']) !== 'tool_result') continue;
+    const tool = asString(block['name']) ?? asString(block['tool_use_id']) ?? '';
+    const status = block['is_error'] === true ? 'error' : 'ok';
+    publishToolResultEvent(eventBus, PROVIDER_NAME, tool, status, previewToolResult(block['content']));
+  }
+};
+
+/**
+ * Per-line debug publisher. Unwraps Claude's stream-json envelope and dispatches the two
+ * content-bearing line types to the emitters above:
  *
- *  - `type:"assistant"` lines: emit ONE `claude-provider: assistant` event whose `meta.text` is
- *    the concatenation of every `text` block in `message.content[]`, truncated to 120 chars.
- *    Tool-use blocks nested in the same line each surface as their own `tool_use` event with
- *    `{ tool: <name>, args: <truncated JSON preview> }` (the `args` key is omitted when the
- *    block carries no input — matches the contract "omit args when none").
- *  - `type:"user"` lines: emit one `tool_result` event per `tool_result` content block, with
- *    `{ tool: <name | tool_use_id>, status: 'ok' | 'error', preview: <truncated content> }`.
+ *  - `type:"assistant"` → one `assistant` event plus one `tool_use` event per tool call.
+ *  - `type:"user"` → one `tool_result` event per result block.
  *  - `type:"system"`, `type:"result"`, unknown / malformed lines: silently skipped — they are
  *    accounted for by other telemetry (system → init logging; result → token-usage event).
  *
- * These events are published DIRECTLY to the EventBus — there is no producer-side gate here.
- * `createEventBusLogger` is a producer that *publishes* `log` AppEvents, not a filter, so it does
- * not drop anything emitted at this site. The only UI-floor gate is the coalescing forwarder in
- * `launch.ts`, which applies the live log-level floor at ingest before the TUI ever sees a line.
- * The persistent events.ndjson sink writes every event here verbatim, regardless of the UI floor.
+ * See `_engine/stream-debug-events.ts` for the event envelope these share with codex / copilot.
  */
 const publishStreamLineEvents = (eventBus: EventBus, line: ClaudeStreamLine): void => {
   const json = line.json;
@@ -158,67 +205,8 @@ const publishStreamLineEvents = (eventBus: EventBus, line: ClaudeStreamLine): vo
   const content = message['content'];
   if (!Array.isArray(content)) return;
 
-  if (type === 'assistant') {
-    const texts: string[] = [];
-    const toolUses: Array<{ readonly name: string; readonly input: unknown }> = [];
-    for (const block of content) {
-      if (!isRecord(block)) continue;
-      const blockType = asString(block['type']);
-      if (blockType === 'text') {
-        const t = asString(block['text']);
-        if (t !== undefined) texts.push(t);
-      } else if (blockType === 'tool_use') {
-        const name = asString(block['name']) ?? '';
-        toolUses.push({ name, input: block['input'] });
-      }
-    }
-    if (texts.length > 0) {
-      const text = truncateField(texts.join('\n'));
-      if (text !== undefined) {
-        eventBus.publish({
-          type: 'log',
-          level: 'debug',
-          message: 'claude-provider: assistant',
-          meta: { text },
-          at: IsoTimestamp.now(),
-        });
-      }
-    }
-    for (const tool of toolUses) {
-      const args = truncateField(previewArgs(tool.input));
-      eventBus.publish({
-        type: 'log',
-        level: 'debug',
-        message: 'claude-provider: tool_use',
-        meta: {
-          tool: tool.name,
-          ...(args !== undefined ? { args } : {}),
-        },
-        at: IsoTimestamp.now(),
-      });
-    }
-    return;
-  }
-
-  // type === 'user' — emit one event per tool_result block.
-  for (const block of content) {
-    if (!isRecord(block)) continue;
-    if (asString(block['type']) !== 'tool_result') continue;
-    const tool = asString(block['name']) ?? asString(block['tool_use_id']) ?? '';
-    const status = block['is_error'] === true ? 'error' : 'ok';
-    const preview = truncateField(previewToolResult(block['content']));
-    eventBus.publish({
-      type: 'log',
-      level: 'debug',
-      message: 'claude-provider: tool_result',
-      meta: {
-        tool,
-        status,
-        ...(preview !== undefined ? { preview } : {}),
-      },
-      at: IsoTimestamp.now(),
-    });
-  }
+  if (type === 'assistant') publishAssistantLine(eventBus, content);
+  else publishToolResults(eventBus, content);
 };
 
 /**
@@ -309,7 +297,7 @@ export const buildClaudeArgs = (session: AiSession): Result<readonly string[], I
   return Result.ok(args);
 };
 
-export const createClaudeProvider = (deps: ClaudeProviderDeps): HeadlessAiProvider => {
+export const createClaudeProvider = (deps: HeadlessProviderDeps): HeadlessAiProvider => {
   const spawnFn: ProviderSpawn = deps.spawn ?? defaultProviderSpawn;
   const command = deps.command ?? 'claude';
 

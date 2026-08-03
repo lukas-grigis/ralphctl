@@ -2,7 +2,7 @@ import type { BlockedTask, DoneTask, Task } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
-import type { TaskEpisode } from '@src/domain/repository/episode/episode-types.ts';
+import type { TaskEpisode } from '@src/domain/entity/task-episode.ts';
 
 /** Per-line clamp for a blocked task's reason rendered into the episode's one-line learning. */
 const BLOCK_REASON_MAX_CHARS = 120;

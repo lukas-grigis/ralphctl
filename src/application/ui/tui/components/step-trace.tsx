@@ -191,6 +191,58 @@ const truncateLabel = (text: string, budget: number): string => {
   return `${text.slice(0, budget - 1)}${glyphs.clipEllipsis}`;
 };
 
+interface StepTraceRowProps {
+  readonly row: MergedRow;
+  readonly running: boolean;
+  readonly compact: boolean;
+  readonly suppressMeta: boolean;
+  readonly textBudget: number | undefined;
+}
+
+/** One row of the trace list: status glyph/spinner, optional name + duration + trailing label
+ * + error tail. Compact and suppress-meta variants drop everything after the glyph/name. */
+const StepTraceRow = ({ row, running, compact, suppressMeta, textBudget }: StepTraceRowProps): React.JSX.Element => {
+  const instruction = glyphFor(row.status);
+  const trailing = trailingLabelFor(row.status);
+  const dimRow = row.status === 'pending';
+  const displayName = row.label ?? row.name;
+  const shownName = textBudget !== undefined ? truncateLabel(displayName, textBudget) : displayName;
+  return (
+    <Box paddingX={spacing.indent}>
+      {instruction.kind === 'spinner' ? (
+        <Spinner active={running} color={instruction.color} />
+      ) : (
+        <Text color={instruction.color} bold>
+          {instruction.glyph}
+        </Text>
+      )}
+      {!compact && (
+        <>
+          <Text dimColor={dimRow}> {shownName}</Text>
+          {!suppressMeta && row.durationMs !== undefined && (
+            <Text dimColor>
+              {' '}
+              {glyphs.bullet} {fmtDuration(row.durationMs)}
+            </Text>
+          )}
+          {!suppressMeta && trailing !== undefined && (
+            <Text color={instruction.color}>
+              {'  '}
+              {glyphs.emDash} {trailing}
+            </Text>
+          )}
+          {!suppressMeta && row.errorMessage !== undefined && (
+            <Text color={inkColors.error}>
+              {'  '}
+              {glyphs.emDash} {row.errorMessage}
+            </Text>
+          )}
+        </>
+      )}
+    </Box>
+  );
+};
+
 export const StepTrace = ({
   trace,
   running,
@@ -243,47 +295,16 @@ export const StepTrace = ({
 
   return (
     <Box flexDirection="column">
-      {rows.map((row, i) => {
-        const instruction = glyphFor(row.status);
-        const trailing = trailingLabelFor(row.status);
-        const dimRow = row.status === 'pending';
-        const displayName = row.label ?? row.name;
-        const shownName = textBudget !== undefined ? truncateLabel(displayName, textBudget) : displayName;
-        return (
-          <Box key={`${row.name}-${String(i)}`} paddingX={spacing.indent}>
-            {instruction.kind === 'spinner' ? (
-              <Spinner active={running} color={instruction.color} />
-            ) : (
-              <Text color={instruction.color} bold>
-                {instruction.glyph}
-              </Text>
-            )}
-            {!compact && (
-              <>
-                <Text dimColor={dimRow}> {shownName}</Text>
-                {!suppressMeta && row.durationMs !== undefined && (
-                  <Text dimColor>
-                    {' '}
-                    {glyphs.bullet} {fmtDuration(row.durationMs)}
-                  </Text>
-                )}
-                {!suppressMeta && trailing !== undefined && (
-                  <Text color={instruction.color}>
-                    {'  '}
-                    {glyphs.emDash} {trailing}
-                  </Text>
-                )}
-                {!suppressMeta && row.errorMessage !== undefined && (
-                  <Text color={inkColors.error}>
-                    {'  '}
-                    {glyphs.emDash} {row.errorMessage}
-                  </Text>
-                )}
-              </>
-            )}
-          </Box>
-        );
-      })}
+      {rows.map((row, i) => (
+        <StepTraceRow
+          key={`${row.name}-${String(i)}`}
+          row={row}
+          running={running}
+          compact={compact}
+          suppressMeta={suppressMeta}
+          textBudget={textBudget}
+        />
+      ))}
       {/* When no plan is supplied we keep the legacy "in flight" cursor at the tail. With a
           plan, the merged list already has a `running` row, so the synthetic cursor is omitted
           to avoid double-rendering. */}

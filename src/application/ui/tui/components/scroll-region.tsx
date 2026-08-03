@@ -30,7 +30,7 @@
  */
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Box, type DOMElement, measureElement, useInput, useStdin, useStdout } from 'ink';
+import { Box, type DOMElement, type Key, measureElement, useInput, useStdin, useStdout } from 'ink';
 
 export interface ScrollRegionProps {
   readonly children: React.ReactNode;
@@ -48,6 +48,38 @@ export interface ScrollRegionProps {
 
 /** Three terminal rows per wheel notch — feels right for most trackpads / mice. */
 const WHEEL_STEP = 3;
+
+/** Layout figures the keyboard/mouse handlers need, computed once per event from the refs. */
+interface ScrollLayout {
+  readonly offset: number;
+  readonly max: number;
+  readonly page: number;
+  readonly half: number;
+}
+
+const computeLayout = (offset: number, viewport: number, content: number): ScrollLayout => {
+  const max = Math.max(0, content - viewport);
+  return { offset, max, page: Math.max(4, viewport - 2), half: Math.max(2, Math.floor(viewport / 2)) };
+};
+
+/**
+ * One row per recognised scroll key: `matches` tests the raw `useInput` payload, `nextOffset`
+ * derives the target offset from the current layout. Replaces the if/else cascade that used to
+ * live directly in the `useInput` callback.
+ */
+const SCROLL_KEY_ACTIONS: ReadonlyArray<{
+  readonly matches: (input: string, key: Key) => boolean;
+  readonly nextOffset: (layout: ScrollLayout) => number;
+}> = [
+  { matches: (_input, key) => key.downArrow, nextOffset: (l) => l.offset + 1 },
+  { matches: (_input, key) => key.upArrow, nextOffset: (l) => l.offset - 1 },
+  { matches: (input, key) => key.pageDown || (key.ctrl && input === 'f'), nextOffset: (l) => l.offset + l.page },
+  { matches: (input, key) => key.pageUp || (key.ctrl && input === 'b'), nextOffset: (l) => l.offset - l.page },
+  { matches: (input, key) => key.ctrl && input === 'd', nextOffset: (l) => l.offset + l.half },
+  { matches: (input, key) => key.ctrl && input === 'u', nextOffset: (l) => l.offset - l.half },
+  { matches: (input) => input === 'g', nextOffset: () => 0 },
+  { matches: (input) => input === 'G', nextOffset: (l) => l.max },
+];
 
 export const ScrollRegion = ({
   children,
@@ -89,42 +121,11 @@ export const ScrollRegion = ({
       // Ctrl+b/f/u/d g G, plus k/j if the view binds them) for its handler so a single press
       // doesn't double-act (cursor move AND page scroll). Mouse-wheel scroll below is untouched.
       if (suppressArrows) return;
-      const max = maxOffset();
-      if (max === 0) return;
-      const viewportH = sizeRef.current.viewport;
-      const page = Math.max(4, viewportH - 2);
-      const half = Math.max(2, Math.floor(viewportH / 2));
-      if (key.downArrow) {
-        setOffset((o) => clamp(o + 1));
-        return;
-      }
-      if (key.upArrow) {
-        setOffset((o) => clamp(o - 1));
-        return;
-      }
-      if (key.pageDown || (key.ctrl && input === 'f')) {
-        setOffset((o) => clamp(o + page));
-        return;
-      }
-      if (key.pageUp || (key.ctrl && input === 'b')) {
-        setOffset((o) => clamp(o - page));
-        return;
-      }
-      if (key.ctrl && input === 'd') {
-        setOffset((o) => clamp(o + half));
-        return;
-      }
-      if (key.ctrl && input === 'u') {
-        setOffset((o) => clamp(o - half));
-        return;
-      }
-      if (input === 'g') {
-        setOffset(0);
-        return;
-      }
-      if (input === 'G') {
-        setOffset(max);
-      }
+      const layout = computeLayout(0, sizeRef.current.viewport, sizeRef.current.content);
+      if (layout.max === 0) return;
+      const action = SCROLL_KEY_ACTIONS.find((candidate) => candidate.matches(input, key));
+      if (action === undefined) return;
+      setOffset((o) => clamp(action.nextOffset({ ...layout, offset: o })));
     },
     { isActive: !disabled }
   );

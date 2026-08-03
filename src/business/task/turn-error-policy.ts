@@ -1,4 +1,4 @@
-import { ErrorCode } from '@src/domain/value/error/error-code.ts';
+import { isFatalChainError } from '@src/domain/value/error/is-fatal-chain-error.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 
 /**
@@ -13,17 +13,12 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
  * whole implement run. Converting these to a per-task block surfaces the failure (HARNESS-
  * PRINCIPLES §5 "blocked surfaces them") while letting the other tasks run.
  *
- * Two error codes MUST still propagate (return `false`):
- *   - `Aborted`   — user cancellation (Ctrl-C / TUI abort). CLAUDE.md §"AbortError is the one
- *                   error chains propagate transparently." A guard converting it to a block
- *                   would swallow the cancel.
- *   - `RateLimit` — the adapter already exhausted its internal 429 retries; continuing to the
- *                   next task would just re-hit the limit, so let it abort the run.
+ * The fatal set — user cancellation and an exhausted-retry rate limit — is the shared
+ * {@link isFatalChainError} predicate: those two codes tear down any chain, not just a task turn.
  *
  * Everything else — `InvalidStateError` signals-missing / spawn-exit-N (`invalid-state`),
  * `ParseError` invalid-json / schema-mismatch (`parse-error`), `MigrationGapError`
  * (`migration-gap`), and any other domain error — is treated as recoverable: block this task,
  * keep the run going.
  */
-export const isRecoverableTurnError = (err: DomainError): boolean =>
-  err.code !== ErrorCode.Aborted && err.code !== ErrorCode.RateLimit;
+export const isRecoverableTurnError = (err: DomainError): boolean => !isFatalChainError(err);

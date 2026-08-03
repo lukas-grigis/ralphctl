@@ -40,17 +40,85 @@ type Decision = 'approve' | 'reject';
 type EmptyDecision = 'skip';
 
 /**
+ * Build the acknowledge-and-skip prompt for the "AI returned no proposals" edge case: shows the
+ * AI's actual body inline (e.g. a permission request, a confused refusal) so the operator
+ * understands *why* nothing came back. Manual authoring is genuinely impractical for
+ * multi-paragraph skills, so the only action is acknowledge-and-skip; the run dir path is
+ * surfaced regardless so the operator can dig deeper. Mirrors the detect-scripts failsafe.
+ */
+const buildEmptyProposalPrompt = async (
+  input: ConfirmInput
+): Promise<{ readonly message: string; readonly choices: ReadonlyArray<Choice<EmptyDecision>> }> => {
+  const bodyPreview =
+    input.runDir !== undefined
+      ? await readRunBodyPreview(input.runDir, {
+          truncatedSuffix: `\n[…truncated; full body at ${String(input.runDir)}/body.txt]`,
+        })
+      : undefined;
+  const header = `AI returned no skill proposals for ${input.repository.name} (${String(input.repository.slug)}).`;
+  const promptLines: string[] = [header];
+  if (bodyPreview !== undefined) {
+    promptLines.push('', 'AI response:', bodyPreview);
+  } else if (input.runDir !== undefined) {
+    promptLines.push('', `Run artifacts: ${String(input.runDir)}`);
+  }
+  promptLines.push('', 'Acknowledge and skip — the repository will be left untouched.');
+  return {
+    message: promptLines.join('\n'),
+    choices: [{ label: 'Skip', value: 'skip', description: 'Continue without applying any skill.' }],
+  };
+};
+
+/**
+ * Render the proposed setup / verify skill bodies as a Markdown preview, headed by whether each
+ * one replaces an existing skill or is newly authored. Editing is out of scope here — skills are
+ * multi-paragraph markdown and the `askText` prompt is single-line; trying to edit a
+ * 10-paragraph body line-by-line is worse UX than re-running the flow with a tighter prompt. The
+ * user can also tweak the persisted skill via the storage file once it lands.
+ */
+const buildConfirmPreview = (
+  input: ConfirmInput,
+  nextSetup: string | undefined,
+  nextVerify: string | undefined
+): string => {
+  const preview: string[] = [`Authored skills for ${input.repository.name} (${String(input.repository.slug)}):`, ''];
+  if (nextSetup !== undefined) {
+    preview.push(`### Setup skill ${input.repository.setupSkill !== undefined ? '(replaces existing)' : '(new)'}`);
+    preview.push('');
+    preview.push(nextSetup);
+    preview.push('');
+  }
+  if (nextVerify !== undefined) {
+    preview.push(`### Verify skill ${input.repository.verifySkill !== undefined ? '(replaces existing)' : '(new)'}`);
+    preview.push('');
+    preview.push(nextVerify);
+    preview.push('');
+  }
+  return preview.join('\n');
+};
+
+/** The approve / reject choice list for the non-empty proposal path. */
+const buildConfirmOptions = (): ReadonlyArray<Choice<Decision>> => [
+  { label: 'Approve', value: 'approve', description: 'Save the proposed skill bodies to the repository.' },
+  { label: 'Reject', value: 'reject', description: 'Leave the repository untouched.' },
+];
+
+/**
+ * Edge case — no proposed skills at all: acknowledge-and-skip (see {@link buildEmptyProposalPrompt}).
+ */
+const confirmEmptyProposal = async (
+  deps: ConfirmDetectSkillsLeafDeps,
+  input: ConfirmInput
+): Promise<Result<ConfirmOutput, DomainError>> => {
+  const { message, choices } = await buildEmptyProposalPrompt(input);
+  const decision = await deps.interactive.askChoice<EmptyDecision>(message, choices);
+  if (!decision.ok) return Result.error(decision.error);
+  return Result.ok({ accepted: false, proposal: {} });
+};
+
+/**
  * Render the proposed bodies as a preview (chunked + headed by source label) and ask
- * approve / reject. Editing is out of scope here — skills are multi-paragraph markdown and
- * the `askText` prompt is single-line; trying to edit a 10-paragraph body line-by-line is
- * worse UX than re-running the flow with a tighter prompt. The user can also tweak the
- * persisted skill via the storage file once it lands.
- *
- * Edge case — no proposed skills at all: show the AI's actual body inline (e.g. a permission
- * request, a confused refusal) so the operator understands *why* nothing came back, then exit
- * with `accepted: false`. Manual authoring is genuinely impractical for multi-paragraph skills,
- * so the only action is acknowledge-and-skip; the run dir path is surfaced regardless so the
- * operator can dig deeper. Mirrors the detect-scripts failsafe.
+ * approve / reject.
  */
 const confirmUseCase = async (
   deps: ConfirmDetectSkillsLeafDeps,
@@ -59,52 +127,13 @@ const confirmUseCase = async (
   const { proposedSetupSkill: nextSetup, proposedVerifySkill: nextVerify } = input.proposal;
 
   if (nextSetup === undefined && nextVerify === undefined) {
-    const bodyPreview =
-      input.runDir !== undefined
-        ? await readRunBodyPreview(input.runDir, {
-            truncatedSuffix: `\n[…truncated; full body at ${String(input.runDir)}/body.txt]`,
-          })
-        : undefined;
-    const header = `AI returned no skill proposals for ${input.repository.name} (${String(input.repository.slug)}).`;
-    const promptLines: string[] = [header];
-    if (bodyPreview !== undefined) {
-      promptLines.push('', 'AI response:', bodyPreview);
-    } else if (input.runDir !== undefined) {
-      promptLines.push('', `Run artifacts: ${String(input.runDir)}`);
-    }
-    promptLines.push('', 'Acknowledge and skip — the repository will be left untouched.');
-    const choices: ReadonlyArray<Choice<EmptyDecision>> = [
-      { label: 'Skip', value: 'skip', description: 'Continue without applying any skill.' },
-    ];
-    const decision = await deps.interactive.askChoice<EmptyDecision>(promptLines.join('\n'), choices);
-    if (!decision.ok) return Result.error(decision.error);
-    return Result.ok({ accepted: false, proposal: {} });
+    return confirmEmptyProposal(deps, input);
   }
 
-  const currentSetup = input.repository.setupSkill;
-  const currentVerify = input.repository.verifySkill;
-  const preview: string[] = [`Authored skills for ${input.repository.name} (${String(input.repository.slug)}):`, ''];
-  if (nextSetup !== undefined) {
-    preview.push(`### Setup skill ${currentSetup !== undefined ? '(replaces existing)' : '(new)'}`);
-    preview.push('');
-    preview.push(nextSetup);
-    preview.push('');
-  }
-  if (nextVerify !== undefined) {
-    preview.push(`### Verify skill ${currentVerify !== undefined ? '(replaces existing)' : '(new)'}`);
-    preview.push('');
-    preview.push(nextVerify);
-    preview.push('');
-  }
-
-  const choices: ReadonlyArray<Choice<Decision>> = [
-    { label: 'Approve', value: 'approve', description: 'Save the proposed skill bodies to the repository.' },
-    { label: 'Reject', value: 'reject', description: 'Leave the repository untouched.' },
-  ];
-
+  const preview = buildConfirmPreview(input, nextSetup, nextVerify);
   const decision = await deps.interactive.askChoice<Decision>(
-    `${preview.join('\n')}\nWhat would you like to do?`,
-    choices
+    `${preview}\nWhat would you like to do?`,
+    buildConfirmOptions()
   );
   if (!decision.ok) return Result.error(decision.error);
 

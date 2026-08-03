@@ -1,18 +1,21 @@
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
-import { type AiFlowSettings, primaryFlowRow, type Settings } from '@src/domain/entity/settings.ts';
+import { type AiFlowSettings, type AiProvider, primaryFlowRow, type Settings } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import { createClaudeProvider } from '@src/integration/ai/providers/claude/headless.ts';
 import { createCodexProvider } from '@src/integration/ai/providers/codex/headless.ts';
 import { createCopilotProvider } from '@src/integration/ai/providers/copilot/headless.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
+import type { HeadlessProviderDeps } from '@src/integration/ai/providers/_engine/headless-provider-deps.ts';
 
 /**
  * Composition seam for {@link HeadlessAiProvider}. Selects the concrete adapter based on the
- * provider field of a per-flow row. The switch is exhaustive — adding a provider extends this
- * factory plus a sibling adapter file under `ai/providers/<name>/`. Model tier flows per call
- * via {@link AiSession}; this factory only carries operational concerns (rate-limit retry
- * budget, log sink, spawn seam).
+ * provider field of a per-flow row, via {@link HEADLESS_FACTORIES} — `Readonly<Record<AiProvider,
+ * …>>` gives the same exhaustiveness a `switch` + `never` default gave (a provider added to the
+ * union without a row here is a compile error), without a throw at the default branch. Adding a
+ * provider extends the record plus a sibling adapter file under `ai/providers/<name>/`. Model
+ * tier flows per call via {@link AiSession}; this factory only carries operational concerns
+ * (rate-limit retry budget, log sink, spawn seam).
  *
  * Two input shapes are accepted: either a `flow` id (legacy single-row consumers — readiness
  * inventory, settings-view rebuild) that resolves through {@link primaryFlowRow}, or an
@@ -59,34 +62,23 @@ const resolveRow = (deps: CreateAiProviderDeps): AiFlowSettings => {
   return primaryFlowRow(deps.ai, deps.flow);
 };
 
+/**
+ * One concrete headless-provider factory per {@link AiProvider}. `Record<AiProvider, …>` is
+ * checked exhaustively by the compiler — adding a member to the `AiProvider` union without a
+ * row here is a compile error.
+ */
+const HEADLESS_FACTORIES: Readonly<Record<AiProvider, (deps: HeadlessProviderDeps) => HeadlessAiProvider>> = {
+  'claude-code': createClaudeProvider,
+  'github-copilot': createCopilotProvider,
+  'openai-codex': createCodexProvider,
+};
+
 export const createAiProvider = (deps: CreateAiProviderDeps): HeadlessAiProvider => {
   const row = resolveRow(deps);
-  switch (row.provider) {
-    case 'claude-code':
-      return createClaudeProvider({
-        rateLimitRetries: deps.harnessConfig.rateLimitRetries,
-        idleMs: deps.harnessConfig.idleWatchdogMs,
-        eventBus: deps.eventBus,
-        ...(deps.spawn !== undefined ? { spawn: deps.spawn } : {}),
-      });
-    case 'github-copilot':
-      return createCopilotProvider({
-        rateLimitRetries: deps.harnessConfig.rateLimitRetries,
-        idleMs: deps.harnessConfig.idleWatchdogMs,
-        eventBus: deps.eventBus,
-        ...(deps.spawn !== undefined ? { spawn: deps.spawn } : {}),
-      });
-    case 'openai-codex':
-      return createCodexProvider({
-        rateLimitRetries: deps.harnessConfig.rateLimitRetries,
-        idleMs: deps.harnessConfig.idleWatchdogMs,
-        eventBus: deps.eventBus,
-        ...(deps.spawn !== undefined ? { spawn: deps.spawn } : {}),
-      });
-    default: {
-      // Exhaustiveness — every branch of the per-flow row's provider union is handled.
-      const exhaustive: never = row;
-      throw new Error(`createAiProvider: unhandled provider ${JSON.stringify(exhaustive)}`);
-    }
-  }
+  return HEADLESS_FACTORIES[row.provider]({
+    rateLimitRetries: deps.harnessConfig.rateLimitRetries,
+    idleMs: deps.harnessConfig.idleWatchdogMs,
+    eventBus: deps.eventBus,
+    ...(deps.spawn !== undefined ? { spawn: deps.spawn } : {}),
+  });
 };

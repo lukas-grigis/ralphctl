@@ -47,6 +47,110 @@ interface LayoutProps {
   readonly pinnedSprintStale: boolean;
 }
 
+/** Flex Tasks column — identical in every multi-column regime. */
+const TasksColumn = ({
+  tasksPanel,
+  marginRight = 0,
+}: {
+  readonly tasksPanel: React.ReactNode;
+  readonly marginRight?: number;
+}): React.JSX.Element => (
+  <Box flexDirection="column" flexGrow={1} flexBasis={0} minWidth={0} marginRight={marginRight}>
+    <SectionHeader title="Tasks" />
+    {tasksPanel}
+  </Box>
+);
+
+/** ≥180 cols — fluid-width rail + flex Tasks + fixed context column. */
+const ThreeColumnLayout = ({
+  termColumns,
+  threeColRailWidth,
+  contextWidth,
+  flowStepsPanel,
+  tasksPanel,
+  sessionId,
+  executionState,
+  taskState,
+  now,
+  tokenUsage,
+  pinnedSprintStale,
+}: Pick<
+  LayoutProps,
+  | 'termColumns'
+  | 'threeColRailWidth'
+  | 'contextWidth'
+  | 'tasksPanel'
+  | 'sessionId'
+  | 'executionState'
+  | 'taskState'
+  | 'now'
+  | 'tokenUsage'
+  | 'pinnedSprintStale'
+> & { readonly flowStepsPanel: React.ReactNode }): React.JSX.Element => (
+  <Box flexDirection="row" marginTop={spacing.section} width={termColumns}>
+    <Box flexDirection="column" width={threeColRailWidth} marginRight={spacing.section} flexShrink={0}>
+      <SectionHeader title="Flow steps" />
+      {flowStepsPanel}
+    </Box>
+    <TasksColumn tasksPanel={tasksPanel} marginRight={spacing.section} />
+    {/* Right context column — baseline-health card on top (dropped when pinned sprint
+        is stale), token-budget card below. */}
+    <Box flexDirection="column" width={contextWidth} flexShrink={0}>
+      {!pinnedSprintStale && (
+        <BaselineHealthCard
+          {...(executionState !== undefined ? { execution: executionState } : {})}
+          {...(taskState !== undefined ? { tasks: taskState } : {})}
+          now={now}
+          width={contextWidth}
+        />
+      )}
+      <Box marginTop={spacing.section}>
+        <TokenBudgetCard sessionId={sessionId} {...(tokenUsage !== undefined ? { usage: tokenUsage } : {})} />
+      </Box>
+    </Box>
+  </Box>
+);
+
+/**
+ * 140–179 cols — fixed `RAIL_WIDTH` rail + flex Tasks. The rail keeps the fixed width because
+ * there is no context column to compete with the Tasks stream here, so a wider rail would just
+ * steal pixels from it.
+ */
+const TwoColumnLayout = ({
+  termColumns,
+  flowStepsPanel,
+  tasksPanel,
+}: Pick<LayoutProps, 'termColumns' | 'tasksPanel'> & {
+  readonly flowStepsPanel: React.ReactNode;
+}): React.JSX.Element => (
+  <Box flexDirection="row" marginTop={spacing.section} width={termColumns}>
+    <Box flexDirection="column" width={RAIL_WIDTH} marginRight={spacing.section} flexShrink={0}>
+      <SectionHeader title="Flow steps" />
+      {flowStepsPanel}
+    </Box>
+    <TasksColumn tasksPanel={tasksPanel} />
+  </Box>
+);
+
+/**
+ * 100–139 cols — glyph-only rail + flex Tasks. The rail's SectionHeader is dropped because
+ * "Flow steps" overflows the narrow column; the glyph-only column reads as a status spine.
+ */
+const CompactTwoColumnLayout = ({
+  termColumns,
+  compactFlowStepsPanel,
+  tasksPanel,
+}: Pick<LayoutProps, 'termColumns' | 'tasksPanel'> & {
+  readonly compactFlowStepsPanel: React.ReactNode;
+}): React.JSX.Element => (
+  <Box flexDirection="row" marginTop={spacing.section} width={termColumns}>
+    <Box flexDirection="column" width={COMPACT_RAIL_WIDTH} marginRight={spacing.section} flexShrink={0}>
+      {compactFlowStepsPanel}
+    </Box>
+    <TasksColumn tasksPanel={tasksPanel} />
+  </Box>
+);
+
 export const ExecuteLayout = ({
   descriptor,
   isRunning,
@@ -74,73 +178,39 @@ export const ExecuteLayout = ({
       railWidth={labelledRailWidth}
     />
   );
-  const compactFlowStepsPanel = (
-    <CompactFlowStepsRail descriptor={descriptor} isRunning={isRunning} maxRows={flowStepsRows} />
-  );
 
   if (threeColumn) {
     return (
-      <Box flexDirection="row" marginTop={spacing.section} width={termColumns}>
-        <Box flexDirection="column" width={threeColRailWidth} marginRight={spacing.section} flexShrink={0}>
-          <SectionHeader title="Flow steps" />
-          {flowStepsPanel}
-        </Box>
-        <Box flexDirection="column" flexGrow={1} flexBasis={0} minWidth={0} marginRight={spacing.section}>
-          <SectionHeader title="Tasks" />
-          {tasksPanel}
-        </Box>
-        {/* Right context column — baseline-health card on top (dropped when pinned sprint
-            is stale), token-budget card below. */}
-        <Box flexDirection="column" width={contextWidth} flexShrink={0}>
-          {!pinnedSprintStale && (
-            <BaselineHealthCard
-              {...(executionState !== undefined ? { execution: executionState } : {})}
-              {...(taskState !== undefined ? { tasks: taskState } : {})}
-              now={now}
-              width={contextWidth}
-            />
-          )}
-          <Box marginTop={spacing.section}>
-            <TokenBudgetCard sessionId={sessionId} {...(tokenUsage !== undefined ? { usage: tokenUsage } : {})} />
-          </Box>
-        </Box>
-      </Box>
+      <ThreeColumnLayout
+        termColumns={termColumns}
+        threeColRailWidth={threeColRailWidth}
+        contextWidth={contextWidth}
+        flowStepsPanel={flowStepsPanel}
+        tasksPanel={tasksPanel}
+        sessionId={sessionId}
+        executionState={executionState}
+        taskState={taskState}
+        now={now}
+        tokenUsage={tokenUsage}
+        pinnedSprintStale={pinnedSprintStale}
+      />
     );
   }
-
   if (twoColumn) {
-    // Rail keeps the fixed `RAIL_WIDTH` (28) — at 140-179 cols there's no context column
-    // to compete with the Tasks stream, so a wider rail would just steal pixels from it.
-    return (
-      <Box flexDirection="row" marginTop={spacing.section} width={termColumns}>
-        <Box flexDirection="column" width={RAIL_WIDTH} marginRight={spacing.section} flexShrink={0}>
-          <SectionHeader title="Flow steps" />
-          {flowStepsPanel}
-        </Box>
-        <Box flexDirection="column" flexGrow={1} flexBasis={0} minWidth={0}>
-          <SectionHeader title="Tasks" />
-          {tasksPanel}
-        </Box>
-      </Box>
-    );
+    return <TwoColumnLayout termColumns={termColumns} flowStepsPanel={flowStepsPanel} tasksPanel={tasksPanel} />;
   }
-
   if (compactTwoColumn) {
-    // The rail's SectionHeader is dropped because "Flow steps" overflows the narrow column;
-    // the glyph-only column reads as a status spine.
     return (
-      <Box flexDirection="row" marginTop={spacing.section} width={termColumns}>
-        <Box flexDirection="column" width={COMPACT_RAIL_WIDTH} marginRight={spacing.section} flexShrink={0}>
-          {compactFlowStepsPanel}
-        </Box>
-        <Box flexDirection="column" flexGrow={1} flexBasis={0} minWidth={0}>
-          <SectionHeader title="Tasks" />
-          {tasksPanel}
-        </Box>
-      </Box>
+      <CompactTwoColumnLayout
+        termColumns={termColumns}
+        compactFlowStepsPanel={
+          <CompactFlowStepsRail descriptor={descriptor} isRunning={isRunning} maxRows={flowStepsRows} />
+        }
+        tasksPanel={tasksPanel}
+      />
     );
   }
-
+  // <100 cols — single-column stack.
   return (
     <>
       <Section title="Flow steps">{flowStepsPanel}</Section>

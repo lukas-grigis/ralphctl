@@ -49,29 +49,35 @@ export const leaf = <TCtx, UInput, UOutput>(
       if (aborted) return aborted;
 
       const start = performance.now();
+
+      // Single place that builds + emits a trace entry. The `error` key is spread conditionally so a
+      // `completed` entry has no `error` property at all (callers do exact-equality comparisons).
+      const record = (status: TraceEntry['status'], durationMs: number, error?: DomainError): TraceEntry => {
+        const entry: TraceEntry = {
+          elementName: name,
+          ...labelExt,
+          status,
+          durationMs,
+          ...(error !== undefined ? { error } : {}),
+        };
+        onTrace?.(entry);
+        return entry;
+      };
+
       let result: Result<UOutput, DomainError>;
       try {
         const input = config.input(ctx);
         result = await config.useCase.execute(input, signal);
       } catch (cause) {
         if (!isDomainError(cause)) throw cause;
-        const durationMs = performance.now() - start;
-        if (cause instanceof AbortError) {
-          const entry: TraceEntry = { elementName: name, ...labelExt, status: 'aborted', durationMs, error: cause };
-          onTrace?.(entry);
-          return Result.error({ error: cause, trace: [entry] });
-        }
-        const entry: TraceEntry = { elementName: name, ...labelExt, status: 'failed', durationMs, error: cause };
-        onTrace?.(entry);
-        return Result.error({ error: cause, trace: [entry] });
+        const status = cause instanceof AbortError ? 'aborted' : 'failed';
+        return Result.error({ error: cause, trace: [record(status, performance.now() - start, cause)] });
       }
       const durationMs = performance.now() - start;
 
       if (signal?.aborted) {
         const error = new AbortError({ elementName: name });
-        const entry: TraceEntry = { elementName: name, ...labelExt, status: 'aborted', durationMs, error };
-        onTrace?.(entry);
-        return Result.error({ error, trace: [entry] });
+        return Result.error({ error, trace: [record('aborted', durationMs, error)] });
       }
 
       if (result.ok) {
@@ -80,19 +86,13 @@ export const leaf = <TCtx, UInput, UOutput>(
           nextCtx = config.output(ctx, result.value as UOutput);
         } catch (cause) {
           if (!isDomainError(cause)) throw cause;
-          const entry: TraceEntry = { elementName: name, ...labelExt, status: 'failed', durationMs, error: cause };
-          onTrace?.(entry);
-          return Result.error({ error: cause, trace: [entry] });
+          return Result.error({ error: cause, trace: [record('failed', durationMs, cause)] });
         }
-        const entry: TraceEntry = { elementName: name, ...labelExt, status: 'completed', durationMs };
-        onTrace?.(entry);
-        return Result.ok({ ctx: nextCtx, trace: [entry] });
+        return Result.ok({ ctx: nextCtx, trace: [record('completed', durationMs)] });
       }
 
       const error: DomainError = result.error;
-      const entry: TraceEntry = { elementName: name, ...labelExt, status: 'failed', durationMs, error };
-      onTrace?.(entry);
-      return Result.error({ error, trace: [entry] });
+      return Result.error({ error, trace: [record('failed', durationMs, error)] });
     },
   };
 };

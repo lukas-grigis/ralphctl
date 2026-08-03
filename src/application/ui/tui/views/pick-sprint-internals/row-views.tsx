@@ -33,9 +33,15 @@ interface PickerRowListProps {
  * create rows) drives focus and keyboard handling. The RENDER slice is a separate window over
  * the full flat row list (headers included), centred on the focused row's index in that full
  * list, so the rendered height stays bounded by `visibleRows` regardless of how many group
- * headers (empty or otherwise) sit inside or outside the window. This mirrors the pre-migration
- * `computeWindow`-over-full-rows behaviour: a header only renders when it falls inside the
- * slice, exactly like any other row — no exemption for empty groups.
+ * headers (empty or otherwise) sit inside or outside the window. A header only renders when it
+ * falls inside the slice, exactly like any other row — no exemption for empty groups.
+ *
+ * Deliberately NOT `<WindowedList>`: that wrapper owns cursor movement AND the render window
+ * over the *same* `items` array, but this view needs the cursor to move over the cursorable
+ * subset while the render window slices the full row list (headers included) — two different
+ * arrays. That's exactly the "custom row layout" case `WindowedList`'s own doc comment defers to
+ * `useListWindow` for; this view stays on the raw hook plus a second, independent
+ * `computeListWindow` call for the render slice.
  */
 export const PickerRowList = ({
   rows,
@@ -78,7 +84,7 @@ export const PickerRowList = ({
 
   return (
     <Box flexDirection="column">
-      <OverflowRow direction="above" count={renderWindow.start} />
+      <OverflowRow direction="above" count={renderWindow.hiddenAbove} />
       {renderRows.map((row) => {
         if (row.kind === 'header') return <HeaderRowView key={`h-${row.groupKey}`} row={row} />;
         if (row.kind === 'create') return <CreateRowView key="create" focused={focusedId === cursorableRowId(row)} />;
@@ -91,7 +97,7 @@ export const PickerRowList = ({
           />
         );
       })}
-      <OverflowRow direction="below" count={rows.length - renderWindow.end} />
+      <OverflowRow direction="below" count={renderWindow.hiddenBelow} />
     </Box>
   );
 };

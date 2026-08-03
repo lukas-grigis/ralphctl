@@ -15,7 +15,6 @@ import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/r
 import { renderSidecars } from '@src/integration/ai/contract/_engine/render-sidecars.ts';
 import { validateSignalsFile } from '@src/integration/ai/contract/_engine/validate-signals-file.ts';
 import { detectSkillsOutputContract } from '@src/application/flows/detect-skills/leaves/propose.contract.ts';
-import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
@@ -135,7 +134,7 @@ const proposeUseCase = async (
   });
   if (!prompt.ok) return Result.error(prompt.error);
 
-  const promptWrote = await writeTextAtomic(String(paths.value.promptFile), String(prompt.value));
+  const promptWrote = await deps.writeFile(paths.value.promptFile, String(prompt.value));
   if (!promptWrote.ok) return Result.error(promptWrote.error);
 
   const spawn = await deps.provider.generate(

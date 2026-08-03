@@ -29,6 +29,7 @@ import { getRunInTerminal } from '@src/application/ui/tui/runtime/run-in-termina
 import { openFlowSession } from '@src/application/ui/tui/runtime/open-flow-session.ts';
 import { launchSprintBoundFlow } from '@src/application/ui/shared/launch/sprint-bound.ts';
 import { loadAppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
+import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 
 export interface UseLaunchCreateSprintOpts {
   /**
@@ -75,7 +76,7 @@ export const useLaunchCreateSprint = (opts: UseLaunchCreateSprintOpts): (() => P
       }
     );
     if (!result.ok) {
-      onError(`✗ ${result.reason}`);
+      onError(`${glyphs.cross} ${result.reason}`);
       return;
     }
     openFlowSession({ sessions, router }, result, 'create-sprint');

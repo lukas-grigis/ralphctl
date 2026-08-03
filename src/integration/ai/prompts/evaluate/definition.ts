@@ -1,8 +1,8 @@
-import { Result } from '@src/domain/result.ts';
+import { type Result } from '@src/domain/result.ts';
+import { requireNonEmpty } from '@src/integration/ai/prompts/_engine/validators.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { composeCriteriaHistory } from '@src/business/task/compose-criteria-history.ts';
-import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { buildPrompt, type BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
 import type { PromptDefinition } from '@src/integration/ai/prompts/_engine/definition.ts';
 import { renderFloorRubricSection } from '@src/integration/ai/prompts/_engine/renderers/floor-rubric.ts';
@@ -105,11 +105,6 @@ export interface EvaluatePromptParams {
    */
   readonly agentDefinitionSection?: string;
 }
-
-const requireNonEmpty =
-  (field: string, message: string) =>
-  (v: string): Result<string, ValidationError> =>
-    v.trim().length === 0 ? Result.error(new ValidationError({ field, value: v, message })) : Result.ok(v);
 
 export const evaluatePromptDef: PromptDefinition<EvaluatePromptParams> = {
   templateName: 'evaluate',

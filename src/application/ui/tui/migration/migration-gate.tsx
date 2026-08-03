@@ -113,11 +113,29 @@ const summarize = (report: DryRunReport): { readonly sprints: number; readonly p
   return { sprints, projects };
 };
 
-export const MigrationGate = (props: MigrationGateProps): React.JSX.Element => {
-  const { engine, dataRoot, stateRoot, appVersion, now, writeFile, onResolve, onQuit } = props;
+/**
+ * Scan + apply state machine, extracted from {@link MigrationGate} so the component itself is
+ * just input-handling + render. The dry-run must fire exactly once even if React re-runs the
+ * effect (e.g. on a parent re-render) — a re-scan would reset a consent screen the user is
+ * mid-decision on — so `scannedRef` guards the scan body itself rather than the effect's
+ * dependency array: adding `appVersion` / `onResolve` below lets a re-run's cleanup fire without
+ * ever starting a second `scan()`, which is the one outcome the guard exists to prevent.
+ */
+const useMigrationScan = (args: {
+  readonly engine: DataMigrationEngine;
+  readonly dataRoot: AbsolutePath;
+  readonly stateRoot: AbsolutePath;
+  readonly appVersion: string;
+  readonly now: () => string;
+  readonly writeFile: WriteFile;
+  readonly onResolve: (outcome: MigrationGateOutcome) => void;
+}): {
+  readonly state: GateState;
+  readonly runApply: (report: DryRunReport) => Promise<void>;
+  readonly setConsentAction: (action: 'migrate' | 'not-now') => void;
+} => {
+  const { engine, dataRoot, stateRoot, appVersion, now, writeFile, onResolve } = args;
   const [state, setState] = useState<GateState>({ kind: 'scanning' });
-  // The dry-run must fire exactly once even if React re-runs the effect on a parent re-render — a
-  // re-scan would reset a consent screen the user is mid-decision on.
   const scannedRef = useRef(false);
 
   useEffect(() => {
@@ -156,7 +174,7 @@ export const MigrationGate = (props: MigrationGateProps): React.JSX.Element => {
     return () => {
       cancelled = true;
     };
-  }, [engine, dataRoot]);
+  }, [engine, dataRoot, appVersion, onResolve]);
 
   const runApply = async (report: DryRunReport): Promise<void> => {
     setState({ kind: 'applying' });
@@ -188,9 +206,28 @@ export const MigrationGate = (props: MigrationGateProps): React.JSX.Element => {
     });
   };
 
+  const setConsentAction = (action: 'migrate' | 'not-now'): void => {
+    setState((prev) => (prev.kind === 'consent' ? { ...prev, action } : prev));
+  };
+
+  return { state, runApply, setConsentAction };
+};
+
+export const MigrationGate = (props: MigrationGateProps): React.JSX.Element => {
+  const { engine, dataRoot, stateRoot, appVersion, now, writeFile, onResolve, onQuit } = props;
+  const { state, runApply, setConsentAction } = useMigrationScan({
+    engine,
+    dataRoot,
+    stateRoot,
+    appVersion,
+    now,
+    writeFile,
+    onResolve,
+  });
+
   const handleConsentInput = (consent: GateState & { kind: 'consent' }, input: string, key: KeyFlags): void => {
     if (key.leftArrow || key.rightArrow || input === 'h' || input === 'l' || key.tab) {
-      setState({ ...consent, action: consent.action === 'migrate' ? 'not-now' : 'migrate' });
+      setConsentAction(consent.action === 'migrate' ? 'not-now' : 'migrate');
       return;
     }
     // `n` / esc declines outright; `m` (or `y`) accepts — direct shortcuts alongside the cursor.

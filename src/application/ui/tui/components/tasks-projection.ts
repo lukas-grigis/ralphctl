@@ -1,6 +1,7 @@
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
-import type { Attempt } from '@src/domain/entity/attempt.ts';
+import type { Attempt, RecoveryContext } from '@src/domain/entity/attempt.ts';
 import type { Task } from '@src/domain/entity/task.ts';
+import type { TaskEvaluation } from '@src/application/ui/tui/components/tasks-panel-internals/evaluation-row.tsx';
 
 /**
  * TUI-local minimal projection for the Tasks panel — the narrow slice the panel needs from a
@@ -24,6 +25,32 @@ export interface TaskProjection {
 
 export interface SprintState {
   readonly tasks: readonly TaskProjection[];
+}
+
+/**
+ * Everything the Tasks panel knows about ONE task beyond its live `TaskBucket` — the entity- and
+ * projection-sourced extras the bucketed trace cannot carry (a resume banner, verification
+ * criteria, a blocked reason, a flagged-completion warning, the authoritative evaluation verdict,
+ * the pending sub-steps still ahead, and the round/commit projection).
+ *
+ * Every field is optional and every absent field means "nothing to show for this task", so a card
+ * with no extras is simply an empty overlay rather than a missing entry.
+ */
+export interface TaskOverlay {
+  /** Set when the launcher detected this task resuming a prior aborted attempt. */
+  readonly recovering?: RecoveryContext;
+  /** `Task.verificationCriteria` rendered as one bullet per line. Empty lists are dropped. */
+  readonly taskCriteria?: readonly string[];
+  /** Why the task is blocked — its own failure, or `blocked upstream — …`. */
+  readonly blockedReason?: string;
+  /** One-line summary when a task settled done but its FINAL attempt carries a warning. */
+  readonly warningSummary?: string;
+  /** Authoritative verdict — the last attempt's `evaluation.status`, never a bucketed signal. */
+  readonly taskEvaluation?: TaskEvaluation;
+  /** Planned-but-not-yet-executed sub-step leaf names. Empty lists are dropped. */
+  readonly pendingSubSteps?: readonly string[];
+  /** Attempt count / latest commit sha / median round duration for the header chips + ETA. */
+  readonly taskProjection?: TaskProjection;
 }
 
 const medianSettledDurationMs = (attempts: readonly Attempt[]): number | undefined => {

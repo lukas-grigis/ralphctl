@@ -10,6 +10,7 @@ import type { Sprint } from '@src/domain/entity/sprint.ts';
 import { type ApprovedTicket, type PendingTicket, type Ticket } from '@src/domain/entity/ticket.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { RefinedTicketSignal } from '@src/domain/signal.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
@@ -211,6 +212,126 @@ const maybeCommentOnOrigin = async (
   }
 };
 
+/**
+ * Phase 1 — hand the terminal to the AI for the per-ticket refine session. On success resolves
+ * the per-unit output directory (`<sprintDir>/refinement/<ticket-slug>/`) so the next phase can
+ * validate the `signals.json` the AI wrote there.
+ */
+const runInteractiveSession = async (
+  deps: RefineTicketInteractiveDeps,
+  input: RefineTicketInteractiveInput,
+  signal: AbortSignal | undefined
+): Promise<Result<AbsolutePath, DomainError>> => {
+  const session = await deps.runInTerminal(async () =>
+    deps.interactiveAi.run({
+      cwd: input.cwd,
+      promptFile: input.promptFile,
+      outputFile: input.outputFile,
+      model: deps.model,
+      ...(deps.effort !== undefined ? { effort: deps.effort } : {}),
+      // Thread the leaf's abort signal so a TUI cancel tears the stdio-inherit child down
+      // (attachAbortKill) rather than leaving it running — and the adapter classifies the
+      // resulting non-zero exit as AbortError, not InvalidStateError.
+      ...(signal !== undefined ? { abortSignal: signal } : {}),
+    })
+  );
+  if (!session.ok) return Result.error(session.error);
+
+  // Resolve the outputDir from outputFile — `<sprintDir>/refinement/<ticket-slug>/`.
+  // The audit-[09] contract has the AI write `signals.json` here directly.
+  const outputDirRaw = dirname(String(input.outputFile));
+  return AbsolutePath.parse(outputDirRaw);
+};
+
+/**
+ * Phase 2 — validate the AI-written `signals.json` against the refine contract, warn-log any
+ * malformed auxiliary signals the lenient contract dropped, fan every validated signal out to
+ * the bus, render sidecars (none for refine today), then project the `refined-ticket` body out
+ * for phase 3 to consume.
+ */
+const validateAndParseOutput = async (
+  deps: RefineTicketInteractiveDeps,
+  outputDir: AbsolutePath
+): Promise<Result<RefinedTicketSignal, DomainError>> => {
+  // Validate signals.json against the refine contract. Failure surfaces a domain error
+  // (signals-missing / invalid-json / schema-mismatch / migration-gap) with a precise
+  // hint. The refine contract is resilient — malformed auxiliary signals are dropped, not
+  // fatal — so the only validation failures left are genuine: a missing file, unparseable
+  // JSON, or zero / two valid `refined-ticket` entries.
+  const validated = await validateSignalsFile(outputDir, refineOutputContract);
+  if (!validated.ok) return Result.error(remapRefineSignalsError(validated.error));
+  const signals = validated.value;
+
+  // Diagnostics — name any malformed auxiliary signals the lenient contract just dropped.
+  // Refinement still succeeds; the warn keeps the drop out of the silent zone.
+  await warnDroppedSignals(deps, outputDir);
+
+  // Fan out every validated signal to the application bus so the TUI's `ai-signal`
+  // subscribers render live updates. Source tag identifies the leaf for multi-leaf
+  // traces.
+  for (const sig of signals) {
+    deps.eventBus.publish({ type: 'ai-signal', signal: sig, source: 'refine' });
+  }
+
+  // Render harness-owned sidecars — refine has no sidecars (the contract's `sidecars`
+  // is empty), but invoking the helper keeps the contract loop uniform with generator /
+  // evaluator / readiness.
+  await renderSidecars(deps.writeFile, outputDir, signals, refineOutputContract.sidecars, deps.logger);
+
+  // Project the validated `refined-ticket` body onto the Ticket entity. The contract's
+  // `exactlyOne` refinement guarantees one match; the type narrows here.
+  const refinedSignal = signals.find((s) => s.type === 'refined-ticket') as RefinedTicketSignal | undefined;
+  if (refinedSignal === undefined) {
+    // Defensive — the schema should have caught this upstream.
+    return Result.error(
+      new InvalidStateError({
+        entity: 'refine-ticket-interactive',
+        currentState: 'post-validation',
+        attemptedAction: 'project-signal',
+        message: 'refine: validated signals contained no refined-ticket signal',
+      })
+    );
+  }
+  return Result.ok(refinedSignal);
+};
+
+/**
+ * Phase 3 — delegate the approve / reject decision and the sprint mutation to
+ * {@link refineTicketUseCase}, then (on accept, when requested) post the settled requirements
+ * as a comment on the ticket's linked issue.
+ */
+const applyResult = async (
+  deps: RefineTicketInteractiveDeps,
+  input: RefineTicketInteractiveInput,
+  refinedSignal: RefinedTicketSignal
+): Promise<Result<RefineTicketInteractiveOutput, DomainError>> => {
+  const useCaseResult = await refineTicketUseCase({
+    sprint: input.sprint,
+    ticket: input.ticket,
+    requirementsBody: refinedSignal.body,
+    logger: deps.logger,
+    ...(deps.reviewBeforeApprove !== undefined ? { reviewBeforeApprove: deps.reviewBeforeApprove } : {}),
+  });
+  if (!useCaseResult.ok) return Result.error(useCaseResult.error);
+  const out = useCaseResult.value;
+  if (!out.accepted) return Result.ok(out);
+  // Decide whether to post a comment on the linked issue. With a reviewer hook wired the
+  // reviewer's explicit choice (`alsoUpdateOrigin`) governs; in non-interactive runs the
+  // `postRefinementComment` setting governs. Commenting never mutates the ticket, so the
+  // sprint is returned exactly as the use case produced it.
+  const shouldComment =
+    deps.reviewBeforeApprove !== undefined ? out.alsoUpdateOrigin : deps.postRefinementComment === true;
+  if (!shouldComment) return Result.ok(out);
+  // Post the SETTLED requirements — `refineTicketUseCase` stored the reviewer's edited body
+  // (when they edited it) on the approved ticket. Posting `refinedSignal.body` (the AI's raw
+  // pre-edit proposal) would publish text the reviewer may have deliberately discarded to a
+  // public issue tracker, diverging from the locally-persisted ticket. `out.accepted` is true
+  // here, so `out.ticket` is an `ApprovedTicket` and `requirements` is a non-empty string.
+  const approved = out.ticket as ApprovedTicket;
+  await maybeCommentOnOrigin(deps, approved, approved.requirements);
+  return Result.ok(out);
+};
+
 export const refineTicketInteractiveLeaf = (
   deps: RefineTicketInteractiveDeps,
   ticket: PendingTicket
@@ -218,93 +339,13 @@ export const refineTicketInteractiveLeaf = (
   leaf<RefineCtx, RefineTicketInteractiveInput, RefineTicketInteractiveOutput>(`refine-ticket-${String(ticket.id)}`, {
     useCase: {
       execute: async (input, signal) => {
-        const session = await deps.runInTerminal(async () =>
-          deps.interactiveAi.run({
-            cwd: input.cwd,
-            promptFile: input.promptFile,
-            outputFile: input.outputFile,
-            model: deps.model,
-            ...(deps.effort !== undefined ? { effort: deps.effort } : {}),
-            // Thread the leaf's abort signal so a TUI cancel tears the stdio-inherit child down
-            // (attachAbortKill) rather than leaving it running — and the adapter classifies the
-            // resulting non-zero exit as AbortError, not InvalidStateError.
-            ...(signal !== undefined ? { abortSignal: signal } : {}),
-          })
-        );
-        if (!session.ok) return Result.error(session.error);
+        const outputDir = await runInteractiveSession(deps, input, signal);
+        if (!outputDir.ok) return Result.error(outputDir.error);
 
-        // Resolve the outputDir from outputFile — `<sprintDir>/refinement/<ticket-slug>/`.
-        // The audit-[09] contract has the AI write `signals.json` here directly.
-        const outputDirRaw = dirname(String(input.outputFile));
-        const outputDirResult = AbsolutePath.parse(outputDirRaw);
-        if (!outputDirResult.ok) return Result.error(outputDirResult.error);
-        const outputDir = outputDirResult.value;
+        const refinedSignal = await validateAndParseOutput(deps, outputDir.value);
+        if (!refinedSignal.ok) return Result.error(refinedSignal.error);
 
-        // Validate signals.json against the refine contract. Failure surfaces a domain error
-        // (signals-missing / invalid-json / schema-mismatch / migration-gap) with a precise
-        // hint. The refine contract is resilient — malformed auxiliary signals are dropped, not
-        // fatal — so the only validation failures left are genuine: a missing file, unparseable
-        // JSON, or zero / two valid `refined-ticket` entries.
-        const validated = await validateSignalsFile(outputDir, refineOutputContract);
-        if (!validated.ok) return Result.error(remapRefineSignalsError(validated.error));
-        const signals = validated.value;
-
-        // Diagnostics — name any malformed auxiliary signals the lenient contract just dropped.
-        // Refinement still succeeds; the warn keeps the drop out of the silent zone.
-        await warnDroppedSignals(deps, outputDir);
-
-        // Fan out every validated signal to the application bus so the TUI's `ai-signal`
-        // subscribers render live updates. Source tag identifies the leaf for multi-leaf
-        // traces.
-        for (const sig of signals) {
-          deps.eventBus.publish({ type: 'ai-signal', signal: sig, source: 'refine' });
-        }
-
-        // Render harness-owned sidecars — refine has no sidecars (the contract's `sidecars`
-        // is empty), but invoking the helper keeps the contract loop uniform with generator /
-        // evaluator / readiness.
-        await renderSidecars(deps.writeFile, outputDir, signals, refineOutputContract.sidecars, deps.logger);
-
-        // Project the validated `refined-ticket` body onto the Ticket entity. The contract's
-        // `exactlyOne` refinement guarantees one match; the type narrows here.
-        const refinedSignal = signals.find((s) => s.type === 'refined-ticket') as RefinedTicketSignal | undefined;
-        if (refinedSignal === undefined) {
-          // Defensive — the schema should have caught this upstream.
-          return Result.error(
-            new InvalidStateError({
-              entity: 'refine-ticket-interactive',
-              currentState: 'post-validation',
-              attemptedAction: 'project-signal',
-              message: 'refine: validated signals contained no refined-ticket signal',
-            })
-          );
-        }
-
-        const useCaseResult = await refineTicketUseCase({
-          sprint: input.sprint,
-          ticket: input.ticket,
-          requirementsBody: refinedSignal.body,
-          logger: deps.logger,
-          ...(deps.reviewBeforeApprove !== undefined ? { reviewBeforeApprove: deps.reviewBeforeApprove } : {}),
-        });
-        if (!useCaseResult.ok) return Result.error(useCaseResult.error);
-        const out = useCaseResult.value;
-        if (!out.accepted) return Result.ok(out);
-        // Decide whether to post a comment on the linked issue. With a reviewer hook wired the
-        // reviewer's explicit choice (`alsoUpdateOrigin`) governs; in non-interactive runs the
-        // `postRefinementComment` setting governs. Commenting never mutates the ticket, so the
-        // sprint is returned exactly as the use case produced it.
-        const shouldComment =
-          deps.reviewBeforeApprove !== undefined ? out.alsoUpdateOrigin : deps.postRefinementComment === true;
-        if (!shouldComment) return Result.ok(out);
-        // Post the SETTLED requirements — `refineTicketUseCase` stored the reviewer's edited body
-        // (when they edited it) on the approved ticket. Posting `refinedSignal.body` (the AI's raw
-        // pre-edit proposal) would publish text the reviewer may have deliberately discarded to a
-        // public issue tracker, diverging from the locally-persisted ticket. `out.accepted` is true
-        // here, so `out.ticket` is an `ApprovedTicket` and `requirements` is a non-empty string.
-        const approved = out.ticket as ApprovedTicket;
-        await maybeCommentOnOrigin(deps, approved, approved.requirements);
-        return Result.ok(out);
+        return applyResult(deps, input, refinedSignal.value);
       },
     },
     input: (ctx) => {

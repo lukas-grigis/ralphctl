@@ -65,6 +65,14 @@ export interface Runner<TCtx> {
  */
 const MAX_TRACE_ENTRIES = 5_000;
 
+/**
+ * The runner body is one long closure on purpose: status, ctx, trace, the start promise, the
+ * failure error and the abort flag are a single state machine, and every helper below mutates it.
+ * Splitting them into free functions would mean threading a mutable state object through each one
+ * — more surface, no fewer moving parts, and the invariants (never emit `started` after an
+ * `abort()`; exactly one terminal event) would stop being locally checkable. Deliberate, not an
+ * oversight; see "The runner" in `.claude/docs/KERNEL-DESIGN.md`.
+ */
 export const createRunner = <TCtx>(opts: RunnerOptions<TCtx>): Runner<TCtx> => {
   const abortController = new AbortController();
   const listeners = new Set<RunnerListener<TCtx>>();

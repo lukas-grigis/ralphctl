@@ -8,6 +8,7 @@ import { createSkillsAdapter } from '@src/integration/ai/skills/adapter-factory.
 import { buildComposedSkillSource } from '@src/application/ui/shared/launcher.ts';
 import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
 import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
+import { fail } from '@src/application/ui/cli/report-cli-error.ts';
 import { pinFallbackNotice, resolveSprintId } from '@src/application/ui/cli/resolve-sprint-selection.ts';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { StoragePaths } from '@src/application/bootstrap/storage-paths.ts';
@@ -85,6 +86,66 @@ const buildCreatePrFlow = (deps: AppDeps, storage: StoragePaths, useAi: boolean)
  * template-derived title + body. The AI step is best-effort — any failure also falls back
  * silently; the flag only matters when the user explicitly wants the template.
  */
+const createPrAction = async (opts: Opts): Promise<void> => {
+  const cwdInput = opts.cwd ?? process.cwd();
+  const cwd = AbsolutePath.parse(cwdInput);
+  if (!cwd.ok) {
+    fail(`--cwd: ${cwd.error.message}`);
+    return;
+  }
+
+  const { deps, storage } = await bootstrapCli();
+  const resolved = await resolveSprintId(opts.sprint, storage.stateRoot);
+  if (!resolved.ok) {
+    fail(resolved.error.message);
+    return;
+  }
+  // Opening a PR is a write to the upstream — always disambiguate a pin-derived target.
+  if (resolved.value.fromPin) process.stderr.write(pinFallbackNotice(resolved.value.sprintId));
+  const sprintId = resolved.value.sprintId;
+  // PATH-gate the AI step FIRST: when `--ai` is on (the default), the create-pr AI session
+  // spawns the `createPr` row's provider CLI. Probe for it before any sprint I/O so a missing
+  // binary fails fast with the actionable "binary not found" guidance, matching every other
+  // AI flow (and so the gate cannot be masked by a not-yet-materialised sprint dir).
+  if (opts.ai) {
+    const gate = await checkCli('create-pr', deps.settings);
+    if (gate !== undefined && !gate.ok) {
+      fail(gate.reason);
+      return;
+    }
+  }
+  // Resolve the sprint dir via the tolerant id-prefix resolver (both `<id>--<slug>/` and the
+  // legacy bare `<id>/`); the command only holds the sprint id, not the entity.
+  const resolvedDir = await resolveSprintDir(storage.dataRoot, sprintId);
+  if (resolvedDir === undefined) {
+    fail('sprint dir: not found on disk');
+    return;
+  }
+  const sprintDir = AbsolutePath.parse(resolvedDir);
+  if (!sprintDir.ok) {
+    fail(`sprint dir: ${sprintDir.error.message}`);
+    return;
+  }
+  const flow = buildCreatePrFlow(deps, storage, opts.ai);
+  const result = await flow.execute({
+    input: {
+      sprintId,
+      cwd: cwd.value,
+      sprintDir: sprintDir.value,
+      base: opts.base,
+      draft: opts.draft,
+      ...(opts.title !== undefined ? { title: opts.title } : {}),
+      ...(opts.body !== undefined ? { body: opts.body } : {}),
+    },
+  });
+
+  if (!result.ok) {
+    fail(result.error.error.message);
+    return;
+  }
+  process.stdout.write(`opened PR ${result.value.ctx.output!.url}\n`);
+};
+
 export const registerCreatePrCommand = (program: Command): void => {
   program
     .command('create-pr')
@@ -96,69 +157,5 @@ export const registerCreatePrCommand = (program: Command): void => {
     .option('-t, --title <title>', 'override the derived PR title')
     .option('--body <body>', 'override the derived PR body')
     .option('--no-ai', 'skip AI content generation, use the template only')
-    .action(async (opts: Opts) => {
-      const cwdInput = opts.cwd ?? process.cwd();
-      const cwd = AbsolutePath.parse(cwdInput);
-      if (!cwd.ok) {
-        process.stderr.write(`error: --cwd: ${cwd.error.message}\n`);
-        process.exitCode = 1;
-        return;
-      }
-
-      const { deps, storage } = await bootstrapCli();
-      const resolved = await resolveSprintId(opts.sprint, storage.stateRoot);
-      if (!resolved.ok) {
-        process.stderr.write(`error: ${resolved.error.message}\n`);
-        process.exitCode = 1;
-        return;
-      }
-      // Opening a PR is a write to the upstream — always disambiguate a pin-derived target.
-      if (resolved.value.fromPin) process.stderr.write(pinFallbackNotice(resolved.value.sprintId));
-      const sprintId = resolved.value.sprintId;
-      // PATH-gate the AI step FIRST: when `--ai` is on (the default), the create-pr AI session
-      // spawns the `createPr` row's provider CLI. Probe for it before any sprint I/O so a missing
-      // binary fails fast with the actionable "binary not found" guidance, matching every other
-      // AI flow (and so the gate cannot be masked by a not-yet-materialised sprint dir).
-      if (opts.ai) {
-        const gate = await checkCli('create-pr', deps.settings);
-        if (gate !== undefined && !gate.ok) {
-          process.stderr.write(`error: ${gate.reason}\n`);
-          process.exitCode = 1;
-          return;
-        }
-      }
-      // Resolve the sprint dir via the tolerant id-prefix resolver (both `<id>--<slug>/` and the
-      // legacy bare `<id>/`); the command only holds the sprint id, not the entity.
-      const resolvedDir = await resolveSprintDir(storage.dataRoot, sprintId);
-      if (resolvedDir === undefined) {
-        process.stderr.write('error: sprint dir: not found on disk\n');
-        process.exitCode = 1;
-        return;
-      }
-      const sprintDir = AbsolutePath.parse(resolvedDir);
-      if (!sprintDir.ok) {
-        process.stderr.write(`error: sprint dir: ${sprintDir.error.message}\n`);
-        process.exitCode = 1;
-        return;
-      }
-      const flow = buildCreatePrFlow(deps, storage, opts.ai);
-      const result = await flow.execute({
-        input: {
-          sprintId,
-          cwd: cwd.value,
-          sprintDir: sprintDir.value,
-          base: opts.base,
-          draft: opts.draft,
-          ...(opts.title !== undefined ? { title: opts.title } : {}),
-          ...(opts.body !== undefined ? { body: opts.body } : {}),
-        },
-      });
-
-      if (!result.ok) {
-        process.stderr.write(`error: ${result.error.error.message}\n`);
-        process.exitCode = 1;
-        return;
-      }
-      process.stdout.write(`opened PR ${result.value.ctx.output!.url}\n`);
-    });
+    .action(createPrAction);
 };

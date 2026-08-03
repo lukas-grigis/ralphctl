@@ -1,5 +1,6 @@
 import type { Command } from 'commander';
 import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
+import { fail } from '@src/application/ui/cli/report-cli-error.ts';
 import { SKILL_MOUNTING_FLOW_IDS } from '@src/application/ui/shared/launcher.ts';
 import { BUNDLED_SKILLS } from '@src/integration/ai/skills/_engine/registry.ts';
 import type { SkillCatalogEntry, SkillInstallStatus } from '@src/integration/ai/skills/_engine/skill-catalog-port.ts';
@@ -84,6 +85,32 @@ const formatSkillLine = (
   return `${entry.name.padEnd(38)}  ${tier.padEnd(8)}  flows: ${flowsLabel.padEnd(44)}  ${provenance.padEnd(18)}  ${entry.description}`;
 };
 
+const listSkillsAction = async (): Promise<void> => {
+  const { deps } = await bootstrapCli();
+
+  const catalogR = await deps.skillCatalog.list();
+  if (!catalogR.ok) {
+    fail(catalogR.error.message);
+    return;
+  }
+
+  if (catalogR.value.length === 0) {
+    process.stdout.write('(no skills bundled)\n');
+    return;
+  }
+
+  // A settings read failure is non-fatal here, mirroring the TUI catalog's posture — the
+  // listing still renders, opt-out nuance is just lost (every default reads as enabled).
+  const settingsR = await deps.settingsRepo.load();
+  const savedDisabled = savedDisabledFrom(settingsR.ok ? settingsR.value.ai.skills : undefined);
+  const bundledNames = new Set(BUNDLED_SKILLS.map((e) => e.name));
+
+  const sorted = [...catalogR.value].sort((a, b) => a.name.localeCompare(b.name));
+  for (const entry of sorted) {
+    process.stdout.write(`${formatSkillLine(entry, bundledNames, savedDisabled)}\n`);
+  }
+};
+
 /**
  * Register the `skills` command group.
  *
@@ -102,30 +129,5 @@ export const registerSkillsCommand = (program: Command): void => {
   skills
     .command('list')
     .description('list bundled + manually-dropped skills, their tier, enabled flows, and provenance')
-    .action(async () => {
-      const { deps } = await bootstrapCli();
-
-      const catalogR = await deps.skillCatalog.list();
-      if (!catalogR.ok) {
-        process.stderr.write(`error: ${catalogR.error.message}\n`);
-        process.exitCode = 1;
-        return;
-      }
-
-      if (catalogR.value.length === 0) {
-        process.stdout.write('(no skills bundled)\n');
-        return;
-      }
-
-      // A settings read failure is non-fatal here, mirroring the TUI catalog's posture — the
-      // listing still renders, opt-out nuance is just lost (every default reads as enabled).
-      const settingsR = await deps.settingsRepo.load();
-      const savedDisabled = savedDisabledFrom(settingsR.ok ? settingsR.value.ai.skills : undefined);
-      const bundledNames = new Set(BUNDLED_SKILLS.map((e) => e.name));
-
-      const sorted = [...catalogR.value].sort((a, b) => a.name.localeCompare(b.name));
-      for (const entry of sorted) {
-        process.stdout.write(`${formatSkillLine(entry, bundledNames, savedDisabled)}\n`);
-      }
-    });
+    .action(listSkillsAction);
 };

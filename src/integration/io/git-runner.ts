@@ -1,5 +1,6 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { Result } from '@src/domain/result.ts';
+import { messageOf } from '@src/domain/value/error/error-message.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Spawn } from '@src/integration/io/spawn.ts';
@@ -89,7 +90,7 @@ const spawnGitChild = (
     return Result.error(
       new StorageError({
         subCode: 'io',
-        message: `failed to spawn git: ${stringifyError(cause)}`,
+        message: `failed to spawn git: ${messageOf(cause)}`,
         cause,
       })
     );
@@ -183,7 +184,7 @@ const buildCloseResult = (
     return Result.error(
       new StorageError({
         subCode: 'io',
-        message: `git output too large to materialize: git ${args.join(' ')} — ${stringifyError(cause)}`,
+        message: `git output too large to materialize: git ${args.join(' ')} — ${messageOf(cause)}`,
       })
     );
   }
@@ -254,5 +255,3 @@ const runGitOnce = (
 
 const defaultSpawn: Spawn = (command, args, options) =>
   crossPlatformSpawn(command, args, { ...options, stdio: [...options.stdio] }) as ReturnType<Spawn>;
-
-const stringifyError = (cause: unknown): string => (cause instanceof Error ? cause.message : String(cause));

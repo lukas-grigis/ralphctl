@@ -187,6 +187,81 @@ describe('updateTask', () => {
   });
 });
 
+describe('createTask — field validation', () => {
+  const baseInput = (overrides: Partial<Parameters<typeof createTask>[0]> = {}) => ({
+    name: 'do-the-thing',
+    steps: ['step 1'],
+    verificationCriteria: [{ id: 'C1', assertion: 'looks right', check: 'manual' as const }],
+    order: 1,
+    ticketId: makeApprovedTicket().id,
+    repositoryId: FIXED_REPOSITORY_ID,
+    ...overrides,
+  });
+
+  it('rejects an empty name', () => {
+    const r = createTask(baseInput({ name: '' }));
+    expect(r.ok).toBe(false);
+  });
+
+  it('rejects a whitespace-only name', () => {
+    const r = createTask(baseInput({ name: '   ' }));
+    expect(r.ok).toBe(false);
+  });
+
+  it('rejects order = 0', () => {
+    const r = createTask(baseInput({ order: 0 }));
+    expect(r.ok).toBe(false);
+  });
+
+  it('rejects order = -1', () => {
+    const r = createTask(baseInput({ order: -1 }));
+    expect(r.ok).toBe(false);
+  });
+
+  it('rejects a non-integer order (1.5)', () => {
+    const r = createTask(baseInput({ order: 1.5 }));
+    expect(r.ok).toBe(false);
+  });
+
+  it('rejects maxAttempts = 0', () => {
+    const r = createTask(baseInput({ maxAttempts: 0 }));
+    expect(r.ok).toBe(false);
+  });
+
+  it('generates a distinct TaskId per call when id is omitted', () => {
+    const first = createTask(baseInput());
+    const second = createTask(baseInput());
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    if (!first.ok || !second.ok) return;
+    expect(first.value.id).not.toBe(second.value.id);
+  });
+
+  it('defaults dependsOn to [] when omitted', () => {
+    const r = createTask(baseInput());
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.dependsOn).toEqual([]);
+  });
+});
+
+describe('updateTask — field validation', () => {
+  it('rejects an empty name', () => {
+    const r = updateTask(makeTodoTask(), { name: '' });
+    expect(r.ok).toBe(false);
+  });
+
+  it('rejects a whitespace-only name', () => {
+    const r = updateTask(makeTodoTask(), { name: '   ' });
+    expect(r.ok).toBe(false);
+  });
+
+  it('rejects maxAttempts = 0', () => {
+    const r = updateTask(makeTodoTask(), { maxAttempts: 0 });
+    expect(r.ok).toBe(false);
+  });
+});
+
 describe('VerificationCriterion invariants', () => {
   const baseTaskInput = (criteria: readonly VerificationCriterion[]) => ({
     name: 'do-the-thing',

@@ -5,30 +5,30 @@ import type { FlowId } from '@src/domain/value/flow-id.ts';
 import { createInteractiveClaudeProvider } from '@src/integration/ai/providers/claude/interactive.ts';
 import { createInteractiveCodexProvider } from '@src/integration/ai/providers/codex/interactive.ts';
 import { createInteractiveCopilotProvider } from '@src/integration/ai/providers/copilot/interactive.ts';
+import type { InteractiveProviderDeps } from '@src/integration/ai/providers/_engine/interactive-provider-deps.ts';
+
+/**
+ * One concrete interactive-provider factory per {@link AiProvider}. `Record<AiProvider, …>` is
+ * checked exhaustively by the compiler — adding a member to the `AiProvider` union without a
+ * row here is a compile error. Adding a provider extends the record plus a sibling
+ * `providers/<name>/interactive.ts`.
+ */
+const INTERACTIVE_FACTORIES: Readonly<Record<AiProvider, (deps: InteractiveProviderDeps) => InteractiveAiProvider>> = {
+  'claude-code': createInteractiveClaudeProvider,
+  'github-copilot': createInteractiveCopilotProvider,
+  'openai-codex': createInteractiveCodexProvider,
+};
 
 /**
  * Build the concrete {@link InteractiveAiProvider} for an explicit {@link AiProvider}. The
  * provider-keyed seam (vs. the flow-keyed {@link createInteractiveAiProvider}) — used by the
  * distill sub-chain's per-distinct-provider fan-out, where the provider set is derived directly
- * (not via a flow row). Adding a provider extends this switch plus a sibling
- * `providers/<name>/interactive.ts`.
+ * (not via a flow row).
  *
  * @public
  */
-export const createInteractiveAiProviderFor = (provider: AiProvider, eventBus: EventBus): InteractiveAiProvider => {
-  switch (provider) {
-    case 'claude-code':
-      return createInteractiveClaudeProvider({ eventBus });
-    case 'github-copilot':
-      return createInteractiveCopilotProvider({ eventBus });
-    case 'openai-codex':
-      return createInteractiveCodexProvider({ eventBus });
-    default: {
-      const exhaustive: never = provider;
-      throw new Error(`createInteractiveAiProviderFor: unhandled provider ${JSON.stringify(exhaustive)}`);
-    }
-  }
-};
+export const createInteractiveAiProviderFor = (provider: AiProvider, eventBus: EventBus): InteractiveAiProvider =>
+  INTERACTIVE_FACTORIES[provider]({ eventBus });
 
 /**
  * Composition seam for {@link InteractiveAiProvider}. Selects the concrete adapter based on

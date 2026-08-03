@@ -39,38 +39,65 @@ export const renderSidecars = async <TSig extends AiSignal>(
   for (const rule of rules) {
     const matching = signals.filter((s) => s.type === rule.signalKind);
     if (matching.length === 0) {
-      if (rule.multiplicity === 'one') {
-        // The Zod schema should have caught this upstream; if it slipped through, fail soft —
-        // operator can still inspect signals.json directly.
-        logger.warn(`sidecar render: kind '${rule.signalKind}' is multiplicity 'one' but no matching signal present`);
-      }
+      warnIfRequiredSignalMissing(rule, logger);
       continue;
     }
-
-    let index = 0;
-    for (const signal of matching) {
-      const filename = renderFilename(rule.filename, index, rule.multiplicity);
-      const absPathResult = AbsolutePathFactory.parse(join(String(outputDir), filename));
-      if (!absPathResult.ok) {
-        logger.warn(
-          `sidecar render: could not resolve absolute path for ${rule.filename}: ${absPathResult.error.message}`
-        );
-        index++;
-        continue;
-      }
-      const body = (rule.extract as (s: AiSignal) => string)(signal);
-      const writeResult = await writeFile(absPathResult.value, body);
-      if (!writeResult.ok) {
-        logger.warn(`sidecar render: write failed for ${String(absPathResult.value)}: ${writeResult.error.message}`);
-      } else {
-        writtenPaths.push(absPathResult.value);
-      }
-      index++;
-      if (rule.multiplicity !== 'any') break;
-    }
+    writtenPaths.push(...(await renderMatchesForRule(writeFile, outputDir, matching, rule, logger)));
   }
 
   return Result.ok(writtenPaths);
+};
+
+/**
+ * `'one'` sidecars are Zod-enforced to have exactly one matching signal upstream; if none
+ * slipped through anyway, fail soft with a warning rather than aborting the whole render —
+ * the operator can still inspect `signals.json` directly. `'optional'` and `'any'` rules are
+ * silently skipped when nothing matches; that's expected, not an anomaly.
+ */
+const warnIfRequiredSignalMissing = <TKind extends AiSignal['type']>(
+  rule: SidecarRule<TKind>,
+  logger: Logger
+): void => {
+  if (rule.multiplicity !== 'one') return;
+  logger.warn(`sidecar render: kind '${rule.signalKind}' is multiplicity 'one' but no matching signal present`);
+};
+
+/**
+ * Write every signal matching one rule. `'any'` iterates the full match list, disambiguating
+ * filenames via `renderFilename`; `'one'` / `'optional'` write only the first match. A path or
+ * write failure logs a warning and is skipped rather than aborting the batch (see the
+ * failure-model note on `renderSidecars`).
+ */
+const renderMatchesForRule = async <TSig extends AiSignal>(
+  writeFile: WriteFile,
+  outputDir: AbsolutePath,
+  matching: readonly TSig[],
+  rule: SidecarRule<TSig['type']>,
+  logger: Logger
+): Promise<readonly AbsolutePath[]> => {
+  const writtenPaths: AbsolutePath[] = [];
+  let index = 0;
+  for (const signal of matching) {
+    const filename = renderFilename(rule.filename, index, rule.multiplicity);
+    const absPathResult = AbsolutePathFactory.parse(join(String(outputDir), filename));
+    if (!absPathResult.ok) {
+      logger.warn(
+        `sidecar render: could not resolve absolute path for ${rule.filename}: ${absPathResult.error.message}`
+      );
+      index++;
+      continue;
+    }
+    const body = (rule.extract as (s: AiSignal) => string)(signal);
+    const writeResult = await writeFile(absPathResult.value, body);
+    if (!writeResult.ok) {
+      logger.warn(`sidecar render: write failed for ${String(absPathResult.value)}: ${writeResult.error.message}`);
+    } else {
+      writtenPaths.push(absPathResult.value);
+    }
+    index++;
+    if (rule.multiplicity !== 'any') break;
+  }
+  return writtenPaths;
 };
 
 const renderFilename = (filename: string, index: number, multiplicity: 'one' | 'optional' | 'any'): string => {

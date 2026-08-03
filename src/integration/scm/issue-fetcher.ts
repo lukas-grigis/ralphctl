@@ -107,6 +107,39 @@ export const parseGitRemoteUrl = (
   return { provider: host.includes('github') ? 'github' : 'gitlab', owner, repo };
 };
 
+/** Match GitHub's `/<owner>/<repo>/issues/<number>` issue-URL path shape. */
+const parseGitHubIssuePath = (segments: readonly string[], hostname: string): ParsedUrl | null => {
+  if (segments.length >= 4 && segments[2] === 'issues') {
+    const owner = segments[0];
+    const repo = segments[1];
+    const num = Number(segments[3]);
+    if (owner && repo && Number.isInteger(num) && num > 0) {
+      return { host: 'github', hostname, owner, repo, number: num };
+    }
+  }
+  return null;
+};
+
+/**
+ * Match GitLab's `/<group...>/<project>/-/issues/<number>` issue-URL path shape — also accepts
+ * the `work_items` path. Since GitLab 16 issues are work items sharing one iid namespace, a
+ * `/-/work_items/N` URL resolves to the same issue as `/-/issues/N` and `glab issue view N`
+ * fetches both.
+ */
+const parseGitLabIssuePath = (segments: readonly string[], hostname: string): ParsedUrl | null => {
+  const dashIdx = segments.indexOf('-');
+  const kind = dashIdx >= 0 ? segments[dashIdx + 1] : undefined;
+  if (dashIdx >= 2 && (kind === 'issues' || kind === 'work_items')) {
+    const num = Number(segments[dashIdx + 2]);
+    const repo = segments[dashIdx - 1];
+    if (repo && Number.isInteger(num) && num > 0) {
+      const owner = segments.slice(0, dashIdx - 1).join('/');
+      return { host: 'gitlab', hostname, owner, repo, number: num };
+    }
+  }
+  return null;
+};
+
 /** Parse a GitHub or GitLab issue URL. Returns null for unrecognised shapes. */
 export const parseIssueUrl = (url: string): ParsedUrl | null => {
   let parsed: URL;
@@ -118,35 +151,8 @@ export const parseIssueUrl = (url: string): ParsedUrl | null => {
   if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return null;
 
   const segments = parsed.pathname.split('/').filter(Boolean);
-
-  if (parsed.hostname === 'github.com') {
-    // /<owner>/<repo>/issues/<number>
-    if (segments.length >= 4 && segments[2] === 'issues') {
-      const owner = segments[0];
-      const repo = segments[1];
-      const num = Number(segments[3]);
-      if (owner && repo && Number.isInteger(num) && num > 0) {
-        return { host: 'github', hostname: parsed.hostname, owner, repo, number: num };
-      }
-    }
-    return null;
-  }
-
-  // GitLab: /<group...>/<project>/-/issues/<number> — also accept the `work_items` path.
-  // Since GitLab 16 issues are work items sharing one iid namespace, so a `/-/work_items/N`
-  // URL resolves to the same issue as `/-/issues/N` and `glab issue view N` fetches both.
-  const dashIdx = segments.indexOf('-');
-  const kind = dashIdx >= 0 ? segments[dashIdx + 1] : undefined;
-  if (dashIdx >= 2 && (kind === 'issues' || kind === 'work_items')) {
-    const num = Number(segments[dashIdx + 2]);
-    const repo = segments[dashIdx - 1];
-    if (repo && Number.isInteger(num) && num > 0) {
-      const owner = segments.slice(0, dashIdx - 1).join('/');
-      return { host: 'gitlab', hostname: parsed.hostname, owner, repo, number: num };
-    }
-  }
-
-  return null;
+  if (parsed.hostname === 'github.com') return parseGitHubIssuePath(segments, parsed.hostname);
+  return parseGitLabIssuePath(segments, parsed.hostname);
 };
 
 /**

@@ -3,6 +3,7 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { Result } from '@src/domain/result.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
+import { messageOf } from '@src/domain/value/error/error-message.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Spawn } from '@src/integration/io/spawn.ts';
 
@@ -178,7 +179,7 @@ const trySpawnChild = (spawn: Spawn, cwd: AbsolutePath, script: string, env: Nod
       ok: false,
       error: new StorageError({
         subCode: 'io',
-        message: `failed to spawn shell script: ${stringifyError(cause)}`,
+        message: `failed to spawn shell script: ${messageOf(cause)}`,
         cause,
       }),
     };
@@ -380,5 +381,3 @@ export const createShellScriptRunner = (deps: ShellScriptRunnerDeps = {}): Shell
 
 const defaultSpawn: Spawn = (command, args, options) =>
   nodeSpawn(command, [...args], { ...options, stdio: [...options.stdio] }) as ReturnType<Spawn>;
-
-const stringifyError = (cause: unknown): string => (cause instanceof Error ? cause.message : String(cause));

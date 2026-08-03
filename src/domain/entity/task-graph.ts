@@ -86,6 +86,57 @@ export type TaskGraphIssue =
   | { readonly kind: 'cycle'; readonly cycle: readonly TaskId[] };
 
 /**
+ * First malformed edge in the set, or `undefined` when every `dependsOn` entry points at a
+ * different task that exists here. Runs before cycle detection so a dangling id is reported as
+ * exactly that rather than swallowed by the traversal.
+ */
+const findInvalidEdge = (tasks: readonly Task[], byId: ReadonlyMap<TaskId, Task>): TaskGraphIssue | undefined => {
+  for (const t of tasks) {
+    for (const dep of t.dependsOn) {
+      if (dep === t.id) return { kind: 'self-edge', task: t.id };
+      if (!byId.has(dep)) return { kind: 'unknown-dependency', task: t.id, missing: dep };
+    }
+  }
+  return undefined;
+};
+
+/**
+ * Depth-first search for a dependency cycle. Returns the offending path (repeating the entry task
+ * at both ends, e.g. `A → B → A`) or `undefined` on an acyclic set.
+ *
+ * Colors: 0 = unseen, 1 = on the current stack, 2 = fully explored. Re-encountering a color-1 node
+ * means the stack from that node forward IS the cycle.
+ */
+const findCycle = (tasks: readonly Task[], byId: ReadonlyMap<TaskId, Task>): readonly TaskId[] | undefined => {
+  const color = new Map<TaskId, 0 | 1 | 2>();
+  for (const t of tasks) color.set(t.id, 0);
+
+  const stack: TaskId[] = [];
+  const visit = (id: TaskId): readonly TaskId[] | undefined => {
+    color.set(id, 1);
+    stack.push(id);
+    for (const dep of byId.get(id)?.dependsOn ?? []) {
+      const c = color.get(dep) ?? 0;
+      if (c === 1) return [...stack.slice(stack.indexOf(dep)), dep];
+      if (c === 0) {
+        const found = visit(dep);
+        if (found !== undefined) return found;
+      }
+    }
+    stack.pop();
+    color.set(id, 2);
+    return undefined;
+  };
+
+  for (const t of tasks) {
+    if ((color.get(t.id) ?? 0) !== 0) continue;
+    const found = visit(t.id);
+    if (found !== undefined) return found;
+  }
+  return undefined;
+};
+
+/**
  * Validate the dependency graph for a sprint's task set:
  *  - every `dependsOn` id resolves to a task in this set
  *  - no self-edges
@@ -106,46 +157,11 @@ export const validateTaskGraph = (tasks: readonly Task[]): Result<undefined, Tas
   const byId = new Map<TaskId, Task>();
   for (const t of tasks) byId.set(t.id, t);
 
-  for (const t of tasks) {
-    for (const dep of t.dependsOn) {
-      if (dep === t.id) return Result.error({ kind: 'self-edge', task: t.id });
-      if (!byId.has(dep)) return Result.error({ kind: 'unknown-dependency', task: t.id, missing: dep });
-    }
-  }
+  const badEdge = findInvalidEdge(tasks, byId);
+  if (badEdge !== undefined) return Result.error(badEdge);
 
-  // DFS-based cycle detection. Colors: 0 = unseen, 1 = on current stack, 2 = fully explored.
-  const color = new Map<TaskId, 0 | 1 | 2>();
-  for (const t of tasks) color.set(t.id, 0);
-
-  const stack: TaskId[] = [];
-  const dfs = (id: TaskId): readonly TaskId[] | undefined => {
-    color.set(id, 1);
-    stack.push(id);
-    const node = byId.get(id);
-    if (node !== undefined) {
-      for (const dep of node.dependsOn) {
-        const c = color.get(dep) ?? 0;
-        if (c === 1) {
-          const start = stack.indexOf(dep);
-          return [...stack.slice(start), dep];
-        }
-        if (c === 0) {
-          const cycle = dfs(dep);
-          if (cycle !== undefined) return cycle;
-        }
-      }
-    }
-    stack.pop();
-    color.set(id, 2);
-    return undefined;
-  };
-
-  for (const t of tasks) {
-    if ((color.get(t.id) ?? 0) === 0) {
-      const cycle = dfs(t.id);
-      if (cycle !== undefined) return Result.error({ kind: 'cycle', cycle });
-    }
-  }
+  const cycle = findCycle(tasks, byId);
+  if (cycle !== undefined) return Result.error({ kind: 'cycle', cycle });
 
   return Result.ok(undefined);
 };

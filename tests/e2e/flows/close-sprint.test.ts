@@ -147,6 +147,39 @@ describe('createCloseSprintFlow', () => {
     expect(sprintRepo.current().status).toBe('done');
   });
 
+  it('built with deps.distill omitted entirely — the distill-learnings step is absent from the trace', async () => {
+    const sprint = makeReviewSprint();
+    const sprintRepo = inMemorySprintRepo(sprint);
+
+    const append = recordingAppendFile();
+    const flow = createCloseSprintFlow({
+      sprintRepo: sprintRepo.repo,
+      clock: () => FIXED_LATER,
+      logger: noopLogger,
+      appendFile: append.fn,
+      progressFile: absolutePath('/tmp/progress.md'),
+      // No `distill` dep at all — the distill step must be omitted from the chain entirely,
+      // not merely skipped by its inner gate (that case is covered by the happy-path test above,
+      // which passes `stubDistill()` and asserts the guard's `distill-learnings` name still
+      // appears in the trace even when `distillRequested` is false).
+    });
+    const runner = createRunner<CloseSprintCtx>({
+      id: 'r-close-no-distill-dep',
+      element: flow,
+      initialCtx: { sprintId: sprint.id, distillRequested: false },
+    });
+    await runner.start();
+
+    expect(runner.status).toBe('completed');
+    expect(runner.trace.map((t) => t.elementName)).toEqual([
+      'load-sprint',
+      'assert-sprint-status',
+      'transition-sprint-to-done',
+      'progress-journal-close',
+    ]);
+    expect(sprintRepo.current().status).toBe('done');
+  });
+
   it('refuses to close a sprint that is not in review (assert-status rejects)', async () => {
     const sprint = makePlannedSprint();
     const sprintRepo = inMemorySprintRepo(sprint);

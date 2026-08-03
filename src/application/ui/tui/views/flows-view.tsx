@@ -328,9 +328,8 @@ const createFlowSelectHandler = (
       flowId: entry.manifest.id,
       flowTitle: entry.manifest.title,
       settings,
-      // exactOptionalPropertyTypes: only pass the key when defined — the picker arg is
-      // `?`-optional (absent), not `| undefined`. Absent ⇒ picker falls back to modelCatalogFor.
-      ...(deps.availableModelsFor !== undefined ? { availableModelsFor: deps.availableModelsFor } : {}),
+      // `AppDeps.availableModelsFor` is always assigned by `wire()`, so this is a plain pass-through.
+      availableModelsFor: deps.availableModelsFor,
       // A degraded listing (some source failed) is withheld entirely: a checklist over a partial
       // candidate set misreads as "disable everything missing" — the failure is already logged.
       ...(skillCandidates !== undefined && !skillCandidates.degraded ? { skillCandidates } : {}),

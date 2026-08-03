@@ -11,6 +11,7 @@ import { createFilesystemAgentDefinitionAdapter } from '@src/integration/ai/agen
 import { renderCodexAgent } from '@src/integration/ai/agents/_engine/render-codex-agent.ts';
 import type { AgentDefinitionAdapter } from '@src/integration/ai/agents/_engine/agent-definition-adapter.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
+import { PROVIDER_TRAITS } from '@src/integration/ai/providers/_engine/provider-traits.ts';
 
 export interface CreateCodexAgentDefinitionAdapterDeps {
   readonly logger?: Logger;
@@ -28,7 +29,7 @@ export const createCodexAgentDefinitionAdapter = (
 ): AgentDefinitionAdapter =>
   createFilesystemAgentDefinitionAdapter({
     providerId: 'openai-codex',
-    parentDir: '.codex',
+    parentDir: PROVIDER_TRAITS['openai-codex'].agentsParentDir,
     renderer: renderCodexAgent,
     convention: CONVENTION,
     ...(deps.logger !== undefined ? { logger: deps.logger } : {}),

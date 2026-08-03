@@ -14,6 +14,25 @@
  * `claimEscape` is the same shape but narrower — only the `esc` key is muted, not the entire
  * global handler. A view (e.g. sprint detail's detail card) flips it on while it wants to own
  * `esc` for a local close action; the global `router.pop()` stands down for the duration.
+ *
+ * This module actually hosts FOUR independent contexts, each with its own state and its own
+ * memo, composed together inside one {@link UiStateProvider} so `App.tsx` still only ever
+ * mounts a single provider:
+ *
+ *   - {@link useOverlayState} — the 30-consumer hot path (help/progress/prompt/modal/escape,
+ *     the banner toggle).
+ *   - {@link useFocusedRun} — the focused-run pinning quartet, written once per Execute-view
+ *     mount/unmount and read by the breadcrumb + progress overlay.
+ *   - {@link useYankProvider} — the active-task-summary ref registry read by the global `y`
+ *     hotkey.
+ *   - {@link useSessionScratch} — `sessionRepositoryId`, which is launch state threaded into
+ *     `launchFlow.extras.repositoryId` (not UI state at all) but has no other session-scoped
+ *     home yet; kept behind its own context/memo here rather than folded into the overlay
+ *     concern so a repo pin doesn't re-render every overlay consumer.
+ *
+ * {@link useUiState} is a thin alias over all four, kept ONLY so the existing call sites (which
+ * read a single merged `ui` object) keep compiling unchanged. New code should reach for the
+ * narrowest hook that covers what it needs instead of `useUiState`.
  */
 
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
@@ -40,7 +59,7 @@ export interface FocusedRunCtx {
  */
 export type ActiveTaskSummaryProvider = () => string | undefined;
 
-interface UiStateApi {
+interface OverlayApi {
   readonly helpOpen: boolean;
   /**
    * Open-state for the read-only `progress.md` overlay. Bound to the global `g` hotkey via
@@ -66,13 +85,6 @@ interface UiStateApi {
    * session (does not reset on navigation).
    */
   readonly bannerCompact: boolean;
-  /**
-   * Session-scoped pin for the repository the user most recently picked inside one of the
-   * project-scoped flows (detect-scripts / detect-skills / readiness). Cleared when the TUI
-   * exits; not persisted to disk. Threaded via `launchFlow.extras.repositoryId` so subsequent
-   * flows skip the repo prompt for the rest of the session.
-   */
-  readonly sessionRepositoryId: RepositoryId | undefined;
 
   toggleHelp(): void;
 
@@ -110,8 +122,9 @@ interface UiStateApi {
    * ```
    */
   claimEscape(): () => void;
+}
 
-  setSessionRepositoryId(id: RepositoryId | undefined): void;
+interface FocusedRunApi {
   /**
    * Pin the project/sprint context of the currently-focused Execute view. Breadcrumb and
    * progress overlay prefer this over the global selection while a value is set. Cleared to
@@ -124,6 +137,9 @@ interface UiStateApi {
   readonly focusedRunSprintId: SprintId | undefined;
   /** Sprint label from the focused Execute view's pinned descriptor, or `undefined`. */
   readonly focusedRunSprintLabel: string | undefined;
+}
+
+interface YankProviderApi {
   /**
    * Register a provider for the markdown summary of the operator's currently-focused task —
    * read by the global `y` hotkey via {@link getActiveTaskSummary}. Stored in a ref (not
@@ -142,16 +158,28 @@ interface UiStateApi {
   getActiveTaskSummary(): string | undefined;
 }
 
-const UiStateContext = createContext<UiStateApi | undefined>(undefined);
+interface SessionScratchApi {
+  /**
+   * Session-scoped pin for the repository the user most recently picked inside one of the
+   * project-scoped flows (detect-scripts / detect-skills / readiness). Cleared when the TUI
+   * exits; not persisted to disk. Threaded via `launchFlow.extras.repositoryId` so subsequent
+   * flows skip the repo prompt for the rest of the session.
+   */
+  readonly sessionRepositoryId: RepositoryId | undefined;
 
-export const UiStateProvider = ({ children }: { readonly children: React.ReactNode }): React.JSX.Element => {
+  setSessionRepositoryId(id: RepositoryId | undefined): void;
+}
+
+interface UiStateApi extends OverlayApi, FocusedRunApi, YankProviderApi, SessionScratchApi {}
+
+const OverlayContext = createContext<OverlayApi | undefined>(undefined);
+
+const OverlayProvider = ({ children }: { readonly children: React.ReactNode }): React.JSX.Element => {
   const [helpOpen, setHelpOpen] = useState(false);
   const [progressOpen, setProgressOpen] = useState(false);
   const [bannerCompact, setBannerCompact] = useState(false);
   const [claims, setClaims] = useState(0);
   const [escapeClaims, setEscapeClaims] = useState(0);
-  const [sessionRepositoryId, setSessionRepositoryIdState] = useState<RepositoryId | undefined>(undefined);
-  const [focusedRunCtx, setFocusedRunCtxState] = useState<FocusedRunCtx | undefined>(undefined);
 
   const toggleHelp = useCallback(() => {
     setHelpOpen((v) => !v);
@@ -185,14 +213,76 @@ export const UiStateProvider = ({ children }: { readonly children: React.ReactNo
     };
   }, []);
 
-  const setSessionRepositoryId = useCallback((id: RepositoryId | undefined) => {
-    setSessionRepositoryIdState(id);
-  }, []);
+  const api = useMemo<OverlayApi>(
+    () => ({
+      helpOpen,
+      progressOpen,
+      promptActive: claims > 0,
+      modalOpen: progressOpen || helpOpen || claims > 0,
+      escapeClaimed: escapeClaims > 0,
+      bannerCompact,
+      toggleHelp,
+      toggleProgress,
+      toggleBanner,
+      claimPrompt,
+      claimEscape,
+    }),
+    [
+      helpOpen,
+      progressOpen,
+      claims,
+      escapeClaims,
+      bannerCompact,
+      toggleHelp,
+      toggleProgress,
+      toggleBanner,
+      claimPrompt,
+      claimEscape,
+    ]
+  );
+
+  return <OverlayContext.Provider value={api}>{children}</OverlayContext.Provider>;
+};
+
+/** The 30-consumer hot path: help/progress/prompt/modal/escape state + the banner toggle. */
+export const useOverlayState = (): OverlayApi => {
+  const ctx = useContext(OverlayContext);
+  if (!ctx) throw new Error('useOverlayState: must be used inside <UiStateProvider>');
+  return ctx;
+};
+
+const FocusedRunContext = createContext<FocusedRunApi | undefined>(undefined);
+
+const FocusedRunProvider = ({ children }: { readonly children: React.ReactNode }): React.JSX.Element => {
+  const [focusedRunCtx, setFocusedRunCtxState] = useState<FocusedRunCtx | undefined>(undefined);
 
   const setFocusedRunContext = useCallback((ctx: FocusedRunCtx | undefined): void => {
     setFocusedRunCtxState(ctx);
   }, []);
 
+  const api = useMemo<FocusedRunApi>(
+    () => ({
+      setFocusedRunContext,
+      focusedRunProjectLabel: focusedRunCtx?.projectLabel,
+      focusedRunSprintId: focusedRunCtx?.sprintId,
+      focusedRunSprintLabel: focusedRunCtx?.sprintLabel,
+    }),
+    [setFocusedRunContext, focusedRunCtx]
+  );
+
+  return <FocusedRunContext.Provider value={api}>{children}</FocusedRunContext.Provider>;
+};
+
+/** The focused-run pinning quartet, written once per Execute-view mount/unmount. */
+export const useFocusedRun = (): FocusedRunApi => {
+  const ctx = useContext(FocusedRunContext);
+  if (!ctx) throw new Error('useFocusedRun: must be used inside <UiStateProvider>');
+  return ctx;
+};
+
+const YankProviderContext = createContext<YankProviderApi | undefined>(undefined);
+
+const YankProviderRegistryProvider = ({ children }: { readonly children: React.ReactNode }): React.JSX.Element => {
   // The active-task summary provider is registered through a ref so swapping it does not churn
   // the context value (which would re-render every consumer including unrelated views). The
   // hotkey reads through `getActiveTaskSummary()` on press; until then the ref is dormant.
@@ -212,53 +302,71 @@ export const UiStateProvider = ({ children }: { readonly children: React.ReactNo
     }
   }, []);
 
-  const api = useMemo<UiStateApi>(
-    () => ({
-      helpOpen,
-      progressOpen,
-      promptActive: claims > 0,
-      modalOpen: progressOpen || helpOpen || claims > 0,
-      escapeClaimed: escapeClaims > 0,
-      bannerCompact,
-      toggleHelp,
-      toggleProgress,
-      toggleBanner,
-      claimPrompt,
-      claimEscape,
-      sessionRepositoryId,
-      setSessionRepositoryId,
-      focusedRunProjectLabel: focusedRunCtx?.projectLabel,
-      focusedRunSprintId: focusedRunCtx?.sprintId,
-      focusedRunSprintLabel: focusedRunCtx?.sprintLabel,
-      setFocusedRunContext,
-      setActiveTaskSummaryProvider,
-      getActiveTaskSummary,
-    }),
-    [
-      helpOpen,
-      progressOpen,
-      claims,
-      escapeClaims,
-      bannerCompact,
-      toggleHelp,
-      toggleProgress,
-      toggleBanner,
-      claimPrompt,
-      claimEscape,
-      sessionRepositoryId,
-      setSessionRepositoryId,
-      focusedRunCtx,
-      setFocusedRunContext,
-      setActiveTaskSummaryProvider,
-      getActiveTaskSummary,
-    ]
+  const api = useMemo<YankProviderApi>(
+    () => ({ setActiveTaskSummaryProvider, getActiveTaskSummary }),
+    [setActiveTaskSummaryProvider, getActiveTaskSummary]
   );
 
-  return <UiStateContext.Provider value={api}>{children}</UiStateContext.Provider>;
+  return <YankProviderContext.Provider value={api}>{children}</YankProviderContext.Provider>;
 };
 
-export const useUiState = (): UiStateApi => {
-  const ctx = useContext(UiStateContext);
-  if (!ctx) throw new Error('useUiState: must be used inside <UiStateProvider>');
+/** The active-task-summary ref registry read by the global `y` hotkey. */
+export const useYankProvider = (): YankProviderApi => {
+  const ctx = useContext(YankProviderContext);
+  if (!ctx) throw new Error('useYankProvider: must be used inside <UiStateProvider>');
   return ctx;
+};
+
+const SessionScratchContext = createContext<SessionScratchApi | undefined>(undefined);
+
+const SessionScratchProvider = ({ children }: { readonly children: React.ReactNode }): React.JSX.Element => {
+  const [sessionRepositoryId, setSessionRepositoryIdState] = useState<RepositoryId | undefined>(undefined);
+
+  const setSessionRepositoryId = useCallback((id: RepositoryId | undefined) => {
+    setSessionRepositoryIdState(id);
+  }, []);
+
+  const api = useMemo<SessionScratchApi>(
+    () => ({ sessionRepositoryId, setSessionRepositoryId }),
+    [sessionRepositoryId, setSessionRepositoryId]
+  );
+
+  return <SessionScratchContext.Provider value={api}>{children}</SessionScratchContext.Provider>;
+};
+
+/**
+ * `sessionRepositoryId` — launch state threaded into `launchFlow.extras.repositoryId`, not UI
+ * state. Kept behind its own context/memo so a repo pin doesn't re-render the overlay hot path.
+ */
+export const useSessionScratch = (): SessionScratchApi => {
+  const ctx = useContext(SessionScratchContext);
+  if (!ctx) throw new Error('useSessionScratch: must be used inside <UiStateProvider>');
+  return ctx;
+};
+
+export const UiStateProvider = ({ children }: { readonly children: React.ReactNode }): React.JSX.Element => (
+  <OverlayProvider>
+    <FocusedRunProvider>
+      <YankProviderRegistryProvider>
+        <SessionScratchProvider>{children}</SessionScratchProvider>
+      </YankProviderRegistryProvider>
+    </FocusedRunProvider>
+  </OverlayProvider>
+);
+
+/**
+ * Thin alias over the four contexts above, kept ONLY so existing call sites that destructure a
+ * single merged `ui` object keep compiling unchanged. Do NOT migrate those call sites as part of
+ * this change — reach for the narrower hook ({@link useOverlayState}, {@link useFocusedRun},
+ * {@link useYankProvider}, {@link useSessionScratch}) in new code instead.
+ */
+export const useUiState = (): UiStateApi => {
+  const overlay = useOverlayState();
+  const focusedRun = useFocusedRun();
+  const yank = useYankProvider();
+  const sessionScratch = useSessionScratch();
+  return useMemo<UiStateApi>(
+    () => ({ ...overlay, ...focusedRun, ...yank, ...sessionScratch }),
+    [overlay, focusedRun, yank, sessionScratch]
+  );
 };

@@ -7,9 +7,7 @@ import {
   primaryFlowRow,
   uniqueProvidersFromAi,
 } from '@src/domain/entity/settings.ts';
-import { Result } from '@src/domain/result.ts';
 import { ErrorCode } from '@src/domain/value/error/error-code.ts';
-import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
 import { loadProjectLeaf } from '@src/application/flows/_shared/project/load.ts';
@@ -27,6 +25,7 @@ import { installSkillsLeaf } from '@src/application/flows/_shared/skills/install
 import { uninstallSkillsLeaf } from '@src/application/flows/_shared/skills/uninstall-skills.ts';
 import { allocateRunDirLeaf } from '@src/application/flows/_shared/allocate-run-dir.ts';
 import { stampSessionMetaLeaf } from '@src/application/flows/_shared/stamp-session-meta.ts';
+import { tolerateErrors } from '@src/application/flows/_shared/tolerate-errors.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { type AssistantTool, toolForProvider } from '@src/integration/ai/readiness/_engine/tool.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
@@ -126,29 +125,21 @@ export const wrapProviderContinue = (
   eventBus: SetupReadinessDeps['eventBus'],
   provider: AiProvider,
   inner: Element<ReadinessCtx>
-): Element<ReadinessCtx> => ({
-  name: `continue-on-error(${inner.name})`,
-  // Expose children so flattenLeaves walks the full per-provider step list for the TUI plan.
-  children: [inner],
-  async execute(ctx, signal, onTrace) {
-    const result = await inner.execute(ctx, signal, onTrace);
-    if (result.ok) return result;
-    // Only a provider-specific infrastructure failure is tolerated — skip this provider and let
-    // the fan-out continue. Everything else (contract errors, global I/O, abort) propagates.
-    if (!PROVIDER_INFRASTRUCTURE_ERROR_CODES.has(result.error.error.code)) return result;
-    // Provider-level infra failure (probe filesystem error, CLI throttle): surface as a warn
-    // banner and continue to the next provider. The inner trace already recorded the failure.
-    eventBus.publish({
-      type: 'banner-show',
-      id: `readiness-provider-error-${provider}`,
-      tier: 'warn',
-      message: `Provider '${provider}' readiness setup failed — skipping, other providers continue`,
-      cause: result.error.error.message,
-      at: IsoTimestamp.now(),
-    });
-    return Result.ok({ ctx, trace: result.error.trace });
-  },
-});
+): Element<ReadinessCtx> =>
+  tolerateErrors<ReadinessCtx>(
+    {
+      eventBus,
+      // Only a provider-specific infrastructure failure is tolerated — skip this provider and let
+      // the fan-out continue. Everything else (contract errors, global I/O) propagates; the
+      // wrapper itself exempts abort.
+      tolerate: (error) => PROVIDER_INFRASTRUCTURE_ERROR_CODES.has(error.code),
+      banner: {
+        id: `readiness-provider-error-${provider}`,
+        message: `Provider '${provider}' readiness setup failed — skipping, other providers continue`,
+      },
+    },
+    inner
+  );
 
 const buildPerToolSubchain = (
   deps: SetupReadinessDeps,

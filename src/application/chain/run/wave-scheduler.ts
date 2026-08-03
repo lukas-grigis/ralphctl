@@ -1,7 +1,7 @@
 import { Result } from '@src/domain/result.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
-import { isRecoverableTurnError } from '@src/business/task/turn-error-policy.ts';
+import { isFatalChainError } from '@src/domain/value/error/is-fatal-chain-error.ts';
 
 import type { Element, ElementFailure } from '@src/application/chain/element.ts';
 import type { Trace } from '@src/application/chain/trace.ts';
@@ -96,9 +96,6 @@ interface BranchRun<TCtx> {
   /** The `failed`-event error, captured off the runner's stream; `null` for a clean / aborted run. */
   capturedError: DomainError | null;
 }
-
-/** Classify a settled branch error: `aborted` / `rate-limit` are fatal, everything else absorbed. */
-const isFatal = (err: DomainError): boolean => !isRecoverableTurnError(err);
 
 /**
  * Above-the-chain async orchestrator that drives N independent {@link Runner} instances — one per
@@ -254,10 +251,13 @@ const createWavePool = <TCtx>(
       return settledRun;
     },
 
-    /** Classify a settled branch: record the first fatal, stop launching, kill siblings if needed. */
+    /**
+     * Classify a settled branch: record the first fatal (`aborted` / `rate-limit`), stop launching,
+     * kill siblings if needed. Every other error is absorbed into the branch's outcome.
+     */
     classify: (settledRun: BranchRun<TCtx>): void => {
       const err = settledRun.capturedError;
-      if (err === null || !isFatal(err)) return;
+      if (err === null || !isFatalChainError(err)) return;
       if (fatal === null) fatal = err; // first fatal wins
       stopLaunching = true;
       // `aborted` always kills immediately; `rate-limit` honours `onFatal` ('drain' lets siblings finish).

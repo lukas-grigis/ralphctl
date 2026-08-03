@@ -10,6 +10,7 @@ import { type DraftSprint, type Sprint } from '@src/domain/entity/sprint.ts';
 import type { Task, TodoTask } from '@src/domain/entity/task.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { IsoTimestamp as IsoTimestampType } from '@src/domain/value/iso-timestamp.ts';
 import type { TaskPlanSignal } from '@src/domain/signal.ts';
 import type { Element } from '@src/application/chain/element.ts';
@@ -104,75 +105,111 @@ const isDraft = (s: Sprint): s is DraftSprint => s.status === 'draft';
 /** Leaf name, reused as the `entity` / `attemptedAction` on the leaf's error states. */
 const LEAF_NAME = 'call-planner-interactive';
 
+/**
+ * Phase 1 — hand the terminal to the AI, mounting every project repo as an equal
+ * `--add-dir` source. On success resolves the per-unit output directory (the AI's
+ * `signals.json` lands directly under it) so the next phase can validate it.
+ */
+const runInteractiveSession = async (
+  deps: CallPlannerInteractiveDeps,
+  input: CallPlannerInput,
+  signal: AbortSignal | undefined
+): Promise<Result<AbsolutePath, DomainError>> => {
+  // `additionalRoots` are the project repos the AI may navigate. The output-file dir
+  // is auto-mounted by the interactive adapter itself, so we don't repeat that here.
+  const additionalRoots = deps.additionalRoots ?? [];
+
+  const session = await deps.runInTerminal(async () =>
+    deps.interactiveAi.run({
+      cwd: input.cwd,
+      promptFile: input.promptFile,
+      outputFile: input.outputFile,
+      model: deps.model,
+      ...(deps.effort !== undefined ? { effort: deps.effort } : {}),
+      ...(additionalRoots.length > 0 ? { additionalRoots } : {}),
+      // Thread the leaf's abort signal so a TUI cancel tears the stdio-inherit child down
+      // (attachAbortKill) rather than leaving it running — and the adapter classifies the
+      // resulting non-zero exit as AbortError, not InvalidStateError.
+      ...(signal !== undefined ? { abortSignal: signal } : {}),
+    })
+  );
+  if (!session.ok) return Result.error(session.error);
+
+  // audit-[09]: the AI writes `signals.json` directly under the unit root per the
+  // contract section in the prompt. The leaf validates that file.
+  const outputDirRaw = dirname(String(input.outputFile));
+  return AbsolutePath.parse(outputDirRaw);
+};
+
+/**
+ * Phase 2 — validate the AI-written `signals.json` against the plan contract, fan every
+ * validated signal out to the bus, render sidecars (none for plan today), then parse the
+ * `task-plan` payload's `tasksJson` into the project/sprint's resolved task list.
+ */
+const validateAndParseOutput = async (
+  deps: CallPlannerInteractiveDeps,
+  input: CallPlannerInput,
+  outputDir: AbsolutePath
+): Promise<Result<readonly TodoTask[], DomainError>> => {
+  const validated = await validateSignalsFile(outputDir, planOutputContract);
+  if (!validated.ok) return Result.error(validated.error);
+  const signals = validated.value;
+
+  for (const sig of signals) {
+    deps.eventBus.publish({ type: 'ai-signal', signal: sig, source: 'plan' });
+  }
+
+  await renderSidecars(deps.writeFile, outputDir, signals, planOutputContract.sidecars, deps.logger);
+
+  const planSignal = signals.find((s) => s.type === 'task-plan') as TaskPlanSignal | undefined;
+  if (planSignal === undefined) {
+    return Result.error(
+      new InvalidStateError({
+        entity: LEAF_NAME,
+        currentState: 'post-validation',
+        attemptedAction: 'project-signal',
+        message: 'plan: validated signals contained no task-plan signal',
+      })
+    );
+  }
+
+  return parsePlanOutput(planSignal.tasksJson, {
+    project: input.project,
+    sprint: input.sprint,
+    logger: deps.logger,
+    defaultMaxAttempts: deps.maxAttempts,
+  });
+};
+
+/**
+ * Phase 3 — delegate the `draft → planned` transition (plus the optional HITL review gate) to
+ * {@link planSprintUseCase}.
+ */
+const applyResult = (
+  deps: CallPlannerInteractiveDeps,
+  input: CallPlannerInput,
+  tasks: readonly TodoTask[]
+): Promise<Result<CallPlannerOutput, DomainError>> =>
+  planSprintUseCase({
+    sprint: input.sprint,
+    existingTasks: input.existingTasks,
+    tasks,
+    clock: deps.clock,
+    logger: deps.logger,
+    ...(deps.reviewBeforeApprove !== undefined ? { reviewBeforeApprove: deps.reviewBeforeApprove } : {}),
+  });
+
 export const callPlannerInteractiveLeaf = (deps: CallPlannerInteractiveDeps): Element<PlanCtx> =>
   leaf<PlanCtx, CallPlannerInput, CallPlannerOutput>(LEAF_NAME, {
     useCase: {
       execute: async (input, signal) => {
-        // `additionalRoots` are the project repos the AI may navigate. The output-file dir
-        // is auto-mounted by the interactive adapter itself, so we don't repeat that here.
-        const additionalRoots = deps.additionalRoots ?? [];
+        const outputDir = await runInteractiveSession(deps, input, signal);
+        if (!outputDir.ok) return Result.error(outputDir.error);
 
-        const session = await deps.runInTerminal(async () =>
-          deps.interactiveAi.run({
-            cwd: input.cwd,
-            promptFile: input.promptFile,
-            outputFile: input.outputFile,
-            model: deps.model,
-            ...(deps.effort !== undefined ? { effort: deps.effort } : {}),
-            ...(additionalRoots.length > 0 ? { additionalRoots } : {}),
-            // Thread the leaf's abort signal so a TUI cancel tears the stdio-inherit child down
-            // (attachAbortKill) rather than leaving it running — and the adapter classifies the
-            // resulting non-zero exit as AbortError, not InvalidStateError.
-            ...(signal !== undefined ? { abortSignal: signal } : {}),
-          })
-        );
-        if (!session.ok) return Result.error(session.error);
+        const tasks = await validateAndParseOutput(deps, input, outputDir.value);
+        if (!tasks.ok) return Result.error(tasks.error);
 
-        // audit-[09]: the AI writes `signals.json` directly under the unit root per the
-        // contract section in the prompt. The leaf validates that file.
-        const outputDirRaw = dirname(String(input.outputFile));
-        const outputDirResult = AbsolutePath.parse(outputDirRaw);
-        if (!outputDirResult.ok) return Result.error(outputDirResult.error);
-        const outputDir = outputDirResult.value;
-
-        const validated = await validateSignalsFile(outputDir, planOutputContract);
-        if (!validated.ok) return Result.error(validated.error);
-        const signals = validated.value;
-
-        for (const sig of signals) {
-          deps.eventBus.publish({ type: 'ai-signal', signal: sig, source: 'plan' });
-        }
-
-        await renderSidecars(deps.writeFile, outputDir, signals, planOutputContract.sidecars, deps.logger);
-
-        const planSignal = signals.find((s) => s.type === 'task-plan') as TaskPlanSignal | undefined;
-        if (planSignal === undefined) {
-          return Result.error(
-            new InvalidStateError({
-              entity: LEAF_NAME,
-              currentState: 'post-validation',
-              attemptedAction: 'project-signal',
-              message: 'plan: validated signals contained no task-plan signal',
-            })
-          );
-        }
-
-        const parsed = parsePlanOutput(planSignal.tasksJson, {
-          project: input.project,
-          sprint: input.sprint,
-          logger: deps.logger,
-          defaultMaxAttempts: deps.maxAttempts,
-        });
-        if (!parsed.ok) return Result.error(parsed.error);
-
-        return planSprintUseCase({
-          sprint: input.sprint,
-          existingTasks: input.existingTasks,
-          tasks: parsed.value,
-          clock: deps.clock,
-          logger: deps.logger,
-          ...(deps.reviewBeforeApprove !== undefined ? { reviewBeforeApprove: deps.reviewBeforeApprove } : {}),
-        });
+        return applyResult(deps, input, tasks.value);
       },
     },
     input: (ctx) => {

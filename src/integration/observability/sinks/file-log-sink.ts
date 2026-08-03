@@ -3,6 +3,9 @@ import type {
   ChainAbortedEvent,
   ChainCompletedEvent,
   ChainFailedEvent,
+  ChainStartedEvent,
+  ChainStepCompletedEvent,
+  ChainStepFailedEvent,
 } from '@src/business/observability/events.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { FileLogSink, FileLogSinkDeps } from '@src/integration/observability/_engine/file-log-sink.ts';
@@ -107,6 +110,42 @@ const footerLine = (
   steps: number
 ): string => `=== chain-run ${chainId} ${flowId} ${outcome} ${endedAt} duration=${durationMs}ms steps=${steps} ===\n`;
 
+/** A queued NDJSON line, or `false` when the drain queue rejected it (back-pressure). */
+type Enqueue = (line: string) => boolean;
+
+/** `chain-started` — open the chain-run bracket: seed `chains` state, then the header + event line. */
+const handleChainStarted = (event: ChainStartedEvent, chains: Map<string, ChainState>, enqueue: Enqueue): void => {
+  chains.set(event.chainId, { flowId: event.flowId, startedAtMs: Date.parse(event.at), steps: 0 });
+  enqueue(headerLine(event.chainId, event.flowId, event.at));
+  enqueue(`${JSON.stringify(event)}\n`);
+};
+
+/** `chain-step-completed` / `chain-step-failed` — tally the step count for the eventual footer. */
+const handleChainStepEvent = (
+  event: ChainStepCompletedEvent | ChainStepFailedEvent,
+  chains: Map<string, ChainState>,
+  enqueue: Enqueue
+): void => {
+  const state = chains.get(event.chainId);
+  if (state !== undefined) state.steps += 1;
+  enqueue(`${JSON.stringify(event)}\n`);
+};
+
+/** `chain-completed` / `chain-failed` / `chain-aborted` — close the bracket with the footer line. */
+const handleTerminalChainEvent = (
+  event: ChainTerminalEvent,
+  chains: Map<string, ChainState>,
+  enqueue: Enqueue
+): void => {
+  enqueue(`${JSON.stringify(event)}\n`);
+  const state = chains.get(event.chainId);
+  if (state === undefined) return;
+  chains.delete(event.chainId);
+  const endedMs = Date.parse(event.at);
+  const durationMs = Number.isFinite(endedMs - state.startedAtMs) ? Math.max(0, endedMs - state.startedAtMs) : 0;
+  enqueue(footerLine(event.chainId, state.flowId, terminalOutcome(event.type), event.at, durationMs, state.steps));
+};
+
 export const startFileLogSink = (deps: FileLogSinkDeps): FileLogSink => {
   // Queue holds pre-rendered text payloads — either an NDJSON event line or a `=== ` boundary
   // marker. Render-at-enqueue keeps the drain loop trivial and lets boundary lines share the
@@ -176,34 +215,17 @@ export const startFileLogSink = (deps: FileLogSinkDeps): FileLogSink => {
     // terminal event line. The boundary lines start with `=== ` so an NDJSON consumer skips
     // them by ignoring any line that doesn't start with `{`.
     if (event.type === 'chain-started') {
-      chains.set(event.chainId, {
-        flowId: event.flowId,
-        startedAtMs: Date.parse(event.at),
-        steps: 0,
-      });
-      enqueue(headerLine(event.chainId, event.flowId, event.at));
-      enqueue(`${JSON.stringify(event)}\n`);
+      handleChainStarted(event, chains, enqueue);
       return;
     }
 
     if (event.type === 'chain-step-completed' || event.type === 'chain-step-failed') {
-      const state = chains.get(event.chainId);
-      if (state !== undefined) state.steps += 1;
-      enqueue(`${JSON.stringify(event)}\n`);
+      handleChainStepEvent(event, chains, enqueue);
       return;
     }
 
     if (isTerminalChainEvent(event)) {
-      enqueue(`${JSON.stringify(event)}\n`);
-      const state = chains.get(event.chainId);
-      if (state !== undefined) {
-        chains.delete(event.chainId);
-        const endedMs = Date.parse(event.at);
-        const durationMs = Number.isFinite(endedMs - state.startedAtMs) ? Math.max(0, endedMs - state.startedAtMs) : 0;
-        enqueue(
-          footerLine(event.chainId, state.flowId, terminalOutcome(event.type), event.at, durationMs, state.steps)
-        );
-      }
+      handleTerminalChainEvent(event, chains, enqueue);
       return;
     }
 

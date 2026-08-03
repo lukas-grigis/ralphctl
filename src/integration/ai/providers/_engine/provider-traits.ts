@@ -35,6 +35,24 @@ export interface ProviderTraits {
   readonly contextFileTargetPath: string;
   /** Skills parent directory, relative to the session root — `.claude` / `.agents` / `.github`. */
   readonly skillsParentDir: string;
+  /**
+   * Agent-definition parent directory, relative to the session root — `.claude` / `.codex` /
+   * `.github`. Differs from {@link skillsParentDir} for `openai-codex` (`.codex` vs `.agents`):
+   * Codex reads native agent definitions from `.codex/agents/` but Agent Skills from
+   * `.agents/skills/`.
+   */
+  readonly agentsParentDir: string;
+  /**
+   * XML tag the AI should wrap its proposed readiness context-file body in — matches what the
+   * harness writes to disk for this provider (`claude-md` / `copilot-instructions` /
+   * `agents-md`).
+   */
+  readonly wireTag: string;
+  /**
+   * Prompt partial name holding this provider's target-file style conventions, loaded by the
+   * readiness prompt builder and rendered into `<target_file_conventions>`.
+   */
+  readonly conventionsPartial: string;
   /** Full official model catalog the availability probe filters down. */
   readonly modelCatalog: readonly string[];
 }
@@ -67,6 +85,9 @@ export const PROVIDER_TRAITS: Readonly<Record<AiProvider, ProviderTraits>> = {
     },
     contextFileTargetPath: 'CLAUDE.md',
     skillsParentDir: '.claude',
+    agentsParentDir: '.claude',
+    wireTag: 'claude-md',
+    conventionsPartial: 'conventions-claude-md',
     modelCatalog: CLAUDE_MODELS,
   },
   'github-copilot': {
@@ -81,6 +102,9 @@ export const PROVIDER_TRAITS: Readonly<Record<AiProvider, ProviderTraits>> = {
     },
     contextFileTargetPath: '.github/copilot-instructions.md',
     skillsParentDir: '.github',
+    agentsParentDir: '.github',
+    wireTag: 'copilot-instructions',
+    conventionsPartial: 'conventions-copilot-instructions',
     modelCatalog: COPILOT_MODELS,
   },
   'openai-codex': {
@@ -102,6 +126,9 @@ export const PROVIDER_TRAITS: Readonly<Record<AiProvider, ProviderTraits>> = {
     },
     contextFileTargetPath: 'AGENTS.md',
     skillsParentDir: '.agents',
+    agentsParentDir: '.codex',
+    wireTag: 'agents-md',
+    conventionsPartial: 'conventions-agents-md',
     modelCatalog: CODEX_MODELS,
   },
 };

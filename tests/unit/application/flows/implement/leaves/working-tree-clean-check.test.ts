@@ -6,6 +6,7 @@ import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import { SprintId } from '@src/domain/value/id/sprint-id.ts';
+import { stubGitRunner } from '@tests/fixtures/git-result.ts';
 
 const CWD = absolutePath('/tmp/wtc-repo');
 
@@ -15,21 +16,15 @@ const baseCtx = (): ImplementCtx => {
   return { sprintId: sid.value };
 };
 
-const okGit = (stdout: string, exitCode = 0): GitRunner => ({
-  async run() {
-    return Result.ok({ stdout, stderr: '', exitCode });
-  },
-});
-
 describe('workingTreeCleanCheckLeaf', () => {
   it('passes through a clean tree (empty porcelain stdout)', async () => {
-    const el = workingTreeCleanCheckLeaf({ gitRunner: okGit(''), logger: noopLogger }, CWD);
+    const el = workingTreeCleanCheckLeaf({ gitRunner: stubGitRunner(''), logger: noopLogger }, CWD);
     const out = await el.execute(baseCtx());
     expect(out.ok).toBe(true);
   });
 
   it('rejects a dirty tree with InvalidStateError and `working-tree-dirty` in the message', async () => {
-    const el = workingTreeCleanCheckLeaf({ gitRunner: okGit(' M file\n'), logger: noopLogger }, CWD);
+    const el = workingTreeCleanCheckLeaf({ gitRunner: stubGitRunner(' M file\n'), logger: noopLogger }, CWD);
     const out = await el.execute(baseCtx());
     expect(out.ok).toBe(false);
     if (!out.ok) {
@@ -55,7 +50,7 @@ describe('workingTreeCleanCheckLeaf', () => {
   });
 
   it('downgrades dirty-tree to a pass-through when ctx.tasks shows a resuming task (in_progress + running last attempt)', async () => {
-    const el = workingTreeCleanCheckLeaf({ gitRunner: okGit(' M file\n'), logger: noopLogger }, CWD);
+    const el = workingTreeCleanCheckLeaf({ gitRunner: stubGitRunner(' M file\n'), logger: noopLogger }, CWD);
     const resuming = makeInProgressTaskWithRunningAttempt();
     const out = await el.execute({ ...baseCtx(), tasks: [resuming] });
     // Dirt belongs to the prior crashed attempt — preflight-task downstream owns the recovery
@@ -66,7 +61,7 @@ describe('workingTreeCleanCheckLeaf', () => {
 
   it('forwards opts.label onto the element + emitted trace entry', async () => {
     const el = workingTreeCleanCheckLeaf(
-      { gitRunner: okGit(''), logger: noopLogger },
+      { gitRunner: stubGitRunner(''), logger: noopLogger },
       CWD,
       'working-tree-clean-check-1',
       {

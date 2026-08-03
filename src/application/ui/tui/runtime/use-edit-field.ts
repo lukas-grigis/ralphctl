@@ -24,6 +24,7 @@ import type { PendingPromptInput, PromptQueue } from '@src/application/ui/tui/pr
 import { usePromptQueue } from '@src/application/ui/tui/prompts/prompt-context.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useIsMounted } from '@src/application/ui/tui/runtime/use-is-mounted.ts';
+import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 
 export type EditFieldKind = 'short' | 'long';
 
@@ -98,15 +99,15 @@ export const useEditField = (): UseEditFieldState => {
         const raw = await enqueueText(queue, input.title, input.kind, input.currentValue ?? '');
         const normalised = input.validate ? input.validate(raw) : Result.ok(raw);
         if (!normalised.ok) {
-          setFeedback(`✗ ${normalised.error.message}`);
+          setFeedback(`${glyphs.cross} ${normalised.error.message}`);
           return;
         }
         const saved = await input.onSave(normalised.value);
         if (!saved.ok) {
-          setFeedback(`✗ ${saved.error.message}`);
+          setFeedback(`${glyphs.cross} ${saved.error.message}`);
           return;
         }
-        setFeedback(input.successLabel ?? '✓ saved');
+        setFeedback(input.successLabel ?? `${glyphs.check} saved`);
       } catch (cause) {
         // AbortError is operator cancellation propagating up through the chain runtime — it must
         // pass through transparently (the run-abort path depends on it surfacing). This blanket

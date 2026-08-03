@@ -54,6 +54,14 @@ export const countAttributions = (tasks: readonly Task[]): AttributionCounts => 
   return { clean, regressed, fixedBaseline, baselineBroken };
 };
 
+/** Newer-wins fold of two verify rows for the same phase, keyed on `ranAt`. */
+const newerVerifyRun = (current: VerifyRun | undefined, candidate: VerifyRun): VerifyRun =>
+  current === undefined || candidate.ranAt > current.ranAt ? candidate : current;
+
+/** All verify rows across every attempt of a single task that match the given phase. */
+const verifyRunsForPhase = (task: Task, phase: 'pre' | 'post'): readonly VerifyRun[] =>
+  task.attempts.flatMap((attempt) => (attempt.verifyRuns ?? []).filter((row) => row.phase === phase));
+
 /**
  * Walk every attempt across every task and return the most recent {@link VerifyRun} for the
  * given phase. Ordered by `ranAt`. Returns `undefined` when no row exists.
@@ -61,12 +69,8 @@ export const countAttributions = (tasks: readonly Task[]): AttributionCounts => 
 export const latestVerifyRun = (tasks: readonly Task[], phase: 'pre' | 'post'): VerifyRun | undefined => {
   let latest: VerifyRun | undefined;
   for (const task of tasks) {
-    for (const attempt of task.attempts) {
-      if (attempt.verifyRuns === undefined) continue;
-      for (const row of attempt.verifyRuns) {
-        if (row.phase !== phase) continue;
-        if (latest === undefined || row.ranAt > latest.ranAt) latest = row;
-      }
+    for (const row of verifyRunsForPhase(task, phase)) {
+      latest = newerVerifyRun(latest, row);
     }
   }
   return latest;
@@ -91,6 +95,49 @@ export interface SynthesiseBaselineHealthInput {
   readonly now: number;
 }
 
+/** Hard red: a regression — the AI broke a previously-green baseline. Always wins. */
+const regressionHealth = (counts: AttributionCounts): BaselineHealth | undefined =>
+  counts.regressed > 0
+    ? { tier: 'red', label: `red (${String(counts.regressed)} regression${counts.regressed === 1 ? '' : 's'})` }
+    : undefined;
+
+/**
+ * Amber: broken-baseline attempts mean the red verify rows we'd otherwise blame are explained
+ * by a pre-existing failure. Checked before the latest-row red probe so the baseline-broken
+ * context wins over the raw red signal it contains.
+ */
+const brokenBaselineHealth = (counts: AttributionCounts): BaselineHealth | undefined =>
+  counts.baselineBroken > 0 ? { tier: 'amber', label: `broken-base (${String(counts.baselineBroken)})` } : undefined;
+
+/**
+ * Latest-wins: only the LATEST pre + LATEST post row contribute. Historical reds on earlier
+ * attempts are ignored — a red → green transition flips the tier to green.
+ */
+const latestRedHealth = (
+  latestPre: VerifyRun | undefined,
+  latestPost: VerifyRun | undefined
+): BaselineHealth | undefined =>
+  latestPre?.outcome === 'failed' || latestPost?.outcome === 'failed' ? { tier: 'red', label: 'red' } : undefined;
+
+/** The most recent of the two verify-run timestamps, in epoch ms. */
+const latestVerifyMs = (latestPre: VerifyRun | undefined, latestPost: VerifyRun | undefined): number | undefined => {
+  const preMs = latestPre === undefined ? undefined : new Date(latestPre.ranAt).getTime();
+  const postMs = latestPost === undefined ? undefined : new Date(latestPost.ranAt).getTime();
+  if (preMs === undefined) return postMs;
+  if (postMs === undefined) return preMs;
+  return Math.max(preMs, postMs);
+};
+
+/** Stale: the most recent verify run was a long time ago — the baseline may have drifted. */
+const staleHealth = (
+  latestPre: VerifyRun | undefined,
+  latestPost: VerifyRun | undefined,
+  now: number
+): BaselineHealth | undefined => {
+  const latestMs = latestVerifyMs(latestPre, latestPost);
+  return latestMs !== undefined && now - latestMs > STALE_MS ? { tier: 'amber', label: 'stale' } : undefined;
+};
+
 export const synthesiseBaselineHealth = ({ execution, tasks, now }: SynthesiseBaselineHealthInput): BaselineHealth => {
   const taskList = tasks ?? [];
   const counts = countAttributions(taskList);
@@ -99,41 +146,14 @@ export const synthesiseBaselineHealth = ({ execution, tasks, now }: SynthesiseBa
   const latestPost = latestVerifyRun(taskList, 'post');
   const anyVerifies = latestPre !== undefined || latestPost !== undefined;
 
-  // Hard red: a regression — the AI broke a previously-green baseline. Always wins.
-  if (counts.regressed > 0) {
-    return {
-      tier: 'red',
-      label: `red (${String(counts.regressed)} regression${counts.regressed === 1 ? '' : 's'})`,
-    };
-  }
-  // Red setup is also a hard red — the working tree can't run, so any green verify is bogus.
-  if (anySetupRed(execution)) {
-    return { tier: 'red', label: 'red' };
-  }
-
-  // Amber: broken-baseline attempts mean the red verify rows we'd otherwise blame are
-  // explained by a pre-existing failure. Check this BEFORE the latest-row red probe so the
-  // baseline-broken context wins over the raw red signal it contains.
-  if (counts.baselineBroken > 0) {
-    return { tier: 'amber', label: `broken-base (${String(counts.baselineBroken)})` };
-  }
-
-  // Latest-wins: only the LATEST pre + LATEST post row contribute. Historical reds on
-  // earlier attempts are ignored — a red → green transition flips the tier to green.
-  if (latestPre?.outcome === 'failed' || latestPost?.outcome === 'failed') {
-    return { tier: 'red', label: 'red' };
-  }
-
-  // Stale: the most recent verify run was a long time ago — the baseline may have drifted.
-  let latestMs: number | undefined;
-  if (latestPre !== undefined) latestMs = new Date(latestPre.ranAt).getTime();
-  if (latestPost !== undefined) {
-    const t = new Date(latestPost.ranAt).getTime();
-    if (latestMs === undefined || t > latestMs) latestMs = t;
-  }
-  if (latestMs !== undefined && now - latestMs > STALE_MS) {
-    return { tier: 'amber', label: 'stale' };
-  }
+  const decided =
+    regressionHealth(counts) ??
+    // Red setup is also a hard red — the working tree can't run, so any green verify is bogus.
+    (anySetupRed(execution) ? { tier: 'red' as const, label: 'red' } : undefined) ??
+    brokenBaselineHealth(counts) ??
+    latestRedHealth(latestPre, latestPost) ??
+    staleHealth(latestPre, latestPost, now);
+  if (decided !== undefined) return decided;
 
   if (!setupHasRun && !anyVerifies) return { tier: 'unknown', label: 'awaiting first run' };
   return { tier: 'green', label: 'green' };

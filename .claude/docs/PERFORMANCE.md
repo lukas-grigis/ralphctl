@@ -86,12 +86,13 @@ required. The only path that resets a task to `todo` is `task unblock`.
 Two additional plateau signals fire _inside_ each gen-eval turn via dedicated guard leaves, without
 waiting for the `plateauThreshold` count:
 
-- **`loop-diversity-check`** (`src/application/flows/implement/leaves/gen-eval-loop.ts`, backed by the
-  rolling buffer `createLoopDiversityTracker` in `src/business/task/loop-diversity.ts`) — tracks a rolling
-  window of failed-dimension fingerprints (sorted set of failing dimension names joined by `|`). When the last
-  `DIVERSITY_WINDOW_SIZE` (3) fingerprints are identical the loop exits with `plateau`, letting the
-  escalation ladder intervene earlier than the count-based predicate would. Tracker state resets at
-  each new attempt so fingerprints do not leak across attempts.
+- **`loop-diversity-check`** (`src/application/flows/implement/leaves/loop-diversity-check.ts`, wired into
+  the loop body from `gen-eval-loop.ts`) — a pure derivation over the last `DIVERSITY_WINDOW_SIZE` (3)
+  records of `ctx.plateauHistory` (sorted set of failing dimension names joined by `|`, re-read from ctx
+  on every turn rather than tracked in a rolling buffer). When the last `DIVERSITY_WINDOW_SIZE`
+  fingerprints are identical the loop exits with `plateau`, letting the escalation ladder intervene
+  earlier than the count-based predicate would. `start-attempt` clears `plateauHistory` per attempt, so
+  the window can never span an attempt boundary.
 - **`entropy-check`** — computes normalised Shannon entropy (`H = -Σ(p·log₂p)/log₂K`) over the
   generator's per-turn signal-kind distribution (decision / change / learning / note counts stamped
   on `ctx.lastTurnActionCounts` by the generator leaf). When `H < 0.25` (the agent concentrated

@@ -211,6 +211,89 @@ export interface ImplementSidebarProps {
 // Component
 // ---------------------------------------------------------------------------
 
+/** Cumulative token usage for the session. Rendered at the top or the bottom depending on regime. */
+const SidebarTokenCard = ({
+  sessionId,
+  tokenUsage,
+}: {
+  readonly sessionId: string;
+  readonly tokenUsage: TokenUsage | undefined;
+}): React.JSX.Element => (
+  <TokenBudgetCard sessionId={sessionId} {...(tokenUsage !== undefined ? { usage: tokenUsage } : {})} />
+);
+
+/**
+ * Baseline-health (+ token, at ≥xl) cards at the top of the sidebar. At ≥xl the sidebar is wide
+ * enough to fit two CONTEXT_WIDTH cards side by side, which reclaims vertical space for the log
+ * panel; below that the baseline card fills the sidebar width and the token card moves to the
+ * bottom of the column.
+ */
+const SidebarContextCards = ({
+  sideBySide,
+  sidebarWidth,
+  sessionId,
+  executionState,
+  taskState,
+  tokenUsage,
+  now,
+}: {
+  readonly sideBySide: boolean;
+  readonly sidebarWidth: number;
+  readonly sessionId: string;
+  readonly executionState: SprintExecution | undefined;
+  readonly taskState: readonly Task[] | undefined;
+  readonly tokenUsage: TokenUsage | undefined;
+  readonly now: number;
+}): React.JSX.Element => {
+  const baselineCard = (
+    <BaselineHealthCard
+      {...(executionState !== undefined ? { execution: executionState } : {})}
+      {...(taskState !== undefined ? { tasks: taskState } : {})}
+      now={now}
+      width={sideBySide ? CONTEXT_WIDTH : sidebarWidth - spacing.indent}
+    />
+  );
+  if (!sideBySide) return <Box marginTop={spacing.gutter}>{baselineCard}</Box>;
+  return (
+    <Box flexDirection="row" marginTop={spacing.gutter}>
+      {baselineCard}
+      <Box marginLeft={spacing.gutter}>
+        <SidebarTokenCard sessionId={sessionId} tokenUsage={tokenUsage} />
+      </Box>
+    </Box>
+  );
+};
+
+/** Flow-steps rail section. Self-gates: dropped entirely when the terminal has no rows to spare. */
+const SidebarStepsSection = ({
+  descriptor,
+  isRunning,
+  sidebarWidth,
+  sidebarFlowStepsRows,
+}: {
+  readonly descriptor: SessionDescriptor;
+  readonly isRunning: boolean;
+  readonly sidebarWidth: number;
+  readonly sidebarFlowStepsRows: number;
+}): React.JSX.Element | null => {
+  if (sidebarFlowStepsRows <= 0) return null;
+  return (
+    <>
+      <SidebarDivider width={sidebarWidth} />
+      <SectionHeader title="Steps" />
+      <Box marginTop={spacing.gutter}>
+        <FlowStepsRail
+          descriptor={descriptor}
+          isRunning={isRunning}
+          maxRows={sidebarFlowStepsRows}
+          railWidth={sidebarWidth - spacing.indent}
+          suppressMeta
+        />
+      </Box>
+    </>
+  );
+};
+
 export const ImplementSidebar = ({
   sidebarWidth,
   sidebarTaskNavRows,
@@ -229,76 +312,45 @@ export const ImplementSidebar = ({
   // render would defeat TaskNavList's memoization. Keyed on `bucketed` so it only churns when the
   // bucketed snapshot actually changes.
   const tasks = useMemo(() => bucketed?.tasks ?? [], [bucketed]);
-  const nameById = descriptor.taskNames;
-
-  // Each card gets CONTEXT_WIDTH cols in the side-by-side row. In the stacked layout the
-  // baseline card fills the sidebar width minus the inner padding.
-  const baselineCardWidth = sidebarContextSideBySide ? CONTEXT_WIDTH : sidebarWidth - spacing.indent;
 
   return (
     <Box flexDirection="column" width={sidebarWidth} flexShrink={0}>
-      {/* ── 1. Baseline + Token cards — side-by-side at ≥xl, stacked below ─ */}
-      {sidebarContextSideBySide ? (
-        /* Side-by-side row: Baseline | Token — each CONTEXT_WIDTH cols wide. */
-        <Box flexDirection="row" marginTop={spacing.gutter}>
-          <BaselineHealthCard
-            {...(executionState !== undefined ? { execution: executionState } : {})}
-            {...(taskState !== undefined ? { tasks: taskState } : {})}
-            now={now}
-            width={baselineCardWidth}
-          />
-          <Box marginLeft={spacing.gutter}>
-            <TokenBudgetCard sessionId={descriptor.id} {...(tokenUsage !== undefined ? { usage: tokenUsage } : {})} />
-          </Box>
-        </Box>
-      ) : (
-        /* Stacked layout: Baseline on top, Token at the bottom after Steps + Tasks. */
-        <Box marginTop={spacing.gutter}>
-          <BaselineHealthCard
-            {...(executionState !== undefined ? { execution: executionState } : {})}
-            {...(taskState !== undefined ? { tasks: taskState } : {})}
-            now={now}
-            width={baselineCardWidth}
-          />
-        </Box>
-      )}
+      <SidebarContextCards
+        sideBySide={sidebarContextSideBySide}
+        sidebarWidth={sidebarWidth}
+        sessionId={descriptor.id}
+        executionState={executionState}
+        taskState={taskState}
+        tokenUsage={tokenUsage}
+        now={now}
+      />
 
-      {/* ── 2. Flow-steps rail ───────────────────────────────────────────── */}
-      {sidebarFlowStepsRows > 0 && (
-        <>
-          <SidebarDivider width={sidebarWidth} />
-          <SectionHeader title="Steps" />
-          <Box marginTop={spacing.gutter}>
-            <FlowStepsRail
-              descriptor={descriptor}
-              isRunning={isRunning}
-              maxRows={sidebarFlowStepsRows}
-              railWidth={sidebarWidth - spacing.indent}
-              suppressMeta
-            />
-          </Box>
-        </>
-      )}
+      <SidebarStepsSection
+        descriptor={descriptor}
+        isRunning={isRunning}
+        sidebarWidth={sidebarWidth}
+        sidebarFlowStepsRows={sidebarFlowStepsRows}
+      />
 
-      {/* ── 3. Task nav list (passive minimap) ───────────────────────────── */}
+      {/* Task nav list (passive minimap) */}
       <SidebarDivider width={sidebarWidth} />
       <SectionHeader title="Tasks" />
       <Box marginTop={spacing.gutter}>
         <TaskNavList
           tasks={tasks}
-          nameById={nameById}
+          nameById={descriptor.taskNames}
           visibleRows={sidebarTaskNavRows}
           focusedTaskId={focusedTaskId}
           sidebarWidth={sidebarWidth}
         />
       </Box>
 
-      {/* ── 4. TokenBudgetCard — stacked layout only (side-by-side handles it above) ── */}
+      {/* Token card — stacked layout only; the side-by-side regime renders it at the top. */}
       {!sidebarContextSideBySide && (
         <>
           <SidebarDivider width={sidebarWidth} />
           <Box marginTop={spacing.gutter}>
-            <TokenBudgetCard sessionId={descriptor.id} {...(tokenUsage !== undefined ? { usage: tokenUsage } : {})} />
+            <SidebarTokenCard sessionId={descriptor.id} tokenUsage={tokenUsage} />
           </Box>
         </>
       )}

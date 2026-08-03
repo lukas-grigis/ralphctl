@@ -1,4 +1,4 @@
-import type { TaskEpisode } from '@src/domain/repository/episode/episode-types.ts';
+import type { TaskEpisode } from '@src/domain/entity/task-episode.ts';
 
 /** Maximum characters from the goal shown per episode line before ellipsis is appended. */
 const GOAL_MAX_CHARS = 80;

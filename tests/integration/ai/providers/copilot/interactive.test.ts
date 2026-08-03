@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { ChildProcess } from 'node:child_process';
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
@@ -7,16 +7,10 @@ import { COPILOT_MODELS } from '@src/domain/value/settings-models/copilot.ts';
 import { createInteractiveCopilotProvider } from '@src/integration/ai/providers/copilot/interactive.ts';
 import type { InteractiveSpawn } from '@src/integration/ai/providers/_engine/interactive-spawn.ts';
 
-// `SUSPENDED_MODELS` ships empty (see suspended-models.ts) — mock it so the suspended-model
-// regression test below (interactive adapters used to skip this check entirely, unlike the
-// headless adapters) can exercise the guard without waiting for a real suspension incident.
-// Every OTHER test in this file spawns `COPILOT_MODELS[0]`, so the mock targets
-// `COPILOT_MODELS[1]` exclusively to avoid perturbing them.
-vi.mock('@src/domain/value/settings-models/suspended-models.ts', () => ({
-  isSuspendedModel: (s: string) => s === COPILOT_MODELS[1],
-  suspendedModelMessage: (m: string) =>
-    `'${m}' is temporarily suspended by its provider — pick another model until access is restored`,
-}));
+// The session skeleton this adapter delegates to — model validation, prompt-file reads, spawn
+// failures, abort precedence, the exit-code branch, the session-id sidechannel — is covered once
+// in tests/integration/ai/providers/_engine/run-interactive-session.test.ts. What stays here is
+// the part that is genuinely Copilot-specific: the argv it builds.
 
 interface CapturingSpawnState {
   readonly spawn: InteractiveSpawn;
@@ -55,7 +49,7 @@ const PROMPT_CONTENT = '# Test prompt\n\nDo a thing.';
 const stubReadFile = (): Promise<string> => Promise.resolve(PROMPT_CONTENT);
 
 describe('createInteractiveCopilotProvider', () => {
-  it('rejects an unknown model with InvalidStateError', async () => {
+  it('rejects a model outside the Copilot catalog with InvalidStateError', async () => {
     const cap = createCapturingBus();
     const { spawn } = makeSpawn();
     const provider = createInteractiveCopilotProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
@@ -69,23 +63,7 @@ describe('createInteractiveCopilotProvider', () => {
     if (r.ok) return;
     expect(r.error.code).toBe('invalid-state');
     expect(r.error.message).toContain("'claude-haiku-4-5'");
-  });
-
-  it('rejects a suspended-but-catalog-known model with InvalidStateError, without spawning — the headless adapter enforces this guard and interactive must match', async () => {
-    const cap = createCapturingBus();
-    const { spawn, calls } = makeSpawn();
-    const provider = createInteractiveCopilotProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
-    const r = await provider.run({
-      cwd: CWD,
-      promptFile: PROMPT_FILE,
-      outputFile: OUTPUT_FILE,
-      model: COPILOT_MODELS[1]!,
-    });
-    expect(r.ok).toBe(false);
-    if (r.ok) return;
-    expect(r.error.code).toBe('invalid-state');
-    expect(r.error.message).toContain('temporarily suspended');
-    expect(calls).toHaveLength(0);
+    expect(r.error.message).toContain('Copilot model');
   });
 
   it('spawns copilot directly with --add-dir=<path>, --model=<model>, --allow-all-tools, and -i <prompt content>', async () => {
@@ -127,6 +105,33 @@ describe('createInteractiveCopilotProvider', () => {
     expect(calls[0]!.cwd).toBe(String(CWD));
   });
 
+  it('forwards the resolved effort as --effort=<level>, and omits the flag when unset', async () => {
+    const cap = createCapturingBus();
+    const { spawn, calls, emitExit } = makeSpawn();
+    const provider = createInteractiveCopilotProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
+
+    const withEffort = provider.run({
+      cwd: CWD,
+      promptFile: PROMPT_FILE,
+      outputFile: OUTPUT_FILE,
+      model: COPILOT_MODELS[0]!,
+      effort: 'high',
+    });
+    emitExit(0);
+    await withEffort;
+    expect(calls[0]!.args).toContain('--effort=high');
+
+    const withoutEffort = provider.run({
+      cwd: CWD,
+      promptFile: PROMPT_FILE,
+      outputFile: OUTPUT_FILE,
+      model: COPILOT_MODELS[0]!,
+    });
+    emitExit(0);
+    await withoutEffort;
+    expect(calls[1]!.args.some((a) => a.startsWith('--effort'))).toBe(false);
+  });
+
   it('auto-mounts dirname(outputFile) and dirname(promptFile) for harness-controlled writes', async () => {
     const cap = createCapturingBus();
     const { spawn, calls, emitExit } = makeSpawn();
@@ -148,67 +153,25 @@ describe('createInteractiveCopilotProvider', () => {
     expect(occurrences).toBe(1);
   });
 
-  it('returns InvalidStateError when the session exits non-zero', async () => {
+  it('passes a pre-generated session id via --session-id=<uuid>', async () => {
     const cap = createCapturingBus();
-    const { spawn, emitExit } = makeSpawn();
-    const provider = createInteractiveCopilotProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
-
-    const runPromise = provider.run({
-      cwd: CWD,
-      promptFile: PROMPT_FILE,
-      outputFile: OUTPUT_FILE,
-      model: COPILOT_MODELS[0]!,
-    });
-    emitExit(3);
-    const result = await runPromise;
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error.code).toBe('invalid-state');
-    expect(result.error.message).toContain('exited with code 3');
-  });
-
-  it('returns AbortError (not InvalidStateError) when aborted before a non-zero exit', async () => {
-    // A TUI cancel fires: attachAbortKill SIGTERMs the stdio-inherit child, which exits non-zero.
-    // The adapter must classify this as AbortError (the one error chains propagate transparently),
-    // NOT the generic session-exit InvalidStateError a downstream guard could catch and continue.
-    const cap = createCapturingBus();
-    const { spawn, emitExit } = makeSpawn();
-    const provider = createInteractiveCopilotProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
-    const controller = new AbortController();
-
-    const runPromise = provider.run({
-      cwd: CWD,
-      promptFile: PROMPT_FILE,
-      outputFile: OUTPUT_FILE,
-      model: COPILOT_MODELS[0]!,
-      abortSignal: controller.signal,
-    });
-    controller.abort();
-    emitExit(143);
-    const result = await runPromise;
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.error.code).toBe('aborted');
-    expect(result.error.name).toBe('AbortError');
-  });
-
-  it('returns StorageError when the prompt file cannot be read', async () => {
-    const cap = createCapturingBus();
-    const { spawn } = makeSpawn();
+    const { spawn, calls, emitExit } = makeSpawn();
     const provider = createInteractiveCopilotProvider({
       eventBus: cap.bus,
       spawn,
-      readFile: () => Promise.reject(new Error('ENOENT: no such file')),
+      readFile: stubReadFile,
+      newSessionId: () => 'fixed-session-id',
     });
-    const r = await provider.run({
+
+    const runPromise = provider.run({
       cwd: CWD,
       promptFile: PROMPT_FILE,
       outputFile: OUTPUT_FILE,
       model: COPILOT_MODELS[0]!,
     });
-    expect(r.ok).toBe(false);
-    if (r.ok) return;
-    expect(r.error.code).toBe('storage-error');
-    expect(r.error.message).toContain('failed to read prompt file');
+    emitExit(0);
+    await runPromise;
+
+    expect(calls[0]!.args).toContain('--session-id=fixed-session-id');
   });
 });

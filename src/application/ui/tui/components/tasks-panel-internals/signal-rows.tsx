@@ -17,10 +17,7 @@ import { glyphFor, glyphs, inkColors, type SignalKind, spacing } from '@src/appl
 import { useNoColor } from '@src/application/ui/tui/runtime/use-no-color.ts';
 import { fmtIsoTime } from '@src/application/ui/tui/theme/duration.ts';
 import {
-  COLLAPSED_DISCLOSURE,
   collapseWhitespace,
-  EXPANDED_DISCLOSURE,
-  FOCUS_CURSOR,
   formatCompactionDetail,
   padLabel,
 } from '@src/application/ui/tui/components/tasks-panel-internals/format.ts';
@@ -55,52 +52,66 @@ interface SignalRow {
   readonly bold?: boolean;
 }
 
+/**
+ * One renderer per signal kind. A mapped type over `HarnessSignal['type']` keeps this exhaustive
+ * — adding a signal kind without a renderer is a compile error — while giving each entry its own
+ * narrowed signal type, so the label/text derivation stays a one-liner per kind instead of one
+ * long switch.
+ *
+ * `undefined` means "this kind has no row form": `evaluation` renders via its dedicated
+ * `<EvaluationLine>`, `context-compacted` via the dedented `<CompactionMarker>` below.
+ */
+type SignalRowBuilders = {
+  readonly [K in HarnessSignal['type']]: (sig: Extract<HarnessSignal, { readonly type: K }>) => SignalRow | undefined;
+};
+
+const SIGNAL_ROW_BUILDERS: SignalRowBuilders = {
+  change: (sig) => ({ label: 'change', text: sig.text }),
+  learning: (sig) => ({ label: 'learning', text: sig.text }),
+  decision: (sig) => ({ label: 'decision', text: sig.text, bold: true }),
+  // The subject is the source of truth — the harness owns the trailer-appending logic and
+  // re-emits the signal with the resolved body, but the subject is what reviewers read first
+  // and what `git log --oneline` shows. Body + trailers are revealed by the
+  // `<CommitSignalLine>` collapsible row when the user expands the focused row.
+  'commit-message': (sig) => ({ label: 'commit', text: sig.subject }),
+  note: (sig) => ({ label: 'note', text: sig.text }),
+  'task-complete': () => ({ label: 'done', text: 'task complete' }),
+  'task-verified': (sig) => ({ label: 'verified', text: collapseWhitespace(sig.output) }),
+  'task-blocked': (sig) => ({ label: 'blocked', text: sig.reason }),
+  'setup-script': (sig) => ({ label: 'script', text: `${sig.type}: ${sig.command}` }),
+  'verify-script': (sig) => ({ label: 'script', text: `${sig.type}: ${sig.command}` }),
+  'verify-gates': (sig) => ({
+    label: 'script',
+    text: `verify-gates: ${String(sig.gates.length)} module${sig.gates.length === 1 ? '' : 's'}`,
+  }),
+  'agents-md-proposal': (sig) => ({
+    label: 'proposal',
+    text: `context file proposal (${String(sig.content.length)} chars)`,
+  }),
+  'setup-skill-proposal': (sig) => ({
+    label: 'proposal',
+    text: `setup-skill proposal (${String(sig.content.length)} chars)`,
+  }),
+  'verify-skill-proposal': (sig) => ({
+    label: 'proposal',
+    text: `verify-skill proposal (${String(sig.content.length)} chars)`,
+  }),
+  'skill-suggestions': (sig) => ({ label: 'skills', text: sig.names.length > 0 ? sig.names.join(', ') : '(none)' }),
+  evaluation: () => undefined,
+  'context-compacted': () => undefined,
+  // Whole-artifact payloads produced by the refine / plan / ideate / create-PR flows. They are
+  // consumed by those flows' own views, never streamed into a task card, so they have no row here.
+  'refined-ticket': () => undefined,
+  'task-plan': () => undefined,
+  'ideated-tickets': () => undefined,
+  'pr-content': () => undefined,
+};
+
 export const rowForSignal = (sig: HarnessSignal): SignalRow | undefined => {
-  switch (sig.type) {
-    case 'change':
-      return { label: 'change', text: sig.text };
-    case 'learning':
-      return { label: 'learning', text: sig.text };
-    case 'decision':
-      return { label: 'decision', text: sig.text, bold: true };
-    case 'commit-message': {
-      // The subject is the source of truth — the harness owns the trailer-appending logic and
-      // re-emits the signal with the resolved body, but the subject is what reviewers read first
-      // and what `git log --oneline` shows. Body + trailers are revealed by the
-      // `<CommitSignalLine>` collapsible row when the user expands the focused row.
-      return { label: 'commit', text: sig.subject };
-    }
-    case 'note':
-      return { label: 'note', text: sig.text };
-    case 'task-complete':
-      return { label: 'done', text: 'task complete' };
-    case 'task-verified':
-      return { label: 'verified', text: collapseWhitespace(sig.output) };
-    case 'task-blocked':
-      return { label: 'blocked', text: sig.reason };
-    case 'setup-script':
-    case 'verify-script':
-      return { label: 'script', text: `${sig.type}: ${sig.command}` };
-    case 'verify-gates':
-      return {
-        label: 'script',
-        text: `verify-gates: ${String(sig.gates.length)} module${sig.gates.length === 1 ? '' : 's'}`,
-      };
-    case 'agents-md-proposal':
-      return { label: 'proposal', text: `context file proposal (${String(sig.content.length)} chars)` };
-    case 'setup-skill-proposal':
-      return { label: 'proposal', text: `setup-skill proposal (${String(sig.content.length)} chars)` };
-    case 'verify-skill-proposal':
-      return { label: 'proposal', text: `verify-skill proposal (${String(sig.content.length)} chars)` };
-    case 'skill-suggestions':
-      return { label: 'skills', text: sig.names.length > 0 ? sig.names.join(', ') : '(none)' };
-    case 'evaluation':
-    case 'context-compacted':
-      // Both render outside the per-signal label column — `evaluation` via its dedicated
-      // `<EvaluationLine>` row, `context-compacted` via `<CompactionMarker>` (a dedented
-      // lifecycle-boundary marker rendered inline with the signal stream).
-      return undefined;
-  }
+  // The table is keyed by the discriminant, so the entry for `sig.type` is by construction the
+  // one that narrows to `sig` — a relationship the indexed access type can't express on its own.
+  const build = SIGNAL_ROW_BUILDERS[sig.type] as (s: HarnessSignal) => SignalRow | undefined;
+  return build(sig);
 };
 
 const SignalLine = ({
@@ -131,7 +142,7 @@ const SignalLine = ({
   return (
     <Box>
       <Text color={focused ? inkColors.highlight : inkColors.muted} bold={focused}>
-        {focused ? FOCUS_CURSOR : ' '}{' '}
+        {focused ? glyphs.selectMarker : ' '}{' '}
       </Text>
       <Text dimColor>{fmtIsoTime(String(signal.timestamp))}</Text>
       <Text color={color} bold>
@@ -187,12 +198,16 @@ const CommitSignalLine = ({
     return parts.slice(start, end);
   }, [signal.body]);
   const canExpand = tailLines.length > 0;
-  const disclosure = canExpand ? (expanded ? EXPANDED_DISCLOSURE : COLLAPSED_DISCLOSURE) : ' ';
+  // The focus caret above deliberately stays on `selectMarker` (`›`) rather than `actionCursor`
+  // (`▸`): a focused-but-collapsed commit row would otherwise render the disclosure caret and the
+  // focus caret as the same glyph in the same row, collapsing two distinct pieces of information
+  // ("this row can expand" vs "this row is focused") into one indistinguishable mark.
+  const disclosure = canExpand ? (expanded ? glyphs.disclosureExpanded : glyphs.disclosureCollapsed) : ' ';
   return (
     <Box flexDirection="column">
       <Box>
         <Text color={focused ? inkColors.highlight : inkColors.muted} bold={focused}>
-          {focused ? FOCUS_CURSOR : ' '}{' '}
+          {focused ? glyphs.selectMarker : ' '}{' '}
         </Text>
         <Text dimColor>{fmtIsoTime(String(signal.timestamp))}</Text>
         <Text color={color} bold>

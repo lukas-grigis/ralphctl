@@ -1,4 +1,3 @@
-import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
 import type { PublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
@@ -12,16 +11,13 @@ import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { guard } from '@src/application/chain/build/guard.ts';
-import { leaf } from '@src/application/chain/build/leaf.ts';
 import { loop } from '@src/application/chain/build/loop.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
-import { computeActionEntropy, detectLowEntropy } from '@src/business/task/escalation-policy.ts';
-import { createLoopDiversityTracker } from '@src/business/task/loop-diversity.ts';
-import { failedDimensions } from '@src/business/task/plateau-detection.ts';
-import type { PlateauTurnRecord } from '@src/business/task/plateau-detection.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
+import { entropyCheckLeaf } from '@src/application/flows/implement/leaves/entropy-check.ts';
 import { evaluatorLeaf } from '@src/application/flows/implement/leaves/evaluator.ts';
 import { generatorLeaf } from '@src/application/flows/implement/leaves/generator.ts';
+import { loopDiversityCheckLeaf } from '@src/application/flows/implement/leaves/loop-diversity-check.ts';
 import { resolveRoundNumLeaf } from '@src/application/flows/implement/leaves/resolve-round-num.ts';
 import {
   stampEvaluatorRoleMetaLeaf,
@@ -116,6 +112,38 @@ export interface GenEvalLoopOpts {
   readonly evaluator: GenEvalLoopRoleConfig;
 }
 
+/**
+ * Overlay one role's spawn identity — provider port, model, effort — plus its bound agent
+ * definition onto the cross-role leaf deps. The agent-definition section and its name ride only
+ * when the role has a binding, so an unbound role's leaf deps are byte-for-byte what they were
+ * before the portable-agents feature existed.
+ */
+const withRoleSpawn = <TShared extends object>(
+  shared: TShared,
+  provider: HeadlessAiProvider,
+  role: GenEvalLoopRoleConfig
+) => ({
+  ...shared,
+  provider,
+  model: role.model,
+  ...(role.effort !== undefined ? { effort: role.effort } : {}),
+  ...(role.agentDefinitionSection !== undefined ? { agentDefinition: role.agentDefinitionSection } : {}),
+  ...(role.agentDefinitionName !== undefined ? { agentDefinitionName: role.agentDefinitionName } : {}),
+});
+
+/**
+ * The provider / model / effort triple a role's spawn runs at, in the shape both attribution
+ * sidecars want. Resolved once per role so the generic `meta.json` stamp, the implement-specific
+ * `role-meta.json` stamp, and the spawn itself can never disagree about what ran.
+ */
+const roleSpawnConfig = (
+  role: GenEvalLoopRoleConfig
+): { readonly providerId: string; readonly model: string; readonly effort?: string } => ({
+  providerId: role.providerId,
+  model: role.model,
+  ...(role.effort !== undefined ? { effort: role.effort } : {}),
+});
+
 export const createGenEvalLoop = (
   deps: GenEvalLoopDeps,
   opts: GenEvalLoopOpts,
@@ -145,234 +173,28 @@ export const createGenEvalLoop = (
     ...(opts.verifyScript !== undefined ? { verifyScript: opts.verifyScript } : {}),
     ...(deps.skillSource !== undefined ? { skillSource: deps.skillSource } : {}),
   };
-  const generatorLeafDeps = {
-    ...sharedLeafDeps,
-    provider: deps.generatorProvider,
-    model: opts.generator.model,
-    ...(opts.generator.effort !== undefined ? { effort: opts.generator.effort } : {}),
-    ...(opts.generator.agentDefinitionSection !== undefined
-      ? { agentDefinition: opts.generator.agentDefinitionSection }
-      : {}),
-    ...(opts.generator.agentDefinitionName !== undefined
-      ? { agentDefinitionName: opts.generator.agentDefinitionName }
-      : {}),
-  };
+  const generatorLeafDeps = withRoleSpawn(sharedLeafDeps, deps.generatorProvider, opts.generator);
   const evaluatorLeafDeps = {
-    ...sharedLeafDeps,
+    ...withRoleSpawn(sharedLeafDeps, deps.evaluatorProvider, opts.evaluator),
     // Evaluator-only: the work-product fingerprint for the plateau predicate. The generator
     // leaf neither needs nor accepts the git runner.
     gitRunner: deps.gitRunner,
-    provider: deps.evaluatorProvider,
-    model: opts.evaluator.model,
-    ...(opts.evaluator.effort !== undefined ? { effort: opts.evaluator.effort } : {}),
-    ...(opts.evaluator.agentDefinitionSection !== undefined
-      ? { agentDefinition: opts.evaluator.agentDefinitionSection }
-      : {}),
-    ...(opts.evaluator.agentDefinitionName !== undefined
-      ? { agentDefinitionName: opts.evaluator.agentDefinitionName }
-      : {}),
   };
 
-  // ---------------------------------------------------------------------------
-  // Loop-diversity guard
-  //
-  // Tracks a rolling fingerprint of each evaluator turn's failed-dimension set via the
-  // canonical `createLoopDiversityTracker`. A gen-eval loop that re-emits the identical
-  // failed-dimension fingerprint round after round has plateaued — detecting that
-  // repetition is a more reliable break signal than waiting out the turn budget — so on
-  // collapse we exit via a plateau exit and let the escalation policy climb the model
-  // ladder or apply a change-of-approach nudge.
-  //
-  // State is closure-scoped to this element instance; `lastAttemptCount` re-creates the
-  // tracker at each new attempt boundary so fingerprints don't leak across attempts.
-  // ---------------------------------------------------------------------------
-  const DIVERSITY_WINDOW_SIZE = 3;
-  let lastAttemptCount = -1;
-  let diversityTracker = createLoopDiversityTracker(DIVERSITY_WINDOW_SIZE);
-
-  interface DiversityCheckInput {
-    readonly latestRecord: PlateauTurnRecord | undefined;
-    readonly alreadyExiting: boolean;
-    readonly attemptCount: number;
-    /** Turn just completed (`ctx.genEvalTurn`) — compared against the budget so the guard never pre-empts the final turn. */
-    readonly turnsUsed: number;
-  }
-
-  interface DiversityCheckOutput {
-    readonly shouldExit: boolean;
-    readonly dimensions?: readonly string[];
-  }
-
-  const loopDiversityCheckLeaf = leaf<ImplementCtx, DiversityCheckInput, DiversityCheckOutput>(
-    `loop-diversity-check-${String(taskId)}`,
-    {
-      useCase: {
-        execute: async (input) => {
-          // Reset per attempt so history from a prior attempt doesn't carry over — a fresh
-          // tracker is the per-attempt reset (the old buffer is dropped with the prior tracker).
-          if (input.attemptCount !== lastAttemptCount) {
-            lastAttemptCount = input.attemptCount;
-            diversityTracker = createLoopDiversityTracker(DIVERSITY_WINDOW_SIZE);
-          }
-
-          // Skip when the evaluator already set a terminal exit this turn, or when the
-          // evaluator did not run (generator self-blocked — latestRecord is undefined).
-          if (input.alreadyExiting || input.latestRecord === undefined) {
-            return Result.ok({ shouldExit: false });
-          }
-
-          // Fingerprint = sorted set of currently-failed dimension names joined by '|'.
-          // A passing evaluation (all dimensions green) has no failed dimensions → no
-          // fingerprint → no diversity record (the loop would exit via 'passed' anyway).
-          const failed = failedDimensions(input.latestRecord.evaluation);
-          if (failed.size === 0) return Result.ok({ shouldExit: false });
-
-          const fingerprint = [...failed].sort().join('|');
-          diversityTracker.record(fingerprint);
-          if (diversityTracker.isDiverse()) {
-            return Result.ok({ shouldExit: false });
-          }
-
-          // Budget exhaustion takes precedence. When this was the final turn the loop would run
-          // anyway (turnsUsed === budget), there is no remaining budget for an early escalation
-          // to reclaim — the truthful terminal state is `budget-exhausted`, so let `finalize`
-          // synthesise it instead of pre-empting it with a `plateau`. This preserves the
-          // invariant that a run where every turn fails from the very start (never any progress)
-          // always exits as `budget-exhausted`. Read the same `readConfig` budget the loop's
-          // `shouldContinue` uses so a runtime config change can't diverge the two.
-          const { maxTurns } = await deps.readConfig();
-          if (input.turnsUsed >= Math.max(1, maxTurns)) {
-            return Result.ok({ shouldExit: false });
-          }
-
-          // Diversity collapsed — the generator has repeated the exact same failure pattern
-          // for the last DIVERSITY_WINDOW_SIZE turns without any approach change. Surface a
-          // warn banner and exit the loop so the escalation ladder can intervene.
-          deps.eventBus.publish({
-            type: 'banner-show',
-            id: `loop-diversity-${String(taskId)}`,
-            tier: 'warn',
-            message: 'Generator is repeating the same approach — escalating',
-            cause: 'loop-diversity-exhausted',
-            at: deps.clock(),
-          });
-
-          return Result.ok({ shouldExit: true, dimensions: [...failed] });
-        },
-      },
-      input: (ctx) => {
-        const history = ctx.plateauHistory;
-        const latestRecord = history !== undefined && history.length > 0 ? history[history.length - 1] : undefined;
-        return {
-          latestRecord,
-          alreadyExiting: ctx.lastExit !== undefined,
-          attemptCount: ctx.currentTask?.attempts.length ?? 0,
-          turnsUsed: ctx.genEvalTurn ?? 0,
-        };
-      },
-      output: (ctx, out) => {
-        if (!out.shouldExit || out.dimensions === undefined) return ctx;
-        return { ...ctx, lastExit: { kind: 'plateau', dimensions: out.dimensions, source: 'diversity' } };
-      },
-    }
-  );
-
-  // ---------------------------------------------------------------------------
-  // Entropy-check guard (R2)
-  //
-  // Computes normalised Shannon entropy over the distribution of the generator's
-  // emitted signal KINDS this turn (decision / change / learning / note), read from
-  // `ctx.lastTurnActionCounts` (stamped by the generator leaf). Low entropy (< 0.25 by
-  // default) means the generator concentrated its reported actions on a single kind —
-  // a leading indicator of a plateau.
-  //
-  // HONESTY: this is a SIGNAL-KIND-DISTRIBUTION PROXY for action entropy — the harness
-  // never sees the AI's raw tool-use, so the spread of reported signal kinds stands in
-  // for "action diversity". It is a SECONDARY / softer signal to the R1 fingerprint-
-  // repetition guard (loop-diversity-check) above, and the budget-precedence guard keeps
-  // it from ever pre-empting the final budgeted turn.
-  // ---------------------------------------------------------------------------
-  interface EntropyCheckInput {
-    /** Per-kind action counts for the current turn. Undefined when the generator stamped none. */
-    readonly actionCounts: Map<string, number> | undefined;
-    readonly alreadyExiting: boolean;
-    readonly turnsUsed: number;
-  }
-
-  interface EntropyCheckOutput {
-    readonly shouldExit: boolean;
-  }
-
-  const entropyCheckLeaf = leaf<ImplementCtx, EntropyCheckInput, EntropyCheckOutput>(
-    `entropy-check-${String(taskId)}`,
-    {
-      useCase: {
-        execute: async (input) => {
-          // No signal-kind distribution stamped this turn (round 1 before any generator turn, or a
-          // turn that emitted zero narrative signals) — no evidence of low entropy, so no-op.
-          if (input.actionCounts === undefined) return Result.ok({ shouldExit: false });
-          // Skip when another exit is already pending or insufficient turns have elapsed.
-          if (input.alreadyExiting || input.turnsUsed < DIVERSITY_WINDOW_SIZE) {
-            return Result.ok({ shouldExit: false });
-          }
-          // Budget-precedence guard: if this was the final allowed turn, let finalize
-          // synthesise the budget-exhausted exit rather than pre-empting it with a plateau.
-          const { maxTurns } = await deps.readConfig();
-          if (input.turnsUsed >= Math.max(1, maxTurns)) {
-            return Result.ok({ shouldExit: false });
-          }
-
-          const entropy = computeActionEntropy(input.actionCounts);
-          if (!detectLowEntropy(entropy)) return Result.ok({ shouldExit: false });
-
-          deps.eventBus.publish({
-            type: 'banner-show',
-            id: `entropy-plateau-${String(taskId)}`,
-            tier: 'warn',
-            message: `Generator action entropy collapsed (H=${entropy.toFixed(2)}) — escalating`,
-            cause: 'low-action-entropy',
-            at: deps.clock(),
-          });
-
-          return Result.ok({ shouldExit: true });
-        },
-      },
-      input: (ctx): EntropyCheckInput => ({
-        // SIGNAL-KIND-DISTRIBUTION proxy for action entropy: read the generator leaf's per-turn
-        // `lastTurnActionCounts` (decision/change/learning/note spread for the turn just completed).
-        // Copy into a mutable `Map` for `computeActionEntropy`; undefined when nothing was stamped.
-        actionCounts: ctx.lastTurnActionCounts !== undefined ? new Map(ctx.lastTurnActionCounts) : undefined,
-        alreadyExiting: ctx.lastExit !== undefined,
-        turnsUsed: ctx.genEvalTurn ?? 0,
-      }),
-      output: (ctx, out) => {
-        if (!out.shouldExit) return ctx;
-        // Re-use the plateau exit kind so the escalation ladder applies the same remedy.
-        return { ...ctx, lastExit: { kind: 'plateau', dimensions: [], source: 'entropy' } };
-      },
-    }
-  );
+  // Provider attribution for both stamp sidecars, and the shared deps of the two post-evaluator
+  // plateau detectors (both read the same live turn budget the loop's `shouldContinue` reads).
+  const generatorSpawn = roleSpawnConfig(opts.generator);
+  const evaluatorSpawn = roleSpawnConfig(opts.evaluator);
+  const checkDeps = { readConfig: deps.readConfig, eventBus: deps.eventBus, clock: deps.clock };
 
   return loop<ImplementCtx>(
     `gen-eval-${String(taskId)}`,
     sequential<ImplementCtx>(`gen-eval-turn-${String(taskId)}`, [
       resolveRoundNumLeaf(taskId),
-      stampImplementGeneratorSessionMetaLeaf(
-        { writeFile: deps.writeFile, clock: deps.clock },
-        {
-          providerId: opts.generator.providerId,
-          model: opts.generator.model,
-          ...(opts.generator.effort !== undefined ? { effort: opts.generator.effort } : {}),
-        },
-        taskId
-      ),
+      stampImplementGeneratorSessionMetaLeaf({ writeFile: deps.writeFile, clock: deps.clock }, generatorSpawn, taskId),
       stampGeneratorRoleMetaLeaf(
         { writeFile: deps.writeFile, clock: deps.clock, logger: deps.logger },
-        {
-          provider: opts.generator.providerId,
-          model: opts.generator.model,
-          ...(opts.generator.effort !== undefined ? { effort: opts.generator.effort } : {}),
-        },
+        { ...generatorSpawn, provider: generatorSpawn.providerId },
         taskId
       ),
       generatorLeaf(generatorLeafDeps, taskId),
@@ -382,25 +204,17 @@ export const createGenEvalLoop = (
         sequential<ImplementCtx>(`evaluator-step-${String(taskId)}`, [
           stampImplementEvaluatorSessionMetaLeaf(
             { writeFile: deps.writeFile, clock: deps.clock },
-            {
-              providerId: opts.evaluator.providerId,
-              model: opts.evaluator.model,
-              ...(opts.evaluator.effort !== undefined ? { effort: opts.evaluator.effort } : {}),
-            },
+            evaluatorSpawn,
             taskId
           ),
           stampEvaluatorRoleMetaLeaf(
             { writeFile: deps.writeFile, clock: deps.clock, logger: deps.logger },
-            {
-              provider: opts.evaluator.providerId,
-              model: opts.evaluator.model,
-              ...(opts.evaluator.effort !== undefined ? { effort: opts.evaluator.effort } : {}),
-            },
+            { ...evaluatorSpawn, provider: evaluatorSpawn.providerId },
             taskId
           ),
           evaluatorLeaf(evaluatorLeafDeps, taskId),
-          loopDiversityCheckLeaf,
-          entropyCheckLeaf,
+          loopDiversityCheckLeaf(checkDeps, taskId),
+          entropyCheckLeaf(checkDeps, taskId),
         ])
       ),
     ]),

@@ -14,7 +14,7 @@ import { Box, Text } from 'ink';
 import { ListCard } from '@src/application/ui/tui/components/list-card.tsx';
 import { EmptyState } from '@src/application/ui/tui/components/empty-state.tsx';
 import { StatusChip, taskStatusKind } from '@src/application/ui/tui/components/status-chip.tsx';
-import { FieldList } from '@src/application/ui/tui/components/field-list.tsx';
+import { type Field, FieldList } from '@src/application/ui/tui/components/field-list.tsx';
 import { computeListWindow, OverflowRow } from '@src/application/ui/tui/components/windowed-list.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
@@ -22,6 +22,7 @@ import { fmtDuration } from '@src/application/ui/tui/theme/duration.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { Task } from '@src/domain/entity/task.ts';
+import type { Ticket } from '@src/domain/entity/ticket.ts';
 import type { Attempt } from '@src/domain/entity/attempt.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { Description, Section } from '@src/application/ui/tui/views/sprint-detail-internals/shared-prose.tsx';
@@ -238,6 +239,77 @@ const repositoryName = (project: Project | undefined, id: RepositoryId): string 
   return repo?.name;
 };
 
+/** The task's own metadata rows — order, repository, ticket, and the two conditional rows
+ * (final attempt / extra dimensions) that only apply to a subset of tasks. */
+const buildDetailFields = (task: Task, ticket: Ticket | undefined, repoName: string | undefined): readonly Field[] => [
+  { label: 'Order', value: String(task.order) },
+  {
+    label: 'Repository',
+    value: repoName !== undefined ? `${repoName}  (${String(task.repositoryId)})` : String(task.repositoryId),
+  },
+  {
+    label: 'Ticket',
+    value: ticket !== undefined ? `${ticket.title}  [${ticket.status}]` : String(task.ticketId),
+  },
+  ...(task.status === 'done' ? [{ label: 'Final attempt', value: `#${String(task.finalAttemptN)}` }] : []),
+  ...(task.extraDimensions !== undefined && task.extraDimensions.length > 0
+    ? [{ label: 'Extra dims', value: task.extraDimensions.join(', ') }]
+    : []),
+];
+
+/** One row per step, in order — the expanded task card's "Steps" section body. */
+const StepsSection = ({ steps }: { readonly steps: readonly string[] }): React.JSX.Element => (
+  <Section heading="Steps">
+    <Box flexDirection="column" paddingLeft={spacing.indent}>
+      {steps.map((s, i) => (
+        <Text key={`step-${String(i)}`} dimColor>
+          {String(i + 1)}. {s}
+        </Text>
+      ))}
+    </Box>
+  </Section>
+);
+
+/** One row per verification criterion — the expanded task card's "Verification" section body. */
+const VerificationSection = ({ criteria }: { readonly criteria: Task['verificationCriteria'] }): React.JSX.Element => (
+  <Section heading="Verification">
+    <Box flexDirection="column" paddingLeft={spacing.indent}>
+      {criteria.map((c, i) => (
+        <Text key={`vc-${String(i)}`} dimColor>
+          {glyphs.bullet} [{c.id}] {c.check}
+          {c.check === 'auto' && c.command !== undefined ? ` \`${c.command}\`` : ''} — {c.assertion}
+        </Text>
+      ))}
+    </Box>
+  </Section>
+);
+
+/** One status-chip row per dependency task — the expanded task card's "Depends on" section body. */
+const DependsOnSection = ({ dependsOnTasks }: { readonly dependsOnTasks: readonly Task[] }): React.JSX.Element => (
+  <Section heading="Depends on">
+    <Box flexDirection="column" paddingLeft={spacing.indent}>
+      {dependsOnTasks.map((d) => (
+        <Box key={d.id}>
+          <StatusChip label={d.status} kind={taskStatusKind(d.status)} />
+          <Text bold> {d.name}</Text>
+        </Box>
+      ))}
+    </Box>
+  </Section>
+);
+
+/** One `AttemptCard` per past attempt, oldest first — the expanded task card's "Attempt history"
+ * section body. */
+const AttemptHistorySection = ({ attempts }: { readonly attempts: Task['attempts'] }): React.JSX.Element => (
+  <Section heading="Attempt history">
+    <Box flexDirection="column" paddingLeft={spacing.indent}>
+      {attempts.map((attempt) => (
+        <AttemptCard key={`attempt-${String(attempt.n)}`} attempt={attempt} />
+      ))}
+    </Box>
+  </Section>
+);
+
 const TaskDetailBody = ({
   task,
   sprint,
@@ -256,23 +328,7 @@ const TaskDetailBody = ({
   const repoName = repositoryName(project, task.repositoryId);
   return (
     <Box flexDirection="column">
-      <FieldList
-        fields={[
-          { label: 'Order', value: String(task.order) },
-          {
-            label: 'Repository',
-            value: repoName !== undefined ? `${repoName}  (${String(task.repositoryId)})` : String(task.repositoryId),
-          },
-          {
-            label: 'Ticket',
-            value: ticket !== undefined ? `${ticket.title}  [${ticket.status}]` : String(task.ticketId),
-          },
-          ...(task.status === 'done' ? [{ label: 'Final attempt', value: `#${String(task.finalAttemptN)}` }] : []),
-          ...(task.extraDimensions !== undefined && task.extraDimensions.length > 0
-            ? [{ label: 'Extra dims', value: task.extraDimensions.join(', ') }]
-            : []),
-        ]}
-      />
+      <FieldList fields={buildDetailFields(task, ticket, repoName)} />
       {task.status === 'blocked' && (
         <Box marginTop={spacing.section}>
           <Text color={inkColors.error}>
@@ -285,50 +341,10 @@ const TaskDetailBody = ({
           <Description text={task.description} maxLines={Number.POSITIVE_INFINITY} />
         </Section>
       )}
-      {task.steps.length > 0 && (
-        <Section heading="Steps">
-          <Box flexDirection="column" paddingLeft={spacing.indent}>
-            {task.steps.map((s, i) => (
-              <Text key={`step-${String(i)}`} dimColor>
-                {String(i + 1)}. {s}
-              </Text>
-            ))}
-          </Box>
-        </Section>
-      )}
-      {task.verificationCriteria.length > 0 && (
-        <Section heading="Verification">
-          <Box flexDirection="column" paddingLeft={spacing.indent}>
-            {task.verificationCriteria.map((c, i) => (
-              <Text key={`vc-${String(i)}`} dimColor>
-                {glyphs.bullet} [{c.id}] {c.check}
-                {c.check === 'auto' && c.command !== undefined ? ` \`${c.command}\`` : ''} — {c.assertion}
-              </Text>
-            ))}
-          </Box>
-        </Section>
-      )}
-      {dependsOnTasks.length > 0 && (
-        <Section heading="Depends on">
-          <Box flexDirection="column" paddingLeft={spacing.indent}>
-            {dependsOnTasks.map((d) => (
-              <Box key={d.id}>
-                <StatusChip label={d.status} kind={taskStatusKind(d.status)} />
-                <Text bold> {d.name}</Text>
-              </Box>
-            ))}
-          </Box>
-        </Section>
-      )}
-      {task.attempts.length > 0 && (
-        <Section heading="Attempt history">
-          <Box flexDirection="column" paddingLeft={spacing.indent}>
-            {task.attempts.map((attempt) => (
-              <AttemptCard key={`attempt-${String(attempt.n)}`} attempt={attempt} />
-            ))}
-          </Box>
-        </Section>
-      )}
+      {task.steps.length > 0 && <StepsSection steps={task.steps} />}
+      {task.verificationCriteria.length > 0 && <VerificationSection criteria={task.verificationCriteria} />}
+      {dependsOnTasks.length > 0 && <DependsOnSection dependsOnTasks={dependsOnTasks} />}
+      {task.attempts.length > 0 && <AttemptHistorySection attempts={task.attempts} />}
     </Box>
   );
 };

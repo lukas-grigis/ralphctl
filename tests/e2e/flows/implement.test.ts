@@ -37,6 +37,7 @@ import { startNextAttempt } from '@src/domain/entity/task-attempts.ts';
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import { createRunner } from '@src/application/chain/run/runner.ts';
 import type { GitRunner, GitRunResult } from '@src/integration/io/git-runner.ts';
+import { okGit } from '@tests/fixtures/git-result.ts';
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
 import { createFileLocker } from '@src/integration/io/file-locker.ts';
 import { createFsTemplateLoader, defaultTemplatesDir } from '@src/integration/ai/prompts/_engine/fs-template-loader.ts';
@@ -148,9 +149,6 @@ const inMemoryTaskRepo = (initial: readonly Task[]): InMemoryTaskRepoState => {
     },
   };
 };
-
-const okGit = (stdout = '', exitCode = 0): Result<GitRunResult, StorageError> =>
-  Result.ok({ stdout, stderr: '', exitCode });
 
 /**
  * Tracks a synthetic `HEAD` so resolve-branch + branch-preflight see a coherent working tree.

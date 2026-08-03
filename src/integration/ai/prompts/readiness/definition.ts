@@ -1,12 +1,14 @@
 import { Result } from '@src/domain/result.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import type { ReadinessState } from '@src/integration/ai/readiness/_engine/state.ts';
-import type { AssistantTool } from '@src/integration/ai/readiness/_engine/tool.ts';
+import type { ToolArtifacts } from '@src/integration/ai/readiness/_engine/tool-artifacts.ts';
+import { type AssistantTool, providerForTool } from '@src/integration/ai/readiness/_engine/tool.ts';
 import { isPresent } from '@src/integration/ai/readiness/_engine/predicates.ts';
-import { ValidationError } from '@src/domain/value/error/validation-error.ts';
+import { PROVIDER_TRAITS } from '@src/integration/ai/providers/_engine/provider-traits.ts';
 import { buildPrompt, type BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
 import type { PromptDefinition } from '@src/integration/ai/prompts/_engine/definition.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
+import { requireNonEmpty } from '@src/integration/ai/prompts/_engine/validators.ts';
 
 /**
  * Pre-rendered string parameters for the readiness template. The renderer helpers below produce
@@ -57,36 +59,19 @@ const CLAUDE_CODE = 'claude-code';
 /**
  * Map an {@link AssistantTool} to the XML tag the AI should emit around its proposed body.
  * Each tag matches what the harness will write to disk for that tool — no cross-tool envelope
- * for the model to second-guess.
+ * for the model to second-guess. Table lookup on {@link PROVIDER_TRAITS} via
+ * {@link providerForTool} — the per-tool value lives once, in `providers/_engine/provider-traits.ts`.
  */
-export const wireTagFor = (tool: AssistantTool): string => {
-  switch (tool) {
-    case CLAUDE_CODE:
-      return 'claude-md';
-    case 'copilot':
-      return 'copilot-instructions';
-    case 'codex':
-      return 'agents-md';
-  }
-};
+export const wireTagFor = (tool: AssistantTool): string => PROVIDER_TRAITS[providerForTool(tool)].wireTag;
 
 /**
  * Map an {@link AssistantTool} to the partial name that holds its target-file conventions.
  * The partial is loaded by `buildReadinessPrompt` and passed as `targetFileConventions` so
- * the AI receives per-provider style guidance before it sees the output contract shape.
+ * the AI receives per-provider style guidance before it sees the output contract shape. Table
+ * lookup on {@link PROVIDER_TRAITS} via {@link providerForTool}.
  */
-export const conventionsPartialName = (
-  tool: AssistantTool
-): 'conventions-claude-md' | 'conventions-copilot-instructions' | 'conventions-agents-md' => {
-  switch (tool) {
-    case CLAUDE_CODE:
-      return 'conventions-claude-md';
-    case 'copilot':
-      return 'conventions-copilot-instructions';
-    case 'codex':
-      return 'conventions-agents-md';
-  }
-};
+export const conventionsPartialName = (tool: AssistantTool): string =>
+  PROVIDER_TRAITS[providerForTool(tool)].conventionsPartial;
 
 /**
  * Readiness prompt definition.
@@ -109,16 +94,7 @@ export const readinessPromptDef: PromptDefinition<ReadinessPromptParams> = {
     repositoryPath: {
       placeholder: 'REPOSITORY_PATH',
       description: 'Absolute path to the repository the AI is inventorying.',
-      validate: (v: string) =>
-        v.trim().length === 0
-          ? Result.error(
-              new ValidationError({
-                field: 'repositoryPath',
-                value: v,
-                message: 'repository path must not be empty',
-              })
-            )
-          : Result.ok(v),
+      validate: requireNonEmpty('repositoryPath', 'repository path must not be empty'),
     },
     currentTool: {
       placeholder: 'CURRENT_TOOL',
@@ -145,16 +121,7 @@ export const readinessPromptDef: PromptDefinition<ReadinessPromptParams> = {
       placeholder: 'OUTPUT_CONTRACT_SECTION',
       description:
         'Audit-[09] output contract block rendered from the readiness contract — instructs the AI to write `signals.json` directly with the proposal signals.',
-      validate: (v: string) =>
-        v.trim().length === 0
-          ? Result.error(
-              new ValidationError({
-                field: 'outputContractSection',
-                value: v,
-                message: 'output-contract section must not be empty',
-              })
-            )
-          : Result.ok(v),
+      validate: requireNonEmpty('outputContractSection', 'output-contract section must not be empty'),
     },
   },
   partials: {
@@ -196,28 +163,38 @@ export const renderDetectedArtefacts = (paths: readonly string[]): string => {
 };
 
 /**
+ * Walk a claude-code {@link ToolArtifacts} catalog for every root artefact path plus every named
+ * collection entry (skills / commands / agents).
+ */
+const collectClaudeCodeArtefactPaths = (a: Extract<ToolArtifacts, { tool: 'claude-code' }>): readonly string[] => {
+  const paths: string[] = [];
+  if (a.claudeMd !== undefined) paths.push(String(a.claudeMd.path));
+  if (a.agentsMd !== undefined) paths.push(String(a.agentsMd.path));
+  if (a.settings !== undefined) paths.push(String(a.settings.path));
+  if (a.settingsLocal !== undefined) paths.push(String(a.settingsLocal.path));
+  if (a.mcpConfig !== undefined) paths.push(String(a.mcpConfig.path));
+  for (const ref of a.skills) paths.push(String(ref.path));
+  for (const ref of a.commands) paths.push(String(ref.path));
+  for (const ref of a.agents) paths.push(String(ref.path));
+  return paths;
+};
+
+/** Walk a copilot {@link ToolArtifacts} catalog — just the one native instructions file, when present. */
+const collectCopilotArtefactPaths = (a: Extract<ToolArtifacts, { tool: 'copilot' }>): readonly string[] =>
+  a.copilotInstructions !== undefined ? [String(a.copilotInstructions.path)] : [];
+
+/**
  * Pull the artefact paths off an {@link ReadinessState} for the prompt's detected-artefacts
- * block. `unknown` / `absent` → empty list. `present` → every `ArtifactRef.path` and every
- * `NamedArtifactRef.path` collected across the tool-specific catalog.
+ * block. `unknown` / `absent` → empty list. `present` → dispatches to the per-tool walker for
+ * the discriminated `artifacts.tool` catalog.
  */
 export const collectArtefactPaths = (state: ReadinessState): readonly string[] => {
   if (!isPresent(state)) return [];
   const a = state.artifacts;
-  const paths: string[] = [];
-  if (a.tool === CLAUDE_CODE) {
-    if (a.claudeMd !== undefined) paths.push(String(a.claudeMd.path));
-    if (a.agentsMd !== undefined) paths.push(String(a.agentsMd.path));
-    if (a.settings !== undefined) paths.push(String(a.settings.path));
-    if (a.settingsLocal !== undefined) paths.push(String(a.settingsLocal.path));
-    if (a.mcpConfig !== undefined) paths.push(String(a.mcpConfig.path));
-    for (const ref of a.skills) paths.push(String(ref.path));
-    for (const ref of a.commands) paths.push(String(ref.path));
-    for (const ref of a.agents) paths.push(String(ref.path));
-  } else if (a.tool === 'copilot' && a.copilotInstructions !== undefined) {
-    paths.push(String(a.copilotInstructions.path));
-  }
+  if (a.tool === CLAUDE_CODE) return collectClaudeCodeArtefactPaths(a);
+  if (a.tool === 'copilot') return collectCopilotArtefactPaths(a);
   // Codex artefacts placeholder — see ai/readiness/codex/artifacts.ts. No fields to walk yet.
-  return paths;
+  return [];
 };
 
 export interface BuildReadinessPromptInput {

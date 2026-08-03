@@ -1,12 +1,12 @@
-import { Result } from '@src/domain/result.ts';
+import { type Result } from '@src/domain/result.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import type { Project } from '@src/domain/entity/project.ts';
-import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import { buildPrompt, type BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
 import type { PromptDefinition } from '@src/integration/ai/prompts/_engine/definition.ts';
 import { renderPriorLearningsSection } from '@src/integration/ai/prompts/_engine/renderers/task.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import { TASK_IMPORT_JSON_SCHEMA } from '@src/integration/ai/prompts/_engine/task-import-schema.ts';
+import { requireNonEmpty } from '@src/integration/ai/prompts/_engine/validators.ts';
 
 /**
  * Pre-rendered string parameters for the ideate template. The flow combines refine + plan
@@ -43,12 +43,7 @@ export interface IdeatePromptParams {
   readonly priorLearningsSection: string;
 }
 
-const nonEmpty =
-  (field: string) =>
-  (v: string): Result<string, ValidationError> =>
-    v.trim().length === 0
-      ? Result.error(new ValidationError({ field, value: v, message: `${field} must not be empty` }))
-      : Result.ok(v);
+const nonEmpty = (field: string) => requireNonEmpty(field, `${field} must not be empty`);
 
 export const ideatePromptDef: PromptDefinition<IdeatePromptParams> = {
   templateName: 'ideate',

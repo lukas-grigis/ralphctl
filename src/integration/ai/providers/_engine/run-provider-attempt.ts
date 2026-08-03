@@ -143,48 +143,26 @@ export interface ProviderAttemptInput {
  * Each provider supplies only what genuinely differs: argv, stdout chunk consumer, flush
  * callback, sessionId / stdoutTail / body getters, and token-usage payload.
  */
-export const runProviderAttempt = async (input: ProviderAttemptInput): Promise<AttemptOutcome> => {
-  const {
-    spawnFn,
-    command,
-    args,
-    session,
-    resolveOn,
-    rateLimitRe,
-    onStdoutChunk,
-    flush,
-    getSessionId,
-    getStdoutTail,
-    providerName,
-    providerSlug,
-    eventBus,
-    idleMs,
-  } = input;
-
-  const child = spawnFn(command, args, {
-    stdio: ['pipe', 'pipe', 'pipe'] as const,
-    cwd: String(session.cwd),
-  });
-  const stderrTail = createBoundedTail(STDERR_TAIL_CAP);
-  const watchdogBannerId = `watchdog-${providerSlug}-${String(child.pid ?? 'unknown')}`;
-
-  const { code, signal } = await runHeadlessSpawn({
-    child,
-    onStdout: (chunk) => {
-      onStdoutChunk(chunk);
-    },
-    onStderr: (chunk) => {
-      stderrTail.append(chunk);
-    },
-    ...(input.stdin !== undefined ? { stdin: input.stdin } : {}),
-    resolveOn,
-    ...(idleMs !== undefined ? { idleMs } : {}),
-    ...(session.abortSignal !== undefined ? { abortSignal: session.abortSignal } : {}),
+/**
+ * Idle-watchdog telemetry for one attempt: the `onIdle` callback `runHeadlessSpawn` fires when
+ * the child goes quiet, plus the spawn options that carry the threshold. Folding both into one
+ * factory keeps the `idleMs !== undefined` conditional in a single place — the warn log, the
+ * banner copy, and the spawn option all derive from the same optional threshold.
+ */
+const createIdleTelemetry = (
+  input: ProviderAttemptInput,
+  watchdogBannerId: string
+): { readonly spawnOption: { readonly idleMs?: number }; readonly onIdle: () => void } => {
+  const { idleMs, providerName, providerSlug, eventBus } = input;
+  const forMs = idleMs !== undefined ? ` for ${String(idleMs)}ms` : '';
+  const idleSuffix = idleMs !== undefined ? ` (${String(Math.round(idleMs / 1000))}s idle)` : '';
+  return {
+    spawnOption: idleMs !== undefined ? { idleMs } : {},
     onIdle: () => {
       eventBus.publish({
         type: 'log',
         level: 'warn',
-        message: `${providerName}: no stdio activity${idleMs !== undefined ? ` for ${String(idleMs)}ms` : ''} — killing wedged child`,
+        message: `${providerName}: no stdio activity${forMs} — killing wedged child`,
         ...(idleMs !== undefined ? { meta: { idleMs } } : {}),
         at: IsoTimestamp.now(),
       });
@@ -192,55 +170,103 @@ export const runProviderAttempt = async (input: ProviderAttemptInput): Promise<A
         type: 'banner-show',
         id: watchdogBannerId,
         tier: 'warn',
-        message: `Watchdog killed stuck ${providerSlug} process${idleMs !== undefined ? ` (${String(Math.round(idleMs / 1000))}s idle)` : ''}`,
+        message: `Watchdog killed stuck ${providerSlug} process${idleSuffix}`,
         at: IsoTimestamp.now(),
       });
     },
+  };
+};
+
+/** Best-effort `sessionId.txt` write; a failure only degrades resume re-attach, never the run. */
+const persistSessionId = async (input: ProviderAttemptInput, sessionId: string | undefined): Promise<void> => {
+  const wrote = await persistSessionIdFile(input.session.signalsFile, sessionId);
+  if (wrote === undefined || wrote.ok) return;
+  input.eventBus.publish({
+    type: 'log',
+    level: 'warn',
+    message: `${input.providerName}: failed to write sessionId file — resume re-attach may need log parsing`,
+    meta: { error: wrote.error.message },
+    at: IsoTimestamp.now(),
   });
-  flush();
+};
 
-  const sessionId = getSessionId();
+/**
+ * Mirror the assistant body to `session.bodyFile` for forensic capture. Returns the failing
+ * `DomainError` only when the provider's own body getter failed — an unwritable mirror is logged
+ * and swallowed, because `signals.json` (not body.txt) is the authoritative success gate.
+ */
+const mirrorBodyFile = async (input: ProviderAttemptInput): Promise<DomainError | undefined> => {
+  const { session, providerName, eventBus } = input;
+  if (session.bodyFile === undefined) return undefined;
+  const bodyResult = await input.getBody();
+  if (!bodyResult.ok) return bodyResult.error;
+  const wrote = await writeTextAtomic(String(session.bodyFile), bodyResult.value);
+  if (!wrote.ok) {
+    eventBus.publish({
+      type: 'log',
+      level: 'warn',
+      message: `${providerName}: failed to write body file — diagnostic capture skipped`,
+      meta: { bodyFile: String(session.bodyFile), error: wrote.error.message },
+      at: IsoTimestamp.now(),
+    });
+  }
+  return undefined;
+};
 
-  const onSuccess = async (): Promise<AttemptOutcome> => {
+/**
+ * Build the `onSuccess` block `classifySpawnExit` invokes on a clean exit AND on the
+ * signals-recovery branch: session-id telemetry, `sessionId.txt`, the body-file mirror, and the
+ * `ProviderOutput` envelope.
+ */
+const createSuccessHandler =
+  (input: ProviderAttemptInput, sessionId: string | undefined, code: number | null) =>
+  async (): Promise<AttemptOutcome> => {
     if (sessionId !== undefined) {
-      emitSessionIdCaptured(eventBus, providerName, sessionId);
+      emitSessionIdCaptured(input.eventBus, input.providerName, sessionId);
       input.emitProviderTokenUsage(sessionId);
     }
-    const sidWrote = await persistSessionIdFile(session.signalsFile, sessionId);
-    if (sidWrote !== undefined && !sidWrote.ok) {
-      eventBus.publish({
-        type: 'log',
-        level: 'warn',
-        message: `${providerName}: failed to write sessionId file — resume re-attach may need log parsing`,
-        meta: { error: sidWrote.error.message },
-        at: IsoTimestamp.now(),
-      });
-    }
-    if (session.bodyFile !== undefined) {
-      const bodyResult = await input.getBody();
-      if (!bodyResult.ok) return { kind: 'error', error: bodyResult.error };
-      const bodyWrote = await writeTextAtomic(String(session.bodyFile), bodyResult.value);
-      if (!bodyWrote.ok) {
-        eventBus.publish({
-          type: 'log',
-          level: 'warn',
-          message: `${providerName}: failed to write body file — diagnostic capture skipped`,
-          meta: { bodyFile: String(session.bodyFile), error: bodyWrote.error.message },
-          at: IsoTimestamp.now(),
-        });
-      }
-    }
+    await persistSessionId(input, sessionId);
+    const bodyError = await mirrorBodyFile(input);
+    if (bodyError !== undefined) return { kind: 'error', error: bodyError };
     return {
       kind: 'success',
       output: {
-        signalsFile: session.signalsFile,
+        signalsFile: input.session.signalsFile,
         exitCode: code ?? 0,
         ...(sessionId !== undefined ? { sessionId } : {}),
       },
     };
   };
 
-  const stdoutTail = getStdoutTail();
+export const runProviderAttempt = async (input: ProviderAttemptInput): Promise<AttemptOutcome> => {
+  const { spawnFn, command, args, session, resolveOn, rateLimitRe, providerName, providerSlug, eventBus } = input;
+
+  const child = spawnFn(command, args, {
+    stdio: ['pipe', 'pipe', 'pipe'] as const,
+    cwd: String(session.cwd),
+  });
+  const stderrTail = createBoundedTail(STDERR_TAIL_CAP);
+  const watchdogBannerId = `watchdog-${providerSlug}-${String(child.pid ?? 'unknown')}`;
+  const idle = createIdleTelemetry(input, watchdogBannerId);
+
+  const { code, signal } = await runHeadlessSpawn({
+    child,
+    onStdout: (chunk) => {
+      input.onStdoutChunk(chunk);
+    },
+    onStderr: (chunk) => {
+      stderrTail.append(chunk);
+    },
+    ...(input.stdin !== undefined ? { stdin: input.stdin } : {}),
+    resolveOn,
+    ...idle.spawnOption,
+    ...(session.abortSignal !== undefined ? { abortSignal: session.abortSignal } : {}),
+    onIdle: idle.onIdle,
+  });
+  input.flush();
+
+  const sessionId = input.getSessionId();
+  const stdoutTail = input.getStdoutTail();
   return classifySpawnExit({
     session,
     exit: { code, signal },
@@ -251,7 +277,7 @@ export const runProviderAttempt = async (input: ProviderAttemptInput): Promise<A
     providerName,
     eventBus,
     watchdogBannerId,
-    onSuccess,
+    onSuccess: createSuccessHandler(input, sessionId, code),
   });
 };
 

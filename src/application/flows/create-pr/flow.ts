@@ -9,10 +9,8 @@ import { createPushBranchLeaf } from '@src/application/flows/create-pr/leaves/pu
 import { createCreatePrLeaf } from '@src/application/flows/create-pr/leaves/create-pr-leaf.ts';
 import { createLoadCreatePrContextLeaf } from '@src/application/flows/create-pr/leaves/load-create-pr-context-leaf.ts';
 import { generatePrContentLeaf } from '@src/application/flows/create-pr/leaves/generate-pr-content-leaf.ts';
-import { installSkillsLeaf } from '@src/application/flows/_shared/skills/install-skills.ts';
-import { uninstallSkillsLeaf } from '@src/application/flows/_shared/skills/uninstall-skills.ts';
-import { buildUnitLeaf } from '@src/application/flows/_shared/build-unit.ts';
-import { renderPromptToFileLeaf } from '@src/application/flows/_shared/render-prompt-to-file.ts';
+import { aiUnitEpilogue, aiUnitPrelude } from '@src/application/flows/_shared/ai-unit-segment.ts';
+import { assertCtxField } from '@src/application/flows/_shared/_engine/assert-ctx-field.ts';
 import {
   buildCreatePrPrompt,
   renderIssueRefs,
@@ -30,6 +28,13 @@ export interface CreateCreatePrFlowOpts {
    * leaf falls back to `derivePrContent`'s template output.
    */
   readonly useAi?: boolean;
+  /**
+   * Provider id attributed on the AI sub-chain's `meta.json` sidecar (`'claude-code'` /
+   * `'github-copilot'` / `'openai-codex'`). Optional so existing callers that construct this
+   * flow without threading `settings.ai.createPr.provider` through still compile; omitting it
+   * degrades the sidecar's `provider` field to `'unknown'` rather than failing the run.
+   */
+  readonly providerId?: string;
 }
 
 /**
@@ -43,6 +48,7 @@ export interface CreateCreatePrFlowOpts {
  *     build-create-pr-unit,           // mkdir <sprintDir>/create-pr/<run-slug>/
  *     render-prompt-to-file,          // write prompt.md
  *     install-skills,                 // copy the createPr flow's skills into the unit root
+ *     stamp-meta-create-pr,           // <unit-root>/meta.json — provider/model attribution
  *     generate-pr-content,            // headless AI authoring → ctx.aiContent
  *     uninstall-skills,               // remove them again (skipped if an abort short-circuits)
  *     create-pr,                      // gh pr create / glab mr create + persist URL
@@ -67,59 +73,55 @@ export const createCreatePrFlow = (deps: CreatePrDeps, opts: CreateCreatePrFlowO
   const children: Array<Element<CreatePrCtx>> = [createPushBranchLeaf(deps)];
 
   if (useAi) {
+    const unitOpts = {
+      unitName: 'create-pr',
+      flowId: 'createPr' as const,
+      // Per-sprint unit root: `<sprintDir>/create-pr/<run-slug>/` — same layout the implement
+      // / refine / plan flows use, so the user's repo working tree never collects scratch
+      // artifacts from a `ralphctl create-pr` run.
+      parent: (ctx: CreatePrCtx) => {
+        const parentDir = AbsolutePath.parse(join(String(ctx.input.sprintDir), 'create-pr'));
+        if (!parentDir.ok) throw parentDir.error;
+        return parentDir.value;
+      },
+      slug: (ctx: CreatePrCtx) => slugifyBranch(ctx.headBranch ?? 'unknown-branch'),
+      buildPrompt: async (ctx: CreatePrCtx) => {
+        const currentUnitRoot = assertCtxField(ctx, 'currentUnitRoot', 'render-prompt-to-file', 'pre-render-prompt');
+        const sprint = assertCtxField(ctx, 'sprint', 'render-prompt-to-file', 'pre-render-prompt');
+        const tickets = sprint.tickets.map((t) => ({
+          title: t.title,
+          ...(t.link !== undefined ? { link: String(t.link) } : {}),
+        }));
+        const tasks = ctx.tasks ?? [];
+        const refs = normalizeRefs([
+          ...sprint.tickets.map((t) => t.externalRef ?? ''),
+          ...tasks.flatMap((t) => t.externalRefs ?? []),
+        ]);
+        return buildCreatePrPrompt(deps.templateLoader, {
+          baseBranch: ctx.input.base,
+          headBranch: ctx.headBranch ?? '',
+          ticketSummary: renderTicketSummary(tickets),
+          issueRefs: renderIssueRefs(refs),
+          outputContractSection: renderContractSectionFor(generatePrContentOutputContract, currentUnitRoot),
+        });
+      },
+      // create-pr does not yet thread `settings.ai.createPr.provider` through as a plain string
+      // (see `CreateCreatePrFlowOpts.providerId` doc) — falls back to a placeholder rather than
+      // failing the sidecar write.
+      providerId: opts.providerId ?? 'unknown',
+      model: deps.model,
+    } satisfies Parameters<typeof aiUnitPrelude<CreatePrCtx>>[1];
+
     children.push(
       createLoadCreatePrContextLeaf(deps),
-      buildUnitLeaf<CreatePrCtx>({
-        name: 'build-create-pr-unit',
-        // Per-sprint unit root: `<sprintDir>/create-pr/<run-slug>/` — same layout the implement
-        // / refine / plan flows use, so the user's repo working tree never collects scratch
-        // artifacts from a `ralphctl create-pr` run.
-        parent: (ctx) => {
-          const parentDir = AbsolutePath.parse(join(String(ctx.input.sprintDir), 'create-pr'));
-          if (!parentDir.ok) throw parentDir.error;
-          return parentDir.value;
-        },
-        slug: (ctx) => slugifyBranch(ctx.headBranch ?? 'unknown-branch'),
-        write: (ctx, root) => {
-          const promptPath = AbsolutePath.parse(join(String(root), 'prompt.md'));
-          if (!promptPath.ok) throw promptPath.error;
-          return { ...ctx, currentUnitRoot: root, currentPromptFile: promptPath.value };
-        },
-      }),
-      renderPromptToFileLeaf<CreatePrCtx>(
-        { writeFile: deps.writeFile },
+      ...aiUnitPrelude<CreatePrCtx>(
         {
-          name: 'render-prompt-to-file',
-          path: (ctx) => {
-            if (ctx.currentPromptFile === undefined) throw new Error('currentPromptFile missing');
-            return ctx.currentPromptFile;
-          },
-          buildPrompt: async (ctx) => {
-            if (ctx.currentUnitRoot === undefined) throw new Error('currentUnitRoot missing');
-            if (ctx.sprint === undefined) throw new Error('ctx.sprint missing');
-            const tickets = ctx.sprint.tickets.map((t) => ({
-              title: t.title,
-              ...(t.link !== undefined ? { link: String(t.link) } : {}),
-            }));
-            const tasks = ctx.tasks ?? [];
-            const refs = normalizeRefs([
-              ...ctx.sprint.tickets.map((t) => t.externalRef ?? ''),
-              ...tasks.flatMap((t) => t.externalRefs ?? []),
-            ]);
-            return buildCreatePrPrompt(deps.templateLoader, {
-              baseBranch: ctx.input.base,
-              headBranch: ctx.headBranch ?? '',
-              ticketSummary: renderTicketSummary(tickets),
-              issueRefs: renderIssueRefs(refs),
-              outputContractSection: renderContractSectionFor(generatePrContentOutputContract, ctx.currentUnitRoot),
-            });
-          },
-          write: (ctx, path) => ({ ...ctx, currentPromptFile: path }),
-        }
-      ),
-      installSkillsLeaf<CreatePrCtx>(
-        { skillsAdapter: deps.skillsAdapter, skillSource: deps.skillSource },
-        { name: 'install-skills', flowId: 'createPr', cwdPicker: unitRootCwdPicker('install-skills') }
+          writeFile: deps.writeFile,
+          skillsAdapter: deps.skillsAdapter,
+          skillSource: deps.skillSource,
+          clock: deps.clock,
+        },
+        unitOpts
       ),
       generatePrContentLeaf({
         provider: deps.provider,
@@ -129,10 +131,7 @@ export const createCreatePrFlow = (deps: CreatePrDeps, opts: CreateCreatePrFlowO
         logger: deps.logger,
         model: deps.model,
       }),
-      uninstallSkillsLeaf<CreatePrCtx>(
-        { skillsAdapter: deps.skillsAdapter },
-        { name: 'uninstall-skills', cwdPicker: unitRootCwdPicker('uninstall-skills') }
-      )
+      ...aiUnitEpilogue<CreatePrCtx>({ skillsAdapter: deps.skillsAdapter }, unitOpts)
     );
   }
 
@@ -140,21 +139,6 @@ export const createCreatePrFlow = (deps: CreatePrDeps, opts: CreateCreatePrFlowO
 
   return sequential<CreatePrCtx>('create-pr', children);
 };
-
-/**
- * Shared `cwdPicker` for the install/uninstall-skills leaves bracketing `generate-pr-content` —
- * both must target the same sandbox (`ctx.currentUnitRoot`, populated by `build-create-pr-unit`).
- * `leafName` names the failing leaf in the thrown error so a misordered chain surfaces at the
- * leaf that actually broke, not a generic message.
- */
-const unitRootCwdPicker =
-  (leafName: string) =>
-  (ctx: CreatePrCtx): AbsolutePath => {
-    if (ctx.currentUnitRoot === undefined) {
-      throw new Error(`${leafName}: currentUnitRoot missing — build-create-pr-unit must run first`);
-    }
-    return ctx.currentUnitRoot;
-  };
 
 /**
  * Slugify a branch name so it can be used as a stable folder name. Replaces `/` and any

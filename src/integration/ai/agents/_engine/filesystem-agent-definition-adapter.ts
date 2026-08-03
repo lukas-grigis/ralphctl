@@ -93,6 +93,53 @@ const writeOne = async (
   }
 };
 
+/**
+ * Render + write every definition, tracking each successfully-written `relPath` into `tracked`.
+ * Stops at the first renderer or write failure and returns that error — whatever was already
+ * added to `tracked` before the failure stays there for the caller to persist.
+ */
+const writeAllDefinitions = async (
+  sessionDir: AbsolutePath,
+  providerId: string,
+  renderer: (definition: AgentDefinition) => Result<RenderedAgentFile, StorageError>,
+  definitions: readonly AgentDefinition[],
+  tracked: Set<string>
+): Promise<Result<void, StorageError>> => {
+  for (const definition of definitions) {
+    const rendered = renderer(definition);
+    if (!rendered.ok) return rendered;
+
+    const written = await writeOne(sessionDir, providerId, definition, rendered.value);
+    if (!written.ok) return written;
+    if (written.value !== undefined) tracked.add(written.value);
+  }
+  return Result.ok(undefined);
+};
+
+/**
+ * Best-effort, once-per-`sessionDir` attempt to append the wildcard exclude line to
+ * `<sessionDir>/.git/info/exclude`. A non-git tree, a worktree, or a write-protected exclude
+ * file all collapse to "warn and proceed" — the caller's install already succeeded regardless.
+ */
+const ensureGitExcludeOnce = async (
+  sessionDir: AbsolutePath,
+  excludeAttempted: Set<string>,
+  excludePattern: string,
+  providerId: string,
+  logger: Logger | undefined
+): Promise<void> => {
+  const key = String(sessionDir);
+  if (excludeAttempted.has(key)) return;
+  excludeAttempted.add(key);
+
+  const excluded = await ensureGitExcludeWildcard(sessionDir, excludePattern);
+  if (!excluded.ok) {
+    logger
+      ?.named('agents.exclude')
+      .warn(`${providerId}: failed to update .git/info/exclude: ${excluded.error.message}`);
+  }
+};
+
 export const createFilesystemAgentDefinitionAdapter = (
   deps: FilesystemAgentDefinitionAdapterDeps
 ): AgentDefinitionAdapter => {
@@ -121,36 +168,15 @@ export const createFilesystemAgentDefinitionAdapter = (
       pruneStale();
       const tracked = installed.get(String(sessionDir)) ?? new Set<string>();
 
-      for (const definition of definitions) {
-        const rendered = deps.renderer(definition);
-        if (!rendered.ok) {
-          if (tracked.size > 0) installed.set(String(sessionDir), tracked);
-          return rendered;
-        }
-
-        const written = await writeOne(sessionDir, deps.providerId, definition, rendered.value);
-        if (!written.ok) {
-          if (tracked.size > 0) installed.set(String(sessionDir), tracked);
-          return written;
-        }
-        if (written.value !== undefined) tracked.add(written.value);
-      }
-
+      const written = await writeAllDefinitions(sessionDir, deps.providerId, deps.renderer, definitions, tracked);
       if (tracked.size > 0) installed.set(String(sessionDir), tracked);
+      if (!written.ok) return written;
 
       // Best-effort: append a single wildcard line to <sessionDir>/.git/info/exclude so every
       // `ralphctl-*` agent definition we manage stays out of `git status`. A non-git tree, a
       // worktree, or a write-protected `.git/info/exclude` all collapse to "warn and proceed" —
       // the install itself already succeeded.
-      if (!excludeAttempted.has(String(sessionDir))) {
-        excludeAttempted.add(String(sessionDir));
-        const excluded = await ensureGitExcludeWildcard(sessionDir, excludePattern);
-        if (!excluded.ok) {
-          deps.logger
-            ?.named('agents.exclude')
-            .warn(`${deps.providerId}: failed to update .git/info/exclude: ${excluded.error.message}`);
-        }
-      }
+      await ensureGitExcludeOnce(sessionDir, excludeAttempted, excludePattern, deps.providerId, deps.logger);
 
       return Result.ok(undefined);
     },

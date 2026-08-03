@@ -17,94 +17,121 @@ import type { PromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.t
 const wrapError = (err: unknown, elementName: string): AbortError =>
   new AbortError({ elementName, reason: err instanceof Error ? err.message : 'prompt cancelled' });
 
+const runAskText = async (
+  queue: PromptQueue,
+  prompt: string,
+  opts?: { readonly initial?: string }
+): Promise<Result<string, DomainError>> => {
+  try {
+    const value = await new Promise<string>((resolve, reject) => {
+      queue.enqueue({
+        kind: 'text',
+        message: prompt,
+        ...(opts?.initial !== undefined ? { initial: opts.initial } : {}),
+        resolve,
+        reject,
+      });
+    });
+    return Result.ok(value.trim());
+  } catch (err) {
+    return Result.error(wrapError(err, 'interactive.text'));
+  }
+};
+
+const runAskTextArea = async (
+  queue: PromptQueue,
+  prompt: string,
+  opts?: { readonly initial?: string }
+): Promise<Result<string, DomainError>> => {
+  try {
+    const value = await new Promise<string>((resolve, reject) => {
+      queue.enqueue({
+        kind: 'textarea',
+        message: prompt,
+        ...(opts?.initial !== undefined ? { initial: opts.initial } : {}),
+        resolve,
+        reject,
+      });
+    });
+    // Preserve user formatting (newlines, leading indentation). The review flow embeds the
+    // typed text into a markdown round and trailing whitespace would shift the round body.
+    return Result.ok(value);
+  } catch (err) {
+    return Result.error(wrapError(err, 'interactive.textarea'));
+  }
+};
+
+const runAskChoice = async <T>(
+  queue: PromptQueue,
+  prompt: string,
+  options: ReadonlyArray<Choice<T>>
+): Promise<Result<T, DomainError>> => {
+  if (options.length === 0) {
+    return Result.error(wrapError(new Error('askChoice requires at least one option'), 'interactive.choice'));
+  }
+  try {
+    const value = await new Promise<T>((resolve, reject) => {
+      queue.enqueue({
+        kind: 'choice',
+        message: prompt,
+        options: options as ReadonlyArray<Choice<unknown>>,
+        resolve: (v: unknown) => resolve(v as T),
+        reject,
+      });
+    });
+    return Result.ok(value) as Result<T, DomainError>;
+  } catch (err) {
+    return Result.error(wrapError(err, 'interactive.choice'));
+  }
+};
+
+const runAskMultiChoice = async <T>(
+  queue: PromptQueue,
+  prompt: string,
+  options: ReadonlyArray<Choice<T>>,
+  opts?: { readonly initial?: readonly T[] }
+): Promise<Result<readonly T[], DomainError>> => {
+  if (options.length === 0) return Result.ok([]) as Result<readonly T[], DomainError>;
+  try {
+    const value = await new Promise<readonly T[]>((resolve, reject) => {
+      queue.enqueue({
+        kind: 'multi-choice',
+        message: prompt,
+        options: options as ReadonlyArray<Choice<unknown>>,
+        ...(opts?.initial !== undefined ? { initial: opts.initial as readonly unknown[] } : {}),
+        resolve: (v: readonly unknown[]) => resolve(v as readonly T[]),
+        reject,
+      });
+    });
+    return Result.ok(value) as Result<readonly T[], DomainError>;
+  } catch (err) {
+    return Result.error(wrapError(err, 'interactive.multi-choice'));
+  }
+};
+
+const runAskConfirm = async (queue: PromptQueue, input: AskConfirmInput): Promise<Result<boolean, DomainError>> => {
+  try {
+    const value = await new Promise<boolean>((resolve, reject) => {
+      queue.enqueue({ kind: 'confirm', message: input.message, resolve, reject });
+    });
+    return Result.ok(value);
+  } catch (err) {
+    return Result.error(wrapError(err, 'interactive.confirm'));
+  }
+};
+
 export const createInkInteractivePrompt = (queue: PromptQueue): InteractivePrompt => ({
-  async askText(prompt: string, opts?: { readonly initial?: string }): Promise<Result<string, DomainError>> {
-    try {
-      const value = await new Promise<string>((resolve, reject) => {
-        queue.enqueue({
-          kind: 'text',
-          message: prompt,
-          ...(opts?.initial !== undefined ? { initial: opts.initial } : {}),
-          resolve,
-          reject,
-        });
-      });
-      return Result.ok(value.trim());
-    } catch (err) {
-      return Result.error(wrapError(err, 'interactive.text'));
-    }
+  askText: (prompt, opts) => runAskText(queue, prompt, opts),
+  askTextArea: (prompt, opts) => runAskTextArea(queue, prompt, opts),
+  askChoice<T>(prompt: string, options: ReadonlyArray<Choice<T>>): Promise<Result<T, DomainError>> {
+    return runAskChoice(queue, prompt, options);
   },
-
-  async askTextArea(prompt: string, opts?: { readonly initial?: string }): Promise<Result<string, DomainError>> {
-    try {
-      const value = await new Promise<string>((resolve, reject) => {
-        queue.enqueue({
-          kind: 'textarea',
-          message: prompt,
-          ...(opts?.initial !== undefined ? { initial: opts.initial } : {}),
-          resolve,
-          reject,
-        });
-      });
-      // Preserve user formatting (newlines, leading indentation). The review flow embeds the
-      // typed text into a markdown round and trailing whitespace would shift the round body.
-      return Result.ok(value);
-    } catch (err) {
-      return Result.error(wrapError(err, 'interactive.textarea'));
-    }
-  },
-
-  async askChoice<T>(prompt: string, options: ReadonlyArray<Choice<T>>): Promise<Result<T, DomainError>> {
-    if (options.length === 0) {
-      return Result.error(wrapError(new Error('askChoice requires at least one option'), 'interactive.choice'));
-    }
-    try {
-      const value = await new Promise<T>((resolve, reject) => {
-        queue.enqueue({
-          kind: 'choice',
-          message: prompt,
-          options: options as ReadonlyArray<Choice<unknown>>,
-          resolve: (v: unknown) => resolve(v as T),
-          reject,
-        });
-      });
-      return Result.ok(value) as Result<T, DomainError>;
-    } catch (err) {
-      return Result.error(wrapError(err, 'interactive.choice'));
-    }
-  },
-
-  async askMultiChoice<T>(
+  askMultiChoice<T>(
     prompt: string,
     options: ReadonlyArray<Choice<T>>,
     opts?: { readonly initial?: readonly T[] }
   ): Promise<Result<readonly T[], DomainError>> {
-    if (options.length === 0) return Result.ok([]) as Result<readonly T[], DomainError>;
-    try {
-      const value = await new Promise<readonly T[]>((resolve, reject) => {
-        queue.enqueue({
-          kind: 'multi-choice',
-          message: prompt,
-          options: options as ReadonlyArray<Choice<unknown>>,
-          ...(opts?.initial !== undefined ? { initial: opts.initial as readonly unknown[] } : {}),
-          resolve: (v: readonly unknown[]) => resolve(v as readonly T[]),
-          reject,
-        });
-      });
-      return Result.ok(value) as Result<readonly T[], DomainError>;
-    } catch (err) {
-      return Result.error(wrapError(err, 'interactive.multi-choice'));
-    }
+    return runAskMultiChoice(queue, prompt, options, opts);
   },
-
-  async askConfirm(input: AskConfirmInput): Promise<Result<boolean, DomainError>> {
-    try {
-      const value = await new Promise<boolean>((resolve, reject) => {
-        queue.enqueue({ kind: 'confirm', message: input.message, resolve, reject });
-      });
-      return Result.ok(value);
-    } catch (err) {
-      return Result.error(wrapError(err, 'interactive.confirm'));
-    }
-  },
+  askConfirm: (input) => runAskConfirm(queue, input),
 });

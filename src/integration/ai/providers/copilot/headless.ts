@@ -6,7 +6,7 @@ import {
   createBoundedTail,
 } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
-import type { CopilotProviderDeps } from '@src/integration/ai/providers/_engine/copilot-provider-deps.ts';
+import type { HeadlessProviderDeps } from '@src/integration/ai/providers/_engine/headless-provider-deps.ts';
 import { resolveWritableRoots } from '@src/integration/ai/providers/_engine/resolve-roots.ts';
 import type { SessionPermissions } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
@@ -17,6 +17,7 @@ import { createCopilotStreamParser } from '@src/integration/ai/providers/copilot
 import type { CopilotStreamLine, CopilotUsage } from '@src/integration/ai/providers/_engine/copilot-stream.ts';
 import { type ProviderSpawn, defaultProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import { DEFAULT_RATE_LIMIT_RE } from '@src/integration/ai/providers/_engine/classify-spawn-exit.ts';
+import { publishAssistantEvent } from '@src/integration/ai/providers/_engine/stream-debug-events.ts';
 import { truncateField } from '@src/integration/ai/providers/_engine/truncate-debug-field.ts';
 import {
   createHeadlessProvider,
@@ -79,8 +80,8 @@ import {
  *   - https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference
  *   - https://docs.github.com/en/copilot/how-tos/copilot-cli/allowing-tools (tool-kind syntax)
  *
- * Composition-root inputs ({@link CopilotProviderDeps}) live in `_engine/` so the contract is
- * a port, not an implementation detail of this file.
+ * Composition-root inputs ({@link HeadlessProviderDeps}) live in `_engine/` so the contract is
+ * a port shared with the sibling adapters, not an implementation detail of this file.
  */
 
 /**
@@ -202,21 +203,8 @@ const applyLineMeta = (state: CopilotAttemptState, line: CopilotStreamLine): voi
   }
 };
 
-/** Per-line assistant debug event, driven off the parser's extracted `bodyText`. */
-const publishAssistantLine = (deps: CopilotProviderDeps, bodyText: string): void => {
-  const text = truncateField(bodyText);
-  if (text === undefined) return;
-  deps.eventBus.publish({
-    type: 'log',
-    level: 'debug',
-    message: 'copilot-provider: assistant',
-    meta: { text },
-    at: IsoTimestamp.now(),
-  });
-};
-
 /** Per-line raw-stdout debug event, published for every recognised JSON stream line. */
-const publishStdoutJsonLine = (deps: CopilotProviderDeps, line: CopilotStreamLine): void => {
+const publishStdoutJsonLine = (deps: HeadlessProviderDeps, line: CopilotStreamLine): void => {
   // Truncate the raw line like every other stream-originated debug field (see truncateField):
   // at the debug floor this fires per stdout line, so an untruncated raw envelope would bloat
   // each capped log-bus entry. The full raw stream is still captured in bodyFile when set.
@@ -232,7 +220,7 @@ const publishStdoutJsonLine = (deps: CopilotProviderDeps, line: CopilotStreamLin
 
 /** Handles one JSON stream line: meta capture, body/raw recording, then the stdout debug event. */
 const handleJsonLine = (
-  deps: CopilotProviderDeps,
+  deps: HeadlessProviderDeps,
   state: CopilotAttemptState,
   recordLine: (text: string) => void,
   line: CopilotStreamLine
@@ -240,7 +228,7 @@ const handleJsonLine = (
   applyLineMeta(state, line);
   if (line.bodyText !== undefined && line.bodyText.length > 0) {
     recordLine(line.bodyText);
-    publishAssistantLine(deps, line.bodyText);
+    publishAssistantEvent(deps.eventBus, PROVIDER_NAME, line.bodyText);
   } else if (line.sessionId === undefined && line.model === undefined && line.usage === undefined) {
     // Unrecognised JSON event — keep the raw form so `body.txt` (when bodyFile is set)
     // captures Copilot's actual stream shapes. NEVER feed this to the signal parser:
@@ -252,7 +240,7 @@ const handleJsonLine = (
 
 /** Builds the parser's per-line callback: non-JSON lines record raw, JSON lines fan out via {@link handleJsonLine}. */
 const createOnLine =
-  (deps: CopilotProviderDeps, state: CopilotAttemptState, recordLine: (text: string) => void) =>
+  (deps: HeadlessProviderDeps, state: CopilotAttemptState, recordLine: (text: string) => void) =>
   (line: CopilotStreamLine): void =>
     // Non-JSON lines (banner/status); preserve in body.txt but keep out of signal parsing.
     line.json === undefined ? recordLine(line.raw) : handleJsonLine(deps, state, recordLine, line);
@@ -263,7 +251,7 @@ const createOnLine =
  * `onLine` callback, then delegates the actual spawn/exit/retry-classification handling to
  * the shared `runProviderAttempt` scaffold.
  */
-const createCopilotAttempt = (deps: CopilotProviderDeps, spawnFn: ProviderSpawn, command: string) => {
+const createCopilotAttempt = (deps: HeadlessProviderDeps, spawnFn: ProviderSpawn, command: string) => {
   return async (attemptSession: AiSession) => {
     const built = buildCopilotArgs(attemptSession);
     if (!built.ok) return { kind: 'error' as const, error: built.error };
@@ -322,7 +310,7 @@ const createCopilotAttempt = (deps: CopilotProviderDeps, spawnFn: ProviderSpawn,
   };
 };
 
-export const createCopilotProvider = (deps: CopilotProviderDeps): HeadlessAiProvider => {
+export const createCopilotProvider = (deps: HeadlessProviderDeps): HeadlessAiProvider => {
   const spawnFn: ProviderSpawn = deps.spawn ?? defaultProviderSpawn;
   const command = deps.command ?? 'copilot';
 

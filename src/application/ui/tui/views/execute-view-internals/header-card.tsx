@@ -147,6 +147,121 @@ const ModelLines = ({
   return null;
 };
 
+/** Flow id, elapsed, task counter and the live spinner — the card's always-present first row. */
+const SummaryRow = ({
+  descriptor,
+  isRunning,
+  tasksDone,
+  tasksTotal,
+}: {
+  readonly descriptor: SessionDescriptor;
+  readonly isRunning: boolean;
+  readonly tasksDone: number;
+  readonly tasksTotal: number;
+}): React.JSX.Element => (
+  <Box>
+    <Text dimColor>flow </Text>
+    <Text>{descriptor.flowId}</Text>
+    <Text dimColor> {glyphs.bullet} elapsed </Text>
+    <ElapsedLabel startedAt={descriptor.startedAt} finishedAt={descriptor.finishedAt} isRunning={isRunning} />
+    {tasksTotal > 0 && (
+      <>
+        <Text dimColor> {glyphs.bullet} tasks </Text>
+        {tasksDone === tasksTotal ? (
+          <Text color={inkColors.success}>
+            {String(tasksDone)}/{String(tasksTotal)}
+          </Text>
+        ) : (
+          <Text>
+            {String(tasksDone)}/{String(tasksTotal)}
+          </Text>
+        )}
+      </>
+    )}
+    {isRunning && (
+      <Box marginLeft={spacing.indent}>
+        <Spinner active={isRunning} color={inkColors.info} label="live" />
+      </Box>
+    )}
+  </Box>
+);
+
+/**
+ * `attempt A/X · round R/maxTurns` chip for the focus row — see the module docstring for why the
+ * monotonic round is folded into per-attempt coordinates first. Self-gates on the task having
+ * entered a gen-eval round.
+ */
+const RoundCounter = ({ task }: { readonly task: TaskBucket }): React.JSX.Element | null => {
+  if (task.genEvalRound <= 0) return null;
+  const maxTurns = task.genEvalMaxRounds;
+  const maxAttempts = task.genEvalMaxAttempts;
+  const coords = resolveAttemptCoords(task);
+  // No attempt-relative coordinates — no live tracker data AND no `maxTurns` cap to fold the
+  // monotonic round against — so fall back to the raw round (no `/M`).
+  if (coords === undefined) {
+    return (
+      <>
+        <Text dimColor> {glyphs.bullet} round </Text>
+        <Text color={inkColors.info}>{String(task.genEvalRound)}</Text>
+      </>
+    );
+  }
+  const { attemptN, roundInAttempt } = coords;
+  const showAttempt = attemptN > 1 || (maxAttempts !== undefined && maxAttempts > 1);
+  return (
+    <>
+      {showAttempt && (
+        <>
+          <Text dimColor> {glyphs.bullet} attempt </Text>
+          <Text color={inkColors.info}>
+            {String(attemptN)}
+            {maxAttempts !== undefined ? `/${String(maxAttempts)}` : ''}
+          </Text>
+        </>
+      )}
+      <Text dimColor> {glyphs.bullet} round </Text>
+      <Text color={inkColors.info}>
+        {String(roundInAttempt)}
+        {maxTurns !== undefined ? `/${String(maxTurns)}` : ''}
+      </Text>
+    </>
+  );
+};
+
+/** Active-task focus row — task index, name, current sub-step, round counter. Self-gates. */
+const ActiveTaskRow = ({
+  currentTask,
+  currentTaskIdx,
+  currentTaskName,
+  currentSubStep,
+  tasksTotal,
+}: {
+  readonly currentTask: TaskBucket | undefined;
+  readonly currentTaskIdx: number;
+  readonly currentTaskName: string | undefined;
+  readonly currentSubStep: string | undefined;
+  readonly tasksTotal: number;
+}): React.JSX.Element | null => {
+  if (currentTask === undefined || currentTaskName === undefined) return null;
+  return (
+    <Box>
+      <Text dimColor>{glyphs.activityArrow} task </Text>
+      <Text color={inkColors.info}>
+        {String(currentTaskIdx + 1)}/{String(tasksTotal)}
+      </Text>
+      <Text dimColor> {glyphs.bullet} </Text>
+      <Text bold>{currentTaskName}</Text>
+      {currentSubStep !== undefined && (
+        <>
+          <Text dimColor> {glyphs.bullet} step </Text>
+          <Text color={inkColors.highlight}>{currentSubStep}</Text>
+        </>
+      )}
+      <RoundCounter task={currentTask} />
+    </Box>
+  );
+};
+
 const HeaderCardImpl = ({
   descriptor,
   isRunning,
@@ -156,99 +271,28 @@ const HeaderCardImpl = ({
   currentTaskIdx,
   currentTaskName,
   currentSubStep,
-}: HeaderCardProps): React.JSX.Element => {
-  return (
-    <Card title={descriptor.title} tone={isRunning ? 'info' : descriptor.status === 'completed' ? 'success' : 'rule'}>
-      <Box flexDirection="column">
-        <Box>
-          <Text dimColor>flow </Text>
-          <Text>{descriptor.flowId}</Text>
-          <Text dimColor> {glyphs.bullet} elapsed </Text>
-          <ElapsedLabel startedAt={descriptor.startedAt} finishedAt={descriptor.finishedAt} isRunning={isRunning} />
-          {tasksTotal > 0 && (
-            <>
-              <Text dimColor> {glyphs.bullet} tasks </Text>
-              {tasksDone === tasksTotal && tasksTotal > 0 ? (
-                <Text color={inkColors.success}>
-                  {String(tasksDone)}/{String(tasksTotal)}
-                </Text>
-              ) : (
-                <Text>
-                  {String(tasksDone)}/{String(tasksTotal)}
-                </Text>
-              )}
-            </>
-          )}
-          {isRunning && (
-            <Box marginLeft={spacing.indent}>
-              <Spinner active={isRunning} color={inkColors.info} label="live" />
-            </Box>
-          )}
-        </Box>
-        <ModelLines
-          generatorModel={descriptor.generatorModel}
-          evaluatorModel={descriptor.evaluatorModel}
-          generatorProvider={descriptor.generatorProvider}
-          evaluatorProvider={descriptor.evaluatorProvider}
-          generatorEffort={descriptor.generatorEffort}
-          evaluatorEffort={descriptor.evaluatorEffort}
-        />
-        {currentTask !== undefined && currentTaskName !== undefined && (
-          <Box>
-            <Text dimColor>{glyphs.activityArrow} task </Text>
-            <Text color={inkColors.info}>
-              {String(currentTaskIdx + 1)}/{String(tasksTotal)}
-            </Text>
-            <Text dimColor> {glyphs.bullet} </Text>
-            <Text bold>{currentTaskName}</Text>
-            {currentSubStep !== undefined && (
-              <>
-                <Text dimColor> {glyphs.bullet} step </Text>
-                <Text color={inkColors.highlight}>{currentSubStep}</Text>
-              </>
-            )}
-            {currentTask.genEvalRound > 0 &&
-              (() => {
-                const maxTurns = currentTask.genEvalMaxRounds;
-                const maxAttempts = currentTask.genEvalMaxAttempts;
-                const coords = resolveAttemptCoords(currentTask);
-                // No attempt-relative coordinates — no live tracker data AND no `maxTurns` cap to
-                // fold the monotonic round against — so fall back to the raw round (no `/M`).
-                if (coords === undefined) {
-                  return (
-                    <>
-                      <Text dimColor> {glyphs.bullet} round </Text>
-                      <Text color={inkColors.info}>{String(currentTask.genEvalRound)}</Text>
-                    </>
-                  );
-                }
-                const { attemptN, roundInAttempt } = coords;
-                const showAttempt = attemptN > 1 || (maxAttempts !== undefined && maxAttempts > 1);
-                return (
-                  <>
-                    {showAttempt && (
-                      <>
-                        <Text dimColor> {glyphs.bullet} attempt </Text>
-                        <Text color={inkColors.info}>
-                          {String(attemptN)}
-                          {maxAttempts !== undefined ? `/${String(maxAttempts)}` : ''}
-                        </Text>
-                      </>
-                    )}
-                    <Text dimColor> {glyphs.bullet} round </Text>
-                    <Text color={inkColors.info}>
-                      {String(roundInAttempt)}
-                      {maxTurns !== undefined ? `/${String(maxTurns)}` : ''}
-                    </Text>
-                  </>
-                );
-              })()}
-          </Box>
-        )}
-      </Box>
-    </Card>
-  );
-};
+}: HeaderCardProps): React.JSX.Element => (
+  <Card title={descriptor.title} tone={isRunning ? 'info' : descriptor.status === 'completed' ? 'success' : 'rule'}>
+    <Box flexDirection="column">
+      <SummaryRow descriptor={descriptor} isRunning={isRunning} tasksDone={tasksDone} tasksTotal={tasksTotal} />
+      <ModelLines
+        generatorModel={descriptor.generatorModel}
+        evaluatorModel={descriptor.evaluatorModel}
+        generatorProvider={descriptor.generatorProvider}
+        evaluatorProvider={descriptor.evaluatorProvider}
+        generatorEffort={descriptor.generatorEffort}
+        evaluatorEffort={descriptor.evaluatorEffort}
+      />
+      <ActiveTaskRow
+        currentTask={currentTask}
+        currentTaskIdx={currentTaskIdx}
+        currentTaskName={currentTaskName}
+        currentSubStep={currentSubStep}
+        tasksTotal={tasksTotal}
+      />
+    </Box>
+  </Card>
+);
 
 // Memoized: `elapsed` moved into the self-ticking `<ElapsedLabel>` leaf above, so this card's
 // own props are now stable across the 1 Hz clock tick — memo lets React skip re-rendering the

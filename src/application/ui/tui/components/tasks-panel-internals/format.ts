@@ -24,16 +24,6 @@ export const SIGNAL_LABEL_WIDTH = 16;
 export const padLabel = (label: string): string => label.padEnd(SIGNAL_LABEL_WIDTH, ' ');
 
 /**
- * Disclosure markers for collapsible commit-message rows. Glyphs chosen for clear visual
- * affinity (right-pointing → collapsed, down-pointing → expanded) and Unicode coverage in the
- * vt220 / Powerline glyph families every modern terminal emulator ships.
- */
-export const COLLAPSED_DISCLOSURE = '▸';
-export const EXPANDED_DISCLOSURE = '▾';
-/** Cursor caret for the focused signal row. Same vocabulary as the global action cursor. */
-export const FOCUS_CURSOR = '›';
-
-/**
  * Render the parenthetical detail block of a `context-compacted` marker. Returns `undefined`
  * when neither token counts nor preserved topics were reported by the provider — the marker
  * then degrades gracefully to the bare "context compacted" boundary.

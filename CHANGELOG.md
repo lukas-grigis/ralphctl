@@ -7,6 +7,35 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`create-pr`'s AI-authored PR content now leaves the same `meta.json` attribution sidecar every other
+  AI-authoring flow (`refine` / `plan` / `ideate` / `readiness`) already writes** — a provider/model/effort
+  record next to the round's `prompt.md`, so a `create-pr` run is no longer the one flow with no
+  attributable trace of which provider and model authored the PR content.
+
+### Fixed
+
+- **Interactive AI sessions now honor the configured reasoning effort.** `refine`, `plan`, `ideate`, and
+  the learning-distill step all hand the terminal over to an interactive AI session, and that path
+  silently dropped `effort` for all three provider CLIs — a `high` or `xhigh` setting had no effect once
+  the session started. Effort now reaches Claude Code, GitHub Copilot, and Codex alike.
+- **`sprint close` from the CLI now produces the same on-disk state as the TUI.** The CLI command
+  previously transitioned the sprint directly, skipping the memory-mirror refresh, the opt-in
+  learning-distill step, and the `progress.md` closed-separator line the TUI's close-sprint flow runs —
+  closing a sprint from the CLI silently forfeited all three.
+- **A gen-eval attempt's action-kind tally no longer leaks into the next attempt.** The per-attempt context
+  reset is now type-enforced, so the entropy plateau check always starts from a clean count on a fresh
+  attempt instead of occasionally inheriting the previous attempt's tally.
+
+### Changed
+
+- Large internal refactor with no user-facing behavior change: ESLint's layering fences now compose
+  instead of silently overriding one another, the three interactive provider adapters share one session
+  engine and the three headless adapters share one stream-debug emitter, and the CLI's error reporting,
+  the task-scheduling rule tables, the TUI's view routing and provider dispatch, and the windowing logic
+  behind every scrollable list were each consolidated onto a single shared implementation.
+
 ## [0.18.0] - 2026-08-02
 
 ### Fixed

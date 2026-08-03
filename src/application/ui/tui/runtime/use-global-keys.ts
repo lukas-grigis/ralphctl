@@ -9,6 +9,7 @@ import type { MutableRefObject } from 'react';
 import { useEffect, useMemo, useRef } from 'react';
 import { useApp, useInput, type Key } from 'ink';
 import { useRouter, type RouterApi, type ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
+import type { ViewId } from '@src/application/ui/tui/views/view-registry.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
@@ -197,7 +198,7 @@ const handleYankCopy = (
  * on is a no-op — otherwise the breadcrumb stack would balloon as the user mashes the same key.
  */
 const handleViewShortcut = (input: string, router: RouterApi, ui: UiStateApi): boolean => {
-  const navigate = (id: string): void => {
+  const navigate = (id: ViewId): void => {
     if (router.current.id === id) return;
     router.push({ id });
   };

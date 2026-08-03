@@ -168,10 +168,11 @@ export interface AppDeps {
    * Result is cached per `wire()` session — it won't live-track models installed mid-session; the
    * user re-enters the surface to refresh. The probe registry itself is a `wire()` internal.
    *
-   * Optional so test stubs (`{} as unknown as AppDeps`) can omit it — `wire()` always assigns it,
-   * and the picker / settings-view call sites guard `undefined` and fall back to the full catalog.
+   * `wire()` always assigns this; it is not optional. Test stubs that build an `AppDeps` by hand
+   * (`{} as unknown as AppDeps`) suppress the missing-field error via the `unknown` cast, so
+   * dropping the `?` here does not force every stub to populate it.
    */
-  readonly availableModelsFor?: (provider: AiProvider) => Promise<readonly string[]>;
+  readonly availableModelsFor: (provider: AiProvider) => Promise<readonly string[]>;
   /**
    * Application-wide event bus. Producers (chain runner, use cases, adapters)
    * publish {@link AppEvent}s; UI surfaces and observability adapters subscribe.

@@ -69,6 +69,63 @@ const tryRmdirIfEmpty = async (path: string): Promise<void> => {
   }
 };
 
+/**
+ * Write every skill not already present as a project copy, tracking each written name into
+ * `tracked`. Stops at the first write failure and returns that error — whatever was already
+ * added to `tracked` before the failure stays there for the caller to persist.
+ */
+const writeAllSkills = async (
+  providerId: string,
+  skillsDir: string,
+  skills: readonly Skill[],
+  tracked: Set<string>
+): Promise<Result<void, StorageError>> => {
+  for (const skill of skills) {
+    const dst = join(skillsDir, skill.name);
+    if (existsSync(dst)) continue; // project copy wins
+
+    try {
+      await mkdir(dst, { recursive: true });
+      await writeFile(join(dst, 'SKILL.md'), renderSkill(skill), 'utf-8');
+      tracked.add(skill.name);
+    } catch (cause) {
+      return Result.error(
+        new StorageError({
+          subCode: 'io',
+          message: `${providerId}: failed to install skill ${skill.name}: ${cause instanceof Error ? cause.message : String(cause)}`,
+          path: dst,
+          cause,
+        })
+      );
+    }
+  }
+  return Result.ok(undefined);
+};
+
+/**
+ * Best-effort, once-per-`sessionDir` attempt to append the wildcard exclude line to
+ * `<sessionDir>/.git/info/exclude`. A non-git tree, a worktree, or a write-protected exclude
+ * file all collapse to "warn and proceed" — the caller's install already succeeded regardless.
+ */
+const ensureGitExcludeOnce = async (
+  sessionDir: AbsolutePath,
+  excludeAttempted: Set<string>,
+  excludePattern: string,
+  providerId: string,
+  logger: Logger | undefined
+): Promise<void> => {
+  const key = String(sessionDir);
+  if (excludeAttempted.has(key)) return;
+  excludeAttempted.add(key);
+
+  const excluded = await ensureGitExcludeWildcard(sessionDir, excludePattern);
+  if (!excluded.ok) {
+    logger
+      ?.named('skills.exclude')
+      .warn(`${providerId}: failed to update .git/info/exclude: ${excluded.error.message}`);
+  }
+};
+
 export const createFilesystemSkillsAdapter = (deps: FilesystemSkillsAdapterDeps): SkillsAdapter => {
   // Per-sessionDir manifest of skill names this adapter created at install time. Cleared on
   // a successful uninstall. Not promised across crashed runs — the cleanup is best-effort.
@@ -98,44 +155,15 @@ export const createFilesystemSkillsAdapter = (deps: FilesystemSkillsAdapterDeps)
       const skillsDir = join(String(sessionDir), skillsSubdir);
       const tracked = installed.get(String(sessionDir)) ?? new Set<string>();
 
-      for (const skill of skills) {
-        const dst = join(skillsDir, skill.name);
-        if (existsSync(dst)) continue; // project copy wins
-
-        try {
-          await mkdir(dst, { recursive: true });
-          await writeFile(join(dst, 'SKILL.md'), renderSkill(skill), 'utf-8');
-          tracked.add(skill.name);
-        } catch (cause) {
-          // Persist anything we did install before failing so a follow-up uninstall still
-          // cleans them up.
-          if (tracked.size > 0) installed.set(String(sessionDir), tracked);
-          return Result.error(
-            new StorageError({
-              subCode: 'io',
-              message: `${deps.providerId}: failed to install skill ${skill.name}: ${cause instanceof Error ? cause.message : String(cause)}`,
-              path: dst,
-              cause,
-            })
-          );
-        }
-      }
-
+      const written = await writeAllSkills(deps.providerId, skillsDir, skills, tracked);
       if (tracked.size > 0) installed.set(String(sessionDir), tracked);
+      if (!written.ok) return written;
 
       // Best-effort: append a single wildcard line to <sessionDir>/.git/info/exclude so
       // every `ralphctl-*` skill we manage stays out of `git status`. A non-git tree, a
       // worktree, or a write-protected `.git/info/exclude` all collapse to "warn and
       // proceed" — the skill install itself already succeeded.
-      if (!excludeAttempted.has(String(sessionDir))) {
-        excludeAttempted.add(String(sessionDir));
-        const excluded = await ensureGitExcludeWildcard(sessionDir, excludePattern);
-        if (!excluded.ok) {
-          deps.logger
-            ?.named('skills.exclude')
-            .warn(`${deps.providerId}: failed to update .git/info/exclude: ${excluded.error.message}`);
-        }
-      }
+      await ensureGitExcludeOnce(sessionDir, excludeAttempted, excludePattern, deps.providerId, deps.logger);
 
       return Result.ok(undefined);
     },

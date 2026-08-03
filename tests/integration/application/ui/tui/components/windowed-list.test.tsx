@@ -1,7 +1,9 @@
 /**
  * Windowed-list primitive — pure `computeListWindow` math plus the id-cursor `useListWindow` hook.
  *
- * The pure cases assert the window slice / overflow flags / clamp behaviour for a flat list. The
+ * The pure cases assert the window slice / hidden-item counts / clamp behaviour for a flat list,
+ * including the anchored-card conventions the Tasks panel relies on (a non-positive row budget
+ * means "no cap", and the window stays a full page pinned to the end edge). The
  * hook cases mount a tiny harness component (ink-testing-library) and drive keystrokes to verify:
  *   - the focused row stays inside the window as the cursor crosses the bottom edge (window shifts);
  *   - Home/End jump to first / last;
@@ -21,27 +23,27 @@ import {
 import { DOWN, END, HOME, tick } from '@tests/integration/application/ui/tui/_keys.ts';
 
 describe('computeListWindow', () => {
-  it('returns the full list with no overflow when everything fits', () => {
-    expect(computeListWindow(3, 0, 5)).toEqual({ start: 0, end: 3, hasAbove: false, hasBelow: false });
+  it('returns the full list with nothing hidden when everything fits', () => {
+    expect(computeListWindow(3, 0, 5)).toEqual({ start: 0, end: 3, hiddenAbove: 0, hiddenBelow: 0 });
   });
 
   it('returns the full list when visibleRows equals total', () => {
-    expect(computeListWindow(5, 4, 5)).toEqual({ start: 0, end: 5, hasAbove: false, hasBelow: false });
+    expect(computeListWindow(5, 4, 5)).toEqual({ start: 0, end: 5, hiddenAbove: 0, hiddenBelow: 0 });
   });
 
   it('centres the focused index with one half-window of context on either side', () => {
     // 20 items, window of 5, focus at 10 → half = 2 → start 8, end 13.
-    expect(computeListWindow(20, 10, 5)).toEqual({ start: 8, end: 13, hasAbove: true, hasBelow: true });
+    expect(computeListWindow(20, 10, 5)).toEqual({ start: 8, end: 13, hiddenAbove: 8, hiddenBelow: 7 });
   });
 
-  it('clamps at the top — focus 0 pins the window to the start, no overflow above', () => {
+  it('clamps at the top — focus 0 pins the window to the start, nothing hidden above', () => {
     const w = computeListWindow(20, 0, 5);
-    expect(w).toEqual({ start: 0, end: 5, hasAbove: false, hasBelow: true });
+    expect(w).toEqual({ start: 0, end: 5, hiddenAbove: 0, hiddenBelow: 15 });
   });
 
-  it('clamps at the bottom — focus last pins the window to the end, no overflow below', () => {
+  it('clamps at the bottom — focus last pins the window to the end, nothing hidden below', () => {
     const w = computeListWindow(20, 19, 5);
-    expect(w).toEqual({ start: 15, end: 20, hasAbove: true, hasBelow: false });
+    expect(w).toEqual({ start: 15, end: 20, hiddenAbove: 15, hiddenBelow: 0 });
   });
 
   it('keeps the focused index inside [start, end) at every position', () => {
@@ -52,18 +54,30 @@ describe('computeListWindow', () => {
     }
   });
 
+  it('keeps a full page and a consistent hidden tally at every anchor position', () => {
+    const total = 25;
+    const cap = 6;
+    for (let anchor = 0; anchor < total; anchor++) {
+      const w = computeListWindow(total, anchor, cap);
+      expect(w.end - w.start).toBe(cap);
+      expect(w.hiddenAbove).toBe(w.start);
+      expect(w.hiddenAbove + (w.end - w.start) + w.hiddenBelow).toBe(total);
+    }
+  });
+
   it('clamps an out-of-range focus into the list before windowing', () => {
-    expect(computeListWindow(10, 999, 4)).toEqual({ start: 6, end: 10, hasAbove: true, hasBelow: false });
-    expect(computeListWindow(10, -5, 4)).toEqual({ start: 0, end: 4, hasAbove: false, hasBelow: true });
+    expect(computeListWindow(10, 999, 4)).toEqual({ start: 6, end: 10, hiddenAbove: 6, hiddenBelow: 0 });
+    expect(computeListWindow(10, -5, 4)).toEqual({ start: 0, end: 4, hiddenAbove: 0, hiddenBelow: 6 });
   });
 
   it('handles an empty list', () => {
-    expect(computeListWindow(0, 0, 5)).toEqual({ start: 0, end: 0, hasAbove: false, hasBelow: false });
+    expect(computeListWindow(0, 0, 5)).toEqual({ start: 0, end: 0, hiddenAbove: 0, hiddenBelow: 0 });
+    expect(computeListWindow(0, -1, 5)).toEqual({ start: 0, end: 0, hiddenAbove: 0, hiddenBelow: 0 });
   });
 
-  it('handles a non-positive visibleRows defensively', () => {
-    expect(computeListWindow(10, 3, 0)).toEqual({ start: 0, end: 0, hasAbove: false, hasBelow: false });
-    expect(computeListWindow(10, 3, -2)).toEqual({ start: 0, end: 0, hasAbove: false, hasBelow: false });
+  it('treats a non-positive visibleRows as "no cap supplied" and returns the full range', () => {
+    expect(computeListWindow(10, 3, 0)).toEqual({ start: 0, end: 10, hiddenAbove: 0, hiddenBelow: 0 });
+    expect(computeListWindow(10, 3, -2)).toEqual({ start: 0, end: 10, hiddenAbove: 0, hiddenBelow: 0 });
   });
 });
 
@@ -122,7 +136,7 @@ describe('useListWindow', () => {
     expect(latest?.focusedIndex).toBe(7);
     expect(latest?.focusedIndex).toBeGreaterThanOrEqual(latest?.window.start ?? -1);
     expect(latest?.focusedIndex).toBeLessThan(latest?.window.end ?? -1);
-    expect(latest?.window.hasAbove).toBe(true);
+    expect(latest?.window.hiddenAbove).toBeGreaterThan(0);
     r.unmount();
   });
 

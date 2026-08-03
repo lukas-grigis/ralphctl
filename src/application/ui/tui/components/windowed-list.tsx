@@ -1,11 +1,13 @@
 /**
  * Windowed-list primitive — the single mechanism for long, scrollable, homogeneous item lists
- * in the TUI. Unifies the three previously-divergent approaches (`pick-sprint-internals/window.ts`
- * + `row-views.tsx`, `card-list.tsx`, `list-view.tsx`) into one pure window calculator, one hook,
- * and a pair of thin render wrappers.
+ * in the TUI. One pure window calculator, one cursor-owning hook, and a pair of thin render
+ * wrappers replace what used to be three divergent implementations (the sprint picker's
+ * `computeWindow`, the Tasks-panel's anchored `computeAnchoredWindow`, and this file).
  *
  *   - {@link computeListWindow} — pure cursor-centred slice math (no header / create-row special
- *     cases — mirror of `pick-sprint-internals/window.ts` for a flat item list).
+ *     cases). Every caller that needs a "keep this index visible, cap the rendered count" window
+ *     — a flat item list, a mixed row list windowed by absolute index, or a card list anchored on
+ *     the active card — goes through this one function.
  *   - {@link useListWindow} — owns cursor + keyboard. CRITICAL: the cursor is stored as an *id*
  *     string, not an index, so a reorder or eviction of items keeps focus on the same logical
  *     item (or snaps to the nearest survivor) rather than silently jumping to whatever now sits
@@ -18,12 +20,17 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { glyphs, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 
-/** Visible slice of a list. `start` inclusive, `end` exclusive. */
+/**
+ * Visible slice of a list. `start` inclusive, `end` exclusive. `hiddenAbove` / `hiddenBelow` are
+ * the counts of items clipped off each edge — zero when the whole list fits in the window — so a
+ * caller can feed them straight into {@link OverflowRow} without re-deriving
+ * `items.length - window.end` at every call site.
+ */
 export interface ListWindow {
   readonly start: number;
   readonly end: number;
-  readonly hasAbove: boolean;
-  readonly hasBelow: boolean;
+  readonly hiddenAbove: number;
+  readonly hiddenBelow: number;
 }
 
 const clamp = (n: number, min: number, max: number): number => Math.max(min, Math.min(max, n));
@@ -31,14 +38,19 @@ const clamp = (n: number, min: number, max: number): number => Math.max(min, Mat
 /**
  * Compute a cursor-centred slice of a flat, homogeneous item list. Keeps `focusedIndex` inside
  * `[start, end)` with roughly one window-half of context on either side, clamped to list bounds.
- * Returns the full list (no overflow flags) when everything fits within `visibleRows`.
+ * Returns the full list (no hidden items) when everything fits within `visibleRows`.
  *
- * Defensive on bad inputs: `visibleRows <= 0` and an empty list both yield an empty window so a
- * caller can render nothing without a branch. Pure — safe to memoise on its three inputs.
+ * Defensive on bad inputs: an empty list (`totalItems <= 0`) yields an empty window. A
+ * non-positive `visibleRows` means "no cap supplied" (mirrors the anchored card-window
+ * convention a `maxTasks?: number` caller relies on when the budget is absent) and returns the
+ * full range rather than an empty one, so an unbounded caller is a transparent no-op. Pure —
+ * safe to memoise on its three inputs.
  */
 export const computeListWindow = (totalItems: number, focusedIndex: number, visibleRows: number): ListWindow => {
-  if (totalItems <= 0 || visibleRows <= 0) return { start: 0, end: 0, hasAbove: false, hasBelow: false };
-  if (totalItems <= visibleRows) return { start: 0, end: totalItems, hasAbove: false, hasBelow: false };
+  if (totalItems <= 0) return { start: 0, end: 0, hiddenAbove: 0, hiddenBelow: 0 };
+  if (visibleRows <= 0 || totalItems <= visibleRows) {
+    return { start: 0, end: totalItems, hiddenAbove: 0, hiddenBelow: 0 };
+  }
 
   const focus = clamp(focusedIndex, 0, totalItems - 1);
   const half = Math.floor(visibleRows / 2);
@@ -48,7 +60,7 @@ export const computeListWindow = (totalItems: number, focusedIndex: number, visi
     end = totalItems;
     start = Math.max(0, end - visibleRows);
   }
-  return { start, end, hasAbove: start > 0, hasBelow: end < totalItems };
+  return { start, end, hiddenAbove: start, hiddenBelow: totalItems - end };
 };
 
 export interface UseListWindowOptions<T> {
@@ -168,19 +180,24 @@ export function useListWindow<T>({
 export interface OverflowRowProps {
   readonly direction: 'above' | 'below';
   readonly count: number;
+  /**
+   * Trailing word(s) after the count — defaults to `more`. Override for a caller with its own
+   * copy (e.g. the Tasks panel's anchored card window says `more above` / `more below`).
+   */
+  readonly label?: string;
 }
 
 /**
  * Dim "N more" overflow cue headed by the `moreAbove` / `moreBelow` glyph token. Renders nothing
  * when `count <= 0` so callers can mount it unconditionally.
  */
-export const OverflowRow = ({ direction, count }: OverflowRowProps): React.JSX.Element | null => {
+export const OverflowRow = ({ direction, count, label = 'more' }: OverflowRowProps): React.JSX.Element | null => {
   if (count <= 0) return null;
   const glyph = direction === 'above' ? glyphs.moreAbove : glyphs.moreBelow;
   return (
     <Box paddingX={spacing.indent}>
       <Text dimColor>
-        {glyph} {String(count)} more
+        {glyph} {String(count)} {label}
       </Text>
     </Box>
   );
@@ -236,7 +253,7 @@ export function WindowedList<T>({
 
   return (
     <Box flexDirection="column">
-      <OverflowRow direction="above" count={window.start} />
+      <OverflowRow direction="above" count={window.hiddenAbove} />
       {visibleItems.map((item, localIdx) => {
         const absoluteIndex = window.start + localIdx;
         return (
@@ -245,7 +262,7 @@ export function WindowedList<T>({
           </Box>
         );
       })}
-      <OverflowRow direction="below" count={items.length - window.end} />
+      <OverflowRow direction="below" count={window.hiddenBelow} />
     </Box>
   );
 }

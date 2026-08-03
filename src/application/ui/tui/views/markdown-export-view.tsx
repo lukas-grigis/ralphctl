@@ -15,12 +15,9 @@ import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import {
-  type MarkdownExportOutcome,
   type UseMarkdownExportConfig,
   useMarkdownExport,
 } from '@src/application/ui/tui/runtime/use-markdown-export.ts';
-
-export type { MarkdownExportOutcome };
 
 export interface MarkdownExportViewProps extends UseMarkdownExportConfig {
   readonly title: string;

@@ -1,8 +1,6 @@
-import { join } from 'node:path';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
 import { loadAndAssertSprintSubChain } from '@src/application/flows/_shared/sprint/load-and-assert-sprint.ts';
@@ -11,8 +9,6 @@ import { loadSprintExecutionLeaf } from '@src/application/flows/_shared/sprint/l
 import { loadTasksLeaf } from '@src/application/flows/_shared/task/load.ts';
 import { saveSprintLeaf } from '@src/application/flows/_shared/sprint/save.ts';
 import { saveTasksLeaf } from '@src/application/flows/_shared/task/save.ts';
-import { buildUnitLeaf } from '@src/application/flows/_shared/build-unit.ts';
-import { renderPromptToFileLeaf } from '@src/application/flows/_shared/render-prompt-to-file.ts';
 import { buildPlanPrompt } from '@src/integration/ai/prompts/plan/definition.ts';
 import { readCappedSprintProgress } from '@src/application/flows/_shared/progress/read-sprint-progress.ts';
 import { composePriorLearnings } from '@src/application/flows/_shared/memory/compose-prior-learnings.ts';
@@ -22,9 +18,8 @@ import { planOutputContract } from '@src/application/flows/plan/leaves/plan.cont
 import type { PlanCtx } from '@src/application/flows/plan/ctx.ts';
 import type { PlanDeps } from '@src/application/flows/plan/deps.ts';
 import { callPlannerInteractiveLeaf } from '@src/application/flows/plan/leaves/call-planner-interactive.ts';
-import { installSkillsLeaf } from '@src/application/flows/_shared/skills/install-skills.ts';
-import { uninstallSkillsLeaf } from '@src/application/flows/_shared/skills/uninstall-skills.ts';
-import { stampSessionMetaLeaf } from '@src/application/flows/_shared/stamp-session-meta.ts';
+import { aiUnitEpilogue, aiUnitPrelude } from '@src/application/flows/_shared/ai-unit-segment.ts';
+import { assertCtxField } from '@src/application/flows/_shared/_engine/assert-ctx-field.ts';
 
 export interface CreatePlanFlowOpts {
   readonly sprintId: SprintId;
@@ -75,7 +70,10 @@ export interface CreatePlanFlowOpts {
  *     load-tasks,                       // existing tasks (replan support)
  *     build-plan-unit,                  // mkdir <sprintDir>/plan/<run-slug>/
  *     render-prompt-to-file,            // <unit-root>/prompt.md
+ *     install-skills,                   // copy the plan flow's skills into the unit root
+ *     stamp-meta-plan,                  // <unit-root>/meta.json — provider/model attribution
  *     call-planner-interactive,         // hand TTY → reads <unit-root>/plan.json → builds Tasks → planSprint(draft → planned)
+ *     uninstall-skills,                 // remove them again
  *     save-tasks,
  *     save-sprint,                      // sprint.status = 'planned'
  *   ])
@@ -87,106 +85,53 @@ export interface CreatePlanFlowOpts {
 export const createPlanFlow = (deps: PlanDeps, opts: CreatePlanFlowOpts): Element<PlanCtx> => {
   const slug = opts.runSlug ?? `session-${String(Date.now())}`;
 
+  const unitOpts = {
+    unitName: 'plan',
+    flowId: 'plan' as const,
+    parent: () => opts.planRoot,
+    slug: () => slug,
+    buildPrompt: async (ctx: PlanCtx) => {
+      const renderLeafName = 'render-prompt-to-file';
+      const renderState = 'pre-render-prompt';
+      const sprint = assertCtxField(ctx, 'sprint', renderLeafName, renderState);
+      const project = assertCtxField(ctx, 'project', renderLeafName, renderState);
+      const currentUnitRoot = assertCtxField(ctx, 'currentUnitRoot', renderLeafName, renderState);
+      const priorProgress = await readCappedSprintProgress(opts.planRoot, opts.model);
+      // Cross-sprint procedural memory (read side). The plan session mounts every project repo
+      // as an equal `--add-dir` source with no primary repo, so relevance is weighted by
+      // recency only (empty context) rather than biasing toward any single repo. A missing
+      // ledger resolves to an empty list, so the block degrades cleanly.
+      const priorLearnings =
+        opts.memoryRoot === undefined
+          ? ''
+          : composePriorLearnings(await loadCandidateLearnings(opts.memoryRoot, opts.projectId, deps.logger), {});
+      return buildPlanPrompt(deps.templateLoader, {
+        sprint,
+        project,
+        outputContractSection: renderContractSectionFor(planOutputContract, currentUnitRoot),
+        priorProgress,
+        priorLearnings,
+        ...(ctx.tasks !== undefined && ctx.tasks.length > 0 ? { existingTasks: ctx.tasks } : {}),
+      });
+    },
+    providerId: opts.providerId,
+    model: opts.model,
+    ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
+  } satisfies Parameters<typeof aiUnitPrelude<PlanCtx>>[1];
+
   return sequential<PlanCtx>('plan', [
     loadAndAssertSprintSubChain<PlanCtx>({ sprintRepo: deps.sprintRepo }, ['draft']),
     loadProjectLeaf<PlanCtx>({ projectRepo: deps.projectRepo }),
     loadSprintExecutionLeaf<PlanCtx>({ sprintExecutionRepo: deps.sprintExecutionRepo }),
     loadTasksLeaf<PlanCtx>({ taskRepo: deps.taskRepo }),
-    buildUnitLeaf<PlanCtx>({
-      name: 'build-plan-unit',
-      parent: () => opts.planRoot,
-      slug: () => slug,
-      write: (ctx, root) => {
-        const promptPath = AbsolutePath.parse(join(String(root), 'prompt.md'));
-        // audit-[09]: the AI writes `signals.json` directly under the unit root; the leaf
-        // validates that file via the plan contract.
-        const outputPath = AbsolutePath.parse(join(String(root), 'signals.json'));
-        if (!promptPath.ok) throw promptPath.error;
-        if (!outputPath.ok) throw outputPath.error;
-        return {
-          ...ctx,
-          currentUnitRoot: root,
-          currentPromptFile: promptPath.value,
-          currentOutputFile: outputPath.value,
-        };
+    ...aiUnitPrelude<PlanCtx>(
+      {
+        writeFile: deps.writeFile,
+        skillsAdapter: deps.skillsAdapter,
+        skillSource: deps.skillSource,
+        clock: deps.clock,
       },
-    }),
-    renderPromptToFileLeaf<PlanCtx>(
-      { writeFile: deps.writeFile },
-      {
-        name: 'render-prompt-to-file',
-        path: (ctx) => {
-          if (ctx.currentPromptFile === undefined) throw new Error('currentPromptFile missing');
-          return ctx.currentPromptFile;
-        },
-        buildPrompt: async (ctx) => {
-          if (ctx.sprint === undefined) throw new Error('sprint missing');
-          if (ctx.project === undefined) throw new Error('project missing');
-          if (ctx.currentUnitRoot === undefined) throw new Error('currentUnitRoot missing');
-          const priorProgress = await readCappedSprintProgress(opts.planRoot, opts.model);
-          // Cross-sprint procedural memory (read side). The plan session mounts every project repo
-          // as an equal `--add-dir` source with no primary repo, so relevance is weighted by
-          // recency only (empty context) rather than biasing toward any single repo. A missing
-          // ledger resolves to an empty list, so the block degrades cleanly.
-          const priorLearnings =
-            opts.memoryRoot === undefined
-              ? ''
-              : composePriorLearnings(await loadCandidateLearnings(opts.memoryRoot, opts.projectId, deps.logger), {});
-          return buildPlanPrompt(deps.templateLoader, {
-            sprint: ctx.sprint,
-            project: ctx.project,
-            outputContractSection: renderContractSectionFor(planOutputContract, ctx.currentUnitRoot),
-            priorProgress,
-            priorLearnings,
-            ...(ctx.tasks !== undefined && ctx.tasks.length > 0 ? { existingTasks: ctx.tasks } : {}),
-          });
-        },
-        write: (ctx, path) => ({ ...ctx, currentPromptFile: path }),
-      }
-    ),
-    installSkillsLeaf<PlanCtx>(
-      { skillsAdapter: deps.skillsAdapter, skillSource: deps.skillSource },
-      {
-        flowId: 'plan',
-        // Skills land in the AI session's cwd — for plan that's the per-sprint plan unit root
-        // (`<sprintDir>/plan/<run-slug>/`), not any project repo. Plan mounts every repo as an
-        // equal `--add-dir` source; rooting the session in any one repo would auto-load that
-        // repo's `CLAUDE.md` / agents / `.mcp.json` and bias the planner toward it.
-        cwdPicker: (ctx) => {
-          if (ctx.currentUnitRoot === undefined) {
-            throw new InvalidStateError({
-              entity: 'chain',
-              currentState: 'pre-plan',
-              attemptedAction: 'install-skills',
-              message: 'install-skills: currentUnitRoot missing — build-plan-unit must run first',
-            });
-          }
-          return ctx.currentUnitRoot;
-        },
-      }
-    ),
-    stampSessionMetaLeaf<PlanCtx>(
-      { writeFile: deps.writeFile, clock: deps.clock },
-      {
-        name: 'stamp-meta-plan',
-        resolve: (ctx) => {
-          if (ctx.currentUnitRoot === undefined) {
-            throw new InvalidStateError({
-              entity: 'chain',
-              currentState: 'pre-stamp-meta',
-              attemptedAction: 'stamp-meta-plan',
-              message: 'stamp-meta-plan: currentUnitRoot missing — build-plan-unit must run first',
-            });
-          }
-          return {
-            outputDir: ctx.currentUnitRoot,
-            flow: 'plan',
-            provider: opts.providerId,
-            model: opts.model,
-            effort: opts.effort ?? null,
-          };
-        },
-      }
+      unitOpts
     ),
     callPlannerInteractiveLeaf({
       interactiveAi: deps.interactiveAi,
@@ -203,22 +148,7 @@ export const createPlanFlow = (deps: PlanDeps, opts: CreatePlanFlowOpts): Elemen
         : {}),
       ...(deps.reviewBeforeApprove !== undefined ? { reviewBeforeApprove: deps.reviewBeforeApprove } : {}),
     }),
-    uninstallSkillsLeaf<PlanCtx>(
-      { skillsAdapter: deps.skillsAdapter },
-      {
-        cwdPicker: (ctx) => {
-          if (ctx.currentUnitRoot === undefined) {
-            throw new InvalidStateError({
-              entity: 'chain',
-              currentState: 'pre-plan',
-              attemptedAction: 'uninstall-skills',
-              message: 'uninstall-skills: currentUnitRoot missing — build-plan-unit must run first',
-            });
-          }
-          return ctx.currentUnitRoot;
-        },
-      }
-    ),
+    ...aiUnitEpilogue<PlanCtx>({ skillsAdapter: deps.skillsAdapter }, unitOpts),
     saveTasksLeaf<PlanCtx>({ taskRepo: deps.taskRepo }),
     saveSprintLeaf<PlanCtx>({ sprintRepo: deps.sprintRepo }),
   ]);

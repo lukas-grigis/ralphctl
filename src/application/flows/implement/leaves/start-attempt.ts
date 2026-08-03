@@ -6,6 +6,7 @@ import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.t
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
+import { resetAttemptScratch } from '@src/application/flows/implement/sprint-scoped-projection.ts';
 
 /**
  * Chain leaf — adapts ctx → startAttemptUseCase → ctx. Business policy (append a `running`
@@ -42,36 +43,24 @@ export const startAttemptLeaf = (deps: StartAttemptLeafDeps, taskId: TaskId): El
         }
         return { task, sprintId: ctx.sprintId };
       },
+      // Start-attempt is the per-ATTEMPT boundary leaf. Under the outer attempt loop the same ctx
+      // flows from one attempt into the next within a single launch, so the gen-eval turn counter,
+      // plateau window, round pointer, latest evaluation, proposed commit message, generator /
+      // evaluator session ids, and last-turn signal-kind distribution MUST reset here — otherwise
+      // attempt 2's inner loop would inherit attempt 1's `plateauHistory` (plateau-on-first-eval), a
+      // climbing `genEvalTurn`, a stale commit message, or a cross-attempt session resume that mixes
+      // two unrelated bodies of work into one conversational thread. `resetAttemptScratch` is the
+      // single, type-derived reset set for this boundary (see `sprint-scoped-projection.ts`) —
+      // resetting realises the per-attempt semantics the ctx docs already describe ("a fresh
+      // currentTask starts with an empty array"). `currentRoundNum` is recomputed by
+      // `resolve-round-num` from max-on-disk so prior rounds are never overwritten even though the
+      // in-memory pointer clears.
       output: (ctx, inProgress) => ({
         ...ctx,
+        ...resetAttemptScratch(),
         currentTaskId: inProgress.id,
         currentTask: inProgress,
         tasks: (ctx.tasks ?? []).map((t) => (t.id === inProgress.id ? inProgress : t)),
-        lastVerdict: undefined,
-        lastBlockReason: undefined,
-        // Start-attempt is the per-ATTEMPT boundary leaf. Under the outer attempt loop the
-        // same ctx flows from one attempt into the next within a single launch, so the gen-eval
-        // turn counter, plateau window, and round pointer MUST reset here — otherwise attempt 2's
-        // inner loop would inherit attempt 1's `plateauHistory` (plateau-on-first-eval) and a
-        // climbing `genEvalTurn`. Resetting realises the per-attempt semantics the ctx docs
-        // already describe ("a fresh currentTask starts with an empty array"). `currentRoundNum`
-        // is recomputed by `resolve-round-num` from max-on-disk so prior rounds are never
-        // overwritten even though the in-memory pointer clears.
-        genEvalTurn: undefined,
-        plateauHistory: undefined,
-        currentRoundNum: undefined,
-        lastEvaluation: undefined,
-        // A stale commit message from the prior attempt must not carry forward — the next
-        // attempt's generator turn proposes its own. Clear it here alongside the other
-        // per-attempt verdict state so a re-entry starts with no inherited commit copy.
-        proposedCommitMessage: undefined,
-        // Clear any generator / evaluator session ids carried over from the prior task/attempt so
-        // the new attempt starts with a fresh pair of "developers." Cross-attempt resume would
-        // mix two unrelated bodies of work into one conversational thread and confuse the model.
-        // Per-round rounds within THIS attempt are re-stamped by the generator / evaluator leaves
-        // themselves after every spawn.
-        priorGeneratorSessionId: undefined,
-        priorEvaluatorSessionId: undefined,
       }),
     }
   );

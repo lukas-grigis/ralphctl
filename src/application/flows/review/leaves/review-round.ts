@@ -249,139 +249,204 @@ const ensureRoundDir = async (dir: AbsolutePath): Promise<Result<void, StorageEr
 /** Leaf name, reused as the signal `source` and the `attemptedAction` on error states. */
 const LEAF_NAME = 'review-round';
 
+interface RoundContext {
+  readonly roundIndex: number;
+  readonly paths: RoundPaths;
+}
+
+/**
+ * Phase 1 — derive the active round from the ON-DISK feedback.md (not in-memory ctx — see the
+ * inline note on {@link deriveActiveRoundIndex}), allocate that round's forensic paths, and
+ * `mkdir -p` its dir so the AI session has somewhere to write `signals.json` into.
+ */
+const resolveRoundContext = async (
+  opts: ReviewRoundLeafOpts,
+  input: ReviewRoundInput
+): Promise<Result<RoundContext, DomainError>> => {
+  // Derive the active round index from the ON-DISK feedback.md, not from in-memory ctx.
+  // `previousRound` lives only in chain ctx, so on a relaunch of a sprint whose feedback.md
+  // already holds N rounds (user quit mid-review; sprint stayed in `review`), the ctx-derived
+  // index would compute 1 — mislabelling the prompt ("Feedback for round 1"), writing the
+  // body into round N+1 (writeRoundBody targets the LAST marker), and overwriting round-1's
+  // forensic dir. The harness writes the active round's `## Round N` heading as the LAST round
+  // in the file (`ensure-feedback-file` seeds Round 1; `appendNextRound` appends the next), so
+  // its index is the round we're about to act on. Default to 1 for a not-yet-seeded file.
+  const roundIndex = await deriveActiveRoundIndex(input.feedbackFile);
+  const paths = allocateRoundPaths(opts.reviewRoot, roundIndex);
+  if (!paths.ok) return Result.error(paths.error);
+  const ensured = await ensureRoundDir(paths.value.outputDir);
+  if (!ensured.ok) return Result.error(ensured.error);
+  return Result.ok({ roundIndex, paths: paths.value });
+};
+
+/** Mutable slot the prompt-builder callback fills so the apply-feedback callback can read it. */
+interface PromptRef {
+  current?: Prompt;
+}
+
+/**
+ * The AI round-trip callback — this leaf's `runInteractiveSession` + `validateAndParseOutput`
+ * equivalent, kept as its own function because {@link runReviewRoundUseCase} drives the spawn
+ * from INSIDE its decision tree rather than before it. Persists the rendered prompt, mounts every
+ * sprint-affected repo as an equal `--add-dir` root (plan-style — no repo enjoys cwd privilege),
+ * spawns the AI, then validates the `signals.json` it wrote and fans the result out to the bus.
+ */
+const callApplyFeedbackPhase =
+  (
+    deps: ReviewRoundLeafDeps,
+    opts: ReviewRoundLeafOpts,
+    paths: RoundPaths,
+    promptRef: PromptRef,
+    signal: AbortSignal | undefined
+  ): (() => Promise<Result<readonly HarnessSignal[], DomainError>>) =>
+  async () => {
+    const prompt = promptRef.current;
+    if (prompt === undefined) {
+      throw new InvalidStateError({
+        entity: 'chain',
+        currentState: 'pre-apply-feedback',
+        attemptedAction: 'review-round.apply-feedback',
+        message: 'review-round: callApplyFeedback invoked before buildPrompt',
+      });
+    }
+    // Persist the rendered prompt to the round dir for post-hoc replay BEFORE the
+    // spawn so a crash mid-spawn still leaves the prompt that triggered it on disk.
+    const promptWrote = await writeTextAtomic(String(paths.promptFile), String(prompt));
+    if (!promptWrote.ok) return Result.error(promptWrote.error);
+    // `currentSessionId()` is read in the leaf's `execute(...)` scope (wrapped by the
+    // runner's `runWithSession`) and threaded onto the session as DATA so the headless
+    // adapter can key the token-usage event by the runner id without importing the
+    // application session helper across the layer boundary.
+    const chainSessionId = currentSessionId();
+    const spawn = await deps.provider.generate({
+      prompt,
+      cwd: paths.outputDir,
+      additionalRoots: opts.additionalRoots,
+      model: deps.model,
+      permissions: FULL_AUTO,
+      signalsFile: paths.signalsFile,
+      outputDir: paths.outputDir,
+      ...(chainSessionId !== undefined ? { chainSessionId } : {}),
+      // Thread the chain's abort signal so a TUI cancel mid-spawn kills the child via
+      // the provider's SIGTERM ladder instead of letting it run to completion.
+      ...(signal !== undefined ? { abortSignal: signal } : {}),
+    });
+    if (!spawn.ok) return Result.error(spawn.error);
+    const validated = await validateSignalsFile(paths.outputDir, reviewRoundOutputContract);
+    if (!validated.ok) return Result.error(validated.error);
+    // Publish every validated signal onto the one harness-signal channel.
+    for (const sig of validated.value) deps.publishSignal(sig);
+    return Result.ok(validated.value as readonly HarnessSignal[]);
+  };
+
+/**
+ * Phase 2 — build the callback bag {@link runReviewRoundUseCase} drives: the in-app textarea
+ * (`openEditor`), the read-only feedback/progress readers, the prompt builder, the AI round-trip
+ * ({@link callApplyFeedbackPhase}), the commit/verify pair, and the next-round appender.
+ */
+const buildRoundCallbacks = (
+  deps: ReviewRoundLeafDeps,
+  opts: ReviewRoundLeafOpts,
+  input: ReviewRoundInput,
+  context: RoundContext,
+  signal: AbortSignal | undefined
+): Omit<Parameters<typeof runReviewRoundUseCase>[0], 'sprint' | 'previousRound' | 'logger'> => {
+  const { roundIndex, paths } = context;
+  const promptRef: PromptRef = {};
+
+  return {
+    openEditor: async () => {
+      // Ask the user for the round's body in-app. Esc → DomainError, which the use case
+      // maps to an `aborted` outcome (same behaviour the old vim `:cq` produced).
+      const answer = await deps.interactive.askTextArea(
+        `Feedback for round ${String(roundIndex)}` +
+          ' — Ctrl+D to submit, Esc to cancel, empty submission ends the review.'
+      );
+      if (!answer.ok) return Result.error(answer.error) as Result<void, DomainError>;
+      const wrote = await writeRoundBody(input.feedbackFile, answer.value);
+      if (!wrote.ok) return Result.error(wrote.error) as Result<void, DomainError>;
+      return Result.ok(undefined);
+    },
+    readFeedbackFile: () => fs.readFile(String(input.feedbackFile), 'utf8'),
+    readProgressSnippet: () => readProgressSnippet(input.progressFile),
+    buildPrompt: async (params) => {
+      const outputContractSection = renderContractSectionFor(reviewRoundOutputContract, paths.outputDir);
+      const built = await buildApplyFeedbackPrompt(deps.templateLoader, {
+        repositories: opts.repositoriesBlock,
+        sprintContext: params.sprintContext,
+        feedbackLog: params.feedbackLog,
+        latestRound: params.latestRound,
+        progress: params.progress,
+        outputContractSection,
+      });
+      if (!built.ok) return Result.error(built.error) as Result<unknown, DomainError>;
+      promptRef.current = built.value;
+      return Result.ok(built.value) as Result<unknown, DomainError>;
+    },
+    callApplyFeedback: callApplyFeedbackPhase(deps, opts, paths, promptRef, signal),
+    commitRound: async (round) => {
+      // Commit and verify still target a single repo working tree — review operates
+      // against the sprint branch in `commitCwd`. Multi-repo commit/verify is out of
+      // scope for this fix.
+      const message = renderReviewCommitMessage(round);
+      const commit = await gitCommitWithMessage(deps.gitRunner, opts.commitCwd, message);
+      if (!commit.ok) return Result.error(commit.error) as Result<{ readonly committed: boolean }, DomainError>;
+      return Result.ok({ committed: commit.value.committed });
+    },
+    ...(opts.verifyScript !== undefined && opts.verifyScript.trim().length > 0
+      ? {
+          verifyRound: async () => {
+            const verify = await deps.shellScriptRunner.run(opts.commitCwd, opts.verifyScript!, {
+              env: { RALPHCTL_LIFECYCLE_EVENT: 'feedback' },
+            });
+            if (!verify.ok) return Result.error(verify.error);
+            return Result.ok({ passed: verify.value.passed, exitCode: verify.value.exitCode });
+          },
+        }
+      : {}),
+    appendNextRound: (nextIndex: number) => appendNewRound(deps.appendFile, input.feedbackFile, nextIndex),
+  };
+};
+
+/**
+ * Phase 3 — publish the `feedback-round-applied` bus event ONCE per round the use case actually
+ * applied (committed) — mirrors the implement leaf's per-round `task-round-started` emit. The
+ * round number is the parsed round's `index` (1-based) when available, falling back to the
+ * on-disk active index. The leaf's `output` projection bumps `roundsApplied` on the same
+ * `applied` flag, so this event and that counter stay in lockstep.
+ */
+const publishRoundAppliedEvent = (
+  deps: ReviewRoundLeafDeps,
+  input: ReviewRoundInput,
+  outcome: Result<RunReviewRoundOutput, DomainError>,
+  roundIndex: number
+): void => {
+  if (outcome.ok && outcome.value.applied) {
+    deps.eventBus.publish({
+      type: 'feedback-round-applied',
+      sprintId: String(input.sprintId),
+      round: outcome.value.currentRound?.index ?? roundIndex,
+      at: deps.clock(),
+    });
+  }
+};
+
 export const reviewRoundLeaf = (deps: ReviewRoundLeafDeps, opts: ReviewRoundLeafOpts): Element<ReviewCtx> =>
   leaf<ReviewCtx, ReviewRoundInput, RunReviewRoundOutput>(LEAF_NAME, {
     useCase: {
       execute: async (input, signal) => {
-        // Derive the active round index from the ON-DISK feedback.md, not from in-memory ctx.
-        // `previousRound` lives only in chain ctx, so on a relaunch of a sprint whose feedback.md
-        // already holds N rounds (user quit mid-review; sprint stayed in `review`), the ctx-derived
-        // index would compute 1 — mislabelling the prompt ("Feedback for round 1"), writing the
-        // body into round N+1 (writeRoundBody targets the LAST marker), and overwriting round-1's
-        // forensic dir. The harness writes the active round's `## Round N` heading as the LAST round
-        // in the file (`ensure-feedback-file` seeds Round 1; `appendNextRound` appends the next), so
-        // its index is the round we're about to act on. Default to 1 for a not-yet-seeded file.
-        const roundIndex = await deriveActiveRoundIndex(input.feedbackFile);
-        const paths = allocateRoundPaths(opts.reviewRoot, roundIndex);
-        if (!paths.ok) return Result.error(paths.error);
-        const ensured = await ensureRoundDir(paths.value.outputDir);
-        if (!ensured.ok) return Result.error(ensured.error);
-        let prompt: Prompt | undefined;
+        const context = await resolveRoundContext(opts, input);
+        if (!context.ok) return Result.error(context.error);
+        const { roundIndex } = context.value;
 
         const outcome = await runReviewRoundUseCase({
           sprint: input.sprint,
           ...(input.previousRound !== undefined ? { previousRound: input.previousRound } : {}),
-
-          openEditor: async () => {
-            // Ask the user for the round's body in-app. Esc → DomainError, which the use case
-            // maps to an `aborted` outcome (same behaviour the old vim `:cq` produced).
-            const answer = await deps.interactive.askTextArea(
-              `Feedback for round ${String(roundIndex)}` +
-                ' — Ctrl+D to submit, Esc to cancel, empty submission ends the review.'
-            );
-            if (!answer.ok) return Result.error(answer.error) as Result<void, DomainError>;
-            const wrote = await writeRoundBody(input.feedbackFile, answer.value);
-            if (!wrote.ok) return Result.error(wrote.error) as Result<void, DomainError>;
-            return Result.ok(undefined);
-          },
-          readFeedbackFile: () => fs.readFile(String(input.feedbackFile), 'utf8'),
-          readProgressSnippet: () => readProgressSnippet(input.progressFile),
-          buildPrompt: async (params) => {
-            const outputContractSection = renderContractSectionFor(reviewRoundOutputContract, paths.value.outputDir);
-            const built = await buildApplyFeedbackPrompt(deps.templateLoader, {
-              repositories: opts.repositoriesBlock,
-              sprintContext: params.sprintContext,
-              feedbackLog: params.feedbackLog,
-              latestRound: params.latestRound,
-              progress: params.progress,
-              outputContractSection,
-            });
-            if (!built.ok) return Result.error(built.error) as Result<unknown, DomainError>;
-            prompt = built.value;
-            return Result.ok(built.value) as Result<unknown, DomainError>;
-          },
-          callApplyFeedback: async () => {
-            if (prompt === undefined) {
-              throw new InvalidStateError({
-                entity: 'chain',
-                currentState: 'pre-apply-feedback',
-                attemptedAction: 'review-round.apply-feedback',
-                message: 'review-round: callApplyFeedback invoked before buildPrompt',
-              });
-            }
-            // Persist the rendered prompt to the round dir for post-hoc replay BEFORE the
-            // spawn so a crash mid-spawn still leaves the prompt that triggered it on disk.
-            const promptWrote = await writeTextAtomic(String(paths.value.promptFile), String(prompt));
-            if (!promptWrote.ok) return Result.error(promptWrote.error);
-            // Plan-style multi-repo cwd: the AI session is rooted at the per-round dir
-            // (harness-owned, sprint-scoped) and every sprint-affected repo is mounted via
-            // `--add-dir` as an equal source. No repo enjoys cwd privilege — picking one
-            // would auto-load its `CLAUDE.md` / agents / `.mcp.json` and bias the AI toward
-            // it, and on a multi-repo sprint where the feedback targets a non-first repo it
-            // also blinded the AI to the relevant tree entirely (root cause of the bug this
-            // change fixes).
-            // `currentSessionId()` is read in the leaf's `execute(...)` scope (wrapped by the
-            // runner's `runWithSession`) and threaded onto the session as DATA so the headless
-            // adapter can key the token-usage event by the runner id without importing the
-            // application session helper across the layer boundary.
-            const chainSessionId = currentSessionId();
-            const spawn = await deps.provider.generate({
-              prompt,
-              cwd: paths.value.outputDir,
-              additionalRoots: opts.additionalRoots,
-              model: deps.model,
-              permissions: FULL_AUTO,
-              signalsFile: paths.value.signalsFile,
-              outputDir: paths.value.outputDir,
-              ...(chainSessionId !== undefined ? { chainSessionId } : {}),
-              // Thread the chain's abort signal so a TUI cancel mid-spawn kills the child via
-              // the provider's SIGTERM ladder instead of letting it run to completion.
-              ...(signal !== undefined ? { abortSignal: signal } : {}),
-            });
-            if (!spawn.ok) return Result.error(spawn.error);
-            const validated = await validateSignalsFile(paths.value.outputDir, reviewRoundOutputContract);
-            if (!validated.ok) return Result.error(validated.error);
-            // Publish every validated signal onto the one harness-signal channel.
-            for (const sig of validated.value) deps.publishSignal(sig);
-            return Result.ok(validated.value as readonly HarnessSignal[]);
-          },
-          commitRound: async (round) => {
-            // Commit and verify still target a single repo working tree — review operates
-            // against the sprint branch in `commitCwd`. Multi-repo commit/verify is out of
-            // scope for this fix.
-            const message = renderReviewCommitMessage(round);
-            const commit = await gitCommitWithMessage(deps.gitRunner, opts.commitCwd, message);
-            if (!commit.ok) return Result.error(commit.error) as Result<{ readonly committed: boolean }, DomainError>;
-            return Result.ok({ committed: commit.value.committed });
-          },
-          ...(opts.verifyScript !== undefined && opts.verifyScript.trim().length > 0
-            ? {
-                verifyRound: async () => {
-                  const verify = await deps.shellScriptRunner.run(opts.commitCwd, opts.verifyScript!, {
-                    env: { RALPHCTL_LIFECYCLE_EVENT: 'feedback' },
-                  });
-                  if (!verify.ok) return Result.error(verify.error);
-                  return Result.ok({ passed: verify.value.passed, exitCode: verify.value.exitCode });
-                },
-              }
-            : {}),
-          appendNextRound: (nextIndex) => appendNewRound(deps.appendFile, input.feedbackFile, nextIndex),
+          ...buildRoundCallbacks(deps, opts, input, context.value, signal),
           logger: deps.logger,
         });
 
-        // Publish ONCE per round the use case actually applied (committed) — mirrors the
-        // implement leaf's per-round `task-round-started` emit. The round number is the parsed
-        // round's `index` (1-based) when available, falling back to the on-disk active index.
-        // The leaf's `output` projection bumps `roundsApplied` on the same `applied` flag, so
-        // this event and that counter stay in lockstep.
-        if (outcome.ok && outcome.value.applied) {
-          deps.eventBus.publish({
-            type: 'feedback-round-applied',
-            sprintId: String(input.sprintId),
-            round: outcome.value.currentRound?.index ?? roundIndex,
-            at: deps.clock(),
-          });
-        }
+        publishRoundAppliedEvent(deps, input, outcome, roundIndex);
 
         return outcome;
       },

@@ -178,6 +178,22 @@ Semantics:
 If a recurring branching pattern emerges where neither option fits cleanly, an `onError` or `branch`
 primitive can be added — but only with a documented justification.
 
+### Absorption is a wrapper, not a sixth primitive
+
+"Keep going past this failure" is expressed as a **higher-order element in `flows/_shared/`**, never as a
+new chain primitive. Two live examples share one shape: `withRepoLock` (`with-repo-lock.ts`) and
+`tolerateErrors` (`tolerate-errors.ts`). Both take an inner `Element<TCtx>`, return an `Element<TCtx>`,
+derive their `name` from the inner one, and expose `children: [inner]` so `flattenLeaves` still walks the
+real step list for the TUI plan.
+
+`tolerateErrors({ tolerate, eventBus, banner? }, inner)` is the sanctioned absorption wrapper. The caller
+supplies the policy — which error codes are safe to skip past — and the wrapper owns the mechanics: it
+preserves the inner failure trace, flows the ctx that _entered_ the wrapper onward (so a half-finished
+sub-chain leaks no partial state), and optionally publishes a warn banner. `AbortError` is exempted
+**inside** the wrapper, so no caller can forget it; readiness's per-provider fan-out is the current
+consumer. Adding absorption to a new flow means calling this helper with a new predicate, not writing a
+bespoke element and not adding a primitive.
+
 ## Trace contract
 
 ```ts
@@ -232,6 +248,13 @@ The final returned `Trace` is the union of those emissions. Live UIs subscribe v
   still see every event; the cap only bounds the replay snapshot.
 - **Session scope**: the runner enters the `runWithSession(id, …)` scope before calling
   `element.execute(...)`. Deep adapter code can read `currentSessionId()` to tag logs / signals.
+
+`createRunner` is one long closure and stays that way. Status, ctx, trace, the start promise, the failure
+error and the abort flag are a single state machine, and every helper inside mutates it. Splitting the
+helpers into free functions would mean threading a mutable state object through each — more surface, the
+same number of moving parts, and the invariants (never emit `started` after an `abort()`; emit exactly one
+terminal event) would stop being locally checkable. The `max-lines-per-function` warning it carries is the
+accepted cost of that cohesion, not a backlog item.
 
 ## Examples
 

@@ -19,11 +19,13 @@ import { createParallelImplementElement } from '@src/application/flows/implement
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import { Result } from '@src/domain/result.ts';
 import type { Task } from '@src/domain/entity/task.ts';
-import { renderTaskGraphIssue, validateTaskGraph } from '@src/domain/entity/task-graph.ts';
+import { validateTaskGraph } from '@src/domain/entity/task-graph.ts';
+import { renderSprintConsistencyIssue, validateSprintConsistency } from '@src/business/sprint/sprint-consistency.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
+import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { createPublishSignal, type PublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
@@ -76,11 +78,29 @@ const applyImplementRoleOverrides = (
 };
 
 /**
- * Resolve the ordered launch queue from a sprint's FULL task set (audit §5 human-gate).
+ * The cross-aggregate bundle that lets {@link resolveImplementQueue} run the FULL referential-
+ * integrity check instead of the dependency graph alone. Optional at the seam so callers holding
+ * only a task list (and the queue-ordering tests) keep the graph-only behaviour.
  *
- * `validateTaskGraph` runs first, so a cyclic / self-edge / dangling-dependency sprint fails fast
- * here with the rendered issue — a deadlock can't hide behind an innocuous "No tasks to implement"
- * message that only appears after unschedulable tasks are filtered out.
+ * @public
+ */
+export interface ImplementQueueBundle {
+  readonly project: Project;
+  readonly sprint: Sprint;
+  readonly execution: SprintExecution;
+}
+
+/**
+ * Resolve the ordered launch queue from a sprint's FULL task set — the pre-launch human gate.
+ *
+ * Validation runs first, so a cyclic / self-edge / dangling-dependency sprint fails fast here with
+ * the rendered issue — a deadlock can't hide behind an innocuous "No tasks to implement" message
+ * that only appears after unschedulable tasks are filtered out. When the caller supplies the
+ * project / sprint / execution bundle, the broader referential-integrity checks
+ * ({@link validateSprintConsistency} — sprint belongs to the project, execution belongs to the
+ * sprint, every task's ticket and repository resolve) run alongside the graph check, so a task
+ * pointing at a ticket or repository that no longer exists is caught before any AI session opens
+ * rather than mid-run. Without the bundle only the dependency graph is checked.
  *
  * On a sound DAG the queue is built by a dependency-respecting PRIORITY topological sort over the
  * RESUMABLE subset (`todo` + `in_progress`): a task is emitted only after every resumable
@@ -103,11 +123,15 @@ const applyImplementRoleOverrides = (
  *
  * @public
  */
-export const resolveImplementQueue = (tasks: readonly Task[]): Result<readonly Task[], string> => {
-  // Validate the full graph first (cycle / self-edge / dangling) so a deadlock surfaces as the
+export const resolveImplementQueue = (
+  tasks: readonly Task[],
+  bundle?: ImplementQueueBundle
+): Result<readonly Task[], string> => {
+  // Validate first (cross-aggregate references when the bundle is supplied, always the graph's
+  // cycle / self-edge / dangling checks) so a deadlock or a dangling reference surfaces as the
   // rendered issue rather than a silently-truncated queue.
-  const validation = validateTaskGraph(tasks);
-  if (!validation.ok) return Result.error(renderTaskGraphIssue(validation.error));
+  const validation = bundle === undefined ? validateTaskGraph(tasks) : validateSprintConsistency({ ...bundle, tasks });
+  if (!validation.ok) return Result.error(renderSprintConsistencyIssue(validation.error));
 
   const resumable = tasks.filter((t) => t.status === 'todo' || t.status === 'in_progress');
   const resumableIds = new Set(resumable.map((t) => t.id));
@@ -357,6 +381,26 @@ const buildImplementElement = (
     : buildParallelElement(implementDeps, implementOpts, maxParallel, sessionId);
 };
 
+/**
+ * Pre-launch human gate: load the sprint's execution record and resolve the ordered queue against
+ * the full cross-aggregate bundle, so a cyclic / dangling graph — or a task pointing at a ticket or
+ * repository that no longer exists — fails before any AI session opens rather than mid-run.
+ *
+ * A sprint whose execution record can't be read (none written yet — no implement run has happened)
+ * still gets the dependency-graph check; the missing record only narrows what can be verified, and
+ * the implement chain writes one as it goes.
+ */
+const resolveQueueForLaunch = async (
+  deps: LaunchContext['deps'],
+  project: Project,
+  sprint: Sprint,
+  tasks: readonly Task[]
+): Promise<Result<readonly Task[], string>> => {
+  const execution = await deps.app.sprintExecutionRepo.findById(sprint.id);
+  if (!execution.ok) return resolveImplementQueue(tasks);
+  return resolveImplementQueue(tasks, { project, sprint, execution: execution.value });
+};
+
 export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult> => {
   const { deps, snapshot, extras, settings, bridge, sessionId } = ctx;
   // Apply per-role overrides (from CLI flags via `LaunchExtras.implementRoleOverrides`) onto
@@ -377,11 +421,7 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
   if (snapshot.project.repositories.length === 0) {
     return { ok: false, reason: 'Project has no repositories — add one first.' };
   }
-  // Human-gate (audit §5): validate + dependency-schedule the FULL task set before launch, then
-  // derive the resumable queue with the in-progress-first override applied. A cyclic / dangling
-  // graph fails fast here with the rendered issue rather than silently surfacing as an empty
-  // queue once the unschedulable tasks are filtered out.
-  const queue = resolveImplementQueue(snapshot.tasks);
+  const queue = await resolveQueueForLaunch(deps, snapshot.project, snapshot.sprint, snapshot.tasks);
   if (!queue.ok) return { ok: false, reason: queue.error };
   const todoTasks = queue.value;
   if (todoTasks.length === 0) return { ok: false, reason: 'No tasks to implement or resume.' };

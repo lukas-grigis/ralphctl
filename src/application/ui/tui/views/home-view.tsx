@@ -28,6 +28,9 @@ import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx
 import { useLaunchCreateSprint } from '@src/application/ui/tui/runtime/use-launch-create-sprint.ts';
 import { StateCard } from '@src/application/ui/tui/views/home-internals/state-card.tsx';
 import { buildMenuItems } from '@src/application/ui/tui/views/home-internals/menu-items.ts';
+import type { Sprint } from '@src/domain/entity/sprint.ts';
+
+type SelectionApi = ReturnType<typeof useSelection>;
 
 /**
  * Transient "✓ now on <sprint-name>" feedback line lives above the action menu for ~3 seconds
@@ -36,6 +39,186 @@ import { buildMenuItems } from '@src/application/ui/tui/views/home-internals/men
  * not steal attention from the next action; long enough to confirm the switch landed.
  */
 const SWITCH_FEEDBACK_MS = 3000;
+
+/**
+ * Transient "✓ now on <sprint-name>" line above the menu. Fed by the shared `selection.lastSwitch`
+ * record — fires for picker / sprint-detail `m` / create-sprint reseat / inline shortcut from
+ * another view. Auto-clears via a window check on each render (not an interval) so the line just
+ * stops rendering after the threshold expires; a separate `dismissedAt` keeps user-driven "ack"
+ * semantics out of scope here — the timer alone is sufficient.
+ */
+const useSwitchToast = (
+  selection: SelectionApi
+): { readonly visible: boolean; readonly lastSwitch: SelectionApi['lastSwitch'] } => {
+  // Re-render once when the switch window expires so the toast disappears without waiting for
+  // an external trigger. `+ 50ms` slack avoids edge cases where the timer fires fractionally
+  // before the freshness check resolves to "stale". A real reducer bump is required: an
+  // identity updater like `setLocalError((curr) => curr)` bails out of the re-render under
+  // React's Object.is check, leaving the toast painted forever on an otherwise idle Home.
+  const [, forceRender] = useReducer((n: number) => n + 1, 0);
+  const lastSwitch = selection.lastSwitch;
+  useEffect(() => {
+    if (lastSwitch === undefined) return undefined;
+    const elapsed = Date.now() - lastSwitch.at;
+    const remaining = SWITCH_FEEDBACK_MS - elapsed;
+    if (remaining <= 0) return undefined;
+    const id = setTimeout(() => {
+      // The render itself reads the freshness window — there's nothing to flip on this side
+      // beyond forcing a paint.
+      forceRender();
+    }, remaining + 50);
+    return (): void => clearTimeout(id);
+  }, [lastSwitch]);
+
+  const visible =
+    lastSwitch !== undefined &&
+    Date.now() - lastSwitch.at < SWITCH_FEEDBACK_MS &&
+    lastSwitch.sprintId === selection.sprintId;
+
+  return { visible, lastSwitch };
+};
+
+/**
+ * Local error toasts (e.g. "✗ pick a project first") — pure local state because they don't
+ * correspond to a sprint switch, just a rejected action. Shares the same fade duration as the
+ * switch toast so the two read as one family of transient feedback.
+ */
+const useLocalErrorFlash = (): {
+  readonly localError: string | undefined;
+  readonly flashErr: (text: string) => void;
+} => {
+  const [localError, setLocalError] = useState<string | undefined>(undefined);
+  const timerRef = useRef<NodeJS.Timeout | undefined>(undefined);
+  const flashErr = useCallback((text: string): void => {
+    setLocalError(text);
+    if (timerRef.current !== undefined) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      setLocalError(undefined);
+      timerRef.current = undefined;
+    }, SWITCH_FEEDBACK_MS);
+  }, []);
+  // Drop the timer on unmount so a quick navigate-away doesn't leak a setState into a tree
+  // that's no longer mounted.
+  useEffect(
+    () => (): void => {
+      if (timerRef.current !== undefined) clearTimeout(timerRef.current);
+    },
+    []
+  );
+  return { localError, flashErr };
+};
+
+/**
+ * Inline-shortcut + `+` hotkey for launching create-sprint. Watched outside the ActionMenu's
+ * hotkey machinery because `+` is shift-bound on many keyboards (not portable as a registered
+ * MenuItem hotkey glyph). Gating on `hasProject` matches the menu-row `disabledReason` semantics
+ * so both entry points behave identically.
+ */
+const useCreateSprintHotkey = (args: {
+  readonly modalOpen: boolean;
+  readonly promptActive: boolean;
+  readonly hasProject: boolean;
+  readonly flashErr: (text: string) => void;
+  readonly launchCreateSprint: () => Promise<void>;
+}): void => {
+  useInput(
+    (input) => {
+      if (args.modalOpen) return;
+      if (input !== '+') return;
+      if (!args.hasProject) {
+        args.flashErr(`${glyphs.cross} pick a project first (Projects ${glyphs.arrowRight} open one)`);
+        return;
+      }
+      void args.launchCreateSprint();
+    },
+    { isActive: !args.promptActive }
+  );
+};
+
+interface HomeMenuItemsArgs {
+  readonly router: ReturnType<typeof useRouter>;
+  readonly selection: SelectionApi;
+  readonly hasProject: boolean;
+  readonly stateLoaded: boolean;
+  readonly snapshotLoading: boolean;
+  readonly currentSprint: Sprint | undefined;
+  readonly recentSprints: readonly Sprint[];
+  readonly switchSprintDisabled: string | undefined;
+  readonly addTicketDisabled: string | undefined;
+  readonly launchCreateSprint: () => Promise<void>;
+}
+
+/** Builds the action-menu rows via {@link buildMenuItems}, wiring each callback to the router /
+ *  selection / create-sprint launcher. Isolated so the orchestrator's dependency array doesn't
+ *  double as inline callback wiring. */
+const useHomeMenuItems = ({
+  router,
+  selection,
+  hasProject,
+  stateLoaded,
+  snapshotLoading,
+  currentSprint,
+  recentSprints,
+  switchSprintDisabled,
+  addTicketDisabled,
+  launchCreateSprint,
+}: HomeMenuItemsArgs): ReturnType<typeof buildMenuItems> =>
+  useMemo(
+    () =>
+      buildMenuItems({
+        hasProject,
+        stateLoaded,
+        loading: snapshotLoading,
+        currentSprint,
+        recentSprints,
+        selectionSprintId: selection.sprintId,
+        switchSprintDisabled,
+        addTicketDisabled,
+        onPushHome: (id) => router.push({ id }),
+        onPushAddTicket: (sprintId) => router.push({ id: 'add-ticket', props: { sprintId } }),
+        onSwitchSprint: (s) => selection.setSprint(s.id, s.name, s.status),
+        onLaunchCreateSprint: () => {
+          void launchCreateSprint();
+        },
+      }),
+    [
+      router,
+      hasProject,
+      stateLoaded,
+      snapshotLoading,
+      switchSprintDisabled,
+      addTicketDisabled,
+      selection,
+      recentSprints,
+      currentSprint,
+      launchCreateSprint,
+    ]
+  );
+
+/** The two transient feedback lines shown above the action menu — switch confirmation and
+ *  local errors are mutually rare, but both may in principle be visible in the same render. */
+const HomeFeedbackLines = ({
+  switchToastVisible,
+  switchLabel,
+  localError,
+}: {
+  readonly switchToastVisible: boolean;
+  readonly switchLabel: string | undefined;
+  readonly localError: string | undefined;
+}): React.JSX.Element => (
+  <>
+    {switchToastVisible && switchLabel !== undefined && (
+      <Box paddingX={spacing.indent} marginTop={spacing.section}>
+        <Text color={inkColors.success}>{`${glyphs.check} now on ${switchLabel}`}</Text>
+      </Box>
+    )}
+    {localError !== undefined && (
+      <Box paddingX={spacing.indent} marginTop={spacing.section}>
+        <Text color={inkColors.error}>{localError}</Text>
+      </Box>
+    )}
+  </>
+);
 
 export const HomeView = (): React.JSX.Element => {
   const router = useRouter();
@@ -64,59 +247,8 @@ export const HomeView = (): React.JSX.Element => {
   // re-run whenever this render's `??` would allocate a fresh `[]`.
   const recentSprints = useMemo(() => snapshot?.recentSprints ?? [], [snapshot?.recentSprints]);
 
-  // Transient "✓ now on <sprint-name>" line above the menu. Two sources feed it:
-  //   1. The shared `selection.lastSwitch` record — fires for picker / sprint-detail `m` /
-  //      create-sprint reseat / inline shortcut from another view. Auto-clears via a window
-  //      check on each render (not an interval) so the line just stops rendering after the
-  //      threshold expires. A separate `dismissedAt` keeps user-driven "ack" semantics out of
-  //      scope here — the timer alone is sufficient.
-  //   2. Local error toasts (e.g. "✗ pick a project first") — set inline by handlers below
-  //      via `flashErr`. These are pure local state because they don't correspond to a switch.
-  const [localError, setLocalError] = useState<string | undefined>(undefined);
-  const errorTimerRef = useRef<NodeJS.Timeout | undefined>(undefined);
-  const flashErr = useCallback((text: string): void => {
-    setLocalError(text);
-    if (errorTimerRef.current !== undefined) clearTimeout(errorTimerRef.current);
-    errorTimerRef.current = setTimeout(() => {
-      setLocalError(undefined);
-      errorTimerRef.current = undefined;
-    }, SWITCH_FEEDBACK_MS);
-  }, []);
-  // Drop the error timer on unmount so a quick navigate-away doesn't leak a setState into a
-  // tree that's no longer mounted. The switch line has no per-mount timer (it reads
-  // `selection.lastSwitch.at` on each render and disappears once the window elapses) so it
-  // needs no cleanup.
-  useEffect(
-    () => (): void => {
-      if (errorTimerRef.current !== undefined) clearTimeout(errorTimerRef.current);
-    },
-    []
-  );
-
-  // Re-render once when the switch window expires so the toast disappears without waiting for
-  // an external trigger. `+ 50ms` slack avoids edge cases where the timer fires fractionally
-  // before the freshness check resolves to "stale". A real reducer bump is required: an
-  // identity updater like `setLocalError((curr) => curr)` bails out of the re-render under
-  // React's Object.is check, leaving the toast painted forever on an otherwise idle Home.
-  const [, forceRender] = useReducer((n: number) => n + 1, 0);
-  const lastSwitch = selection.lastSwitch;
-  useEffect(() => {
-    if (lastSwitch === undefined) return undefined;
-    const elapsed = Date.now() - lastSwitch.at;
-    const remaining = SWITCH_FEEDBACK_MS - elapsed;
-    if (remaining <= 0) return undefined;
-    const id = setTimeout(() => {
-      // The render itself reads the freshness window — there's nothing to flip on this side
-      // beyond forcing a paint.
-      forceRender();
-    }, remaining + 50);
-    return (): void => clearTimeout(id);
-  }, [lastSwitch]);
-
-  const switchToastVisible =
-    lastSwitch !== undefined &&
-    Date.now() - lastSwitch.at < SWITCH_FEEDBACK_MS &&
-    lastSwitch.sprintId === selection.sprintId;
+  const { visible: switchToastVisible, lastSwitch } = useSwitchToast(selection);
+  const { localError, flashErr } = useLocalErrorFlash();
 
   // Launch create-sprint via the shared sprint-bound launcher. Reseat-on-completion fires
   // `selection.setSprint` — which writes to `lastSwitch` and feeds the toast line. Failures
@@ -126,22 +258,13 @@ export const HomeView = (): React.JSX.Element => {
     noProjectMessage: `${glyphs.cross} pick a project first (Projects ${glyphs.arrowRight} open one)`,
   });
 
-  // Inline-shortcut + `+` hotkey. We watch for `+` outside the ActionMenu's hotkey machinery
-  // because `+` is shift-bound on many keyboards (not portable as a registered MenuItem hotkey
-  // glyph). Gating on `hasProject` matches the menu-row `disabledReason` semantics so both
-  // entry points behave identically.
-  useInput(
-    (input) => {
-      if (ui.modalOpen) return;
-      if (input !== '+') return;
-      if (!hasProject) {
-        flashErr(`${glyphs.cross} pick a project first (Projects ${glyphs.arrowRight} open one)`);
-        return;
-      }
-      void launchCreateSprint();
-    },
-    { isActive: !ui.promptActive }
-  );
+  useCreateSprintHotkey({
+    modalOpen: ui.modalOpen,
+    promptActive: ui.promptActive,
+    hasProject,
+    flashErr,
+    launchCreateSprint,
+  });
 
   // Gating reasons for the two new quick actions. Computed inline so the menu's `disabledReason`
   // pulls directly from the snapshot — no extra effect / state needed.
@@ -162,37 +285,18 @@ export const HomeView = (): React.JSX.Element => {
     return idx >= 0 ? idx : 0;
   }, [currentSprint, recentSprints]);
 
-  const items = useMemo(
-    () =>
-      buildMenuItems({
-        hasProject,
-        stateLoaded: state.kind === 'ok',
-        loading: snapshotLoading,
-        currentSprint,
-        recentSprints,
-        selectionSprintId: selection.sprintId,
-        switchSprintDisabled,
-        addTicketDisabled,
-        onPushHome: (id) => router.push({ id }),
-        onPushAddTicket: (sprintId) => router.push({ id: 'add-ticket', props: { sprintId } }),
-        onSwitchSprint: (s) => selection.setSprint(s.id, s.name, s.status),
-        onLaunchCreateSprint: () => {
-          void launchCreateSprint();
-        },
-      }),
-    [
-      router,
-      hasProject,
-      state.kind,
-      snapshotLoading,
-      switchSprintDisabled,
-      addTicketDisabled,
-      selection,
-      recentSprints,
-      currentSprint,
-      launchCreateSprint,
-    ]
-  );
+  const items = useHomeMenuItems({
+    router,
+    selection,
+    hasProject,
+    stateLoaded: state.kind === 'ok',
+    snapshotLoading,
+    currentSprint,
+    recentSprints,
+    switchSprintDisabled,
+    addTicketDisabled,
+    launchCreateSprint,
+  });
 
   return (
     <ViewShell title="Home" subtitle="Where do we start today?">
@@ -201,16 +305,11 @@ export const HomeView = (): React.JSX.Element => {
       ) : (
         <Box flexDirection="column">
           <StateCard state={state.kind === 'ok' ? state.value : undefined} loading={snapshotLoading} />
-          {switchToastVisible && lastSwitch !== undefined && (
-            <Box paddingX={spacing.indent} marginTop={spacing.section}>
-              <Text color={inkColors.success}>{`${glyphs.check} now on ${lastSwitch.sprintLabel}`}</Text>
-            </Box>
-          )}
-          {localError !== undefined && (
-            <Box paddingX={spacing.indent} marginTop={spacing.section}>
-              <Text color={inkColors.error}>{localError}</Text>
-            </Box>
-          )}
+          <HomeFeedbackLines
+            switchToastVisible={switchToastVisible}
+            switchLabel={lastSwitch?.sprintLabel}
+            localError={localError}
+          />
           <Box marginY={spacing.section}>
             <ActionMenu items={items} active={!ui.modalOpen} initialIndex={initialMenuIndex} />
           </Box>

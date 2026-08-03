@@ -53,17 +53,19 @@ Rules:
 
 Canonical set. If a view needs a symbol not in this list, **add it to `glyphs` first** (and document it here).
 
-| Group           | Tokens                                                                                |
-| --------------- | ------------------------------------------------------------------------------------- |
-| Phase / status  | `phaseDone ■`, `phaseActive ◆`, `phasePending ◇`, `phaseDisabled ◌`                   |
-| Cursors         | `actionCursor ▸`, `selectMarker ›`                                                    |
-| Section markers | `badge ▣`, `sectionRule ━`                                                            |
-| State           | `check ✓`, `cross ✗`, `warningGlyph ⚠`, `infoGlyph i`, `modified ✎`                   |
-| Bullets         | `bullet ·`, `inlineDot ·`, `emDash —`, `arrowRight →`, `activityArrow ↳`, `refresh ↻` |
-| Separators      | `pipe │`                                                                              |
-| Motion          | `spinner` (braille frames `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`)                                               |
-| Clip markers    | `clipEllipsis …`, `collapseExpand ▼ more`                                             |
-| Personality     | `quoteRail ┃`                                                                         |
+| Group           | Tokens                                                                                               |
+| --------------- | ---------------------------------------------------------------------------------------------------- |
+| Phase / status  | `phaseDone ■`, `phaseActive ◆`, `phasePending ◇`, `phaseDisabled ◌`                                  |
+| Cursors         | `actionCursor ▸`, `selectMarker ›`                                                                   |
+| Disclosure      | `disclosureCollapsed ▸`, `disclosureExpanded ▾` (collapsible rows, e.g. Tasks-panel commit messages) |
+| Section markers | `badge ▣`, `sectionRule ━`                                                                           |
+| State           | `check ✓`, `cross ✗`, `warningGlyph ⚠`, `infoGlyph i`, `modified ✎`                                  |
+| Bullets         | `bullet ·`, `inlineDot ·`, `emDash —`, `arrowRight →`, `activityArrow ↳`, `refresh ↻`                |
+| Separators      | `pipe │`                                                                                             |
+| Motion          | `spinner` (braille frames `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`)                                                              |
+| Clip markers    | `clipEllipsis …`, `collapseExpand ▼ more`                                                            |
+| Overflow cues   | `moreAbove ▴`, `moreBelow ▾` (windowed-list `OverflowRow` "N more" rows)                             |
+| Personality     | `quoteRail ┃`                                                                                        |
 
 Do not mix glyph families (no `✔` from one set and `✓` from another). No emoji in TUI surfaces.
 
@@ -127,6 +129,14 @@ All terminal-width decisions use the named breakpoints exported from `src/applic
   Use for numeric widths that should grow proportionally but never overwhelm or vanish.
 - `responsive<T>(columns, { sm, md?, lg?, xl?, xxl? }): T` — picks the value for the active breakpoint,
   falling through to the next smaller specified value. `sm` is required as the floor.
+- `listCapacity(rows, { rowHeight?, chromeRows?, min, max? }): number` — the row-count counterpart to
+  `fluid`, for windowed lists. Computes `floor(max(0, rows - chromeRows) / rowHeight)`, floored at `min`
+  and (if supplied) capped at `max`. `chromeRows` defaults to `LIST_CHROME_ROWS` (12 — the `ViewShell`
+  header + `StatusBanner` + `PromptHost` + footer stack every view pays); pass an explicit `chromeRows`
+  when a view's own chrome (section stamp, summary line, footer hint, …) adds more. `rowHeight` defaults
+  to `1`; set it higher for a card-based list whose rows span several terminal lines. Replaces the
+  per-view `Math.max(min, terminalRows - ownChromeConstant)` idiom (the sprint picker used to hand-roll
+  this as `VERTICAL_CHROME_ROWS` / `MIN_VISIBLE_ROWS`).
 
 **React hook**: `useBreakpoint(): { breakpoint, columns, rows, atLeast(target) }` — re-derives on every
 `SIGWINCH`, so layouts react cleanly on terminal resize. Import from
@@ -195,7 +205,8 @@ the same job.
 | `StatusChip`     | `[DRAFT]` / `[ACTIVE]` / `[REVIEW]` / `[DONE]` bracketed tag.                                                                                                                                                                                                                                    |
 | `Spinner`        | Braille-frame loading indicator with trailing label.                                                                                                                                                                                                                                             |
 | `EmptyState`     | "Nothing here yet" surface with optional next-step pointer.                                                                                                                                                                                                                                      |
-| `OverflowRow`    | `▴ N more` / `▾ N more` cue row emitted by `WindowedList` when items are clipped above or below the visible window.                                                                                                                                                                              |
+| `OverflowRow`    | `▴ N more` / `▾ N more` cue row emitted by `WindowedList` when items are clipped above or below the visible window. Optional `label` overrides the trailing word (default `more`) for a caller with its own copy.                                                                                |
+| `AsyncListFrame` | Owns the `overlay → loading → error → empty → children` ladder for a `useAsyncLoad`-backed view (`async-list-frame.tsx`). Reuses `LoadingRow` / `LoadErrorRow`; pass an `EmptyState` as `empty`. First consumer: the sprint picker's `PickerBody`.                                               |
 | `Divider`        | Horizontal rule.                                                                                                                                                                                                                                                                                 |
 | `ScrollRegion`   | Scrollable viewport with PgUp/PgDn.                                                                                                                                                                                                                                                              |
 | `PipelineMap`    | Home phase map (refine → plan → implement → close).                                                                                                                                                                                                                                              |
@@ -319,15 +330,34 @@ only and are suspended while a prompt or overlay is mounted.
 The picker is opened globally via `S`; `t` and `f` are its view-local keys and are registered in `keyboard-map.ts`
 alongside the other `pickerKeys`. Any new picker keys follow the same pattern.
 
-### 6.3 View-local keys — published via `useViewHints`
+### 6.3 View-local keys — declared once via `useViewKeys`
+
+A view declares its local keys ONE time. `useViewKeys` mounts the `useInput` dispatcher and feeds
+the status-bar hint strip from the same array, so a key can never be advertised as live while its
+handler rejects it.
 
 ```tsx
-useViewHints([
-  { key: '↑/↓', action: 'move' },
-  { key: 'Enter', action: 'open' },
-  { key: 'b', action: 'browse' },
-]);
+useViewKeys(
+  [
+    { keys: ['↑', '↓', 'j', 'k'], hint: 'move' }, // no `run` — the list primitive owns these
+    { keys: ['↵'], hint: 'open' },
+    { keys: ['b'], hint: 'browse', run: () => browse(focused) },
+    { keys: ['u'], hint: `unblock (${String(stuckCount)})`, enabled: stuckCount > 0 },
+  ],
+  { active: !modalOpen }
+);
 ```
+
+- `keys` are the literal input strings the binding claims, and (joined by `/`) its status-bar
+  spelling. Omit `run` for an entry that only documents a key another primitive owns.
+- `enabled: false` mutes the handler AND drops the hint — for a key that genuinely does nothing
+  in the current state.
+- `hidden: true` drops the hint but keeps the handler — for a key that IS inert but whose handler
+  exists to say why (a silent swallow reads as a bug to anyone who found the key in `?`).
+- `active: false` mutes the whole dispatcher while a modal / confirm overlay owns the keyboard;
+  hints are unaffected, so the strip keeps describing the screen underneath.
+
+A view that publishes hints without owning any local keys can still call `useViewHints` directly.
 
 Canonical vocabulary — reuse these spellings so users build one mental model:
 
@@ -343,7 +373,9 @@ Canonical vocabulary — reuse these spellings so users build one mental model:
 
 Rules:
 
-- **Any undocumented key is a bug.** If a view responds to it, hint for it.
+- **Any undocumented key is a bug.** If a view responds to it, hint for it — with `useViewKeys`
+  the two come from the same entry, so the only way to break this is `hidden: true`, which owes a
+  comment naming the reason.
 - `Enter` on a terminal/result state pops the view.
 - `Esc` inside a submode returns to the parent mode before being claimed by the router.
 
@@ -527,6 +559,13 @@ Use one spelling everywhere. `DRAFT`, `PLANNED`, `ACTIVE`, `REVIEW`, `DONE`, `TO
 - ❌ View renders its own header / hint strip / status bar.
 - ❌ View calls `console.log` / writes stdout directly — use the injected `Logger`.
 - ❌ View calls a use case directly — use flow factories from `src/application/flows/<flow>/` and the chain runner.
+  **Escape hatch:** a single-shot mutation with no registered flow (manual task unblock, cancel the
+  active task, launch a flow session) goes through a runtime hook under
+  `src/application/ui/tui/runtime/` — `useUnblockTask`, `useLaunchCreateSprint`. The hook closes over
+  `useDeps()` and assembles the use-case argument once; the view supplies only what it knows and never
+  names a use case or reaches into `AppDeps`. Reach for this only when there is genuinely no chain to
+  run — inventing a one-leaf chain to satisfy the layering buys nothing. Anything with steps, prompts,
+  or a trace is a flow.
 - ❌ View mounts a prompt outside the injected `InteractivePrompt` port.
 - ❌ Mixing `<Text color={inkColors.error}>` with `ResultCard` in the same state.
 - ❌ New prompt component — reuse the `InteractivePrompt` port + `createInkInteractivePrompt`.

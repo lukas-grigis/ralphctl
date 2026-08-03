@@ -17,48 +17,29 @@ import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx
 import { StatusChip, sprintStatusKind } from '@src/application/ui/tui/components/status-chip.tsx';
 import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
 
-const breadcrumbLabel = (id: string): string => {
-  switch (id) {
-    case 'home':
-      return 'Home';
-    case 'flows':
-      return 'Flows';
-    case 'projects':
-      return 'Projects';
-    case 'project-detail':
-      return 'Project';
-    case 'sprints':
-      return 'Sprints';
-    case 'sprint-detail':
-      return 'Sprint';
-    case 'tasks':
-      return 'Tasks';
-    case 'execute':
-      return 'Implement';
-    case 'sessions':
-      return 'Sessions';
-    case 'settings':
-      return 'Settings';
-    case 'doctor':
-      return 'Doctor';
-    case 'help':
-      return 'Help';
-    case 'welcome':
-      return 'Welcome';
-    case 'create-project':
-      return 'New project';
-    case 'add-repository':
-      return 'Add repository';
-    case 'add-ticket':
-      return 'Add ticket';
-    case 'pick-project':
-      return 'Pick project';
-    case 'pick-sprint':
-      return 'Pick sprint';
-    default:
-      return id;
-  }
+/** Route-id → display label for the breadcrumb path. Anything absent falls back to the raw id. */
+const ROUTE_LABELS: Record<string, string> = {
+  home: 'Home',
+  flows: 'Flows',
+  projects: 'Projects',
+  'project-detail': 'Project',
+  sprints: 'Sprints',
+  'sprint-detail': 'Sprint',
+  tasks: 'Tasks',
+  execute: 'Implement',
+  sessions: 'Sessions',
+  settings: 'Settings',
+  doctor: 'Doctor',
+  help: 'Help',
+  welcome: 'Welcome',
+  'create-project': 'New project',
+  'add-repository': 'Add repository',
+  'add-ticket': 'Add ticket',
+  'pick-project': 'Pick project',
+  'pick-sprint': 'Pick sprint',
 };
+
+const breadcrumbLabel = (id: string): string => ROUTE_LABELS[id] ?? id;
 
 export const Breadcrumb = (): React.JSX.Element => {
   const router = useRouter();

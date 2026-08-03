@@ -15,6 +15,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { SprintDetailView } from '@src/application/ui/tui/views/sprint-detail-view.tsx';
+import type { ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -76,7 +77,7 @@ const stubDeps = (sprint: Sprint, tasks: readonly Task[]): AppDeps =>
     logger: noopLogger,
   }) as unknown as AppDeps;
 
-const initial = { id: 'sprint-detail', props: { sprintId: FIXED_SPRINT_ID } };
+const initial: ViewEntry = { id: 'sprint-detail', props: { sprintId: FIXED_SPRINT_ID } };
 
 describe('SprintDetailView — task-list windowing (M4 guard)', () => {
   beforeEach(() => {

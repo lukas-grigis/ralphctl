@@ -45,6 +45,42 @@ export interface BucketedDerivation {
   readonly currentSubStep: string | undefined;
 }
 
+/** A task the runner has finished — it sits behind the cursor. */
+const isCompletedBucket = (t: TaskBucket): boolean => t.status === 'completed';
+
+/**
+ * The task in flight — `running` mid-task and `pending` in the brief transition window between
+ * tasks. The per-task chain runs sequentially, so the FIRST non-completed task is always the one
+ * the operator is watching; failed / aborted / skipped tasks are behind the cursor.
+ */
+const isCurrentBucket = (t: TaskBucket): boolean => !isCompletedBucket(t);
+
+/**
+ * Counters + the "what is happening right now" trio the header card reads, derived from the merged
+ * bucket. Split out so the hook body stays a chain of memos rather than a wall of optional-chained
+ * lookups.
+ */
+const summariseProgress = (
+  bucketed: BucketedExecution | undefined,
+  taskNames: ReadonlyMap<string, string> | undefined
+): Omit<BucketedDerivation, 'bucketed'> => {
+  const tasks = bucketed?.tasks ?? [];
+  const currentTaskIdx = tasks.findIndex(isCurrentBucket);
+  const currentTask = currentTaskIdx >= 0 ? tasks[currentTaskIdx] : undefined;
+  const currentTaskName =
+    currentTask !== undefined
+      ? (taskNames?.get(currentTask.id) ?? `${currentTask.id.slice(0, 8)}${glyphs.clipEllipsis}`)
+      : undefined;
+  return {
+    tasksDone: tasks.filter(isCompletedBucket).length,
+    tasksTotal: tasks.length,
+    currentTask,
+    currentTaskIdx,
+    currentTaskName,
+    currentSubStep: currentTask?.subSteps[currentTask.subSteps.length - 1]?.leafName,
+  };
+};
+
 export const useBucketedTasks = ({
   descriptor,
   chainEvents,
@@ -106,28 +142,5 @@ export const useBucketedTasks = ({
     return { ...rawBucketed, tasks };
   }, [rawBucketed, taskRounds]);
 
-  const tasksDone = bucketed?.tasks.filter((t) => t.status === 'completed').length ?? 0;
-  const tasksTotal = bucketed?.tasks.length ?? 0;
-
-  // Current task = the first non-completed one — which is `running` mid-task and `pending` in
-  // the brief transition window between tasks. Completed/failed/aborted/skipped tasks are
-  // behind the cursor; the per-task chain runs sequentially so the first non-completed task
-  // is always the one in flight.
-  const currentTaskIdx = bucketed?.tasks.findIndex((t) => t.status !== 'completed') ?? -1;
-  const currentTask = currentTaskIdx >= 0 ? bucketed?.tasks[currentTaskIdx] : undefined;
-  const currentTaskName =
-    currentTask !== undefined
-      ? (descriptor?.taskNames?.get(currentTask.id) ?? `${currentTask.id.slice(0, 8)}${glyphs.clipEllipsis}`)
-      : undefined;
-  const currentSubStep = currentTask?.subSteps[currentTask.subSteps.length - 1]?.leafName;
-
-  return {
-    bucketed,
-    tasksDone,
-    tasksTotal,
-    currentTask,
-    currentTaskIdx,
-    currentTaskName,
-    currentSubStep,
-  };
+  return { bucketed, ...summariseProgress(bucketed, descriptor?.taskNames) };
 };

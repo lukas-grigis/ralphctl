@@ -229,6 +229,42 @@ const CODE_FENCE = /^\s*(```|~~~)/u;
 const BLOCKQUOTE = /^\s*>/u;
 const LIST_MARKER = /^\s*(?:\d+[.)]|[-*+])\s/u;
 
+/** Line classification result: the fence flag carried forward, and whether the line is directive. */
+interface LineClassification {
+  readonly inCodeFence: boolean;
+  readonly isInstruction: boolean;
+}
+
+/**
+ * Classify one line against the scanning model documented at the top of this module: a fence
+ * delimiter toggles `inCodeFence` and is never itself scanned; a blockquote outside a fence is
+ * always descriptive; everything else counts as an instruction only when fenced code or an
+ * ordered/unordered list item.
+ */
+const classifyLine = (line: string, inCodeFence: boolean): LineClassification => {
+  // Toggle the fence flag on a fence line, but never scan the fence delimiter itself.
+  if (CODE_FENCE.test(line)) return { inCodeFence: !inCodeFence, isInstruction: false };
+
+  // Blockquotes are quoted prose (source material, anti-pattern examples) — never directive.
+  if (!inCodeFence && BLOCKQUOTE.test(line)) return { inCodeFence, isInstruction: false };
+
+  // A line is an instruction when it is fenced code OR an ordered/unordered list item.
+  return { inCodeFence, isInstruction: inCodeFence || LIST_MARKER.test(line) };
+};
+
+/** Run every rule against one instruction line, returning the violations it trips (if any). */
+const findViolationsInLine = (line: string, lineNumber: number): readonly SkillViolation[] => {
+  const lowerLine = line.toLowerCase();
+  const violations: SkillViolation[] = [];
+  for (const rule of RULES) {
+    const matchIndex = rule.match(lowerLine);
+    if (matchIndex === -1) continue;
+    if (isNegated(lowerLine, matchIndex)) continue; // anti-pattern prose — demoted.
+    violations.push({ rule: rule.id, description: rule.description, evidence: clip(line), lineNumber });
+  }
+  return violations;
+};
+
 /**
  * Scan SKILL.md `content` against the six harness-compatibility rules.
  *
@@ -244,32 +280,11 @@ export const checkSkillContract = (skillName: string, content: string): SkillCon
 
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i] ?? '';
+    const classified = classifyLine(line, inCodeFence);
+    inCodeFence = classified.inCodeFence;
+    if (!classified.isInstruction) continue;
 
-    // Toggle the fence flag on a fence line, but never scan the fence delimiter itself.
-    if (CODE_FENCE.test(line)) {
-      inCodeFence = !inCodeFence;
-      continue;
-    }
-
-    // Blockquotes are quoted prose (source material, anti-pattern examples) — never directive.
-    if (!inCodeFence && BLOCKQUOTE.test(line)) continue;
-
-    // A line is an instruction when it is fenced code OR an ordered/unordered list item.
-    const isInstruction = inCodeFence || LIST_MARKER.test(line);
-    if (!isInstruction) continue;
-
-    const lowerLine = line.toLowerCase();
-    for (const rule of RULES) {
-      const matchIndex = rule.match(lowerLine);
-      if (matchIndex === -1) continue;
-      if (isNegated(lowerLine, matchIndex)) continue; // anti-pattern prose — demoted.
-      violations.push({
-        rule: rule.id,
-        description: rule.description,
-        evidence: clip(line),
-        lineNumber: i + 1,
-      });
-    }
+    violations.push(...findViolationsInLine(line, i + 1));
   }
 
   return { skillName, violations, pass: violations.length === 0 };
