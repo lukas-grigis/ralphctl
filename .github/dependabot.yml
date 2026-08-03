@@ -16,3 +16,9 @@ updates:
     labels:
       - dependencies
     open-pull-requests-limit: 5
+    ignore:
+      # TS 7.0 hard-errors the lint run — typescript-eslint has no TS 7.0 support
+      # (typescript-eslint#10940 tracks >=7.1). Only 7.0.x is pinned out, so a 7.1
+      # bump still gets proposed once that support lands.
+      - dependency-name: typescript
+        versions: ['7.0.x']
