@@ -4,17 +4,9 @@ import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { TicketId } from '@src/domain/value/id/ticket-id.ts';
 
-// Re-exports — these types conceptually belong to Attempt but were historically used
-// alongside Task. Kept here for ergonomic imports.
-export type {
-  Attribution,
-  VerifyRun,
-  VerifyRunOutcome,
-  VerifyRunPhase,
-  Evaluation,
-  EvaluationStatus,
-  Verification,
-} from '@src/domain/entity/attempt.ts';
+// Re-export — conceptually belongs to Attempt but is used alongside Task. The sibling
+// attempt-owned types are imported from `attempt.ts` directly at every call site.
+export type { EvaluationStatus } from '@src/domain/entity/attempt.ts';
 
 /**
  * Structured "definition of done" entry attached to a {@link Task}.
