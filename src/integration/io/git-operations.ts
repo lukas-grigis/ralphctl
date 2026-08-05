@@ -267,7 +267,10 @@ export const gitStashList = async (runner: GitRunner, cwd: AbsolutePath): Promis
 };
 
 /**
- * Pop the first stash entry whose subject matches `message` exactly. Returns
+ * Pop the first stash entry created by `git stash push -m <message>`. Real git never stores the
+ * message verbatim as the entry subject — `--format=%s` renders it `On <branch>: <message>` (or
+ * `On (no branch): <message>` on a detached HEAD) — so the lookup matches `": <message>"` as a
+ * subject suffix, with bare equality kept for runners that surface the raw message. Returns
  * `{ popped: false }` (a no-op) when no entry matches — callers treat a missing stash as
  * "nothing to restore", not an error.
  */
@@ -279,7 +282,7 @@ export const gitStashPop = async (
   const list = await gitStashList(runner, cwd);
   if (!list.ok) return Result.error(list.error);
 
-  const index = list.value.findIndex((entry) => entry === message);
+  const index = list.value.findIndex((entry) => entry === message || entry.endsWith(`: ${message}`));
   if (index === -1) return Result.ok({ popped: false });
 
   const pop = await runner.run(cwd, ['stash', 'pop', `stash@{${String(index)}}`]);

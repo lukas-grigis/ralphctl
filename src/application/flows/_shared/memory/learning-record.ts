@@ -89,6 +89,15 @@ export interface LearningRecord {
    * retired" (see {@link isRetired}).
    */
   readonly retiredAt?: string | null | undefined;
+  /**
+   * Ids of ledger rows this row REPLACES — stamped when `compactLedger` merges near-duplicate
+   * (paraphrase-drift) rows into this one (see `compact-ledger.ts`). Absent on every row that has
+   * never absorbed a duplicate, including all legacy rows written before merging existed. Additive
+   * provenance, never destructive: an incremental delta on top of the existing id rather than a
+   * rewrite, so a merge cannot silently collapse context the way a lossy rewrite would (arXiv
+   * 2510.04618).
+   */
+  readonly supersedes?: readonly string[] | undefined;
 }
 
 const taskKindSchema = z.enum(['feature', 'bugfix', 'refactor', 'test', 'docs', 'chore', 'other']);
@@ -122,6 +131,8 @@ export const learningRecordSchema = z.object({
   promotedAt: z.string().nullable(),
   // OPTIONAL + nullable: legacy rows omit it (→ "not retired"); a retired row carries the ISO stamp.
   retiredAt: z.string().nullable().optional(),
+  // OPTIONAL: absent on every row that has never absorbed a merged duplicate (see `compactLedger`).
+  supersedes: z.array(z.string()).readonly().optional(),
 });
 
 // Compile-time guard: the schema's inferred output must exactly match the interface. A field

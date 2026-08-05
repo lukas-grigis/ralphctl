@@ -136,6 +136,50 @@ describe('generatorLeaf', () => {
     expect(content).toContain('(applies to test setup)');
   });
 
+  it('gates out a prior-learning with no topical relevance to the current task while keeping a relevant one', async () => {
+    // Default fixture task ('do-the-work', criterion 'runs to completion') derives taskKind
+    // 'other' — the relevant record qualifies via that taskKind match; the irrelevant record
+    // shares only a repo match (never a qualifying signal on its own — see the abstain gate in
+    // `compose-prior-learnings.ts`) and no taskKind/appliesTo/text overlap with the task's prose.
+    const task = makeInProgressTaskWithRunningAttempt();
+    const leaf = generatorLeaf(buildDeps(), task.id);
+    const result = await leaf.execute({
+      ...baseCtx(task),
+      priorLearnings: [
+        {
+          v: 1,
+          id: 'relevant',
+          text: 'this task kind benefits from running the smoke suite first',
+          repo: '/some/other/repo',
+          repoName: 'other-repo',
+          taskKind: 'other',
+          sprintId: 'sprint-prior',
+          taskId: 'task-prior',
+          timestamp: String(FIXED_NOW),
+          promotedAt: null,
+        },
+        {
+          v: 1,
+          id: 'irrelevant',
+          text: 'swap ci cache backend to redis for faster builds',
+          appliesTo: 'ci pipeline config',
+          repo: '/tmp/ralph/fake-cwd',
+          repoName: 'repo',
+          taskKind: 'chore',
+          sprintId: 'sprint-prior',
+          taskId: 'task-prior',
+          timestamp: String(FIXED_NOW),
+          promotedAt: null,
+        },
+      ],
+    });
+    expect(result.ok).toBe(true);
+
+    const content = await fs.readFile(join(String(root.root), 'rounds', '1', 'generator', 'prompt.md'), 'utf8');
+    expect(content).toContain('this task kind benefits from running the smoke suite first');
+    expect(content).not.toContain('swap ci cache backend to redis');
+  });
+
   it('injects the dimension-trajectory block into prompt.md when ctx.plateauHistory shows a still-failing dimension', async () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const leaf = generatorLeaf(buildDeps(), task.id);
@@ -557,6 +601,127 @@ describe('generatorLeaf', () => {
       expect(content).toContain('(none detected)');
       expect(content).not.toContain('- Subagent:');
       expect(content).not.toContain('- Skill:');
+    });
+  });
+
+  // Select-K prior-attempt summaries (arXiv 2604.16529) — the current task's own settled attempt
+  // history, distinct from `priorLearnings` (cross-sprint) and `priorEpisodes` (sibling tasks).
+  // Unlike those two, this section is round-relevant context, so it rides BOTH the full prompt
+  // (round 1) and the continuation prompt (round 2+) — see `buildGeneratorPrompt`'s `sharedValues`.
+  describe('prior-attempts section', () => {
+    // Attempt 1 settles `failed` and re-opens as attempt 2 (running) — mirrors the
+    // `startNextAttempt`/`failCurrentAttempt` handoff already exercised by the plateau-break
+    // tests above.
+    const taskWithOneSettledAttempt = () => {
+      const initial = makeInProgressTaskWithRunningAttempt();
+      const settled = failCurrentAttempt(initial, FIXED_LATER, 'failed');
+      if (!settled.ok) throw settled.error;
+      if (settled.value.status !== 'in_progress') throw new Error('fixture: expected in_progress after fail');
+      const reopened = startNextAttempt(settled.value, FIXED_LATER);
+      if (!reopened.ok) throw reopened.error;
+      return reopened.value;
+    };
+
+    it('omits the section when no attempt on the task has settled yet', async () => {
+      const task = makeInProgressTaskWithRunningAttempt();
+      const leaf = generatorLeaf(buildDeps(), task.id);
+      const result = await leaf.execute(baseCtx(task));
+      expect(result.ok).toBe(true);
+
+      const content = await fs.readFile(join(String(root.root), 'rounds', '1', 'generator', 'prompt.md'), 'utf8');
+      expect(content).not.toContain('<prior_attempts>');
+    });
+
+    it('renders settled prior attempts into the FULL prompt', async () => {
+      const task = taskWithOneSettledAttempt();
+      const leaf = generatorLeaf(buildDeps(), task.id);
+      const result = await leaf.execute(baseCtx(task));
+      expect(result.ok).toBe(true);
+
+      const content = await fs.readFile(join(String(root.root), 'rounds', '1', 'generator', 'prompt.md'), 'utf8');
+      expect(content).toContain('<prior_attempts>');
+      expect(content).toContain('Attempt 1: failed');
+    });
+
+    it('also renders settled prior attempts into the CONTINUATION prompt (round 2+)', async () => {
+      const task = taskWithOneSettledAttempt();
+      const provider = createFakeAiProvider({
+        responses: { implement: '', 'implement-continuation': '' },
+        sessionIds: { implement: 'gen-1' },
+      });
+      const leaf = generatorLeaf({ ...buildDeps(), provider }, task.id);
+
+      const first = await leaf.execute(baseCtx(task));
+      expect(first.ok).toBe(true);
+      if (!first.ok) return;
+
+      await fs.mkdir(join(String(root.root), 'rounds', '2', 'generator'), { recursive: true });
+      const second = await leaf.execute({ ...first.value.ctx, currentRoundNum: 2 });
+      expect(second.ok).toBe(true);
+
+      const round2 = await fs.readFile(join(String(root.root), 'rounds', '2', 'generator', 'prompt.md'), 'utf8');
+      expect(round2).toContain('# Continue — Round 2');
+      expect(round2).toContain('<prior_attempts>');
+      expect(round2).toContain('Attempt 1: failed');
+    });
+  });
+
+  // Reproduction-first (arXiv-grounded: reproduction tests are the dominant single planning
+  // factor for defect-shaped tasks) — like prior-attempts, this is round-relevant context (the
+  // generator must keep the reproduction test passing across retries), so it rides BOTH the full
+  // prompt (round 1) and the continuation prompt (round 2+).
+  describe('reproduction section', () => {
+    const reproductionArtifact: ImplementCtx['reproductionArtifact'] = {
+      testPath: 'tests/unit/foo.test.ts',
+      runCommand: 'npx vitest run tests/unit/foo.test.ts',
+      observedFailure: 'AssertionError: expected 200 to equal 404',
+      relevantTests: ['tests/unit/bar.test.ts'],
+      checksum: 'deadbeef',
+    };
+
+    it('omits the section when ctx.reproductionArtifact is absent (non-defect-shaped task)', async () => {
+      const task = makeInProgressTaskWithRunningAttempt();
+      const leaf = generatorLeaf(buildDeps(), task.id);
+      const result = await leaf.execute(baseCtx(task));
+      expect(result.ok).toBe(true);
+
+      const content = await fs.readFile(join(String(root.root), 'rounds', '1', 'generator', 'prompt.md'), 'utf8');
+      expect(content).not.toContain('<reproduction>');
+    });
+
+    it('renders the validated reproduction into the FULL prompt', async () => {
+      const task = makeInProgressTaskWithRunningAttempt();
+      const leaf = generatorLeaf(buildDeps(), task.id);
+      const result = await leaf.execute({ ...baseCtx(task), reproductionArtifact });
+      expect(result.ok).toBe(true);
+
+      const content = await fs.readFile(join(String(root.root), 'rounds', '1', 'generator', 'prompt.md'), 'utf8');
+      expect(content).toContain('<reproduction>');
+      expect(content).toContain('tests/unit/foo.test.ts');
+      expect(content).toContain('npx vitest run tests/unit/foo.test.ts');
+      expect(content).toContain('AssertionError: expected 200 to equal 404');
+    });
+
+    it('also renders the reproduction into the CONTINUATION prompt (round 2+)', async () => {
+      const task = makeInProgressTaskWithRunningAttempt();
+      const provider = createFakeAiProvider({
+        responses: { implement: '', 'implement-continuation': '' },
+        sessionIds: { implement: 'gen-1' },
+      });
+      const leaf = generatorLeaf({ ...buildDeps(), provider }, task.id);
+
+      const first = await leaf.execute({ ...baseCtx(task), reproductionArtifact });
+      expect(first.ok).toBe(true);
+      if (!first.ok) return;
+
+      await fs.mkdir(join(String(root.root), 'rounds', '2', 'generator'), { recursive: true });
+      const second = await leaf.execute({ ...first.value.ctx, currentRoundNum: 2 });
+      expect(second.ok).toBe(true);
+
+      const round2 = await fs.readFile(join(String(root.root), 'rounds', '2', 'generator', 'prompt.md'), 'utf8');
+      expect(round2).toContain('# Continue — Round 2');
+      expect(round2).toContain('<reproduction>');
+      expect(round2).toContain('tests/unit/foo.test.ts');
     });
   });
 });

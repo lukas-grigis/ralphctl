@@ -318,6 +318,41 @@ describe('gitStashPop', () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.message).toContain('CONFLICT');
   });
+
+  it('matches real git subject rendering — `On <branch>: <message>` — not just the bare message', async () => {
+    // git stash push -m <msg> renders the %s subject as `On <branch>: <msg>`; the bare form
+    // never appears against a real repository, so equality-only matching silently no-ops.
+    const { runner, received } = scriptRunner([
+      { args: ['stash', 'list', '--format=%s'], result: ok('On main: other\nOn main: ralphctl-blocked-diff\n') },
+      { args: ['stash', 'pop', 'stash@{1}'], result: ok() },
+    ]);
+    const result = await gitStashPop(runner, cwd, 'ralphctl-blocked-diff');
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.popped).toBe(true);
+    expect(received[1]?.args).toEqual(['stash', 'pop', 'stash@{1}']);
+  });
+
+  it('matches the detached-HEAD rendering `On (no branch): <message>`', async () => {
+    const { runner } = scriptRunner([
+      { args: ['stash', 'list', '--format=%s'], result: ok('On (no branch): ralphctl-blocked-diff\n') },
+      { args: ['stash', 'pop', 'stash@{0}'], result: ok() },
+    ]);
+    const result = await gitStashPop(runner, cwd, 'ralphctl-blocked-diff');
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.popped).toBe(true);
+  });
+
+  it('does not match a subject where the message appears without the `: ` separator', async () => {
+    // Precision guard for the suffix rule: a different stash whose subject merely CONTAINS the
+    // message (e.g. a longer message sharing the tail) must not be popped by mistake.
+    const { runner, received } = scriptRunner([
+      { args: ['stash', 'list', '--format=%s'], result: ok('On main: prefix-ralphctl-blocked-diff\n') },
+    ]);
+    const result = await gitStashPop(runner, cwd, 'ralphctl-blocked-diff');
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.popped).toBe(false);
+    expect(received).toHaveLength(1);
+  });
 });
 
 describe('gitGetCurrentBranch', () => {

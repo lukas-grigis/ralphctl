@@ -64,6 +64,13 @@ export interface EvaluateContinuationPromptParams {
    * hints were collected — `{{GENERATOR_HINTS_SECTION}}` collapses cleanly.
    */
   readonly generatorHintsSection: string;
+  /**
+   * Optional `<reproduction>` block — when a `reproduce` session wrote a failing test for this
+   * defect-shaped task, its test path, run command, and observed failure ride here so the
+   * reviewer re-runs it directly as an extension of the verification-tampering check. Absent or
+   * empty → `{{REPRODUCTION_SECTION}}` collapses cleanly (no orphan block).
+   */
+  readonly reproductionSection?: string;
 }
 
 export const evaluateContinuationPromptDef: PromptDefinition<EvaluateContinuationPromptParams> = {
@@ -113,6 +120,13 @@ export const evaluateContinuationPromptDef: PromptDefinition<EvaluateContinuatio
       description:
         'Same-round generator observations (environment notes, learnings) framed as unverified context inside a <generator_hints> block — empty when no hints were collected.',
     },
+    reproductionSection: {
+      placeholder: 'REPRODUCTION_SECTION',
+      optional: true,
+      description:
+        'Failing reproduction test a prior `reproduce` session wrote for this defect-shaped task — test ' +
+        'path, run command, observed failure. Empty → `{{REPRODUCTION_SECTION}}` collapses (no `<reproduction>` wrapper).',
+    },
   },
   partials: {
     HARNESS_CONTEXT: 'harness-context',
@@ -138,7 +152,36 @@ export interface BuildEvaluateContinuationPromptInput {
    * → `{{GENERATOR_HINTS_SECTION}}` collapses cleanly.
    */
   readonly generatorHints?: string;
+  /**
+   * Pre-composed body describing a reproduction test a prior `reproduce` session wrote for this
+   * defect-shaped task — its test path, run command, and observed failure excerpt. Absent or
+   * empty → `{{REPRODUCTION_SECTION}}` collapses (no `<reproduction>` block emitted).
+   */
+  readonly reproduction?: string;
 }
+
+/**
+ * Render the optional `<reproduction>` block — a failing test a prior `reproduce` session wrote
+ * for this defect-shaped task. Framed for the reviewer role (re-run it yourself; an unexplained
+ * edit is tampering), matching the wording of the same-named helper in `evaluate/definition.ts` —
+ * duplicated rather than shared because `_engine/renderers/task.ts` is outside this task's
+ * ownership, mirroring the existing local-only `renderPriorAttemptsSection` precedent in the
+ * implement / implement-continuation pair. Empty / absent → empty string so
+ * `{{REPRODUCTION_SECTION}}` collapses cleanly with no orphan wrapper.
+ */
+const renderReproductionSection = (reproduction: string | undefined): string => {
+  if (reproduction === undefined) return '';
+  const trimmed = reproduction.trim();
+  if (trimmed.length === 0) return '';
+  return [
+    '<reproduction>',
+    'Re-run this reproduction command yourself as part of this check — see the verification-tampering',
+    'step below for how an edit to this test is treated.',
+    '',
+    trimmed,
+    '</reproduction>',
+  ].join('\n');
+};
 
 /**
  * Top-level builder — renders the param strings, calls `buildPrompt`. The chain leaf consumes
@@ -156,4 +199,5 @@ export const buildEvaluateContinuationPrompt = async (
     floorRubricSection: renderFloorRubricSection(),
     outputContractSection: input.outputContractSection,
     generatorHintsSection: renderGeneratorHintsSection(input.generatorHints),
+    reproductionSection: renderReproductionSection(input.reproduction),
   });

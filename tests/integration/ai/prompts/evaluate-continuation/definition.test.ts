@@ -57,6 +57,16 @@ describe('evaluateContinuationPromptDef — completeness', () => {
     const placeholders = Object.values(evaluateContinuationPromptDef.parameters).map((p) => p.placeholder);
     expect(placeholders).toContain('FLOOR_RUBRIC_SECTION');
   });
+
+  it('requires re-executing a runnable manual criterion this round, mirroring the full evaluate prompt', async () => {
+    const template = (await fs.readFile(TEMPLATE_PATH, 'utf8')).replace(/\s+/g, ' ');
+    expect(template).toContain('execute the changed path again this round and cite the observed output');
+    // The UNVERIFIED escape hatch is scoped to a runnable criterion you were BLOCKED from executing —
+    // not to every criterion that is not runnable by nature, which stays gradable on path:line evidence,
+    // mirroring the full evaluate prompt's reconciled wording.
+    expect(template).toContain('blocked from executing it here');
+    expect(template).toContain('not runnable by nature is never UNVERIFIED');
+  });
 });
 
 describe('buildEvaluateContinuationPrompt — end-to-end against the real template', () => {

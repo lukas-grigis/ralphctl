@@ -31,6 +31,10 @@ import {
 } from '@src/application/flows/implement/leaves/_shared/generator-hints.ts';
 import { positiveCountCarry } from '@src/application/flows/implement/leaves/_shared/nudge-count-carry.ts';
 import {
+  buildEvaluatorReproductionSection,
+  type ReproductionArtifact,
+} from '@src/application/flows/implement/leaves/reproduce.ts';
+import {
   readCappedProgress,
   requireRoleTurnCtx,
   resolveProjectToolingCarry,
@@ -94,6 +98,17 @@ interface EvaluatorInput {
    * id) → fresh session.
    */
   readonly priorEvaluatorSessionId?: SessionId;
+  /**
+   * The validated reproduction artifact (read side) — the SAME `ctx.reproductionArtifact` the
+   * guarded `reproduce-<taskId>` leaf validated before the attempt loop. Rendered into the
+   * `<reproduction>` prompt body (with a re-checksum tamper check — see
+   * `buildEvaluatorReproductionSection` in `reproduce.ts`) inside {@link makeEvaluatorCallEvaluate},
+   * which is async and has `deps.cwd`; this `input` projection stays a pure ctx read, so the raw
+   * artifact rides here rather than a pre-rendered string. Rides every round (not just round 1) —
+   * the evaluator's re-run instruction is an extension of its verification-tampering check on
+   * every turn. Undefined when the task is not defect-shaped or no reproduction was validated.
+   */
+  readonly reproductionArtifact?: ReproductionArtifact;
 }
 
 interface EvaluatorOutput {
@@ -152,6 +167,8 @@ const buildEvaluatorPrompt = async (
      * slot only when non-empty so the placeholder collapses cleanly otherwise.
      */
     readonly generatorHints: string;
+    /** Pre-composed reproduction body — see `EvaluatorInput.reproduction`'s docstring. */
+    readonly reproduction: string | undefined;
   }
 ): Promise<Result<Prompt, BuildPromptError>> => {
   const sharedValues = {
@@ -160,6 +177,7 @@ const buildEvaluatorPrompt = async (
     outputContractSection: args.outputContractSection,
     // Threaded only when non-empty so the `<generator_hints>` placeholder collapses cleanly.
     ...(args.generatorHints.length > 0 ? { generatorHints: args.generatorHints } : {}),
+    ...(args.reproduction !== undefined ? { reproduction: args.reproduction } : {}),
   };
 
   if (args.priorEvaluatorSessionId !== undefined) {
@@ -229,15 +247,26 @@ const makeEvaluatorCallEvaluate =
       priorSessionId: args.input.priorEvaluatorSessionId,
       signal: args.signal,
       contract: evaluatorOutputContract,
-      buildPrompt: async () =>
-        buildEvaluatorPrompt(deps, {
+      buildPrompt: async () => {
+        // Re-checksum the reproduction test against the hash captured when it was validated —
+        // an unexplained edit (or deletion) during the gen-eval loop appends a bounded tampering
+        // note to the SAME `<reproduction>` section the template's tampering-detection rule
+        // already audits. Only the evaluator re-checks (once per turn); `generator.ts` keeps the
+        // plain, sync `readReproductionSection` — see `EvaluatorInput.reproductionArtifact`.
+        const reproduction =
+          args.input.reproductionArtifact !== undefined
+            ? await buildEvaluatorReproductionSection(deps.cwd, args.input.reproductionArtifact)
+            : undefined;
+        return buildEvaluatorPrompt(deps, {
           task,
           workspaceRoot: args.input.workspaceRoot,
           roundNum: args.input.roundNum,
           outputContractSection,
           priorEvaluatorSessionId: args.input.priorEvaluatorSessionId,
           generatorHints: args.input.generatorHints,
-        }),
+          reproduction,
+        });
+      },
       selfContainedContext: selfContainedGrounding(
         args.input.workspaceRoot,
         outputContractSection,
@@ -331,6 +360,8 @@ const makeEvaluatorInput =
       ...(ctx.currentAttemptLearnings !== undefined ? { learnings: ctx.currentAttemptLearnings } : {}),
       ...(ctx.currentAttemptNotes !== undefined ? { notes: ctx.currentAttemptNotes } : {}),
     };
+    // Reproduction-first (read side) — the raw artifact rides here; the async re-checksum + render
+    // happens in `makeEvaluatorCallEvaluate` (see `EvaluatorInput.reproductionArtifact`'s docstring).
     return {
       task,
       priorTurns: ctx.plateauHistory ?? [],
@@ -339,6 +370,7 @@ const makeEvaluatorInput =
       generatorHints: composeGeneratorHints(hintsInput),
       ...(currentCommitSubject !== undefined ? { currentCommitSubject } : {}),
       ...(ctx.priorEvaluatorSessionId !== undefined ? { priorEvaluatorSessionId: ctx.priorEvaluatorSessionId } : {}),
+      ...(ctx.reproductionArtifact !== undefined ? { reproductionArtifact: ctx.reproductionArtifact } : {}),
     };
   };
 

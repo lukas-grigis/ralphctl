@@ -114,6 +114,25 @@ interface TaskBase extends Entity<TaskId> {
    * leaf prefers this value over the configured evaluator effort when present.
    */
   readonly escalatedToEvaluatorEffort?: string;
+  /**
+   * Permanent "a best-of-N attempt has been granted to this task" marker — stamped once by
+   * `recordTaskBestOfNGrant` in `task-settle.ts` when the escalation policy's opt-in top-of-ladder
+   * `best-of-n` remedy fires (research: arXiv 2604.16529 — harness-level N-candidate selection).
+   * NEVER cleared once set — this is what `decideEscalation` reads to enforce the once-per-task
+   * guarantee (a granted attempt that later fails routes the next walk to `topped-out`, never
+   * re-grants). Independent of {@link bestOfNGrantedCandidates} below, which a later attempt-body
+   * increment may clear once consumed.
+   */
+  readonly bestOfNGranted?: true;
+  /**
+   * Candidate count (N) granted to the task's NEXT attempt — the transient handshake value the
+   * attempt-body reads at start-attempt to detect "this attempt should sample N candidates and
+   * select by verification then judging," then clears back to `undefined` once consumed. The
+   * once-per-task gate does NOT depend on this field being cleared — it reads the permanent
+   * {@link bestOfNGranted} marker instead, so the gate stays correct even before a later increment
+   * wires the consuming/clearing side.
+   */
+  readonly bestOfNGrantedCandidates?: number;
 }
 
 export interface TodoTask extends TaskBase {

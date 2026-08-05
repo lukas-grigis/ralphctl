@@ -63,7 +63,11 @@ const triggerLabel = (trigger: EscalationTrigger): string =>
  * Outputs (discriminated):
  *   - `escalate`          — a stronger model rung exists above `generatorModel`; caller re-stamps
  *                           the task (model bump) + emits events. Task stays in_progress for the
- *                           next attempt. Fires once per rung, repeatedly up the ladder.
+ *                           next attempt. Fires once per rung, repeatedly up the ladder. Also
+ *                           carries the evaluator lockstep effort bump (see `evaluator` below) —
+ *                           the Verification Horizon rule (arXiv 2606.26300: a fixed verifier
+ *                           weakens as the generator strengthens) fires it on EVERY generator MODEL
+ *                           climb, not only the same-model effort rung.
  *   - `escalate-effort`   — no stronger MODEL rung (generator at the top of the ladder), not yet
  *                           nudged, the provider/model exposes an effort dimension, and the resolved
  *                           generator effort has headroom below its ceiling ({@link nextEffortRung}
@@ -81,15 +85,47 @@ const triggerLabel = (trigger: EscalationTrigger): string =>
  *                           SAME model (from === to marks the top-of-ladder nudge), and the generator
  *                           gets a change-of-approach directive. Task stays in_progress for one more
  *                           attempt. No model change.
+ *   - `best-of-n`         — opt-in remedy ABOVE the nudge: the task was already nudged at the top
+ *                           and plateaued again (the same frontier `topped-out` fires at), the
+ *                           operator opted in via `settings.harness.bestOfNCandidates` (>= 2), and
+ *                           the task has not already been granted one (once-per-task). Caller
+ *                           grants one more attempt that samples `n` candidates on the SAME model
+ *                           and selects among them by verification then judging (arXiv 2604.16529
+ *                           (RTV): harness-level N-candidate selection lifted SWE-bench Verified
+ *                           67.4 → 73.6 at N=16 — RTV measured N=16, not the 2-4 cap used here;
+ *                           arXiv 2601.22129 (SWE-Replay) motivates the tight cap via a
+ *                           descriptive read of its concave scaling curve — a small N captures a
+ *                           disproportionate share of the gain; arXiv 2507.23370's cascade
+ *                           ablations motivate selecting by verification then judging). Fires at
+ *                           most once per task — a further
+ *                           failure after the granted attempt returns `topped-out`.
  *   - `flag-off`          — operator opted out; caller leaves the path unchanged (done-with-warning).
- *   - `topped-out`        — the task was already nudged at the top of the ladder and failed again;
- *                           caller preserves the work (done-with-warning), no new event.
+ *   - `topped-out`        — the task was already nudged at the top of the ladder and failed again
+ *                           (and either `bestOfNCandidates` is off/spent or the task already
+ *                           consumed its one grant); caller preserves the work (done-with-warning),
+ *                           no new event.
  *   - `budget-exhausted`  — flag on but the next attempt would exceed the effective `maxAttempts`
  *                           (no budget to retry); caller preserves the work (done-with-warning)
  *                           naming the budget.
  */
 export type EscalationDecision =
-  | { readonly kind: 'escalate'; readonly from: string; readonly to: string }
+  | {
+      readonly kind: 'escalate';
+      readonly from: string;
+      readonly to: string;
+      /**
+       * The evaluator's own same-model effort bump, fired in lockstep with the generator's MODEL
+       * rung above — computed identically to the `escalate-effort` variant's `evaluator` field
+       * (same {@link computeEvaluatorEffortCarry} helper) against the evaluator's OWN
+       * provider/model/effort triple, never copied from the generator's `from`/`to`. Absent under
+       * the same conditions: no evaluator context supplied, or the evaluator already at its own
+       * effort ceiling. The evaluator MODEL is never escalated — this is effort-only, and it fires
+       * on every model-rung climb (not only the same-model effort rung) per the Verification
+       * Horizon rule (arXiv 2606.26300): a fixed verifier weakens as the generator strengthens, so
+       * strengthening the generator's model should nudge the verifier's own effort in lockstep too.
+       */
+      readonly evaluator?: { readonly from: string; readonly to: string };
+    }
   | {
       readonly kind: 'escalate-effort';
       readonly model: string;
@@ -106,6 +142,7 @@ export type EscalationDecision =
       readonly evaluator?: { readonly from: string; readonly to: string };
     }
   | { readonly kind: 'nudge'; readonly currentModel: string }
+  | { readonly kind: 'best-of-n'; readonly n: number; readonly model: string }
   | { readonly kind: 'flag-off' }
   | { readonly kind: 'topped-out'; readonly model: string }
   | { readonly kind: 'budget-exhausted'; readonly attemptsUsed: number; readonly maxAttempts: number };
@@ -162,21 +199,53 @@ export interface DecideEscalationProps {
    * from it. OPTIONAL for the same reason as {@link evaluatorProvider}.
    */
   readonly evaluatorEffort?: string | undefined;
+  /**
+   * Opt-in best-of-N candidate count — mirrors `settings.harness.bestOfNCandidates` (0 or 2-4;
+   * `undefined`/`0` disables it, the default). Read only to decide whether the top-of-ladder
+   * `best-of-n` remedy is available once the model ladder AND the same-model nudge are both
+   * spent; the policy stays pure and never reads settings itself — the caller (finalize-gen-eval)
+   * resolves this from the live harness config and passes it through. See
+   * `domain/entity/settings.ts`'s field JSDoc for the cost caveat and research citation.
+   */
+  readonly bestOfNCandidates?: number | undefined;
 }
 
 /**
+ * Evaluator lockstep effort carry — computed IDENTICALLY for both the `escalate` (generator MODEL
+ * rung climb) and `escalate-effort` (generator same-model effort rung) decisions, against the
+ * evaluator's OWN provider/model/effort triple via {@link nextEffortRung}, never copied from the
+ * generator's target. Absent when the caller supplied no evaluator context (`evaluatorModel`
+ * undefined) or the evaluator is already at its own effort ceiling. Shared here so both call sites
+ * in {@link decideEscalation} stay byte-for-byte identical rather than drifting independently.
+ */
+const computeEvaluatorEffortCarry = (
+  props: DecideEscalationProps
+): { readonly evaluator?: { readonly from: string; readonly to: string } } => {
+  const evaluatorEffortTarget =
+    props.evaluatorModel !== undefined
+      ? nextEffortRung(props.evaluatorProvider, props.evaluatorModel, props.evaluatorEffort)
+      : undefined;
+  return evaluatorEffortTarget !== undefined
+    ? { evaluator: { from: props.evaluatorEffort ?? 'default', to: evaluatorEffortTarget } }
+    : {};
+};
+
+/**
  * Pure decision function. Walks the conditions in priority order: flag → budget → model mapping →
- * top-of-ladder (already-nudged → effort rung → nudge). Budget is checked before mapping so the
- * operator sees a precise reason when both conditions fail simultaneously (the docs explicitly call
- * this out — "On budget edge: emit warn naming budget exhaustion, not missing mapping").
+ * top-of-ladder (already-nudged → best-of-N → effort rung → nudge). Budget is checked before
+ * mapping so the operator sees a precise reason when both conditions fail simultaneously (the docs
+ * explicitly call this out — "On budget edge: emit warn naming budget exhaustion, not missing
+ * mapping").
  *
  * Multi-rung climb: `generatorModel` is the model the just-finished attempt ran on. Because the
  * generator leaf re-reads `escalatedToModel` each attempt, `generatorModel` advances one rung per
  * plateau, so this function returns `escalate` repeatedly until the generator hits the top of the
- * model ladder. At the top it tries a same-model `escalate-effort` rung (to the provider/model-aware
- * target from {@link nextEffortRung}, when the provider/model supports effort and there is headroom),
- * then `nudge` (same-model retry with a change-of-approach directive), and a further plateau after
- * the nudge returns `topped-out` (keep the work).
+ * model ladder — each climb also carries the evaluator's lockstep effort bump when headroom exists
+ * (Verification Horizon, arXiv 2606.26300). At the top it tries a same-model `escalate-effort` rung
+ * (to the provider/model-aware target from {@link nextEffortRung}, when the provider/model supports
+ * effort and there is headroom), then `nudge` (same-model retry with a change-of-approach
+ * directive). A further plateau after the nudge returns `best-of-n` when the operator opted in and
+ * the task has not already been granted one, else `topped-out` (keep the work).
  */
 export const decideEscalation = (props: DecideEscalationProps): EscalationDecision => {
   if (!props.flagOn) return { kind: 'flag-off' };
@@ -203,16 +272,29 @@ export const decideEscalation = (props: DecideEscalationProps): EscalationDecisi
     // cyclic-chain guard keeps an operator-authored `escalationMap` cycle (`{ a: b, b: a }`, which
     // the self-loop warning misses) from driving an unbounded climb — a model on a cycle falls
     // through to the same-model nudge / topped-out path below instead of escalating forever.
-    return { kind: 'escalate', from: props.generatorModel, to: next };
+    // Every model-rung climb also carries the evaluator's lockstep effort bump when headroom
+    // exists (Verification Horizon, arXiv 2606.26300) — computed by the SAME helper the
+    // `escalate-effort` branch below uses, never copied from the generator's own target.
+    return { kind: 'escalate', from: props.generatorModel, to: next, ...computeEvaluatorEffortCarry(props) };
   }
   // Top of the model ladder (no stronger rung above `generatorModel`). If the task was already
-  // nudged at the top (stamped from === to === generatorModel) and plateaued again, top out and
-  // keep the work.
+  // nudged at the top (stamped from === to === generatorModel) and plateaued again, either grant
+  // the opt-in best-of-N remedy (once per task) or top out and keep the work.
   const nudgedAtTop =
     props.task.escalatedFromModel !== undefined &&
     props.task.escalatedFromModel === props.task.escalatedToModel &&
     props.task.escalatedToModel === props.generatorModel;
-  if (nudgedAtTop) return { kind: 'topped-out', model: props.generatorModel };
+  if (nudgedAtTop) {
+    // Opt-in top-of-ladder remedy ABOVE the nudge: fires only when the operator set
+    // `bestOfNCandidates >= 2` AND the task has not already been granted one — the durable
+    // `task.bestOfNGranted` stamp (never cleared once set) guarantees once-per-task, so a granted
+    // attempt that still fails routes straight back to `topped-out` on the next walk.
+    const bestOfN = props.bestOfNCandidates ?? 0;
+    if (bestOfN >= 2 && props.task.bestOfNGranted !== true) {
+      return { kind: 'best-of-n', n: bestOfN, model: props.generatorModel };
+    }
+    return { kind: 'topped-out', model: props.generatorModel };
+  }
   // Cheapest remedy before the change-of-approach nudge: raise reasoning effort on the SAME model
   // when the provider/model exposes an effort dimension and there is headroom. The target is
   // provider/model-aware (nextEffortRung): Claude climbs its own tiers (unset on an xhigh-capable
@@ -223,23 +305,12 @@ export const decideEscalation = (props: DecideEscalationProps): EscalationDecisi
   // at its ceiling.
   const effortTarget = nextEffortRung(props.generatorProvider, props.generatorModel, props.generatorEffort);
   if (effortTarget !== undefined) {
-    // Lockstep evaluator bump: computed independently against the evaluator's OWN provider/model/
-    // effort triple — never copied from the generator's target. Absent when the caller supplied no
-    // evaluator context or the evaluator has no headroom left (already at its own ceiling).
-    const evaluatorEffortTarget =
-      props.evaluatorModel !== undefined
-        ? nextEffortRung(props.evaluatorProvider, props.evaluatorModel, props.evaluatorEffort)
-        : undefined;
-    const evaluatorCarry =
-      evaluatorEffortTarget !== undefined
-        ? { evaluator: { from: props.evaluatorEffort ?? 'default', to: evaluatorEffortTarget } }
-        : {};
     return {
       kind: 'escalate-effort',
       model: props.generatorModel,
       from: props.generatorEffort ?? 'default',
       to: effortTarget,
-      ...evaluatorCarry,
+      ...computeEvaluatorEffortCarry(props),
     };
   }
   // Top of the ladder, no effort headroom, not yet nudged. Grant one more attempt on the same model
@@ -376,7 +447,8 @@ const publishBanner = (ctx: AnnounceContext, tier: 'info' | 'warn', message: str
   ctx.eventBus.publish({ type: BANNER_SHOW_EVENT, id: ctx.bannerId, tier, message, cause, at: ctx.now });
 };
 
-/** A stronger model rung exists — stamp the bump on the task and narrate it. */
+/** A stronger model rung exists — stamp the bump on the task and narrate it (plus the evaluator's
+ * lockstep effort bump, when present — mirrors `announceEffortEscalation`'s banner style). */
 const announceModelEscalation = (
   ctx: AnnounceContext,
   decision: Extract<EscalationDecision, { kind: 'escalate' }>
@@ -393,13 +465,18 @@ const announceModelEscalation = (
     ...(ctx.plateauSource !== undefined ? { plateauSource: ctx.plateauSource } : {}),
     at: ctx.now,
   });
-  publishBanner(ctx, 'info', `escalated generator model: ${decision.from} → ${decision.to}`);
+  const evaluatorClause =
+    decision.evaluator !== undefined ? `; evaluator effort: ${decision.evaluator.from} → ${decision.evaluator.to}` : '';
+  publishBanner(ctx, 'info', `escalated generator model: ${decision.from} → ${decision.to}${evaluatorClause}`);
   ctx.log.info(`escalating generator model: ${decision.from} → ${decision.to}`, {
     taskId: String(ctx.task.id),
     attemptN: ctx.task.attempts.length,
     from: decision.from,
     to: decision.to,
     reason: ctx.trigger,
+    ...(decision.evaluator !== undefined
+      ? { evaluatorFrom: decision.evaluator.from, evaluatorTo: decision.evaluator.to }
+      : {}),
   });
   return Result.ok({ task: stamped.value });
 };
@@ -465,6 +542,32 @@ const announceNudge = (
 };
 
 /**
+ * Opt-in remedy ABOVE the nudge: grant one more attempt that samples `decision.n` candidates on
+ * the unchanged model and selects among them by verification then judging. No model bump and no
+ * `model-escalated` event (the model itself never changes) — mirrors `announceEffortEscalation`'s
+ * announce-only posture. The once-per-task grant stamp (`recordTaskBestOfNGrant`) is applied by
+ * the CALLER (finalize-gen-eval), alongside the evaluator effort stamp, in the same
+ * `taskRepo.update` persist — this half only announces the decision.
+ */
+const announceBestOfN = (
+  ctx: AnnounceContext,
+  decision: Extract<EscalationDecision, { kind: 'best-of-n' }>
+): Result<ApplyEscalationOutput, ValidationError> => {
+  publishBanner(
+    ctx,
+    'info',
+    `${ctx.cause} on '${decision.model}' (top of ladder) — next attempt samples ${String(decision.n)} candidates and selects by verification then judging`
+  );
+  ctx.log.info('best-of-N granted: next attempt samples N candidates, selected by verification then judging', {
+    taskId: String(ctx.task.id),
+    model: decision.model,
+    n: decision.n,
+    reason: ctx.trigger,
+  });
+  return Result.ok({ task: ctx.task });
+};
+
+/**
  * The generator climbed to the top of the ladder and the top-of-ladder nudge also failed.
  * Preserve the work (done-with-warning) rather than blocking — matches the flag-off path; an
  * escalatable exit never throws the work away. The warn banner tells the operator the ladder
@@ -508,10 +611,12 @@ const announceBudgetExhausted = (
 /**
  * Side-effecting half of the policy — given a {@link decideEscalation} verdict, emit the
  * matching banner + log lines and (for the model-bump path) return the task with the escalation
- * fields stamped. The same-model effort rung (escalate-effort) announces the remedy but stamps
- * nothing (the model is unchanged); the preserve paths (topped-out / budget-exhausted) and flag-off
- * return the task as-is. None set `blockedReason`, because an escalatable exit never blocks. The
- * `trigger` names the originating exit kind in the emitted event + copy.
+ * fields stamped. The same-model effort rung (escalate-effort) and the best-of-N grant announce
+ * the remedy but stamp nothing here (the model is unchanged for both; the caller — finalize-gen-eval
+ * — applies the effort/grant stamps alongside `applyEscalation`'s model stamp in one persist); the
+ * preserve paths (topped-out / budget-exhausted) and flag-off return the task as-is. None set
+ * `blockedReason`, because an escalatable exit never blocks. The `trigger` names the originating
+ * exit kind in the emitted event + copy.
  *
  * The `flag-off` decision short-circuits — the caller leaves the existing behaviour intact
  * (today's done-with-warning settle) so opting out cleanly preserves the v0.7.0 path.
@@ -538,6 +643,8 @@ export const applyEscalation = (props: ApplyEscalationProps): Result<ApplyEscala
       return announceEffortEscalation(ctx, decision);
     case 'nudge':
       return announceNudge(ctx, decision);
+    case 'best-of-n':
+      return announceBestOfN(ctx, decision);
     case 'topped-out':
       return announceToppedOut(ctx, decision);
     case 'budget-exhausted':

@@ -70,6 +70,8 @@ is empty there is no recent journal context to apply.
 For the complete history — older than the excerpt above — read `{{PROGRESS_FILE}}` on disk.
 </prior_progress>
 
+{{REPRODUCTION_SECTION}}
+
 {{GENERATOR_HINTS_SECTION}}
 
 <evaluation_discipline>
@@ -129,14 +131,22 @@ Re-grade this round the same way you graded the first:
 3. Audit the diff for verification tampering — check whether this round's changes touch test files,
    fixtures, or verification tooling themselves. A criterion satisfied by weakening or deleting a test,
    adding a skip, or hardcoding an expected value is a Correctness FAIL, not a PASS — cite the specific
-   diff hunk, even if you flagged the same file last round.
-4. Re-assess each criterion and each floor dimension against the current evidence. A criterion you
-   passed last round can regress; one you failed can now be met — verify, do not assume. When you could
-   not verify a criterion this round, grade `passed: false` and begin its evidence with "UNVERIFIED:"
-   plus what blocked you. Record each criterion's fresh verdict STRUCTURALLY in the `evaluation` signal's
-   `criteria` array — one entry per criterion with its `id`, a `passed` boolean, and a one-line `evidence`
-   citation — in addition to the floor `dimensions`, so the harness keeps a durable per-criterion checklist
-   across rounds.
+   diff hunk, even if you flagged the same file last round. When `<reproduction>` above is non-empty,
+   this check extends to it: re-run its command yourself — the task cannot pass Correctness while that
+   command still fails — and treat an unexplained edit to the reproduction test the same as any other
+   tampering caught here.
+4. Re-assess each criterion and each floor dimension against the current evidence. When the changed
+   behaviour is runnable (a command, a script, a service endpoint, or a test), execute the changed
+   path again this round and cite the observed output — a diff read or a green verify script alone
+   does not substitute for that observation. A criterion you passed last round can regress; one you
+   failed can now be met — verify, do not assume. Exception — a criterion whose behaviour IS runnable
+   but you were blocked from executing it here (missing credentials, no network, an environment gap) is
+   graded `passed: false` with evidence beginning "UNVERIFIED:" plus what blocked you. A criterion that
+   is not runnable by nature is never UNVERIFIED — grade it on cited `path:line` or equivalent
+   behavioural evidence, same as the first round. Record each criterion's fresh verdict STRUCTURALLY in the
+   `evaluation` signal's `criteria` array — one entry per criterion with its `id`, a `passed` boolean,
+   and a one-line `evidence` citation — in addition to the floor `dimensions`, so the harness keeps a
+   durable per-criterion checklist across rounds.
 5. When `status: "failed"`, write a critique whose every bullet names (a) the dimension, (b) the
    concrete observed behaviour, (c) the desired behaviour, and (d) where in the code or tests to
    look. A bullet missing (d) is itself a Completeness failure on re-evaluation.

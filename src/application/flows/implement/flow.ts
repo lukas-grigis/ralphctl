@@ -16,6 +16,7 @@ import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
 import { activateSprintLeaf } from '@src/application/flows/implement/leaves/activate-sprint.ts';
 import { appendJournalSeparatorLeaf } from '@src/application/flows/_shared/progress/append-journal-separator.ts';
 import { createPerTaskSubchain } from '@src/application/flows/implement/leaves/per-task-subchain.ts';
+import { buildAttemptReadConfig } from '@src/application/flows/implement/leaves/attempt-body.ts';
 import { type DirtyTreePolicy } from '@src/application/flows/implement/leaves/preflight-task.ts';
 import { resolveBranchLeaf } from '@src/application/flows/implement/leaves/resolve-branch.ts';
 import { type RepoExecConfig, resolveRepoOrThrow } from '@src/application/flows/implement/leaves/resolve-repo.ts';
@@ -444,19 +445,11 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
   // built once per launch in the launcher, and nothing mutates it, so a mid-run settings edit does
   // NOT take effect until the next launch. The accessor stays Promise-shaped only because its
   // consumers `await` it (a live settings re-read would slot in here without touching them), but it
-  // must not claim a mid-run reload the wiring does not provide.
-  const readConfig = (): Promise<{
-    readonly maxTurns: number;
-    readonly escalateOnPlateau: boolean;
-    readonly escalationMap: Readonly<Record<string, string>>;
-    readonly maxAttempts: number;
-  }> =>
-    Promise.resolve({
-      maxTurns: deps.config.harness.maxTurns,
-      escalateOnPlateau: deps.config.harness.escalateOnPlateau,
-      escalationMap: deps.config.harness.escalationMap,
-      maxAttempts: deps.config.harness.maxAttempts,
-    });
+  // must not claim a mid-run reload the wiring does not provide. Built via the shared
+  // `buildAttemptReadConfig` (see `attempt-body.ts`) so this serial launcher and the parallel
+  // launcher's own `readConfig` (`ui/shared/launch/implement.ts`) can never drift onto different
+  // field sets.
+  const readConfig = buildAttemptReadConfig(deps.config.harness);
 
   // The serial path is a single caller — no other branch ever contends with it — so the run's
   // `deps.journalMutex` acts as an effective no-op for `progress-journal-<taskId>`'s critical

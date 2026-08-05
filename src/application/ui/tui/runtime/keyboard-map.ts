@@ -222,6 +222,8 @@ const signalReference: KeySection = {
     { keys: [], label: 'script', description: 'setup or check script discovered or run' },
     { keys: [], label: 'proposal', description: 'AI-authored context file or skill draft' },
     { keys: [], label: 'skills', description: 'skill suggestions surfaced for this run' },
+    { keys: [], label: 'reproduce', description: 'failing test written to demonstrate a reported defect' },
+    { keys: [], label: 'judge', description: 'best-of-N candidate comparison verdict' },
   ],
 };
 

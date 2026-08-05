@@ -29,7 +29,7 @@ import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
  * explicitly via `ai.implement.generator.<field>` or `ai.implement.evaluator.<field>`.
  */
 const SETTINGS_KEY_HINT =
-  'supported keys: ai.effort, ai.{flow}.{provider,model,effort} (flow in {refine,plan,readiness,ideate,createPr}), ai.implement.{generator,evaluator}.{provider,model,effort}, ai.implement.agents.{generator,evaluator}, harness.{maxTurns,maxAttempts,rateLimitRetries,idleWatchdogMs,plateauThreshold,correctiveRetries,escalateOnPlateau,skipPreVerifyOnFreshSetup}, harness.escalationMap.<fromModel>, logging.level, concurrency.maxParallelTasks, scm.postRefinementComment, ui.notifications.enabled';
+  'supported keys: ai.effort, ai.{flow}.{provider,model,effort} (flow in {refine,plan,readiness,ideate,createPr}), ai.implement.{generator,evaluator}.{provider,model,effort}, ai.implement.agents.{generator,evaluator}, harness.{maxTurns,maxAttempts,rateLimitRetries,idleWatchdogMs,plateauThreshold,correctiveRetries,bestOfNCandidates,escalateOnPlateau,skipPreVerifyOnFreshSetup}, harness.escalationMap.<fromModel>, logging.level, concurrency.maxParallelTasks, scm.postRefinementComment, ui.notifications.enabled';
 
 /** Hint attached to a rejected `ai.<flow>.agents.<role>` key targeting an unsupported binding. */
 const AGENT_BINDING_UNSUPPORTED_HINT =
@@ -293,9 +293,16 @@ const applyFixedSettingsKey = (current: Settings, key: string, raw: string): Res
     case 'harness.rateLimitRetries':
     case 'harness.idleWatchdogMs':
     case 'harness.plateauThreshold':
-    case 'harness.correctiveRetries': {
+    case 'harness.correctiveRetries':
+    case 'harness.bestOfNCandidates': {
       const which = key.split('.')[1] as
-        'maxTurns' | 'maxAttempts' | 'rateLimitRetries' | 'idleWatchdogMs' | 'plateauThreshold' | 'correctiveRetries';
+        | 'maxTurns'
+        | 'maxAttempts'
+        | 'rateLimitRetries'
+        | 'idleWatchdogMs'
+        | 'plateauThreshold'
+        | 'correctiveRetries'
+        | 'bestOfNCandidates';
       return applyNumberField(current, key, raw, (c, n) => ({ ...c, harness: { ...c.harness, [which]: n } }));
     }
     case 'harness.escalateOnPlateau':

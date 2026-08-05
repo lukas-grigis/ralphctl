@@ -38,6 +38,12 @@ Evaluators tuned to skepticism; tuning standalone evaluator > making generator s
 - Planner: `src/application/flows/plan/` (AI expands ticket list into `tasks.json`)
 - Generator: `src/application/flows/implement/leaves/generator.ts`
 - Evaluator: `src/application/flows/implement/leaves/evaluator.ts`
+- Reproduction (2026-08, defect-shaped tasks only): `src/application/flows/implement/leaves/reproduce.ts` —
+  a fourth, narrower role that sits BEFORE the generator's first turn, once per task, guarded to
+  `bugfix`-classified tasks. It writes and runs one failing test demonstrating the reported defect; the
+  harness re-runs the claimed command itself and only accepts the artifact when that re-run actually fails.
+  Not a peer of the generator/evaluator split — it hands both of them a shared, harness-verified starting
+  fixture (ORACLE-SWE, arXiv 2604.07789).
 
 ---
 
@@ -83,6 +89,12 @@ shifts — each new engineer arrives with no memory of what happened on the prev
   in `src/integration/ai/prompts/plan/template.md`, `src/integration/ai/prompts/evaluate/template.md`,
   `src/integration/ai/prompts/implement/template.md` (~line 65), `src/integration/ai/prompts/ideate/template.md`
   (~line 47), and `src/integration/ai/prompts/refine/template.md` (~line 33)
+- **Auto-derived continuation-state fields (2026-08).** Each attempt section now carries a deterministic
+  `### Continuation state` block — attempt terminal status, pre/post verify-run outcomes, pre/post attribution
+  verdict, the landed commit's subject (gated on a commit actually landing), and a "Resumed after" breadcrumb
+  when the attempt opened as a resume of a prior harness-aborted attempt — composed from harness-held
+  `Attempt`/`RecoveryContext` data, never model prose. Source: `src/business/sprint/render-journal-entry.ts`
+  (`JournalContinuationState`); the whole block is additive and omitted when nothing resolves.
 
 ---
 
@@ -124,9 +136,10 @@ contracts define testable success up-front."_
   launch can run up to the effective `maxAttempts` rounds per task (`task.maxAttempts` stamped at
   plan time, with a `settings.harness.maxAttempts` fallback for legacy tasks). The graduated remedy
   ladder (row 6) fires within this outer loop — climbing one model rung per plateau or
-  budget-exhausted exit, then a top-of-ladder nudge, while evaluator-malformed exits get a plain
-  same-model retry — each retry consuming one attempt of the budget. `maxAttempts === 1` is
-  byte-for-byte the prior one-attempt-per-launch behaviour.
+  budget-exhausted exit, then a top-of-ladder same-model nudge, then (opt-in, `settings.harness.bestOfNCandidates`)
+  one best-of-N candidate-sampling attempt, while evaluator-malformed exits get a plain same-model
+  retry — each retry consuming one attempt of the budget. `maxAttempts === 1` is byte-for-byte the
+  prior one-attempt-per-launch behaviour.
 
 **Deviation: true exhaustion → done-with-warning, not blocked.** When every remedy is exhausted (all
 attempts spent, no rung remaining, or `escalateOnPlateau === false`), the task transitions to `done`
@@ -159,8 +172,15 @@ self into approving anyway; superficial testing."_ Plateau detection is the harn
 - **Graduated remedy ladder** (`src/business/task/escalation-policy.ts` + `escalation-map.ts`): on a
   plateau the policy spends remedies cheapest-first — climb the model ladder **one rung per plateau**
   (`escalate`, re-stampable, bounded by `maxAttempts`), then a single top-of-ladder same-model `nudge`
-  with a change-of-approach directive, then `topped-out` (keep the work). See PERFORMANCE.md
-  "Escalation on plateau".
+  with a change-of-approach directive, then (opt-in, once per task, `settings.harness.bestOfNCandidates`)
+  a `best-of-n` rung that samples N candidates on the unchanged model and selects among them by
+  verification then judging, then `topped-out` (keep the work). See PERFORMANCE.md "Escalation on plateau".
+- **Evaluator lockstep (2026-08).** Every generator MODEL-rung climb (`escalate`) — not only the
+  same-model effort rung (`escalate-effort`, #256) — now also carries the evaluator's own same-model
+  effort bump when it has headroom (Verification Horizon, arXiv 2606.26300: a fixed verifier weakens as
+  the generator strengthens). Computed by the shared `computeEvaluatorEffortCarry` helper in
+  `escalation-policy.ts` against the evaluator's OWN provider/model/effort triple — the evaluator's
+  MODEL itself is never escalated, effort only.
 
 ---
 

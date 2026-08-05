@@ -384,6 +384,65 @@ export interface PrContentSignal {
 }
 
 /**
+ * Reproduction-session output — the failing test a `reproduce` session wrote to demonstrate a
+ * reported defect exactly as described, written and run before any fix is attempted. Downstream
+ * generator and evaluator turns receive it as a starting fixture: the generator makes the test
+ * pass without weakening it, the evaluator re-runs it as an extension of its verification-
+ * tampering check.
+ *
+ * Research grounding (ORACLE-SWE, arXiv 2604.07789): reproduction tests are the dominant single
+ * planning factor for defect-shaped tasks — but the paper's headline SWE-bench Live figure
+ * (Claude 4.5: 40% → 83%) is from an oracle-injection ablation, not something a harness can
+ * produce. The harness-implementable arm is the agent-extracted validation, where a
+ * stronger-extraction / weaker-fix pairing beats the strong model alone (Live: 54% vs 46% — see
+ * `.claude/docs/RESEARCH-REFERENCES.md` for the full citation and the same-model deviation this
+ * harness runs). TestPrune (FSE 2026) shows a cheap issue-relevant test subset lifts resolution
+ * 8-12.9% relative as a plug-in addition to an existing pipeline — `relevantTests` carries that
+ * subset when the session can name one.
+ *
+ *  - `testPath` — repo-relative path of the failing reproduction test the session wrote.
+ *  - `runCommand` — exact command to execute that test in isolation.
+ *  - `observedFailure` — bounded excerpt of the command's failing output — the session's own
+ *    evidence that the test currently fails for the reported reason, not for a setup or import
+ *    error. Prompt-enforced bound, mirroring `DimensionScore.executionEvidence`.
+ *  - `relevantTests` — repo-relative paths (or ids) of existing tests the session judged
+ *    relevant to the issue. Empty when the session found none — not omitted, so a downstream
+ *    reader can distinguish "searched, found nothing" from "field absent".
+ *  - `notes` — optional free-form context, e.g. why this reproduction shape was chosen over an
+ *    alternative.
+ */
+export interface ReproductionSignal {
+  readonly type: 'reproduction';
+  readonly testPath: string;
+  readonly runCommand: string;
+  readonly observedFailure: string;
+  readonly relevantTests: readonly string[];
+  readonly notes?: string;
+  readonly timestamp: IsoTimestamp;
+}
+
+/**
+ * Best-of-N candidate verdict — produced by the `select-candidate` flow's AI session, which
+ * compares two candidate solutions' compact structured summaries and picks the stronger one.
+ *
+ * Research grounding: arXiv 2604.16529 (Meta, Parallel-Distill-Refine) — pairwise comparison
+ * over compact structured summaries is the measured selection mechanism; judges compare
+ * summaries, never raw transcripts, at equal-or-better verdict quality and much lower cost.
+ *
+ *  - `winner` — 1-based index of the chosen candidate, matching the `Candidate 1` / `Candidate 2`
+ *    labelling the prompt shows the AI.
+ *  - `rationale` — justification citing concrete evidence from the two summaries (a verification
+ *    outcome, a specific file, a notable signal) rather than a bare confidence claim. Prompt-
+ *    enforced bound, mirroring `DimensionScore.executionEvidence`.
+ */
+export interface CandidateSelectionSignal {
+  readonly type: 'candidate-selection';
+  readonly winner: number;
+  readonly rationale: string;
+  readonly timestamp: IsoTimestamp;
+}
+
+/**
  * Discriminated union of every signal type the harness understands. Narrows by the `type` tag;
  * exhaustive `switch` statements should close with `const _exhaustive: never = signal` so
  * adding a variant is a compile error at every consumer until handled.
@@ -414,7 +473,9 @@ export type HarnessSignal =
   | RefinedTicketSignal
   | TaskPlanSignal
   | IdeatedTicketsSignal
-  | PrContentSignal;
+  | PrContentSignal
+  | ReproductionSignal
+  | CandidateSelectionSignal;
 
 /**
  * Canonical name for the AI-produced signal union under the [09] contract. Currently aliased

@@ -7,19 +7,25 @@ import {
   compactLedger,
 } from '@src/application/flows/_shared/memory/compact-ledger.ts';
 
-const record = (over: Partial<LearningRecord> = {}): LearningRecord => ({
-  v: 1,
-  id: 'id-1',
-  text: 'learning text',
-  repo: '/repos/app',
-  repoName: 'app',
-  taskKind: 'feature',
-  sprintId: 'sprint-1',
-  taskId: 'task-1',
-  timestamp: '2026-05-30T10:00:00.000Z',
-  promotedAt: null,
-  ...over,
-});
+// Default text embeds the id so bulk-generated fixture rows (which vary only by id) stay well below
+// NEAR_DUPLICATE_JACCARD_THRESHOLD of each other — distinct ledger rows normally have distinct text;
+// only the dedicated near-duplicate-merge tests below deliberately construct near-identical text.
+const record = (over: Partial<LearningRecord> = {}): LearningRecord => {
+  const id = over.id ?? 'id-1';
+  return {
+    v: 1,
+    id,
+    text: `learning text ${id}`,
+    repo: '/repos/app',
+    repoName: 'app',
+    taskKind: 'feature',
+    sprintId: 'sprint-1',
+    taskId: 'task-1',
+    timestamp: '2026-05-30T10:00:00.000Z',
+    promotedAt: null,
+    ...over,
+  };
+};
 
 /** Build a row carrying the record's serialized raw line (the normal streamed-row shape). */
 const row = (over: Partial<LearningRecord> = {}): LedgerRow => {
@@ -187,5 +193,121 @@ describe('compactLedger', () => {
     expect(out.rows).toHaveLength(10);
     expect(out.evictedCount).toBe(0);
     expect(out.deduplicatedCount).toBe(0);
+  });
+});
+
+// 12 shared unique words + 1 distinct trailing word gives a word-set Jaccard of 12/14 ≈ 0.857 between
+// any two variants below — just over NEAR_DUPLICATE_JACCARD_THRESHOLD (0.85). Below-threshold and
+// unrelated-text cases use ordinary short phrases instead.
+const PARAPHRASE_BASE = 'tests need a real database connection to properly catch every integration edge';
+const paraphrase = (word: string): string => `${PARAPHRASE_BASE} ${word}`;
+
+describe('compactLedger — near-duplicate merge', () => {
+  it('merges a paraphrase pair (same kind, same appliesTo, near-identical text) onto the newest, stamping supersedes', () => {
+    const original = row({ id: 'a', text: paraphrase('bugs') });
+    const rewording = row({ id: 'b', text: paraphrase('issues') });
+    const out = compactLedger([original, rewording]);
+
+    expect(out.rows).toHaveLength(1);
+    expect(out.deduplicatedCount).toBe(1);
+    const winner = out.rows[0]?.record;
+    expect(winner?.id).toBe('b'); // newest wins
+    expect(winner?.supersedes).toEqual(['a']);
+  });
+
+  it('does NOT merge rows below the similarity threshold', () => {
+    const a = row({ id: 'a', text: 'tests need a real database' });
+    const b = row({ id: 'b', text: 'module Y is tightly coupled to module Z' });
+    const out = compactLedger([a, b]);
+    expect(out.rows).toHaveLength(2);
+    expect(out.deduplicatedCount).toBe(0);
+  });
+
+  // 11 shared words + 2 distinct words on each side gives a word-set Jaccard of 11/15 ≈ 0.733 —
+  // comfortably in the 0.6-0.84 band just under NEAR_DUPLICATE_JACCARD_THRESHOLD (0.85), unlike the
+  // unrelated-text case above (~0.05). A regression that lowers the constant into this band (or
+  // inverts the `>=` comparison) would merge these two distinct learnings; this pins the boundary.
+  it('does NOT merge rows just below the near-duplicate threshold (~0.73 similarity)', () => {
+    const a = row({
+      id: 'a',
+      text: 'retry wrapper needs circuit breaker logic before every payment gateway call urgently now',
+    });
+    const b = row({
+      id: 'b',
+      text: 'retry wrapper needs circuit breaker logic before every payment gateway call recently added',
+    });
+    const out = compactLedger([a, b]);
+    expect(out.rows).toHaveLength(2);
+    expect(out.deduplicatedCount).toBe(0);
+  });
+
+  it('does NOT merge same-text rows across different kinds', () => {
+    const learning = row({ id: 'a', text: 'adopt hexagonal layering across the codebase', kind: 'learning' });
+    const decision = row({ id: 'b', text: 'adopt hexagonal layering across the codebase', kind: 'decision' });
+    const out = compactLedger([learning, decision]);
+    expect(out.rows).toHaveLength(2);
+    expect(out.deduplicatedCount).toBe(0);
+  });
+
+  it('does NOT merge same-text rows across different appliesTo', () => {
+    const a = row({ id: 'a', text: 'flaky test needs a retry wrapper', appliesTo: 'web app' });
+    const b = row({ id: 'b', text: 'flaky test needs a retry wrapper', appliesTo: 'mobile app' });
+    const out = compactLedger([a, b]);
+    expect(out.rows).toHaveLength(2);
+    expect(out.deduplicatedCount).toBe(0);
+  });
+
+  it('NEVER merges a SETTLED (promoted or retired) row, even against a near-identical pending row', () => {
+    const promoted = row({ id: 'a', text: paraphrase('bugs'), promotedAt: '2026-06-01T00:00:00.000Z' });
+    const pending = row({ id: 'b', text: paraphrase('issues') });
+    const out = compactLedger([promoted, pending]);
+    expect(out.rows).toHaveLength(2);
+    expect(out.deduplicatedCount).toBe(0);
+    expect(out.rows.some((r) => r.record?.id === 'a' && r.record.promotedAt !== null)).toBe(true);
+    expect(out.rows.some((r) => r.record?.id === 'b')).toBe(true);
+  });
+
+  it('chains three successive paraphrases onto the single newest winner', () => {
+    const v1 = row({ id: 'v1', text: paraphrase('today') });
+    const v2 = row({ id: 'v2', text: paraphrase('currently') });
+    const v3 = row({ id: 'v3', text: paraphrase('presently') });
+    const out = compactLedger([v1, v2, v3]);
+
+    expect(out.rows).toHaveLength(1);
+    expect(out.deduplicatedCount).toBe(2);
+    const winner = out.rows[0]?.record;
+    expect(winner?.id).toBe('v3');
+    expect(winner?.supersedes).toEqual(['v1', 'v2']);
+  });
+
+  it('preserves untouched (non-merged) rows byte-for-byte via their original raw line', () => {
+    const rawWithFuture = JSON.stringify({ ...record({ id: 'solo' }), futureField: 'keep-me' });
+    const soloRow: LedgerRow = { raw: rawWithFuture, record: record({ id: 'solo' }) };
+    const out = compactLedger([soloRow]);
+    expect(out.rows[0]?.raw).toBe(rawWithFuture);
+  });
+
+  it('a later compaction pass keeps accumulating supersedes on top of an already-merged winner', () => {
+    const v1 = row({ id: 'v1', text: paraphrase('today') });
+    const v2 = row({ id: 'v2', text: paraphrase('currently') });
+    const firstPass = compactLedger([v1, v2]);
+    expect(firstPass.rows).toHaveLength(1);
+    expect(firstPass.rows[0]?.record?.supersedes).toEqual(['v1']);
+
+    const v3 = row({ id: 'v3', text: paraphrase('presently') });
+    const secondPass = compactLedger([...firstPass.rows, v3]);
+    expect(secondPass.rows).toHaveLength(1);
+    expect(secondPass.rows[0]?.record?.id).toBe('v3');
+    expect(secondPass.rows[0]?.record?.supersedes).toEqual(['v1', 'v2']);
+  });
+
+  it('is idempotent across a merge — compacting merged output a second time is a no-op', () => {
+    const v1 = row({ id: 'v1', text: paraphrase('today') });
+    const v2 = row({ id: 'v2', text: paraphrase('currently') });
+    const once = compactLedger([v1, v2]);
+    const twice = compactLedger(once.rows);
+    expect(twice.rows).toEqual(once.rows);
+    expect(twice.deduplicatedCount).toBe(0);
+    expect(twice.evictedCount).toBe(0);
   });
 });

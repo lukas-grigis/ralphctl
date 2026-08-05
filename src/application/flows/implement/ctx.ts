@@ -12,6 +12,8 @@ import type { ProposedCommitMessage } from '@src/business/task/run-generator-tur
 import type { PlateauTurnRecord } from '@src/business/task/plateau-detection.ts';
 import type { LearningRecord } from '@src/application/flows/_shared/memory/learning-record.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
+import type { ReproductionArtifact } from '@src/application/flows/implement/leaves/reproduce.ts';
+import type { BestOfNCandidateRecord } from '@src/application/flows/implement/leaves/best-of-n-candidate.ts';
 
 export type { GenEvalExit, RunTaskVerdict };
 
@@ -204,4 +206,75 @@ export interface ImplementCtx {
    * `mergeImplementWave` fan-in. Undefined before the prologue loads / when the ledger is absent.
    */
   readonly priorLearnings?: readonly LearningRecord[] | undefined;
+  /**
+   * Validated reproduction artifact for the in-flight defect-shaped task — set once by the
+   * guarded `reproduce-<taskId>` leaf that runs before the attempt loop (see `reproduce.ts`).
+   * Undefined for a non-defect-shaped task (the guard skipped), or when the reproduce session
+   * failed, produced no valid `reproduction` signal, or its claimed command did not actually
+   * fail on the harness's own re-run — all of which degrade to today's behaviour rather than
+   * blocking the task. Read by every generator/evaluator turn of this task's gen-eval loop (round
+   * 1 and continuation prompts alike) to thread the `<reproduction>` prompt section; survives
+   * across attempts of the SAME task (the reproduction test does not change between attempts) and
+   * is never cleared by `settle-attempt`. Cleared unconditionally at the START of every task by
+   * `clearReproductionArtifactLeaf` (see `reproduce.ts`) — without that reset a defect-shaped
+   * task's artifact would otherwise leak into a later non-defect task of the same run.
+   */
+  readonly reproductionArtifact?: ReproductionArtifact | undefined;
+  /**
+   * Best-of-N candidate accumulator (arXiv 2604.16529) — populated by the candidate-sampling
+   * loop that replaces round 1's generator phase inside a best-of-N-granted attempt (see
+   * `leaves/best-of-n-candidate.ts` / `leaves/best-of-n.ts`). Each entry is one candidate
+   * generator session's telemetry: whether it produced a diff, its verify outcome/attribution,
+   * a content hash for dedup, and the mechanical summary text the judge tournament compares.
+   * Grows one entry per loop iteration; read by `leaves/best-of-n-selection.ts` once sampling
+   * finishes. Reset to `undefined` by `start-attempt` at the top of every attempt (mirrors
+   * `plateauHistory`'s per-attempt lifecycle) — candidates never survive past the attempt that
+   * sampled them, and a non-granted attempt never populates this field at all.
+   */
+  readonly bestOfNCandidates?: readonly BestOfNCandidateRecord[] | undefined;
+  /**
+   * Monotonic count of candidate-loop ITERATIONS attempted so far (successful or not) — the
+   * candidate-slot index generator for `leaves/best-of-n-candidate.ts`. Deliberately separate
+   * from `bestOfNCandidates.length` (which only counts SUCCESSFUL spawns): a self-blocked /
+   * crashed / invalid-signals candidate still consumes a slot (and its own `candidates/<n>/`
+   * directory + stash message) so the next iteration never re-tries the same index. Same
+   * per-attempt lifecycle as `bestOfNCandidates` — reset by `start-attempt`.
+   */
+  readonly bestOfNSampledCount?: number | undefined;
+  /**
+   * 1-based turn counter for THIS attempt's own best-of-N composite (`best-of-n.ts`'s
+   * `buildBestOfNGenEvalLoop`) — stamped once per turn, before either its round-1-substitute or
+   * round-2+-generator guard evaluates, and untouched by both. Two jobs:
+   *
+   *  1. Replaces the disk-derived `currentRoundNum === 1` check the round-1-substitute guard used
+   *     to gate on. `currentRoundNum` is claimed PER TASK (`max(rounds/<N>/ already on disk) + 1`
+   *     across every attempt of the task), so on a real granted attempt — which never lands
+   *     before attempt 3 (the escalation policy only grants at `nudgedAtTop`, itself downstream
+   *     of a prior plateau + nudge) — it starts at 3 or higher and the substitute never fired.
+   *     This field is attempt-scoped (reset by `start-attempt`, like `currentRoundNum` itself),
+   *     so turn 1 of THIS composite is always `1` regardless of how many rounds prior attempts of
+   *     the same task already wrote to disk.
+   *  2. Gives `attempt-body.ts`'s outer `best-of-n-branch` / `normal-gen-eval-branch` guard pair a
+   *     STABLE "did this attempt's best-of-N composite already run" signal. Both guards are
+   *     evaluated independently, in sequence, by the surrounding `sequential` — the second one
+   *     AFTER the whole composite (potentially several turns) has returned. `bestOfNSelectionLeaf`
+   *     clears the transient `task.bestOfNGrantedCandidates` partway through that SAME composite
+   *     (so a LATER attempt of the task doesn't re-trigger it), which would make the second guard
+   *     misread "not granted" and ALSO run the normal loop if it re-derived the decision from that
+   *     same mutable task field. Reading this field's definedness instead survives that mutation.
+   *
+   * Reset to `undefined` by `start-attempt` at the top of every attempt — mirrors `currentRoundNum`.
+   */
+  readonly bestOfNLoopTurn?: number | undefined;
+  /**
+   * Best-of-N summary for the attempt the selection cascade just closed out — how many candidates
+   * were sampled, how many survived the execution-filter/dedupe stages, and which (1-based)
+   * candidate index won (absent when zero survivors → no diff applied that round). Stamped by
+   * `bestOfNSelectionLeaf` once selection finishes; read by `progress-journal-<taskId>` so the
+   * `### Continuation state` block records that N sessions were spent even though the rest of the
+   * attempt (verify runs, attribution, commit) looks like any other single-turn attempt. Reset to
+   * `undefined` by `start-attempt` — mirrors `bestOfNCandidates`'s per-attempt lifecycle.
+   */
+  readonly bestOfNSummary?:
+    { readonly candidatesSampled: number; readonly survivors: number; readonly winnerIndex?: number } | undefined;
 }

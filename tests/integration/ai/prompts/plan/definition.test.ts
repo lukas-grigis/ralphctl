@@ -67,6 +67,20 @@ describe('planPromptDef — completeness', () => {
       ).toBe(true);
     }
   });
+
+  it('prefers fewer, well-grounded tasks over speculative ones padding out the plan', async () => {
+    const path = `${String(defaultTemplatesDir())}/plan/template.md`;
+    const template = (await fs.readFile(path, 'utf8')).replace(/\s+/g, ' ');
+    expect(template).toContain('Prefer fewer, well-grounded tasks');
+    expect(template).toContain('a wrong plan step costs more than an absent one');
+  });
+
+  it('asks new-behaviour tasks for interface signatures and given/when/then scenarios in the criteria', async () => {
+    const path = `${String(defaultTemplatesDir())}/plan/template.md`;
+    const template = (await fs.readFile(path, 'utf8')).replace(/\s+/g, ' ');
+    expect(template).toContain('the interface signatures the change must expose');
+    expect(template).toContain('given/when/then scenarios');
+  });
 });
 
 describe('renderSprintContext', () => {

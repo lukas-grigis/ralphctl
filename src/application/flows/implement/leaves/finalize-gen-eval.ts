@@ -44,6 +44,9 @@ export interface FinalizeGenEvalLeafDeps {
     readonly escalateOnPlateau: boolean;
     readonly escalationMap: Readonly<Record<string, string>>;
     readonly maxAttempts: number;
+    /** Opt-in best-of-N candidate count — see `business/task/finalize-gen-eval.ts`'s
+     * `FinalizeGenEvalProps.readConfig` JSDoc. OPTIONAL, absent/0 disables the remedy. */
+    readonly bestOfNCandidates?: number | undefined;
   }>;
   readonly logger: Logger;
   readonly eventBus: EventBus;

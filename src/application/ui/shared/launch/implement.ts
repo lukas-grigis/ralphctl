@@ -16,6 +16,7 @@ import {
   type BuildWaveBranchesDeps,
 } from '@src/application/flows/implement/wave-branch.ts';
 import { createParallelImplementElement } from '@src/application/flows/implement/parallel-element.ts';
+import { buildAttemptReadConfig } from '@src/application/flows/implement/leaves/attempt-body.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import { Result } from '@src/domain/result.ts';
 import type { Task } from '@src/domain/entity/task.ts';
@@ -203,18 +204,11 @@ const buildParallelElement = (
   maxParallel: number,
   sessionId: () => string
 ): Element<ImplementCtx> => {
-  const readConfig = (): Promise<{
-    readonly maxTurns: number;
-    readonly escalateOnPlateau: boolean;
-    readonly escalationMap: Readonly<Record<string, string>>;
-    readonly maxAttempts: number;
-  }> =>
-    Promise.resolve({
-      maxTurns: implementDeps.config.harness.maxTurns,
-      escalateOnPlateau: implementDeps.config.harness.escalateOnPlateau,
-      escalationMap: implementDeps.config.harness.escalationMap,
-      maxAttempts: implementDeps.config.harness.maxAttempts,
-    });
+  // Built via the shared `buildAttemptReadConfig` (see `attempt-body.ts`) — the same builder
+  // `flow.ts`'s serial launcher uses, so a field added to `AttemptReadConfig`'s return shape
+  // (e.g. the opt-in best-of-N knob) reaches both launchers by construction instead of requiring
+  // each `readConfig` literal to be updated by hand.
+  const readConfig = buildAttemptReadConfig(implementDeps.config.harness);
 
   // Serialise every append for the WHOLE parallel run — prologue, all branches, and the epilogue
   // share ONE mutex. Concurrent branches append to the same project learnings ledger (and the

@@ -11,7 +11,7 @@ import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { parseRequiredString } from '@src/domain/value/parsers/parse-required-string.ts';
 import { requireStatus } from '@src/domain/value/require-status.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
-import { type ValidationError } from '@src/domain/value/error/validation-error.ts';
+import { ValidationError } from '@src/domain/value/error/validation-error.ts';
 
 const requireRunningAttempt = (
   task: TodoTask | InProgressTask
@@ -89,6 +89,10 @@ export const markTaskDone = (task: Task, now: IsoTimestamp): Result<DoneTask, In
     ...(guard.value.escalatedToEffort !== undefined ? { escalatedToEffort: guard.value.escalatedToEffort } : {}),
     ...(guard.value.escalatedToEvaluatorEffort !== undefined
       ? { escalatedToEvaluatorEffort: guard.value.escalatedToEvaluatorEffort }
+      : {}),
+    ...(guard.value.bestOfNGranted !== undefined ? { bestOfNGranted: guard.value.bestOfNGranted } : {}),
+    ...(guard.value.bestOfNGrantedCandidates !== undefined
+      ? { bestOfNGrantedCandidates: guard.value.bestOfNGrantedCandidates }
       : {}),
     status: 'done',
     attempts,
@@ -195,4 +199,32 @@ export const recordTaskEvaluatorEffortEscalation = (
   const to = parseRequiredString('task.escalatedToEvaluatorEffort', toEffort);
   if (!to.ok) return Result.error(to.error);
   return Result.ok({ ...task, escalatedToEvaluatorEffort: to.value });
+};
+
+/** Floor for a granted best-of-N candidate count — mirrors `settings.harness.bestOfNCandidates`'s
+ * schema floor (`domain/entity/settings.ts`); `0` (disabled) never reaches this helper. */
+const MIN_BEST_OF_N_CANDIDATES = 2;
+
+/**
+ * Stamp the once-per-task best-of-N grant onto an `in_progress` task — the counterpart of
+ * {@link recordTaskEscalation} / {@link recordTaskEffortEscalation} for the escalation ladder's
+ * opt-in top-of-ladder remedy. Sets the PERMANENT {@link InProgressTask.bestOfNGranted} marker
+ * (never cleared — `decideEscalation` reads it for the once-per-task gate) alongside the
+ * transient {@link InProgressTask.bestOfNGrantedCandidates} handshake value the attempt-body
+ * consumes at start-attempt. Unlike the model/effort stamps, this is NOT re-stampable in
+ * practice — the policy only ever returns `best-of-n` once per task (the permanent marker this
+ * helper sets is exactly what stops a second grant) — but the helper itself does not enforce
+ * that; `decideEscalation` is the single source of truth for the once-per-task rule.
+ */
+export const recordTaskBestOfNGrant = (task: InProgressTask, n: number): Result<InProgressTask, ValidationError> => {
+  if (!Number.isInteger(n) || n < MIN_BEST_OF_N_CANDIDATES) {
+    return Result.error(
+      new ValidationError({
+        field: 'task.bestOfNGrantedCandidates',
+        value: n,
+        message: `task.bestOfNGrantedCandidates must be an integer >= ${String(MIN_BEST_OF_N_CANDIDATES)}`,
+      })
+    );
+  }
+  return Result.ok({ ...task, bestOfNGranted: true, bestOfNGrantedCandidates: n });
 };

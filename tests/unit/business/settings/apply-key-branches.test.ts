@@ -13,6 +13,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { ValidationError } from '@src/domain/value/error/validation-error.ts';
+import { SettingsSchema } from '@src/domain/entity/settings.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
 import { applySettingsKey } from '@src/business/settings/apply-key.ts';
 
@@ -96,6 +97,43 @@ describe('applySettingsKey — harness numeric keys (shared switch arm)', () => 
     const result = applySettingsKey(DEFAULT_SETTINGS, 'harness.plateauThreshold', 'auto');
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.message).toContain('not a number');
+  });
+
+  it('updates harness.bestOfNCandidates numerically and round-trips through the schema', () => {
+    const result = applySettingsKey(DEFAULT_SETTINGS, 'harness.bestOfNCandidates', '3');
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.harness.bestOfNCandidates).toBe(3);
+    expect(SettingsSchema.safeParse(result.value).success).toBe(true);
+  });
+
+  it('rejects a non-numeric value for harness.bestOfNCandidates', () => {
+    const result = applySettingsKey(DEFAULT_SETTINGS, 'harness.bestOfNCandidates', 'lots');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain('not a number');
+  });
+
+  it('setting harness.bestOfNCandidates back to 0 disables it and still validates', () => {
+    const raised = applySettingsKey(DEFAULT_SETTINGS, 'harness.bestOfNCandidates', '4');
+    expect(raised.ok).toBe(true);
+    if (!raised.ok) return;
+    const disabled = applySettingsKey(raised.value, 'harness.bestOfNCandidates', '0');
+    expect(disabled.ok).toBe(true);
+    if (!disabled.ok) return;
+    expect(disabled.value.harness.bestOfNCandidates).toBe(0);
+    expect(SettingsSchema.safeParse(disabled.value).success).toBe(true);
+  });
+
+  it('an out-of-range harness.bestOfNCandidates value (1, 5) is accepted here but rejected by schema validation at the persistence boundary', () => {
+    // apply-key.ts only parses "is this a number"; bounds are schema-enforced (matches the other
+    // numeric harness keys, which don't range-check inline either).
+    const tooLow = applySettingsKey(DEFAULT_SETTINGS, 'harness.bestOfNCandidates', '1');
+    expect(tooLow.ok).toBe(true);
+    if (tooLow.ok) expect(SettingsSchema.safeParse(tooLow.value).success).toBe(false);
+
+    const tooHigh = applySettingsKey(DEFAULT_SETTINGS, 'harness.bestOfNCandidates', '5');
+    expect(tooHigh.ok).toBe(true);
+    if (tooHigh.ok) expect(SettingsSchema.safeParse(tooHigh.value).success).toBe(false);
   });
 });
 

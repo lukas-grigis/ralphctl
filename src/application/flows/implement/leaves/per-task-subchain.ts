@@ -17,6 +17,11 @@ import {
   isSettledBlocked,
   quarantineBlockedDiffLeaf,
 } from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
+import {
+  clearReproductionArtifactLeaf,
+  isDefectShapedTask,
+  reproduceLeaf,
+} from '@src/application/flows/implement/leaves/reproduce.ts';
 import type { RepoExecConfig } from '@src/application/flows/implement/leaves/resolve-repo.ts';
 import { installSkillsLeaf } from '@src/application/flows/_shared/skills/install-skills.ts';
 import { uninstallSkillsLeaf } from '@src/application/flows/_shared/skills/uninstall-skills.ts';
@@ -34,6 +39,7 @@ import type { AgentDefinition } from '@src/integration/ai/agents/_engine/agent-d
  *   dependency-gate →                                                // block-upstream-if prereq ≠ done
  *   guard('task-runnable-<id>', sequential('task-body-<id>', [       // body runs only when runnable
  *     branch-preflight → workspace build → install-skills →          // once per task
+ *     reset-reproduction → guard('reproduce-guard-<id>', reproduce)  // once per task, defect-shaped only
  *     loop('task-attempts-<id>', buildAttemptBody(…),                // up to maxAttempts attempts
  *          { maxIterations: maxAttempts, shouldStop: terminal }) →
  *     quarantine-blocked-diff (guarded, serial-path only) →          // once per task
@@ -187,6 +193,60 @@ const buildAgentDefinitionInstallLeaves = (
   return leaves;
 };
 
+/**
+ * Reproduction-first leaves (once per task, not per attempt): an unconditional reset followed by
+ * a guarded headless AI session that, for a defect-shaped task, writes + runs one failing test
+ * demonstrating the reported defect BEFORE any generator turn spawns — so round 1 already has a
+ * verified reproduction to make pass instead of discovering the defect from prose alone. The
+ * guard skips silently for every other task kind (no AI spawn). Sits before the attempt loop
+ * rather than inside it: the reproduction does not change across retries of the SAME task, so
+ * re-running it every attempt would just re-pay the spawn cost for an identical artifact.
+ *
+ * The reset MUST run first, every task, regardless of task kind: the guarded leaf only ever
+ * WRITES a fresh artifact (or nothing), so without it a defect-shaped task's validated artifact
+ * would leak unchanged into a later non-defect task of the same serial run — see
+ * `clearReproductionArtifactLeaf`'s docstring. Kept as a helper (like the agent-definition
+ * install/uninstall pairs above) so `createPerTaskSubchain` stays under the complexity ratchet.
+ * See `reproduce.ts` for the failure-tolerance and harness-side re-run verification the guarded
+ * leaf performs before accepting an artifact.
+ *
+ * These leaves run BEFORE the attempt `loop` below, so the reproduce leaf's deliberately-failing
+ * test is already sitting uncommitted in the tree by the time the first attempt's
+ * `pre-task-verify` runs. That is safe ONLY because `pre-task-verify` excludes the reproduction
+ * test's own path from its baseline gate run on every attempt (see `withReproductionTestExcluded`
+ * in `pre-task-verify-internals/verify-execution.ts`) — without that exclusion the harness's own
+ * fixture would masquerade as a pre-existing broken baseline (`attributeVerify` → always
+ * `'baseline-broken'`), defeating never-commit-on-red for every defect-shaped task.
+ */
+const buildReproduceLeaves = (
+  deps: ImplementDeps,
+  opts: PerTaskSubchainOpts,
+  repo: RepoExecConfig,
+  taskId: TaskId
+): Array<Element<ImplementCtx>> => [
+  clearReproductionArtifactLeaf(taskId),
+  guard<ImplementCtx>(
+    `reproduce-guard-${String(taskId)}`,
+    (ctx) => isDefectShapedTask(ctx, taskId),
+    reproduceLeaf(
+      {
+        provider: deps.generatorProvider,
+        templateLoader: deps.templateLoader,
+        publishSignal: deps.publishSignal,
+        shellScriptRunner: deps.shellScriptRunner,
+        logger: deps.logger,
+      },
+      {
+        cwd: repo.path,
+        progressFile: opts.progressFile,
+        model: opts.generator.model,
+        ...(opts.generator.effort !== undefined ? { effort: opts.generator.effort } : {}),
+      },
+      taskId
+    )
+  ),
+];
+
 /** Uninstall-side counterpart of {@link buildAgentDefinitionInstallLeaves} — same per-role gate. */
 const buildAgentDefinitionUninstallLeaves = (
   deps: ImplementDeps,
@@ -283,6 +343,8 @@ export const createPerTaskSubchain = (
         ),
         // Per-role agent-definition install — see {@link buildAgentDefinitionInstallLeaves}.
         ...buildAgentDefinitionInstallLeaves(deps, opts, repo, taskId),
+        // Reproduction-first — see {@link buildReproduceLeaves}.
+        ...buildReproduceLeaves(deps, opts, repo, taskId),
         // Inner attempt loop. The body is the full per-attempt segment; the loop re-enters it
         // until `terminalTaskStatus` reports the settled task `done`/`blocked` or the `maxAttempts`
         // cap fires. `maxAttempts === 1` runs exactly once (single-attempt-per-launch parity); a

@@ -27,6 +27,17 @@ import {
   stampImplementEvaluatorSessionMetaLeaf,
   stampImplementGeneratorSessionMetaLeaf,
 } from '@src/application/flows/implement/leaves/stamp-implement-session-meta.ts';
+import {
+  type GenEvalLoopRoleConfig,
+  roleSpawnConfig,
+  withRoleSpawn,
+} from '@src/application/flows/implement/leaves/_shared/role-spawn.ts';
+
+// Re-exported so every existing importer of `GenEvalLoopRoleConfig` (attempt-body.ts,
+// per-task-subchain.ts, best-of-n-record.ts, _shared/run-role-turn.ts, tests) keeps working
+// unchanged — the canonical definition now lives in `_shared/role-spawn.ts`, the one place
+// `best-of-n.ts`'s composite and this loop both read it from.
+export type { GenEvalLoopRoleConfig } from '@src/application/flows/implement/leaves/_shared/role-spawn.ts';
 
 /**
  * Per-turn gen-eval composite element — the `loop` body for one task. Iterates
@@ -83,26 +94,6 @@ export interface GenEvalLoopDeps {
   readonly correctiveRetries: number;
 }
 
-export interface GenEvalLoopRoleConfig {
-  readonly providerId: string;
-  readonly model: string;
-  readonly effort?: string;
-  /**
-   * Pre-composed "## Agent Definition" prompt section for this role, resolved once at launch —
-   * absent when the role has no bound definition. Threaded into the generator/evaluator leaf as
-   * `agentDefinition` and rides only the FULL prompt of a session thread (round 1); a resumed
-   * continuation already carries it in-conversation.
-   */
-  readonly agentDefinitionSection?: string;
-  /**
-   * This role's bound agent-definition NAME (bare identifier) — threaded into the generator/
-   * evaluator leaf as `agentDefinitionName` so the FULL prompt's `{{PROJECT_TOOLING}}` catalog
-   * can name the same binding `agentDefinitionSection` already announces in prose. Absent when
-   * the role has no bound definition.
-   */
-  readonly agentDefinitionName?: string;
-}
-
 export interface GenEvalLoopOpts {
   readonly cwd: AbsolutePath;
   readonly sprintDir: AbsolutePath;
@@ -111,38 +102,6 @@ export interface GenEvalLoopOpts {
   readonly generator: GenEvalLoopRoleConfig;
   readonly evaluator: GenEvalLoopRoleConfig;
 }
-
-/**
- * Overlay one role's spawn identity — provider port, model, effort — plus its bound agent
- * definition onto the cross-role leaf deps. The agent-definition section and its name ride only
- * when the role has a binding, so an unbound role's leaf deps are byte-for-byte what they were
- * before the portable-agents feature existed.
- */
-const withRoleSpawn = <TShared extends object>(
-  shared: TShared,
-  provider: HeadlessAiProvider,
-  role: GenEvalLoopRoleConfig
-) => ({
-  ...shared,
-  provider,
-  model: role.model,
-  ...(role.effort !== undefined ? { effort: role.effort } : {}),
-  ...(role.agentDefinitionSection !== undefined ? { agentDefinition: role.agentDefinitionSection } : {}),
-  ...(role.agentDefinitionName !== undefined ? { agentDefinitionName: role.agentDefinitionName } : {}),
-});
-
-/**
- * The provider / model / effort triple a role's spawn runs at, in the shape both attribution
- * sidecars want. Resolved once per role so the generic `meta.json` stamp, the implement-specific
- * `role-meta.json` stamp, and the spawn itself can never disagree about what ran.
- */
-const roleSpawnConfig = (
-  role: GenEvalLoopRoleConfig
-): { readonly providerId: string; readonly model: string; readonly effort?: string } => ({
-  providerId: role.providerId,
-  model: role.model,
-  ...(role.effort !== undefined ? { effort: role.effort } : {}),
-});
 
 export const createGenEvalLoop = (
   deps: GenEvalLoopDeps,

@@ -22,12 +22,11 @@ import type { SessionId } from '@src/integration/ai/providers/_engine/session-id
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import { generatorOutputContract } from '@src/application/flows/implement/leaves/generator.contract.ts';
 import { escalationBannerId } from '@src/business/task/escalation-policy.ts';
-import { composeDimensionTrajectory } from '@src/business/task/dimension-trajectory.ts';
-import { composeTaskEpisodes } from '@src/business/task/compose-task-episodes.ts';
-import { summariseEpisodes } from '@src/business/task/episode-summary.ts';
-import { composePriorLearnings } from '@src/application/flows/_shared/memory/compose-prior-learnings.ts';
+import { renderPriorAttemptsSection } from '@src/business/task/attempt-summary.ts';
+import { readReproductionSection } from '@src/application/flows/implement/leaves/reproduce.ts';
 import { readRoundSessionId } from '@src/application/flows/implement/leaves/round-artifacts.ts';
 import { positiveCountCarry } from '@src/application/flows/implement/leaves/_shared/nudge-count-carry.ts';
+import { composeGeneratorFeedForward } from '@src/application/flows/implement/leaves/_shared/compose-generator-feed-forward.ts';
 import {
   readCappedProgress,
   requireRoleTurnCtx,
@@ -133,6 +132,16 @@ interface GeneratorInput {
    * in-conversation. Empty when no sibling task has settled yet → the prompt slot collapses cleanly.
    */
   readonly priorEpisodes?: string;
+  /**
+   * Pre-composed reproduction body (read side) — built in the input projection from
+   * `ctx.reproductionArtifact` via `renderReproductionBody` when the task's guarded
+   * `reproduce-<taskId>` leaf validated one. Unlike `priorLearnings` / `priorEpisodes`
+   * (session-scoped, full-prompt-only), the reproduction is round-relevant on EVERY turn of the
+   * attempt — the generator must keep the reproduction test passing across retries — so it rides
+   * both the full and continuation prompt branches below. Undefined when the task is not
+   * defect-shaped or no reproduction was validated.
+   */
+  readonly reproduction?: string;
 }
 
 interface GeneratorOutput {
@@ -208,7 +217,20 @@ const countTurnActionKinds = (out: GeneratorOutput): Map<string, number> => {
  * instead, so the directive stays reserved for the same-model nudge where no fresh capability
  * remains.
  */
-const isPlateauBreakAttempt = (task: InProgressTask): boolean => {
+/**
+ * Conditional per-attempt array-accumulator carry — returns `{ [field]: [...prior, ...items] }`
+ * only when `items` is non-empty, else `{}`. Mirrors `positiveCountCarry`'s (`_shared/nudge-
+ * count-carry.ts`) cast-bridged computed-key shape; collapses the per-attempt signal-text
+ * accumulators in `generatorOutput` below from one multi-line ternary each to one call each.
+ */
+const arrayCarry = <K extends string, T>(
+  field: K,
+  items: readonly T[],
+  prior: readonly T[] | undefined
+): Partial<Record<K, readonly T[]>> =>
+  items.length > 0 ? ({ [field]: [...(prior ?? []), ...items] } as unknown as Partial<Record<K, readonly T[]>>) : {};
+
+export const isPlateauBreakAttempt = (task: InProgressTask): boolean => {
   const lastSettled = [...task.attempts].reverse().find((a) => a.status !== 'running');
   const stallDriven = lastSettled?.warning?.kind === 'plateau' || lastSettled?.warning?.kind === 'budget-exhausted';
   return task.escalatedFromModel !== undefined && task.escalatedFromModel === task.escalatedToModel && stallDriven;
@@ -251,6 +273,11 @@ const buildGeneratorPrompt = async (
   const { input } = args;
   const priorCritique = latestCritique(args.task);
   const plateauBreak = isPlateauBreakAttempt(args.task);
+  // Select-K prior-attempt summaries (arXiv 2604.16529) — unlike priorLearnings/priorEpisodes
+  // (session-scoped, full-prompt-only), which attempts already happened on THIS task is
+  // round-relevant context, so it rides both branches below. '' when no prior attempt on the
+  // task has settled yet (round 1 of attempt 1), which collapses the placeholder cleanly.
+  const priorAttempts = renderPriorAttemptsSection(args.task.attempts);
   // Each block rides only when non-empty so the renderer's absent-branch collapses its
   // placeholder — no orphan headings on round 1 or on a turn with no verify history. The
   // dimension trajectory rides inside PRIOR_CRITIQUE_SECTION.
@@ -264,6 +291,8 @@ const buildGeneratorPrompt = async (
     ...(input.dimensionTrajectory !== undefined ? { dimensionTrajectory: input.dimensionTrajectory } : {}),
     ...(args.preVerifyOutput.length > 0 ? { preVerifyOutput: args.preVerifyOutput } : {}),
     ...(args.retryFeedback.length > 0 ? { retryFeedback: args.retryFeedback } : {}),
+    ...(priorAttempts.length > 0 ? { priorAttempts } : {}),
+    ...(input.reproduction !== undefined ? { reproduction: input.reproduction } : {}),
   };
 
   if (input.priorGeneratorSessionId !== undefined) {
@@ -313,8 +342,12 @@ const readVerifyLogTail = async (
  * Every step is best-effort: a missing attempt, a missing verify row, or an unreadable log
  * degrades to '' (block disappears) or to the structured metadata alone. Never throws, never
  * blocks the turn. The reader is pure file IO with no abort signal, so no AbortError can surface.
+ *
+ * Exported so `best-of-n-candidate.ts`'s candidate spawns compose the SAME two blocks a normal
+ * generator turn gets — the granted attempt's most expensive turns must see the same harness-verify
+ * context, not a silently narrower prompt.
  */
-const composeVerifyBlocks = async (
+export const composeVerifyBlocks = async (
   reader: LogTailReader,
   sprintDir: AbsolutePath,
   taskId: TaskId,
@@ -560,42 +593,26 @@ const makeGeneratorExecute =
 
 /**
  * Build this leaf's `input` projection — validates the ctx preconditions the generator turn
- * needs (`currentTask`, `taskWorkspaceRoot`, `currentRoundNum`), then composes the three
- * feed-forward prompt blocks (dimension trajectory, prior learnings, prior episodes) from pure
- * ctx reads before assembling {@link GeneratorInput}.
+ * needs (`currentTask`, `taskWorkspaceRoot`, `currentRoundNum`), then composes the feed-forward
+ * prompt blocks via {@link composeGeneratorFeedForward} before assembling {@link GeneratorInput}.
  */
 const makeGeneratorInput =
   (
-    deps: Pick<GeneratorLeafDeps, 'plateauThreshold' | 'maxTurns'>,
+    deps: Pick<GeneratorLeafDeps, 'clock' | 'cwd' | 'plateauThreshold' | 'maxTurns'>,
     taskId: TaskId
   ): ((ctx: ImplementCtx) => GeneratorInput) =>
   (ctx) => {
     const { task, workspaceRoot, roundNum } = requireRoleTurnCtx(ctx, 'generator', taskId);
-    // Compose the dimension-trajectory feed-forward (principles 6 + 15) from the per-attempt
-    // evaluator-turn history. Pure ctx read — `composeDimensionTrajectory` returns '' until there
-    // are two turns to diff (round 1 has none), so the prompt's PRIOR_CRITIQUE_SECTION collapses
-    // cleanly on the first round.
-    const dimensionTrajectory = composeDimensionTrajectory({
-      history: ctx.plateauHistory ?? [],
-      plateauThreshold: deps.plateauThreshold,
-      roundNum,
-      maxTurns: deps.maxTurns,
-    });
-    // Cross-sprint procedural memory (principle 3) loaded once by the prologue's `load-learnings`.
-    // Pure ctx read; '' when the ledger was absent/empty so the prompt placeholder collapses.
-    const priorLearnings = composePriorLearnings(ctx.priorLearnings ?? []);
-    // Episodic memory (R4) derived from this sprint's already-settled sibling tasks. Pure ctx
-    // read; '' until a sibling has settled (done/blocked) so the prompt placeholder collapses.
-    const priorEpisodes = summariseEpisodes(composeTaskEpisodes(ctx.tasks ?? [], taskId, ctx.sprintId));
+    const feedForward = composeGeneratorFeedForward(ctx, task, taskId, roundNum, deps);
+    const reproduction = readReproductionSection(ctx);
     return {
       task,
       turn: (ctx.genEvalTurn ?? 0) + 1,
       workspaceRoot,
       roundNum,
       ...(ctx.priorGeneratorSessionId !== undefined ? { priorGeneratorSessionId: ctx.priorGeneratorSessionId } : {}),
-      ...(dimensionTrajectory.length > 0 ? { dimensionTrajectory } : {}),
-      ...(priorLearnings.length > 0 ? { priorLearnings } : {}),
-      ...(priorEpisodes.length > 0 ? { priorEpisodes } : {}),
+      ...feedForward,
+      ...(reproduction !== undefined ? { reproduction } : {}),
     };
   };
 
@@ -616,22 +633,10 @@ const generatorOutput = (ctx: ImplementCtx, out: GeneratorOutput): ImplementCtx 
   // Accumulate this turn's signal texts onto the per-attempt aggregates. Cleared by the
   // progress-journal leaf after the attempt settles. Each kind has its own field on ctx so
   // the journal renderer can drop empty subsections without inspecting the signal type.
-  const decisionsCarry =
-    out.decisionsEmitted.length > 0
-      ? { currentAttemptDecisions: [...(ctx.currentAttemptDecisions ?? []), ...out.decisionsEmitted] }
-      : {};
-  const changesCarry =
-    out.changesEmitted.length > 0
-      ? { currentAttemptChanges: [...(ctx.currentAttemptChanges ?? []), ...out.changesEmitted] }
-      : {};
-  const learningsCarry =
-    out.learningsEmitted.length > 0
-      ? { currentAttemptLearnings: [...(ctx.currentAttemptLearnings ?? []), ...out.learningsEmitted] }
-      : {};
-  const notesCarry =
-    out.notesEmitted.length > 0
-      ? { currentAttemptNotes: [...(ctx.currentAttemptNotes ?? []), ...out.notesEmitted] }
-      : {};
+  const decisionsCarry = arrayCarry('currentAttemptDecisions', out.decisionsEmitted, ctx.currentAttemptDecisions);
+  const changesCarry = arrayCarry('currentAttemptChanges', out.changesEmitted, ctx.currentAttemptChanges);
+  const learningsCarry = arrayCarry('currentAttemptLearnings', out.learningsEmitted, ctx.currentAttemptLearnings);
+  const notesCarry = arrayCarry('currentAttemptNotes', out.notesEmitted, ctx.currentAttemptNotes);
   // Cost-visibility tally — accumulates across every turn of the attempt, same lifecycle as the
   // signal accumulators above. Zero-noise: a turn with no nudge contributes nothing (ctx field
   // stays undefined until the first nudge fires).

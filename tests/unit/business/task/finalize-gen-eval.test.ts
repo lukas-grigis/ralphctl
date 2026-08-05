@@ -26,12 +26,15 @@ const newBus = () => createInMemoryEventBus();
 const defaultModel = 'claude-sonnet-4-6';
 
 /** Build a readConfig slice with explicit overrides over the defaults. */
-const cfg = (over: Partial<{ maxTurns: number; escalateOnPlateau: boolean; maxAttempts: number }>) => async () => ({
-  maxTurns: over.maxTurns ?? 5,
-  escalateOnPlateau: over.escalateOnPlateau ?? false,
-  escalationMap: {} as Readonly<Record<string, string>>,
-  maxAttempts: over.maxAttempts ?? 3,
-});
+const cfg =
+  (over: Partial<{ maxTurns: number; escalateOnPlateau: boolean; maxAttempts: number; bestOfNCandidates: number }>) =>
+  async () => ({
+    maxTurns: over.maxTurns ?? 5,
+    escalateOnPlateau: over.escalateOnPlateau ?? false,
+    escalationMap: {} as Readonly<Record<string, string>>,
+    maxAttempts: over.maxAttempts ?? 3,
+    bestOfNCandidates: over.bestOfNCandidates,
+  });
 
 describe('finalizeGenEvalUseCase', () => {
   // ── Core exit-kind mapping — every case asserts the FULL output shape so a mutant that
@@ -993,7 +996,46 @@ describe('finalizeGenEvalUseCase', () => {
     expect(persisted[0]).toEqual({ escalatedToEffort: 'max', escalatedToEvaluatorEffort: 'high' });
   });
 
-  it('plain model escalate: escalatedToEvaluatorEffort is NOT stamped even when evaluator context is supplied', async () => {
+  it('plain model escalate: escalatedToEvaluatorEffort IS stamped in lockstep when evaluator context is supplied (#256 extended to model climbs)', async () => {
+    const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
+    const persisted: Array<{ escalatedToModel: string | undefined; escalatedToEvaluatorEffort: string | undefined }> =
+      [];
+    const repo: UpdateTask = {
+      async update(_sprintId, t) {
+        persisted.push({
+          escalatedToModel: t.escalatedToModel,
+          escalatedToEvaluatorEffort: t.escalatedToEvaluatorEffort,
+        });
+        return Result.ok(undefined);
+      },
+    };
+    const result = await finalizeGenEvalUseCase({
+      task,
+      sprintId,
+      exit: { kind: 'plateau', dimensions: ['correctness'] },
+      turnsUsed: 3,
+      readConfig: cfg({ escalateOnPlateau: true, maxAttempts: 5 }),
+      taskRepo: repo,
+      logger: noopLogger,
+      eventBus: newBus(),
+      clock: fixedClock,
+      generatorModel: 'claude-sonnet-4-6',
+      generatorProvider: 'claude-code',
+      generatorEffort: undefined,
+      evaluatorProvider: 'github-copilot',
+      evaluatorModel: 'gpt-5.5',
+      evaluatorEffort: undefined,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.task.escalatedToModel).toBe('claude-opus-4-8');
+    expect(result.value.task.escalatedToEvaluatorEffort).toBe('high');
+    // Both landed together in the single persist call — mirrors the escalate-effort lockstep test.
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0]).toEqual({ escalatedToModel: 'claude-opus-4-8', escalatedToEvaluatorEffort: 'high' });
+  });
+
+  it('plain model escalate: escalatedToEvaluatorEffort is NOT stamped when the caller supplies no evaluator context', async () => {
     const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
     const result = await finalizeGenEvalUseCase({
       task,
@@ -1006,11 +1048,6 @@ describe('finalizeGenEvalUseCase', () => {
       eventBus: newBus(),
       clock: fixedClock,
       generatorModel: 'claude-sonnet-4-6',
-      generatorProvider: 'claude-code',
-      generatorEffort: undefined,
-      evaluatorProvider: 'github-copilot',
-      evaluatorModel: 'gpt-5.5',
-      evaluatorEffort: undefined,
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -1101,6 +1138,121 @@ describe('finalizeGenEvalUseCase', () => {
     if (!result.ok) return;
     expect(result.value.task.escalatedToEffort).toBe('max');
     expect(result.value.task.escalatedToEvaluatorEffort).toBeUndefined();
+  });
+
+  // ── Opt-in best-of-N remedy (activated via readConfig().bestOfNCandidates) ──────────────────────
+
+  it('plateau at nudged-top with bestOfNCandidates=3: grants best-of-N — stamps bestOfNGranted + bestOfNGrantedCandidates, shouldFailAttempt=true, no model-escalated event', async () => {
+    const nudged = (() => {
+      const stamped = recordTaskEscalation(
+        makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
+        'claude-opus-5',
+        'claude-opus-5'
+      );
+      if (!stamped.ok) throw stamped.error;
+      return stamped.value;
+    })();
+    const bus = newBus();
+    const events: Array<{ type: string }> = [];
+    bus.subscribe((e) => events.push(e));
+    const result = await finalizeGenEvalUseCase({
+      task: nudged,
+      sprintId,
+      exit: { kind: 'plateau', dimensions: ['correctness'] },
+      turnsUsed: 3,
+      readConfig: cfg({ escalateOnPlateau: true, maxAttempts: 5, bestOfNCandidates: 3 }),
+      taskRepo: okRepo,
+      logger: noopLogger,
+      eventBus: bus,
+      clock: fixedClock,
+      generatorModel: 'claude-opus-5',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.verdict).toBe('failed');
+    expect(result.value.task.bestOfNGranted).toBe(true);
+    expect(result.value.task.bestOfNGrantedCandidates).toBe(3);
+    expect(result.value.shouldFailAttempt).toBe(true);
+    expect(result.value.blockedReason).toBeUndefined();
+    expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
+  });
+
+  it('a SECOND plateau after the best-of-N grant tops out (once-per-task) — the granted-attempt failure never re-grants', async () => {
+    const nudged = (() => {
+      const stamped = recordTaskEscalation(
+        makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
+        'claude-opus-5',
+        'claude-opus-5'
+      );
+      if (!stamped.ok) throw stamped.error;
+      return stamped.value;
+    })();
+    const readConfig = cfg({ escalateOnPlateau: true, maxAttempts: 5, bestOfNCandidates: 3 });
+    const first = await finalizeGenEvalUseCase({
+      task: nudged,
+      sprintId,
+      exit: { kind: 'plateau', dimensions: ['correctness'] },
+      turnsUsed: 3,
+      readConfig,
+      taskRepo: okRepo,
+      logger: noopLogger,
+      eventBus: newBus(),
+      clock: fixedClock,
+      generatorModel: 'claude-opus-5',
+    });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    expect(first.value.task.bestOfNGranted).toBe(true);
+
+    // The granted attempt also failed — same nudged-at-top model, same knob — but the durable
+    // bestOfNGranted stamp on the task now blocks a second grant.
+    const second = await finalizeGenEvalUseCase({
+      task: first.value.task,
+      sprintId,
+      exit: { kind: 'plateau', dimensions: ['correctness'] },
+      turnsUsed: 3,
+      readConfig,
+      taskRepo: okRepo,
+      logger: noopLogger,
+      eventBus: newBus(),
+      clock: fixedClock,
+      generatorModel: 'claude-opus-5',
+    });
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.value.verdict).toBe('failed');
+    expect(second.value.shouldFailAttempt).toBeFalsy();
+    expect(second.value.blockedReason).toBeUndefined();
+    // Work is preserved (done-with-warning), not re-granted.
+    expect(second.value.task.bestOfNGrantedCandidates).toBe(3);
+  });
+
+  it('nudged-top plateau with bestOfNCandidates unset: tops out exactly as before the remedy existed', async () => {
+    const nudged = (() => {
+      const stamped = recordTaskEscalation(
+        makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
+        'claude-opus-5',
+        'claude-opus-5'
+      );
+      if (!stamped.ok) throw stamped.error;
+      return stamped.value;
+    })();
+    const result = await finalizeGenEvalUseCase({
+      task: nudged,
+      sprintId,
+      exit: { kind: 'plateau', dimensions: ['correctness'] },
+      turnsUsed: 3,
+      readConfig: cfg({ escalateOnPlateau: true, maxAttempts: 5 }),
+      taskRepo: okRepo,
+      logger: noopLogger,
+      eventBus: newBus(),
+      clock: fixedClock,
+      generatorModel: 'claude-opus-5',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.shouldFailAttempt).toBeFalsy();
+    expect(result.value.task.bestOfNGranted).toBeUndefined();
   });
 
   it('forwards a StorageError from the repo', async () => {

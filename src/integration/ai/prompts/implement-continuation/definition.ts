@@ -56,6 +56,19 @@ export interface ImplementContinuationPromptParams {
    */
   readonly priorCritiqueSection: string;
   /**
+   * Summaries of the most instructive prior attempts on THIS task (a curated select-K slice, not
+   * the full attempt history) with their verification outcomes — what passed and what regressed.
+   * Absent or empty → `{{PRIOR_ATTEMPTS_SECTION}}` collapses cleanly (no `<prior_attempts>` block
+   * is emitted). Default undefined (empty) until the caller threads a selection.
+   */
+  readonly priorAttemptsSection?: string;
+  /**
+   * Optional `<reproduction>` block — when a `reproduce` session already wrote a failing test for
+   * this defect-shaped task, its test path, run command, and observed failure ride here. Absent
+   * or empty → `{{REPRODUCTION_SECTION}}` collapses cleanly (no orphan block).
+   */
+  readonly reproductionSection?: string;
+  /**
    * "## ⚠ You have plateaued — change your approach" block — empty unless this round is a
    * plateau-break attempt (top-of-ladder same-model nudge). Rendered via the shared
    * `renderPlateauDirectiveSection`.
@@ -109,6 +122,20 @@ export const implementContinuationPromptDef: PromptDefinition<ImplementContinuat
       placeholder: 'PRIOR_CRITIQUE_SECTION',
       description:
         '"## Prior Critique" markdown block (+ optional "## Dimension trajectory" feed-forward) — the prior round\'s failed evaluator critique and the multi-round dimension trajectory.',
+    },
+    priorAttemptsSection: {
+      placeholder: 'PRIOR_ATTEMPTS_SECTION',
+      optional: true,
+      description:
+        'Summaries of the most instructive prior attempts on this task (select-K slice) with their ' +
+        'verification outcomes. Empty → `{{PRIOR_ATTEMPTS_SECTION}}` collapses (no `<prior_attempts>` wrapper).',
+    },
+    reproductionSection: {
+      placeholder: 'REPRODUCTION_SECTION',
+      optional: true,
+      description:
+        'Failing reproduction test a prior `reproduce` session wrote for this defect-shaped task — test ' +
+        'path, run command, observed failure. Empty → `{{REPRODUCTION_SECTION}}` collapses (no `<reproduction>` wrapper).',
     },
     plateauDirectiveSection: {
       placeholder: 'PLATEAU_DIRECTIVE_SECTION',
@@ -164,6 +191,18 @@ export interface BuildImplementContinuationPromptInput {
   /** Prior evaluator critique to feed back into the generator. */
   readonly priorCritique?: string;
   /**
+   * Pre-composed summary of the most instructive prior attempts on this task (a curated
+   * select-K slice, not the full history) with their verification outcomes. Absent or empty →
+   * `{{PRIOR_ATTEMPTS_SECTION}}` collapses (no `<prior_attempts>` block emitted).
+   */
+  readonly priorAttempts?: string;
+  /**
+   * Pre-composed body describing a reproduction test a prior `reproduce` session wrote for this
+   * defect-shaped task — its test path, run command, and observed failure excerpt. Absent or
+   * empty → `{{REPRODUCTION_SECTION}}` collapses (no `<reproduction>` block emitted).
+   */
+  readonly reproduction?: string;
+  /**
    * Pre-composed "## Dimension trajectory" block from `ctx.plateauHistory` — rides inside
    * `PRIOR_CRITIQUE_SECTION` (no new placeholder). Absent on round 1 or empty → not rendered.
    */
@@ -185,6 +224,40 @@ export interface BuildImplementContinuationPromptInput {
 }
 
 /**
+ * Render the optional `<prior_attempts>` block — the most instructive prior attempts on this
+ * task (select-K slice) with their verification outcomes. Same collapse contract as the sibling
+ * renderers in this module: full tagged block when non-empty, empty string otherwise so
+ * `{{PRIOR_ATTEMPTS_SECTION}}` disappears cleanly with no orphan wrapper.
+ */
+const renderPriorAttemptsSection = (summary: string | undefined): string => {
+  if (summary === undefined) return '';
+  const trimmed = summary.trim();
+  if (trimmed.length === 0) return '';
+  return ['<prior_attempts>', trimmed, '</prior_attempts>'].join('\n');
+};
+
+/**
+ * Render the optional `<reproduction>` block — a failing test a prior `reproduce` session wrote
+ * for this defect-shaped task. Same collapse contract as the sibling renderers above: full
+ * tagged block (with an embedded framing header, since the block disappears entirely when
+ * empty) when non-empty, empty string otherwise so `{{REPRODUCTION_SECTION}}` disappears
+ * cleanly with no orphan wrapper.
+ */
+const renderReproductionSection = (reproduction: string | undefined): string => {
+  if (reproduction === undefined) return '';
+  const trimmed = reproduction.trim();
+  if (trimmed.length === 0) return '';
+  return [
+    '<reproduction>',
+    'A failing reproduction test already exists for this task, written in an earlier session. Make it',
+    'pass without weakening it — do not delete, skip, or loosen its assertions to reach a pass.',
+    '',
+    trimmed,
+    '</reproduction>',
+  ].join('\n');
+};
+
+/**
  * Top-level builder — renders the param strings, calls `buildPrompt`. The chain leaf consumes
  * this via function injection on round 2+ of a generator session thread.
  */
@@ -198,6 +271,8 @@ export const buildImplementContinuationPrompt = async (
     progressFile: input.progressFile,
     priorProgress: input.priorProgress,
     priorCritiqueSection: renderPriorCritiqueSection(input.priorCritique, input.dimensionTrajectory),
+    priorAttemptsSection: renderPriorAttemptsSection(input.priorAttempts),
+    reproductionSection: renderReproductionSection(input.reproduction),
     plateauDirectiveSection: renderPlateauDirectiveSection(input.plateauBreak ?? false),
     outputContractSection: input.outputContractSection,
     preVerifyResults: renderPreVerifyResultsSection(input.preVerifyOutput),
