@@ -30,6 +30,7 @@ import {
   runPreVerifyGate,
   tryCarryBaselineShortCircuit,
   tryFreshSetupShortCircuit,
+  withReproductionTestExcluded,
 } from '@src/application/flows/implement/leaves/pre-task-verify-internals/verify-execution.ts';
 import { persistPreVerifyLog } from '@src/application/flows/implement/leaves/pre-task-verify-internals/output-capping.ts';
 
@@ -177,6 +178,15 @@ export interface LeafInput {
    * is on and no prior-task carry is available.
    */
   readonly setupVerifiedRepoIds?: readonly RepositoryId[];
+  /**
+   * Carried from `ctx.reproductionArtifact.testPath` — the harness-authored reproduction test the
+   * guarded `reproduce-<taskId>` leaf left uncommitted in the tree before the attempt loop (see
+   * `reproduce.ts`). When set, the gate run below excludes exactly this path from the baseline
+   * (see `withReproductionTestExcluded` in `pre-task-verify-internals/verify-execution.ts`) so a
+   * defect-shaped task's deliberately-failing fixture cannot masquerade as a pre-existing broken
+   * baseline. Undefined for a non-defect-shaped task (no reproduction was validated).
+   */
+  readonly reproductionTestPath?: string;
 }
 
 export interface LeafOutput {
@@ -231,6 +241,7 @@ const buildPreTaskVerifyInput = (ctx: ImplementCtx, taskId: TaskId): LeafInput =
     repositoryId: ctx.currentTask.repositoryId,
     ...(ctx.priorPostVerifyOutcome !== undefined ? { priorPostVerifyOutcome: ctx.priorPostVerifyOutcome } : {}),
     ...(ctx.setupVerifiedRepoIdsThisRun !== undefined ? { setupVerifiedRepoIds: ctx.setupVerifiedRepoIdsThisRun } : {}),
+    ...(ctx.reproductionArtifact !== undefined ? { reproductionTestPath: ctx.reproductionArtifact.testPath } : {}),
   };
 };
 
@@ -282,7 +293,17 @@ export const preTaskVerifyLeaf = (
         const freshSetup = await tryFreshSetupShortCircuit(deps, opts, input, carriedGreenForThisCwd);
         if (freshSetup !== undefined) return Result.ok(freshSetup);
 
-        const { run, rawOutput, spawnErrorMessage } = await runPreVerifyGate(deps, opts, signal);
+        // Exclude the reproduction test's own path from the baseline gate run (confirmed[9]) —
+        // see `withReproductionTestExcluded`'s docstring for why this must reapply on every
+        // attempt, not just the first.
+        const { run, rawOutput, spawnErrorMessage } = await withReproductionTestExcluded(
+          deps,
+          opts.cwd,
+          input.sprintId,
+          taskId,
+          input.reproductionTestPath,
+          () => runPreVerifyGate(deps, opts, signal)
+        );
 
         // Cancellation propagates verbatim. `runVerifyGatesUseCase` folds a runner
         // `Result.error` into a `spawn-error` row, so the abort would otherwise be swallowed as an

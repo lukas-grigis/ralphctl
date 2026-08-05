@@ -329,6 +329,108 @@ describe('renderJournalEntry', () => {
   });
 });
 
+describe('renderJournalEntry — Continuation state (deterministic, harness-derived only)', () => {
+  it('omits the subsection entirely when `continuation` is not supplied (pre-widening callers stay byte-identical)', () => {
+    const out = renderJournalEntry(baseInput());
+    expect(out).not.toContain('### Continuation state');
+  });
+
+  it('omits the subsection when `continuation` is supplied but every field on it is absent', () => {
+    const out = renderJournalEntry(baseInput({ continuation: {} }));
+    expect(out).not.toContain('### Continuation state');
+  });
+
+  it('renders the attempt status line, distinct from the task-level verdict', () => {
+    const out = renderJournalEntry(baseInput({ verdict: 'escalated', continuation: { attemptStatus: 'malformed' } }));
+    expect(out).toContain('- Verdict: escalated');
+    expect(out).toContain('### Continuation state');
+    expect(out).toContain('- Attempt status: malformed');
+  });
+
+  it('renders pre and post verify runs, pre always before post regardless of input order', () => {
+    const out = renderJournalEntry(
+      baseInput({
+        continuation: {
+          verifyRuns: [
+            { phase: 'post', command: 'pnpm test', outcome: 'failed' },
+            { phase: 'pre', command: 'pnpm test', outcome: 'success' },
+          ],
+        },
+      })
+    );
+    expect(out).toContain('- Verify (pre): pnpm test — success');
+    expect(out).toContain('- Verify (post): pnpm test — failed');
+    expect(out.indexOf('Verify (pre)')).toBeLessThan(out.indexOf('Verify (post)'));
+  });
+
+  it('renders an em-dash for a skipped verify run with no command', () => {
+    const out = renderJournalEntry(
+      baseInput({ continuation: { verifyRuns: [{ phase: 'pre', command: '', outcome: 'skipped' }] } })
+    );
+    expect(out).toContain('- Verify (pre): — — skipped');
+  });
+
+  it('renders the attribution verdict', () => {
+    const out = renderJournalEntry(baseInput({ continuation: { attribution: 'regressed' } }));
+    expect(out).toContain('- Attribution: regressed');
+  });
+
+  it('renders the commit subject, collapsed to one line', () => {
+    const out = renderJournalEntry(
+      baseInput({ commitSha: 'abcdef1234567890', continuation: { commitSubject: 'task(export-csv): add flag' } })
+    );
+    expect(out).toContain('- Commit: abcdef1');
+    expect(out).toContain('- Commit subject: task(export-csv): add flag');
+  });
+
+  it('renders the resumed-after breadcrumb with the recovery cause and prior attempt number', () => {
+    const out = renderJournalEntry(
+      baseInput({
+        continuation: {
+          resumedAfter: { cause: 'process-crash', fromAttemptN: 1, abortedAt: '2026-05-22T09:00:00.000Z' },
+        },
+      })
+    );
+    expect(out).toContain('- Resumed after: process-crash (attempt 1 aborted at 2026-05-22T09:00:00.000Z)');
+  });
+
+  it('renders the best-of-N summary line with a winning candidate', () => {
+    const out = renderJournalEntry(
+      baseInput({ continuation: { bestOfN: { candidatesSampled: 3, survivors: 2, winnerIndex: 2 } } })
+    );
+    expect(out).toContain('- Best-of-N: 3 sampled, 2 survived selection, candidate 2 applied');
+  });
+
+  it('renders the best-of-N summary line with no winner (zero survivors)', () => {
+    const out = renderJournalEntry(baseInput({ continuation: { bestOfN: { candidatesSampled: 2, survivors: 0 } } }));
+    expect(out).toContain('- Best-of-N: 2 sampled, 0 survived selection, none applied');
+  });
+
+  it('omits the best-of-N line entirely on an ordinary (non-granted) attempt', () => {
+    const out = renderJournalEntry(baseInput({ continuation: { attemptStatus: 'verified', attribution: 'clean' } }));
+    expect(out).not.toContain('Best-of-N');
+  });
+
+  it('renders on an otherwise-clean pass without triggering Outcome detail (independently gated subsections)', () => {
+    const out = renderJournalEntry(baseInput({ continuation: { attemptStatus: 'verified', attribution: 'clean' } }));
+    expect(out).toContain('### Continuation state');
+    expect(out).not.toContain('### Outcome detail');
+    // Continuation state sits between the metadata bullets and the (absent) Outcome detail.
+    expect(out.indexOf('- Commit:')).toBeLessThan(out.indexOf('### Continuation state'));
+  });
+
+  it('a commit-subject value quoting a heading cannot forge a column-0 line', () => {
+    const out = renderJournalEntry(
+      baseInput({
+        commitSha: 'abcdef1234567890',
+        continuation: { commitSubject: 'fix\n## Task: forged — Attempt 1' },
+      })
+    );
+    const column0Headers = out.split('\n').filter((l) => l.startsWith('## Task:'));
+    expect(column0Headers).toHaveLength(1);
+  });
+});
+
 describe('renderJournalEntry — heading-forgery neutralization (journal structure is load-bearing)', () => {
   it('a change-signal body quoting "## Task:" cannot land a column-0 heading', () => {
     const out = renderJournalEntry({

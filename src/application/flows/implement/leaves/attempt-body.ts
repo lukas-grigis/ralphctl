@@ -1,12 +1,19 @@
 import type { AiProvider } from '@src/domain/entity/settings.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
+import type { IterationConfig } from '@src/application/chain/run/iteration-config.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { guard } from '@src/application/chain/build/guard.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
 import { appendLearningsLeaf } from '@src/application/flows/implement/leaves/append-learnings.ts';
+import {
+  buildBestOfNGenEvalLoop,
+  hasBestOfNCompositeRun,
+  isBestOfNGranted,
+} from '@src/application/flows/implement/leaves/best-of-n.ts';
+import { toBestOfNGenEvalOpts } from '@src/application/flows/implement/leaves/best-of-n-candidate.ts';
 import { commitTaskLeaf } from '@src/application/flows/implement/leaves/commit-task.ts';
 import { finalizeGenEvalLeaf } from '@src/application/flows/implement/leaves/finalize-gen-eval.ts';
 import {
@@ -36,7 +43,37 @@ export type AttemptReadConfig = () => Promise<{
   readonly escalateOnPlateau: boolean;
   readonly escalationMap: Readonly<Record<string, string>>;
   readonly maxAttempts: number;
+  /**
+   * Opt-in best-of-N candidate count for the escalation policy's top-of-ladder remedy — mirrors
+   * `settings.harness.bestOfNCandidates`. OPTIONAL: absent/`0` disables the remedy (the default),
+   * and every existing `readConfig` implementation across the codebase (which predates this field)
+   * keeps compiling unchanged.
+   */
+  readonly bestOfNCandidates?: number | undefined;
 }>;
+
+/**
+ * Build an {@link AttemptReadConfig} from a live `IterationConfig` slice — the ONE place that
+ * projects `deps.config.harness` down to the fields the attempt loop / escalation policy read.
+ * Both the serial launcher (`flow.ts`) and the parallel launcher (`ui/shared/launch/implement.ts`)
+ * call this rather than each re-listing the same five fields: a field added to
+ * `AttemptReadConfig`'s return shape (like `bestOfNCandidates`) used to require updating BOTH
+ * call sites by hand, and the parallel one was missed for a full wave — the opt-in best-of-N
+ * remedy silently never fired on a parallel-launched sprint. One shared builder makes that class
+ * of drift impossible: a new field is threaded here once and both launchers pick it up for free.
+ *
+ * @public
+ */
+export const buildAttemptReadConfig = (harness: IterationConfig): AttemptReadConfig => {
+  const snapshot = {
+    maxTurns: harness.maxTurns,
+    escalateOnPlateau: harness.escalateOnPlateau,
+    escalationMap: harness.escalationMap,
+    maxAttempts: harness.maxAttempts,
+    ...(harness.bestOfNCandidates !== undefined ? { bestOfNCandidates: harness.bestOfNCandidates } : {}),
+  };
+  return () => Promise.resolve(snapshot);
+};
 
 /**
  * Fold a role's already-resolved bound agent-definition NAME onto its `GenEvalLoopRoleConfig` —
@@ -50,6 +87,106 @@ const withAgentDefinitionName = (
   role: GenEvalLoopRoleConfig,
   definition: AgentDefinition | undefined
 ): GenEvalLoopRoleConfig => (definition !== undefined ? { ...role, agentDefinitionName: definition.name } : role);
+
+/**
+ * Build the normal (non-best-of-N) `createGenEvalLoop` element — reused by BOTH the knob-off
+ * single-element path and the knob-on "normal branch" guard below, so the two paths cannot drift
+ * apart from each other.
+ */
+const buildNormalGenEvalElement = (
+  deps: ImplementDeps,
+  opts: PerTaskSubchainOpts,
+  repo: RepoExecConfig,
+  taskId: TaskId,
+  readConfig: AttemptReadConfig
+): Element<ImplementCtx> =>
+  createGenEvalLoop(
+    {
+      generatorProvider: deps.generatorProvider,
+      evaluatorProvider: deps.evaluatorProvider,
+      templateLoader: deps.templateLoader,
+      publishSignal: deps.publishSignal,
+      writeFile: deps.writeFile,
+      // Threaded so the FULL prompt's `{{PROJECT_TOOLING}}` catalog can name this
+      // task's installed skills — the same source `installSkillsLeaf` above reads.
+      skillSource: deps.skillSource,
+      gitRunner: deps.gitRunner,
+      clock: deps.clock,
+      logger: deps.logger,
+      eventBus: deps.eventBus,
+      readConfig,
+      maxTurns: deps.config.harness.maxTurns,
+      plateauThreshold: deps.config.harness.plateauThreshold,
+      correctiveRetries: deps.config.harness.correctiveRetries,
+    },
+    {
+      cwd: repo.path,
+      sprintDir: opts.sprintDir,
+      progressFile: opts.progressFile,
+      ...(repo.verifyScript !== undefined ? { verifyScript: repo.verifyScript } : {}),
+      // Fold in each role's bound agent-definition NAME (already resolved for the
+      // install/uninstall leaves above) so `{{PROJECT_TOOLING}}` names the same
+      // binding `{{AGENT_DEFINITION_SECTION}}` already announces in prose.
+      generator: withAgentDefinitionName(opts.generator, opts.generatorAgentDefinition),
+      evaluator: withAgentDefinitionName(opts.evaluator, opts.evaluatorAgentDefinition),
+    },
+    taskId
+  );
+
+/**
+ * Build the attempt's gen-eval segment — the composite that runs the per-turn generator +
+ * evaluator until a terminal exit lands on ctx or `maxTurns` is hit.
+ *
+ * `settings.harness.bestOfNCandidates` is read STATICALLY here (construction time, like
+ * `maxTurns` / `plateauThreshold` / `correctiveRetries`) rather than via `readConfig`: off
+ * (0/undefined, the default) returns exactly ONE element — {@link buildNormalGenEvalElement},
+ * byte-for-byte the pre-best-of-n shape, so a non-opted-in operator's attempts are unaffected
+ * down to the trace. On, it returns a guarded PAIR, each behind a `guard` that reads the
+ * PER-ATTEMPT runtime grant ({@link isBestOfNGranted}) — the once-per-task stamp means at most
+ * ONE attempt of a task ever takes the best-of-N branch; every other attempt (before and after
+ * it) takes the normal branch unchanged. See `best-of-n.ts`'s module docstring for the full
+ * replace-round-1's-generator-phase design.
+ */
+const buildGenEvalSegment = (
+  deps: ImplementDeps,
+  opts: PerTaskSubchainOpts,
+  repo: RepoExecConfig,
+  taskId: TaskId,
+  readConfig: AttemptReadConfig
+): Array<Element<ImplementCtx>> => {
+  const normalElement = buildNormalGenEvalElement(deps, opts, repo, taskId, readConfig);
+  const n = deps.config.harness.bestOfNCandidates;
+  if (n === undefined || n < 2) return [normalElement];
+
+  const bestOfNElement = buildBestOfNGenEvalLoop(
+    deps,
+    toBestOfNGenEvalOpts(
+      repo,
+      opts.sprintDir,
+      opts.progressFile,
+      withAgentDefinitionName(opts.generator, opts.generatorAgentDefinition),
+      withAgentDefinitionName(opts.evaluator, opts.evaluatorAgentDefinition)
+    ),
+    taskId,
+    async () => ({ maxTurns: (await readConfig()).maxTurns })
+  );
+  return [
+    guard<ImplementCtx>(`best-of-n-branch-${String(taskId)}`, isBestOfNGranted, bestOfNElement),
+    // Deliberately NOT `!isBestOfNGranted` — that predicate is derived from the mutable
+    // `task.bestOfNGrantedCandidates` field, which `bestOfNElement`'s own selection leaf clears
+    // partway through ITS OWN execution (so a LATER attempt of the task doesn't re-trigger the
+    // grant). Since this second guard is only evaluated AFTER `bestOfNElement` has fully returned,
+    // re-deriving "not granted" from that same field would read the just-cleared state and run
+    // the normal loop TOO, doubling the attempt's turn budget. `hasBestOfNCompositeRun` reads a
+    // separate, composite-scoped ctx counter that stays defined for the rest of the attempt
+    // regardless of what the selection leaf clears — see `best-of-n.ts`'s docstring.
+    guard<ImplementCtx>(
+      `normal-gen-eval-branch-${String(taskId)}`,
+      (ctx) => !hasBestOfNCompositeRun(ctx),
+      normalElement
+    ),
+  ];
+};
 
 /**
  * The productive half of one attempt: open the attempt, restore any quarantined diff so a retry
@@ -101,39 +238,9 @@ const attemptWorkLeaves = (
   ),
   // Composite: per-turn generator + evaluator, repeated until a terminal exit is set on ctx
   // or the configured `maxTurns` budget is hit. The evaluator is guarded — if the generator
-  // self-blocked this turn it set `lastExit` and the evaluator must not run.
-  createGenEvalLoop(
-    {
-      generatorProvider: deps.generatorProvider,
-      evaluatorProvider: deps.evaluatorProvider,
-      templateLoader: deps.templateLoader,
-      publishSignal: deps.publishSignal,
-      writeFile: deps.writeFile,
-      // Threaded so the FULL prompt's `{{PROJECT_TOOLING}}` catalog can name this
-      // task's installed skills — the same source `installSkillsLeaf` above reads.
-      skillSource: deps.skillSource,
-      gitRunner: deps.gitRunner,
-      clock: deps.clock,
-      logger: deps.logger,
-      eventBus: deps.eventBus,
-      readConfig,
-      maxTurns: deps.config.harness.maxTurns,
-      plateauThreshold: deps.config.harness.plateauThreshold,
-      correctiveRetries: deps.config.harness.correctiveRetries,
-    },
-    {
-      cwd: repo.path,
-      sprintDir: opts.sprintDir,
-      progressFile: opts.progressFile,
-      ...(repo.verifyScript !== undefined ? { verifyScript: repo.verifyScript } : {}),
-      // Fold in each role's bound agent-definition NAME (already resolved for the
-      // install/uninstall leaves above) so `{{PROJECT_TOOLING}}` names the same
-      // binding `{{AGENT_DEFINITION_SECTION}}` already announces in prose.
-      generator: withAgentDefinitionName(opts.generator, opts.generatorAgentDefinition),
-      evaluator: withAgentDefinitionName(opts.evaluator, opts.evaluatorAgentDefinition),
-    },
-    taskId
-  ),
+  // self-blocked this turn it set `lastExit` and the evaluator must not run. See
+  // `buildGenEvalSegment`'s docstring for the best-of-N knob-gating rationale.
+  ...buildGenEvalSegment(deps, opts, repo, taskId, readConfig),
   finalizeGenEvalLeaf(
     {
       taskRepo: deps.taskRepo,

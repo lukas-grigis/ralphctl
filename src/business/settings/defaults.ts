@@ -110,6 +110,8 @@ export const DEFAULT_SETTINGS: Settings = {
     escalateOnPlateau: true,
     escalationMap: {},
     skipPreVerifyOnFreshSetup: false,
+    // Opt-in remedy — disabled by default (each granted attempt spawns N generator sessions).
+    bestOfNCandidates: 0,
   },
   logging: { level: 'info' },
   concurrency: { maxParallelTasks: 1 },

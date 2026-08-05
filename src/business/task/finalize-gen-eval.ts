@@ -4,7 +4,11 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import type { AttemptWarning } from '@src/domain/entity/attempt.ts';
 import type { AiProvider } from '@src/domain/entity/settings.ts';
 import type { InProgressTask } from '@src/domain/entity/task.ts';
-import { recordTaskEffortEscalation, recordTaskEvaluatorEffortEscalation } from '@src/domain/entity/task-settle.ts';
+import {
+  recordTaskBestOfNGrant,
+  recordTaskEffortEscalation,
+  recordTaskEvaluatorEffortEscalation,
+} from '@src/domain/entity/task-settle.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
@@ -13,7 +17,12 @@ import type { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { ValidationError } from '@src/domain/value/error/validation-error.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { GenEvalExit, RunTaskVerdict } from '@src/business/task/gen-eval-exit.ts';
-import { applyEscalation, decideEscalation, type EscalationTrigger } from '@src/business/task/escalation-policy.ts';
+import {
+  applyEscalation,
+  decideEscalation,
+  type EscalationDecision,
+  type EscalationTrigger,
+} from '@src/business/task/escalation-policy.ts';
 import { clearRunningAttemptPlateauWarning } from '@src/domain/entity/task-attempts.ts';
 
 /** {@link GenEvalExit} kind for a loop whose turn budget ran out without a terminal verdict. */
@@ -62,12 +71,17 @@ export interface FinalizeGenEvalProps {
    *   - `escalationMap`      — user overrides merged over `DEFAULT_ESCALATION_MAP`.
    *   - `maxAttempts`        — effective attempt budget when `task.maxAttempts` is unset (legacy
    *                            tasks); wired from `settings.harness.maxAttempts`.
+   *   - `bestOfNCandidates`  — opt-in best-of-N candidate count for the escalation policy's
+   *                            top-of-ladder remedy; wired from `settings.harness.bestOfNCandidates`.
+   *                            OPTIONAL: absent/`0` disables the remedy (the default) — mirrors
+   *                            every other optional escalation-context field on this props type.
    */
   readonly readConfig: () => Promise<{
     readonly maxTurns: number;
     readonly escalateOnPlateau: boolean;
     readonly escalationMap: Readonly<Record<string, string>>;
     readonly maxAttempts: number;
+    readonly bestOfNCandidates?: number | undefined;
   }>;
   readonly taskRepo: UpdateTask;
   readonly logger: Logger;
@@ -187,6 +201,40 @@ interface Remedy {
   readonly shouldFailAttempt: boolean;
 }
 
+/** Named so `decision.kind === ESCALATE_EFFORT` narrows `decision` like the raw literal would,
+ * while keeping the string literal itself to a single declaration site. */
+const ESCALATE_EFFORT = 'escalate-effort';
+
+/**
+ * Apply the decision-specific task stamps ON TOP of `applyEscalation`'s output: the same-model
+ * effort bump, the evaluator's lockstep effort bump (rides BOTH `escalate` and `escalate-effort`
+ * — stamped right beside the generator's change so every stamp lands in the SAME `taskRepo.update`
+ * persist), and the best-of-N grant. Split out of `resolveEscalatableRemedy` purely to keep that
+ * function's own complexity budget — behaviourally this is still one step of resolving a remedy.
+ */
+const stampDecisionExtras = (
+  task: InProgressTask,
+  decision: EscalationDecision
+): Result<InProgressTask, ValidationError> => {
+  let next = task;
+  if (decision.kind === ESCALATE_EFFORT) {
+    const stamped = recordTaskEffortEscalation(next, decision.to);
+    if (!stamped.ok) return Result.error(stamped.error);
+    next = stamped.value;
+  }
+  if ((decision.kind === 'escalate' || decision.kind === ESCALATE_EFFORT) && decision.evaluator !== undefined) {
+    const evaluatorStamped = recordTaskEvaluatorEffortEscalation(next, decision.evaluator.to);
+    if (!evaluatorStamped.ok) return Result.error(evaluatorStamped.error);
+    next = evaluatorStamped.value;
+  }
+  if (decision.kind === 'best-of-n') {
+    const grantStamped = recordTaskBestOfNGrant(next, decision.n);
+    if (!grantStamped.ok) return Result.error(grantStamped.error);
+    next = grantStamped.value;
+  }
+  return Result.ok(next);
+};
+
 /**
  * Resolve the retry remedy for an escalatable exit (plateau / budget-exhausted). Consults the
  * model-escalation policy: escalate / top-of-ladder nudge grant one more attempt (stamp the
@@ -200,6 +248,7 @@ const resolveEscalatableRemedy = (
     readonly escalateOnPlateau: boolean;
     readonly escalationMap: Readonly<Record<string, string>>;
     readonly maxAttempts: number;
+    readonly bestOfNCandidates?: number | undefined;
   }
 ): Result<Remedy, ValidationError> => {
   const trigger: EscalationTrigger = exit.kind;
@@ -219,6 +268,9 @@ const resolveEscalatableRemedy = (
     evaluatorProvider: props.evaluatorProvider,
     evaluatorModel: props.evaluatorModel,
     evaluatorEffort: props.evaluatorEffort,
+    // Opt-in best-of-N knob — the policy stays pure and never reads settings itself; this is the
+    // one read of `cfg.bestOfNCandidates` on the whole path. Absent/0 disables the remedy.
+    bestOfNCandidates: cfg.bestOfNCandidates,
   });
   const applied = applyEscalation({
     task: props.task,
@@ -233,27 +285,21 @@ const resolveEscalatableRemedy = (
     clock: props.clock,
   });
   if (!applied.ok) return Result.error(applied.error);
-  // The same-model effort rung stamps NOTHING in `applyEscalation` (the model is unchanged, so its
-  // model fields must stay untouched). Stamp the raised effort here so the next generator spawn
-  // reads `task.escalatedToEffort` AND the next plateau sees the raised effort (stopping a re-fire).
-  let task = applied.value.task;
-  if (decision.kind === 'escalate-effort') {
-    const stamped = recordTaskEffortEscalation(task, decision.to);
-    if (!stamped.ok) return Result.error(stamped.error);
-    task = stamped.value;
-    // Evaluator's lockstep bump — stamped right beside the generator's so both land in the single
-    // `taskRepo.update` persist below. Absent when the policy found no evaluator headroom.
-    if (decision.evaluator !== undefined) {
-      const evaluatorStamped = recordTaskEvaluatorEffortEscalation(task, decision.evaluator.to);
-      if (!evaluatorStamped.ok) return Result.error(evaluatorStamped.error);
-      task = evaluatorStamped.value;
-    }
-  }
-  // A model escalation, a same-model effort bump, and a same-model nudge each grant one more
-  // attempt: fail the running attempt so the task stays in_progress and the outer loop re-enters
-  // (modulo the effective maxAttempts).
+  // The same-model effort rung, the evaluator lockstep bump, and the best-of-N grant all stamp
+  // NOTHING in `applyEscalation` itself (the model fields must stay untouched for the first two;
+  // the grant is orthogonal to the model). Apply them here so every stamp lands in the SAME
+  // `taskRepo.update` persist below.
+  const stamped = stampDecisionExtras(applied.value.task, decision);
+  if (!stamped.ok) return Result.error(stamped.error);
+  const task = stamped.value;
+  // A model escalation, a same-model effort bump, a same-model nudge, and a granted best-of-N
+  // attempt each grant one more attempt: fail the running attempt so the task stays in_progress
+  // and the outer loop re-enters (modulo the effective maxAttempts).
   const shouldFailAttempt =
-    decision.kind === 'escalate' || decision.kind === 'escalate-effort' || decision.kind === 'nudge';
+    decision.kind === 'escalate' ||
+    decision.kind === ESCALATE_EFFORT ||
+    decision.kind === 'nudge' ||
+    decision.kind === 'best-of-n';
   return Result.ok({
     task,
     ...(applied.value.blockedReason !== undefined ? { blockedReason: applied.value.blockedReason } : {}),

@@ -115,6 +115,23 @@ const CTX_FIELD_CLASS = {
   expectedBranch: { merge: PER_TASK, attempt: CARRY },
   priorGeneratorSessionId: { merge: PER_TASK, attempt: RESET },
   priorEvaluatorSessionId: { merge: PER_TASK, attempt: RESET },
+  // Set once per task (before the attempt loop) by the guarded `reproduce-<taskId>` leaf; must
+  // survive every attempt/retry of the SAME task, so `CARRY` not `RESET`. Meaningless once the
+  // task itself changes — `clearReproductionArtifactLeaf` is the serial-path counterpart of the
+  // `PER_TASK` reset this classification already gives it on the parallel path.
+  reproductionArtifact: { merge: PER_TASK, attempt: CARRY },
+  // Best-of-N candidate accumulator — per-attempt loop scratch like `plateauHistory` above:
+  // meaningless once the attempt that sampled it settles, so `start-attempt` clears it for the
+  // next attempt and the parallel merge treats it as per-branch (never carried across a wave).
+  bestOfNCandidates: { merge: PER_TASK, attempt: RESET },
+  // Companion iteration counter — same per-attempt lifecycle as `bestOfNCandidates`.
+  bestOfNSampledCount: { merge: PER_TASK, attempt: RESET },
+  // Per-turn counter for the best-of-N composite's OWN loop — same per-attempt lifecycle as
+  // `currentRoundNum` (which it exists to stop the round-1 gate depending on).
+  bestOfNLoopTurn: { merge: PER_TASK, attempt: RESET },
+  // Stamped once by `bestOfNSelectionLeaf` when the granted attempt's selection cascade closes
+  // out — same per-attempt lifecycle as `bestOfNCandidates`.
+  bestOfNSummary: { merge: PER_TASK, attempt: RESET },
   // signal accumulators → undefined between waves; cleared per-attempt by progress-journal
   // (resetSignalAccumulators), not by either attempt-boundary leaf directly.
   currentAttemptDecisions: { merge: SIGNAL_ACCUM, attempt: CARRY },
@@ -216,6 +233,10 @@ export const resetAttemptScratch = (): Required<Pick<ImplementCtx, AttemptResetK
   proposedCommitMessage: undefined,
   priorGeneratorSessionId: undefined,
   priorEvaluatorSessionId: undefined,
+  bestOfNCandidates: undefined,
+  bestOfNSampledCount: undefined,
+  bestOfNLoopTurn: undefined,
+  bestOfNSummary: undefined,
 });
 
 /**

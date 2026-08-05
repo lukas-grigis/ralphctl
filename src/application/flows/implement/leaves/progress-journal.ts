@@ -15,8 +15,10 @@ import type { BlockedTask, Task } from '@src/domain/entity/task.ts';
 import type { Attempt, AttemptWarning } from '@src/domain/entity/attempt.ts';
 import {
   renderJournalEntry,
+  type JournalContinuationState,
   type JournalEscalation,
   type JournalVerdict,
+  type JournalVerifyRun,
   type JournalWarning,
 } from '@src/business/sprint/render-journal-entry.ts';
 import { renderSectionHeader } from '@src/business/sprint/journal-structure.ts';
@@ -95,6 +97,21 @@ interface JournalInput {
   readonly execution?: SprintExecution | undefined;
   /** Every task in the sprint — drives the per-task table, blockers, and stale lists. */
   readonly allTasks: readonly Task[];
+  /**
+   * `ctx.proposedCommitMessage?.subject` — the generator's `<commit-message>` subject from this
+   * attempt, when the latest turn produced one. Rendered into the Continuation-state block ONLY
+   * when the settled attempt also carries a landed `commitSha` — see {@link buildContinuationState}.
+   * `proposedCommitMessage` is classified `attempt: 'reset'` (cleared by the NEXT `start-attempt`,
+   * not by `settle-attempt`), so it is still the current attempt's value when this leaf reads it.
+   */
+  readonly commitSubject?: string | undefined;
+  /**
+   * Best-of-N summary for the just-settled attempt, when the escalation policy's opt-in top-of-
+   * ladder grant sampled it — `ctx.bestOfNSummary`, stamped by `bestOfNSelectionLeaf`. Undefined
+   * for every ordinary attempt, so the `### Continuation state` block's extra line is zero-noise
+   * on the default (non-opt-in) path.
+   */
+  readonly bestOfNSummary?: JournalContinuationState['bestOfN'] | undefined;
 }
 
 const renderBlockedOutcome = (task: BlockedTask): string =>
@@ -209,6 +226,56 @@ const latestAttempt = (task: Task): Attempt | undefined => task.attempts[task.at
 const ladderBypassed = (warning: AttemptWarning | undefined): boolean =>
   warning?.kind === 'malformed' || warning?.kind === 'crashed';
 
+/** The attempt's own terminal status — `undefined` when there is no settled attempt to report. */
+const toAttemptStatus = (attempt: Attempt | undefined): JournalContinuationState['attemptStatus'] =>
+  attempt !== undefined && attempt.status !== 'running' ? attempt.status : undefined;
+
+/** Flatten the domain `VerifyRun` rows into the renderer's decoupled shape. */
+const toJournalVerifyRuns = (attempt: Attempt | undefined): readonly JournalVerifyRun[] =>
+  (attempt?.verifyRuns ?? []).map((run) => ({ phase: run.phase, command: run.command, outcome: run.outcome }));
+
+/** Project the domain `RecoveryContext`, when this attempt opened as a resume of an aborted one. */
+const toResumedAfter = (attempt: Attempt | undefined): JournalContinuationState['resumedAfter'] => {
+  const recovering = attempt?.recovering;
+  if (recovering === undefined) return undefined;
+  return { cause: recovering.cause, fromAttemptN: recovering.fromAttemptN, abortedAt: String(recovering.abortedAt) };
+};
+
+/**
+ * The one field in the block sourced from AI-authored text (the generator's `<commit-message>`
+ * signal) rather than a closed-set harness enum. Gated on `attempt.commitSha` being set so it
+ * surfaces only the subject actually used for a commit that landed, never a proposal the harness
+ * discarded (clean tree, hook rejection).
+ */
+const toCommitSubject = (attempt: Attempt | undefined, commitSubject: string | undefined): string | undefined =>
+  attempt?.commitSha !== undefined && commitSubject !== undefined && commitSubject.trim().length > 0
+    ? commitSubject
+    : undefined;
+
+/**
+ * Compose the `### Continuation state` block from harness-held `Attempt` / `RecoveryContext` data
+ * ONLY (research grounding: arXiv 2606.02875 — bounded, DERIVED continuation contracts, not
+ * model-written prose).
+ */
+const buildContinuationState = (
+  attempt: Attempt | undefined,
+  commitSubject: string | undefined,
+  bestOfN: JournalContinuationState['bestOfN'] | undefined
+): JournalContinuationState => {
+  const attemptStatus = toAttemptStatus(attempt);
+  const verifyRuns = toJournalVerifyRuns(attempt);
+  const resumedAfter = toResumedAfter(attempt);
+  const subject = toCommitSubject(attempt, commitSubject);
+  return {
+    ...(attemptStatus !== undefined ? { attemptStatus } : {}),
+    ...(verifyRuns.length > 0 ? { verifyRuns } : {}),
+    ...(attempt?.attribution !== undefined ? { attribution: attempt.attribution } : {}),
+    ...(subject !== undefined ? { commitSubject: subject } : {}),
+    ...(resumedAfter !== undefined ? { resumedAfter } : {}),
+    ...(bestOfN !== undefined ? { bestOfN } : {}),
+  };
+};
+
 const attemptDurationMs = (attempt: Attempt | undefined): number | undefined => {
   if (attempt === undefined || attempt.status === 'running') return undefined;
   return new Date(attempt.finishedAt).getTime() - new Date(attempt.startedAt).getTime();
@@ -265,6 +332,7 @@ const buildAttemptSection = (input: JournalInput, totalRounds: number, clock: ()
       ? toJournalEscalation(input.task)
       : undefined;
   const durationMs = attemptDurationMs(attempt);
+  const continuation = buildContinuationState(attempt, input.commitSubject, input.bestOfNSummary);
   return renderJournalEntry({
     taskName: input.task.name,
     taskId: String(input.task.id),
@@ -276,6 +344,7 @@ const buildAttemptSection = (input: JournalInput, totalRounds: number, clock: ()
     ...(durationMs !== undefined ? { durationMs } : {}),
     ...(warning !== undefined ? { warning } : {}),
     ...(escalation !== undefined ? { escalation } : {}),
+    continuation,
     changes: input.changes,
     decisions: input.decisions,
     learnings: input.learnings,
@@ -402,6 +471,8 @@ export const progressJournalLeaf = (
         sprint: ctx.sprint,
         execution: ctx.execution,
         allTasks,
+        commitSubject: ctx.proposedCommitMessage?.subject,
+        ...(ctx.bestOfNSummary !== undefined ? { bestOfNSummary: ctx.bestOfNSummary } : {}),
         ...correctiveNudgesCarry,
       };
     },

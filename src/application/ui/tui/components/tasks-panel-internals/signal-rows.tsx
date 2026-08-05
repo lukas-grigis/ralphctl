@@ -44,6 +44,8 @@ export const SIGNAL_LABEL_COLOR: Readonly<Record<string, string>> = {
   script: inkColors.warning,
   proposal: inkColors.highlight,
   skills: inkColors.info,
+  reproduce: inkColors.info,
+  judge: inkColors.highlight,
 };
 
 interface SignalRow {
@@ -97,6 +99,11 @@ const SIGNAL_ROW_BUILDERS: SignalRowBuilders = {
     text: `verify-skill proposal (${String(sig.content.length)} chars)`,
   }),
   'skill-suggestions': (sig) => ({ label: 'skills', text: sig.names.length > 0 ? sig.names.join(', ') : '(none)' }),
+  reproduction: (sig) => ({ label: 'reproduce', text: sig.testPath }),
+  'candidate-selection': (sig) => ({
+    label: 'judge',
+    text: `winner: candidate ${String(sig.winner)} — ${sig.rationale}`,
+  }),
   evaluation: () => undefined,
   'context-compacted': () => undefined,
   // Whole-artifact payloads produced by the refine / plan / ideate / create-PR flows. They are

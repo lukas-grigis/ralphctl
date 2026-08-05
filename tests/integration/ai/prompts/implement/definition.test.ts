@@ -126,6 +126,34 @@ describe('implementPromptDef — completeness', () => {
       'commit-message',
     ]);
   });
+
+  it('anchors Phase 1 to reproducing defect-shaped work before touching code', async () => {
+    const path = `${String(defaultTemplatesDir())}/implement/template.md`;
+    const template = (await fs.readFile(path, 'utf8')).replace(/\s+/g, ' ');
+    expect(template).toContain('Reproduce before fixing');
+    expect(template).toContain('reproduce the reported failure now');
+  });
+
+  it('reinforces the recitation clause with a periodic phase/criteria restatement', async () => {
+    const path = `${String(defaultTemplatesDir())}/implement/template.md`;
+    const template = (await fs.readFile(path, 'utf8')).replace(/\s+/g, ' ');
+    expect(template).toContain('after roughly every five tool actions');
+    expect(template).toContain('which phase you are in and which acceptance criteria remain');
+  });
+
+  it('asks for a contrasting learning when an attempt succeeds where an earlier one failed', async () => {
+    const path = `${String(defaultTemplatesDir())}/implement/template.md`;
+    const template = (await fs.readFile(path, 'utf8')).replace(/\s+/g, ' ');
+    expect(template).toContain('CONTRASTS the working');
+    expect(template).toContain('name the specific difference that made it work');
+  });
+
+  it('asks the commit message to name remaining uncertainty and a rollback for risky changes', async () => {
+    const path = `${String(defaultTemplatesDir())}/implement/template.md`;
+    const template = (await fs.readFile(path, 'utf8')).replace(/\s+/g, ' ');
+    expect(template).toContain('any remaining uncertainty');
+    expect(template).toContain('how to roll it back');
+  });
 });
 
 describe('renderTaskDescriptionSection', () => {
@@ -450,6 +478,39 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value).toContain('<retry_feedback>');
+    expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
+  });
+
+  it('renders prior attempts when priorAttempts is provided', async () => {
+    const task = makeTaskWith({ name: 'export CSV' });
+    const result = await buildImplementPrompt(deps, {
+      task,
+      projectPath: '/tmp/ralph/main-repo',
+      progressFile: '/tmp/ralph/sprint-1/progress.md',
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
+      priorAttempts: 'Attempt 2 passed C1/C2; attempt 1 regressed C2 by skipping input validation.',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toContain('<prior_attempts>');
+    expect(result.value).toContain('regressed C2 by skipping input validation');
+  });
+
+  it('omits prior attempts content when priorAttempts is absent (placeholder collapses cleanly)', async () => {
+    const task = makeTaskWith({ name: 'export CSV' });
+    const result = await buildImplementPrompt(deps, {
+      task,
+      projectPath: '/tmp/ralph/main-repo',
+      progressFile: '/tmp/ralph/sprint-1/progress.md',
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).not.toContain('<prior_attempts>');
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
 

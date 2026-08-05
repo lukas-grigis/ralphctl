@@ -50,6 +50,7 @@ import { noopAgentDefinitionAdapter } from '@tests/fixtures/agent-definition-fak
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
 import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
+import { writeJsonAtomic } from '@src/integration/io/fs.ts';
 import { createAppendFile } from '@src/integration/io/append-file-adapter.ts';
 
 const FAKE_CWD = absolutePath('/tmp/ralph/fake-cwd');
@@ -2729,5 +2730,243 @@ describe('createImplementFlow — gen-eval loop', () => {
     }
     const startEntries = runner.trace.filter((e) => e.elementName === `start-attempt-${String(finalTask?.id)}`);
     expect(startEntries).toHaveLength(1);
+  });
+});
+
+describe('createImplementFlow — reproduction-first (defect-shaped tasks)', () => {
+  let cleanupFns: Array<() => Promise<void>>;
+  beforeEach(() => {
+    cleanupFns = [];
+  });
+  afterEach(async () => {
+    for (const fn of cleanupFns) await fn();
+  });
+
+  const REPRO_TEST_PATH = 'tests/unit/foo.test.ts';
+  const REPRO_RUN_COMMAND = 'npx vitest run tests/unit/foo.test.ts';
+
+  // `createFakeAiProvider` writes a BARE signal array, relying on each contract's `migrations[0]`
+  // step to lift it into the v1 envelope — a convenience `detectScriptsOutputContract` and the
+  // gen-eval contracts opt into. `reproduceOutputContract` deliberately has NO such step (a fresh
+  // contract, no legacy on-disk shape), so a bare-array write fails `MigrationGapError` there.
+  // This lighter dispatcher writes the wrapped `{ schemaVersion: 1, signals }` envelope directly
+  // for every template, sidestepping the mismatch without touching the shared fixture.
+  const REPRODUCE_ROLE_MARKERS: Readonly<Record<string, string>> = {
+    'implement-continuation': '# Continue — Round',
+    'evaluate-continuation': '# Re-evaluate — Round',
+    implement: '# Task Execution Protocol',
+    evaluate: 'independent code reviewer',
+    reproduce: 'reproducing a reported defect before anyone attempts to fix it',
+  };
+
+  const wrappedSignalsProvider = (
+    signalsByTemplate: Readonly<Record<string, readonly HarnessSignal[]>>
+  ): HeadlessAiProvider => ({
+    async generate(session) {
+      const body = session.prompt as unknown as string;
+      const templateName = Object.entries(REPRODUCE_ROLE_MARKERS).find(([, marker]) => body.includes(marker))?.[0];
+      if (templateName === undefined) {
+        return Result.error(
+          new InvalidStateError({
+            entity: 'fake-ai-provider',
+            currentState: 'no-marker-match',
+            attemptedAction: 'generate',
+            message: 'wrappedSignalsProvider: no template marker matched the prompt body.',
+          })
+        );
+      }
+      const wrote = await writeJsonAtomic(String(session.signalsFile), {
+        schemaVersion: 1,
+        signals: signalsByTemplate[templateName] ?? [],
+      });
+      if (!wrote.ok) return Result.error(wrote.error);
+      return Result.ok({ signalsFile: session.signalsFile, exitCode: 0 });
+    },
+  });
+
+  it('bugfix-shaped task: reproduce runs once BEFORE the attempt loop, and its artifact rides into the round-1 generator prompt', async () => {
+    const ticket = makeApprovedTicket({ title: 'repro-ticket' });
+    const sprint = makePlannedSprint({ tickets: [ticket] });
+    const execution = setExecutionBranch(createSprintExecution({ sprintId: sprint.id }), 'ralphctl/repro');
+    const task = makeTodoTask({
+      name: 'fix the null pointer crash',
+      order: 1,
+      ticketId: ticket.id,
+      repositoryId: FIXED_REPOSITORY_ID,
+    });
+
+    // A REAL, writable repo cwd — unlike FAKE_CWD, `reproduceLeaf` performs real filesystem I/O
+    // (checksumming the reproduction test file), so the file it claims to have written must
+    // actually exist on disk before the run starts (standing in for a prior AI Write call).
+    const repoCwd = await realpath(await fs.mkdtemp(join(tmpdir(), 'ralphctl-impl-repro-cwd-')));
+    await fs.mkdir(join(repoCwd, 'tests', 'unit'), { recursive: true });
+    await fs.writeFile(
+      join(repoCwd, REPRO_TEST_PATH),
+      "it('reproduces the crash', () => { throw new Error('boom'); });\n",
+      'utf8'
+    );
+    cleanupFns.push(async () => {
+      await fs.rm(repoCwd, { recursive: true, force: true });
+    });
+
+    const dir = await realpath(await fs.mkdtemp(join(tmpdir(), 'ralphctl-impl-repro-')));
+    const progressFile = join(dir, 'progress.md');
+    cleanupFns.push(async () => {
+      await fs.rm(dir, { recursive: true, force: true });
+    });
+
+    const sprintRepo = inMemorySprintRepo(sprint);
+    const taskRepo = inMemoryTaskRepo([task]);
+
+    const provider = wrappedSignalsProvider({
+      reproduce: [
+        {
+          type: 'reproduction',
+          testPath: REPRO_TEST_PATH,
+          runCommand: REPRO_RUN_COMMAND,
+          observedFailure: 'Error: boom\n  at tests/unit/foo.test.ts',
+          relevantTests: [],
+          timestamp: FIXED_NOW,
+        },
+      ],
+      implement: [taskVerified('tests pass')],
+      evaluate: [evaluationPassed()],
+    });
+
+    // The reproduce leaf re-runs the AI-claimed command itself before accepting the artifact.
+    // No `verifyScript` is configured on this repo, so pre/post-task-verify never spawn the
+    // shell — this fake only ever sees the reproduce leaf's own verification call.
+    const shellCalls: string[] = [];
+    const shellScriptRunner: ShellScriptRunner = {
+      async run(_cwd, script) {
+        shellCalls.push(script);
+        return Result.ok({ passed: false, exitCode: 1, output: 'Error: boom', durationMs: 0 });
+      },
+    };
+
+    const deps: ImplementDeps = {
+      ...buildDeps(sprintRepo.repo, inMemoryExecutionRepo(execution).repo, taskRepo.repo, provider, dir),
+      shellScriptRunner,
+    };
+
+    const flow = createImplementFlow(deps, {
+      sprintId: sprint.id,
+      todoTasks: [task],
+      repositories: new Map([[FIXED_REPOSITORY_ID, { path: absolutePath(repoCwd), name: 'repro-repo' }]]),
+      generatorProviderId: 'claude-code',
+      generatorModel: 'claude-opus-4-8',
+      evaluatorProviderId: 'claude-code',
+      evaluatorModel: 'claude-opus-4-8',
+      progressFile: absolutePath(progressFile),
+      sprintDir: absolutePath(dir),
+      memoryRoot: FAKE_MEMORY_ROOT,
+      projectId: FAKE_PROJECT_ID,
+      projectSlug: FAKE_PROJECT_SLUG,
+    });
+
+    const runner = createRunner({
+      id: 'r-impl-reproduce-first',
+      element: flow,
+      initialCtx: { sprintId: sprint.id } satisfies ImplementCtx,
+    });
+    await runner.start();
+
+    expect(runner.status).toBe('completed');
+    expect(taskRepo.tasks()[0]?.status).toBe('done');
+
+    // The harness re-ran the claimed command exactly once, verifying it before acceptance.
+    expect(shellCalls).toEqual([REPRO_RUN_COMMAND]);
+
+    // Placement: `reproduce-<taskId>` completed BEFORE the first `start-attempt-<taskId>` — once
+    // per task, before the attempt loop, not inside it.
+    const reproduceIdx = runner.trace.findIndex((e) => e.elementName === `reproduce-${String(task.id)}`);
+    const startIdx = runner.trace.findIndex((e) => e.elementName === `start-attempt-${String(task.id)}`);
+    expect(reproduceIdx).toBeGreaterThanOrEqual(0);
+    expect(runner.trace[reproduceIdx]?.status).toBe('completed');
+    expect(startIdx).toBeGreaterThan(reproduceIdx);
+    // The unconditional reset ran too (once per task, ahead of the guard).
+    expect(runner.trace.some((e) => e.elementName === `reset-reproduction-${String(task.id)}`)).toBe(true);
+
+    // The validated artifact rode into the round-1 generator prompt as a `<reproduction>` block.
+    const generatorPrompt = await fs.readFile(
+      join(dir, 'implement', String(task.id), 'rounds', '1', 'generator', 'prompt.md'),
+      'utf8'
+    );
+    expect(generatorPrompt).toContain('<reproduction>');
+    expect(generatorPrompt).toContain(REPRO_TEST_PATH);
+    expect(generatorPrompt).toContain(REPRO_RUN_COMMAND);
+    expect(generatorPrompt).toContain('Error: boom');
+
+    // …and into the round-1 evaluator prompt, with the re-run instruction.
+    const evaluatorPrompt = await fs.readFile(
+      join(dir, 'implement', String(task.id), 'rounds', '1', 'evaluator', 'prompt.md'),
+      'utf8'
+    );
+    expect(evaluatorPrompt).toContain('<reproduction>');
+    expect(evaluatorPrompt).toContain('Re-run this reproduction command yourself');
+  });
+
+  it('non-defect-shaped task: the guard skips silently — no reproduce spawn, no <reproduction> block in the generator prompt', async () => {
+    const ticket = makeApprovedTicket({ title: 'feature-ticket' });
+    const sprint = makePlannedSprint({ tickets: [ticket] });
+    const execution = setExecutionBranch(createSprintExecution({ sprintId: sprint.id }), 'ralphctl/feature');
+    const task = makeTodoTask({
+      name: 'add a new widget',
+      order: 1,
+      ticketId: ticket.id,
+      repositoryId: FIXED_REPOSITORY_ID,
+    });
+
+    const dir = await realpath(await fs.mkdtemp(join(tmpdir(), 'ralphctl-impl-nonrepro-')));
+    const progressFile = join(dir, 'progress.md');
+    const cleanup = async (): Promise<void> => {
+      await fs.rm(dir, { recursive: true, force: true });
+    };
+
+    const sprintRepo = inMemorySprintRepo(sprint);
+    const taskRepo = inMemoryTaskRepo([task]);
+
+    // No `reproduce` entry — a spawn against this template would hit `dispatchTemplate`'s
+    // no-marker-match error path and fail the run, which is exactly the point: this task must
+    // never reach it.
+    const provider = createFakeAiProvider({
+      markerOverrides: { reproduce: 'reproducing a reported defect before anyone attempts to fix it' },
+      signals: {
+        implement: [taskVerified('tests pass')],
+        evaluate: [evaluationPassed()],
+      },
+    });
+
+    const flow = createImplementFlow(
+      buildDeps(sprintRepo.repo, inMemoryExecutionRepo(execution).repo, taskRepo.repo, provider, dir),
+      {
+        sprintId: sprint.id,
+        todoTasks: [task],
+        repositories: FAKE_REPOSITORIES,
+        generatorProviderId: 'claude-code',
+        generatorModel: 'claude-opus-4-8',
+        evaluatorProviderId: 'claude-code',
+        evaluatorModel: 'claude-opus-4-8',
+        progressFile: absolutePath(progressFile),
+        sprintDir: absolutePath(dir),
+        memoryRoot: FAKE_MEMORY_ROOT,
+        projectId: FAKE_PROJECT_ID,
+        projectSlug: FAKE_PROJECT_SLUG,
+      }
+    );
+
+    const runner = createRunner({
+      id: 'r-impl-reproduce-skip',
+      element: flow,
+      initialCtx: { sprintId: sprint.id } satisfies ImplementCtx,
+    });
+    await runner.start();
+    await cleanup();
+
+    expect(runner.status).toBe('completed');
+    expect(taskRepo.tasks()[0]?.status).toBe('done');
+
+    const reproduceEntry = runner.trace.find((e) => e.elementName === `reproduce-${String(task.id)}`);
+    expect(reproduceEntry?.status).toBe('skipped');
   });
 });

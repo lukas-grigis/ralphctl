@@ -1,7 +1,7 @@
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { LearningEntry } from '@src/domain/signal.ts';
 import { formatDuration } from '@src/business/_shared/format-duration.ts';
-import { neutralizeProseHeadings } from '@src/business/sprint/journal-sanitize.ts';
+import { neutralizeProseHeadings, sanitizeInline } from '@src/business/sprint/journal-sanitize.ts';
 import { renderSectionHeader } from '@src/business/sprint/journal-structure.ts';
 
 /**
@@ -63,6 +63,71 @@ export interface JournalEscalation {
   readonly to: string;
 }
 
+/** One harness-side verify-script run, flattened from the domain `VerifyRun` for the renderer. */
+export interface JournalVerifyRun {
+  readonly phase: 'pre' | 'post';
+  /** Verbatim shell command the harness invoked. Empty string on a `skipped` outcome. */
+  readonly command: string;
+  readonly outcome: 'success' | 'failed' | 'spawn-error' | 'skipped';
+}
+
+/**
+ * Deterministic continuation-state facts for the successor session (arXiv 2606.02875: bounded,
+ * harness-derived continuation contracts over free-form model handoff prose) — composed by the
+ * leaf from `Attempt` / `RecoveryContext` fields ONLY, never AI-authored narrative. Distinct from
+ * `warning` / `escalation` above (which project the AI-visible story of *why* the attempt didn't
+ * cleanly pass): this is the machine record of *what the harness itself observed and did*, so a
+ * successor session (or an operator) doesn't have to re-derive it from raw signals.json / verify
+ * logs / git history.
+ *
+ * Every field is independently optional; the whole `### Continuation state` subsection is dropped
+ * when none resolve — same no-orphan-heading rule as the signal subsections below.
+ */
+export interface JournalContinuationState {
+  /**
+   * The attempt's own terminal status — distinct from `verdict` above, which is the TASK-level
+   * outcome `settle-attempt` derived from it. A `verdict: 'escalated'` entry can carry either
+   * `failed` or `malformed` here, a distinction the verdict alone collapses.
+   */
+  readonly attemptStatus?: 'verified' | 'failed' | 'malformed' | 'aborted';
+  /** Harness-side verify-script runs captured before (`pre`) and/or after (`post`) the generator turn. */
+  readonly verifyRuns?: readonly JournalVerifyRun[];
+  /**
+   * Pre/post verify attribution computed by `post-task-verify` from the two runs above — WHO
+   * caused the outcome, independent of the AI's own `task-verified` self-report.
+   */
+  readonly attribution?: 'clean' | 'regressed' | 'baseline-broken' | 'fixed-baseline';
+  /**
+   * Subject line of the commit that landed this attempt. The one field here sourced from an
+   * AI-proposed string (the generator's `<commit-message>` signal) rather than a closed-set
+   * harness enum — the leaf gates it on `commitSha` above being set, so it renders only for a
+   * subject that was actually used for a commit that landed, never a discarded proposal.
+   */
+  readonly commitSubject?: string;
+  /** Present when this attempt opened as a resume of a prior attempt the harness settled `aborted`. */
+  readonly resumedAfter?: {
+    readonly cause:
+      'user-cancel' | 'sigterm' | 'watchdog-killed' | 'rate-limit-exhausted' | 'process-crash' | 'unknown';
+    readonly fromAttemptN: number;
+    readonly abortedAt: string;
+  };
+  /**
+   * Present only when this attempt was the escalation policy's best-of-N grant (arXiv 2604.16529)
+   * — the round that sampled N candidate generator sessions and applied the winner instead of
+   * running one. `verifyRuns` / `attribution` above describe the WINNING candidate's own outcome
+   * (or the "no diff applied" degrade on zero survivors); this field is the only place the journal
+   * records that N full sessions were spent to produce it, not one.
+   */
+  readonly bestOfN?: {
+    /** Total candidate-loop iterations this attempt spent, successful or not. */
+    readonly candidatesSampled: number;
+    /** Candidates remaining after the execution-filter + dedupe stages, before judging. */
+    readonly survivors: number;
+    /** 1-based index of the applied candidate — absent when zero survivors → no diff applied. */
+    readonly winnerIndex?: number;
+  };
+}
+
 /**
  * Render a single task-attempt section into the append-only `<sprintDir>/progress.md`
  * journal (audit-[07]). Pure — same inputs always produce the same string.
@@ -81,6 +146,13 @@ export interface JournalEscalation {
  *   - Round: <round N of M>
  *   - Duration: <elapsed>
  *   - Commit: <sha-or-em-dash>
+ *
+ *   ### Continuation state    (only when at least one deterministic field resolves)
+ *   - Attempt status: <verified | failed | malformed | aborted>
+ *   - Verify (pre|post): <command-or-em-dash> — <success | failed | spawn-error | skipped>
+ *   - Attribution: <clean | regressed | baseline-broken | fixed-baseline>
+ *   - Commit subject: <subject>
+ *   - Resumed after: <abort cause> (attempt <N> aborted at <iso timestamp>)
  *
  *   ### Outcome detail        (only when a warning / escalation is present)
  *   - <plain-prose statement of what failed, on which dimensions, and the remedy applied>
@@ -148,6 +220,13 @@ export interface JournalEntryInput {
    * fired this attempt; absent renders no additional line (zero-noise on the well-formed path).
    */
   readonly correctiveNudges?: { readonly generator: number; readonly evaluator: number };
+  /**
+   * Deterministic continuation-state facts for the successor session — see
+   * {@link JournalContinuationState}. Absent → the `### Continuation state` subsection is
+   * dropped entirely, so a caller that doesn't supply it (older call sites, most renderer unit
+   * tests) renders byte-identical to the pre-widening output.
+   */
+  readonly continuation?: JournalContinuationState;
   readonly timestamp: IsoTimestamp;
 }
 
@@ -297,6 +376,49 @@ const correctiveNudgesSentence = (nudges: { readonly generator: number; readonly
   return `${String(total)} corrective signals.json ${noun} issued this attempt${breakdown} — these do not count against the turn/attempt budget.`;
 };
 
+/** `pre` always precedes `post`, regardless of the accumulation order on the source array. */
+const orderedVerifyRuns = (runs: readonly JournalVerifyRun[]): readonly JournalVerifyRun[] =>
+  [...runs].sort((a, b) => (a.phase === b.phase ? 0 : a.phase === 'pre' ? -1 : 1));
+
+const renderVerifyLine = (run: JournalVerifyRun): string => {
+  const command = sanitizeInline(run.command);
+  return `- Verify (${run.phase}): ${command.length > 0 ? command : EM_DASH} — ${run.outcome}`;
+};
+
+const renderResumedAfter = (resumedAfter: NonNullable<JournalContinuationState['resumedAfter']>): string =>
+  `- Resumed after: ${resumedAfter.cause} (attempt ${String(resumedAfter.fromAttemptN)} aborted at ${resumedAfter.abortedAt})`;
+
+const renderBestOfN = (bestOfN: NonNullable<JournalContinuationState['bestOfN']>): string => {
+  const winner =
+    bestOfN.winnerIndex !== undefined ? `candidate ${String(bestOfN.winnerIndex)} applied` : 'none applied';
+  return `- Best-of-N: ${String(bestOfN.candidatesSampled)} sampled, ${String(bestOfN.survivors)} survived selection, ${winner}`;
+};
+
+/**
+ * Append the `### Continuation state` subsection — the deterministic, harness-derived facts a
+ * successor session needs to pick up the task without re-deriving them from raw signals.json /
+ * verify logs / git history (see {@link JournalContinuationState}). No-op when `continuation` is
+ * absent or every field on it is absent, so a render call that doesn't supply it stays
+ * byte-identical to the pre-widening output — same no-orphan-heading rule as every subsection
+ * above.
+ */
+const appendContinuationState = (lines: string[], continuation: JournalContinuationState | undefined): void => {
+  if (continuation === undefined) return;
+  const bullets: string[] = [];
+  if (continuation.attemptStatus !== undefined) bullets.push(`- Attempt status: ${continuation.attemptStatus}`);
+  for (const run of orderedVerifyRuns(continuation.verifyRuns ?? [])) bullets.push(renderVerifyLine(run));
+  if (continuation.attribution !== undefined) bullets.push(`- Attribution: ${continuation.attribution}`);
+  if (continuation.commitSubject !== undefined && continuation.commitSubject.trim().length > 0) {
+    bullets.push(`- Commit subject: ${sanitizeInline(continuation.commitSubject)}`);
+  }
+  if (continuation.resumedAfter !== undefined) bullets.push(renderResumedAfter(continuation.resumedAfter));
+  if (continuation.bestOfN !== undefined) bullets.push(renderBestOfN(continuation.bestOfN));
+  if (bullets.length === 0) return;
+  lines.push('### Continuation state');
+  for (const b of bullets) lines.push(b);
+  lines.push('');
+};
+
 /**
  * Append the `### Outcome detail` subsection — the plain-prose explanation of a non-clean exit,
  * plus the corrective-nudge cost-visibility line when present. No-op when there is neither a
@@ -337,6 +459,7 @@ export const renderJournalEntry = (input: JournalEntryInput): string => {
   lines.push(`- Duration: ${formatDuration(input.durationMs)}`);
   lines.push(`- Commit: ${sha}`);
   lines.push('');
+  appendContinuationState(lines, input.continuation);
   appendOutcomeDetail(lines, input);
   appendSubsection(lines, 'Changes', input.changes);
   appendSubsection(lines, 'Decisions', input.decisions);

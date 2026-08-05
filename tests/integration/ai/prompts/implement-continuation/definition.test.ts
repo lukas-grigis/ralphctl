@@ -66,6 +66,12 @@ describe('implementContinuationPromptDef — completeness', () => {
       'commit-message',
     ]);
   });
+
+  it('asks for a contrasting learning and a commit-message rollback note, mirroring the full implement prompt', async () => {
+    const template = (await fs.readFile(TEMPLATE_PATH, 'utf8')).replace(/\s+/g, ' ');
+    expect(template).toContain('contrast a now-working approach with what failed');
+    expect(template).toContain('remaining uncertainty and, when the change is risky, how to roll it back');
+  });
 });
 
 describe('buildImplementContinuationPrompt — end-to-end against the real template', () => {
@@ -104,6 +110,35 @@ describe('buildImplementContinuationPrompt — end-to-end against the real templ
     if (!result.ok) return;
     // The leaf passes a section rendered against rounds/<N>/generator/; the round-3 path must appear.
     expect(result.value).toContain('rounds/3/generator/signals.json');
+  });
+
+  it('renders prior attempts when priorAttempts is provided', async () => {
+    const result = await buildImplementContinuationPrompt(deps, {
+      roundNumber: 3,
+      contractPath: CONTRACT_PATH,
+      progressFile: PROGRESS_FILE,
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      priorAttempts: 'Attempt 2 passed C1/C2; attempt 1 regressed C2 by skipping input validation.',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toContain('<prior_attempts>');
+    expect(result.value).toContain('regressed C2 by skipping input validation');
+  });
+
+  it('omits prior attempts content when priorAttempts is absent (placeholder collapses cleanly)', async () => {
+    const result = await buildImplementContinuationPrompt(deps, {
+      roundNumber: 3,
+      contractPath: CONTRACT_PATH,
+      progressFile: PROGRESS_FILE,
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).not.toContain('<prior_attempts>');
+    expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
 
   it('renders the plateau directive when plateauBreak is set, and omits it otherwise', async () => {

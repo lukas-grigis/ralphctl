@@ -4,7 +4,11 @@ import { EFFORT_ESCALATION_TARGET } from '@src/business/task/escalation-map.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
 import { resolveEffort } from '@src/business/settings/resolve-effort.ts';
 import type { InProgressTask } from '@src/domain/entity/task.ts';
-import { recordTaskEffortEscalation, recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
+import {
+  recordTaskBestOfNGrant,
+  recordTaskEffortEscalation,
+  recordTaskEscalation,
+} from '@src/domain/entity/task-settle.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { AppEvent } from '@src/business/observability/events.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
@@ -22,6 +26,16 @@ const captureBus = () => {
 
 const withEscalation = (task: InProgressTask, from: string, to: string): InProgressTask => {
   const stamped = recordTaskEscalation(task, from, to);
+  if (!stamped.ok) throw stamped.error;
+  return stamped.value;
+};
+
+/** Build a task nudged at the top of the ladder on `model` — the exact precondition the
+ * best-of-N remedy (and `topped-out`) both consult. */
+const nudgedAtTopOn = (task: InProgressTask, model: string): InProgressTask => withEscalation(task, model, model);
+
+const withBestOfNGrant = (task: InProgressTask, n: number): InProgressTask => {
+  const stamped = recordTaskBestOfNGrant(task, n);
   if (!stamped.ok) throw stamped.error;
   return stamped.value;
 };
@@ -371,7 +385,9 @@ describe('decideEscalation — evaluator lockstep effort bump', () => {
     expect(decision.evaluator).toEqual({ from: 'default', to: 'high' });
   });
 
-  it('is absent on a plain model escalate — no evaluator context leaks onto a `escalate` decision', () => {
+  it('fires in lockstep on a plain MODEL-rung escalate too — the Verification Horizon rule is not limited to escalate-effort', () => {
+    // #256's lockstep extended: every generator MODEL climb also carries the evaluator's own
+    // effort bump when headroom exists, not only the same-model effort rung.
     const decision = decideEscalation({
       task: makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
       generatorModel: 'claude-sonnet-4-6',
@@ -383,7 +399,38 @@ describe('decideEscalation — evaluator lockstep effort bump', () => {
       evaluatorEffort: undefined,
     });
     expect(decision.kind).toBe('escalate');
+    if (decision.kind !== 'escalate') return;
+    expect(decision.to).toBe('claude-opus-4-8');
+    expect(decision.evaluator).toEqual({ from: 'default', to: 'high' });
+  });
+
+  it('is absent on a plain model escalate when the caller supplies no evaluator context', () => {
+    const decision = decideEscalation({
+      task: makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
+      generatorModel: 'claude-sonnet-4-6',
+      flagOn: true,
+      userMap: {},
+      fallbackMaxAttempts: 3,
+    });
+    expect(decision.kind).toBe('escalate');
     expect('evaluator' in decision).toBe(false);
+  });
+
+  it('is absent on a model escalate when the evaluator is already at its own effort ceiling', () => {
+    const decision = decideEscalation({
+      task: makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }),
+      generatorModel: 'claude-sonnet-4-6',
+      flagOn: true,
+      userMap: {},
+      fallbackMaxAttempts: 3,
+      evaluatorProvider: 'github-copilot',
+      evaluatorModel: 'gpt-5.5',
+      evaluatorEffort: 'high',
+    });
+    expect(decision.kind).toBe('escalate');
+    if (decision.kind !== 'escalate') return;
+    expect(decision.to).toBe('claude-opus-4-8');
+    expect(decision.evaluator).toBeUndefined();
   });
 
   it('is absent on a same-model nudge (generator has no effort headroom of its own)', () => {
@@ -468,6 +515,115 @@ describe('decideEscalation — evaluator lockstep effort bump', () => {
     const second = decideEscalation({ ...base, evaluatorEffort: 'high' });
     expect(second.kind).toBe('escalate-effort');
     if (second.kind === 'escalate-effort') expect(second.evaluator).toBeUndefined();
+  });
+});
+
+describe('decideEscalation — opt-in best-of-N remedy', () => {
+  it('fires at the exact topped-out frontier when the knob is >= 2 and the task has not been granted one', () => {
+    const nudged = nudgedAtTopOn(makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }), 'claude-opus-5');
+    const decision = decideEscalation({
+      task: nudged,
+      generatorModel: 'claude-opus-5',
+      flagOn: true,
+      userMap: {},
+      fallbackMaxAttempts: 3,
+      bestOfNCandidates: 3,
+    });
+    expect(decision.kind).toBe('best-of-n');
+    if (decision.kind !== 'best-of-n') return;
+    expect(decision.n).toBe(3);
+    expect(decision.model).toBe('claude-opus-5');
+  });
+
+  it('knob gating: 0 (default/disabled) still tops out at the same frontier', () => {
+    const nudged = nudgedAtTopOn(makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }), 'claude-opus-5');
+    const decision = decideEscalation({
+      task: nudged,
+      generatorModel: 'claude-opus-5',
+      flagOn: true,
+      userMap: {},
+      fallbackMaxAttempts: 3,
+      bestOfNCandidates: 0,
+    });
+    expect(decision.kind).toBe('topped-out');
+  });
+
+  it('knob gating: undefined (never wired) behaves exactly like 0', () => {
+    const nudged = nudgedAtTopOn(makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }), 'claude-opus-5');
+    const decision = decideEscalation({
+      task: nudged,
+      generatorModel: 'claude-opus-5',
+      flagOn: true,
+      userMap: {},
+      fallbackMaxAttempts: 3,
+    });
+    expect(decision.kind).toBe('topped-out');
+  });
+
+  it('knob gating: 1 does not count as opted-in (below the useful minimum) — tops out', () => {
+    const nudged = nudgedAtTopOn(makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }), 'claude-opus-5');
+    const decision = decideEscalation({
+      task: nudged,
+      generatorModel: 'claude-opus-5',
+      flagOn: true,
+      userMap: {},
+      fallbackMaxAttempts: 3,
+      bestOfNCandidates: 1,
+    });
+    expect(decision.kind).toBe('topped-out');
+  });
+
+  it('once-per-task: a task already granted best-of-N routes straight to topped-out, even with the knob on', () => {
+    const nudged = nudgedAtTopOn(makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 }), 'claude-opus-5');
+    const alreadyGranted = withBestOfNGrant(nudged, 3);
+    const decision = decideEscalation({
+      task: alreadyGranted,
+      generatorModel: 'claude-opus-5',
+      flagOn: true,
+      userMap: {},
+      fallbackMaxAttempts: 3,
+      bestOfNCandidates: 3,
+    });
+    expect(decision.kind).toBe('topped-out');
+  });
+
+  it('does not preempt the FIRST top-of-ladder plateau (not yet nudged) — the nudge still spends first', () => {
+    const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
+    const decision = decideEscalation({
+      task,
+      generatorModel: 'claude-opus-5',
+      flagOn: true,
+      userMap: {},
+      fallbackMaxAttempts: 3,
+      bestOfNCandidates: 3,
+    });
+    expect(decision.kind).toBe('nudge');
+  });
+
+  it('does not preempt a live MODEL rung — a model with a stronger rung above it still escalates', () => {
+    const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
+    const decision = decideEscalation({
+      task,
+      generatorModel: 'claude-sonnet-4-6',
+      flagOn: true,
+      userMap: {},
+      fallbackMaxAttempts: 3,
+      bestOfNCandidates: 3,
+    });
+    expect(decision.kind).toBe('escalate');
+  });
+
+  it('budget-exhausted still wins over best-of-N at the budget edge', () => {
+    const nudged = nudgedAtTopOn(makeInProgressTaskWithRunningAttempt({ maxAttempts: 1 }), 'claude-opus-5');
+    const decision = decideEscalation({
+      task: nudged,
+      generatorModel: 'claude-opus-5',
+      flagOn: true,
+      userMap: {},
+      fallbackMaxAttempts: 3,
+      bestOfNCandidates: 3,
+    });
+    expect(decision.kind).toBe('budget-exhausted');
   });
 });
 
@@ -710,6 +866,30 @@ describe('applyEscalation', () => {
     expect(applied.value.task.escalatedToModel).toBeUndefined();
     expect(events.length).toBe(0);
   });
+
+  it('on best-of-n: info banner naming N + verification-then-judging, NO stamping, no model-escalated event', () => {
+    // Mirrors escalate-effort's announce-only posture: applyEscalation narrates the remedy but the
+    // once-per-task grant stamp is applied by the CALLER (finalize-gen-eval), not here.
+    const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
+    const { bus, events } = captureBus();
+    const applied = applyEscalation({
+      task,
+      decision: { kind: 'best-of-n', n: 3, model: 'claude-opus-5' },
+      trigger: 'plateau',
+      eventBus: bus,
+      logger: noopLogger,
+      clock: fixedClock,
+    });
+    expect(applied.ok).toBe(true);
+    if (!applied.ok) return;
+    expect(applied.value.task).toBe(task); // unchanged — no bestOfNGranted stamp here
+    expect(applied.value.blockedReason).toBeUndefined();
+    expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
+    const banner = events.find((e): e is Extract<AppEvent, { type: 'banner-show' }> => e.type === 'banner-show');
+    expect(banner?.tier).toBe('info');
+    expect(banner?.message).toMatch(/3 candidates/);
+    expect(banner?.message).toMatch(/verification then judging/);
+  });
 });
 
 describe('recordTaskEscalation domain helper', () => {
@@ -749,5 +929,35 @@ describe('recordTaskEffortEscalation domain helper', () => {
   it('rejects an empty effort string', () => {
     const task = makeInProgressTaskWithRunningAttempt();
     expect(recordTaskEffortEscalation(task, '').ok).toBe(false);
+  });
+});
+
+describe('recordTaskBestOfNGrant domain helper', () => {
+  it('stamps the permanent bestOfNGranted marker + the transient candidate count', () => {
+    const task = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
+    const stamped = recordTaskBestOfNGrant(task, 3);
+    expect(stamped.ok).toBe(true);
+    if (!stamped.ok) return;
+    expect(stamped.value.bestOfNGranted).toBe(true);
+    expect(stamped.value.bestOfNGrantedCandidates).toBe(3);
+    // Orthogonal to the model/effort escalation fields — none of those are touched.
+    expect(stamped.value.escalatedFromModel).toBeUndefined();
+    expect(stamped.value.escalatedToModel).toBeUndefined();
+    expect(stamped.value.escalatedToEffort).toBeUndefined();
+  });
+
+  it('rejects n=1 (below the useful minimum)', () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    expect(recordTaskBestOfNGrant(task, 1).ok).toBe(false);
+  });
+
+  it('rejects n=0', () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    expect(recordTaskBestOfNGrant(task, 0).ok).toBe(false);
+  });
+
+  it('rejects a non-integer n', () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    expect(recordTaskBestOfNGrant(task, 2.5).ok).toBe(false);
   });
 });

@@ -7,6 +7,7 @@ import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { makeInProgressTaskWithRunningAttempt, makeTodoTask } from '@tests/fixtures/domain.ts';
 import {
+  recordTaskBestOfNGrant,
   recordTaskEffortEscalation,
   recordTaskEscalation,
   recordTaskEvaluatorEffortEscalation,
@@ -167,6 +168,31 @@ describe('createFsTaskRepository', () => {
     const reloaded = await repo.findById(sprintId, legacy.id);
     if (!reloaded.ok) throw new Error('expected ok');
     expect(reloaded.value.escalatedToEvaluatorEffort).toBeUndefined();
+  });
+
+  it('round-trips bestOfNGranted / bestOfNGrantedCandidates across save → load (best-of-N grant resume path)', async () => {
+    const repo = createFsTaskRepository({ root });
+    const inProgress = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
+    const granted = recordTaskBestOfNGrant(inProgress, 3);
+    if (!granted.ok) throw granted.error;
+    await repo.saveAll(sprintId, [granted.value]);
+
+    const reloaded = await repo.findById(sprintId, granted.value.id);
+    if (!reloaded.ok) throw new Error('expected ok');
+    expect(reloaded.value.bestOfNGranted).toBe(true);
+    expect(reloaded.value.bestOfNGrantedCandidates).toBe(3);
+  });
+
+  it('loads a legacy tasks.json entry without bestOfNGranted / bestOfNGrantedCandidates unchanged (tolerant additive field)', async () => {
+    const repo = createFsTaskRepository({ root });
+    // A task saved before the fields existed carries neither — it must load fine.
+    const legacy = makeInProgressTaskWithRunningAttempt({ maxAttempts: 5 });
+    await repo.saveAll(sprintId, [legacy]);
+
+    const reloaded = await repo.findById(sprintId, legacy.id);
+    if (!reloaded.ok) throw new Error('expected ok');
+    expect(reloaded.value.bestOfNGranted).toBeUndefined();
+    expect(reloaded.value.bestOfNGrantedCandidates).toBeUndefined();
   });
 
   it('surfaces a non-array tasks file as StorageError(parse)', async () => {

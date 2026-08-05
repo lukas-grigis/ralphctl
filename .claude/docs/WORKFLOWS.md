@@ -37,6 +37,17 @@ every ticket `approved`; repo selection runs inside the chain and persists on `S
 (absolute paths); AI generates `tasks.json` atomically and the sprint transitions `draft → planned`.
 **Ideate** combines both in a single AI session for low-stakes work.
 
+**Reproduction-first leaf.** Before the attempt loop, `per-task-subchain.ts` runs an unconditional reset
+(`clearReproductionArtifactLeaf`) followed by a guard testing `isDefectShapedTask` (task kind `bugfix`,
+once per task, not per attempt). When it fires, `reproduceLeaf` spawns a one-shot headless session that
+writes and runs one failing test demonstrating the reported defect; the harness re-runs the claimed
+command itself and only accepts the artifact (`ctx.reproductionArtifact`) when that re-run actually
+fails — a reproduction that passes proves nothing. The validated test path, run command, and the
+session's own list of relevant existing tests then ride into every generator and evaluator turn of that
+task's gen-eval loop via the `<reproduction>` prompt section. A failed session, an invalid signal, or a
+claimed command that turns out to pass on re-run all degrade silently to today's behaviour — no
+reproduction context, task proceeds unaffected.
+
 **Per-task generator-evaluator** inside `implement` uses the `loop` primitive. Each gen-eval turn runs
 `generator-leaf` then — if the generator did not already set `ctx.lastExit` — the guarded
 `evaluator-step`, a `sequential` of `evaluatorLeaf → loop-diversity-check → entropy-check`. The two
@@ -60,10 +71,24 @@ side, an independent reviewer on the score side. Every other flow (`refine` / `p
 `ideate` / `createPr`) keeps the flat `{ provider, model, effort? }` row shape; the analogous
 generator-evaluator split for the `plan` flow is deferred to future work.
 
+**Best-of-N opt-in rung.** When `settings.harness.bestOfNCandidates` is `2`-`4` (default `0`, off) and the
+escalation policy grants the once-per-task `best-of-n` remedy (see "Gen-eval settle semantics" below), the
+granted attempt's round 1 REPLACES the normal generator step with a candidate-sampling composite
+(`buildBestOfNGenEvalLoop`): sample N candidates on the unchanged model, discard `regressed`-attribution
+candidates, dedupe identical diffs by content hash, then — for 2+ survivors — a pairwise judge tournament
+over the candidates' compact structured summaries (never raw diffs) picks the winner, whose diff is
+applied. Round 1's evaluator turn (and any round 2+, only reached if round 1 didn't reach a terminal
+verdict) runs exactly the same `evaluatorLeaf` sequence every other attempt uses — no bespoke settle
+logic. Every other attempt of the task, before and after the granted one, takes the normal
+`createGenEvalLoop` path unchanged.
+
 **Gen-eval settle semantics.** Every non-passing exit from the gen-eval loop is now routed through the
 escalation policy and the attempt budget before settling. `plateau` and `budget-exhausted` exits
 consult `decideEscalation` — escalate/nudge fail the running attempt so the outer loop re-enters on the
-stronger model; topped-out and attempt-budget-exhausted keep the work (done-with-warning). `malformed`
+stronger model (a model-rung `escalate` also carries the evaluator's own lockstep effort bump, when it
+has headroom); a plateau at the top of the ladder, already nudged, grants the opt-in `best-of-n` rung
+once per task when configured; topped-out and attempt-budget-exhausted keep the work (done-with-warning).
+`malformed`
 exits (evaluator failure) get a plain same-model fresh-attempt retry (no ladder rung) while budget
 remains. `done-with-warning` is reserved for true exhaustion of remedies (all attempts spent, no rung
 remaining, or `escalateOnPlateau === false`). A task that truly exhausts all remedies is never silently

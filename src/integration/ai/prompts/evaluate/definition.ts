@@ -88,6 +88,13 @@ export interface EvaluatePromptParams {
    */
   readonly generatorHintsSection: string;
   /**
+   * Optional `<reproduction>` block — when a `reproduce` session wrote a failing test for this
+   * defect-shaped task, its test path, run command, and observed failure ride here so the
+   * reviewer re-runs it directly as an extension of the verification-tampering check. Absent or
+   * empty → `{{REPRODUCTION_SECTION}}` collapses cleanly (no orphan block).
+   */
+  readonly reproductionSection?: string;
+  /**
    * "## Prior criteria verdicts" block — the durable per-criterion k-of-N checklist carried across
    * rounds (`Task.criteriaVerdicts`), rendered by `composeCriteriaHistory`. Surfaced so the reviewer
    * knows the checklist is multi-round rather than a fresh binary; the surrounding template prose
@@ -183,6 +190,13 @@ export const evaluatePromptDef: PromptDefinition<EvaluatePromptParams> = {
       description:
         'Same-round generator observations (environment notes, learnings) framed as unverified context inside a <generator_hints> block — empty when no hints were collected.',
     },
+    reproductionSection: {
+      placeholder: 'REPRODUCTION_SECTION',
+      optional: true,
+      description:
+        'Failing reproduction test a prior `reproduce` session wrote for this defect-shaped task — test ' +
+        'path, run command, observed failure. Empty → `{{REPRODUCTION_SECTION}}` collapses (no `<reproduction>` wrapper).',
+    },
     priorCriteriaVerdictsSection: {
       placeholder: 'PRIOR_CRITERIA_VERDICTS',
       optional: true,
@@ -233,12 +247,41 @@ export interface BuildEvaluatePromptInput {
    */
   readonly generatorHints?: string;
   /**
+   * Pre-composed body describing a reproduction test a prior `reproduce` session wrote for this
+   * defect-shaped task — its test path, run command, and observed failure excerpt. Absent or
+   * empty → `{{REPRODUCTION_SECTION}}` collapses (no `<reproduction>` block emitted).
+   */
+  readonly reproduction?: string;
+  /**
    * Raw "## Agent Definition" content — the seam a bound agent definition's persona renders
    * into, and (for a provider with no native agent format) the in-session direct-fallback body.
    * Absent or empty → `{{AGENT_DEFINITION_SECTION}}` collapses cleanly with no orphan heading.
    */
   readonly agentDefinition?: string;
 }
+
+/**
+ * Render the optional `<reproduction>` block — a failing test a prior `reproduce` session wrote
+ * for this defect-shaped task. Framed for the reviewer role (re-run it yourself; an unexplained
+ * edit is tampering), distinct from the generator-facing wording of the same-named helper in
+ * `implement/definition.ts` and `implement-continuation/definition.ts` — not shared because
+ * `_engine/renderers/task.ts` is outside this task's ownership, mirroring the existing
+ * local-only `renderPriorAttemptsSection` precedent. Empty / absent → empty string so
+ * `{{REPRODUCTION_SECTION}}` collapses cleanly with no orphan wrapper.
+ */
+const renderReproductionSection = (reproduction: string | undefined): string => {
+  if (reproduction === undefined) return '';
+  const trimmed = reproduction.trim();
+  if (trimmed.length === 0) return '';
+  return [
+    '<reproduction>',
+    'Re-run this reproduction command yourself as part of Phase 1 — see the verification-tampering',
+    'check there for how an edit to this test is treated.',
+    '',
+    trimmed,
+    '</reproduction>',
+  ].join('\n');
+};
 
 /**
  * Top-level builder — accepts domain types, renders the param strings, calls `buildPrompt`.
@@ -277,6 +320,7 @@ export const buildEvaluatePrompt = async (
     outputContractSection: input.outputContractSection,
     priorProgress: input.priorProgress ?? '',
     generatorHintsSection: renderGeneratorHintsSection(input.generatorHints),
+    reproductionSection: renderReproductionSection(input.reproduction),
     // Derived from the task itself (the durable per-criterion verdict map is a task field), so no
     // leaf needs to pre-compose or thread it. Empty (no criterion graded yet) → collapses.
     priorCriteriaVerdictsSection: composeCriteriaHistory({

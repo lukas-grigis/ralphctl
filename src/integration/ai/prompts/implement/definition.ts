@@ -132,6 +132,20 @@ export interface ImplementPromptParams {
    */
   readonly priorEpisodesSection?: string;
   /**
+   * Summaries of the most instructive prior attempts on THIS task (a curated select-K slice, not
+   * the full attempt history) with their verification outcomes — what passed and what regressed.
+   * Absent or empty → `{{PRIOR_ATTEMPTS_SECTION}}` collapses cleanly (no `<prior_attempts>` block
+   * is emitted). Default undefined (empty) until the caller threads a selection.
+   */
+  readonly priorAttemptsSection?: string;
+  /**
+   * Optional `<reproduction>` block — when a `reproduce` session already wrote a failing test for
+   * this defect-shaped task, its test path, run command, and observed failure ride here. Absent
+   * or empty → `{{REPRODUCTION_SECTION}}` collapses cleanly (no orphan block). Default undefined
+   * (empty) until the caller threads a reproduction signal.
+   */
+  readonly reproductionSection?: string;
+  /**
    * "## Prior criteria verdicts" block — the durable per-criterion k-of-N checklist carried across
    * rounds (`Task.criteriaVerdicts`), rendered by `composeCriteriaHistory`. Fed forward so a fresh
    * attempt (post-escalation, new session) knows which done-criteria already pass and which still
@@ -269,6 +283,20 @@ export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
         'Compact bullet list of prior task episodes for this sprint rendered by `summariseEpisodes`. ' +
         'Empty → `{{PRIOR_EPISODES}}` collapses (the renderer omits the `<prior_task_episodes>` wrapper).',
     },
+    priorAttemptsSection: {
+      placeholder: 'PRIOR_ATTEMPTS_SECTION',
+      optional: true,
+      description:
+        'Summaries of the most instructive prior attempts on this task (select-K slice) with their ' +
+        'verification outcomes. Empty → `{{PRIOR_ATTEMPTS_SECTION}}` collapses (no `<prior_attempts>` wrapper).',
+    },
+    reproductionSection: {
+      placeholder: 'REPRODUCTION_SECTION',
+      optional: true,
+      description:
+        'Failing reproduction test a prior `reproduce` session wrote for this defect-shaped task — test ' +
+        'path, run command, observed failure. Empty → `{{REPRODUCTION_SECTION}}` collapses (no `<reproduction>` wrapper).',
+    },
     priorCriteriaVerdictsSection: {
       placeholder: 'PRIOR_CRITERIA_VERDICTS',
       optional: true,
@@ -368,6 +396,18 @@ export interface BuildImplementPromptInput {
    */
   readonly priorEpisodes?: string;
   /**
+   * Pre-composed summary of the most instructive prior attempts on this task (a curated
+   * select-K slice, not the full history) with their verification outcomes. Absent or empty →
+   * `{{PRIOR_ATTEMPTS_SECTION}}` collapses (no `<prior_attempts>` block emitted).
+   */
+  readonly priorAttempts?: string;
+  /**
+   * Pre-composed body describing a reproduction test a prior `reproduce` session wrote for this
+   * defect-shaped task — its test path, run command, and observed failure excerpt. Absent or
+   * empty → `{{REPRODUCTION_SECTION}}` collapses (no `<reproduction>` block emitted).
+   */
+  readonly reproduction?: string;
+  /**
    * Raw "## Agent Definition" content — the seam a bound agent definition's persona renders
    * into, and (for a provider with no native agent format) the in-session direct-fallback body.
    * Absent or empty → `{{AGENT_DEFINITION_SECTION}}` collapses cleanly with no orphan heading.
@@ -385,6 +425,40 @@ const renderPriorEpisodesSection = (summary: string | undefined): string => {
   const trimmed = summary.trim();
   if (trimmed.length === 0) return '';
   return ['<prior_task_episodes>', trimmed, '</prior_task_episodes>'].join('\n');
+};
+
+/**
+ * Render the optional `<prior_attempts>` block — the most instructive prior attempts on this
+ * task (select-K slice) with their verification outcomes. Same collapse contract as
+ * {@link renderPriorEpisodesSection}: full tagged block when non-empty, empty string otherwise
+ * so `{{PRIOR_ATTEMPTS_SECTION}}` disappears cleanly with no orphan wrapper.
+ */
+const renderPriorAttemptsSection = (summary: string | undefined): string => {
+  if (summary === undefined) return '';
+  const trimmed = summary.trim();
+  if (trimmed.length === 0) return '';
+  return ['<prior_attempts>', trimmed, '</prior_attempts>'].join('\n');
+};
+
+/**
+ * Render the optional `<reproduction>` block — a failing test a prior `reproduce` session wrote
+ * for this defect-shaped task. Same collapse contract as the sibling renderers above: full
+ * tagged block (with an embedded framing header, since the block disappears entirely when
+ * empty) when non-empty, empty string otherwise so `{{REPRODUCTION_SECTION}}` disappears
+ * cleanly with no orphan wrapper.
+ */
+const renderReproductionSection = (reproduction: string | undefined): string => {
+  if (reproduction === undefined) return '';
+  const trimmed = reproduction.trim();
+  if (trimmed.length === 0) return '';
+  return [
+    '<reproduction>',
+    'A failing reproduction test already exists for this task, written in an earlier session. Make it',
+    'pass without weakening it — do not delete, skip, or loosen its assertions to reach a pass.',
+    '',
+    trimmed,
+    '</reproduction>',
+  ].join('\n');
 };
 
 /**
@@ -414,6 +488,8 @@ export const buildImplementPrompt = async (
     preVerifyResults: renderPreVerifyResultsSection(input.preVerifyOutput),
     retryFeedbackSection: renderRetryFeedbackSection(input.retryFeedback),
     priorEpisodesSection: renderPriorEpisodesSection(input.priorEpisodes),
+    priorAttemptsSection: renderPriorAttemptsSection(input.priorAttempts),
+    reproductionSection: renderReproductionSection(input.reproduction),
     // Derived from the task itself (which already rides `input.task`) — the durable per-criterion
     // verdict map is a task field, so no leaf needs to pre-compose or thread it. Empty → collapses.
     priorCriteriaVerdictsSection: composeCriteriaHistory({

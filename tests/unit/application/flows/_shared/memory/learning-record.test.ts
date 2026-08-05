@@ -210,3 +210,27 @@ describe('kind + retire helpers', () => {
     }
   });
 });
+
+describe('supersedes provenance', () => {
+  it('parses a legacy row with no supersedes field (round-trips as absent)', () => {
+    const parsed = parseLearningLine(serializeLearningRecord(record()));
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.value?.supersedes).toBeUndefined();
+  });
+
+  it('round-trips a row carrying supersedes ids', () => {
+    const merged = record({ supersedes: ['abc123', 'def456'] });
+    const parsed = parseLearningLine(serializeLearningRecord(merged));
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.value?.supersedes).toEqual(['abc123', 'def456']);
+  });
+
+  it('round-trips a row with an explicitly empty supersedes array', () => {
+    const parsed = parseLearningLine(serializeLearningRecord(record({ supersedes: [] })));
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.value?.supersedes).toEqual([]);
+  });
+});

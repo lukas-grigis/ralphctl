@@ -175,6 +175,8 @@ export const HARNESS_HINTS: Readonly<Record<string, string>> = {
     'Gates ALL failure-driven escalation — plateau AND budget-exhausted exits climb the model ladder; disable to always stay on the configured model.',
   'harness.skipPreVerifyOnFreshSetup':
     'Asserts your setup script verifies the tree (builds + tests); enable only when setup is a full verify gate, not just a dependency install.',
+  'harness.bestOfNCandidates':
+    'Opt-in top-of-ladder remedy: 0 disables (default), 2-4 samples that many candidates on ONE granted attempt once the model ladder and the nudge are both spent. Each granted attempt spawns N generator sessions — costs more.',
   'harness.escalationMap':
     'Override or extend the built-in weaker → stronger ladder — pick the from-model, then the model it escalates to.',
 };
@@ -381,6 +383,12 @@ const buildHarnessFields = (s: Settings): readonly EditableField[] => {
       label: 'Skip pre-verify',
       options: ['true', 'false'],
       current: String(s.harness.skipPreVerifyOnFreshSetup),
+    },
+    {
+      kind: 'text',
+      key: 'harness.bestOfNCandidates',
+      label: 'Best-of-N candidates',
+      current: String(s.harness.bestOfNCandidates ?? 0),
     },
     {
       kind: 'map-add',

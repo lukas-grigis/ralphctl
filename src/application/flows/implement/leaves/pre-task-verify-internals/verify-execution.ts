@@ -6,6 +6,7 @@ import type { RunVerifyScriptOutput } from '@src/business/task/run-verify-script
 import { appendAttemptVerifyRun, markAttemptBaselineBroken } from '@src/domain/entity/task-attempts.ts';
 import type { InProgressTask } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
+import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { setExecutionBaselineBrokenPolicy, type SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
@@ -13,7 +14,8 @@ import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { ErrorCode } from '@src/domain/value/error/error-code.ts';
 import type { ShellRunOptions, ShellScriptResult, ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
-import { gitHasUncommittedChanges } from '@src/integration/io/git-operations.ts';
+import { gitHasUncommittedChanges, gitStashPop } from '@src/integration/io/git-operations.ts';
+import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import type {
   LeafInput,
@@ -163,6 +165,98 @@ export const runPreVerifyGate = (
       }),
     logger: deps.logger,
   });
+};
+
+/**
+ * Deterministic stash message for {@link withReproductionTestExcluded}'s push/pop cycle below.
+ * Created and popped synchronously within one pre-task-verify call, but a stable per-task message
+ * keeps a failed pop recoverable via `git stash list` — mirrors every other quarantine message in
+ * this chain (`quarantineStashMessage`, `retryStashMessage`).
+ *
+ * @public
+ */
+export const reproductionExcludeStashMessage = (sprintId: SprintId, taskId: TaskId): string =>
+  `ralphctl/${String(sprintId)}/${String(taskId)}/reproduction-baseline-exclude`;
+
+/**
+ * True iff `path` itself carries uncommitted changes (modified OR untracked) — a porcelain probe
+ * scoped to that ONE path so {@link withReproductionTestExcluded} only stashes when there is
+ * something to exclude: never on a path that is already committed-and-clean, and never on one an
+ * earlier quarantine already swept out of the tree. A probe failure demotes to "nothing to
+ * exclude" so the caller always falls through to running the gate on the untouched tree.
+ */
+const isPathDirty = async (runner: GitRunner, cwd: AbsolutePath, path: string): Promise<boolean> => {
+  const status = await runner.run(cwd, ['status', '--porcelain', '--', path]);
+  return status.ok && status.value.exitCode === 0 && status.value.stdout.trim().length > 0;
+};
+
+/**
+ * Exclude the harness-authored reproduction test from the pre-verify BASELINE by stashing exactly
+ * that one path around the gate run, then restoring it — every time this leaf runs the real gate,
+ * not just on the task's first attempt.
+ *
+ * The problem this closes (confirmed[9]): `reproduceLeaf` (see `reproduce.ts`) deliberately leaves
+ * a FAILING test uncommitted in the working tree before the attempt loop starts. `runPreVerifyGate`
+ * runs with NO scope — the complete gate — so on every defect-shaped task's every attempt the
+ * baseline was always red, and `attributeVerify` (`run-verify-script.ts`) could then only ever
+ * land on `'baseline-broken'` — the one attribution the harness treats as "not the AI's fault,
+ * don't block" (`post-task-verify.ts`'s `shouldBlock = isRed && attribution !== 'baseline-broken'`)
+ * — regardless of whether the attempt's fix was actually correct. That masks a genuinely broken
+ * fix as a pre-existing failure and lets it commit on red, defeating never-commit-on-red for an
+ * entire class of tasks. Excluding the test's own path restores the real question pre-verify
+ * exists to answer: was the tree healthy BEFORE this attempt's AI work, independent of the fixture
+ * the harness itself just added — so a healthy repo now correctly reads `pre=success`, and a
+ * broken fix now correctly reads `post=failed` against that green baseline → `'regressed'`, which
+ * blocks (or retries within budget) instead of silently committing.
+ *
+ * Reapplied on EVERY attempt rather than cached from the first: each attempt gets its own
+ * independent pre/post pair, so a stale attempt-1 baseline would silently mis-attribute attempt 2+
+ * (e.g. after the tree picked up a partial diff from a retried attempt).
+ *
+ * Best-effort, mirroring every other stash-based quarantine in this chain: a failed push falls
+ * through to running the gate WITH the test present — the shape the leaf had before this mechanism
+ * existed, imperfect but non-corrupting. A failed pop is logged at `error` (the file is still
+ * recoverable via `git stash list`, named in the message) rather than failing the leaf — turning a
+ * forensic-recovery situation into a hard chain failure over one file would be a worse outcome than
+ * the operator restoring it by hand.
+ *
+ * @public
+ */
+export const withReproductionTestExcluded = async <T>(
+  deps: Pick<PreTaskVerifyLeafDeps, 'gitRunner' | 'logger'>,
+  cwd: AbsolutePath,
+  sprintId: SprintId,
+  taskId: TaskId,
+  testPath: string | undefined,
+  run: () => Promise<T>
+): Promise<T> => {
+  if (testPath === undefined) return run();
+
+  const log = deps.logger.named('implement.pre-task-verify');
+  const dirty = await isPathDirty(deps.gitRunner, cwd, testPath);
+  if (!dirty) return run();
+
+  const message = reproductionExcludeStashMessage(sprintId, taskId);
+  const pushed = await deps.gitRunner.run(cwd, ['stash', 'push', '-u', '-m', message, '--', testPath]);
+  if (!pushed.ok || pushed.value.exitCode !== 0) {
+    log.warn('reproduction-test exclude stash failed — pre-verify baseline includes the reproduction test', {
+      taskId: String(taskId),
+      testPath,
+    });
+    return run();
+  }
+
+  try {
+    return await run();
+  } finally {
+    const popped = await gitStashPop(deps.gitRunner, cwd, message);
+    if (!popped.ok || !popped.value.popped) {
+      log.error(
+        'reproduction-test exclude stash pop failed — the reproduction test may be missing from the working tree',
+        { taskId: String(taskId), testPath, stashMessage: message }
+      );
+    }
+  }
 };
 
 /**

@@ -460,6 +460,25 @@ export const SettingsSchema = z.object({
          * gate is a full verify.
          */
         skipPreVerifyOnFreshSetup: z.boolean().default(false),
+        /**
+         * Opt-in best-of-N candidate sampling — the escalation ladder's remedy ABOVE the
+         * same-model nudge, at the very top of the ladder. `0` disables it (default); `2`-`4`
+         * grants ONE best-of-N attempt per task (once the model ladder AND the same-model nudge
+         * are both spent — see `escalateOnPlateau`) that samples N candidates on the unchanged
+         * model and selects among them by verification then judging.
+         *
+         * COST CAVEAT: the granted attempt spawns N full generator sessions instead of one,
+         * multiplying spend for that one attempt — leave at `0` unless the extra cost is
+         * acceptable for the occasional task that exhausts the whole ladder.
+         *
+         * Research: arXiv 2604.16529 (RTV) — harness-level N-candidate selection lifted SWE-bench
+         * Verified 67.4 → 73.6 at N=16 (RTV measured N=16, not the 2-4 cap used here); the tight
+         * 2-4 cap instead follows a descriptive read of arXiv 2601.22129's (SWE-Replay) scaling
+         * curve, which is concave — a small N already captures a disproportionate share of the
+         * gain; arXiv 2507.23370's cascade ablations motivate selecting by verification then
+         * judging rather than a single generation.
+         */
+        bestOfNCandidates: z.union([z.literal(0), z.number().int().min(2).max(4)]).optional(),
       })
       .superRefine((harness, ctx) => {
         /**

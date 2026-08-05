@@ -1,4 +1,5 @@
 import { promises as fs } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
@@ -330,6 +331,180 @@ describe('evaluatorLeaf', () => {
       expect(content).toContain('(none detected)');
       expect(content).not.toContain('- Subagent:');
       expect(content).not.toContain('- Skill:');
+    });
+  });
+
+  // Reproduction-first (read side) — mirrors the generator leaf's equivalent block, built from
+  // the SAME `ctx.reproductionArtifact`. Rides every round (not just round 1): the evaluator's
+  // re-run instruction is an extension of its verification-tampering check on every turn.
+  describe('reproduction section', () => {
+    const reproductionArtifact: ImplementCtx['reproductionArtifact'] = {
+      testPath: 'tests/unit/foo.test.ts',
+      runCommand: 'npx vitest run tests/unit/foo.test.ts',
+      observedFailure: 'AssertionError: expected 200 to equal 404',
+      relevantTests: ['tests/unit/bar.test.ts'],
+      checksum: 'deadbeef',
+    };
+
+    const baseCtx = (
+      task: ReturnType<typeof makeInProgressTaskWithRunningAttempt>,
+      roundNum: number
+    ): ImplementCtx => ({
+      sprintId: task.id as unknown as ImplementCtx['sprintId'],
+      tasks: [task],
+      currentTask: task,
+      currentRoundNum: roundNum,
+      taskWorkspaceRoot: root.root,
+    });
+
+    it('omits the section when ctx.reproductionArtifact is absent (non-defect-shaped task)', async () => {
+      const task = makeInProgressTaskWithRunningAttempt();
+      const leaf = evaluatorLeaf(buildDeps(), task.id);
+      const result = await leaf.execute(baseCtx(task, 1));
+      expect(result.ok).toBe(true);
+
+      // The template's static tampering-check prose references the `<reproduction>` tag NAME by
+      // name even when the block itself is empty (`` `<reproduction>` `` in backticks) — assert
+      // on the wrapper's distinctive framing sentence instead of the bare tag substring.
+      const content = await fs.readFile(join(String(root.root), 'rounds', '1', 'evaluator', 'prompt.md'), 'utf8');
+      expect(content).not.toContain('Re-run this reproduction command yourself');
+    });
+
+    it('renders the validated reproduction, with the re-run instruction, into the FULL prompt', async () => {
+      const task = makeInProgressTaskWithRunningAttempt();
+      const leaf = evaluatorLeaf(buildDeps(), task.id);
+      const result = await leaf.execute({ ...baseCtx(task, 1), reproductionArtifact });
+      expect(result.ok).toBe(true);
+
+      const content = await fs.readFile(join(String(root.root), 'rounds', '1', 'evaluator', 'prompt.md'), 'utf8');
+      expect(content).toContain('<reproduction>');
+      expect(content).toContain('Re-run this reproduction command yourself');
+      expect(content).toContain('tests/unit/foo.test.ts');
+      expect(content).toContain('AssertionError: expected 200 to equal 404');
+    });
+
+    it('also renders the reproduction into the CONTINUATION prompt (round 2+)', async () => {
+      const provider = createFakeAiProvider({
+        responses: { evaluate: '', 'evaluate-continuation': '' },
+        signals: {
+          evaluate: [
+            {
+              type: 'evaluation',
+              status: 'passed',
+              dimensions: [
+                { dimension: 'correctness', passed: true, finding: 'all good' },
+                { dimension: 'completeness', passed: true, finding: 'all steps shipped' },
+                { dimension: 'safety', passed: true, finding: 'inputs validated' },
+                { dimension: 'consistency', passed: true, finding: 'matches siblings' },
+              ],
+              timestamp: FIXED_NOW,
+            },
+          ],
+          'evaluate-continuation': [
+            {
+              type: 'evaluation',
+              status: 'passed',
+              dimensions: [
+                { dimension: 'correctness', passed: true, finding: 'all good' },
+                { dimension: 'completeness', passed: true, finding: 'all steps shipped' },
+                { dimension: 'safety', passed: true, finding: 'inputs validated' },
+                { dimension: 'consistency', passed: true, finding: 'matches siblings' },
+              ],
+              timestamp: FIXED_NOW,
+            },
+          ],
+        },
+        sessionIds: { evaluate: 'eval-1' },
+      });
+      const task = makeInProgressTaskWithRunningAttempt();
+      const leaf = evaluatorLeaf({ ...buildDeps(), provider }, task.id);
+
+      const first = await leaf.execute({ ...baseCtx(task, 1), reproductionArtifact });
+      expect(first.ok).toBe(true);
+      if (!first.ok) return;
+
+      await fs.mkdir(join(String(root.root), 'rounds', '2', 'evaluator'), { recursive: true });
+      const second = await leaf.execute({ ...first.value.ctx, currentRoundNum: 2 });
+      expect(second.ok).toBe(true);
+
+      const round2 = await fs.readFile(join(String(root.root), 'rounds', '2', 'evaluator', 'prompt.md'), 'utf8');
+      expect(round2).toContain('# Re-evaluate — Round 2');
+      expect(round2).toContain('<reproduction>');
+      expect(round2).toContain('tests/unit/foo.test.ts');
+    });
+
+    // Checksum wiring (minors[1]/[7]/[10]): the evaluator is the ONE role that re-checksums the
+    // reproduction test at prompt-build time against `ReproductionArtifact.checksum` — a mismatch
+    // (an unexplained edit, or a deletion) appends a bounded tampering note to the SAME
+    // `<reproduction>` section the template's tampering-detection rule already audits.
+    describe('checksum re-verification', () => {
+      const REPRO_CONTENT = "describe('repro', () => { it('fails', () => { expect(200).toBe(404); }); });\n";
+
+      const buildRealCwdDeps = async () => {
+        const cwd = absolutePath(join(String(root.root), 'repo'));
+        await fs.mkdir(String(cwd), { recursive: true });
+        return { ...buildDeps(), cwd };
+      };
+
+      const writeReproFile = async (cwd: string, content: string): Promise<void> => {
+        const full = join(cwd, 'tests/unit/foo.test.ts');
+        await fs.mkdir(join(full, '..'), { recursive: true });
+        await fs.writeFile(full, content, 'utf8');
+      };
+
+      it('checksum matches the file on disk → prompt carries the reproduction body WITHOUT a tamper note', async () => {
+        const deps = await buildRealCwdDeps();
+        await writeReproFile(String(deps.cwd), REPRO_CONTENT);
+        const artifact: ImplementCtx['reproductionArtifact'] = {
+          ...reproductionArtifact,
+          checksum: createHash('sha256').update(REPRO_CONTENT, 'utf-8').digest('hex'),
+        };
+        const task = makeInProgressTaskWithRunningAttempt();
+        const leaf = evaluatorLeaf(deps, task.id);
+        const result = await leaf.execute({ ...baseCtx(task, 1), reproductionArtifact: artifact });
+        expect(result.ok).toBe(true);
+
+        const content = await fs.readFile(join(String(root.root), 'rounds', '1', 'evaluator', 'prompt.md'), 'utf8');
+        expect(content).toContain('tests/unit/foo.test.ts');
+        expect(content).not.toContain('TAMPERING CHECK');
+      });
+
+      it('checksum mismatch (file edited since validation) → prompt carries a bounded tamper note', async () => {
+        const deps = await buildRealCwdDeps();
+        // The file on disk no longer matches the checksum captured when the artifact was
+        // validated — simulates a generator turn rewriting the reproduction test mid-loop.
+        await writeReproFile(String(deps.cwd), 'expect(true).toBe(true); // edited to force green');
+        const artifact: ImplementCtx['reproductionArtifact'] = {
+          ...reproductionArtifact,
+          checksum: createHash('sha256').update(REPRO_CONTENT, 'utf-8').digest('hex'),
+        };
+        const task = makeInProgressTaskWithRunningAttempt();
+        const leaf = evaluatorLeaf(deps, task.id);
+        const result = await leaf.execute({ ...baseCtx(task, 1), reproductionArtifact: artifact });
+        expect(result.ok).toBe(true);
+
+        const content = await fs.readFile(join(String(root.root), 'rounds', '1', 'evaluator', 'prompt.md'), 'utf8');
+        // The reproduction body still rides — the note is APPENDED, not a replacement.
+        expect(content).toContain('tests/unit/foo.test.ts');
+        expect(content).toContain('TAMPERING CHECK');
+        expect(content).toContain('needs an explicit, justified explanation');
+      });
+
+      it('checksum mismatch (file missing) → prompt carries the tamper note too (at least as suspicious as an edit)', async () => {
+        const deps = await buildRealCwdDeps();
+        // Deliberately never write the reproduction test file.
+        const artifact: ImplementCtx['reproductionArtifact'] = {
+          ...reproductionArtifact,
+          checksum: createHash('sha256').update(REPRO_CONTENT, 'utf-8').digest('hex'),
+        };
+        const task = makeInProgressTaskWithRunningAttempt();
+        const leaf = evaluatorLeaf(deps, task.id);
+        const result = await leaf.execute({ ...baseCtx(task, 1), reproductionArtifact: artifact });
+        expect(result.ok).toBe(true);
+
+        const content = await fs.readFile(join(String(root.root), 'rounds', '1', 'evaluator', 'prompt.md'), 'utf8');
+        expect(content).toContain('TAMPERING CHECK');
+      });
     });
   });
 });

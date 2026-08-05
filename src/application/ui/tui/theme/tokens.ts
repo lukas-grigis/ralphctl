@@ -264,7 +264,9 @@ export type SignalKind =
   | 'blocked'
   | 'script'
   | 'proposal'
-  | 'skills';
+  | 'skills'
+  | 'reproduce'
+  | 'judge';
 
 /**
  * Shape-only fallback marker per signal kind — printed BEFORE the kind label when colour
@@ -276,8 +278,8 @@ export type SignalKind =
  * render uniformly across vt220-class emulators where colour is most likely to be disabled.
  *
  * Returns the empty string for kinds that already read distinctly from their label text
- * (`done` / `script` / `proposal` / `skills`) — adding a glyph there would clutter the row
- * without adding shape information.
+ * (`done` / `script` / `proposal` / `skills` / `reproduce` / `judge`) — adding a glyph there would
+ * clutter the row without adding shape information.
  */
 export const glyphFor = (kind: SignalKind): string => {
   switch (kind) {

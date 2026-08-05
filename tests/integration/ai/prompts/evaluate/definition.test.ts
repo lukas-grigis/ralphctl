@@ -108,6 +108,18 @@ describe('evaluatePromptDef — completeness', () => {
     const placeholders = Object.values(evaluatePromptDef.parameters).map((p) => p.placeholder);
     expect(placeholders).toContain('FLOOR_RUBRIC_SECTION');
   });
+
+  it('requires executing a runnable manual criterion instead of reading the diff alone', async () => {
+    const path = `${String(defaultTemplatesDir())}/evaluate/template.md`;
+    const template = (await fs.readFile(path, 'utf8')).replace(/\s+/g, ' ');
+    expect(template).toContain('execute the changed path yourself and cite the observed output as evidence');
+    // The UNVERIFIED escape hatch is scoped to a runnable criterion you were BLOCKED from executing —
+    // not to every criterion that is not runnable by nature, which stays gradable on path:line evidence.
+    // (Regression: an earlier wording triggered UNVERIFIED on "genuinely un-runnable" criteria too, which
+    // directly contradicted the "Otherwise cite the specific path:line" PASS route above for the same case.)
+    expect(template).toContain('blocked from executing it here');
+    expect(template).toContain('not runnable by nature is never UNVERIFIED');
+  });
 });
 
 const SAMPLE_CONTRACT_SECTION = '## Output contract\n\nWrite signals.json. (test fixture body.)';

@@ -54,9 +54,15 @@ may write in this session is `signals.json` in your output directory.
   not a criterion. Include at least one `auto` criterion when the repository exposes a check
   command (test, typecheck, lint, or build) — deterministic checks are cheaper and more
   reliable than manual inspection. Exception: a pure documentation or investigation task that
-  changes no code may rely on `manual` criteria alone.
+  changes no code may rely on `manual` criteria alone. For a task that introduces new
+  behaviour, express those same 2–4 criteria as given/when/then scenarios naming the
+  interface signatures the change must expose — a structured spec catches ambiguity a prose
+  description alone would let through.
 - **No invention** — every task traces back to an approved ticket via `ticketRef`. If
   coherence requires additional scope, surface it as an observation, not a silent expansion.
+  Prefer fewer, well-grounded tasks over a complete-looking plan padded with speculative ones —
+  drop any step that isn't grounded in the ticket or the code you explored; a wrong plan step
+  costs more than an absent one.
 - **Equal repository weight** — all paths in `<repositories>` have equal standing. Do not
   favour the first repository when assigning tasks; distribute by where the work actually
   belongs.

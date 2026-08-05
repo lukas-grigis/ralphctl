@@ -58,9 +58,13 @@ under its declared check type.
 
 {{VERIFICATION_CRITERIA_SECTION}}
 
+{{REPRODUCTION_SECTION}}
+
 <plateau_directive>{{PLATEAU_DIRECTIVE_SECTION}}</plateau_directive>
 
 <prior_critique>{{PRIOR_CRITIQUE_SECTION}}</prior_critique>
+
+{{PRIOR_ATTEMPTS_SECTION}}
 
 <prior_criteria_verdicts>{{PRIOR_CRITERIA_VERDICTS}}</prior_criteria_verdicts>
 
@@ -118,7 +122,9 @@ repository now, trust the repository and record the conflict as a `learning` sig
   pollutes the durable journal for every future round and every future session that reads it. Emit
   `change`, `learning`, `note`, and `decision` signals instead — the harness appends them into the
   per-task sections. A `learning` carries an insight plus OPTIONAL context (when / why it arose) and
-  applies-to (where it applies — a repo area, task kind, or subsystem).
+  applies-to (where it applies — a repo area, task kind, or subsystem). When this attempt succeeds
+  where an earlier attempt on the same task failed, emit a learning that CONTRASTS the working
+  approach with what failed — name the specific difference that made it work, not just the outcome.
 - **No sprint-local identifiers in committed artefacts.** Do not mention acceptance-criterion labels
   (`AC1`, `AC2`), ticket numbers, task IDs, or sprint IDs in source files, comments, docstrings, test
   names, commit messages, or any other committed artefact. These identifiers are ephemeral sprint
@@ -193,10 +199,16 @@ on the first attempt, not to discover problems after the fact.
 8. **Existing patterns** — search for code similar to what you need to build. Matching existing
    patterns is the single most important feedforward control — it prevents introducing new conventions
    that conflict with neighbours.
+9. **Reproduce before fixing (defect-shaped tasks)** — when the task describes a bug or regression,
+   reproduce the reported failure now — run the failing command, test, or repro steps — before
+   changing any code. A fix you cannot first reproduce is a guess; re-run the same repro in Phase 3
+   to confirm it now passes.
 
 Before writing any code, restate in your working notes — three to five lines, not part of any
 signal — the task goal, the acceptance criteria, and the specific facts from the prior progress or
-learnings above that you will rely on.
+learnings above that you will rely on. From here on, after roughly every five tool actions, restate
+in one line which phase you are in and which acceptance criteria remain — a long session drifts
+without this anchor.
 
 Proceed to Phase 2 once Phase 1 passes.
 
@@ -262,10 +274,11 @@ In order:
    exceeds that, write the full log to a file in your session working directory — never inside
    the repository — and cite its path instead of pasting the rest.
 5. **Propose the commit message** — emit `commit-message` with a real subject and a body explaining
-   WHY the change exists, what alternatives you weighed, and any follow-ups a reviewer should know.
-   The harness commits after this turn using your wording verbatim. The fallback when you omit the
-   signal is just the task name and description paragraph — thin context. Emit it on every task that
-   touched any file. Omit only when the task was a pure investigation that wrote nothing.
+   WHY the change exists, what alternatives you weighed, any remaining uncertainty, and — when the
+   change is risky — how to roll it back. Include any follow-ups a reviewer should know. The harness
+   commits after this turn using your wording verbatim. The fallback when you omit the signal is just
+   the task name and description paragraph — thin context. Emit it on every task that touched any
+   file. Omit only when the task was a pure investigation that wrote nothing.
 6. **Signal completion** — emit `task-complete` ONLY after all the above steps pass. Then, as the
    very LAST action of this turn, write exactly ONE file — `signals.json` — to the absolute path
    named in the Output contract section below. That file is the ONLY channel the harness reads:

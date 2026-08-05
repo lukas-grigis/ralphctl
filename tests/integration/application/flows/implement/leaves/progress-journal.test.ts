@@ -26,9 +26,11 @@ import { Result } from '@src/domain/result.ts';
 import {
   FIXED_LATER,
   FIXED_NOW,
+  commitSha,
   makeActiveSprint,
   makeDoneTask,
   makeInProgressTaskWithRunningAttempt,
+  makeTodoTask,
 } from '@tests/fixtures/domain.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
@@ -39,7 +41,14 @@ import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { progressJournalLeaf } from '@src/application/flows/implement/leaves/progress-journal.ts';
 import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import { applyCriteriaVerdicts } from '@src/domain/entity/task-criteria.ts';
-import { recordRunningAttemptVerification, recordRunningAttemptWarning } from '@src/domain/entity/task-attempts.ts';
+import {
+  appendAttemptVerifyRun,
+  recordRunningAttemptCommit,
+  recordRunningAttemptVerification,
+  recordRunningAttemptWarning,
+  setAttemptAttribution,
+  startNextAttempt,
+} from '@src/domain/entity/task-attempts.ts';
 import { failCurrentAttempt, markTaskDone, recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
 import { setExecutionBranch, createSprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
@@ -379,5 +388,92 @@ describe('progressJournalLeaf', () => {
     const leaf = progressJournalLeaf(journalDeps(createAtomicWriteFile()), { progressFile, totalRounds: 5 }, task.id);
     const result = await leaf.execute(ctxFor([]));
     expect(result.ok).toBe(false);
+  });
+});
+
+describe('progressJournalLeaf — Continuation state (deterministic, harness-derived fields)', () => {
+  it('composes attempt status, pre/post verify runs, attribution, and commit subject from harness-held Attempt data', async () => {
+    const inProgress = makeInProgressTaskWithRunningAttempt();
+    const withPre = unwrap(
+      appendAttemptVerifyRun(inProgress, {
+        phase: 'pre',
+        ranAt: FIXED_NOW,
+        command: 'pnpm test',
+        exitCode: 0,
+        durationMs: 100,
+        outcome: 'success',
+      })
+    );
+    const withPost = unwrap(
+      appendAttemptVerifyRun(withPre, {
+        phase: 'post',
+        ranAt: FIXED_LATER,
+        command: 'pnpm test',
+        exitCode: 0,
+        durationMs: 120,
+        outcome: 'success',
+      })
+    );
+    const attributed = unwrap(setAttemptAttribution(withPost, 'clean'));
+    const committed = unwrap(recordRunningAttemptCommit(attributed, commitSha('a'.repeat(40))));
+    const verified = unwrap(recordRunningAttemptVerification(committed));
+    const done = unwrap(markTaskDone(verified, FIXED_LATER));
+    const leaf = progressJournalLeaf(journalDeps(createAtomicWriteFile()), { progressFile, totalRounds: 5 }, done.id);
+    const result = await leaf.execute(
+      ctxFor([done], { proposedCommitMessage: { subject: 'task(export-csv): add flag' } })
+    );
+    expect(result.ok).toBe(true);
+    const written = await read();
+    expect(written).toContain('### Continuation state');
+    expect(written).toContain('- Attempt status: verified');
+    expect(written).toContain('- Verify (pre): pnpm test — success');
+    expect(written).toContain('- Verify (post): pnpm test — success');
+    expect(written).toContain('- Attribution: clean');
+    expect(written).toContain('- Commit subject: task(export-csv): add flag');
+    // Existing sha bullet is untouched — the subject rides in the new block, not appended there.
+    expect(written).toContain(`- Commit: ${'a'.repeat(7)}`);
+  });
+
+  it('omits the commit subject when the generator proposed one but the tree stayed clean (no commit landed)', async () => {
+    const task = makeDoneTask({ name: 'clean-tree' }); // no commitSha on the fixture's verified attempt
+    const leaf = progressJournalLeaf(journalDeps(createAtomicWriteFile()), { progressFile, totalRounds: 5 }, task.id);
+    const result = await leaf.execute(ctxFor([task], { proposedCommitMessage: { subject: 'never landed' } }));
+    expect(result.ok).toBe(true);
+    const written = await read();
+    expect(written).not.toContain('- Commit subject:');
+  });
+
+  it("omits the Continuation-state block's optional fields when the leaf resolves none of them", async () => {
+    const task = makeDoneTask({ name: 'bare' });
+    const leaf = progressJournalLeaf(journalDeps(createAtomicWriteFile()), { progressFile, totalRounds: 5 }, task.id);
+    const result = await leaf.execute(ctxFor([task]));
+    expect(result.ok).toBe(true);
+    const written = await read();
+    // Attempt status still renders (always available on a settled attempt) — only the truly
+    // optional facts (verify runs, attribution, commit subject, resumed-after) are absent.
+    expect(written).toContain('- Attempt status: verified');
+    expect(written).not.toContain('- Verify (');
+    expect(written).not.toContain('- Attribution:');
+    expect(written).not.toContain('- Commit subject:');
+    expect(written).not.toContain('- Resumed after:');
+  });
+
+  it('renders "Resumed after" when the settled attempt opened as a resume of a prior aborted attempt', async () => {
+    const todo = makeTodoTask({ name: 'resumed' });
+    const firstAttempt = unwrap(startNextAttempt(todo, FIXED_NOW, 'session-1'));
+    const abortedAt = FIXED_LATER;
+    const recovered = unwrap(failCurrentAttempt(firstAttempt, abortedAt, 'aborted', { abortCause: 'process-crash' }));
+    const resumedAttempt = unwrap(
+      startNextAttempt(recovered, FIXED_LATER, 'session-2', { fromAttemptN: 1, cause: 'process-crash', abortedAt })
+    );
+    const verified = unwrap(recordRunningAttemptVerification(resumedAttempt));
+    const done = unwrap(markTaskDone(verified, FIXED_LATER));
+    const leaf = progressJournalLeaf(journalDeps(createAtomicWriteFile()), { progressFile, totalRounds: 5 }, done.id);
+    const result = await leaf.execute(ctxFor([done]));
+    expect(result.ok).toBe(true);
+    const written = await read();
+    expect(written).toContain(`- Resumed after: process-crash (attempt 1 aborted at ${String(abortedAt)})`);
+    // The section is for the SECOND (resumed) attempt, not the aborted first one.
+    expect(written).toContain('— Attempt 2');
   });
 });

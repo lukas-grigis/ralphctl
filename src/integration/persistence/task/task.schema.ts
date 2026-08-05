@@ -95,6 +95,12 @@ const TaskBaseShape = {
   // Evaluator-side counterpart of escalatedToEffort — same tolerant-read rationale. The evaluator
   // MODEL never escalates, so there is no evaluator equivalent of escalatedToModel.
   escalatedToEvaluatorEffort: z.string().optional(),
+  // Best-of-N escalation grant — same tolerant-read rationale as the escalation fields above.
+  // `bestOfNGranted` is the permanent once-per-task marker; `bestOfNGrantedCandidates` is the
+  // transient candidate count the attempt-body consumes. Both optional so `tasks.json` files
+  // written before the fields existed still load.
+  bestOfNGranted: z.literal(true).optional(),
+  bestOfNGrantedCandidates: z.number().optional(),
 };
 
 const TodoTaskSchema = z.object({ ...TaskBaseShape, status: z.literal('todo') });

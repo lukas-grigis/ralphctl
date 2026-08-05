@@ -119,6 +119,8 @@ end. The final `signals.json` is the only machine-readable output and must come 
   <project_tooling>{{PROJECT_TOOLING}}</project_tooling>
   <prior_progress>{{PRIOR_PROGRESS}}</prior_progress>
 
+{{REPRODUCTION_SECTION}}
+
 {{GENERATOR_HINTS_SECTION}}
 </inputs>
 
@@ -212,6 +214,9 @@ Run deterministic checks first — they are authoritative and cheap.
 4. **Audit the diff for verification tampering** — check whether the changes touch test files, fixtures, or
    verification tooling themselves. A criterion satisfied by weakening or deleting a test, adding a skip, or
    hardcoding an expected value is a Correctness FAIL, not a PASS — cite the specific diff hunk showing it.
+   When `<reproduction>` above is non-empty, this check extends to it: re-run its command yourself — the
+   task cannot pass Correctness while that command still fails — and treat an unexplained edit to the
+   reproduction test the same as any other tampering caught by this check.
 
 ### Phase 2 — Per-criterion assessment
 
@@ -221,13 +226,18 @@ For every criterion in the contract:
   the last 50 per command), not the entire log — if the full output matters, write it to a file in your
   session working directory (never the repository) and cite the path. PASS only when the command exits 0 AND
   the assertion holds; FAIL otherwise. Cite the command's exit code.
-- **`manual` criteria** — cite the specific `path:line` or behavioural evidence. PASS only when the cited
-  evidence demonstrably satisfies the assertion. "Looks good" / "appears correct" are not evidence.
+- **`manual` criteria** — when the changed behaviour is runnable (a command, a script, a service
+  endpoint, or a test), execute the changed path yourself and cite the observed output as evidence;
+  reading the diff or a green verify script alone does not substitute for that observation. Otherwise
+  cite the specific `path:line` or equivalent behavioural evidence. PASS only when the cited evidence
+  demonstrably satisfies the assertion. "Looks good" / "appears correct" are not evidence.
 
 Grade each criterion PASS or FAIL — no middle ground. Any single criterion FAIL forces `status: "failed"`.
-When you could not verify a criterion — as opposed to observing a violation — grade `passed: false` and begin
-its evidence with "UNVERIFIED:" plus what blocked you, so downstream consumers can tell unverifiable apart
-from broken.
+Exception — a criterion whose behaviour IS runnable but you were blocked from executing it here (missing
+credentials, no network, an environment gap) is graded `passed: false` with evidence beginning
+"UNVERIFIED:" plus what blocked you, as opposed to observing a violation, so downstream consumers can
+tell unverifiable apart from broken. A criterion that is not runnable by nature is never UNVERIFIED —
+grade it on the cited `path:line` evidence from the rule above.
 
 Record each criterion's verdict STRUCTURALLY in the `evaluation` signal's `criteria` array — one entry
 per criterion with its `id`, a `passed` boolean, and a one-line `evidence` citation. This is the same

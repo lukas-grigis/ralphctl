@@ -427,6 +427,61 @@ describe('createPerTaskSubchain — quarantine-blocked-diff placement (serial-pa
   });
 });
 
+describe('createPerTaskSubchain — reproduce placement (serial-path fence)', () => {
+  const readConfig = () =>
+    Promise.resolve({ maxTurns: 5, escalateOnPlateau: false, escalationMap: {}, maxAttempts: 3 });
+
+  const buildSubchain = (task: Task): ShapeNode => {
+    const opts = makeOpts([task]);
+    const subchain = createPerTaskSubchain(
+      stubDeps(),
+      {
+        sprintDir: opts.sprintDir,
+        progressFile: opts.progressFile,
+        terminalLeafName: IMPLEMENT_TASK_TERMINAL_LEAF,
+        generator: { providerId: opts.generatorProviderId, model: opts.generatorModel },
+        evaluator: { providerId: opts.evaluatorProviderId, model: opts.evaluatorModel },
+        memoryRoot: opts.memoryRoot,
+        projectId: opts.projectId,
+        projectSlug: opts.projectSlug,
+      },
+      task,
+      resolveRepoOrThrow(opts.repositories, task),
+      readConfig
+    );
+    return snapshot(subchain);
+  };
+
+  const taskBodyChildren = (shape: ShapeNode): readonly ShapeNode[] => {
+    const body = findByName(shape, shape.name.replace('task-', 'task-body-'));
+    return body?.children ?? [];
+  };
+
+  // The chain shape is static — a `guard` element is always present in the tree regardless of
+  // task kind; only its RUNTIME predicate (exercised by reproduce.test.ts, not this shape fence)
+  // decides whether the wrapped leaf actually spawns. A defect-shaped task name is used here only
+  // to document intent, not because the shape would differ for a non-defect-shaped one.
+  it('splices an unconditional reset immediately followed by the guarded reproduce leaf, BEFORE the attempt loop', () => {
+    const children = taskBodyChildren(buildSubchain(makeTodoTask({ name: 'fix the thing' })));
+    const allNames = children.map((c) => c.name);
+    const resetIdx = allNames.findIndex((n) => n.startsWith('reset-reproduction-'));
+    const guardIdx = allNames.findIndex((n) => n.startsWith('reproduce-guard-'));
+    const loopIdx = allNames.findIndex((n) => n.startsWith('task-attempts-'));
+    expect(resetIdx).toBeGreaterThanOrEqual(0);
+    expect(guardIdx).toBe(resetIdx + 1); // reset directly precedes the guard
+    expect(loopIdx).toBeGreaterThan(guardIdx); // both sit before the attempt loop
+    // The guard wraps the AI-spawning leaf itself.
+    const guardNode = children[guardIdx];
+    expect(guardNode?.children?.[0]?.name).toMatch(/^reproduce-/);
+  });
+
+  it('the guard node is present in the static tree for a non-defect-shaped task too (runtime-gated, not build-time)', () => {
+    const allNames = names(buildSubchain(makeTodoTask({ name: 'add a widget' })));
+    expect(allNames.some((n) => n.startsWith('reproduce-guard-'))).toBe(true);
+    expect(allNames.some((n) => n.startsWith('reset-reproduction-'))).toBe(true);
+  });
+});
+
 describe('createPerTaskSubchain — agent-definition install/uninstall splicing', () => {
   const readConfig = () =>
     Promise.resolve({ maxTurns: 5, escalateOnPlateau: false, escalationMap: {}, maxAttempts: 3 });
@@ -517,6 +572,125 @@ describe('createPerTaskSubchain — agent-definition install/uninstall splicing'
     expect(genIdx).toBeGreaterThanOrEqual(0);
     expect(evalIdx).toBeGreaterThan(genIdx);
     expect(evalIdx).toBe(allNames.length - 2);
+  });
+});
+
+describe('createPerTaskSubchain — best-of-N gen-eval segment (construction-time knob gating)', () => {
+  const readConfig = () =>
+    Promise.resolve({ maxTurns: 5, escalateOnPlateau: false, escalationMap: {}, maxAttempts: 3 });
+
+  // Variant of the shared `stubDeps()` carrying an opt-in `bestOfNCandidates` — every other
+  // harness field is byte-identical to `stubDeps()` so the ONLY difference a shape diff can
+  // attribute to is the knob itself.
+  const stubDepsWithBestOfN = (n: number): ImplementDeps =>
+    ({
+      config: {
+        harness: {
+          maxTurns: 5,
+          maxAttempts: 3,
+          rateLimitRetries: 0,
+          plateauThreshold: 2,
+          escalateOnPlateau: false,
+          escalationMap: {},
+          bestOfNCandidates: n,
+        },
+      },
+    }) as unknown as ImplementDeps;
+
+  const attemptBodyChildren = (shape: ShapeNode): readonly ShapeNode[] => {
+    const body = findByName(shape, shape.name.replace('task-', 'task-attempt-body-'));
+    return body?.children ?? [];
+  };
+
+  // A single fixed task (not re-derived per call) so the byte-for-byte comparison test isn't
+  // perturbed by `makeTodoTask`'s fresh id on every call — mirrors the top-level describe block's
+  // own `reconstructPreRefactorSerialFlow` byte-for-byte fence.
+  const fixedTask = makeTodoTask({ name: 'do-work' });
+
+  const buildSubchain = (deps: ImplementDeps, task: Task = fixedTask): ShapeNode => {
+    const opts = makeOpts([task]);
+    const subchain = createPerTaskSubchain(
+      deps,
+      {
+        sprintDir: opts.sprintDir,
+        progressFile: opts.progressFile,
+        terminalLeafName: IMPLEMENT_TASK_TERMINAL_LEAF,
+        generator: { providerId: opts.generatorProviderId, model: opts.generatorModel },
+        evaluator: { providerId: opts.evaluatorProviderId, model: opts.evaluatorModel },
+        memoryRoot: opts.memoryRoot,
+        projectId: opts.projectId,
+        projectSlug: opts.projectSlug,
+      },
+      task,
+      resolveRepoOrThrow(opts.repositories, task),
+      readConfig
+    );
+    return snapshot(subchain);
+  };
+
+  it('knob OFF (default stubDeps, undefined bestOfNCandidates): the gen-eval segment is the single unguarded gen-eval-<id> loop — no best-of-n elements anywhere in the trace', () => {
+    const shape = buildSubchain(stubDeps());
+    const allNames = names(shape);
+    expect(allNames.some((n) => n.includes('best-of-n'))).toBe(false);
+
+    const body = attemptBodyChildren(shape);
+    const genEvalIdx = body.findIndex((c) => c.name.startsWith('gen-eval-'));
+    expect(genEvalIdx).toBeGreaterThanOrEqual(0);
+    expect(body[genEvalIdx]?.name).toMatch(/^gen-eval-/);
+    expect(body[genEvalIdx]?.name.startsWith('gen-eval-best-of-n-')).toBe(false);
+  });
+
+  it('knob OFF at 0 (explicit zero) behaves identically to undefined — the shape is byte-for-byte the same', () => {
+    const off = buildSubchain(stubDeps());
+    const explicitZero = buildSubchain(stubDepsWithBestOfN(0));
+    expect(explicitZero).toStrictEqual(off);
+  });
+
+  it('knob ON (bestOfNCandidates >= 2): splices a guarded pair — best-of-n-branch-<id> (best-of-n loop) and normal-gen-eval-branch-<id> (the unchanged gen-eval-<id> loop)', () => {
+    const body = attemptBodyChildren(buildSubchain(stubDepsWithBestOfN(3)));
+    const allNames = body.map((c) => c.name);
+
+    const bestOfNGuardIdx = allNames.findIndex((n) => n.startsWith('best-of-n-branch-'));
+    const normalGuardIdx = allNames.findIndex((n) => n.startsWith('normal-gen-eval-branch-'));
+    expect(bestOfNGuardIdx).toBeGreaterThanOrEqual(0);
+    expect(normalGuardIdx).toBe(bestOfNGuardIdx + 1); // adjacent, best-of-n branch first
+
+    // The best-of-n branch wraps the best-of-n gen-eval loop (NOT the normal gen-eval-<id> loop).
+    const bestOfNGuard = body[bestOfNGuardIdx];
+    expect(bestOfNGuard?.children?.[0]?.name).toMatch(/^gen-eval-best-of-n-/);
+
+    // The normal branch wraps the SAME `gen-eval-<id>` loop shape the knob-off path builds.
+    const normalGuard = body[normalGuardIdx];
+    expect(normalGuard?.children?.[0]?.name).toMatch(/^gen-eval-/);
+    expect(normalGuard?.children?.[0]?.name.startsWith('gen-eval-best-of-n-')).toBe(false);
+
+    // No unguarded top-level gen-eval element on the knob-on path — both loops sit behind a guard.
+    expect(allNames.filter((n) => n.startsWith('gen-eval-')).length).toBe(0);
+  });
+
+  it("the best-of-n branch's inner loop body starts with resolve-round-num then the round-1 candidate/normal-generator guards, then the evaluator guard", () => {
+    const body = attemptBodyChildren(buildSubchain(stubDepsWithBestOfN(2)));
+    const bestOfNGuard = body.find((c) => c.name.startsWith('best-of-n-branch-'));
+    const loopNode = bestOfNGuard?.children?.[0];
+    const turnNode = loopNode?.children?.[0]; // loop's body is `gen-eval-turn-best-of-n-<id>`
+    const turnChildren = (turnNode?.children ?? []).map((c) => c.name);
+
+    expect(turnNode?.name).toMatch(/^gen-eval-turn-best-of-n-/);
+    expect(turnChildren[0]).toMatch(/^resolve-round-num-/);
+    // `best-of-n-advance-turn-<id>` stamps the attempt-scoped `ctx.bestOfNLoopTurn` counter the
+    // round-1/continue guards gate on INSTEAD of the disk-derived `currentRoundNum` — see
+    // `best-of-n.ts`'s `isBestOfNFirstTurn` docstring for why.
+    expect(turnChildren[1]).toMatch(/^best-of-n-advance-turn-/);
+    expect(turnChildren[2]).toMatch(/^best-of-n-round1-guard-/);
+    expect(turnChildren[3]).toMatch(/^best-of-n-continue-guard-/);
+    expect(turnChildren[4]).toMatch(/^evaluator-guard-/);
+
+    // The round-1 guard wraps: persist-grant-consumed, the candidate-sampling loop, then selection.
+    const round1Body = (turnNode?.children ?? [])[2]?.children?.[0];
+    const round1Children = (round1Body?.children ?? []).map((c) => c.name);
+    expect(round1Children[0]).toMatch(/^best-of-n-persist-grant-consumed-/);
+    expect(round1Children[1]).toMatch(/^best-of-n-candidates-/);
+    expect(round1Children[2]).toMatch(/^best-of-n-selection-/);
   });
 });
 

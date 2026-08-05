@@ -273,6 +273,8 @@ const PROMPTS = [
   'plan',
   'readiness',
   'refine',
+  'reproduce',
+  'select-candidate',
 ] as const;
 
 const BUSINESS_SIBLINGS = [

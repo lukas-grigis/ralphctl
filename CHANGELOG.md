@@ -13,6 +13,18 @@ to [Semantic Versioning](https://semver.org/).
   AI-authoring flow (`refine` / `plan` / `ideate` / `readiness`) already writes** — a provider/model/effort
   record next to the round's `prompt.md`, so a `create-pr` run is no longer the one flow with no
   attributable trace of which provider and model authored the PR content.
+- Implement retries now include a summary of the task's best prior attempts, selected and ranked
+  automatically.
+- Progress journal entries now include an auto-derived "Continuation state" block (verify outcomes,
+  attribution, resumed-after breadcrumb).
+- Implement now runs a reproduction-first step for bug-fix tasks: before the generator's first turn, a
+  harness-verified failing test demonstrating the reported defect is written and handed to both the
+  generator and evaluator, along with the existing tests judged relevant to the issue.
+- **New opt-in `settings.harness.bestOfNCandidates` (`2`-`4`, default off)** grants one best-of-N
+  candidate-sampling attempt at the top of the plateau escalation ladder — sampling N candidates on the
+  unchanged model and selecting among them by verification then judging.
+- Evaluator reasoning effort now escalates in lockstep with every generator model-rung climb, not only the
+  same-model effort nudge.
 
 ### Fixed
 
@@ -35,6 +47,13 @@ to [Semantic Versioning](https://semver.org/).
   engine and the three headless adapters share one stream-debug emitter, and the CLI's error reporting,
   the task-scheduling rule tables, the TUI's view routing and provider dispatch, and the windowing logic
   behind every scrollable list were each consolidated onto a single shared implementation.
+- Prior-learnings injection now scores relevance to the current task and abstains when nothing qualifies,
+  instead of injecting on repo/kind match alone.
+- Learning ledger now merges near-duplicate entries (with `supersedes` provenance) instead of growing
+  unbounded.
+- Implement / plan / evaluate prompts sharpened: reproduce-before-fixing check, periodic phase recitation,
+  plan-quality gate, contrastive learning capture, evaluator execution-evidence requirement, structured
+  spec shape in planning.
 
 ## [0.18.0] - 2026-08-02
 
