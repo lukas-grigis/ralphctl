@@ -62,9 +62,10 @@ import { createOpencodeAttemptTracker } from '@src/integration/ai/providers/open
  * This is the same shape as the codex `sandboxFor` situation and takes the same answer: path
  * topology (`--dir` plus `outputDir`) is the real safety envelope, not the approval flag. The
  * over-grant is named here rather than hidden. `--auto` is still forwarded for `autoApprove`
- * profiles because it additionally clears permissions the operator's `opencode.json` gates
- * explicitly, which is a real difference for configured installs even though the default build
- * allows writes either way.
+ * profiles because it promotes the tool classes an operator's `opencode.json` sets to `ask`,
+ * which is a real difference for configured installs even though the default build allows
+ * writes either way. Per OpenCode's permissions documentation it does NOT override a class the
+ * operator set to `deny` — those stay enforced under `--auto`.
  *
  * A future refinement — not wired here — is OpenCode's config-level `permission` block, which
  * can deny tool classes properly. That would need a generated per-session config file, so it is
@@ -138,9 +139,10 @@ export const buildOpencodeArgs = (session: AiSession): Result<readonly string[],
     args.push('--variant', session.effort);
   }
   // See the permission / additionalRoots notes in the module comment. `--auto` does not gate
-  // writes inside `--dir` (they run either way) — it clears tool classes an operator's
-  // opencode.json denies explicitly AND the `external_directory` gate, which is the only argv
-  // lever that lets the AI write an `outputDir` (or any additional root) outside `cwd`.
+  // writes inside `--dir` (they run either way) — it auto-approves the tool classes an
+  // operator's opencode.json sets to `ask`, including the `external_directory` gate, which is
+  // the only argv lever that lets the AI write an `outputDir` (or any additional root) outside
+  // `cwd`. A class the operator set to `deny` stays denied.
   const needsExternalRoots = resolveWritableRoots(session).length > 0;
   if (session.permissions.autoApprove || needsExternalRoots) {
     args.push('--auto');

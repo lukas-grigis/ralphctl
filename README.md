@@ -8,7 +8,7 @@
 [![Claude Code](https://img.shields.io/badge/Claude_Code-supported-191919?style=flat&logo=anthropic&logoColor=white)](https://docs.anthropic.com/en/docs/claude-code)
 [![GitHub Copilot CLI](https://img.shields.io/badge/GitHub_Copilot_CLI-supported-000?style=flat&logo=githubcopilot&logoColor=white)](https://docs.github.com/en/copilot/github-copilot-in-the-cli)
 [![OpenAI Codex CLI](https://img.shields.io/badge/OpenAI_Codex_CLI-supported-412991?style=flat&logo=openai&logoColor=white)](https://github.com/openai/codex)
-[![OpenCode](https://img.shields.io/badge/OpenCode-beta-f59e0b?style=flat&logo=opencollective&logoColor=white)](https://opencode.ai/)
+[![OpenCode](https://img.shields.io/badge/OpenCode-supported-f59e0b?style=flat&logo=opencollective&logoColor=white)](https://opencode.ai/)
 [![Built with Donuts](https://img.shields.io/badge/%F0%9F%8D%A9-Built_with_Donuts-ff6f00?style=flat)](https://github.com/lukas-grigis/ralphctl)
 
 <p align="center">
@@ -26,7 +26,7 @@ repositories.**
 > _"I'm helping!"_ — Ralph Wiggum
 
 > [!TIP]
-> **New: [OpenCode](#opencode) support (beta) — run ralphctl on whatever model you want.** OpenCode is a
+> **New: [OpenCode](#opencode) support — run ralphctl on whatever model you want.** OpenCode is a
 > vendor-neutral CLI that fronts 75+ providers and local runtimes, so adding it effectively opens the harness
 > to Anthropic, OpenAI, Google, Bedrock, Azure, OpenRouter, Groq, DeepSeek, Mistral, and local Ollama /
 > LM Studio / llama.cpp — with your own keys, or none at all.
@@ -39,7 +39,7 @@ repositories.**
 
 > [!NOTE]
 > **Active development.** New features and polish ship regularly. Four backends are supported — Claude Code,
-> GitHub Copilot CLI, OpenAI Codex CLI, and OpenCode (beta), the last of which brings any model it can reach.
+> GitHub Copilot CLI, OpenAI Codex CLI, and OpenCode, the last of which brings any model it can reach.
 > Pick one per flow or mix them, in one command, from 21 presets across five families (`standard`, `economic`,
 > `strong-gate`, `fast`, `frontier`), each in `mixed` / `claude-only` / `copilot-only` / `codex-only`
 > variants, plus a standalone `opencode-only`.
@@ -89,7 +89,7 @@ Install one of the supported CLIs and authenticate it:
 | [Claude Code](https://docs.anthropic.com/en/docs/claude-code)                      | `npm i -g @anthropic-ai/claude-code` | Anthropic account     |
 | [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) | `npm i -g @github/copilot`           | GitHub Copilot seat   |
 | [OpenAI Codex CLI](https://github.com/openai/codex)                                | `npm i -g @openai/codex`             | ChatGPT / OpenAI      |
-| [OpenCode](https://opencode.ai/) — beta                                            | `npm i -g opencode-ai`               | your own key, or none |
+| [OpenCode](https://opencode.ai/)                                                   | `npm i -g opencode-ai`               | your own key, or none |
 
 Then confirm ralphctl can see it:
 
@@ -229,10 +229,10 @@ any model you can get an API key for.
 | **Claude Code** (`claude-code`)           | `claude`   | Stable | Anthropic account   | `--permission-mode bypassPermissions` + per-tool deny list                                      | `CLAUDE.md` at repo root          |
 | **GitHub Copilot CLI** (`github-copilot`) | `copilot`  | Stable | GitHub Copilot seat | `--autopilot --max-autopilot-continues=200` + `--allow-all` (per-tool deny list when read-only) | `.github/copilot-instructions.md` |
 | **OpenAI Codex CLI** (`openai-codex`)     | `codex`    | Stable | ChatGPT / OpenAI    | `-s workspace-write` (topology-scoped)                                                          | `AGENTS.md`                       |
-| **OpenCode** (`opencode`)                 | `opencode` | Beta   | any (or none)       | `--auto` (topology-scoped)                                                                      | `AGENTS.md`                       |
+| **OpenCode** (`opencode`)                 | `opencode` | Stable | any (or none)       | `--auto` (topology-scoped)                                                                      | `AGENTS.md`                       |
 
-Claude Code has the most end-to-end mileage inside the harness — it's the most battle-tested — but Copilot and Codex
-run every flow and are supported first-class, and OpenCode (beta) runs them too with correspondingly less mileage.
+Claude Code has the most end-to-end mileage inside the harness — it's the most battle-tested — but Copilot, Codex, and
+OpenCode run every flow and are supported first-class, with correspondingly less real-world mileage than Claude Code.
 Bundled skill injection and `bodyFile` forensic capture work on all four backends; only the on-disk skills directory
 differs (`.claude/` / `.github/` / `.agents/` / `.opencode/`). One difference worth knowing: Codex's sandbox has only
 two modes (read-only / workspace-write), so path scope (cwd + `--add-dir`) is its fine-grained safety envelope rather
@@ -242,7 +242,7 @@ issue](https://github.com/lukas-grigis/ralphctl/issues).
 
 <a id="opencode"></a>
 
-### OpenCode (beta) — bring any model
+### OpenCode — bring any model
 
 The first three backends each bind you to one vendor. [OpenCode](https://opencode.ai/) doesn't: it is a
 vendor-neutral CLI that fronts **75+ model providers** (via [Models.dev](https://models.dev/)) plus local
@@ -266,10 +266,27 @@ ralphctl settings set ai.implement.generator.provider opencode
 ralphctl settings set ai.implement.generator.model    <provider>/<model>
 ```
 
-Model ids are namespaced `<provider>/<model>`, and ralphctl asks the CLI (`opencode models`) rather than
-shipping a fixed list — so connecting a new provider in OpenCode makes its models selectable in ralphctl
-immediately, with no ralphctl upgrade and no catalog PR. That is the practical difference: **new models become
-usable the day they land upstream.**
+Model ids are namespaced `<provider>/<model>`, and can carry more than two segments — OpenRouter ids are three
+(`openrouter/moonshotai/kimi-k2`) because the vendor id itself contains a slash, and a custom provider you
+declare yourself can nest just as deep (`myprovider/vendor/slashed-model`). ralphctl doesn't validate against a
+fixed list; it asks the CLI (`opencode models`) for whatever is reachable, so authenticating — or declaring — a
+new provider in OpenCode makes its models selectable in ralphctl immediately, with no ralphctl upgrade and no
+catalog PR. That is the practical difference: **new models become usable the day they land upstream.**
+
+The division of responsibility is deliberate: OpenCode owns authentication, base URLs, and the provider adapter
+package; ralphctl only stores a model id string. ralphctl has no provider or credential configuration of its
+own — everything upstream of the model id lives in OpenCode's config, including a project-level `opencode.json`
+in your repository's working directory, which `opencode models` honours — so per-repo model configuration works
+today with no ralphctl-side setup.
+
+Worked example — wiring up OpenRouter:
+
+```bash
+opencode auth login                       # add your OpenRouter key (or edit opencode.json directly)
+opencode models | grep openrouter         # confirm the ids you now have reachable
+ralphctl settings set ai.implement.generator.provider opencode
+ralphctl settings set ai.implement.generator.model    openrouter/moonshotai/kimi-k2
+```
 
 Mix freely — nothing forces a whole sprint onto one backend. A local model can draft while a frontier model
 reviews:
@@ -286,15 +303,18 @@ opencode-only` uses OpenCode's free tier, which needs no credentials at all. Han
 job without secrets — the free-tier models are community models, so point OpenCode at a real provider before
 judging output quality.
 
-**Why beta.** Every flow runs and the adapter is verified end-to-end against the real CLI, but it has far less
-mileage than the other three — please [report anything rough](https://github.com/lukas-grigis/ralphctl/issues).
-Current limitations, stated plainly: `opencode run` has no read-only mode, so a read-only flow is not
-sandboxed by the CLI (the session directory is the boundary, as it already is for OpenAI Codex), and it has no
-multi-root flag — so when the harness needs a directory outside the session `cwd`, it auto-approves
-external-directory access wholesale (`--auto`) rather than mounting each root individually. Effort is forwarded
-only on the headless `run` path (`--variant`); the interactive TUI path never receives it. Plateau escalation
-also skips the effort rung for OpenCode, because the accepted `--variant` levels belong to whichever upstream
-vendor is behind your model id — set `effort` explicitly on the row if your model supports it.
+**Current limitations, stated plainly.** The adapter is covered by unit and integration tests, same as the
+other three backends, but it has less real-world mileage — please [report anything
+rough](https://github.com/lukas-grigis/ralphctl/issues). `opencode run` has no read-only mode, so a read-only
+flow is not sandboxed by the CLI (the session directory is the boundary, as it already is for OpenAI Codex). It
+also has no flag to grant write access to just one extra directory — permission is all-or-nothing. ralphctl
+writes its `signals.json` results file into a directory outside the project folder, so it passes `--auto` on
+effectively every headless run; without it the AI would sit blocked waiting for an approval that never arrives.
+The practical consequence, same as Codex: on OpenCode the project/session directory is the real safety
+boundary, not the CLI's permission gate. Effort is forwarded only on the headless `run` path (`--variant`); the
+interactive TUI path never receives it. Plateau escalation also skips the effort rung for OpenCode, because the
+accepted `--variant` levels belong to whichever upstream vendor is behind your model id — set `effort`
+explicitly on the row if your model supports it.
 
 One-shot configuration for any provider: `ralphctl settings apply-preset <name>` where `<name>` is one of
 21 presets — `standard`, `economic`, `strong-gate`, `fast`, and `frontier` families, each in
@@ -320,7 +340,7 @@ One-shot configuration for any provider: `ralphctl settings apply-preset <name>`
   first — the crashed attempt is settled as aborted (kept in history) and a fresh attempt opens automatically
 - **Pair or let it run** — work alongside your AI agent interactively, or let it execute unattended
 - **Zero-memorization start** — run `ralphctl` with no args for a guided menu
-- **Run any model** — the OpenCode backend (beta) fronts 75+ providers and local runtimes (Ollama, LM Studio,
+- **Run any model** — the OpenCode backend fronts 75+ providers and local runtimes (Ollama, LM Studio,
   llama.cpp), so the harness isn't limited to the three vendors it ships adapters for — and its free tier lets you
   try the whole loop with no account at all
 

@@ -27,14 +27,21 @@ Codex can't fine-grained-deny edits on existing repo files. Use topology to cons
 OpenCode caveat (stronger): `opencode run` exposes exactly ONE approval control, `--auto`, and
 omitting it does NOT make the session read-only — a plain `run` still executes write and edit
 tools without prompting (verified against v1.18.15). There is therefore no argv spelling of
-`canModifyRepoFiles: false` at all; path topology is the only boundary. OpenCode also has no
-`--add-dir` equivalent (`--dir` sets a single root) and its `external_directory` permission
-auto-REJECTS access outside that root, so whenever `outputDir` / `additionalRoots` fall outside
-`cwd` the adapter emits `--auto` to auto-approve external-directory access wholesale rather than
-mounting the roots individually. The precise-scoping follow-up is OpenCode's config-level
-`permission.external_directory` map, which can allow specific paths instead — it needs a generated
-per-session config file and is deliberately not wired in the first adapter. See
-`providers/opencode/headless.ts` for the full note.
+`canModifyRepoFiles: false` at all; path topology is the only boundary. Plainly stated: OpenCode
+has no flag to grant write access to just one extra directory — permission is all-or-nothing
+(`--dir` sets a single root, and its `external_directory` permission auto-REJECTS access outside
+that root). ralphctl's `outputDir` (where `signals.json` lands) routinely sits outside the project
+folder, so whenever `outputDir` / `additionalRoots` fall outside `cwd` the adapter emits `--auto`
+to clear that gate wholesale — without it the AI would sit blocked waiting for an
+external-directory approval that never arrives. In practice `--auto` is therefore passed on
+effectively every headless run, and the project/session directory is the real safety boundary, not
+the CLI's permission gate — exactly as already documented above for OpenAI Codex. The
+precise-scoping follow-up is OpenCode's config-level `permission.external_directory` map, which can
+allow specific paths instead — it needs a generated per-session config file and is deliberately not
+wired in the first adapter. See `providers/opencode/headless.ts` for the full note. One clarification
+worth keeping in mind when reading that flag: `--auto` promotes the tool classes an operator set to
+`ask`, but per OpenCode's permissions documentation it does not override a class set to `deny` — an
+explicit denial in the operator's `opencode.json` stays enforced.
 
 The `readiness` flow fans out across every uniquely referenced provider in `settings.ai` — one native
 context file per provider (claude-code → `CLAUDE.md`, github-copilot → `.github/copilot-instructions.md`,

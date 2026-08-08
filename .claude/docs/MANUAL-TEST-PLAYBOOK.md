@@ -330,6 +330,43 @@ original project selection must be unchanged on the breadcrumb.
 
 ---
 
+## Scenario 15 — OpenCode backend, zero-auth free tier
+
+**Setup:** `opencode` CLI installed (`npm i -g opencode-ai`), no credentials configured. Stamp the whole `ai`
+section onto OpenCode's free tier first:
+
+```bash
+ralphctl settings apply-preset opencode-only
+```
+
+**15a — interactive flow (refine):**
+
+1. Register a project with at least one draft-sprint ticket in `pending`
+2. From Home pipeline-map, select the **Refine** flow
+3. Accept the per-ticket confirm prompt
+4. **Expected:** `opencode` takes over the full terminal (alt-screen exits, OpenCode's own UI appears);
+   converse briefly, then exit
+5. **Pass condition:** ralphctl re-appears with the parsed refined requirements shown inline — this only
+   happens if OpenCode actually wrote a `refined-ticket` signal into `signals.json` under
+   `<sprintDir>/refinement/<ticket-slug>/`. Confirm the file exists and is non-empty
+6. Approve the requirements; ticket transitions to `approved`
+
+**15b — headless flow (readiness):**
+
+1. From the same project, run the **Run readiness** flow (Projects → repository detail → "Run readiness")
+2. Confirm the project/repo selection prompt
+3. **Expected:** the flow runs headless (no OpenCode UI takeover) and returns to the `agents-md` confirmation
+   prompt with the AI's suggested content shown as the default
+4. **Pass condition:** a `signals.json` file exists under the run's output directory
+   (`ralphctl runs list --flow readiness` to find it) and the readiness result card shows
+   `✓ Readiness — <project-name> — completed`
+5. Submit the confirm prompt; verify `AGENTS.md` is written at the repo root
+
+**Negative test:** if `opencode` has no free-tier reachability (offline, upstream outage), both runs should
+fail with a clear provider error — not a silent hang or an empty `signals.json`.
+
+---
+
 ## Known issues (file under here, link the fix commit)
 
 - (none currently)
@@ -341,8 +378,8 @@ original project selection must be unchanged on the breadcrumb.
 The playbook covers TUI ergonomics and child-process handover — exactly the surface that automated tests
 can't reach. Things still NOT covered:
 
-- Real provider integration: every Claude / Copilot / Codex provider test uses a fake `spawn`. JSON-shape
-  drift will surface here first.
+- Real provider integration: every Claude / Copilot / Codex / OpenCode provider test uses a fake `spawn`.
+  JSON-shape drift will surface here first — Scenario 15 is the one place OpenCode runs against the real CLI.
 - File-system corner cases (NFS / SMB mounts, case-insensitive FS).
 - Concurrency under load — the implement flow runs strictly sequential (or parallel when
   `maxParallelTasks > 1`), but cross-process lock contention (the `<stateRoot>/locks/repo-<hash>.lock/`
