@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
@@ -11,6 +11,7 @@ import { FULL_AUTO, READ_ONLY } from '@src/integration/ai/providers/_engine/sess
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
+import { STDOUT_LINE_PARSE_CAP } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
 import { buildCodexArgs, createCodexProvider } from '@src/integration/ai/providers/codex/headless.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import type { TokenUsageEvent } from '@src/business/observability/events.ts';
@@ -202,6 +203,58 @@ describe('createCodexProvider', () => {
     const sidPath = join(dirname(String(sess.signalsFile)), 'session-id.txt');
     const sidContent = await fs.readFile(sidPath, 'utf8');
     expect(sidContent).toBe('019e6373-c4f1-7ac2-89f9-e9e4f3f6b231\n');
+  });
+
+  it('caps the in-flight stdout line buffer: an oversized unterminated line drops its OLDEST bytes and the parser keeps draining', async () => {
+    // OOM-class regression: the adapter used to accumulate `stdoutLineBuf + chunk` with no cap, so
+    // a child streaming one very long unterminated line grew the buffer until the process died.
+    // The shared `createCappedLineFeed` guard bounds it at STDOUT_LINE_PARSE_CAP (drop-oldest,
+    // one-shot warn) — same helper and same semantics the claude / copilot / opencode parsers use.
+    const cap = createCapturingBus();
+    const sess = session();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    // One JSONL record whose padding alone is ~8x the cap, split across chunks and never
+    // newline-terminated until the very end.
+    const padChunk = 'x'.repeat(STDOUT_LINE_PARSE_CAP);
+    const stdoutChunks = [
+      '{"type":"thread.started","thread_id":"dropped-by-cap","pad":"',
+      padChunk,
+      padChunk,
+      padChunk,
+      padChunk,
+      padChunk,
+      padChunk,
+      padChunk,
+      padChunk,
+      // Terminate the oversized line, then a normal record on the next line.
+      '"}\n{"type":"thread.started","thread_id":"kept-after-cap"}\n',
+    ];
+    const { spawn } = makeSpawn([{ stdoutChunks, exitCode: 0 }]);
+    const fsStub = stubFs('body content');
+
+    const provider = createCodexProvider({
+      rateLimitRetries: 0,
+      eventBus: cap.bus,
+      spawn,
+      readFile: fsStub.readFile,
+      unlink: fsStub.unlink,
+      mkTempPath: fsStub.mkTempPath,
+    });
+
+    const out = await provider.generate(sess);
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+
+    // Bounded: the head of the oversized line — including the `thread_id` it carried — was evicted,
+    // so that record never parses. Had the buffer grown unbounded, `dropped-by-cap` would have won
+    // (first-id-wins) instead.
+    expect(out.value.sessionId).toBe('kept-after-cap');
+    // The guard warns exactly ONCE per attempt, not once per overflowing chunk.
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]?.[0])).toContain('in-flight NDJSON line exceeded');
+
+    warn.mockRestore();
   });
 
   it('forwards session.cwd to the spawned child (context-file autoload, parity with claude/copilot)', async () => {

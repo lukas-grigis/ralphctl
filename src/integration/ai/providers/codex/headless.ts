@@ -5,6 +5,7 @@ import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import { RATE_LIMIT_SCAN_TAIL_CAP } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
 import { isRecord, numberField, stringField } from '@src/integration/ai/providers/_engine/json-field.ts';
+import { createCappedLineFeed } from '@src/integration/ai/providers/_engine/line-feed.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { CodexProviderDeps } from '@src/integration/ai/providers/_engine/headless-provider-deps.ts';
 import { resolveWritableRoots } from '@src/integration/ai/providers/_engine/resolve-roots.ts';
@@ -254,10 +255,8 @@ const extractCodexMetaUpdate = (obj: Record<string, unknown>): CodexMetaUpdate |
 };
 
 /**
- * Line-extract session-id / `model` / token-usage fields from codex's JSONL stdout. Returns
- * the residual tail (unterminated trailing chars). `onMeta` is invoked once per recognised
- * line carrying any of the fields; the caller dedupes (sessionId / model = first wins; usage
- * = last wins).
+ * Per-line emitter handed to {@link createCappedLineFeed}. Module-level (closes over no tracker
+ * state) — unparseable lines emit nothing, matching the sibling parsers.
  *
  * Codex's `--json` stream is JSONL. On codex-cli 0.130.x the session id arrives on the leading
  * `{type:"thread.started", thread_id:"<uuid>"}` record — NOT a `session_id` field. We also keep
@@ -270,26 +269,9 @@ const extractCodexMetaUpdate = (obj: Record<string, unknown>): CodexMetaUpdate |
  * session id (UUID) or thread name"), so it round-trips back through `session.resume` to continue
  * the conversation across gen-eval rounds.
  */
-const consumeMetaLines = (
-  buffer: string,
-  onMeta: (update: CodexMetaUpdate) => void,
-  onLine?: (obj: Record<string, unknown>) => void
-): string => {
-  let remaining = buffer;
-  while (true) {
-    const nl = remaining.indexOf('\n');
-    if (nl === -1) return remaining;
-    const line = remaining.slice(0, nl);
-    remaining = remaining.slice(nl + 1);
-    const obj = parseCodexJsonLine(line);
-    if (obj === undefined) continue;
-    // Per-line debug fan-out (assistant / tool_use / tool_result) BEFORE the meta extractors,
-    // so a single `item.completed` record both updates meta accumulators (when applicable)
-    // and surfaces as one debug event in chain.log.
-    if (onLine !== undefined) onLine(obj);
-    const update = extractCodexMetaUpdate(obj);
-    if (update !== undefined) onMeta(update);
-  }
+const emitCodexLine = (raw: string, onLine: (obj: Record<string, unknown>) => void): void => {
+  const obj = parseCodexJsonLine(raw);
+  if (obj !== undefined) onLine(obj);
 };
 
 /** `item.completed` / `item.type === 'agent_message'` → one `assistant` debug event. */
@@ -369,14 +351,14 @@ const agentMessageText = (obj: Record<string, unknown>): string | undefined => {
 
 /**
  * Mutable per-attempt accumulator for codex's JSONL stdout stream: session id / model / token
- * usage (dedup rules per {@link consumeMetaLines}'s `onMeta` contract — first-wins for id/model,
- * last-wins for usage) plus the bounded `agent_message` tail used as the rate-limit haystack.
+ * usage (first-wins for id/model, last-wins for usage) plus the bounded `agent_message` tail used
+ * as the rate-limit haystack.
  * One fresh instance per `attempt()` call — mirrors the sibling `createClaudeStreamParser`
  * pattern in claude/headless.ts, kept file-local since codex's JSONL-meta-line shape has no
  * natural shared port with Claude's `result`-envelope shape.
  */
 interface CodexAttemptTracker {
-  /** Feed one raw stdout chunk through {@link consumeMetaLines}. */
+  /** Feed one raw stdout chunk through the capped line feed. */
   readonly consumeChunk: (chunk: string) => void;
   /** Flush any partial trailing line once the child has exited (no trailing newline). */
   readonly flush: () => void;
@@ -397,7 +379,12 @@ const createCodexAttemptTracker = (eventBus: EventBus): CodexAttemptTracker => {
   // alongside stderr — codex surfaces a quota throttle in the agent_message body,
   // not always on stderr. Capped to bound memory on a long session.
   let agentMessageTail = '';
-  let stdoutLineBuf = '';
+  // Shared capped NDJSON feed — the in-flight line accumulator is bounded at
+  // STDOUT_LINE_PARSE_CAP (drop-oldest, one-shot warn). Codex can stream a single record embedding
+  // a huge file-read / bash tool result, and a child that never terminates the line would
+  // otherwise grow this buffer without bound (OOM class). Same helper, same cap semantics as the
+  // claude / copilot / opencode parsers, so all four behave identically on the same input.
+  const lineFeed = createCappedLineFeed<Record<string, unknown>>('codex-stream', emitCodexLine);
 
   const onMeta = (update: CodexMetaUpdate): void => {
     if (update.sessionId !== undefined && sessionId === undefined) {
@@ -421,16 +408,23 @@ const createCodexAttemptTracker = (eventBus: EventBus): CodexAttemptTracker => {
     }
   };
 
+  // Ordering is load-bearing: the per-line debug fan-out (assistant / tool_use / tool_result)
+  // runs BEFORE the meta extractors, so a single `item.completed` record both updates the meta
+  // accumulators (when applicable) and surfaces as one debug event in chain.log.
+  const dispatch = (obj: Record<string, unknown>): void => {
+    onLine(obj);
+    const update = extractCodexMetaUpdate(obj);
+    if (update !== undefined) onMeta(update);
+  };
+
   return {
     consumeChunk: (chunk) => {
-      stdoutLineBuf = consumeMetaLines(stdoutLineBuf + chunk, onMeta, onLine);
+      lineFeed.feed(chunk, dispatch);
     },
     // Flush any partial line remaining in the buffer — codex may terminate without a
-    // trailing newline. Appending a synthetic '\n' forces the partial through the parser.
+    // trailing newline, so the trailing partial still goes through the parser.
     flush: () => {
-      if (stdoutLineBuf.length > 0) {
-        consumeMetaLines(stdoutLineBuf + '\n', onMeta, onLine);
-      }
+      lineFeed.flush(dispatch);
     },
     getSessionId: () => sessionId,
     getModel: () => model,
