@@ -1,4 +1,8 @@
+import { dirname, join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
+import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import { buildPromptPointer } from '@src/integration/ai/providers/_engine/prompt-pointer.ts';
+import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import {
   FORENSIC_BODY_TAIL_CAP,
@@ -7,7 +11,7 @@ import {
 } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { HeadlessProviderDeps } from '@src/integration/ai/providers/_engine/headless-provider-deps.ts';
-import { resolveWritableRoots } from '@src/integration/ai/providers/_engine/resolve-roots.ts';
+import { appendRoot, resolveWritableRoots } from '@src/integration/ai/providers/_engine/resolve-roots.ts';
 import type { SessionPermissions } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
@@ -38,14 +42,20 @@ import {
  *   | permissions read-only (no edit, no shell)             | `--allow-all-tools --deny-tool=shell`              |
  *   | resume: <id>                                          | `--resume=<id>`                                    |
  *   | effort: <level>                                       | `--effort=<level>`                                 |
- *   | prompt                                                | argv: `-p <prompt>`                                |
+ *   | prompt                                                | file + argv: `-p <pointer at that file>`           |
  *
  * Resume note: current Copilot CLI accepts `--resume[=VALUE]` with `-p` / `--prompt`.
  * The adapter forwards {@link AiSession.resume} when present so headless runs can re-attach
  * to a prior session id.
  *
- * Copilot's prompt is passed as a CLI argument (`-p <text>`) rather than piped via stdin.
- * Argv length is the OS limit (~2MB on macOS); revisit if a chain hits it.
+ * Copilot is the one CLI of the four with no stdin prompt path — the sibling adapters pipe the
+ * body in, and `--prompt-file` is an open, unimplemented request upstream (copilot-cli#3398). So
+ * the adapter writes the prompt to `copilot-prompt.md` next to `signals.json`, mounts that
+ * directory, and passes a POINTER at the file in `-p`. Passing the body itself capped every
+ * headless run at the platform command line — 32,767 bytes on Windows, which a harness prompt
+ * clears easily, and the failure arrives as an opaque `spawn ENAMETOOLONG`. If the file cannot be
+ * written the adapter warns and falls back to the inlined body: a large argv is a risk, a session
+ * with no prompt at all is a certainty. See `_engine/prompt-pointer.ts` and `_engine/argv-budget.ts`.
  *
  * Read-only permission denies `shell` only — the `write` tool stays open because the
  * audit-[09] contract requires the AI to land `signals.json` in `outputDir` via Copilot's
@@ -96,11 +106,47 @@ const isFullAuto = (p: SessionPermissions): boolean => p.autoApprove && p.canMod
 
 const PROVIDER_NAME = 'copilot-provider';
 
+/** Filename the adapter writes the prompt to. Distinct from the flow-written `prompt.md` in the
+ * same directory, which stays the record of what the round was asked to do — this one tracks what
+ * THIS spawn was handed, and a corrective re-invocation legitimately overwrites it. */
+const COPILOT_PROMPT_FILENAME = 'copilot-prompt.md';
+
+/**
+ * Put the prompt on disk so argv only has to carry a pointer. Lands next to `signals.json`, which
+ * is where the flow's own per-run artifacts live and is inside a mounted root for every caller.
+ *
+ * Returns `undefined` when the write fails — the caller then inlines the body, so a full disk
+ * degrades a run's Windows headroom rather than failing it outright.
+ */
+const materializeCopilotPrompt = async (
+  deps: HeadlessProviderDeps,
+  session: AiSession
+): Promise<string | undefined> => {
+  const path = join(dirname(String(session.signalsFile)), COPILOT_PROMPT_FILENAME);
+  const wrote = await writeTextAtomic(path, session.prompt);
+  if (wrote.ok) return path;
+
+  deps.eventBus.publish({
+    type: 'log',
+    level: 'warn',
+    message: `${PROVIDER_NAME}: could not write ${COPILOT_PROMPT_FILENAME} — passing the prompt inline (${String(Buffer.byteLength(session.prompt, 'utf8'))} bytes)`,
+    meta: { path, error: wrote.error.message },
+    at: IsoTimestamp.now(),
+  });
+  return undefined;
+};
+
 /**
  * Build the argv for one Copilot invocation. Validates `session.model` is a known
  * {@link CopilotModel}; surfaces `InvalidStateError` for unknowns.
+ *
+ * `promptFile` is the path {@link materializeCopilotPrompt} produced; when it is absent the prompt
+ * body goes into argv as it did historically.
  */
-export const buildCopilotArgs = (session: AiSession): Result<readonly string[], InvalidStateError> => {
+export const buildCopilotArgs = (
+  session: AiSession,
+  promptFile?: string
+): Result<readonly string[], InvalidStateError> => {
   // Catalog-valid but temporarily suspended server-side (see suspended-models.ts) — the list is
   // currently empty; the guard stays wired for the next incident.
   const validated = validateModel(session.model, isCopilotModel, {
@@ -148,11 +194,19 @@ export const buildCopilotArgs = (session: AiSession): Result<readonly string[], 
     // prompts which `--no-ask-user` turns into refusals.
     args.push('--allow-all-tools', '--deny-tool=shell');
   }
-  // Auto-mount `outputDir` so signals.json can land via the write tool. See resolve-roots.ts.
-  for (const root of resolveWritableRoots(session)) {
+  // Auto-mount `outputDir` so signals.json can land via the write tool (see resolve-roots.ts), and
+  // the prompt file's directory, or the pointer would name a path the read tool may not open. The
+  // two are usually the same directory, which `appendRoot` folds out.
+  const promptDir = promptFile === undefined ? undefined : AbsolutePath.parse(dirname(promptFile));
+  const roots = appendRoot(
+    resolveWritableRoots(session),
+    promptDir?.ok === true ? promptDir.value : undefined,
+    String(session.cwd)
+  );
+  for (const root of roots) {
     args.push(`--add-dir=${String(root)}`);
   }
-  args.push('-p', session.prompt);
+  args.push('-p', promptFile === undefined ? session.prompt : buildPromptPointer(promptFile));
   return Result.ok(args);
 };
 
@@ -253,7 +307,13 @@ const createOnLine =
  */
 const createCopilotAttempt = (deps: HeadlessProviderDeps, spawnFn: ProviderSpawn, command: string) => {
   return async (attemptSession: AiSession) => {
-    const built = buildCopilotArgs(attemptSession);
+    // Validate before writing: an unknown / suspended model fails argv construction, and paying
+    // for an mkdir + atomic write for a spawn that never happens would leave a stray artifact.
+    const dryRun = buildCopilotArgs(attemptSession);
+    if (!dryRun.ok) return { kind: 'error' as const, error: dryRun.error };
+
+    const promptFile = await materializeCopilotPrompt(deps, attemptSession);
+    const built = promptFile === undefined ? dryRun : buildCopilotArgs(attemptSession, promptFile);
     if (!built.ok) return { kind: 'error' as const, error: built.error };
 
     const parser = createCopilotStreamParser();
@@ -272,8 +332,8 @@ const createCopilotAttempt = (deps: HeadlessProviderDeps, spawnFn: ProviderSpawn
       args: built.value,
       session: attemptSession,
       resolveOn: 'exit',
-      // Copilot reads the prompt from -p argv (no stdin payload); omitting `stdin` causes
-      // runProviderAttempt to close the child's stdin immediately.
+      // Copilot takes its prompt from `-p` argv, not stdin (no stdin payload exists on this CLI);
+      // omitting `stdin` causes runProviderAttempt to close the child's stdin immediately.
       rateLimitRe: DEFAULT_RATE_LIMIT_RE,
       onStdoutChunk: (chunk) => {
         parser.feed(chunk, onLine);

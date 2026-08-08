@@ -1,12 +1,11 @@
-import { EventEmitter } from 'node:events';
 import { mkdtemp, readFile as readFileFs, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { ChildProcess } from 'node:child_process';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
-import type { InteractiveSpawn } from '@src/integration/ai/providers/_engine/interactive-spawn.ts';
+import { makeInteractiveSpawn } from '@tests/fixtures/interactive-spawn-fake.ts';
+import { argvByteLength } from '@src/integration/ai/providers/_engine/argv-budget.ts';
 import {
   createInteractiveProvider,
   type InteractiveProviderSpec,
@@ -18,36 +17,6 @@ vi.mock('@src/domain/value/settings-models/suspended-models.ts', () => ({
   isSuspendedModel: (s: string) => s === 'suspended-model',
   suspendedModelMessage: (m: string) => `'${m}' is temporarily suspended by its provider`,
 }));
-
-interface CapturingSpawnState {
-  readonly spawn: InteractiveSpawn;
-  readonly calls: ReadonlyArray<{ readonly command: string; readonly args: readonly string[]; readonly cwd: string }>;
-  readonly emitExit: (code: number | null) => void;
-}
-
-const makeSpawn = (): CapturingSpawnState => {
-  const calls: Array<{ command: string; args: readonly string[]; cwd: string }> = [];
-  const last = {
-    child: undefined as (ChildProcess & { emit: (event: string, ...args: unknown[]) => boolean }) | undefined,
-  };
-  const spawn: InteractiveSpawn = (command, args, options) => {
-    calls.push({ command, args, cwd: options.cwd });
-    const child = new EventEmitter() as unknown as ChildProcess & {
-      emit: (event: string, ...args: unknown[]) => boolean;
-    };
-    // `attachAbortKill` calls `child.kill` on abort — the fake needs it to be callable.
-    (child as unknown as { kill: () => boolean }).kill = (): boolean => true;
-    last.child = child;
-    return child;
-  };
-  return {
-    spawn,
-    calls,
-    emitExit: (code) => {
-      setTimeout(() => last.child?.emit('close', code), 0);
-    },
-  };
-};
 
 const STUB_PROMPT = 'Do the thing.';
 const stubReadFile = (): Promise<string> => Promise.resolve(STUB_PROMPT);
@@ -64,12 +33,12 @@ const spec = (overrides: Partial<InteractiveProviderSpec> = {}): InteractiveProv
   modelCatalogLabel: 'Stub',
   isKnownModel: (m) => m === MODEL || m === 'suspended-model',
   supportsSessionId: true,
-  buildArgs: (input, { prompt, roots, sessionId }) => [
+  buildArgs: (input, { promptArg, roots, sessionId }) => [
     ...roots.flatMap((p) => ['--add-dir', p]),
     '--model',
     input.model,
     ...(sessionId !== undefined ? ['--session-id', sessionId] : []),
-    prompt,
+    promptArg,
   ],
   ...overrides,
 });
@@ -88,7 +57,7 @@ afterEach(async () => {
 describe('createInteractiveProvider', () => {
   it('rejects an unknown model with InvalidStateError, without spawning', async () => {
     const cap = createCapturingBus();
-    const { spawn, calls } = makeSpawn();
+    const { spawn, calls } = makeInteractiveSpawn();
     const provider = createInteractiveProvider(spec(), { eventBus: cap.bus, spawn, readFile: stubReadFile });
 
     const r = await provider.run({ cwd: CWD, promptFile: PROMPT_FILE, outputFile: OUTPUT_FILE, model: 'nope' });
@@ -101,7 +70,7 @@ describe('createInteractiveProvider', () => {
 
   it('rejects a suspended-but-catalog-known model with InvalidStateError, without spawning', async () => {
     const cap = createCapturingBus();
-    const { spawn, calls } = makeSpawn();
+    const { spawn, calls } = makeInteractiveSpawn();
     const provider = createInteractiveProvider(spec(), { eventBus: cap.bus, spawn, readFile: stubReadFile });
 
     const r = await provider.run({
@@ -119,7 +88,7 @@ describe('createInteractiveProvider', () => {
 
   it('returns StorageError when the prompt file cannot be read, without spawning', async () => {
     const cap = createCapturingBus();
-    const { spawn, calls } = makeSpawn();
+    const { spawn, calls } = makeInteractiveSpawn();
     const provider = createInteractiveProvider(spec(), {
       eventBus: cap.bus,
       spawn,
@@ -137,7 +106,7 @@ describe('createInteractiveProvider', () => {
 
   it('returns StorageError when the spawn itself throws', async () => {
     const cap = createCapturingBus();
-    const throwingSpawn: InteractiveSpawn = () => {
+    const throwingSpawn = (): never => {
       throw new Error('spawn stub-cli ENOENT');
     };
     const provider = createInteractiveProvider(spec(), {
@@ -156,7 +125,7 @@ describe('createInteractiveProvider', () => {
 
   it('returns InvalidStateError when the session exits non-zero', async () => {
     const cap = createCapturingBus();
-    const { spawn, emitExit } = makeSpawn();
+    const { spawn, emitExit } = makeInteractiveSpawn();
     const provider = createInteractiveProvider(spec(), { eventBus: cap.bus, spawn, readFile: stubReadFile });
 
     const runPromise = provider.run({ cwd: CWD, promptFile: PROMPT_FILE, outputFile: OUTPUT_FILE, model: MODEL });
@@ -173,7 +142,7 @@ describe('createInteractiveProvider', () => {
     // The engine must classify this as AbortError — the one error chains propagate transparently —
     // not the generic session-exit InvalidStateError a downstream guard could catch and continue.
     const cap = createCapturingBus();
-    const { spawn, emitExit } = makeSpawn();
+    const { spawn, emitExit } = makeInteractiveSpawn();
     const provider = createInteractiveProvider(spec(), { eventBus: cap.bus, spawn, readFile: stubReadFile });
     const controller = new AbortController();
 
@@ -195,7 +164,7 @@ describe('createInteractiveProvider', () => {
 
   it('folds duplicate roots and orders them cwd, additionalRoots, output dir, prompt dir', async () => {
     const cap = createCapturingBus();
-    const { spawn, calls, emitExit } = makeSpawn();
+    const { spawn, calls, emitExit } = makeInteractiveSpawn();
     const provider = createInteractiveProvider(spec(), { eventBus: cap.bus, spawn, readFile: stubReadFile });
 
     const extraRepo = absolutePath('/tmp/engine-sibling-repo');
@@ -218,7 +187,7 @@ describe('createInteractiveProvider', () => {
   it('pre-generates a session id, passes it to the CLI, and mirrors it next to the output file', async () => {
     const dir = await makeTempDir();
     const cap = createCapturingBus();
-    const { spawn, calls, emitExit } = makeSpawn();
+    const { spawn, calls, emitExit } = makeInteractiveSpawn();
     const provider = createInteractiveProvider(spec(), {
       eventBus: cap.bus,
       spawn,
@@ -244,7 +213,7 @@ describe('createInteractiveProvider', () => {
   it('leaves the session id unset and writes no sidechannel file when the CLI has no launch-time override', async () => {
     const dir = await makeTempDir();
     const cap = createCapturingBus();
-    const { spawn, calls, emitExit } = makeSpawn();
+    const { spawn, calls, emitExit } = makeInteractiveSpawn();
     const provider = createInteractiveProvider(spec({ supportsSessionId: false }), {
       eventBus: cap.bus,
       spawn,
@@ -267,9 +236,76 @@ describe('createInteractiveProvider', () => {
     await expect(readFileFs(join(dir, 'session-id.txt'), 'utf8')).rejects.toThrow();
   });
 
+  it('passes a pointer at the prompt file, never the prompt body', async () => {
+    const cap = createCapturingBus();
+    const { spawn, calls, emitExit } = makeInteractiveSpawn();
+    const provider = createInteractiveProvider(spec(), { eventBus: cap.bus, spawn, readFile: stubReadFile });
+
+    const runPromise = provider.run({ cwd: CWD, promptFile: PROMPT_FILE, outputFile: OUTPUT_FILE, model: MODEL });
+    emitExit(0);
+    await runPromise;
+
+    const args = calls[0]!.args;
+    expect(args.at(-1)).toContain(String(PROMPT_FILE));
+    expect(args).not.toContain(STUB_PROMPT);
+  });
+
+  it('keeps argv small no matter how large the prompt is', async () => {
+    // The regression that motivated the pointer: a rendered plan prompt blew the 32,767-byte
+    // Windows command line and the session died with `spawn ENAMETOOLONG` before the CLI started.
+    const cap = createCapturingBus();
+    const { spawn, calls, emitExit } = makeInteractiveSpawn();
+    const hugePrompt = 'x'.repeat(200_000);
+    const provider = createInteractiveProvider(spec(), {
+      eventBus: cap.bus,
+      spawn,
+      readFile: () => Promise.resolve(hugePrompt),
+    });
+
+    const runPromise = provider.run({ cwd: CWD, promptFile: PROMPT_FILE, outputFile: OUTPUT_FILE, model: MODEL });
+    emitExit(0);
+    await runPromise;
+
+    const call = calls[0]!;
+    expect(argvByteLength(call.command, call.args)).toBeLessThan(2_000);
+  });
+
+  it('names an argv overflow in the spawn error instead of surfacing a bare errno', async () => {
+    const cap = createCapturingBus();
+    const overflow = Object.assign(new Error('spawn ENAMETOOLONG'), { code: 'ENAMETOOLONG' });
+    const provider = createInteractiveProvider(spec(), {
+      eventBus: cap.bus,
+      spawn: () => {
+        throw overflow;
+      },
+      readFile: stubReadFile,
+    });
+
+    const r = await provider.run({ cwd: CWD, promptFile: PROMPT_FILE, outputFile: OUTPUT_FILE, model: MODEL });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error.message).toContain('past the 32767-byte Windows limit');
+    expect(r.error.message).toContain(String(PROMPT_FILE));
+  });
+
+  it('reports a spawn failure that arrives as an async error event, not as exit code -1', async () => {
+    const cap = createCapturingBus();
+    const { spawn, emitError } = makeInteractiveSpawn();
+    const provider = createInteractiveProvider(spec(), { eventBus: cap.bus, spawn, readFile: stubReadFile });
+
+    const runPromise = provider.run({ cwd: CWD, promptFile: PROMPT_FILE, outputFile: OUTPUT_FILE, model: MODEL });
+    emitError(Object.assign(new Error('spawn E2BIG'), { code: 'E2BIG' }));
+    const r = await runPromise;
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error.code).toBe('storage-error');
+    expect(r.error.message).toContain('failed to spawn');
+    expect(r.error.message).toContain('past the 32767-byte Windows limit');
+  });
+
   it('publishes a start and an exit log naming the provider', async () => {
     const cap = createCapturingBus();
-    const { spawn, emitExit } = makeSpawn();
+    const { spawn, emitExit } = makeInteractiveSpawn();
     const provider = createInteractiveProvider(spec(), { eventBus: cap.bus, spawn, readFile: stubReadFile });
 
     const runPromise = provider.run({ cwd: CWD, promptFile: PROMPT_FILE, outputFile: OUTPUT_FILE, model: MODEL });

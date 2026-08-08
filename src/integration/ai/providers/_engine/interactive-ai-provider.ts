@@ -12,8 +12,11 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
  * caller reads that file separately after `run` resolves.
  *
  * The prompt is delivered as a file path ({@link InteractiveAiProviderInput.promptFile}) — the
- * caller writes the rendered prompt to disk first, then the AI is told to read it. This
- * mirrors how interactive coding-assistant CLIs prefer file inputs over giant CLI args.
+ * caller writes the rendered prompt to disk first, then the AI is told to read it. Adapters put a
+ * pointer at that file in the CLI's prompt slot; the body itself must not travel as an argument,
+ * because argv is capped (32,767 bytes on Windows) well below what a rendered harness prompt
+ * reaches. `_engine/prompt-pointer.ts` owns that contract, including how each adapter grants its
+ * CLI access to the file it is pointed at.
  *
  * Result semantics:
  *  - `Result.ok({ sessionId? })` — AI exited cleanly. Caller reads `outputFile`. The

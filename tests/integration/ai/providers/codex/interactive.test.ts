@@ -1,46 +1,14 @@
-import { EventEmitter } from 'node:events';
 import { describe, expect, it } from 'vitest';
-import type { ChildProcess } from 'node:child_process';
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
+import { makeInteractiveSpawn } from '@tests/fixtures/interactive-spawn-fake.ts';
 import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
 import { createInteractiveCodexProvider } from '@src/integration/ai/providers/codex/interactive.ts';
-import type { InteractiveSpawn } from '@src/integration/ai/providers/_engine/interactive-spawn.ts';
 
 // The session skeleton this adapter delegates to — model validation, prompt-file reads, spawn
 // failures, abort precedence, the exit-code branch — is covered once in
 // tests/integration/ai/providers/_engine/run-interactive-session.test.ts. What stays here is the
 // part that is genuinely Codex-specific: the argv it builds.
-
-interface CapturingSpawnState {
-  readonly spawn: InteractiveSpawn;
-  readonly calls: ReadonlyArray<{ readonly command: string; readonly args: readonly string[]; readonly cwd: string }>;
-  readonly emitExit: (code: number | null) => void;
-}
-
-const makeSpawn = (): CapturingSpawnState => {
-  const calls: Array<{ command: string; args: readonly string[]; cwd: string }> = [];
-  const last = {
-    child: undefined as (ChildProcess & { emit: (event: string, ...args: unknown[]) => boolean }) | undefined,
-  };
-  const spawn: InteractiveSpawn = (command, args, options) => {
-    calls.push({ command, args, cwd: options.cwd });
-    const child = new EventEmitter() as unknown as ChildProcess & {
-      emit: (event: string, ...args: unknown[]) => boolean;
-    };
-    // `attachAbortKill` calls `child.kill` on abort — the fake needs it to be callable.
-    (child as unknown as { kill: () => boolean }).kill = (): boolean => true;
-    last.child = child;
-    return child;
-  };
-  return {
-    spawn,
-    calls,
-    emitExit: (code) => {
-      setTimeout(() => last.child?.emit('close', code), 0);
-    },
-  };
-};
 
 const STUB_PROMPT = 'Refine this Codex task.';
 const stubReadFile = (): Promise<string> => Promise.resolve(STUB_PROMPT);
@@ -52,7 +20,7 @@ const CWD = absolutePath('/tmp/codex-interactive-cwd');
 describe('createInteractiveCodexProvider', () => {
   it('rejects a model outside the Codex catalog with InvalidStateError', async () => {
     const cap = createCapturingBus();
-    const { spawn } = makeSpawn();
+    const { spawn } = makeInteractiveSpawn();
     const provider = createInteractiveCodexProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
     const r = await provider.run({ cwd: CWD, promptFile: PROMPT_FILE, outputFile: OUTPUT_FILE, model: 'gpt-4.1' });
     expect(r.ok).toBe(false);
@@ -62,9 +30,9 @@ describe('createInteractiveCodexProvider', () => {
     expect(r.error.message).toContain('Codex model');
   });
 
-  it('spawns codex directly (no bash wrapper) with --cd, --add-dir, -s, -a, and prompt content', async () => {
+  it('spawns codex directly (no bash wrapper) with --cd, --add-dir, -s, -a, and a prompt-file pointer', async () => {
     const cap = createCapturingBus();
-    const { spawn, calls, emitExit } = makeSpawn();
+    const { spawn, calls, emitExit } = makeInteractiveSpawn();
     const provider = createInteractiveCodexProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
 
     const runPromise = provider.run({
@@ -89,8 +57,9 @@ describe('createInteractiveCodexProvider', () => {
     expect(args).toContain('workspace-write');
     expect(args).toContain('-a');
     expect(args).toContain('never');
-    expect(args).toContain(STUB_PROMPT);
-    expect(args.at(-1)).toBe(STUB_PROMPT);
+    // Trailing positional is a pointer at the prompt file, never the body — see prompt-pointer.ts.
+    expect(args.at(-1)).toContain(String(PROMPT_FILE));
+    expect(args).not.toContain(STUB_PROMPT);
     // No bash remnants.
     expect(args).not.toContain('-lc');
     expect(calls[0]!.cwd).toBe(String(CWD));
@@ -98,7 +67,7 @@ describe('createInteractiveCodexProvider', () => {
 
   it('forwards the resolved effort as -c model_reasoning_effort=<level>, and omits it when unset', async () => {
     const cap = createCapturingBus();
-    const { spawn, calls, emitExit } = makeSpawn();
+    const { spawn, calls, emitExit } = makeInteractiveSpawn();
     const provider = createInteractiveCodexProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
 
     const withEffort = provider.run({
@@ -129,7 +98,7 @@ describe('createInteractiveCodexProvider', () => {
 
   it('emits --add-dir for cwd, every additionalRoot, and the prompt / output dirs (deduped)', async () => {
     const cap = createCapturingBus();
-    const { spawn, calls, emitExit } = makeSpawn();
+    const { spawn, calls, emitExit } = makeInteractiveSpawn();
     const provider = createInteractiveCodexProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
 
     const repoA = absolutePath('/tmp/codex-repo-a');
@@ -159,7 +128,7 @@ describe('createInteractiveCodexProvider', () => {
 
   it('leaves sessionId unset — codex accepts no harness-supplied id at launch', async () => {
     const cap = createCapturingBus();
-    const { spawn, calls, emitExit } = makeSpawn();
+    const { spawn, calls, emitExit } = makeInteractiveSpawn();
     const provider = createInteractiveCodexProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
 
     const runPromise = provider.run({

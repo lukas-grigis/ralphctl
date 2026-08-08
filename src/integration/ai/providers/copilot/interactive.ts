@@ -5,12 +5,16 @@ import { isCopilotModel } from '@src/domain/value/settings-models/copilot.ts';
 
 /**
  * Interactive `copilot` adapter. Spawns the GitHub Copilot CLI with `stdio: 'inherit'` so the user
- * sees the TUI directly. Copilot's interactive form takes a pre-seeded prompt via `-i PROMPT`, and
- * the prompt content is passed directly as argv — the earlier `bash -lc "… $(cat …)"` form
- * silently dropped the seed for some users (the TUI opened at an empty input box).
+ * sees the TUI directly. Copilot's interactive form takes a pre-seeded prompt via `-i PROMPT`,
+ * passed directly as argv — the earlier `bash -lc "… $(cat …)"` form silently dropped the seed for
+ * some users (the TUI opened at an empty input box).
  *
  *   copilot --add-dir=<root>... --model=<model> --allow-all-tools --session-id=<uuid>
- *           [--effort=<level>] -i <prompt>
+ *           [--effort=<level>] -i <pointer at promptFile>
+ *
+ * What that argv element carries is a pointer at the rendered prompt file, never its body — see
+ * `_engine/prompt-pointer.ts`. `--add-dir` mounts the file's directory, so the pointer always
+ * resolves.
  *
  * `--add-dir` / `--model` / `--session-id` / `--effort` are equals-only per the CLI reference;
  * passing them space-separated leaves the parser without a bound value.
@@ -29,7 +33,7 @@ export const createInteractiveCopilotProvider = (deps: InteractiveProviderDeps):
       modelCatalogLabel: 'Copilot',
       isKnownModel: isCopilotModel,
       supportsSessionId: true,
-      buildArgs: (input, { prompt, roots, sessionId }) => [
+      buildArgs: (input, { promptArg, roots, sessionId }) => [
         ...roots.map((p) => `--add-dir=${p}`),
         `--model=${input.model}`,
         '--allow-all-tools',
@@ -38,7 +42,7 @@ export const createInteractiveCopilotProvider = (deps: InteractiveProviderDeps):
         // re-validating here would only duplicate its catalog (mirrors the headless adapter).
         ...(input.effort !== undefined ? [`--effort=${input.effort}`] : []),
         '-i',
-        prompt,
+        promptArg,
       ],
     },
     deps

@@ -13,7 +13,20 @@ import { crossPlatformSpawn } from '@src/integration/io/cross-platform-spawn.ts'
 export type InteractiveSpawn = (
   command: string,
   args: readonly string[],
-  options: { readonly stdio: 'inherit'; readonly cwd: string }
+  options: {
+    readonly stdio: 'inherit';
+    readonly cwd: string;
+    /**
+     * Extra environment entries for a CLI that takes launch configuration through the environment
+     * rather than through flags. These are OVERRIDES — merging them over `process.env` is
+     * {@link defaultInteractiveSpawn}'s job, so a test fake sees exactly what the adapter declared
+     * rather than the whole merged environment. OpenCode is the
+     * only one today: it has no `--add-dir`, so the directory grant that lets it read the prompt
+     * file arrives as `OPENCODE_CONFIG_CONTENT`. Absent for every other adapter, which then
+     * inherits the parent environment untouched.
+     */
+    readonly env?: Readonly<Record<string, string>>;
+  }
 ) => ChildProcess;
 
 /**
@@ -21,9 +34,16 @@ export type InteractiveSpawn = (
  * on Windows and the positional prompt arg (which may contain spaces / shell metacharacters) is
  * escaped correctly without a shell. Each interactive adapter carried a byte-identical local copy;
  * this is the one shared impl. Tests inject a fake `spawn` to avoid launching a real binary.
+ *
+ * `env` is LAYERED over `process.env` rather than replacing it — a child launched with a bare
+ * override would lose PATH, HOME, and the provider's own credential variables.
  */
 export const defaultInteractiveSpawn: InteractiveSpawn = (command, args, options) =>
-  crossPlatformSpawn(command, args, { stdio: options.stdio, cwd: options.cwd });
+  crossPlatformSpawn(command, args, {
+    stdio: options.stdio,
+    cwd: options.cwd,
+    ...(options.env !== undefined ? { env: { ...process.env, ...options.env } } : {}),
+  });
 
 /** Default prompt-file reader shared by the interactive adapters (tests inject a fake `readFile`). */
 export const defaultReadFile = (path: string): Promise<string> => fs.readFile(path, 'utf8');

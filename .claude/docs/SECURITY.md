@@ -82,6 +82,22 @@ reject-on-nonzero semantics against `osascript` / `notify-send` / `which`. An ES
 importing `node:child_process`'s spawn functions directly, so the two-exception list above is
 enforced at lint time, not by convention.
 
+**A prompt body never travels in argv.** Every adapter writes the rendered prompt to a file and passes the
+CLI a POINTER at that file (`providers/_engine/prompt-pointer.ts`) — headless claude / codex / opencode pipe
+it through stdin instead, which is equivalent for this purpose. Argv is capped at 32,767 bytes on Windows
+(and 8,191 once a `.cmd` shim routes through `cmd.exe`, where the excess is silently TRUNCATED rather than
+reported), well under what a rendered harness prompt reaches — a plan session on Windows died with
+`spawn ENAMETOOLONG` before the CLI started. Each adapter grants its CLI read access to the prompt file's
+directory and nothing wider — `--add-dir` for claude / copilot / codex, and for OpenCode (which has no such
+flag) a path-scoped `external_directory` grant injected as `OPENCODE_CONFIG_CONTENT`, which MERGES into the
+operator's own config rather than replacing it. There is no inline-body fallback: a CLI that can be granted
+no access at all does not belong on this port, since inlining the body for it would just relocate the same
+overflow. Reject such an adapter where it is declared. Two
+earlier answers to this are on the rejected list and must not return: a `bash -lc "… $(cat promptFile)"`
+wrapper (cannot execute `.cmd` shims, mangles Windows backslash paths, silently dropped the Copilot seed)
+and `shell: true` for binary+args (mis-quotes spaces and `& | % "`). `providers/_engine/argv-budget.ts`
+carries the limits and turns an overflow into a named, non-retryable error instead of a bare errno.
+
 **`AbortError` is the one error chains propagate transparently.** User-initiated cancellation (Ctrl+C, the
 TUI abort hotkey) flows through every wrapper without being absorbed by guards or fallbacks. Anywhere a guard
 or fallback catches errors, it MUST exempt `AbortError`. The chain's `AbortSignal` is now threaded all the

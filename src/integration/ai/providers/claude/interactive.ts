@@ -11,7 +11,11 @@ import { isClaudeModel } from '@src/domain/value/settings-models/claude.ts';
  *
  *   claude --add-dir <cwd> --add-dir <dirname(outputFile)> [--add-dir <extra>...]
  *          --model <model> --permission-mode acceptEdits --session-id <uuid>
- *          [--effort <level>] <prompt>
+ *          [--effort <level>] <pointer at promptFile>
+ *
+ * The prompt slot carries a pointer at the rendered prompt file, never its body — see
+ * `_engine/prompt-pointer.ts`. `--add-dir` mounts the file's directory, so the pointer always
+ * resolves.
  *
  * Permission strategy: `acceptEdits` auto-approves the `Edit` / `Write` tools — but only for paths
  * inside one of the `--add-dir` roots, which is why the engine mounts the prompt / output
@@ -28,7 +32,7 @@ export const createInteractiveClaudeProvider = (deps: InteractiveProviderDeps): 
       modelCatalogLabel: 'Claude',
       isKnownModel: isClaudeModel,
       supportsSessionId: true,
-      buildArgs: (input, { prompt, roots, sessionId }) => [
+      buildArgs: (input, { promptArg, roots, sessionId }) => [
         ...roots.flatMap((p) => ['--add-dir', p]),
         '--model',
         input.model,
@@ -38,7 +42,7 @@ export const createInteractiveClaudeProvider = (deps: InteractiveProviderDeps): 
         // Forward the resolved effort verbatim — the CLI rejects unknown levels itself, so
         // re-validating here would only duplicate its catalog (mirrors the headless adapter).
         ...(input.effort !== undefined ? ['--effort', input.effort] : []),
-        prompt,
+        promptArg,
       ],
     },
     deps

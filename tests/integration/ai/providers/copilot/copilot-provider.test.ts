@@ -687,10 +687,51 @@ describe('buildCopilotArgs — AiSession → CLI flag translation', () => {
     expect(unwrapArgs(session()).some((s) => s.startsWith('--effort'))).toBe(false);
   });
 
-  it('emits the prompt as the trailing -p argv pair', () => {
+  it('classifies a synchronous spawn throw instead of letting it escape the attempt', async () => {
+    // cross-spawn raises an oversized command line synchronously on Windows, and the spawn call
+    // used to sit outside any try/catch — the exception escaped runProviderAttempt and would have
+    // taken the process down rather than failing the round.
+    const cap = createCapturingBus();
+    const provider = createCopilotProvider({
+      rateLimitRetries: 0,
+      eventBus: cap.bus,
+      spawn: () => {
+        throw Object.assign(new Error('spawn ENAMETOOLONG'), { code: 'ENAMETOOLONG' });
+      },
+    });
+
+    const out = await provider.generate(session());
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.error.message).toContain('spawn failed');
+    expect(out.error.message).toContain('not in argv');
+  });
+
+  it('inlines the prompt on -p only when no prompt file could be written', () => {
     const args = unwrapArgs(session());
     const idx = args.indexOf('-p');
     expect(idx).toBeGreaterThanOrEqual(0);
     expect(args[idx + 1]).toBe(PROMPT as unknown as string);
+  });
+
+  it('writes the prompt to disk and passes -p a pointer at it, mounting its directory', async () => {
+    // Copilot is the one CLI with no stdin prompt path, so the body used to ride argv — which
+    // capped every headless run at the platform command line and died as `spawn ENAMETOOLONG`
+    // on Windows.
+    const cap = createCapturingBus();
+    const sess = session();
+    const { spawn, calls } = makeSpawn([{ stdoutChunks: ['{"session_id":"sess-1"}\n'], exitCode: 0 }]);
+    const provider = createCopilotProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+
+    await provider.generate(sess);
+
+    const promptFile = join(dirname(String(sess.signalsFile)), 'copilot-prompt.md');
+    await expect(fs.readFile(promptFile, 'utf8')).resolves.toBe(PROMPT as unknown as string);
+
+    const args = calls[0]!.args;
+    const idx = args.indexOf('-p');
+    expect(args[idx + 1]).toContain(promptFile);
+    expect(args).not.toContain(PROMPT as unknown as string);
+    expect(args).toContain(`--add-dir=${dirname(promptFile)}`);
   });
 });

@@ -9,7 +9,11 @@ import { isCodexModel } from '@src/domain/value/settings-models/codex.ts';
  * optional positional prompt — `codex "explain this codebase"`.
  *
  *   codex --cd <cwd> --add-dir <root>... --model <model> -s workspace-write -a never
- *         [-c model_reasoning_effort=<level>] <prompt>
+ *         [-c model_reasoning_effort=<level>] <pointer at promptFile>
+ *
+ * The positional prompt slot carries a pointer at the rendered prompt file, never its body — see
+ * `_engine/prompt-pointer.ts`. `--add-dir` mounts the file's directory, so the pointer always
+ * resolves.
  *
  * `-s workspace-write -a never` matches Claude's `--permission-mode acceptEdits` intent: writes
  * inside a mounted root run without a confirmation step, so the AI can drop its answer in
@@ -31,7 +35,7 @@ export const createInteractiveCodexProvider = (deps: InteractiveProviderDeps): I
       modelCatalogLabel: 'Codex',
       isKnownModel: isCodexModel,
       supportsSessionId: false,
-      buildArgs: (input, { prompt, roots }) => [
+      buildArgs: (input, { promptArg, roots }) => [
         '--cd',
         String(input.cwd),
         ...roots.flatMap((p) => ['--add-dir', p]),
@@ -45,7 +49,7 @@ export const createInteractiveCodexProvider = (deps: InteractiveProviderDeps): I
         // levels itself, so re-validating here would only duplicate its catalog (mirrors the
         // headless adapter).
         ...(input.effort !== undefined ? ['-c', `model_reasoning_effort=${input.effort}`] : []),
-        prompt,
+        promptArg,
       ],
     },
     deps

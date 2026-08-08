@@ -11,7 +11,12 @@ import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import { persistSessionIdFile } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
 import { contextWindowFor } from '@src/integration/ai/providers/_engine/context-window.ts';
 import type { AttemptOutcome } from '@src/integration/ai/providers/_engine/attempt-outcome.ts';
-import { classifySpawnExit, type ProviderName } from '@src/integration/ai/providers/_engine/classify-spawn-exit.ts';
+import {
+  classifySpawnExit,
+  classifySpawnFailure,
+  type ProviderName,
+} from '@src/integration/ai/providers/_engine/classify-spawn-exit.ts';
+import { argvByteLength } from '@src/integration/ai/providers/_engine/argv-budget.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 
 export type { ProviderName };
@@ -241,15 +246,26 @@ const createSuccessHandler =
 export const runProviderAttempt = async (input: ProviderAttemptInput): Promise<AttemptOutcome> => {
   const { spawnFn, command, args, session, resolveOn, rateLimitRe, providerName, providerSlug, eventBus } = input;
 
-  const child = spawnFn(command, args, {
-    stdio: ['pipe', 'pipe', 'pipe'] as const,
-    cwd: String(session.cwd),
-  });
+  const argvBytes = argvByteLength(command, args);
+
+  // `crossPlatformSpawn` throws synchronously for a command line the OS refuses outright — an
+  // oversized argv on Windows arrives this way, not as an `'error'` event — so an uncaught call
+  // here would take the whole process down instead of failing the attempt.
+  let child;
+  try {
+    child = spawnFn(command, args, {
+      stdio: ['pipe', 'pipe', 'pipe'] as const,
+      cwd: String(session.cwd),
+    });
+  } catch (cause) {
+    return classifySpawnFailure(providerName, cause as NodeJS.ErrnoException, argvBytes);
+  }
+
   const stderrTail = createBoundedTail(STDERR_TAIL_CAP);
   const watchdogBannerId = `watchdog-${providerSlug}-${String(child.pid ?? 'unknown')}`;
   const idle = createIdleTelemetry(input, watchdogBannerId);
 
-  const { code, signal } = await runHeadlessSpawn({
+  const { code, signal, spawnError } = await runHeadlessSpawn({
     child,
     onStdout: (chunk) => {
       input.onStdoutChunk(chunk);
@@ -269,7 +285,9 @@ export const runProviderAttempt = async (input: ProviderAttemptInput): Promise<A
   const stdoutTail = input.getStdoutTail();
   return classifySpawnExit({
     session,
-    exit: { code, signal },
+    // `spawnError` was previously dropped here, which left the classifier's spawn-error branch
+    // unreachable from this path — a missing binary read as a plain non-zero exit.
+    exit: { code, signal, argvBytes, ...(spawnError !== undefined ? { spawnError } : {}) },
     stderr: stderrTail.value(),
     rateLimitRe,
     ...(stdoutTail !== undefined && stdoutTail.length > 0 ? { stdoutTail } : {}),
