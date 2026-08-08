@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AiProvider, Settings } from '@src/domain/entity/settings.ts';
 import { SettingsSchema } from '@src/domain/entity/settings.ts';
-import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
+import { DEFAULT_SETTINGS, defaultAiSettingsForProvider } from '@src/business/settings/defaults.ts';
 import { FLOW_IDS } from '@src/domain/value/flow-id.ts';
 import { applyPreset, isPresetName, PRESET_NAMES, type PresetName } from '@src/business/settings/presets.ts';
 import { isClaudeModel } from '@src/domain/value/settings-models/claude.ts';
@@ -110,6 +110,28 @@ describe('presets', () => {
         for (const row of rows) {
           const guard = modelGuardFor(row.provider);
           expect(guard(row.model), `${preset}/${flow}: ${row.provider} → ${row.model}`).toBe(true);
+        }
+      }
+    }
+  });
+
+  // Sibling of the preset check above, for the OTHER table of harness-authored model ids.
+  // `defaultAiSettingsForProvider` feeds the welcome flow and `settings-set-provider`, so an
+  // off-catalog id here ships a first-run config the adapter would reject. defaults.ts was
+  // previously unguarded even though the catalog docstring claimed otherwise.
+  //
+  // Scope: this asserts catalog MEMBERSHIP, not upstream health — a cataloged id that starts
+  // returning 401 (as `opencode/north-mini-code-free` did) still passes. Liveness cannot be
+  // unit-tested; health-probe free-tier ids by hand before shipping one as a default.
+  it('every model in the per-provider defaults is a member of its provider catalog', () => {
+    const providers: readonly AiProvider[] = ['claude-code', 'github-copilot', 'openai-codex', 'opencode'];
+    for (const provider of providers) {
+      const ai = defaultAiSettingsForProvider(provider);
+      for (const flow of FLOW_IDS) {
+        const rows = flow === 'implement' ? [ai.implement.generator, ai.implement.evaluator] : [ai[flow]];
+        for (const row of rows) {
+          const guard = modelGuardFor(row.provider);
+          expect(guard(row.model), `defaults[${provider}]/${flow}: ${row.provider} → ${row.model}`).toBe(true);
         }
       }
     }
