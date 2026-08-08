@@ -89,7 +89,10 @@ const CODEX = 'openai-codex';
 const OPENCODE = 'opencode';
 /** OpenCode free-tier picks — see the note on OPENCODE_ONLY. */
 const OPENCODE_BIG = 'opencode/big-pickle';
-const OPENCODE_MINI = 'opencode/north-mini-code-free';
+// The free tier rotates and individual ids go dark upstream (a 401 on one model while its
+// siblings answer fine). Both picks here were live-probed against opencode-ai v1.18.15 on
+// 2026-08-08; re-probe with `opencode models` before changing them.
+const OPENCODE_MINI = 'opencode/deepseek-v4-flash-free';
 const OPUS = 'claude-opus-5';
 const SONNET = 'claude-sonnet-5';
 const HAIKU = 'claude-haiku-4-5';

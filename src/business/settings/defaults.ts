@@ -14,9 +14,15 @@ const CLAUDE_OPUS = 'claude-opus-5';
 const GPT_5_MINI = 'gpt-5-mini';
 const GPT_5_4_MINI = 'gpt-5.4-mini';
 const GPT_5_6_SOL = 'gpt-5.6-sol';
-/** OpenCode free-tier picks — the general-purpose tier and the light/code-oriented tier. */
+/**
+ * OpenCode free-tier picks — the general-purpose tier and the light/code-oriented tier.
+ *
+ * The free tier rotates and individual ids go dark upstream (a 401 on one model while its
+ * siblings answer fine). Both picks here were live-probed against opencode-ai v1.18.15 on
+ * 2026-08-08; re-probe with `opencode models` before changing them.
+ */
 const OPENCODE_BIG = 'opencode/big-pickle';
-const OPENCODE_MINI = 'opencode/north-mini-code-free';
+const OPENCODE_MINI = 'opencode/deepseek-v4-flash-free';
 
 /**
  * Per-provider, per-flow default model picks. Used by the welcome flow when the user picks a
