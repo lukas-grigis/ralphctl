@@ -8,6 +8,7 @@ import type {
   AiSettings,
   Settings,
 } from '@src/domain/entity/settings.ts';
+import { AI_PROVIDERS } from '@src/domain/entity/settings.ts';
 import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
 
 /**
@@ -40,7 +41,6 @@ const BOOLEAN_VALUE_HINT = "use 'true' or 'false'";
 const IMPLEMENT_ROLES: readonly AiImplementRole[] = ['generator', 'evaluator'];
 const isImplementRole = (raw: string): raw is AiImplementRole => (IMPLEMENT_ROLES as readonly string[]).includes(raw);
 
-const AI_PROVIDERS: readonly AiProvider[] = ['claude-code', 'github-copilot', 'openai-codex'];
 const isAiProvider = (raw: string): raw is AiProvider => (AI_PROVIDERS as readonly string[]).includes(raw);
 
 const isFlowId = (raw: string): raw is FlowId => (FLOW_IDS as readonly string[]).includes(raw);

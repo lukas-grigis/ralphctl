@@ -26,21 +26,23 @@ repositories.**
 > _"I'm helping!"_ — Ralph Wiggum
 
 > [!TIP]
-> **New: try ralphctl without signing in to anything.** The new [OpenCode](#providers) backend (beta) ships a
-> free tier that needs no credentials, so you can run a real generator-evaluator loop before deciding whether
-> the harness earns a seat in your workflow:
+> **New: [OpenCode](#opencode) support (beta) — run ralphctl on whatever model you want.** OpenCode is a
+> vendor-neutral CLI that fronts 75+ providers and local runtimes, so adding it effectively opens the harness
+> to Anthropic, OpenAI, Google, Bedrock, Azure, OpenRouter, Groq, DeepSeek, Mistral, and local Ollama /
+> LM Studio / llama.cpp — with your own keys, or none at all.
 >
 > ```bash
 > npm install -g ralphctl opencode-ai
-> ralphctl settings apply-preset opencode-only
-> ralphctl
+> ralphctl settings set ai.implement.generator.provider opencode
+> ralphctl settings set ai.implement.generator.model    <provider>/<model>
 > ```
 
 > [!NOTE]
-> **Active development.** New features and polish ship regularly. Four providers are supported — Claude Code,
-> GitHub Copilot CLI, OpenAI Codex CLI, and OpenCode (beta). Pick one per flow or mix them, in one command,
-> from 21 presets across five families (`standard`, `economic`, `strong-gate`, `fast`, `frontier`), each in
-> `mixed` / `claude-only` / `copilot-only` / `codex-only` variants, plus a standalone `opencode-only`.
+> **Active development.** New features and polish ship regularly. Four backends are supported — Claude Code,
+> GitHub Copilot CLI, OpenAI Codex CLI, and OpenCode (beta), the last of which brings any model it can reach.
+> Pick one per flow or mix them, in one command, from 21 presets across five families (`standard`, `economic`,
+> `strong-gate`, `fast`, `frontier`), each in `mixed` / `claude-only` / `copilot-only` / `codex-only`
+> variants, plus a standalone `opencode-only`.
 > Upgrades are best-effort: install the latest version, redo your config, proceed.
 > See [Upgrading](#upgrading) and [CHANGELOG](./CHANGELOG.md).
 
@@ -82,12 +84,12 @@ npm install -g ralphctl
 
 Install one of the supported CLIs and authenticate it:
 
-| CLI                                                                                | Install                              | Auth                 |
-| ---------------------------------------------------------------------------------- | ------------------------------------ | -------------------- |
-| [Claude Code](https://docs.anthropic.com/en/docs/claude-code)                      | `npm i -g @anthropic-ai/claude-code` | Anthropic account    |
-| [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) | `npm i -g @github/copilot`           | GitHub Copilot seat  |
-| [OpenAI Codex CLI](https://github.com/openai/codex)                                | `npm i -g @openai/codex`             | ChatGPT / OpenAI     |
-| [OpenCode](https://opencode.ai/) — beta                                            | `npm i -g opencode-ai`               | **none** — free tier |
+| CLI                                                                                | Install                              | Auth                  |
+| ---------------------------------------------------------------------------------- | ------------------------------------ | --------------------- |
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code)                      | `npm i -g @anthropic-ai/claude-code` | Anthropic account     |
+| [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) | `npm i -g @github/copilot`           | GitHub Copilot seat   |
+| [OpenAI Codex CLI](https://github.com/openai/codex)                                | `npm i -g @openai/codex`             | ChatGPT / OpenAI      |
+| [OpenCode](https://opencode.ai/) — beta                                            | `npm i -g opencode-ai`               | your own key, or none |
 
 Then confirm ralphctl can see it:
 
@@ -107,7 +109,7 @@ flow (refine / plan / implement / readiness / …), or open the Sprints submenu 
 or create a sprint. No commands to memorize.
 
 **Requirements:** [Node.js](https://nodejs.org/) ≥ 24, [Git](https://git-scm.com/), and one supported AI CLI in `PATH`
-(authenticated — except OpenCode, whose free tier needs no credentials).
+and authenticated (OpenCode takes your own keys, or runs on its free tier with none).
 
 <details>
 <summary>Prefer the CLI for inspection + one-shot operations?</summary>
@@ -154,18 +156,26 @@ ralphctl settings set ai.implement.evaluator.model    <model-id>
 
 ## How It Works
 
+```mermaid
+flowchart LR
+    A[Create sprint] --> B[Add tickets]
+    B --> C[Refine<br>WHAT]
+    C --> D[Plan<br>HOW]
+    D --> E[Implement<br>loop]
+    E --> F[Review<br>loop]
+    F --> G([done])
+
+    C -.- c1[AI clarifies<br>requirements with you]
+    D -.- d1[AI builds<br>the task graph]
+    E -.- e1[AI implements +<br>AI reviews each task]
+    F -.- f1[you steer revisions,<br>close to done]
+
+    classDef note fill:none,stroke:none
+    class c1,d1,e1,f1 note
 ```
-  You describe what to build              ralphctl drives it to done
-  ─────────────────────────              ────────────────────────────────────────────
-  ┌──────────┐   ┌──────────┐        ┌────────┐   ┌──────┐   ┌───────────┐   ┌────────┐
-  │  Create  │──>│   Add    │───────>│ Refine │──>│ Plan │──>│ Implement │──>│ Review │──> done
-  │  Sprint  │   │ Tickets  │        │ (WHAT) │   │(HOW) │   │   Loop    │   │  Loop  │
-  └──────────┘   └──────────┘        └────────┘   └──────┘   └───────────┘   └────────┘
-                                         │            │            │             │
-                                    AI clarifies  AI builds   AI implements  you steer
-                                    requirements  the task    + AI reviews   revisions,
-                                    with you      graph       each task      close to done
-```
+
+The first two steps are yours; from **Refine** onward ralphctl drives, with approval gates where your judgement
+matters.
 
 **Refine** is implementation-agnostic: the AI clarifies requirements with you, ticket by ticket, and flips each one from
 `pending` to `approved`. **Plan** requires every ticket approved — the AI explores the affected repos and generates a
@@ -175,6 +185,21 @@ the same dependency wave can run in parallel (opt-in) when you want a sprint to 
 loop — once every task lands, the sprint enters `review` and you run human-steered feedback rounds: you flag what's off,
 the AI revises, and the sprint flips to `done` when you're satisfied. Opening a PR (`ralphctl create-pr`) is separate
 and optional.
+
+The loop inside **Implement** is what separates a ralph harness from a bare `while` loop — every task passes an
+independent reviewer before the harness moves on:
+
+```mermaid
+flowchart TB
+    T[Next task in dependency order] --> G[Generator writes the change]
+    G --> E{Evaluator reviews it<br>against the task spec}
+    E -->|passes| V{Verify script}
+    E -->|fails| C[Critique fed back<br>to the generator]
+    C --> G
+    V -->|green| D([Task done])
+    V -->|red| C
+    C -.->|budget exhausted| B([Task flagged blocked])
+```
 
 Key properties:
 
@@ -195,14 +220,16 @@ For the full architectural picture see [`.claude/docs/ARCHITECTURE.md`](./.claud
 ## Providers
 
 ralphctl drives four AI coding CLIs. Choose one per flow — or mix them, say plan with one and implement with
-another — through a [preset](#configuration) or per-row settings.
+another — through a [preset](#configuration) or per-row settings. Three bind you to a vendor;
+[OpenCode](#opencode) fronts 75+ providers and local runtimes, so between them the harness reaches essentially
+any model you can get an API key for.
 
-| Provider                                  | CLI        | Status | Auth to get started  | Headless permission mapping                                                                     | Native context file               |
-| ----------------------------------------- | ---------- | ------ | -------------------- | ----------------------------------------------------------------------------------------------- | --------------------------------- |
-| **Claude Code** (`claude-code`)           | `claude`   | Stable | Anthropic account    | `--permission-mode bypassPermissions` + per-tool deny list                                      | `CLAUDE.md` at repo root          |
-| **GitHub Copilot CLI** (`github-copilot`) | `copilot`  | Stable | GitHub Copilot seat  | `--autopilot --max-autopilot-continues=200` + `--allow-all` (per-tool deny list when read-only) | `.github/copilot-instructions.md` |
-| **OpenAI Codex CLI** (`openai-codex`)     | `codex`    | Stable | ChatGPT / OpenAI     | `-s workspace-write` (topology-scoped)                                                          | `AGENTS.md`                       |
-| **OpenCode** (`opencode`)                 | `opencode` | Beta   | **none** — free tier | `--auto` (topology-scoped)                                                                      | `AGENTS.md`                       |
+| Provider                                  | CLI        | Status | Auth to get started | Headless permission mapping                                                                     | Native context file               |
+| ----------------------------------------- | ---------- | ------ | ------------------- | ----------------------------------------------------------------------------------------------- | --------------------------------- |
+| **Claude Code** (`claude-code`)           | `claude`   | Stable | Anthropic account   | `--permission-mode bypassPermissions` + per-tool deny list                                      | `CLAUDE.md` at repo root          |
+| **GitHub Copilot CLI** (`github-copilot`) | `copilot`  | Stable | GitHub Copilot seat | `--autopilot --max-autopilot-continues=200` + `--allow-all` (per-tool deny list when read-only) | `.github/copilot-instructions.md` |
+| **OpenAI Codex CLI** (`openai-codex`)     | `codex`    | Stable | ChatGPT / OpenAI    | `-s workspace-write` (topology-scoped)                                                          | `AGENTS.md`                       |
+| **OpenCode** (`opencode`)                 | `opencode` | Beta   | any (or none)       | `--auto` (topology-scoped)                                                                      | `AGENTS.md`                       |
 
 Claude Code has the most end-to-end mileage inside the harness — it's the most battle-tested — but Copilot and Codex
 run every flow and are supported first-class. Two small differences worth knowing: bundled skill injection and
@@ -212,40 +239,59 @@ per-tool deny list. Parallel execution is provider-agnostic — it works with wh
 configured to use. Hit a rough edge with any provider? Please [open an
 issue](https://github.com/lukas-grigis/ralphctl/issues).
 
-### OpenCode (beta)
+<a id="opencode"></a>
 
-[OpenCode](https://opencode.ai/) is new in this release and marked **beta**: every flow runs and the adapter is
-verified end-to-end against the real CLI, but it has far less mileage than the other three. Please
-[report anything rough](https://github.com/lukas-grigis/ralphctl/issues).
+### OpenCode (beta) — bring any model
 
-Two things make it behave differently from the others, both worth knowing before you pick it:
+The first three backends each bind you to one vendor. [OpenCode](https://opencode.ai/) doesn't: it is a
+vendor-neutral CLI that fronts **75+ model providers** (via [Models.dev](https://models.dev/)) plus local
+runtimes, on a bring-your-own-key model. Adding it to ralphctl means the harness is no longer limited to the
+three vendors it ships adapters for.
 
-**It runs with no credentials.** OpenCode ships a free tier, so `npm install -g opencode-ai` is the whole setup —
-no account, no API key, no seat. That makes it the fastest way to try the harness end-to-end, and the only backend
-that works in a CI job or a throwaway container without secrets.
-
-**It aggregates other providers, so its model list is discovered, not fixed.** Model ids are namespaced as
-`<provider>/<model>` (`opencode/big-pickle` on the free tier), and which ones you can reach depends on what you
-have authenticated via `opencode providers`. ralphctl asks the CLI (`opencode models`) instead of shipping a
-static list, so authenticating a new provider makes its models selectable immediately — no ralphctl upgrade
-needed. Run `opencode models` to see the exact ids available to you.
+| Want to run…               | With OpenCode                                                   |
+| -------------------------- | --------------------------------------------------------------- |
+| A frontier hosted model    | Anthropic, OpenAI, Google Vertex, Bedrock, Azure — your own key |
+| An aggregator              | OpenRouter, Together, Groq, Hugging Face                        |
+| A specialist or open model | DeepSeek, Mistral, xAI, and the rest of the Models.dev catalog  |
+| Something entirely local   | Ollama, LM Studio, llama.cpp — no data leaves your machine      |
+| Nothing at all set up yet  | OpenCode's own free tier — no account, no key                   |
 
 ```bash
 npm install -g opencode-ai
-ralphctl settings apply-preset opencode-only      # free-tier models, zero auth
-ralphctl doctor                                   # confirm ralphctl sees it
+opencode providers                  # connect Anthropic / OpenAI / Ollama / … with your own keys
+opencode models                     # list every id now reachable
 
-# Later, once you have upstream providers authenticated in OpenCode:
-opencode providers                                # authenticate anthropic / openai / …
-opencode models                                   # list the ids now reachable
-ralphctl settings set ai.implement.generator.model <provider>/<model>
+ralphctl settings set ai.implement.generator.provider opencode
+ralphctl settings set ai.implement.generator.model    <provider>/<model>
 ```
 
-Current limitations, stated plainly: `opencode run` has no read-only mode, so a read-only flow is not sandboxed by
-the CLI — the session directory is the boundary, as it already is for OpenAI Codex. It also has no multi-root flag,
-so directories outside the session `cwd` are not reachable by the AI. Free-tier models are community models and
-noticeably weaker than the flagship tiers of the other three; treat the free tier as a way to evaluate the harness,
-not as a like-for-like substitute for a paid frontier model.
+Model ids are namespaced `<provider>/<model>`, and ralphctl asks the CLI (`opencode models`) rather than
+shipping a fixed list — so connecting a new provider in OpenCode makes its models selectable in ralphctl
+immediately, with no ralphctl upgrade and no catalog PR. That is the practical difference: **new models become
+usable the day they land upstream.**
+
+Mix freely — nothing forces a whole sprint onto one backend. A local model can draft while a frontier model
+reviews:
+
+```bash
+ralphctl settings set ai.implement.generator.provider opencode
+ralphctl settings set ai.implement.generator.model    ollama/<your-local-model>
+ralphctl settings set ai.implement.evaluator.provider claude-code
+ralphctl settings set ai.implement.evaluator.model    claude-opus-5
+```
+
+There is also a zero-auth path if you just want to see the harness run: `ralphctl settings apply-preset
+opencode-only` uses OpenCode's free tier, which needs no credentials at all. Handy for a first look or a CI
+job without secrets — the free-tier models are community models, so point OpenCode at a real provider before
+judging output quality.
+
+**Why beta.** Every flow runs and the adapter is verified end-to-end against the real CLI, but it has far less
+mileage than the other three — please [report anything rough](https://github.com/lukas-grigis/ralphctl/issues).
+Two current limitations, stated plainly: `opencode run` has no read-only mode, so a read-only flow is not
+sandboxed by the CLI (the session directory is the boundary, as it already is for OpenAI Codex), and it has no
+multi-root flag, so directories outside the session `cwd` are not reachable by the AI. Plateau escalation also
+skips the effort rung for OpenCode, because the accepted `--variant` levels belong to whichever upstream vendor
+is behind your model id — set `effort` explicitly on the row if your model supports it.
 
 One-shot configuration for any provider: `ralphctl settings apply-preset <name>` where `<name>` is one of
 21 presets — `standard`, `economic`, `strong-gate`, `fast`, and `frontier` families, each in
@@ -271,8 +317,9 @@ One-shot configuration for any provider: `ralphctl settings apply-preset <name>`
   first — the crashed attempt is settled as aborted (kept in history) and a fresh attempt opens automatically
 - **Pair or let it run** — work alongside your AI agent interactively, or let it execute unattended
 - **Zero-memorization start** — run `ralphctl` with no args for a guided menu
-- **Try it without credentials** — the OpenCode backend (beta) runs on a free tier that needs no account, so you can
-  evaluate the full loop before committing a paid seat to it
+- **Run any model** — the OpenCode backend (beta) fronts 75+ providers and local runtimes (Ollama, LM Studio,
+  llama.cpp), so the harness isn't limited to the three vendors it ships adapters for — and its free tier lets you
+  try the whole loop with no account at all
 
 ---
 

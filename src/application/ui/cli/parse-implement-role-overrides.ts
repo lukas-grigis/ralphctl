@@ -1,13 +1,14 @@
 import type { AiProvider } from '@src/domain/entity/settings.ts';
+import { AI_PROVIDERS, AI_PROVIDERS_HINT } from '@src/domain/entity/settings.ts';
 import type { LaunchExtras } from '@src/application/ui/shared/launcher.ts';
 
 /**
  * Validate and shape the four bare-`ralphctl` flags that override the persisted
  * `settings.ai.implement` pair for one launch:
  *
- *   --implement-generator-provider <claude-code|github-copilot|openai-codex>
+ *   --implement-generator-provider <claude-code|github-copilot|openai-codex|opencode>
  *   --implement-generator-model    <id>
- *   --implement-evaluator-provider <claude-code|github-copilot|openai-codex>
+ *   --implement-evaluator-provider <claude-code|github-copilot|openai-codex|opencode>
  *   --implement-evaluator-model    <id>
  *
  * Each role is `{ provider, model }` together. Supplying only one half of a pair is rejected
@@ -26,7 +27,7 @@ export interface ImplementRoleFlagsInput {
   readonly evaluatorModel?: string;
 }
 
-const ALLOWED_PROVIDERS: ReadonlySet<AiProvider> = new Set(['claude-code', 'github-copilot', 'openai-codex']);
+const ALLOWED_PROVIDERS: ReadonlySet<AiProvider> = new Set(AI_PROVIDERS);
 
 const isAiProvider = (v: string): v is AiProvider => ALLOWED_PROVIDERS.has(v as AiProvider);
 
@@ -57,7 +58,7 @@ const parseRole = (
   if (!isAiProvider(provider)) {
     return {
       ok: false,
-      error: `--implement-${role}-provider: '${provider}' is not a supported provider (claude-code | github-copilot | openai-codex).`,
+      error: `--implement-${role}-provider: '${provider}' is not a supported provider (${AI_PROVIDERS_HINT}).`,
     };
   }
   const trimmedModel = model.trim();

@@ -164,11 +164,18 @@ const EFFORT_AT_OR_ABOVE_TARGET: ReadonlySet<string> = new Set(['high', 'xhigh',
 const CODEX_EFFORT_AT_OR_ABOVE_TARGET: ReadonlySet<string> = new Set(['xhigh', 'max', 'ultra']);
 
 /**
- * Providers that expose a reasoning-effort dimension the adapter can raise. All three current
- * providers do (see `settings.ts` per-provider effort enums). Modelled as a set — rather than
- * assumed for every provider — so a future provider without an effort knob (or a caller that cannot
- * resolve one, passing `undefined`) skips the effort rung gracefully instead of stamping a level the
- * adapter would reject.
+ * Providers whose reasoning-effort dimension this ladder can raise with a KNOWN-GOOD level.
+ * Modelled as a set — rather than assumed for every provider — so a provider whose effort
+ * vocabulary cannot be resolved statically skips the effort rung gracefully instead of stamping a
+ * level the adapter would reject mid-task.
+ *
+ * `opencode` is deliberately EXCLUDED even though it has an effort knob (`--variant`). OpenCode
+ * aggregates upstream providers, so the accepted levels for a given `provider/model` id belong to
+ * that upstream vendor, not to OpenCode — there is no level this ladder could stamp that is known
+ * to be valid for the row's model, and the free-tier community models generally expose none at all.
+ * Escalating into a rejected `--variant` would turn a plateau into a hard spawn failure, which is
+ * strictly worse than not escalating. Operators who know their upstream model's vocabulary can set
+ * the effort explicitly on the row.
  */
 const EFFORT_CAPABLE_PROVIDERS: ReadonlySet<AiProvider> = new Set<AiProvider>([
   'claude-code',

@@ -10,6 +10,7 @@ import { mergeEscalationMap } from '@src/business/task/escalation-map.ts';
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import type { PresetWarning } from '@src/application/flows/settings-apply-preset/ctx.ts';
 import type { AiFlowSettings, AiProvider, Settings } from '@src/domain/entity/settings.ts';
+import { AI_PROVIDERS as DOMAIN_AI_PROVIDERS } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
 import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
@@ -17,7 +18,14 @@ import { COPILOT_MODELS } from '@src/domain/value/settings-models/copilot.ts';
 import { PROVIDER_EFFORT_LEVELS } from '@src/domain/value/settings-models/effort.ts';
 import { PROVIDER_TRAITS } from '@src/integration/ai/providers/_engine/provider-traits.ts';
 
-export const AI_PROVIDERS: readonly AiProvider[] = ['claude-code', 'github-copilot', 'openai-codex'];
+/**
+ * Provider options offered by the Settings view. Re-exported from the domain list so the picker
+ * can never drift from the {@link AiProvider} union — a hand-written copy here silently omitted
+ * OpenCode from the Settings view when it shipped.
+ *
+ * @public
+ */
+export const AI_PROVIDERS: readonly AiProvider[] = DOMAIN_AI_PROVIDERS;
 
 export type EditableField =
   | {

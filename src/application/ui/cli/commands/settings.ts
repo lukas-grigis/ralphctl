@@ -8,10 +8,10 @@ import { createSettingsApplyPresetFlow } from '@src/application/flows/settings-a
 import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
 import { fail } from '@src/application/ui/cli/report-cli-error.ts';
 import type { AiImplementRole, AiProvider } from '@src/domain/entity/settings.ts';
+import { AI_PROVIDERS } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import type { SettingsRepository } from '@src/domain/repository/settings/settings-repository.ts';
 
-const AI_PROVIDERS: readonly AiProvider[] = ['claude-code', 'github-copilot', 'openai-codex'];
 const isAiProvider = (raw: string): raw is AiProvider => (AI_PROVIDERS as readonly string[]).includes(raw);
 
 /**

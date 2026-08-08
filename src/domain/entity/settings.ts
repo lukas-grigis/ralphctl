@@ -684,5 +684,23 @@ export const uniqueProvidersFromAi = (ai: AiSettings): readonly AiProvider[] => 
 };
 
 // AiProviderSchema is intentionally not re-exported — callers should use the type alias
-// above; only the schema module re-uses the runtime enum for parsing.
-void AiProviderSchema;
+// above, or {@link AI_PROVIDERS} when they need the runtime list.
+
+/**
+ * Every {@link AiProvider} id, as a runtime array — derived from the schema enum so it can never
+ * drift from the union.
+ *
+ * This exists because the union alone is a COMPILE-time construct: a hand-written
+ * `['claude-code', 'github-copilot', 'openai-codex']` still type-checks as `readonly AiProvider[]`
+ * after a fourth provider joins, so `Record<AiProvider, …>` exhaustiveness never catches it. That
+ * is exactly how adding OpenCode left `settings set ai.<flow>.provider opencode`, the CLI
+ * implement-role overrides, and the TUI customize picker silently rejecting the new provider while
+ * the whole suite stayed green. Every membership check and every "expected one of: …" message
+ * MUST read from here rather than re-listing ids.
+ *
+ * @public
+ */
+export const AI_PROVIDERS: readonly AiProvider[] = AiProviderSchema.options;
+
+/** Human-facing "expected one of: …" fragment, shared by every provider-validation message. */
+export const AI_PROVIDERS_HINT: string = AI_PROVIDERS.join(', ');
