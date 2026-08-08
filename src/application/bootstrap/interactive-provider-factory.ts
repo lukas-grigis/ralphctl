@@ -5,6 +5,7 @@ import type { FlowId } from '@src/domain/value/flow-id.ts';
 import { createInteractiveClaudeProvider } from '@src/integration/ai/providers/claude/interactive.ts';
 import { createInteractiveCodexProvider } from '@src/integration/ai/providers/codex/interactive.ts';
 import { createInteractiveCopilotProvider } from '@src/integration/ai/providers/copilot/interactive.ts';
+import { createInteractiveOpencodeProvider } from '@src/integration/ai/providers/opencode/interactive.ts';
 import type { InteractiveProviderDeps } from '@src/integration/ai/providers/_engine/interactive-provider-deps.ts';
 
 /**
@@ -17,6 +18,7 @@ const INTERACTIVE_FACTORIES: Readonly<Record<AiProvider, (deps: InteractiveProvi
   'claude-code': createInteractiveClaudeProvider,
   'github-copilot': createInteractiveCopilotProvider,
   'openai-codex': createInteractiveCodexProvider,
+  opencode: createInteractiveOpencodeProvider,
 };
 
 /**

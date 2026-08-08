@@ -193,7 +193,7 @@ export interface TokenUsageEvent {
    * no runner id; those still resolve by the provider-uuid `sessionId`.
    */
   readonly chainSessionId?: string;
-  readonly provider: 'claude-code' | 'github-copilot' | 'openai-codex';
+  readonly provider: 'claude-code' | 'github-copilot' | 'openai-codex' | 'opencode';
   readonly model?: string;
   /**
    * CUMULATIVE token counts for the whole spawn — these are throughput / billing figures. For

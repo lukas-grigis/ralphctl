@@ -53,6 +53,7 @@ export const OPERATOR_PROVIDER_DIR: Record<AiProvider, string> = {
   'claude-code': 'claude',
   'github-copilot': 'copilot',
   'openai-codex': 'codex',
+  opencode: 'opencode',
 };
 
 /**

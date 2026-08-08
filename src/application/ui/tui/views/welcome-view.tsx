@@ -32,6 +32,7 @@ const PRESET_FOR_PROVIDER: Readonly<Record<AiProvider, PresetName>> = {
   'claude-code': 'claude-only',
   'github-copilot': 'copilot-only',
   'openai-codex': 'codex-only',
+  opencode: 'opencode-only',
 };
 
 const pickPresetForDetected = (installed: ReadonlySet<AiProvider>): PresetName => {

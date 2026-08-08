@@ -17,6 +17,7 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import type { AgentDefinitionAdapter } from '@src/integration/ai/agents/_engine/agent-definition-adapter.ts';
 import { createClaudeAgentDefinitionAdapter } from '@src/integration/ai/agents/claude/adapter.ts';
 import { createCodexAgentDefinitionAdapter } from '@src/integration/ai/agents/codex/adapter.ts';
+import { createOpencodeAgentDefinitionAdapter } from '@src/integration/ai/agents/opencode/adapter.ts';
 import { createCopilotAgentDefinitionAdapter } from '@src/integration/ai/agents/copilot/adapter.ts';
 
 export interface AgentDefinitionAdapterFactoryDeps {
@@ -34,6 +35,7 @@ const AGENT_ADAPTERS: Readonly<Record<AiProvider, (deps?: { readonly logger?: Lo
   'claude-code': createClaudeAgentDefinitionAdapter,
   'github-copilot': createCopilotAgentDefinitionAdapter,
   'openai-codex': createCodexAgentDefinitionAdapter,
+  opencode: createOpencodeAgentDefinitionAdapter,
 };
 
 export const createAgentDefinitionAdapter = (deps: AgentDefinitionAdapterFactoryDeps): AgentDefinitionAdapter => {

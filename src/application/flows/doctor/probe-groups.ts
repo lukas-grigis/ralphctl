@@ -19,6 +19,7 @@ const PROVIDER_LABEL: Record<AiProvider, string> = {
   'claude-code': 'Claude Code',
   'github-copilot': 'GitHub Copilot',
   'openai-codex': 'OpenAI Codex',
+  opencode: 'OpenCode',
 };
 
 /** Build a {@link ProbeResult} — `hint` is included only when supplied. */

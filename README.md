@@ -24,10 +24,12 @@
 > _"I'm helping!"_ — Ralph Wiggum
 
 > [!NOTE]
-> **Active development.** New features and polish ship regularly. All three providers — Claude Code,
-> GitHub Copilot CLI, and OpenAI Codex CLI — are supported; pick one per flow or mix them, in one command,
-> from a preset matrix of 20 presets across five families (`standard`, `economic`, `strong-gate`, `fast`,
-> `frontier`), each in `mixed` / `claude-only` / `copilot-only` / `codex-only` variants.
+> **Active development.** New features and polish ship regularly. All four providers — Claude Code,
+> GitHub Copilot CLI, OpenAI Codex CLI, and OpenCode — are supported; pick one per flow or mix them, in one
+> command, from a preset matrix of 21 presets across five families (`standard`, `economic`, `strong-gate`,
+> `fast`, `frontier`), each in `mixed` / `claude-only` / `copilot-only` / `codex-only` variants, plus a
+> standalone `opencode-only`. OpenCode ships a zero-auth free tier, so it is the one backend that runs
+> without any credentials.
 > Upgrades are best-effort: install the latest version, redo your config, proceed.
 > See [Upgrading](#upgrading) and [CHANGELOG](./CHANGELOG.md).
 

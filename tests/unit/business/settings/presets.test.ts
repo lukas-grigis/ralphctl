@@ -6,6 +6,7 @@ import { FLOW_IDS } from '@src/domain/value/flow-id.ts';
 import { applyPreset, isPresetName, PRESET_NAMES, type PresetName } from '@src/business/settings/presets.ts';
 import { isClaudeModel } from '@src/domain/value/settings-models/claude.ts';
 import { isCodexModel } from '@src/domain/value/settings-models/codex.ts';
+import { isOpencodeModelIdShape } from '@src/domain/value/settings-models/opencode.ts';
 import { isCopilotModel } from '@src/domain/value/settings-models/copilot.ts';
 import { mergeEscalationMap } from '@src/business/task/escalation-map.ts';
 
@@ -15,6 +16,7 @@ const EXPECTED_PRESET_ORDER: readonly PresetName[] = [
   'claude-only',
   'copilot-only',
   'codex-only',
+  'opencode-only',
   'mixed-economic',
   'claude-economic',
   'copilot-economic',
@@ -80,13 +82,17 @@ const modelGuardFor = (provider: AiProvider): ((s: string) => boolean) => {
       return isCopilotModel;
     case 'openai-codex':
       return isCodexModel;
+    // OpenCode aggregates upstream providers, so there is no closed catalog to check a preset
+    // row against — only the `provider/model` id shape is knowable statically.
+    case 'opencode':
+      return isOpencodeModelIdShape;
   }
 };
 
 describe('presets', () => {
   it('exposes all twenty preset names in the canonical five-family order', () => {
     expect([...PRESET_NAMES]).toEqual([...EXPECTED_PRESET_ORDER]);
-    expect(PRESET_NAMES).toHaveLength(20);
+    expect(PRESET_NAMES).toHaveLength(21);
   });
 
   it('includes each economic preset in PRESET_NAMES', () => {
@@ -253,12 +259,12 @@ describe('presets', () => {
           expect(out.ai[flow]).toBeDefined();
           if (flow === 'implement') {
             for (const role of ['generator', 'evaluator'] as const) {
-              expect(out.ai.implement[role].provider).toMatch(/^(claude-code|github-copilot|openai-codex)$/);
+              expect(out.ai.implement[role].provider).toMatch(/^(claude-code|github-copilot|openai-codex|opencode)$/);
               expect(out.ai.implement[role].model.length).toBeGreaterThan(0);
             }
             continue;
           }
-          expect(out.ai[flow].provider).toMatch(/^(claude-code|github-copilot|openai-codex)$/);
+          expect(out.ai[flow].provider).toMatch(/^(claude-code|github-copilot|openai-codex|opencode)$/);
           expect(out.ai[flow].model.length).toBeGreaterThan(0);
         }
       });

@@ -24,6 +24,7 @@ export const PROVIDER_BINARY: Readonly<Record<AiProvider, string>> = {
   'claude-code': PROVIDER_TRAITS['claude-code'].binary,
   'github-copilot': PROVIDER_TRAITS['github-copilot'].binary,
   'openai-codex': PROVIDER_TRAITS['openai-codex'].binary,
+  opencode: PROVIDER_TRAITS.opencode.binary,
 };
 
 /**
@@ -36,6 +37,7 @@ export const PROVIDER_INSTALL_GUIDANCE: Readonly<Record<AiProvider, ProviderInst
   'claude-code': PROVIDER_TRAITS['claude-code'].installGuidance,
   'github-copilot': PROVIDER_TRAITS['github-copilot'].installGuidance,
   'openai-codex': PROVIDER_TRAITS['openai-codex'].installGuidance,
+  opencode: PROVIDER_TRAITS.opencode.installGuidance,
 };
 
 /**

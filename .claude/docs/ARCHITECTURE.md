@@ -278,8 +278,9 @@ format:
 bundled/operator name (already namespaced by its source) is never doubled.
 
 `createFilesystemAgentDefinitionAdapter` (`_engine/filesystem-agent-definition-adapter.ts`) is the one
-`AgentDefinitionAdapter` implementation shared by all three providers — `claude/adapter.ts`,
-`copilot/adapter.ts`, `codex/adapter.ts` each just supply `parentDir` + `renderer` + convention text,
+`AgentDefinitionAdapter` implementation shared by all four providers — `claude/adapter.ts`,
+`copilot/adapter.ts`, `codex/adapter.ts`, `opencode/adapter.ts` each just supply `parentDir` + `renderer` +
+convention text,
 selected at composition time by `adapter-factory.ts`'s `createAgentDefinitionAdapter` — mirroring
 `createFilesystemSkillsAdapter`. Install is idempotent and **project-definitions-win**: a destination path
 that already exists is left untouched. A manifest-tracked `uninstall` removes only the files a matching

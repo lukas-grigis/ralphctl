@@ -21,7 +21,7 @@ export type { ProviderName };
  * `TokenUsageEvent` shape; each provider fills only the subset it captures from its CLI stream.
  */
 export interface TokenUsagePayload {
-  readonly provider: 'claude-code' | 'openai-codex' | 'github-copilot';
+  readonly provider: 'claude-code' | 'openai-codex' | 'github-copilot' | 'opencode';
   readonly model?: string;
   readonly inputTokens?: number;
   readonly outputTokens?: number;
@@ -123,7 +123,7 @@ export interface ProviderAttemptInput {
    */
   readonly emitProviderTokenUsage: (sessionId: string) => void;
   readonly providerName: ProviderName;
-  readonly providerSlug: 'claude' | 'codex' | 'copilot';
+  readonly providerSlug: 'claude' | 'codex' | 'copilot' | 'opencode';
   readonly eventBus: EventBus;
   readonly idleMs?: number;
 }
@@ -294,7 +294,7 @@ export interface GenerateContext {
 }
 
 export interface CreateHeadlessProviderInput {
-  readonly providerSlug: 'claude' | 'codex' | 'copilot';
+  readonly providerSlug: 'claude' | 'codex' | 'copilot' | 'opencode';
   readonly providerName: ProviderName;
   readonly resumeStaleRe: RegExp;
   readonly rateLimitRetries: number;

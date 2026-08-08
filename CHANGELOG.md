@@ -9,6 +9,22 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **New provider backend: OpenCode** (`opencode`), joining Claude Code, GitHub Copilot and OpenAI Codex.
+  Set it per flow (`ralphctl settings set ai.<flow>.provider opencode`) or stamp every flow at once with the
+  new `opencode-only` preset. Two things make it different from the other three:
+  - **It runs with no credentials.** OpenCode ships a free tier, so a fresh install can drive a real
+    ralphctl session without signing in to anything — useful for trying the harness out, and for CI.
+  - **It aggregates other providers.** Model ids are namespaced (`opencode/big-pickle`,
+    `anthropic/claude-sonnet-4-5`), and the reachable set depends on which upstream providers you have
+    authenticated via `opencode providers`. The model picker asks the CLI (`opencode models`) instead of
+    reading a fixed list, so authenticating a provider makes its models selectable with no ralphctl upgrade.
+
+  Sessions resume across gen-eval rounds, and a stale session id falls back to a cold spawn rather than
+  failing the task. Skills install to `.opencode/skills/`, agent definitions to `.opencode/agents/`, and
+  readiness writes the shared `AGENTS.md`. One limitation worth knowing: `opencode run` has no read-only
+  mode and no multi-root flag, so a `READ_ONLY` flow is not sandboxed by the CLI and directories outside the
+  session `cwd` are not reachable — path topology is the boundary, as it already is for OpenAI Codex.
+
 - **`create-pr`'s AI-authored PR content now leaves the same `meta.json` attribution sidecar every other
   AI-authoring flow (`refine` / `plan` / `ideate` / `readiness`) already writes** — a provider/model/effort
   record next to the round's `prompt.md`, so a `create-pr` run is no longer the one flow with no

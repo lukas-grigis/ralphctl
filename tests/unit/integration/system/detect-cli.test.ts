@@ -20,6 +20,7 @@ describe('detectInstalledProviders', () => {
       'claude-code': 'claude',
       'github-copilot': 'copilot',
       'openai-codex': 'codex',
+      opencode: 'opencode',
     });
   });
 
@@ -47,7 +48,7 @@ describe('detectInstalledProviders', () => {
       return false;
     };
     await detectInstalledProviders({ which });
-    expect(calls.sort()).toEqual(['claude', 'codex', 'copilot']);
+    expect(calls.sort()).toEqual(['claude', 'codex', 'copilot', 'opencode']);
   });
 });
 

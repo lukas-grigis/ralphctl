@@ -127,6 +127,7 @@ describe('doctor use-case', () => {
       'ai-claude-code',
       'ai-github-copilot',
       'ai-openai-codex',
+      'ai-opencode',
       // DEFAULT_SETTINGS.ai.implement.evaluator points at openai-codex, so the codex-auth
       // probe is included whenever codex is on PATH.
       'codex-auth',

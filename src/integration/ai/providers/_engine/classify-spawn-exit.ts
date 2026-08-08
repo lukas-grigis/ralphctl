@@ -67,7 +67,7 @@ export const DEFAULT_RATE_LIMIT_RE = /rate.?limit|quota|\b429\b/i;
  * model-availability failure is a CONFIG error, so retrying just burns the whole budget on the
  * same misconfiguration — it must keep blocking after one attempt.
  */
-export type ProviderName = 'claude-provider' | 'codex-provider' | 'copilot-provider';
+export type ProviderName = 'claude-provider' | 'codex-provider' | 'copilot-provider' | 'opencode-provider';
 
 /**
  * Matches the provider-CLI "the selected model isn't available" failure across the three

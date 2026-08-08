@@ -11,6 +11,16 @@ import type { AiProvider } from '@src/domain/entity/settings.ts';
  * never blocks or hides everything. It is best-effort and runs outside the chain runtime, so it
  * absorbs cancellation rather than re-throwing it.
  *
+ * ## Aggregator backends may return models outside `catalog`
+ *
+ * "Narrows" describes the single-vendor case, where the static catalog is the vendor's own fixed
+ * list and the probe only answers which of them the account may run. An AGGREGATOR backend
+ * (`opencode`) inverts that: its reachable ids depend on which upstream providers the operator
+ * has authenticated, so no static list can be a superset and intersecting against one would hide
+ * every model the operator actually pays for. Such a probe MAY return ids absent from `catalog`,
+ * provided it still fails open to `catalog` on every error path. The return value is always "the
+ * models to offer in the picker" — for aggregators that is the CLI's own live answer.
+ *
  * @public
  */
 export interface ModelAvailabilityProbe {
