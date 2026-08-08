@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import type { InteractiveSpawn } from '@src/integration/ai/providers/_engine/interactive-spawn.ts';
+import { argvByteLength } from '@src/integration/ai/providers/_engine/argv-budget.ts';
 import {
   createInteractiveProvider,
   type InteractiveProviderSpec,
@@ -23,6 +24,7 @@ interface CapturingSpawnState {
   readonly spawn: InteractiveSpawn;
   readonly calls: ReadonlyArray<{ readonly command: string; readonly args: readonly string[]; readonly cwd: string }>;
   readonly emitExit: (code: number | null) => void;
+  readonly emitError: (cause: Error) => void;
 }
 
 const makeSpawn = (): CapturingSpawnState => {
@@ -46,6 +48,9 @@ const makeSpawn = (): CapturingSpawnState => {
     emitExit: (code) => {
       setTimeout(() => last.child?.emit('close', code), 0);
     },
+    emitError: (cause) => {
+      setTimeout(() => last.child?.emit('error', cause), 0);
+    },
   };
 };
 
@@ -64,12 +69,13 @@ const spec = (overrides: Partial<InteractiveProviderSpec> = {}): InteractiveProv
   modelCatalogLabel: 'Stub',
   isKnownModel: (m) => m === MODEL || m === 'suspended-model',
   supportsSessionId: true,
-  buildArgs: (input, { prompt, roots, sessionId }) => [
+  mountsRoots: true,
+  buildArgs: (input, { promptArg, roots, sessionId }) => [
     ...roots.flatMap((p) => ['--add-dir', p]),
     '--model',
     input.model,
     ...(sessionId !== undefined ? ['--session-id', sessionId] : []),
-    prompt,
+    promptArg,
   ],
   ...overrides,
 });
@@ -265,6 +271,116 @@ describe('createInteractiveProvider', () => {
     expect(r.value.sessionId).toBeUndefined();
     expect(calls[0]!.args).not.toContain('fixed-session-id');
     await expect(readFileFs(join(dir, 'session-id.txt'), 'utf8')).rejects.toThrow();
+  });
+
+  it('passes a pointer at the prompt file, never the prompt body', async () => {
+    const cap = createCapturingBus();
+    const { spawn, calls, emitExit } = makeSpawn();
+    const provider = createInteractiveProvider(spec(), { eventBus: cap.bus, spawn, readFile: stubReadFile });
+
+    const runPromise = provider.run({ cwd: CWD, promptFile: PROMPT_FILE, outputFile: OUTPUT_FILE, model: MODEL });
+    emitExit(0);
+    await runPromise;
+
+    const args = calls[0]!.args;
+    expect(args.at(-1)).toContain(String(PROMPT_FILE));
+    expect(args).not.toContain(STUB_PROMPT);
+  });
+
+  it('keeps argv small no matter how large the prompt is', async () => {
+    // The regression that motivated the pointer: a rendered plan prompt blew the 32,767-byte
+    // Windows command line and the session died with `spawn ENAMETOOLONG` before the CLI started.
+    const cap = createCapturingBus();
+    const { spawn, calls, emitExit } = makeSpawn();
+    const hugePrompt = 'x'.repeat(200_000);
+    const provider = createInteractiveProvider(spec(), {
+      eventBus: cap.bus,
+      spawn,
+      readFile: () => Promise.resolve(hugePrompt),
+    });
+
+    const runPromise = provider.run({ cwd: CWD, promptFile: PROMPT_FILE, outputFile: OUTPUT_FILE, model: MODEL });
+    emitExit(0);
+    await runPromise;
+
+    const call = calls[0]!;
+    expect(argvByteLength(call.command, call.args)).toBeLessThan(2_000);
+  });
+
+  it('falls back to the inlined body, with a warning, when the CLI cannot reach the prompt file', async () => {
+    // OpenCode's shape: no `--add-dir`, so only a prompt file under `cwd` is readable. Handing it
+    // an unreachable path would open a session that silently has no instructions — worse than a
+    // large argv, which at least fails loudly.
+    const cap = createCapturingBus();
+    const { spawn, calls, emitExit } = makeSpawn();
+    const provider = createInteractiveProvider(spec({ mountsRoots: false }), {
+      eventBus: cap.bus,
+      spawn,
+      readFile: stubReadFile,
+    });
+
+    const runPromise = provider.run({
+      cwd: absolutePath('/tmp/some-repo'),
+      promptFile: PROMPT_FILE,
+      outputFile: OUTPUT_FILE,
+      model: MODEL,
+    });
+    emitExit(0);
+    await runPromise;
+
+    expect(calls[0]!.args).toContain(STUB_PROMPT);
+    expect(cap.logs.map((e) => e.message).join('\n')).toContain('passing the prompt inline');
+  });
+
+  it('uses the pointer for a root-less CLI when the prompt file sits under cwd', async () => {
+    const cap = createCapturingBus();
+    const { spawn, calls, emitExit } = makeSpawn();
+    const provider = createInteractiveProvider(spec({ mountsRoots: false }), {
+      eventBus: cap.bus,
+      spawn,
+      readFile: stubReadFile,
+    });
+
+    const promptFile = absolutePath(join(String(CWD), 'prompt.md'));
+    const runPromise = provider.run({ cwd: CWD, promptFile, outputFile: OUTPUT_FILE, model: MODEL });
+    emitExit(0);
+    await runPromise;
+
+    expect(calls[0]!.args.at(-1)).toContain(String(promptFile));
+    expect(calls[0]!.args).not.toContain(STUB_PROMPT);
+  });
+
+  it('names an argv overflow in the spawn error instead of surfacing a bare errno', async () => {
+    const cap = createCapturingBus();
+    const overflow = Object.assign(new Error('spawn ENAMETOOLONG'), { code: 'ENAMETOOLONG' });
+    const provider = createInteractiveProvider(spec(), {
+      eventBus: cap.bus,
+      spawn: () => {
+        throw overflow;
+      },
+      readFile: stubReadFile,
+    });
+
+    const r = await provider.run({ cwd: CWD, promptFile: PROMPT_FILE, outputFile: OUTPUT_FILE, model: MODEL });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error.message).toContain('past the 32767-byte Windows limit');
+    expect(r.error.message).toContain(String(PROMPT_FILE));
+  });
+
+  it('reports a spawn failure that arrives as an async error event, not as exit code -1', async () => {
+    const cap = createCapturingBus();
+    const { spawn, emitError } = makeSpawn();
+    const provider = createInteractiveProvider(spec(), { eventBus: cap.bus, spawn, readFile: stubReadFile });
+
+    const runPromise = provider.run({ cwd: CWD, promptFile: PROMPT_FILE, outputFile: OUTPUT_FILE, model: MODEL });
+    emitError(Object.assign(new Error('spawn E2BIG'), { code: 'E2BIG' }));
+    const r = await runPromise;
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error.code).toBe('storage-error');
+    expect(r.error.message).toContain('failed to spawn');
+    expect(r.error.message).toContain('past the 32767-byte Windows limit');
   });
 
   it('publishes a start and an exit log naming the provider', async () => {

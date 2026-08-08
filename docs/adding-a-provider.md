@@ -187,6 +187,18 @@ the full shape):
   on clean exit **and** on signals-present recovery, so a watchdog SIGTERM that landed after the
   agent finished still counts as success.
 
+### Prompt delivery — keep the body out of argv
+
+`stdin: session.prompt` above is not a stylistic choice. A Windows command line caps at 32,767
+bytes (8,191 once an npm/winget `.cmd` shim routes through `cmd.exe`, where the excess is silently
+truncated instead of reported), and a rendered harness prompt clears that on its own — passing the
+body as an argument produced `spawn ENAMETOOLONG` before the CLI had started.
+
+So: pipe the prompt through stdin when your CLI accepts it. When it does not — the interactive
+port cannot, since piping stdin flips most CLIs out of interactive mode — write the prompt to a
+file and pass a pointer at it with `buildPromptPointer(path)` from
+`_engine/prompt-pointer.ts`, and make sure the file's directory is among the roots you mount.
+
 Companion file `src/integration/ai/providers/_engine/gemini-provider-deps.ts` declares the
 composition-root inputs (`rateLimitRetries`, `eventBus`, and the test seams `spawn?` / `command?`
 / `idleMs?` / `backoffSchedule?`). Copy `claude-provider-deps.ts` and rename. It lives in

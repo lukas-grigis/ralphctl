@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { ChildProcess } from 'node:child_process';
 import { absolutePath } from '@tests/fixtures/domain.ts';
@@ -65,8 +66,27 @@ describe('createInteractiveOpencodeProvider', () => {
     expect(calls[0]!.command).toBe('opencode');
     // Order is load-bearing: `opencode [project]` takes the directory positionally, and the
     // rendered prompt (which carries the audit-[09] contract section) rides --prompt.
+    //
+    // Body inlined here because PROMPT_FILE sits outside CWD and OpenCode has no --add-dir to
+    // mount it with — the pointer would name a path this session cannot open. See the sibling
+    // test for the reachable case.
     expect(calls[0]!.args).toEqual([String(CWD), '--model', MODEL, '--prompt', STUB_PROMPT]);
     expect(calls[0]!.cwd).toBe(String(CWD));
+  });
+
+  it('passes a pointer instead of the body when the prompt file sits inside the project directory', async () => {
+    const cap = createCapturingBus();
+    const { spawn, calls, emitExit } = makeSpawn();
+    const provider = createInteractiveOpencodeProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
+
+    // The plan / refine shape: cwd IS the per-run sandbox that holds prompt.md.
+    const promptFile = absolutePath(join(String(CWD), 'prompt.md'));
+    const runPromise = provider.run({ cwd: CWD, promptFile, outputFile: OUTPUT_FILE, model: MODEL });
+    emitExit(0);
+    await runPromise;
+
+    expect(calls[0]!.args.at(-1)).toContain(String(promptFile));
+    expect(calls[0]!.args).not.toContain(STUB_PROMPT);
   });
 
   it('drops effort — --variant is `run`-only and the yargs-strict TUI command would exit 1', async () => {

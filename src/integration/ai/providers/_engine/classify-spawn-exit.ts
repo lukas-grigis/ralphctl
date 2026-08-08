@@ -5,6 +5,7 @@ import { RateLimitError } from '@src/domain/value/error/rate-limit-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import { pathExists } from '@src/integration/io/fs.ts';
+import { argvOverflowHint, isArgvOverflow } from '@src/integration/ai/providers/_engine/argv-budget.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { AttemptOutcome } from '@src/integration/ai/providers/_engine/attempt-outcome.ts';
 
@@ -100,6 +101,12 @@ export interface ClassifySpawnExitInput {
      * branch — a spawn error means the child never ran, so `code` / `signal` carry no signal.
      */
     readonly spawnError?: NodeJS.ErrnoException;
+    /**
+     * Size of the command line that was attempted, when the caller measured it. Lets the spawn-
+     * error branch recognise an argv overflow whose errno is unhelpful — the same condition has
+     * been seen surfacing as `ERROR_INVALID_PARAMETER` rather than `ENAMETOOLONG`.
+     */
+    readonly argvBytes?: number;
   };
   readonly stderr: string;
   /**
@@ -166,19 +173,53 @@ const classifyPreExit = ({ session, exit, providerName }: ClassifySpawnExitInput
   }
 
   if (exit.spawnError !== undefined) {
-    const errno = exit.spawnError.code ?? exit.spawnError.name;
-    return {
-      kind: 'error',
-      error: new ProcessCrashError({
-        entity: providerName,
-        state: 'spawn-failed',
-        message: `${providerName}: spawn failed: ${errno} — ${exit.spawnError.message}`,
-        hint: 'verify the provider CLI is installed and on PATH',
-      }),
-    };
+    return classifySpawnFailure(providerName, exit.spawnError, exit.argvBytes);
   }
 
   return undefined;
+};
+
+/**
+ * Turn a spawn-level failure into an outcome. Shared by the pre-exit branch above and by the
+ * synchronous-throw path in `runProviderAttempt` — `cross-spawn` raises an oversized command line
+ * synchronously on Windows, so a classifier that only handled the async `'error'` event would let
+ * exactly this bug escape as an unhandled exception.
+ *
+ * An argv overflow is NOT transient: the same command line is assembled on every attempt, so a
+ * retryable `ProcessCrash` would burn the whole budget re-spawning something that can never fit.
+ * It is also not a PATH problem, so the default hint would send an operator looking in the wrong
+ * place. Non-retryable config error instead, carrying the measured size.
+ *
+ * @public
+ */
+export const classifySpawnFailure = (
+  providerName: ProviderName,
+  cause: NodeJS.ErrnoException,
+  argvBytes?: number
+): AttemptOutcome => {
+  const errno = cause.code ?? cause.name;
+  if (isArgvOverflow(errno, argvBytes ?? 0)) {
+    const hint = argvOverflowHint(argvBytes ?? 0);
+    return {
+      kind: 'error',
+      error: new InvalidStateError({
+        entity: providerName,
+        currentState: 'spawn-failed',
+        attemptedAction: 'complete generation',
+        message: `${providerName}: spawn failed: ${errno} — ${hint}`,
+        hint,
+      }),
+    };
+  }
+  return {
+    kind: 'error',
+    error: new ProcessCrashError({
+      entity: providerName,
+      state: 'spawn-failed',
+      message: `${providerName}: spawn failed: ${errno} — ${cause.message}`,
+      hint: 'verify the provider CLI is installed and on PATH',
+    }),
+  };
 };
 
 /**

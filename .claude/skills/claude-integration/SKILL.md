@@ -43,6 +43,13 @@ import type { InteractiveAiProvider } from '@src/integration/ai/providers/_engin
   its own UI); the TUI's alt-screen state is suspended and restored on the way back. Used by `refine` /
   `plan` / `ideate` / `readiness` flows that need a human at the keyboard.
 
+**Prompt delivery — never the body in argv.** Headless claude / codex / opencode pipe the prompt through
+stdin. Interactive cannot (stdin piping flips these CLIs out of interactive mode) and neither can copilot
+headless (that CLI has no stdin prompt path), so those write the prompt to a file and pass a POINTER at it —
+`_engine/prompt-pointer.ts`. Argv caps at 32,767 bytes on Windows and a rendered plan prompt clears that on
+its own; inlining it produced `spawn ENAMETOOLONG` before the CLI ever started. `_engine/argv-budget.ts`
+names an overflow in the error rather than leaving a bare errno.
+
 ## File-based provider contract
 
 ralphctl does NOT parse stdout for signals or session IDs. Instead, every spawn passes paths to two files:
@@ -59,7 +66,8 @@ The per-spawn audit / sandbox layout is:
 
 ```
 <sprintDir>/<flow>/<unit>/rounds/<N>/{generator,evaluator}/
-├── prompt.md           ← rendered prompt (input)
+├── prompt.md           ← rendered prompt (input); the CLI is pointed at this file, not handed its text
+├── copilot-prompt.md   ← copilot headless only: the exact prompt that spawn was given
 ├── signals.json        ← parsed structured signals (output, provider-written)
 ├── session-id.txt      ← provider's session id (output)
 └── evaluation.md       ← rendered evaluator verdict (evaluator role only)

@@ -67,7 +67,7 @@ describe('createInteractiveClaudeProvider', () => {
     expect(r.error.message).toContain('Claude model');
   });
 
-  it('spawns claude directly (no bash wrapper) and passes prompt content as positional arg', async () => {
+  it('spawns claude directly (no bash wrapper) and passes a prompt-file pointer as positional arg', async () => {
     const cap = createCapturingBus();
     const { spawn, calls, emitExit } = makeSpawn();
     const provider = createInteractiveClaudeProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
@@ -88,12 +88,12 @@ describe('createInteractiveClaudeProvider', () => {
     const args = calls[0]!.args;
     expect(args).toContain('--model');
     expect(args).toContain(CLAUDE_MODELS[0]!);
-    // --permission-mode and prompt content are present as raw argv elements.
     expect(args).toContain('--permission-mode');
     expect(args).toContain('acceptEdits');
-    expect(args).toContain(STUB_PROMPT);
-    // The prompt is the trailing positional so claude reads it as the opening message.
-    expect(args.at(-1)).toBe(STUB_PROMPT);
+    // The trailing positional is claude's opening message: a pointer at the prompt file, never
+    // the body — inlining it capped every session at the platform command-line limit.
+    expect(args.at(-1)).toContain(String(PROMPT_FILE));
+    expect(args).not.toContain(STUB_PROMPT);
     // No -lc / bash remnants.
     expect(args).not.toContain('-lc');
     expect(args).not.toContain('bash');

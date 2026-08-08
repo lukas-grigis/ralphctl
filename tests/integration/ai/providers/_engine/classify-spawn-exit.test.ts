@@ -272,6 +272,52 @@ describe.each(PROVIDERS)('classifySpawnExit [%s]', (providerName) => {
     }
   });
 
+  it('an argv overflow is a NON-retryable config error, not a retryable crash', async () => {
+    // The same command line is rebuilt on every attempt, so retrying an oversized argv burns the
+    // whole budget on a spawn that can never succeed — and the missing-binary hint would send an
+    // operator looking down the wrong path entirely.
+    const session = baseSession();
+    const spawnError = Object.assign(new Error('spawn ENAMETOOLONG'), {
+      code: 'ENAMETOOLONG',
+    }) as NodeJS.ErrnoException;
+    const outcome = await classifySpawnExit({
+      session,
+      exit: { code: null, signal: null, spawnError, argvBytes: 120_000 },
+      stderr: '',
+      rateLimitRe: RATE_RE,
+      providerName,
+      eventBus: createCapturingBus().bus,
+      watchdogBannerId: 'unused',
+      onSuccess: () => okSuccess(session),
+    });
+    expect(outcome.kind).toBe('error');
+    if (outcome.kind === 'error') {
+      expect(outcome.error.code).toBe('invalid-state');
+      expect(outcome.error.message).toContain('120000 bytes');
+      expect(outcome.error.message).toContain('not in argv');
+    }
+  });
+
+  it('treats any spawn failure past the Windows ceiling as an overflow, whatever the errno says', async () => {
+    // Windows does not document which error code CreateProcessW sets for an oversized command
+    // line, and the same condition has been reported as ERROR_INVALID_PARAMETER — so the measured
+    // size decides, not the errno alone.
+    const session = baseSession();
+    const spawnError = Object.assign(new Error('spawn UNKNOWN'), { code: 'UNKNOWN' }) as NodeJS.ErrnoException;
+    const outcome = await classifySpawnExit({
+      session,
+      exit: { code: null, signal: null, spawnError, argvBytes: 40_000 },
+      stderr: '',
+      rateLimitRe: RATE_RE,
+      providerName,
+      eventBus: createCapturingBus().bus,
+      watchdogBannerId: 'unused',
+      onSuccess: () => okSuccess(session),
+    });
+    expect(outcome.kind).toBe('error');
+    if (outcome.kind === 'error') expect(outcome.error.code).toBe('invalid-state');
+  });
+
   it('rate-limit detected in stdoutTail (not stderr) when the provider reports quota on stdout', async () => {
     // FINDING 3 — claude's `-p stream-json` mode reports quota in the stdout result envelope, not
     // on stderr. The classifier must scan stderr + stdoutTail so the throttle trips the backoff.

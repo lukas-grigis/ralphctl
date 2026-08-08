@@ -7,7 +7,7 @@ import { isOpencodeModelIdShape } from '@src/domain/value/settings-models/openco
  * Interactive `opencode` adapter. Spawns the OpenCode TUI with `stdio: 'inherit'` so the user
  * chats directly.
  *
- *   opencode <cwd> --model <provider/model> --prompt <prompt>
+ *   opencode <cwd> --model <provider/model> --prompt <pointer at promptFile, or the body>
  *
  * OpenCode's default command takes the project directory as its positional argument (`opencode
  * [project]`) rather than a `--cd`-style flag, and starts the TUI. Unlike codex there is no
@@ -26,7 +26,13 @@ import { isOpencodeModelIdShape } from '@src/domain/value/settings-models/openco
  * `domain/value/settings-models/opencode.ts`.
  *
  * There is no `--add-dir` equivalent, so `roots` cannot be mounted — the single positional
- * project directory is the whole topology. Session ids are minted by OpenCode itself and only
+ * project directory is the whole topology, which is what `mountsRoots: false` declares. The
+ * consequence is that OpenCode only gets the prompt POINTER when the prompt file already lives
+ * under `cwd` (plan, refine); with a repository as cwd (ideate, memory-distill) the file is
+ * unreachable and the engine falls back to the inlined body with a warning, since a session that
+ * cannot read its own brief is worse than a large argv. See `_engine/prompt-pointer.ts`.
+ *
+ * Session ids are minted by OpenCode itself and only
  * surface on the `run` JSON stream (not on the TUI path), so `supportsSessionId` stays false and
  * subscribers fall back to the runner's session id, matching the codex adapter.
  *
@@ -40,7 +46,8 @@ export const createInteractiveOpencodeProvider = (deps: InteractiveProviderDeps)
       modelCatalogLabel: 'OpenCode',
       isKnownModel: isOpencodeModelIdShape,
       supportsSessionId: false,
-      buildArgs: (input, { prompt }) => [String(input.cwd), '--model', input.model, '--prompt', prompt],
+      mountsRoots: false,
+      buildArgs: (input, { promptArg }) => [String(input.cwd), '--model', input.model, '--prompt', promptArg],
     },
     deps
   );

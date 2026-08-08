@@ -62,7 +62,7 @@ describe('createInteractiveCodexProvider', () => {
     expect(r.error.message).toContain('Codex model');
   });
 
-  it('spawns codex directly (no bash wrapper) with --cd, --add-dir, -s, -a, and prompt content', async () => {
+  it('spawns codex directly (no bash wrapper) with --cd, --add-dir, -s, -a, and a prompt-file pointer', async () => {
     const cap = createCapturingBus();
     const { spawn, calls, emitExit } = makeSpawn();
     const provider = createInteractiveCodexProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
@@ -89,8 +89,9 @@ describe('createInteractiveCodexProvider', () => {
     expect(args).toContain('workspace-write');
     expect(args).toContain('-a');
     expect(args).toContain('never');
-    expect(args).toContain(STUB_PROMPT);
-    expect(args.at(-1)).toBe(STUB_PROMPT);
+    // Trailing positional is a pointer at the prompt file, never the body — see prompt-pointer.ts.
+    expect(args.at(-1)).toContain(String(PROMPT_FILE));
+    expect(args).not.toContain(STUB_PROMPT);
     // No bash remnants.
     expect(args).not.toContain('-lc');
     expect(calls[0]!.cwd).toBe(String(CWD));

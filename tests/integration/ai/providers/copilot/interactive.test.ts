@@ -66,7 +66,7 @@ describe('createInteractiveCopilotProvider', () => {
     expect(r.error.message).toContain('Copilot model');
   });
 
-  it('spawns copilot directly with --add-dir=<path>, --model=<model>, --allow-all-tools, and -i <prompt content>', async () => {
+  it('spawns copilot directly with --add-dir=<path>, --model=<model>, --allow-all-tools, and -i <prompt pointer>', async () => {
     const cap = createCapturingBus();
     const { spawn, calls, emitExit } = makeSpawn();
     const provider = createInteractiveCopilotProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
@@ -97,11 +97,13 @@ describe('createInteractiveCopilotProvider', () => {
     expect(args).toContain('--allow-all-tools');
     expect(args).not.toContain('--deny-tool=write');
     expect(args).not.toContain('--allow-tool=write');
-    // Prompt content is passed as a single argv to -i (no bash, no command substitution —
-    // matches v1's working adapter and avoids shell-quoting failure modes).
+    // A pointer at the prompt file rides `-i` as a single argv element (no bash, no command
+    // substitution — matches v1's working adapter and avoids shell-quoting failure modes). The
+    // body stays on disk so argv size does not track prompt size.
     const iIndex = args.indexOf('-i');
     expect(iIndex).toBeGreaterThanOrEqual(0);
-    expect(args[iIndex + 1]).toBe(PROMPT_CONTENT);
+    expect(args[iIndex + 1]).toContain(String(PROMPT_FILE));
+    expect(args).not.toContain(PROMPT_CONTENT);
     expect(calls[0]!.cwd).toBe(String(CWD));
   });
 

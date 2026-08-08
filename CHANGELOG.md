@@ -53,6 +53,18 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **AI sessions no longer die with `spawn ENAMETOOLONG` on Windows.** The rendered prompt was passed to the
+  CLI as a command-line argument, and Windows caps a command line at 32,767 characters — which a plan or
+  refine prompt reaches on its own once a sprint has some history behind it. The session failed before the
+  CLI had started, with nothing in the error pointing at the cause. The prompt now stays in the file the
+  harness already writes and the CLI is pointed at it, so command-line size no longer tracks prompt size.
+  Affected every interactive flow (`plan`, `refine`, `ideate`, learning-distill) on all four providers, plus
+  headless GitHub Copilot. Two related failures were fixed alongside it: a spawn that failed synchronously —
+  which is how Windows reports this — escaped as an unhandled exception instead of failing the round, and an
+  oversized command line was retried until the attempt budget ran out even though every retry rebuilt the
+  same command. There is one deliberate carve-out: OpenCode can only read files under its project directory,
+  so when the prompt lives elsewhere (`ideate`, learning-distill) it is still passed inline, with a warning
+  in the log.
 - **The OpenCode free-tier default no longer points at a model that refuses every request.**
   `opencode/north-mini-code-free` returns an upstream `401` while its free-tier siblings serve normally, and
   it was the shipped light-tier default in both the per-provider defaults and the `opencode-only` preset — so

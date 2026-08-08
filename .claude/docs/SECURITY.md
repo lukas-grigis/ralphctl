@@ -82,6 +82,19 @@ reject-on-nonzero semantics against `osascript` / `notify-send` / `which`. An ES
 importing `node:child_process`'s spawn functions directly, so the two-exception list above is
 enforced at lint time, not by convention.
 
+**A prompt body never travels in argv.** Every adapter writes the rendered prompt to a file and passes the
+CLI a POINTER at that file (`providers/_engine/prompt-pointer.ts`) — headless claude / codex / opencode pipe
+it through stdin instead, which is equivalent for this purpose. Argv is capped at 32,767 bytes on Windows
+(and 8,191 once a `.cmd` shim routes through `cmd.exe`, where the excess is silently TRUNCATED rather than
+reported), well under what a rendered harness prompt reaches — a plan session on Windows died with
+`spawn ENAMETOOLONG` before the CLI started. The one exception is a CLI that cannot be given access to the
+prompt file: OpenCode has no `--add-dir`, so when the prompt lives outside `cwd` the engine inlines the body
+and warns, because a session that cannot read its own brief fails more quietly than a large argv does. Two
+earlier answers to this are on the rejected list and must not return: a `bash -lc "… $(cat promptFile)"`
+wrapper (cannot execute `.cmd` shims, mangles Windows backslash paths, silently dropped the Copilot seed)
+and `shell: true` for binary+args (mis-quotes spaces and `& | % "`). `providers/_engine/argv-budget.ts`
+carries the limits and turns an overflow into a named, non-retryable error instead of a bare errno.
+
 **`AbortError` is the one error chains propagate transparently.** User-initiated cancellation (Ctrl+C, the
 TUI abort hotkey) flows through every wrapper without being absorbed by guards or fallbacks. Anywhere a guard
 or fallback catches errors, it MUST exempt `AbortError`. The chain's `AbortSignal` is now threaded all the

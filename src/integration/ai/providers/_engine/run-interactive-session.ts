@@ -11,6 +11,8 @@ import {
   defaultInteractiveSpawn,
   defaultReadFile,
 } from '@src/integration/ai/providers/_engine/interactive-spawn.ts';
+import { argvByteLength, argvOverflowHint, isArgvOverflow } from '@src/integration/ai/providers/_engine/argv-budget.ts';
+import { buildPromptPointer, isPromptFileReachable } from '@src/integration/ai/providers/_engine/prompt-pointer.ts';
 import { persistSessionIdFile } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
 import { attachAbortKill } from '@src/integration/ai/providers/_engine/abort-kill.ts';
 import { validateModel } from '@src/integration/ai/providers/_engine/validate-model.ts';
@@ -32,20 +34,32 @@ import { uuidv7 } from '@src/domain/value/uuid7.ts';
  * small ways (one skipped the suspension check, one hardcoded its own name in an error) precisely
  * because the skeleton was copied rather than shared.
  *
- * The prompt is read in Node and handed to the CLI as a plain argv element rather than through a
- * `bash -lc "… $(cat promptFile)"` wrapper. That wrapper broke on Windows twice over: Git Bash
- * cannot execute the `.cmd` shims npm/winget install, and Windows backslash paths do not survive
- * bash path resolution inside a command string. Spawning the binary directly through
- * `crossPlatformSpawn` resolves the shim and escapes a prompt containing spaces or `& | % "`
- * without a shell.
+ * The prompt travels as a POINTER to the file the caller already rendered — a fixed-size argv
+ * element naming the path — not as the body. Passing the body inlined argv size to prompt size,
+ * and the interactive templates outgrew the Windows command-line ceiling: a plan session died with
+ * `spawn ENAMETOOLONG` before Claude ever started. See `prompt-pointer.ts` for the pointer and
+ * `argv-budget.ts` for the limits. The one exception is a CLI that cannot be given access to the
+ * prompt file (OpenCode with a prompt outside `cwd`), which falls back to the inlined body with a
+ * warning rather than opening a session that can read nothing.
+ *
+ * The binary is spawned directly through `crossPlatformSpawn`, which resolves the npm / winget
+ * `.cmd` shims and escapes arguments containing spaces or `& | % "` without a shell. Neither a
+ * `bash -lc "… $(cat promptFile)"` wrapper nor `shell: true` may come back: the first cannot
+ * execute `.cmd` shims, mangles Windows backslash paths inside `$(cat …)`, and silently dropped
+ * the seeded prompt on Copilot; the second mis-quotes exactly the arguments listed above.
  *
  * Pause-the-host (Ink) is not the adapter's responsibility — that lives in the leaf, which wraps
  * `interactiveAi.run(...)` in `runInTerminal(...)`. Keeping the adapter pure means it behaves the
  * same under the TUI, the plain CLI, and tests.
  */
 export interface InteractiveSessionContext {
-  /** Prompt-file contents, already read from disk. */
-  readonly prompt: string;
+  /**
+   * What goes in the CLI's prompt slot: normally a short pointer at `input.promptFile`
+   * ({@link buildPromptPointer}), and only when that file would be unreachable — OpenCode with a
+   * prompt outside `cwd` — the prompt body itself. Adapters place it verbatim; the decision is the
+   * engine's so no adapter can reintroduce an unbounded argv element on its own.
+   */
+  readonly promptArg: string;
   /**
    * Directory roots to mount, de-duplicated and ordered: `cwd`, then any `additionalRoots`, then
    * the directories holding `outputFile` and `promptFile`. Each CLI spells the flag differently
@@ -78,6 +92,14 @@ export interface InteractiveProviderSpec {
    * absence as non-fatal.
    */
   readonly supportsSessionId: boolean;
+  /**
+   * Whether the CLI can be handed directory roots (`--add-dir` or equivalent), which decides
+   * whether the prompt file is reachable from wherever the harness put it. Claude / Copilot /
+   * Codex can; OpenCode cannot — its single positional project directory is the whole topology —
+   * so it only sees a prompt file that already lives under `cwd`. Drives the pointer-vs-body
+   * decision in {@link isPromptFileReachable}.
+   */
+  readonly mountsRoots: boolean;
   /** Assemble the CLI's argv from the caller's input plus the shared session context. */
   readonly buildArgs: (input: InteractiveAiProviderInput, context: InteractiveSessionContext) => readonly string[];
 }
@@ -99,6 +121,32 @@ const dedupeRoots = (input: InteractiveAiProviderInput): readonly string[] => {
   return [...new Set(all)];
 };
 
+/**
+ * Decide what occupies the CLI's prompt slot. Normally the pointer; the body only when the CLI
+ * could not open the file it points at, which today means OpenCode running with the prompt outside
+ * `cwd` (ideate, memory-distill). The fallback is warned about rather than silent — it is the one
+ * remaining path where a large prompt can still overflow argv, so an operator hitting the limit
+ * there gets the size in the log rather than only an errno at spawn time.
+ */
+const resolvePromptArg = (
+  deps: InteractiveProviderDeps,
+  spec: InteractiveProviderSpec,
+  input: InteractiveAiProviderInput,
+  body: string
+): string => {
+  const promptFile = String(input.promptFile);
+  if (isPromptFileReachable(String(input.cwd), promptFile, spec.mountsRoots)) return buildPromptPointer(promptFile);
+
+  deps.eventBus.publish({
+    type: 'log',
+    level: 'warn',
+    message: `${spec.providerName}: prompt file is outside the session's only readable root — passing the prompt inline (${String(Buffer.byteLength(body, 'utf8'))} bytes)`,
+    meta: { promptFile, cwd: String(input.cwd) },
+    at: IsoTimestamp.now(),
+  });
+  return body;
+};
+
 /** Read the rendered prompt off disk, mapping any read failure to a `StorageError`. */
 const readPrompt = async (
   readFile: (path: string) => Promise<string>,
@@ -118,42 +166,63 @@ const readPrompt = async (
   }
 };
 
+/**
+ * Describe a spawn failure. An argv overflow gets named as such — it used to surface as a bare
+ * `failed to spawn — spawn ENAMETOOLONG` with nothing pointing at the cause, and the errno alone
+ * is not enough to recognise it (the same condition has been seen arriving as
+ * `ERROR_INVALID_PARAMETER`), so the measured byte count decides too.
+ */
+const describeSpawnFailure = (providerName: string, cause: unknown, argvBytes: number, promptFile: string): string => {
+  const errno = cause instanceof Error ? ((cause as NodeJS.ErrnoException).code ?? cause.name) : undefined;
+  if (!isArgvOverflow(errno, argvBytes)) return `${providerName}: failed to spawn — ${messageOf(cause)}`;
+  return `${providerName}: failed to spawn — ${messageOf(cause)} — ${argvOverflowHint(argvBytes, promptFile)}`;
+};
+
 /** Hand the terminal to the CLI. A throwing spawn (missing binary, EACCES) becomes a `StorageError`. */
 const spawnSession = (
   spawnFn: InteractiveSpawn,
   command: string,
   args: readonly string[],
-  cwd: string,
+  input: InteractiveAiProviderInput,
   providerName: string
 ): Result<ChildProcess, StorageError> => {
   try {
-    return Result.ok(spawnFn(command, args, { stdio: 'inherit', cwd }));
+    return Result.ok(spawnFn(command, args, { stdio: 'inherit', cwd: String(input.cwd) }));
   } catch (cause) {
     return Result.error(
       new StorageError({
         subCode: 'io',
-        message: `${providerName}: failed to spawn — ${messageOf(cause)}`,
+        message: describeSpawnFailure(providerName, cause, argvByteLength(command, args), String(input.promptFile)),
         cause,
       })
     );
   }
 };
 
+/** How a session ended: an exit code, or the spawn-level failure that arrived asynchronously. */
+interface SessionExit {
+  readonly code: number | null;
+  readonly spawnError?: unknown;
+}
+
 /**
  * Run the child to completion under the abort kill-ladder. A `stdio: 'inherit'` child is
  * unreachable once spawned (the harness keeps no reference past `run`), so a TUI-side cancel can't
  * stop it — the caller's abort signal drives a SIGTERM → grace → SIGKILL ladder instead, and the
  * cleanup runs on normal exit so a reused AbortController never fires kill against a dead pid.
- * An `error` event (spawn-level failure after launch) maps to `-1`.
+ *
+ * An `error` event is a spawn-level failure that surfaced after launch rather than as a throw. Its
+ * cause is carried out rather than collapsed into the `-1` code alone: an argv overflow can arrive
+ * on either path, and reporting one of them as `session exited with code -1` hid the real cause.
  */
-const awaitExit = async (child: ChildProcess, abortSignal: AbortSignal | undefined): Promise<number | null> => {
+const awaitExit = async (child: ChildProcess, abortSignal: AbortSignal | undefined): Promise<SessionExit> => {
   const stopAbortKill = attachAbortKill(child, abortSignal);
-  const exitCode = await new Promise<number | null>((resolve) => {
-    child.on('close', (code) => resolve(code));
-    child.on('error', () => resolve(-1));
+  const exit = await new Promise<SessionExit>((resolve) => {
+    child.on('close', (code) => resolve({ code }));
+    child.on('error', (cause) => resolve({ code: -1, spawnError: cause }));
   });
   stopAbortKill();
-  return exitCode;
+  return exit;
 };
 
 /**
@@ -221,11 +290,15 @@ export const createInteractiveProvider = (
       });
       if (!validated.ok) return Result.error(validated.error);
 
+      // Read-through even though the body no longer reaches argv: it is the pre-flight that turns
+      // a missing / unreadable prompt file into a clear error before the terminal is handed over,
+      // and it supplies the body for the unreachable-file fallback below.
       const prompt = await readPrompt(readFile, input, spec.providerName);
       if (!prompt.ok) return Result.error(prompt.error);
 
+      const promptArg = resolvePromptArg(deps, spec, input, prompt.value);
       const sessionId = spec.supportsSessionId ? newSessionId() : undefined;
-      const args = spec.buildArgs(input, { prompt: prompt.value, roots: dedupeRoots(input), sessionId });
+      const args = spec.buildArgs(input, { promptArg, roots: dedupeRoots(input), sessionId });
 
       deps.eventBus.publish({
         type: 'log',
@@ -239,19 +312,36 @@ export const createInteractiveProvider = (
         at: IsoTimestamp.now(),
       });
 
-      const spawned = spawnSession(spawnFn, command, args, String(input.cwd), spec.providerName);
+      const spawned = spawnSession(spawnFn, command, args, input, spec.providerName);
       if (!spawned.ok) return Result.error(spawned.error);
 
-      const exitCode = await awaitExit(spawned.value, input.abortSignal);
+      const exit = await awaitExit(spawned.value, input.abortSignal);
 
       deps.eventBus.publish({
         type: 'log',
         level: 'info',
-        message: `${spec.providerName}: session exited (code=${String(exitCode ?? 'null')})`,
+        message: `${spec.providerName}: session exited (code=${String(exit.code ?? 'null')})`,
         at: IsoTimestamp.now(),
       });
 
-      const failure = classifyExit(spec.providerName, input.abortSignal, exitCode);
+      // A late spawn failure outranks the synthetic `-1`, but not an abort — a user cancel that
+      // races the child's teardown must still propagate as AbortError.
+      if (exit.spawnError !== undefined && input.abortSignal?.aborted !== true) {
+        return Result.error(
+          new StorageError({
+            subCode: 'io',
+            message: describeSpawnFailure(
+              spec.providerName,
+              exit.spawnError,
+              argvByteLength(command, args),
+              String(input.promptFile)
+            ),
+            cause: exit.spawnError,
+          })
+        );
+      }
+
+      const failure = classifyExit(spec.providerName, input.abortSignal, exit.code);
       if (failure !== undefined) return Result.error(failure);
 
       if (sessionId === undefined) return Result.ok({});
