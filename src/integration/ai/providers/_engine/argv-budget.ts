@@ -20,13 +20,17 @@
  */
 
 /** `CreateProcessW` `lpCommandLine` ceiling, including the terminating null. */
-export const WINDOWS_COMMAND_LINE_LIMIT = 32_767;
+const WINDOWS_COMMAND_LINE_LIMIT = 32_767;
 
 /**
  * `cmd.exe` ceiling. Not enforced here — it is the SILENT band, so there is no error to classify —
  * but it is the number the hint quotes when explaining why staying well under the ceiling matters.
  */
-export const CMD_EXE_COMMAND_LINE_LIMIT = 8_191;
+const CMD_EXE_COMMAND_LINE_LIMIT = 8_191;
+
+/** Best-effort errno for any thrown or emitted spawn cause, including a non-`Error` rejection. */
+export const errnoOf = (cause: unknown): string | undefined =>
+  cause instanceof Error ? ((cause as NodeJS.ErrnoException).code ?? cause.name) : undefined;
 
 /** Total bytes a command line occupies: the binary, every argument, and one separator each. */
 export const argvByteLength = (command: string, args: readonly string[]): number =>
@@ -46,7 +50,8 @@ export const isArgvOverflow = (errno: string | undefined, argvBytes: number): bo
  * points at the prompt file, because an oversized argv on this codebase means a prompt body leaked
  * back into it.
  */
-export const argvOverflowHint = (argvBytes: number, promptFile?: string): string =>
-  `command line is ${String(argvBytes)} bytes, past the ${String(WINDOWS_COMMAND_LINE_LIMIT)}-byte Windows limit ` +
-  `(${String(CMD_EXE_COMMAND_LINE_LIMIT)} when a .cmd shim routes through cmd.exe) — the prompt body belongs in ` +
-  `${promptFile ?? 'a file the CLI reads'}, not in argv`;
+export const argvOverflowHint = (argvBytes?: number, promptFile?: string): string =>
+  `command line is past the ${String(WINDOWS_COMMAND_LINE_LIMIT)}-byte Windows limit` +
+  `${argvBytes === undefined ? '' : ` (measured ${String(argvBytes)} bytes)`}` +
+  ` (${String(CMD_EXE_COMMAND_LINE_LIMIT)} when a .cmd shim routes through cmd.exe) — ` +
+  `the prompt body belongs in ${promptFile ?? 'a file the CLI reads'}, not in argv`;

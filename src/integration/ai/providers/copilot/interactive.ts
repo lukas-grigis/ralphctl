@@ -33,7 +33,6 @@ export const createInteractiveCopilotProvider = (deps: InteractiveProviderDeps):
       modelCatalogLabel: 'Copilot',
       isKnownModel: isCopilotModel,
       supportsSessionId: true,
-      mountsRoots: true,
       buildArgs: (input, { promptArg, roots, sessionId }) => [
         ...roots.map((p) => `--add-dir=${p}`),
         `--model=${input.model}`,

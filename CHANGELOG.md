@@ -64,7 +64,8 @@ to [Semantic Versioning](https://semver.org/).
   oversized command line was retried until the attempt budget ran out even though every retry rebuilt the
   same command. OpenCode needed one extra step, since it has no `--add-dir` and refuses paths outside its
   project directory: it is now granted read access to the prompt file's directory alone, layered onto your
-  own OpenCode config rather than replacing it.
+  own OpenCode config rather than replacing it. Copilot in headless mode gets the same treatment, since it
+  is the one CLI that cannot take a prompt on stdin.
 - **The OpenCode free-tier default no longer points at a model that refuses every request.**
   `opencode/north-mini-code-free` returns an upstream `401` while its free-tier siblings serve normally, and
   it was the shipped light-tier default in both the per-provider defaults and the `opencode-only` preset — so

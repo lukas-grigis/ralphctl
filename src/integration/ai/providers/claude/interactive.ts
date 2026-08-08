@@ -32,7 +32,6 @@ export const createInteractiveClaudeProvider = (deps: InteractiveProviderDeps): 
       modelCatalogLabel: 'Claude',
       isKnownModel: isClaudeModel,
       supportsSessionId: true,
-      mountsRoots: true,
       buildArgs: (input, { promptArg, roots, sessionId }) => [
         ...roots.flatMap((p) => ['--add-dir', p]),
         '--model',

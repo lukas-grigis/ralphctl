@@ -35,7 +35,6 @@ export const createInteractiveCodexProvider = (deps: InteractiveProviderDeps): I
       modelCatalogLabel: 'Codex',
       isKnownModel: isCodexModel,
       supportsSessionId: false,
-      mountsRoots: true,
       buildArgs: (input, { promptArg, roots }) => [
         '--cd',
         String(input.cwd),

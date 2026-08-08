@@ -1,46 +1,14 @@
-import { EventEmitter } from 'node:events';
 import { describe, expect, it } from 'vitest';
-import type { ChildProcess } from 'node:child_process';
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
+import { makeInteractiveSpawn } from '@tests/fixtures/interactive-spawn-fake.ts';
 import { COPILOT_MODELS } from '@src/domain/value/settings-models/copilot.ts';
 import { createInteractiveCopilotProvider } from '@src/integration/ai/providers/copilot/interactive.ts';
-import type { InteractiveSpawn } from '@src/integration/ai/providers/_engine/interactive-spawn.ts';
 
 // The session skeleton this adapter delegates to — model validation, prompt-file reads, spawn
 // failures, abort precedence, the exit-code branch, the session-id sidechannel — is covered once
 // in tests/integration/ai/providers/_engine/run-interactive-session.test.ts. What stays here is
 // the part that is genuinely Copilot-specific: the argv it builds.
-
-interface CapturingSpawnState {
-  readonly spawn: InteractiveSpawn;
-  readonly calls: ReadonlyArray<{ readonly command: string; readonly args: readonly string[]; readonly cwd: string }>;
-  readonly emitExit: (code: number | null) => void;
-}
-
-const makeSpawn = (): CapturingSpawnState => {
-  const calls: Array<{ command: string; args: readonly string[]; cwd: string }> = [];
-  const last = {
-    child: undefined as (ChildProcess & { emit: (event: string, ...args: unknown[]) => boolean }) | undefined,
-  };
-  const spawn: InteractiveSpawn = (command, args, options) => {
-    calls.push({ command, args, cwd: options.cwd });
-    const child = new EventEmitter() as unknown as ChildProcess & {
-      emit: (event: string, ...args: unknown[]) => boolean;
-    };
-    // `attachAbortKill` calls `child.kill` on abort — the fake needs it to be callable.
-    (child as unknown as { kill: () => boolean }).kill = (): boolean => true;
-    last.child = child;
-    return child;
-  };
-  return {
-    spawn,
-    calls,
-    emitExit: (code) => {
-      setTimeout(() => last.child?.emit('close', code), 0);
-    },
-  };
-};
 
 const PROMPT_FILE = absolutePath('/tmp/copilot-prompt.md');
 const OUTPUT_FILE = absolutePath('/tmp/copilot-output.md');
@@ -51,7 +19,7 @@ const stubReadFile = (): Promise<string> => Promise.resolve(PROMPT_CONTENT);
 describe('createInteractiveCopilotProvider', () => {
   it('rejects a model outside the Copilot catalog with InvalidStateError', async () => {
     const cap = createCapturingBus();
-    const { spawn } = makeSpawn();
+    const { spawn } = makeInteractiveSpawn();
     const provider = createInteractiveCopilotProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
     const r = await provider.run({
       cwd: CWD,
@@ -68,7 +36,7 @@ describe('createInteractiveCopilotProvider', () => {
 
   it('spawns copilot directly with --add-dir=<path>, --model=<model>, --allow-all-tools, and -i <prompt pointer>', async () => {
     const cap = createCapturingBus();
-    const { spawn, calls, emitExit } = makeSpawn();
+    const { spawn, calls, emitExit } = makeInteractiveSpawn();
     const provider = createInteractiveCopilotProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
 
     const runPromise = provider.run({
@@ -109,7 +77,7 @@ describe('createInteractiveCopilotProvider', () => {
 
   it('forwards the resolved effort as --effort=<level>, and omits the flag when unset', async () => {
     const cap = createCapturingBus();
-    const { spawn, calls, emitExit } = makeSpawn();
+    const { spawn, calls, emitExit } = makeInteractiveSpawn();
     const provider = createInteractiveCopilotProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
 
     const withEffort = provider.run({
@@ -136,7 +104,7 @@ describe('createInteractiveCopilotProvider', () => {
 
   it('auto-mounts dirname(outputFile) and dirname(promptFile) for harness-controlled writes', async () => {
     const cap = createCapturingBus();
-    const { spawn, calls, emitExit } = makeSpawn();
+    const { spawn, calls, emitExit } = makeInteractiveSpawn();
     const provider = createInteractiveCopilotProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
 
     const runPromise = provider.run({
@@ -157,7 +125,7 @@ describe('createInteractiveCopilotProvider', () => {
 
   it('passes a pre-generated session id via --session-id=<uuid>', async () => {
     const cap = createCapturingBus();
-    const { spawn, calls, emitExit } = makeSpawn();
+    const { spawn, calls, emitExit } = makeInteractiveSpawn();
     const provider = createInteractiveCopilotProvider({
       eventBus: cap.bus,
       spawn,

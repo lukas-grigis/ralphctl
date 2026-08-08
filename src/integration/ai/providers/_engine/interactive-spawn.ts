@@ -17,8 +17,10 @@ export type InteractiveSpawn = (
     readonly stdio: 'inherit';
     readonly cwd: string;
     /**
-     * Extra environment entries layered over the harness's own `process.env`, for CLIs that take
-     * launch configuration through the environment rather than through flags. OpenCode is the
+     * Extra environment entries for a CLI that takes launch configuration through the environment
+     * rather than through flags. These are OVERRIDES — merging them over `process.env` is
+     * {@link defaultInteractiveSpawn}'s job, so a test fake sees exactly what the adapter declared
+     * rather than the whole merged environment. OpenCode is the
      * only one today: it has no `--add-dir`, so the directory grant that lets it read the prompt
      * file arrives as `OPENCODE_CONFIG_CONTENT`. Absent for every other adapter, which then
      * inherits the parent environment untouched.

@@ -15,8 +15,8 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
  * caller writes the rendered prompt to disk first, then the AI is told to read it. Adapters put a
  * pointer at that file in the CLI's prompt slot; the body itself must not travel as an argument,
  * because argv is capped (32,767 bytes on Windows) well below what a rendered harness prompt
- * reaches. `_engine/prompt-pointer.ts` owns that contract, including the one CLI that cannot
- * always be given access to the file.
+ * reaches. `_engine/prompt-pointer.ts` owns that contract, including how each adapter grants its
+ * CLI access to the file it is pointed at.
  *
  * Result semantics:
  *  - `Result.ok({ sessionId? })` — AI exited cleanly. Caller reads `outputFile`. The

@@ -5,7 +5,7 @@ import { RateLimitError } from '@src/domain/value/error/rate-limit-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import { pathExists } from '@src/integration/io/fs.ts';
-import { argvOverflowHint, isArgvOverflow } from '@src/integration/ai/providers/_engine/argv-budget.ts';
+import { argvOverflowHint, errnoOf, isArgvOverflow } from '@src/integration/ai/providers/_engine/argv-budget.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { AttemptOutcome } from '@src/integration/ai/providers/_engine/attempt-outcome.ts';
 
@@ -197,9 +197,9 @@ export const classifySpawnFailure = (
   cause: NodeJS.ErrnoException,
   argvBytes?: number
 ): AttemptOutcome => {
-  const errno = cause.code ?? cause.name;
+  const errno = errnoOf(cause);
   if (isArgvOverflow(errno, argvBytes ?? 0)) {
-    const hint = argvOverflowHint(argvBytes ?? 0);
+    const hint = argvOverflowHint(argvBytes);
     return {
       kind: 'error',
       error: new InvalidStateError({

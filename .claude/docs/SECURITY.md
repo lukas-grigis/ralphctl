@@ -90,9 +90,9 @@ reported), well under what a rendered harness prompt reaches — a plan session 
 `spawn ENAMETOOLONG` before the CLI started. Each adapter grants its CLI read access to the prompt file's
 directory and nothing wider — `--add-dir` for claude / copilot / codex, and for OpenCode (which has no such
 flag) a path-scoped `external_directory` grant injected as `OPENCODE_CONFIG_CONTENT`, which MERGES into the
-operator's own config rather than replacing it. The engine keeps an inline-body fallback for a CLI that can
-be granted nothing at all — no adapter needs it today — because a session that cannot read its own brief
-fails more quietly than a large argv does. Two
+operator's own config rather than replacing it. There is no inline-body fallback: a CLI that can be granted
+no access at all does not belong on this port, since inlining the body for it would just relocate the same
+overflow. Reject such an adapter where it is declared. Two
 earlier answers to this are on the rejected list and must not return: a `bash -lc "… $(cat promptFile)"`
 wrapper (cannot execute `.cmd` shims, mangles Windows backslash paths, silently dropped the Copilot seed)
 and `shell: true` for binary+args (mis-quotes spaces and `& | % "`). `providers/_engine/argv-budget.ts`

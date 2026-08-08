@@ -1,5 +1,6 @@
 import { dirname, join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
+import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { buildPromptPointer } from '@src/integration/ai/providers/_engine/prompt-pointer.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
@@ -10,7 +11,7 @@ import {
 } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { HeadlessProviderDeps } from '@src/integration/ai/providers/_engine/headless-provider-deps.ts';
-import { resolveWritableRoots } from '@src/integration/ai/providers/_engine/resolve-roots.ts';
+import { appendRoot, resolveWritableRoots } from '@src/integration/ai/providers/_engine/resolve-roots.ts';
 import type { SessionPermissions } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
@@ -193,18 +194,17 @@ export const buildCopilotArgs = (
     // prompts which `--no-ask-user` turns into refusals.
     args.push('--allow-all-tools', '--deny-tool=shell');
   }
-  // Auto-mount `outputDir` so signals.json can land via the write tool. See resolve-roots.ts.
-  const roots = resolveWritableRoots(session).map((r) => String(r));
-  // …and the prompt file's directory, or the pointer would name a path the read tool may not open.
-  // Usually already mounted (it is `outputDir` for most callers); mounting twice is harmless, so
-  // dedupe rather than assume.
-  const promptDir = promptFile === undefined ? undefined : dirname(promptFile);
-  const mounted =
-    promptDir === undefined || promptDir === String(session.cwd) || roots.includes(promptDir)
-      ? roots
-      : [...roots, promptDir];
-  for (const root of mounted) {
-    args.push(`--add-dir=${root}`);
+  // Auto-mount `outputDir` so signals.json can land via the write tool (see resolve-roots.ts), and
+  // the prompt file's directory, or the pointer would name a path the read tool may not open. The
+  // two are usually the same directory, which `appendRoot` folds out.
+  const promptDir = promptFile === undefined ? undefined : AbsolutePath.parse(dirname(promptFile));
+  const roots = appendRoot(
+    resolveWritableRoots(session),
+    promptDir?.ok === true ? promptDir.value : undefined,
+    String(session.cwd)
+  );
+  for (const root of roots) {
+    args.push(`--add-dir=${String(root)}`);
   }
   args.push('-p', promptFile === undefined ? session.prompt : buildPromptPointer(promptFile));
   return Result.ok(args);
@@ -307,8 +307,13 @@ const createOnLine =
  */
 const createCopilotAttempt = (deps: HeadlessProviderDeps, spawnFn: ProviderSpawn, command: string) => {
   return async (attemptSession: AiSession) => {
+    // Validate before writing: an unknown / suspended model fails argv construction, and paying
+    // for an mkdir + atomic write for a spawn that never happens would leave a stray artifact.
+    const dryRun = buildCopilotArgs(attemptSession);
+    if (!dryRun.ok) return { kind: 'error' as const, error: dryRun.error };
+
     const promptFile = await materializeCopilotPrompt(deps, attemptSession);
-    const built = buildCopilotArgs(attemptSession, promptFile);
+    const built = promptFile === undefined ? dryRun : buildCopilotArgs(attemptSession, promptFile);
     if (!built.ok) return { kind: 'error' as const, error: built.error };
 
     const parser = createCopilotStreamParser();
