@@ -3,6 +3,7 @@ import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { ReadinessState } from '@src/integration/ai/readiness/_engine/state.ts';
 import type { AssistantTool } from '@src/integration/ai/readiness/_engine/tool.ts';
+import type { ArtifactRef } from '@src/integration/ai/readiness/_engine/artifact-ref.ts';
 import { isPresent } from '@src/integration/ai/readiness/_engine/predicates.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
@@ -200,22 +201,31 @@ const proposeReadinessUseCase = async (
  *  - claude-code → `claudeMd` (preferred) or `agentsMd`.
  *  - copilot     → `copilotInstructions`.
  *  - codex       → `agentsMd`.
+ *  - opencode    → `agentsMd`.
+ *
+ * Dispatched as an exhaustive `switch` on `tool` — this is the one per-tool branch in the
+ * readiness flow the compiler would not otherwise police, and an `if` chain with a bare
+ * `return undefined` tail let a widened {@link AssistantTool} land silently.
  */
+const pathOf = (ref: ArtifactRef | undefined): string | undefined => (ref === undefined ? undefined : String(ref.path));
+
 const pickExistingContextPath = (tool: AssistantTool, state: ReadinessState): string | undefined => {
   if (!isPresent(state)) return undefined;
   const a = state.artifacts;
-  if (tool === 'claude-code' && a.tool === 'claude-code') {
-    if (a.claudeMd !== undefined) return String(a.claudeMd.path);
-    if (a.agentsMd !== undefined) return String(a.agentsMd.path);
-    return undefined;
+  switch (tool) {
+    case 'claude-code':
+      return a.tool === 'claude-code' ? pathOf(a.claudeMd ?? a.agentsMd) : undefined;
+    case 'copilot':
+      return a.tool === 'copilot' ? pathOf(a.copilotInstructions) : undefined;
+    case 'codex':
+      return a.tool === 'codex' ? pathOf(a.agentsMd) : undefined;
+    case 'opencode':
+      return a.tool === 'opencode' ? pathOf(a.agentsMd) : undefined;
+    default: {
+      const exhaustive: never = tool;
+      return exhaustive;
+    }
   }
-  if (tool === 'copilot' && a.tool === 'copilot') {
-    return a.copilotInstructions !== undefined ? String(a.copilotInstructions.path) : undefined;
-  }
-  if (tool === 'codex' && a.tool === 'codex') {
-    return a.agentsMd !== undefined ? String(a.agentsMd.path) : undefined;
-  }
-  return undefined;
 };
 
 export const proposeReadinessLeaf = (deps: ProposeReadinessLeafDeps, tool: AssistantTool): Element<ReadinessCtx> =>

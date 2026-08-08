@@ -51,6 +51,18 @@ const codexConfig: Settings['ai'] = {
   createPr: { provider: 'openai-codex', model: 'gpt-5.4-mini' },
 };
 
+const opencodeConfig: Settings['ai'] = {
+  refine: { provider: 'opencode', model: 'opencode/north-mini-code-free' },
+  plan: { provider: 'opencode', model: 'opencode/big-pickle' },
+  implement: {
+    generator: { provider: 'opencode', model: 'opencode/big-pickle' },
+    evaluator: { provider: 'opencode', model: 'opencode/big-pickle' },
+  },
+  readiness: { provider: 'opencode', model: 'opencode/north-mini-code-free' },
+  ideate: { provider: 'opencode', model: 'opencode/big-pickle' },
+  createPr: { provider: 'opencode', model: 'opencode/north-mini-code-free' },
+};
+
 describe('createAiProvider', () => {
   it('dispatches to the Claude adapter when the flow row uses `claude-code`', () => {
     const eventBus = createInMemoryEventBus();
@@ -67,6 +79,12 @@ describe('createAiProvider', () => {
   it('dispatches to the Codex adapter when the flow row uses `openai-codex`', () => {
     const eventBus = createInMemoryEventBus();
     const provider = createAiProvider({ flow: 'implement', ai: codexConfig, harnessConfig, eventBus });
+    expect(typeof provider.generate).toBe('function');
+  });
+
+  it('dispatches to the OpenCode adapter when the flow row uses `opencode`', () => {
+    const eventBus = createInMemoryEventBus();
+    const provider = createAiProvider({ flow: 'implement', ai: opencodeConfig, harnessConfig, eventBus });
     expect(typeof provider.generate).toBe('function');
   });
 

@@ -232,11 +232,12 @@ any model you can get an API key for.
 | **OpenCode** (`opencode`)                 | `opencode` | Beta   | any (or none)       | `--auto` (topology-scoped)                                                                      | `AGENTS.md`                       |
 
 Claude Code has the most end-to-end mileage inside the harness — it's the most battle-tested — but Copilot and Codex
-run every flow and are supported first-class. Two small differences worth knowing: bundled skill injection and
-`bodyFile` forensic artifacts currently no-op on Copilot and Codex, and Codex's sandbox has only two modes
-(read-only / workspace-write), so path scope (cwd + `--add-dir`) is its fine-grained safety envelope rather than a
-per-tool deny list. Parallel execution is provider-agnostic — it works with whichever provider each implement role is
-configured to use. Hit a rough edge with any provider? Please [open an
+run every flow and are supported first-class, and OpenCode (beta) runs them too with correspondingly less mileage.
+Bundled skill injection and `bodyFile` forensic capture work on all four backends; only the on-disk skills directory
+differs (`.claude/` / `.github/` / `.agents/` / `.opencode/`). One difference worth knowing: Codex's sandbox has only
+two modes (read-only / workspace-write), so path scope (cwd + `--add-dir`) is its fine-grained safety envelope rather
+than a per-tool deny list. Parallel execution is provider-agnostic — it works with whichever provider each implement
+role is configured to use. Hit a rough edge with any provider? Please [open an
 issue](https://github.com/lukas-grigis/ralphctl/issues).
 
 <a id="opencode"></a>
@@ -287,11 +288,13 @@ judging output quality.
 
 **Why beta.** Every flow runs and the adapter is verified end-to-end against the real CLI, but it has far less
 mileage than the other three — please [report anything rough](https://github.com/lukas-grigis/ralphctl/issues).
-Two current limitations, stated plainly: `opencode run` has no read-only mode, so a read-only flow is not
+Current limitations, stated plainly: `opencode run` has no read-only mode, so a read-only flow is not
 sandboxed by the CLI (the session directory is the boundary, as it already is for OpenAI Codex), and it has no
-multi-root flag, so directories outside the session `cwd` are not reachable by the AI. Plateau escalation also
-skips the effort rung for OpenCode, because the accepted `--variant` levels belong to whichever upstream vendor
-is behind your model id — set `effort` explicitly on the row if your model supports it.
+multi-root flag — so when the harness needs a directory outside the session `cwd`, it auto-approves
+external-directory access wholesale (`--auto`) rather than mounting each root individually. Effort is forwarded
+only on the headless `run` path (`--variant`); the interactive TUI path never receives it. Plateau escalation
+also skips the effort rung for OpenCode, because the accepted `--variant` levels belong to whichever upstream
+vendor is behind your model id — set `effort` explicitly on the row if your model supports it.
 
 One-shot configuration for any provider: `ralphctl settings apply-preset <name>` where `<name>` is one of
 21 presets — `standard`, `economic`, `strong-gate`, `fast`, and `frontier` families, each in

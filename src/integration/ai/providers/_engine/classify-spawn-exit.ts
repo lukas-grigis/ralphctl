@@ -19,8 +19,8 @@ import type { AttemptOutcome } from '@src/integration/ai/providers/_engine/attem
 export const DEFAULT_RATE_LIMIT_RE = /rate.?limit|quota|\b429\b/i;
 
 /**
- * Shared post-spawn classifier for the three headless AI provider adapters
- * (claude / codex / copilot). Inspects the child's exit, the abort signal, stderr, and the
+ * Shared post-spawn classifier for the four headless AI provider adapters
+ * (claude / codex / copilot / opencode). Inspects the child's exit, the abort signal, stderr, and the
  * presence of `signals.json`, and decides whether the attempt is a success, a rate-limit
  * retry, an aborted operation, or a hard failure.
  *
@@ -70,11 +70,17 @@ export const DEFAULT_RATE_LIMIT_RE = /rate.?limit|quota|\b429\b/i;
 export type ProviderName = 'claude-provider' | 'codex-provider' | 'copilot-provider' | 'opencode-provider';
 
 /**
- * Matches the provider-CLI "the selected model isn't available" failure across the three
- * backends. Real-world wordings observed:
- *  - copilot: `Error: Model "gpt-5.4-nano" from --model flag is not available.`
- *  - codex:   `model not found`
- *  - claude:  `unknown model`
+ * Matches the provider-CLI "the selected model isn't available" failure across the backends that
+ * report it on stderr. Real-world wordings observed:
+ *  - copilot:  `Error: Model "gpt-5.4-nano" from --model flag is not available.`
+ *  - codex:    `model not found`
+ *  - claude:   `unknown model`
+ *  - opencode: NOT DETECTABLE HERE. An unreachable `provider/model` id exits 1 with EMPTY stderr
+ *    and reports `{"type":"error","error":{"name":"UnknownError","data":{"message":"Unexpected
+ *    server error. …"}}}` on stdout (verified against opencode v1.18.15) — neither output mode
+ *    carries the word `model`, so this regex cannot match and the exit necessarily falls through
+ *    to the retryable ProcessCrash branch. Widening the pattern would not help; the token simply
+ *    isn't there.
  * Broad enough to catch phrasing drift (`model ... is not available`, `model not found`,
  * `unknown model`, `unsupported model`) yet anchored on the word `model` so it can't trip on
  * unrelated "not available" lines. Abort is classified first, so this regex never sees an
@@ -190,13 +196,18 @@ const classifyPreExit = ({ session, exit, providerName }: ClassifySpawnExitInput
  *    through `run-generator-turn`'s blockedReason string and into the TUI without touching the
  *    render layer.
  *
- *    **stderr ONLY (unlike rate-limit).** All three provider CLIs report model-availability
- *    errors on stderr. Scanning `stdoutTail` here would be a false-positive hazard: stdoutTail
+ *    **stderr ONLY (unlike rate-limit).** The claude / codex / copilot CLIs report
+ *    model-availability errors on stderr; opencode does NOT (see the note on
+ *    `MODEL_UNAVAILABLE_RE` — empty stderr, a generic error record on stdout), so an opencode
+ *    model-availability failure is classified as a retryable crash rather than a config error.
+ *    Scanning `stdoutTail` to compensate would be a false-positive hazard: stdoutTail
  *    carries assistant-generated task output (Claude envelope body / Copilot event text / Codex
  *    agent message), where benign phrases like "the model is not available in TensorFlow" or
  *    "the model checkpoint was not found" appear in NORMAL responses and would be misclassified
  *    as a config failure. The rate-limit branch legitimately needs stdoutTail (claude reports
- *    quota in its stream-json result envelope); model-availability has no such stdout-only case.
+ *    quota in its stream-json result envelope); opencode's stdout error record is deliberately
+ *    left unscanned for exactly the reason above — it carries no `model` token to anchor on, so
+ *    scanning it would buy nothing and cost false positives.
  */
 const classifyFailureExit = ({
   exit,

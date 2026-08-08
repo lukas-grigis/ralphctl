@@ -184,6 +184,17 @@ const collectCopilotArtefactPaths = (a: Extract<ToolArtifacts, { tool: 'copilot'
   a.copilotInstructions !== undefined ? [String(a.copilotInstructions.path)] : [];
 
 /**
+ * Walk the shared `AGENTS.md` + skills catalog shape — codex (`.agents/skills/`) and opencode
+ * (`.opencode/skills/`) carry identical fields, so one walker serves both.
+ */
+const collectAgentsMdArtefactPaths = (a: Extract<ToolArtifacts, { tool: 'codex' | 'opencode' }>): readonly string[] => {
+  const paths: string[] = [];
+  if (a.agentsMd !== undefined) paths.push(String(a.agentsMd.path));
+  for (const ref of a.skills) paths.push(String(ref.path));
+  return paths;
+};
+
+/**
  * Pull the artefact paths off an {@link ReadinessState} for the prompt's detected-artefacts
  * block. `unknown` / `absent` → empty list. `present` → dispatches to the per-tool walker for
  * the discriminated `artifacts.tool` catalog.
@@ -193,8 +204,9 @@ export const collectArtefactPaths = (state: ReadinessState): readonly string[] =
   const a = state.artifacts;
   if (a.tool === CLAUDE_CODE) return collectClaudeCodeArtefactPaths(a);
   if (a.tool === 'copilot') return collectCopilotArtefactPaths(a);
-  // Codex artefacts placeholder — see ai/readiness/codex/artifacts.ts. No fields to walk yet.
-  return [];
+  if (a.tool === 'codex' || a.tool === 'opencode') return collectAgentsMdArtefactPaths(a);
+  const _exhaustive: never = a;
+  return _exhaustive;
 };
 
 export interface BuildReadinessPromptInput {

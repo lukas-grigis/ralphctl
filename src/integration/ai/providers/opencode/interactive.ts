@@ -7,12 +7,18 @@ import { isOpencodeModelIdShape } from '@src/domain/value/settings-models/openco
  * Interactive `opencode` adapter. Spawns the OpenCode TUI with `stdio: 'inherit'` so the user
  * chats directly.
  *
- *   opencode <cwd> --model <provider/model>
+ *   opencode <cwd> --model <provider/model> --prompt <prompt>
  *
  * OpenCode's default command takes the project directory as its positional argument (`opencode
  * [project]`) rather than a `--cd`-style flag, and starts the TUI. Unlike codex there is no
- * positional prompt slot on that command — the harness's opening prompt is therefore not
- * forwarded, and the user types their first message in the TUI.
+ * POSITIONAL prompt slot on that command, but the default command does expose `--prompt <string>`
+ * and submits it the moment the TUI launches (verified against opencode-ai v1.18.15) — so the
+ * harness's rendered prompt, which carries the audit-[09] contract section, is forwarded.
+ *
+ * `input.effort` is deliberately NOT forwarded: `--variant` exists only on the `opencode run`
+ * subcommand, and the default TUI command is yargs-strict — it exits 1 with a usage banner on an
+ * unknown flag. Since an operator can legitimately set an effort on an opencode row, forwarding it
+ * here would turn a working session into a hard spawn failure. Dropping it is the correct trade.
  *
  * `isKnownModel` checks the `provider/model` SHAPE rather than catalog membership: OpenCode
  * aggregates upstream providers, so which concrete ids are reachable depends on the operator's
@@ -34,7 +40,7 @@ export const createInteractiveOpencodeProvider = (deps: InteractiveProviderDeps)
       modelCatalogLabel: 'OpenCode',
       isKnownModel: isOpencodeModelIdShape,
       supportsSessionId: false,
-      buildArgs: (input) => [String(input.cwd), '--model', input.model],
+      buildArgs: (input, { prompt }) => [String(input.cwd), '--model', input.model, '--prompt', prompt],
     },
     deps
   );

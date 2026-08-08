@@ -22,6 +22,8 @@ const FLOW_DEFAULT_EFFORT: Partial<Record<FlowId, 'high'>> = {
  *   3. The flow's shipped default effort (see {@link FLOW_DEFAULT_EFFORT}), floored to the
  *      flow's provider ceiling — deliberately BELOW the global default: an operator who set
  *      `ai.effort` has made a deliberate choice, and the shipped default must not override it.
+ *      Skipped entirely for `opencode` rows, which get no stamped level at all (see
+ *      {@link resolveEffortForRow}).
  *   4. `undefined` — the adapter falls back to the CLI's built-in default.
  *
  * Floor table (per provider): the global effort vocabulary is the Claude superset
@@ -55,7 +57,10 @@ export const resolveEffortForRow = (
 ): string | undefined => {
   if (row.effort !== undefined) return row.effort;
   if (globalEffort !== undefined) return _floorForProvider(globalEffort, row.provider);
-  const flowDefault = flow !== undefined ? FLOW_DEFAULT_EFFORT[flow] : undefined;
+  // OpenCode aggregates upstream providers, so no level is known-good for the row's model — the
+  // same rationale that excludes it from `EFFORT_CAPABLE_PROVIDERS` in `business/task/escalation-map.ts`.
+  // Letting the CLI pick its own default is safer than stamping one the upstream model rejects.
+  const flowDefault = flow !== undefined && row.provider !== 'opencode' ? FLOW_DEFAULT_EFFORT[flow] : undefined;
   if (flowDefault !== undefined) return clampEffortToProvider(flowDefault, row.provider);
   return undefined;
 };
@@ -87,6 +92,7 @@ export const clampEffortToProvider = (effort: string, provider: AiProvider): str
  * - github-copilot: identity (Copilot accepts everything in the superset; `none` is only
  *   surfaced as a per-flow opt-out and never selected globally).
  * - openai-codex: `max` clamps to `xhigh`; everything else identity.
+ * - opencode: identity; the CLI arbitrates, and the shipped flow default is not stamped at all.
  */
 const _floorForProvider = (effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max', provider: AiProvider): string =>
   clampEffortToProvider(effort, provider);

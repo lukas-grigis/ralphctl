@@ -6,11 +6,11 @@ import { FLOW_IDS } from '@src/domain/value/flow-id.ts';
 import { applyPreset, isPresetName, PRESET_NAMES, type PresetName } from '@src/business/settings/presets.ts';
 import { isClaudeModel } from '@src/domain/value/settings-models/claude.ts';
 import { isCodexModel } from '@src/domain/value/settings-models/codex.ts';
-import { isOpencodeModelIdShape } from '@src/domain/value/settings-models/opencode.ts';
+import { isOpencodeModel } from '@src/domain/value/settings-models/opencode.ts';
 import { isCopilotModel } from '@src/domain/value/settings-models/copilot.ts';
 import { mergeEscalationMap } from '@src/business/task/escalation-map.ts';
 
-/** The exact 20-preset order — 5 families × 4 (mixed-first within each family). */
+/** The exact 21-preset order — 5 families × 4, plus OpenCode in the standard family (mixed-first within each family). */
 const EXPECTED_PRESET_ORDER: readonly PresetName[] = [
   'mixed',
   'claude-only',
@@ -82,15 +82,16 @@ const modelGuardFor = (provider: AiProvider): ((s: string) => boolean) => {
       return isCopilotModel;
     case 'openai-codex':
       return isCodexModel;
-    // OpenCode aggregates upstream providers, so there is no closed catalog to check a preset
-    // row against — only the `provider/model` id shape is knowable statically.
+    // Preset rows are ids ralphctl itself ships, so they must stay in lockstep with
+    // OPENCODE_MODELS — the permissive `provider/model` shape check belongs at the adapter
+    // boundary, where authenticated upstream ids outside our catalog must still pass.
     case 'opencode':
-      return isOpencodeModelIdShape;
+      return isOpencodeModel;
   }
 };
 
 describe('presets', () => {
-  it('exposes all twenty preset names in the canonical five-family order', () => {
+  it('exposes all twenty-one preset names in the canonical five-family order', () => {
     expect([...PRESET_NAMES]).toEqual([...EXPECTED_PRESET_ORDER]);
     expect(PRESET_NAMES).toHaveLength(21);
   });
@@ -195,7 +196,7 @@ describe('presets', () => {
     expect(out.ai.implement.evaluator.effort).toBe('xhigh');
   });
 
-  it('isPresetName accepts all twenty preset names and rejects garbage', () => {
+  it('isPresetName accepts all twenty-one preset names and rejects garbage', () => {
     for (const preset of EXPECTED_PRESET_ORDER) {
       expect(isPresetName(preset), preset).toBe(true);
     }

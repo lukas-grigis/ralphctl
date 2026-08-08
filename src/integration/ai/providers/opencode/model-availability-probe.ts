@@ -1,5 +1,6 @@
 import type { ModelAvailabilityProbe } from '@src/integration/ai/providers/_engine/model-availability-probe.ts';
 import { crossPlatformSpawn } from '@src/integration/io/cross-platform-spawn.ts';
+import { killWithEscalation } from '@src/integration/io/kill-with-escalation.ts';
 
 /** Wall-clock cap for the `opencode models` probe. Beyond this the probe fails open. */
 const PROBE_TIMEOUT_MS = 5_000;
@@ -21,8 +22,10 @@ const defaultListModels = (command: string, signal?: AbortSignal): Promise<reado
       signal?.removeEventListener('abort', onAbort);
       fn();
     };
+    // SIGTERM → grace → SIGKILL, not a bare SIGTERM: this promise settles the instant the timeout
+    // or abort trips, so a child that ignores SIGTERM would otherwise never be reaped.
     const kill = (): void => {
-      child.kill('SIGTERM');
+      killWithEscalation(child);
     };
     const onAbort = (): void => {
       finish(() => {
@@ -96,9 +99,13 @@ export const createOpencodeModelAvailabilityProbe = (
     const listModels = options.listModels ?? defaultListModels;
     try {
       const models = await listModels(options.command ?? 'opencode', signal);
-      // Keep only `provider/model`-shaped lines so a future build that prints a header or a
-      // trailing hint alongside the list cannot inject junk into the picker.
-      const available = models.filter((line) => /^[^/\s]+\/[^/\s]+$/.test(line));
+      // Keep only namespaced, whitespace-free lines so a header or trailing hint printed
+      // alongside the list cannot inject junk into the picker. Multi-segment ids are admitted on
+      // purpose: `opencode models` prints `${providerID}/${modelID}` verbatim and aggregator keys
+      // routinely carry their own slash (`openrouter/anthropic/claude-sonnet-4-5`), which the CLI
+      // accepts and this adapter forwards fine. The anchors are load-bearing — any whitespace
+      // disqualifies the whole line, which is what rejects `Available models:`-style banners.
+      const available = models.filter((line) => /^[^/\s]+(?:\/[^/\s]+)+$/.test(line));
       return available.length > 0 ? available : catalog;
     } catch {
       // Best-effort probe running OUTSIDE the chain runtime — absorb every error including

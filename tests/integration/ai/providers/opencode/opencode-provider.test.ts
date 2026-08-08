@@ -12,7 +12,7 @@ import { absolutePath } from '@tests/fixtures/domain.ts';
 import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import { buildOpencodeArgs, createOpencodeProvider } from '@src/integration/ai/providers/opencode/headless.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
-import type { TokenUsageEvent } from '@src/business/observability/events.ts';
+import type { LogEvent, TokenUsageEvent } from '@src/business/observability/events.ts';
 
 interface FakeChildScript {
   readonly stdoutChunks?: readonly string[];
@@ -139,11 +139,32 @@ describe('buildOpencodeArgs', () => {
     expect(built.value[built.value.indexOf('--variant') + 1]).toBe('high');
   });
 
-  it('adds --auto only for auto-approving profiles', () => {
-    const auto = buildOpencodeArgs(session({ permissions: FULL_AUTO }));
-    const manual = buildOpencodeArgs(session({ permissions: READ_ONLY }));
+  it('adds --auto for auto-approving profiles, and omits it when every root is inside cwd', () => {
+    const auto = buildOpencodeArgs(session({ permissions: FULL_AUTO, outputDir: CWD }));
+    const manual = buildOpencodeArgs(session({ permissions: READ_ONLY, outputDir: CWD }));
     expect(auto.ok && auto.value.includes('--auto')).toBe(true);
     expect(manual.ok && manual.value.includes('--auto')).toBe(false);
+  });
+
+  it('adds --auto for a READ_ONLY session whose outputDir sits outside cwd', () => {
+    // `opencode run` gates any access outside `--dir` behind the `external_directory`
+    // permission and auto-rejects it, so without `--auto` the audit-[09] envelope never lands
+    // and every READ_ONLY flow fails downstream with `signals-missing`.
+    const built = buildOpencodeArgs(
+      session({ permissions: READ_ONLY, outputDir: absolutePath('/tmp/opencode-outside/run-1') })
+    );
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    expect(built.value.filter((a) => a === '--auto')).toHaveLength(1);
+  });
+
+  it('emits --auto exactly once when both autoApprove and an external root apply', () => {
+    const built = buildOpencodeArgs(
+      session({ permissions: FULL_AUTO, outputDir: absolutePath('/tmp/opencode-outside/run-2') })
+    );
+    expect(built.ok).toBe(true);
+    if (!built.ok) return;
+    expect(built.value.filter((a) => a === '--auto')).toHaveLength(1);
   });
 
   it('rejects a bare model id that is missing the provider namespace', () => {
@@ -250,6 +271,52 @@ describe('createOpencodeProvider', () => {
     if (!result.ok) return;
     expect(result.value.sessionId).toBe(sid);
     expect(await fs.readFile(String(bodyFile), 'utf8')).toBe('body');
+  });
+
+  it('fans one resolved tool_use record out to both a tool_use and a tool_result debug event', async () => {
+    // OpenCode resolves tool calls in place — there is no separate result record — so a single
+    // `tool_use` line has to produce both halves of the debug trace, and a non-`completed`
+    // status has to surface as `status: 'error'`.
+    const sid = 'ses_tools';
+    const { spawn } = makeSpawn([
+      {
+        stdoutChunks: [
+          stepStart(sid),
+          toolLine(sid, 'write', 'completed'),
+          toolLine(sid, 'bash', 'error'),
+          stepFinish(sid, 1, 1),
+        ],
+      },
+    ]);
+    const bus = createCapturingBus();
+    const s = session();
+    await writeSignals(String(s.signalsFile));
+
+    const result = await createOpencodeProvider({ rateLimitRetries: 0, eventBus: bus.bus, spawn }).generate(s);
+    expect(result.ok).toBe(true);
+
+    const toolEvents = bus.events.filter(
+      (e): e is LogEvent =>
+        e.type === 'log' &&
+        (e.message === 'opencode-provider: tool_use' || e.message === 'opencode-provider: tool_result')
+    );
+    expect(toolEvents).toHaveLength(4);
+
+    const writeUse = toolEvents.find(
+      (e) => e.message === 'opencode-provider: tool_use' && e.meta?.['tool'] === 'write'
+    );
+    expect(writeUse?.meta?.['args']).toBe(JSON.stringify({ filePath: '/x' }));
+
+    const writeResult = toolEvents.find(
+      (e) => e.message === 'opencode-provider: tool_result' && e.meta?.['tool'] === 'write'
+    );
+    expect(writeResult?.meta?.['status']).toBe('ok');
+    expect(writeResult?.meta?.['preview']).toBe('done');
+
+    const bashResult = toolEvents.find(
+      (e) => e.message === 'opencode-provider: tool_result' && e.meta?.['tool'] === 'bash'
+    );
+    expect(bashResult?.meta?.['status']).toBe('error');
   });
 
   it('flushes a trailing record that arrives without a newline', async () => {

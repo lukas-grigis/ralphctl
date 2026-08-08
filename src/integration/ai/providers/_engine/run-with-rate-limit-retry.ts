@@ -61,7 +61,8 @@ export interface RunWithRateLimitRetryOptions {
   readonly random?: () => number;
   readonly eventBus: EventBus;
   /**
-   * Short provider tag for log lines / banner ids (`'claude'` / `'codex'` / `'copilot'`). Keeps
+   * Short provider tag for log lines / banner ids (`'claude'` / `'codex'` / `'copilot'` /
+   * `'opencode'`). Keeps
    * the banner id keyspace per-provider so concurrent adapters don't collide.
    */
   readonly providerSlug: 'claude' | 'codex' | 'copilot' | 'opencode';

@@ -213,7 +213,7 @@ Status flow: `draft → planned → active → review → done`.
       `ralphctl-karpathy-guidelines`, `ralphctl-cherny-workflow`, `ralphctl-idea-refinement`,
       `ralphctl-domain-driven-design` — per-skill default/recommended phases in `_engine/registry.ts`'s
       `BUNDLED_SKILLS`). Each is validated by `skill-contract-checker.ts` (hard-fail on contract violation)
-      before it can ship. Operator drop-in skills (`~/.ralphctl/skills/{claude,copilot,codex}/…`) install
+      before it can ship. Operator drop-in skills (`~/.ralphctl/skills/{claude,copilot,codex,opencode}/…`) install
       through the same path; violations are warnings only.
 - [x] **Opt-in phase-folder skills (#216)** — a provider-agnostic, per-flow opt-in source under
       `<appRoot>/skills/<flow>/<name>/SKILL.md` (`createPhaseSkillSource`), composed with the bundled /
@@ -234,7 +234,7 @@ Status flow: `draft → planned → active → review → done`.
       each provider's native sub-agent format at launch — `.claude/agents/*.md` (Claude),
       `.github/agents/*.agent.md` (Copilot, `COPILOT_AGENT_MAX_BODY_CHARS` 30000-char body cap enforced by
       the renderer), `.codex/agents/*.toml` (Codex) — via `createFilesystemAgentDefinitionAdapter`, shared
-      across the three per-provider adapters (`integration/ai/agents/{claude,copilot,codex}/`). Bundled
+      across the four per-provider adapters (`integration/ai/agents/{claude,copilot,codex,opencode}/`). Bundled
       definitions (`ralphctl-generator`, `ralphctl-evaluator`) ship in `_engine/registry.ts`'s
       `BUNDLED_AGENT_DEFINITIONS`; operator drop-ins under `<appRoot>/agents/*.md` win a name collision
       (`composeAgentDefinitionSources`); a project-authored file already at the destination path always

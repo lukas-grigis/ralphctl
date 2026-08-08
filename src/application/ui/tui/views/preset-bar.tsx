@@ -1,6 +1,6 @@
 /**
- * Preset bar — twenty preset buttons across five families (Standard / Economic / Strong-gate /
- * Fast / Frontier). Each family renders under a dim bold sub-header so 20 rows stay scannable.
+ * Preset bar — twenty-one preset buttons across five families (Standard / Economic / Strong-gate /
+ * Fast / Frontier). Each family renders under a dim bold sub-header so 21 rows stay scannable.
  * Activating a row opens a confirmation prompt in the parent view; this component is purely
  * the read-side render of the preset section card. Warnings from the most recent apply-preset
  * fan out as dimmed rows underneath so the operator sees missing-CLI guidance in-line.

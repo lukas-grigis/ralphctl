@@ -2,8 +2,10 @@ import { Result } from '@src/domain/result.ts';
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { HeadlessProviderDeps } from '@src/integration/ai/providers/_engine/headless-provider-deps.ts';
-import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { isOpencodeModelIdShape } from '@src/domain/value/settings-models/opencode.ts';
+import { resolveWritableRoots } from '@src/integration/ai/providers/_engine/resolve-roots.ts';
+import { validateModel } from '@src/integration/ai/providers/_engine/validate-model.ts';
 import { type ProviderSpawn, defaultProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import { DEFAULT_RATE_LIMIT_RE } from '@src/integration/ai/providers/_engine/classify-spawn-exit.ts';
 import type { AttemptOutcome } from '@src/integration/ai/providers/_engine/attempt-outcome.ts';
@@ -27,6 +29,7 @@ import { createOpencodeAttemptTracker } from '@src/integration/ai/providers/open
  *   | resume: <SessionId>     | `-s <id>`                                        |
  *   | effort: <level>         | `--variant <level>`                              |
  *   | permissions.autoApprove | `--auto` (see the permission note below)         |
+ *   | roots outside cwd       | `--auto` (see the additionalRoots note below)    |
  *   | prompt                  | piped to stdin                                   |
  *
  * ## Prompt delivery
@@ -69,11 +72,21 @@ import { createOpencodeAttemptTracker } from '@src/integration/ai/providers/open
  *
  * ## additionalRoots
  *
- * OpenCode has no `--add-dir` equivalent; `--dir` sets a single root. Sessions whose
- * `additionalRoots` fall outside `cwd` are therefore not reachable by the AI. The adapter does
- * not silently pretend otherwise — {@link buildOpencodeArgs} surfaces nothing, but the writable
- * roots are left unmounted and `outputDir` must live under `cwd` for the signals envelope to
- * land, which is how every wired chain already arranges it.
+ * `opencode run` has no `--add-dir` equivalent; `--dir` sets a single root, and every access
+ * outside it is gated by the `external_directory` permission — without a lever, a write to an
+ * absolute path outside `--dir` prints `permission requested: external_directory (…);
+ * auto-rejecting` and the tool call fails (verified against v1.18.15). That matters because the
+ * wired chains routinely put `outputDir` outside `cwd` (readiness / detect-* allocate it under
+ * `<dataRoot>/runs/…`; implement under `<dataRoot>/sprints/…`), so the audit-[09] envelope would
+ * never land. `--auto` is the only argv spelling that clears the gate, so
+ * {@link buildOpencodeArgs} emits it whenever {@link resolveWritableRoots} is non-empty. That
+ * over-grants relative to the `--add-dir` adapters, which mount exactly the declared roots — the
+ * same posture already named for the coarse permission mapping above.
+ *
+ * The precise-scoping refinement is OpenCode's config-level `permission.external_directory` map
+ * (`{"<root>/**": "allow"}`), which would grant per-root instead of wholesale. Like the
+ * `permission` block above, it needs a generated per-session config file, so it is out of scope
+ * for the first adapter.
  *
  * ## Model validation
  *
@@ -105,16 +118,15 @@ const RESUME_STALE_RE = /session not found|no such session|unknown session/i;
  * other narrowing is left to the CLI (see the module comment).
  */
 export const buildOpencodeArgs = (session: AiSession): Result<readonly string[], InvalidStateError> => {
-  if (!isOpencodeModelIdShape(session.model)) {
-    return Result.error(
-      new InvalidStateError({
-        entity: PROVIDER_NAME,
-        currentState: 'model-validation',
-        attemptedAction: 'build argv',
-        message: `opencode-provider: '${session.model}' is not a 'provider/model' id — OpenCode model ids are namespaced as '<provider>/<model>' (e.g. 'opencode/big-pickle') — run 'opencode models' to list yours`,
-      })
-    );
-  }
+  // Convention parity with the other adapter entrypoints, NOT a suspended-model fix:
+  // `isSuspendedModel` keys on the BARE id and OpenCode ids are `provider/model`, so the
+  // suspension arm never matches here either way — the shape gate is what earns the call.
+  const validated = validateModel(session.model, isOpencodeModelIdShape, {
+    entity: PROVIDER_NAME,
+    attemptedAction: 'build argv',
+    notKnownMessage: `opencode-provider: '${session.model}' is not a 'provider/model' id — OpenCode model ids are namespaced as '<provider>/<model>' (e.g. 'opencode/big-pickle') — run 'opencode models' to list yours`,
+  });
+  if (!validated.ok) return Result.error(validated.error);
 
   const args: string[] = ['run', '--format', 'json', '--dir', String(session.cwd), '-m', session.model];
   if (session.resume !== undefined) {
@@ -125,9 +137,12 @@ export const buildOpencodeArgs = (session: AiSession): Result<readonly string[],
   if (session.effort !== undefined) {
     args.push('--variant', session.effort);
   }
-  // See the permission note in the module comment: this does not gate writes (they run either
-  // way), it clears tool classes an operator's opencode.json denies explicitly.
-  if (session.permissions.autoApprove) {
+  // See the permission / additionalRoots notes in the module comment. `--auto` does not gate
+  // writes inside `--dir` (they run either way) — it clears tool classes an operator's
+  // opencode.json denies explicitly AND the `external_directory` gate, which is the only argv
+  // lever that lets the AI write an `outputDir` (or any additional root) outside `cwd`.
+  const needsExternalRoots = resolveWritableRoots(session).length > 0;
+  if (session.permissions.autoApprove || needsExternalRoots) {
     args.push('--auto');
   }
   return Result.ok(args);

@@ -27,10 +27,12 @@ to [Semantic Versioning](https://semver.org/).
 
   Sessions resume across gen-eval rounds, and a stale session id falls back to a cold spawn rather than
   failing the task. Skills install to `.opencode/skills/`, agent definitions to `.opencode/agents/`, and
-  readiness writes the shared `AGENTS.md`. Limitations worth knowing: `opencode run` has no read-only mode and no multi-root flag, so a
-  `READ_ONLY` flow is not sandboxed by the CLI and directories outside the session `cwd` are not reachable
-  (path topology is the boundary, as it already is for OpenAI Codex); and plateau escalation skips the effort
-  rung for OpenCode, since the accepted `--variant` levels belong to the upstream vendor behind your model id.
+  readiness writes the shared `AGENTS.md`. Limitations worth knowing: `opencode run` has no read-only mode, so
+  a `READ_ONLY` flow is not sandboxed by the CLI (path topology is the boundary, as it already is for OpenAI
+  Codex); it has no multi-root flag, so external-directory access is auto-approved wholesale rather than
+  mounted per root; effort is forwarded only on the headless `run` path (`--variant`), never on the interactive
+  TUI path; and plateau escalation skips the effort rung for OpenCode, since the accepted `--variant` levels
+  belong to the upstream vendor behind your model id.
 
 - **`create-pr`'s AI-authored PR content now leaves the same `meta.json` attribution sidecar every other
   AI-authoring flow (`refine` / `plan` / `ideate` / `readiness`) already writes** — a provider/model/effort

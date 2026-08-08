@@ -12,9 +12,6 @@ import type { PresetWarning } from '@src/application/flows/settings-apply-preset
 import type { AiFlowSettings, AiProvider, Settings } from '@src/domain/entity/settings.ts';
 import { AI_PROVIDERS as DOMAIN_AI_PROVIDERS } from '@src/domain/entity/settings.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
-import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
-import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
-import { COPILOT_MODELS } from '@src/domain/value/settings-models/copilot.ts';
 import { PROVIDER_EFFORT_LEVELS } from '@src/domain/value/settings-models/effort.ts';
 import { PROVIDER_TRAITS } from '@src/integration/ai/providers/_engine/provider-traits.ts';
 
@@ -195,13 +192,22 @@ export const HARNESS_HINTS: Readonly<Record<string, string>> = {
 export const ESCALATION_ENTRY_HINT = 'Change the escalation target — pick (remove this override) to drop the rung.';
 
 /**
- * Union of every provider's model catalog — the FROM options for a new escalation rung. Order:
- * Claude, Copilot, Codex; duplicates (ids shared across catalogs) collapse to their first
- * occurrence.
+ * Every provider's model catalog, in {@link AI_PROVIDERS} order — the catalog family pool the
+ * escalation pickers draw from. Sourced from {@link PROVIDER_TRAITS} so a fourth backend cannot
+ * be missed here the way a hand-written catalog list missed OpenCode.
+ *
+ * For OpenCode this is the zero-auth free-tier floor: the runtime `opencode models` probe (which
+ * reports whatever the operator's authenticated upstream providers serve) is deliberately NOT
+ * consulted here — the escalation map is static settings, not a live picker.
  */
-export const escalationModelOptions = (): readonly string[] => [
-  ...new Set<string>([...CLAUDE_MODELS, ...COPILOT_MODELS, ...CODEX_MODELS]),
-];
+const MODEL_CATALOGS: ReadonlyArray<readonly string[]> = AI_PROVIDERS.map((p) => PROVIDER_TRAITS[p].modelCatalog);
+
+/**
+ * Union of every provider's model catalog — the FROM options for a new escalation rung. Order:
+ * every provider's catalog, in `AI_PROVIDERS` order; duplicates (ids shared across catalogs)
+ * collapse to their first occurrence.
+ */
+export const escalationModelOptions = (): readonly string[] => [...new Set<string>(MODEL_CATALOGS.flat())];
 
 /**
  * Target options for an escalation rung starting at `from` — the union of the catalogs that
@@ -211,9 +217,8 @@ export const escalationModelOptions = (): readonly string[] => [
  * custom id set via the CLI) falls back to the full union.
  */
 export const escalationTargetsFor = (from: string): readonly string[] => {
-  const catalogs: ReadonlyArray<readonly string[]> = [CLAUDE_MODELS, COPILOT_MODELS, CODEX_MODELS];
-  const owning = catalogs.filter((c) => c.includes(from));
-  const pool = owning.length > 0 ? owning.flat() : catalogs.flat();
+  const owning = MODEL_CATALOGS.filter((c) => c.includes(from));
+  const pool = owning.length > 0 ? owning.flat() : MODEL_CATALOGS.flat();
   return [...new Set(pool)].filter((m) => m !== from);
 };
 

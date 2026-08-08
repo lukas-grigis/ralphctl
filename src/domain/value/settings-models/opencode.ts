@@ -47,9 +47,13 @@ export const OPENCODE_MODELS: readonly OpencodeModel[] = [
 ] as const;
 
 /**
- * Narrow to a catalogued free-tier id. Deliberately NOT used as an adapter-side gate — see the
- * validation note on {@link OpencodeModel}. Kept for the picker and for settings defaulting,
- * where "is this one of the ids we ship as a known-good default?" is the real question.
+ * Narrow to a catalogued free-tier id — i.e. "is this one of the ids ralphctl itself ships as a
+ * known-good default?". Used to validate the rows the harness authors (preset matrices and the
+ * shipped defaults), which must stay in lockstep with {@link OPENCODE_MODELS}.
+ *
+ * Deliberately NOT an adapter-side gate — see the validation note on {@link OpencodeModel}: the
+ * adapters must accept authenticated upstream ids, so their boundary check is the permissive
+ * {@link isOpencodeModelIdShape}.
  *
  * @public
  */

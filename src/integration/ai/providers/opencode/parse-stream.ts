@@ -1,6 +1,10 @@
 import type { EventBus } from '@src/business/observability/event-bus.ts';
-import { RATE_LIMIT_SCAN_TAIL_CAP } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
+import {
+  FORENSIC_BODY_TAIL_CAP,
+  RATE_LIMIT_SCAN_TAIL_CAP,
+} from '@src/integration/ai/providers/_engine/bounded-tail.ts';
 import { isRecord, numberField, stringField } from '@src/integration/ai/providers/_engine/json-field.ts';
+import { createCappedLineFeed } from '@src/integration/ai/providers/_engine/line-feed.ts';
 import {
   publishAssistantEvent,
   publishToolResultEvent,
@@ -21,6 +25,9 @@ import {
  *                     and a `tool_result` debug event.
  *   - `step_finish` — end of a step. `part.reason` is `stop` | `tool-calls`; `part.tokens`
  *                     carries `{ total, input, output, reasoning, cache: { read, write } }`.
+ *   - `error`       — a fatal CLI error, e.g. an unreachable model id. Shaped
+ *                     `{ error: { name, data: { message } } }` and NOT accompanied by anything on
+ *                     stderr, so it folds into the body / tail (see `streamErrorText`).
  *
  * Two shape details that differ from the sibling adapters and drive the accumulator rules:
  *
@@ -95,6 +102,26 @@ export const assistantText = (obj: Record<string, unknown>): string | undefined 
   return part !== undefined ? stringField(part, 'text') : undefined;
 };
 
+/**
+ * Diagnostic text for an `error` record: `{"type":"error","error":{"name":"UnknownError",
+ * "data":{"message":"…"}}}`. An unreachable model id makes `opencode run` exit 1 with an EMPTY
+ * stderr and puts its only explanation on this record, so folding it into the body / tail is what
+ * keeps the `ProcessCrashError` message from reading `process exited with code 1: ` and nothing
+ * else.
+ */
+const streamErrorText = (obj: Record<string, unknown>): string | undefined => {
+  if (stringField(obj, 'type') !== 'error') return undefined;
+  const errObj = obj['error'];
+  const err = isRecord(errObj) ? errObj : undefined;
+  if (err === undefined) return undefined;
+  const dataObj = err['data'];
+  const data = isRecord(dataObj) ? dataObj : undefined;
+  const parts = [stringField(err, 'name'), data !== undefined ? stringField(data, 'message') : undefined].filter(
+    (p): p is string => p !== undefined && p.length > 0
+  );
+  return parts.length > 0 ? parts.join(': ') : undefined;
+};
+
 const safeJson = (v: unknown): string | undefined => {
   if (v === undefined || v === null) return undefined;
   try {
@@ -141,26 +168,12 @@ export const publishOpencodeStreamLineEvents = (eventBus: EventBus, obj: Record<
 };
 
 /**
- * Line-split a stdout buffer, dispatching each parsed record to `onMeta` / `onLine`. Returns
- * the residual unterminated tail, which the caller carries into the next chunk.
+ * Per-line emitter handed to {@link createCappedLineFeed}. Module-level (closes over no tracker
+ * state) — unparseable lines simply emit nothing, matching the sibling parsers.
  */
-export const consumeOpencodeLines = (
-  buffer: string,
-  onMeta: (update: OpencodeMetaUpdate) => void,
-  onLine: (obj: Record<string, unknown>) => void
-): string => {
-  let remaining = buffer;
-  while (true) {
-    const nl = remaining.indexOf('\n');
-    if (nl === -1) return remaining;
-    const line = remaining.slice(0, nl);
-    remaining = remaining.slice(nl + 1);
-    const obj = parseOpencodeJsonLine(line);
-    if (obj === undefined) continue;
-    onLine(obj);
-    const update = extractOpencodeMetaUpdate(obj);
-    if (update !== undefined) onMeta(update);
-  }
+const emitOpencodeLine = (raw: string, onLine: (obj: Record<string, unknown>) => void): void => {
+  const obj = parseOpencodeJsonLine(raw);
+  if (obj !== undefined) onLine(obj);
 };
 
 /**
@@ -189,7 +202,7 @@ export const createOpencodeAttemptTracker = (eventBus: EventBus): OpencodeAttemp
   let outputTokens: number | undefined;
   let body = '';
   let assistantTail = '';
-  let lineBuf = '';
+  const lineFeed = createCappedLineFeed<Record<string, unknown>>('opencode-stream', emitOpencodeLine);
 
   const onMeta = (update: OpencodeMetaUpdate): void => {
     if (update.sessionId !== undefined && sessionId === undefined) sessionId = update.sessionId;
@@ -202,20 +215,30 @@ export const createOpencodeAttemptTracker = (eventBus: EventBus): OpencodeAttemp
 
   const onLine = (obj: Record<string, unknown>): void => {
     publishOpencodeStreamLineEvents(eventBus, obj);
-    const text = assistantText(obj);
+    // `error` records fold in alongside assistant prose: they are the CLI's only explanation for
+    // an exit-1 with empty stderr (see `streamErrorText`).
+    const text = assistantText(obj) ?? streamErrorText(obj);
     if (text === undefined) return;
-    body = `${body}${body.length > 0 ? '\n' : ''}${text}`;
+    // Both accumulators are capped — an hours-long chatty session must not grow either without
+    // bound (same OOM class the line-parse cap guards).
+    body = `${body}${body.length > 0 ? '\n' : ''}${text}`.slice(-FORENSIC_BODY_TAIL_CAP);
     assistantTail = `${assistantTail}${assistantTail.length > 0 ? '\n' : ''}${text}`.slice(-RATE_LIMIT_SCAN_TAIL_CAP);
+  };
+
+  // Ordering is load-bearing: `onLine` (debug events + body) runs before `onMeta` (session id +
+  // usage), matching the pre-shared-feed dispatch order.
+  const dispatch = (obj: Record<string, unknown>): void => {
+    onLine(obj);
+    const update = extractOpencodeMetaUpdate(obj);
+    if (update !== undefined) onMeta(update);
   };
 
   return {
     consumeChunk: (chunk) => {
-      lineBuf = consumeOpencodeLines(lineBuf + chunk, onMeta, onLine);
+      lineFeed.feed(chunk, dispatch);
     },
     flush: () => {
-      if (lineBuf.length > 0) {
-        lineBuf = consumeOpencodeLines(lineBuf + '\n', onMeta, onLine);
-      }
+      lineFeed.flush(dispatch);
     },
     getSessionId: () => sessionId,
     getInputTokens: () => inputTokens,

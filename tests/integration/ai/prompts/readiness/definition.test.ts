@@ -119,6 +119,30 @@ describe('collectArtefactPaths', () => {
     });
     expect(collectArtefactPaths(state)).toEqual(['/repo/.github/copilot-instructions.md']);
   });
+
+  it('walks codex artifacts (AGENTS.md + .agents/skills)', () => {
+    const slug = Slug.parse('setup');
+    expect(slug.ok).toBe(true);
+    if (!slug.ok) return;
+    const state = presentState(FIXED_NOW, {
+      tool: 'codex',
+      agentsMd: { path: absolutePath('/repo/AGENTS.md') },
+      skills: [{ name: slug.value, path: absolutePath('/repo/.agents/skills/setup/SKILL.md') }],
+    });
+    expect(collectArtefactPaths(state)).toEqual(['/repo/AGENTS.md', '/repo/.agents/skills/setup/SKILL.md']);
+  });
+
+  it('walks opencode artifacts (AGENTS.md + .opencode/skills)', () => {
+    const slug = Slug.parse('verify');
+    expect(slug.ok).toBe(true);
+    if (!slug.ok) return;
+    const state = presentState(FIXED_NOW, {
+      tool: 'opencode',
+      agentsMd: { path: absolutePath('/repo/AGENTS.md') },
+      skills: [{ name: slug.value, path: absolutePath('/repo/.opencode/skills/verify/SKILL.md') }],
+    });
+    expect(collectArtefactPaths(state)).toEqual(['/repo/AGENTS.md', '/repo/.opencode/skills/verify/SKILL.md']);
+  });
 });
 
 const SAMPLE_CONTRACT_SECTION = '## Output contract\n\nWrite signals.json. (test fixture body.)';
@@ -158,6 +182,29 @@ describe('buildReadinessPrompt — end-to-end against the real template', () => 
     expect(body).toContain('<existing-context>');
     expect(body).toContain('# Acme API');
     expect(body).toContain('## Build & Run');
+  });
+
+  it('preserves an existing AGENTS.md body for opencode instead of asking for a fresh one', async () => {
+    // The opencode probe discovers repo-root AGENTS.md, so a curated file must reach the prompt —
+    // the template's "preserve verbatim" rule only fires on a non-empty EXISTING_CONTEXT_FILE.
+    const existing = '# Acme service\n\n## Conventions\n- Curated by hand';
+    const result = await buildReadinessPrompt(deps, {
+      repositoryPath: '/repo/acme',
+      currentTool: 'opencode',
+      probedState: presentState(FIXED_NOW, {
+        tool: 'opencode',
+        agentsMd: { path: absolutePath('/repo/acme/AGENTS.md') },
+        skills: [],
+      }),
+      existingContextFile: existing,
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+    });
+    if (!result.ok) throw new Error(`expected ok, got ${result.error.message}`);
+    const body = result.value as unknown as string;
+    expect(body).toContain('<existing-context>');
+    expect(body).toContain('# Acme service');
+    expect(body).not.toContain('no existing context file');
+    expect(body).toContain('- `/repo/acme/AGENTS.md`');
   });
 
   it('rejects an empty repositoryPath via the spec validator', async () => {
