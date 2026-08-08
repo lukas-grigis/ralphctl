@@ -48,11 +48,14 @@ export const OPENCODE_MODELS: readonly OpencodeModel[] = [
 
 /**
  * Narrow to a catalogued free-tier id — i.e. "is this one of the ids ralphctl itself ships as a
- * known-good default?". Used to validate the rows the harness authors (preset matrices and the
- * shipped defaults), which must stay in lockstep with {@link OPENCODE_MODELS}.
+ * known-good default?".
+ *
+ * Its only consumer is the preset lockstep test, which asserts that every OpenCode row the harness
+ * itself authors (preset matrices and the shipped defaults) names an id in {@link OPENCODE_MODELS}.
+ * That is why it survives dead-code cleanup: nothing in `src/` calls it, and nothing should.
  *
  * Deliberately NOT an adapter-side gate — see the validation note on {@link OpencodeModel}: the
- * adapters must accept authenticated upstream ids, so their boundary check is the permissive
+ * adapters must accept authenticated upstream ids, so their boundary check is the shape-only
  * {@link isOpencodeModelIdShape}.
  *
  * @public
@@ -60,9 +63,20 @@ export const OPENCODE_MODELS: readonly OpencodeModel[] = [
 export const isOpencodeModel = (s: string): s is OpencodeModel => (OPENCODE_MODELS as readonly string[]).includes(s);
 
 /**
- * Every OpenCode model id is `provider/model`. Used to sanity-check operator-supplied ids before
- * they reach the CLI: a bare `gpt-5.5` is a common paste-o from another backend's catalog and
- * produces an opaque CLI error, so the adapter rejects it up front with a message that names the
- * expected shape.
+ * The single spelling of "is this a well-formed OpenCode model id?" — two or more `/`-separated,
+ * whitespace-free segments. Shared by the adapter boundary (`opencode/headless.ts`,
+ * `opencode/interactive.ts`), which rejects operator-supplied ids before they reach the CLI, and by
+ * the availability probe, which filters `opencode models` output. One predicate on purpose: a probe
+ * that admitted an id the adapter then refused to run would offer un-runnable picker entries.
+ *
+ * Multi-segment ids are expected, not tolerated: `opencode models` prints `${providerID}/${modelID}`
+ * verbatim, and aggregator model keys routinely carry their own slash — OpenRouter ids are three
+ * segments (`openrouter/moonshotai/kimi-k2`), and a custom provider declaring a slashed model id
+ * yields `myprovider/vendor/slashed-model`. Verified against opencode-ai v1.18.15. Never narrow this
+ * to exactly two segments.
+ *
+ * Both anchors are load-bearing. `^` rejects the common paste-o of a bare `gpt-5.5` from another
+ * backend's catalog, which otherwise produces an opaque CLI error. `$` rejects trailing junk, which
+ * is what disqualifies `Available models:`-style banner lines in the probe's stdout.
  */
-export const isOpencodeModelIdShape = (s: string): boolean => /^[^/\s]+\/[^/\s]+/.test(s);
+export const isOpencodeModelIdShape = (s: string): boolean => /^[^/\s]+(?:\/[^/\s]+)+$/.test(s);

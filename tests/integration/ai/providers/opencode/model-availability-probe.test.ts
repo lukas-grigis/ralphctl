@@ -24,6 +24,13 @@ describe('createOpencodeModelAvailabilityProbe', () => {
     expect(available).toEqual(['openrouter/microsoft/phi-4', 'opencode/big-pickle']);
   });
 
+  it('drops bare unnamespaced ids the adapter would refuse to run', async () => {
+    // The filter is the adapter's own `isOpencodeModelIdShape`, so anything admitted here is
+    // runnable — a bare `gpt-5.5` would fail argv validation and become an un-runnable entry.
+    const probe = probeWith(() => Promise.resolve(['gpt-5.5', 'opencode/big-pickle']));
+    expect(await probe.availableModels(OPENCODE_MODELS)).toEqual(['opencode/big-pickle']);
+  });
+
   it('passes ids absent from the shipped catalog through unfiltered', async () => {
     // Deliberate aggregator widening: the shipped catalog is only the zero-auth free tier, so
     // intersecting against it would hide every model an authenticated operator pays for.
