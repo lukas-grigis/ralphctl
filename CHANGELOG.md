@@ -62,9 +62,9 @@ to [Semantic Versioning](https://semver.org/).
   headless GitHub Copilot. Two related failures were fixed alongside it: a spawn that failed synchronously —
   which is how Windows reports this — escaped as an unhandled exception instead of failing the round, and an
   oversized command line was retried until the attempt budget ran out even though every retry rebuilt the
-  same command. There is one deliberate carve-out: OpenCode can only read files under its project directory,
-  so when the prompt lives elsewhere (`ideate`, learning-distill) it is still passed inline, with a warning
-  in the log.
+  same command. OpenCode needed one extra step, since it has no `--add-dir` and refuses paths outside its
+  project directory: it is now granted read access to the prompt file's directory alone, layered onto your
+  own OpenCode config rather than replacing it.
 - **The OpenCode free-tier default no longer points at a model that refuses every request.**
   `opencode/north-mini-code-free` returns an upstream `401` while its free-tier siblings serve normally, and
   it was the shipped light-tier default in both the per-provider defaults and the `opencode-only` preset — so

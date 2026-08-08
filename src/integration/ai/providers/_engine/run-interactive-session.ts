@@ -100,6 +100,12 @@ export interface InteractiveProviderSpec {
    * decision in {@link isPromptFileReachable}.
    */
   readonly mountsRoots: boolean;
+  /**
+   * Environment entries this CLI needs at launch, layered over the harness's own environment.
+   * Present only for a CLI configured through the environment rather than through flags —
+   * OpenCode, which receives its prompt-directory grant this way because it has no `--add-dir`.
+   */
+  readonly buildEnv?: (input: InteractiveAiProviderInput) => Readonly<Record<string, string>>;
   /** Assemble the CLI's argv from the caller's input plus the shared session context. */
   readonly buildArgs: (input: InteractiveAiProviderInput, context: InteractiveSessionContext) => readonly string[];
 }
@@ -184,10 +190,13 @@ const spawnSession = (
   command: string,
   args: readonly string[],
   input: InteractiveAiProviderInput,
-  providerName: string
+  providerName: string,
+  env: Readonly<Record<string, string>> | undefined
 ): Result<ChildProcess, StorageError> => {
   try {
-    return Result.ok(spawnFn(command, args, { stdio: 'inherit', cwd: String(input.cwd) }));
+    return Result.ok(
+      spawnFn(command, args, { stdio: 'inherit', cwd: String(input.cwd), ...(env !== undefined ? { env } : {}) })
+    );
   } catch (cause) {
     return Result.error(
       new StorageError({
@@ -312,7 +321,7 @@ export const createInteractiveProvider = (
         at: IsoTimestamp.now(),
       });
 
-      const spawned = spawnSession(spawnFn, command, args, input, spec.providerName);
+      const spawned = spawnSession(spawnFn, command, args, input, spec.providerName, spec.buildEnv?.(input));
       if (!spawned.ok) return Result.error(spawned.error);
 
       const exit = await awaitExit(spawned.value, input.abortSignal);

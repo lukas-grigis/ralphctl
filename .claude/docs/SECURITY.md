@@ -87,9 +87,12 @@ CLI a POINTER at that file (`providers/_engine/prompt-pointer.ts`) — headless 
 it through stdin instead, which is equivalent for this purpose. Argv is capped at 32,767 bytes on Windows
 (and 8,191 once a `.cmd` shim routes through `cmd.exe`, where the excess is silently TRUNCATED rather than
 reported), well under what a rendered harness prompt reaches — a plan session on Windows died with
-`spawn ENAMETOOLONG` before the CLI started. The one exception is a CLI that cannot be given access to the
-prompt file: OpenCode has no `--add-dir`, so when the prompt lives outside `cwd` the engine inlines the body
-and warns, because a session that cannot read its own brief fails more quietly than a large argv does. Two
+`spawn ENAMETOOLONG` before the CLI started. Each adapter grants its CLI read access to the prompt file's
+directory and nothing wider — `--add-dir` for claude / copilot / codex, and for OpenCode (which has no such
+flag) a path-scoped `external_directory` grant injected as `OPENCODE_CONFIG_CONTENT`, which MERGES into the
+operator's own config rather than replacing it. The engine keeps an inline-body fallback for a CLI that can
+be granted nothing at all — no adapter needs it today — because a session that cannot read its own brief
+fails more quietly than a large argv does. Two
 earlier answers to this are on the rejected list and must not return: a `bash -lc "… $(cat promptFile)"`
 wrapper (cannot execute `.cmd` shims, mangles Windows backslash paths, silently dropped the Copilot seed)
 and `shell: true` for binary+args (mis-quotes spaces and `& | % "`). `providers/_engine/argv-budget.ts`

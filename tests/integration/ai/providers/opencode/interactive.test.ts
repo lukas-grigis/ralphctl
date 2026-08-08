@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { ChildProcess } from 'node:child_process';
 import { absolutePath } from '@tests/fixtures/domain.ts';
@@ -15,17 +15,27 @@ import type { InteractiveSpawn } from '@src/integration/ai/providers/_engine/int
 
 interface CapturingSpawnState {
   readonly spawn: InteractiveSpawn;
-  readonly calls: ReadonlyArray<{ readonly command: string; readonly args: readonly string[]; readonly cwd: string }>;
+  readonly calls: ReadonlyArray<{
+    readonly command: string;
+    readonly args: readonly string[];
+    readonly cwd: string;
+    readonly env?: Readonly<Record<string, string>>;
+  }>;
   readonly emitExit: (code: number | null) => void;
 }
 
 const makeSpawn = (): CapturingSpawnState => {
-  const calls: Array<{ command: string; args: readonly string[]; cwd: string }> = [];
+  const calls: Array<{
+    command: string;
+    args: readonly string[];
+    cwd: string;
+    env?: Readonly<Record<string, string>>;
+  }> = [];
   const last = {
     child: undefined as (ChildProcess & { emit: (event: string, ...args: unknown[]) => boolean }) | undefined,
   };
   const spawn: InteractiveSpawn = (command, args, options) => {
-    calls.push({ command, args, cwd: options.cwd });
+    calls.push({ command, args, cwd: options.cwd, ...(options.env !== undefined ? { env: options.env } : {}) });
     const child = new EventEmitter() as unknown as ChildProcess & {
       emit: (event: string, ...args: unknown[]) => boolean;
     };
@@ -65,28 +75,30 @@ describe('createInteractiveOpencodeProvider', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]!.command).toBe('opencode');
     // Order is load-bearing: `opencode [project]` takes the directory positionally, and the
-    // rendered prompt (which carries the audit-[09] contract section) rides --prompt.
-    //
-    // Body inlined here because PROMPT_FILE sits outside CWD and OpenCode has no --add-dir to
-    // mount it with — the pointer would name a path this session cannot open. See the sibling
-    // test for the reachable case.
-    expect(calls[0]!.args).toEqual([String(CWD), '--model', MODEL, '--prompt', STUB_PROMPT]);
+    // rendered prompt (which carries the audit-[09] contract section) rides --prompt — as a
+    // pointer at the prompt file, never the body.
+    expect(calls[0]!.args.slice(0, 4)).toEqual([String(CWD), '--model', MODEL, '--prompt']);
+    expect(calls[0]!.args.at(-1)).toContain(String(PROMPT_FILE));
+    expect(calls[0]!.args).not.toContain(STUB_PROMPT);
     expect(calls[0]!.cwd).toBe(String(CWD));
   });
 
-  it('passes a pointer instead of the body when the prompt file sits inside the project directory', async () => {
+  it('grants read access to the prompt directory only, since OpenCode has no --add-dir', async () => {
+    // Without this the CLI auto-rejects the pointer target as `permission requested:
+    // external_directory` and the session opens with no instructions — PROMPT_FILE lives outside
+    // CWD for ideate and memory-distill. The grant is scoped: everything else stays denied.
     const cap = createCapturingBus();
     const { spawn, calls, emitExit } = makeSpawn();
     const provider = createInteractiveOpencodeProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
 
-    // The plan / refine shape: cwd IS the per-run sandbox that holds prompt.md.
-    const promptFile = absolutePath(join(String(CWD), 'prompt.md'));
-    const runPromise = provider.run({ cwd: CWD, promptFile, outputFile: OUTPUT_FILE, model: MODEL });
+    const runPromise = provider.run({ cwd: CWD, promptFile: PROMPT_FILE, outputFile: OUTPUT_FILE, model: MODEL });
     emitExit(0);
     await runPromise;
 
-    expect(calls[0]!.args.at(-1)).toContain(String(promptFile));
-    expect(calls[0]!.args).not.toContain(STUB_PROMPT);
+    const config: unknown = JSON.parse(calls[0]!.env!['OPENCODE_CONFIG_CONTENT']!);
+    expect(config).toEqual({
+      permission: { external_directory: { '*': 'deny', [join(dirname(String(PROMPT_FILE)), '*')]: 'allow' } },
+    });
   });
 
   it('drops effort — --variant is `run`-only and the yargs-strict TUI command would exit 1', async () => {

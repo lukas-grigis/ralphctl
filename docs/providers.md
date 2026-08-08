@@ -37,9 +37,11 @@ OpenCode have no per-tool gate at all.
 
 For Codex and OpenCode, **path topology is the whole safety envelope**. Codex's sandbox has only two modes
 (read-only / workspace-write), so the cwd plus `--add-dir` set defines the scope. OpenCode has no
-per-directory grant at all, and ralphctl writes `signals.json` outside the project folder, so it passes
-`--auto` on effectively every headless run — without it the agent would sit blocked waiting for an approval
-that never arrives. In both cases the session directory is the real boundary.
+`--add-dir` flag; its per-directory grants live in config instead (`permission.external_directory`), and
+ralphctl writes `signals.json` outside the project folder. Interactive sessions get exactly one such grant,
+scoped to the directory holding the prompt file and layered onto your own config. Headless runs still pass
+`--auto` — without it the agent would sit blocked waiting for an approval that never arrives. In both cases
+the session directory is the real boundary.
 
 ## Claude Code
 

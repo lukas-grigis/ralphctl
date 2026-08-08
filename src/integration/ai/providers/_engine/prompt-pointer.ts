@@ -43,12 +43,14 @@ const isWithin = (root: string, candidate: string): boolean => {
  * is, because a CLI that cannot read the path fails by starting an empty session rather than by
  * erroring, which is far harder to diagnose than the overflow it replaced.
  *
- * `mountsRoots` is true for the CLIs that take `--add-dir` (claude / copilot / codex): the engine
- * mounts `dirname(promptFile)` for them, so the file is always reachable. OpenCode has no
- * `--add-dir` equivalent — its single positional project directory is the whole topology — so for
- * it the prompt file has to live under `cwd` on its own. It does for plan and refine (both run
- * with the per-run sandbox as cwd) and does not for ideate or memory-distill (both run with a
- * repository as cwd), which is why this is a runtime check rather than a per-provider constant.
+ * `mountsRoots` says the adapter has some way to grant its CLI access to the prompt file's
+ * directory, whatever that mechanism is: `--add-dir` for claude / copilot / codex, and a scoped
+ * `external_directory` config grant for OpenCode, which has no such flag. All four can today, so
+ * the second arm is a safety net rather than a live path — it exists so a future adapter for a CLI
+ * that cannot be granted anything degrades to a working (if large) argv instead of opening a
+ * session that silently has no instructions. `cwd` is a per-run sandbox for plan and refine but a
+ * repository for ideate and memory-distill, so where the prompt sits relative to it is a runtime
+ * question, not a per-provider constant.
  */
 export const isPromptFileReachable = (cwd: string, promptFile: string, mountsRoots: boolean): boolean =>
   mountsRoots || isWithin(cwd, promptFile);
