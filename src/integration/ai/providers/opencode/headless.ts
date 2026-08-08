@@ -111,7 +111,7 @@ export const buildOpencodeArgs = (session: AiSession): Result<readonly string[],
         entity: PROVIDER_NAME,
         currentState: 'model-validation',
         attemptedAction: 'build argv',
-        message: `opencode-provider: '${session.model}' is not a 'provider/model' id — OpenCode model ids are namespaced (e.g. 'opencode/big-pickle', 'anthropic/claude-sonnet-4-5')`,
+        message: `opencode-provider: '${session.model}' is not a 'provider/model' id — OpenCode model ids are namespaced as '<provider>/<model>' (e.g. 'opencode/big-pickle') — run 'opencode models' to list yours`,
       })
     );
   }

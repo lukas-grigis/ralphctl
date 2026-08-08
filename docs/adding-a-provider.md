@@ -6,10 +6,12 @@ the harness reads that file back and decides whether to continue. A **provider**
 that translates ralphctl's intent into one specific CLI's flags and parses that CLI's output
 stream.
 
-This guide walks through adding a fourth one. The running example is a hypothetical `gemini`
-provider (slug `google-gemini`, binary `gemini`) — substitute your own. The existing three live
-side by side under `src/integration/ai/providers/{claude,codex,copilot}/`; copy the closest
-match and edit, rather than writing from scratch.
+This guide walks through adding another one. The running example is a hypothetical `gemini`
+provider (slug `google-gemini`, binary `gemini`) — substitute your own. The existing four live
+side by side under `src/integration/ai/providers/{claude,codex,copilot,opencode}/`; copy the
+closest match and edit, rather than writing from scratch. `opencode/` is the most recent and the
+smallest, so it is usually the best starting point — and the only one whose CLI runs without
+credentials, which makes it the easiest to study against a live binary.
 
 ## The port you implement
 
@@ -320,7 +322,7 @@ A headless provider that compiles and runs the loop: ~6 files
 (`model-availability-probe.ts` + its `wire.ts` registry entry, and the `toolForProvider` /
 `createSkillsAdapter` arms).
 
-Full parity with the built-in three — readiness context-file support, a skills directory,
+Full parity with the built-in four — readiness context-file support, a skills directory,
 availability filtering, and the test suites — lands around **14 files**:
 
 1. `src/domain/value/settings-models/gemini.ts` — _new_

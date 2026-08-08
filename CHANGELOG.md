@@ -14,10 +14,11 @@ to [Semantic Versioning](https://semver.org/).
   new `opencode-only` preset. Two things make it different from the other three:
   - **It runs with no credentials.** OpenCode ships a free tier, so a fresh install can drive a real
     ralphctl session without signing in to anything — useful for trying the harness out, and for CI.
-  - **It aggregates other providers.** Model ids are namespaced (`opencode/big-pickle`,
-    `anthropic/claude-sonnet-4-5`), and the reachable set depends on which upstream providers you have
-    authenticated via `opencode providers`. The model picker asks the CLI (`opencode models`) instead of
-    reading a fixed list, so authenticating a provider makes its models selectable with no ralphctl upgrade.
+  - **It aggregates other providers.** Model ids are namespaced as `<provider>/<model>` (e.g.
+    `opencode/big-pickle` on the free tier), and the reachable set depends on which upstream providers you
+    have authenticated via `opencode providers`. The model picker asks the CLI (`opencode models`) instead
+    of reading a fixed list, so authenticating a provider makes its models selectable with no ralphctl
+    upgrade.
 
   Sessions resume across gen-eval rounds, and a stale session id falls back to a cold spawn rather than
   failing the task. Skills install to `.opencode/skills/`, agent definitions to `.opencode/agents/`, and
