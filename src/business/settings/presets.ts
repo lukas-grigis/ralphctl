@@ -28,6 +28,7 @@ export type PresetName =
   | 'claude-only'
   | 'copilot-only'
   | 'codex-only'
+  | 'opencode-only'
   | 'mixed-economic'
   | 'claude-economic'
   | 'copilot-economic'
@@ -50,6 +51,7 @@ export const PRESET_NAMES: readonly PresetName[] = [
   'claude-only',
   'copilot-only',
   'codex-only',
+  'opencode-only',
   'mixed-economic',
   'claude-economic',
   'copilot-economic',
@@ -84,6 +86,10 @@ export const isPresetName = (raw: string): raw is PresetName => (PRESET_NAMES as
 const CLAUDE = 'claude-code';
 const COPILOT = 'github-copilot';
 const CODEX = 'openai-codex';
+const OPENCODE = 'opencode';
+/** OpenCode free-tier picks — see the note on OPENCODE_ONLY. */
+const OPENCODE_BIG = 'opencode/big-pickle';
+const OPENCODE_MINI = 'opencode/north-mini-code-free';
 const OPUS = 'claude-opus-5';
 const SONNET = 'claude-sonnet-5';
 const HAIKU = 'claude-haiku-4-5';
@@ -154,6 +160,30 @@ const COPILOT_ONLY: AiSettings = {
   readiness: { provider: COPILOT, model: GPT_5_MINI, effort: 'medium' },
   ideate: { provider: COPILOT, model: COPILOT_OPUS },
   createPr: { provider: COPILOT, model: GPT_5_MINI },
+};
+
+/**
+ * OpenCode's zero-auth free tier. Unlike the other three providers this family has exactly ONE
+ * member rather than the usual economic / strong-gate / fast / frontier spread: every free-tier
+ * model sits at the same (zero) price point, so a "save money" or "spend for frontier quality"
+ * variant would differ in name only. An operator who authenticates an upstream provider through
+ * `opencode providers` should pin rows directly rather than reach for a preset.
+ *
+ * Effort is deliberately left unset on every row — OpenCode forwards it to `--variant`, whose
+ * accepted values come from the upstream provider, and the free-tier community models generally
+ * expose none. Omitting it lets the CLI use each model's own default instead of rejecting a
+ * level the model never supported.
+ */
+const OPENCODE_ONLY: AiSettings = {
+  refine: { provider: OPENCODE, model: OPENCODE_MINI },
+  plan: { provider: OPENCODE, model: OPENCODE_BIG },
+  implement: {
+    generator: { provider: OPENCODE, model: OPENCODE_BIG },
+    evaluator: { provider: OPENCODE, model: OPENCODE_BIG },
+  },
+  readiness: { provider: OPENCODE, model: OPENCODE_MINI },
+  ideate: { provider: OPENCODE, model: OPENCODE_BIG },
+  createPr: { provider: OPENCODE, model: OPENCODE_MINI },
 };
 
 const CODEX_ONLY: AiSettings = {
@@ -463,6 +493,7 @@ const PRESETS: Readonly<Record<PresetName, { ai: AiSettings; escalateOnPlateau: 
   'claude-only': { ai: CLAUDE_ONLY, escalateOnPlateau: true },
   'copilot-only': { ai: COPILOT_ONLY, escalateOnPlateau: true },
   'codex-only': { ai: CODEX_ONLY, escalateOnPlateau: true },
+  'opencode-only': { ai: OPENCODE_ONLY, escalateOnPlateau: true },
   'mixed-economic': { ai: MIXED_ECONOMIC, escalateOnPlateau: true },
   'claude-economic': { ai: CLAUDE_ECONOMIC, escalateOnPlateau: true },
   'copilot-economic': { ai: COPILOT_ECONOMIC, escalateOnPlateau: true },

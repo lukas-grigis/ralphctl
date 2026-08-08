@@ -48,11 +48,13 @@ import { errorCode, parseSkill } from '@src/integration/ai/skills/_engine/parse-
  *   claude-code    → `claude`
  *   github-copilot → `copilot`
  *   openai-codex   → `codex`
+ *   opencode       → `opencode`
  */
 export const OPERATOR_PROVIDER_DIR: Record<AiProvider, string> = {
   'claude-code': 'claude',
   'github-copilot': 'copilot',
   'openai-codex': 'codex',
+  opencode: 'opencode',
 };
 
 /**

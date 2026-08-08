@@ -14,6 +14,7 @@ import type { LogLevel } from '@src/domain/value/log-level.ts';
 import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
 import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
 import { COPILOT_MODELS } from '@src/domain/value/settings-models/copilot.ts';
+import { OPENCODE_MODELS } from '@src/domain/value/settings-models/opencode.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import { FLOW_IDS } from '@src/domain/value/flow-id.ts';
 
@@ -32,17 +33,19 @@ const LogLevelSchema = z.enum(['silent', 'debug', 'info', 'warn', 'error']) sati
  * Zod literal) because the flat AiSettings shape no longer has a `provider` field at the root
  * for `z.infer` to project. Used by every per-flow row and by composition-root factories.
  */
-export type AiProvider = 'claude-code' | 'github-copilot' | 'openai-codex';
+export type AiProvider = 'claude-code' | 'github-copilot' | 'openai-codex' | 'opencode';
 
 /** Provider ids — reused by the schema enum/literals and the legacy-row migration checks below. */
 const PROVIDER_CLAUDE_CODE = 'claude-code';
 const PROVIDER_GITHUB_COPILOT = 'github-copilot';
 const PROVIDER_OPENAI_CODEX = 'openai-codex';
+const PROVIDER_OPENCODE = 'opencode';
 
 const AiProviderSchema = z.enum([
   PROVIDER_CLAUDE_CODE,
   PROVIDER_GITHUB_COPILOT,
   PROVIDER_OPENAI_CODEX,
+  PROVIDER_OPENCODE,
 ]) satisfies z.ZodType<AiProvider>;
 
 /**
@@ -58,6 +61,14 @@ const AiProviderSchema = z.enum([
 const ClaudeEffortSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
 const CopilotEffortSchema = z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max']);
 const CodexEffortSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
+/**
+ * OpenCode maps effort onto `--variant`, whose accepted values are set by the *upstream*
+ * provider behind the chosen `provider/model` id rather than by OpenCode itself. This enum is
+ * therefore a permissive superset (the CLI's own help names `high`, `max`, `minimal`); the
+ * OpenCode CLI is the final arbiter for a given model, exactly as codex arbitrates its own
+ * per-model effort narrowing.
+ */
+const OpencodeEffortSchema = z.enum(['minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
 
 /** Superset across providers. The global `ai.effort` accepts any of these; `resolveEffort` floors. */
 const GlobalEffortSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
@@ -72,6 +83,16 @@ const CustomModelStringSchema = z.string().trim().min(1, 'model id must be a non
 const ClaudeModelSchema = z.union([z.enum(CLAUDE_MODELS as readonly [string, ...string[]]), CustomModelStringSchema]);
 const CopilotModelSchema = z.union([z.enum(COPILOT_MODELS as readonly [string, ...string[]]), CustomModelStringSchema]);
 const CodexModelSchema = z.union([z.enum(CODEX_MODELS as readonly [string, ...string[]]), CustomModelStringSchema]);
+/**
+ * OpenCode aggregates upstream providers, so its reachable ids depend on which of them the
+ * operator has authenticated. `OPENCODE_MODELS` is only the zero-auth free-tier floor — an
+ * authenticated `anthropic/claude-…` id is perfectly valid and must round-trip, so the custom
+ * arm is the load-bearing one here rather than the fallback it is for the other three.
+ */
+const OpencodeModelSchema = z.union([
+  z.enum(OPENCODE_MODELS as readonly [string, ...string[]]),
+  CustomModelStringSchema,
+]);
 
 const ClaudeFlowRowSchema = z.object({
   provider: z.literal(PROVIDER_CLAUDE_CODE),
@@ -91,7 +112,18 @@ const CodexFlowRowSchema = z.object({
   effort: CodexEffortSchema.optional(),
 });
 
-const FlowRowSchema = z.discriminatedUnion('provider', [ClaudeFlowRowSchema, CopilotFlowRowSchema, CodexFlowRowSchema]);
+const OpencodeFlowRowSchema = z.object({
+  provider: z.literal(PROVIDER_OPENCODE),
+  model: OpencodeModelSchema,
+  effort: OpencodeEffortSchema.optional(),
+});
+
+const FlowRowSchema = z.discriminatedUnion('provider', [
+  ClaudeFlowRowSchema,
+  CopilotFlowRowSchema,
+  CodexFlowRowSchema,
+  OpencodeFlowRowSchema,
+]);
 
 /**
  * One role's opt-in agent-definition binding — the kebab-case `name` of an authored
@@ -652,5 +684,23 @@ export const uniqueProvidersFromAi = (ai: AiSettings): readonly AiProvider[] => 
 };
 
 // AiProviderSchema is intentionally not re-exported — callers should use the type alias
-// above; only the schema module re-uses the runtime enum for parsing.
-void AiProviderSchema;
+// above, or {@link AI_PROVIDERS} when they need the runtime list.
+
+/**
+ * Every {@link AiProvider} id, as a runtime array — derived from the schema enum so it can never
+ * drift from the union.
+ *
+ * This exists because the union alone is a COMPILE-time construct: a hand-written
+ * `['claude-code', 'github-copilot', 'openai-codex']` still type-checks as `readonly AiProvider[]`
+ * after a fourth provider joins, so `Record<AiProvider, …>` exhaustiveness never catches it. That
+ * is exactly how adding OpenCode left `settings set ai.<flow>.provider opencode`, the CLI
+ * implement-role overrides, and the TUI customize picker silently rejecting the new provider while
+ * the whole suite stayed green. Every membership check and every "expected one of: …" message
+ * MUST read from here rather than re-listing ids.
+ *
+ * @public
+ */
+export const AI_PROVIDERS: readonly AiProvider[] = AiProviderSchema.options;
+
+/** Human-facing "expected one of: …" fragment, shared by every provider-validation message. */
+export const AI_PROVIDERS_HINT: string = AI_PROVIDERS.join(', ');

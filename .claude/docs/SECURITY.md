@@ -13,20 +13,43 @@ the AI to land `signals.json` in `outputDir`. To deny writes to a tree, don't mo
 `outputDir` is auto-included as a writable root in every provider (see
 `providers/_engine/resolve-roots.ts`).
 
-| Provider         | Always passes                         | Read-only profile maps to                            | Native context file               |
-| ---------------- | ------------------------------------- | ---------------------------------------------------- | --------------------------------- |
-| `claude-code`    | `--permission-mode bypassPermissions` | `--disallowedTools Edit,MultiEdit,NotebookEdit,Bash` | `CLAUDE.md` at repo root          |
-| `github-copilot` | `--no-ask-user --autopilot --silent`  | `--allow-all-tools --deny-tool=shell`                | `.github/copilot-instructions.md` |
-| `openai-codex`   | `-s workspace-write` (no `-a` flag)   | `-s workspace-write` (topology-scoped)               | `AGENTS.md`                       |
+| Provider         | Always passes                                       | Read-only profile maps to                            | Native context file               |
+| ---------------- | --------------------------------------------------- | ---------------------------------------------------- | --------------------------------- |
+| `claude-code`    | `--permission-mode bypassPermissions`               | `--disallowedTools Edit,MultiEdit,NotebookEdit,Bash` | `CLAUDE.md` at repo root          |
+| `github-copilot` | `--no-ask-user --autopilot --silent`                | `--allow-all-tools --deny-tool=shell`                | `.github/copilot-instructions.md` |
+| `openai-codex`   | `-s workspace-write` (no `-a` flag)                 | `-s workspace-write` (topology-scoped)               | `AGENTS.md`                       |
+| `opencode`       | `run --format json --dir <cwd> -m <provider/model>` | **nothing — no argv spelling exists**                | `AGENTS.md`                       |
 
 Codex caveat: `codex exec` has only two sandbox modes (`read-only` / `workspace-write`), and
 `read-only` blocks every write (incl. signals.json). Every profile maps to `workspace-write`;
 Codex can't fine-grained-deny edits on existing repo files. Use topology to constrain it.
 
+OpenCode caveat (stronger): `opencode run` exposes exactly ONE approval control, `--auto`, and
+omitting it does NOT make the session read-only — a plain `run` still executes write and edit
+tools without prompting (verified against v1.18.15). There is therefore no argv spelling of
+`canModifyRepoFiles: false` at all; path topology is the only boundary. Plainly stated: OpenCode
+has no flag to grant write access to just one extra directory — permission is all-or-nothing
+(`--dir` sets a single root, and its `external_directory` permission auto-REJECTS access outside
+that root). ralphctl's `outputDir` (where `signals.json` lands) routinely sits outside the project
+folder, so whenever `outputDir` / `additionalRoots` fall outside `cwd` the adapter emits `--auto`
+to clear that gate wholesale — without it the AI would sit blocked waiting for an
+external-directory approval that never arrives. In practice `--auto` is therefore passed on
+effectively every headless run, and the project/session directory is the real safety boundary, not
+the CLI's permission gate — exactly as already documented above for OpenAI Codex. The
+precise-scoping follow-up is OpenCode's config-level `permission.external_directory` map, which can
+allow specific paths instead — it needs a generated per-session config file and is deliberately not
+wired in the first adapter. See `providers/opencode/headless.ts` for the full note. One clarification
+worth keeping in mind when reading that flag: `--auto` promotes the tool classes an operator set to
+`ask`, but per OpenCode's permissions documentation it does not override a class set to `deny` — an
+explicit denial in the operator's `opencode.json` stays enforced.
+
 The `readiness` flow fans out across every uniquely referenced provider in `settings.ai` — one native
 context file per provider (claude-code → `CLAUDE.md`, github-copilot → `.github/copilot-instructions.md`,
-openai-codex → `AGENTS.md`). Single-provider configurations produce exactly one file; mixed configurations
-produce one per distinct provider. No symlinks, no pointer schemes. Don't introduce either.
+openai-codex → `AGENTS.md`, opencode → `AGENTS.md`). Single-provider configurations produce exactly one
+file; mixed configurations produce one file per distinct native context file — `openai-codex` and
+`opencode` share the repo-root `AGENTS.md`, so a config naming both runs two readiness passes over that
+same file (the second overwrites it, preserving the first pass's output verbatim in a
+`<path>.bak.<timestamp>` copy). No symlinks, no pointer schemes. Don't introduce either.
 
 **Cross-process advisory lock** at `<stateRoot>/locks/repo-<hash>.lock` (sha1 of the repository worktree
 path, first 16 hex) serializes whole-flow runs against one working tree so two ralphctl processes can't race
@@ -71,7 +94,9 @@ the progress spinner stuck.
 **AI sessions plug onto the repo (implement / ideate).** Cwd is the user's repo (multi-repo flows
 pick `repositories[0]`); the per-flow sandbox under `<sprintDir>/<flow>/<unit-slug>/` is mounted via
 `--add-dir` so `prompt.md` and `signals.json` round-trip through harness-controlled
-paths. Cwd is the repo because Claude / Copilot / Codex only auto-discover their context file
+paths — except on OpenCode, which has no `--add-dir` equivalent and instead auto-approves
+external-directory access with `--auto` (see the OpenCode caveat above). Cwd is the repo because
+Claude / Copilot / Codex only auto-discover their context file
 (`CLAUDE.md` / `.github/copilot-instructions.md` / `AGENTS.md`), skills (`.claude/skills/` /
 `.github/skills/` / `.agents/skills/`), agents, and `.mcp.json` from cwd — not from `--add-dir` roots.
 Harness-authored skills land in `<repo>/<parentDir>/skills/ralphctl-*/` and the skills adapter appends one
@@ -101,7 +126,7 @@ those entries. Every bundled `SKILL.md` is validated by `skill-contract-checker.
 rules (signal contract, git ownership, one-PR, package-manager agnosticism, subagent control, verify gate);
 the contract test hard-fails on any violation, keeping bundled skills safe to auto-install.
 
-**Operator drop-in skills.** Global, provider-specific skills under `~/.ralphctl/skills/{claude,copilot,codex}/<name>/SKILL.md`
+**Operator drop-in skills.** Global, provider-specific skills under `~/.ralphctl/skills/{claude,copilot,codex,opencode}/<name>/SKILL.md`
 are discovered by `createOperatorSkillSource` and installed through the same `ralphctl-` namespace and
 `.git/info/exclude` wildcard as bundled skills. `StoragePaths.operatorSkillsRoot` = `<appRoot>/skills`.
 The compat checker runs as a warning for operator skills — a violation logs and skips, never aborts the

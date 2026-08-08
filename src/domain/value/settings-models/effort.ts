@@ -21,4 +21,8 @@ export const PROVIDER_EFFORT_LEVELS: Readonly<Record<AiProvider, readonly string
   'claude-code': ['low', 'medium', 'high', 'xhigh', 'max'],
   'github-copilot': ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
   'openai-codex': ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
+  // OpenCode forwards effort to `--variant`, whose accepted values come from the upstream
+  // provider behind the selected `provider/model` id — so this is a permissive superset and the
+  // CLI narrows per model at spawn, same posture as the codex row above.
+  opencode: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
 };

@@ -39,10 +39,12 @@ import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { ReadinessProbeRegistry } from '@src/integration/ai/readiness/_engine/probe.ts';
 import { claudeProbe } from '@src/integration/ai/readiness/claude/probe.ts';
 import { codexProbe } from '@src/integration/ai/readiness/codex/probe.ts';
+import { opencodeProbe } from '@src/integration/ai/readiness/opencode/probe.ts';
 import { copilotProbe } from '@src/integration/ai/readiness/copilot/probe.ts';
 import type { ModelAvailabilityProbeRegistry } from '@src/integration/ai/providers/_engine/model-availability-probe.ts';
 import { claudeModelAvailabilityProbe } from '@src/integration/ai/providers/claude/model-availability-probe.ts';
 import { codexModelAvailabilityProbe } from '@src/integration/ai/providers/codex/model-availability-probe.ts';
+import { opencodeModelAvailabilityProbe } from '@src/integration/ai/providers/opencode/model-availability-probe.ts';
 import { copilotModelAvailabilityProbe } from '@src/integration/ai/providers/copilot/model-availability-probe.ts';
 import { PROVIDER_TRAITS } from '@src/integration/ai/providers/_engine/provider-traits.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
@@ -346,6 +348,7 @@ const PROBES: ReadinessProbeRegistry = {
   'claude-code': claudeProbe,
   copilot: copilotProbe,
   codex: codexProbe,
+  opencode: opencodeProbe,
 };
 
 /**
@@ -357,6 +360,7 @@ const MODEL_AVAILABILITY_PROBES: ModelAvailabilityProbeRegistry = {
   'claude-code': claudeModelAvailabilityProbe,
   'github-copilot': copilotModelAvailabilityProbe,
   'openai-codex': codexModelAvailabilityProbe,
+  opencode: opencodeModelAvailabilityProbe,
 };
 
 /** Silent default dispatcher — used when no production override is passed (i.e. by tests). */

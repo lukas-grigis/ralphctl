@@ -20,6 +20,7 @@ const PROVIDER_LABEL: Record<AiProvider, string> = {
   'claude-code': 'Claude Code',
   'github-copilot': 'GitHub Copilot',
   'openai-codex': 'OpenAI Codex',
+  opencode: 'OpenCode',
 };
 
 /** Sentinel for the picker's "All providers" entry — distinct from any {@link AiProvider}. */

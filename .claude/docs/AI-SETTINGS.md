@@ -23,7 +23,16 @@ set `ai.effort` keeps that deliberate choice untouched; otherwise the provider C
 accepts `low..ultra` — from the **global** value, `max` floors
 to `xhigh` (only the GPT-5.6 family accepts `max`); `ultra` (sol/terra-only, plan-gated) is reachable only
 via an explicit per-flow effort; `minimal` no longer exists — persisted rows migrate to `low` at parse
-time. The implement generator's resolved effort also feeds the escalation policy's same-model effort rung,
+time. OpenCode accepts `minimal | low | medium | high | xhigh | max`
+(`src/domain/value/settings-models/effort.ts`) and forwards the resolved value verbatim to `--variant` on
+`opencode run`; it gets no entry in `clampEffortToProvider`, so the CLI is the final arbiter per upstream
+model — OpenCode aggregates other vendors, and the accepted `--variant` levels belong to whichever vendor
+sits behind the `provider/model` id. Two deliberate carve-outs follow from that: the shipped per-flow
+default (`plan` / `ideate` → `high`) is NOT stamped on an opencode row (`resolve-effort.ts`), matching
+`EFFORT_CAPABLE_PROVIDERS` in `escalation-map.ts`, because a level the upstream model never supported
+would turn a working spawn into a hard failure; and `--variant` exists only on the `run` subcommand, so
+the interactive TUI path (`opencode <cwd> --model …`) forwards no effort at all. The implement generator's
+resolved effort also feeds the escalation policy's same-model effort rung,
 whose target is provider- and model-aware: a Claude generator at the top of the model ladder climbs its own
 effort tiers (Claude Code's default is `xhigh` on xhigh-capable models, so the shipped default
 `claude-opus-5` with effort unset escalates to `max`, not `high`), while Copilot escalates to a fixed
@@ -75,12 +84,18 @@ when set, else the role's own per-flow row `model` (always present); `effort` fo
 falls through to the existing per-flow-row → global-default resolution (**Effort resolution** above) when
 neither the definition nor the row set one explicitly.
 
-**Twenty presets across five families** stamp the entire `ai` section plus `harness.escalateOnPlateau`
-in one shot — all equally first-class (none is marked default). Each family carries four variants:
-`mixed` (best-fit provider per flow), `claude-only`, `copilot-only`, `codex-only`. The families:
+**Twenty-one presets across five families** stamp the entire `ai` section plus `harness.escalateOnPlateau`
+in one shot — all equally first-class (none is marked default). Four families carry four variants each:
+`mixed` (best-fit provider per flow), `claude-only`, `copilot-only`, `codex-only`; the standard family
+additionally carries `opencode-only`. The families:
 
-- **standard** (`mixed`, `claude-only`, `copilot-only`, `codex-only`) — flagship model per flow at
-  `xhigh` effort for `implement`/`plan`; `readiness` at `medium`; `refine`/`ideate` inherit global `high`.
+- **standard** (`mixed`, `claude-only`, `copilot-only`, `codex-only`, `opencode-only`) — flagship model
+  per flow at `xhigh` effort for `implement`/`plan`; `readiness` at `medium`; `refine`/`ideate` inherit
+  global `high`. `opencode-only` is a single-member family by design: every OpenCode free-tier model sits
+  at the same (zero) price point, so economic / fast / frontier variants would differ in name only.
+  Operators who authenticate an upstream provider through `opencode providers` should pin rows directly
+  rather than reach for a preset (see the `OPENCODE_ONLY` note in `src/business/settings/presets.ts`).
+  Its rows leave `effort` unset for the reason given under **Effort resolution** above.
 - **economic** (`mixed-economic`, `claude-economic`, `copilot-economic`, `codex-economic`) — same routing
   as standard but `implement` starts one tier below the flagship at `high` effort; the escalation ladder
   climbs to the flagship only when a task plateaus — cheaper tokens on easy tasks, same quality gate on
@@ -164,6 +179,15 @@ every `ai` row plus `harness.escalateOnPlateau` in one transaction; subsequent p
   catalog; persisted rows silently remap to `gpt-5.5` at parse time (`gpt-5.3-codex` stays in the
   **Copilot** catalog — GitHub still lists it — so the remap is codex-provider-guarded). Effort
   vocabulary is now `low..ultra`; `minimal` was retired and persisted rows migrate to `low`.
+- OpenCode — structurally unlike the other three: `OPENCODE_MODELS`
+  (`src/domain/value/settings-models/opencode.ts`, verified against `opencode models`, opencode-ai
+  v1.18.15) is the **zero-auth free-tier floor**, not a vendor catalog. Ids are namespaced
+  `<provider>/<model>` (an aggregator upstream may add further segments), and the adapter validates only
+  that SHAPE — it does **not** reject off-catalog ids, because doing so would make every authenticated
+  model un-runnable. The runtime `opencode models` probe
+  (`providers/opencode/model-availability-probe.ts`) reports whatever the operator's authenticated
+  providers actually serve, so the picker grows without a ralphctl release. The free tier rotates
+  upstream; a stale entry degrades to a picker row the CLI rejects, never a crash.
 
 **Default escalation posture (effort rung, no model ladder).** `DEFAULT_SETTINGS.ai.implement.generator` is
 `claude-opus-5`, which has no key in `DEFAULT_ESCALATION_MAP` — so the shipped default never
@@ -200,7 +224,8 @@ retargeted or removed without leaving the TUI.
   `PERFORMANCE.md § Verify-gate cost and scoping`.
 
 **Fail-fast PATH check.** Every AI-spawning flow probes for its row's CLI binary at launch (`claude` /
-`copilot` / `codex` via `src/integration/system/detect-cli.ts`) and exits with `LaunchResult.fail` naming the
+`copilot` / `codex` / `opencode` — `PROVIDER_BINARY` in `src/integration/system/detect-cli.ts` covers all
+four) and exits with `LaunchResult.fail` naming the
 binary, the flow, and the offending `settings.ai.<flow>.provider` key when the binary is absent.
 `apply-preset` emits non-fatal warnings for any preset row whose CLI is missing at apply time, and the
 welcome view silently auto-seeds a preset on fresh install based on what it detects on PATH.

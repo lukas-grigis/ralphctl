@@ -4,6 +4,7 @@ import { type AiFlowSettings, type AiProvider, primaryFlowRow, type Settings } f
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import { createClaudeProvider } from '@src/integration/ai/providers/claude/headless.ts';
 import { createCodexProvider } from '@src/integration/ai/providers/codex/headless.ts';
+import { createOpencodeProvider } from '@src/integration/ai/providers/opencode/headless.ts';
 import { createCopilotProvider } from '@src/integration/ai/providers/copilot/headless.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import type { HeadlessProviderDeps } from '@src/integration/ai/providers/_engine/headless-provider-deps.ts';
@@ -71,6 +72,7 @@ const HEADLESS_FACTORIES: Readonly<Record<AiProvider, (deps: HeadlessProviderDep
   'claude-code': createClaudeProvider,
   'github-copilot': createCopilotProvider,
   'openai-codex': createCodexProvider,
+  opencode: createOpencodeProvider,
 };
 
 export const createAiProvider = (deps: CreateAiProviderDeps): HeadlessAiProvider => {

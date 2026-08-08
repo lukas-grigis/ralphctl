@@ -18,6 +18,7 @@ import type { SkillsAdapterDeps } from '@src/integration/ai/skills/_engine/skill
 import { createClaudeSkillsAdapter } from '@src/integration/ai/skills/claude/adapter.ts';
 import { createCodexSkillsAdapter } from '@src/integration/ai/skills/codex/adapter.ts';
 import { createCopilotSkillsAdapter } from '@src/integration/ai/skills/copilot/adapter.ts';
+import { createOpencodeSkillsAdapter } from '@src/integration/ai/skills/opencode/adapter.ts';
 
 /**
  * One concrete skills-adapter factory per {@link AiProvider}. `Record<AiProvider, …>` is
@@ -28,6 +29,7 @@ const SKILLS_ADAPTERS: Readonly<Record<AiProvider, (deps?: SkillsAdapterDeps) =>
   'claude-code': createClaudeSkillsAdapter,
   'github-copilot': createCopilotSkillsAdapter,
   'openai-codex': createCodexSkillsAdapter,
+  opencode: createOpencodeSkillsAdapter,
 };
 
 export const createSkillsAdapter = (deps: SkillsAdapterFactoryDeps): SkillsAdapter => {

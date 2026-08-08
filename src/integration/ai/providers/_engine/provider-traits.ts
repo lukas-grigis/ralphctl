@@ -3,6 +3,7 @@ import type { ProviderInstallGuidance } from '@src/integration/system/_engine/de
 import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
 import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
 import { COPILOT_MODELS } from '@src/domain/value/settings-models/copilot.ts';
+import { OPENCODE_MODELS } from '@src/domain/value/settings-models/opencode.ts';
 
 /**
  * Every static per-provider fact ralphctl needs, in one row. PATH binary, install guidance,
@@ -60,6 +61,10 @@ export interface ProviderTraits {
 const NPM_INSTALL_CLAUDE = 'npm install -g @anthropic-ai/claude-code';
 const NPM_INSTALL_COPILOT = 'npm install -g @github/copilot';
 const NPM_INSTALL_CODEX = 'npm install -g @openai/codex';
+const NPM_INSTALL_OPENCODE = 'npm install -g opencode-ai';
+/** OpenCode keeps skills, agents and config under one project directory. */
+const OPENCODE_PARENT_DIR = '.opencode';
+const OPENCODE_INSTALL_SH = 'curl -fsSL https://opencode.ai/install | bash';
 
 /**
  * Install-guidance sources (verified against vendor docs at the time of writing):
@@ -130,5 +135,27 @@ export const PROVIDER_TRAITS: Readonly<Record<AiProvider, ProviderTraits>> = {
     wireTag: 'agents-md',
     conventionsPartial: 'conventions-agents-md',
     modelCatalog: CODEX_MODELS,
+  },
+  opencode: {
+    binary: 'opencode',
+    installGuidance: {
+      docsUrl: 'https://opencode.ai/docs/',
+      commandsByPlatform: {
+        darwin: ['brew install sst/tap/opencode', OPENCODE_INSTALL_SH, NPM_INSTALL_OPENCODE],
+        linux: [OPENCODE_INSTALL_SH, NPM_INSTALL_OPENCODE],
+        win32: [NPM_INSTALL_OPENCODE, OPENCODE_INSTALL_SH],
+      },
+    },
+    // OpenCode reads the same `AGENTS.md` convention codex does, so both share the context-file
+    // target and its prompt partial rather than duplicating a near-identical one.
+    contextFileTargetPath: 'AGENTS.md',
+    skillsParentDir: OPENCODE_PARENT_DIR,
+    agentsParentDir: OPENCODE_PARENT_DIR,
+    wireTag: 'agents-md',
+    conventionsPartial: 'conventions-agents-md',
+    // Only the zero-auth free tier — OpenCode aggregates upstream providers, so the picker's real
+    // list comes from `opencodeModelAvailabilityProbe` shelling out to `opencode models`. See
+    // `domain/value/settings-models/opencode.ts`.
+    modelCatalog: OPENCODE_MODELS,
   },
 };

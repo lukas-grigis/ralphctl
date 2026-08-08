@@ -14,6 +14,9 @@ const CLAUDE_OPUS = 'claude-opus-5';
 const GPT_5_MINI = 'gpt-5-mini';
 const GPT_5_4_MINI = 'gpt-5.4-mini';
 const GPT_5_6_SOL = 'gpt-5.6-sol';
+/** OpenCode free-tier picks — the general-purpose tier and the light/code-oriented tier. */
+const OPENCODE_BIG = 'opencode/big-pickle';
+const OPENCODE_MINI = 'opencode/north-mini-code-free';
 
 /**
  * Per-provider, per-flow default model picks. Used by the welcome flow when the user picks a
@@ -51,6 +54,19 @@ const DEFAULT_MODELS_BY_PROVIDER: Readonly<Record<AiProvider, Readonly<Record<Fl
     readiness: GPT_5_4_MINI,
     ideate: GPT_5_6_SOL,
     createPr: GPT_5_4_MINI,
+  },
+  // OpenCode aggregates upstream providers, so there is no vendor flagship to default to. These
+  // are the zero-auth free-tier picks — they make a fresh install runnable with no credentials
+  // at all, which none of the other three backends offer. An operator who authenticates a real
+  // provider via `opencode providers` will want to re-point these at that provider's models;
+  // the picker surfaces whatever `opencode models` reports.
+  opencode: {
+    refine: OPENCODE_MINI,
+    plan: OPENCODE_BIG,
+    implement: OPENCODE_BIG,
+    readiness: OPENCODE_MINI,
+    ideate: OPENCODE_BIG,
+    createPr: OPENCODE_MINI,
   },
 };
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Settings } from '@src/domain/entity/settings.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
+import { applyPreset } from '@src/business/settings/presets.ts';
 import { clampEffortToProvider, resolveEffort } from '@src/business/settings/resolve-effort.ts';
 
 const withGlobalEffort = (effort: Settings['ai']['effort']): Settings => ({
@@ -128,6 +129,30 @@ describe('resolveEffort', () => {
 
   it('returns the per-flow value verbatim for the configured provider', () => {
     expect(resolveEffort('plan', withPerFlowEffort('plan', 'low'))).toBe('low');
+  });
+
+  it('never stamps the plan/ideate flow default on an opencode row — the CLI picks the upstream default', () => {
+    // OpenCode aggregates upstream providers, so `--variant high` may be rejected outright by the
+    // row's model. The opencode-only preset documents effort as deliberately unset on every row.
+    const opencodeOnly = applyPreset('opencode-only', DEFAULT_SETTINGS);
+    expect(resolveEffort('plan', opencodeOnly)).toBeUndefined();
+    expect(resolveEffort('ideate', opencodeOnly)).toBeUndefined();
+  });
+
+  it('an explicit per-row effort still reaches an opencode row verbatim', () => {
+    const opencodeOnly = applyPreset('opencode-only', DEFAULT_SETTINGS);
+    const withRowEffort: Settings = {
+      ...opencodeOnly,
+      ai: { ...opencodeOnly.ai, plan: { ...opencodeOnly.ai.plan, effort: 'high' } } as Settings['ai'],
+    };
+    expect(resolveEffort('plan', withRowEffort)).toBe('high');
+  });
+
+  it('an explicit global ai.effort still reaches an opencode row', () => {
+    const opencodeOnly = applyPreset('opencode-only', DEFAULT_SETTINGS);
+    const withGlobal: Settings = { ...opencodeOnly, ai: { ...opencodeOnly.ai, effort: 'medium' } };
+    expect(resolveEffort('plan', withGlobal)).toBe('medium');
+    expect(resolveEffort('refine', withGlobal)).toBe('medium');
   });
 });
 

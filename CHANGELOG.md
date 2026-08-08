@@ -9,6 +9,31 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **New provider backend: OpenCode** (`opencode`), joining Claude Code, GitHub Copilot and OpenAI Codex —
+  and with it, effectively any model you can reach. OpenCode is vendor-neutral: it fronts 75+ model providers
+  (Anthropic, OpenAI, Google, Bedrock, Azure, OpenRouter, Groq, DeepSeek, Mistral, …) plus local runtimes
+  (Ollama, LM Studio, llama.cpp) on a bring-your-own-key model, so the harness is no longer limited to the
+  three vendors it ships adapters for.
+  Set it per flow (`ralphctl settings set ai.<flow>.provider opencode`) or stamp every flow at once with the
+  new `opencode-only` preset. Two things make it different from the other three:
+  - **It runs with no credentials, if you want.** Alongside your own keys, OpenCode ships a free tier, so a
+    fresh install can drive a real ralphctl session without signing in to anything — useful for a first look
+    and for CI jobs without secrets.
+  - **It aggregates other providers.** Model ids are namespaced as `<provider>/<model>` (e.g.
+    `opencode/big-pickle` on the free tier), and the reachable set depends on which upstream providers you
+    have authenticated via `opencode providers`. The model picker asks the CLI (`opencode models`) instead
+    of reading a fixed list, so authenticating a provider makes its models selectable with no ralphctl
+    upgrade.
+
+  Sessions resume across gen-eval rounds, and a stale session id falls back to a cold spawn rather than
+  failing the task. Skills install to `.opencode/skills/`, agent definitions to `.opencode/agents/`, and
+  readiness writes the shared `AGENTS.md`. Limitations worth knowing: `opencode run` has no read-only mode, so
+  a `READ_ONLY` flow is not sandboxed by the CLI (path topology is the boundary, as it already is for OpenAI
+  Codex); it has no multi-root flag, so external-directory access is auto-approved wholesale rather than
+  mounted per root; effort is forwarded only on the headless `run` path (`--variant`), never on the interactive
+  TUI path; and plateau escalation skips the effort rung for OpenCode, since the accepted `--variant` levels
+  belong to the upstream vendor behind your model id.
+
 - **`create-pr`'s AI-authored PR content now leaves the same `meta.json` attribution sidecar every other
   AI-authoring flow (`refine` / `plan` / `ideate` / `readiness`) already writes** — a provider/model/effort
   record next to the round's `prompt.md`, so a `create-pr` run is no longer the one flow with no
@@ -42,6 +67,11 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Provider membership checks (`settings set ai.<flow>.provider`, the `--implement-<role>-provider` CLI flags,
+  the TUI Settings view, the per-launch customize picker) now read one domain-owned list derived from the
+  settings schema instead of four hard-coded copies. The copies still type-checked as `readonly AiProvider[]`
+  after a provider joined the union, so nothing caught the drift; a liveness suite now asserts every provider
+  in the union is settable and offered.
 - Large internal refactor with no user-facing behavior change: ESLint's layering fences now compose
   instead of silently overriding one another, the three interactive provider adapters share one session
   engine and the three headless adapters share one stream-debug emitter, and the CLI's error reporting,

@@ -54,3 +54,6 @@ tmp
 .claude/scheduled_tasks.lock
 
 .claude/worktrees/*
+
+# Local output from scripts/probe-provider-candidates.sh
+probe-out/

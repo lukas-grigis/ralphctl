@@ -11,11 +11,13 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
 import type { Settings } from '@src/domain/entity/settings.ts';
 import {
+  AI_PROVIDERS,
   buildSections,
   effectiveEscalationChains,
   escalationModelOptions,
   escalationTargetsFor,
 } from '@src/application/ui/tui/views/settings-view-model.ts';
+import { PROVIDER_TRAITS } from '@src/integration/ai/providers/_engine/provider-traits.ts';
 
 const withOverrides = (escalationMap: Readonly<Record<string, string>>): Settings => ({
   ...DEFAULT_SETTINGS,
@@ -51,9 +53,17 @@ describe('buildSections — escalation-map group', () => {
 });
 
 describe('escalation model helpers', () => {
-  it('escalationModelOptions unions the three catalogs without duplicates', () => {
+  it('escalationModelOptions unions every provider catalog without duplicates', () => {
     const options = escalationModelOptions();
     expect(options).toContain('claude-opus-4-8');
+    // Every provider must contribute — a hand-written catalog list silently omitted OpenCode.
+    for (const provider of AI_PROVIDERS) {
+      const catalog = PROVIDER_TRAITS[provider].modelCatalog;
+      expect(
+        catalog.some((m) => options.includes(m)),
+        provider
+      ).toBe(true);
+    }
     expect(new Set(options).size).toBe(options.length);
   });
 
@@ -64,6 +74,13 @@ describe('escalation model helpers', () => {
     expect(targets).not.toContain('claude-haiku-4-5');
     // Dash-form Claude ids live in the Claude-Code catalog only — no GPT ids offered.
     expect(targets.some((t) => t.startsWith('gpt-'))).toBe(false);
+  });
+
+  it('escalationTargetsFor scopes an opencode from-model to the opencode catalog only', () => {
+    const targets = escalationTargetsFor('opencode/big-pickle');
+    expect(targets.length).toBeGreaterThan(0);
+    expect(targets.every((t) => t.startsWith('opencode/'))).toBe(true);
+    expect(targets).not.toContain('opencode/big-pickle');
   });
 
   it('escalationTargetsFor falls back to the full union for a custom (uncatalogued) id', () => {

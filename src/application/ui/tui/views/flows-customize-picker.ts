@@ -22,6 +22,7 @@ import {
   type AiProvider,
   primaryFlowRow,
   type Settings,
+  AI_PROVIDERS,
 } from '@src/domain/entity/settings.ts';
 import { PROVIDER_EFFORT_LEVELS } from '@src/domain/value/settings-models/effort.ts';
 import { PROVIDER_TRAITS } from '@src/integration/ai/providers/_engine/provider-traits.ts';
@@ -38,8 +39,6 @@ import type { LaunchExtras, SkillCandidate, SkillCandidatesResult } from '@src/a
  * `modelOptionsFor` does the same).
  */
 export const modelCatalogFor = (provider: AiProvider): readonly string[] => PROVIDER_TRAITS[provider].modelCatalog;
-
-const AI_PROVIDERS: readonly AiProvider[] = ['claude-code', 'github-copilot', 'openai-codex'];
 
 /**
  * Resolve the model catalog the picker offers for a provider. Prefers the injected
