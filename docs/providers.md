@@ -22,18 +22,24 @@ provider-agnostic — it works with whichever provider each implement role is co
 Each CLI exposes a different vocabulary for "let the agent work without asking". ralphctl maps its own
 permission model onto whatever the backend offers:
 
-| Provider           | Headless mapping                                                                                | Fine-grained gate?                |
-| ------------------ | ----------------------------------------------------------------------------------------------- | --------------------------------- |
-| **Claude Code**    | `--permission-mode bypassPermissions` + per-tool deny list                                      | Yes — per-tool deny list          |
-| **GitHub Copilot** | `--autopilot --max-autopilot-continues=200` + `--allow-all` (per-tool deny list when read-only) | Yes — per-tool deny list          |
-| **OpenAI Codex**   | `-s workspace-write` (topology-scoped)                                                          | No — two sandbox modes only       |
-| **OpenCode**       | `--auto` (topology-scoped)                                                                      | No — permission is all-or-nothing |
+| Provider           | Headless mapping (full-auto)           | Read-only mapping                             | Fine-grained gate?                |
+| ------------------ | -------------------------------------- | --------------------------------------------- | --------------------------------- |
+| **Claude Code**    | `--permission-mode bypassPermissions`  | `--disallowedTools` on edit / shell / network | Yes — per-tool deny list          |
+| **GitHub Copilot** | `--autopilot` + `--allow-all`          | `--allow-all-tools --deny-tool=shell`         | Partial — shell deny only         |
+| **OpenAI Codex**   | `-s workspace-write` (topology-scoped) | same — two sandbox modes only                 | No — two sandbox modes only       |
+| **OpenCode**       | `--auto` (topology-scoped)             | same — no read-only mode                      | No — permission is all-or-nothing |
 
-For Codex and OpenCode, **path topology is the safety envelope** rather than a per-tool deny list. Codex's
-sandbox has only two modes (read-only / workspace-write), so the cwd plus `--add-dir` set defines the scope.
-OpenCode has no per-directory grant at all, and ralphctl writes its `signals.json` results file outside the
-project folder, so it passes `--auto` on effectively every headless run — without it the agent would sit
-blocked waiting for an approval that never arrives. In both cases the session directory is the real boundary.
+**The `Write` tool is never denied, on any backend.** The harness's contract envelope (`signals.json`) lands
+through it, so path scope — cwd plus the mounted roots (`--add-dir` and equivalents) — is always part of the
+safety envelope, not an alternative to the deny list. Claude Code denies the tools that modify _existing_
+files (`Edit` / `MultiEdit` / `NotebookEdit`) plus shell and network; Copilot denies only `shell`; Codex and
+OpenCode have no per-tool gate at all.
+
+For Codex and OpenCode, **path topology is the whole safety envelope**. Codex's sandbox has only two modes
+(read-only / workspace-write), so the cwd plus `--add-dir` set defines the scope. OpenCode has no
+per-directory grant at all, and ralphctl writes `signals.json` outside the project folder, so it passes
+`--auto` on effectively every headless run — without it the agent would sit blocked waiting for an approval
+that never arrives. In both cases the session directory is the real boundary.
 
 ## Claude Code
 
@@ -45,8 +51,9 @@ npm i -g @anthropic-ai/claude-code
 ralphctl settings apply-preset claude-only
 ```
 
-Full per-tool deny lists mean read-only flows are genuinely sandboxed by the CLI, not just by path scope.
-Reads `CLAUDE.md` at the repo root as its native context file; ralphctl's readiness flow writes it.
+The finest-grained gate of the four: read-only flows deny the edit, shell and network tools at the CLI level.
+`Write` stays open by design so `signals.json` can land, bounded by cwd + `--add-dir`. Reads `CLAUDE.md` at
+the repo root as its native context file; ralphctl's readiness flow writes it.
 
 ## GitHub Copilot CLI
 
@@ -57,8 +64,9 @@ npm i -g @github/copilot
 ralphctl settings apply-preset copilot-only
 ```
 
-Autopilot mode is capped at 200 continues per session. Like Claude Code it supports a per-tool deny list, so
-read-only flows are CLI-enforced. Reads `.github/copilot-instructions.md`.
+ralphctl passes `--max-autopilot-continues=200` per spawn, raising Copilot's default budget of 5. Its deny
+list is coarser than Claude Code's: a read-only flow denies `shell` only, so file writes remain available and
+path scope (cwd + `--add-dir`) is what bounds them. Reads `.github/copilot-instructions.md`.
 
 A model showing as "not available" is usually plan gating on your Copilot subscription, not an invalid model
 id — check what your seat includes before assuming a bug.
@@ -84,7 +92,8 @@ bring-your-own-key model.
 
 ```bash
 npm i -g opencode-ai
-opencode providers        # connect Anthropic / OpenAI / Ollama / … with your own keys
+opencode providers login  # connect Anthropic / OpenAI / Ollama / … with your own keys
+opencode providers list   # see what is currently connected
 opencode models           # list every id now reachable
 
 ralphctl settings set ai.implement.generator.provider opencode

@@ -186,8 +186,9 @@ flowchart LR
     class B bad
 ```
 
-Either gate can send the task back: a failed review or a red verify both return to the generator with the
-critique attached, up to `harness.maxAttempts` times.
+Both gates send the task back, but they spend different budgets: a failed review re-runs the generator
+_within_ the same attempt (up to `harness.maxTurns` turns), while a red verify fails the attempt outright and
+opens a fresh one (up to `harness.maxAttempts`, after which the task is flagged `blocked`).
 
 Key properties:
 
@@ -195,7 +196,8 @@ Key properties:
   Opt-in parallelism (`concurrency.maxParallelTasks` > 1) runs independent tasks within a dependency wave concurrently,
   each in its own git worktree folded onto one branch — default stays serial
 - **Generator-evaluator cycle** — an independent AI reviewer checks each task; if it fails, the generator gets the
-  critique and iterates (up to `harness.maxAttempts` tries before the task is flagged `blocked`)
+  critique and iterates (up to `harness.maxTurns` turns per attempt, across at most `harness.maxAttempts`
+  attempts before the task is flagged `blocked`)
 - **Context persistence** — sprint state, branch, progress history, and per-task context survive across sessions;
   interrupted runs resume automatically
 - **Multi-repo support** — one sprint can span several repositories with per-repo setup and verify scripts
@@ -220,14 +222,18 @@ per-row settings.
 
 **Which one?**
 
-- **Claude Code** — the most end-to-end mileage inside the harness, and the reference the others are checked
-  against. Per-tool deny lists mean read-only flows are CLI-enforced.
-- **GitHub Copilot CLI** — no extra billing relationship if you already have a seat. Also supports per-tool
-  deny lists, so read-only flows are CLI-enforced.
+- **Claude Code** — read-only flows deny the edit, shell and network tools at the CLI level, the finest-grained
+  gate of the four.
+- **GitHub Copilot CLI** — no extra billing relationship if you already have a seat. Read-only flows deny the
+  shell tool; file writes stay open, bounded by path scope.
 - **OpenAI Codex CLI** — a natural fit inside the ChatGPT/OpenAI ecosystem. Its sandbox has two modes only,
   so path scope is the fine-grained safety envelope.
 - **OpenCode** — vendor-neutral: it fronts 75+ providers and local runtimes on a bring-your-own-key model, so
   you can run a specific model, a local model, or no account at all.
+
+On every backend the `Write` tool stays open by design — the harness's `signals.json` lands through it — so
+path scope (cwd + mounted roots) is always part of the safety envelope. See the
+[provider reference](./docs/providers.md#permission-model-per-backend) for the exact mapping.
 
 Bundled skill injection and forensic capture work on all four; only the on-disk skills directory differs
 (`.claude/` / `.github/` / `.agents/` / `.opencode/`). Parallel execution is provider-agnostic. Claude Code

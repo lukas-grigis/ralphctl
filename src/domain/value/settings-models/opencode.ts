@@ -24,6 +24,12 @@
  * The free tier rotates as OpenCode swaps in new community models — entries that disappear
  * upstream simply stop being offered by the probe, so a stale line here degrades to a picker
  * entry the CLI rejects, never a crash.
+ *
+ * Catalog membership means "advertised", NOT "known-healthy": a listed id can still fail at
+ * invocation with an upstream `401` while its siblings serve normally (observed for
+ * `opencode/north-mini-code-free` on opencode-ai v1.18.15, 2026-08-08). `opencode models` keeps
+ * listing such ids, so enumeration is not a liveness check — health-probe before promoting an
+ * id to a shipped default.
  */
 export type OpencodeModel =
   | 'opencode/big-pickle'

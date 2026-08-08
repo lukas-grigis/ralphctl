@@ -21,7 +21,7 @@ to [Semantic Versioning](https://semver.org/).
     and for CI jobs without secrets.
   - **It aggregates other providers.** Model ids are namespaced as `<provider>/<model>` (e.g.
     `opencode/big-pickle` on the free tier), and the reachable set depends on which upstream providers you
-    have authenticated via `opencode providers`. The model picker asks the CLI (`opencode models`) instead
+    have authenticated via `opencode providers login`. The model picker asks the CLI (`opencode models`) instead
     of reading a fixed list, so authenticating a provider makes its models selectable with no ralphctl
     upgrade.
 
@@ -53,6 +53,12 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **The OpenCode free-tier default no longer points at a model that refuses every request.**
+  `opencode/north-mini-code-free` returns an upstream `401` while its free-tier siblings serve normally, and
+  it was the shipped light-tier default in both the per-provider defaults and the `opencode-only` preset — so
+  a first run on OpenCode's free tier failed on every flow. The default is now
+  `opencode/deepseek-v4-flash-free`. Note that `opencode models` still lists ids that no longer serve, so
+  enumeration is not a health check; if a free-tier model starts failing, pick another from that list.
 - **Interactive AI sessions now honor the configured reasoning effort.** `refine`, `plan`, `ideate`, and
   the learning-distill step all hand the terminal over to an interactive AI session, and that path
   silently dropped `effort` for all three provider CLIs — a `high` or `xhigh` setting had no effect once
