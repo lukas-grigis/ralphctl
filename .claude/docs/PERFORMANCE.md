@@ -148,7 +148,10 @@ spawn, and the next plateau sees the raised effort. Fires once for the shipped d
 single step) and is strictly bounded generally — the stamped effort climbs monotonically to the terminal
 `max`, from which the rung is spent and falls through to the nudge. Skipped gracefully — straight to the
 nudge — when the provider/model has no effort knob (e.g. Claude Haiku) or the generator is already at its
-ceiling. The EVALUATOR gets the same effort rung in lockstep, computed independently: whenever the
+ceiling. `opencode` is excluded from both rungs by design (`EFFORT_CAPABLE_PROVIDERS` in
+`escalation-map.ts`) — it aggregates upstream providers, so there is no `--variant` level this ladder
+could stamp that is known valid for the row's model; an OpenCode generator on a plateau falls straight to
+the change-of-approach nudge. The EVALUATOR gets the same effort rung in lockstep, computed independently: whenever the
 generator's `escalate-effort` fires, `decideEscalation` also calls `nextEffortRung` against the
 evaluator's OWN provider/model/effort triple (never copied from the generator's target) and, when it
 returns a target, stamps `Task.escalatedToEvaluatorEffort` alongside `escalatedToEffort` in the same

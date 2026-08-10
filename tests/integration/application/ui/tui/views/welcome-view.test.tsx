@@ -26,7 +26,12 @@ const detectRef = vi.hoisted(() => ({ installed: new Set<string>() }));
 vi.mock('@src/integration/system/detect-cli.ts', () => ({
   detectInstalledProviders: async (): Promise<ReadonlySet<AiProvider>> =>
     new Set(detectRef.installed) as ReadonlySet<AiProvider>,
-  PROVIDER_BINARY: { 'claude-code': 'claude', 'github-copilot': 'copilot', 'openai-codex': 'codex' },
+  PROVIDER_BINARY: {
+    'claude-code': 'claude',
+    'github-copilot': 'copilot',
+    'openai-codex': 'codex',
+    opencode: 'opencode',
+  },
 }));
 
 const fakeSettingsRepo = (save: (s: Settings) => Promise<Result<undefined, never>>): SettingsRepository => ({
@@ -80,6 +85,37 @@ describe('WelcomeView — first-run UX', () => {
     expect(frame).not.toContain('No AI CLIs detected');
     expect(frame).not.toContain('Pick an AI provider');
     expect(routes.at(-1)?.id).toBe('create-project');
+  });
+
+  // Every provider must map to its own single-provider preset. The table covers all four so a
+  // newly added backend cannot land with a missing (or copy-pasted) `PRESET_FOR_PROVIDER` row —
+  // the failure mode is a silent first run seeded onto the wrong CLI.
+  it.each([
+    ['claude-code', 'claude-only'],
+    ['github-copilot', 'copilot-only'],
+    ['openai-codex', 'codex-only'],
+    ['opencode', 'opencode-only'],
+  ] as const)('seeds the %s single-provider preset when only that CLI is on PATH', async (provider, preset) => {
+    detectRef.installed = new Set([provider]);
+    const saved: Settings[] = [];
+    const deps: AppDeps = {
+      settingsRepo: fakeSettingsRepo(async (s) => {
+        saved.push(s);
+        return Result.ok(undefined);
+      }),
+      projectRepo: fakeProjectRepo([]),
+    } as unknown as AppDeps;
+
+    const { result } = renderView(<WelcomeView />, { deps, initial: { id: 'welcome' } });
+    await waitForViewReady(result, (f) => f.includes(preset));
+
+    expect(saved).toHaveLength(1);
+    for (const flow of ['refine', 'plan', 'readiness', 'ideate'] as const) {
+      expect(saved[0]?.ai[flow].provider).toBe(provider);
+    }
+    expect(saved[0]?.ai.implement.generator.provider).toBe(provider);
+    expect(saved[0]?.ai.implement.evaluator.provider).toBe(provider);
+    expect(result.lastFrame() ?? '').toContain(preset);
   });
 
   it('seeds the mixed preset silently when zero CLIs are on PATH', async () => {

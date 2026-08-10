@@ -195,8 +195,11 @@ Status flow: `draft → planned → active → review → done`.
 
 ## AI provider integration
 
-- [x] **Three providers** — `claude-code`, `github-copilot`, `openai-codex`, each with its own adapter under
-      `integration/ai/providers/<tool>/`. Sibling-isolated; cross-tool sharing through `providers/_engine/`.
+- [x] **Four providers** — `claude-code`, `github-copilot`, `openai-codex`, `opencode`, each with its own
+      adapter under `integration/ai/providers/<tool>/`. Sibling-isolated; cross-tool sharing through
+      `providers/_engine/`. OpenCode is the aggregator: model ids are `<provider>/<model>`, its catalog is
+      discovered at runtime via `opencode models` rather than a static list, and it is the only backend with
+      a zero-auth free tier.
 - [x] **File-based contract** — providers write `signals.json` and `session-id.txt` files per spawn (both under
       `rounds/<N>/<role>/`); the harness reads them post-spawn. No stdout parsing for signals or session IDs.
 - [x] **Idle-stdout watchdog** — wedged children get reaped.
@@ -227,8 +230,10 @@ Status flow: `draft → planned → active → review → done`.
       and `AI-SETTINGS.md` § skill opt-out for the full contract.
 - [x] **Provider-native context file** — the `readiness` flow fans out across every uniquely referenced
       provider in `settings.ai`, writing one native context file per distinct provider: `CLAUDE.md`
-      (claude-code), `.github/copilot-instructions.md` (github-copilot), `AGENTS.md` (openai-codex). A
-      single-provider config produces exactly one file; mixed configs produce one per distinct provider.
+      (claude-code), `.github/copilot-instructions.md` (github-copilot), `AGENTS.md` (openai-codex and
+      opencode alike — both follow the cross-tool `AGENTS.md` convention, but each runs its own
+      probe/propose/write leaf, so a mixed Codex + OpenCode config writes `AGENTS.md` twice in sequence, the
+      second write backing up the first). A single-provider config produces exactly one file.
 - [x] **Portable, provider-native agent definitions** — a bundled + operator-authored `AgentDefinition`
       catalog (Markdown + YAML frontmatter: `name`, `description`, optional `model`/`effort`) renders to
       each provider's native sub-agent format at launch — `.claude/agents/*.md` (Claude),
@@ -399,7 +404,9 @@ See [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) for tokens, components, view patterns
   case is deferred.
 - **Cross-provider escalation** — escalation today stays within a provider (e.g. Sonnet → Opus); switching
   providers mid-task carries auth/context/tool hazards and is deferred.
-- **Real-provider e2e tests** — every Claude / Copilot / Codex provider test uses a fake `spawn`.
+- **Real-provider e2e tests** — every Claude / Copilot / Codex / OpenCode provider test uses a fake `spawn`;
+  `MANUAL-TEST-PLAYBOOK.md` Scenario 15 is the one place OpenCode runs against the real CLI, and it is
+  manual, not automated.
 - **Onboarding-status doctor probe** — no per-(project, repo) "onboarding state" is modeled in the domain
   (`Project` / `Repository` carry no onboarding field), so doctor reports none. Per-(project, repo) health is
   instead covered by the `integrity` probes (repo-path resolution, default-branch resolution, sprint/execution
