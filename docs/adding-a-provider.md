@@ -1,6 +1,6 @@
 # Adding a provider
 
-ralphctl drives a CLI coding agent (Claude Code, Codex, Copilot) in a generator–evaluator
+ralphctl drives a CLI coding agent (Claude Code, Codex, Copilot, OpenCode) in a generator–evaluator
 loop: it spawns the agent headless, the agent does the work and writes its results to a file,
 the harness reads that file back and decides whether to continue. A **provider** is the adapter
 that translates ralphctl's intent into one specific CLI's flags and parses that CLI's output
@@ -86,7 +86,7 @@ as a spawn-time gate.
 
 ## 2. Settings schema arm (domain)
 
-In `src/domain/entity/settings.ts`, alongside the existing Claude/Codex/Copilot rows, add four
+In `src/domain/entity/settings.ts`, alongside the existing Claude/Codex/Copilot/OpenCode rows, add four
 pieces:
 
 ```ts

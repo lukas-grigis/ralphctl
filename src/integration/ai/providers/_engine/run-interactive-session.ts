@@ -43,9 +43,10 @@ import { uuidv7 } from '@src/domain/value/uuid7.ts';
  * element naming the path — not as the body. Passing the body inlined argv size to prompt size,
  * and the interactive templates outgrew the Windows command-line ceiling: a plan session died with
  * `spawn ENAMETOOLONG` before Claude ever started. See `prompt-pointer.ts` for the pointer and
- * `argv-budget.ts` for the limits. The one exception is a CLI that cannot be given access to the
- * prompt file (OpenCode with a prompt outside `cwd`), which falls back to the inlined body with a
- * warning rather than opening a session that can read nothing.
+ * `argv-budget.ts` for the limits. The pointer is unconditional — there is no inline-body fallback.
+ * Every adapter is responsible for making the prompt file reachable (OpenCode grants its directory
+ * via `buildOpencodeEnv`), and a CLI that cannot be given that access should be rejected where the
+ * adapter is declared rather than handed a session that can read nothing.
  *
  * The binary is spawned directly through `crossPlatformSpawn`, which resolves the npm / winget
  * `.cmd` shims and escapes arguments containing spaces or `& | % "` without a shell. Neither a
@@ -59,10 +60,9 @@ import { uuidv7 } from '@src/domain/value/uuid7.ts';
  */
 export interface InteractiveSessionContext {
   /**
-   * What goes in the CLI's prompt slot: normally a short pointer at `input.promptFile`
-   * ({@link buildPromptPointer}), and only when that file would be unreachable — OpenCode with a
-   * prompt outside `cwd` — the prompt body itself. Adapters place it verbatim; the decision is the
-   * engine's so no adapter can reintroduce an unbounded argv element on its own.
+   * What goes in the CLI's prompt slot: always a short pointer at `input.promptFile`
+   * ({@link buildPromptPointer}), never the prompt body. Adapters place it verbatim; the decision is
+   * the engine's so no adapter can reintroduce an unbounded argv element on its own.
    */
   readonly promptArg: string;
   /**

@@ -495,7 +495,7 @@ keypress-counting exercise. Three candidate fixes:
   budget), and the `←/→` idiom matches the canonical "prev/next page" vocabulary in
   [§6.3](#63-view-local-keys--published-via-useviewhints).
 
-Per-section row counts: `Presets 20`, `Global 1`, `Refine 3`, `Plan 3`,
+Per-section row counts: `Presets 21`, `Global 1`, `Refine 3`, `Plan 3`,
 `Implement 6` (generator triple + evaluator triple), `Readiness 3`, `Ideate 3`, `Create-PR 3`,
 `Harness 8` (seven scalar/select rows + one `map-add` action row; grows by one `map-entry` row per
 user-defined escalation-map override), `Other 2`, `Storage 0` (read-only). Presets is the largest

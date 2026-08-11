@@ -60,8 +60,8 @@ read and respond. Keeps work faithful to spec without over-specification."_
 **Where it lives.**
 
 - `signals.json` contract: the AI writes `signals.json` via its Write tool into `session.signalsFile`; the
-  per-provider headless adapters (`src/integration/ai/providers/{claude,codex,copilot}/headless.ts`) thread
-  that path and consume it post-spawn; per-task path computed in
+  per-provider headless adapters (`src/integration/ai/providers/{claude,codex,copilot,opencode}/headless.ts`)
+  thread that path and consume it post-spawn; per-task path computed in
   `src/application/flows/implement/leaves/round-artifacts.ts` (`roundSignalsPath`); schema/validation under
   `src/integration/ai/contract/_engine/`
 - Session-id file: `src/integration/ai/providers/_engine/persist-session-id.ts`
@@ -214,7 +214,8 @@ _"Context resets > compaction for models with context anxiety."_
 
 - Retry loop: `src/integration/ai/providers/_engine/rate-limit-backoff.ts`
 - Session-id capture: `src/integration/ai/providers/_engine/{persist-session-id,session-id}.ts`
-- `--resume` pass-through: per-adapter in `src/integration/ai/providers/{claude,codex,copilot}/headless.ts`
+- `--resume` pass-through: per-adapter in `src/integration/ai/providers/{claude,codex,copilot,opencode}/headless.ts`
+  (`opencode` spells it `-s <id>`; a stale id falls back to a cold spawn instead of failing the task)
 - Cap: `settings.harness.rateLimitRetries` (0–10)
 
 ---
@@ -269,7 +270,9 @@ do not discuss per-CLI context-file auto-discovery.
 **Where it lives.**
 
 - Fan-out: `src/application/flows/readiness/` fans out across every uniquely referenced provider
-- One file per provider: `CLAUDE.md` / `.github/copilot-instructions.md` / `AGENTS.md`
+- One file per provider: `CLAUDE.md` / `.github/copilot-instructions.md` / `AGENTS.md` (`openai-codex` and
+  `opencode` share `AGENTS.md` — the cross-tool convention — so a mixed config runs the write pass twice
+  against that one path; see `SECURITY.md`)
 - No symlinks by convention: `CLAUDE.md § Security & Safety`
 
 ---

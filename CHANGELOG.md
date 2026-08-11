@@ -7,6 +7,8 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-08-10
+
 ### Added
 
 - **New provider backend: OpenCode** (`opencode`), joining Claude Code, GitHub Copilot and OpenAI Codex —
@@ -29,8 +31,9 @@ to [Semantic Versioning](https://semver.org/).
   failing the task. Skills install to `.opencode/skills/`, agent definitions to `.opencode/agents/`, and
   readiness writes the shared `AGENTS.md`. Limitations worth knowing: `opencode run` has no read-only mode, so
   a `READ_ONLY` flow is not sandboxed by the CLI (path topology is the boundary, as it already is for OpenAI
-  Codex); it has no multi-root flag, so external-directory access is auto-approved wholesale rather than
-  mounted per root; effort is forwarded only on the headless `run` path (`--variant`), never on the interactive
+  Codex); it has no multi-root flag, so on the headless path external-directory access is auto-approved
+  wholesale rather than mounted per root, and on the interactive path a multi-root project's extra roots are
+  not mounted at all (tracked in #278); effort is forwarded only on the headless `run` path (`--variant`), never on the interactive
   TUI path; and plateau escalation skips the effort rung for OpenCode, since the accepted `--variant` levels
   belong to the upstream vendor behind your model id.
 
@@ -80,6 +83,11 @@ to [Semantic Versioning](https://semver.org/).
   previously transitioned the sprint directly, skipping the memory-mirror refresh, the opt-in
   learning-distill step, and the `progress.md` closed-separator line the TUI's close-sprint flow runs —
   closing a sprint from the CLI silently forfeited all three.
+- **OpenAI Codex's stdout parse buffer is now capped like every other provider's.** An unterminated
+  oversized NDJSON line (a large tool-result embedded in Codex's stream) could grow the in-flight
+  line-parse accumulator without bound — the same OOM-class issue fixed for Claude and Copilot in 0.18.0,
+  which Codex had not picked up. It now reuses the shared capped line-feed the other three adapters use,
+  so all four providers behave alike.
 - **A gen-eval attempt's action-kind tally no longer leaks into the next attempt.** The per-attempt context
   reset is now type-enforced, so the entropy plateau check always starts from a clean count on a fresh
   attempt instead of occasionally inheriting the previous attempt's tally.

@@ -57,7 +57,12 @@ const RATE_RE = /rate.?limit/i;
 
 // Parametric across the three real providers — keeps the shape honest. The helper itself
 // doesn't care which provider name; tests asserting the message text only need ONE pick.
-const PROVIDERS: readonly ProviderName[] = ['claude-provider', 'codex-provider', 'copilot-provider'];
+const PROVIDERS: readonly ProviderName[] = [
+  'claude-provider',
+  'codex-provider',
+  'copilot-provider',
+  'opencode-provider',
+];
 
 describe.each(PROVIDERS)('classifySpawnExit [%s]', (providerName) => {
   it('clean exit invokes onSuccess and does not set recoveredFromExit', async () => {
