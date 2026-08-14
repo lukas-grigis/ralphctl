@@ -22,7 +22,8 @@ src/
 ├── integration/   ← adapters: AI providers / prompts / contract / evaluation / skills / readiness probes,
 │                    persistence, observability sinks, SCM (gh/glab), version-check, IO helpers
 └── application/   ← composition root, chain framework, flow registry + flows, runner + session,
-                     observability (chain-runner-bridge), CLI + Ink TUI
+                     observability (chain-runner-bridge), CLI + Ink TUI, demo sandbox seeding
+                     (`application/demo/`, CLI-only — not a registered flow)
 ```
 
 Strict layering — dependencies point one way:
@@ -159,7 +160,8 @@ Layout (one module per business sub-domain, sibling-isolated):
 ```
 business/
 ├── project/           ← createProject, listProjects, addRepository, …
-├── sprint/            ← createSprint, planSprint, transitionToReview, transitionToDone, …
+├── sprint/            ← createSprint, planSprint, checkPlan (deterministic plan critic), transitionToReview,
+│                       transitionToDone, …
 ├── sprint/views/      ← read-only views: sprint progress, requirements export, context export
 ├── ticket/            ← addTicket, refineTicket, removeTicket, …
 ├── task/              ← createTasks, updateTask, markBlocked, recordEvaluation,
@@ -213,6 +215,13 @@ Shared engine-level helpers (not ports — no interface boundary, but architectu
 - **`compressSection`** (`prompts/_engine/compress-section.ts`) — tail-compresses oversized prompt
   sections (`PRIOR_PROGRESS` / `PRIOR_LEARNINGS` / `PRIOR_EPISODES`) to at most `SECTION_CHAR_CAP`
   (4,000) characters, keeping the most-recent tail and prepending a truncation notice.
+- **`createScriptedChild`** (`providers/_engine/scripted-spawn.ts`) — fabricates a child process that
+  behaves like a spawned AI CLI (stdout/stderr chunks, exit code, kill-ladder signal handling) without
+  spawning anything. Two callers: the provider port-conformance suites
+  (`tests/integration/ai/providers/conformance/`), which drive every real adapter over a scripted
+  transcript so a port regression fails at `pnpm test`; and `ralphctl demo --script`
+  (`application/demo/scripted-run.ts`), which replays a canned generator → evaluator transcript
+  through the real claude adapter for a reproducible first-run recording.
 
 ## Skills subsystem (`integration/ai/skills/`)
 

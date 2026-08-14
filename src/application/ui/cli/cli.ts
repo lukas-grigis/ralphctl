@@ -6,6 +6,7 @@ import { registerExportRequirementsCommand } from '@src/application/ui/cli/comma
 import { registerExportContextCommand } from '@src/application/ui/cli/commands/export-context.ts';
 import { registerCreatePrCommand } from '@src/application/ui/cli/commands/create-pr.ts';
 import { registerDoctorCommand } from '@src/application/ui/cli/commands/doctor.ts';
+import { registerDemoCommand } from '@src/application/ui/cli/commands/demo.ts';
 import { registerSettingsCommand } from '@src/application/ui/cli/commands/settings.ts';
 import { registerCompletionCommand } from '@src/application/ui/cli/commands/completion.ts';
 import { registerProjectCommand } from '@src/application/ui/cli/commands/project.ts';
@@ -96,6 +97,7 @@ export const runCli = async (argv: readonly string[]): Promise<void> => {
   registerExportContextCommand(program);
   registerCreatePrCommand(program);
   registerDoctorCommand(program);
+  registerDemoCommand(program);
   registerSettingsCommand(program);
   registerCompletionCommand(program);
   registerProjectCommand(program);

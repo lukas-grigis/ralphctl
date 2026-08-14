@@ -100,7 +100,14 @@ const PROBES: Readonly<Record<string, Probe>> = {
     cli: 'opencode',
     interactive: true,
     args: ({ pointer, cwd }) => [cwd, '--prompt', pointer],
-    env: ({ promptDir }) => buildOpencodeEnv(promptDir),
+    // The probe mounts exactly the one root the pointer needs; the adapter passes the engine's
+    // full folded list. A refusal here can only mean the probe base path holds a glob
+    // metacharacter, which would make the whole run meaningless — so it fails loudly.
+    env: ({ promptDir }) => {
+      const built = buildOpencodeEnv([promptDir]);
+      if (!built.ok) throw new Error(built.error.message);
+      return built.value;
+    },
   },
 };
 

@@ -1,9 +1,21 @@
 import type { Command } from 'commander';
 import { createDoctorFlow } from '@src/application/flows/doctor/flow.ts';
+import type { ProbeResult, ProbeStatus } from '@src/application/flows/doctor/ctx.ts';
 import { commandExists } from '@src/integration/io/command-exists.ts';
 import { runCommand } from '@src/integration/io/run-command.ts';
 import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
 import { fail } from '@src/application/ui/cli/report-cli-error.ts';
+
+/** Fixed-width tag prefixing each probe line — every value is 4 characters for column alignment. */
+const PROBE_TAG: Readonly<Record<ProbeStatus, string>> = { pass: 'OK  ', warn: 'WARN', unknown: 'UNK ', fail: 'FAIL' };
+
+const printProbe = (probe: ProbeResult): void => {
+  const detail = probe.detail !== undefined ? ` — ${probe.detail}` : '';
+  process.stdout.write(`${PROBE_TAG[probe.status]}  ${probe.label}${detail}\n`);
+  if (probe.hint !== undefined && probe.status !== 'pass') {
+    process.stdout.write(`      hint: ${probe.hint}\n`);
+  }
+};
 
 const doctorAction = async (): Promise<void> => {
   const { deps, storage } = await bootstrapCli();
@@ -24,14 +36,7 @@ const doctorAction = async (): Promise<void> => {
     return;
   }
   const report = result.value.ctx.output!;
-  for (const probe of report.probes) {
-    const tag = probe.status === 'pass' ? 'OK  ' : probe.status === 'warn' ? 'WARN' : 'FAIL';
-    const detail = probe.detail !== undefined ? ` — ${probe.detail}` : '';
-    process.stdout.write(`${tag}  ${probe.label}${detail}\n`);
-    if (probe.hint !== undefined && probe.status !== 'pass') {
-      process.stdout.write(`      hint: ${probe.hint}\n`);
-    }
-  }
+  for (const probe of report.probes) printProbe(probe);
   // Exit non-zero on hard failures (provider CLI missing, repo unreachable). Warnings —
   // notably "settings file not yet persisted on first run" — pass with exit 0 so the
   // welcome flow can resolve them on the next launch without scaring CI scripts. Setting

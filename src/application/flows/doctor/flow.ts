@@ -39,7 +39,9 @@ export const createDoctorFlow = (deps: DoctorDeps): Element<DoctorCtx> =>
         probes.push(...(await probeRepositoriesAndIntegrityGroup(deps)));
 
         const hasFailures = probes.some((p) => p.status === 'fail');
-        const allPassed = probes.every((p) => p.status === 'pass');
+        // 'unknown' rows (the environment can't answer, not a defect) don't count against
+        // allPassed — only 'warn' and 'fail' do.
+        const allPassed = probes.every((p) => p.status === 'pass' || p.status === 'unknown');
         return Result.ok({ probes, allPassed, hasFailures });
       },
     },

@@ -22,6 +22,7 @@ import { persistSessionIdFile } from '@src/integration/ai/providers/_engine/pers
 import { attachAbortKill } from '@src/integration/ai/providers/_engine/abort-kill.ts';
 import { validateModel } from '@src/integration/ai/providers/_engine/validate-model.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
+import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { messageOf } from '@src/domain/value/error/error-message.ts';
@@ -44,9 +45,9 @@ import { uuidv7 } from '@src/domain/value/uuid7.ts';
  * and the interactive templates outgrew the Windows command-line ceiling: a plan session died with
  * `spawn ENAMETOOLONG` before Claude ever started. See `prompt-pointer.ts` for the pointer and
  * `argv-budget.ts` for the limits. The pointer is unconditional — there is no inline-body fallback.
- * Every adapter is responsible for making the prompt file reachable (OpenCode grants its directory
- * via `buildOpencodeEnv`), and a CLI that cannot be given that access should be rejected where the
- * adapter is declared rather than handed a session that can read nothing.
+ * Every adapter is responsible for making the prompt file reachable (OpenCode grants the mounted
+ * roots via `buildOpencodeEnv`), and a CLI that cannot be given that access should be rejected
+ * where the adapter is declared rather than handed a session that can read nothing.
  *
  * The binary is spawned directly through `crossPlatformSpawn`, which resolves the npm / winget
  * `.cmd` shims and escapes arguments containing spaces or `& | % "` without a shell. Neither a
@@ -100,9 +101,23 @@ export interface InteractiveProviderSpec {
   /**
    * Environment entries this CLI needs at launch, layered over the harness's own environment.
    * Present only for a CLI configured through the environment rather than through flags —
-   * OpenCode, which receives its prompt-directory grant this way because it has no `--add-dir`.
+   * OpenCode, which receives its directory grants this way because it has no `--add-dir`.
+   *
+   * It receives the SAME {@link InteractiveSessionContext} `buildArgs` does, and for the same
+   * reason the port has an `additionalRoots` contract at all: an adapter that grants access
+   * through the environment still has to grant every root the engine computed. Handing it only
+   * `input` is what let the OpenCode adapter mount the prompt directory and silently drop the
+   * caller's extra repositories — it had no access to the folded root list and no way to say no.
+   *
+   * The `Result` is the other half of that fix. `additionalRoots` says an adapter that cannot
+   * mount a root MUST surface `InvalidStateError` rather than quietly using less; without an
+   * error channel a config-grant adapter could only guess. A refusal short-circuits before the
+   * start-log publish and before the spawn, so nothing is launched and nothing claims it was.
    */
-  readonly buildEnv?: (input: InteractiveAiProviderInput) => Readonly<Record<string, string>>;
+  readonly buildEnv?: (
+    input: InteractiveAiProviderInput,
+    context: InteractiveSessionContext
+  ) => Result<Readonly<Record<string, string>>, DomainError>;
   /** Assemble the CLI's argv from the caller's input plus the shared session context. */
   readonly buildArgs: (input: InteractiveAiProviderInput, context: InteractiveSessionContext) => readonly string[];
 }
@@ -123,6 +138,18 @@ const dedupeRoots = (input: InteractiveAiProviderInput): readonly string[] => {
   ];
   return [...new Set(all)];
 };
+
+/**
+ * Resolve the spec's environment grant, or `undefined` for the flag-configured CLIs that need
+ * none. Separated out so the engine's happy path stays a flat `Result` chain rather than growing a
+ * mutable binding for the one optional hook that can fail.
+ */
+const buildSessionEnv = (
+  spec: InteractiveProviderSpec,
+  input: InteractiveAiProviderInput,
+  context: InteractiveSessionContext
+): Result<Readonly<Record<string, string>> | undefined, DomainError> =>
+  spec.buildEnv === undefined ? Result.ok(undefined) : spec.buildEnv(input, context);
 
 /**
  * Read the rendered prompt off disk, mapping any read failure to a `StorageError`.
@@ -286,7 +313,15 @@ export const createInteractiveProvider = (
 
       const promptArg = buildPromptPointer(String(input.promptFile));
       const sessionId = spec.supportsSessionId ? newSessionId() : undefined;
-      const args = spec.buildArgs(input, { promptArg, roots: dedupeRoots(input), sessionId });
+      // ONE context for both hooks: argv flags and environment grants have to describe the same
+      // root list, and a second walk inside an adapter is exactly how they drifted apart before.
+      const context: InteractiveSessionContext = { promptArg, roots: dedupeRoots(input), sessionId };
+      const args = spec.buildArgs(input, context);
+
+      // Before the start log, so a refused grant never leaves a "starting session" line behind a
+      // session that was never started.
+      const env = buildSessionEnv(spec, input, context);
+      if (!env.ok) return Result.error(env.error);
 
       deps.eventBus.publish({
         type: 'log',
@@ -300,7 +335,7 @@ export const createInteractiveProvider = (
         at: IsoTimestamp.now(),
       });
 
-      const spawned = spawnSession(spawnFn, command, args, String(input.cwd), spec.buildEnv?.(input));
+      const spawned = spawnSession(spawnFn, command, args, String(input.cwd), env.value);
       if (!spawned.ok) {
         return Result.error(spawnFailure(spec.providerName, spawned.error, command, args, String(input.promptFile)));
       }

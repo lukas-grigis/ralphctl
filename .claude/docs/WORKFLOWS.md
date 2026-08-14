@@ -37,6 +37,19 @@ every ticket `approved`; repo selection runs inside the chain and persists on `S
 (absolute paths); AI generates `tasks.json` atomically and the sprint transitions `draft → planned`.
 **Ideate** combines both in a single AI session for low-stakes work.
 
+**Plan's approval gate is split from the AI hand-off.** `call-planner-interactive` stops at the proposal
+(`ctx.proposedTasks`) — it no longer runs the `draft → planned` transition itself. A zero-token,
+deterministic `check-plan` leaf (`business/sprint/check-plan.ts`) runs next: an infallible fold over the
+proposal that catches task-graph faults, an unknown repository, missing verification criteria, a missing
+`auto` command, a placeholder / prose / multi-line command, or a duplicate criterion id, tiered `error` /
+`warning`. Findings are advisory — they never fail the chain, and are rendered above the "Approve plan?"
+prompt for the operator to read before deciding. `apply-plan` then owns the HITL `reviewBeforeApprove`
+gate (now takes the findings as a third argument) and the `draft → planned` transition. Both new leaves sit
+AFTER `uninstall-skills`, so the skills sandbox is torn down before a potentially long human pause at the
+gate. Full chain: `… render-prompt-to-file → install-skills → stamp-meta-plan → call-planner-interactive →
+uninstall-skills → check-plan → apply-plan → save-tasks → save-sprint` (fenced by
+`tests/unit/application/flows/plan/flow-shape.test.ts`).
+
 **Reproduction-first leaf.** Before the attempt loop, `per-task-subchain.ts` runs an unconditional reset
 (`clearReproductionArtifactLeaf`) followed by a guard testing `isDefectShapedTask` (task kind `bugfix`,
 once per task, not per attempt). When it fires, `reproduceLeaf` spawns a one-shot headless session that

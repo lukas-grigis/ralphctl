@@ -56,7 +56,29 @@ export interface ProviderTraits {
   readonly conventionsPartial: string;
   /** Full official model catalog the availability probe filters down. */
   readonly modelCatalog: readonly string[];
+  /**
+   * Whether this provider forwards `effort` to its CLI, per SURFACE. Capability is not a
+   * provider-level fact: OpenCode forwards effort on the headless `run` subcommand and cannot on
+   * the interactive one, so a single flag would have to lie about one of them.
+   *
+   * Declared here rather than inferred from the adapters so the port-conformance suites can assert
+   * argv against a DECLARATION in both directions — an adapter that starts (or stops) forwarding
+   * without updating its row fails the suite instead of quietly changing what an operator's
+   * configured effort does. `Record<AiProvider, ProviderTraits>` then makes answering the question
+   * mandatory for a fifth backend.
+   *
+   * @see `EFFORT_CAPABLE_PROVIDERS` in `business/task/escalation-map.ts` — the business-layer view
+   * of the same question (may this provider be escalated by raising effort?), which is
+   * provider-level because escalation only ever runs headless.
+   */
+  readonly effortForwarding: {
+    readonly headless: boolean;
+    readonly interactive: boolean;
+  };
 }
+
+/** Forwarded on both surfaces — the shape three of the four backends have. */
+const EFFORT_ON_BOTH_SURFACES = { headless: true, interactive: true } as const;
 
 const NPM_INSTALL_CLAUDE = 'npm install -g @anthropic-ai/claude-code';
 const NPM_INSTALL_COPILOT = 'npm install -g @github/copilot';
@@ -94,6 +116,8 @@ export const PROVIDER_TRAITS: Readonly<Record<AiProvider, ProviderTraits>> = {
     wireTag: 'claude-md',
     conventionsPartial: 'conventions-claude-md',
     modelCatalog: CLAUDE_MODELS,
+    // `--effort <level>` on both the headless and the interactive command.
+    effortForwarding: EFFORT_ON_BOTH_SURFACES,
   },
   'github-copilot': {
     binary: 'copilot',
@@ -111,6 +135,8 @@ export const PROVIDER_TRAITS: Readonly<Record<AiProvider, ProviderTraits>> = {
     wireTag: 'copilot-instructions',
     conventionsPartial: 'conventions-copilot-instructions',
     modelCatalog: COPILOT_MODELS,
+    // `--effort=<level>` on both surfaces (equals-only, per the CLI reference).
+    effortForwarding: EFFORT_ON_BOTH_SURFACES,
   },
   'openai-codex': {
     binary: 'codex',
@@ -135,6 +161,8 @@ export const PROVIDER_TRAITS: Readonly<Record<AiProvider, ProviderTraits>> = {
     wireTag: 'agents-md',
     conventionsPartial: 'conventions-agents-md',
     modelCatalog: CODEX_MODELS,
+    // `-c model_reasoning_effort=<level>` on both surfaces.
+    effortForwarding: EFFORT_ON_BOTH_SURFACES,
   },
   opencode: {
     binary: 'opencode',
@@ -157,5 +185,10 @@ export const PROVIDER_TRAITS: Readonly<Record<AiProvider, ProviderTraits>> = {
     // list comes from `opencodeModelAvailabilityProbe` shelling out to `opencode models`. See
     // `domain/value/settings-models/opencode.ts`.
     modelCatalog: OPENCODE_MODELS,
+    // The only asymmetric row. `--variant <level>` exists on `opencode run` (headless) but not on
+    // the default TUI command, which is yargs-strict and exits 1 with a usage banner on an unknown
+    // flag — so forwarding an operator's configured effort interactively would turn a working
+    // session into a hard spawn failure. The interactive adapter drops it deliberately.
+    effortForwarding: { headless: true, interactive: false },
   },
 };

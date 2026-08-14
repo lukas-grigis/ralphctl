@@ -12,3 +12,5 @@
   applied/partial/gap; update when chain/flow/\_engine changes close a gap
 - [project_changelog_unreleased_drafting.md](project_changelog_unreleased_drafting.md) — [Unreleased] drafting must
   diff both `<tag>..origin/main` and `origin/main..HEAD` — squash-merged PRs can lack a changelog line
+- [reference_opencode_headless_vs_interactive.md](reference_opencode_headless_vs_interactive.md) — SECURITY.md's
+  OpenCode paragraphs mix headless (`--auto`) and interactive (`buildOpencodeEnv` config grant) — don't conflate

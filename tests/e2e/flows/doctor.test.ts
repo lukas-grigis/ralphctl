@@ -97,7 +97,14 @@ describe('doctor use-case', () => {
       sprintRepo: fakeSprintRepo(),
       settingsRepo: fakeSettingsRepo(),
       commandExists: stubCommandExists(true),
-      runCommand: stubRunCommand(),
+      runCommand: stubRunCommand((name, args) => {
+        // claude-code's auth probe reads JSON off stdout, not the exit code — feed it a
+        // logged-in payload so this "fully healthy" fixture actually reports pass.
+        if (name === 'claude' && args[0] === 'auth' && args[1] === 'status') {
+          return { ok: true, stdout: JSON.stringify({ loggedIn: true, authMethod: 'test' }) };
+        }
+        return undefined;
+      }),
       sprintExecutionRepo: fakeSprintExecutionRepo(),
       nodeVersion: 'v24.0.0',
     });
@@ -128,9 +135,10 @@ describe('doctor use-case', () => {
       'ai-github-copilot',
       'ai-openai-codex',
       'ai-opencode',
-      // DEFAULT_SETTINGS.ai.implement.evaluator points at openai-codex, so the codex-auth
-      // probe is included whenever codex is on PATH.
-      'codex-auth',
+      // DEFAULT_SETTINGS configures claude-code (most flows) and openai-codex (evaluator), so
+      // both get an auth row whenever their binary is on PATH.
+      'ai-auth-claude-code',
+      'ai-auth-openai-codex',
       'projects-list',
       'sprints-list',
     ]);
@@ -214,7 +222,7 @@ describe('doctor use-case', () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const probe = result.value.ctx.output!.probes.find((p) => p.id === 'codex-auth');
+    const probe = result.value.ctx.output!.probes.find((p) => p.id === 'ai-auth-openai-codex');
     expect(probe?.status).toBe('warn');
     expect(probe?.detail).toContain('Not logged in');
     expect(probe?.group).toBe('ai');
@@ -246,7 +254,7 @@ describe('doctor use-case', () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const probe = result.value.ctx.output!.probes.find((p) => p.id === 'codex-auth');
+    const probe = result.value.ctx.output!.probes.find((p) => p.id === 'ai-auth-openai-codex');
     expect(probe?.status).toBe('pass');
     expect(probe?.detail).toBe('authenticated');
     expect(probe?.group).toBe('ai');

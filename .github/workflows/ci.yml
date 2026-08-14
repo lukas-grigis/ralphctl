@@ -45,8 +45,12 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Test
-        run: pnpm test
+      # `pnpm coverage` rather than `pnpm test`: same suite, plus the thresholds in
+      # vitest.config.ts. `check` is the only required status context, so a coverage regression
+      # run anywhere else can go red forever without blocking a merge. The standalone `coverage`
+      # job below stays — it owns the uploaded artifact.
+      - name: Test (with coverage thresholds)
+        run: pnpm coverage
 
       - name: Verify dist works
         run: node dist/cli.mjs --version

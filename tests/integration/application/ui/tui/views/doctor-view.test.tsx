@@ -1,79 +1,79 @@
 /**
- * Smoke tests for DoctorView. Stubs the four port boundaries the doctor use-case touches
- * (project repo, sprint repo, sprint-execution repo, settings repo) plus the two shell
- * adapters (commandExists, runCommand). The view runs probes on mount; we wait for the load
- * and assert on the rendered summary + at least one group section.
- *
- * NOTE: doctor-view.tsx imports `commandExists` and `runCommand` directly (not via deps), so
- * we can't substitute them here without rewriting the view. Instead, the test relies on the
- * real platform implementations against repository stubs that always succeed — the storage
- * roots are pointed at process.cwd() in the harness, which is readable + writable in tests.
+ * Smoke tests for DoctorView. The doctor flow itself (`createDoctorFlow`) is mocked so the
+ * rendered report is deterministic — it no longer depends on which CLIs happen to be on the
+ * test runner's PATH. `system-status-context.tsx` is the sole importer of the flow, so mocking
+ * that one module fully controls what `useSystemStatus().doctor` resolves to.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { DoctorView } from '@src/application/ui/tui/views/doctor-view.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
-import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
-import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
-import type { SprintExecutionRepository } from '@src/domain/repository/sprint/sprint-execution-repository.ts';
-import type { SettingsRepository } from '@src/domain/repository/settings/settings-repository.ts';
-import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
-import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
+import type { DoctorReport, ProbeResult } from '@src/application/flows/doctor/ctx.ts';
 import { waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
 
-const deps: AppDeps = {
-  projectRepo: {
-    async list() {
-      return Result.ok([]);
-    },
-  } as unknown as ProjectRepository,
-  sprintRepo: {
-    async list() {
-      return Result.ok([]);
-    },
-  } as unknown as SprintRepository,
-  sprintExecutionRepo: {
-    async findById(id: unknown) {
-      return Result.error(new NotFoundError({ entity: 'sprint-execution', id: String(id), message: 'no executions' }));
-    },
-  } as unknown as SprintExecutionRepository,
-  settingsRepo: {
-    path: '/tmp/test-settings.json',
-    async exists() {
-      return Result.ok(true);
-    },
-    async load() {
-      return Result.ok(DEFAULT_SETTINGS);
-    },
-    async save() {
-      return Result.ok(undefined);
-    },
-  } as unknown as SettingsRepository,
-} as unknown as AppDeps;
+const reportRef = vi.hoisted(() => ({ current: undefined as DoctorReport | undefined }));
+
+vi.mock('@src/application/flows/doctor/flow.ts', () => ({
+  createDoctorFlow: () => ({
+    execute: async () => Result.ok({ ctx: { output: reportRef.current } }),
+  }),
+}));
+
+const probe = (p: Pick<ProbeResult, 'id' | 'label' | 'status'> & Partial<ProbeResult>): ProbeResult => ({
+  group: 'ai',
+  ...p,
+});
+
+const deps = {} as unknown as AppDeps;
 
 describe('DoctorView', () => {
   it('renders the grouped probe report with a summary header', async () => {
+    reportRef.current = {
+      probes: [
+        probe({ id: 'data-root', label: 'Data root readable', status: 'pass', group: 'storage' }),
+        probe({ id: 'ai-claude-code', label: 'Claude Code', status: 'pass' }),
+      ],
+      allPassed: true,
+      hasFailures: false,
+    };
     const { result } = renderView(<DoctorView />, { deps, initial: { id: 'doctor' } });
-    // Probes shell out to git / gh / glab; poll until they settle rather than a fixed budget.
-    await waitFor(() => /passed/.test(result.lastFrame() ?? '') && (result.lastFrame() ?? '').includes('Storage'), {
-      timeoutMs: 10000,
-    });
+    await waitFor(() => /passed/.test(result.lastFrame() ?? ''));
     const frame = result.lastFrame() ?? '';
-    // Summary header is one of "passed / warnings / failures".
     expect(frame).toMatch(/passed/);
-    // At least the storage section renders.
     expect(frame).toContain('Storage');
-    // The reload hint is visible.
+    expect(frame).toContain('AI providers');
     expect(frame).toContain('r reload');
-    result.unmount();
   });
 
   it('publishes the r reload hint', async () => {
+    reportRef.current = { probes: [], allPassed: true, hasFailures: false };
     const { result } = renderView(<DoctorView />, { deps, initial: { id: 'doctor' } });
-    await waitFor(() => (result.lastFrame() ?? '').includes('reload'), { timeoutMs: 10000 });
+    await waitFor(() => (result.lastFrame() ?? '').includes('reload'));
     expect(result.lastFrame() ?? '').toContain('reload');
-    result.unmount();
+  });
+
+  it('renders unknown probes as a muted chip and tallies them separately from warnings', async () => {
+    reportRef.current = {
+      probes: [
+        probe({ id: 'ai-claude-code', label: 'Claude Code', status: 'pass' }),
+        probe({
+          id: 'ai-auth-github-copilot',
+          label: 'GitHub Copilot authenticated',
+          status: 'unknown',
+          detail: 'no non-interactive auth-status verb',
+        }),
+      ],
+      allPassed: true,
+      hasFailures: false,
+    };
+    const { result } = renderView(<DoctorView />, { deps, initial: { id: 'doctor' } });
+    await waitFor(() => (result.lastFrame() ?? '').includes('GitHub Copilot authenticated'));
+    const frame = result.lastFrame() ?? '';
+    expect(frame).toContain('UNKNOWN');
+    // The summary header tallies it as "1 unknown", not as a warning.
+    expect(frame).toContain('0 warnings');
+    expect(frame).toContain('1 unknown');
   });
 });

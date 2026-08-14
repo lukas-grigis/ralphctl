@@ -2,7 +2,7 @@ import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
-import { makeInteractiveSpawn } from '@tests/fixtures/interactive-spawn-fake.ts';
+import { type InteractiveSpawnCall, makeInteractiveSpawn } from '@tests/fixtures/interactive-spawn-fake.ts';
 import { OPENCODE_MODELS } from '@src/domain/value/settings-models/opencode.ts';
 import { createInteractiveOpencodeProvider } from '@src/integration/ai/providers/opencode/interactive.ts';
 
@@ -18,6 +18,26 @@ const PROMPT_FILE = absolutePath('/tmp/opencode-prompt.md');
 const OUTPUT_FILE = absolutePath('/tmp/opencode-output.md');
 const CWD = absolutePath('/tmp/opencode-interactive-cwd');
 const MODEL = OPENCODE_MODELS[0]!;
+
+/** The `external_directory` rule map the adapter injected via `OPENCODE_CONFIG_CONTENT`. */
+const grantedRules = (call: InteractiveSpawnCall): Record<string, string> => {
+  const config = JSON.parse(call.env!['OPENCODE_CONFIG_CONTENT']!) as {
+    permission: { external_directory: Record<string, string> };
+  };
+  return config.permission.external_directory;
+};
+
+/**
+ * The directories those rules actually grant. Each root yields up to four keys (both separator
+ * spellings × `*` and `**`, which collapse to two on POSIX), so strip the pattern tail to compare
+ * against what the engine folded.
+ */
+const grantedRoots = (call: InteractiveSpawnCall): ReadonlySet<string> =>
+  new Set(
+    Object.entries(grantedRules(call))
+      .filter(([, action]) => action === 'allow')
+      .map(([pattern]) => pattern.replace(/[/\\]\*{1,2}$/, ''))
+  );
 
 describe('createInteractiveOpencodeProvider', () => {
   it('spawns opencode with the project directory positional first, then --model and --prompt', async () => {
@@ -41,10 +61,10 @@ describe('createInteractiveOpencodeProvider', () => {
     expect(calls[0]!.cwd).toBe(String(CWD));
   });
 
-  it('grants read access to the prompt directory only, since OpenCode has no --add-dir', async () => {
+  it('grants the prompt directory, since OpenCode has no --add-dir', async () => {
     // Without this the CLI auto-rejects the pointer target as `permission requested:
     // external_directory` and the session opens with no instructions — PROMPT_FILE lives outside
-    // CWD for ideate and memory-distill. The grant is scoped: everything else stays denied.
+    // CWD for ideate and memory-distill. The grant is still scoped: `*` stays denied.
     const cap = createCapturingBus();
     const { spawn, calls, emitExit } = makeInteractiveSpawn();
     const provider = createInteractiveOpencodeProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
@@ -53,18 +73,64 @@ describe('createInteractiveOpencodeProvider', () => {
     emitExit(0);
     await runPromise;
 
-    const config = JSON.parse(calls[0]!.env!['OPENCODE_CONFIG_CONTENT']!) as {
-      permission: { external_directory: Record<string, string> };
-    };
-    const rules = config.permission.external_directory;
+    const rules = grantedRules(calls[0]!);
     expect(rules['*']).toBe('deny');
     expect(rules[join(dirname(String(PROMPT_FILE)), '*')]).toBe('allow');
-    // Every allowed key names the prompt directory (in one separator spelling or the other, since
-    // a backslash glob may not match a path OpenCode normalised) — nothing wider slips in.
-    const promptDir = dirname(String(PROMPT_FILE)).replaceAll('\\', '/');
-    for (const [pattern, action] of Object.entries(rules)) {
-      if (action === 'allow') expect(pattern.replaceAll('\\', '/')).toBe(`${promptDir}/*`);
-    }
+    // Nested reads too: a root is a repository, and the pointer-era `*`-only grant reached a file
+    // sitting directly in the directory and nothing below it.
+    expect(rules[join(dirname(String(PROMPT_FILE)), '**')]).toBe('allow');
+    // Nothing wider than the roots the engine folded slips in.
+    expect(grantedRoots(calls[0]!)).toEqual(new Set([String(CWD), dirname(String(PROMPT_FILE))]));
+  });
+
+  it('grants every additionalRoot — #278: they used to be dropped without a word', async () => {
+    // The port contract says an adapter that cannot mount a root MUST surface InvalidStateError
+    // rather than quietly using less. This adapter silently ignored `additionalRoots` because its
+    // env hook only ever saw `input`, never the engine's folded root list — so plan / refine on a
+    // multi-repo project opened a session that could not read the sibling repositories at all.
+    const cap = createCapturingBus();
+    const { spawn, calls, emitExit } = makeInteractiveSpawn();
+    const provider = createInteractiveOpencodeProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
+
+    const sibling = absolutePath('/tmp/opencode-sibling-repo');
+    const runPromise = provider.run({
+      cwd: CWD,
+      additionalRoots: [sibling],
+      promptFile: PROMPT_FILE,
+      outputFile: OUTPUT_FILE,
+      model: MODEL,
+    });
+    emitExit(0);
+    await runPromise;
+
+    expect(grantedRoots(calls[0]!)).toEqual(new Set([String(CWD), String(sibling), dirname(String(PROMPT_FILE))]));
+    expect(grantedRules(calls[0]!)['*']).toBe('deny');
+  });
+
+  it('refuses a root it cannot express as a glob key, loudly and without spawning', async () => {
+    // A grant key that fails to match does NOT error in OpenCode — it opens a session that cannot
+    // read the root, which is #278 all over again with extra steps. The only honest answer for a
+    // path carrying glob syntax is the port's documented InvalidStateError.
+    const cap = createCapturingBus();
+    const { spawn, calls } = makeInteractiveSpawn();
+    const provider = createInteractiveOpencodeProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
+
+    const unexpressible = absolutePath('/tmp/opencode-repo-[v2]');
+    const r = await provider.run({
+      cwd: CWD,
+      additionalRoots: [unexpressible],
+      promptFile: PROMPT_FILE,
+      outputFile: OUTPUT_FILE,
+      model: MODEL,
+    });
+
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error.code).toBe('invalid-state');
+    expect(r.error.message).toContain(String(unexpressible));
+    expect(calls).toHaveLength(0);
+    // No "starting session" line either — the refusal happens before the child would have launched.
+    expect(cap.logs.map((e) => e.message).filter((m) => m.includes('starting session'))).toEqual([]);
   });
 
   it('drops effort — --variant is `run`-only and the yargs-strict TUI command would exit 1', async () => {

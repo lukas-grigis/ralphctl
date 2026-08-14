@@ -24,24 +24,37 @@ Codex caveat: `codex exec` has only two sandbox modes (`read-only` / `workspace-
 `read-only` blocks every write (incl. signals.json). Every profile maps to `workspace-write`;
 Codex can't fine-grained-deny edits on existing repo files. Use topology to constrain it.
 
-OpenCode caveat (stronger): `opencode run` exposes exactly ONE approval control, `--auto`, and
-omitting it does NOT make the session read-only — a plain `run` still executes write and edit
+OpenCode caveat (stronger): `opencode run` (headless — implement generator/evaluator, review,
+create-pr, readiness, detect-scripts, detect-skills) exposes exactly ONE approval control, `--auto`,
+and omitting it does NOT make the session read-only — a plain `run` still executes write and edit
 tools without prompting (verified against v1.18.15). There is therefore no argv spelling of
-`canModifyRepoFiles: false` at all; path topology is the only boundary. Plainly stated: OpenCode
-has no flag to grant write access to just one extra directory — permission is all-or-nothing
-(`--dir` sets a single root, and its `external_directory` permission auto-REJECTS access outside
-that root). ralphctl's `outputDir` (where `signals.json` lands) routinely sits outside the project
-folder, so whenever `outputDir` / `additionalRoots` fall outside `cwd` the adapter emits `--auto`
-to clear that gate wholesale — without it the AI would sit blocked waiting for an
-external-directory approval that never arrives. In practice `--auto` is therefore passed on
-effectively every headless run, and the project/session directory is the real safety boundary, not
-the CLI's permission gate — exactly as already documented above for OpenAI Codex. The
-precise-scoping follow-up is OpenCode's config-level `permission.external_directory` map, which can
-allow specific paths instead — it needs a generated per-session config file and is deliberately not
-wired in the first adapter. See `providers/opencode/headless.ts` for the full note. One clarification
-worth keeping in mind when reading that flag: `--auto` promotes the tool classes an operator set to
-`ask`, but per OpenCode's permissions documentation it does not override a class set to `deny` — an
-explicit denial in the operator's `opencode.json` stays enforced.
+`canModifyRepoFiles: false` at all; path
+topology is the only boundary. Plainly stated: OpenCode has no flag to grant write access to just
+one extra directory — permission is all-or-nothing (`--dir` sets a single root, and its
+`external_directory` permission auto-REJECTS access outside that root). ralphctl's `outputDir`
+(where `signals.json` lands) routinely sits outside the project folder, so whenever `outputDir` /
+`additionalRoots` fall outside `cwd` the headless adapter emits `--auto` to clear that gate
+wholesale — without it the AI would sit blocked waiting for an external-directory approval that
+never arrives. In practice `--auto` is therefore passed on effectively every headless run, and the
+project/session directory is the real safety boundary, not the CLI's permission gate — exactly as
+already documented above for OpenAI Codex. One clarification worth keeping in mind when reading
+that flag: `--auto` promotes the tool classes an operator set to `ask`, but per OpenCode's
+permissions documentation it does not override a class set to `deny` — an explicit denial in the
+operator's `opencode.json` stays enforced.
+
+The interactive adapter (TUI handoff — ideate, plan, refine) has no `--auto` flag at all on
+its default command, so it uses OpenCode's config-level `permission.external_directory` map
+instead, injected per-session as an `OPENCODE_CONFIG_CONTENT` overlay that MERGES into the
+operator's own config (so their models / agents / instructions survive; only a conflicting
+`external_directory` rule is overridden). `buildOpencodeEnv` (`providers/opencode/interactive.ts`)
+grants EVERY root the engine folded for that session — `cwd`, the caller's `additionalRoots`, and
+the prompt / output directories — as `allow` keys, `*` staying `deny` as the floor; each root gets
+four keys (both separator spellings × `{*, **}`), since the rules are globs. A root that contains a
+glob metacharacter (`* ? [ ] { }`) cannot be written as a pattern matching exactly that directory,
+so `buildOpencodeEnv` returns `InvalidStateError` instead of silently granting less — nothing is
+spawned and nothing claims a session started. This replaced an earlier, narrower grant that covered
+only the prompt file's directory: a caller's `additionalRoots` (every multi-repo `plan` / `refine`
+session) were mounted nowhere and OpenCode refused them with no error surfaced (#278).
 
 The `readiness` flow fans out across every uniquely referenced provider in `settings.ai` — one native
 context file per provider (claude-code → `CLAUDE.md`, github-copilot → `.github/copilot-instructions.md`,
@@ -87,10 +100,10 @@ CLI a POINTER at that file (`providers/_engine/prompt-pointer.ts`) — headless 
 it through stdin instead, which is equivalent for this purpose. Argv is capped at 32,767 bytes on Windows
 (and 8,191 once a `.cmd` shim routes through `cmd.exe`, where the excess is silently TRUNCATED rather than
 reported), well under what a rendered harness prompt reaches — a plan session on Windows died with
-`spawn ENAMETOOLONG` before the CLI started. Each adapter grants its CLI read access to the prompt file's
-directory and nothing wider — `--add-dir` for claude / copilot / codex, and for OpenCode (which has no such
-flag) a path-scoped `external_directory` grant injected as `OPENCODE_CONFIG_CONTENT`, which MERGES into the
-operator's own config rather than replacing it. There is no inline-body fallback: a CLI that can be granted
+`spawn ENAMETOOLONG` before the CLI started. Each interactive adapter grants its CLI read access to every
+mounted root — `--add-dir` for claude / copilot / codex, and for OpenCode (which has no such flag) an
+`external_directory` grant per root injected as `OPENCODE_CONFIG_CONTENT` (see `buildOpencodeEnv`), which
+MERGES into the operator's own config rather than replacing it. There is no inline-body fallback: a CLI that can be granted
 no access at all does not belong on this port, since inlining the body for it would just relocate the same
 overflow. Reject such an adapter where it is declared. Two
 earlier answers to this are on the rejected list and must not return: a `bash -lc "… $(cat promptFile)"`
@@ -110,8 +123,9 @@ the progress spinner stuck.
 **AI sessions plug onto the repo (implement / ideate).** Cwd is the user's repo (multi-repo flows
 pick `repositories[0]`); the per-flow sandbox under `<sprintDir>/<flow>/<unit-slug>/` is mounted via
 `--add-dir` so `prompt.md` and `signals.json` round-trip through harness-controlled
-paths — except on OpenCode, which has no `--add-dir` equivalent and instead auto-approves
-external-directory access with `--auto` (see the OpenCode caveat above). Cwd is the repo because
+paths — except on OpenCode, which has no `--add-dir` equivalent and instead grants the same roots
+via `--auto` (implement, headless) or the `buildOpencodeEnv` config grant (ideate, interactive) —
+see the OpenCode caveats above. Cwd is the repo because
 Claude / Copilot / Codex only auto-discover their context file
 (`CLAUDE.md` / `.github/copilot-instructions.md` / `AGENTS.md`), skills (`.claude/skills/` /
 `.github/skills/` / `.agents/skills/`), agents, and `.mcp.json` from cwd — not from `--add-dir` roots.

@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createFsProjectRepository } from '@src/integration/persistence/project/repository.ts';
+import { createJsonSettingsRepository } from '@src/integration/persistence/settings/json-settings-repository.ts';
+import { DEFAULT_SETTINGS, defaultAiSettingsForProvider } from '@src/business/settings/defaults.ts';
+import { commandExists } from '@src/integration/io/command-exists.ts';
 import { makeProject } from '@tests/fixtures/domain.ts';
 import { type CliHome, createCliHome, runCliCaptured } from '@tests/e2e/cli/_harness.ts';
 
@@ -43,5 +46,24 @@ describe('ralphctl doctor', () => {
 
     const result = await runCliCaptured(cli, ['doctor']);
     expect(result.stdout).toContain('1 project(s)');
+  });
+
+  // Copilot exposes no non-interactive auth-status verb, so its probe is always `unknown` and
+  // never spawns anything — but the auth probe only runs once the binary probe confirms it's
+  // on PATH. Skip (rather than fake `commandExists`, which doctor.ts wires straight to the real
+  // platform implementation with no injection seam) on a runner that doesn't have `copilot`.
+  it('tags an unknown auth probe UNK and does not fail the exit code', async () => {
+    const copilotInstalled = await commandExists('copilot');
+    if (!copilotInstalled) return;
+
+    // Configure ONLY github-copilot so the assertion doesn't depend on which OTHER providers
+    // happen to be authenticated on this runner.
+    const settingsRepo = createJsonSettingsRepository({ configRoot: cli.paths.configRoot });
+    await settingsRepo.save({ ...DEFAULT_SETTINGS, ai: defaultAiSettingsForProvider('github-copilot') });
+
+    const result = await runCliCaptured(cli, ['doctor']);
+    expect(result.stdout).toContain('UNK   GitHub Copilot authenticated');
+    expect(result.stdout).toContain('no non-interactive auth-status verb');
+    expect(result.exitCode).toBe(0);
   });
 });

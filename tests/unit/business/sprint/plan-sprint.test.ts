@@ -3,6 +3,7 @@ import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.t
 import { FIXED_LATER, makeApprovedTicket, makeDraftSprint, makeTodoTask } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { planSprintUseCase } from '@src/business/sprint/plan-sprint.ts';
+import type { PlanCheckFinding } from '@src/business/sprint/check-plan.ts';
 
 describe('planSprintUseCase', () => {
   it('transitions a draft sprint to planned and bundles the parsed tasks when no hook is provided', async () => {
@@ -71,12 +72,46 @@ describe('planSprintUseCase', () => {
       reviewBeforeApprove: review,
     });
     expect(review).toHaveBeenCalledOnce();
-    expect(review).toHaveBeenCalledWith(proposed, sprint);
+    expect(review).toHaveBeenCalledWith(proposed, sprint, []);
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.accepted).toBe(true);
       expect(result.value.sprint.status).toBe('planned');
       expect(result.value.tasks).toBe(proposed);
+    }
+  });
+
+  it("forwards checkFindings verbatim as the hook's third argument", async () => {
+    const sprint = makeDraftSprint({ tickets: [makeApprovedTicket()] });
+    const proposed = [makeTodoTask({ name: 'proposed' })];
+    const checkFindings: readonly PlanCheckFinding[] = [{ kind: 'task-graph', detail: 'task A depends on itself' }];
+    const review = vi.fn().mockResolvedValue({ accept: true });
+    await planSprintUseCase({
+      sprint,
+      existingTasks: [],
+      tasks: proposed,
+      clock: () => FIXED_LATER,
+      logger: noopLogger,
+      checkFindings,
+      reviewBeforeApprove: review,
+    });
+    expect(review).toHaveBeenCalledWith(proposed, sprint, checkFindings);
+  });
+
+  it('never auto-rejects on findings alone — an error-tier finding with no reviewer still accepts', async () => {
+    const sprint = makeDraftSprint({ tickets: [makeApprovedTicket()] });
+    const result = await planSprintUseCase({
+      sprint,
+      existingTasks: [],
+      tasks: [makeTodoTask({ name: 'proposed' })],
+      clock: () => FIXED_LATER,
+      logger: noopLogger,
+      checkFindings: [{ kind: 'task-graph', detail: 'dependency cycle: T1 → T2 → T1' }],
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.accepted).toBe(true);
+      expect(result.value.sprint.status).toBe('planned');
     }
   });
 });

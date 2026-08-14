@@ -31,7 +31,11 @@ sits behind the `provider/model` id. Two deliberate carve-outs follow from that:
 default (`plan` / `ideate` → `high`) is NOT stamped on an opencode row (`resolve-effort.ts`), matching
 `EFFORT_CAPABLE_PROVIDERS` in `escalation-map.ts`, because a level the upstream model never supported
 would turn a working spawn into a hard failure; and `--variant` exists only on the `run` subcommand, so
-the interactive TUI path (`opencode <cwd> --model …`) forwards no effort at all. The implement generator's
+the interactive TUI path (`opencode <cwd> --model …`) forwards no effort at all. This headless/interactive
+asymmetry is declared per provider as `ProviderTraits.effortForwarding.{headless,interactive}`
+(`providers/_engine/provider-traits.ts`) — OpenCode is the only row where the two differ — and the port
+conformance suites assert each adapter's argv against that declaration in both directions, so an adapter
+that starts or stops forwarding effort without updating its row fails at `pnpm test`. The implement generator's
 resolved effort also feeds the escalation policy's same-model effort rung,
 whose target is provider- and model-aware: a Claude generator at the top of the model ladder climbs its own
 effort tiers (Claude Code's default is `xhigh` on xhigh-capable models, so the shipped default

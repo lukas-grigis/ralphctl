@@ -117,6 +117,22 @@ export interface AppDeps {
    * field off `AppDeps` directly — every flow's `Deps` already declares `provider: HeadlessAiProvider`.
    */
   readonly provider: HeadlessAiProvider;
+  /**
+   * The spawn seam the AI adapters were built with, re-exposed so it SURVIVES the per-launch
+   * adapter rebuild. `buildLaunchAdapters` (and the implement launcher's per-role rebuild)
+   * reconstruct providers from the freshly-resolved settings on every launch; without this field
+   * a wire-time `spawn` override reached `AppDeps.provider` and was then silently dropped the
+   * moment a flow actually launched — which made the override useless for anything that goes
+   * through a launcher.
+   *
+   * Two producers today: a test that wants a hermetic launch, and `ralphctl demo --script`,
+   * whose scripted spawn replays a canned transcript instead of running a CLI. Presence of this
+   * field is therefore also the "no real binary will be spawned" signal the implement launcher
+   * reads to skip its PATH pre-flight.
+   *
+   * Undefined in ordinary production runs — the adapters fall back to `node:child_process.spawn`.
+   */
+  readonly providerSpawn?: ProviderSpawn;
   /** External shells — used by implement (preflight + commit) and review (commit). */
   readonly gitRunner: GitRunner;
   /** Project-configured shell scripts — used by implement (setup + post-task verify) and review (verify). */
@@ -284,6 +300,16 @@ export interface WireOptions {
    */
   readonly spawn?: ProviderSpawn;
   /**
+   * AI-only spawn override. Distinct from {@link spawn}, which doubles as the general-purpose
+   * `Spawn` for git / gh / the issue fetcher: a caller that fakes the AI CLI usually still wants
+   * REAL git (this is exactly `ralphctl demo --script`'s situation — a canned session, a real
+   * repository, a real commit).
+   *
+   * Takes precedence over `spawn` for provider construction, and is what `AppDeps.providerSpawn`
+   * carries to launch time.
+   */
+  readonly providerSpawn?: ProviderSpawn;
+  /**
    * Optional override for the OS attention notifier. Production callers (the TUI bootstrap in
    * `launch.ts`) pass the real Darwin / Linux adapter; the default for unspecified callers is a
    * silent no-op so tests don't accidentally pop NotificationCenter dings on the dev machine
@@ -385,8 +411,25 @@ const buildWireAgentDefinitionSource = (storage: StoragePaths, logger: Logger): 
     })
   );
 
+/**
+ * Wire-time seed provider. The per-launch launcher rebuilds the provider per dispatched flow;
+ * the `implement` row is the most common consumer, so it is the sensible default for any path
+ * that reads `app.provider` before a launch happens.
+ */
+const buildWireProvider = (opts: WireOptions, eventBus: EventBus, spawn: ProviderSpawn | undefined) =>
+  createAiProvider({
+    flow: 'implement',
+    ai: opts.settings.ai,
+    harnessConfig: opts.settings.harness,
+    eventBus,
+    ...(spawn !== undefined ? { spawn } : {}),
+  });
+
 export const wire = (opts: WireOptions): AppDeps => {
   const spawn: Spawn = opts.spawn ?? defaultPipeSpawn;
+  // AI adapters prefer the dedicated override, then fall back to the general seam so existing
+  // callers that pass only `spawn` keep faking the provider exactly as before.
+  const providerSpawn: ProviderSpawn | undefined = opts.providerSpawn ?? opts.spawn;
   // Env-gated chain.log writes. Reading `process.env` here keeps the integration adapter
   // (`startFileLogSink`) pure — it never needs to know whether tracing is enabled, only
   // whether to wire up. The no-op factory matches the live shape so callers can call
@@ -449,16 +492,8 @@ export const wire = (opts: WireOptions): AppDeps => {
     taskRepo: createFsTaskRepository({ root: opts.storage.dataRoot, fileLocker }),
     settings: opts.settings,
     settingsRepo: createJsonSettingsRepository({ configRoot: opts.storage.configRoot }),
-    provider: createAiProvider({
-      // Wire-time seed — the per-launch launcher rebuilds the provider per-flow before
-      // dispatch. The `implement` row is the most common provider consumer; using it here
-      // keeps a sensible default for any path that consults `app.provider` before a launch.
-      flow: 'implement',
-      ai: opts.settings.ai,
-      harnessConfig: opts.settings.harness,
-      eventBus,
-      ...(opts.spawn !== undefined ? { spawn: opts.spawn } : {}),
-    }),
+    provider: buildWireProvider(opts, eventBus, providerSpawn),
+    ...(providerSpawn !== undefined ? { providerSpawn } : {}),
     gitRunner: createGitRunner(),
     shellScriptRunner: createShellScriptRunner(),
     fileLocker,

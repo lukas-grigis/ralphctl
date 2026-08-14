@@ -13,7 +13,7 @@ import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
 import type { SettingsRepository } from '@src/domain/repository/settings/settings-repository.ts';
-import { waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { ENTER, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { makeProject } from '@tests/fixtures/domain.ts';
 import type { ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
@@ -118,7 +118,7 @@ describe('WelcomeView — first-run UX', () => {
     expect(result.lastFrame() ?? '').toContain(preset);
   });
 
-  it('seeds the mixed preset silently when zero CLIs are on PATH', async () => {
+  it('seeds the mixed preset silently when zero CLIs are on PATH, but does not route until ↵', async () => {
     detectRef.installed = new Set();
     const saved: Settings[] = [];
     const deps: AppDeps = {
@@ -129,7 +129,12 @@ describe('WelcomeView — first-run UX', () => {
       projectRepo: fakeProjectRepo([]),
     } as unknown as AppDeps;
 
-    const { result } = renderView(<WelcomeView />, { deps, initial: { id: 'welcome' } });
+    const routes: ViewEntry[] = [];
+    const { result } = renderView(<WelcomeView />, {
+      deps,
+      initial: { id: 'welcome' },
+      onRoute: (e) => routes.push(e),
+    });
     await waitForViewReady(result, (f) => f.includes('No AI CLIs detected'));
 
     expect(saved).toHaveLength(1);
@@ -143,6 +148,17 @@ describe('WelcomeView — first-run UX', () => {
     expect(frame).toContain('doctor');
     expect(frame).not.toContain('based on detected CLIs');
     expect(frame).toContain('mixed');
+    expect(frame).toContain('Press ↵ to continue');
+
+    // Seeding resolved (the settings save above proves it) but the view holds the destination —
+    // it must not auto-route while the warning is up.
+    expect(routes.at(-1)?.id).toBe('welcome');
+
+    result.stdin.write(ENTER);
+    await waitFor(() => routes.at(-1)?.id === 'create-project');
+    expect(routes.at(-1)?.id).toBe('create-project');
+    // The gate never re-triggers seeding — still exactly one save.
+    expect(saved).toHaveLength(1);
   });
 
   it('seeds the mixed preset silently when 2+ CLIs are on PATH', async () => {

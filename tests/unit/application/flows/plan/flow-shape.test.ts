@@ -41,6 +41,8 @@ describe('createPlanFlow — chain-shape fence', () => {
       'stamp-meta-plan',
       'call-planner-interactive',
       'uninstall-skills',
+      'check-plan',
+      'apply-plan',
       'save-tasks',
       'save-sprint',
     ]);

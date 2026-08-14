@@ -430,6 +430,10 @@ const buildLaunchAdapters = (deps: LauncherDeps, flowId: string, settings: Setti
     ai: settings.ai,
     harnessConfig: settings.harness,
     eventBus: deps.app.eventBus,
+    // Carry the wire-time spawn seam across the rebuild. Without it a scripted / faked spawn
+    // reaches `app.provider` and is then dropped here, so the launch spawns the real CLI —
+    // see `AppDeps.providerSpawn`.
+    ...(deps.app.providerSpawn !== undefined ? { spawn: deps.app.providerSpawn } : {}),
   });
   const interactiveAi = createInteractiveAiProvider({
     flow: adapterFlow,

@@ -1,5 +1,7 @@
 import { join } from 'node:path';
 import { sprintDir as buildSprintDir } from '@src/integration/persistence/storage.ts';
+import { type PlanCheckFinding, renderPlanCheckFinding, severityOfFinding } from '@src/business/sprint/check-plan.ts';
+import type { DraftSprint } from '@src/domain/entity/sprint.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { createRunner, type Runner } from '@src/application/chain/run/runner.ts';
 import { createPlanFlow } from '@src/application/flows/plan/flow.ts';
@@ -16,18 +18,45 @@ export interface PlanReviewTask {
   readonly ticketRef?: string;
 }
 
+/** Most finding lines rendered inline before the prompt body stops being readable in an Ink confirm. */
+const MAX_RENDERED_FINDINGS = 10;
+
+/**
+ * Errors first, then warnings, each in critic order; capped so a pathological plan cannot push
+ * the task list off screen. Returns `''` when the critic found nothing, so the message is
+ * byte-identical to the pre-critic wording on a clean plan.
+ */
+const buildFindingsBlock = (findings: readonly PlanCheckFinding[]): string => {
+  if (findings.length === 0) return '';
+  const ordered = [
+    ...findings.filter((f) => severityOfFinding(f) === 'error'),
+    ...findings.filter((f) => severityOfFinding(f) === 'warning'),
+  ];
+  const shown = ordered.slice(0, MAX_RENDERED_FINDINGS).map((f) => `  ${renderPlanCheckFinding(f)}`);
+  const hidden = ordered.length - shown.length;
+  const tail = hidden > 0 ? [`  … and ${String(hidden)} more`] : [];
+  return `Plan check found ${String(ordered.length)} issue(s) — advisory, you decide:\n${[...shown, ...tail].join('\n')}\n\n`;
+};
+
 /**
  * Render the human-facing plan-approval prompt body (audit §5 human-gate). The parser has
  * already dependency-resolved the task list before it reaches this gate, so the order shown is
  * the execution order — the note makes that visible to the operator rather than letting the
  * reorder happen as a silent topo-sort. Per-task reorder editing is out of scope.
  *
+ * `findings` are the deterministic plan critic's output. They are rendered ABOVE the task list so
+ * the operator reads them before deciding, and they are purely advisory — nothing here rejects on
+ * the operator's behalf.
+ *
  * Pure — extracted so the rendered message (including the dependency-order note) is unit-testable
  * without constructing a full launch context.
  *
  * @public
  */
-export const buildPlanReviewMessage = (proposedTasks: readonly PlanReviewTask[]): string => {
+export const buildPlanReviewMessage = (
+  proposedTasks: readonly PlanReviewTask[],
+  findings: readonly PlanCheckFinding[] = []
+): string => {
   const summary = proposedTasks
     .map((t, i) => {
       const head = `${String(i + 1)}. ${t.name}${t.ticketRef !== undefined ? `  [${t.ticketRef}]` : ''}`;
@@ -35,7 +64,7 @@ export const buildPlanReviewMessage = (proposedTasks: readonly PlanReviewTask[])
       return `${head}${body}`;
     })
     .join('\n');
-  return `Approve plan? ${String(proposedTasks.length)} task(s):\n\nTasks are shown in dependency-resolved execution order.\n\n${summary}`;
+  return `${buildFindingsBlock(findings)}Approve plan? ${String(proposedTasks.length)} task(s):\n\nTasks are shown in dependency-resolved execution order.\n\n${summary}`;
 };
 
 export const launchPlan = async (ctx: LaunchContext): Promise<LaunchResult> => {
@@ -57,9 +86,11 @@ export const launchPlan = async (ctx: LaunchContext): Promise<LaunchResult> => {
   // accepts/rejects via an Ink confirm prompt. Cancel = reject; downstream save-tasks /
   // save-sprint then no-op against the unchanged draft sprint.
   const reviewBeforeApprove = async (
-    proposedTasks: readonly PlanReviewTask[]
+    proposedTasks: readonly PlanReviewTask[],
+    _sprint: DraftSprint,
+    findings: readonly PlanCheckFinding[]
   ): Promise<{ readonly accept: boolean }> => {
-    const message = buildPlanReviewMessage(proposedTasks);
+    const message = buildPlanReviewMessage(proposedTasks, findings);
     const answered = await deps.interactive.askConfirm({ message });
     if (!answered.ok) return { accept: false };
     return { accept: answered.value };

@@ -1,6 +1,7 @@
 import type { InteractiveAiProvider } from '@src/integration/ai/providers/_engine/interactive-ai-provider.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
+import type { PlanCheckFinding } from '@src/business/sprint/check-plan.ts';
 import type { DraftSprint } from '@src/domain/entity/sprint.ts';
 import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
@@ -38,9 +39,14 @@ export interface PlanDeps {
    * Optional HITL approval hook. The launcher wires a TUI confirm prompt that summarises the
    * proposed task list and asks accept/reject; when omitted (CI / headless) the AI's plan is
    * auto-accepted. Mirrors the pattern used by the refine flow.
+   *
+   * `checkFindings` carries the deterministic plan critic's report (see
+   * `business/sprint/check-plan.ts`). It is ADVISORY: the harness never rejects on a finding —
+   * the human stays the approver, and a headless run auto-accepts regardless of severity.
    */
   readonly reviewBeforeApprove?: (
     proposedTasks: readonly TodoTask[],
-    sprint: DraftSprint
+    sprint: DraftSprint,
+    checkFindings: readonly PlanCheckFinding[]
   ) => Promise<{ readonly accept: boolean }>;
 }

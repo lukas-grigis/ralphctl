@@ -19,6 +19,13 @@ export interface InteractiveSpawnCall {
   readonly args: readonly string[];
   readonly cwd: string;
   readonly env?: Readonly<Record<string, string>>;
+  /**
+   * Signals sent to this child, in order. The fake never dies of them — a `stdio: 'inherit'`
+   * child that trapped SIGTERM is exactly the case `attachAbortKill`'s grace timer exists for, so
+   * discarding the signal (as the fake used to) made the SIGTERM → SIGKILL escalation
+   * unassertable. Tests end the session explicitly with `emitExit`.
+   */
+  readonly kills: readonly NodeJS.Signals[];
 }
 
 /** @public */
@@ -33,18 +40,28 @@ export interface CapturingInteractiveSpawn {
 
 /** @public */
 export const makeInteractiveSpawn = (): CapturingInteractiveSpawn => {
-  const calls: InteractiveSpawnCall[] = [];
+  const calls: Array<InteractiveSpawnCall & { kills: NodeJS.Signals[] }> = [];
   const last = {
     child: undefined as (ChildProcess & { emit: (event: string, ...args: unknown[]) => boolean }) | undefined,
   };
 
   const spawn: InteractiveSpawn = (command, args, options) => {
-    calls.push({ command, args, cwd: options.cwd, ...(options.env !== undefined ? { env: options.env } : {}) });
+    const kills: NodeJS.Signals[] = [];
+    calls.push({
+      command,
+      args,
+      cwd: options.cwd,
+      ...(options.env !== undefined ? { env: options.env } : {}),
+      kills,
+    });
     const child = new EventEmitter() as unknown as ChildProcess & {
       emit: (event: string, ...args: unknown[]) => boolean;
     };
     // `attachAbortKill` calls `child.kill` on abort — the fake needs it to be callable.
-    (child as unknown as { kill: () => boolean }).kill = (): boolean => true;
+    (child as unknown as { kill: (signal?: NodeJS.Signals) => boolean }).kill = (signal): boolean => {
+      kills.push(signal ?? 'SIGTERM');
+      return true;
+    };
     last.child = child;
     return child;
   };

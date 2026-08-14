@@ -65,7 +65,14 @@ npm install -g ralphctl
 
 > Needs [Node.js](https://nodejs.org/) ≥ 24 — `mise use node@24` or `nvm install 24`.
 
-Install one of the supported CLIs and authenticate it:
+Want to poke around before setting up a provider CLI? `ralphctl demo` seeds a throwaway sandbox
+project (three sprints, one per pre-flow state) and launches straight into it — zero setup:
+
+```bash
+ralphctl demo
+```
+
+Otherwise, install one of the supported CLIs and authenticate it:
 
 | CLI                                                                                | Install                              | Auth                  |
 | ---------------------------------------------------------------------------------- | ------------------------------------ | --------------------- |
@@ -77,8 +84,12 @@ Install one of the supported CLIs and authenticate it:
 Then confirm ralphctl can see it:
 
 ```bash
-ralphctl doctor    # verifies your provider CLI is installed + authenticated — the #1 first-run failure
+ralphctl doctor    # checks your provider CLI is on PATH — and reports auth for the CLIs that can answer — the #1 first-run failure
 ```
+
+`doctor`'s auth check is only as honest as each CLI lets it be: Claude Code and OpenAI Codex answer locally via their own
+`auth status` / `login status` verbs, OpenCode reports whether it has a saved credential (its free tier works with zero),
+and GitHub Copilot has no non-interactive auth-status command at all — that row always reports `unknown`, not a guess.
 
 When `doctor` is green, launch:
 
@@ -422,6 +433,7 @@ readiness / create sprint) stay TUI-only by design. The CLI exposes inspection +
 | Command                                 | Description                                                                                                                                                                   |
 | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ralphctl`                              | Interactive TUI (primary surface)                                                                                                                                             |
+| `ralphctl demo`                         | Seed a throwaway sandbox project and launch straight into it — zero setup, no provider CLI required to look around (`--no-launch` to seed only, `--home <dir>` to relocate)   |
 | `ralphctl doctor`                       | Check environment health                                                                                                                                                      |
 | `ralphctl settings show`                | Print current settings                                                                                                                                                        |
 | `ralphctl settings set <key> <value>`   | Set a single settings key                                                                                                                                                     |
