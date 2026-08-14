@@ -12,7 +12,13 @@ export interface DoctorInput {
   readonly configRoot: AbsolutePath;
 }
 
-export type ProbeStatus = 'pass' | 'fail' | 'warn';
+/**
+ * `unknown` means the probe ran but the environment cannot answer the question it asks —
+ * e.g. a CLI exposes no non-interactive auth-status verb, or its output can't be parsed. It is
+ * never a defect and never counted as a warning; `DoctorReport.allPassed` treats it as neutral
+ * (see the field doc below) and `hasFailures` never looks at it at all.
+ */
+export type ProbeStatus = 'pass' | 'fail' | 'warn' | 'unknown';
 
 /**
  * Stable group ids used by UIs to render section headers. Renderer-side labels live with the
@@ -36,8 +42,9 @@ export interface ProbeResult {
 
 export interface DoctorReport {
   readonly probes: readonly ProbeResult[];
+  /** True iff every probe is `'pass'` or `'unknown'` — an `unknown` row never flips this false. */
   readonly allPassed: boolean;
-  /** True iff at least one probe is `'fail'` (warns don't count). */
+  /** True iff at least one probe is `'fail'` (warns and unknowns don't count). */
   readonly hasFailures: boolean;
 }
 

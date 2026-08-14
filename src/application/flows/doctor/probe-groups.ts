@@ -14,23 +14,8 @@ import {
   type ProbeResult,
 } from '@src/application/flows/doctor/ctx.ts';
 import type { DoctorDeps } from '@src/application/flows/doctor/deps.ts';
-
-const PROVIDER_LABEL: Record<AiProvider, string> = {
-  'claude-code': 'Claude Code',
-  'github-copilot': 'GitHub Copilot',
-  'openai-codex': 'OpenAI Codex',
-  opencode: 'OpenCode',
-};
-
-/** Build a {@link ProbeResult} — `hint` is included only when supplied. */
-const mkProbe = (
-  id: string,
-  label: string,
-  status: ProbeResult['status'],
-  detail: string,
-  group: ProbeGroup,
-  hint?: string
-): ProbeResult => ({ id, label, status, detail, group, ...(hint !== undefined ? { hint } : {}) });
+import { mkProbe, PROVIDER_LABEL } from '@src/application/flows/doctor/probe-helpers.ts';
+import { probeProviderAuth } from '@src/application/flows/doctor/provider-auth.ts';
 
 const probePath = async (id: string, label: string, path: AbsolutePath, group: ProbeGroup): Promise<ProbeResult> => {
   const result = await pathIsDirectory(String(path));
@@ -296,7 +281,10 @@ export const probeAiProvidersGroup = async (deps: DoctorDeps): Promise<readonly 
         ]
   );
 
-  let codexInstalled = false;
+  // Binary rows first (so a provider's PATH check always precedes its auth check), then one
+  // auth row per provider that is both configured and confirmed installed — every provider
+  // gets the same treatment now, not just codex. `probeProviderAuth` never returns 'fail'.
+  const installedByProvider = new Map<AiProvider, boolean>();
   for (const provider of Object.keys(PROVIDER_BINARY) as readonly AiProvider[]) {
     const binary = PROVIDER_BINARY[provider];
     const isConfigured = configuredProviders.has(provider);
@@ -308,22 +296,13 @@ export const probeAiProvidersGroup = async (deps: DoctorDeps): Promise<readonly 
       deps.commandExists,
       `install the '${binary}' CLI and ensure it is on your PATH`
     );
-    if (provider === 'openai-codex') codexInstalled = probe.status === 'pass';
+    installedByProvider.set(provider, probe.status === 'pass');
     probes.push(probe.status === 'fail' ? { ...probe, status: 'warn' } : probe);
   }
 
-  if (configuredProviders.has('openai-codex') && codexInstalled) {
-    probes.push(
-      await probeCliAuth(
-        'codex-auth',
-        'OpenAI Codex CLI authenticated',
-        'codex',
-        ['login', 'status'],
-        'run `codex login` to sign in',
-        deps.runCommand,
-        'ai'
-      )
-    );
+  for (const provider of Object.keys(PROVIDER_BINARY) as readonly AiProvider[]) {
+    if (!configuredProviders.has(provider) || installedByProvider.get(provider) !== true) continue;
+    probes.push(await probeProviderAuth(provider, deps.runCommand));
   }
 
   return probes;

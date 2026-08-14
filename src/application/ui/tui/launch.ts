@@ -28,6 +28,7 @@ import { createInkHost } from '@src/application/ui/shared/ink-host.ts';
 import { setRunInTerminal } from '@src/application/ui/tui/runtime/run-in-terminal.ts';
 import { setImplementRoleOverrides } from '@src/application/ui/tui/runtime/implement-role-overrides.ts';
 import type { LaunchExtras } from '@src/application/ui/shared/launcher.ts';
+import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import { App } from '@src/application/ui/tui/App.tsx';
 import { MigrationRoute } from '@src/application/ui/tui/migration/migration-route.tsx';
 import {
@@ -326,7 +327,7 @@ const resolveLaunchViewState = async (
   return { ...initialState, lastSelectionStore };
 };
 
-const bootstrap = async (): Promise<Bootstrapped> => {
+const bootstrap = async (options: LaunchTuiOptions = {}): Promise<Bootstrapped> => {
   const paths = resolveStoragePaths();
   if (!paths.ok) throw new Error(`storage-paths: ${paths.error.message}`);
 
@@ -346,7 +347,11 @@ const bootstrap = async (): Promise<Bootstrapped> => {
   const settings = await settingsRepo.load();
   if (!settings.ok) throw new Error(`settings: ${settings.error.message}`);
 
-  const deps = wire({ storage: paths.value, settings: settings.value });
+  const deps = wire({
+    storage: paths.value,
+    settings: settings.value,
+    ...(options.providerSpawn !== undefined ? { providerSpawn: options.providerSpawn } : {}),
+  });
 
   // Runs once per process: `launchTui` is the single bare-`ralphctl` entry point and `bootstrap`
   // runs exactly once per invocation. A hard failure throws here and is caught by `launchTui`
@@ -464,6 +469,16 @@ export interface LaunchTuiOptions {
    * LaunchExtras}; cleared on every fresh launch so a prior run's overrides don't leak.
    */
   readonly implementRoleOverrides?: LaunchExtras['implementRoleOverrides'];
+  /**
+   * Replaces the AI adapters' `node:child_process.spawn`. Threaded into `wire()` and carried on
+   * `AppDeps.providerSpawn`, so it survives the per-launch adapter rebuild that every flow goes
+   * through. Git / gh keep spawning for real.
+   *
+   * Sole production producer: `ralphctl demo --script`, which replays a canned generator →
+   * evaluator transcript so the first-run recording exercises the real chain without an
+   * authenticated CLI. Omitted everywhere else.
+   */
+  readonly providerSpawn?: ProviderSpawn;
 }
 
 export const launchTui = async (options: LaunchTuiOptions = {}): Promise<void> => {
@@ -486,7 +501,7 @@ export const launchTui = async (options: LaunchTuiOptions = {}): Promise<void> =
   setImplementRoleOverrides(options.implementRoleOverrides);
   let booted: Bootstrapped;
   try {
-    booted = await bootstrap();
+    booted = await bootstrap(options);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     process.stderr.write(`ralphctl: failed to start TUI — ${msg}\n`);

@@ -40,6 +40,8 @@ import {
 import type { LaunchContext } from '@src/application/ui/shared/launch/context.ts';
 import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
 import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
+import { createAiProvider } from '@src/application/bootstrap/provider-factory.ts';
+import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 
 /**
  * Apply role-level overrides from {@link LaunchExtras.implementRoleOverrides} on top of the
@@ -395,6 +397,45 @@ const resolveQueueForLaunch = async (
   return resolveImplementQueue(tasks, { project, sprint, execution: execution.value });
 };
 
+/**
+ * Re-key both role adapters onto `AppDeps.providerSpawn` when one is wired.
+ *
+ * `buildImplementProviders` builds the pair from settings alone — it has no view of the spawn
+ * seam, and it lives in a module this launcher shares with the parallel path, so the override is
+ * applied here at the single call site rather than widening that helper's signature. Models,
+ * efforts, and the agent-definition resolution it performed are carried through untouched; only
+ * the two `HeadlessAiProvider` instances are rebuilt.
+ *
+ * Returns the input unchanged in ordinary runs (no override wired).
+ */
+const withProviderSpawnOverride = (
+  providers: ReturnType<typeof buildImplementProviders>,
+  ctx: LaunchContext,
+  implementPair: AiImplementSettings,
+  effectiveSettings: Settings
+): ReturnType<typeof buildImplementProviders> => {
+  const spawn = ctx.deps.app.providerSpawn;
+  if (spawn === undefined) return providers;
+  const rebuild = (row: AiFlowSettings): HeadlessAiProvider =>
+    createAiProvider({ row, harnessConfig: effectiveSettings.harness, eventBus: ctx.deps.app.eventBus, spawn });
+  return {
+    ...providers,
+    generatorProvider: rebuild(implementPair.generator),
+    evaluatorProvider: rebuild(implementPair.evaluator),
+  };
+};
+
+/**
+ * PATH pre-flight for both roles — skipped when a provider spawn override is wired, because "is
+ * the CLI installed?" is not a question that applies when nothing will be spawned. The only
+ * producer of `providerSpawn` today is `ralphctl demo --script` (and hermetic tests); an ordinary
+ * run leaves it undefined and the gate behaves exactly as before. See `AppDeps.providerSpawn`.
+ */
+const preflightCli = async (ctx: LaunchContext, effectiveSettings: Settings): Promise<LaunchResult | undefined> =>
+  ctx.deps.app.providerSpawn !== undefined
+    ? undefined
+    : checkCli('implement', effectiveSettings, { implementRoleOverrides: ctx.extras.implementRoleOverrides });
+
 export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult> => {
   const { deps, snapshot, extras, settings, bridge, sessionId } = ctx;
   // Apply per-role overrides (from CLI flags via `LaunchExtras.implementRoleOverrides`) onto
@@ -406,9 +447,7 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
     ...settings,
     ai: { ...settings.ai, implement: implementPair },
   };
-  const missing = await checkCli('implement', effectiveSettings, {
-    implementRoleOverrides: extras.implementRoleOverrides,
-  });
+  const missing = await preflightCli(ctx, effectiveSettings);
   if (missing !== undefined) return missing;
   if (!snapshot.sprint) return { ok: false, reason: 'No sprint selected.' };
   if (!snapshot.project) return { ok: false, reason: 'No project loaded for the selected sprint.' };
@@ -441,10 +480,15 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
   const agentBindings = await resolveImplementAgentBindings(deps, implementPair);
   // Two independent per-role adapters — the roles may target distinct providers (see
   // `buildImplementProviders`'s doc comment for why `ctx.provider` is unused here).
-  const providers = buildImplementProviders(implementPair, effectiveSettings, deps, {
-    ...(agentBindings.generator.definition !== undefined ? { generator: agentBindings.generator.definition } : {}),
-    ...(agentBindings.evaluator.definition !== undefined ? { evaluator: agentBindings.evaluator.definition } : {}),
-  });
+  const providers = withProviderSpawnOverride(
+    buildImplementProviders(implementPair, effectiveSettings, deps, {
+      ...(agentBindings.generator.definition !== undefined ? { generator: agentBindings.generator.definition } : {}),
+      ...(agentBindings.evaluator.definition !== undefined ? { evaluator: agentBindings.evaluator.definition } : {}),
+    }),
+    ctx,
+    implementPair,
+    effectiveSettings
+  );
   const { generatorModel, evaluatorModel, generatorEffort, evaluatorEffort } = providers;
   const element = buildImplementElement(ctx, {
     effectiveSettings,

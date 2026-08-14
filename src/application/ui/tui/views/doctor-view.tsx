@@ -112,6 +112,7 @@ const SummaryHeader = ({ probes }: { readonly probes: readonly ProbeResult[] }):
   const passes = probes.filter((p) => p.status === 'pass').length;
   const warnings = probes.filter((p) => p.status === 'warn').length;
   const failures = probes.filter((p) => p.status === 'fail').length;
+  const unknowns = probes.filter((p) => p.status === 'unknown').length;
   const tone = failures > 0 ? inkColors.error : warnings > 0 ? inkColors.warning : inkColors.primary;
   const icon = failures > 0 ? glyphs.cross : warnings > 0 ? glyphs.warningGlyph : glyphs.check;
   return (
@@ -122,7 +123,7 @@ const SummaryHeader = ({ probes }: { readonly probes: readonly ProbeResult[] }):
       <Text dimColor>
         {' '}
         {glyphs.bullet} {String(warnings)} warning{warnings === 1 ? '' : 's'} {glyphs.bullet} {String(failures)} failure
-        {failures === 1 ? '' : 's'} {glyphs.bullet} r reload
+        {failures === 1 ? '' : 's'} {glyphs.bullet} {String(unknowns)} unknown {glyphs.bullet} r reload
       </Text>
     </Box>
   );
@@ -133,7 +134,15 @@ const ProbeRow = ({ probe }: { readonly probe: ProbeResult }): React.JSX.Element
     <Box>
       <StatusChip
         label={probe.status}
-        kind={probe.status === 'pass' ? 'success' : probe.status === 'fail' ? 'error' : 'warning'}
+        kind={
+          probe.status === 'pass'
+            ? 'success'
+            : probe.status === 'fail'
+              ? 'error'
+              : probe.status === 'unknown'
+                ? 'muted'
+                : 'warning'
+        }
       />
       <Text> {probe.label}</Text>
     </Box>
