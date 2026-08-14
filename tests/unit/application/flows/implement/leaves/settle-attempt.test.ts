@@ -239,6 +239,86 @@ describe('settleAttemptLeaf', () => {
     expect(result.value.ctx.priorPostVerifyOutcome).toEqual({ cwd, outcome: 'success' });
   });
 
+  it('stamps the per-attempt cost accumulators onto the settled attempt', async () => {
+    const ip = inProgressWithVerification();
+    const { repo, calls } = fakeUpdateTask();
+    const leafEl = settleAttemptLeaf(
+      { taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger },
+      { cwd: absolutePath('/tmp/settle-attempt-test') },
+      ip.id
+    );
+
+    const result = await leafEl.execute({
+      sprintId: 'sprint-x' as SprintId,
+      tasks: [ip],
+      currentTaskId: ip.id,
+      currentTask: ip,
+      lastVerdict: 'passed',
+      // Folded by the generator / evaluator leaves across every spawn of this attempt.
+      currentAttemptInputTokens: 12_000,
+      currentAttemptOutputTokens: 3_400,
+      currentAttemptDurationMs: 91_000,
+    });
+
+    expect(result.ok).toBe(true);
+    const settled = calls[0]?.task.attempts.at(-1);
+    expect(settled?.inputTokens).toBe(12_000);
+    expect(settled?.outputTokens).toBe(3_400);
+    expect(settled?.durationMs).toBe(91_000);
+  });
+
+  it('settles with the cost fields ABSENT when no spawn reported usage (never a fabricated 0)', async () => {
+    const ip = inProgressWithVerification();
+    const { repo, calls } = fakeUpdateTask();
+    const leafEl = settleAttemptLeaf(
+      { taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger },
+      { cwd: absolutePath('/tmp/settle-attempt-test') },
+      ip.id
+    );
+
+    const result = await leafEl.execute({
+      sprintId: 'sprint-x' as SprintId,
+      tasks: [ip],
+      currentTaskId: ip.id,
+      currentTask: ip,
+      lastVerdict: 'passed',
+    });
+
+    expect(result.ok).toBe(true);
+    const settled = calls[0]?.task.attempts.at(-1);
+    expect(settled?.status).toBe('verified');
+    expect(settled).not.toHaveProperty('inputTokens');
+    expect(settled).not.toHaveProperty('outputTokens');
+    expect(settled).not.toHaveProperty('durationMs');
+  });
+
+  it('stamps the counts it HAS onto a blocked task`s aborted attempt, leaving the rest absent', async () => {
+    const ip = inProgressWithVerification();
+    const { repo, calls } = fakeUpdateTask();
+    const leafEl = settleAttemptLeaf(
+      { taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger },
+      { cwd: absolutePath('/tmp/settle-attempt-test') },
+      ip.id
+    );
+
+    const result = await leafEl.execute({
+      sprintId: 'sprint-x' as SprintId,
+      tasks: [ip],
+      currentTaskId: ip.id,
+      currentTask: ip,
+      lastVerdict: 'failed',
+      lastBlockReason: 'missing API key',
+      // A provider that reports no token counts still yields a measured duration.
+      currentAttemptDurationMs: 4_200,
+    });
+
+    expect(result.ok).toBe(true);
+    const settled = calls[0]?.task.attempts.at(-1);
+    expect(settled?.status).toBe('aborted');
+    expect(settled?.durationMs).toBe(4_200);
+    expect(settled).not.toHaveProperty('inputTokens');
+  });
+
   it('throws when neither verdict nor block reason is on ctx', async () => {
     const ip = inProgressWithVerification();
     const { repo } = fakeUpdateTask();

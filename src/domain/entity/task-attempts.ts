@@ -2,6 +2,7 @@ import { Result } from '@src/domain/result.ts';
 import {
   appendVerifyRun,
   type Attempt,
+  type AttemptUsage,
   type AttemptWarning,
   type Attribution,
   type Evaluation,
@@ -9,6 +10,7 @@ import {
   recordAttemptCommit,
   recordAttemptCritique,
   recordAttemptEvaluation,
+  recordAttemptUsage,
   recordAttemptVerification,
   recordAttemptWarning,
   type RecoveryContext,
@@ -164,6 +166,20 @@ export const recordRunningAttemptWarning = (
   const guard = requireRunningAttempt(task);
   if (!guard.ok) return Result.error(guard.error);
   return Result.ok(replaceLastAttempt(task, recordAttemptWarning(guard.value.running, warning)));
+};
+
+/**
+ * Stamp raw cost telemetry (token counts + AI wall-clock) onto the running attempt. Called by the
+ * settle use case just before the terminal transition, so the figures ride into the persisted
+ * terminal attempt. Counts the caller does not have stay absent — see {@link recordAttemptUsage}.
+ */
+export const recordRunningAttemptUsage = (
+  task: InProgressTask,
+  usage: AttemptUsage
+): Result<InProgressTask, InvalidStateError> => {
+  const guard = requireRunningAttempt(task);
+  if (!guard.ok) return Result.error(guard.error);
+  return Result.ok(replaceLastAttempt(task, recordAttemptUsage(guard.value.running, usage)));
 };
 
 /**

@@ -355,7 +355,7 @@ export const createClaudeProvider = (deps: HeadlessProviderDeps): HeadlessAiProv
             const env = parser.snapshot();
             // Absence of usage counters is honest: the result event may carry zero usage subkeys on
             // degenerate spawns or when the spawn was SIGTERM-recovered before the final result event.
-            emitTokenUsage(deps.eventBus, attemptSession, sessionId, {
+            return emitTokenUsage(deps.eventBus, attemptSession, sessionId, {
               provider: 'claude-code',
               ...(env.model !== undefined ? { model: env.model } : {}),
               ...(env.usage.inputTokens !== undefined ? { inputTokens: env.usage.inputTokens } : {}),

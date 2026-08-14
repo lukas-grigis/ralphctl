@@ -443,6 +443,13 @@ describe('createClaudeProvider — TokenUsageEvent emission', () => {
     expect(evt.cacheCreationTokens).toBe(12);
     // claude-opus-4-8 is in the static context-window table at 200k.
     expect(evt.contextWindow).toBe(200_000);
+
+    // The same figures also ride BACK to the caller as data — the event is ephemeral, this is what
+    // the chain folds onto the attempt.
+    if (!out.ok) return;
+    expect(out.value.usage?.inputTokens).toBe(1234);
+    expect(out.value.usage?.outputTokens).toBe(567);
+    expect(typeof out.value.usage?.durationMs).toBe('number');
   });
 
   it('forwards live per-turn usage from the LAST assistant turn alongside cumulative figures', async () => {

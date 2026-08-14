@@ -19,6 +19,7 @@ import { buildImplementContinuationPrompt } from '@src/integration/ai/prompts/im
 import type { BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
+import type { ProviderUsage } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import { generatorOutputContract } from '@src/application/flows/implement/leaves/generator.contract.ts';
 import { escalationBannerId } from '@src/business/task/escalation-policy.ts';
@@ -26,6 +27,7 @@ import { renderPriorAttemptsSection } from '@src/business/task/attempt-summary.t
 import { readReproductionSection } from '@src/application/flows/implement/leaves/reproduce.ts';
 import { readRoundSessionId } from '@src/application/flows/implement/leaves/round-artifacts.ts';
 import { positiveCountCarry } from '@src/application/flows/implement/leaves/_shared/nudge-count-carry.ts';
+import { attemptUsageCarry } from '@src/application/flows/implement/leaves/_shared/attempt-usage-carry.ts';
 import { composeGeneratorFeedForward } from '@src/application/flows/implement/leaves/_shared/compose-generator-feed-forward.ts';
 import {
   readCappedProgress,
@@ -189,6 +191,13 @@ interface GeneratorOutput {
    * Pure observability; never affects retry semantics.
    */
   readonly correctiveNudgeCount: number;
+  /**
+   * Raw cost telemetry for this turn's spawn — provider-reported token counts + harness-measured
+   * wall-clock. Accumulates onto the per-attempt `ctx.currentAttempt{Input,Output}Tokens` /
+   * `currentAttemptDurationMs` totals that `settle-attempt` persists onto the attempt. Absent when
+   * the spawn reported none.
+   */
+  readonly usage?: ProviderUsage | undefined;
 }
 
 /**
@@ -385,6 +394,8 @@ interface GeneratorTurnAccumulators {
   readonly learningsEmitted: LearningEntry[];
   readonly notesEmitted: string[];
   correctiveNudgeCount: number;
+  /** This turn's raw provider cost telemetry — rides the same out-channel as the nudge tally. */
+  usage: ProviderUsage | undefined;
 }
 
 /**
@@ -519,6 +530,7 @@ const makeGeneratorCallImplement =
     // Cost-visibility out-channel — see GeneratorTurnAccumulators' docstring for why this rides
     // a mutated field rather than widening `callImplement`'s return type.
     args.accumulators.correctiveNudgeCount = turn.value.nudgeCount;
+    args.accumulators.usage = turn.value.usage;
 
     // `runGeneratorTurnUseCase` expects `readonly HarnessSignal[]`. `GeneratorContractSignal`
     // is a strict subset of `HarnessSignal`, but TS's array variance doesn't infer
@@ -554,6 +566,7 @@ const makeGeneratorExecute =
       learningsEmitted: [],
       notesEmitted: [],
       correctiveNudgeCount: 0,
+      usage: undefined,
     };
     const logTailReader = deps.logTailReader ?? createFsLogTailReader();
     const callImplement = makeGeneratorCallImplement(deps, taskId, {
@@ -649,6 +662,9 @@ const generatorOutput = (ctx: ImplementCtx, out: GeneratorOutput): ImplementCtx 
   // turn's map) so the entropy-plateau heuristic in the gen-eval loop sees the current turn's
   // action diversity, never an accumulation across turns.
   const actionCountsCarry = { lastTurnActionCounts: countTurnActionKinds(out) };
+  // Raw cost totals for the attempt — folded across both roles' spawns; settle-attempt persists
+  // them onto the settling attempt, progress-journal clears them afterwards.
+  const usageCarry = attemptUsageCarry(ctx, out.usage);
   const next: ImplementCtx = {
     ...ctx,
     currentTask: out.task,
@@ -663,6 +679,7 @@ const generatorOutput = (ctx: ImplementCtx, out: GeneratorOutput): ImplementCtx 
     ...notesCarry,
     ...generatorNudgesCarry,
     ...actionCountsCarry,
+    ...usageCarry,
   };
   if (out.exit === undefined) return next;
   // Both exit kinds stop the inner loop + skip the evaluator (both key on `lastExit`), but

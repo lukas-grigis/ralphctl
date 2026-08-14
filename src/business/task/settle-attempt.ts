@@ -1,10 +1,10 @@
 import { Result } from '@src/domain/result.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import type { AttemptWarning } from '@src/domain/entity/attempt.ts';
+import type { AttemptUsage, AttemptWarning } from '@src/domain/entity/attempt.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import type { BlockedTask, DoneTask, InProgressTask } from '@src/domain/entity/task.ts';
-import { recordRunningAttemptWarning } from '@src/domain/entity/task-attempts.ts';
+import { recordRunningAttemptUsage, recordRunningAttemptWarning } from '@src/domain/entity/task-attempts.ts';
 import { failCurrentAttempt, markTaskDone } from '@src/domain/entity/task-settle.ts';
 import { applyCriteriaVerdicts } from '@src/domain/entity/task-criteria.ts';
 import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
@@ -62,6 +62,14 @@ export interface SettleAttemptProps {
    * derived from the evaluator's structured signal — never from agent prose. Absent → no fold.
    */
   readonly criteria?: readonly CriterionVerdict[];
+  /**
+   * Raw cost telemetry accumulated across this attempt's AI spawns — provider-reported token
+   * counts plus harness-measured AI wall-clock. Stamped onto the running attempt before the
+   * terminal transition so the figures ride into the persisted record; the settle point is the
+   * only place they exist alongside the attempt they belong to (they otherwise die as ephemeral
+   * `token-usage` events). Absent → nothing is stamped, and no zero is invented.
+   */
+  readonly usage?: AttemptUsage;
   readonly taskRepo: UpdateTask;
   readonly clock: () => IsoTimestamp;
   readonly logger: Logger;
@@ -80,10 +88,17 @@ export interface SettleAttemptProps {
 export type SettleAttemptOutput = DoneTask | InProgressTask | BlockedTask;
 
 const settleTask = (
-  props: Pick<SettleAttemptProps, 'task' | 'warning' | 'blockedReason' | 'shouldFailAttempt' | 'verdict'>,
+  props: Pick<SettleAttemptProps, 'task' | 'warning' | 'blockedReason' | 'shouldFailAttempt' | 'verdict' | 'usage'>,
   now: IsoTimestamp
 ): Result<DoneTask | InProgressTask | BlockedTask, InvalidStateError> => {
   let task: InProgressTask = props.task;
+  // Stamp cost telemetry FIRST: every branch below settles the running attempt into a terminal
+  // one, so anything not recorded by this point is lost with it.
+  if (props.usage !== undefined) {
+    const stamped = recordRunningAttemptUsage(task, props.usage);
+    if (!stamped.ok) return Result.error(stamped.error);
+    task = stamped.value;
+  }
   if (props.warning !== undefined) {
     const stamped = recordRunningAttemptWarning(task, props.warning);
     if (!stamped.ok) return Result.error(stamped.error);

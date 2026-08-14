@@ -184,7 +184,7 @@ const runOpencodeAttempt = (
     emitProviderTokenUsage: (sessionId_) => {
       const inputTokens = tracker.getInputTokens();
       const outputTokens = tracker.getOutputTokens();
-      emitTokenUsage(deps.eventBus, attemptSession, sessionId_, {
+      return emitTokenUsage(deps.eventBus, attemptSession, sessionId_, {
         provider: 'opencode',
         model: attemptSession.model,
         ...(inputTokens !== undefined ? { inputTokens } : {}),

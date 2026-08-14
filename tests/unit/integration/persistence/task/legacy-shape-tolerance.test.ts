@@ -111,6 +111,57 @@ describe('Attempt round-trip — legacy verification body silently dropped on lo
     }
   });
 
+  it('an attempt written before the cost fields existed loads with all three absent', () => {
+    // `inputTokens` / `outputTokens` / `durationMs` are additive optional fields — every row on
+    // disk today predates them and must keep parsing.
+    const legacyAttempt = {
+      n: 1,
+      startedAt: '2026-05-01T10:00:00.000Z',
+      status: 'verified',
+      finishedAt: '2026-05-01T11:00:00.000Z',
+      verification: {},
+    };
+    const parsed = fromJsonAttempt(legacyAttempt);
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.value.inputTokens).toBeUndefined();
+      expect(parsed.value.outputTokens).toBeUndefined();
+      expect(parsed.value.durationMs).toBeUndefined();
+    }
+  });
+
+  it('an attempt WITH cost fields round-trips them, including a partial (duration-only) record', () => {
+    const full = fromJsonAttempt({
+      n: 2,
+      startedAt: '2026-05-01T10:00:00.000Z',
+      status: 'failed',
+      finishedAt: '2026-05-01T11:00:00.000Z',
+      inputTokens: 12_000,
+      outputTokens: 3_400,
+      durationMs: 91_000,
+    });
+    expect(full.ok).toBe(true);
+    if (full.ok) {
+      expect(full.value.inputTokens).toBe(12_000);
+      expect(full.value.outputTokens).toBe(3_400);
+      expect(full.value.durationMs).toBe(91_000);
+    }
+
+    // A provider that reported no token counts still yields a measured duration.
+    const partial = fromJsonAttempt({
+      n: 3,
+      startedAt: '2026-05-01T10:00:00.000Z',
+      status: 'failed',
+      finishedAt: '2026-05-01T10:10:00.000Z',
+      durationMs: 4_200,
+    });
+    expect(partial.ok).toBe(true);
+    if (partial.ok) {
+      expect(partial.value.durationMs).toBe(4_200);
+      expect(partial.value.inputTokens).toBeUndefined();
+    }
+  });
+
   it('a pre-refactor attempt with a legacy evaluation drops the evaluation body too', () => {
     const legacyAttempt = {
       n: 2,

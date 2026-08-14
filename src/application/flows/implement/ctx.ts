@@ -194,6 +194,23 @@ export interface ImplementCtx {
   /** Evaluator mirror of {@link currentAttemptGeneratorNudges} — same lifecycle, same rationale. */
   readonly currentAttemptEvaluatorNudges?: number | undefined;
   /**
+   * Per-attempt sum of the provider-reported PROMPT token counts across every gen-eval spawn of
+   * this attempt (both roles). Accumulated by the generator / evaluator leaves from
+   * `RoleTurnOutcome.usage`, read once by `settle-attempt-<taskId>` which persists it onto the
+   * settling attempt, then cleared alongside the other per-attempt accumulators by
+   * `progress-journal-<taskId>` (which runs AFTER settle). Undefined when no spawn of the attempt
+   * reported token usage — the harness never substitutes a `0`.
+   */
+  readonly currentAttemptInputTokens?: number | undefined;
+  /** Completion-side mirror of {@link currentAttemptInputTokens} — same lifecycle, same source. */
+  readonly currentAttemptOutputTokens?: number | undefined;
+  /**
+   * Per-attempt sum of harness-measured AI wall-clock (ms) across the same spawns as
+   * {@link currentAttemptInputTokens}. Excludes harness work between spawns, so it is NOT the
+   * attempt's `finishedAt - startedAt`.
+   */
+  readonly currentAttemptDurationMs?: number | undefined;
+  /**
    * Cross-sprint procedural memory loaded ONCE in the implement prologue (`load-prior-learnings`)
    * from this project's append-only learnings ledger (`<memoryRoot>/<projectId>/learnings.ndjson`),
    * filtered to the not-yet-promoted records (`promotedAt === null` — promoted ones already live in

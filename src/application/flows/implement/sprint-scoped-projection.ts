@@ -141,6 +141,12 @@ const CTX_FIELD_CLASS = {
   // Corrective-nudge tallies — same per-attempt lifecycle as the signal accumulators above.
   currentAttemptGeneratorNudges: { merge: SIGNAL_ACCUM, attempt: CARRY },
   currentAttemptEvaluatorNudges: { merge: SIGNAL_ACCUM, attempt: CARRY },
+  // Per-attempt cost totals — same per-attempt lifecycle as the tallies above, and for the same
+  // reason they are `CARRY` on the attempt axis: `settle-attempt` must still READ them (it
+  // persists them onto the settling attempt), so only `progress-journal` may clear them.
+  currentAttemptInputTokens: { merge: SIGNAL_ACCUM, attempt: CARRY },
+  currentAttemptOutputTokens: { merge: SIGNAL_ACCUM, attempt: CARRY },
+  currentAttemptDurationMs: { merge: SIGNAL_ACCUM, attempt: CARRY },
 } satisfies Record<keyof ImplementCtx, FieldClass>;
 
 // Reference the guard so it is not dead-code-eliminated / lint-flagged; its whole purpose is the
@@ -280,4 +286,7 @@ export const resetSignalAccumulators = (): Required<Pick<ImplementCtx, SignalAcc
   currentAttemptNotes: undefined,
   currentAttemptGeneratorNudges: undefined,
   currentAttemptEvaluatorNudges: undefined,
+  currentAttemptInputTokens: undefined,
+  currentAttemptOutputTokens: undefined,
+  currentAttemptDurationMs: undefined,
 });

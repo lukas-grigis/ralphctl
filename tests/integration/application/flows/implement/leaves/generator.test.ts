@@ -83,6 +83,44 @@ describe('generatorLeaf', () => {
     expect(content).toContain('# Task Execution Protocol');
   });
 
+  it('folds the spawn`s reported usage onto the per-attempt cost accumulators (settle reads these)', async () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    const deps = {
+      ...buildDeps(),
+      provider: createFakeAiProvider({
+        responses: { implement: '' },
+        usage: { implement: { inputTokens: 1_000, outputTokens: 200, durationMs: 5_000 } },
+      }),
+    };
+    const leaf = generatorLeaf(deps, task.id);
+
+    const first = await leaf.execute(baseCtx(task));
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    expect(first.value.ctx.currentAttemptInputTokens).toBe(1_000);
+    expect(first.value.ctx.currentAttemptOutputTokens).toBe(200);
+    expect(first.value.ctx.currentAttemptDurationMs).toBe(5_000);
+
+    // A second turn of the SAME attempt ADDS to the running totals rather than replacing them.
+    const second = await leaf.execute({ ...first.value.ctx, currentRoundNum: 2 });
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.value.ctx.currentAttemptInputTokens).toBe(2_000);
+    expect(second.value.ctx.currentAttemptOutputTokens).toBe(400);
+    expect(second.value.ctx.currentAttemptDurationMs).toBe(10_000);
+  });
+
+  it('leaves the cost accumulators undefined when the provider reports no usage', async () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    const leaf = generatorLeaf(buildDeps(), task.id);
+    const result = await leaf.execute(baseCtx(task));
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.ctx.currentAttemptInputTokens).toBeUndefined();
+    expect(result.value.ctx.currentAttemptOutputTokens).toBeUndefined();
+    expect(result.value.ctx.currentAttemptDurationMs).toBeUndefined();
+  });
+
   it('persists round 2 prompt with the prior critique injected', async () => {
     const base = makeInProgressTaskWithRunningAttempt();
     const critiqued = recordRunningAttemptCritique(
