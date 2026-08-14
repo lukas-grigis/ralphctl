@@ -130,6 +130,33 @@ const draftWithApproved = (count: number): { sprint: Sprint; ticketIds: string[]
   return { sprint, ticketIds: ids };
 };
 
+/**
+ * Full element sequence the plan chain emits on a run that reaches persistence. Kept next to the
+ * e2e cases (rather than only in the construction fence) so a leaf that is wired but never
+ * ENTERED — or entered out of order — fails here too.
+ */
+const HAPPY_TRACE = [
+  'load-sprint',
+  'assert-sprint-status',
+  'load-project',
+  'load-sprint-execution',
+  'load-tasks',
+  'build-plan-unit',
+  'render-prompt-to-file',
+  'install-skills',
+  'stamp-meta-plan',
+  'call-planner-interactive',
+  'uninstall-skills',
+  'check-plan',
+  'apply-plan',
+  'save-tasks',
+  'save-sprint',
+] as const;
+
+/** `sequential` emits no entry of its own, so the trace is exactly the leaves that ran. */
+const traceNames = (runner: { readonly trace: ReadonlyArray<{ readonly elementName: string }> }): readonly string[] =>
+  runner.trace.map((e) => e.elementName);
+
 describe('createPlanFlow — interactive', () => {
   let dir: string;
   beforeEach(async () => {
@@ -218,11 +245,58 @@ describe('createPlanFlow — interactive', () => {
     await runner.start();
 
     expect(runner.status).toBe('completed');
+    expect(traceNames(runner)).toEqual([...HAPPY_TRACE]);
     expect(fake.calls).toHaveLength(1);
     expect(sprintRepo.current().status).toBe('planned');
     expect(taskRepo.tasks()).toHaveLength(2);
     expect(taskRepo.tasks()[0]?.name).toBe('Add CSV utility');
     expect(taskRepo.tasks()[1]?.dependsOn).toHaveLength(1);
+  });
+
+  it('placeholder check command: critic warns but the run completes and the plan persists', async () => {
+    // The plan template's own example criteria carry `"command": "<project's test command>"`.
+    // A planner that copies the example ships an unrunnable command that passes the schema and
+    // `createTask`. The deterministic critic is the only thing that notices — and it is ADVISORY:
+    // with no reviewer wired the plan still auto-accepts and persists.
+    const project = makeProject();
+    const { sprint, ticketIds } = draftWithApproved(1);
+    const sprintRepo = inMemorySprintRepo(sprint);
+    const taskRepo = inMemoryTaskRepo([]);
+
+    const fake = fakeInteractiveAi(() =>
+      JSON.stringify([
+        {
+          id: 'T1',
+          name: 'Add CSV utility',
+          ticketRef: ticketIds[0],
+          projectPath: String(project.repositories[0]?.path),
+          steps: ['create util'],
+          verificationCriteria: [
+            { id: 'C1', assertion: 'tests pass', check: 'auto', command: "<project's test command>" },
+          ],
+        },
+      ])
+    );
+
+    const flow = createPlanFlow(buildDeps(sprintRepo.repo, project, sprint, taskRepo.repo, fake.session), {
+      sprintId: sprint.id,
+      projectId: project.id,
+      providerId: 'claude-code',
+      model: 'claude-opus-4-8',
+      maxAttempts: 3,
+      planRoot: planRoot(),
+    });
+    const runner = createRunner({
+      id: 'r-plan-placeholder',
+      element: flow,
+      initialCtx: { sprintId: sprint.id, projectId: project.id },
+    });
+    await runner.start();
+
+    expect(runner.status).toBe('completed');
+    expect(traceNames(runner)).toEqual([...HAPPY_TRACE]);
+    expect(sprintRepo.current().status).toBe('planned');
+    expect(taskRepo.tasks()).toHaveLength(1);
   });
 
   it('halts when AI emits {"blocked": "..."} — sprint stays draft, no tasks', async () => {
@@ -249,6 +323,13 @@ describe('createPlanFlow — interactive', () => {
     await runner.start();
 
     expect(runner.status).toBe('failed');
+    // The chain dies inside the planner leaf. The remaining elements are recorded as `skipped`,
+    // so neither the critic nor the human gate ever runs on a plan that never parsed.
+    expect(traceNames(runner)).toEqual([...HAPPY_TRACE]);
+    expect(runner.trace.find((e) => e.elementName === 'call-planner-interactive')?.status).toBe('failed');
+    for (const name of ['uninstall-skills', 'check-plan', 'apply-plan', 'save-tasks', 'save-sprint']) {
+      expect(runner.trace.find((e) => e.elementName === name)?.status).toBe('skipped');
+    }
     expect(sprintRepo.current().status).toBe('draft');
     expect(taskRepo.tasks()).toHaveLength(0);
   });
@@ -288,6 +369,9 @@ describe('createPlanFlow — interactive', () => {
     await runner.start();
 
     expect(runner.status).toBe('failed');
+    expect(traceNames(runner)).toEqual([...HAPPY_TRACE]);
+    expect(runner.trace.find((e) => e.elementName === 'check-plan')?.status).toBe('skipped');
+    expect(runner.trace.find((e) => e.elementName === 'apply-plan')?.status).toBe('skipped');
     expect(sprintRepo.current().status).toBe('draft');
     expect(taskRepo.tasks()).toHaveLength(0);
   });

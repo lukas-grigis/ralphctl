@@ -1,5 +1,6 @@
 import { Result } from '@src/domain/result.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
+import type { PlanCheckFinding } from '@src/business/sprint/check-plan.ts';
 import { type DraftSprint, type PlannedSprint, planSprint, type Sprint } from '@src/domain/entity/sprint.ts';
 import type { Task, TodoTask } from '@src/domain/entity/task.ts';
 import type { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
@@ -34,13 +35,21 @@ export interface PlanSprintProps {
   readonly clock: () => IsoTimestamp;
   readonly logger: Logger;
   /**
+   * Deterministic plan-critic findings (see `check-plan.ts`), forwarded verbatim to the reviewer
+   * so the human decides with the critic's evidence in hand. Purely advisory: findings are never
+   * inspected here and NEVER auto-reject — an `error`-tier finding with no reviewer wired still
+   * auto-accepts, exactly as an empty finding list would. Defaults to an empty list.
+   */
+  readonly checkFindings?: readonly PlanCheckFinding[];
+  /**
    * Human-in-the-loop approval callback. Called AFTER the AI's plan is parsed and BEFORE the
    * `draft → planned` transition. Resolve with `accept: true` to approve, `false` to reject.
    * When omitted the proposal is auto-accepted — appropriate for CI / headless runs.
    */
   readonly reviewBeforeApprove?: (
     proposedTasks: readonly TodoTask[],
-    sprint: DraftSprint
+    sprint: DraftSprint,
+    checkFindings: readonly PlanCheckFinding[]
   ) => Promise<{ readonly accept: boolean }>;
 }
 
@@ -60,7 +69,7 @@ export const planSprintUseCase = async (
   log.debug('planning sprint', { sprintId: props.sprint.id, taskCount: props.tasks.length });
 
   if (props.reviewBeforeApprove !== undefined) {
-    const decision = await props.reviewBeforeApprove(props.tasks, props.sprint);
+    const decision = await props.reviewBeforeApprove(props.tasks, props.sprint, props.checkFindings ?? []);
     if (!decision.accept) {
       log.info('reviewer rejected the proposed plan — leaving sprint draft', {
         sprintId: props.sprint.id,

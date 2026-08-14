@@ -18,6 +18,8 @@ import { planOutputContract } from '@src/application/flows/plan/leaves/plan.cont
 import type { PlanCtx } from '@src/application/flows/plan/ctx.ts';
 import type { PlanDeps } from '@src/application/flows/plan/deps.ts';
 import { callPlannerInteractiveLeaf } from '@src/application/flows/plan/leaves/call-planner-interactive.ts';
+import { checkPlanLeaf } from '@src/application/flows/plan/leaves/check-plan.ts';
+import { applyPlanLeaf } from '@src/application/flows/plan/leaves/apply-plan.ts';
 import { aiUnitEpilogue, aiUnitPrelude } from '@src/application/flows/_shared/ai-unit-segment.ts';
 import { assertCtxField } from '@src/application/flows/_shared/_engine/assert-ctx-field.ts';
 
@@ -72,11 +74,16 @@ export interface CreatePlanFlowOpts {
  *     render-prompt-to-file,            // <unit-root>/prompt.md
  *     install-skills,                   // copy the plan flow's skills into the unit root
  *     stamp-meta-plan,                  // <unit-root>/meta.json — provider/model attribution
- *     call-planner-interactive,         // hand TTY → reads <unit-root>/plan.json → builds Tasks → planSprint(draft → planned)
+ *     call-planner-interactive,         // hand TTY → reads <unit-root>/signals.json → ctx.proposedTasks
  *     uninstall-skills,                 // remove them again
+ *     check-plan,                       // zero-token deterministic critic → ctx.planCheck (advisory)
+ *     apply-plan,                       // HITL gate (findings in hand) → planSprint(draft → planned)
  *     save-tasks,
  *     save-sprint,                      // sprint.status = 'planned'
  *   ])
+ *
+ * `check-plan` + `apply-plan` sit AFTER `uninstall-skills` so the skills sandbox is torn down
+ * before a potentially long human pause at the approval gate.
  *
  * Persistence order: tasks first, then sprint. The sprint's `planned` status is the harness's
  * "tasks are ready" signal — saving it last means a crash mid-save leaves the sprint as
@@ -139,16 +146,20 @@ export const createPlanFlow = (deps: PlanDeps, opts: CreatePlanFlowOpts): Elemen
       logger: deps.logger,
       writeFile: deps.writeFile,
       eventBus: deps.eventBus,
-      clock: deps.clock,
       model: opts.model,
       maxAttempts: opts.maxAttempts,
       ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
       ...(opts.additionalRoots !== undefined && opts.additionalRoots.length > 0
         ? { additionalRoots: opts.additionalRoots }
         : {}),
-      ...(deps.reviewBeforeApprove !== undefined ? { reviewBeforeApprove: deps.reviewBeforeApprove } : {}),
     }),
     ...aiUnitEpilogue<PlanCtx>({ skillsAdapter: deps.skillsAdapter }, unitOpts),
+    checkPlanLeaf({ logger: deps.logger }),
+    applyPlanLeaf({
+      logger: deps.logger,
+      clock: deps.clock,
+      ...(deps.reviewBeforeApprove !== undefined ? { reviewBeforeApprove: deps.reviewBeforeApprove } : {}),
+    }),
     saveTasksLeaf<PlanCtx>({ taskRepo: deps.taskRepo }),
     saveSprintLeaf<PlanCtx>({ sprintRepo: deps.sprintRepo }),
   ]);

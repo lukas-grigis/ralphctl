@@ -4,14 +4,12 @@ import type { InteractiveAiProvider } from '@src/integration/ai/providers/_engin
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
-import { planSprintUseCase } from '@src/business/sprint/plan-sprint.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import { type DraftSprint, type Sprint } from '@src/domain/entity/sprint.ts';
-import type { Task, TodoTask } from '@src/domain/entity/task.ts';
+import type { TodoTask } from '@src/domain/entity/task.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
-import type { IsoTimestamp as IsoTimestampType } from '@src/domain/value/iso-timestamp.ts';
 import type { TaskPlanSignal } from '@src/domain/signal.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
@@ -24,15 +22,18 @@ import type { PlanCtx } from '@src/application/flows/plan/ctx.ts';
 
 /**
  * Interactive plan session: hands the terminal to Claude, waits for the AI to write
- * `signals.json` per the audit-[09] contract, validates the file against the plan contract,
- * parses the resolved task list (integration concern), then delegates to {@link planSprintUseCase}
- * for the `draft → planned` transition.
+ * `signals.json` per the audit-[09] contract, validates the file against the plan contract, and
+ * parses the resolved task list (integration concern) onto `ctx.proposedTasks`.
+ *
+ * The leaf STOPS at the proposal. The deterministic critic (`check-plan`) and the HITL gate +
+ * `draft → planned` transition (`apply-plan`) are separate downstream leaves — that split is what
+ * lets the critic's findings reach the human BEFORE the approve/reject decision instead of after it.
  *
  * audit-[09] flow (post-Wave-6):
  *   provider.run → AI writes `signals.json` directly per the contract section in the
  *   prompt → `validateSignalsFile(planOutputContract)` → fan-out validated signals to the
  *   bus → `renderSidecars` (no-op, empty rules) → extract the `task-plan` payload's
- *   `tasksJson` and feed it into `parsePlanOutput` → `planSprintUseCase`.
+ *   `tasksJson` and feed it into `parsePlanOutput`.
  *
  * Failure modes (each leaves disk state untouched):
  *   - AI exits non-zero → bubbles its error.
@@ -57,7 +58,6 @@ export interface CallPlannerInteractiveDeps {
    * fans out as a typed `ai-signal` event the TUI subscribes to.
    */
   readonly eventBus: EventBus;
-  readonly clock: () => IsoTimestampType;
   /**
    * Repo roots mounted as equal `--add-dir` sources alongside the per-sprint plan unit root.
    * The plan flow passes every repository on the project so the AI can navigate across a
@@ -73,31 +73,19 @@ export interface CallPlannerInteractiveDeps {
    * budget-exhausted branch all bound attempts. Threaded from the plan flow factory.
    */
   readonly maxAttempts: number;
-  /**
-   * Optional human-in-the-loop approval callback wired by the flow factory. The launcher
-   * threads in a TUI prompt that summarises the proposed task list and asks accept/reject.
-   * When omitted (tests, headless) the AI's plan is auto-accepted.
-   */
-  readonly reviewBeforeApprove?: (
-    proposedTasks: readonly TodoTask[],
-    sprint: DraftSprint
-  ) => Promise<{ readonly accept: boolean }>;
 }
 
 interface CallPlannerInput {
   readonly sprint: DraftSprint;
   readonly project: Project;
-  readonly existingTasks: readonly Task[];
   readonly cwd: AbsolutePath;
   readonly promptFile: AbsolutePath;
   readonly outputFile: AbsolutePath;
 }
 
 interface CallPlannerOutput {
-  readonly sprint: Sprint;
-  readonly tasks: readonly Task[];
-  /** `false` when the reviewer rejected the proposed plan; the chain leaves the sprint draft. */
-  readonly accepted: boolean;
+  /** The planner's proposal — NOT yet approved, NOT yet persisted. */
+  readonly tasks: readonly TodoTask[];
 }
 
 const isDraft = (s: Sprint): s is DraftSprint => s.status === 'draft';
@@ -181,24 +169,6 @@ const validateAndParseOutput = async (
   });
 };
 
-/**
- * Phase 3 — delegate the `draft → planned` transition (plus the optional HITL review gate) to
- * {@link planSprintUseCase}.
- */
-const applyResult = (
-  deps: CallPlannerInteractiveDeps,
-  input: CallPlannerInput,
-  tasks: readonly TodoTask[]
-): Promise<Result<CallPlannerOutput, DomainError>> =>
-  planSprintUseCase({
-    sprint: input.sprint,
-    existingTasks: input.existingTasks,
-    tasks,
-    clock: deps.clock,
-    logger: deps.logger,
-    ...(deps.reviewBeforeApprove !== undefined ? { reviewBeforeApprove: deps.reviewBeforeApprove } : {}),
-  });
-
 export const callPlannerInteractiveLeaf = (deps: CallPlannerInteractiveDeps): Element<PlanCtx> =>
   leaf<PlanCtx, CallPlannerInput, CallPlannerOutput>(LEAF_NAME, {
     useCase: {
@@ -209,7 +179,7 @@ export const callPlannerInteractiveLeaf = (deps: CallPlannerInteractiveDeps): El
         const tasks = await validateAndParseOutput(deps, input, outputDir.value);
         if (!tasks.ok) return Result.error(tasks.error);
 
-        return applyResult(deps, input, tasks.value);
+        return Result.ok({ tasks: tasks.value });
       },
     },
     input: (ctx) => {
@@ -256,17 +226,12 @@ export const callPlannerInteractiveLeaf = (deps: CallPlannerInteractiveDeps): El
       return {
         sprint: ctx.sprint,
         project: ctx.project,
-        existingTasks: ctx.tasks ?? [],
         cwd: ctx.currentUnitRoot,
         promptFile: ctx.currentPromptFile,
         outputFile: ctx.currentOutputFile,
       };
     },
-    output: (ctx, out) => {
-      // On reject, leave ctx.sprint as the original DraftSprint (the use case returns the
-      // input sprint unchanged) and don't stamp `plannedTasks` — downstream `save-tasks` and
-      // `save-sprint` then write the unchanged sprint + existing task list (no-op).
-      if (!out.accepted) return { ...ctx, sprint: out.sprint, tasks: out.tasks };
-      return { ...ctx, sprint: out.sprint, tasks: out.tasks, plannedTasks: out.tasks as readonly TodoTask[] };
-    },
+    // Proposal only — `ctx.sprint` / `ctx.tasks` stay untouched until `apply-plan` runs the
+    // human gate, so a rejected plan needs no rollback here.
+    output: (ctx, out) => ({ ...ctx, proposedTasks: out.tasks }),
   });

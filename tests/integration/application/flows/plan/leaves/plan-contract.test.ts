@@ -11,7 +11,7 @@ import { createInMemoryEventBus } from '@src/integration/observability/in-memory
 import type { DraftSprint } from '@src/domain/entity/sprint.ts';
 import { addTicket } from '@src/domain/entity/sprint.ts';
 import { approveTicketRequirements } from '@src/domain/entity/ticket.ts';
-import { FIXED_LATER, makeDraftSprint, makePendingTicket, makeProject } from '@tests/fixtures/domain.ts';
+import { makeDraftSprint, makePendingTicket, makeProject } from '@tests/fixtures/domain.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
@@ -101,7 +101,6 @@ describe('callPlannerInteractiveLeaf — audit-[09] contract', () => {
       logger: noopLogger,
       writeFile,
       eventBus,
-      clock: () => FIXED_LATER,
       model: 'claude-sonnet-4-6',
       maxAttempts: 3,
     };
@@ -154,7 +153,7 @@ describe('callPlannerInteractiveLeaf — audit-[09] contract', () => {
     ]);
 
   // ── 1. Happy path ─────────────────────────────────────────────────────────────
-  it('ok: validates pre-written wrapper, parses tasks, transitions sprint, fans out to bus', async () => {
+  it('ok: validates pre-written wrapper, parses tasks onto ctx.proposedTasks, fans out to bus', async () => {
     await ensureUnitDir();
     await fs.writeFile(
       signalsFilePath(),
@@ -179,8 +178,11 @@ describe('callPlannerInteractiveLeaf — audit-[09] contract', () => {
     for (const ev of aiSignals) expect(ev.source).toBe('plan');
 
     if (!result.ok) return;
-    expect(result.value.ctx.plannedTasks).toHaveLength(1);
-    expect(result.value.ctx.sprint?.status).toBe('planned');
+    // The leaf now stops at the proposal — `check-plan` + `apply-plan` own the critic and the
+    // human gate, so the sprint is still draft and nothing is stamped as accepted here.
+    expect(result.value.ctx.proposedTasks).toHaveLength(1);
+    expect(result.value.ctx.plannedTasks).toBeUndefined();
+    expect(result.value.ctx.sprint?.status).toBe('draft');
   });
 
   // ── 1b. Abort signal threading ────────────────────────────────────────────────
@@ -315,8 +317,8 @@ describe('callPlannerInteractiveLeaf — audit-[09] contract', () => {
     expect(aiSignals.map((e) => e.signal.type)).toEqual(['task-plan']);
 
     if (!result.ok) return;
-    expect(result.value.ctx.plannedTasks).toHaveLength(1);
-    expect(result.value.ctx.sprint?.status).toBe('planned');
+    expect(result.value.ctx.proposedTasks).toHaveLength(1);
+    expect(result.value.ctx.sprint?.status).toBe('draft');
   });
 
   // ── 8. Spawn error ────────────────────────────────────────────────────────────
