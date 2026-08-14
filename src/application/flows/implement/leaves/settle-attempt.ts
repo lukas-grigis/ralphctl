@@ -4,7 +4,7 @@ import {
   type SettleAttemptProps,
   settleAttemptUseCase,
 } from '@src/business/task/settle-attempt.ts';
-import type { Attempt, AttemptWarning } from '@src/domain/entity/attempt.ts';
+import type { Attempt, AttemptUsage, AttemptWarning } from '@src/domain/entity/attempt.ts';
 import type { InProgressTask, Task } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -77,7 +77,27 @@ interface SettleInput {
    */
   readonly generatorSessionId?: string;
   readonly evaluatorSessionId?: string;
+  /**
+   * Per-attempt cost totals projected from the `ctx.currentAttempt{InputTokens,OutputTokens,
+   * DurationMs}` accumulators the gen-eval leaves folded across this attempt's spawns. Absent when
+   * no spawn reported anything (a zero-turn self-block, or providers that report no usage).
+   */
+  readonly usage?: AttemptUsage;
 }
+
+/**
+ * Project the per-attempt cost accumulators off ctx into the ready-to-spread `{ usage }` fragment
+ * — `{}` when the attempt recorded nothing at all. Absent counters stay absent: the harness
+ * persists what a provider reported, never a substituted `0`.
+ */
+const projectAttemptUsage = (ctx: ImplementCtx): Pick<SettleInput, 'usage'> => {
+  const usage: AttemptUsage = {
+    ...(ctx.currentAttemptInputTokens !== undefined ? { inputTokens: ctx.currentAttemptInputTokens } : {}),
+    ...(ctx.currentAttemptOutputTokens !== undefined ? { outputTokens: ctx.currentAttemptOutputTokens } : {}),
+    ...(ctx.currentAttemptDurationMs !== undefined ? { durationMs: ctx.currentAttemptDurationMs } : {}),
+  };
+  return Object.keys(usage).length > 0 ? { usage } : {};
+};
 
 /**
  * Chain leaf — projects ctx into a SettleInput and delegates to settleAttemptUseCase. Business
@@ -167,6 +187,7 @@ const projectOptionalSettleFields = (
   | 'shouldFailAttempt'
   | 'generatorSessionId'
   | 'evaluatorSessionId'
+  | 'usage'
 > => ({
   ...(ctx.lastBlockReason !== undefined ? { blockedReason: ctx.lastBlockReason } : {}),
   ...(warning !== undefined ? { warning } : {}),
@@ -177,6 +198,7 @@ const projectOptionalSettleFields = (
   ...(ctx.lastShouldFailAttempt === true ? { shouldFailAttempt: true } : {}),
   ...(ctx.priorGeneratorSessionId !== undefined ? { generatorSessionId: String(ctx.priorGeneratorSessionId) } : {}),
   ...(ctx.priorEvaluatorSessionId !== undefined ? { evaluatorSessionId: String(ctx.priorEvaluatorSessionId) } : {}),
+  ...projectAttemptUsage(ctx),
 });
 
 export const settleAttemptLeaf = (

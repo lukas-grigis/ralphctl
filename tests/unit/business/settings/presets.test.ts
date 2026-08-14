@@ -276,6 +276,15 @@ describe('presets', () => {
         expect(out.harness.escalateOnPlateau, preset).toBe(expected);
       });
 
+      it(`'${preset}' pins harness.bestOfNCandidates to 0 for the economic family and leaves it alone elsewhere`, () => {
+        // The shipped default is 2, so the economic family's cost opt-out has to be an explicit
+        // stamp, not an inherited zero. Seed a non-default 4 so the assertion distinguishes
+        // "overwritten with 0" from "preserved" for every other family.
+        const current: Settings = { ...sentinel, harness: { ...sentinel.harness, bestOfNCandidates: 4 } };
+        const out = applyPreset(preset, current);
+        expect(out.harness.bestOfNCandidates, preset).toBe(ECONOMIC_PRESETS.includes(preset) ? 0 : 4);
+      });
+
       it(`'${preset}' stamps a row for every flow id`, () => {
         const out = applyPreset(preset, DEFAULT_SETTINGS);
         for (const flow of FLOW_IDS) {

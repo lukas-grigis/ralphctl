@@ -132,8 +132,13 @@ export const DEFAULT_SETTINGS: Settings = {
     escalateOnPlateau: true,
     escalationMap: {},
     skipPreVerifyOnFreshSetup: false,
-    // Opt-in remedy — disabled by default (each granted attempt spawns N generator sessions).
-    bestOfNCandidates: 0,
+    // On by default at the minimum useful N — a stuck task gets a real second remedy (sample two
+    // candidates, select by verification then judging) before settling done-with-warning. The cost
+    // is bounded: the rung fires at most ONCE per task, only after the model ladder and the
+    // same-model nudge are both spent, and that one attempt spawns 2 generator sessions instead of
+    // 1. Cost-sensitive setups opt out — the `*-economic` presets pin this to `0`, and `settings
+    // set harness.bestOfNCandidates 0` disables it everywhere.
+    bestOfNCandidates: 2,
   },
   logging: { level: 'info' },
   concurrency: { maxParallelTasks: 1 },

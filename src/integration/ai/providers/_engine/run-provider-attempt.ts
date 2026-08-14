@@ -1,5 +1,5 @@
 import type { Result } from '@src/domain/result.ts';
-import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
+import type { HeadlessAiProvider, ProviderUsage } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import { STDERR_TAIL_CAP, createBoundedTail } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
@@ -55,13 +55,17 @@ export const emitSessionIdCaptured = (eventBus: EventBus, providerName: string, 
  * Emit one `TokenUsageEvent` per success spawn. Handles the contextWindowFor lookup,
  * chainSessionId / role threading, and all optional field spreads so each provider just
  * passes its own payload fields.
+ *
+ * Returns the payload it published so the caller can ALSO hand the counts back as data (see
+ * `ProviderAttemptInput.emitProviderTokenUsage`) — the event alone is ephemeral, and the chain
+ * needs the same figures to persist them onto the attempt.
  */
 export const emitTokenUsage = (
   eventBus: EventBus,
   session: AiSession,
   sessionId: string,
   payload: TokenUsagePayload
-): void => {
+): TokenUsagePayload => {
   const window = contextWindowFor(payload.model);
   const chainSessionId = session.chainSessionId;
   eventBus.publish({
@@ -83,6 +87,7 @@ export const emitTokenUsage = (
     ...(session.role !== undefined ? { role: session.role } : {}),
     at: IsoTimestamp.now(),
   });
+  return payload;
 };
 
 /**
@@ -124,9 +129,11 @@ export interface ProviderAttemptInput {
   readonly getBody: () => Promise<Result<string, DomainError>>;
   /**
    * Emit the provider-specific token-usage event for this attempt's captured sessionId. Called
-   * from `onSuccess` only when `sessionId` is defined.
+   * from `onSuccess` only when `sessionId` is defined. Returns the payload it published so the
+   * scaffold can also fold the counts into {@link ProviderOutput.usage} — the event is ephemeral,
+   * the returned data is what the chain persists onto the attempt.
    */
-  readonly emitProviderTokenUsage: (sessionId: string) => void;
+  readonly emitProviderTokenUsage: (sessionId: string) => TokenUsagePayload;
   readonly providerName: ProviderName;
   readonly providerSlug: 'claude' | 'codex' | 'copilot' | 'opencode';
   readonly eventBus: EventBus;
@@ -222,13 +229,23 @@ const mirrorBodyFile = async (input: ProviderAttemptInput): Promise<DomainError 
  * Build the `onSuccess` block `classifySpawnExit` invokes on a clean exit AND on the
  * signals-recovery branch: session-id telemetry, `sessionId.txt`, the body-file mirror, and the
  * `ProviderOutput` envelope.
+ *
+ * `startedAtMs` is the pre-spawn clock read — the returned {@link ProviderUsage} carries the
+ * elapsed wall-clock alongside whatever token counts the provider reported, so the chain can
+ * persist per-attempt cost instead of only rendering it in the TUI.
  */
 const createSuccessHandler =
-  (input: ProviderAttemptInput, sessionId: string | undefined, code: number | null) =>
+  (input: ProviderAttemptInput, sessionId: string | undefined, code: number | null, startedAtMs: number) =>
   async (): Promise<AttemptOutcome> => {
+    let usage: ProviderUsage = { durationMs: Date.now() - startedAtMs };
     if (sessionId !== undefined) {
       emitSessionIdCaptured(input.eventBus, input.providerName, sessionId);
-      input.emitProviderTokenUsage(sessionId);
+      const reported = input.emitProviderTokenUsage(sessionId);
+      usage = {
+        ...usage,
+        ...(reported.inputTokens !== undefined ? { inputTokens: reported.inputTokens } : {}),
+        ...(reported.outputTokens !== undefined ? { outputTokens: reported.outputTokens } : {}),
+      };
     }
     await persistSessionId(input, sessionId);
     const bodyError = await mirrorBodyFile(input);
@@ -239,6 +256,7 @@ const createSuccessHandler =
         signalsFile: input.session.signalsFile,
         exitCode: code ?? 0,
         ...(sessionId !== undefined ? { sessionId } : {}),
+        usage,
       },
     };
   };
@@ -247,6 +265,9 @@ export const runProviderAttempt = async (input: ProviderAttemptInput): Promise<A
   const { spawnFn, command, args, session, resolveOn, rateLimitRe, providerName, providerSlug, eventBus } = input;
 
   const argvBytes = argvByteLength(command, args);
+  // Read BEFORE the spawn so the recorded duration covers the child's whole life, including the
+  // synchronous-throw path's absence of one.
+  const startedAtMs = Date.now();
 
   // `crossPlatformSpawn` throws synchronously for a command line the OS refuses outright — an
   // oversized argv on Windows arrives this way, not as an `'error'` event — so an uncaught call
@@ -295,7 +316,7 @@ export const runProviderAttempt = async (input: ProviderAttemptInput): Promise<A
     providerName,
     eventBus,
     watchdogBannerId,
-    onSuccess: createSuccessHandler(input, sessionId, code),
+    onSuccess: createSuccessHandler(input, sessionId, code, startedAtMs),
   });
 };
 

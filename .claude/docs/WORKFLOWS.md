@@ -71,8 +71,9 @@ side, an independent reviewer on the score side. Every other flow (`refine` / `p
 `ideate` / `createPr`) keeps the flat `{ provider, model, effort? }` row shape; the analogous
 generator-evaluator split for the `plan` flow is deferred to future work.
 
-**Best-of-N opt-in rung.** When `settings.harness.bestOfNCandidates` is `2`-`4` (default `0`, off) and the
-escalation policy grants the once-per-task `best-of-n` remedy (see "Gen-eval settle semantics" below), the
+**Best-of-N rung.** When `settings.harness.bestOfNCandidates` is `2`-`4` (default `2` — on; the four
+`*-economic` presets pin it to `0` to opt out) and the escalation policy grants the once-per-task
+`best-of-n` remedy (see "Gen-eval settle semantics" below), the
 granted attempt's round 1 REPLACES the normal generator step with a candidate-sampling composite
 (`buildBestOfNGenEvalLoop`): sample N candidates on the unchanged model, discard `regressed`-attribution
 candidates, dedupe identical diffs by content hash, then — for 2+ survivors — a pairwise judge tournament

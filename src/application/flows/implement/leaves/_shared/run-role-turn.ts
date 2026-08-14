@@ -10,7 +10,7 @@ import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { AiSignal } from '@src/domain/signal.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
-import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
+import type { HeadlessAiProvider, ProviderUsage } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
@@ -275,6 +275,14 @@ export interface RoleTurnOutcome<TSig extends AiSignal> {
    * cost-visibility instrumentation — the caller accumulates it onto ctx for the progress journal.
    */
   readonly nudgeCount: number;
+  /**
+   * Raw cost telemetry for this turn's PRIMARY spawn — token counts as the provider reported them
+   * plus the harness-measured wall-clock. The caller folds it onto the per-attempt ctx totals that
+   * `settle-attempt` persists. A corrective respawn's own usage is deliberately not counted here:
+   * the nudge tally ({@link nudgeCount}) is the surface for that cost. Absent when the provider
+   * returned no usage at all.
+   */
+  readonly usage?: ProviderUsage;
 }
 
 /** One spawn of this role's session, with a per-spawn resume target + forensic body mirror. */
@@ -379,5 +387,9 @@ export const runRoleTurn = async <TSig extends AiSignal>(
   // `Result.ok` — sidecars are operator UX only, downstream leaves read the in-memory signals.
   await renderSidecars(deps.writeFile, args.outputDir, validated.value.signals, args.contract.sidecars, deps.logger);
 
-  return Result.ok({ signals: validated.value.signals, nudgeCount: validated.value.nudgeCount });
+  return Result.ok({
+    signals: validated.value.signals,
+    nudgeCount: validated.value.nudgeCount,
+    ...(spawn.value.usage !== undefined ? { usage: spawn.value.usage } : {}),
+  });
 };

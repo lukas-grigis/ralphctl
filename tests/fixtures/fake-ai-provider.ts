@@ -1,6 +1,10 @@
 import { dirname, join } from 'node:path';
 import { Result } from '@src/domain/result.ts';
-import type { HeadlessAiProvider, ProviderOutput } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
+import type {
+  HeadlessAiProvider,
+  ProviderOutput,
+  ProviderUsage,
+} from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
@@ -59,6 +63,12 @@ export interface FakeAiProviderScript {
   readonly signals?: Record<string, readonly HarnessSignal[] | ((session: AiSession) => readonly HarnessSignal[])>;
   /** Optional scripted session ids per template name. String = constant; function = per-call. */
   readonly sessionIds?: Record<string, string | ((session: AiSession) => string | undefined)>;
+  /**
+   * Optional scripted per-spawn cost telemetry, keyed by template. Mirrors what a real adapter
+   * hands back on `ProviderOutput.usage`. Omitted → the output carries no usage at all, which is
+   * the shape a provider that reports nothing produces.
+   */
+  readonly usage?: Record<string, ProviderUsage>;
   /**
    * Optional override of the marker map. Merged on top of {@link MARKERS}. Tests that add a
    * new template can register its marker without modifying this file.
@@ -154,10 +164,12 @@ export const createFakeAiProvider = (script: FakeAiProviderScript): FakeAiProvid
         const sidPath = join(dirname(String(session.signalsFile)), 'session-id.txt');
         await writeTextAtomic(sidPath, `${sessionId}\n`);
       }
+      const usage = script.usage?.[templateName];
       return Result.ok({
         signalsFile: session.signalsFile,
         exitCode: 0,
         ...(sessionId !== undefined ? { sessionId } : {}),
+        ...(usage !== undefined ? { usage } : {}),
       }) as Result<ProviderOutput, DomainError>;
     },
   };

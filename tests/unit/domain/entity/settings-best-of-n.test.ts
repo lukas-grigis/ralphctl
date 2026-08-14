@@ -1,13 +1,15 @@
 /**
- * Default + range contract for `settings.harness.bestOfNCandidates` — the opt-in top-of-ladder
- * remedy above the same-model nudge. Genuinely optional (no schema default): `0` disables it
- * (DEFAULT_SETTINGS' explicit choice) and the field is omittable so hand-built `Settings` literals
+ * Default + range contract for `settings.harness.bestOfNCandidates` — the top-of-ladder remedy
+ * above the same-model nudge. Genuinely optional (no schema default): `DEFAULT_SETTINGS` ships the
+ * minimum useful `2` (the rung is reachable on a fresh install), `0` disables it — what the
+ * `*-economic` presets pin — and the field itself is omittable so hand-built `Settings` literals
  * elsewhere in the codebase (that predate this field) keep validating unchanged.
  */
 
 import { describe, expect, it } from 'vitest';
 import { SettingsSchema } from '@src/domain/entity/settings.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
+import { applyPreset } from '@src/business/settings/presets.ts';
 
 const harnessWithoutBestOfN = (): unknown => {
   const { bestOfNCandidates, ...rest } = DEFAULT_SETTINGS.harness;
@@ -16,8 +18,21 @@ const harnessWithoutBestOfN = (): unknown => {
 };
 
 describe('settings.harness.bestOfNCandidates', () => {
-  it('DEFAULT_SETTINGS carries the disabled default of 0', () => {
-    expect(DEFAULT_SETTINGS.harness.bestOfNCandidates).toBe(0);
+  it('DEFAULT_SETTINGS ships the rung enabled at the minimum useful N of 2', () => {
+    expect(DEFAULT_SETTINGS.harness.bestOfNCandidates).toBe(2);
+  });
+
+  it('the shipped default is a value the schema accepts (the rung is reachable on a fresh install)', () => {
+    const parsed = SettingsSchema.safeParse(DEFAULT_SETTINGS);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.harness.bestOfNCandidates).toBe(2);
+  });
+
+  it('each *-economic preset pins the cost opt-out of 0 over the shipped default', () => {
+    for (const preset of ['mixed-economic', 'claude-economic', 'copilot-economic', 'codex-economic'] as const) {
+      expect(applyPreset(preset, DEFAULT_SETTINGS).harness.bestOfNCandidates, preset).toBe(0);
+    }
   });
 
   it('is genuinely optional — an omitted field still validates (no default materialises)', () => {

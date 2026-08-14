@@ -354,14 +354,13 @@ const createCopilotAttempt = (deps: HeadlessProviderDeps, spawnFn: ProviderSpawn
       // forensicTail is the accumulated body buffer; operators inspect it when a proposal
       // comes back empty to decide whether the prompt, the AI, or the validator is at fault.
       getBody: () => Promise.resolve(Result.ok(forensicTail.value())),
-      emitProviderTokenUsage: (sid) => {
+      emitProviderTokenUsage: (sid) =>
         emitTokenUsage(deps.eventBus, attemptSession, sid, {
           provider: 'github-copilot',
           ...(state.model !== undefined ? { model: state.model } : {}),
           ...(state.usage.inputTokens !== undefined ? { inputTokens: state.usage.inputTokens } : {}),
           ...(state.usage.outputTokens !== undefined ? { outputTokens: state.usage.outputTokens } : {}),
-        });
-      },
+        }),
       providerName: PROVIDER_NAME,
       providerSlug: 'copilot',
       eventBus: deps.eventBus,

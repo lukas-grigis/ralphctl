@@ -493,15 +493,19 @@ export const SettingsSchema = z.object({
          */
         skipPreVerifyOnFreshSetup: z.boolean().default(false),
         /**
-         * Opt-in best-of-N candidate sampling — the escalation ladder's remedy ABOVE the
-         * same-model nudge, at the very top of the ladder. `0` disables it (default); `2`-`4`
-         * grants ONE best-of-N attempt per task (once the model ladder AND the same-model nudge
-         * are both spent — see `escalateOnPlateau`) that samples N candidates on the unchanged
-         * model and selects among them by verification then judging.
+         * Best-of-N candidate sampling — the escalation ladder's remedy ABOVE the same-model
+         * nudge, at the very top of the ladder. `2`-`4` grants ONE best-of-N attempt per task
+         * (once the model ladder AND the same-model nudge are both spent — see
+         * `escalateOnPlateau`) that samples N candidates on the unchanged model and selects among
+         * them by verification then judging. `0` disables it.
+         *
+         * `DEFAULT_SETTINGS` ships `2`, the minimum useful N — a stuck task gets a real second
+         * remedy before it settles done-with-warning, rather than topping out at the nudge.
          *
          * COST CAVEAT: the granted attempt spawns N full generator sessions instead of one,
-         * multiplying spend for that one attempt — leave at `0` unless the extra cost is
-         * acceptable for the occasional task that exhausts the whole ladder.
+         * multiplying spend for that one attempt. It is bounded (at most once per task, and only
+         * for a task that has already exhausted the whole ladder), but cost-sensitive setups opt
+         * out with `0` — which is exactly what the four `*-economic` presets pin.
          *
          * Research: arXiv 2604.16529 (RTV) — harness-level N-candidate selection lifted SWE-bench
          * Verified 67.4 → 73.6 at N=16 (RTV measured N=16, not the 2-4 cap used here); the tight

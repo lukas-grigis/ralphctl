@@ -96,6 +96,12 @@ const AttemptBaseShape = {
   verifyRuns: z.array(VerifyRunSchema).readonly().optional(),
   attribution: AttributionSchema.optional(),
   baselineBroken: z.boolean().optional(),
+  // Raw per-attempt cost telemetry — provider-reported token counts + AI wall-clock, summed over
+  // the attempt's spawns. All three optional: a provider that reports no usage writes no field,
+  // and every record persisted before these fields existed must keep parsing without them.
+  inputTokens: z.number().int().nonnegative().optional(),
+  outputTokens: z.number().int().nonnegative().optional(),
+  durationMs: z.number().int().nonnegative().optional(),
 };
 
 const RunningAttemptSchema = z.object({

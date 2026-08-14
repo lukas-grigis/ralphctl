@@ -245,6 +245,27 @@ interface AttemptBase {
    * may not be the AI's fault.
    */
   readonly baselineBroken?: boolean;
+  /**
+   * RAW provider-reported prompt-token count for this attempt — summed over every AI spawn the
+   * attempt made (each generator + evaluator turn), exactly as the provider's own CLI stream
+   * reported it. No pricing, no normalisation across providers: what each CLI counts as an input
+   * token is its own business.
+   *
+   * Absent — never `0` — when no spawn reported usage (providers differ in what their stream
+   * carries, and a fabricated zero is indistinguishable from a genuinely free attempt), and
+   * absent on every record written before this field existed.
+   */
+  readonly inputTokens?: number;
+  /** Completion-side mirror of {@link inputTokens} — same source, same absence rules. */
+  readonly outputTokens?: number;
+  /**
+   * Wall-clock milliseconds spent INSIDE AI spawns during this attempt, summed over the same
+   * spawns as {@link inputTokens}. Deliberately not `finishedAt - startedAt`: harness work
+   * (verify scripts, git, journal writes, operator idle time) sits outside it, so the two answer
+   * different questions. Absent when no spawn completed, and on every record written before this
+   * field existed.
+   */
+  readonly durationMs?: number;
 }
 
 export interface RunningAttempt extends AttemptBase {
@@ -328,6 +349,33 @@ export const recordAttemptCommit = (att: RunningAttempt, sha: CommitSha): Runnin
 export const recordAttemptWarning = (att: RunningAttempt, warning: AttemptWarning): RunningAttempt => ({
   ...att,
   warning,
+});
+
+/**
+ * Raw cost telemetry for one attempt — see {@link AttemptBase.inputTokens} /
+ * {@link AttemptBase.durationMs}. Every field is optional because the harness only records what a
+ * provider actually reported.
+ */
+export interface AttemptUsage {
+  readonly inputTokens?: number;
+  readonly outputTokens?: number;
+  readonly durationMs?: number;
+}
+
+/** A value the harness is willing to persist as a raw count — a real, finite, non-negative number. */
+const isCount = (value: number | undefined): value is number =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0;
+
+/**
+ * Stamp raw cost telemetry onto a running attempt, one field at a time: a count the caller does
+ * not have stays ABSENT rather than landing as a fabricated `0`. Called once at the settle point,
+ * before the terminal transition, so the figures ride into the persisted terminal attempt.
+ */
+export const recordAttemptUsage = (att: RunningAttempt, usage: AttemptUsage): RunningAttempt => ({
+  ...att,
+  ...(isCount(usage.inputTokens) ? { inputTokens: usage.inputTokens } : {}),
+  ...(isCount(usage.outputTokens) ? { outputTokens: usage.outputTokens } : {}),
+  ...(isCount(usage.durationMs) ? { durationMs: usage.durationMs } : {}),
 });
 
 /**

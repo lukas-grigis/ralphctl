@@ -15,6 +15,7 @@ import type { Project } from '@src/domain/entity/project.ts';
 import type { Ticket } from '@src/domain/entity/ticket.ts';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { NextPhaseCard, SprintHeader } from '@src/application/ui/tui/views/sprint-detail-internals/header-card.tsx';
+import { OutcomeReportCard } from '@src/application/ui/tui/views/sprint-detail-internals/outcome-card.tsx';
 import { TicketsSection } from '@src/application/ui/tui/views/sprint-detail-internals/ticket-list.tsx';
 import { TasksSection } from '@src/application/ui/tui/views/sprint-detail-internals/task-summary.tsx';
 import { ActionBar } from '@src/application/ui/tui/views/sprint-detail-internals/action-bar.tsx';
@@ -113,6 +114,7 @@ const Body = ({
     <Box flexDirection="column">
       <SprintHeader sprint={sprint} tasks={tasks} isCurrent={isCurrent} />
       <NextPhaseCard sprint={sprint} tasks={tasks} />
+      {(sprint.status === 'review' || sprint.status === 'done') && <OutcomeReportCard sprint={sprint} tasks={tasks} />}
       <TicketsSection
         sprint={sprint}
         tasks={tasks}

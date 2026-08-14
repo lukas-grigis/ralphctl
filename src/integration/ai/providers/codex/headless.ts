@@ -495,7 +495,7 @@ const runCodexAttempt = (
       const model = tracker.getModel();
       const inputTokens = tracker.getInputTokens();
       const outputTokens = tracker.getOutputTokens();
-      emitTokenUsage(deps.eventBus, attemptSession, sessionId_, {
+      return emitTokenUsage(deps.eventBus, attemptSession, sessionId_, {
         provider: 'openai-codex',
         ...(model !== undefined ? { model } : {}),
         ...(inputTokens !== undefined ? { inputTokens } : {}),

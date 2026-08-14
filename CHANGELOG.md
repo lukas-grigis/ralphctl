@@ -7,6 +7,34 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`ralphctl runs stats` — the harness outcome rollup.** A read-only report over the sprint data
+  ralphctl already persists, answering what used to be unanswerable: the done / done-with-warning /
+  blocked mix, first-pass rate, attempts-to-done distribution, plateau rate by source, which
+  escalation rung resolved each stall versus fell through, the failed-dimension histogram, and
+  per-criterion pass rates. Scope with `--sprint <id>`, `--project <id>`, or `--since <date>`;
+  `--json` emits the raw rollup for machine diffing, so a prompt or settings change can be measured
+  before/after on the same task population.
+- **Sprint outcome card in the TUI.** Once a sprint reaches review or done, its detail view shows a
+  compact outcome report — task mix, first-pass rate, plateaus, escalation rungs that fired, and
+  criteria pass rate — from the same rollup.
+- **Attempts now record what they cost.** Each settled attempt persists the provider-reported
+  `inputTokens` / `outputTokens` and the AI-spawn wall-clock `durationMs` (absent — not zero — when a
+  provider reports no usage; older records load unchanged).
+
+### Changed
+
+- **A stuck task now samples two candidates before giving up.** `settings.harness.bestOfNCandidates`
+  ships enabled at `2` (was `0`, off): when a task has already exhausted the model ladder and the
+  same-model change-of-approach nudge, it gets one more attempt that samples two candidate solutions
+  instead of one and keeps the better — selected by verification first, then by judging — rather than
+  settling done-with-warning right away. The rung fires at most once per task and only for tasks that
+  got that far, so the extra spend is bounded to one doubled attempt. To turn it off, set
+  `harness.bestOfNCandidates` to `0` (TUI Harness settings or
+  `ralphctl settings set harness.bestOfNCandidates 0`); the four `*-economic` presets now pin it to
+  `0` for you, so cost-sensitive setups keep the previous behaviour by applying one of them.
+
 ## [0.19.0] - 2026-08-10
 
 ### Added

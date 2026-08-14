@@ -17,6 +17,7 @@ import { buildEvaluateContinuationPrompt } from '@src/integration/ai/prompts/eva
 import type { BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
+import type { ProviderUsage } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import { computeWorkProductFingerprint } from '@src/application/flows/implement/leaves/work-product-fingerprint.ts';
@@ -30,6 +31,7 @@ import {
   type GeneratorHintsInput,
 } from '@src/application/flows/implement/leaves/_shared/generator-hints.ts';
 import { positiveCountCarry } from '@src/application/flows/implement/leaves/_shared/nudge-count-carry.ts';
+import { attemptUsageCarry } from '@src/application/flows/implement/leaves/_shared/attempt-usage-carry.ts';
 import {
   buildEvaluatorReproductionSection,
   type ReproductionArtifact,
@@ -129,6 +131,12 @@ interface EvaluatorOutput {
    * clause. Pure observability; never affects retry semantics.
    */
   readonly correctiveNudgeCount: number;
+  /**
+   * Raw cost telemetry for this turn's spawn — provider-reported token counts + harness-measured
+   * wall-clock. Accumulates onto the per-attempt cost totals `settle-attempt` persists onto the
+   * attempt. Absent when the spawn reported none.
+   */
+  readonly usage?: ProviderUsage | undefined;
 }
 
 /**
@@ -140,6 +148,8 @@ interface EvaluatorOutput {
  */
 interface EvaluatorTurnMeta {
   correctiveNudgeCount: number;
+  /** This turn's raw provider cost telemetry — rides the same out-channel as the nudge tally. */
+  usage: ProviderUsage | undefined;
 }
 
 /**
@@ -281,6 +291,7 @@ const makeEvaluatorCallEvaluate =
     // Cost-visibility out-channel — see EvaluatorTurnMeta's docstring for why this rides a
     // mutated field rather than widening `callEvaluate`'s return type.
     args.meta.correctiveNudgeCount = turn.value.nudgeCount;
+    args.meta.usage = turn.value.usage;
 
     // `runEvaluatorTurnUseCase` expects `readonly HarnessSignal[]`. `EvaluatorContractSignal`
     // is a strict subset of `HarnessSignal`, but TS's array variance doesn't infer that
@@ -305,7 +316,7 @@ const makeEvaluatorExecute =
 
     // Cost-visibility out-channel for this turn's corrective-nudge tally — closure-captured so
     // `execute` can stamp it onto `EvaluatorOutput` after the use case returns.
-    const meta: EvaluatorTurnMeta = { correctiveNudgeCount: 0 };
+    const meta: EvaluatorTurnMeta = { correctiveNudgeCount: 0, usage: undefined };
     const callEvaluate = makeEvaluatorCallEvaluate(deps, { input, ...paths.value, signal, meta });
 
     // Fingerprint the working tree's uncommitted changes for this round so the plateau
@@ -334,6 +345,7 @@ const makeEvaluatorExecute =
     return Result.ok({
       task: result.value.task,
       correctiveNudgeCount: meta.correctiveNudgeCount,
+      usage: meta.usage,
       ...(result.value.evaluation !== undefined ? { evaluation: result.value.evaluation } : {}),
       ...(result.value.exit !== undefined ? { exit: result.value.exit } : {}),
       ...(result.value.turnRecord !== undefined ? { turnRecord: result.value.turnRecord } : {}),
@@ -404,6 +416,9 @@ const evaluatorOutput = (ctx: ImplementCtx, out: EvaluatorOutput): ImplementCtx 
     ...(nextHistory !== undefined ? { plateauHistory: nextHistory } : {}),
     ...sessionCarry,
     ...evaluatorNudgesCarry,
+    // Raw cost totals for the attempt — the evaluator's spawns cost the same budget the
+    // generator's do, so both roles fold into the same three counters.
+    ...attemptUsageCarry(ctx, out.usage),
   };
   if (out.exit === undefined) return next;
   return { ...next, lastExit: out.exit };

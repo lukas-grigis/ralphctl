@@ -283,6 +283,7 @@ const BUSINESS_SIBLINGS = [
   'io',
   'observability',
   'project',
+  'runs',
   'scm',
   'settings',
   'sprint',

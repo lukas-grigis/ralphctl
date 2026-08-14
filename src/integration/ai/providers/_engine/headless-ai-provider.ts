@@ -23,6 +23,19 @@ export interface HeadlessAiProvider {
   generate(session: AiSession): Promise<Result<ProviderOutput, DomainError>>;
 }
 
+/**
+ * Raw cost telemetry for ONE provider spawn. The same figures the adapter publishes as an
+ * ephemeral `TokenUsageEvent` for the TUI, handed back to the caller as data so a chain leaf can
+ * fold them into something durable. Every field is optional: token counts ride only when the
+ * provider's own stream reported them (Codex commonly omits them), and nothing is invented.
+ */
+export interface ProviderUsage {
+  readonly inputTokens?: number;
+  readonly outputTokens?: number;
+  /** Wall-clock ms from spawn to the resolved exit — measured by the harness, not the provider. */
+  readonly durationMs?: number;
+}
+
 export interface ProviderOutput {
   /** Absolute path to the JSON file the provider wrote parsed signals to (echoes `session.signalsFile`). */
   readonly signalsFile: AbsolutePath;
@@ -39,4 +52,10 @@ export interface ProviderOutput {
    * — set in `_engine/classify-spawn-exit.ts`.
    */
   readonly recoveredFromExit?: { readonly code: number | null; readonly signal: string | null };
+  /**
+   * Raw cost telemetry for this spawn — see {@link ProviderUsage}. Present on every success
+   * (the harness always knows the duration); the token counts inside it are present only when the
+   * provider reported them, and absent entirely on a spawn that never surfaced a session id.
+   */
+  readonly usage?: ProviderUsage;
 }
