@@ -7,6 +7,22 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`ralphctl runs stats` — the harness outcome rollup.** A read-only report over the sprint data
+  ralphctl already persists, answering what used to be unanswerable: the done / done-with-warning /
+  blocked mix, first-pass rate, attempts-to-done distribution, plateau rate by source, which
+  escalation rung resolved each stall versus fell through, the failed-dimension histogram, and
+  per-criterion pass rates. Scope with `--sprint <id>`, `--project <id>`, or `--since <date>`;
+  `--json` emits the raw rollup for machine diffing, so a prompt or settings change can be measured
+  before/after on the same task population.
+- **Sprint outcome card in the TUI.** Once a sprint reaches review or done, its detail view shows a
+  compact outcome report — task mix, first-pass rate, plateaus, escalation rungs that fired, and
+  criteria pass rate — from the same rollup.
+- **Attempts now record what they cost.** Each settled attempt persists the provider-reported
+  `inputTokens` / `outputTokens` and the AI-spawn wall-clock `durationMs` (absent — not zero — when a
+  provider reports no usage; older records load unchanged).
+
 ### Changed
 
 - **A stuck task now samples two candidates before giving up.** `settings.harness.bestOfNCandidates`
