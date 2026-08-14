@@ -5,7 +5,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { absolutePath } from '@tests/fixtures/domain.ts';
 import { createCapturingBus } from '@tests/fixtures/capturing-event-bus.ts';
 import { makeInteractiveSpawn } from '@tests/fixtures/interactive-spawn-fake.ts';
+import { Result } from '@src/domain/result.ts';
+import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { argvByteLength } from '@src/integration/ai/providers/_engine/argv-budget.ts';
+import { DEFAULT_GRACE_MS } from '@src/integration/ai/providers/_engine/idle-watchdog.ts';
 import {
   createInteractiveProvider,
   type InteractiveProviderSpec,
@@ -301,6 +304,123 @@ describe('createInteractiveProvider', () => {
     expect(r.error.code).toBe('storage-error');
     expect(r.error.message).toContain('failed to spawn');
     expect(r.error.message).toContain('past the 32767-byte Windows limit');
+  });
+
+  it('hands the spec-built env to the spawn, built from the same roots buildArgs saw', async () => {
+    // The env hook and the argv hook must describe ONE root list. When `buildEnv` only received
+    // `input` it had to walk the roots itself, and the OpenCode adapter's copy of that walk saw
+    // only the prompt directory — so a caller's `additionalRoots` were granted in argv-shaped
+    // adapters and dropped in the env-shaped one (#278).
+    const cap = createCapturingBus();
+    const { spawn, calls, emitExit } = makeInteractiveSpawn();
+    const provider = createInteractiveProvider(
+      spec({ buildEnv: (_input, { roots }) => Result.ok({ MOUNTED: roots.join(',') }) }),
+      { eventBus: cap.bus, spawn, readFile: stubReadFile }
+    );
+
+    const extraRepo = absolutePath('/tmp/engine-env-sibling');
+    const runPromise = provider.run({
+      cwd: CWD,
+      additionalRoots: [extraRepo],
+      promptFile: PROMPT_FILE,
+      outputFile: OUTPUT_FILE,
+      model: MODEL,
+    });
+    emitExit(0);
+    await runPromise;
+
+    const args = calls[0]!.args;
+    const argvRoots = args.filter((_, i) => args[i - 1] === '--add-dir');
+    expect(calls[0]!.env!['MOUNTED']).toBe(argvRoots.join(','));
+  });
+
+  it('surfaces a buildEnv refusal without spawning and without a start log', async () => {
+    // The port's `additionalRoots` contract: an adapter that cannot mount a root MUST error rather
+    // than silently use less. That is only expressible if the env hook has an error channel AND is
+    // evaluated before the spawn — a refusal that arrived after the child launched would leave a
+    // session running under a grant the adapter had already declared impossible.
+    const cap = createCapturingBus();
+    const { spawn, calls } = makeInteractiveSpawn();
+    const provider = createInteractiveProvider(
+      spec({
+        buildEnv: () =>
+          Result.error(
+            new InvalidStateError({
+              entity: 'interactive-stub',
+              currentState: 'unexpressible-root',
+              attemptedAction: 'grant directory access',
+              message: 'interactive-stub: cannot grant access to /tmp/nope',
+            })
+          ),
+      }),
+      { eventBus: cap.bus, spawn, readFile: stubReadFile }
+    );
+
+    const r = await provider.run({ cwd: CWD, promptFile: PROMPT_FILE, outputFile: OUTPUT_FILE, model: MODEL });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error.code).toBe('invalid-state');
+    expect(r.error.message).toContain('/tmp/nope');
+    expect(calls).toHaveLength(0);
+    expect(cap.logs.map((e) => e.message).filter((m) => m.includes('starting session'))).toEqual([]);
+  });
+
+  it('escalates SIGTERM → SIGKILL when an aborted session ignores the polite signal', async () => {
+    // A `stdio: 'inherit'` child is unreachable once spawned, so the abort ladder is the only
+    // cancel lever the TUI has. Asserted once here rather than per adapter: all four interactive
+    // adapters delegate to this engine, so the ladder has exactly one implementation.
+    vi.useFakeTimers();
+    try {
+      const cap = createCapturingBus();
+      const { spawn, calls, emitExit } = makeInteractiveSpawn();
+      const provider = createInteractiveProvider(spec(), { eventBus: cap.bus, spawn, readFile: stubReadFile });
+      const controller = new AbortController();
+
+      const runPromise = provider.run({
+        cwd: CWD,
+        promptFile: PROMPT_FILE,
+        outputFile: OUTPUT_FILE,
+        model: MODEL,
+        abortSignal: controller.signal,
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(calls).toHaveLength(1);
+
+      controller.abort();
+      expect(calls[0]!.kills).toEqual(['SIGTERM']);
+
+      await vi.advanceTimersByTimeAsync(DEFAULT_GRACE_MS);
+      expect(calls[0]!.kills).toEqual(['SIGTERM', 'SIGKILL']);
+
+      emitExit(143);
+      await vi.advanceTimersByTimeAsync(0);
+      const r = await runPromise;
+      expect(r.ok).toBe(false);
+      if (r.ok) return;
+      expect(r.error.code).toBe('aborted');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('drops the abort listener on a clean exit so a reused controller never kills a dead pid', async () => {
+    const cap = createCapturingBus();
+    const { spawn, calls, emitExit } = makeInteractiveSpawn();
+    const provider = createInteractiveProvider(spec(), { eventBus: cap.bus, spawn, readFile: stubReadFile });
+    const controller = new AbortController();
+
+    const runPromise = provider.run({
+      cwd: CWD,
+      promptFile: PROMPT_FILE,
+      outputFile: OUTPUT_FILE,
+      model: MODEL,
+      abortSignal: controller.signal,
+    });
+    emitExit(0);
+    await runPromise;
+
+    controller.abort();
+    expect(calls[0]!.kills).toEqual([]);
   });
 
   it('publishes a start and an exit log naming the provider', async () => {

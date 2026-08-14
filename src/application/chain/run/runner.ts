@@ -73,6 +73,10 @@ const MAX_TRACE_ENTRIES = 5_000;
  * `abort()`; exactly one terminal event) would stop being locally checkable. Deliberate, not an
  * oversight; see "The runner" in `.claude/docs/KERNEL-DESIGN.md`.
  */
+// Scoped rather than fixed: the docstring above and KERNEL-DESIGN.md both record the single long
+// closure as a deliberate design decision. A targeted disable is what lets the lint budget sit at
+// `--max-warnings 0`, so the next warning is a real one instead of noise under a raised cap.
+// eslint-disable-next-line max-lines-per-function -- deliberate; see above
 export const createRunner = <TCtx>(opts: RunnerOptions<TCtx>): Runner<TCtx> => {
   const abortController = new AbortController();
   const listeners = new Set<RunnerListener<TCtx>>();
