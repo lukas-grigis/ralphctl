@@ -136,7 +136,8 @@ contracts define testable success up-front."_
   launch can run up to the effective `maxAttempts` rounds per task (`task.maxAttempts` stamped at
   plan time, with a `settings.harness.maxAttempts` fallback for legacy tasks). The graduated remedy
   ladder (row 6) fires within this outer loop — climbing one model rung per plateau or
-  budget-exhausted exit, then a top-of-ladder same-model nudge, then (opt-in, `settings.harness.bestOfNCandidates`)
+  budget-exhausted exit, then a top-of-ladder same-model nudge, then (on by default,
+  `settings.harness.bestOfNCandidates`; the four `*-economic` presets opt out)
   one best-of-N candidate-sampling attempt, while evaluator-malformed exits get a plain same-model
   retry — each retry consuming one attempt of the budget. `maxAttempts === 1` is byte-for-byte the
   prior one-attempt-per-launch behaviour.
@@ -172,8 +173,9 @@ self into approving anyway; superficial testing."_ Plateau detection is the harn
 - **Graduated remedy ladder** (`src/business/task/escalation-policy.ts` + `escalation-map.ts`): on a
   plateau the policy spends remedies cheapest-first — climb the model ladder **one rung per plateau**
   (`escalate`, re-stampable, bounded by `maxAttempts`), then a single top-of-ladder same-model `nudge`
-  with a change-of-approach directive, then (opt-in, once per task, `settings.harness.bestOfNCandidates`)
-  a `best-of-n` rung that samples N candidates on the unchanged model and selects among them by
+  with a change-of-approach directive, then (on by default, once per task,
+  `settings.harness.bestOfNCandidates`; the four `*-economic` presets opt out) a `best-of-n` rung that
+  samples N candidates on the unchanged model and selects among them by
   verification then judging, then `topped-out` (keep the work). See PERFORMANCE.md "Escalation on plateau".
 - **Evaluator lockstep (2026-08).** Every generator MODEL-rung climb (`escalate`) — not only the
   same-model effort rung (`escalate-effort`, #256) — now also carries the evaluator's own same-model

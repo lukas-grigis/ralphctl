@@ -20,7 +20,8 @@ import type { AiSettings, Settings } from '@src/domain/entity/settings.ts';
  *   frontier      — flagship everywhere at `max` effort (tops out at Opus 5 / GPT-5.6 Sol; codex
  *                   is no longer floored — the 5.6 flagship accepts `max` directly).
  *
- * Applying a preset stamps the AI section AND `harness.escalateOnPlateau`. Preset identity is
+ * Applying a preset stamps the AI section AND `harness.escalateOnPlateau` — plus, for the economic
+ * family only, `harness.bestOfNCandidates: 0` (its explicit cost opt-out). Preset identity is
  * NOT persisted; the next per-row edit sticks and nothing remembers which preset was applied.
  */
 export type PresetName =
@@ -217,6 +218,11 @@ const CODEX_ONLY: AiSettings = {
  * `refine` / `readiness` / `createPr` drop to the cheap tier across all four; `ideate` drops a
  * tier too, in every family including `codex-economic` — the GPT-5.6 family's `terra` tier is
  * the intermediate tier the cheap-ideation row needed.
+ *
+ * This is also the one family that pins `harness.bestOfNCandidates` to `0` (see {@link PRESETS}).
+ * The shipped default is `2` — a stuck task samples two candidates at the top of the ladder — but
+ * that granted attempt spends N generator sessions instead of one, which is exactly the trade this
+ * family exists to refuse. Every other family leaves the knob at whatever the operator has set.
  */
 const MIXED_ECONOMIC: AiSettings = {
   effort: 'high',
@@ -490,17 +496,24 @@ const CODEX_FRONTIER: AiSettings = {
  * Each preset carries its AI matrix plus the `escalateOnPlateau` flag {@link applyPreset} stamps
  * onto `harness`. Standard / economic / strong-gate / frontier families want the escalation
  * ladder on; the fast family stamps it OFF so a plateau settles instead of climbing.
+ *
+ * `bestOfNCandidates` is OPTIONAL here and stamped only where a preset takes a position on it: the
+ * four economic presets pin `0` (their whole story is refusing the N× generator spend of a granted
+ * best-of-N attempt, and the shipped default is now `2`). Every other preset omits it, so applying
+ * one leaves the operator's current value alone.
  */
-const PRESETS: Readonly<Record<PresetName, { ai: AiSettings; escalateOnPlateau: boolean }>> = {
+const PRESETS: Readonly<
+  Record<PresetName, { ai: AiSettings; escalateOnPlateau: boolean; bestOfNCandidates?: number }>
+> = {
   mixed: { ai: MIXED, escalateOnPlateau: true },
   'claude-only': { ai: CLAUDE_ONLY, escalateOnPlateau: true },
   'copilot-only': { ai: COPILOT_ONLY, escalateOnPlateau: true },
   'codex-only': { ai: CODEX_ONLY, escalateOnPlateau: true },
   'opencode-only': { ai: OPENCODE_ONLY, escalateOnPlateau: true },
-  'mixed-economic': { ai: MIXED_ECONOMIC, escalateOnPlateau: true },
-  'claude-economic': { ai: CLAUDE_ECONOMIC, escalateOnPlateau: true },
-  'copilot-economic': { ai: COPILOT_ECONOMIC, escalateOnPlateau: true },
-  'codex-economic': { ai: CODEX_ECONOMIC, escalateOnPlateau: true },
+  'mixed-economic': { ai: MIXED_ECONOMIC, escalateOnPlateau: true, bestOfNCandidates: 0 },
+  'claude-economic': { ai: CLAUDE_ECONOMIC, escalateOnPlateau: true, bestOfNCandidates: 0 },
+  'copilot-economic': { ai: COPILOT_ECONOMIC, escalateOnPlateau: true, bestOfNCandidates: 0 },
+  'codex-economic': { ai: CODEX_ECONOMIC, escalateOnPlateau: true, bestOfNCandidates: 0 },
   'mixed-strong-gate': { ai: MIXED_STRONG_GATE, escalateOnPlateau: true },
   'claude-strong-gate': { ai: CLAUDE_STRONG_GATE, escalateOnPlateau: true },
   'copilot-strong-gate': { ai: COPILOT_STRONG_GATE, escalateOnPlateau: true },
@@ -517,10 +530,11 @@ const PRESETS: Readonly<Record<PresetName, { ai: AiSettings; escalateOnPlateau: 
 
 /**
  * Stamp a preset onto `current`. The AI section is replaced wholesale with the preset's matrix,
- * and `harness.escalateOnPlateau` is overwritten with the preset's flag (fast family OFF, all
- * others ON). The REST of `harness` (maxTurns, escalationMap, plateauThreshold, …) plus
- * `logging`, `concurrency`, `ui`, `developer`, and `schemaVersion` are preserved verbatim. Pure
- * — does not touch persistence.
+ * `harness.escalateOnPlateau` is overwritten with the preset's flag (fast family OFF, all others
+ * ON), and `harness.bestOfNCandidates` is overwritten ONLY by the presets that declare one (the
+ * economic family, which pins `0`). The REST of `harness` (maxTurns, escalationMap,
+ * plateauThreshold, …) plus `logging`, `concurrency`, `ui`, `developer`, and `schemaVersion` are
+ * preserved verbatim. Pure — does not touch persistence.
  *
  * Re-applying a preset clobbers any per-row customizations. No stored preset identity is
  * created, so a subsequent edit to any individual row sticks across reloads.
@@ -530,6 +544,10 @@ export const applyPreset = (name: PresetName, current: Settings): Settings => {
   return {
     ...current,
     ai: preset.ai,
-    harness: { ...current.harness, escalateOnPlateau: preset.escalateOnPlateau },
+    harness: {
+      ...current.harness,
+      escalateOnPlateau: preset.escalateOnPlateau,
+      ...(preset.bestOfNCandidates !== undefined ? { bestOfNCandidates: preset.bestOfNCandidates } : {}),
+    },
   };
 };

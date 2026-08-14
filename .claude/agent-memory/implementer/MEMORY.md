@@ -1,5 +1,8 @@
 # Implementer Memory
 
+- [project_settings_default_flip_surfaces.md](project_settings_default_flip_surfaces.md) — flipping a
+  settings.harness default: 6 untested prose restatements (settings.ts JSDoc, TUI HARNESS_HINTS, 5 docs) +
+  the optional per-preset harness pin seam in applyPreset
 - [project_external_kill_escalation_seam.md](project_external_kill_escalation_seam.md) — killWithEscalation shared
   SIGTERM→grace→SIGKILL helper for io runners (separate copy of provider-engine ladder, sibling-isolation); interactive
   adapters' abortSignal was dead code, now threaded from 4 leaves + classified before exit-code; sonarjs 3-literal ratchet gotcha

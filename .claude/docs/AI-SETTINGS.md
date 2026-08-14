@@ -197,7 +197,9 @@ at the top of the model ladder the graduated policy first raises reasoning effor
 `escalate-effort` rung). opus is xhigh-capable and its effort is unset, so Claude Code's implicit default is
 already `xhigh` — the rung therefore climbs to `max` in a single step (a fixed `high` would be a no-op or a
 downgrade). Then — on a further plateau, opus now at `max` — it fires the same-model nudge (a
-change-of-approach directive), then settles `done-with-warning`. For the shipped default the effort rung
+change-of-approach directive), then — since `harness.bestOfNCandidates` now defaults to `2` — one best-of-N
+attempt that samples two candidates and selects by verification then judging, and only then settles
+`done-with-warning`. For the shipped default the effort rung
 fires exactly once (unset `→ max`; the next plateau sees `max` and falls through to the nudge). To also
 activate a live MODEL ladder, use one of the `*-economic` presets (where `implement.generator` starts on
 Sonnet and escalates to Opus) or add a custom rung via `settings.harness.escalationMap`:
@@ -217,6 +219,13 @@ retargeted or removed without leaving the TUI.
 
 - `maxTurns`, `maxAttempts`, `rateLimitRetries`, `idleWatchdogMs`, `plateauThreshold`, `escalateOnPlateau`,
   `escalationMap` — see `PERFORMANCE.md`.
+- `bestOfNCandidates` (default `2`) — the top-of-ladder remedy: once the model ladder AND the same-model nudge
+  are both spent, a stuck task gets ONE more attempt that samples N candidates on the unchanged model and
+  selects among them by verification then judging. `2`-`4` enables it, `0` disables it. The cost is bounded —
+  at most once per task, and only for a task that already exhausted the whole ladder — but that one attempt
+  spends N generator sessions instead of one, so the four `*-economic` presets pin it to `0` (applying one of
+  them overwrites whatever you had set; every other preset leaves the knob alone). See
+  `PERFORMANCE.md § Escalation on plateau`.
 - `skipPreVerifyOnFreshSetup` (default `false`) — opt-in: skip the FIRST pre-task verify of a launch when this
   launch's own setup script already built and tested the same tree. Safe only when the setup script actually runs
   the verify gate (not merely installs dependencies) — an install-only setup script would hide a pre-broken

@@ -7,6 +7,18 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **A stuck task now samples two candidates before giving up.** `settings.harness.bestOfNCandidates`
+  ships enabled at `2` (was `0`, off): when a task has already exhausted the model ladder and the
+  same-model change-of-approach nudge, it gets one more attempt that samples two candidate solutions
+  instead of one and keeps the better — selected by verification first, then by judging — rather than
+  settling done-with-warning right away. The rung fires at most once per task and only for tasks that
+  got that far, so the extra spend is bounded to one doubled attempt. To turn it off, set
+  `harness.bestOfNCandidates` to `0` (TUI Harness settings or
+  `ralphctl settings set harness.bestOfNCandidates 0`); the four `*-economic` presets now pin it to
+  `0` for you, so cost-sensitive setups keep the previous behaviour by applying one of them.
+
 ## [0.19.0] - 2026-08-10
 
 ### Added

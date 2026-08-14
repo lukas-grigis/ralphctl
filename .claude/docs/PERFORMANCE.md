@@ -163,8 +163,15 @@ independently of the generator's own `escalate-effort` event.
 (`{{PLATEAU_DIRECTIVE_SECTION}}` in the implement prompt) stamped `escalatedFromModel === escalatedToModel`.
 The directive is gated on that same-model marker, NOT on a model bump: a bump hands the stronger model the
 targeted `priorCritique` instead, decoupling the "abandon your approach" directive from escalation so it is
-reserved for the top-of-ladder case where there is no fresh capability to lean on. A further exit after the
-nudge tops out — keeping the work.
+reserved for the top-of-ladder case where there is no fresh capability to lean on.
+(4) **best-of-N rung** — a further plateau or budget-exhausted exit after the nudge (`escalatedFromModel
+=== escalatedToModel === generatorModel`, i.e. already nudged at the top) grants a `best-of-n` remedy when
+`settings.harness.bestOfNCandidates` is `2`-`4` (default `2`) and the task has not already been granted one
+(the durable `task.bestOfNGranted` stamp guarantees once-per-task). The granted attempt samples N
+candidates on the unchanged model — see "Best-of-N rung" in `WORKFLOWS.md` for the candidate-sampling
+composite. A further exit after a spent or declined best-of-N grant tops out — keeping the work. The four
+`*-economic` presets pin `bestOfNCandidates: 0` to opt out, in which case a further exit after the nudge
+tops out directly.
 
 **Routing by exit kind.** `plateau` and `budget-exhausted` exits (including the synthesized budget-
 exhausted when no leaf set `lastExit`) both go through `decideEscalation`. A `malformed` exit —
@@ -176,23 +183,28 @@ while the attempt budget remains, falling back to done-with-warning at the cap.
 introduced have `task.maxAttempts === undefined`; `decideEscalation` and the per-task loop cap both fall
 back to `settings.harness.maxAttempts` so the attempt budget binds for them too.
 
-**Default posture: effort rung, then nudge.** The shipped default generator model (`claude-opus-5`) has
-no key in `DEFAULT_ESCALATION_MAP`, so the harness never model-escalates it. But the effort rung IS live for
-the default posture: opus is xhigh-capable and its effort is unset (Claude Code's implicit default is
+**Default posture: effort rung, nudge, then best-of-N.** The shipped default generator model (`claude-opus-5`)
+has no key in `DEFAULT_ESCALATION_MAP`, so the harness never model-escalates it. But the effort rung IS live
+for the default posture: opus is xhigh-capable and its effort is unset (Claude Code's implicit default is
 `xhigh`), so on a plateau at the top of the ladder the rung raises reasoning effort to `max` on the same
 model in a single step (a live remedy, not just a directive) — a fixed `high` would be a no-op or a downgrade
-of that implicit `xhigh`. A further plateau (opus already at `max`, rung spent) fires the same-model nudge,
-then settles done-with-warning. See `AI-SETTINGS.md § Default escalation posture` for how to also activate a
-live MODEL ladder (economic presets or a custom escalationMap rung).
+of that implicit `xhigh`. A further plateau (opus already at `max`, rung spent) fires the same-model nudge.
+Because `bestOfNCandidates` defaults to `2`, a further plateau after the nudge grants a best-of-N attempt
+(rung (4) above) before the ladder settles done-with-warning; the four `*-economic` presets pin it to `0`,
+so a further plateau after the nudge settles done-with-warning directly for them. See `AI-SETTINGS.md §
+Default escalation posture` for how to also activate a live MODEL ladder (economic presets or a custom
+escalationMap rung).
 
 The evaluator's MODEL stays frozen for the whole task — the scoring rubric must not shift mid-task, which
 would make plateau detection meaningless — but its EFFORT now advances in lockstep with the generator's
 effort rung (see bullet (2) above). `Task`'s `escalatedFromModel` / `escalatedToModel` (model bump / nudge
 marker), `escalatedToEffort` (generator effort rung), and `escalatedToEvaluatorEffort` (evaluator effort
 rung) fields are re-stampable and hold the MOST-RECENT transition; the cost ceiling is enforced by the
-ladder top plus `maxAttempts` (each escalate / effort-bump / nudge fails the running attempt, consuming
-budget), not by a once-per-task cap. A non-passing exit with no attempt budget left, or after the top-of-ladder nudge,
-preserves the work (done-with-warning) — never blocks.
+ladder top plus `maxAttempts` (each escalate / effort-bump / nudge / best-of-N grant fails the running
+attempt, consuming budget), not by a once-per-task cap on retries — the best-of-N grant itself IS
+once-per-task (`task.bestOfNGranted`). A non-passing exit with no attempt budget left, or after the
+top-of-ladder nudge with the best-of-N remedy off/spent, preserves the work (done-with-warning) — never
+blocks.
 Cross-provider escalation (e.g. `claude-opus-5` → `gpt-5.6-sol`) is intentionally deferred — switching
 providers mid-task carries auth / context / tool-availability hazards.
 

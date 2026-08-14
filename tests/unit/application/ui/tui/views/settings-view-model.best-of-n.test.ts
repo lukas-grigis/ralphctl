@@ -17,12 +17,12 @@ const harnessFields = (s: Settings): ReturnType<typeof buildSections>[number]['f
 };
 
 describe('buildSections — harness.bestOfNCandidates row', () => {
-  it('renders as a text field showing the disabled default (0)', () => {
+  it('renders as a text field showing the shipped default (2)', () => {
     const fields = harnessFields(DEFAULT_SETTINGS);
     const row = fields.find((f) => f.key === 'harness.bestOfNCandidates');
     expect(row).toBeDefined();
     expect(row?.kind).toBe('text');
-    expect(row?.current).toBe('0');
+    expect(row?.current).toBe('2');
   });
 
   it('reflects a non-default value', () => {
