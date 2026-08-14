@@ -67,6 +67,10 @@
 
 - [project_execute_view_selection_convergence_reversal.md](project_execute_view_selection_convergence_reversal.md) — focus-driven convergence added (6fbc7f8b) → reverted for persisting-on-peek (4593036f) → re-added non-persisting via `followFocusedRun` (Jul 2026), then hardened to a value-keyed skip-guard after a load-only flake surfaced a real reconciler-ordering gap; read before touching this area again
 
+## Harness Outcome Rollup
+
+- [project_outcome_report_card_2026-08-14.md](project_outcome_report_card_2026-08-14.md) — Sprint outcome-report card: hosted in SprintDetailView's Body (review/done gate), minimal metric set, hasAttemptData empty-fallback gotcha
+
 ## Working Agreements
 
 - [feedback_no_git_when_told_none.md](feedback_no_git_when_told_none.md) — "NO git commands of any kind" means literally zero, including read-only log/diff/show/status — not just mutating ones

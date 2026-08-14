@@ -4,6 +4,7 @@ import type { Command } from 'commander';
 import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
 import { confirmDestructive } from '@src/application/ui/cli/confirm-destructive.ts';
 import { fail } from '@src/application/ui/cli/report-cli-error.ts';
+import { registerRunsStatsCommand } from '@src/application/ui/cli/commands/runs-stats.ts';
 import {
   formatBytes,
   formatRelativeAge,
@@ -39,15 +40,21 @@ type FlowFilterResult = { readonly ok: true; readonly flowFilter: string | undef
 
 /**
  * Register the `runs` command group — inspection + tidy-up for per-run forensic artifacts
- * under `<dataRoot>/runs/<flow>/<run-id>/`.
+ * under `<dataRoot>/runs/<flow>/<run-id>/`, plus the harness outcome rollup folded from the
+ * sprint aggregates those runs produced.
  *
  *   ralphctl runs list   [--flow <name>]
  *   ralphctl runs prune  [--older-than <dur>] [--keep-last <n>] [--flow <name>]
  *                        [--dry-run] [--yes|-y]
+ *   ralphctl runs stats  [--json] [--since <date>] [--sprint <id>] [--project <id>]
  *
  * Lifecycle of the runs tree is user-managed (`rm -rf` at will, no auto-GC). This surface
  * gives operators a safer alternative to `rm -rf` — with filters, a confirm prompt, dry-run,
  * and per-failure tolerance so a single permission-denied entry doesn't strand the rest.
+ *
+ * `stats` lives here (rather than under `sprint`) because it answers a run-forensics question —
+ * how the harness performed across runs — and is the read side of the same post-mortem surface.
+ * It reads sprints / tasks, never the runs tree, so pruning artifacts never changes its output.
  */
 export const registerRunsCommand = (program: Command): void => {
   const runs = program.command('runs').description('inspect and prune per-run forensic artifacts');
@@ -67,6 +74,8 @@ export const registerRunsCommand = (program: Command): void => {
     .option('--dry-run', 'list candidates without deleting (wins over --yes)')
     .option('-y, --yes', 'skip the interactive y/N confirmation')
     .action(runPruneCommand);
+
+  registerRunsStatsCommand(runs);
 };
 
 const runListCommand = async (opts: ListOpts): Promise<void> => {
