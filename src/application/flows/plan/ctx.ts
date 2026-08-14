@@ -23,7 +23,7 @@ export interface PlanCtx {
   readonly sprint?: Sprint;
   readonly project?: Project;
   readonly execution?: SprintExecution;
-  /** Existing tasks loaded from the repo (replan support). The interactive leaf overwrites this. */
+  /** Existing tasks loaded from the repo (replan support). `apply-plan` overwrites this on accept and restores it on reject. */
   readonly tasks?: readonly Task[];
   /** Per-run sandbox under `<sprintDir>/plan/<run-slug>/`. */
   readonly currentUnitRoot?: AbsolutePath;

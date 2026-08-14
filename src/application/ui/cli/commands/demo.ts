@@ -140,7 +140,10 @@ const demoAction = async (opts: DemoOptions): Promise<void> => {
     process.stdout.write(
       '  Scripted mode: every AI row is pinned to claude-code and replays a canned two-round\n' +
         '  generator → evaluator transcript. No provider CLI is spawned; the verify script and\n' +
-        '  acceptance criterion are rewritten to portable node one-liners.\n\n'
+        '  acceptance criterion are rewritten to portable node one-liners.\n' +
+        '  The transcript covers the Implement flow — the "ready to implement" sprint is the one\n' +
+        '  to launch. Interactive flows (refine / plan / ideate) still need a real, authenticated\n' +
+        '  provider CLI, in demo mode too.\n\n'
     );
   }
 

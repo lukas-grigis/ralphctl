@@ -430,6 +430,11 @@ const withProviderSpawnOverride = (
  * the CLI installed?" is not a question that applies when nothing will be spawned. The only
  * producer of `providerSpawn` today is `ralphctl demo --script` (and hermetic tests); an ordinary
  * run leaves it undefined and the gate behaves exactly as before. See `AppDeps.providerSpawn`.
+ *
+ * Deliberately implement-only: `providerSpawn` overrides HEADLESS spawns, and implement is the
+ * headless flow. The interactive flows (refine / plan / ideate) hand the terminal to a real CLI
+ * regardless of the override, so their unconditional `checkCli` gate is protective, not stale —
+ * do not extend this skip to them.
  */
 const preflightCli = async (ctx: LaunchContext, effectiveSettings: Settings): Promise<LaunchResult | undefined> =>
   ctx.deps.app.providerSpawn !== undefined
