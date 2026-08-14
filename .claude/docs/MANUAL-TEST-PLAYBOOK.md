@@ -90,9 +90,12 @@ its alt-screen behaviour differs.
    under `<sprintDir>/plan/<run-slug>/`
 6. Have a planning conversation, ask the AI to write the file, exit
 7. **Expected:** ralphctl re-appears, parsed task list rendered as a table
-8. **Expected:** "Confirm ready to execute?" prompt
-9. Press Enter
-10. **Expected:** tasks saved, session completes. Pipeline-map now shows Implement as `◆ ready` with the next
+8. **Expected:** if the plan has an obvious quality gap (a task with no verification criteria, a
+   placeholder command, a duplicate criterion id, …), a "Plan check found N issue(s) — advisory, you
+   decide:" block renders above the task list, error findings before warnings
+9. **Expected:** "Confirm ready to execute?" prompt regardless of findings — the critic never blocks
+10. Press Enter
+11. **Expected:** tasks saved, session completes. Pipeline-map now shows Implement as `◆ ready` with the next
     task count.
 
 ---
@@ -197,13 +200,23 @@ For every prompt context (an editor, a select, an input):
 3. Fill in project name + repo path
 4. **Expected:** project saved, returns to Home with the pipeline-map ready for sprint creation
 
+**8a — zero-CLI keypress gate.** Repeat with no AI CLI on `PATH` (e.g. a scrubbed `PATH` env var).
+
+1. **Expected:** lands on `WelcomeView` showing "No AI CLIs detected — install one …" plus "Press ↵ to
+   continue" — the view holds here instead of auto-routing away
+2. Press `↵` (or space) — **expected:** routes to create-project (or Home if a project already exists)
+3. Repeat, press `Esc` instead — **expected:** same route; the global back-navigation handler does NOT
+   also fire on the same keystroke
+
 ---
 
 ## Scenario 9 — doctor
 
 1. Press the doctor hotkey from anywhere
-2. **Expected:** doctor view runs all checks: Node version, git, configured AI provider binary, data
-   directory writability, project repos, current sprint health
+2. **Expected:** doctor view runs all checks: Node version, git, configured AI provider binary + auth
+   (per-provider — Claude/Codex show pass/warn, OpenCode shows credential count, Copilot always shows
+   `unknown` since its CLI has no auth-status verb), data directory writability, project repos, current
+   sprint health
 3. **Expected:** failing rows include a short summary line and (where useful) per-item bullets indented below
 4. Press Enter to pop back
 
@@ -364,6 +377,31 @@ ralphctl settings apply-preset opencode-only
 
 **Negative test:** if `opencode` has no free-tier reachability (offline, upstream outage), both runs should
 fail with a clear provider error — not a silent hang or an empty `signals.json`.
+
+---
+
+## Scenario 16 — `ralphctl demo`
+
+**16a — plain mode:**
+
+1. `ralphctl demo --no-launch` from a clean shell
+2. **Expected:** stdout prints the seeded sandbox summary (home dir, repo, project, three sprints — one
+   per pre-flow state) and the `RALPHCTL_HOME=… ralphctl` launch command; no TUI opens
+3. `ralphctl demo` (no `--no-launch`) — **expected:** TUI opens directly into the sandbox's Home view,
+   no `WelcomeView` (settings are pre-seeded)
+4. Re-run `ralphctl demo --no-launch` — **expected:** the sandbox is wiped and reseeded from scratch
+   (the `.ralphctl-demo` marker lets the command trust it owns the directory)
+5. `ralphctl demo --home /tmp/some-existing-non-demo-dir --no-launch` where that dir exists and was NOT
+   created by this command — **expected:** refuses with a clear error, does NOT touch the directory
+
+**16b — scripted mode (no provider CLI or auth needed):**
+
+1. `ralphctl demo --script` on a machine with NO AI CLI installed
+2. **Expected:** the TUI launches into the sandbox; starting Implement on the seeded sprint replays a
+   canned two-round generator → evaluator transcript (FAIL → retry → PASS) through the real `claude-code`
+   adapter's plumbing — no `claude` binary is spawned, and the sprint settles `done`
+3. **Expected:** stdout printed before launch names scripted mode explicitly (every AI row pinned to
+   claude-code, verify script rewritten to a portable one-liner)
 
 ---
 

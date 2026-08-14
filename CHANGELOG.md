@@ -22,9 +22,32 @@ to [Semantic Versioning](https://semver.org/).
 - **Attempts now record what they cost.** Each settled attempt persists the provider-reported
   `inputTokens` / `outputTokens` and the AI-spawn wall-clock `durationMs` (absent — not zero — when a
   provider reports no usage; older records load unchanged).
+- **Deterministic plan-critic check.** A new zero-token pass runs between the AI's proposed task list
+  and the human approval gate, catching task-graph faults, an unknown repository, missing verification
+  criteria, missing `auto` commands, placeholder/prose/multi-line commands, and duplicate criterion
+  ids. Findings are advisory — they're shown above the "Approve plan?" prompt and never block the
+  chain; the operator still decides.
+- **Doctor now probes provider authentication for all four AI CLIs**, not just Codex. Claude Code and
+  Codex answer via their own `auth status` / `login status` verbs; OpenCode reports whether it has a
+  saved credential (its free tier needs none); GitHub Copilot exposes no non-interactive auth-status
+  verb, so its row reports the new `unknown` status — never a guess, never a failure.
+- **`ralphctl demo`** — seeds a throwaway sandbox project (three sprints, one per pre-flow state) and
+  launches straight into the TUI, no provider CLI or auth required to look around. `--no-launch` seeds
+  only; `--home <dir>` relocates the sandbox; `--script` replays a canned generator → evaluator
+  transcript through the real Claude adapter instead of spawning a real CLI, for a fully reproducible
+  first-run recording.
 
 ### Changed
 
+- **Provider port conformance suite.** Every headless and interactive AI adapter is now driven over a
+  scripted, in-process child process and checked against the same contract table, catching port
+  regressions (a dropped root, a prompt inlined into argv, a missing kill rung) at `pnpm test` instead
+  of in a live session. `InteractiveProviderSpec.buildEnv` now receives the engine's fully-resolved
+  session context (the same mounted-root list `buildArgs` sees) and returns a `Result` — a refused
+  grant spawns nothing and logs nothing, rather than silently mounting less than the caller asked for.
+- **Welcome view holds on the zero-CLI warning.** When first-run setup detects no AI CLI on `PATH`, the
+  view used to auto-route away in the same tick the warning rendered, so it was never actually
+  readable. It now waits for `↵` / space / `Esc` before continuing.
 - **A stuck task now samples two candidates before giving up.** `settings.harness.bestOfNCandidates`
   ships enabled at `2` (was `0`, off): when a task has already exhausted the model ladder and the
   same-model change-of-approach nudge, it gets one more attempt that samples two candidate solutions
@@ -34,6 +57,15 @@ to [Semantic Versioning](https://semver.org/).
   `harness.bestOfNCandidates` to `0` (TUI Harness settings or
   `ralphctl settings set harness.bestOfNCandidates 0`); the four `*-economic` presets now pin it to
   `0` for you, so cost-sensitive setups keep the previous behaviour by applying one of them.
+
+### Fixed
+
+- **OpenCode interactive sessions could silently lose access to extra repositories** (#278). The
+  adapter used to grant only the prompt file's directory; a caller-supplied `additionalRoots` (every
+  multi-repo `plan` / `refine` session) was mounted nowhere, so OpenCode would refuse to read the
+  other repos with no error surfaced. It now grants every root the engine resolved, and a root that
+  can't be expressed as a permission pattern (glob metacharacters in the path) fails the session with
+  a named error instead of starting one that can't see what it was asked to.
 
 ## [0.19.0] - 2026-08-10
 

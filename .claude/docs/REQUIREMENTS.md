@@ -290,11 +290,12 @@ Status flow: `draft → planned → active → review → done`.
 
 - [x] **Surface is deliberately smaller than the pre-TUI CLI** — interactive flows (refine / plan / ideate /
       implement / readiness / create-sprint) stay TUI-only. The CLI exposes only inspection commands +
-      one-shot operations: `doctor`, `completion <shell>`, `export-context`, `export-requirements`, `create-pr`,
-      `agents {list}`, `skills {list}`, `settings {show,set,apply-preset}`, `project {list,show,remove}`,
-      `sprint {list,show,set-current,activate,close,remove,progress}`,
-      `ticket {list,show,add,remove}`, `task {list,show,unblock}`,
-      `runs {list,prune}`.
+      one-shot operations: `doctor`, `demo`, `completion <shell>`, `export-context`, `export-requirements`,
+      `create-pr`, `agents {list}`, `skills {list}`, `settings {show,set,apply-preset}`,
+      `project {list,show,remove}`, `sprint {list,show,set-current,activate,close,remove,progress}`,
+      `ticket {list,show,add,remove}`, `task {list,show,unblock}`, `runs {list,prune}`. `demo` is the one
+      exception that DOES mount the TUI by default (`--no-launch` to skip it) — it seeds a throwaway
+      sandbox rather than operating on the user's own data root.
 - [x] **Each one-shot command** has a `tests/e2e/cli/<name>.test.ts` pinning the success-path stdout —
       including `create-pr` and `export-requirements` (help shape + validation/error stdout), closing the set.
 - [x] **Exit codes** — `0` success, `1` error. Set via `process.exitCode = 1` (`cli.ts`) / `process.exit(1)`

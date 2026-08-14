@@ -90,6 +90,18 @@
 - [project_attempt_cost_telemetry_seam.md](project_attempt_cost_telemetry_seam.md) — per-attempt token/duration
   persistence pipeline: ProviderOutput.usage → RoleTurnOutcome → ctx SIGNAL_ACCUM accumulators (CARRY, because
   settle reads them before progress-journal clears) → settle → recordAttemptUsage; absent ≠ 0
+- [project_provider_port_conformance_seam.md](project_provider_port_conformance_seam.md) — scripted-spawn
+  builder lives in src/\_engine (demo bundles it, tests only compose it); buildEnv(input, context)→Result fixed
+  the #278 root drop; effortForwarding is per-SURFACE; eslint-disable must be the LAST comment line
 - [project_provider_literal_duplication_lint_cap.md](project_provider_literal_duplication_lint_cap.md) — a new
   provider-keyed table in settings.ts (raw 'github-copilot'/'openai-codex' literals) can tip sonarjs/no-duplicate-string
   and blow the ratcheted lint cap; hoist PROVIDER_GITHUB_COPILOT/PROVIDER_OPENAI_CODEX like PROVIDER_CLAUDE_CODE
+- [project_trustworthy_firstrun_waves12_2026-08-14.md](project_trustworthy_firstrun_waves12_2026-08-14.md) —
+  doctor 'unknown' status + per-provider auth probe table; useViewKeys CANNOT match Escape/arrows/fn-keys via
+  its `keys` array (Ink collapses their `input` to `''`) — use a raw useInput + claimEscape() instead;
+  seedDemoWorkspace shared by pnpm mock + ralphctl demo; RunCommand has no cwd (use `-C <dir>`); lint is
+  --max-warnings 0 (fatal, not advisory)
+- [project_demo_scripted_spawn_seam.md](project_demo_scripted_spawn_seam.md) — `ralphctl demo --script`:
+  AppDeps.providerSpawn must be forwarded at BOTH launcher rebuild sites (implement bypasses
+  buildLaunchAdapters); scripted beats dispatch off the rounds/<N>/<role>/signals.json path scraped from
+  the prompt — anchor the regex on the whole tail or it locks onto the template's `<outputDir>` prose
