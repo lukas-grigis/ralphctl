@@ -30,6 +30,55 @@ jobs:
           cache: pnpm
           registry-url: 'https://registry.npmjs.org'
 
+      # Tag / version / changelog gates run FIRST: none of them needs node_modules, and a bad
+      # tag or a missing release-notes heading should fail in seconds rather than after a full
+      # install + test + build. Critically, they must all pass BEFORE `Publish to npm` — an npm
+      # publish is irreversible, so nothing that can reject the release may run after it.
+      - name: Verify tag matches package.json version
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::Tag version ($TAG_VERSION) does not match package.json version ($PKG_VERSION)"
+            exit 1
+          fi
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      # No git-log fallback: a commit-subject dump is not release notes, and silently
+      # substituting one hid the real defect (nobody wrote the changelog section) until after
+      # the package was already public. Missing heading and empty body are separate messages
+      # because they have separate fixes.
+      - name: Extract and validate changelog section
+        id: changelog
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if ! grep -qF "## [${VERSION}]" CHANGELOG.md; then
+            echo "::error file=CHANGELOG.md::No '## [${VERSION}]' heading in CHANGELOG.md — write the release notes before tagging."
+            exit 1
+          fi
+          # `marker` is matched as a literal-prefix string (index(...) == 1) rather than a
+          # regex — `## [x.y.z]` contains `[`/`]` regex metacharacters that would otherwise
+          # turn the marker into a single-char class and silently match nothing.
+          SECTION=$(awk -v marker="## [${VERSION}]" '
+            index($0, marker) == 1 { found=1; next }
+            found && substr($0, 1, 4) == "## [" { exit }
+            found { print }
+          ' CHANGELOG.md)
+
+          if [ -z "$(printf '%s' "$SECTION" | tr -d '[:space:]')" ]; then
+            echo "::error file=CHANGELOG.md::The '## [${VERSION}]' section is empty — write the release notes before tagging."
+            exit 1
+          fi
+
+          {
+            echo "notes<<EOF"
+            echo "$SECTION"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - run: pnpm install --frozen-lockfile
 
       - name: Format check
@@ -41,8 +90,13 @@ jobs:
       - name: Type check
         run: pnpm typecheck
 
-      - name: Test
-        run: pnpm test
+      - name: Dead code (knip)
+        run: pnpm deadcode
+
+      # `pnpm coverage`, not `pnpm test`: the release must run the same regression floors CI
+      # gates PRs on, otherwise a release can ship coverage CI would have rejected.
+      - name: Test (with coverage thresholds)
+        run: pnpm coverage
 
       - name: Build
         run: pnpm build
@@ -50,58 +104,21 @@ jobs:
       - name: Verify dist
         run: node dist/cli.mjs --version
 
-      - name: Verify tag matches package.json version
+      # Mirrors ci.yml — `--version` never reaches `runBundleIntegrityCheck`, so it cannot
+      # catch a broken bundled-asset layout. The release gate must not be weaker than CI.
+      - name: Verify dist boots a real subcommand (bundle integrity)
+        env:
+          RALPHCTL_HOME: ${{ runner.temp }}/ralphctl-dist-smoke
         run: |
-          PKG_VERSION=$(node -p "require('./package.json').version")
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
-          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
-            echo "::error::Tag version ($TAG_VERSION) does not match package.json version ($PKG_VERSION)"
-            exit 1
-          fi
+          skills=$(node dist/cli.mjs skills list)
+          printf '%s\n' "$skills" | grep -q '^ralphctl-alignment'
+          agents=$(node dist/cli.mjs agents list)
+          printf '%s\n' "$agents" | grep -q '^ralphctl-evaluator'
 
       - name: Publish to npm
         run: pnpm publish --no-git-checks --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Extract version from tag
-        id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-
-      - name: Extract changelog section
-        id: changelog
-        run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          # Extract the section for this version from CHANGELOG.md.
-          # `marker` is matched as a literal-prefix string (index(...) == 1) rather than a
-          # regex — `## [x.y.z]` contains `[`/`]` regex metacharacters that would otherwise
-          # turn the marker into a single-char class and silently match nothing.
-          SECTION=$(awk -v marker="## [${VERSION}]" '
-            index($0, marker) == 1 { found=1; next }
-            found && substr($0, 1, 4) == "## [" { exit }
-            found { print }
-          ' CHANGELOG.md)
-
-          if [ -z "$SECTION" ]; then
-            # Fallback to git log if no changelog section found
-            PREV_TAG=$(git tag --sort=-version:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed -n '2p')
-            CURRENT_TAG="${GITHUB_REF_NAME}"
-            if [ -n "$PREV_TAG" ]; then
-              SECTION=$(git log "${PREV_TAG}..${CURRENT_TAG}" \
-                --pretty=format:"- %s ([%h](https://github.com/${{ github.repository }}/commit/%H))" \
-                --no-merges)
-            else
-              SECTION=$(git log "${CURRENT_TAG}" \
-                --pretty=format:"- %s ([%h](https://github.com/${{ github.repository }}/commit/%H))" \
-                --no-merges)
-            fi
-          fi
-
-          {
-            echo "notes<<EOF"
-            echo "$SECTION"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3

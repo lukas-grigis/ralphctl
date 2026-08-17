@@ -13,18 +13,31 @@ export default defineConfig({
       reporter: ['text', 'html', 'json-summary', 'lcov'],
       reportsDirectory: './coverage',
       include: ['src/**/*.{ts,tsx}'],
-      exclude: ['src/**/*.test.{ts,tsx}', 'src/**/__tests__/**', 'src/application/ui/**'],
-      // Regression floor — set ~1% below the 2026-08-14 baseline (post the provider
-      // conformance suite + plan-critic + first-run-bundle test lift). Baseline measured
-      // at that date:
-      //   statements 91.04 · branches 81.13 · functions 96.78 · lines 94.03.
+      exclude: ['src/**/*.test.{ts,tsx}', 'src/**/__tests__/**'],
+      // Regression floors, measured 2026-08-17 with `src/application/ui/**` INCLUDED in
+      // coverage — the exclude that used to hide the primary surface (TUI + CLI, 237 files)
+      // is gone, so the whole tree now has a floor. Measured that day:
+      //   whole tree  statements 87.27 · branches 77.16 · functions 91.46 · lines 90.06
+      //   non-UI      statements 91.04 · branches 81.13 · functions 96.78 · lines 94.03
+      //   UI          statements 81.25 · branches 71.31 · functions 84.24 · lines 83.69
+      // Three tiers rather than one lowered global number: v8-over-Ink coverage is noisier
+      // than pure logic, so the UI tier gets its own lower floor while the logic tier keeps
+      // the strict floor it has always had (90/80/96/93 — unchanged).
+      // NOTE: vitest applies the GLOBAL thresholds to every file even when glob keys are
+      // present — the globs ADD floors, they do not partition — so the global row must be
+      // the whole-tree number, not the non-UI one.
+      // Glob matching is on the path relative to the vitest root, so the POSIX separators
+      // below only match on POSIX runners; on Windows an empty coverage map reads as 100%,
+      // i.e. the glob tiers degrade to vacuously-pass, never to a false failure. CI is ubuntu.
       // Raise these in lockstep with new tests; do NOT tighten retroactively in a commit
       // that isn't adding tests.
       thresholds: {
-        statements: 90,
-        branches: 80,
-        functions: 96,
-        lines: 93,
+        statements: 86,
+        branches: 75,
+        functions: 90,
+        lines: 88,
+        '!src/application/ui/**': { statements: 90, branches: 80, functions: 96, lines: 93 },
+        'src/application/ui/**': { statements: 79, branches: 69, functions: 82, lines: 82 },
       },
     },
     // Two projects so the heavy TUI render tests can run with file-level serialisation
