@@ -1,5 +1,8 @@
 # Implementer Memory
 
+- [project_model_catalog_refresh_touchpoints.md](project_model_catalog_refresh_touchpoints.md) — model-catalog
+  refresh hidden touchpoints: sha256 catalog fingerprint gate in escalation-map.test.ts, remap coverage lives in
+  implement-shape.test.ts, AI-SETTINGS.md prose count; + the list that needs no change
 - [project_abort_cause_wiring_seams.md](project_abort_cause_wiring_seams.md) — the block path is the ONE
   in-process `aborted` settle (self-blocked default + crash forensics via ProcessCrashError); fatal
   RateLimit/Abort never reach a settle, so those causes stay unwired
