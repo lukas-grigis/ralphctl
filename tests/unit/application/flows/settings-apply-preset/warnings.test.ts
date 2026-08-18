@@ -42,7 +42,7 @@ describe('settings-apply-preset — warnings', () => {
     expect(saved.value).toBeDefined();
   });
 
-  it('applying mixed without codex warns about codex naming the refine + createPr flows', async () => {
+  it('applying mixed without codex warns about codex naming the refine + implement + createPr flows', async () => {
     const { repo } = repoFor(DEFAULT_SETTINGS);
     const flow = createSettingsApplyPresetFlow({
       settingsRepo: repo,
@@ -54,9 +54,10 @@ describe('settings-apply-preset — warnings', () => {
     const warnings = result.value.ctx.output!.warnings;
     expect(warnings).toHaveLength(1);
     expect(warnings[0]!.provider).toBe('openai-codex');
-    // mixed routes both refine and createPr to codex (createPr mirrors refine's "light
-    // summary" reasoning profile). The grouped warning lists both.
-    expect(warnings[0]!.flows).toEqual(['refine', 'createPr']);
+    // mixed routes refine and createPr to codex, and its implement EVALUATOR is codex while
+    // the generator is claude — the warning must cover the evaluator's provider too, or a
+    // cross-provider preset applies silently on a host that cannot run its gate.
+    expect(warnings[0]!.flows).toEqual(['refine', 'implement', 'createPr']);
   });
 
   it('groups missing flows under one warning per provider', async () => {
@@ -74,7 +75,9 @@ describe('settings-apply-preset — warnings', () => {
     const codex = warnings.find((w) => w.provider === 'openai-codex');
     const copilot = warnings.find((w) => w.provider === 'github-copilot');
     const claude = warnings.find((w) => w.provider === 'claude-code');
-    expect(codex?.flows).toEqual(['refine', 'createPr']);
+    // implement appears under BOTH claude (generator) and codex (evaluator) — mixed splits
+    // the implement roles across providers.
+    expect(codex?.flows).toEqual(['refine', 'implement', 'createPr']);
     expect(copilot?.flows).toEqual(['plan', 'readiness']);
     expect(claude?.flows).toEqual(['implement', 'ideate']);
   });

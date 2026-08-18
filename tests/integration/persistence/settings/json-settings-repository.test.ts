@@ -338,6 +338,36 @@ describe('JsonSettingsRepository', () => {
     expect(onDisk.ai['createPr']).toBeUndefined();
   });
 
+  // The 2026-08-18 Copilot catalog reconciliation renamed two preview slugs and delisted two
+  // Gemini entries. A settings file pinned to any of them predates the change, so `load()` must
+  // silently land the user on the successor rather than on a slug the adapter rejects at spawn.
+  it.each([
+    ['gemini-3.1-pro-preview', 'gemini-3.1-pro'],
+    ['raptor-mini-preview', 'raptor-mini'],
+    ['gemini-2.5-pro', 'gemini-3.1-pro'],
+    ['gemini-3-flash', 'gemini-3.5-flash'],
+  ])('load remaps a persisted copilot row pinned to the retired %s onto %s', async (retired, successor) => {
+    const path = join(String(configRoot), SETTINGS_FILE_NAME);
+    const pinned = {
+      ...DEFAULT_SETTINGS,
+      ai: {
+        ...DEFAULT_SETTINGS.ai,
+        plan: { provider: 'github-copilot', model: retired },
+      },
+    };
+    await fs.writeFile(path, `${JSON.stringify(pinned, null, 2)}\n`);
+
+    const repo = createJsonSettingsRepository({ configRoot });
+    const loaded = await repo.load();
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) return;
+    expect(loaded.value.ai.plan).toEqual({ provider: 'github-copilot', model: successor });
+    // Silent remap — no schemaVersion bump, and the on-disk file is untouched until the next save.
+    expect(loaded.value.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    const onDisk = JSON.parse(await fs.readFile(path, 'utf8')) as { readonly ai: Record<string, unknown> };
+    expect(onDisk.ai['plan']).toEqual({ provider: 'github-copilot', model: retired });
+  });
+
   it('load rejects a settings file from a newer ralphctl version', async () => {
     const path = join(String(configRoot), SETTINGS_FILE_NAME);
     const future = { ...DEFAULT_SETTINGS, schemaVersion: CURRENT_SCHEMA_VERSION + 1 };

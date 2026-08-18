@@ -36,7 +36,9 @@ describe('ralphctl settings apply-preset', () => {
     expect(parsed.ai.refine.provider).toBe('openai-codex');
     expect(parsed.ai.plan.provider).toBe('github-copilot');
     expect(parsed.ai.implement.generator.provider).toBe('claude-code');
-    expect(parsed.ai.implement.evaluator.provider).toBe('claude-code');
+    // `mixed` deliberately grades the Claude author with a Codex critic — the same cross-provider
+    // implement split the shipped defaults use.
+    expect(parsed.ai.implement.evaluator.provider).toBe('openai-codex');
     expect(parsed.ai.readiness.provider).toBe('github-copilot');
     expect(parsed.ai.ideate.provider).toBe('claude-code');
   });

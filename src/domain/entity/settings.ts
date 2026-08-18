@@ -215,6 +215,12 @@ const seedLegacyCreatePrRow = (ai: unknown): unknown => {
  * `claude-opus-4.8-fast`; codex ≥ 0.145 dropped `gpt-5.2` / `gpt-5.3-codex` /
  * `gpt-5.3-codex-spark` — `gpt-5.5` is the conservative successor and the default ladder climbs
  * it to `gpt-5.6-sol` on plateau.)
+ *
+ * The 2026-08-18 Copilot reconciliation adds four more: two preview graduations that changed the
+ * doc's display name — and therefore the derived slug — (`gemini-3.1-pro-preview` →
+ * `gemini-3.1-pro`, `raptor-mini-preview` → `raptor-mini`) and two outright delistings
+ * (`gemini-2.5-pro` → `gemini-3.1-pro`, the pro-tier successor; `gemini-3-flash` →
+ * `gemini-3.5-flash`, the nearest flash successor).
  */
 const RETIRED_MODEL_REMAPS: ReadonlyArray<{
   readonly provider: AiProvider;
@@ -223,6 +229,10 @@ const RETIRED_MODEL_REMAPS: ReadonlyArray<{
 }> = [
   { provider: PROVIDER_CLAUDE_CODE, from: 'claude-opus-4-7', to: 'claude-opus-4-8' },
   { provider: PROVIDER_GITHUB_COPILOT, from: 'claude-opus-4.6-fast', to: 'claude-opus-4.8-fast' },
+  { provider: PROVIDER_GITHUB_COPILOT, from: 'gemini-3.1-pro-preview', to: 'gemini-3.1-pro' },
+  { provider: PROVIDER_GITHUB_COPILOT, from: 'raptor-mini-preview', to: 'raptor-mini' },
+  { provider: PROVIDER_GITHUB_COPILOT, from: 'gemini-2.5-pro', to: 'gemini-3.1-pro' },
+  { provider: PROVIDER_GITHUB_COPILOT, from: 'gemini-3-flash', to: 'gemini-3.5-flash' },
   { provider: PROVIDER_OPENAI_CODEX, from: 'gpt-5.2', to: 'gpt-5.5' },
   { provider: PROVIDER_OPENAI_CODEX, from: 'gpt-5.3-codex', to: 'gpt-5.5' },
   { provider: PROVIDER_OPENAI_CODEX, from: 'gpt-5.3-codex-spark', to: 'gpt-5.5' },

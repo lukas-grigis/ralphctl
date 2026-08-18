@@ -385,8 +385,12 @@ fail with a clear provider error — not a silent hang or an empty `signals.json
 **16a — plain mode:**
 
 1. `ralphctl demo --no-launch` from a clean shell
-2. **Expected:** stdout prints the seeded sandbox summary (home dir, repo, project, three sprints — one
-   per pre-flow state) and the `RALPHCTL_HOME=… ralphctl` launch command; no TUI opens
+2. **Expected:** stdout prints the seeded sandbox summary (home dir, repo, project, the seeded
+   `ai : <provider>-only preset` line, three sprints — one per pre-flow state) and the
+   `RALPHCTL_HOME=… ralphctl` launch command; no TUI opens. The named preset must match the AI CLI
+   actually on your PATH — launching Implement on the "ready to implement" sprint must not fail
+   preflight asking for a _second_ provider's CLI. With no AI CLI installed at all the line reads
+   `claude-only preset (no AI CLI on PATH — placeholder …)`
 3. `ralphctl demo` (no `--no-launch`) — **expected:** TUI opens directly into the sandbox's Home view,
    no `WelcomeView` (settings are pre-seeded)
 4. Re-run `ralphctl demo --no-launch` — **expected:** the sandbox is wiped and reseeded from scratch

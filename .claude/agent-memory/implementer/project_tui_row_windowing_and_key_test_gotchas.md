@@ -40,5 +40,15 @@ key early-returns, so a "keys must not scroll the page" test passes with or with
 view in `<Box height={N}>` and prove non-vacuity by asserting something below the fold is absent.
 Always re-run such a test with the fix reverted.
 
+**6. The 100-column stub hides every WIDE-layout regression on the Execute view.** `ImplementLayout`
+is a two-branch compositor: ≥140 cols (`layout.sidebarLayout`) builds its OWN `TasksPanelHost` inside
+`ImplementMainArea`, <140 cols renders the caller's pre-built `tasksPanel` node via `ExecuteLayout`. A
+handler threaded only into the pre-built node (that was the `v` open-evaluation chord) is a silent
+no-op on any real wide terminal while the width-independent footer keeps advertising it — and every
+Execute-view test rendered at the default 100 cols, so nothing caught it. When adding a prop to the
+tasks panel, thread BOTH branches and A/B the behaviour at 160 AND 100 cols (drive widths through
+`useResponsiveLayout({ columns })` props, or mock `useTerminalSize` as
+`execute-view-width-regimes.test.tsx` does).
+
 Related: [[project_view_hint_single_source]], [[project_trustworthy_firstrun_waves12_2026-08-14]],
 [[project_global_modal_overlay_pattern]].

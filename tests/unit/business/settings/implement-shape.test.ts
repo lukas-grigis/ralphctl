@@ -208,6 +208,63 @@ describe('settings.ai — retired claude-opus-4-7 migration', () => {
     expect(parsed.data.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
   });
 
+  // 2026-08-18 Copilot reconciliation: two preview graduations that renamed the derived slug and
+  // two outright delistings. A persisted row on any of the four must load on its successor.
+  it.each([
+    ['gemini-3.1-pro-preview', 'gemini-3.1-pro'],
+    ['raptor-mini-preview', 'raptor-mini'],
+    ['gemini-2.5-pro', 'gemini-3.1-pro'],
+    ['gemini-3-flash', 'gemini-3.5-flash'],
+  ])('rewrites a copilot flat row pinned to the retired %s to %s', (retired, successor) => {
+    const stale = {
+      ...baseRecord,
+      ai: {
+        ...baseRecord.ai,
+        refine: { provider: 'github-copilot', model: retired },
+        implement: nestedImplement,
+      },
+    };
+    const parsed = SettingsSchema.safeParse(stale);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.ai.refine).toEqual({ provider: 'github-copilot', model: successor });
+    expect(parsed.data.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+  });
+
+  it('rewrites both nested implement roles pinned to the delisted copilot gemini-2.5-pro', () => {
+    const stale = {
+      ...baseRecord,
+      ai: {
+        ...baseRecord.ai,
+        implement: {
+          generator: { provider: 'github-copilot', model: 'gemini-2.5-pro' },
+          evaluator: { provider: 'github-copilot', model: 'gemini-3-flash' },
+        },
+      },
+    };
+    const parsed = SettingsSchema.safeParse(stale);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.ai.implement.generator.model).toBe('gemini-3.1-pro');
+    expect(parsed.data.ai.implement.evaluator.model).toBe('gemini-3.5-flash');
+  });
+
+  it('leaves a non-copilot row pinned to gemini-2.5-pro untouched — the remap is provider-guarded', () => {
+    const stale = {
+      ...baseRecord,
+      ai: {
+        ...baseRecord.ai,
+        // `gemini-2.5-pro` is a plausible custom id on an OpenCode/codex row; only Copilot rows remap.
+        plan: { provider: 'opencode', model: 'gemini-2.5-pro' },
+        implement: nestedImplement,
+      },
+    };
+    const parsed = SettingsSchema.safeParse(stale);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.ai.plan).toEqual({ provider: 'opencode', model: 'gemini-2.5-pro' });
+  });
+
   it.each(['gpt-5.3-codex', 'gpt-5.2', 'gpt-5.3-codex-spark'])(
     'rewrites a codex flat row pinned to the removed %s to gpt-5.5',
     (removedModel) => {

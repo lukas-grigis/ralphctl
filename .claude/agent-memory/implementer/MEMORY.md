@@ -1,5 +1,8 @@
 # Implementer Memory
 
+- [project_model_catalog_refresh_touchpoints.md](project_model_catalog_refresh_touchpoints.md) — model-catalog
+  refresh hidden touchpoints: sha256 catalog fingerprint gate in escalation-map.test.ts, remap coverage lives in
+  implement-shape.test.ts, AI-SETTINGS.md prose count; + the list that needs no change
 - [project_abort_cause_wiring_seams.md](project_abort_cause_wiring_seams.md) — the block path is the ONE
   in-process `aborted` settle (self-blocked default + crash forensics via ProcessCrashError); fatal
   RateLimit/Abort never reach a settle, so those causes stay unwired
@@ -127,7 +130,8 @@
 - [project_tui_row_windowing_and_key_test_gotchas.md](project_tui_row_windowing_and_key_test_gotchas.md) — row-count
   windowing needs 1 entry == 1 terminal row (pre-wrap, not truncate-end); ink-testing stdin batches a whole
   written string into ONE useInput call; stub terminal is 100x24; frame-equality flaps on the footer spinner;
-  page-scroll tests need a fixed-height wrapper or they pass vacuously
+  page-scroll tests need a fixed-height wrapper or they pass vacuously; the 100-col stub hides
+  ImplementLayout's wide (>=140 col) branch entirely — thread + A/B both branches
 - [project_release_gate_seams.md](project_release_gate_seams.md) — release/CI gates: vitest FORCE_COLOR pin (never
   add NO_COLOR), `npm init -y --prefix` writes into CWD (nearly corrupted package.json pre-publish), runCli's
   reportFatal terminal frame (AbortError handled not re-thrown), `prompts list` as the prompt-resolver dist gate

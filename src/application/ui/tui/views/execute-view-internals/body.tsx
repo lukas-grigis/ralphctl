@@ -49,6 +49,12 @@ export interface ExecuteBodyProps {
   readonly currentTaskName: string | undefined;
   readonly currentSubStep: string | undefined;
   readonly tasksPanel: React.ReactNode;
+  /**
+   * `v` handler for the task cards. The narrow layout gets it baked into `tasksPanel`; the wide
+   * sidebar layout builds its own panel, so it needs the handler threaded separately — see
+   * `ImplementLayoutProps.onOpenEvaluation`.
+   */
+  readonly onOpenEvaluation: (taskId: string) => void;
   readonly logEntries: readonly LogEvent[];
   readonly cancelScopeOpen: boolean;
   readonly attemptElapsedMs: number | undefined;
@@ -78,6 +84,7 @@ const MainRegion = ({
   bucketed,
   cancelScopeOpen,
   tasksPanel,
+  onOpenEvaluation,
   executionState,
   taskState,
   now,
@@ -94,6 +101,7 @@ const MainRegion = ({
   | 'bucketed'
   | 'cancelScopeOpen'
   | 'tasksPanel'
+  | 'onOpenEvaluation'
   | 'executionState'
   | 'taskState'
   | 'now'
@@ -111,6 +119,7 @@ const MainRegion = ({
       sessionId={sessionId}
       termColumns={termColumns}
       tasksPanel={tasksPanel}
+      onOpenEvaluation={onOpenEvaluation}
       executionState={executionState}
       taskState={taskState}
       now={now}

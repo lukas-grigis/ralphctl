@@ -39,7 +39,7 @@ describe('settings-models / codex catalog', () => {
 });
 
 describe('settings-models / copilot catalog', () => {
-  // Reconciled to GitHub's official supported-models doc (as of 2026-07-26).
+  // Reconciled to GitHub's official supported-models doc (as of 2026-08-18).
   const official = [
     // OpenAI
     'gpt-5-mini',
@@ -64,20 +64,37 @@ describe('settings-models / copilot catalog', () => {
     'claude-sonnet-4.6',
     'claude-sonnet-5',
     // Google
-    'gemini-2.5-pro',
-    'gemini-3-flash',
-    'gemini-3.1-pro-preview',
+    'gemini-3.1-pro',
     'gemini-3.5-flash',
     'gemini-3.6-flash',
+    'gemini-3.7-flash',
     // Microsoft
     'mai-code-1-flash',
+    'mai-code-1.1-flash',
     // Moonshot
     'kimi-k2.7-code',
+    'kimi-k3',
+    // xAI
+    'grok-4.5',
+    'grok-4.6',
     // Fine-tuned
-    'raptor-mini-preview',
+    'raptor-mini',
   ] as const;
 
-  // De-listed by GitHub — must no longer appear in the static catalog.
+  // Landed in the 2026-08-18 reconciliation — all convention-derived from the doc's display names.
+  const added = [
+    'gemini-3.7-flash',
+    'mai-code-1.1-flash',
+    'kimi-k3',
+    'grok-4.5',
+    'grok-4.6',
+    'gemini-3.1-pro',
+    'raptor-mini',
+  ] as const;
+
+  // De-listed by GitHub — must no longer appear in the static catalog. The last four went in the
+  // 2026-08-18 pass: two preview graduations that renamed the derived slug, two outright
+  // delistings. All are remapped for persisted settings (see `RETIRED_MODEL_REMAPS`).
   const removed = [
     'gpt-5.1',
     'gpt-5.2',
@@ -90,6 +107,10 @@ describe('settings-models / copilot catalog', () => {
     'gemini-3-pro-preview',
     'gemini-3-flash-preview',
     'claude-opus-4.6-fast',
+    'gemini-3.1-pro-preview',
+    'raptor-mini-preview',
+    'gemini-2.5-pro',
+    'gemini-3-flash',
   ] as const;
 
   it('contains exactly the official supported-models list', () => {
@@ -98,6 +119,13 @@ describe('settings-models / copilot catalog', () => {
 
   it('recognizes every official id', () => {
     for (const m of official) {
+      expect(isCopilotModel(m)).toBe(true);
+    }
+  });
+
+  it('adds the 2026-08-18 entries, including the first xAI models', () => {
+    for (const m of added) {
+      expect(COPILOT_MODELS).toContain(m);
       expect(isCopilotModel(m)).toBe(true);
     }
   });

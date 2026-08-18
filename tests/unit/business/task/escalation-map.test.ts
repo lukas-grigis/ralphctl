@@ -199,7 +199,7 @@ describe('DEFAULT_ESCALATION_MAP — catalog lockstep (mechanizes the section 14
   it('catalog fingerprints are unchanged — a failure means a model bump landed; run the model-bump audit', () => {
     expect(fingerprint(CLAUDE_MODELS)).toBe('7aa37ba5efb83173');
     expect(fingerprint(CODEX_MODELS)).toBe('dce39d8df173e3d8');
-    expect(fingerprint(COPILOT_MODELS)).toBe('16647e8dcb879ea9');
+    expect(fingerprint(COPILOT_MODELS)).toBe('f9831a6a08104710');
   });
 });
 
