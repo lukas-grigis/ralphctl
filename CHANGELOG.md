@@ -59,6 +59,15 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **Preset matrices refreshed ahead of the `gpt-5.4-mini` retirement (2026-08-31).** Every curated
+  cheap-tier row on `openai-codex` and `github-copilot` — including the older `gpt-5-mini` rows —
+  now points at `gpt-5.6-luna`, so no shipped preset stamps a model that stops answering on a known
+  date. Two role-fit corrections ride along: `mixed` and `mixed-frontier` now grade their Claude
+  Opus generator with an independent `gpt-5.6-sol` evaluator, matching the cross-provider implement
+  split the shipped defaults already use, and `claude-only` moves readiness off Haiku onto Sonnet 5.
+  `mixed` also drops refine to `gpt-5.6-terra`; the frontier family stays flagship-everywhere.
+  Presets are one-shot snapshots, so this only affects an apply from here on — a stamped config on
+  disk is untouched.
 - **A finished run now tells you what to do next.** The settled outcome card ends with a `Next steps`
   block — the recommended flow for the sprint's current state, with the key that launches it — and a
   failed or cancelled run adds a `Post-mortem` block listing the artifacts it actually left on disk

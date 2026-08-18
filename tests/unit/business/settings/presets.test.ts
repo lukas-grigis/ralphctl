@@ -53,6 +53,14 @@ const STRONG_GATE_PRESETS: readonly PresetName[] = [
   'codex-strong-gate',
 ];
 
+/**
+ * The two presets that intentionally route implement.generator and implement.evaluator to
+ * DIFFERENT providers — a Claude Opus author graded by a Codex `gpt-5.6-sol` critic, mirroring the
+ * cross-provider split shipped in DEFAULT_SETTINGS. Every other preset keeps both roles on one
+ * provider (the strong-gate family splits by tier, not by provider).
+ */
+const CROSS_PROVIDER_IMPLEMENT_PRESETS: readonly PresetName[] = ['mixed', 'mixed-frontier'];
+
 /** Each economic preset and the standard preset whose implement flagship it should climb to. */
 const ECONOMIC_TO_STANDARD: Readonly<Record<string, PresetName>> = {
   'mixed-economic': 'mixed',
@@ -218,6 +226,34 @@ describe('presets', () => {
     expect(out.ai.implement.evaluator.effort).toBe('xhigh');
   });
 
+  it('no preset row references a retiring cheap tier', () => {
+    // `gpt-5.4-mini` retires 2026-08-31 and `gpt-5-mini` is the generation below it; both were
+    // replaced by `gpt-5.6-luna`, which is catalogued on BOTH openai-codex and github-copilot.
+    // The ids stay in the catalogs (an operator may still pin one until the shutoff) — what this
+    // fences is the curated matrices shipping a row that stops spawning on a known date.
+    const retiring = new Set(['gpt-5.4-mini', 'gpt-5-mini']);
+    for (const preset of PRESET_NAMES) {
+      const out = applyPreset(preset, DEFAULT_SETTINGS);
+      for (const flow of FLOW_IDS) {
+        const rows = flow === 'implement' ? [out.ai.implement.generator, out.ai.implement.evaluator] : [out.ai[flow]];
+        for (const row of rows) {
+          expect(retiring.has(row.model), `${preset}/${flow}: ${row.model}`).toBe(false);
+        }
+      }
+    }
+  });
+
+  it('claude-only routes readiness to Sonnet 5 — haiku stays in the cheaper families', () => {
+    // The standard family's story is "the best model per flow purpose"; haiku under-reads a repo
+    // during readiness inventory. The economic / strong-gate / fast families keep haiku there
+    // deliberately, so this assertion is paired with the negative below.
+    expect(applyPreset('claude-only', DEFAULT_SETTINGS).ai.readiness.model).toBe('claude-sonnet-5');
+    expect(applyPreset('claude-only', DEFAULT_SETTINGS).ai.readiness.effort).toBe('medium');
+    for (const preset of ['claude-economic', 'claude-strong-gate', 'claude-fast'] as const) {
+      expect(applyPreset(preset, DEFAULT_SETTINGS).ai.readiness.model, preset).toBe('claude-haiku-4-5');
+    }
+  });
+
   it('isPresetName accepts all twenty-one preset names and rejects garbage', () => {
     for (const preset of EXPECTED_PRESET_ORDER) {
       expect(isPresetName(preset), preset).toBe(true);
@@ -301,12 +337,19 @@ describe('presets', () => {
         }
       });
 
-      it(`'${preset}' stamps both implement.generator and implement.evaluator with the same provider`, () => {
+      it(`'${preset}' stamps implement.generator and implement.evaluator per its family's split rule`, () => {
         const out = applyPreset(preset, DEFAULT_SETTINGS);
+        // Most presets keep generator + evaluator on the SAME provider AND the same model. Two
+        // deliberate exceptions:
+        //   strong-gate — same provider, cheap generator vs permanently-strong evaluator (tier split)
+        //   mixed / mixed-frontier — same tier, Claude author vs Codex critic (provider split), so
+        //                            the gate is a genuinely independent second opinion
+        // Both are asserted explicitly in their own blocks below.
+        if (CROSS_PROVIDER_IMPLEMENT_PRESETS.includes(preset)) {
+          expect(out.ai.implement.generator.provider).not.toBe(out.ai.implement.evaluator.provider);
+          return;
+        }
         expect(out.ai.implement.generator.provider).toBe(out.ai.implement.evaluator.provider);
-        // Every preset keeps generator + evaluator on the SAME provider. Sharing the same MODEL
-        // is the norm too — EXCEPT the strong-gate family, which intentionally pairs a cheap
-        // generator with a permanently-strong evaluator (asserted explicitly in its own block).
         if (!STRONG_GATE_PRESETS.includes(preset)) {
           expect(out.ai.implement.generator.model).toBe(out.ai.implement.evaluator.model);
         }
@@ -345,13 +388,23 @@ describe('presets', () => {
     describe("'mixed' preset matrix", () => {
       const out = applyPreset('mixed', DEFAULT_SETTINGS);
 
-      it('routes refine to openai-codex, plan to github-copilot, implement to claude-code', () => {
+      it('routes refine to openai-codex, plan to github-copilot, the implement generator to claude-code', () => {
         expect(out.ai.refine.provider).toBe('openai-codex');
         expect(out.ai.plan.provider).toBe('github-copilot');
         expect(out.ai.implement.generator.provider).toBe('claude-code');
-        expect(out.ai.implement.evaluator.provider).toBe('claude-code');
         expect(out.ai.readiness.provider).toBe('github-copilot');
         expect(out.ai.ideate.provider).toBe('claude-code');
+      });
+
+      it('grades the Claude generator with a Codex evaluator, matching the shipped default split', () => {
+        // The mixed story is best-of-breed per purpose, and an independent critic beats a critic
+        // that shares the author's blind spots — same split DEFAULT_SETTINGS ships.
+        expect(out.ai.implement.generator.provider).toBe('claude-code');
+        expect(out.ai.implement.generator.model).toBe('claude-opus-5');
+        expect(out.ai.implement.evaluator.provider).toBe('openai-codex');
+        expect(out.ai.implement.evaluator.model).toBe('gpt-5.6-sol');
+        expect(DEFAULT_SETTINGS.ai.implement.evaluator.provider).toBe(out.ai.implement.evaluator.provider);
+        expect(DEFAULT_SETTINGS.ai.implement.evaluator.model).toBe(out.ai.implement.evaluator.model);
       });
 
       it('sets implement and plan effort to xhigh, readiness to medium, refine/ideate unset', () => {
@@ -428,8 +481,18 @@ describe('presets', () => {
         expect(out.ai.implement.evaluator.effort).toBe('low');
       });
 
-      it('uses the mini tier for implement rather than a coding-grade frontier model', () => {
-        expect(out.ai.implement.generator.model).toBe('gpt-5.4-mini');
+      it('uses the cheapest 5.6 tier for implement rather than a coding-grade frontier model', () => {
+        expect(out.ai.implement.generator.model).toBe('gpt-5.6-luna');
+      });
+
+      it('references no retiring gpt-5.4-mini row', () => {
+        // gpt-5.4-mini retires 2026-08-31; gpt-5.6-luna is its successor across every codex row.
+        for (const flow of FLOW_IDS) {
+          const rows = flow === 'implement' ? [out.ai.implement.generator, out.ai.implement.evaluator] : [out.ai[flow]];
+          for (const row of rows) {
+            expect(row.model, `codex-fast/${flow}`).toBe('gpt-5.6-luna');
+          }
+        }
       });
     });
 
@@ -448,17 +511,20 @@ describe('presets', () => {
 
     describe('frontier family tops out at Opus 5 / gpt-5.6-sol (never fable)', () => {
       it('routes implement to the provider flagship at max effort', () => {
-        const cases: ReadonlyArray<[PresetName, string, 'max']> = [
-          ['mixed-frontier', 'claude-opus-5', 'max'],
-          ['claude-frontier', 'claude-opus-5', 'max'],
-          ['copilot-frontier', 'claude-opus-4.8', 'max'],
-          ['codex-frontier', 'gpt-5.6-sol', 'max'],
+        // [preset, generator model, evaluator model, effort] — mixed-frontier is the one row where
+        // the two differ: it keeps the cross-provider gate `mixed` uses, at the frontier tier.
+        const cases: ReadonlyArray<[PresetName, string, string, 'max']> = [
+          ['mixed-frontier', 'claude-opus-5', 'gpt-5.6-sol', 'max'],
+          ['claude-frontier', 'claude-opus-5', 'claude-opus-5', 'max'],
+          ['copilot-frontier', 'claude-opus-4.8', 'claude-opus-4.8', 'max'],
+          ['codex-frontier', 'gpt-5.6-sol', 'gpt-5.6-sol', 'max'],
         ];
-        for (const [preset, model, effort] of cases) {
+        for (const [preset, generatorModel, evaluatorModel, effort] of cases) {
           const out = applyPreset(preset, DEFAULT_SETTINGS);
-          expect(out.ai.implement.generator.model, preset).toBe(model);
-          expect(out.ai.implement.evaluator.model, preset).toBe(model);
+          expect(out.ai.implement.generator.model, preset).toBe(generatorModel);
+          expect(out.ai.implement.evaluator.model, preset).toBe(evaluatorModel);
           expect(out.ai.implement.generator.effort, preset).toBe(effort);
+          expect(out.ai.implement.evaluator.effort, preset).toBe(effort);
         }
       });
     });

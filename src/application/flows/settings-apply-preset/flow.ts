@@ -51,19 +51,27 @@ export const createSettingsApplyPresetFlow = (deps: SettingsApplyPresetDeps): El
 /**
  * Group missing-CLI flows by provider so the surface can show "codex missing — affects refine"
  * instead of "codex missing for refine; codex missing for plan; …". Flows preserve `FLOW_IDS`
- * order so output is stable across runs. For `implement` the generator row's provider drives
- * the warning — the preset stamps both roles with the same provider, so one warning per flow
- * is enough; a cross-provider implement is configured manually after a preset and falls
- * outside the preset-apply warning surface.
+ * order so output is stable across runs. For `implement` both roles' providers drive the
+ * warning — `mixed` / `mixed-frontier` stamp a cross-provider generator/evaluator pair, so the
+ * evaluator's CLI can be missing while the generator's is installed.
  */
 const buildWarnings = (ai: AiSettings, installed: ReadonlySet<AiProvider>): readonly PresetWarning[] => {
   const byProvider = new Map<AiProvider, FlowId[]>();
   for (const flow of FLOW_IDS) {
-    const provider = primaryFlowRow(ai, flow).provider;
-    if (installed.has(provider)) continue;
-    const existing = byProvider.get(provider);
-    if (existing) existing.push(flow);
-    else byProvider.set(provider, [flow]);
+    for (const provider of providersForFlow(ai, flow)) {
+      if (installed.has(provider)) continue;
+      const existing = byProvider.get(provider);
+      if (existing) existing.push(flow);
+      else byProvider.set(provider, [flow]);
+    }
   }
   return [...byProvider.entries()].map(([provider, flows]) => ({ provider, flows }));
+};
+
+/** Implement contributes both role providers (deduped); every other flow has one row. */
+const providersForFlow = (ai: AiSettings, flow: FlowId): readonly AiProvider[] => {
+  const primary = primaryFlowRow(ai, flow).provider;
+  if (flow !== 'implement') return [primary];
+  const evaluator = ai.implement.evaluator.provider;
+  return evaluator === primary ? [primary] : [primary, evaluator];
 };

@@ -5,16 +5,17 @@ import type { AiSettings, Settings } from '@src/domain/entity/settings.ts';
  * applying it stamps `ai.effort` plus all five per-flow rows. Preset identity is NOT
  * persisted; the next per-row edit sticks and nothing remembers which preset was applied.
  *
- * Twenty shipped presets across five families (four each), all equally first-class — no preset
- * is marked "recommended" or "default". Each family carries a `mixed` variant plus one per
- * single provider, in that order. The families:
+ * Twenty-one shipped presets across five families (four each, plus `opencode-only` in the standard
+ * family), all equally first-class — no preset is marked "recommended" or "default". Each family
+ * carries a `mixed` variant plus one per single provider, in that order. The families:
  *   standard      — `mixed` routes each flow to the best provider for that flow's purpose;
  *                   `<provider>-only` routes every flow to that one provider.
  *   economic      — mirror the standard routings but start `implement` one tier below the
  *                   flagship to save tokens, leaning on the escalation ladder to climb only when
  *                   a task plateaus.
  *   strong-gate   — cheap implement generator paired with a permanently-strong evaluator — the
- *                   only family that splits generator and evaluator onto different models.
+ *                   only family that splits generator and evaluator by TIER (`mixed` and
+ *                   `mixed-frontier` split by provider, at the same tier).
  *   fast          — cheapest viable tier at `low` effort, optimising speed/cost over quality;
  *                   the only family with `escalateOnPlateau` stamped OFF so a plateau settles.
  *   frontier      — flagship everywhere at `max` effort (tops out at Opus 5 / GPT-5.6 Sol; codex
@@ -99,10 +100,13 @@ const SONNET = 'claude-sonnet-5';
 const HAIKU = 'claude-haiku-4-5';
 const COPILOT_OPUS = 'claude-opus-4.8';
 const COPILOT_SONNET = 'claude-sonnet-4.6';
-const GPT_5_MINI = 'gpt-5-mini';
-const GPT_5_4_MINI = 'gpt-5.4-mini';
 const GPT_5_6_SOL = 'gpt-5.6-sol';
 const GPT_5_6_TERRA = 'gpt-5.6-terra';
+// Cheap-tier pick for BOTH codex and copilot rows — `gpt-5.4-mini` retires 2026-08-31 and
+// `gpt-5-mini` is the generation below it; `gpt-5.6-luna` is the 5.6 family's cost tier and is
+// catalogued on both providers. It carries a live ladder rung (luna → terra) for the presets
+// that escalate.
+const GPT_5_6_LUNA = 'gpt-5.6-luna';
 
 /**
  * The `mixed` preset matrix — best-of-breed across the three providers. Effort pattern:
@@ -110,22 +114,26 @@ const GPT_5_6_TERRA = 'gpt-5.6-terra';
  * at `medium` (read-only inventory, no deep reasoning needed); `refine` and `ideate` leave
  * effort unset so they inherit the global `high`. Global `ai.effort` is stamped to `high`.
  *
- * Implement stamps the same row on both generator and evaluator — splitting roles across
+ * Implement stamps the same row on both generator and evaluator — with one exception per family:
+ * `mixed` and `mixed-frontier` pair a Claude Opus generator with a Codex `gpt-5.6-sol` evaluator,
+ * mirroring the cross-provider split shipped in `DEFAULT_SETTINGS` (an independent second
+ * opinion is the whole point of the mixed story). Everywhere else, splitting roles across
  * providers is configured explicitly by editing one of the role keys, not by a preset.
  */
 const MIXED: AiSettings = {
   effort: 'high',
-  refine: { provider: CODEX, model: GPT_5_6_SOL },
+  refine: { provider: CODEX, model: GPT_5_6_TERRA },
   plan: { provider: COPILOT, model: COPILOT_SONNET, effort: 'xhigh' },
   implement: {
     generator: { provider: CLAUDE, model: OPUS, effort: 'xhigh' },
-    evaluator: { provider: CLAUDE, model: OPUS, effort: 'xhigh' },
+    // Independent gate: a different provider's flagship grades the Opus author's work.
+    evaluator: { provider: CODEX, model: GPT_5_6_SOL, effort: 'xhigh' },
   },
-  readiness: { provider: COPILOT, model: GPT_5_MINI, effort: 'medium' },
+  readiness: { provider: COPILOT, model: GPT_5_6_LUNA, effort: 'medium' },
   ideate: { provider: CLAUDE, model: OPUS },
   // PR content drafting mirrors refine's "light summary" reasoning profile — a fast Codex
   // model is fine, no need to pay for Opus tokens just to summarise a diff.
-  createPr: { provider: CODEX, model: GPT_5_4_MINI },
+  createPr: { provider: CODEX, model: GPT_5_6_LUNA },
 };
 
 /**
@@ -148,7 +156,7 @@ const CLAUDE_ONLY: AiSettings = {
     generator: { provider: CLAUDE, model: OPUS, effort: 'xhigh' },
     evaluator: { provider: CLAUDE, model: OPUS, effort: 'xhigh' },
   },
-  readiness: { provider: CLAUDE, model: HAIKU, effort: 'medium' },
+  readiness: { provider: CLAUDE, model: SONNET, effort: 'medium' },
   ideate: { provider: CLAUDE, model: OPUS },
   createPr: { provider: CLAUDE, model: SONNET },
 };
@@ -161,9 +169,9 @@ const COPILOT_ONLY: AiSettings = {
     generator: { provider: COPILOT, model: COPILOT_OPUS, effort: 'xhigh' },
     evaluator: { provider: COPILOT, model: COPILOT_OPUS, effort: 'xhigh' },
   },
-  readiness: { provider: COPILOT, model: GPT_5_MINI, effort: 'medium' },
+  readiness: { provider: COPILOT, model: GPT_5_6_LUNA, effort: 'medium' },
   ideate: { provider: COPILOT, model: COPILOT_OPUS },
-  createPr: { provider: COPILOT, model: GPT_5_MINI },
+  createPr: { provider: COPILOT, model: GPT_5_6_LUNA },
 };
 
 /**
@@ -198,9 +206,9 @@ const CODEX_ONLY: AiSettings = {
     generator: { provider: CODEX, model: GPT_5_6_SOL, effort: 'xhigh' },
     evaluator: { provider: CODEX, model: GPT_5_6_SOL, effort: 'xhigh' },
   },
-  readiness: { provider: CODEX, model: GPT_5_4_MINI, effort: 'medium' },
+  readiness: { provider: CODEX, model: GPT_5_6_LUNA, effort: 'medium' },
   ideate: { provider: CODEX, model: GPT_5_6_SOL },
-  createPr: { provider: CODEX, model: GPT_5_4_MINI },
+  createPr: { provider: CODEX, model: GPT_5_6_LUNA },
 };
 
 /**
@@ -226,15 +234,15 @@ const CODEX_ONLY: AiSettings = {
  */
 const MIXED_ECONOMIC: AiSettings = {
   effort: 'high',
-  refine: { provider: CODEX, model: GPT_5_4_MINI },
+  refine: { provider: CODEX, model: GPT_5_6_LUNA },
   plan: { provider: COPILOT, model: COPILOT_SONNET, effort: 'high' },
   implement: {
     generator: { provider: CLAUDE, model: SONNET, effort: 'high' },
     evaluator: { provider: CLAUDE, model: SONNET, effort: 'high' },
   },
-  readiness: { provider: COPILOT, model: GPT_5_MINI, effort: 'medium' },
+  readiness: { provider: COPILOT, model: GPT_5_6_LUNA, effort: 'medium' },
   ideate: { provider: CLAUDE, model: SONNET },
-  createPr: { provider: CODEX, model: GPT_5_4_MINI },
+  createPr: { provider: CODEX, model: GPT_5_6_LUNA },
 };
 
 const CLAUDE_ECONOMIC: AiSettings = {
@@ -252,36 +260,37 @@ const CLAUDE_ECONOMIC: AiSettings = {
 
 const COPILOT_ECONOMIC: AiSettings = {
   effort: 'high',
-  refine: { provider: COPILOT, model: GPT_5_4_MINI },
+  refine: { provider: COPILOT, model: GPT_5_6_LUNA },
   plan: { provider: COPILOT, model: COPILOT_SONNET, effort: 'high' },
   implement: {
     generator: { provider: COPILOT, model: COPILOT_SONNET, effort: 'high' },
     evaluator: { provider: COPILOT, model: COPILOT_SONNET, effort: 'high' },
   },
-  readiness: { provider: COPILOT, model: GPT_5_MINI, effort: 'medium' },
+  readiness: { provider: COPILOT, model: GPT_5_6_LUNA, effort: 'medium' },
   ideate: { provider: COPILOT, model: COPILOT_SONNET },
-  createPr: { provider: COPILOT, model: GPT_5_MINI },
+  createPr: { provider: COPILOT, model: GPT_5_6_LUNA },
 };
 
 const CODEX_ECONOMIC: AiSettings = {
   effort: 'high',
-  refine: { provider: CODEX, model: GPT_5_4_MINI },
+  refine: { provider: CODEX, model: GPT_5_6_LUNA },
   plan: { provider: CODEX, model: GPT_5_6_TERRA, effort: 'high' },
   implement: {
     generator: { provider: CODEX, model: GPT_5_6_TERRA, effort: 'high' },
     evaluator: { provider: CODEX, model: GPT_5_6_TERRA, effort: 'high' },
   },
-  readiness: { provider: CODEX, model: GPT_5_4_MINI, effort: 'medium' },
+  readiness: { provider: CODEX, model: GPT_5_6_LUNA, effort: 'medium' },
   ideate: { provider: CODEX, model: GPT_5_6_TERRA },
-  createPr: { provider: CODEX, model: GPT_5_4_MINI },
+  createPr: { provider: CODEX, model: GPT_5_6_LUNA },
 };
 
 /**
  * `claude-strong-gate` — "strong gate, cheap generation." Mirrors `claude-economic`'s cheap
  * generation tiers but bumps `plan` and the implement EVALUATOR to the opus flagship: a cheap
  * sonnet author paired with a permanently-opus critic. It is the only preset that intentionally
- * SPLITS implement.generator and implement.evaluator onto different models (same `claude-code`
- * provider) — every other preset stamps one shared implement row.
+ * SPLITS implement.generator and implement.evaluator onto different TIERS (same `claude-code`
+ * provider) — every other preset stamps one shared implement row, apart from `mixed` /
+ * `mixed-frontier`, which keep one tier but route the evaluator to a different provider.
  *
  * The generator starts on sonnet and climbs sonnet→opus on plateau via the default escalation
  * ladder, so this preset ASSUMES `settings.harness.escalateOnPlateau` (default true) is on —
@@ -308,8 +317,9 @@ const CLAUDE_STRONG_GATE: AiSettings = {
  * Strong-gate family — "strong gate, cheap generation." Mirrors the economic generation tiers
  * but bumps `plan` and the implement EVALUATOR to the provider flagship: a cheap author paired
  * with a permanently-strong critic. This is the only family that intentionally SPLITS
- * implement.generator and implement.evaluator onto different models (same provider) — every
- * other preset stamps one shared implement row.
+ * implement.generator and implement.evaluator onto different TIERS (same provider) — every
+ * other preset stamps one shared implement row, apart from `mixed` / `mixed-frontier`, which
+ * keep one tier but route the evaluator to a different provider.
  *
  * The generator starts a tier below flagship and climbs to it on plateau via the default
  * escalation ladder, so this family ASSUMES `escalateOnPlateau` (stamped true): without it a
@@ -323,15 +333,15 @@ const CLAUDE_STRONG_GATE: AiSettings = {
  */
 const MIXED_STRONG_GATE: AiSettings = {
   effort: 'high',
-  refine: { provider: CODEX, model: GPT_5_4_MINI },
+  refine: { provider: CODEX, model: GPT_5_6_LUNA },
   plan: { provider: CLAUDE, model: OPUS, effort: 'xhigh' },
   implement: {
     generator: { provider: CLAUDE, model: SONNET, effort: 'high' },
     evaluator: { provider: CLAUDE, model: OPUS, effort: 'xhigh' },
   },
-  readiness: { provider: COPILOT, model: GPT_5_MINI, effort: 'medium' },
+  readiness: { provider: COPILOT, model: GPT_5_6_LUNA, effort: 'medium' },
   ideate: { provider: CLAUDE, model: SONNET },
-  createPr: { provider: CODEX, model: GPT_5_4_MINI },
+  createPr: { provider: CODEX, model: GPT_5_6_LUNA },
 };
 
 const COPILOT_STRONG_GATE: AiSettings = {
@@ -342,14 +352,14 @@ const COPILOT_STRONG_GATE: AiSettings = {
     generator: { provider: COPILOT, model: COPILOT_SONNET, effort: 'high' },
     evaluator: { provider: COPILOT, model: COPILOT_OPUS, effort: 'xhigh' },
   },
-  readiness: { provider: COPILOT, model: GPT_5_MINI, effort: 'medium' },
+  readiness: { provider: COPILOT, model: GPT_5_6_LUNA, effort: 'medium' },
   ideate: { provider: COPILOT, model: COPILOT_SONNET },
-  createPr: { provider: COPILOT, model: GPT_5_MINI },
+  createPr: { provider: COPILOT, model: GPT_5_6_LUNA },
 };
 
 const CODEX_STRONG_GATE: AiSettings = {
   effort: 'high',
-  refine: { provider: CODEX, model: GPT_5_4_MINI },
+  refine: { provider: CODEX, model: GPT_5_6_LUNA },
   plan: { provider: CODEX, model: GPT_5_6_SOL, effort: 'xhigh' },
   implement: {
     // Narrowest gate of the family: terra author climbs the single default-ladder rung to the
@@ -357,9 +367,9 @@ const CODEX_STRONG_GATE: AiSettings = {
     generator: { provider: CODEX, model: GPT_5_6_TERRA, effort: 'high' },
     evaluator: { provider: CODEX, model: GPT_5_6_SOL, effort: 'xhigh' },
   },
-  readiness: { provider: CODEX, model: GPT_5_4_MINI, effort: 'medium' },
+  readiness: { provider: CODEX, model: GPT_5_6_LUNA, effort: 'medium' },
   ideate: { provider: CODEX, model: GPT_5_6_SOL },
-  createPr: { provider: CODEX, model: GPT_5_4_MINI },
+  createPr: { provider: CODEX, model: GPT_5_6_LUNA },
 };
 
 /**
@@ -375,15 +385,15 @@ const CODEX_STRONG_GATE: AiSettings = {
  */
 const MIXED_FAST: AiSettings = {
   effort: 'low',
-  refine: { provider: CODEX, model: GPT_5_4_MINI },
+  refine: { provider: CODEX, model: GPT_5_6_LUNA },
   plan: { provider: COPILOT, model: COPILOT_SONNET, effort: 'low' },
   implement: {
     generator: { provider: CLAUDE, model: SONNET, effort: 'low' },
     evaluator: { provider: CLAUDE, model: SONNET, effort: 'low' },
   },
-  readiness: { provider: COPILOT, model: GPT_5_MINI, effort: 'low' },
+  readiness: { provider: COPILOT, model: GPT_5_6_LUNA, effort: 'low' },
   ideate: { provider: CLAUDE, model: HAIKU },
-  createPr: { provider: CODEX, model: GPT_5_4_MINI },
+  createPr: { provider: CODEX, model: GPT_5_6_LUNA },
 };
 
 const CLAUDE_FAST: AiSettings = {
@@ -401,28 +411,28 @@ const CLAUDE_FAST: AiSettings = {
 
 const COPILOT_FAST: AiSettings = {
   effort: 'low',
-  refine: { provider: COPILOT, model: GPT_5_MINI },
+  refine: { provider: COPILOT, model: GPT_5_6_LUNA },
   plan: { provider: COPILOT, model: COPILOT_SONNET, effort: 'low' },
   implement: {
     generator: { provider: COPILOT, model: COPILOT_SONNET, effort: 'low' },
     evaluator: { provider: COPILOT, model: COPILOT_SONNET, effort: 'low' },
   },
-  readiness: { provider: COPILOT, model: GPT_5_MINI, effort: 'low' },
-  ideate: { provider: COPILOT, model: GPT_5_MINI },
-  createPr: { provider: COPILOT, model: GPT_5_MINI },
+  readiness: { provider: COPILOT, model: GPT_5_6_LUNA, effort: 'low' },
+  ideate: { provider: COPILOT, model: GPT_5_6_LUNA },
+  createPr: { provider: COPILOT, model: GPT_5_6_LUNA },
 };
 
 const CODEX_FAST: AiSettings = {
   effort: 'low',
-  refine: { provider: CODEX, model: GPT_5_4_MINI },
-  plan: { provider: CODEX, model: GPT_5_4_MINI, effort: 'low' },
+  refine: { provider: CODEX, model: GPT_5_6_LUNA },
+  plan: { provider: CODEX, model: GPT_5_6_LUNA, effort: 'low' },
   implement: {
-    generator: { provider: CODEX, model: GPT_5_4_MINI, effort: 'low' },
-    evaluator: { provider: CODEX, model: GPT_5_4_MINI, effort: 'low' },
+    generator: { provider: CODEX, model: GPT_5_6_LUNA, effort: 'low' },
+    evaluator: { provider: CODEX, model: GPT_5_6_LUNA, effort: 'low' },
   },
-  readiness: { provider: CODEX, model: GPT_5_4_MINI },
-  ideate: { provider: CODEX, model: GPT_5_4_MINI },
-  createPr: { provider: CODEX, model: GPT_5_4_MINI },
+  readiness: { provider: CODEX, model: GPT_5_6_LUNA },
+  ideate: { provider: CODEX, model: GPT_5_6_LUNA },
+  createPr: { provider: CODEX, model: GPT_5_6_LUNA },
 };
 
 /**
@@ -446,7 +456,8 @@ const MIXED_FRONTIER: AiSettings = {
   plan: { provider: CLAUDE, model: OPUS, effort: 'max' },
   implement: {
     generator: { provider: CLAUDE, model: OPUS, effort: 'max' },
-    evaluator: { provider: CLAUDE, model: OPUS, effort: 'max' },
+    // Same cross-provider gate as `mixed`, at the frontier tier.
+    evaluator: { provider: CODEX, model: GPT_5_6_SOL, effort: 'max' },
   },
   readiness: { provider: CLAUDE, model: OPUS, effort: 'high' },
   ideate: { provider: CLAUDE, model: OPUS },
