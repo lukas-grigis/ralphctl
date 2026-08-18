@@ -211,7 +211,103 @@ describe('settleAttemptLeaf', () => {
       // The running attempt has been settled as 'aborted' (so the structural invariant holds).
       const last = settled.attempts[settled.attempts.length - 1];
       expect(last?.status).toBe('aborted');
+      // …and attributed: a block is not a killed process, so it must not land in `unknown`.
+      expect(last?.abortCause).toBe('self-blocked');
+      expect(last?.signalOrExitCode).toBeUndefined();
     }
+  });
+
+  it('a crash-driven block stamps the crash cause + exit shape from ctx.lastExit, not `self-blocked`', async () => {
+    const ip = inProgressWithVerification();
+    const { repo, calls } = fakeUpdateTask();
+    const leafEl = settleAttemptLeaf(
+      { taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger },
+      { cwd: absolutePath('/tmp/settle-attempt-test') },
+      ip.id
+    );
+
+    const result = await leafEl.execute({
+      sprintId: 'sprint-x' as SprintId,
+      tasks: [ip],
+      currentTaskId: ip.id,
+      currentTask: ip,
+      lastVerdict: 'failed',
+      // What finalize-gen-eval leaves behind when a repeatedly-crashing task runs out of budget.
+      lastExit: {
+        kind: 'crashed',
+        reason: 'AI process was killed before producing signals.json',
+        abortCause: 'watchdog-killed',
+        signalOrExitCode: 'SIGTERM',
+      },
+      lastBlockReason: 'AI process repeatedly crashed; attempt budget exhausted',
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const settled = calls[0]?.task;
+    const last = settled?.attempts[settled.attempts.length - 1];
+    expect(last?.status).toBe('aborted');
+    expect(last?.abortCause).toBe('watchdog-killed');
+    expect(last?.signalOrExitCode).toBe('SIGTERM');
+  });
+
+  it('a crash-driven block with only an exit code records `process-crash` plus that code', async () => {
+    const ip = inProgressWithVerification();
+    const { repo, calls } = fakeUpdateTask();
+    const leafEl = settleAttemptLeaf(
+      { taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger },
+      { cwd: absolutePath('/tmp/settle-attempt-test') },
+      ip.id
+    );
+
+    const result = await leafEl.execute({
+      sprintId: 'sprint-x' as SprintId,
+      tasks: [ip],
+      currentTaskId: ip.id,
+      currentTask: ip,
+      lastVerdict: 'failed',
+      lastExit: {
+        kind: 'crashed',
+        reason: 'AI process was killed before producing signals.json',
+        abortCause: 'process-crash',
+        signalOrExitCode: 143,
+      },
+      lastBlockReason: 'AI process repeatedly crashed; attempt budget exhausted',
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const settled = calls[0]?.task;
+    const last = settled?.attempts[settled.attempts.length - 1];
+    expect(last?.abortCause).toBe('process-crash');
+    expect(last?.signalOrExitCode).toBe(143);
+  });
+
+  it('an unattributed crashed exit still falls back to `self-blocked` on the block path', async () => {
+    const ip = inProgressWithVerification();
+    const { repo, calls } = fakeUpdateTask();
+    const leafEl = settleAttemptLeaf(
+      { taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger },
+      { cwd: absolutePath('/tmp/settle-attempt-test') },
+      ip.id
+    );
+
+    const result = await leafEl.execute({
+      sprintId: 'sprint-x' as SprintId,
+      tasks: [ip],
+      currentTaskId: ip.id,
+      currentTask: ip,
+      lastVerdict: 'failed',
+      // Legacy / hand-built exit: no forensics to project.
+      lastExit: { kind: 'crashed', reason: 'crashed' },
+      lastBlockReason: 'AI process repeatedly crashed; attempt budget exhausted',
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const settled = calls[0]?.task;
+    const last = settled?.attempts[settled.attempts.length - 1];
+    expect(last?.abortCause).toBe('self-blocked');
   });
 
   it('priorPostVerifyOutcome survives the settle projection (carries to the next task)', async () => {

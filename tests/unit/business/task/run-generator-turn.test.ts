@@ -88,6 +88,49 @@ describe('runGeneratorTurnUseCase', () => {
     }
   });
 
+  it('attributes a watchdog-marked crash so the eventual settle records `watchdog-killed` + the signal', async () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    const err = new ProcessCrashError({
+      entity: 'claude-provider',
+      state: 'exit-143',
+      message: 'claude-provider: process exited with code 143 (signal=SIGTERM): <empty stderr>',
+      signalOrExitCode: 'SIGTERM',
+      watchdogKilled: true,
+    });
+
+    const result = await runGeneratorTurnUseCase({
+      task,
+      callImplement: async () => Result.error(err),
+      logger: noopLogger,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.exit?.abortCause).toBe('watchdog-killed');
+    expect(result.value.exit?.signalOrExitCode).toBe('SIGTERM');
+  });
+
+  it('attributes an unmarked crash as `process-crash`, keeping the reported exit code', async () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    const err = new ProcessCrashError({
+      entity: 'codex-provider',
+      state: 'exit-1',
+      message: 'codex-provider: process exited with code 1: boom',
+      signalOrExitCode: 1,
+    });
+
+    const result = await runGeneratorTurnUseCase({
+      task,
+      callImplement: async () => Result.error(err),
+      logger: noopLogger,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.exit?.abortCause).toBe('process-crash');
+    expect(result.value.exit?.signalOrExitCode).toBe(1);
+  });
+
   it('propagates an AbortError (user cancel) instead of blocking', async () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const err = new AbortError({ elementName: 'codex-provider', reason: 'aborted by caller' });

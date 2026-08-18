@@ -799,6 +799,36 @@ describe('finalizeGenEvalUseCase', () => {
     expect(events.some((e) => e.type === 'model-escalated')).toBe(false);
   });
 
+  it('carries the crashed exit`s forensics through to the caller so settle can attribute the abort', async () => {
+    // finalize is the hop between the turn that saw the ProcessCrashError and the settle that
+    // blocks the task — dropping the attribution here would put every crash-block back in the
+    // `unknown` abort bucket.
+    const result = await finalizeGenEvalUseCase({
+      task: makeInProgressTaskWithRunningAttempt(),
+      sprintId,
+      exit: {
+        kind: 'crashed',
+        reason: 'AI process was killed before producing signals.json: exit 143 (SIGTERM)',
+        abortCause: 'watchdog-killed',
+        signalOrExitCode: 'SIGTERM',
+      },
+      turnsUsed: 1,
+      readConfig: cfg({ escalateOnPlateau: false, maxAttempts: 1 }),
+      taskRepo: okRepo,
+      logger: noopLogger,
+      eventBus: newBus(),
+      clock: fixedClock,
+      generatorModel: 'claude-sonnet-4-6',
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.exit.kind).toBe('crashed');
+    if (result.value.exit.kind !== 'crashed') return;
+    expect(result.value.exit.abortCause).toBe('watchdog-killed');
+    expect(result.value.exit.signalOrExitCode).toBe('SIGTERM');
+  });
+
   // ── Same-model effort rung (activated end-to-end via generatorProvider + generatorEffort) ──────
 
   it('shipped defaults + plateau at ladder top → escalate-effort: task stamped escalatedToEffort=max, shouldFailAttempt=true, NO model stamp, no model-escalated event', async () => {

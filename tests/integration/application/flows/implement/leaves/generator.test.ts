@@ -8,6 +8,7 @@ import {
   startNextAttempt,
 } from '@src/domain/entity/task-attempts.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import { ProcessCrashError } from '@src/domain/value/error/process-crash-error.ts';
 import type { AppEvent, TaskRoundStartedEvent } from '@src/business/observability/events.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { createFakeAiProvider } from '@tests/fixtures/fake-ai-provider.ts';
@@ -483,6 +484,36 @@ describe('generatorLeaf', () => {
     const result = await leaf.execute(baseCtx(task));
     expect(result.ok).toBe(true);
     expect(provider.recordedSessions[0]?.abortSignal).toBeUndefined();
+  });
+
+  it('carries a watchdog-killed spawn`s attribution onto ctx.lastExit (settle stamps it on the attempt)', async () => {
+    // The one hop between the classifier's ProcessCrashError and the settle that blocks the task:
+    // if the leaf drops `abortCause` / `signalOrExitCode` here, every crash-block reads `unknown`.
+    const task = makeInProgressTaskWithRunningAttempt();
+    const provider = {
+      generate: async () =>
+        Result.error(
+          new ProcessCrashError({
+            entity: 'claude-provider',
+            state: 'exit-143',
+            message: 'claude-provider: process exited with code 143 (signal=SIGTERM): <empty stderr>',
+            signalOrExitCode: 'SIGTERM',
+            watchdogKilled: true,
+          })
+        ),
+    };
+    const leaf = generatorLeaf({ ...buildDeps(), provider }, task.id);
+
+    const result = await leaf.execute(baseCtx(task));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.ctx.lastExit?.kind).toBe('crashed');
+    if (result.value.ctx.lastExit?.kind !== 'crashed') return;
+    expect(result.value.ctx.lastExit.abortCause).toBe('watchdog-killed');
+    expect(result.value.ctx.lastExit.signalOrExitCode).toBe('SIGTERM');
+    // A crash is not a block — finalize decides whether the crash blocks the task.
+    expect(result.value.ctx.lastBlockReason).toBeUndefined();
   });
 
   it('publishes a banner-clear for the escalation banner when a new round starts', async () => {

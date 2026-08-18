@@ -120,6 +120,15 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Aborted attempts now say WHY they aborted** (#289). The abort-cause taxonomy had exactly one
+  writer, so `runs stats`' abort table and the TUI task card could only ever print "process crash"
+  or "unknown" — every blocked task landed in the same anonymous bucket. A task block now records
+  the new `self-blocked` cause (nothing was killed: a `<task-blocked>` signal, a signals-contract
+  failure, or a red harness verify gate), and a block driven by a dead AI child records
+  `watchdog-killed` / `process-crash` plus the signal or exit code it died with — the idle-stdout
+  watchdog marks its own kills at the spawn site, so a wedged session is no longer indistinguishable
+  from an external SIGTERM. Ctrl-C and rate-limit exhaustion still tear the run down before any
+  settle observes them and are unchanged (they resume as `process-crash` on the next launch).
 - **A single turn could no longer end a task's attempt on an entropy "plateau".** The action-entropy
   detector scored ONE turn's signal-kind mix: a turn that reported only `change` signals scored zero
   diversity and exited the gen-eval loop, burning an escalation rung and a whole attempt on a run

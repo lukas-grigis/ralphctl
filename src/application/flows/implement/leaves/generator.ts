@@ -6,6 +6,7 @@ import {
   runGeneratorTurnUseCase,
 } from '@src/business/task/run-generator-turn.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
+import type { GenEvalExit } from '@src/business/task/gen-eval-exit.ts';
 import type { InProgressTask } from '@src/domain/entity/task.ts';
 import { latestCritique } from '@src/domain/entity/task-graph.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
@@ -692,7 +693,19 @@ const generatorOutput = (ctx: ImplementCtx, out: GeneratorOutput): ImplementCtx 
   //    ADDS a block reason (conditional spread) and never CLEARS a stale one, a block reason
   //    stamped here would leak past finalize into settle and wrongly terminal-block the task.
   const blockReasonCarry = out.exit.kind === 'self-blocked' ? { lastBlockReason: out.exit.reason } : {};
-  return { ...next, lastExit: { kind: out.exit.kind, reason: out.exit.reason }, ...blockReasonCarry };
+  // A `crashed` exit carries the crash forensics (`abortCause` / `signalOrExitCode`) so the settle
+  // that blocks the task once the crash budget is gone can attribute the aborted attempt. Nothing
+  // was killed on a `self-blocked` exit, so that variant carries no forensics at all.
+  const lastExit: GenEvalExit =
+    out.exit.kind === 'crashed'
+      ? {
+          kind: 'crashed',
+          reason: out.exit.reason,
+          ...(out.exit.abortCause !== undefined ? { abortCause: out.exit.abortCause } : {}),
+          ...(out.exit.signalOrExitCode !== undefined ? { signalOrExitCode: out.exit.signalOrExitCode } : {}),
+        }
+      : { kind: 'self-blocked', reason: out.exit.reason };
+  return { ...next, lastExit, ...blockReasonCarry };
 };
 
 export const generatorLeaf = (deps: GeneratorLeafDeps, taskId: TaskId): Element<ImplementCtx> =>

@@ -551,6 +551,48 @@ describe.each(PROVIDERS)('classifySpawnExit [%s]', (providerName) => {
     }
   });
 
+  it('carries the watchdog marker + the signal onto the crash error so the attempt can say WHY', async () => {
+    // The idle-stdout watchdog's SIGTERM and an external kill produce the same exit shape, so the
+    // marker has to be threaded from the spawn site — without it every wedged-session kill lands
+    // in the attempt record as a generic `process-crash`.
+    const session = baseSession();
+    const outcome = await classifySpawnExit({
+      session,
+      exit: { code: null, signal: 'SIGTERM' },
+      stderr: '',
+      rateLimitRe: RATE_RE,
+      providerName,
+      eventBus: createCapturingBus().bus,
+      watchdogBannerId: 'unused',
+      watchdogKilled: true,
+      onSuccess: () => okSuccess(session),
+    });
+    expect(outcome.kind).toBe('error');
+    if (outcome.kind === 'error' && outcome.error instanceof ProcessCrashError) {
+      expect(outcome.error.watchdogKilled).toBe(true);
+      expect(outcome.error.signalOrExitCode).toBe('SIGTERM');
+    }
+  });
+
+  it('records the numeric exit code and no watchdog marker for an ordinary non-zero exit', async () => {
+    const session = baseSession();
+    const outcome = await classifySpawnExit({
+      session,
+      exit: { code: 2, signal: null },
+      stderr: 'boom',
+      rateLimitRe: RATE_RE,
+      providerName,
+      eventBus: createCapturingBus().bus,
+      watchdogBannerId: 'unused',
+      onSuccess: () => okSuccess(session),
+    });
+    expect(outcome.kind).toBe('error');
+    if (outcome.kind === 'error' && outcome.error instanceof ProcessCrashError) {
+      expect(outcome.error.signalOrExitCode).toBe(2);
+      expect(outcome.error.watchdogKilled).toBeUndefined();
+    }
+  });
+
   it('surfaces processErrorText in the failure message when the CLI wrote nothing to stderr', async () => {
     // opencode reports a fatal CLI error on a stdout `{"type":"error"}` record and leaves stderr
     // EMPTY, so the crash message used to read `process exited with code 1: <empty stderr>` — the

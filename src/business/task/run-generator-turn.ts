@@ -1,11 +1,13 @@
 import { Result } from '@src/domain/result.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
+import type { AbortCause } from '@src/domain/entity/attempt.ts';
 import type { InProgressTask } from '@src/domain/entity/task.ts';
 import { recordRunningAttemptVerification } from '@src/domain/entity/task-attempts.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { ErrorCode } from '@src/domain/value/error/error-code.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
 import { isRecoverableTurnError } from '@src/business/task/turn-error-policy.ts';
+import { abortCauseFromError } from '@src/business/task/abort-cause-from-error.ts';
 
 /**
  * Run one generator turn of the gen-eval loop. Drives a single AI implement call, inspects the
@@ -23,7 +25,18 @@ import { isRecoverableTurnError } from '@src/business/task/turn-error-policy.ts'
  * for reading the provider's `signalsFile` and publishing each signal onto the harness-signal
  * channel before calling this use case.
  */
-export type GeneratorTurnExit = { readonly kind: 'self-blocked' | 'crashed'; readonly reason: string };
+export type GeneratorTurnExit = {
+  readonly kind: 'self-blocked' | 'crashed';
+  readonly reason: string;
+  /**
+   * Crash forensics for a `crashed` exit — mapped from the `ProcessCrashError` that killed the
+   * turn (see `abortCauseFromError`). Rides the exit onto ctx so the settle that eventually
+   * blocks the task attributes the aborted attempt instead of recording `unknown`. Never set on
+   * a `self-blocked` exit: nothing was killed there.
+   */
+  readonly abortCause?: AbortCause;
+  readonly signalOrExitCode?: string | number;
+};
 
 export interface RunGeneratorTurnProps {
   readonly task: InProgressTask;
@@ -92,7 +105,11 @@ export const runGeneratorTurnUseCase = async (
       });
       return Result.ok({
         task: props.task,
-        exit: { kind: 'crashed', reason: `AI process was killed before producing signals.json: ${err.message}` },
+        exit: {
+          kind: 'crashed',
+          reason: `AI process was killed before producing signals.json: ${err.message}`,
+          ...abortCauseFromError(err),
+        },
       });
     }
     log.warn('generator did not produce a valid signals.json — blocking task', {

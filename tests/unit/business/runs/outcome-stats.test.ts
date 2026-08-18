@@ -438,9 +438,10 @@ describe('foldOutcomeStats — abort causes', () => {
     const a3 = abortAttempt(beginAttempt(a2), 'watchdog-killed');
     const a4 = abortAttempt(beginAttempt(a3), 'rate-limit-exhausted');
     const a5 = abortAttempt(beginAttempt(a4), 'process-crash');
-    const a6 = abortAttempt(beginAttempt(a5), 'unknown');
+    const a6 = abortAttempt(beginAttempt(a5), 'self-blocked');
+    const a7 = abortAttempt(beginAttempt(a6), 'unknown');
 
-    const { totals } = foldOutcomeStats([sprintWith([a6])]);
+    const { totals } = foldOutcomeStats([sprintWith([a7])]);
 
     expect(totals.aborts.byCause).toEqual({
       'user-cancel': 1,
@@ -448,9 +449,10 @@ describe('foldOutcomeStats — abort causes', () => {
       'watchdog-killed': 1,
       'rate-limit-exhausted': 1,
       'process-crash': 1,
+      'self-blocked': 1,
       unknown: 1,
     });
-    expect(totals.aborts.attemptsAborted).toBe(6);
+    expect(totals.aborts.attemptsAborted).toBe(7);
   });
 
   it('folds an absent or unrecognised cause into `unknown` and ignores a non-aborted attempt', () => {
@@ -508,6 +510,7 @@ describe('foldOutcomeStats — attempt-based denominator', () => {
         'watchdog-killed': 0,
         'rate-limit-exhausted': 0,
         'process-crash': 0,
+        'self-blocked': 0,
         unknown: 0,
       },
     });

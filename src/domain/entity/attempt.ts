@@ -84,13 +84,20 @@ export type AttemptWarning =
  *
  *  - `user-cancel`          — caller invoked `runner.abort()` (Ctrl-C in the TUI / CLI).
  *  - `sigterm`              — host sent SIGTERM (e.g. external orchestrator killed the process).
- *  - `watchdog-killed`      — the idle-stdout watchdog SIGTERM'd a wedged AI child.
+ *  - `watchdog-killed`      — the idle-stdout watchdog SIGTERM'd a wedged AI child. Stamped
+ *                              in-process when the crash that blocked the task carried the
+ *                              watchdog marker (see `ProcessCrashError.watchdogKilled`).
  *  - `rate-limit-exhausted` — provider 429 retries gave up after `harness.rateLimitRetries`.
- *  - `process-crash`        — the prior process exited without settling the attempt; inferred
- *                              on the next launch when start-attempt finds a leftover `running`
- *                              attempt. We can't tell from a fresh process what killed the
- *                              previous one (Ctrl-C and a v8 OOM both leave the same trace) —
- *                              `process-crash` is the conservative label.
+ *  - `process-crash`        — either the prior process exited without settling the attempt
+ *                              (inferred on the next launch when start-attempt finds a leftover
+ *                              `running` attempt — we can't tell from a fresh process what killed
+ *                              the previous one, so `process-crash` is the conservative label), or
+ *                              the in-process AI child died in a way the watchdog did not claim.
+ *  - `self-blocked`         — nothing was killed: the harness settled the running attempt as
+ *                              aborted because the TASK blocked (generator `<task-blocked>`
+ *                              signal, a signals-contract failure, or a red harness verify gate).
+ *                              The default for the block-driven settle, so those attempts stop
+ *                              landing in `unknown`.
  *  - `unknown`              — fallback for legacy task data written before this field existed.
  *
  * Stored alongside `signalOrExitCode` (POSIX signal name or numeric exit code, when known).
@@ -98,7 +105,7 @@ export type AttemptWarning =
  * (`(SIGTERM)`, `(rate limit)`, etc.).
  */
 export type AbortCause =
-  'user-cancel' | 'sigterm' | 'watchdog-killed' | 'rate-limit-exhausted' | 'process-crash' | 'unknown';
+  'user-cancel' | 'sigterm' | 'watchdog-killed' | 'rate-limit-exhausted' | 'process-crash' | 'self-blocked' | 'unknown';
 
 /**
  * Context attached to a `RunningAttempt` when it was opened as a resume of a prior aborted

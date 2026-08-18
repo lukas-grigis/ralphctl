@@ -4,7 +4,7 @@ import {
   type SettleAttemptProps,
   settleAttemptUseCase,
 } from '@src/business/task/settle-attempt.ts';
-import type { Attempt, AttemptUsage, AttemptWarning } from '@src/domain/entity/attempt.ts';
+import type { AbortCause, Attempt, AttemptUsage, AttemptWarning } from '@src/domain/entity/attempt.ts';
 import type { InProgressTask, Task } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -69,6 +69,13 @@ interface SettleInput {
    */
   readonly criteria?: readonly CriterionVerdict[];
   readonly shouldFailAttempt?: boolean;
+  /**
+   * Crash attribution for the block path, projected from a `crashed` `ctx.lastExit` (the gen-eval
+   * turn mapped it off the provider's `ProcessCrashError`). Absent for every other block — settle
+   * then records `self-blocked`.
+   */
+  readonly abortCause?: AbortCause;
+  readonly signalOrExitCode?: string | number;
   /**
    * Generator / evaluator session ids for the just-settled round, projected from
    * `ctx.priorGeneratorSessionId` / `ctx.priorEvaluatorSessionId` (the gen-eval leaves stamp them
@@ -168,6 +175,21 @@ const deriveSettleWarning = (ctx: ImplementCtx): AttemptWarning | undefined =>
     : ctx.lastWarning;
 
 /**
+ * Project the crash attribution a `crashed` gen-eval exit left on ctx. Only that exit kind carries
+ * it — the AI child really was killed, and the settle stamps the cause onto the attempt when the
+ * crash is what ends up blocking the task. Every other exit (including a plain self-block) yields
+ * `{}` so the use case's `self-blocked` default applies.
+ */
+const projectCrashAttribution = (ctx: ImplementCtx): Pick<SettleInput, 'abortCause' | 'signalOrExitCode'> => {
+  const exit = ctx.lastExit;
+  if (exit === undefined || exit.kind !== 'crashed' || exit.abortCause === undefined) return {};
+  return {
+    abortCause: exit.abortCause,
+    ...(exit.signalOrExitCode !== undefined ? { signalOrExitCode: exit.signalOrExitCode } : {}),
+  };
+};
+
+/**
  * Project every OPTIONAL {@link SettleInput} field straight off ctx (present only when the source
  * field is set). Split out of `input()` so that projection's own guard-clause + verdict/warning
  * derivation stays under the project's complexity ceiling — this helper is a flat list of
@@ -188,7 +210,10 @@ const projectOptionalSettleFields = (
   | 'generatorSessionId'
   | 'evaluatorSessionId'
   | 'usage'
+  | 'abortCause'
+  | 'signalOrExitCode'
 > => ({
+  ...projectCrashAttribution(ctx),
   ...(ctx.lastBlockReason !== undefined ? { blockedReason: ctx.lastBlockReason } : {}),
   ...(warning !== undefined ? { warning } : {}),
   ...(ctx.taskWorkspaceRoot !== undefined ? { workspaceRoot: ctx.taskWorkspaceRoot } : {}),

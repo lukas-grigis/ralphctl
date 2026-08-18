@@ -107,7 +107,13 @@ export interface JournalContinuationState {
   /** Present when this attempt opened as a resume of a prior attempt the harness settled `aborted`. */
   readonly resumedAfter?: {
     readonly cause:
-      'user-cancel' | 'sigterm' | 'watchdog-killed' | 'rate-limit-exhausted' | 'process-crash' | 'unknown';
+      | 'user-cancel'
+      | 'sigterm'
+      | 'watchdog-killed'
+      | 'rate-limit-exhausted'
+      | 'process-crash'
+      | 'self-blocked'
+      | 'unknown';
     readonly fromAttemptN: number;
     readonly abortedAt: string;
   };

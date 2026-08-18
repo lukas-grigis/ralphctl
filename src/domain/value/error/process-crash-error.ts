@@ -6,6 +6,21 @@ export interface ProcessCrashErrorOptions {
   readonly state: string;
   readonly message: string;
   readonly hint?: string;
+  /**
+   * POSIX signal name or numeric exit code the child died with, when the classifier knew it.
+   * Absent for a spawn failure (the child never ran). Persisted verbatim onto the aborted
+   * attempt's `signalOrExitCode` when this crash is what blocked the task.
+   */
+  readonly signalOrExitCode?: string | number;
+  /**
+   * `true` when the idle-stdout watchdog is what killed this child — the ONE fact that separates
+   * a wedged-session kill from an ordinary non-zero exit at the same exit shape (macOS surfaces
+   * the watchdog's SIGTERM as either `signal=SIGTERM` or `code=143`, and an external kill looks
+   * identical). Set at the single shared spawn site, which owns the `onIdle` callback; consumed
+   * by the abort-cause mapping so the attempt records `watchdog-killed` instead of the generic
+   * `process-crash`.
+   */
+  readonly watchdogKilled?: boolean;
 }
 
 /**
@@ -26,6 +41,8 @@ export class ProcessCrashError extends Error {
   readonly entity: string;
   readonly state: string;
   readonly hint?: string;
+  readonly signalOrExitCode?: string | number;
+  readonly watchdogKilled?: boolean;
 
   constructor(opts: ProcessCrashErrorOptions) {
     super(opts.message);
@@ -34,6 +51,12 @@ export class ProcessCrashError extends Error {
     this.state = opts.state;
     if (opts.hint !== undefined) {
       this.hint = opts.hint;
+    }
+    if (opts.signalOrExitCode !== undefined) {
+      this.signalOrExitCode = opts.signalOrExitCode;
+    }
+    if (opts.watchdogKilled === true) {
+      this.watchdogKilled = true;
     }
   }
 }
