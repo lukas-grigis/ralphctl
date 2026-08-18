@@ -91,14 +91,20 @@ const extractBodyText = (json: Record<string, unknown>): string | undefined => {
 };
 
 export const createCopilotStreamParser = (): CopilotStreamParser => {
+  // The `{`-prefix check is only a cheap pre-filter for banner / plain-text lines —
+  // `JSON.parse`'s throw is the authoritative rejection. Deliberately NOT gated on a closing `}`:
+  // a single stray suffix byte (a `\r` that outran the line-feed normaliser, trailing whitespace)
+  // would push every well-formed record into the plain-text branch and silently drop session-id,
+  // body and usage. `raw` is emitted untouched — the debug fan-out consumes it.
   const emit = (raw: string, onLine: (line: CopilotStreamLine) => void): void => {
     if (raw.length === 0) return;
-    if (raw.startsWith('{') && raw.endsWith('}')) {
+    const text = raw.trim();
+    if (text.startsWith('{')) {
       try {
         // Why: stdout-stream records arrive at high volume — extractors below
         // (`stringField`, `extractUsage`, `extractBodyText`) narrowly type-check
         // every field they consume; unknown keys are ignored.
-        const json = JSON.parse(raw) as Record<string, unknown>;
+        const json = JSON.parse(text) as Record<string, unknown>;
         const sessionId = stringField(json, 'session_id', 'sessionId');
         const model = stringField(json, 'model');
         const usage = extractUsage(json);

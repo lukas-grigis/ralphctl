@@ -12,6 +12,13 @@
 
 import { createCappedAppend } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
 
+// Normalise the line ending. We split on `\n` only, so a CRLF stream (a Windows-hosted CLI, or a
+// PTY that translates `\n` → `\r\n`) leaves a trailing `\r` on every line. That one byte used to
+// defeat the JSON guards in the claude / copilot emitters — every record fell through to the
+// plain-text branch and session-id, body and usage were all silently lost. Stripping here keeps
+// both the parse path and the `line.raw` debug fan-out looking at the same normalised string.
+const stripCr = (line: string): string => (line.endsWith('\r') ? line.slice(0, -1) : line);
+
 /**
  * Build a capped NDJSON `feed`/`flush` pair. `emitLine` receives each complete (feed) or trailing
  * partial (flush) raw line and reports zero or more parsed lines via `onLine`.
@@ -36,7 +43,7 @@ export const createCappedLineFeed = <L>(
       buffer = appendCapped(buffer, chunk);
       let nl = buffer.indexOf('\n');
       while (nl !== -1) {
-        const line = buffer.slice(0, nl);
+        const line = stripCr(buffer.slice(0, nl));
         buffer = buffer.slice(nl + 1);
         emitLine(line, onLine);
         nl = buffer.indexOf('\n');
@@ -44,8 +51,9 @@ export const createCappedLineFeed = <L>(
     },
     flush(onLine) {
       if (buffer.length > 0) {
-        emitLine(buffer, onLine);
+        const line = stripCr(buffer);
         buffer = '';
+        emitLine(line, onLine);
       }
     },
   };

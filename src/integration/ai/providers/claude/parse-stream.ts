@@ -37,11 +37,18 @@ import { isRecord, numberField, stringField } from '@src/integration/ai/provider
 // Why: stdout-stream records arrive at high volume — a Zod schema per record is overkill.
 // `ingest()` downstream extracts known fields with narrow `stringField` / `numberField` helpers;
 // unknown keys are ignored.
+//
+// The `{`-prefix check is only a cheap pre-filter for the overwhelmingly common banner /
+// plain-text line — `JSON.parse`'s throw is the authoritative rejection. Deliberately NOT gated on
+// a closing `}`: a single stray suffix byte (a `\r` that outran the line-feed normaliser, trailing
+// whitespace) would push every well-formed record into the plain-text branch and silently drop
+// session-id, body and usage. `raw` is emitted untouched — the debug fan-out consumes it.
 const emitLine = (raw: string, onLine: (line: ClaudeStreamLine) => void): void => {
   if (raw.length === 0) return;
-  if (raw.startsWith('{') && raw.endsWith('}')) {
+  const text = raw.trim();
+  if (text.startsWith('{')) {
     try {
-      const json = JSON.parse(raw) as Record<string, unknown>;
+      const json = JSON.parse(text) as Record<string, unknown>;
       onLine({ raw, json });
       return;
     } catch {
