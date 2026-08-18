@@ -21,7 +21,14 @@ invasive than editing every view. Touch ≈3 files instead of 15.
 overlay needs view-specific data only available inside the view's `Body`.
 
 The Layout-level pattern also dodges the conflict between a letter-key hotkey (e.g. `g`) and any ScrollRegion / ListView
-that uses the same letter — because the modal replaces them, their `useInput` handlers unmount along with the underlying
-view.
+that uses the same letter.
 
-Related: [[feedback_src_next_chain_pattern]] (orthogonal — chain pattern, not UI).
+**Update (2026-08-18):** the Layout no longer swaps children out — it wraps them in `display: overlayOpen ? 'none' :
+'flex'` so they stay MOUNTED (list cursors / expanded cards survive the round trip), and every view-level `useInput`
+gates on `ui.modalOpen` instead of unmounting. Consequence to remember: **a hidden subtree measures 0×0 via
+`measureElement`.** Any component that reacts to its own measurement needs a zero-measurement guard, or opening an
+overlay silently resets it — that was the ScrollRegion scroll-to-top bug (issue #292), fixed by ignoring a
+zero-height viewport reading in its layout effect.
+
+Related: [[feedback_src_next_chain_pattern]] (orthogonal — chain pattern, not UI),
+[[project_tui_row_windowing_and_key_test_gotchas]].

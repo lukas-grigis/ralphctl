@@ -1,5 +1,13 @@
 # Implementer Memory
 
+- [project_abort_cause_wiring_seams.md](project_abort_cause_wiring_seams.md) — the block path is the ONE
+  in-process `aborted` settle (self-blocked default + crash forensics via ProcessCrashError); fatal
+  RateLimit/Abort never reach a settle, so those causes stay unwired
+
+- [project_implement_shared_file_mutex_family.md](project_implement_shared_file_mutex_family.md) — three separate
+  FoldQueues guard implement's shared files (journalMutex / ledgerMutex / serializeAppendFile); gated-writeFile
+  pattern for a deterministic RMW race test
+
 - [project_root_session_id_nested_runners.md](project_root_session_id_nested_runners.md) — nested runners shadow
   currentSessionId(): TUI-keyed chainSessionId must use the new rootSessionId(); + router.reset(entry) is now
   required, and guard's single body-named `skipped` entry is what marks a dependency-blocked task
@@ -44,7 +52,7 @@
 - [project_clipboard_yank_pattern.md](project_clipboard_yank_pattern.md) — global `y` hotkey + clipboard adapter; uses
   ref-based ActiveTaskSummaryProvider on UiState to avoid re-rendering every consumer
 - [project_global_modal_overlay_pattern.md](project_global_modal_overlay_pattern.md) — per-view inline vs
-  App-Layout-level overlay modal; Layout-level wins for sprint-scoped overlays (~3 files vs 15)
+  App-Layout-level overlay modal (~3 files vs 15); hidden-but-mounted children measure 0×0 — guard measurement readers
 - [project_display_clip_markers.md](project_display_clip_markers.md) — audit-[03] display-clip marker tokens (`…` /
   `▼ more`); truncate at display boundary, never at persistence
 - [project_implement_role_meta_sidecar.md](project_implement_role_meta_sidecar.md) — stamp-role-meta leaves persist
@@ -118,7 +126,8 @@
   target stays unique, or the pre-fix artifact poisons the post-fix assertion
 - [project_tui_row_windowing_and_key_test_gotchas.md](project_tui_row_windowing_and_key_test_gotchas.md) — row-count
   windowing needs 1 entry == 1 terminal row (pre-wrap, not truncate-end); ink-testing stdin batches a whole
-  written string into ONE useInput call; stub terminal is 100x24
+  written string into ONE useInput call; stub terminal is 100x24; frame-equality flaps on the footer spinner;
+  page-scroll tests need a fixed-height wrapper or they pass vacuously
 - [project_release_gate_seams.md](project_release_gate_seams.md) — release/CI gates: vitest FORCE_COLOR pin (never
   add NO_COLOR), `npm init -y --prefix` writes into CWD (nearly corrupted package.json pre-publish), runCli's
   reportFatal terminal frame (AbortError handled not re-thrown), `prompts list` as the prompt-resolver dist gate
