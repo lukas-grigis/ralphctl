@@ -76,6 +76,13 @@ to [Semantic Versioning](https://semver.org/).
   of in a live session. `InteractiveProviderSpec.buildEnv` now receives the engine's fully-resolved
   session context (the same mounted-root list `buildArgs` sees) and returns a `Result` — a refused
   grant spawns nothing and logs nothing, rather than silently mounting less than the caller asked for.
+- **Releases are gated harder before they reach npm.** The packaged-install smoke now boots real
+  subcommands (`skills list`, `agents list`) under a throwaway home instead of only `--version`, which
+  answered before the bundled prompt/skill/agent assets were ever checked — the exact blind spot that
+  let the 0.15.0 fresh-install break ship. The release pipeline also validates the changelog section
+  for the version _before_ publishing (a missing or empty heading now fails the release instead of
+  silently substituting a git log), and runs the same coverage floors and dead-code check as CI —
+  floors that now cover the TUI, previously excluded from measurement entirely.
 - **Welcome view holds on the zero-CLI warning.** When first-run setup detects no AI CLI on `PATH`, the
   view used to auto-route away in the same tick the warning rendered, so it was never actually
   readable. It now waits for `↵` / space / `Esc` before continuing.
