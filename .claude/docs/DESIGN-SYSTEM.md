@@ -195,23 +195,24 @@ the same job.
 
 ### 4.2 Content surfaces
 
-| Component        | Purpose                                                                                                                                                                                                                                                                                          |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `Card`           | Bordered content box. Base for ResultCard.                                                                                                                                                                                                                                                       |
-| `ResultCard`     | Chain-settlement outcome card for the Execute-view footer: `kind` is `success` / `failed` / `aborted`. Carries `title`, `summary`, `fields`, `nextSteps`. For info / warning / precondition surfaces in other views, use `Card` (tone `info` / `warning` / `error` / `success`) or `EmptyState`. |
-| `WindowedList`   | Universal windowed-list primitive (`windowed-list.tsx`). Id-based cursor, arrows-primary navigation, `▴/▾` overflow cues. **Use this for every long, scrollable, homogeneous list** — replaces the deleted `CardList` and `ListView`.                                                            |
-| `ListCard`       | Shared frame for cards in a vertical list (tickets, tasks); thin wrapper over `Card`.                                                                                                                                                                                                            |
-| `FieldList`      | Aligned `[label, value]` rows. Used inside cards and detail views.                                                                                                                                                                                                                               |
-| `StatusChip`     | `[DRAFT]` / `[ACTIVE]` / `[REVIEW]` / `[DONE]` bracketed tag.                                                                                                                                                                                                                                    |
-| `Spinner`        | Braille-frame loading indicator with trailing label.                                                                                                                                                                                                                                             |
-| `EmptyState`     | "Nothing here yet" surface with optional next-step pointer.                                                                                                                                                                                                                                      |
-| `OverflowRow`    | `▴ N more` / `▾ N more` cue row emitted by `WindowedList` when items are clipped above or below the visible window. Optional `label` overrides the trailing word (default `more`) for a caller with its own copy.                                                                                |
-| `AsyncListFrame` | Owns the `overlay → loading → error → empty → children` ladder for a `useAsyncLoad`-backed view (`async-list-frame.tsx`). Reuses `LoadingRow` / `LoadErrorRow`; pass an `EmptyState` as `empty`. First consumer: the sprint picker's `PickerBody`.                                               |
-| `Divider`        | Horizontal rule.                                                                                                                                                                                                                                                                                 |
-| `ScrollRegion`   | Scrollable viewport with PgUp/PgDn.                                                                                                                                                                                                                                                              |
-| `PipelineMap`    | Home phase map (refine → plan → implement → close).                                                                                                                                                                                                                                              |
-| `SprintPipeline` | Sprint-detail kanban-style summary.                                                                                                                                                                                                                                                              |
-| `ActionMenu`     | Home action menu + submenus. Items built by `home-internals/menu-items.ts` (`buildMenuItems`).                                                                                                                                                                                                   |
+| Component        | Purpose                                                                                                                                                                                                                                                                                                       |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Card`           | Bordered content box. Base for ResultCard.                                                                                                                                                                                                                                                                    |
+| `ResultCard`     | Chain-settlement outcome card for the Execute-view footer: `kind` is `success` / `failed` / `aborted`. Carries `title`, `summary`, `fields`, `nextSteps`, `forensics`. For info / warning / precondition surfaces in other views, use `Card` (tone `info` / `warning` / `error` / `success`) or `EmptyState`. |
+| `NextStepList`   | Renders "what to do next" rows (`<key> → <label> (<detail>)`) from `buildNextSteps` (`ui/shared/next-steps.ts`). One renderer for all three surfaces — the settled `ResultCard`, Home's sprint card, the Flows orientation card. Never re-derive the wording in a view.                                       |
+| `WindowedList`   | Universal windowed-list primitive (`windowed-list.tsx`). Id-based cursor, arrows-primary navigation, `▴/▾` overflow cues. **Use this for every long, scrollable, homogeneous list** — replaces the deleted `CardList` and `ListView`.                                                                         |
+| `ListCard`       | Shared frame for cards in a vertical list (tickets, tasks); thin wrapper over `Card`.                                                                                                                                                                                                                         |
+| `FieldList`      | Aligned `[label, value]` rows. Used inside cards and detail views.                                                                                                                                                                                                                                            |
+| `StatusChip`     | `[DRAFT]` / `[ACTIVE]` / `[REVIEW]` / `[DONE]` bracketed tag.                                                                                                                                                                                                                                                 |
+| `Spinner`        | Braille-frame loading indicator with trailing label.                                                                                                                                                                                                                                                          |
+| `EmptyState`     | "Nothing here yet" surface with optional next-step pointer.                                                                                                                                                                                                                                                   |
+| `OverflowRow`    | `▴ N more` / `▾ N more` cue row emitted by `WindowedList` when items are clipped above or below the visible window. Optional `label` overrides the trailing word (default `more`) for a caller with its own copy.                                                                                             |
+| `AsyncListFrame` | Owns the `overlay → loading → error → empty → children` ladder for a `useAsyncLoad`-backed view (`async-list-frame.tsx`). Reuses `LoadingRow` / `LoadErrorRow`; pass an `EmptyState` as `empty`. First consumer: the sprint picker's `PickerBody`.                                                            |
+| `Divider`        | Horizontal rule.                                                                                                                                                                                                                                                                                              |
+| `ScrollRegion`   | Scrollable viewport with PgUp/PgDn.                                                                                                                                                                                                                                                                           |
+| `PipelineMap`    | Home phase map (refine → plan → implement → close).                                                                                                                                                                                                                                                           |
+| `SprintPipeline` | Sprint-detail kanban-style summary.                                                                                                                                                                                                                                                                           |
+| `ActionMenu`     | Home action menu + submenus. Items built by `home-internals/menu-items.ts` (`buildMenuItems`).                                                                                                                                                                                                                |
 
 ### 4.3 Execute-view family
 
@@ -310,15 +311,20 @@ only and are suspended while a prompt or overlay is mounted.
 
 ### 6.2 Execute-view keys — active when Execute view owns the focus
 
-| Key               | Action                                     |
-| ----------------- | ------------------------------------------ |
-| `j` / `↓`         | Next task card / row                       |
-| `k` / `↑`         | Previous task card / row                   |
-| `Enter` / `Space` | Expand / collapse card or commit row       |
-| `Esc`             | Collapse expanded card                     |
-| `e`               | Expand done-criteria for the active card   |
-| `c`               | Open cancel-scope picker (attempt vs flow) |
-| `D`               | Detach (background the flow)               |
+| Key               | Action                                                                    |
+| ----------------- | ------------------------------------------------------------------------- |
+| `j` / `↓`         | Next task card / row                                                      |
+| `k` / `↑`         | Previous task card / row                                                  |
+| `Enter` / `Space` | Expand / collapse card or commit row                                      |
+| `Esc`             | Collapse expanded card                                                    |
+| `e`               | Expand done-criteria for the active card                                  |
+| `c`               | Open cancel-scope picker (attempt vs flow)                                |
+| `D`               | Detach (background the flow)                                              |
+| `r`               | Settled run only — reset to Flows so the launch triggers are re-evaluated |
+
+`c` / `D` are live only while the chain runs; `r` only once it has settled, so the two sets never
+contend. A settled run's hint strip reads `↵ home · r re-run · g progress` (`g` is the global
+progress-overlay chord — hinted here, handled globally, never bound twice).
 
 ### 6.2a Sprint picker keys — active when the `S` picker overlay is open
 

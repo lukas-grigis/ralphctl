@@ -19,6 +19,9 @@
  *   - `use-execute-input.ts`         — keyboard + view-hint registration
  *   - `use-live-clock.ts`            — 1-Hz tick while running
  *   - `use-pinned-sprint-context.ts` — pin availability probe, focused-run context, selection converge
+ *   - `use-run-sprint-context.ts`    — the three pin-derived hooks in one call
+ *   - `use-run-forensics.ts`         — existence-checked post-mortem paths for a failed run
+ *   - `use-settled-next-steps.ts`    — session data → `buildNextSteps` input bag
  *   - `use-responsive-layout.ts`     — width-regime + row-cap derivation
  *
  * Layout regimes (driven by terminal width):
@@ -30,6 +33,7 @@
  * Local keys:
  *   c — open the cancel-scope picker (1 = cancel attempt, 2 = cancel whole flow)
  *   D — detach (return to home; the runner keeps running in the background)
+ *   r — (settled only) reset to Flows so the launch triggers are re-evaluated
  */
 
 import React from 'react';
@@ -49,7 +53,6 @@ import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-si
 import type { AppEvent } from '@src/business/observability/events.ts';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
-import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { fmtElapsed } from '@src/application/ui/tui/theme/duration.ts';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
@@ -68,16 +71,16 @@ import type { Task } from '@src/domain/entity/task.ts';
 import type { ResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/use-responsive-layout.ts';
 import type { BucketedDerivation } from '@src/application/ui/tui/views/execute-view-internals/use-bucketed-tasks.ts';
 import type { CancelHandlers } from '@src/application/ui/tui/views/execute-view-internals/use-cancel-handlers.ts';
+import type { NextSteps } from '@src/application/ui/shared/next-steps.ts';
+import { useRunSprintContext } from '@src/application/ui/tui/views/execute-view-internals/use-run-sprint-context.ts';
 
 import { ExecuteBody } from '@src/application/ui/tui/views/execute-view-internals/body.tsx';
 import { LOG_TAIL_LIMIT } from '@src/application/ui/tui/views/execute-view-internals/log-panel.tsx';
 import { TasksPanelHost } from '@src/application/ui/tui/views/execute-view-internals/tasks-panel-host.tsx';
 import { useActiveTaskSummary } from '@src/application/ui/tui/views/execute-view-internals/use-active-task-summary.ts';
-import { useBaselineHealthData } from '@src/application/ui/tui/views/execute-view-internals/use-baseline-health-data.ts';
 import { useBucketedTasks } from '@src/application/ui/tui/views/execute-view-internals/use-bucketed-tasks.ts';
 import { useCancelHandlers } from '@src/application/ui/tui/views/execute-view-internals/use-cancel-handlers.ts';
 import { useCancelScopeStats } from '@src/application/ui/tui/views/execute-view-internals/use-cancel-scope-stats.ts';
-import { usePinnedSprintContext } from '@src/application/ui/tui/views/execute-view-internals/use-pinned-sprint-context.ts';
 import { useResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/use-responsive-layout.ts';
 import { useExecuteInput } from '@src/application/ui/tui/views/execute-view-internals/use-execute-input.ts';
 import { useLiveClock } from '@src/application/ui/tui/views/execute-view-internals/use-live-clock.ts';
@@ -254,6 +257,8 @@ interface UseExecuteRunControlsInput {
   readonly descriptor: SessionDescriptor | undefined;
   readonly modalOpen: boolean;
   readonly router: RouterApi;
+  /** Gates the settled `g progress` hint — the global chord no-ops without a sprint to open. */
+  readonly hasPinnedSprint: boolean;
 }
 
 export interface ExecuteRunControls {
@@ -268,7 +273,12 @@ export interface ExecuteRunControls {
  * is live, the cancel-scope picker's open/closed state (claimed by `useExecuteInput`'s `c` key),
  * and the 1 Hz clock that only ticks while running.
  */
-const useExecuteRunControls = ({ descriptor, modalOpen, router }: UseExecuteRunControlsInput): ExecuteRunControls => {
+const useExecuteRunControls = ({
+  descriptor,
+  modalOpen,
+  router,
+  hasPinnedSprint,
+}: UseExecuteRunControlsInput): ExecuteRunControls => {
   const isRunning = descriptor?.status === 'running';
 
   // Cancel-scope picker — `c` no longer aborts immediately; it opens an inline overlay that
@@ -277,7 +287,7 @@ const useExecuteRunControls = ({ descriptor, modalOpen, router }: UseExecuteRunC
   // while mounted so the picker's `1` / `2` / `esc` keystrokes don't fight this handler.
   const [cancelScopeOpen, setCancelScopeOpen] = React.useState(false);
 
-  useExecuteInput({ isRunning, cancelScopeOpen, setCancelScopeOpen, modalOpen, router });
+  useExecuteInput({ isRunning, cancelScopeOpen, setCancelScopeOpen, modalOpen, router, hasPinnedSprint });
 
   const now = useLiveClock(isRunning);
 
@@ -300,6 +310,7 @@ interface ExecuteViewFrameProps {
   readonly remainingTaskCount: number;
   readonly cancelHandlers: CancelHandlers;
   readonly pinnedSprintStale: boolean;
+  readonly nextSteps: NextSteps;
 }
 
 /**
@@ -323,6 +334,7 @@ const ExecuteViewFrame = ({
   remainingTaskCount,
   cancelHandlers,
   pinnedSprintStale,
+  nextSteps,
 }: ExecuteViewFrameProps): React.JSX.Element => {
   // Wall-clock elapsed since the run started — a display string for the header / footer.
   const endedAt = descriptor.finishedAt ?? runControls.now;
@@ -357,6 +369,7 @@ const ExecuteViewFrame = ({
           onCancelFlow={cancelHandlers.onCancelFlow}
           onDismissCancelScope={cancelHandlers.onDismiss}
           pinnedSprintStale={pinnedSprintStale}
+          nextSteps={nextSteps}
           {...bucketedTasks}
           {...tasksPanelDerivation}
         />
@@ -376,29 +389,24 @@ export const ExecuteView = (): React.JSX.Element => {
   const descriptor = session?.descriptor;
   const pinnedSprintId = descriptor?.pinnedSprintId as SprintId | undefined;
 
-  // Probes sprintRepo (best-effort — blank stale panels via `pinnedSprintStale` when the pin is
-  // closed/removed), registers this run's pinned project/sprint as the focused-run context
-  // (breadcrumb + progress overlay), and converges the global selection onto the pin once
-  // confirmed live — so `n → Flows` targets the run on screen, not a stale pick. See
-  // `use-pinned-sprint-context.ts` for the full rationale (loop-safety, non-persistence).
-  const { pinnedSprintStale } = usePinnedSprintContext({
-    pinnedProjectId: descriptor?.pinnedProjectId as ProjectId | undefined,
-    pinnedProjectLabel: descriptor?.pinnedProjectLabel,
+  // Everything derived from the pin: the availability probe + focused-run context + selection
+  // convergence, the polled baseline-health entities, and the settled card's next steps /
+  // post-mortem paths. See `use-run-sprint-context.ts` for why the three travel together.
+  const { pinnedSprintStale, executionState, taskState, nextSteps } = useRunSprintContext({
+    descriptor,
     pinnedSprintId,
-    pinnedSprintLabel: descriptor?.pinnedSprintLabel,
-    sprintRepo: deps.sprintRepo,
+    deps,
     setFocusedRunContext: ui.setFocusedRunContext,
     selectionSprintId: selection.sprintId,
     followFocusedRun: selection.followFocusedRun,
   });
 
-  const { executionState, taskState } = useBaselineHealthData({
-    baselineSprintId: pinnedSprintId,
-    sprintExecutionRepo: deps.sprintExecutionRepo,
-    taskRepo: deps.taskRepo,
+  const runControls = useExecuteRunControls({
+    descriptor,
+    modalOpen: ui.modalOpen,
+    router,
+    hasPinnedSprint: pinnedSprintId !== undefined,
   });
-
-  const runControls = useExecuteRunControls({ descriptor, modalOpen: ui.modalOpen, router });
 
   const bucketedTasks = useBucketedTasks({ descriptor, chainEvents, signals, eventBus });
 
@@ -477,6 +485,7 @@ export const ExecuteView = (): React.JSX.Element => {
       remainingTaskCount={cancelStats.remainingTaskCount}
       cancelHandlers={cancelHandlers}
       pinnedSprintStale={pinnedSprintStale}
+      nextSteps={nextSteps}
     />
   );
 };

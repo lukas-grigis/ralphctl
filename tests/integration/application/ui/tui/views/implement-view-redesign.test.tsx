@@ -270,6 +270,7 @@ describe('ExecuteBody — wide layout redesign at 180×50', () => {
           onCancelFlow: vi.fn(),
           onDismissCancelScope: vi.fn(),
           pinnedSprintStale: false,
+          nextSteps: { steps: [], forensics: [] },
         })
       )
     );
@@ -359,6 +360,7 @@ describe('ExecuteBody — wide layout redesign at 220×60', () => {
           onCancelFlow: vi.fn(),
           onDismissCancelScope: vi.fn(),
           pinnedSprintStale: false,
+          nextSteps: { steps: [], forensics: [] },
         })
       )
     );

@@ -45,6 +45,21 @@ to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **A finished run now tells you what to do next.** The settled outcome card ends with a `Next steps`
+  block — the recommended flow for the sprint's current state, with the key that launches it — and a
+  failed or cancelled run adds a `Post-mortem` block listing the artifacts it actually left on disk
+  (`progress.md`, the trace, verify logs, the sprint directory). Every path is existence-checked
+  before it is printed, and a run with no sprint of its own — a `create-sprint` that failed before
+  creating one — shows no paths rather than a guessed one. The settled key set grows to
+  `↵ home · r re-run · g progress`; `r` returns to Flows, which re-checks every launch trigger
+  against the sprint's status as it stands now, so a sprint that moved on during the run offers the
+  flow that follows rather than a stale repeat.
+- **Home and Flows now give the same recommendation, checked against the flow menu's own rules.** The
+  two screens derived their "next action" separately and disagreed on four of seven sprint states.
+  Home's advice at `review` pointed at `create-pr`, a flow the Flows menu hides in that state, and it
+  said nothing at all once a sprint was `done`; Flows recommended `implement` where no task was left
+  to run. Both now read one table, `review` offers the two flows that are genuinely available there,
+  and `done` points at the pull request.
 - **Provider port conformance suite.** Every headless and interactive AI adapter is now driven over a
   scripted, in-process child process and checked against the same contract table, catching port
   regressions (a dropped root, a prompt inlined into argv, a missing kill rung) at `pnpm test` instead

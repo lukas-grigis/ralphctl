@@ -50,7 +50,9 @@ import { runRepositorySelection } from '@src/application/ui/tui/views/flows-repo
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import { getRunInTerminal } from '@src/application/ui/tui/runtime/run-in-terminal.ts';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
-import { SprintPipeline, resolveSprintStage } from '@src/application/ui/tui/components/sprint-pipeline.tsx';
+import { SprintPipeline } from '@src/application/ui/tui/components/sprint-pipeline.tsx';
+import { NextStepList } from '@src/application/ui/tui/components/next-steps.tsx';
+import { buildNextSteps, nextStepsInputFromSnapshot } from '@src/application/ui/shared/next-steps.ts';
 import { sectionFor, sectionRank, visibleFlowsFor } from '@src/application/ui/tui/views/flows-visibility.ts';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Runner } from '@src/application/chain/run/runner.ts';
@@ -94,26 +96,34 @@ interface OrientationCardProps {
 /**
  * Status-aware orientation card rendered above the flow menu. Three regimes:
  *
- *   (a) No project selected — points the user toward Projects / P picker.
- *   (b) Project loaded but no sprint — points the user toward Sprints.
- *   (c) Sprint loaded — shows sprint name + status + the single most-eligible next action
- *       derived from the same stage logic the pipeline map uses.
+ *   (a) No project selected — headline plus the pre-sprint next-step rows.
+ *   (b) Project loaded but no sprint — same, one rung further along.
+ *   (c) Sprint loaded — sprint name + status chip + the next-step rows for that status.
+ *
+ * Every regime's recommendation comes from `buildNextSteps`, the same table Home and the
+ * settled ResultCard read. This view used to derive its own wording from `resolveSprintStage`,
+ * which collapsed `planned`/`active` and ignored the ticket count in `draft` — so it disagreed
+ * with Home on four of seven states and recommended `implement` where nothing was runnable.
  *
  * The `v show all` toggle hint is demoted to a secondary dim line below the card.
  */
 const OrientationCard = ({ snapshot, showAll }: OrientationCardProps): React.JSX.Element => {
-  const { project, sprint, triggerInputs } = snapshot;
+  const { project, sprint } = snapshot;
+  const { steps } = buildNextSteps(nextStepsInputFromSnapshot(snapshot));
+  const nextSteps = <NextStepList steps={steps} prefix={`${glyphs.emDash} next: `} />;
+  const showAllHint = (
+    <Box marginTop={spacing.gutter}>
+      <Text dimColor>
+        Press <Text bold>v</Text> to {showAll ? 'hide inapplicable flows' : 'show all flows with disabled reasons'}.
+      </Text>
+    </Box>
+  );
 
   if (project === undefined) {
     return (
       <Card tone="info">
-        <Text>
-          No project selected {glyphs.emDash} pick one with{' '}
-          <Text bold color={inkColors.highlight}>
-            P
-          </Text>{' '}
-          or open Projects to create one.
-        </Text>
+        <Text>No project selected.</Text>
+        {nextSteps}
       </Card>
     );
   }
@@ -122,39 +132,11 @@ const OrientationCard = ({ snapshot, showAll }: OrientationCardProps): React.JSX
     return (
       <Card tone="info">
         <Text>
-          No sprint selected for <Text bold>{project.displayName}</Text> {glyphs.emDash}{' '}
-          {snapshot.sprintCount === 0
-            ? ' create one from Sprints, then return here.'
-            : ' pick one with S or open Sprints.'}
+          No sprint selected for <Text bold>{project.displayName}</Text>.
         </Text>
+        {nextSteps}
       </Card>
     );
-  }
-
-  // Sprint loaded — derive the recommended next action from the pipeline stage.
-  const stage = resolveSprintStage(snapshot);
-  let nextAction: string;
-  switch (stage) {
-    case 'Refine':
-      nextAction = `refine tickets (${String(triggerInputs.pendingTicketCount)} pending)`;
-      break;
-    case 'Plan':
-      nextAction = `plan tasks (${String(triggerInputs.approvedTicketCount)} approved ticket${triggerInputs.approvedTicketCount !== 1 ? 's' : ''})`;
-      break;
-    case 'Implement':
-      nextAction =
-        triggerInputs.resumableTaskCount > 0
-          ? `implement (${String(triggerInputs.resumableTaskCount)} task${triggerInputs.resumableTaskCount !== 1 ? 's' : ''} ready)`
-          : 'implement';
-      break;
-    case 'Review':
-      nextAction = 'apply review feedback';
-      break;
-    case 'Done':
-      nextAction = 'open a pull request';
-      break;
-    default:
-      nextAction = 'pick a flow below';
   }
 
   return (
@@ -162,15 +144,9 @@ const OrientationCard = ({ snapshot, showAll }: OrientationCardProps): React.JSX
       <Box flexDirection="row" gap={1}>
         <Text bold>{sprint.name}</Text>
         <StatusChip label={sprint.status.toUpperCase()} kind={sprintStatusKind(sprint.status)} />
-        <Text dimColor>
-          {glyphs.emDash} next: {nextAction}
-        </Text>
       </Box>
-      <Box marginTop={spacing.gutter}>
-        <Text dimColor>
-          Press <Text bold>v</Text> to {showAll ? 'hide inapplicable flows' : 'show all flows with disabled reasons'}.
-        </Text>
-      </Box>
+      {nextSteps}
+      {showAllHint}
     </Card>
   );
 };

@@ -83,6 +83,9 @@ describe('ExecuteView', () => {
     expect(frame).toMatch(/completed/i);
     // ResultCard renders fields including a Status row.
     expect(frame).toContain('Status');
+    // A settled run must also say what to do next — the card's `nextSteps` block was dead code
+    // until the footer started feeding it.
+    expect(frame).toContain('Next steps');
     // Press ↵ to return — the not-running hint routes Home.
     expect(frame).toContain('home');
     result.unmount();
@@ -429,7 +432,11 @@ describe('ExecuteView', () => {
     });
 
     const liveSprintId = 'sprint-live-no-converge' as unknown as SprintId;
-    const mockSprintRepo = { findById: vi.fn().mockResolvedValue({ ok: true, value: { status: 'done' } }) };
+    // `tickets` is part of the Sprint contract and the settled footer's next-step derivation
+    // reads it — a stub without it is not a Sprint, it just used to go unnoticed.
+    const mockSprintRepo = {
+      findById: vi.fn().mockResolvedValue({ ok: true, value: { status: 'done', tickets: [] } }),
+    };
     const deps: AppDeps = { eventBus: noopEventBus, sprintRepo: mockSprintRepo } as unknown as AppDeps;
 
     const seenSprintIds: Array<SprintId | undefined> = [];
@@ -622,7 +629,11 @@ describe('ExecuteView', () => {
     const sprintA = 'sprint-stale-done' as unknown as SprintId;
     sessions.register({ runner, flowId: 'implement', title: 'Implement — Stale Done', pinnedSprintId: sprintA });
 
-    const mockSprintRepo = { findById: vi.fn().mockResolvedValue({ ok: true, value: { status: 'done' } }) };
+    // `tickets` is part of the Sprint contract and the settled footer's next-step derivation
+    // reads it — a stub without it is not a Sprint, it just used to go unnoticed.
+    const mockSprintRepo = {
+      findById: vi.fn().mockResolvedValue({ ok: true, value: { status: 'done', tickets: [] } }),
+    };
     const deps: AppDeps = { eventBus: noopEventBus, sprintRepo: mockSprintRepo } as unknown as AppDeps;
 
     const { result } = renderView(<ExecuteView />, {

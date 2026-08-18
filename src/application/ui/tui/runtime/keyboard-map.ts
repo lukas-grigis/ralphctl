@@ -139,10 +139,20 @@ export const listKeys = {
   select: { keys: ['↵'], label: 'select' },
 } as const satisfies Record<string, KeyBinding>;
 
-/** Bindings shown specifically while a chain is running on the execute view. */
+/**
+ * Bindings owned by the execute view. `cancel` / `detach` are live only while the chain is
+ * running; `rerun` is the mirror image — live only once it has settled, so the two halves never
+ * contend for a keystroke.
+ *
+ * `r` resets to Flows rather than relaunching the finished flow: Flows re-evaluates every launch
+ * trigger against the sprint's CURRENT status, so a sprint the run moved on offers the flow that
+ * follows instead of a stale repeat. It collides with nothing global (`r` is a view-local reload /
+ * primary-action letter across the browse views, never a global chord).
+ */
 export const executeKeys = {
-  cancel: { keys: ['c'], label: 'cancel run' },
+  cancel: { keys: ['c'], label: 'cancel run (while running)' },
   detach: { keys: ['D'], label: 'detach (background)' },
+  rerun: { keys: ['r'], label: 're-run from Flows (once settled)' },
 } as const satisfies Record<string, KeyBinding>;
 
 /**
