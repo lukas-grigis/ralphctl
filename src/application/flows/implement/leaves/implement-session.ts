@@ -4,7 +4,7 @@ import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
 import { FULL_AUTO } from '@src/integration/ai/providers/_engine/session-permissions.ts';
-import { currentSessionId } from '@src/application/session/session.ts';
+import { rootSessionId } from '@src/application/session/session.ts';
 
 /**
  * Per-call AiSession profile for implement and evaluate calls. The session "plugs onto" the
@@ -68,12 +68,15 @@ export const implementSession = (
   // with `signals-missing`.
   const outputDir = AbsolutePath.parse(dirname(String(signalsFile)));
   // Read the chain/runner session id HERE — this helper is invoked from inside the
-  // generator/evaluator leaf's `execute(...)`, which the runner wraps in `runWithSession`,
-  // so `currentSessionId()` returns the active runner id. Threaded onto the session as DATA
-  // so the headless adapter can stamp it onto the token-usage event WITHOUT importing the
+  // generator/evaluator leaf's `execute(...)`, which the runner wraps in `runWithSession`.
+  // `rootSessionId()` (NOT `currentSessionId()`) is deliberate: on the parallel path each task
+  // runs on its own branch runner whose scope shadows the current id with `task-<taskId>`, and
+  // the Execute view keys its token-usage map by the HOST runner id — stamping the branch id
+  // filed every event under a key nothing ever looks up. Threaded onto the session as DATA so
+  // the headless adapter can stamp it onto the token-usage event WITHOUT importing the
   // application session helper across the layer boundary. Undefined when no session scope is
   // active (e.g. a direct unit-test call) → the spread below omits the field.
-  const chainSessionId = currentSessionId();
+  const chainSessionId = rootSessionId();
   return {
     prompt,
     cwd: repoPath,

@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { ensureGitExcludeWildcard } from '@src/integration/io/git-exclude.ts';
 
 const makeRoot = async (): Promise<AbsolutePath> => {
@@ -66,6 +67,53 @@ describe('ensureGitExcludeWildcard', () => {
 
     const content = await readFile(join(String(root), '.git/info/exclude'), 'utf8');
     expect(content).toBe(`  ${PATTERN}  \n`);
+  });
+
+  it('follows the worktree commondir pointer — git only reads the COMMON info/exclude', async () => {
+    const main = await makeRoot();
+    const gitdir = join(String(main), '.git/worktrees/wt');
+    await mkdir(join(gitdir, 'info'), { recursive: true });
+    await mkdir(join(String(main), '.git/info'), { recursive: true });
+    // git writes `commondir` into every linked-worktree gitdir, relative to that gitdir.
+    await writeFile(join(gitdir, 'commondir'), '../..\n', 'utf8');
+
+    const worktree = await makeRoot();
+    await writeFile(join(String(worktree), '.git'), `gitdir: ${gitdir}\n`, 'utf8');
+
+    const result = await ensureGitExcludeWildcard(worktree, PATTERN);
+    expect(result.ok).toBe(true);
+
+    const common = await readFile(join(String(main), '.git/info/exclude'), 'utf8');
+    expect(common).toBe(`${PATTERN}\n`);
+    // The per-worktree gitdir copy is the file git ignores — it must stay untouched.
+    await expect(readFile(join(gitdir, 'info/exclude'), 'utf8')).rejects.toThrow();
+  });
+
+  it('accepts an absolute commondir path', async () => {
+    const main = await makeRoot();
+    const gitdir = await mkdtemp(join(tmpdir(), 'wt-gitdir-'));
+    await mkdir(join(String(main), '.git/info'), { recursive: true });
+    await writeFile(join(gitdir, 'commondir'), `${join(String(main), '.git')}\n`, 'utf8');
+
+    const worktree = await makeRoot();
+    await writeFile(join(String(worktree), '.git'), `gitdir: ${gitdir}\n`, 'utf8');
+
+    const result = await ensureGitExcludeWildcard(worktree, PATTERN);
+    expect(result.ok).toBe(true);
+
+    const common = await readFile(join(String(main), '.git/info/exclude'), 'utf8');
+    expect(common).toBe(`${PATTERN}\n`);
+  });
+
+  it('returns an error Result instead of throwing when .git cannot be inspected', async () => {
+    const root = await makeRoot();
+    // A self-referential symlink makes stat() fail with ELOOP — neither ENOENT nor ENOTDIR.
+    await symlink('.git', join(String(root), '.git'));
+
+    const result = await ensureGitExcludeWildcard(root, PATTERN);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('unreachable');
+    expect(result.error).toBeInstanceOf(StorageError);
   });
 
   it('resolves the worktree pointer file (.git is a file containing gitdir:)', async () => {

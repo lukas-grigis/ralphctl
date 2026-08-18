@@ -55,7 +55,14 @@ export const bootstrapCli = async (): Promise<CliBootstrap> => {
 
   const settingsRepo = createJsonSettingsRepository({ configRoot: paths.value.configRoot });
   const settings = await settingsRepo.load();
-  if (!settings.ok) throw new Error(`settings: ${settings.error.message}`);
+  // The repair hint is the actionable half of a bad-settings failure ("fix or delete
+  // settings.json …"), and this throw is the only thing the terminal reporter in
+  // `report-cli-error.ts` gets to print — drop it and the operator is told what is broken but not
+  // what to do about it.
+  if (!settings.ok) {
+    const hint = 'hint' in settings.error && settings.error.hint !== undefined ? ` (${settings.error.hint})` : '';
+    throw new Error(`settings: ${settings.error.message}${hint}`);
+  }
 
   const deps = wire({ storage: paths.value, settings: settings.value });
 

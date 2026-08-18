@@ -34,7 +34,7 @@ import { useGlobalKeys } from '@src/application/ui/tui/runtime/use-global-keys.t
 import { EvaluationOverlay } from '@src/application/ui/tui/components/evaluation-overlay.tsx';
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import type { EvaluationTarget } from '@src/application/ui/tui/runtime/evaluation-target.ts';
-import { waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 
 const SPRINT_ID_STR = '0193ed2b-1234-7abc-8def-0123456789ab';
 const TASK_ID = 'task-eval-degrade';
@@ -145,9 +145,9 @@ const openAndWaitFor = async (
   marker: string
 ): Promise<{ readonly frame: string; readonly unmount: () => void }> => {
   const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} evaluationTarget={evaluationTarget} />);
-  await waitFor(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
+  await waitForPredicate(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
   stdin.write('v');
-  await waitFor(() => (lastFrame() ?? '').includes(marker));
+  await waitForPredicate(() => (lastFrame() ?? '').includes(marker));
   return { frame: lastFrame() ?? '', unmount };
 };
 

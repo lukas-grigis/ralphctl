@@ -146,8 +146,9 @@ describe('postTaskVerifyLeaf', () => {
     expect(row?.outcome).toBe('success');
     expect(row?.exitCode).toBe(0);
     // Carry-baseline: a green post stamps `priorPostVerifyOutcome` onto ctx so the next
-    // task's pre-task-verify can short-circuit when the cwd matches + tree is clean.
-    expect(out.value.ctx.priorPostVerifyOutcome).toEqual({ cwd: CWD, outcome: 'success' });
+    // task's pre-task-verify can short-circuit when the cwd matches + tree is clean. The legacy
+    // single-script path always covers the whole tree, so the carry is eligible.
+    expect(out.value.ctx.priorPostVerifyOutcome).toEqual({ cwd: CWD, outcome: 'success', coveredAllGates: true });
   });
 
   it('marks verify-failed with exitCode + verbatim stderr when red (audit-[03] — no persistence-time clip)', async () => {
@@ -194,7 +195,7 @@ describe('postTaskVerifyLeaf', () => {
     // Carry-baseline still records the (cwd, outcome) pair — pre-task-verify only
     // short-circuits when the outcome is 'success', so a 'failed' carry just means the next
     // task's pre-verify will fall through to the real script.
-    expect(out.value.ctx.priorPostVerifyOutcome).toEqual({ cwd: CWD, outcome: 'failed' });
+    expect(out.value.ctx.priorPostVerifyOutcome).toEqual({ cwd: CWD, outcome: 'failed', coveredAllGates: true });
   });
 
   it('attribution truth table — pre=red, post=red → baseline-broken (preserve verdict, NO block)', async () => {
@@ -291,8 +292,8 @@ describe('postTaskVerifyLeaf', () => {
       // Pre-verify block reason survives untouched (the leaf must not clear it).
       expect(out.value.ctx.lastBlockReason).toBe(ctx.lastBlockReason);
       // Carry records outcome 'skipped' so the NEXT task's pre-verify carry (needs 'success')
-      // does not short-circuit the real script.
-      expect(out.value.ctx.priorPostVerifyOutcome).toEqual({ cwd: CWD, outcome: 'skipped' });
+      // does not short-circuit the real script. No gate ran at all → not a full-tree baseline.
+      expect(out.value.ctx.priorPostVerifyOutcome).toEqual({ cwd: CWD, outcome: 'skipped', coveredAllGates: false });
     });
 
     it('turn-1 generator self-block (lastBlockReason set, genEvalTurn === 1) → does NOT short-circuit, runs the real script', async () => {
@@ -410,6 +411,32 @@ describe('postTaskVerifyLeaf', () => {
       const { runner, ran } = gateShell();
       await runGated({ gitRunner: footprintGit([]), shell: runner, preOutcome: 'success' });
       expect(ran()).toEqual(['test-web', 'test-api', 'lint-all']);
+    });
+
+    it('a DIFF-SCOPED green post is NOT carried as a full-tree green baseline', async () => {
+      // Headline regression. A scoped run's `outcome: 'success'` only means "every EXECUTED gate
+      // passed" — the gates outside the diff footprint never ran. Carrying that as a whole-tree
+      // green would let the NEXT task's pre-verify short-circuit to a synthetic green baseline it
+      // never measured, and a pre-existing red gate that task then touches reads as `regressed`:
+      // the harness blames the AI for a baseline it never broke, burns the retry budget and
+      // bypasses both the baseline-broken escape hatch and the operator's 'proceed' amnesty.
+      const { runner, ran } = gateShell();
+      const ctx = await runGated({
+        gitRunner: footprintGit(['apps/web-ui/src/App.tsx']),
+        shell: runner,
+        preOutcome: 'success',
+      });
+      expect(ran()).toEqual(['test-web', 'lint-all']); // the api gate never ran…
+      expect(ctx.priorPostVerifyOutcome).toEqual({ cwd: CWD, outcome: 'success', coveredAllGates: false });
+    });
+
+    it('the run-ALL fallback (empty footprint) IS carried as a full-tree green baseline', async () => {
+      // The complement of the case above: with no usable scope every gate executes, so a green
+      // aggregate really is whole-tree evidence and the next task may still short-circuit.
+      const { runner, ran } = gateShell();
+      const ctx = await runGated({ gitRunner: footprintGit([]), shell: runner, preOutcome: 'success' });
+      expect(ran()).toEqual(['test-web', 'test-api', 'lint-all']);
+      expect(ctx.priorPostVerifyOutcome).toEqual({ cwd: CWD, outcome: 'success', coveredAllGates: true });
     });
 
     it('post fail-fast: a red module gate stops before the catch-all runs', async () => {

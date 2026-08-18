@@ -20,7 +20,7 @@ import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts'
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
 import { writeTextAtomic } from '@src/integration/io/fs.ts';
-import { currentSessionId } from '@src/application/session/session.ts';
+import { rootSessionId } from '@src/application/session/session.ts';
 import { deriveTaskKind } from '@src/business/task/derive-task-kind.ts';
 import { buildReproducePrompt } from '@src/integration/ai/prompts/reproduce/definition.ts';
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
@@ -186,7 +186,7 @@ const buildReproduceSession = (opts: {
   readonly bodyFile: AbsolutePath;
   readonly abortSignal: AbortSignal | undefined;
 }): AiSession => {
-  const chainSessionId = currentSessionId();
+  const chainSessionId = rootSessionId();
   return {
     prompt: opts.prompt,
     cwd: opts.cwd,

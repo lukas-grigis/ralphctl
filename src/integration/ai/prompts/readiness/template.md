@@ -160,7 +160,8 @@ Do not invent stack claims without evidence.
 3. `verify-skill-proposal` — optional. Same shape as the setup skill but for verification (typecheck /
    lint / test). Omit entirely when the project has no canonical verify command.
 4. `skill-suggestions` — optional. `names` is a list of kebab-case bundled skill names to link (e.g.
-   `["typescript-strict"]`).
+   `["typescript-strict"]`). Each name becomes a directory name, so it must be lowercase alphanumeric
+   with single hyphens — no paths, no separators, no spaces. The harness silently drops any other name.
 5. `note` — optional. One short observation. MUST be the only signal emitted when the repo cannot be
    characterised.
 6. `learning` — optional. A durable insight worth recording beyond this session (e.g. a

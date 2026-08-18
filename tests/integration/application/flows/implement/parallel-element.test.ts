@@ -211,6 +211,59 @@ describe('createParallelImplementElement — B4 abort durability gate', () => {
   });
 });
 
+describe('createParallelImplementElement — operator abort from INSIDE a branch', () => {
+  it('stops the schedule (no later wave), keeps the durable fold, and returns the operator AbortError verbatim', async () => {
+    // The operator answers "abort" at an in-branch prompt (e.g. the red-baseline gate in
+    // verify-execution): the branch chain returns an AbortError with the OUTER signal untouched.
+    // The whole run must stop — not carry on spending AI sessions on the remaining waves.
+    const t1 = makeTodoTask({ name: 't1' });
+    const t2 = makeTodoTask({ name: 't2' });
+    const t3 = makeTodoTask({ name: 't3' });
+    const log: string[] = [];
+    const persisted: Persisted = { tasks: undefined };
+    const lockLog: string[] = [];
+    const bus = stubBus([]);
+    const operatorAbort = new AbortError({
+      elementName: 'verify-execution',
+      reason: 'operator aborted sprint on broken baseline',
+    });
+
+    const abortingBranch: WaveBranch<ImplementCtx> = {
+      id: `task-${String(t2.id)}`,
+      element: {
+        name: `branch-${String(t2.id)}`,
+        async execute(): Promise<ElementResult<ImplementCtx>> {
+          log.push(`branch-${t2.name}`);
+          return Result.error({
+            error: operatorAbort,
+            trace: [{ elementName: 'verify-execution', status: 'aborted', durationMs: 0, error: operatorAbort }],
+          });
+        },
+      },
+    };
+
+    const branches = [[doneBranch(t1, log), abortingBranch], [doneBranch(t3, log)]];
+    const element = createParallelImplementElement(
+      plan(tagElement('implement-prologue', log), recordingEpilogue(log, persisted), [[t1, t2], [t3]]),
+      baseConfig({ buildWaves: () => branches }, recordingLocker(lockLog), bus)
+    );
+
+    const result = await element.execute(ctxWith([t1, t2, t3]));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    // The operator's own AbortError, verbatim — reason string intact.
+    expect(result.error.error).toBe(operatorAbort);
+    // Wave 1 never launched.
+    expect(log).not.toContain(`branch-${t3.name}`);
+    // The epilogue still ran under the lock and recorded the fold that DID happen.
+    expect(log).toContain('epilogue');
+    expect(persisted.tasks?.find((t) => t.id === t1.id)?.status).toBe('done');
+    expect(persisted.tasks?.find((t) => t.id === t3.id)?.status).toBe('todo');
+    expect(lockLog).toEqual(['lock-acquire', 'lock-release']);
+  });
+});
+
 /** A branch that settles task `done`, then trips the abort controller so siblings get killed. */
 const completeThenAbort = (task: Task, log: string[], ac: AbortController): WaveBranch<ImplementCtx> => ({
   id: `task-${String(task.id)}`,

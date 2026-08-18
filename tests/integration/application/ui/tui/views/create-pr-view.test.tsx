@@ -22,7 +22,8 @@ import { createSprintExecution, setExecutionBranch } from '@src/domain/entity/sp
 import type { HeadlessAiProvider } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import { DEFAULT_SETTINGS, defaultAiSettingsForProvider } from '@src/business/settings/defaults.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
-import { ENTER, tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { ENTER, tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { absolutePath, makeReviewSprint } from '@tests/fixtures/domain.ts';
 import { emptySkillSource } from '@tests/fixtures/skills-fakes.ts';
@@ -190,7 +191,7 @@ describe('CreatePrView — provider rebuild + PATH gate', () => {
     await waitForViewReady(result, (f) => f.includes('Confirm'));
 
     result.stdin.write(ENTER);
-    await waitFor(() => factoryRef.calls.map((c) => c.flow).includes('createPr'));
+    await waitForPredicate(() => factoryRef.calls.map((c) => c.flow).includes('createPr'));
 
     expect(factoryRef.calls.map((c) => c.flow)).toContain('createPr');
   });
@@ -210,7 +211,7 @@ describe('CreatePrView — provider rebuild + PATH gate', () => {
     await waitForViewReady(result, (f) => f.includes('Confirm'));
 
     result.stdin.write(ENTER);
-    await waitFor(() => (result.lastFrame() ?? '').includes('copilot'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('copilot'));
 
     const frame = result.lastFrame() ?? '';
     // The gate's actionable message names the binary + the settings key — surfaced as the

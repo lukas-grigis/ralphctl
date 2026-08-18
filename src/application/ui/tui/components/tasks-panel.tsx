@@ -21,7 +21,11 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Text } from 'ink';
-import type { BucketedExecution, TaskBucket } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
+import {
+  type BucketedExecution,
+  isInFlightBucket,
+  type TaskBucket,
+} from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { SprintState, TaskOverlay } from '@src/application/ui/tui/components/tasks-projection.ts';
 import type { TaskEvaluation } from '@src/application/ui/tui/components/tasks-panel-internals/evaluation-row.tsx';
 import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
@@ -173,7 +177,7 @@ export interface TasksPanelProps extends TaskOverlaySources {
 }
 
 interface TaskCardState {
-  /** Index of the first non-completed task in `bucketed.tasks`; `-1` when every task is done. */
+  /** Index of the first IN-FLIGHT task in `bucketed.tasks`; `-1` when none is running. */
   readonly activeTaskIdx: number;
   readonly activeTaskId: string | undefined;
   readonly expandedTaskIds: ReadonlySet<string>;
@@ -196,10 +200,12 @@ const useTaskCardState = (
   onFocusedCardChange: ((taskId: string | undefined) => void) | undefined,
   onExpandedCardChange: ((expanded: boolean) => void) | undefined
 ): TaskCardState => {
-  // The active (first non-completed) task — anchor for the `e` criteria hotkey AND the
-  // default card-cursor position. Recomputed each render so the `useInput` callback always
-  // sees the latest active id.
-  const activeTaskIdx = bucketed.tasks.findIndex((t) => t.status !== 'completed');
+  // The active (first in-flight) task — anchor for the `e` criteria hotkey AND the default
+  // card-cursor position. Recomputed each render so the `useInput` callback always sees the
+  // latest active id. Settled-but-not-completed buckets (failed / aborted / dependency-skipped)
+  // are BEHIND the cursor: a task blocked upstream sits early in the list and would otherwise
+  // hold the anchor for the whole run while later tasks actually execute.
+  const activeTaskIdx = bucketed.tasks.findIndex(isInFlightBucket);
   const activeTaskId = activeTaskIdx >= 0 ? bucketed.tasks[activeTaskIdx]?.id : undefined;
 
   // Per-task card expansion. The active (running) task auto-expands when it becomes active so

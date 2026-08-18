@@ -27,7 +27,8 @@ import { SelectionProvider, useSelection } from '@src/application/ui/tui/runtime
 import { RouterProvider } from '@src/application/ui/tui/runtime/router.tsx';
 import { useGlobalKeys } from '@src/application/ui/tui/runtime/use-global-keys.ts';
 import { ProgressOverlay } from '@src/application/ui/tui/components/progress-overlay.tsx';
-import { ESC, tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { ESC, tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 
 const SPRINT_ID_STR = '0193ed2b-1234-7abc-8def-0123456789ab';
 
@@ -165,14 +166,14 @@ describe('ProgressOverlay — open / close', () => {
     const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} withSprint={true} />);
     // Wait until the SeedSelection sentinel confirms the sprint selection effect committed.
     // Replaces the old `tick(50)` which raced the effect under full-suite load.
-    await waitFor(() => (lastFrame() ?? '').includes('SEEDED'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('SEEDED'));
 
     expect(lastFrame() ?? '').toContain('UNDERLYING_VIEW');
 
     stdin.write('g');
     // The overlay reads progress.md asynchronously; wait for the content to land rather than a
     // fixed tick, which races the disk read under load (caught '⠋ Loading…' on a busy box).
-    await waitFor(() => (lastFrame() ?? '').includes('First line of activity.'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('First line of activity.'));
     const opened = lastFrame() ?? '';
     expect(opened).toContain('Progress');
     expect(opened).toContain('demo-sprint');
@@ -180,7 +181,7 @@ describe('ProgressOverlay — open / close', () => {
     expect(opened).not.toContain('UNDERLYING_VIEW');
 
     stdin.write(ESC);
-    await waitFor(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
     expect(lastFrame() ?? '').toContain('UNDERLYING_VIEW');
 
     unmount();
@@ -189,7 +190,7 @@ describe('ProgressOverlay — open / close', () => {
   it('`g` is a no-op on Home (no sprint loaded)', async () => {
     const dataRoot = await makeTmpRoot();
     const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} withSprint={false} />);
-    await waitFor(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
     stdin.write('g');
     await tick(30);
     // No overlay — underlying view still showing, no "Progress" title.
@@ -209,10 +210,10 @@ describe('ProgressOverlay — open / close', () => {
       <Harness dataRoot={dataRoot} withSprint={false} withFocusedRun={true} />
     );
     // Wait until the SeedSelection sentinel confirms the focused-run pin effect committed.
-    await waitFor(() => (lastFrame() ?? '').includes('SEEDED'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('SEEDED'));
 
     stdin.write('g');
-    await waitFor(() => (lastFrame() ?? '').includes('Pinned run activity.'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('Pinned run activity.'));
     const opened = lastFrame() ?? '';
     expect(opened).toContain('Progress');
     expect(opened).toContain('pinned-run');
@@ -228,9 +229,9 @@ describe('ProgressOverlay — missing / empty file', () => {
     // No file written — overlay should NOT crash.
     const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} withSprint={true} />);
     // Wait for the SEEDED sentinel before pressing 'g' so the effect has committed.
-    await waitFor(() => (lastFrame() ?? '').includes('SEEDED'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('SEEDED'));
     stdin.write('g');
-    await waitFor(() => (lastFrame() ?? '').includes('No progress file yet')); // disk read + state flush
+    await waitForPredicate(() => (lastFrame() ?? '').includes('No progress file yet')); // disk read + state flush
 
     const frame = lastFrame() ?? '';
     expect(frame).toContain('No progress file yet');
@@ -243,9 +244,9 @@ describe('ProgressOverlay — missing / empty file', () => {
     await writeProgressFile(dataRoot, '');
     const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} withSprint={true} />);
     // Wait for the SEEDED sentinel before pressing 'g' so the effect has committed.
-    await waitFor(() => (lastFrame() ?? '').includes('SEEDED'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('SEEDED'));
     stdin.write('g');
-    await waitFor(() => (lastFrame() ?? '').includes('exists but is empty'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('exists but is empty'));
 
     expect(lastFrame() ?? '').toContain('exists but is empty');
     unmount();
@@ -271,9 +272,9 @@ describe('ProgressOverlay — scrolling', () => {
     await writeProgressFile(dataRoot, buildLongFile());
     const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} withSprint={true} />);
     // Wait for the SEEDED sentinel before pressing 'g' so the effect has committed.
-    await waitFor(() => (lastFrame() ?? '').includes('SEEDED'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('SEEDED'));
     stdin.write('g');
-    await waitFor(() => (lastFrame() ?? '').includes('HEAD-LINE'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('HEAD-LINE'));
 
     // Initial: top of file visible, tail not.
     const top = lastFrame() ?? '';
@@ -292,12 +293,12 @@ describe('ProgressOverlay — scrolling', () => {
     }
     // After the PgDn loop, use a condition-based wait instead of a fixed tick so slow state
     // flushes under full-suite load cannot fail the clamp assertion.
-    await waitFor(() => (lastFrame() ?? '').includes('TAIL-LINE'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('TAIL-LINE'));
     const bottom = lastFrame() ?? '';
     expect(bottom).toContain('TAIL-LINE');
     // Bounds clamp — the bottom frame is stable across additional PgDns.
     stdin.write('\x1b[6~');
-    await waitFor(() => (lastFrame() ?? '').includes('TAIL-LINE'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('TAIL-LINE'));
     const stillBottom = lastFrame() ?? '';
     expect(stillBottom).toContain('TAIL-LINE');
 
@@ -307,12 +308,12 @@ describe('ProgressOverlay — scrolling', () => {
       await tick(15);
     }
     // Same pattern: condition-based wait after the PgUp loop.
-    await waitFor(() => (lastFrame() ?? '').includes('HEAD-LINE'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('HEAD-LINE'));
     const back = lastFrame() ?? '';
     expect(back).toContain('HEAD-LINE');
     // PgUp at the top clamps — one more press is a no-op.
     stdin.write('\x1b[5~');
-    await waitFor(() => (lastFrame() ?? '').includes('HEAD-LINE'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('HEAD-LINE'));
     expect(lastFrame() ?? '').toContain('HEAD-LINE');
 
     unmount();
@@ -375,25 +376,25 @@ describe('ProgressOverlay — cursor preservation (mounted children)', () => {
     await writeProgressFile(dataRoot, '# Progress\n\nSome content.');
     const { stdin, lastFrame, unmount } = render(<HarnessWithCursor dataRoot={dataRoot} />);
     // Wait for SEEDED sentinel before interacting.
-    await waitFor(() => (lastFrame() ?? '').includes('SEEDED'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('SEEDED'));
 
     // Initial cursor position.
-    await waitFor(() => (lastFrame() ?? '').includes('CURSOR:0'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('CURSOR:0'));
 
     // Move the cursor down twice (using 'j' — the CursorChild handles input === 'j').
     stdin.write('j');
-    await waitFor(() => (lastFrame() ?? '').includes('CURSOR:1'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('CURSOR:1'));
     stdin.write('j');
-    await waitFor(() => (lastFrame() ?? '').includes('CURSOR:2'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('CURSOR:2'));
 
     // Open the overlay — underlying view should be hidden (display:none in Ink output).
     stdin.write('g');
-    await waitFor(() => (lastFrame() ?? '').includes('Some content.'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('Some content.'));
     expect(lastFrame() ?? '').not.toContain('CURSOR:');
 
     // Close the overlay — cursor must still be at 2 (view was mounted, not remounted).
     stdin.write(ESC);
-    await waitFor(() => (lastFrame() ?? '').includes('CURSOR:'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('CURSOR:'));
     expect(lastFrame() ?? '').toContain('CURSOR:2');
 
     unmount();
@@ -403,12 +404,12 @@ describe('ProgressOverlay — cursor preservation (mounted children)', () => {
     const dataRoot = await makeTmpRoot();
     await writeProgressFile(dataRoot, '# Progress\n\nSome content.');
     const { stdin, lastFrame, unmount } = render(<HarnessWithCursor dataRoot={dataRoot} />);
-    await waitFor(() => (lastFrame() ?? '').includes('SEEDED'));
-    await waitFor(() => (lastFrame() ?? '').includes('CURSOR:0'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('SEEDED'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('CURSOR:0'));
 
     // Open the overlay.
     stdin.write('g');
-    await waitFor(() => (lastFrame() ?? '').includes('Some content.'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('Some content.'));
 
     // 'j' is a list-navigation key; the hidden view gates on ui.modalOpen so it must ignore it.
     stdin.write('j');
@@ -416,7 +417,7 @@ describe('ProgressOverlay — cursor preservation (mounted children)', () => {
 
     // Close the overlay — cursor should still be at 0.
     stdin.write(ESC);
-    await waitFor(() => (lastFrame() ?? '').includes('CURSOR:'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('CURSOR:'));
     expect(lastFrame() ?? '').toContain('CURSOR:0');
 
     unmount();

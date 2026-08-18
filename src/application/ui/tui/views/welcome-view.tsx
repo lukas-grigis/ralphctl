@@ -16,8 +16,15 @@
  * locally (via `useUiState().claimEscape()`) so the global `router.pop()` handler doesn't also
  * fire and race the local continue. Every other branch (1 CLI, 2+ CLIs) still auto-routes.
  *
+ * The seed-FAILED branch arms the same gate (destination `home`). It has to: the error card
+ * names `esc`, Welcome is the router stack's root so the global `router.pop()` fall-through is a
+ * no-op there, and an unarmed gate left the advertised key doing nothing.
+ *
  * The welcome is read-only: an existing settings file means the user already set up readiness,
- * so the launch entry routes straight to home before this view ever mounts.
+ * so the launch entry routes straight to home before this view ever mounts. The seeding effect
+ * re-asserts that on DISK (`settingsRepo.exists()`) rather than trusting the launch decision —
+ * a re-mounted view gets a fresh component instance (and so a fresh in-memory guard), and
+ * re-seeding would replace the whole `ai` section over the user's own Settings edits.
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -34,6 +41,7 @@ import { createSettingsApplyPresetFlow } from '@src/application/flows/settings-a
 import { detectInstalledProviders } from '@src/integration/system/detect-cli.ts';
 import type { PresetName } from '@src/business/settings/presets.ts';
 import type { AiProvider } from '@src/domain/entity/settings.ts';
+import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
 
 type Step = 'detecting' | 'seeded' | 'error';
 
@@ -50,6 +58,18 @@ const pickPresetForDetected = (installed: ReadonlySet<AiProvider>): PresetName =
     return PRESET_FOR_PROVIDER[only!];
   }
   return 'mixed';
+};
+
+/**
+ * Where welcome hands the user off. After first-run setup the user still has no project, so walk
+ * them straight into the create-project wizard rather than dropping them on a home screen they
+ * can't use yet; a repo that already holds projects goes to home. Shared by the seeding path and
+ * the already-seeded short-circuit so both land in the same place.
+ */
+const resolveNextRoute = async (projectRepo: ProjectRepository): Promise<ViewEntry> => {
+  const projects = await projectRepo.list();
+  const needsProject = projects.ok && projects.value.length === 0;
+  return { id: needsProject ? 'create-project' : 'home' };
 };
 
 interface UseWelcomeSeedingResult {
@@ -83,13 +103,25 @@ const useWelcomeSeeding = (): UseWelcomeSeedingResult => {
   const [pendingRoute, setPendingRoute] = useState<ViewEntry | undefined>(undefined);
   // First-run seeding must execute exactly once, even if React re-runs the effect because a
   // parent re-render produced a fresh `deps` / `router` reference. Without this guard, the
-  // apply-preset flow would fire on every re-render, writing settings multiple times.
+  // apply-preset flow would fire on every re-render, writing settings multiple times. This ref
+  // covers ONE component instance; the `settingsRepo.exists()` check below is the durable,
+  // disk-backed half that also survives a re-mount.
   const seededRef = useRef(false);
 
   useEffect(() => {
     if (seededRef.current) return;
     seededRef.current = true;
     const seed = async (): Promise<void> => {
+      // Durable idempotence gate. A settings file on disk means first-run setup already
+      // happened, so re-seeding would replace the whole `ai` section (that is what
+      // `applyPreset` does) over whatever the user configured in Settings since. Route onward
+      // without probing PATH or writing anything. A storage error fails OPEN — a first run must
+      // never be blocked by an unreadable settings probe.
+      const already = await deps.settingsRepo.exists();
+      if (already.ok && already.value) {
+        router.reset(await resolveNextRoute(deps.projectRepo));
+        return;
+      }
       const installed = await detectInstalledProviders();
       const zeroCliDetected = installed.size === 0;
       setNoCliDetected(zeroCliDetected);
@@ -97,17 +129,18 @@ const useWelcomeSeeding = (): UseWelcomeSeedingResult => {
       const flow = createSettingsApplyPresetFlow({ settingsRepo: deps.settingsRepo });
       const result = await flow.execute({ input: { preset } });
       if (!result.ok) {
+        // Hold `home` as the pending route BEFORE flipping to the error step. The error card
+        // tells the user to press `esc`, and `pendingRoute` is what arms both the local escape
+        // handler and the `claimEscape` that keeps the global `router.pop()` (a no-op at the
+        // stack root) from racing it. Without it the advertised key does nothing at all.
+        setPendingRoute({ id: 'home' });
         setErrorMsg(result.error.error.message);
         setStep('error');
         return;
       }
       setChosenPreset(preset);
       setStep('seeded');
-      // After welcome, the user still has no project. Walk them straight into the create-
-      // project wizard rather than dropping them on a home screen they can't actually use yet.
-      const projects = await deps.projectRepo.list();
-      const needsProject = projects.ok && projects.value.length === 0;
-      const next: ViewEntry = { id: needsProject ? 'create-project' : 'home' };
+      const next = await resolveNextRoute(deps.projectRepo);
       if (zeroCliDetected) {
         setPendingRoute(next);
         return;
@@ -155,7 +188,9 @@ export const WelcomeView = (): React.JSX.Element => {
   return (
     <ViewShell title="Welcome to ralphctl" subtitle="first-run setup">
       <Box flexDirection="column">
-        <Card title="Seeding settings" tone="primary">
+        {/* One card wraps all three steps, so the tone is derived rather than a second card
+            added — DESIGN-SYSTEM § 5 wants an error state on an `error`-toned surface. */}
+        <Card title="Seeding settings" tone={step === 'error' ? 'error' : 'primary'}>
           <Box flexDirection="column" paddingX={spacing.indent}>
             {step === 'detecting' && <Spinner label="probing PATH for installed AI CLIs…" />}
             {step === 'seeded' &&

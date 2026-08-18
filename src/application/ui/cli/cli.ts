@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import { flowRegistry } from '@src/application/registry.ts';
 import { launchTui } from '@src/application/ui/tui/launch.ts';
 import { parseImplementRoleOverrides } from '@src/application/ui/cli/parse-implement-role-overrides.ts';
+import { reportFatal } from '@src/application/ui/cli/report-cli-error.ts';
 import { registerExportRequirementsCommand } from '@src/application/ui/cli/commands/export-requirements.ts';
 import { registerExportContextCommand } from '@src/application/ui/cli/commands/export-context.ts';
 import { registerCreatePrCommand } from '@src/application/ui/cli/commands/create-pr.ts';
@@ -16,6 +17,7 @@ import { registerTaskCommand } from '@src/application/ui/cli/commands/task.ts';
 import { registerRunsCommand } from '@src/application/ui/cli/commands/runs.ts';
 import { registerAgentsCommand } from '@src/application/ui/cli/commands/agents.ts';
 import { registerSkillsCommand } from '@src/application/ui/cli/commands/skills.ts';
+import { registerPromptsCommand } from '@src/application/ui/cli/commands/prompts.ts';
 import { CLI_METADATA } from '@src/business/version/cli-metadata.ts';
 
 /**
@@ -107,6 +109,16 @@ export const runCli = async (argv: readonly string[]): Promise<void> => {
   registerRunsCommand(program);
   registerAgentsCommand(program);
   registerSkillsCommand(program);
+  registerPromptsCommand(program);
 
-  await program.parseAsync([...argv]);
+  // Terminal frame for the whole CLI: every `bootstrapCli` pre-flight throws a plain `Error`, and
+  // command actions can throw too. Uncaught, those reach Node's crash handler and print a source
+  // excerpt from the bundled `dist/cli-<hash>.mjs` plus a full stack. `reportFatal` turns that into
+  // one actionable stderr line (stack behind `RALPHCTL_DEBUG_TRACE`) — see its doc comment for why
+  // `AbortError` is handled here instead of re-thrown.
+  try {
+    await program.parseAsync([...argv]);
+  } catch (err) {
+    reportFatal(err);
+  }
 };

@@ -18,7 +18,7 @@
 
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { resolveSprintDir } from '@src/integration/persistence/storage.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
@@ -34,6 +34,10 @@ import {
   overlayBodyRows,
   useDocumentScroll,
 } from '@src/application/ui/tui/components/overlay-internals/use-document-scroll.ts';
+import {
+  overlayBodyColumns,
+  wrapRows,
+} from '@src/application/ui/tui/components/overlay-internals/wrap-document-rows.ts';
 
 interface ProgressFile {
   readonly kind: 'ok';
@@ -53,6 +57,8 @@ interface ProgressFailed {
 }
 
 type ProgressState = ProgressFile | ProgressMissing | ProgressEmpty | ProgressFailed | { readonly kind: 'loading' };
+
+const EMPTY_LINES: readonly string[] = [];
 
 const formatAgo = (modifiedAtMs: number, now: number): string => {
   const elapsed = Math.max(0, now - modifiedAtMs);
@@ -166,7 +172,12 @@ const ProgressBody = ({
         {state.kind === 'ok' && (
           <Box flexDirection="column">
             {visibleLines.map((line, idx) => (
-              <Text key={`row-${String(offset + idx)}`}>{line.length === 0 ? ' ' : line}</Text>
+              // `truncate-end` is the backstop behind the pre-wrap: a row we mis-measured (tabs,
+              // wide glyphs) is clipped rather than allowed to spill onto a second terminal row
+              // and desync the row-count windowing above.
+              <Text key={`row-${String(offset + idx)}`} wrap="truncate-end">
+                {line.length === 0 ? ' ' : line}
+              </Text>
             ))}
           </Box>
         )}
@@ -201,9 +212,16 @@ export const ProgressOverlay = (): React.JSX.Element => {
   const state = useProgressFile(sprintId, storage.dataRoot);
 
   const bodyRows = overlayBodyRows(term.rows);
-  const lineCount = state.kind === 'ok' ? state.lines.length : 0;
+  // `progress.md` rows come off disk unwrapped — one note can be a whole paragraph. Wrap before
+  // windowing so the row count the scroll model uses is the row count Ink paints.
+  const bodyColumns = overlayBodyColumns(term.columns);
+  const lines = useMemo<readonly string[]>(
+    () => (state.kind === 'ok' ? wrapRows(state.lines, bodyColumns) : EMPTY_LINES),
+    [state, bodyColumns]
+  );
+  const lineCount = lines.length;
   const { offset } = useDocumentScroll(lineCount, bodyRows);
-  const visibleLines = state.kind === 'ok' ? state.lines.slice(offset, offset + bodyRows) : [];
+  const visibleLines = lines.slice(offset, offset + bodyRows);
 
   const sprintLabel =
     ui.focusedRunSprintLabel ?? selection.sprintLabel ?? (sprintId !== undefined ? String(sprintId) : '(no sprint)');

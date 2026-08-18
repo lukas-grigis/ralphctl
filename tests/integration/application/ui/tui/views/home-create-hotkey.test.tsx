@@ -19,7 +19,8 @@ import type { SprintExecutionRepository } from '@src/domain/repository/sprint/sp
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { makeProject } from '@tests/fixtures/domain.ts';
-import { tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 const noopVersionChecker = async (): Promise<null> => null;
@@ -99,7 +100,7 @@ describe('HomeView — + hotkey', () => {
 
     // Press '+' — should launch create-sprint.
     result.stdin.write('+');
-    await waitFor(() => routedIds.length > 0 && routedIds[routedIds.length - 1] !== 'home');
+    await waitForPredicate(() => routedIds.length > 0 && routedIds[routedIds.length - 1] !== 'home');
 
     // The router should have been asked to push the create-sprint execute view.
     // The implementer may route via 'execute' (after launching the runner) or navigate to

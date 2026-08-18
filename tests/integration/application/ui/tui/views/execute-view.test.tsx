@@ -19,7 +19,8 @@ import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import type { ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 import { createSessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
-import { ENTER, ESC, tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { ENTER, ESC, tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 const noopEventBus: EventBus = {
@@ -161,7 +162,7 @@ describe('ExecuteView', () => {
     // fake runner. Re-render by re-registering a new sessions object isn't right either.
     // Instead: poke the view via tick — execute-view runs a setInterval(setNow, 1000) while
     // the session is running. Advance some time so the view re-renders.
-    await waitFor(() => /round 5/.test(result.lastFrame() ?? ''));
+    await waitForPredicate(() => /round 5/.test(result.lastFrame() ?? ''));
     const frame2 = result.lastFrame() ?? '';
     // The monotonic ref must hold the count at 5 even though only 2 generator entries remain
     // in the trace.
@@ -244,7 +245,7 @@ describe('ExecuteView', () => {
     });
     await waitForViewReady(result, (f) => f.includes('Refine — Done'));
     result.stdin.write(ENTER);
-    await waitFor(() => routeIds().includes('home'));
+    await waitForPredicate(() => routeIds().includes('home'));
     expect(routeIds()).toContain('home');
     expect(routeIds()).not.toContain('sprint-detail');
     result.unmount();
@@ -299,11 +300,11 @@ describe('ExecuteView', () => {
     // a fixed 30ms window, which showed up as a real ~1-in-8 flake here (always the pre-focus
     // sprintB value, never a corrupted one — confirms this is a "hasn't happened yet" race, not
     // a wrong-value bug).
-    await waitFor(() => seenSprintIds.at(-1) === sprintA);
+    await waitForPredicate(() => seenSprintIds.at(-1) === sprintA);
     expect(seenSprintIds.at(-1)).toBe(sprintA);
 
     result.stdin.write(ENTER);
-    await waitFor(() => routeEntries.some((e) => e.id === 'home'));
+    await waitForPredicate(() => routeEntries.some((e) => e.id === 'home'));
     expect(routeEntries.some((e) => e.id === 'sprint-detail')).toBe(false);
     // The converged selection (A) survives the exit — it is not reverted to the pre-focus pick.
     expect(seenSprintIds.at(-1)).toBe(sprintA);
@@ -363,7 +364,7 @@ describe('ExecuteView', () => {
     await waitForViewReady(result, (f) => f.includes('Implement — B'));
     // The seeded selection starts on A (the pre-focus pick) — `seenSprintIds` legitimately opens
     // with A; the fence is that it CONVERGES to B and stays there, not that A never appears.
-    await waitFor(() => seenSprintIds.at(-1) === sprintB);
+    await waitForPredicate(() => seenSprintIds.at(-1) === sprintB);
     expect(seenSprintIds.at(-1)).toBe(sprintB);
     result.unmount();
   });
@@ -410,7 +411,7 @@ describe('ExecuteView', () => {
     );
     await waitForViewReady(result, (f) => f.includes('Implement — No Persist'));
     // Converged in memory …
-    await waitFor(() => seenSprintIds.at(-1) === sprintA);
+    await waitForPredicate(() => seenSprintIds.at(-1) === sprintA);
     expect(seenSprintIds.at(-1)).toBe(sprintA);
     // … but never handed to the persistence callback.
     expect(onChange).not.toHaveBeenCalledWith(expect.objectContaining({ sprintId: sprintA }));
@@ -540,9 +541,9 @@ describe('ExecuteView', () => {
     });
     await waitForViewReady(result, (f) => f.includes('Implement — Cancel'));
     result.stdin.write('c');
-    await waitFor(() => (result.lastFrame() ?? '').includes('Cancel — pick a scope'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Cancel — pick a scope'));
     result.stdin.write('2');
-    await waitFor(() => findById.mock.calls.length > 0);
+    await waitForPredicate(() => findById.mock.calls.length > 0);
     expect(findById).toHaveBeenCalledWith(sprintA, TASK as unknown as TaskId);
     result.unmount();
   });
@@ -607,7 +608,7 @@ describe('ExecuteView', () => {
 
     // Open the overlay, then press `j` — the panel is muted, so the cursor stays put.
     result.stdin.write('c');
-    await waitFor(() => (result.lastFrame() ?? '').includes('Cancel — pick a scope'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Cancel — pick a scope'));
     expect(result.lastFrame() ?? '').toContain('Cancel — pick a scope');
     result.stdin.write('j');
     await tick();
@@ -618,7 +619,7 @@ describe('ExecuteView', () => {
     await tick();
     expect(result.lastFrame() ?? '').not.toContain('Cancel — pick a scope');
     result.stdin.write('j');
-    await waitFor(() => cursorOnSecond(result.lastFrame() ?? ''));
+    await waitForPredicate(() => cursorOnSecond(result.lastFrame() ?? ''));
     expect(cursorOnSecond(result.lastFrame() ?? '')).toBe(true);
     result.unmount();
   });

@@ -29,7 +29,8 @@ import { RouterProvider } from '@src/application/ui/tui/runtime/router.tsx';
 import { useGlobalKeys } from '@src/application/ui/tui/runtime/use-global-keys.ts';
 import { EvaluationOverlay } from '@src/application/ui/tui/components/evaluation-overlay.tsx';
 import type { EvaluationTarget } from '@src/application/ui/tui/runtime/evaluation-target.ts';
-import { ESC, PAGE_DOWN, tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { ESC, PAGE_DOWN, tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 
 const SPRINT_ID_STR = '0193ed2b-1234-7abc-8def-0123456789ab';
 const TASK_ID = 'task-eval-1';
@@ -177,10 +178,10 @@ describe('EvaluationOverlay — open / close', () => {
     const dataRoot = await makeTmpRoot();
     await writeArtifact(dataRoot, CANONICAL);
     const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} evaluationTarget={target()} />);
-    await waitFor(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
 
     stdin.write('v');
-    await waitFor(() => (lastFrame() ?? '').includes('The legacy migration path is untested.'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('The legacy migration path is untested.'));
 
     const opened = lastFrame() ?? '';
     expect(opened).toContain('Evaluation');
@@ -199,12 +200,12 @@ describe('EvaluationOverlay — open / close', () => {
     const dataRoot = await makeTmpRoot();
     await writeArtifact(dataRoot, CANONICAL);
     const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} evaluationTarget={target()} />);
-    await waitFor(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
     stdin.write('v');
-    await waitFor(() => (lastFrame() ?? '').includes('correctness: passed'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('correctness: passed'));
 
     stdin.write(ESC);
-    await waitFor(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
     expect(lastFrame() ?? '').not.toContain('esc · v to close');
     unmount();
   });
@@ -213,12 +214,12 @@ describe('EvaluationOverlay — open / close', () => {
     const dataRoot = await makeTmpRoot();
     await writeArtifact(dataRoot, CANONICAL);
     const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} evaluationTarget={target()} />);
-    await waitFor(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
     stdin.write('v');
-    await waitFor(() => (lastFrame() ?? '').includes('correctness: passed'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('correctness: passed'));
 
     stdin.write('v');
-    await waitFor(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
     expect(lastFrame() ?? '').not.toContain('correctness: passed');
     unmount();
   });
@@ -229,9 +230,9 @@ describe('EvaluationOverlay — empty / unreadable file', () => {
     const dataRoot = await makeTmpRoot();
     await writeArtifact(dataRoot, '   \n');
     const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} evaluationTarget={target()} />);
-    await waitFor(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
     stdin.write('v');
-    await waitFor(() => (lastFrame() ?? '').includes('exists but is empty'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('exists but is empty'));
 
     const frame = lastFrame() ?? '';
     expect(frame).toContain('exists but is empty');
@@ -248,9 +249,9 @@ describe('EvaluationOverlay — empty / unreadable file', () => {
     // portable stand-in for the permission-denied case (chmod is a no-op under a root CI user).
     await fs.mkdir(artifactPath(dataRoot), { recursive: true });
     const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} evaluationTarget={target()} />);
-    await waitFor(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
     stdin.write('v');
-    await waitFor(() => (lastFrame() ?? '').includes('Could not read the evaluation file.'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('Could not read the evaluation file.'));
 
     const frame = lastFrame() ?? '';
     expect(frame).toContain('Could not read the evaluation file.');
@@ -262,9 +263,9 @@ describe('EvaluationOverlay — empty / unreadable file', () => {
     const dataRoot = await makeTmpRoot();
     await writeArtifact(dataRoot, 'RAW-GARBAGE-LINE\nsecond raw line\n');
     const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} evaluationTarget={target()} />);
-    await waitFor(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
     stdin.write('v');
-    await waitFor(() => (lastFrame() ?? '').includes('RAW-GARBAGE-LINE'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('RAW-GARBAGE-LINE'));
 
     const frame = lastFrame() ?? '';
     expect(frame).toContain('showing the raw file');
@@ -288,9 +289,9 @@ describe('EvaluationOverlay — windowing', () => {
     const dataRoot = await makeTmpRoot();
     await writeArtifact(dataRoot, hugeDocument());
     const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} evaluationTarget={target()} />);
-    await waitFor(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
     stdin.write('v');
-    await waitFor(() => (lastFrame() ?? '').includes('HEAD-DIMENSION'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('HEAD-DIMENSION'));
 
     const top = lastFrame() ?? '';
     expect(top).toContain('HEAD-DIMENSION');
@@ -300,7 +301,7 @@ describe('EvaluationOverlay — windowing', () => {
     expect(top.split('\n').length).toBeLessThan(40);
 
     stdin.write(PAGE_DOWN);
-    await waitFor(() => !(lastFrame() ?? '').includes('HEAD-DIMENSION'));
+    await waitForPredicate(() => !(lastFrame() ?? '').includes('HEAD-DIMENSION'));
     expect(lastFrame() ?? '').toMatch(/lines \d+[–-]/);
 
     unmount();
@@ -310,9 +311,9 @@ describe('EvaluationOverlay — windowing', () => {
     const dataRoot = await makeTmpRoot();
     await writeArtifact(dataRoot, CANONICAL);
     const { stdin, lastFrame, unmount } = render(<Harness dataRoot={dataRoot} evaluationTarget={target()} />);
-    await waitFor(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('UNDERLYING_VIEW'));
     stdin.write('v');
-    await waitFor(() => (lastFrame() ?? '').includes('correctness: passed'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('correctness: passed'));
     await tick(20);
     expect(lastFrame() ?? '').not.toMatch(/lines \d+[–-]/);
     unmount();

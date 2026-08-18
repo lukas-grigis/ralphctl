@@ -14,7 +14,8 @@ import type { DataMigrationEngine } from '@src/integration/persistence/data-migr
 import type { DryRunReport, RenamePlan } from '@src/integration/persistence/data-migration/types.ts';
 import type { ApplyResult } from '@src/integration/persistence/data-migration/apply.ts';
 import { MigrationGate, type MigrationGateOutcome } from '@src/application/ui/tui/migration/migration-gate.tsx';
-import { ENTER, ESC, tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { ENTER, ESC, tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 
 const ABS = (p: string): AbsolutePath => {
   const r = AbsolutePath.parse(p);
@@ -93,7 +94,7 @@ describe('MigrationGate', () => {
       dryRun: async (): Promise<DryRunReport> =>
         reportWith({ planned: [plan('sprint', 's1'), plan('sprint', 's2'), plan('project', 'p1')] }),
     });
-    await waitFor(() => r.lastFrame()?.includes('renamed for readability') === true);
+    await waitForPredicate(() => r.lastFrame()?.includes('renamed for readability') === true);
     const frame = r.lastFrame() ?? '';
     expect(frame).toContain('2 sprints');
     expect(frame).toContain('1 project');
@@ -105,7 +106,7 @@ describe('MigrationGate', () => {
     const { h, r } = mount({
       dryRun: async (): Promise<DryRunReport> => reportWith({ planned: [plan('sprint', 's1')] }),
     });
-    await waitFor(() => r.lastFrame()?.includes('renamed for readability') === true);
+    await waitForPredicate(() => r.lastFrame()?.includes('renamed for readability') === true);
     r.stdin.write('n');
     await tick();
     expect(h.resolved).toEqual(['skipped']);
@@ -117,7 +118,7 @@ describe('MigrationGate', () => {
     const { h, r } = mount({
       dryRun: async (): Promise<DryRunReport> => reportWith({ planned: [plan('sprint', 's1')] }),
     });
-    await waitFor(() => r.lastFrame()?.includes('renamed for readability') === true);
+    await waitForPredicate(() => r.lastFrame()?.includes('renamed for readability') === true);
     r.stdin.write(ESC);
     await tick(60);
     expect(h.resolved).toEqual(['skipped']);
@@ -130,9 +131,9 @@ describe('MigrationGate', () => {
       dryRun: async (): Promise<DryRunReport> => reportWith({ planned: [plan('sprint', 's1')] }),
       applyResult: { kind: 'ok', backupPath: '/bk', applied: [] },
     });
-    await waitFor(() => r.lastFrame()?.includes('renamed for readability') === true);
+    await waitForPredicate(() => r.lastFrame()?.includes('renamed for readability') === true);
     r.stdin.write('m');
-    await waitFor(() => h.resolved.length > 0);
+    await waitForPredicate(() => h.resolved.length > 0);
     expect(h.apply).toHaveBeenCalledOnce();
     expect(h.resolved).toEqual(['migrated']);
     r.unmount();
@@ -143,9 +144,9 @@ describe('MigrationGate', () => {
       dryRun: async (): Promise<DryRunReport> => reportWith({ planned: [plan('sprint', 's1')] }),
       applyResult: { kind: 'ok', backupPath: '/bk', applied: [] },
     });
-    await waitFor(() => r.lastFrame()?.includes('renamed for readability') === true);
+    await waitForPredicate(() => r.lastFrame()?.includes('renamed for readability') === true);
     r.stdin.write(ENTER);
-    await waitFor(() => h.resolved.length > 0);
+    await waitForPredicate(() => h.resolved.length > 0);
     expect(h.apply).toHaveBeenCalledOnce();
     expect(h.resolved).toEqual(['migrated']);
     r.unmount();
@@ -158,16 +159,16 @@ describe('MigrationGate', () => {
       applyResult: { kind: 'failed', backupPath: '/home/me/.ralphctl/data.backup-v1-2026', error: err, applied: [] },
       priorAppVersion: '0.11.4', // a real recorded prior version → the npm line is honest to print
     });
-    await waitFor(() => r.lastFrame()?.includes('renamed for readability') === true);
+    await waitForPredicate(() => r.lastFrame()?.includes('renamed for readability') === true);
     r.stdin.write('m');
-    await waitFor(() => r.lastFrame()?.includes('Your data is safe') === true);
+    await waitForPredicate(() => r.lastFrame()?.includes('Your data is safe') === true);
     const frame = r.lastFrame() ?? '';
     expect(frame).toContain('/home/me/.ralphctl/data.backup-v1-2026');
     expect(frame).toContain('npm install -g ralphctl@0.11.4');
     expect(frame).toContain('your current version still reads');
     // Continue (Enter) → proceed into the app on the tolerant readers.
     r.stdin.write(ENTER);
-    await waitFor(() => h.resolved.length > 0);
+    await waitForPredicate(() => h.resolved.length > 0);
     expect(h.resolved).toEqual(['failed-continue']);
     r.unmount();
   });
@@ -179,9 +180,9 @@ describe('MigrationGate', () => {
       applyResult: { kind: 'failed', backupPath: '/bk', error: err, applied: [] },
       // priorAppVersion omitted → marker carries no lastWrittenByAppVersion (the v1→v2 first run).
     });
-    await waitFor(() => r.lastFrame()?.includes('renamed for readability') === true);
+    await waitForPredicate(() => r.lastFrame()?.includes('renamed for readability') === true);
     r.stdin.write('m');
-    await waitFor(() => r.lastFrame()?.includes('Your data is safe') === true);
+    await waitForPredicate(() => r.lastFrame()?.includes('Your data is safe') === true);
     const frame = r.lastFrame() ?? '';
     // A wrong downgrade command would be actively harmful — the line must be absent entirely.
     expect(frame).not.toContain('npm install -g ralphctl@');
@@ -193,7 +194,7 @@ describe('MigrationGate', () => {
     const { h, r } = mount({
       dryRun: async (): Promise<DryRunReport> => reportWith(), // empty: brand-new install / already reconciled
     });
-    await waitFor(() => h.resolved.length > 0);
+    await waitForPredicate(() => h.resolved.length > 0);
     // The consent splash never rendered — the marker was stamped and the gate resolved straight through.
     expect(h.stampCurrent).toHaveBeenCalledOnce();
     expect(h.apply).not.toHaveBeenCalled();
@@ -208,11 +209,11 @@ describe('MigrationGate', () => {
       dryRun: async (): Promise<DryRunReport> => reportWith({ planned: [plan('sprint', 's1')] }),
       applyResult: { kind: 'failed', backupPath: '/bk', error: err, applied: [] },
     });
-    await waitFor(() => r.lastFrame()?.includes('renamed for readability') === true);
+    await waitForPredicate(() => r.lastFrame()?.includes('renamed for readability') === true);
     r.stdin.write('m');
-    await waitFor(() => r.lastFrame()?.includes('Your data is safe') === true);
+    await waitForPredicate(() => r.lastFrame()?.includes('Your data is safe') === true);
     r.stdin.write('q');
-    await waitFor(() => h.quit.mock.calls.length > 0);
+    await waitForPredicate(() => h.quit.mock.calls.length > 0);
     expect(h.quit).toHaveBeenCalledOnce();
     expect(h.resolved).toEqual([]);
     r.unmount();
@@ -223,11 +224,11 @@ describe('MigrationGate', () => {
       dryRun: async (): Promise<DryRunReport> => reportWith({ planned: [plan('sprint', 's1')] }),
       applyResult: { kind: 'lock-held' },
     });
-    await waitFor(() => r.lastFrame()?.includes('renamed for readability') === true);
+    await waitForPredicate(() => r.lastFrame()?.includes('renamed for readability') === true);
     r.stdin.write('m');
-    await waitFor(() => r.lastFrame()?.includes('Another ralphctl is running') === true);
+    await waitForPredicate(() => r.lastFrame()?.includes('Another ralphctl is running') === true);
     r.stdin.write(ENTER);
-    await waitFor(() => h.resolved.length > 0);
+    await waitForPredicate(() => h.resolved.length > 0);
     expect(h.resolved).toEqual(['skipped']);
     r.unmount();
   });
@@ -237,11 +238,11 @@ describe('MigrationGate', () => {
       dryRun: async (): Promise<DryRunReport> =>
         reportWith({ problems: [{ name: 'abc', reason: 'collides with abc--slug' }] }),
     });
-    await waitFor(() => r.lastFrame()?.includes('collides with abc--slug') === true);
+    await waitForPredicate(() => r.lastFrame()?.includes('collides with abc--slug') === true);
     expect(r.lastFrame()).toContain('abc');
     // Any key continues; apply must never have been reached.
     r.stdin.write(ENTER);
-    await waitFor(() => h.resolved.length > 0);
+    await waitForPredicate(() => h.resolved.length > 0);
     expect(h.apply).not.toHaveBeenCalled();
     expect(h.resolved).toEqual(['skipped']);
     r.unmount();

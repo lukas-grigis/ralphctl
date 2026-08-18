@@ -26,15 +26,24 @@ import { describe, expect, it } from 'vitest';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import { DepsProvider } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { StatusBanner } from '@src/application/ui/tui/components/status-banner.tsx';
+import { UiStateProvider } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { waitFor } from '@tests/integration/application/ui/tui/_wait.ts';
 
+/**
+ * `UiStateProvider` is required, not decorative: the `d` handler stands down under
+ * `ui.modalOpen` so it cannot fire while a prompt or overlay owns the keyboard, and
+ * `useOverlayState` throws without a provider. Nothing here claims a prompt, so the gate is
+ * open and the dismiss cases below behave exactly as they did before.
+ */
 const renderBanner = (bus: ReturnType<typeof createInMemoryEventBus>): ReturnType<typeof render> => {
   const deps = { eventBus: bus } as unknown as AppDeps;
   return render(
     <DepsProvider value={deps}>
-      <StatusBanner />
+      <UiStateProvider>
+        <StatusBanner />
+      </UiStateProvider>
     </DepsProvider>
   );
 };

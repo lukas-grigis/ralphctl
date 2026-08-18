@@ -117,9 +117,10 @@ const writeAllDefinitions = async (
 };
 
 /**
- * Best-effort, once-per-`sessionDir` attempt to append the wildcard exclude line to
- * `<sessionDir>/.git/info/exclude`. A non-git tree, a worktree, or a write-protected exclude
- * file all collapse to "warn and proceed" — the caller's install already succeeded regardless.
+ * Best-effort, once-per-`sessionDir` attempt to append the wildcard exclude line to the
+ * `info/exclude` of `<sessionDir>`'s common git dir (a linked worktree resolves to the main
+ * repo's `.git`). A non-git tree, an uninspectable `.git`, or a write-protected exclude file
+ * all collapse to "warn and proceed" — the caller's install already succeeded regardless.
  */
 const ensureGitExcludeOnce = async (
   sessionDir: AbsolutePath,
@@ -172,10 +173,10 @@ export const createFilesystemAgentDefinitionAdapter = (
       if (tracked.size > 0) installed.set(String(sessionDir), tracked);
       if (!written.ok) return written;
 
-      // Best-effort: append a single wildcard line to <sessionDir>/.git/info/exclude so every
-      // `ralphctl-*` agent definition we manage stays out of `git status`. A non-git tree, a
-      // worktree, or a write-protected `.git/info/exclude` all collapse to "warn and proceed" —
-      // the install itself already succeeded.
+      // Best-effort: append a single wildcard line to <sessionDir>'s common `.git/info/exclude`
+      // (linked worktrees included) so every `ralphctl-*` agent definition we manage stays out of
+      // `git status`. A non-git tree, an uninspectable `.git`, or a write-protected
+      // `info/exclude` all collapse to "warn and proceed" — the install already succeeded.
       await ensureGitExcludeOnce(sessionDir, excludeAttempted, excludePattern, deps.providerId, deps.logger);
 
       return Result.ok(undefined);

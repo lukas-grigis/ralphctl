@@ -27,7 +27,7 @@ import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
 import { ensureGitExcludeWildcard } from '@src/integration/io/git-exclude.ts';
-import type { Skill } from '@src/integration/ai/skills/_engine/skill.ts';
+import { SkillNameSchema, type Skill } from '@src/integration/ai/skills/_engine/skill.ts';
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
 
 export interface FilesystemSkillsAdapterDeps {
@@ -61,6 +61,25 @@ const renderSkill = (skill: Skill): string => {
   return `${lines.join('\n')}\n\n${skill.content.replace(/\s+$/u, '')}\n`;
 };
 
+/**
+ * Containment gate — `skill.name` is used verbatim as a directory name, so `join(skillsDir,
+ * '../../../../tmp/pwned')` would land the write outside `sessionDir` entirely. On the bare path
+ * the name originates from AI output (the readiness `skill-suggestions` signal), which makes this
+ * adapter the last boundary before `mkdir` / `writeFile`. Re-validating against
+ * {@link SkillNameSchema} here — the same shape every on-disk skill already satisfies — keeps a
+ * future caller from reintroducing a model-controlled path, and rules out the embedded newline
+ * that would otherwise inject extra keys into {@link renderSkill}'s YAML frontmatter.
+ */
+const rejectUnsafeSkillName = (providerId: string, skillsDir: string, name: string): StorageError | undefined => {
+  if (SkillNameSchema.safeParse(name).success) return undefined;
+  return new StorageError({
+    subCode: 'schema-mismatch',
+    message: `${providerId}: refusing skill name ${JSON.stringify(name)} — skill names are used verbatim as a directory name and must be kebab-case (lowercase alphanumeric with single hyphens, 1-64 chars)`,
+    path: skillsDir,
+    hint: 'The name came from a skill source or AI output. Nothing was written; fix the skill name at its source.',
+  });
+};
+
 const tryRmdirIfEmpty = async (path: string): Promise<void> => {
   try {
     await rmdir(path);
@@ -81,6 +100,9 @@ const writeAllSkills = async (
   tracked: Set<string>
 ): Promise<Result<void, StorageError>> => {
   for (const skill of skills) {
+    const unsafe = rejectUnsafeSkillName(providerId, skillsDir, skill.name);
+    if (unsafe !== undefined) return Result.error(unsafe);
+
     const dst = join(skillsDir, skill.name);
     if (existsSync(dst)) continue; // project copy wins
 
@@ -103,9 +125,10 @@ const writeAllSkills = async (
 };
 
 /**
- * Best-effort, once-per-`sessionDir` attempt to append the wildcard exclude line to
- * `<sessionDir>/.git/info/exclude`. A non-git tree, a worktree, or a write-protected exclude
- * file all collapse to "warn and proceed" — the caller's install already succeeded regardless.
+ * Best-effort, once-per-`sessionDir` attempt to append the wildcard exclude line to the
+ * `info/exclude` of `<sessionDir>`'s common git dir (a linked worktree resolves to the main
+ * repo's `.git`). A non-git tree, an uninspectable `.git`, or a write-protected exclude file
+ * all collapse to "warn and proceed" — the caller's install already succeeded regardless.
  */
 const ensureGitExcludeOnce = async (
   sessionDir: AbsolutePath,
@@ -159,10 +182,10 @@ export const createFilesystemSkillsAdapter = (deps: FilesystemSkillsAdapterDeps)
       if (tracked.size > 0) installed.set(String(sessionDir), tracked);
       if (!written.ok) return written;
 
-      // Best-effort: append a single wildcard line to <sessionDir>/.git/info/exclude so
-      // every `ralphctl-*` skill we manage stays out of `git status`. A non-git tree, a
-      // worktree, or a write-protected `.git/info/exclude` all collapse to "warn and
-      // proceed" — the skill install itself already succeeded.
+      // Best-effort: append a single wildcard line to <sessionDir>'s common `.git/info/exclude`
+      // (linked worktrees included) so every `ralphctl-*` skill we manage stays out of
+      // `git status`. A non-git tree, an uninspectable `.git`, or a write-protected
+      // `info/exclude` all collapse to "warn and proceed" — the skill install already succeeded.
       await ensureGitExcludeOnce(sessionDir, excludeAttempted, excludePattern, deps.providerId, deps.logger);
 
       return Result.ok(undefined);
@@ -173,6 +196,9 @@ export const createFilesystemSkillsAdapter = (deps: FilesystemSkillsAdapterDeps)
       // `.git/info/exclude`, doesn't add to the manifest. The folder is deliberately
       // project-tracked so the operator commits it as a regular project asset.
       const skillsDir = join(String(sessionDir), skillsSubdir);
+      const unsafe = rejectUnsafeSkillName(deps.providerId, skillsDir, skill.name);
+      if (unsafe !== undefined) return Result.error(unsafe);
+
       const dst = join(skillsDir, skill.name);
       // Project-wins: a pre-existing `SKILL.md` at the destination is the operator's own.
       // Leave it alone (the readiness flow may run on a repo where these skills already

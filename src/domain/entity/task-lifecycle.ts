@@ -49,6 +49,9 @@ export const markTaskBlocked = (
  * carrying a top-of-ladder escalation stamp would `topped-out` immediately. The per-attempt history
  * still lives in `progress.md` and git; only the task's in-memory attempt ledger resets.
  *
+ * The one stamp a clean restart KEEPS is the permanent `bestOfNGranted` marker (the once-per-task
+ * gate); its transient `bestOfNGrantedCandidates` handshake is dropped — see the destructure below.
+ *
  * Distinct from {@link resetTaskToTodo} (crash recovery), which PRESERVES attempts because it
  * resumes mid-work rather than restarting. Upstream-blocked dependents re-armed by the unblock
  * cascade carry no attempts, so the reset is a no-op for them.
@@ -69,6 +72,14 @@ export const unblockTask = (task: Task): Result<TodoTask, InvalidStateError> => 
     // A clean restart drops the prior run's per-criterion verdicts too — a freshly-planned task
     // carries no k-of-N history; stale verdicts would mislead the next run's checklist.
     criteriaVerdicts: _verdicts,
+    // The best-of-N handshake is transient: it is meant to be consumed by the ATTEMPT it was issued
+    // for. A grant stamped but never consumed (the attempt was cancelled / self-blocked before
+    // `best-of-n-selection` cleared it) would otherwise ride onto a task with zero attempts and make
+    // the restarted run's FIRST attempt sample N candidate generator sessions — an unexpected N×
+    // spend on what the operator asked to be a fresh run. The PERMANENT `bestOfNGranted` marker is
+    // deliberately NOT stripped: it is the once-per-task gate `decideEscalation` reads, and clearing
+    // it would let repeated block/unblock cycles re-grant N sessions without bound.
+    bestOfNGrantedCandidates: _bestOfNCandidates,
     ...rest
   } = guard.value;
   void _reason;
@@ -78,6 +89,7 @@ export const unblockTask = (task: Task): Result<TodoTask, InvalidStateError> => 
   void _effort;
   void _evaluatorEffort;
   void _verdicts;
+  void _bestOfNCandidates;
   return Result.ok({ ...rest, status: 'todo', attempts: [] });
 };
 

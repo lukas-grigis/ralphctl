@@ -2680,6 +2680,93 @@ describe('createImplementFlow — gen-eval loop', () => {
     expect(sprintRepo.current().status).toBe('active');
   });
 
+  it('EVALUATOR watchdog kill before signals.json: retries within maxAttempts, same as the generator half', async () => {
+    // The evaluator spawns through the same headless provider, the same idle-stdout watchdog and
+    // the same classify-spawn-exit ladder as the generator, so it dies the same ways. Before the
+    // fix its ProcessCrashError folded into a `self-blocked` exit, which terminally blocked the
+    // task after ONE attempt with the budget untouched — a manual `unblock` for a transient
+    // process death. It must now take the generator's `crashed` retry path instead.
+    const f = await buildFixture(1, 3); // maxAttempts = 3
+    tracking(f);
+    const sprintRepo = inMemorySprintRepo(f.sprint);
+    const taskRepo = inMemoryTaskRepo(f.tasks);
+
+    // Generator behaves normally (writes a valid signals.json); only the EVALUATOR crashes.
+    const generatorFake = createFakeAiProvider({ signals: { implement: [taskVerified('tests pass')] } });
+    let evalCalls = 0;
+    const crashingEvaluator: HeadlessAiProvider = {
+      async generate() {
+        evalCalls += 1;
+        return Result.error(
+          new ProcessCrashError({
+            entity: 'codex-provider',
+            state: 'exit-143',
+            message: 'codex-provider: process exited with code 143 (signal=SIGTERM): <empty stderr>',
+          })
+        );
+      },
+    };
+
+    const baseDeps = buildDeps(
+      sprintRepo.repo,
+      inMemoryExecutionRepo(f.execution).repo,
+      taskRepo.repo,
+      generatorFake,
+      f.dir,
+      makeCleanGit()
+    );
+    const deps: ImplementDeps = { ...baseDeps, generatorProvider: generatorFake, evaluatorProvider: crashingEvaluator };
+
+    const flow = createImplementFlow(deps, {
+      sprintId: f.sprint.id,
+      todoTasks: f.tasks,
+      repositories: FAKE_REPOSITORIES,
+      generatorProviderId: 'claude-code',
+      generatorModel: 'claude-opus-4-8',
+      evaluatorProviderId: 'openai-codex',
+      evaluatorModel: 'gpt-5.5',
+      progressFile: absolutePath(f.progressFile),
+      sprintDir: absolutePath(f.dir),
+      memoryRoot: FAKE_MEMORY_ROOT,
+      projectId: FAKE_PROJECT_ID,
+      projectSlug: FAKE_PROJECT_SLUG,
+    });
+
+    const runner = createRunner({
+      id: 'r-impl-eval-crash-retry',
+      element: flow,
+      initialCtx: { sprintId: f.sprint.id } satisfies ImplementCtx,
+    });
+    await runner.start();
+
+    expect(runner.status).toBe('completed');
+
+    const finalTask = taskRepo.tasks()[0];
+    // Blocked only at the CAP (budget branch of failCurrentAttempt) — not after one attempt, and
+    // NOT with the evaluator's own reason: a `crashed` exit deliberately leaves `lastBlockReason`
+    // unset, which is also what keeps the commit-task guard (keyed on that field) open so the
+    // generator's work still lands before the retry starts from it.
+    expect(finalTask?.status).toBe('blocked');
+    expect(finalTask?.attempts).toHaveLength(3);
+    if (finalTask?.status === 'blocked') {
+      expect(finalTask.blockedReason).toContain('attempt budget exhausted');
+      expect(finalTask.blockedReason).not.toContain('signals.json');
+    }
+
+    // The outer attempt loop genuinely re-entered: one start/settle pair + one evaluator spawn
+    // per attempt. A terminal block after attempt 1 would leave these at 1.
+    const startEntries = runner.trace.filter((e) => e.elementName === `start-attempt-${String(finalTask?.id)}`);
+    expect(startEntries).toHaveLength(3);
+    expect(evalCalls).toBe(3);
+
+    // Operator visibility: each failed attempt records the crash as a structured warning.
+    for (const attempt of finalTask?.attempts ?? []) {
+      expect(attempt.warning?.kind).toBe('crashed');
+    }
+
+    expect(sprintRepo.current().status).toBe('active');
+  });
+
   it('self-block fence: a genuine <task-blocked> STILL blocks after ONE attempt even with maxAttempts=3 (semantic self-blocks must not retry)', async () => {
     // Fence for the crash-retry change: only a ProcessCrash takes the retry path. A generator
     // <task-blocked> signal is a SEMANTIC self-block (the AI decided it cannot proceed) and must

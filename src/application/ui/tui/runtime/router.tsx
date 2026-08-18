@@ -26,7 +26,15 @@ export interface RouterApi {
   push(entry: ViewEntry): void;
   pop(): void;
   replace(entry: ViewEntry): void;
-  reset(entry?: ViewEntry): void;
+  /**
+   * Drop the whole stack and land on `entry`. The destination is REQUIRED — an optional
+   * "fall back to the launch entry" form used to exist, and both of its callers (`h` = Home,
+   * `D` = detach) meant Home. On a first-run session the launch entry is the welcome / create-
+   * project wizard, so the bare form silently re-mounted the first-run wizard (which then
+   * re-applied its AI preset over the user's Settings edits). Making the parameter required
+   * keeps that class of bug unrepresentable.
+   */
+  reset(entry: ViewEntry): void;
 }
 
 const RouterContext = createContext<RouterApi | undefined>(undefined);
@@ -67,12 +75,9 @@ export const RouterProvider = ({ initial, children }: RouterProviderProps): Reac
     setStack((s) => (s.length === 0 ? [entry] : [...s.slice(0, -1), entry]));
   }, []);
 
-  const reset = useCallback(
-    (entry?: ViewEntry) => {
-      setStack(() => [entry ?? initial]);
-    },
-    [initial]
-  );
+  const reset = useCallback((entry: ViewEntry) => {
+    setStack(() => [entry]);
+  }, []);
 
   const current = stack[stack.length - 1] ?? initial;
 

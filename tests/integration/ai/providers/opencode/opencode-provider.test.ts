@@ -255,6 +255,28 @@ describe('createOpencodeProvider', () => {
     expect(calls[1]?.args).not.toContain('-s');
   });
 
+  it('surfaces the stdout error record in the failure message and as a warn log (empty stderr)', async () => {
+    // An unreachable / unauthenticated `provider/model` id makes `opencode run` exit 1 with an
+    // EMPTY stderr and its whole explanation on a stdout `{"type":"error"}` record. That text used
+    // to be parsed and dropped, leaving `process exited with code 1: <empty stderr>` — a failure
+    // an operator cannot act on, repeated for every attempt in the budget.
+    const errorLine =
+      '{"type":"error","error":{"name":"UnknownError","data":{"message":"Unexpected server error. Please try again."}}}\n';
+    const { spawn } = makeSpawn([{ stdoutChunks: [errorLine], exitCode: 1 }]);
+    const bus = createCapturingBus();
+    // No signals.json — the CLI never got far enough to land one.
+    const result = await createOpencodeProvider({ rateLimitRetries: 0, eventBus: bus.bus, spawn }).generate(session());
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.message).toContain('UnknownError: Unexpected server error');
+    expect(result.error.message).not.toContain('<empty stderr>');
+    // …and the same explanation is visible per attempt at warn level, not buried at debug.
+    expect(
+      bus.logs.some((l) => l.level === 'warn' && l.message.includes('UnknownError: Unexpected server error'))
+    ).toBe(true);
+  });
+
   it('tolerates non-JSON banner lines interleaved with the stream', async () => {
     const sid = 'ses_noise';
     const { spawn } = makeSpawn([

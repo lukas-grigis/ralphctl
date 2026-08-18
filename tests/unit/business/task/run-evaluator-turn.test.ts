@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { recordRunningAttemptVerification } from '@src/domain/entity/task-attempts.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
+import { ProcessCrashError } from '@src/domain/value/error/process-crash-error.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import { RateLimitError } from '@src/domain/value/error/rate-limit-error.ts';
 import type { EvaluationSignal, HarnessSignal } from '@src/domain/signal.ts';
@@ -267,6 +268,38 @@ describe('runEvaluatorTurnUseCase', () => {
         expect(result.value.exit.reason).toContain('signals.json not found in outputDir');
       }
       expect(result.value.task).toBe(task); // unchanged — no evaluation recorded
+    }
+  });
+
+  it('returns a CRASHED exit (not self-blocked) on a ProcessCrashError — the retry path', async () => {
+    // The evaluator spawns through the same headless provider, the same idle-stdout watchdog and
+    // the same classify-spawn-exit ladder as the generator, so a transient evaluator process death
+    // must route to `crashed` (finalize retries within maxAttempts) rather than `self-blocked`,
+    // which terminally blocks the task after ONE attempt with the budget untouched. Mirrors the
+    // generator-side split.
+    const task = verifiedTask();
+    const err = new ProcessCrashError({
+      entity: 'codex-provider',
+      state: 'exit-143',
+      message: 'codex-provider: process exited with code 143 (signal=SIGTERM): <empty stderr>',
+    });
+    const result = await runEvaluatorTurnUseCase({
+      task,
+      plateauThreshold: 2,
+      callEvaluate: async () => Result.error(err),
+      evaluationFile: EVAL_FILE,
+      logger: noopLogger,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.exit?.kind).toBe('crashed');
+      if (result.value.exit?.kind === 'crashed') {
+        expect(result.value.exit.reason).toContain('AI process was killed before producing signals.json');
+        expect(result.value.exit.reason).toContain('process exited with code 143 (signal=SIGTERM)');
+      }
+      expect(result.value.task).toBe(task); // unchanged — no evaluation recorded on a crash
+      // No evaluation signal survives a crashed turn, so the prior round's verdict cannot leak.
+      expect(result.value.evaluation).toBeUndefined();
     }
   });
 

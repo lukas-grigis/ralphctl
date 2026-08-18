@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import type { Skill } from '@src/integration/ai/skills/_engine/skill.ts';
 import { createClaudeSkillsAdapter } from '@src/integration/ai/skills/claude/adapter.ts';
 import { createCodexSkillsAdapter } from '@src/integration/ai/skills/codex/adapter.ts';
@@ -22,6 +23,20 @@ import { createCopilotSkillsAdapter } from '@src/integration/ai/skills/copilot/a
 
 const makeSession = async (): Promise<AbsolutePath> => {
   const dir = await mkdtemp(join(tmpdir(), 'bare-skills-'));
+  const parsed = AbsolutePath.parse(dir);
+  if (!parsed.ok) throw new Error(parsed.error.message);
+  return parsed.value;
+};
+
+/**
+ * Session dir nested one level inside a fresh tmp root, so a traversing skill name resolves to a
+ * path that is still unique to this test run — the escape assertions cannot be satisfied (or
+ * poisoned) by an artifact some other run left in the shared tmp dir.
+ */
+const makeNestedSession = async (): Promise<AbsolutePath> => {
+  const root = await mkdtemp(join(tmpdir(), 'bare-skills-root-'));
+  const dir = join(root, 'repo');
+  await mkdir(dir, { recursive: true });
   const parsed = AbsolutePath.parse(dir);
   if (!parsed.ok) throw new Error(parsed.error.message);
   return parsed.value;
@@ -109,6 +124,56 @@ describe('installBareSkill — claude adapter', () => {
 
     const exclude = await readFile(join(String(session), '.git/info/exclude'), 'utf-8');
     expect(exclude).toContain('.claude/skills/ralphctl-*');
+  });
+});
+
+/**
+ * Containment boundary — `skill.name` is used verbatim as a directory name, and on the bare
+ * path it originates from AI output (the readiness `skill-suggestions` signal). The adapter is
+ * the last gate before `mkdir` / `writeFile`, so a name that is not a bare kebab-case identifier
+ * must fail loudly and write nothing — inside or outside the session directory.
+ */
+describe('skills adapter — rejects names that are not bare kebab-case identifiers', () => {
+  // Traversal targets are asserted relative to the session dir, so every escaping name here must
+  // stay inside the per-run `makeNestedSession` root — otherwise a leftover from an earlier run
+  // (or from the pre-fix code, which really did write there) would mask a regression.
+  const hostileNames = ['../escape', '../../../escape-far', 'a/b', 'a\\b', '/etc/pwn', '..', '', 'Upper'];
+
+  it.each(hostileNames)('installBareSkill(%j) → StorageError, nothing written', async (name) => {
+    const session = await makeNestedSession();
+    const adapter = createClaudeSkillsAdapter();
+
+    const result = await adapter.installBareSkill(session, skill(name, '# pwned'));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBeInstanceOf(StorageError);
+    // Nothing landed anywhere — not under the session dir, not outside it.
+    expect(existsSync(join(String(session), '.claude/skills'))).toBe(false);
+    expect(existsSync(resolve(String(session), '.claude/skills', name))).toBe(false);
+  });
+
+  it('install (bundled path) rejects a traversing name and writes nothing', async () => {
+    const session = await makeNestedSession();
+    const adapter = createClaudeSkillsAdapter();
+
+    const result = await adapter.install(session, [skill('../../../escape-bundled', '# pwned')]);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toBeInstanceOf(StorageError);
+    expect(existsSync(resolve(String(session), '.claude/skills', '../../../escape-bundled'))).toBe(false);
+  });
+
+  it('install stops at the bad name — the valid skill before it is still installed', async () => {
+    const session = await makeNestedSession();
+    const adapter = createClaudeSkillsAdapter();
+
+    const result = await adapter.install(session, [skill('ralphctl-alignment', '# ok'), skill('../evil', '# pwned')]);
+
+    expect(result.ok).toBe(false);
+    expect(existsSync(join(String(session), '.claude/skills/ralphctl-alignment/SKILL.md'))).toBe(true);
+    expect(existsSync(resolve(String(session), '.claude/skills', '../evil'))).toBe(false);
   });
 });
 

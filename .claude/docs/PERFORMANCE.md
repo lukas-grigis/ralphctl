@@ -226,7 +226,10 @@ times per task (harness pre + post + generator in-turn + evaluator in-turn). The
   A footprint probe failure or an empty footprint falls back to running all gates — a gate is never silently
   skipped. A monorepo task touching one module no longer pays every other module's suite on every verify pass.
   The legacy single `verifyScript` normalises to one catch-all `pathPrefix: ''` gate — non-gated repos are
-  byte-for-byte the prior behaviour.
+  byte-for-byte the prior behaviour. A diff-scoped green post does NOT license the next task's carry-baseline
+  pre-verify skip (`ctx.priorPostVerifyOutcome.coveredAllGates`): its `success` only covers the gates that
+  ran, so a gate already red outside that footprint would otherwise mis-attribute as `regressed` on the next
+  task. Only an unscoped run — legacy script or the run-ALL fallback — carries as a whole-tree baseline.
 - **`settings.harness.skipPreVerifyOnFreshSetup`** (default `false`) — skip the FIRST pre-task verify of a run
   when this launch's own setup script already proved the tree green. The skip synthesizes the same green
   `VerifyRun` shape the carry-baseline path produces, so the `PRE_VERIFY_RESULTS` block and attribution fold
@@ -289,10 +292,12 @@ repoName, taskKind, sprintId, taskId, timestamp, promotedAt }`; `id` is a stable
 `sha1(repo|taskKind|normalize(text))[:16]` dedup key and `promotedAt` is `null` on write.
 `text` is the Insight (required); `context` (when/why it arose) and `appliesTo` (where it applies) are optional and
 render as indented `Context:` / `Applies to:` sub-bullets in `progress.md` and the distilled `## Learnings (ralphctl)`
-section. A **`learnings.md` human-readable mirror** is written alongside the NDJSON ledger on every append and
-promote (`appendLearningsAndMirror` in `ledger-writer.ts`); `stamp-promoted` also regenerates it after
+section. A **`learnings.md` human-readable mirror** sits alongside the NDJSON ledger, rendered by
+`mirrorLearningsMd` (`ledger-writer.ts`). It is regenerated **lazily** — never on the hot per-attempt append
+path (`appendMemoryRecords`, which only appends + bounds), but at the two checkpoints a human is about to
+browse it: sprint close (`refreshMemoryMirrorLeaf`) and the distill flow's `stampPromotedLeaf` after
 compaction. The mirror is best-effort — a write failure is logged, the NDJSON append already landed, and the
-mirror self-heals on the next write. A one-syscall byte-ceiling guard (`LEDGER_HARD_CEILING_BYTES = 50 MB`,
+mirror self-heals on the next render. A one-syscall byte-ceiling guard (`LEDGER_HARD_CEILING_BYTES = 50 MB`,
 `ledgerExceedsCeiling` in `read-ledger.ts`) prevents loading a pathologically large ledger — an over-ceiling
 file is rotated to `.bak` and the mirror render is skipped rather than overwriting a real `learnings.md` with
 an empty view. At sprint close — BOTH the explicit `close-sprint` flow and the `review` flow's auto-done path —
@@ -313,14 +318,14 @@ Resolution uses the `SkillSource.getByName` lookup on the bundled source.
 
 ## Environment variables
 
-| Variable                     | Default        | Range / values   | Purpose                                                          |
-| ---------------------------- | -------------- | ---------------- | ---------------------------------------------------------------- |
-| `RALPHCTL_HOME`              | `~/.ralphctl/` | absolute path    | Override application root (data + config + state)                |
-| `RALPHCTL_SKIP_LEGACY_CHECK` | unset          | any truthy value | Bypass the v0.6.x legacy-layout detector at boot                 |
-| `RALPHCTL_DEBUG_TRACE`       | unset          | any truthy value | Enable `<sprintDir>/events.ndjson` debug sink (no-op when unset) |
-| `RALPHCTL_NO_TUI`            | unset          | any truthy value | Suppress implicit interactive prompts inside the implement flow  |
-| `NO_COLOR`                   | unset          | any truthy value | Suppress ANSI colors                                             |
-| `CI`                         | auto-detected  | any truthy value | Suppress implicit interactive prompts inside the implement flow  |
+| Variable                     | Default        | Range / values   | Purpose                                                                                                                                                           |
+| ---------------------------- | -------------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `RALPHCTL_HOME`              | `~/.ralphctl/` | absolute path    | Override application root (data + config + state)                                                                                                                 |
+| `RALPHCTL_SKIP_LEGACY_CHECK` | unset          | any truthy value | Bypass the v0.6.x legacy-layout detector at boot                                                                                                                  |
+| `RALPHCTL_DEBUG_TRACE`       | unset          | any truthy value | Enable `<sprintDir>/events.ndjson` debug sink (no-op when unset); also prints the full stack when a CLI invocation fails at the top level (`report-cli-error.ts`) |
+| `RALPHCTL_NO_TUI`            | unset          | any truthy value | Suppress implicit interactive prompts inside the implement flow                                                                                                   |
+| `NO_COLOR`                   | unset          | any truthy value | Suppress ANSI colors                                                                                                                                              |
+| `CI`                         | auto-detected  | any truthy value | Suppress implicit interactive prompts inside the implement flow                                                                                                   |
 
 ## Diagnosing an OOM (heap snapshot)
 

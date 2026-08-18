@@ -6,6 +6,7 @@ import {
   unblockTask,
 } from '@src/domain/entity/task-lifecycle.ts';
 import {
+  recordTaskBestOfNGrant,
   recordTaskEffortEscalation,
   recordTaskEscalation,
   recordTaskEvaluatorEffortEscalation,
@@ -95,6 +96,30 @@ describe('unblockTask — clean restart (drops block fields, resets budget + esc
     expect((back.value as unknown as Record<string, unknown>)['escalatedToEvaluatorEffort']).toBeUndefined();
     // The cap itself (a planning field) survives — only the consumed budget resets.
     expect(back.value.maxAttempts).toBe(3);
+  });
+
+  it('drops the unconsumed best-of-N handshake but KEEPS the permanent grant marker', () => {
+    // Arrange: a task whose best-of-N grant was stamped but never consumed (the attempt aborted /
+    // self-blocked before `best-of-n-selection` cleared the handshake), then blocked.
+    const inProgress = makeInProgressTaskWithRunningAttempt();
+    const granted = recordTaskBestOfNGrant(inProgress, 3);
+    if (!granted.ok) throw granted.error;
+    const blocked = markTaskBlocked(granted.value, 'cancelled by operator', 'own');
+    if (!blocked.ok) throw blocked.error;
+    expect(blocked.value.bestOfNGrantedCandidates).toBe(3); // precondition: handshake survives the block
+
+    // Act
+    const back = unblockTask(blocked.value);
+
+    // Assert: the transient handshake is meant to be consumed by the attempt it was issued for, so a
+    // clean restart with zero attempts must not re-enter the best-of-N composite and burn N sessions.
+    expect(back.ok).toBe(true);
+    if (!back.ok) return;
+    expect(back.value.attempts).toHaveLength(0);
+    expect((back.value as unknown as Record<string, unknown>)['bestOfNGrantedCandidates']).toBeUndefined();
+    // The PERMANENT marker survives — it is the once-per-task gate `decideEscalation` reads; clearing
+    // it would let repeated block/unblock cycles re-grant N candidate sessions without bound.
+    expect(back.value.bestOfNGranted).toBe(true);
   });
 
   it('drops criteriaVerdicts so stale k-of-N verdicts do not mislead the next run', () => {

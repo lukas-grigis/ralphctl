@@ -388,6 +388,7 @@ export RALPHCTL_HOME="/path/to/custom/dir"
 | ---------------------------- | -------------- | ---------------------------------------------------- |
 | `RALPHCTL_HOME`              | `~/.ralphctl/` | Override application root (data + config + state)    |
 | `RALPHCTL_SKIP_LEGACY_CHECK` | unset          | Bypass the v0.6.x legacy-layout detector at boot     |
+| `RALPHCTL_DEBUG_TRACE`       | unset          | Write a `<sprintDir>/events.ndjson` debug trace      |
 | `RALPHCTL_NO_TUI`            | unset          | Suppress implicit interactive prompts in `implement` |
 | `NO_COLOR`                   | unset          | Suppress ANSI colors                                 |
 | `CI`                         | auto-detected  | Suppress implicit interactive prompts in `implement` |
@@ -439,6 +440,8 @@ readiness / create sprint) stay TUI-only by design. The CLI exposes inspection +
 | `ralphctl settings set <key> <value>`   | Set a single settings key                                                                                                                                                     |
 | `ralphctl settings apply-preset <name>` | Stamp the entire `ai` section — 21 presets: `standard` / `economic` / `strong-gate` / `fast` / `frontier` families, each in `mixed` / `*-only` variants, plus `opencode-only` |
 | `ralphctl completion <shell>`           | Print shell tab-completion script                                                                                                                                             |
+| `ralphctl agents list`                  | List bundled + operator agent definitions and the implement role each is bound to                                                                                             |
+| `ralphctl skills list`                  | List bundled + manually-dropped skills — tier, enabled flows, provenance                                                                                                      |
 
 ### Project & Sprint Inspection
 
@@ -455,6 +458,7 @@ readiness / create sprint) stay TUI-only by design. The CLI exposes inspection +
 | `ralphctl ticket list / show <id>`    | Inspect tickets                                                                     |
 | `ralphctl ticket remove <id>`         | Remove a ticket from a draft sprint                                                 |
 | `ralphctl task list / show <id>`      | Inspect tasks (planning generates them)                                             |
+| `ralphctl task evaluation <id>`       | Print the latest evaluator verdict (`evaluation.md`) for the task's last attempt    |
 | `ralphctl task unblock <id>`          | Reset a blocked task to `todo`                                                      |
 
 ### Sprint Lifecycle
@@ -475,10 +479,11 @@ readiness / create sprint) stay TUI-only by design. The CLI exposes inspection +
 
 ### Maintenance
 
-| Command                                                                                    | Description                                     |
-| ------------------------------------------------------------------------------------------ | ----------------------------------------------- |
-| `ralphctl runs list [--flow <name>]`                                                       | List per-run forensic artifacts grouped by flow |
-| `ralphctl runs prune [--older-than 7d] [--keep-last <n>] [--flow <name>] [--dry-run] [-y]` | Delete per-run forensic artifacts               |
+| Command                                                                                    | Description                                                                          |
+| ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| `ralphctl runs list [--flow <name>]`                                                       | List per-run forensic artifacts grouped by flow                                      |
+| `ralphctl runs stats [--sprint <id>] [--project <id>] [--since <date>] [--json]`           | Harness outcome rollup — outcome mix, first-pass rate, plateaus, escalation efficacy |
+| `ralphctl runs prune [--older-than 7d] [--keep-last <n>] [--flow <name>] [--dry-run] [-y]` | Delete per-run forensic artifacts                                                    |
 
 Run `ralphctl <command> --help` for flag-level detail.
 

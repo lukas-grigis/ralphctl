@@ -222,7 +222,10 @@ const handleViewShortcut = (input: string, router: RouterApi, ui: UiStateApi): b
 
   switch (input) {
     case 'h':
-      if (router.current.id !== 'home') router.reset();
+      // Explicit destination — `reset` never infers one. On a first-run session the launch
+      // entry is the welcome wizard, and inferring it here sent `h` backwards into first-run
+      // setup instead of Home.
+      if (router.current.id !== 'home') router.reset({ id: 'home' });
       return true;
     case 'n':
       navigate('flows');

@@ -93,7 +93,12 @@ interface BranchRun<TCtx> {
   readonly runner: Runner<TCtx>;
   /** Resolves to this same run when the runner reaches a terminal state. Never rejects. */
   readonly settled: Promise<BranchRun<TCtx>>;
-  /** The `failed`-event error, captured off the runner's stream; `null` for a clean / aborted run. */
+  /**
+   * The terminal error captured off the runner's stream: the `failed` event's error, or the
+   * `aborted` event's error when the abort originated INSIDE the branch chain. `null` for a clean
+   * run and for a runner WE killed (fatal sibling / outer signal), whose `aborted` event carries
+   * no error.
+   */
   capturedError: DomainError | null;
 }
 
@@ -117,11 +122,13 @@ interface BranchRun<TCtx> {
  * Failure contract (CLAUDE.md "AbortError is the one error chains propagate transparently"):
  *  - A NON-fatal branch failure is absorbed: siblings keep running, the error is captured in that
  *    branch's {@link BranchOutcome} (`status: 'failed'`) for the reducer to record as a block.
- *  - **Abort:** when `signal` aborts, forward it into every in-flight branch via
- *    `runner.abort()`, await all branches to settle (`Promise.allSettled` semantics — `settled`
- *    never rejects) so each branch's chain runs its own cleanup (e.g. worktree teardown), then
- *    return `Result.error({ error: AbortError, trace })` VERBATIM — the AbortError is never folded
- *    into a per-branch "blocked" outcome.
+ *  - **Abort:** when `signal` aborts — OR when a branch's own chain settles with an `aborted`-coded
+ *    error (the operator answered "abort" at an in-branch prompt, with no outer signal) — forward
+ *    it into every in-flight branch via `runner.abort()`, await all branches to settle
+ *    (`Promise.allSettled` semantics — `settled` never rejects) so each branch's chain runs its own
+ *    cleanup (e.g. worktree teardown), then return `Result.error({ error: AbortError, trace })`
+ *    VERBATIM — the AbortError is never folded into a per-branch "blocked" outcome, and no later
+ *    wave is launched.
  *  - **Rate-limit:** an exhausted-retry `rate-limit` in one branch is fatal. With
  *    `onFatal: 'drain'` (default) the in-flight siblings finish and then the rest of the wave is
  *    not launched; with `onFatal: 'kill'` the siblings are aborted immediately. Either way the
@@ -319,6 +326,12 @@ const createBranchRun = <TCtx>(branch: WaveBranch<TCtx>, base: TCtx): BranchRun<
 
   const unsub = runner.subscribe((event) => {
     if (event.type === 'failed') run.capturedError = event.error;
+    // An `aborted` event carrying an error means the BRANCH's own chain aborted (e.g. the operator
+    // answered "abort" at an in-branch prompt) while the outer signal never fired. Capture it so
+    // `classify` sees a fatal `aborted` and tears the schedule down instead of silently reading the
+    // branch as "did not settle" and launching the rest of the wave — and every later wave. A kill
+    // WE issued carries no error, so this stays a no-op for fatal-sibling / outer-signal aborts.
+    else if (event.type === 'aborted' && event.error !== undefined) run.capturedError = event.error;
   });
 
   // start() resolves when the run reaches a terminal state; detach the listener then, resolve to

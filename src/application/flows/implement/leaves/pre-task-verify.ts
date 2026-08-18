@@ -161,11 +161,17 @@ export interface LeafInput {
   readonly execution: SprintExecution;
   /**
    * Carried from `ctx.priorPostVerifyOutcome` — the previous task's post-task-verify result
-   * (cwd + outcome). Drives the carry-baseline short-circuit: when `outcome === 'success'`
-   * and the cwd matches `opts.cwd` and the working tree is clean, the leaf returns a
-   * synthetic green {@link VerifyRun} without spawning the verify script.
+   * (cwd + outcome + gate coverage). Drives the carry-baseline short-circuit: when
+   * `outcome === 'success'` AND that run executed every configured gate (`coveredAllGates`)
+   * and the cwd matches `opts.cwd` and the working tree is clean, the leaf returns a synthetic
+   * green {@link VerifyRun} without spawning the verify script. A diff-scoped post run (or a
+   * ctx from before the flag existed) is not whole-tree evidence and falls through.
    */
-  readonly priorPostVerifyOutcome?: { readonly cwd: AbsolutePath; readonly outcome: VerifyRunOutcome };
+  readonly priorPostVerifyOutcome?: {
+    readonly cwd: AbsolutePath;
+    readonly outcome: VerifyRunOutcome;
+    readonly coveredAllGates?: boolean;
+  };
   /**
    * The in-flight task's repository id (`ctx.currentTask.repositoryId`). Matched against
    * {@link LeafInput.setupVerifiedRepoIds} to decide the fresh-setup skip — keyed on repo id, not

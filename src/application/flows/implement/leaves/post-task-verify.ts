@@ -162,6 +162,16 @@ interface LeafOutput {
    */
   readonly rawOutput: string;
   readonly spawnErrorMessage?: string;
+  /**
+   * True iff this run executed EVERY configured gate — i.e. the legacy single-script path, or a
+   * structured-gates run that fell back to the unscoped all-gates set. False when the run was
+   * diff-scoped (a subset of the gates) or short-circuited entirely (zero-turn skip).
+   *
+   * Carried onto `ctx.priorPostVerifyOutcome` because a scoped run's aggregate `'success'` only
+   * proves "every EXECUTED gate passed" — it is NOT whole-tree evidence, so it must not license
+   * the next task's carry-baseline short-circuit. See the field docs on `ImplementCtx`.
+   */
+  readonly coveredAllGates: boolean;
 }
 
 /**
@@ -263,7 +273,9 @@ const buildZeroTurnSkippedResult = (deps: Pick<PostTaskVerifyLeafDeps, 'clock'>,
     durationMs: 0,
     outcome: 'skipped',
   };
-  return { task, run: skipped, rawOutput: '' };
+  // No gate ran at all, so this is not whole-tree evidence. The `'skipped'` outcome already
+  // blocks the next task's carry (it requires `'success'`); the flag keeps the two consistent.
+  return { task, run: skipped, rawOutput: '', coveredAllGates: false };
 };
 
 /**
@@ -274,16 +286,19 @@ const buildZeroTurnSkippedResult = (deps: Pick<PostTaskVerifyLeafDeps, 'clock'>,
  * (all-run subset = the one gate). When gates ARE configured we compute the footprint and pass it
  * as scope; fail-fast stops at the first red scoped gate. CRITICAL fallback: a footprint failure
  * or an empty result runs ALL gates (scope undefined) — we never silently skip a gate.
+ *
+ * Reports `coveredAllGates` alongside the run so the caller can record WHETHER this outcome is
+ * whole-tree evidence: only an unscoped run (legacy single script, or the run-ALL fallback) is.
  */
 const runPostVerifyGates = async (
   deps: PostTaskVerifyLeafDeps,
   opts: PostTaskVerifyLeafOpts,
   signal?: AbortSignal
-): Promise<RunVerifyScriptOutput> => {
+): Promise<RunVerifyScriptOutput & { readonly coveredAllGates: boolean }> => {
   const gates = normalizeVerifyGates(opts.verifyScript, opts.verifyGates);
   const usingStructuredGates = opts.verifyGates !== undefined && opts.verifyGates.length > 0;
   const scope = usingStructuredGates ? await computeScope(deps, opts.cwd) : undefined;
-  return runVerifyGatesUseCase({
+  const out = await runVerifyGatesUseCase({
     cwd: opts.cwd,
     phase: 'post',
     gates,
@@ -302,6 +317,7 @@ const runPostVerifyGates = async (
       }),
     logger: deps.logger,
   });
+  return { ...out, coveredAllGates: scope === undefined };
 };
 
 /** Fallback `WriteFile` for callers that don't (yet) wire the port — same atomic adapter either way. */
@@ -439,7 +455,7 @@ const createPostTaskVerifyExecute =
       return Result.ok(buildZeroTurnSkippedResult(deps, input.task));
     }
 
-    const { run, rawOutput, spawnErrorMessage } = await runPostVerifyGates(deps, opts, signal);
+    const { run, rawOutput, spawnErrorMessage, coveredAllGates } = await runPostVerifyGates(deps, opts, signal);
 
     // Cancellation propagates verbatim. `runVerifyScriptUseCase` folds a runner
     // `Result.error` into a `spawn-error` row, so the abort would otherwise be swallowed as an
@@ -468,6 +484,7 @@ const createPostTaskVerifyExecute =
       task: recorded.value.task,
       run,
       rawOutput,
+      coveredAllGates,
       ...(spawnErrorMessage !== undefined ? { spawnErrorMessage } : {}),
       ...(recorded.value.attribution !== undefined ? { attribution: recorded.value.attribution } : {}),
     });
@@ -545,12 +562,13 @@ const projectLeafOutput = (ctx: ImplementCtx, out: LeafOutput, opts: PostTaskVer
     currentTask: out.task,
     tasks,
     lastVerifyResult: verifyResult,
-    // Carry the (cwd, outcome) tuple onto ctx so the NEXT task's pre-task-verify can
-    // short-circuit when this post ran green AND its working tree is still clean. The
-    // pre-task-verify leaf re-checks the tree itself via `git status --porcelain` — this
-    // field only asserts "the script ran here and got this outcome." Survives
-    // `settle-attempt` (which clears per-attempt fields only).
-    priorPostVerifyOutcome: { cwd: opts.cwd, outcome: out.run.outcome },
+    // Carry the (cwd, outcome, coverage) tuple onto ctx so the NEXT task's pre-task-verify can
+    // short-circuit when this post ran green over EVERY gate AND its working tree is still
+    // clean. The pre-task-verify leaf re-checks the tree itself via `git status --porcelain` —
+    // this field only asserts "these gates ran here and got this outcome." `coveredAllGates`
+    // is false for a diff-scoped run, whose green says nothing about the gates it skipped.
+    // Survives `settle-attempt` (which clears per-attempt fields only).
+    priorPostVerifyOutcome: { cwd: opts.cwd, outcome: out.run.outcome, coveredAllGates: out.coveredAllGates },
     ...(blockReason !== undefined ? { lastBlockReason: blockReason } : {}),
     ...(grantRetry ? { lastShouldFailAttempt: true } : {}),
   };

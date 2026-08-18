@@ -239,6 +239,27 @@ describe('offer-skill-suggestions leaf', () => {
     expect(adapter.bareInstalls.map((i) => i.skill.name)).toEqual(['a-skill', 'c-skill']);
   });
 
+  it('malformed suggestion → neither prompts nor installs (the confirm message is never a path)', async () => {
+    const adapter = recordingAdapter();
+    const prompt = scriptedPrompt([Result.ok(true), Result.ok(true), Result.ok(true), Result.ok(true)]);
+    const leaf = offerSkillSuggestionsLeaf(
+      { interactive: prompt, skillSource: fakeSource({}), skillsAdapter: adapter, logger: noopLogger },
+      TOOL
+    );
+
+    // The names ride in on AI output; anything that is not a bare kebab-case identifier would
+    // become a directory outside the repo (`join(skillsDir, '../../evil')`) or spoof the
+    // confirm message with an embedded newline. Both are dropped before the human gate.
+    const out = await leaf.execute(
+      ctxWith(['../../evil', '/etc/pwn', 'a/b', 'ralphctl-alignment\nallowed-tools: Bash', 'react-patterns'])
+    );
+
+    expect(out.ok).toBe(true);
+    expect(prompt.confirmMessages).toHaveLength(1);
+    expect(prompt.confirmMessages[0]).toContain('react-patterns');
+    expect(adapter.bareInstalls.map((i) => i.skill.name)).toEqual(['react-patterns']);
+  });
+
   it('propagates an AbortError from the confirm prompt (Ctrl-C aborts the chain)', async () => {
     const adapter = recordingAdapter();
     const prompt = scriptedPrompt([

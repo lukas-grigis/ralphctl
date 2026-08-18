@@ -14,7 +14,8 @@ import { render } from 'ink-testing-library';
 import { TasksPanel } from '@src/application/ui/tui/components/tasks-panel.tsx';
 import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { TaskEvaluation } from '@src/application/ui/tui/components/tasks-panel-internals/evaluation-row.tsx';
-import { ENTER, tick, UP, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { ENTER, tick, UP } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 
 const bucketed = (): BucketedExecution => ({
   tasks: [
@@ -52,10 +53,10 @@ describe("TasksPanel — `v` opens the focused card's evaluation", () => {
         ['task-live', { status: 'failed', attemptN: 2, file: 'rounds/3/evaluator/evaluation.md' }],
       ])
     );
-    await waitFor(() => (r.lastFrame() ?? '').includes('task-liv'));
+    await waitForPredicate(() => (r.lastFrame() ?? '').includes('task-liv'));
 
     r.stdin.write('v');
-    await waitFor(() => onOpenEvaluation.mock.calls.length === 1);
+    await waitForPredicate(() => onOpenEvaluation.mock.calls.length === 1);
     expect(onOpenEvaluation).toHaveBeenCalledWith('task-live');
     r.unmount();
   });
@@ -69,13 +70,13 @@ describe("TasksPanel — `v` opens the focused card's evaluation", () => {
         ['task-live', { status: 'failed', attemptN: 2, file: 'rounds/3/evaluator/evaluation.md' }],
       ])
     );
-    await waitFor(() => (r.lastFrame() ?? '').includes('task-liv'));
+    await waitForPredicate(() => (r.lastFrame() ?? '').includes('task-liv'));
 
     // Move the card cursor up onto the completed card, then read its verdict.
     r.stdin.write(UP);
     await tick(30);
     r.stdin.write('v');
-    await waitFor(() => onOpenEvaluation.mock.calls.length === 1);
+    await waitForPredicate(() => onOpenEvaluation.mock.calls.length === 1);
     expect(onOpenEvaluation).toHaveBeenCalledWith('task-done');
     r.unmount();
   });
@@ -87,7 +88,7 @@ describe("TasksPanel — `v` opens the focused card's evaluation", () => {
       onOpenEvaluation,
       evaluations([['task-done', { status: 'passed', attemptN: 1, file: 'rounds/1/evaluator/evaluation.md' }]])
     );
-    await waitFor(() => (r.lastFrame() ?? '').includes('task-liv'));
+    await waitForPredicate(() => (r.lastFrame() ?? '').includes('task-liv'));
 
     r.stdin.write('v');
     await tick(50);
@@ -100,7 +101,7 @@ describe("TasksPanel — `v` opens the focused card's evaluation", () => {
       undefined,
       evaluations([['task-live', { status: 'failed', attemptN: 2, file: 'rounds/3/evaluator/evaluation.md' }]])
     );
-    await waitFor(() => (r.lastFrame() ?? '').includes('task-liv'));
+    await waitForPredicate(() => (r.lastFrame() ?? '').includes('task-liv'));
     const before = r.lastFrame() ?? '';
     r.stdin.write('v');
     await tick(50);
@@ -122,7 +123,7 @@ describe("TasksPanel — `v` opens the focused card's evaluation", () => {
         onOpenEvaluation={onOpenEvaluation}
       />
     );
-    await waitFor(() => (r.lastFrame() ?? '').includes('AC-1'));
+    await waitForPredicate(() => (r.lastFrame() ?? '').includes('AC-1'));
 
     // `e` still toggles the criteria block and must NOT open the overlay.
     r.stdin.write('e');

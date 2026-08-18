@@ -1,3 +1,4 @@
+import { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import {
   FORENSIC_BODY_TAIL_CAP,
@@ -105,9 +106,10 @@ export const assistantText = (obj: Record<string, unknown>): string | undefined 
 /**
  * Diagnostic text for an `error` record: `{"type":"error","error":{"name":"UnknownError",
  * "data":{"message":"…"}}}`. An unreachable model id makes `opencode run` exit 1 with an EMPTY
- * stderr and puts its only explanation on this record, so folding it into the body / tail is what
- * keeps the `ProcessCrashError` message from reading `process exited with code 1: ` and nothing
- * else.
+ * stderr and puts its only explanation on this record. It is retained SEPARATELY from the body
+ * (see {@link OpencodeAttemptTracker.getStreamError}) because the classifier needs it as a
+ * structured CLI error — folding it only into the assistant tail would leave it indistinguishable
+ * from model output, which the classifier is not allowed to trust.
  */
 const streamErrorText = (obj: Record<string, unknown>): string | undefined => {
   if (stringField(obj, 'type') !== 'error') return undefined;
@@ -162,6 +164,21 @@ export const publishOpencodeStreamLineEvents = (eventBus: EventBus, obj: Record<
     publishAssistantEvent(eventBus, PROVIDER_NAME, assistantText(obj));
     return;
   }
+  if (type === 'error') {
+    // WARN, not debug: this record is the CLI's only account of a fatal failure (stderr is empty),
+    // and the attempt may be re-spawned several times before the budget blocks the task. Under the
+    // default log floor a debug event would hide every one of those explanations.
+    const text = streamErrorText(obj);
+    if (text !== undefined) {
+      eventBus.publish({
+        type: 'log',
+        level: 'warn',
+        message: `${PROVIDER_NAME}: CLI reported an error — ${text}`,
+        at: IsoTimestamp.now(),
+      });
+    }
+    return;
+  }
   if (type !== 'tool_use') return;
   const part = partOf(obj);
   if (part !== undefined) publishToolEvents(eventBus, part);
@@ -194,6 +211,12 @@ export interface OpencodeAttemptTracker {
   readonly getBody: () => string;
   /** Bounded assistant tail used as the rate-limit classifier's haystack. */
   readonly getStdoutTail: () => string | undefined;
+  /**
+   * Text of the last `error` record — the CLI's own structured explanation for an exit that
+   * carries nothing on stderr. Kept apart from {@link getStdoutTail} so the classifier can trust
+   * it (it is not model output) without trusting the assistant tail.
+   */
+  readonly getStreamError: () => string | undefined;
 }
 
 export const createOpencodeAttemptTracker = (eventBus: EventBus): OpencodeAttemptTracker => {
@@ -202,6 +225,7 @@ export const createOpencodeAttemptTracker = (eventBus: EventBus): OpencodeAttemp
   let outputTokens: number | undefined;
   let body = '';
   let assistantTail = '';
+  let streamError: string | undefined;
   const lineFeed = createCappedLineFeed<Record<string, unknown>>('opencode-stream', emitOpencodeLine);
 
   const onMeta = (update: OpencodeMetaUpdate): void => {
@@ -215,9 +239,13 @@ export const createOpencodeAttemptTracker = (eventBus: EventBus): OpencodeAttemp
 
   const onLine = (obj: Record<string, unknown>): void => {
     publishOpencodeStreamLineEvents(eventBus, obj);
-    // `error` records fold in alongside assistant prose: they are the CLI's only explanation for
-    // an exit-1 with empty stderr (see `streamErrorText`).
-    const text = assistantText(obj) ?? streamErrorText(obj);
+    // `error` records fold into the forensic body alongside assistant prose — they are the CLI's
+    // only explanation for an exit-1 with empty stderr — AND are retained separately so the
+    // classifier gets them as a structured error rather than as model output (see
+    // `streamErrorText`). Last one wins: the final error is the one that killed the run.
+    const errorText = streamErrorText(obj);
+    if (errorText !== undefined) streamError = errorText;
+    const text = assistantText(obj) ?? errorText;
     if (text === undefined) return;
     // Both accumulators are capped — an hours-long chatty session must not grow either without
     // bound (same OOM class the line-parse cap guards).
@@ -245,5 +273,6 @@ export const createOpencodeAttemptTracker = (eventBus: EventBus): OpencodeAttemp
     getOutputTokens: () => outputTokens,
     getBody: () => body,
     getStdoutTail: () => (assistantTail.length > 0 ? assistantTail : undefined),
+    getStreamError: () => streamError,
   };
 };

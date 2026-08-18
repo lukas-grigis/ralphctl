@@ -37,7 +37,8 @@ describe('CreateProjectView — wizard e2e', () => {
     const deps: AppDeps = { projectRepo } as unknown as AppDeps;
 
     const { result } = renderView(<CreateProjectView />, { deps, initial: { id: 'create-project' } });
-    await waitForViewReady(result, (f) => f.includes('Display name'));
+    // Match the prompt's literal copy — the view renders "Project display name" (create-project-view.tsx:207).
+    await waitForViewReady(result, (f) => f.includes('Project display name'));
 
     // Step 1: display name.
     result.stdin.write('Mainline');

@@ -19,7 +19,11 @@
  *    entry. Insertion order is the publish order; sort flows error → warn → info before
  *    render so urgency stays visually consistent regardless of when each emitter fired.
  *  - Up to `MAX_VISIBLE` (3) banners render; the rest collapse into a `… + N more` row.
- *  - `d` dismisses the topmost (most-urgent) banner. Dismissal is local to the TUI session —
+ *  - `d` dismisses the topmost (most-urgent) banner, and stands down while a prompt or overlay
+ *    holds the keyboard (`ui.modalOpen`) — the component is mounted in every `ViewShell`, so an
+ *    ungated `d` would fire mid-word inside a text prompt. Requires a `UiStateProvider` above
+ *    it for that reason (unlike the EventBus, which it tolerates being absent).
+ *  - Dismissal is local to the TUI session —
  *    the underlying state remains; if the emitter publishes the same id again the banner
  *    reappears. Re-display after dismiss requires a re-publish from the emitter (the bus
  *    has no replay), which matches the design intent: "I don't need to see this right now"
@@ -32,6 +36,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
+import { useOverlayState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import type { BannerShowEvent } from '@src/business/observability/events.ts';
 
@@ -103,6 +108,7 @@ const upsert = (current: readonly ActiveBanner[], next: ActiveBanner): readonly 
 
 export const StatusBanner = (): React.JSX.Element | null => {
   const deps = useDeps();
+  const overlay = useOverlayState();
   const [banners, setBanners] = useState<readonly ActiveBanner[]>([]);
 
   useEffect(() => {
@@ -142,7 +148,15 @@ export const StatusBanner = (): React.JSX.Element | null => {
   // via `useInput`'s `isActive` option because the option flips the subscription itself, which
   // races with the first render where banners arrive and the keystroke can land on the same
   // tick. The in-handler check is cheap and avoids that race.
+  //
+  // `modalOpen` is the same stand-down every other keyboard owner honours (DESIGN-SYSTEM § 4.4):
+  // it folds in promptActive, so a `d` typed into an askText/askTextArea prompt is a character,
+  // not a dismissal — this banner sits inside every ViewShell next to PromptHost, and silently
+  // discarding a rate-limit / watchdog warning mid-word is exactly the visibility loss the
+  // banner exists to prevent. It also covers the help / progress / evaluation overlays, where
+  // the operator cannot see what they would be dismissing.
   useInput((input) => {
+    if (overlay.modalOpen) return;
     if (input === 'd' && sorted.length > 0) dismissTop();
   });
 

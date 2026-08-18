@@ -15,13 +15,20 @@ export type RunnerStatus = 'idle' | 'running' | 'completed' | 'failed' | 'aborte
  *  Failed run:      `started` → zero or more `step` → `failed`
  *  Aborted pre-run: `aborted` only (no `started`)
  *  Aborted mid-run: `started` → zero or more `step` → `aborted`
+ *
+ * `aborted` carries an `error` ONLY when the abort originated INSIDE the chain — the element
+ * returned (or threw) an `aborted`-coded error of its own, e.g. the operator answered "abort" at an
+ * in-chain prompt. A caller-driven `abort()` (Ctrl-C, an outer signal, a fatal-sibling kill) omits
+ * it: the caller already knows it cancelled, and there is no branch error to propagate. The wave
+ * scheduler relies on exactly that distinction to tell "this branch's operator aborted the run"
+ * from "I killed this branch".
  */
 export type RunnerEvent<TCtx> =
   | { readonly type: 'started' }
   | { readonly type: 'step'; readonly entry: TraceEntry }
   | { readonly type: 'completed'; readonly ctx: TCtx }
   | { readonly type: 'failed'; readonly error: DomainError }
-  | { readonly type: 'aborted' };
+  | { readonly type: 'aborted'; readonly error?: DomainError };
 
 export type RunnerListener<TCtx> = (event: RunnerEvent<TCtx>) => void;
 
@@ -86,6 +93,8 @@ export const createRunner = <TCtx>(opts: RunnerOptions<TCtx>): Runner<TCtx> => {
   const trace: TraceEntry[] = [];
   let startPromise: Promise<void> | null = null;
   let failureError: DomainError | null = null;
+  /** The chain's own `aborted`-coded error, when the abort came from INSIDE the chain. */
+  let abortError: DomainError | null = null;
   let abortRequested = false;
 
   const isTerminal = (): boolean => status === 'completed' || status === 'failed' || status === 'aborted';
@@ -101,6 +110,20 @@ export const createRunner = <TCtx>(opts: RunnerOptions<TCtx>): Runner<TCtx> => {
     }
   };
 
+  const abortedEvent = (): RunnerEvent<TCtx> =>
+    abortError === null ? { type: 'aborted' } : { type: 'aborted', error: abortError };
+
+  /**
+   * Enter the `aborted` terminal. `error` is the chain's own abort error, if any; it is dropped
+   * when the abort was caller-driven (`abort()` / outer signal), because then the cancellation is
+   * the caller's, not a branch failure to hand back up.
+   */
+  const settleAborted = (error?: DomainError): void => {
+    status = 'aborted';
+    abortError = abortRequested || error === undefined ? null : error;
+    emit(abortedEvent());
+  };
+
   const replayTo = (listener: RunnerListener<TCtx>): void => {
     try {
       for (const entry of trace) listener({ type: 'step', entry });
@@ -112,7 +135,7 @@ export const createRunner = <TCtx>(opts: RunnerOptions<TCtx>): Runner<TCtx> => {
           if (failureError) listener({ type: 'failed', error: failureError });
           break;
         case 'aborted':
-          listener({ type: 'aborted' });
+          listener(abortedEvent());
           break;
         default:
           break;
@@ -152,10 +175,10 @@ export const createRunner = <TCtx>(opts: RunnerOptions<TCtx>): Runner<TCtx> => {
       }
       error = result.error.error;
     } catch (cause) {
-      // An abort thrown raw (rather than returned as a Result) must still travel the abort path.
+      // An abort thrown raw (rather than returned as a Result) must still travel the abort path —
+      // carrying the thrown error, so an in-chain abort stays distinguishable from a caller kill.
       if (cause instanceof Error && (cause as { code?: unknown }).code === ErrorCode.Aborted) {
-        status = 'aborted';
-        emit({ type: 'aborted' });
+        settleAborted(cause as DomainError);
         return;
       }
       // Log loudly so a programmer-error throw stays visible even though it no longer crashes.
@@ -175,8 +198,7 @@ export const createRunner = <TCtx>(opts: RunnerOptions<TCtx>): Runner<TCtx> => {
     // Distinguish caller-driven abort from underlying failures. A user who called `abort()`
     // always gets the 'aborted' status regardless of which error code surfaced.
     if (abortRequested || error.code === ErrorCode.Aborted) {
-      status = 'aborted';
-      emit({ type: 'aborted' });
+      settleAborted(error);
       return;
     }
 
@@ -212,8 +234,7 @@ export const createRunner = <TCtx>(opts: RunnerOptions<TCtx>): Runner<TCtx> => {
       if (abortRequested) return;
       abortRequested = true;
       if (status === 'idle') {
-        status = 'aborted';
-        emit({ type: 'aborted' });
+        settleAborted();
         return;
       }
       if (isTerminal()) return;

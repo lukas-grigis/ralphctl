@@ -131,6 +131,9 @@ Claude / Copilot / Codex only auto-discover their context file
 `.github/skills/` / `.agents/skills/`), agents, and `.mcp.json` from cwd — not from `--add-dir` roots.
 Harness-authored skills land in `<repo>/<parentDir>/skills/ralphctl-*/` and the skills adapter appends one
 wildcard line to `.git/info/exclude` on first install so they never appear in `git status` or `git add -A`.
+The line goes to the **common** git dir (`$GIT_COMMON_DIR`, resolved through the worktree gitdir's `commondir`
+file) — `info/` is a shared path in git, so a per-worktree copy would be silently ignored and the parallel
+implement path would commit harness-authored skills into the user's branch.
 
 **Refine and plan are the exceptions — their AI sessions run in the per-sprint unit root.**
 Refine's session is rooted at `<sprintDir>/refinement/<ticket-slug>/`; plan's at

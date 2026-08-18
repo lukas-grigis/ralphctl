@@ -233,7 +233,7 @@ describe('createRunner', () => {
     const abortThrower: Element<Ctx> = {
       name: 'raw-abort',
       async execute() {
-        throw new AbortError({ elementName: 'raw-abort' });
+        throw new AbortError({ elementName: 'raw-abort', reason: 'thrown from inside' });
       },
     };
     const events: Array<RunnerEvent<Ctx>> = [];
@@ -243,7 +243,59 @@ describe('createRunner', () => {
     await expect(runner.start()).resolves.toBeUndefined();
 
     expect(runner.status).toBe('aborted');
-    expect(events.at(-1)?.type).toBe('aborted');
+    const last = events.at(-1);
+    expect(last?.type).toBe('aborted');
+    // The chain-originated abort carries its error, so schedulers above can propagate it verbatim.
+    if (last?.type === 'aborted') expect(last.error?.message).toBe('thrown from inside');
+  });
+
+  it('carries the chain-returned AbortError on the aborted event (and on late replay)', async () => {
+    const abortReturner: Element<Ctx> = {
+      name: 'operator-abort',
+      async execute() {
+        const error = new AbortError({ elementName: 'verify-execution', reason: 'operator aborted on red baseline' });
+        return Result.error({ error, trace: [{ elementName: 'verify-execution', status: 'aborted', durationMs: 0 }] });
+      },
+    };
+    const events: Array<RunnerEvent<Ctx>> = [];
+    const runner = createRunner({ id: 'r-inner-abort', element: abortReturner, initialCtx: { trail: [] } });
+    runner.subscribe((e) => events.push(e));
+
+    await runner.start();
+
+    expect(runner.status).toBe('aborted');
+    const last = events.at(-1);
+    expect(last?.type).toBe('aborted');
+    if (last?.type === 'aborted') {
+      expect(last.error).toBeInstanceOf(AbortError);
+      expect(last.error?.message).toBe('operator aborted on red baseline');
+    }
+
+    // Late-subscriber replay is lossless — it carries the same error.
+    const replayed: Array<RunnerEvent<Ctx>> = [];
+    runner.subscribe((e) => replayed.push(e));
+    const replayedLast = replayed.at(-1);
+    expect(replayedLast?.type).toBe('aborted');
+    if (replayedLast?.type === 'aborted') expect(replayedLast.error).toBeInstanceOf(AbortError);
+  });
+
+  it('omits the error on a caller-driven abort mid-run', async () => {
+    const events: Array<RunnerEvent<Ctx>> = [];
+    const runner = createRunner({
+      id: 'r-caller-abort',
+      element: sequential<Ctx>('chain', [slowTag('a', 50), tag('b')]),
+      initialCtx: { trail: [] },
+    });
+    runner.subscribe((e) => events.push(e));
+
+    const startPromise = runner.start();
+    setTimeout(() => runner.abort('caller'), 5);
+    await startPromise;
+
+    const last = events.at(-1);
+    expect(last?.type).toBe('aborted');
+    // `abort()` is the caller's own doing — it is not a branch error to propagate upwards.
+    if (last?.type === 'aborted') expect(last.error).toBeUndefined();
   });
 
   it('unsubscribe stops further events', async () => {

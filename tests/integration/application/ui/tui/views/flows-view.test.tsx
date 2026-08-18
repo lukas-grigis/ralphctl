@@ -15,7 +15,8 @@ import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repo
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import { DOWN, tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { DOWN, tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 const FIXED_PROJECT_ID = 'project-fixture-id' as unknown as ProjectId;
@@ -92,7 +93,7 @@ describe('FlowsView', () => {
   it('renders the no-project orientation regime on a fresh install', async () => {
     const { result } = renderView(<FlowsView />, { deps: emptyDeps, initial: { id: 'flows' } });
     // Wait for the async deps load + Ink render to settle; orientation card is always present.
-    await waitFor(() => /no project|pick one/i.test(result.lastFrame() ?? ''));
+    await waitForPredicate(() => /no project|pick one/i.test(result.lastFrame() ?? ''));
     const frame = result.lastFrame() ?? '';
     // The card should direct the user toward picking or creating a project.
     expect(frame).toMatch(/no project|pick one/i);
@@ -106,7 +107,7 @@ describe('FlowsView', () => {
     // hidden too; the user is meant to land here only after picking or creating a project.
     const { result } = renderView(<FlowsView />, { deps: emptyDeps, initial: { id: 'flows' } });
     // Anchor on the orientation card so absence assertions run on a fully-settled frame.
-    await waitFor(() => /no project|pick one/i.test(result.lastFrame() ?? ''));
+    await waitForPredicate(() => /no project|pick one/i.test(result.lastFrame() ?? ''));
     const frame = result.lastFrame() ?? '';
     expect(frame).not.toContain('Create sprint');
     expect(frame).not.toContain('Refine');
@@ -124,7 +125,7 @@ describe('FlowsView', () => {
       initial: { id: 'flows' },
       selection: { projectId: FIXED_PROJECT_ID }, // sprintId intentionally omitted
     });
-    await waitFor(() => /no sprint|create one|pick one/i.test(result.lastFrame() ?? ''));
+    await waitForPredicate(() => /no sprint|create one|pick one/i.test(result.lastFrame() ?? ''));
     const frame = result.lastFrame() ?? '';
     expect(frame).toMatch(/no sprint|create one|pick one/i);
     result.unmount();
@@ -140,7 +141,7 @@ describe('FlowsView', () => {
       initial: { id: 'flows' },
       selection: { projectId: FIXED_PROJECT_ID, sprintId: FIXED_SPRINT_ID },
     });
-    await waitFor(() => (result.lastFrame() ?? '').includes('Fixture Sprint'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Fixture Sprint'));
     const frame = result.lastFrame() ?? '';
     // Sprint name must appear in the orientation card.
     expect(frame).toContain('Fixture Sprint');
@@ -155,7 +156,7 @@ describe('FlowsView', () => {
 
   it('publishes the r reload-state hint', async () => {
     const { result } = renderView(<FlowsView />, { deps: emptyDeps, initial: { id: 'flows' } });
-    await waitFor(() => /reload/.test(result.lastFrame() ?? ''));
+    await waitForPredicate(() => /reload/.test(result.lastFrame() ?? ''));
     const frame = result.lastFrame() ?? '';
     expect(frame).toMatch(/reload/);
     result.unmount();
@@ -177,7 +178,7 @@ describe('FlowsView', () => {
     // rendered before asserting — a fixed tick can capture a pre-load frame under coverage.
     // New copy: Refine reason mentions "ticket" (add at least one), Plan reason mentions
     // "Refine and approve" — both contain "ticket".
-    await waitFor(() => /ticket/i.test(result.lastFrame() ?? ''));
+    await waitForPredicate(() => /ticket/i.test(result.lastFrame() ?? ''));
     const frame = result.lastFrame() ?? '';
     // At least one trigger reason should be visible — both Refine and Plan are dimmed.
     // Use a forgiving check: the reason text may be truncated on narrow test terminals.
@@ -198,7 +199,7 @@ describe('FlowsView', () => {
     // Wait for the async project + sprint load to settle so the sprint-scoped "Remove ticket" row
     // is rendered. This was the flake source: a fixed tick(40) under coverage instrumentation
     // could capture the frame before the load resolved, so the row was absent.
-    await waitFor(() => (result.lastFrame() ?? '').includes('Remove ticket'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Remove ticket'));
     const frame = result.lastFrame() ?? '';
     // The "Remove ticket" row should appear.
     expect(frame).toContain('Remove ticket');
@@ -227,11 +228,11 @@ describe('FlowsView — cost hints (manifest → menu threading)', () => {
       selection: { projectId: FIXED_PROJECT_ID, sprintId: FIXED_SPRINT_ID },
     });
     // Wait for the orientation card to settle so the view is interactive.
-    await waitFor(() => (result.lastFrame() ?? '').includes('Fixture Sprint'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Fixture Sprint'));
 
     // Press `v` to show all flows — this makes Ideate visible in the menu.
     result.stdin.write('v');
-    await waitFor(() => (result.lastFrame() ?? '').includes('Ideate'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Ideate'));
 
     // Navigate down until the Ideate cost hint becomes visible (cursor lands on Ideate).
     const IDEATE_HINT = 'single AI session';

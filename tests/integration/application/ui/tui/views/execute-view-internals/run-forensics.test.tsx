@@ -21,7 +21,8 @@ import { useRunForensics } from '@src/application/ui/tui/views/execute-view-inte
 import type { ForensicPath } from '@src/application/ui/shared/next-steps.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import { waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 
 const SPRINT_ID = '01933fbb-2222-7000-8000-0000000000aa' as unknown as SprintId;
 
@@ -53,6 +54,35 @@ const mkSprintDir = async (): Promise<{ readonly dataRoot: AbsolutePath; readonl
   return { dataRoot: absPath(root), sprintDir };
 };
 
+/**
+ * Settle marker for the negative tests.
+ *
+ * `useRunForensics` seeds its state to `[]` and only fills it once an async `fs.stat` pass
+ * resolves inside `useEffect`, so the hook's EMPTY output is also its FIRST FRAME — waiting for
+ * "empty" is satisfied at t≈0, before the effect can possibly have run, and a regression that
+ * resolved a fabricated sprint dir one tick later would sail straight through. So each negative
+ * test renders this control alongside the probe under test: it is pinned at a sprint directory
+ * that really exists, does strictly MORE filesystem work than any negative case (resolve + four
+ * stats vs. zero or one), and its effect is scheduled by the same commit. Once `CONTROL:n` has
+ * appeared with n > 0 the negative case has definitively finished its own pass, and the whole
+ * `seen` history — not just the last frame — can be asserted empty.
+ */
+const ControlProbe = ({ dataRoot }: { readonly dataRoot: AbsolutePath }): React.JSX.Element => {
+  const forensics = useRunForensics({
+    enabled: true,
+    pinnedSprintId: SPRINT_ID,
+    flowId: 'implement',
+    dataRoot,
+    runsRoot: dataRoot,
+  });
+  return <Text>{`CONTROL:${String(forensics.length)}`}</Text>;
+};
+
+/** Grace beyond the control's settle, so a leak racing just behind it still lands in `seen`. */
+const SETTLE_GRACE_MS = 50;
+
+const controlSettled = (frame: string): boolean => /CONTROL:[1-9]/.test(frame);
+
 describe('useRunForensics', () => {
   it('lists only the artifacts that actually exist on disk', async () => {
     const { dataRoot, sprintDir } = await mkSprintDir();
@@ -71,7 +101,7 @@ describe('useRunForensics', () => {
         seen={seen}
       />
     );
-    await waitFor(() => (lastFrame() ?? '').includes('progress.md'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('progress.md'));
     const labels = (seen.at(-1) ?? []).map((f) => f.label);
     // progress.md + the sprint dir itself; events.ndjson and the verify logs dir do not exist.
     expect(labels).toContain('progress.md');
@@ -95,23 +125,34 @@ describe('useRunForensics', () => {
         seen={seen}
       />
     );
-    await waitFor(() => (lastFrame() ?? '').includes('events.ndjson'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('events.ndjson'));
     const labels = (seen.at(-1) ?? []).map((f) => f.label);
     expect(labels).toEqual(['progress.md', 'events.ndjson', 'verify logs', 'sprint dir']);
     unmount();
   });
 
   it('returns nothing when the run has no pinned sprint (the create-sprint case)', async () => {
-    const { dataRoot } = await mkSprintDir();
+    // `mkSprintDir()` puts a REAL `<root>/sprints/<SPRINT_ID>--demo-sprint` with a real
+    // progress.md on disk: a regression that guessed the pin from the ambient data root would
+    // find something to report, and every frame in `seen` would stop being empty.
+    const { dataRoot, sprintDir } = await mkSprintDir();
+    await fs.writeFile(join(sprintDir, 'progress.md'), '# progress\n', 'utf8');
     const seen: ForensicPath[][] = [];
     const { lastFrame, unmount } = render(
-      <Probe
-        args={{ enabled: true, pinnedSprintId: undefined, flowId: 'create-sprint', dataRoot, runsRoot: dataRoot }}
-        seen={seen}
-      />
+      <>
+        <Probe
+          args={{ enabled: true, pinnedSprintId: undefined, flowId: 'create-sprint', dataRoot, runsRoot: dataRoot }}
+          seen={seen}
+        />
+        <ControlProbe dataRoot={dataRoot} />
+      </>
     );
-    await waitFor(() => (lastFrame() ?? '').includes('NONE'));
-    expect(seen.at(-1)).toEqual([]);
+
+    await waitForPredicate(() => controlSettled(lastFrame() ?? ''), { label: 'the control probe settled' });
+    await tick(SETTLE_GRACE_MS);
+
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((entries) => entries.length === 0)).toBe(true);
     unmount();
   });
 
@@ -120,33 +161,56 @@ describe('useRunForensics', () => {
     await fs.writeFile(join(sprintDir, 'progress.md'), '# progress\n', 'utf8');
     const seen: ForensicPath[][] = [];
     const { lastFrame, unmount } = render(
-      <Probe
-        args={{ enabled: false, pinnedSprintId: SPRINT_ID, flowId: 'implement', dataRoot, runsRoot: dataRoot }}
-        seen={seen}
-      />
+      <>
+        <Probe
+          args={{ enabled: false, pinnedSprintId: SPRINT_ID, flowId: 'implement', dataRoot, runsRoot: dataRoot }}
+          seen={seen}
+        />
+        <ControlProbe dataRoot={dataRoot} />
+      </>
     );
-    await waitFor(() => (lastFrame() ?? '').includes('NONE'));
-    expect(seen.at(-1)).toEqual([]);
+
+    // The control proves the artifacts ARE resolvable from this very root — so an empty list
+    // here can only come from the `enabled: false` gate, not from an unpopulated tmp dir.
+    await waitForPredicate(() => controlSettled(lastFrame() ?? ''), { label: 'the control probe settled' });
+    await tick(SETTLE_GRACE_MS);
+
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((entries) => entries.length === 0)).toBe(true);
     unmount();
   });
 
   it('returns nothing when the sprint directory is gone', async () => {
+    // A sibling sprint exists under `sprints/` so the resolver has a real directory to scan and
+    // mis-match against — "empty because the tree is empty" would prove much less.
     const root = await mkdtemp(join(tmpdir(), 'ralphctl-forensics-empty-'));
+    const strangerDir = join(root, 'sprints', '01933fbb-9999-7000-8000-0000000000bb--other-sprint');
+    await fs.mkdir(strangerDir, { recursive: true });
+    await fs.writeFile(join(strangerDir, 'progress.md'), '# not ours\n', 'utf8');
+
+    const { dataRoot: controlRoot } = await mkSprintDir();
     const seen: ForensicPath[][] = [];
     const { lastFrame, unmount } = render(
-      <Probe
-        args={{
-          enabled: true,
-          pinnedSprintId: SPRINT_ID,
-          flowId: 'implement',
-          dataRoot: absPath(root),
-          runsRoot: absPath(root),
-        }}
-        seen={seen}
-      />
+      <>
+        <Probe
+          args={{
+            enabled: true,
+            pinnedSprintId: SPRINT_ID,
+            flowId: 'implement',
+            dataRoot: absPath(root),
+            runsRoot: absPath(root),
+          }}
+          seen={seen}
+        />
+        <ControlProbe dataRoot={controlRoot} />
+      </>
     );
-    await waitFor(() => (lastFrame() ?? '').includes('NONE'));
-    expect(seen.at(-1)).toEqual([]);
+
+    await waitForPredicate(() => controlSettled(lastFrame() ?? ''), { label: 'the control probe settled' });
+    await tick(SETTLE_GRACE_MS);
+
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((entries) => entries.length === 0)).toBe(true);
     unmount();
   });
 
@@ -170,7 +234,7 @@ describe('useRunForensics', () => {
         seen={seen}
       />
     );
-    await waitFor(() => (lastFrame() ?? '').includes('run artifacts'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('run artifacts'));
     const entry = (seen.at(-1) ?? []).find((f) => f.label === 'run artifacts');
     expect(entry?.path).toBe(join(runsRoot, 'readiness'));
     unmount();

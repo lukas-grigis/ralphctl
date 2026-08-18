@@ -244,6 +244,11 @@ The final returned `Trace` is the union of those emissions. Live UIs subscribe v
   - Failure: `started → step* → failed`
   - Aborted pre-run: `aborted` only (no `started`)
   - Aborted mid-run: `started → step* → aborted`
+  - The `aborted` event carries an `error` **only** when the abort originated inside the chain (the element
+    returned or threw an `aborted`-coded error — e.g. the operator answered "abort" at an in-chain prompt).
+    A caller-driven `abort()` (Ctrl-C, outer signal, fatal-sibling kill) omits it. `runWaves` keys on that
+    distinction to tell "this branch's operator aborted the run" (fatal — stop the schedule, return the
+    error verbatim, launch no later wave) from "I killed this branch".
 - **Late-subscriber replay**: a listener added after a terminal state receives every recorded `step` event
   plus the matching terminal event. UI re-attach is lossless.
 - **Trace ring buffer**: `runner.trace` is capped at `MAX_TRACE_ENTRIES = 5_000` (defined and enforced in
@@ -357,6 +362,7 @@ sequential('implement', [
       activateSprintLeaf,
       loadSprintExecutionLeaf,
       loadTasksLeaf,
+      loadLearningsLeaf, // cross-sprint procedural memory (read side) → ctx.priorLearnings
       resolveBranchLeaf, // assign + checkout the sprint branch first
       sequential('working-tree-clean-checks', cleanLeaves), // hard-abort if any repo is dirty
       appendJournalSeparatorLeaf, // appends the 'activated' separator to the append-only progress.md journal
@@ -368,8 +374,11 @@ sequential('implement', [
       ),
       saveTasksLeaf,
       guard(
-        'transition-sprint-to-review-when-any-done',
-        (ctx) => ctx.tasks?.some((t) => t.status === 'done'),
+        // Every task settled (`done`/`blocked`) AND ≥1 done — see `shouldTransitionToReview`
+        // in implement/flow.ts. A bare `some(done)` would flip a partial sprint into review
+        // mid-run; an all-blocked run stays `active` so the operator can fix and re-run.
+        'transition-sprint-to-review-when-settled',
+        (ctx) => shouldTransitionToReview(ctx.tasks),
         sequential('transition-to-review-and-journal', [
           transitionSprintToReviewLeaf,
           appendJournalSeparatorLeaf, // appends the 'review' separator to the progress.md journal

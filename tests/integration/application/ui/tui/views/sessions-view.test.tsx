@@ -19,7 +19,8 @@ import {
 } from '@src/application/ui/tui/runtime/session-manager.ts';
 import type { Runner } from '@src/application/chain/run/runner.ts';
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
-import { DOWN, tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { DOWN, tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 const emptyDeps: AppDeps = {} as unknown as AppDeps;
@@ -129,13 +130,13 @@ describe('SessionsView', () => {
 
     // Move the cursor onto the middle session (Bravo, id s-b).
     result.stdin.write(DOWN);
-    await waitFor(() => (focusedTitle(result.lastFrame() ?? '') ?? '').includes('Bravo'));
+    await waitForPredicate(() => (focusedTitle(result.lastFrame() ?? '') ?? '').includes('Bravo'));
     expect(focusedTitle(result.lastFrame() ?? '')).toContain('Bravo');
 
     // Reorder so the index that used to hold Bravo now holds a different session. The cursor
     // must follow the id (Bravo), not the old index-1 slot.
     setList([c, a, b]);
-    await waitFor(() => (focusedTitle(result.lastFrame() ?? '') ?? '').includes('Bravo'));
+    await waitForPredicate(() => (focusedTitle(result.lastFrame() ?? '') ?? '').includes('Bravo'));
     expect(focusedTitle(result.lastFrame() ?? '')).toContain('Bravo');
 
     result.unmount();
@@ -160,7 +161,7 @@ describe('SessionsView', () => {
 
     // Focus Bravo, then evict Bravo. The cursor snaps to a survivor (by prior index, clamped).
     result.stdin.write(DOWN);
-    await waitFor(() => (focusedTitle(result.lastFrame() ?? '') ?? '').includes('Bravo'));
+    await waitForPredicate(() => (focusedTitle(result.lastFrame() ?? '') ?? '').includes('Bravo'));
     expect(focusedTitle(result.lastFrame() ?? '')).toContain('Bravo');
 
     setList([a, c]);
@@ -172,7 +173,7 @@ describe('SessionsView', () => {
     // Enter must open the execute view for the session the cursor now sits on — not the evicted
     // one. The cursor landed on Charlie (prior index 1, clamped into the 2-item list).
     result.stdin.write('\r');
-    await waitFor(() => routed.length > 0);
+    await waitForPredicate(() => routed.length > 0);
     expect(routed.at(-1)).toBe('s-c');
 
     result.unmount();

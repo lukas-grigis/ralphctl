@@ -17,7 +17,7 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import { FULL_AUTO } from '@src/integration/ai/providers/_engine/session-permissions.ts';
-import { currentSessionId } from '@src/application/session/session.ts';
+import { rootSessionId } from '@src/application/session/session.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import { buildImplementPrompt } from '@src/integration/ai/prompts/implement/definition.ts';
@@ -98,7 +98,7 @@ const buildCandidateSession = (opts: {
   readonly bodyFile: AbsolutePath;
   readonly abortSignal: AbortSignal | undefined;
 }): AiSession => {
-  const chainSessionId = currentSessionId();
+  const chainSessionId = rootSessionId();
   return {
     prompt: opts.prompt,
     cwd: opts.cwd,

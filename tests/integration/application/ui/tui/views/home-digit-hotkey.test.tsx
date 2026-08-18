@@ -28,7 +28,7 @@ import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
 import { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { makeDraftSprint, makeProject } from '@tests/fixtures/domain.ts';
-import { waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 const noopVersionChecker = async (): Promise<null> => null;
@@ -120,7 +120,7 @@ describe('HomeView — digit quick-switch hotkeys', () => {
 
     // '1' maps to the newest non-current recent sprint (Beta) — a real switch.
     result.stdin.write('1');
-    await waitFor(() => seenSprintIds.at(-1) === sprintB.id);
+    await waitForPredicate(() => seenSprintIds.at(-1) === sprintB.id);
 
     expect(seenSprintIds.at(-1)).toBe(sprintB.id);
     result.unmount();

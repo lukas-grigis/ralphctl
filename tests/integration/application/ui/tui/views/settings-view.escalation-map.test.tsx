@@ -14,7 +14,8 @@ import { SettingsView } from '@src/application/ui/tui/views/settings-view.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { SettingsRepository } from '@src/domain/repository/settings/settings-repository.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
-import { ENTER, RIGHT, tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { ENTER, RIGHT, tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 vi.mock('@src/integration/system/detect-cli.ts', async () => {
@@ -61,9 +62,9 @@ describe('SettingsView — escalation map editor', () => {
     const deps = { settingsRepo: repo } as unknown as AppDeps;
     const { result } = renderView(<SettingsView />, { deps, initial: { id: 'settings' } });
 
-    await waitFor(() => (result.lastFrame() ?? '').includes('Presets'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Presets'));
     await goToHarness(result.stdin);
-    await waitFor(() => (result.lastFrame() ?? '').includes('Escalation map'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Escalation map'));
 
     // The defaults summary is visible before any override exists.
     expect(result.lastFrame() ?? '').toContain('Effective ladder');
@@ -75,21 +76,21 @@ describe('SettingsView — escalation map editor', () => {
       await tick(15);
     }
     result.stdin.write(ENTER);
-    await waitFor(() => (result.lastFrame() ?? '').includes('step 1/2'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('step 1/2'));
 
     // Step 1 — first catalog entry is claude-haiku-4-5.
     result.stdin.write(ENTER);
-    await waitFor(() => (result.lastFrame() ?? '').includes('step 2/2'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('step 2/2'));
     expect(result.lastFrame() ?? '').toContain('claude-haiku-4-5');
 
     // Step 2 — first compatible target is claude-sonnet-4-6.
     result.stdin.write(ENTER);
-    await waitFor(() => saved() !== undefined);
+    await waitForPredicate(() => saved() !== undefined);
 
     expect(saved()?.harness.escalationMap).toEqual({ 'claude-haiku-4-5': 'claude-sonnet-4-6' });
 
     // Back on the section: the override row + customised ladder render after the refresh.
-    await waitFor(() => (result.lastFrame() ?? '').includes('1 override'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('1 override'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('claude-haiku-4-5');
     expect(frame).toContain('(customised)');
@@ -101,20 +102,20 @@ describe('SettingsView — escalation map editor', () => {
     const deps = { settingsRepo: repo } as unknown as AppDeps;
     const { result } = renderView(<SettingsView />, { deps, initial: { id: 'settings' } });
 
-    await waitFor(() => (result.lastFrame() ?? '').includes('Presets'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Presets'));
     await goToHarness(result.stdin);
-    await waitFor(() => (result.lastFrame() ?? '').includes('Escalation map'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Escalation map'));
     for (let i = 0; i < 10; i += 1) {
       result.stdin.write('j');
       await tick(15);
     }
     result.stdin.write(ENTER);
-    await waitFor(() => (result.lastFrame() ?? '').includes('step 1/2'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('step 1/2'));
     result.stdin.write(ENTER);
-    await waitFor(() => (result.lastFrame() ?? '').includes('step 2/2'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('step 2/2'));
 
     result.stdin.write(String.fromCharCode(27)); // esc
-    await waitFor(() => (result.lastFrame() ?? '').includes('step 1/2'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('step 1/2'));
 
     expect(saved()).toBeUndefined();
   });

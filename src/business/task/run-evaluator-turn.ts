@@ -7,6 +7,7 @@ import {
   recordRunningAttemptWarning,
 } from '@src/domain/entity/task-attempts.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
+import { ErrorCode } from '@src/domain/value/error/error-code.ts';
 import type { EvaluationSignal, HarnessSignal } from '@src/domain/signal.ts';
 import {
   computePlateauVerdict,
@@ -24,10 +25,12 @@ import { isRecoverableTurnError } from '@src/business/task/turn-error-policy.ts'
  *
  * Decisions owned by this use case:
  *  - `callEvaluate` returned a recoverable error (the reviewer never produced a usable
- *     `signals.json` — wrong shape, wrong place, non-zero spawn exit) → `self-blocked` exit so
- *     the task settles as `blocked` (NOT `malformed`, which settle-attempt treats as done-with-
- *     warning and would mark an ungraded change `done`). Fatal errors (`Aborted`/`RateLimit`)
- *     propagate as `Result.error` to abort the whole run — see {@link isRecoverableTurnError}.
+ *     `signals.json` — wrong shape, wrong place) → `self-blocked` exit so the task settles as
+ *     `blocked` (NOT `malformed`, which settle-attempt treats as done-with-warning and would mark
+ *     an ungraded change `done`). A `ProcessCrash` (watchdog kill / spawn crash / non-zero exit
+ *     with no signals.json) is instead a `crashed` exit — a transient process death retried within
+ *     `maxAttempts`. Fatal errors (`Aborted`/`RateLimit`) propagate as `Result.error` to abort the
+ *     whole run — see {@link isRecoverableTurnError}.
  *  - No evaluation signal at all → `malformed` exit.
  *  - `evaluation.status === 'passed'` → `passed` exit.
  *  - `evaluation.status === 'malformed'` → `malformed` exit.
@@ -52,6 +55,10 @@ import { isRecoverableTurnError } from '@src/business/task/turn-error-policy.ts'
 export type EvaluatorTurnExit =
   | { readonly kind: 'passed' }
   | { readonly kind: 'self-blocked'; readonly reason: string }
+  // Transient process death (watchdog kill / spawn crash / non-zero exit with no signals.json) —
+  // retried within `maxAttempts` by finalize-gen-eval, NOT a terminal block. Mirrors the generator's
+  // member of the same name; both are members of `GenEvalExit`, which is what ctx carries.
+  | { readonly kind: 'crashed'; readonly reason: string }
   | { readonly kind: 'malformed'; readonly detail: string }
   // `source: 'threshold'` — this is the ONLY plateau detector this use case ever produces (the
   // loop-diversity / entropy detectors run downstream in `gen-eval-loop.ts`, outside the
@@ -159,10 +166,18 @@ const resolveCritique = (evaluation: EvaluationSignal): string | undefined => {
 
 /**
  * Handle a `callEvaluate` failure. Fatal errors (user abort, rate-limit-after-retries) must
- * abort the whole run — propagate. Everything else is a recoverable signals-contract failure:
- * self-block THIS task so it settles as `blocked` (the generator's work is NOT committed/
- * marked-done ungraded — commit is gated on no block reason). Routing to `malformed` instead
- * would mark the change done.
+ * abort the whole run — propagate. Everything else is recoverable but splits two ways by error
+ * TYPE, exactly as the generator's half does:
+ *
+ *  - a `ProcessCrash` (watchdog kill / spawn crash / non-zero exit with no signals.json) is a
+ *    TRANSIENT process death → a `crashed` exit, which finalize retries within `maxAttempts`
+ *    (then blocks at the cap) instead of terminally blocking after ONE attempt. The evaluator
+ *    spawns through the same headless provider, watchdog and spawn-exit ladder as the generator,
+ *    so it dies the same ways and deserves the same remedy.
+ *  - anything else is a genuine signals-contract failure (the reviewer never produced a usable
+ *    `signals.json` — wrong shape, wrong place) → self-block THIS task so it settles as `blocked`
+ *    (the generator's work is NOT committed/marked-done ungraded — commit is gated on no block
+ *    reason). Routing to `malformed` instead would mark the change done.
  */
 const handleEvaluateFailure = (
   err: DomainError,
@@ -172,6 +187,16 @@ const handleEvaluateFailure = (
   if (!isRecoverableTurnError(err)) {
     log.error('evaluate call failed (fatal — propagating)', { taskId: task.id, error: err.message });
     return Result.error(err);
+  }
+  if (err.code === ErrorCode.ProcessCrash) {
+    log.warn('evaluator process was killed before producing signals.json — retrying attempt', {
+      taskId: task.id,
+      error: err.message,
+    });
+    return Result.ok({
+      task,
+      exit: { kind: 'crashed', reason: `AI process was killed before producing signals.json: ${err.message}` },
+    });
   }
   log.warn('evaluator did not produce a valid signals.json — blocking task', {
     taskId: task.id,
