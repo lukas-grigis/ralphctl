@@ -182,7 +182,7 @@ export const PROVIDER_TRAITS: Readonly<Record<AiProvider, ProviderTraits>> = {
     wireTag: 'agents-md',
     conventionsPartial: 'conventions-agents-md',
     // Only the zero-auth free tier — OpenCode aggregates upstream providers, so the picker's real
-    // list comes from `opencodeModelAvailabilityProbe` shelling out to `opencode models`. See
+    // list comes from `createOpencodeModelAvailabilityProbe` shelling out to `opencode models`. See
     // `domain/value/settings-models/opencode.ts`.
     modelCatalog: OPENCODE_MODELS,
     // The only asymmetric row. `--variant <level>` exists on `opencode run` (headless) but not on

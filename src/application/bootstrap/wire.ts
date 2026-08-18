@@ -44,7 +44,7 @@ import { copilotProbe } from '@src/integration/ai/readiness/copilot/probe.ts';
 import type { ModelAvailabilityProbeRegistry } from '@src/integration/ai/providers/_engine/model-availability-probe.ts';
 import { claudeModelAvailabilityProbe } from '@src/integration/ai/providers/claude/model-availability-probe.ts';
 import { codexModelAvailabilityProbe } from '@src/integration/ai/providers/codex/model-availability-probe.ts';
-import { opencodeModelAvailabilityProbe } from '@src/integration/ai/providers/opencode/model-availability-probe.ts';
+import { createOpencodeModelAvailabilityProbe } from '@src/integration/ai/providers/opencode/model-availability-probe.ts';
 import { copilotModelAvailabilityProbe } from '@src/integration/ai/providers/copilot/model-availability-probe.ts';
 import { PROVIDER_TRAITS } from '@src/integration/ai/providers/_engine/provider-traits.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
@@ -378,16 +378,25 @@ const PROBES: ReadinessProbeRegistry = {
 };
 
 /**
- * Model-availability probe registry, keyed by {@link AiProvider}. Static module-level singletons
- * bundled here so `wire()` can dispatch per-provider without each caller carrying a registry
- * literal. Keyed on the provider union (vs. {@link PROBES}, which is keyed on `AssistantTool`).
+ * Model-availability probe registry, keyed by {@link AiProvider}, so `wire()` can dispatch
+ * per-provider without each caller carrying a registry literal. Keyed on the provider union (vs.
+ * {@link PROBES}, which is keyed on `AssistantTool`).
+ *
+ * Built per `wire()` call rather than as a module singleton because the opencode probe takes an
+ * observability seam: it is the one backend whose fallback catalog is NOT the vendor's full list
+ * (only the zero-auth free tier), so a fail-open there silently shrinks the picker and has to
+ * leave a trace. The other three are stateless singletons.
  */
-const MODEL_AVAILABILITY_PROBES: ModelAvailabilityProbeRegistry = {
+const buildModelAvailabilityProbes = (logger: Logger): ModelAvailabilityProbeRegistry => ({
   'claude-code': claudeModelAvailabilityProbe,
   'github-copilot': copilotModelAvailabilityProbe,
   'openai-codex': codexModelAvailabilityProbe,
-  opencode: opencodeModelAvailabilityProbe,
-};
+  opencode: createOpencodeModelAvailabilityProbe({
+    onDegraded: ({ reason, detail }) => {
+      logger.warn('model-probe: opencode fell back to the shipped free-tier catalog', { reason, detail });
+    },
+  }),
+});
 
 /** Silent default dispatcher — used when no production override is passed (i.e. by tests). */
 const noopNotificationDispatcher: NotificationDispatcher = {
@@ -474,10 +483,11 @@ export const wire = (opts: WireOptions): AppDeps => {
   // share one probe execution — "runs at most once per provider per session". The probe never
   // rejects (fail open), so there's no error path to evict on. Won't live-track mid-session installs.
   const availableModelsInFlight = new Map<AiProvider, Promise<readonly string[]>>();
+  const modelAvailabilityProbes = buildModelAvailabilityProbes(logger);
   const availableModelsFor = (provider: AiProvider): Promise<readonly string[]> => {
     const existing = availableModelsInFlight.get(provider);
     if (existing !== undefined) return existing;
-    const pending = MODEL_AVAILABILITY_PROBES[provider].availableModels(PROVIDER_TRAITS[provider].modelCatalog);
+    const pending = modelAvailabilityProbes[provider].availableModels(PROVIDER_TRAITS[provider].modelCatalog);
     availableModelsInFlight.set(provider, pending);
     return pending;
   };
