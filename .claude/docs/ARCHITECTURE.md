@@ -591,7 +591,7 @@ and the non-obvious mutators.
   `schemaVersion` (currently `2`), `ai`,
   `harness: { maxTurns, maxAttempts, rateLimitRetries, plateauThreshold, escalateOnPlateau, escalationMap, skipPreVerifyOnFreshSetup, entropyPlateauDetector, bestOfNCandidates? }`,
   `logging: { level }`, `concurrency: { maxParallelTasks }`, `ui: { notifications: { enabled } }`,
-  `developer: { showEvaluatorFailureUI }`. `ai` is a flat per-flow record: an optional global
+  `scm: { postRefinementComment }`. `ai` is a flat per-flow record: an optional global
   `ai.effort` plus one row per flow — `ai.{refine, plan, readiness, ideate, createPr}`, each
   `{ provider, model, effort? }`, and `ai.implement`, a nested `{ generator, evaluator }` pair
   where each role is its own `{ provider, model, effort? }` row. `provider` is one of
@@ -718,12 +718,18 @@ Cross-cutting TUI features:
   hardcoded column literals. `StepTrace` renders `Element.label` when present; long labels are mid-truncated
   to fit the rail column budget. Global keys `g` (progress overlay), `y` (yank task summary), `b` (banner
   toggle), `P` (project picker), `S` (sprint picker). Execute-local: `j`/`k` card nav, `e` done-criteria,
-  `c` cancel-scope picker (attempt vs flow). Task cards are collapsed by default.
+  `v` evaluation overlay for the focused card, `c` cancel-scope picker (attempt vs flow). Task cards
+  are collapsed by default.
 - **`TokenBudgetCard`** and **`BaselineHealthCard`** in the context column subscribe to `TokenUsageEvent`
   and the `SetupRun` history respectively. **`StatusBanner`** (tiered `info`/`warn`/`error`) replaces the
   old `RateLimitBanner`. **`MultiFlowStrip`** renders concurrent session status above the tasks panel.
-  **`EvaluatorFailurePanel`** is fixture-gated behind `settings.developer.showEvaluatorFailureUI`.
+  **`EvaluatorFailurePanel`** renders the per-dimension verdict parsed from the attempt's own
+  `evaluation.md`; it is the body of `EvaluationOverlay`, not a card-level render.
 - **`ProgressOverlay`** (`g`) reads `progress.md` from disk on demand — no live tail, snapshot-on-open.
+- **`EvaluationOverlay`** (`v`) does the same for `<sprintDir>/implement/<task-id>/<Attempt.evaluation.file>`,
+  opened from the Execute tasks panel or a sprint-detail task row. A stale / absent path or a pruned
+  workspace degrades to the one-line `EvaluationLine`, never an error card. Both overlays share
+  `components/overlay-internals/use-document-scroll.ts`.
 - **`CancelScopeOverlay`** (`c`) lets the operator cancel either the current AI attempt or the whole flow.
 - **`glyphFor(signalKind)`** — adds shape-redundant glyphs for every signal kind under `NO_COLOR=1`.
 - **`WindowedList` primitive** — `windowed-list.tsx` exports `computeListWindow`, `useListWindow`,

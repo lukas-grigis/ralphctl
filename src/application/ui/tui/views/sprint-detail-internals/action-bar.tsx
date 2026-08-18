@@ -13,7 +13,8 @@ import { glyphs, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 export const ActionBar = (): React.JSX.Element => (
   <Box paddingX={spacing.indent} marginTop={spacing.section}>
     <Text dimColor>
-      {glyphs.bullet} ↑/↓ focus {glyphs.bullet} ↵/o expand/collapse {glyphs.bullet} n flows {glyphs.bullet} esc back
+      {glyphs.bullet} ↑/↓ focus {glyphs.bullet} ↵/o expand/collapse {glyphs.bullet} v evaluation {glyphs.bullet} n flows{' '}
+      {glyphs.bullet} esc back
     </Text>
   </Box>
 );

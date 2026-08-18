@@ -19,6 +19,7 @@ import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-
 import type { TaskEvaluation } from '@src/application/ui/tui/components/tasks-panel-internals/evaluation-row.tsx';
 import type { AttemptWarning } from '@src/domain/entity/attempt.ts';
 import type { Task } from '@src/domain/entity/task.ts';
+import { latestRecordedEvaluation } from '@src/business/task/evaluation-artifact.ts';
 
 /**
  * Dynamic gen-eval leaf names that repeat an unknown number of rounds. These are excluded from
@@ -99,16 +100,16 @@ const warningSummariesByTaskId = (taskState: readonly Task[]): ReadonlyMap<strin
 const evaluationsByTaskId = (taskState: readonly Task[]): ReadonlyMap<string, TaskEvaluation> | undefined => {
   const byId = new Map<string, TaskEvaluation>();
   for (const t of taskState) {
-    for (let i = t.attempts.length - 1; i >= 0; i -= 1) {
-      const att = t.attempts[i];
-      if (att?.evaluation === undefined) continue;
-      byId.set(String(t.id), {
-        status: att.evaluation.status,
-        attemptN: att.n,
-        ...(att.finishedAt !== null ? { finishedAt: att.finishedAt } : {}),
-      });
-      break;
-    }
+    const latest = latestRecordedEvaluation(t);
+    if (latest === undefined) continue;
+    byId.set(String(t.id), {
+      status: latest.status,
+      attemptN: latest.attemptN,
+      ...(latest.finishedAt !== undefined ? { finishedAt: latest.finishedAt } : {}),
+      // Absent for a legacy row that recorded a verdict but no artifact — the `v` chord still
+      // opens, and the overlay degrades to the same one-line verdict the card shows.
+      ...(latest.file.length > 0 ? { file: latest.file } : {}),
+    });
   }
   return byId.size > 0 ? byId : undefined;
 };
@@ -159,6 +160,8 @@ export interface TasksPanelHostProps {
   readonly onFocusedCardChange?: (taskId: string | undefined) => void;
   /** Optional callback — fired (deduped) when the focused card's expansion state changes. See `TasksPanel`. */
   readonly onExpandedCardChange?: (expanded: boolean) => void;
+  /** Optional `v` handler — opens the evaluation overlay for a card that has a recorded verdict. */
+  readonly onOpenEvaluation?: (taskId: string) => void;
 }
 
 const TasksPanelHostImpl = ({
@@ -172,6 +175,7 @@ const TasksPanelHostImpl = ({
   taskState,
   onFocusedCardChange,
   onExpandedCardChange,
+  onOpenEvaluation,
 }: TasksPanelHostProps): React.JSX.Element | null => {
   const taskCriteriaById = useMemo(
     () => (taskState !== undefined ? criteriaBulletsByTaskId(taskState) : undefined),
@@ -211,6 +215,7 @@ const TasksPanelHostImpl = ({
       nowMs={now}
       {...(onFocusedCardChange !== undefined ? { onFocusedCardChange } : {})}
       {...(onExpandedCardChange !== undefined ? { onExpandedCardChange } : {})}
+      {...(onOpenEvaluation !== undefined ? { onOpenEvaluation } : {})}
       {...(descriptor.taskNames !== undefined ? { nameById: descriptor.taskNames } : {})}
       {...(descriptor.taskRecovering !== undefined ? { recoveringByTaskId: descriptor.taskRecovering } : {})}
       {...(taskCriteriaById !== undefined ? { taskCriteriaById } : {})}

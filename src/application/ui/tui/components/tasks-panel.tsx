@@ -142,14 +142,12 @@ export interface TasksPanelProps extends TaskOverlaySources {
    */
   readonly maxSubStepsPerTask?: number;
   /**
-   * Dev-only flag — when `true`, failing evaluator rows render via
-   * `<EvaluatorFailurePanel>` (per-dimension colour-coded view + critique excerpt with
-   * expand affordance) instead of the canonical single-line summary. Defaults `false` so
-   * production keeps the existing 4-line dimension summary until the per-dimension panel is
-   * promoted out of the developer-flag gate. Threaded from `settings.developer
-   * .showEvaluatorFailureUI` by the launcher.
+   * Optional `v` handler — opens the read-only evaluation overlay for the FOCUSED card. Fires only
+   * for a card that has an entry in `taskEvaluationById`, so the chord is inert on a task with no
+   * recorded verdict rather than opening an empty overlay. Absent ⇒ `v` is a no-op (isolated unit
+   * renders and any host that doesn't wire the overlay).
    */
-  readonly showEvaluatorFailureUI?: boolean;
+  readonly onOpenEvaluation?: (taskId: string) => void;
   /**
    * Wall-clock reference in milliseconds — used by the idle-ticker to compute the gap between
    * the latest stream signal and "now". The execute view polls every 1s and passes the latest
@@ -360,7 +358,6 @@ interface TaskRowDerived {
   readonly running: boolean;
   readonly nameById: ReadonlyMap<string, string> | undefined;
   readonly maxSubSteps: number;
-  readonly showEvaluatorFailureUI: boolean;
   readonly overlayByTaskId: ReadonlyMap<string, TaskOverlay>;
   readonly effectiveFocusedKey: string | undefined;
   readonly expandedKeys: ReadonlySet<string>;
@@ -396,7 +393,6 @@ const buildTaskRowProps = (task: TaskBucket, idx: number, derived: TaskRowDerive
     scopeId: task.id,
     sliceStart,
     criteriaExpanded: derived.criteriaExpandedIds.has(task.id),
-    showEvaluatorFailureUI: derived.showEvaluatorFailureUI,
     isActive: idx === derived.activeTaskIdx,
     firstRun: derived.noSignalsYet,
     cardExpanded: derived.isCardExpanded(task.id),
@@ -473,10 +469,10 @@ export const TasksPanel = ({
   maxOrphanSignals = 6,
   inputActive = false,
   maxSubStepsPerTask = 12,
-  showEvaluatorFailureUI = false,
   nowMs,
   onFocusedCardChange,
   onExpandedCardChange,
+  onOpenEvaluation,
   ...overlaySources
 }: TasksPanelProps): React.JSX.Element => {
   // Render-time fallback for the idle-ticker clock. The execute view passes a polled `now` so
@@ -514,6 +510,13 @@ export const TasksPanel = ({
   const focusedIndex = focusedKey !== undefined ? flatKeys.indexOf(focusedKey) : -1;
   const effectiveFocusedKey = focusedIndex >= 0 ? focusedKey : undefined;
 
+  // Task ids the `v` chord may open — exactly those with a recorded verdict, so pressing `v` on a
+  // pending / not-yet-evaluated card falls through instead of opening an empty overlay.
+  const evaluationTaskIds = useMemo(
+    () => new Set(overlaySources.taskEvaluationById?.keys() ?? []),
+    [overlaySources.taskEvaluationById]
+  );
+
   useTasksPanelInput({
     inputActive,
     bucketed,
@@ -524,6 +527,8 @@ export const TasksPanel = ({
     setFocusedKey,
     setExpandedKeys,
     setCriteriaExpandedIds,
+    evaluationTaskIds,
+    ...(onOpenEvaluation !== undefined ? { onOpenEvaluation } : {}),
     ...cardState,
   });
 
@@ -543,7 +548,6 @@ export const TasksPanel = ({
     running,
     nameById,
     maxSubSteps: maxSubStepsPerTask,
-    showEvaluatorFailureUI,
     overlayByTaskId,
     effectiveFocusedKey,
     expandedKeys,

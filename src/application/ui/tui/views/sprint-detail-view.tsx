@@ -22,6 +22,8 @@
  *   ↑/↓     move the focus cursor across BOTH tickets and tasks
  *   ↵/o     expand / collapse the focused card inline
  *   esc/q   collapse every expanded card (back to list)
+ *   v       open the focused task's evaluation verdict (`evaluation.md`); inert on a ticket row
+ *           and on a task no attempt of which reached the evaluator
  *   n       open Flows, scoped to this sprint
  *
  * This file is the orchestrator's shell: it renders `ViewShell` around whatever

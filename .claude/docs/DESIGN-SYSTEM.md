@@ -228,8 +228,9 @@ Specialised components owned by `ExecuteView`. Don't import them from other view
 | `BaselineHealthChip`    | Inline status chip summarising the latest setup-script outcome per repo.                                                      |
 | `StatusBanner`          | Tiered `info` / `warn` / `error` banner driven by `BannerShowEvent` / `BannerClearEvent`. Replaces `RateLimitBanner`.         |
 | `MultiFlowStrip`        | Horizontal strip listing concurrent session statuses above the tasks panel.                                                   |
-| `EvaluatorFailurePanel` | Per-dimension evaluator scores with expand affordance. Fixture-gated behind `developer.showEvaluatorFailureUI`.               |
+| `EvaluatorFailurePanel` | Per-dimension evaluator verdict, parsed from the attempt's `evaluation.md`. Renders inside `EvaluationOverlay`.               |
 | `ProgressOverlay`       | Full-screen overlay (`g`) that reads `progress.md` from disk on open; no live tail.                                           |
+| `EvaluationOverlay`     | Full-screen overlay (`v`) that reads the focused task's `evaluation.md` on open. Degrades to the one-line verdict.            |
 | `CancelScopeOverlay`    | Modal picker (`c`) offering cancel-attempt vs cancel-flow choices.                                                            |
 
 ### 4.4 Prompt family (`src/application/ui/tui/prompts/`)
@@ -318,13 +319,19 @@ only and are suspended while a prompt or overlay is mounted.
 | `Enter` / `Space` | Expand / collapse card or commit row                                      |
 | `Esc`             | Collapse expanded card                                                    |
 | `e`               | Expand done-criteria for the active card                                  |
+| `v`               | Open the focused card's evaluation verdict (`evaluation.md`)              |
 | `c`               | Open cancel-scope picker (attempt vs flow)                                |
 | `D`               | Detach (background the flow)                                              |
 | `r`               | Settled run only — reset to Flows so the launch triggers are re-evaluated |
 
 `c` / `D` are live only while the chain runs; `r` only once it has settled, so the two sets never
-contend. A settled run's hint strip reads `↵ home · r re-run · g progress` (`g` is the global
-progress-overlay chord — hinted here, handled globally, never bound twice).
+contend. A settled run's hint strip reads `↵ home · r re-run · g progress · v evaluation` (`g` is the
+global progress-overlay chord — hinted here, handled globally, never bound twice).
+
+`v` is hinted on both halves (a failed round mid-run is exactly when the critique is wanted) and gated
+on some task having recorded a verdict. OPENING is view-local — only a view knows which card the cursor
+is on — while CLOSING (`Esc` / `v`) is global, so it wins over the hidden view underneath. Sprint-detail
+binds the same `v` on a focused task row; the two surfaces are never mounted at once.
 
 ### 6.2a Sprint picker keys — active when the `S` picker overlay is open
 

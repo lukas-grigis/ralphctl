@@ -29,7 +29,7 @@ import type { SettingsSetProviderDeps } from '@src/application/flows/settings-se
  * Whole-record "reset every flow to this provider" is now expressible only via a settings
  * preset — this use-case does not retain that behaviour.
  *
- * Preserves `harness`, `logging`, `concurrency`, `ui`, `developer`, and the global `ai.effort`
+ * Preserves `harness`, `logging`, `concurrency`, `ui`, and the global `ai.effort`
  * from the current record.
  */
 export const createSettingsSetProviderFlow = (deps: SettingsSetProviderDeps): Element<SettingsSetProviderCtx> =>

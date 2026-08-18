@@ -28,6 +28,10 @@ export interface UseTasksPanelInputArgs {
   readonly setCardCursor: (index: number) => void;
   readonly setExpandedTaskIds: (updater: (prev: ReadonlySet<string>) => ReadonlySet<string>) => void;
   readonly setCriteriaExpandedIds: (updater: (prev: ReadonlySet<string>) => ReadonlySet<string>) => void;
+  /** Task ids that have a recorded evaluation verdict — the gate for the `v` chord. */
+  readonly evaluationTaskIds: ReadonlySet<string>;
+  /** Absent when the host doesn't wire the evaluation overlay; `v` is then a no-op. */
+  readonly onOpenEvaluation?: (taskId: string) => void;
 }
 
 /** Toggles membership of `id` in `set`, returning a fresh `Set` (never mutates the input). */
@@ -47,6 +51,28 @@ const handleCriteriaToggle = (
   // operator is virtually always reading the running task when this hotkey is reached.
   if (input !== 'e' || activeTaskId === undefined) return false;
   setCriteriaExpandedIds((prev) => toggleSetMembership(prev, activeTaskId));
+  return true;
+};
+
+/**
+ * `v` opens the read-only evaluation overlay for the FOCUSED card — not the active one. Unlike the
+ * `e` criteria toggle (which anchors on the running task, because that is what the operator is
+ * reading during a run), this is a "show me that verdict" action about a card the operator has
+ * deliberately moved the cursor onto, frequently a completed one further up the list.
+ *
+ * Inert — returns `false`, so the keystroke keeps travelling — when the target has no recorded
+ * verdict or the host wired no handler. Swallowing it there would silently eat `v` on every
+ * pending card.
+ */
+const handleOpenEvaluation = (
+  input: string,
+  focusedCardId: string | undefined,
+  evaluationTaskIds: ReadonlySet<string>,
+  onOpenEvaluation: ((taskId: string) => void) | undefined
+): boolean => {
+  if (input !== 'v' || onOpenEvaluation === undefined) return false;
+  if (focusedCardId === undefined || !evaluationTaskIds.has(focusedCardId)) return false;
+  onOpenEvaluation(focusedCardId);
   return true;
 };
 
@@ -190,10 +216,13 @@ export const useTasksPanelInput = ({
   setCardCursor,
   setExpandedTaskIds,
   setCriteriaExpandedIds,
+  evaluationTaskIds,
+  onOpenEvaluation,
 }: UseTasksPanelInputArgs): void => {
   useInput(
     (input, key) => {
       if (handleCriteriaToggle(input, activeTaskId, setCriteriaExpandedIds)) return;
+      if (handleOpenEvaluation(input, focusedCardId, evaluationTaskIds, onOpenEvaluation)) return;
       if (handleEscapeCollapse(key, focusedCardId, expandedTaskIds, setExpandedTaskIds)) return;
       const verticalMoveArgs: VerticalMoveArgs = {
         focusedCardExpanded,

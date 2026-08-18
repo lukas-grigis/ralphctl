@@ -22,6 +22,8 @@ import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { Ticket } from '@src/domain/entity/ticket.ts';
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
+import { latestRecordedEvaluation } from '@src/business/task/evaluation-artifact.ts';
+import type { EvaluationTarget } from '@src/application/ui/tui/runtime/evaluation-target.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useRouter, useViewProps } from '@src/application/ui/tui/runtime/router.tsx';
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
@@ -55,6 +57,8 @@ interface FocusedSelection {
   readonly focusedTicket: Ticket | undefined;
   readonly focusedTodoTask: Task | undefined;
   readonly focusedStuckTask: Task | undefined;
+  /** Focused task carrying a recorded evaluation verdict — gates the `v` chord and its hint. */
+  readonly focusedEvaluatedTask: Task | undefined;
   readonly canEdit: boolean;
 }
 
@@ -80,8 +84,14 @@ const deriveFocusedSelection = (
   const focusedTicket = focusedNow?.kind === 'ticket' && ticketsEditable ? focusedNow.ticket : undefined;
   const focusedTodoTask =
     focusedNow?.kind === 'task' && focusedNow.task.status === 'todo' ? focusedNow.task : undefined;
+  // Any focused task with a verdict on some attempt — status-agnostic on purpose: a done task's
+  // passing verdict is as worth reading as a blocked one's critique.
+  const focusedEvaluatedTask =
+    focusedNow?.kind === 'task' && latestRecordedEvaluation(focusedNow.task) !== undefined
+      ? focusedNow.task
+      : undefined;
   const canEdit = focusedTicket !== undefined || focusedTodoTask !== undefined;
-  return { focusedTicket, focusedTodoTask, focusedStuckTask, canEdit };
+  return { focusedTicket, focusedTodoTask, focusedStuckTask, focusedEvaluatedTask, canEdit };
 };
 
 /** Stable identity for the flat focus list — see the `useMemo` call site for why it matters. */
@@ -131,6 +141,7 @@ interface BuildDetailHintsArgs {
   readonly sprint: Sprint | undefined;
   readonly currentSprintId: SprintId | undefined;
   readonly focusedStuckTask: Task | undefined;
+  readonly focusedEvaluatedTask: Task | undefined;
 }
 
 /**
@@ -141,7 +152,7 @@ interface BuildDetailHintsArgs {
  * spreads. Pure — lives outside the component so `useViewHints` keeps a plain call site.
  */
 const buildDetailHints = (args: BuildDetailHintsArgs): readonly ViewHint[] => {
-  const { inDetail, ticketsEditable, canEdit, sprint, currentSprintId, focusedStuckTask } = args;
+  const { inDetail, ticketsEditable, canEdit, sprint, currentSprintId, focusedStuckTask, focusedEvaluatedTask } = args;
   return [
     { keys: '↑/↓/j/k', label: 'move' },
     { keys: 'n', label: 'flows' },
@@ -162,6 +173,7 @@ const buildDetailHints = (args: BuildDetailHintsArgs): readonly ViewHint[] => {
       enabledWhen: sprint !== undefined && currentSprintId !== sprint.id && focusedStuckTask === undefined,
     },
     { keys: 'u', label: 'unblock', enabledWhen: focusedStuckTask !== undefined },
+    { keys: 'v', label: 'evaluation', enabledWhen: focusedEvaluatedTask !== undefined },
   ];
 };
 
@@ -172,6 +184,8 @@ interface BuildShortcutsActionsArgs {
   readonly setConfirmRemove: (ticket: Ticket | undefined) => void;
   readonly setFeedback: (message: string) => void;
   readonly onUnblock: (task: Task) => Promise<void>;
+  readonly sprintId: SprintId | undefined;
+  readonly openEvaluationOverlay: (target: EvaluationTarget) => void;
 }
 
 /**
@@ -179,7 +193,8 @@ interface BuildShortcutsActionsArgs {
  * hook's config alongside the plain gate fields so the call site stays a flat list.
  */
 const buildShortcutsActions = (args: BuildShortcutsActionsArgs) => {
-  const { selection, router, setOpenIds, setConfirmRemove, setFeedback, onUnblock } = args;
+  const { selection, router, setOpenIds, setConfirmRemove, setFeedback, onUnblock, sprintId, openEvaluationOverlay } =
+    args;
   return {
     closeAllExpanded: () => setOpenIds(new Set()),
     openAddTicket: (id: SprintId) => router.push({ id: 'add-ticket', props: { sprintId: id } }),
@@ -197,6 +212,21 @@ const buildShortcutsActions = (args: BuildShortcutsActionsArgs) => {
     },
     handleUnblock: (task: Task) => {
       void onUnblock(task);
+    },
+    // The full target is assembled here (not inside the overlay) so its degrade arms never need a
+    // second repository read — see `runtime/evaluation-target.ts`.
+    openEvaluation: (task: Task) => {
+      const latest = latestRecordedEvaluation(task);
+      if (sprintId === undefined || latest === undefined) return;
+      openEvaluationOverlay({
+        sprintId,
+        taskId: String(task.id),
+        taskLabel: task.name,
+        attemptN: latest.attemptN,
+        status: latest.status,
+        ...(latest.file.length > 0 ? { file: latest.file } : {}),
+        ...(latest.finishedAt !== undefined ? { finishedAt: latest.finishedAt } : {}),
+      });
     },
   };
 };
@@ -358,6 +388,7 @@ export const useSprintDetailBody = (): UseSprintDetailBodyResult => {
       sprint,
       currentSprintId: selection.sprintId,
       focusedStuckTask: focus.focusedStuckTask,
+      focusedEvaluatedTask: focus.focusedEvaluatedTask,
     })
   );
 
@@ -386,6 +417,7 @@ export const useSprintDetailBody = (): UseSprintDetailBodyResult => {
     focusList,
     cursorIdx: focus.cursorIdx,
     focusedStuckTask: focus.focusedStuckTask,
+    focusedEvaluatedTask: focus.focusedEvaluatedTask,
     ...buildShortcutsActions({
       selection,
       router,
@@ -393,6 +425,8 @@ export const useSprintDetailBody = (): UseSprintDetailBodyResult => {
       setConfirmRemove,
       setFeedback,
       onUnblock: handlers.handleUnblock,
+      sprintId: sprint?.id,
+      openEvaluationOverlay: ui.openEvaluation,
     }),
     handleEdit: handlers.handleEdit,
   });

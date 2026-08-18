@@ -19,8 +19,8 @@
  * memo, composed together inside one {@link UiStateProvider} so `App.tsx` still only ever
  * mounts a single provider:
  *
- *   - {@link useOverlayState} — the 30-consumer hot path (help/progress/prompt/modal/escape,
- *     the banner toggle).
+ *   - {@link useOverlayState} — the 30-consumer hot path (help/progress/evaluation/prompt/modal/
+ *     escape, the banner toggle).
  *   - {@link useFocusedRun} — the focused-run pinning quartet, written once per Execute-view
  *     mount/unmount and read by the breadcrumb + progress overlay.
  *   - {@link useYankProvider} — the active-task-summary ref registry read by the global `y`
@@ -38,6 +38,7 @@
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
+import type { EvaluationTarget } from '@src/application/ui/tui/runtime/evaluation-target.ts';
 
 /**
  * Project/sprint context captured from the currently-focused Execute view. Set on mount and
@@ -67,13 +68,22 @@ interface OverlayApi {
    * once at the {@link App} Layout level so every view inherits it without per-view wiring.
    */
   readonly progressOpen: boolean;
+  /**
+   * The attempt whose `evaluation.md` the read-only evaluation overlay is showing, or `undefined`
+   * when it is closed. Unlike {@link progressOpen} this is not a bare boolean: the overlay is
+   * opened from a FOCUSED CARD, so the opening view has to hand over which task/attempt it means
+   * (see {@link EvaluationTarget}). Opening is view-local (`v` on the Execute Tasks panel or on a
+   * sprint-detail task row); closing is global, in {@link useGlobalKeys}, so `esc` / `v` win over
+   * the now-inert view handlers underneath.
+   */
+  readonly evaluationTarget: EvaluationTarget | undefined;
   /** `true` whenever any caller currently holds a {@link claimPrompt} release token. */
   readonly promptActive: boolean;
   /**
    * Derived convenience flag — `true` whenever any modal overlay or prompt is open:
-   * `progressOpen || helpOpen || promptActive`. Views and components use this single flag
-   * in `useInput` early-returns and `listActive` expressions so hidden-but-mounted views
-   * are fully inert while an overlay is shown.
+   * `progressOpen || helpOpen || evaluationTarget !== undefined || promptActive`. Views and
+   * components use this single flag in `useInput` early-returns and `listActive` expressions so
+   * hidden-but-mounted views are fully inert while an overlay is shown.
    */
   readonly modalOpen: boolean;
   /** `true` whenever any caller currently holds a {@link claimEscape} release token. */
@@ -89,6 +99,11 @@ interface OverlayApi {
   toggleHelp(): void;
 
   toggleProgress(): void;
+
+  /** Open the evaluation overlay onto `target`. Re-opening with a new target swaps it in place. */
+  openEvaluation(target: EvaluationTarget): void;
+
+  closeEvaluation(): void;
 
   toggleBanner(): void;
 
@@ -177,6 +192,7 @@ const OverlayContext = createContext<OverlayApi | undefined>(undefined);
 const OverlayProvider = ({ children }: { readonly children: React.ReactNode }): React.JSX.Element => {
   const [helpOpen, setHelpOpen] = useState(false);
   const [progressOpen, setProgressOpen] = useState(false);
+  const [evaluationTarget, setEvaluationTarget] = useState<EvaluationTarget | undefined>(undefined);
   const [bannerCompact, setBannerCompact] = useState(false);
   const [claims, setClaims] = useState(0);
   const [escapeClaims, setEscapeClaims] = useState(0);
@@ -187,6 +203,14 @@ const OverlayProvider = ({ children }: { readonly children: React.ReactNode }): 
 
   const toggleProgress = useCallback(() => {
     setProgressOpen((v) => !v);
+  }, []);
+
+  const openEvaluation = useCallback((target: EvaluationTarget) => {
+    setEvaluationTarget(target);
+  }, []);
+
+  const closeEvaluation = useCallback(() => {
+    setEvaluationTarget(undefined);
   }, []);
 
   const toggleBanner = useCallback(() => {
@@ -217,12 +241,15 @@ const OverlayProvider = ({ children }: { readonly children: React.ReactNode }): 
     () => ({
       helpOpen,
       progressOpen,
+      evaluationTarget,
       promptActive: claims > 0,
-      modalOpen: progressOpen || helpOpen || claims > 0,
+      modalOpen: progressOpen || helpOpen || evaluationTarget !== undefined || claims > 0,
       escapeClaimed: escapeClaims > 0,
       bannerCompact,
       toggleHelp,
       toggleProgress,
+      openEvaluation,
+      closeEvaluation,
       toggleBanner,
       claimPrompt,
       claimEscape,
@@ -230,11 +257,14 @@ const OverlayProvider = ({ children }: { readonly children: React.ReactNode }): 
     [
       helpOpen,
       progressOpen,
+      evaluationTarget,
       claims,
       escapeClaims,
       bannerCompact,
       toggleHelp,
       toggleProgress,
+      openEvaluation,
+      closeEvaluation,
       toggleBanner,
       claimPrompt,
       claimEscape,

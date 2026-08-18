@@ -34,6 +34,7 @@
  *   c — open the cancel-scope picker (1 = cancel attempt, 2 = cancel whole flow)
  *   D — detach (return to home; the runner keeps running in the background)
  *   r — (settled only) reset to Flows so the launch triggers are re-evaluated
+ *   v — open the focused task's evaluation verdict (owned by the Tasks panel's keymap)
  */
 
 import React from 'react';
@@ -84,6 +85,7 @@ import { useCancelScopeStats } from '@src/application/ui/tui/views/execute-view-
 import { useResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/use-responsive-layout.ts';
 import { useExecuteInput } from '@src/application/ui/tui/views/execute-view-internals/use-execute-input.ts';
 import { useLiveClock } from '@src/application/ui/tui/views/execute-view-internals/use-live-clock.ts';
+import { useEvaluationChord } from '@src/application/ui/tui/views/execute-view-internals/use-open-evaluation.ts';
 
 interface ExecuteProps extends Readonly<Record<string, unknown>> {
   readonly sessionId: string;
@@ -185,6 +187,7 @@ interface DeriveTasksPanelInput {
   readonly now: number;
   readonly executionState: SprintExecution | undefined;
   readonly taskState: readonly Task[] | undefined;
+  readonly onOpenEvaluation: (taskId: string) => void;
 }
 
 interface DeriveTasksPanelResult {
@@ -209,6 +212,7 @@ const deriveTasksPanel = ({
   now,
   executionState,
   taskState,
+  onOpenEvaluation,
 }: DeriveTasksPanelInput): DeriveTasksPanelResult => {
   const tasksPanel = pinnedSprintStale ? (
     <Box paddingX={spacing.indent}>
@@ -224,6 +228,7 @@ const deriveTasksPanel = ({
       inputActive={tasksInputActive}
       now={now}
       taskState={taskState}
+      onOpenEvaluation={onOpenEvaluation}
     />
   );
 
@@ -259,6 +264,8 @@ interface UseExecuteRunControlsInput {
   readonly router: RouterApi;
   /** Gates the settled `g progress` hint — the global chord no-ops without a sprint to open. */
   readonly hasPinnedSprint: boolean;
+  /** Gates the `v evaluation` hint — the chord no-ops until some task has recorded a verdict. */
+  readonly hasEvaluation: boolean;
 }
 
 export interface ExecuteRunControls {
@@ -278,6 +285,7 @@ const useExecuteRunControls = ({
   modalOpen,
   router,
   hasPinnedSprint,
+  hasEvaluation,
 }: UseExecuteRunControlsInput): ExecuteRunControls => {
   const isRunning = descriptor?.status === 'running';
 
@@ -287,7 +295,15 @@ const useExecuteRunControls = ({
   // while mounted so the picker's `1` / `2` / `esc` keystrokes don't fight this handler.
   const [cancelScopeOpen, setCancelScopeOpen] = React.useState(false);
 
-  useExecuteInput({ isRunning, cancelScopeOpen, setCancelScopeOpen, modalOpen, router, hasPinnedSprint });
+  useExecuteInput({
+    isRunning,
+    cancelScopeOpen,
+    setCancelScopeOpen,
+    modalOpen,
+    router,
+    hasPinnedSprint,
+    hasEvaluation,
+  });
 
   const now = useLiveClock(isRunning);
 
@@ -401,11 +417,14 @@ export const ExecuteView = (): React.JSX.Element => {
     followFocusedRun: selection.followFocusedRun,
   });
 
+  // `v` — the panel supplies the focused card id; this resolves the overlay target.
+  const evaluation = useEvaluationChord({ sprintId: pinnedSprintId, taskState, openEvaluation: ui.openEvaluation });
   const runControls = useExecuteRunControls({
     descriptor,
     modalOpen: ui.modalOpen,
     router,
     hasPinnedSprint: pinnedSprintId !== undefined,
+    hasEvaluation: evaluation.hasAny,
   });
 
   const bucketedTasks = useBucketedTasks({ descriptor, chainEvents, signals, eventBus });
@@ -414,13 +433,12 @@ export const ExecuteView = (): React.JSX.Element => {
   // sessionId-scoped so we only look up the current runner's entry; absent ⇒ empty state.
   const tokenUsage = useTokenUsage(eventBus).get(sessionId);
 
-  // Stash the stable setter so the active-task-summary effect doesn't fire on unrelated
-  // UI state toggles (helpOpen, claims, …).
-  const setActiveTaskSummaryProvider = ui.setActiveTaskSummaryProvider;
   useActiveTaskSummary({
     currentTask: bucketedTasks.currentTask,
     currentTaskName: bucketedTasks.currentTaskName,
-    setActiveTaskSummaryProvider,
+    // The setter is its own stable `useCallback`, so reading it off the merged `ui` object does
+    // not re-fire the effect when an unrelated overlay toggle changes that object's identity.
+    setActiveTaskSummaryProvider: ui.setActiveTaskSummaryProvider,
   });
 
   const cancelStats = useCancelScopeStats({
@@ -447,13 +465,6 @@ export const ExecuteView = (): React.JSX.Element => {
   // the view needs has already run.
   if (!session || descriptor === undefined) return <SessionNotFoundNotice />;
 
-  // TasksPanel claims input for the signal-row cursor (j/k or ↑/↓ to move, Enter / Space to
-  // expand a commit-message row). Disabled while any modal owns the keyboard so the cursor
-  // can't fight the help overlay (`?`), the progress overlay (`g`), a prompt, or the
-  // cancel-scope picker (`c`) — the latter is rendered inline behind the modal, so without
-  // this gate esc/j/k/e would double-handle the hidden panel.
-  const tasksInputActive = !ui.modalOpen && !runControls.cancelScopeOpen;
-
   // `pinnedSprintStale` (closed/removed pin) is computed above, alongside the selection
   // convergence effect that also needs it.
   const tasksPanelDerivation = deriveTasksPanel({
@@ -462,10 +473,14 @@ export const ExecuteView = (): React.JSX.Element => {
     descriptor,
     isRunning: runControls.isRunning,
     layout,
-    tasksInputActive,
+    // TasksPanel claims input for its cursor chords (j/k, Enter/Space, `e`, `v`). Disabled while
+    // any modal owns the keyboard — help (`?`), progress (`g`), evaluation (`v`), a prompt, or the
+    // inline cancel-scope picker (`c`) — else the hidden panel double-handles every keystroke.
+    tasksInputActive: !ui.modalOpen && !runControls.cancelScopeOpen,
     now: runControls.now,
     executionState,
     taskState,
+    onOpenEvaluation: evaluation.open,
   });
 
   return (

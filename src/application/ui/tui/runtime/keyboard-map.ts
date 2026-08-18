@@ -115,6 +115,7 @@ export const contextualKeys = {
   disableSkill: { keys: ['d'], label: 'disable skill for picked flows' },
   updateSkill: { keys: ['u'], label: 'update skill from bundle' },
   updateAllSkills: { keys: ['U'], label: 'update every out-of-date skill' },
+  openEvaluation: { keys: ['v'], label: "open the focused task's evaluation verdict" },
 } as const satisfies Record<string, KeyBinding>;
 
 /**
@@ -167,6 +168,17 @@ export const executeKeys = {
  * {@link executeKeys.detach}, which the execute view intercepts regardless of whether the
  * panel owns input; `c` is the cancel binding. `e` is otherwise free across the global / list
  * / execute key surfaces and reads as "expand criteria" at a glance.
+ *
+ * `evaluation` uses `v` (verdict), shared with {@link contextualKeys.openEvaluation} on
+ * sprint-detail — the same deliberate overlap as `e` above, and for the same reason: the live
+ * Execute view and the sprint-detail browse view are never mounted at once, so the two `v`
+ * handlers cannot both see a keystroke. (`flows-view` binds a third, equally disjoint `v`.)
+ * OPENING is view-local because only a view knows which card the cursor is on; CLOSING is global
+ * (`use-global-keys`) so `esc` / `v` beat the hidden view's handler.
+ *
+ * `criteria` anchors on the ACTIVE task while `evaluation` anchors on the FOCUSED card: expanding
+ * criteria is something an operator does about the task currently running, whereas reading a
+ * verdict is something they do about a card they deliberately moved the cursor onto.
  */
 export const tasksPanelKeys = {
   navUp: { keys: ['k', '↑'], label: 'prev card / row' },
@@ -174,6 +186,7 @@ export const tasksPanelKeys = {
   toggleCard: { keys: ['↵', 'space'], label: 'expand / collapse card or commit row' },
   collapseCard: { keys: ['esc'], label: 'collapse expanded card' },
   criteria: { keys: ['e'], label: 'expand done criteria for active card' },
+  evaluation: { keys: ['v'], label: 'open evaluation verdict for the focused card' },
 } as const satisfies Record<string, KeyBinding>;
 
 /**

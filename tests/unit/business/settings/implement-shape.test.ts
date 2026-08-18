@@ -24,7 +24,6 @@ const baseRecord = {
   logging: { level: 'info' },
   concurrency: { maxParallelTasks: 1 },
   ui: { notifications: { enabled: true } },
-  developer: { showEvaluatorFailureUI: false },
 };
 
 describe('settings.ai.implement — nested generator/evaluator shape', () => {

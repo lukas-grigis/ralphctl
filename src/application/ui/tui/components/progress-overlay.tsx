@@ -22,7 +22,7 @@ import React, { useEffect, useState } from 'react';
 import { resolveSprintDir } from '@src/integration/persistence/storage.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import { Box, Text, useInput } from 'ink';
+import { Box, Text } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
@@ -30,11 +30,10 @@ import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx'
 import { useUiState } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 import { fmtDuration } from '@src/application/ui/tui/theme/duration.ts';
-
-/** Reserve rows for banners + header + footer chrome around the scrollable body. */
-const CHROME_ROWS = 10;
-/** Floor on the scrollable body so a tiny terminal still shows something useful. */
-const MIN_BODY_ROWS = 6;
+import {
+  overlayBodyRows,
+  useDocumentScroll,
+} from '@src/application/ui/tui/components/overlay-internals/use-document-scroll.ts';
 
 interface ProgressFile {
   readonly kind: 'ok';
@@ -112,63 +111,6 @@ const useProgressFile = (sprintId: SprintId | undefined, dataRoot: AbsolutePath)
   }, [sprintId, dataRoot]);
 
   return state;
-};
-
-interface ProgressScroll {
-  readonly offset: number;
-  readonly maxOffset: number;
-  readonly visibleLines: readonly string[];
-  readonly lineCount: number;
-}
-
-/**
- * Owns the scroll offset + keyboard handling for the progress body. Resets to the top whenever
- * the underlying line count changes (e.g. re-open of a longer file). No `g` / `G` bindings here —
- * `g` is the global open / close toggle, so claiming it inside the overlay would be a UX landmine.
- * PgUp / PgDn / Ctrl+b/f/u/d cover the same ground.
- */
-const useProgressScroll = (state: ProgressState, bodyRows: number): ProgressScroll => {
-  const [offset, setOffset] = useState<number>(0);
-
-  const lineCount = state.kind === 'ok' ? state.lines.length : 0;
-  useEffect(() => {
-    setOffset(0);
-  }, [lineCount]);
-
-  const maxOffset = Math.max(0, lineCount - bodyRows);
-  const clamp = (n: number): number => Math.max(0, Math.min(n, maxOffset));
-
-  useInput((input, key) => {
-    // Only scroll when there's an actual document and it overflows the viewport.
-    if (state.kind !== 'ok' || maxOffset === 0) return;
-    if (key.upArrow) {
-      setOffset((o) => clamp(o - 1));
-      return;
-    }
-    if (key.downArrow) {
-      setOffset((o) => clamp(o + 1));
-      return;
-    }
-    if (key.pageUp || (key.ctrl && input === 'b')) {
-      setOffset((o) => clamp(o - bodyRows));
-      return;
-    }
-    if (key.pageDown || (key.ctrl && input === 'f')) {
-      setOffset((o) => clamp(o + bodyRows));
-      return;
-    }
-    if (key.ctrl && input === 'u') {
-      setOffset((o) => clamp(o - Math.max(1, Math.floor(bodyRows / 2))));
-      return;
-    }
-    if (key.ctrl && input === 'd') {
-      setOffset((o) => clamp(o + Math.max(1, Math.floor(bodyRows / 2))));
-    }
-  });
-
-  const visibleLines = state.kind === 'ok' ? state.lines.slice(offset, offset + bodyRows) : [];
-
-  return { offset, maxOffset, visibleLines, lineCount };
 };
 
 interface ProgressBodyProps {
@@ -258,8 +200,10 @@ export const ProgressOverlay = (): React.JSX.Element => {
 
   const state = useProgressFile(sprintId, storage.dataRoot);
 
-  const bodyRows = Math.max(MIN_BODY_ROWS, term.rows - CHROME_ROWS);
-  const { offset, visibleLines, lineCount } = useProgressScroll(state, bodyRows);
+  const bodyRows = overlayBodyRows(term.rows);
+  const lineCount = state.kind === 'ok' ? state.lines.length : 0;
+  const { offset } = useDocumentScroll(lineCount, bodyRows);
+  const visibleLines = state.kind === 'ok' ? state.lines.slice(offset, offset + bodyRows) : [];
 
   const sprintLabel =
     ui.focusedRunSprintLabel ?? selection.sprintLabel ?? (sprintId !== undefined ? String(sprintId) : '(no sprint)');

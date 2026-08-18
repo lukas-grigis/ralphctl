@@ -147,5 +147,4 @@ export const DEFAULT_SETTINGS: Settings = {
   concurrency: { maxParallelTasks: 1 },
   scm: { postRefinementComment: false },
   ui: { notifications: { enabled: true } },
-  developer: { showEvaluatorFailureUI: false },
 };

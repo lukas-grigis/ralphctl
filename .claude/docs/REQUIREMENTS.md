@@ -348,8 +348,10 @@ See [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) for tokens, components, view patterns
       `(input + output) / contextWindow` when both are known.
 - [x] **Status banner** — tiered `info` / `warn` / `error` `StatusBanner` replaces the old
       single-purpose `RateLimitBanner`. Driven by `BannerShowEvent` / `BannerClearEvent`.
-- [x] **Evaluator-failure panel** — `EvaluatorFailurePanel` shows per-dimension scores with expand
-      affordance. Gated behind `settings.developer.showEvaluatorFailureUI` (default `false`).
+- [x] **Evaluation-artifact surface** — `EvaluationOverlay` (`v`, from the Execute tasks panel or a
+      sprint-detail task row) and `ralphctl task evaluation <taskId>` read the attempt's own
+      `evaluation.md`; `EvaluatorFailurePanel` renders the parsed per-dimension verdict inside it. A
+      stale / absent artifact path or a pruned workspace degrades to the one-line verdict.
 - [x] **NO_COLOR accessibility** — `glyphFor(signalKind)` adds shape-redundant glyphs so signal kinds
       remain visually distinguishable when `NO_COLOR=1` suppresses colour encoding.
 - [x] **Idle-state ticker** — tasks panel shows last-note signals when no task is `in_progress`.

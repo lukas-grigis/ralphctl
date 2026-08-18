@@ -42,6 +42,16 @@ to [Semantic Versioning](https://semver.org/).
   only; `--home <dir>` relocates the sandbox; `--script` replays a canned generator → evaluator
   transcript through the real Claude adapter instead of spawning a real CLI, for a fully reproducible
   first-run recording.
+- **You can finally read the evaluator's verdict.** Every evaluator round has always written an
+  operator-readable `evaluation.md` next to the task's round artifacts — the critique, and each
+  dimension's pass / fail / n-a with its finding and any command output — and nothing in the TUI or
+  the CLI ever opened it. A failed attempt read `eval failed · attempt 2` and stopped there. Press
+  `v` on the focused task, in the Execute tasks panel or on a sprint-detail task row, and the file
+  opens in a read-only overlay you can scroll (same chords as the `g` progress overlay; `Esc` or `v`
+  closes). `ralphctl task evaluation <taskId>` prints the same file for scripts and pipes, with the
+  attempt / verdict / path header on stderr so `> verdict.md` yields exactly the artifact.
+  Older sprints stay readable: a task whose record predates the artifact, or whose workspace has been
+  pruned, degrades to the one-line verdict it shows today — never an error.
 
 ### Changed
 
@@ -111,6 +121,15 @@ to [Semantic Versioning](https://semver.org/).
   other repos with no error surfaced. It now grants every root the engine resolved, and a root that
   can't be expressed as a permission pattern (glob metacharacters in the path) fails the session with
   a named error instead of starting one that can't see what it was asked to.
+
+### Removed
+
+- **`settings.developer.showEvaluatorFailureUI`.** The flag gated a per-dimension evaluator panel that
+  no production code path ever rendered, and it was unreachable anyway — absent from the Settings view
+  and from `ralphctl settings set`, so hand-editing `settings.json` was the only way to set it. The
+  panel it gated now reads the attempt's own `evaluation.md` and renders inside the new evaluation
+  overlay, which removed the flag's reason to exist. Nothing changes for anyone: an existing
+  `settings.json` still loads clean and the key is dropped on the next save.
 
 ## [0.19.0] - 2026-08-10
 

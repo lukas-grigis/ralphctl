@@ -42,6 +42,8 @@ interface UseExecuteInputDeps {
   readonly router: RouterApi;
   /** Gates the `g progress` hint — with no pinned sprint the global chord is a no-op. */
   readonly hasPinnedSprint: boolean;
+  /** Gates the `v evaluation` hint — the chord no-ops until some task has recorded a verdict. */
+  readonly hasEvaluation: boolean;
 }
 
 export const useExecuteInput = ({
@@ -51,6 +53,7 @@ export const useExecuteInput = ({
   modalOpen,
   router,
   hasPinnedSprint,
+  hasEvaluation,
 }: UseExecuteInputDeps): void => {
   useViewHints(
     isRunning
@@ -63,11 +66,15 @@ export const useExecuteInput = ({
         : [
             { keys: 'c', label: 'cancel' },
             { keys: 'D', label: 'detach' },
+            // Advertised WHILE RUNNING too: a failed round mid-run is exactly when an operator
+            // wants the critique, and the next generator turn is already consuming it.
+            { keys: 'v', label: 'evaluation', enabledWhen: hasEvaluation },
           ]
       : [
           { keys: '↵', label: 'home' },
           { keys: 'r', label: 're-run' },
           { keys: 'g', label: 'progress', enabledWhen: hasPinnedSprint },
+          { keys: 'v', label: 'evaluation', enabledWhen: hasEvaluation },
         ]
   );
 

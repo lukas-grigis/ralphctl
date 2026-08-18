@@ -154,7 +154,6 @@ describe('warnEscalationMapSelfLoops', () => {
       logging: { level: 'info' },
       concurrency: { maxParallelTasks: 1 },
       ui: { notifications: { enabled: true } },
-      developer: { showEvaluatorFailureUI: false },
     };
     const parsed = SettingsSchema.safeParse(record);
     expect(parsed.success).toBe(true);
