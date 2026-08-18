@@ -8,7 +8,10 @@ metadata:
 The loop-diversity guard in `src/application/flows/implement/leaves/gen-eval-loop.ts`
 (`loop-diversity-check-<taskId>` leaf, last child of the `evaluator-step-<id>` sequential)
 fingerprints each evaluator turn's failed-dimension set and exits the gen-eval loop via a
-`plateau` exit when the last `DIVERSITY_WINDOW_SIZE` (3) fingerprints are identical.
+`plateau` exit when every fingerprint in the plateau window is identical. Since 2026-08 the window
+is `plateauWindowSize(settings.harness.plateauThreshold)` (2–5, no hardcoded 3) and the exit is
+additionally gated on `windowIsHardStall` from `business/task/plateau-detection.ts` — the same
+cascade + exemptions the calibrated predicate runs — so the guard is strictly subordinate to it.
 
 **Invariant:** a run where every turn fails from the very start (never any progress) must always
 exit as `budget-exhausted`, never `plateau`. The guard reads `ctx.genEvalTurn` (turnsUsed) and
