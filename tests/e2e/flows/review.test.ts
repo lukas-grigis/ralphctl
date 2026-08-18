@@ -81,6 +81,19 @@ const cleanTreeRunner: GitRunner = {
   },
 };
 
+/**
+ * Walks `gitCommitWithMessage` all the way to `{ committed: true }`: a dirty porcelain status
+ * before and after staging, plus a valid SHA for `rev-parse HEAD`. Required by the applied-round
+ * telemetry assertion — `applied` is gated on a real commit, so a clean tree applies nothing.
+ */
+const dirtyTreeRunner: GitRunner = {
+  async run(_cwd, args) {
+    if (args[0] === 'status') return okGit(' M src/foo.ts');
+    if (args[0] === 'rev-parse') return okGit('0123456789abcdef0123456789abcdef01234567');
+    return okGit('');
+  },
+};
+
 const noopShell: ShellScriptRunner = {
   async run() {
     return Result.ok({ passed: true, exitCode: 0, output: '', durationMs: 0 });
@@ -209,7 +222,7 @@ describe('createReviewFlow', () => {
         logger: noopLogger,
         clock: () => FIXED_LATER,
         interactive,
-        gitRunner: cleanTreeRunner,
+        gitRunner: dirtyTreeRunner,
         shellScriptRunner: noopShell,
         fileLocker: createFileLocker(),
         locksRoot: absolutePath(dir),

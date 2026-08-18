@@ -99,11 +99,12 @@ describe('runReviewRoundUseCase — commitRound failure', () => {
       })
     );
 
-    // Should still succeed (the commit failure is non-fatal — logged as warn)
+    // Should still succeed (the commit failure is non-fatal — logged as warn), but a swallowed
+    // commit error never produced a commit, so it must not be reported as applied.
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.exit).toBe('continued');
-      expect(result.value.applied).toBe(true);
+      expect(result.value.applied).toBe(false);
     }
   });
 });
