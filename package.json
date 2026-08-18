@@ -1,7 +1,7 @@
 {
   "name": "ralphctl",
   "version": "0.19.0",
-  "description": "Agent harness for long-running AI coding tasks — orchestrates Claude Code, GitHub Copilot, and OpenAI Codex across repositories",
+  "description": "Agent harness for long-running AI coding tasks — orchestrates Claude Code, GitHub Copilot, OpenAI Codex, and OpenCode across repositories",
   "homepage": "https://github.com/lukas-grigis/ralphctl",
   "type": "module",
   "license": "MIT",
@@ -22,6 +22,7 @@
     "claude-code",
     "github-copilot",
     "codex",
+    "opencode",
     "ai-coding",
     "task-orchestration",
     "anthropic",
