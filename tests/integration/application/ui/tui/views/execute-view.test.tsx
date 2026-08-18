@@ -7,6 +7,7 @@
  * only need the view to read descriptor fields and render the correct top-level layout.
  */
 
+import { Box } from 'ink';
 import { describe, expect, it, vi } from 'vitest';
 import { ExecuteView } from '@src/application/ui/tui/views/execute-view.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
@@ -19,7 +20,7 @@ import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import type { ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 import { createSessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
-import { ENTER, ESC, tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { DOWN, ENTER, ESC, PAGE_DOWN, tick, UP } from '@tests/integration/application/ui/tui/_keys.ts';
 import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 
@@ -38,6 +39,12 @@ const fakeRunner = (id: string, status: 'running' | 'completed' | 'failed'): Run
     start: vi.fn(),
     abort: vi.fn(),
   }) as unknown as Runner<unknown>;
+
+/**
+ * Flatten the braille spinner the pinned StatusBar animates on its own timer, so a whole-frame
+ * comparison can't flap for reasons that have nothing to do with the assertion under test.
+ */
+const withoutSpinnerFrames = (frame: string): string => frame.replace(/[⠀-⣿]/g, '⠿');
 
 const stubDeps = (): AppDeps =>
   ({
@@ -90,6 +97,41 @@ describe('ExecuteView', () => {
     // Press ↵ to return — the not-running hint routes Home.
     expect(frame).toContain('home');
     result.unmount();
+  });
+
+  it('yields the page-scroll keys to the Tasks cursor — ↑/↓/PgDn never scroll the Execute page', async () => {
+    // Every other cursor-owning view passes `suppressScrollArrows`; Execute did not, so a single
+    // ↓ moved the Tasks cursor AND page-scrolled the viewport underneath it. The fixed-height
+    // wrapper is what makes the page overflow at all: a bare render in this harness measures the
+    // ScrollRegion viewport at full content height, so nothing overflows and the assertion would
+    // pass vacuously. A settled session is used deliberately — no spinner frames and no 1 Hz
+    // clock, so an unchanged frame means "nothing moved" rather than "nothing had time to".
+    const PAGE_ROWS = 14;
+    const sessions = createSessionManager();
+    const runner = fakeRunner('r-noscroll', 'completed');
+    sessions.register({ runner, flowId: 'implement', title: 'Implement — No Scroll' });
+
+    const { result } = renderView(
+      <Box height={PAGE_ROWS} flexDirection="column">
+        <ExecuteView />
+      </Box>,
+      {
+        deps: stubDeps(),
+        initial: { id: 'execute', props: { sessionId: 'r-noscroll' } },
+        sessions,
+      }
+    );
+    await waitForViewReady(result, (f) => f.includes('Implement — No Scroll'));
+    const before = withoutSpinnerFrames(result.lastFrame() ?? '');
+    // Non-vacuity: the settled card sits below the fold, so the page genuinely has somewhere to
+    // scroll to. If this ever starts rendering, the wrapper is no longer clipping anything.
+    expect(before).not.toContain('Next steps');
+
+    for (const seq of [DOWN, DOWN, PAGE_DOWN, UP]) {
+      result.stdin.write(seq);
+      await tick();
+    }
+    expect(withoutSpinnerFrames(result.lastFrame() ?? '')).toBe(before);
   });
 
   it('renders the unknown-session fallback when the id is not registered', async () => {
