@@ -11,6 +11,11 @@
  *   ↑ / ↓         → one line
  *   PgUp / PgDn   → one viewport
  *   lines X–Y of N footer cue when scrollable
+ *
+ * Windowing invariant: **one {@link HelpRow} renders exactly one terminal row**. The blank line
+ * before each non-first section title is therefore a real `blank` row in the array rather than a
+ * `marginTop` on the title — otherwise a window holding N titles renders N rows taller than the
+ * budget, overflowing the card and making the `lines X–Y of N` counter name rows nobody can see.
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
@@ -21,16 +26,22 @@ import { SIGNAL_LABEL_COLOR } from '@src/application/ui/tui/components/tasks-pan
 import { useActiveHints } from '@src/application/ui/tui/runtime/use-view-hints.tsx';
 import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-size.ts';
 
-/** Reserve rows for the overlay's own chrome (border + header + footer). */
-const CHROME_ROWS = 6;
+/**
+ * Rows the overlay spends on its own chrome, so the card never outgrows the terminal:
+ * outer paddingY (top + bottom) + card border (top + bottom) + header + body marginTop +
+ * footer marginTop + footer row.
+ */
+const CHROME_ROWS = spacing.section * 2 + 2 + 1 + spacing.section + spacing.section + 1;
 /** Floor on the scrollable body so a tiny terminal still shows something. */
 const MIN_BODY_ROWS = 4;
 
 /** `HelpRow.kind` discriminant for a section header row. */
 const SECTION_TITLE = 'section-title';
+/** `HelpRow.kind` discriminant for the spacer row that precedes a non-first section title. */
+const BLANK = 'blank';
 
 interface HelpRow {
-  readonly kind: 'section-title' | 'binding';
+  readonly kind: 'section-title' | 'binding' | 'blank';
   readonly title?: string;
   readonly keys?: readonly string[];
   readonly label?: string;
@@ -38,13 +49,16 @@ interface HelpRow {
   readonly color?: string | undefined;
 }
 
-/** Renders one row of the flattened help list — a section title, a key-chord binding, or a
- * plain reference row (signal vocabulary etc. with no key chord). `isFirst` suppresses the
- * top margin on the very first section title. */
-const HelpRowView = ({ row, isFirst }: { readonly row: HelpRow; readonly isFirst: boolean }): React.JSX.Element => {
+/** Renders one row of the flattened help list — a section spacer, a section title, a key-chord
+ * binding, or a plain reference row (signal vocabulary etc. with no key chord). Every branch
+ * occupies exactly one terminal row. */
+const HelpRowView = ({ row }: { readonly row: HelpRow }): React.JSX.Element => {
+  if (row.kind === BLANK) {
+    return <Text> </Text>;
+  }
   if (row.kind === SECTION_TITLE) {
     return (
-      <Box marginTop={isFirst ? 0 : spacing.section}>
+      <Box>
         <Text bold>{row.title}</Text>
       </Box>
     );
@@ -72,19 +86,30 @@ const HelpRowView = ({ row, isFirst }: { readonly row: HelpRow; readonly isFirst
   );
 };
 
+/**
+ * Pushes a section title, preceded by `spacing.section` blank rows unless it opens the list.
+ * The spacer is a row (not a margin) so the windowing math stays one-row-per-`HelpRow`.
+ */
+const pushSectionTitle = (rows: HelpRow[], title: string): void => {
+  if (rows.length > 0) {
+    for (let i = 0; i < spacing.section; i++) rows.push({ kind: BLANK });
+  }
+  rows.push({ kind: SECTION_TITLE, title });
+};
+
 /** Flattens the local view hints + every static keymap section into one renderable row list. */
 const buildHelpRows = (localHints: ReturnType<typeof useActiveHints>): readonly HelpRow[] => {
   const rows: HelpRow[] = [];
 
   if (localHints.length > 0) {
-    rows.push({ kind: SECTION_TITLE, title: 'This view' });
+    pushSectionTitle(rows, 'This view');
     for (const h of localHints) {
       rows.push({ kind: 'binding', keys: [h.keys], label: h.label });
     }
   }
 
   for (const section of keySections) {
-    rows.push({ kind: SECTION_TITLE, title: section.title });
+    pushSectionTitle(rows, section.title);
     for (const b of section.bindings) {
       rows.push({
         kind: 'binding',
@@ -158,7 +183,7 @@ export const HelpOverlay = (): React.JSX.Element => {
         </Box>
         <Box flexDirection="column" marginTop={spacing.section}>
           {visibleRows.map((row, idx) => (
-            <HelpRowView key={`${row.kind}-${String(offset + idx)}`} row={row} isFirst={idx === 0} />
+            <HelpRowView key={`${row.kind}-${String(offset + idx)}`} row={row} />
           ))}
         </Box>
         {maxOffset > 0 && (
