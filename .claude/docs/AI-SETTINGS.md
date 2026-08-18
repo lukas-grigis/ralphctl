@@ -155,18 +155,25 @@ every `ai` row plus `harness.escalateOnPlateau` in one transaction; subsequent p
   2026** — the 2026-06-12 export-control suspension has been lifted (`settings-models/suspended-models.ts`
   keeps the kill-switch mechanism, now empty) — it stays opt-in for a different reason: 2× the Opus price
   is an operator spend decision, not a capability gate.
-- GitHub Copilot — lists 28 models reconciled to GitHub's supported-models doc (as of 2026-07-26):
+- GitHub Copilot — lists 31 models reconciled to GitHub's supported-models doc (as of 2026-08-18):
   OpenAI `gpt-5-mini`, `gpt-5.3-codex`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.4-nano`, `gpt-5.5`,
   `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`; Anthropic `claude-haiku-4.5`, `claude-opus-4.5`,
   `claude-opus-4.6`, `claude-opus-4.7`, `claude-opus-4.8`, `claude-opus-4.8-fast`, `claude-opus-5`,
   `claude-fable-5`, `claude-sonnet-4.5` (default), `claude-sonnet-4.6`, `claude-sonnet-5`; Google
-  `gemini-2.5-pro`, `gemini-3-flash`, `gemini-3.1-pro-preview`, `gemini-3.5-flash`, `gemini-3.6-flash`;
-  Microsoft `mai-code-1-flash`; Moonshot `kimi-k2.7-code`; fine-tuned `raptor-mini-preview`. Added since
-  the last reconciliation: `claude-opus-4.8-fast`, `claude-opus-5`, `gpt-5.6-sol`, `gpt-5.6-terra`,
-  `gpt-5.6-luna`, `gemini-3.6-flash`, `kimi-k2.7-code` — `gpt-5.6-sol` is CLI-verified (Copilot CLI
-  1.0.75); `claude-opus-4.8-fast`, `gemini-3.6-flash`, and `kimi-k2.7-code` are convention-derived (could
-  not be validated on the reference account). Removed: `claude-opus-4.6-fast` (delisted; remaps to
-  `claude-opus-4.8-fast`). Note: `claude-opus-5`'s Copilot slug carries no dot/date, so — like Sonnet 5
+  `gemini-3.1-pro`, `gemini-3.5-flash`, `gemini-3.6-flash`, `gemini-3.7-flash`; Microsoft
+  `mai-code-1-flash`, `mai-code-1.1-flash`; Moonshot `kimi-k2.7-code`, `kimi-k3`; xAI `grok-4.5`,
+  `grok-4.6`; fine-tuned `raptor-mini`. Added since the last reconciliation: `gemini-3.7-flash`,
+  `mai-code-1.1-flash`, `kimi-k3`, and the first xAI entries `grok-4.5` / `grok-4.6` — all
+  convention-derived from the doc's display names and NOT validated against the live CLI
+  (github/copilot-cli issue #700 still blocks non-interactive enumeration); of the whole catalog only
+  `gpt-5.6-sol` has been CLI-verified (Copilot CLI 1.0.75). Renamed: two preview
+  graduations whose display name — and therefore derived slug — changed, `gemini-3.1-pro-preview` →
+  `gemini-3.1-pro` (the doc's release-status column still reads "Public preview"; the slug tracks the
+  display name) and `raptor-mini-preview` → `raptor-mini` (GA). Removed: `claude-opus-4.6-fast`
+  (delisted 2026-07-26; remaps to `claude-opus-4.8-fast`), `gemini-2.5-pro` and `gemini-3-flash`
+  (delisted 2026-08-18; remap to `gemini-3.1-pro` and `gemini-3.5-flash`). Every rename/delisting is
+  covered by `RETIRED_MODEL_REMAPS`, so a pinned settings row loads on its successor rather than on a
+  slug the adapter rejects at spawn. Note: `claude-opus-5`'s Copilot slug carries no dot/date, so — like Sonnet 5
   and Fable 5 — it is the SAME string (`claude-opus-5`) as the Claude-Code id; it is also plan-gated
   (Pro+/Max/Business/Enterprise) on Copilot, and per the existing passthrough-probe policy fails at spawn
   with a clear error on gated accounts, so Copilot's curated presets and the dot-form escalation ladder

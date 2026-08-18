@@ -117,6 +117,16 @@ to [Semantic Versioning](https://semver.org/).
   Existing runs are no longer subject to entropy-driven exits at all. The signal is a proxy for a
   proxy — the harness never sees the AI's raw tool use, only the spread of the signal kinds it
   reports — and the count-based `plateauThreshold` predicate already covers the same ground.
+- **GitHub Copilot catalog reconciled to the 2026-08-18 supported-models doc** (28 → 31 models).
+  Added `gemini-3.7-flash`, `mai-code-1.1-flash`, `kimi-k3`, and the first xAI entries `grok-4.5` /
+  `grok-4.6`. Two preview graduations changed their display name and so their slug:
+  `gemini-3.1-pro-preview` → `gemini-3.1-pro` and `raptor-mini-preview` → `raptor-mini`. GitHub
+  delisted `gemini-2.5-pro` and `gemini-3-flash`, which are dropped from the catalog. All four
+  retired slugs remap automatically on load — pinned settings land on `gemini-3.1-pro`,
+  `raptor-mini`, `gemini-3.1-pro`, and `gemini-3.5-flash` respectively — so no config edit is
+  needed. Every new and renamed slug is convention-derived from the doc's display names and could
+  not be validated against the live CLI: the Copilot CLI still cannot enumerate its catalog
+  non-interactively (github/copilot-cli#700).
 
 ### Fixed
 
