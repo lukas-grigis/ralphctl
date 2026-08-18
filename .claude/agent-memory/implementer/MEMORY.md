@@ -1,5 +1,13 @@
 # Implementer Memory
 
+- [project_root_session_id_nested_runners.md](project_root_session_id_nested_runners.md) — nested runners shadow
+  currentSessionId(): TUI-keyed chainSessionId must use the new rootSessionId(); + router.reset(entry) is now
+  required, and guard's single body-named `skipped` entry is what marks a dependency-blocked task
+
+- [project_runner_aborted_event_error_seam.md](project_runner_aborted_event_error_seam.md) — RunnerEvent
+  'aborted' carries an error ONLY for in-chain aborts (never for caller abort()/sibling kill); wave-scheduler
+  captures it on BOTH failed+aborted to stop the schedule instead of launching later waves
+
 - [project_settings_default_flip_surfaces.md](project_settings_default_flip_surfaces.md) — flipping a
   settings.harness default: 6 untested prose restatements (settings.ts JSDoc, TUI HARNESS_HINTS, 5 docs) +
   the optional per-preset harness pin seam in applyPreset
@@ -42,7 +50,7 @@
 - [project_implement_role_meta_sidecar.md](project_implement_role_meta_sidecar.md) — stamp-role-meta leaves persist
   per-round AI attribution to rounds/<N>/<role>/meta.json; preStampedRoundNum ctx seam isolates round claiming
 - [project_recoverable_turn_error_policy.md](project_recoverable_turn_error_policy.md) — gen-eval turn errors block the
-  task (self-blocked exit) instead of aborting the run; Aborted/RateLimit still propagate; via isRecoverableTurnError
+  task (self-blocked exit) instead of aborting the run; Aborted/RateLimit propagate; ProcessCrash → crashed retry (both roles)
 - [project_provider_stream_session_fields.md](project_provider_stream_session_fields.md) — empirical session-id/usage
   JSONL field names: codex thread_id on thread.started; copilot sessionId on result record
 - [project_session_als_fenced_from_integration.md](project_session_als_fenced_from_integration.md) — currentSessionId()
@@ -64,7 +72,7 @@
 - [project_attempt_scoped_ctx_reset_seam.md](project_attempt_scoped_ctx_reset_seam.md) — implement attempt-scoped ctx
   resets split across start-attempt (entry: verdict/session) vs progress-journal (exit: GENERATOR_HINTS accumulators)
 - [project_structured_verify_gates.md](project_structured_verify_gates.md) — WS3 per-module verify gates: precedence,
-  multi-gate VerifyRun representation, gitDiffFootprint seam, fail-fast post / all-run pre asymmetry, run-ALL fallback
+  multi-gate VerifyRun, gitDiffFootprint seam, fail-fast post / all-run pre asymmetry, coveredAllGates carry flag
 - [project_detect_scripts_verify_gates_signal.md](project_detect_scripts_verify_gates_signal.md) — T9 verify-gates signal:
   ONE signal carrying gates[] (not per-gate), .nonempty() schema, additive to verify-script, needed RepositoryUpdate wiring
 - [project_run_scoped_ctx_marker_fences.md](project_run_scoped_ctx_marker_fences.md) — a run-scoped ImplementCtx field
@@ -105,3 +113,12 @@
   AppDeps.providerSpawn must be forwarded at BOTH launcher rebuild sites (implement bypasses
   buildLaunchAdapters); scripted beats dispatch off the rounds/<N>/<role>/signals.json path scraped from
   the prompt — anchor the regex on the whole tail or it locks onto the template's `<outputDir>` prose
+- [project_path_traversal_test_sandbox.md](project_path_traversal_test_sandbox.md) — test-first traversal
+  regressions really escape the tmp fixture; nest session under a per-run root so the asserted escape
+  target stays unique, or the pre-fix artifact poisons the post-fix assertion
+- [project_tui_row_windowing_and_key_test_gotchas.md](project_tui_row_windowing_and_key_test_gotchas.md) — row-count
+  windowing needs 1 entry == 1 terminal row (pre-wrap, not truncate-end); ink-testing stdin batches a whole
+  written string into ONE useInput call; stub terminal is 100x24
+- [project_release_gate_seams.md](project_release_gate_seams.md) — release/CI gates: vitest FORCE_COLOR pin (never
+  add NO_COLOR), `npm init -y --prefix` writes into CWD (nearly corrupted package.json pre-publish), runCli's
+  reportFatal terminal frame (AbortError handled not re-thrown), `prompts list` as the prompt-resolver dist gate

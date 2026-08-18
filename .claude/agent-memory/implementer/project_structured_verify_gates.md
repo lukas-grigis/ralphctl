@@ -30,6 +30,14 @@ feat/gen-eval-speed (Phase 3, tasks T8/T10/T11/T12; 2026-06-10).
   `git diff --name-only HEAD` ∪ `git ls-files --others --exclude-standard` (untracked, de-duped). post-task
   -verify calls it ONLY when structured gates are configured. CRITICAL fallback: footprint error OR empty →
   `computeScope` returns `undefined` → run ALL gates (never silently skip), logged.
+- **Carry-baseline coverage flag (2026-08-18 fix):** a diff-scoped post `success` is NOT whole-tree evidence.
+  `runPostVerifyGates` returns `coveredAllGates = scope === undefined`; it rides `LeafOutput` →
+  `ctx.priorPostVerifyOutcome.{cwd,outcome,coveredAllGates}` and `isCarriedGreenForThisCwd` now requires
+  `coveredAllGates === true`. Absent flag (older ctx) = NOT covered → run the real gate. Without it, a gate
+  already red OUTSIDE task N's footprint mis-attributes as `regressed` on task N+1 (burns the T6 retry,
+  quarantines a correct diff, and bypasses both the `baseline-broken` hatch and the persisted
+  `baselineBrokenPolicy: 'proceed'` amnesty, since the recorded pre reads `success`). Serial path only —
+  `forkCtx` drops the field on the parallel path.
 - **Scope filtering ONLY applies when `opts.verifyGates` is present + non-empty** — the legacy single catch-all
   gate skips the git probe entirely (it matches every path anyway).
 - post-task-verify leaf now needs `gitRunner` in its Deps (wired from `deps.gitRunner` in per-task-subchain.ts).
