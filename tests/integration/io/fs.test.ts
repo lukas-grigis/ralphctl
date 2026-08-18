@@ -43,6 +43,25 @@ describe('writeTextAtomic', () => {
     expect(siblings.some((name) => name.includes('.tmp.'))).toBe(false);
   });
 
+  it('same-millisecond concurrent writers never splice bodies (per-call temp names)', async () => {
+    const target = join(root, 'execution.json');
+    const short = 'short';
+    const long = `long body ${'x'.repeat(4096)}`;
+
+    // Launch many concurrent pairs so both writers repeatedly share a Date.now() millisecond.
+    // With a shared temp name the shorter writer can truncate-then-lose to the longer writer's
+    // tail, publishing a spliced body; per-call temp names make every outcome one exact input.
+    for (let i = 0; i < 50; i += 1) {
+      const results = await Promise.all([writeTextAtomic(target, short), writeTextAtomic(target, long)]);
+      expect(results.every((r) => r.ok)).toBe(true);
+      const onDisk = await fs.readFile(target, 'utf8');
+      expect([short, long]).toContain(onDisk);
+    }
+
+    const siblings = await fs.readdir(root);
+    expect(siblings.some((name) => name.includes('.tmp.'))).toBe(false);
+  });
+
   it('creates intermediate directories and fsyncs the parent without error', async () => {
     const target = join(root, 'nested', 'deep', 'execution.json');
     const result = await writeTextAtomic(target, 'x');
