@@ -42,6 +42,11 @@ jobs:
       - name: Type check
         run: pnpm typecheck
 
+      # knip — exits 0 on a clean tree. Needs no build output (its entry points are
+      # tests/ + scripts/ over src/), so it runs before Build.
+      - name: Dead code (knip)
+        run: pnpm deadcode
+
       - name: Build
         run: pnpm build
 
@@ -58,13 +63,35 @@ jobs:
       - name: Verify dist works from arbitrary cwd
         run: cd /tmp && node $GITHUB_WORKSPACE/dist/cli.mjs --version
 
+      # `--version` is answered by commander before `bootstrapCli` ever runs, so it never
+      # reaches `runBundleIntegrityCheck` and never touches a single bundled asset — the
+      # 0.15.0 fresh-install failure walked straight past that gate. `skills list` /
+      # `agents list` boot the real composition root (bootstrapCli → wire →
+      # runBundleIntegrityCheck) and then read every bundled SKILL.md / agent .md back
+      # through `resolveBundledRoot`, which is the resolver that actually broke. No AI CLI
+      # and no network are involved; every write is confined to RALPHCTL_HOME.
+      # `out=$(cmd)` + `printf | grep`, never `cmd | grep`: the default shell is `bash -e`
+      # WITHOUT pipefail, so a pipe would swallow a non-zero exit from the CLI.
+      - name: Verify dist boots a real subcommand (bundle integrity)
+        env:
+          RALPHCTL_HOME: ${{ runner.temp }}/ralphctl-dist-smoke
+        run: |
+          skills=$(node dist/cli.mjs skills list)
+          printf '%s\n' "$skills" | grep -q '^ralphctl-alignment'
+          agents=$(node dist/cli.mjs agents list)
+          printf '%s\n' "$agents" | grep -q '^ralphctl-evaluator'
+
       - name: Verify npm pack installs correctly
+        env:
+          RALPHCTL_HOME: ${{ runner.temp }}/ralphctl-pack-smoke
         run: |
           TARBALL=$(pnpm pack --pack-destination /tmp 2>/dev/null | tail -1)
           cd /tmp && mkdir -p ralphctl-smoke && cd ralphctl-smoke
           npm init -y
           npm install "$TARBALL"
           ./node_modules/.bin/ralphctl --version
+          skills=$(./node_modules/.bin/ralphctl skills list)
+          printf '%s\n' "$skills" | grep -q '^ralphctl-alignment'
 
   # Reproducibility gate. The fast `check` job above runs against whatever
   # node_modules the pnpm cache restores; that path can pass even when the
