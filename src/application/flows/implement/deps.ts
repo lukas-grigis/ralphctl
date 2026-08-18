@@ -104,4 +104,25 @@ export interface ImplementDeps {
    * caller that never contends with itself. See `wave-branch.ts`'s `FoldQueue`/`createFoldQueue`.
    */
   readonly journalMutex: FoldQueue;
+  /**
+   * Mutex guarding `append-learnings-<taskId>`'s append → size-check → compact → rewrite critical
+   * section on the SHARED `<memoryRoot>/<projectId--slug>/learnings.ndjson` ledger. Built once per
+   * run by the launcher, so every parallel branch inherits the SAME instance (branches spread this
+   * deps bag); the serial path is a single caller that never contends with itself.
+   *
+   * Why the WHOLE `appendMemoryRecords` call and not just the compaction: the bound is an
+   * unserialised read-modify-write (stat → read → compact → atomic rewrite). Serialising only the
+   * bound still lets a sibling's `appendFile` land between this branch's read and its rename, and
+   * that row is silently clobbered. Serialising only the appends ({@link appendFile}'s
+   * `serializeAppendFile` wrapper) does not help either — the wrapper is a DIFFERENT queue, so a
+   * sibling append can still interleave with this branch's bound. Both halves must sit in one
+   * critical section.
+   *
+   * NOT the only writer of the whole ledger file: the distill flow's `stampPromotedLeaf`
+   * (`_shared/memory/stamp-promoted.ts`) performs the other whole-file rewrite. It is unlocked
+   * because distill never runs concurrently with implement today — a future caller that changes
+   * that must route through this mutex (or its own shared instance) rather than assume the ledger
+   * is single-writer.
+   */
+  readonly ledgerMutex: FoldQueue;
 }

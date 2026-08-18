@@ -148,7 +148,11 @@ export const Layout = ({ children }: { readonly children: React.ReactNode }): Re
   // The document overlays (progress.md via `g`, evaluation.md via `v`) are true modals — while
   // one is open, the active view is hidden (`display: "none"`) so no parallel ScrollRegion / list
   // cursor competes for keystrokes. Children remain MOUNTED (not conditionally rendered) so list
-  // cursors, expanded cards, and scroll offsets are preserved when the overlay closes. Every
+  // cursors, expanded cards, and scroll offsets are preserved when the overlay closes. Mounted
+  // alone does not buy the scroll offset: a `display: "none"` subtree measures 0 rows, and
+  // ScrollRegion used to clamp against that and reset to the top. Its hidden-subtree guard (a
+  // zero viewport measurement is ignored) is what makes the "scroll offsets are preserved" half
+  // of this sentence true — see `scroll-region.tsx`. Every
   // view-level useInput and listActive expression gates on `ui.modalOpen` (which includes both)
   // so the hidden-but-mounted view is fully inert while an overlay is visible. The global handler
   // closes them (esc / g, esc / v); `selection.sprintId` gates the progress open, and the focused

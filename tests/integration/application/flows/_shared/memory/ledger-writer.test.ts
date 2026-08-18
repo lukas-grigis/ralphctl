@@ -4,6 +4,10 @@
  * the `learnings.md` mirror (that O(n) read+reparse+rewrite moved off the hot gen-eval path; the
  * mirror is rendered lazily at distill / sprint close). Uses a real tmpdir so the on-disk paths are
  * exercised end to end.
+ *
+ * Also fences the concurrency contract (#288): the bound is a whole-file read-modify-write, so two
+ * concurrent callers on ONE ledger (every parallel implement branch shares the project ledger) must
+ * funnel the WHOLE call through a shared mutex or a sibling's appended row is silently clobbered.
  */
 
 import { promises as fs } from 'node:fs';
@@ -22,6 +26,8 @@ import {
   mirrorLearningsMd,
 } from '@src/application/flows/_shared/memory/ledger-writer.ts';
 import { LEDGER_MAX_PENDING_ROWS } from '@src/application/flows/_shared/memory/compact-ledger.ts';
+import { createFoldQueue } from '@src/application/flows/implement/wave-branch.ts';
+import type { WriteFile } from '@src/business/io/write-file.ts';
 
 let dir: string;
 
@@ -128,6 +134,109 @@ describe('boundLedgerIfNeeded (always-on size bounding)', () => {
     const survivingIds = after.map((l) => (JSON.parse(l) as LearningRecord).id);
     expect(survivingIds).toContain(`id-${String(total - 1)}`); // newest survives
     expect(survivingIds).not.toContain('id-0'); // oldest evicted
+  });
+});
+
+describe('concurrent appends vs. bounding (the parallel-branch race)', () => {
+  // Wide enough that LEDGER_MAX_PENDING_ROWS + 150 rows clear the size threshold (size / 300 >= 450).
+  const wide = (i: number): LearningRecord =>
+    rec({ id: `id-${String(i)}`, text: `insight ${String(i)} ${'x'.repeat(280)}` });
+
+  /** Seed an over-threshold ledger so the next `appendMemoryRecords` triggers a compaction rewrite. */
+  const seedOverThresholdLedger = async (): Promise<void> => {
+    const body = Array.from({ length: LEDGER_MAX_PENDING_ROWS + 150 }, (_, i) => serializeLearningRecord(wide(i))).join(
+      ''
+    );
+    await fs.writeFile(join(dir, 'learnings.ndjson'), body, 'utf8');
+  };
+
+  /**
+   * A `WriteFile` that PARKS its first call until released — the deterministic stand-in for the
+   * real race window between the bound's read and its atomic rename. Later calls pass straight
+   * through.
+   */
+  const gatedWriteFile = () => {
+    const inner = createAtomicWriteFile();
+    let releaseGate = (): void => undefined;
+    const gate = new Promise<void>((resolve) => {
+      releaseGate = resolve;
+    });
+    let signalParked = (): void => undefined;
+    const parked = new Promise<void>((resolve) => {
+      signalParked = resolve;
+    });
+    let first = true;
+    const fn: WriteFile = async (path, body) => {
+      if (first) {
+        first = false;
+        signalParked();
+        await gate;
+      }
+      return inner(path, body);
+    };
+    return { fn, parked, release: () => releaseGate() };
+  };
+
+  const idsOnDisk = async (): Promise<readonly string[]> =>
+    nonBlankLines(await fs.readFile(join(dir, 'learnings.ndjson'), 'utf8')).map(
+      (l) => (JSON.parse(l) as LearningRecord).id
+    );
+
+  const alpha = rec({ id: 'branch-alpha', text: 'alpha branch pinned the node version' });
+  const beta = rec({ id: 'branch-beta', text: 'beta branch found a flaky snapshot ordering' });
+
+  it('UNSERIALISED: a sibling append landing mid-bound is clobbered by the rewrite', async () => {
+    // Control case — proves the interleaving below really exercises the race the mutex closes.
+    await seedOverThresholdLedger();
+    const gated = gatedWriteFile();
+    const appendFile = createAppendFile();
+
+    // Branch A appends its row, then parks inside the bound (read done, rewrite pending).
+    const branchA = appendMemoryRecords(ledgerPath(), [alpha], { appendFile, writeFile: gated.fn, log: noopLogger });
+    await gated.parked;
+
+    // Branch B runs to completion in that window — its row is on disk before A's rewrite lands.
+    const branchB = await appendMemoryRecords(ledgerPath(), [beta], {
+      appendFile,
+      writeFile: createAtomicWriteFile(),
+      log: noopLogger,
+    });
+    expect(branchB.ok).toBe(true);
+
+    gated.release();
+    expect((await branchA).ok).toBe(true);
+
+    // A's rewrite was computed from a snapshot taken BEFORE B's append — B's row is gone.
+    const ids = await idsOnDisk();
+    expect(ids).toContain('branch-alpha');
+    expect(ids).not.toContain('branch-beta');
+  });
+
+  it('SERIALISED through one FoldQueue: every appended row survives the bound', async () => {
+    await seedOverThresholdLedger();
+    const gated = gatedWriteFile();
+    const appendFile = createAppendFile();
+    const ledgerMutex = createFoldQueue();
+
+    const branchA = ledgerMutex.run(() =>
+      appendMemoryRecords(ledgerPath(), [alpha], { appendFile, writeFile: gated.fn, log: noopLogger })
+    );
+    await gated.parked;
+
+    // Branch B enqueues while A is mid-bound — the mutex holds its APPEND back too, which is the
+    // whole point (serialising only the rewrite would still let this append be clobbered).
+    const branchB = ledgerMutex.run(() =>
+      appendMemoryRecords(ledgerPath(), [beta], { appendFile, writeFile: createAtomicWriteFile(), log: noopLogger })
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    gated.release();
+
+    expect((await branchA).ok).toBe(true);
+    expect((await branchB).ok).toBe(true);
+
+    const ids = await idsOnDisk();
+    expect(ids).toContain('branch-alpha');
+    expect(ids).toContain('branch-beta');
   });
 });
 

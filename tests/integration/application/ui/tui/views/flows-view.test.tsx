@@ -211,6 +211,20 @@ describe('FlowsView', () => {
     expect(frame).toContain('Fixture Sprint');
     result.unmount();
   });
+
+  it('shows the registered Add ticket row on a draft sprint', async () => {
+    // Regression fence for #298: `add-ticket` is a registered manifest that the visibility
+    // helper used to filter out of every mode, so the row could never be seen or selected.
+    const deps = makeProjectSprintDeps({ id: FIXED_PROJECT_ID }, { id: FIXED_SPRINT_ID, projectId: FIXED_PROJECT_ID });
+    const { result } = renderView(<FlowsView />, {
+      deps,
+      initial: { id: 'flows' },
+      selection: { projectId: FIXED_PROJECT_ID, sprintId: FIXED_SPRINT_ID },
+    });
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Add ticket'));
+    expect(result.lastFrame() ?? '').toContain('Add ticket');
+    result.unmount();
+  });
 });
 
 describe('FlowsView — cost hints (manifest → menu threading)', () => {

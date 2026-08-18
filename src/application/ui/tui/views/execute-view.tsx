@@ -35,6 +35,11 @@
  *   D — detach (return to home; the runner keeps running in the background)
  *   r — (settled only) reset to Flows so the launch triggers are re-evaluated
  *   v — open the focused task's evaluation verdict (owned by the Tasks panel's keymap)
+ *
+ * ↑ / ↓ (and j / k, PgUp / PgDn, g / G) belong to the Tasks panel cursor, not to the page: the
+ * ViewShell passes `suppressScrollArrows`, so the page ScrollRegion yields every scroll key. The
+ * page still scrolls by mouse wheel, and every section is row-capped so nothing hides below the
+ * fold — see `use-responsive-layout.ts` and `result-footer.tsx`.
  */
 
 import React from 'react';
@@ -361,6 +366,13 @@ const ExecuteViewFrame = ({
       title={flowIdToTitle(descriptor.flowId)}
       subtitle={descriptor.title}
       compactBanner
+      // The Tasks panel owns ↑/↓ (and j/k) as its card / row cursor — without this the page
+      // ScrollRegion moved the whole viewport on the same keypress that moved the cursor. Every
+      // section on this page is row-capped against the terminal height (see
+      // `use-responsive-layout.ts` for the rail / tasks / log budgets and `result-footer.tsx`
+      // for the settled card), so yielding the paging keys costs no reachable content; the
+      // mouse wheel still scrolls the page regardless of this flag.
+      suppressScrollArrows
       right={<StatusChip label={descriptor.status} kind={runnerStatusKind(descriptor.status)} />}
     >
       {ui.helpOpen ? (

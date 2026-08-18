@@ -145,6 +145,9 @@ export const runReviewRoundUseCase = async (
   } else if (!commit.value.committed) {
     log.info(`round ${String(current.index)} produced no diffs — nothing to commit`, { round: current.index });
   }
+  // Only a real commit counts as "applied" — a swallowed commit error or a clean tree must not
+  // inflate the caller's `roundsApplied`. The loop still continues either way.
+  const committed = commit.ok && commit.value.committed;
   void renderCommitMessage; // exposed via deps closure; keep helper colocated for caller reuse.
 
   if (props.verifyRound !== undefined) {
@@ -162,7 +165,7 @@ export const runReviewRoundUseCase = async (
   const appended = await props.appendNextRound(current.index + 1);
   if (!appended.ok) return Result.error(appended.error);
 
-  return Result.ok({ exit: 'continued', currentRound: current, applied: true });
+  return Result.ok({ exit: 'continued', currentRound: current, applied: committed });
 };
 
 export { renderCommitMessage as renderReviewCommitMessage };

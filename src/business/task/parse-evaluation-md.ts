@@ -32,12 +32,12 @@
  *
  * Tolerances (all pinned by `tests/unit/business/task/parse-evaluation-md.test.ts`): unknown `##`
  * sections are ignored; a missing `# Evaluation` heading still yields whatever dimensions parse; an
- * unterminated fence runs to the end of its section; `###` lines inside a fenced evidence block do
- * not split a dimension; CRLF line endings parse identically to LF (the harness always writes LF,
- * but a Windows editor round-trip is exactly the "hand-edited file" case this parser exists for —
- * and every heading regex is `$`-anchored, which a trailing `\r` would otherwise defeat wholesale).
- * A `## ` line inside a critique body DOES end the critique — the section grammar is flat by
- * design, and the evaluator prompt never emits one.
+ * unterminated fence runs to the end of its section; `##` / `###` lines inside a fenced evidence
+ * block split neither a section nor a dimension; CRLF line endings parse identically to LF (the
+ * harness always writes LF, but a Windows editor round-trip is exactly the "hand-edited file" case
+ * this parser exists for — and every heading regex is `$`-anchored, which a trailing `\r` would
+ * otherwise defeat wholesale). An UNFENCED `## ` line inside a critique body DOES end the critique
+ * — the section grammar is flat by design, and the evaluator prompt never emits one.
  */
 
 /** Verdict word for one dimension row. `unknown` = the heading carried no parseable verdict. */
@@ -83,15 +83,20 @@ interface Section {
 
 /**
  * Split the document into `## `-delimited sections plus the preamble (everything before the first
- * one), which is where the title + timestamp live.
+ * one), which is where the title + timestamp live. Fence-aware for the same reason
+ * `splitDimensionBlocks` is: a dimension's execution evidence can legitimately contain a `## `
+ * line (a diff hunk header, a nested markdown snippet), and treating it as a section boundary
+ * would end `## Dimensions` mid-block and silently drop every dimension after it.
  */
 const splitSections = (
   lines: readonly string[]
 ): { readonly preamble: readonly string[]; readonly sections: readonly Section[] } => {
   const preamble: string[] = [];
   const sections: Array<{ title: string; body: string[] }> = [];
+  let inFence = false;
   for (const line of lines) {
-    const match = SECTION_RE.exec(line);
+    if (FENCE_RE.test(line)) inFence = !inFence;
+    const match = inFence ? null : SECTION_RE.exec(line);
     if (match !== null) {
       sections.push({ title: match[1]?.trim().toLowerCase() ?? '', body: [] });
       continue;

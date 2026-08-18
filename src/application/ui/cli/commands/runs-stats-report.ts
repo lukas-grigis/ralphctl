@@ -83,6 +83,7 @@ const ABORT_ORDER: readonly AbortCauseKey[] = [
   'process-crash',
   'sigterm',
   'user-cancel',
+  'self-blocked',
   'unknown',
 ];
 

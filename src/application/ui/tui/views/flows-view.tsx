@@ -68,25 +68,43 @@ const CREATE_SPRINT_FLOW_ID = 'create-sprint';
  * Some flows in the registry are use-case shaped (one-shot, no chain runner) and the TUI
  * has dedicated views for them. Route those directly instead of falling through to
  * `launchFlow`, which only knows how to construct chain flows.
+ *
+ * A table rather than a `switch` so the covered ids are readable as data — the registry
+ * reachability fence asserts against {@link VIEW_ROUTED_FLOW_IDS}, which is derived from these
+ * keys, so a registry entry that is neither dispatchable nor routable fails CI.
+ *
+ * `add-ticket` and `remove-ticket` both land on the same route their other entry points use
+ * (Home's `a` row / sprint-detail's `a` chord push the add-ticket wizard; ticket removal happens
+ * inline in sprint-detail), so the Flows menu is a third door onto one screen, not a variant.
  */
-const viewRouteFor = (flowId: string, snapshot: AppStateSnapshot): ViewEntry | undefined => {
-  switch (flowId) {
-    case 'doctor':
-      return { id: 'doctor' };
-    case 'settings':
-      return { id: 'settings' };
-    case 'remove-ticket':
-      return snapshot.sprint ? { id: 'sprint-detail', props: { sprintId: snapshot.sprint.id } } : undefined;
-    case 'export-context':
-      return { id: 'export-context' };
-    case 'export-requirements':
-      return { id: 'export-requirements' };
-    case 'create-pr':
-      return { id: 'create-pr' };
-    default:
-      return undefined;
-  }
+const VIEW_ROUTES: Readonly<Record<string, (snapshot: AppStateSnapshot) => ViewEntry | undefined>> = {
+  doctor: () => ({ id: 'doctor' }),
+  settings: () => ({ id: 'settings' }),
+  'add-ticket': (snapshot) =>
+    snapshot.sprint ? { id: 'add-ticket', props: { sprintId: snapshot.sprint.id } } : undefined,
+  'remove-ticket': (snapshot) =>
+    snapshot.sprint ? { id: 'sprint-detail', props: { sprintId: snapshot.sprint.id } } : undefined,
+  'export-context': () => ({ id: 'export-context' }),
+  'export-requirements': () => ({ id: 'export-requirements' }),
+  'create-pr': () => ({ id: 'create-pr' }),
 };
+
+/**
+ * Flow ids the Flows menu routes to a dedicated view instead of dispatching through
+ * `launchFlow`. Consumed by the registry reachability fence test.
+ *
+ * @public
+ */
+export const VIEW_ROUTED_FLOW_IDS: readonly string[] = Object.keys(VIEW_ROUTES);
+
+/**
+ * Resolve a flow id to the view it opens, or `undefined` when the flow launches a chain instead
+ * (or when the route needs a sprint and none is selected).
+ *
+ * @public — exported for the route-shape tests; the view itself is the only production caller.
+ */
+export const viewRouteFor = (flowId: string, snapshot: AppStateSnapshot): ViewEntry | undefined =>
+  VIEW_ROUTES[flowId]?.(snapshot);
 
 interface OrientationCardProps {
   readonly snapshot: AppStateSnapshot;

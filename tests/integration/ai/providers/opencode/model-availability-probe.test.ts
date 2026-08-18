@@ -7,10 +7,23 @@
 
 import { describe, expect, it } from 'vitest';
 import { createOpencodeModelAvailabilityProbe } from '@src/integration/ai/providers/opencode/model-availability-probe.ts';
+import type { ModelProbeDegradation } from '@src/integration/ai/providers/_engine/model-availability-probe.ts';
 import { OPENCODE_MODELS } from '@src/domain/value/settings-models/opencode.ts';
 
 const probeWith = (listModels: (command: string, signal?: AbortSignal) => Promise<readonly string[]>) =>
   createOpencodeModelAvailabilityProbe({ listModels });
+
+/** Probe plus the fail-open reports it emitted — the seam `wire()` binds to `logger.warn`. */
+const probeRecordingDegradation = (
+  listModels: (command: string, signal?: AbortSignal) => Promise<readonly string[]>
+) => {
+  const degradations: ModelProbeDegradation[] = [];
+  const probe = createOpencodeModelAvailabilityProbe({
+    listModels,
+    onDegraded: (degradation) => degradations.push(degradation),
+  });
+  return { probe, degradations };
+};
 
 describe('createOpencodeModelAvailabilityProbe', () => {
   it('keeps multi-segment aggregator ids and drops whitespace-bearing junk lines', async () => {
@@ -52,6 +65,50 @@ describe('createOpencodeModelAvailabilityProbe', () => {
   it('falls open to the catalog when the listing rejects (non-zero exit / spawn error / timeout)', async () => {
     const probe = probeWith(() => Promise.reject(new Error('opencode models exited 1')));
     await expect(probe.availableModels(OPENCODE_MODELS)).resolves.toEqual(OPENCODE_MODELS);
+  });
+
+  it('reports a non-zero exit as a degradation while still falling open to the catalog', async () => {
+    // The bug this covers: the free-tier catalog IS the fallback, so an unauthenticated /
+    // unreachable CLI made every paid model vanish from the picker with nothing anywhere to
+    // explain it. The models still fall open; the difference is that the fail-open is now visible.
+    const { probe, degradations } = probeRecordingDegradation(() =>
+      Promise.reject(new Error('opencode models exited 1'))
+    );
+    await expect(probe.availableModels(OPENCODE_MODELS)).resolves.toEqual(OPENCODE_MODELS);
+    expect(degradations).toEqual([
+      { provider: 'opencode', reason: 'probe-failed', detail: 'opencode models exited 1' },
+    ]);
+  });
+
+  it('reports an abort as an abort rather than a generic failure, and never rejects', async () => {
+    // Best-effort probe outside the chain runtime: cancellation is absorbed like the codex probe
+    // does — but it is reported, so an aborted probe is never confused with an unauthenticated one.
+    const controller = new AbortController();
+    const { probe, degradations } = probeRecordingDegradation(() => {
+      controller.abort();
+      return Promise.reject(new Error('opencode models probe aborted'));
+    });
+    await expect(probe.availableModels(OPENCODE_MODELS, controller.signal)).resolves.toEqual(OPENCODE_MODELS);
+    expect(degradations.map((d) => d.reason)).toEqual(['probe-aborted']);
+  });
+
+  it('reports an unusable answer (nothing survived id-shape filtering) as its own reason', async () => {
+    const { probe, degradations } = probeRecordingDegradation(() =>
+      Promise.resolve(['Available models:', 'run `opencode auth login` first'])
+    );
+    await expect(probe.availableModels(OPENCODE_MODELS)).resolves.toEqual(OPENCODE_MODELS);
+    expect(degradations.map((d) => d.reason)).toEqual(['empty-answer']);
+  });
+
+  it('reports nothing on the success path', async () => {
+    const { probe, degradations } = probeRecordingDegradation(() =>
+      Promise.resolve(['anthropic/claude-sonnet-4-5', 'opencode/big-pickle'])
+    );
+    await expect(probe.availableModels(OPENCODE_MODELS)).resolves.toEqual([
+      'anthropic/claude-sonnet-4-5',
+      'opencode/big-pickle',
+    ]);
+    expect(degradations).toEqual([]);
   });
 
   it('forwards the caller signal verbatim to the listing', async () => {

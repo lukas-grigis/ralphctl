@@ -144,6 +144,41 @@ describe('parseEvaluationMarkdown — malformed input never fabricates a verdict
     expect(parsed.dimensions[0]?.evidence).toBe('### not a heading');
   });
 
+  /**
+   * The `###` guard one level up: an unfenced `## ` line ends a section, so a `## ` inside a
+   * dimension's evidence used to terminate `## Dimensions` mid-block and silently drop every
+   * dimension after it from the overlay and the CLI reader.
+   */
+  it('does not end the dimensions section on a `##` line inside a dimension fenced evidence', () => {
+    const parsed = parseEvaluationMarkdown(
+      [
+        '# Evaluation — failed',
+        '',
+        '## Dimensions',
+        '',
+        '### tests — failed',
+        '',
+        'The suite is red.',
+        '',
+        '```',
+        '## not a section',
+        'FAIL tests/unit/foo.test.ts',
+        '```',
+        '',
+        '### docs — passed',
+        '',
+        'README updated.',
+        '',
+        '### style — n/a',
+        '',
+      ].join('\n')
+    );
+    expect(parsed.dimensions.map((d) => d.dimension)).toEqual(['tests', 'docs', 'style']);
+    expect(parsed.dimensions.map((d) => d.verdict)).toEqual(['failed', 'passed', 'n/a']);
+    expect(parsed.dimensions[0]?.evidence).toBe('## not a section\nFAIL tests/unit/foo.test.ts');
+    expect(parsed.dimensions[0]?.finding).toBe('The suite is red.');
+  });
+
   it('keeps `---` rules and `###` lines inside a critique body', () => {
     const parsed = parseEvaluationMarkdown(
       ['# Evaluation — failed', '', '## Critique', '', 'before', '---', '### inline', 'after', ''].join('\n')

@@ -19,18 +19,21 @@ describe('visibleFlowsFor', () => {
     for (const id of SPRINT_SCOPED_FLOW_IDS) expect(visible.has(id)).toBe(false);
   });
 
-  it('draft sprint: refine + plan + ticket-remove are visible; ticket-add is not', () => {
+  it('draft sprint: refine + plan + add-ticket + remove-ticket are visible', () => {
     const visible = visibleFlowsFor({ hasProject: true, sprintStatus: 'draft', showAll: false });
     expect(visible.has('refine')).toBe(true);
     expect(visible.has('plan')).toBe(true);
     expect(visible.has('remove-ticket')).toBe(true);
-    expect(visible.has('add-ticket')).toBe(false);
+    // Tickets are appendable only in draft — same gate Home (`a`) and sprint-detail use.
+    expect(visible.has('add-ticket')).toBe(true);
     expect(visible.has('implement')).toBe(false);
     expect(visible.has('review')).toBe(false);
     expect(visible.has('close-sprint')).toBe(false);
   });
 
   it('planned sprint: implement + remove-ticket are visible; add-ticket/refine/plan are not', () => {
+    // add-ticket stays draft-only: once a sprint is planned the tickets are already decomposed
+    // into tasks, and no other entry point offers appending there either.
     const visible = visibleFlowsFor({ hasProject: true, sprintStatus: 'planned', showAll: false });
     expect(visible.has('implement')).toBe(true);
     expect(visible.has('remove-ticket')).toBe(true);
@@ -96,17 +99,20 @@ describe('visibleFlowsFor', () => {
     }
   });
 
-  it('removed flows (settings, doctor, add-ticket) do not appear in any mode (default OR showAll)', () => {
+  it('menu-excluded flows (settings, doctor) do not appear in any mode (default OR showAll)', () => {
     const showAll = visibleFlowsFor({ hasProject: true, sprintStatus: 'draft', showAll: true });
     const defaultMode = visibleFlowsFor({ hasProject: true, sprintStatus: 'draft', showAll: false });
+    // Both have global Home shortcuts (`!` / `s`) and no chain — they stay out of the flow menu
+    // while remaining reachable via `viewRouteFor`.
     expect(showAll.has('settings')).toBe(false);
     expect(showAll.has('doctor')).toBe(false);
-    // add-ticket was removed from the registry; its use-case survives for CLI + the `a` shortcut
-    // wizard but it no longer appears as a Flows menu entry in any visibility mode.
-    expect(showAll.has('add-ticket')).toBe(false);
     expect(defaultMode.has('settings')).toBe(false);
     expect(defaultMode.has('doctor')).toBe(false);
-    expect(defaultMode.has('add-ticket')).toBe(false);
+  });
+
+  it('showAll surfaces add-ticket even from a non-draft sprint (discovery, dimmed by triggers)', () => {
+    const visible = visibleFlowsFor({ hasProject: true, sprintStatus: 'active', showAll: true });
+    expect(visible.has('add-ticket')).toBe(true);
   });
 });
 

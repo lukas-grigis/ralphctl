@@ -45,6 +45,12 @@ export const readJson = async (path: string): Promise<Result<unknown, NotFoundEr
  * directories as needed. The parent directory is also fsync'd on POSIX (best-effort) so the rename
  * survives a crash; this is skipped on Windows where directory fsync is unsupported.
  */
+let tmpSeq = 0;
+const nextTmpSeq = (): number => {
+  tmpSeq = (tmpSeq + 1) % Number.MAX_SAFE_INTEGER;
+  return tmpSeq;
+};
+
 export const writeTextAtomic = async (path: string, content: string): Promise<Result<void, StorageError>> => {
   const dir = dirname(path);
   try {
@@ -52,7 +58,10 @@ export const writeTextAtomic = async (path: string, content: string): Promise<Re
   } catch (cause) {
     return Result.error(new StorageError({ subCode: 'io', message: `mkdir failed: ${dir}`, path: dir, cause }));
   }
-  const tmp = `${path}.tmp.${String(process.pid)}.${String(Date.now())}`;
+  // pid distinguishes processes; the monotonic counter distinguishes same-millisecond calls within
+  // this process — without it two concurrent writers to the same target could share a scratch file
+  // and publish a spliced body via the rename.
+  const tmp = `${path}.tmp.${String(process.pid)}.${String(Date.now())}.${String(nextTmpSeq())}`;
   try {
     const handle = await fs.open(tmp, 'w');
     try {

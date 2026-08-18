@@ -53,18 +53,23 @@ describe('completeAttempt', () => {
     expect(r.value.finishedAt).toBe(FIXED_LATER);
   });
 
-  it.each(['user-cancel', 'sigterm', 'watchdog-killed', 'rate-limit-exhausted', 'process-crash', 'unknown'] as const)(
-    'stamps abortCause=%s on aborted attempt',
-    (cause: AbortCause) => {
-      const r = completeAttempt(seed(), 'aborted', FIXED_LATER, { abortCause: cause });
-      expect(r.ok).toBe(true);
-      if (!r.ok) return;
-      // Discriminated narrowing — the field is only meaningful on aborted attempts.
-      expect(r.value.status).toBe('aborted');
-      if (r.value.status !== 'aborted') return;
-      expect(r.value.abortCause).toBe(cause);
-    }
-  );
+  it.each([
+    'user-cancel',
+    'sigterm',
+    'watchdog-killed',
+    'rate-limit-exhausted',
+    'process-crash',
+    'self-blocked',
+    'unknown',
+  ] as const)('stamps abortCause=%s on aborted attempt', (cause: AbortCause) => {
+    const r = completeAttempt(seed(), 'aborted', FIXED_LATER, { abortCause: cause });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    // Discriminated narrowing — the field is only meaningful on aborted attempts.
+    expect(r.value.status).toBe('aborted');
+    if (r.value.status !== 'aborted') return;
+    expect(r.value.abortCause).toBe(cause);
+  });
 
   it('stamps signalOrExitCode (string) on aborted attempt when supplied', () => {
     const r = completeAttempt(seed(), 'aborted', FIXED_LATER, {

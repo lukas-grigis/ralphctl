@@ -1,7 +1,7 @@
 import { Result } from '@src/domain/result.ts';
-import type { Logger } from '@src/business/observability/logger.ts';
+import type { Logger, LogMeta } from '@src/business/observability/logger.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
-import type { AttemptUsage, AttemptWarning } from '@src/domain/entity/attempt.ts';
+import type { AbortCause, AbortMetadata, AttemptUsage, AttemptWarning } from '@src/domain/entity/attempt.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import type { BlockedTask, DoneTask, InProgressTask } from '@src/domain/entity/task.ts';
 import { recordRunningAttemptUsage, recordRunningAttemptWarning } from '@src/domain/entity/task-attempts.ts';
@@ -63,6 +63,17 @@ export interface SettleAttemptProps {
    */
   readonly criteria?: readonly CriterionVerdict[];
   /**
+   * Why the running attempt died, for the block path (the ONE in-process settle that closes an
+   * attempt as `aborted`). Absent → {@link SELF_BLOCKED_CAUSE}: the task blocked itself and no
+   * process was killed. Set by the caller when a terminal AI-process crash is what drove the
+   * block, so `runs stats`' abort-by-cause table separates a watchdog kill from a self-block
+   * instead of bucketing every block as `unknown`. Ignored on every non-block path — those
+   * settle the attempt `verified` / `failed` / `malformed`, where an abort cause is meaningless.
+   */
+  readonly abortCause?: AbortCause;
+  /** POSIX signal name / numeric exit code for {@link abortCause}, when the crash reported one. */
+  readonly signalOrExitCode?: string | number;
+  /**
    * Raw cost telemetry accumulated across this attempt's AI spawns — provider-reported token
    * counts plus harness-measured AI wall-clock. Stamped onto the running attempt before the
    * terminal transition so the figures ride into the persisted record; the settle point is the
@@ -87,8 +98,38 @@ export interface SettleAttemptProps {
 
 export type SettleAttemptOutput = DoneTask | InProgressTask | BlockedTask;
 
+/**
+ * Default {@link AbortCause} for the block path: the task blocked (generator `<task-blocked>`,
+ * a signals-contract failure, or a red harness verify gate) and NOTHING was killed. Naming it
+ * keeps those attempts out of the `unknown` bucket, which previously absorbed every self-block
+ * and so made the whole abort-cause taxonomy unreadable in `runs stats`.
+ */
+const SELF_BLOCKED_CAUSE = 'self-blocked';
+
+/**
+ * The abort attribution for the block path — the caller's crash forensics when it had any, else
+ * {@link SELF_BLOCKED_CAUSE}. Extracted so the settle decision tree itself stays a flat list of
+ * transitions.
+ */
+const abortMetaFor = (props: Pick<SettleAttemptProps, 'abortCause' | 'signalOrExitCode'>): AbortMetadata => ({
+  abortCause: props.abortCause ?? SELF_BLOCKED_CAUSE,
+  ...(props.signalOrExitCode !== undefined ? { signalOrExitCode: props.signalOrExitCode } : {}),
+});
+
+/** Structured detail for the entry-point log line; kept out of the use case's own branch budget. */
+const settleLogMeta = (props: SettleAttemptProps): LogMeta => ({
+  taskId: props.task.id,
+  verdict: props.verdict,
+  ...(props.blockedReason !== undefined ? { blockedReason: props.blockedReason } : {}),
+  ...(props.warning !== undefined ? { warning: props.warning.kind } : {}),
+  ...(props.abortCause !== undefined ? { abortCause: props.abortCause } : {}),
+});
+
 const settleTask = (
-  props: Pick<SettleAttemptProps, 'task' | 'warning' | 'blockedReason' | 'shouldFailAttempt' | 'verdict' | 'usage'>,
+  props: Pick<
+    SettleAttemptProps,
+    'task' | 'warning' | 'blockedReason' | 'shouldFailAttempt' | 'verdict' | 'usage' | 'abortCause' | 'signalOrExitCode'
+  >,
   now: IsoTimestamp
 ): Result<DoneTask | InProgressTask | BlockedTask, InvalidStateError> => {
   let task: InProgressTask = props.task;
@@ -120,7 +161,10 @@ const settleTask = (
     return failCurrentAttempt(task, now, props.verdict === 'malformed' ? 'malformed' : 'failed');
   }
   if (props.blockedReason !== undefined) {
-    const aborted = failCurrentAttempt(task, now, 'aborted');
+    // The one in-process settle that closes an attempt as `aborted` — so it is also the one place
+    // that can attribute WHY. A crash-driven block carries the provider's cause + exit shape; a
+    // plain task block is `self-blocked` (nothing was killed), never `unknown`.
+    const aborted = failCurrentAttempt(task, now, 'aborted', abortMetaFor(props));
     if (!aborted.ok) return Result.error(aborted.error);
     // A self-block (the generator emitted `<task-blocked>`) is an own-failure block — the operator
     // must address the blocker; it never cascade-clears via the upstream-unblock path.
@@ -136,12 +180,7 @@ export const settleAttemptUseCase = async (
   props: SettleAttemptProps
 ): Promise<Result<SettleAttemptOutput, InvalidStateError | NotFoundError | StorageError>> => {
   const log = props.logger.named('task.settle-attempt');
-  log.debug('settling running attempt', {
-    taskId: props.task.id,
-    verdict: props.verdict,
-    ...(props.blockedReason !== undefined ? { blockedReason: props.blockedReason } : {}),
-    ...(props.warning !== undefined ? { warning: props.warning.kind } : {}),
-  });
+  log.debug('settling running attempt', settleLogMeta(props));
 
   // Guardrail: if we're about to mark the task `done` but the worktree is dirty, refuse.
   // A dirty tree at this point means commit-task didn't capture every change — usually

@@ -191,7 +191,10 @@ every `ai` row plus `harness.escalateOnPlateau` in one transaction; subsequent p
   model un-runnable. The runtime `opencode models` probe
   (`providers/opencode/model-availability-probe.ts`) reports whatever the operator's authenticated
   providers actually serve, so the picker grows without a ralphctl release. The free tier rotates
-  upstream; a stale entry degrades to a picker row the CLI rejects, never a crash.
+  upstream; a stale entry degrades to a picker row the CLI rejects, never a crash. When that probe
+  cannot answer (binary absent, not authenticated, 15 s cap, abort) the picker falls back to the
+  free-tier floor — a lossy fallback, unlike the other three backends — so every fail-open is logged
+  at warn (`model-probe: opencode fell back to the shipped free-tier catalog`) with a reason.
 
 **Default escalation posture (effort rung, no model ladder).** `DEFAULT_SETTINGS.ai.implement.generator` is
 `claude-opus-5`, which has no key in `DEFAULT_ESCALATION_MAP` — so the shipped default never

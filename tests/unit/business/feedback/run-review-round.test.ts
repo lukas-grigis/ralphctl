@@ -75,6 +75,18 @@ describe('runReviewRoundUseCase', () => {
     if (result.ok) expect(result.value.exit).toBe('continued');
   });
 
+  it('reports applied=false when the round produced no diff (clean tree)', async () => {
+    // `applied` drives the caller's roundsApplied counter — a round that committed nothing
+    // must not inflate it, even though the loop continues.
+    const result = await runReviewRoundUseCase(baseDeps({ commitRound: async () => Result.ok({ committed: false }) }));
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.applied).toBe(false);
+      expect(result.value.exit).toBe('continued');
+      expect(result.value.currentRound?.body).toContain('please change foo');
+    }
+  });
+
   it('renderReviewCommitMessage truncates long round bodies', () => {
     const round: FeedbackRound = { index: 3, body: 'x'.repeat(200), raw: '' };
     const msg = renderReviewCommitMessage(round);

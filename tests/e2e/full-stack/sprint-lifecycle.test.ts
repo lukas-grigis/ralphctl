@@ -224,6 +224,7 @@ function runTests(): void {
     writeFile: createAtomicWriteFile(),
     appendFile: createAppendFile(),
     journalMutex: createFoldQueue(),
+    ledgerMutex: createFoldQueue(),
   });
 
   // ─── Fixture builder ─────────────────────────────────────────────────────────

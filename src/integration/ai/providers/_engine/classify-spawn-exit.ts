@@ -172,6 +172,14 @@ export interface ClassifySpawnExitInput {
    */
   readonly watchdogBannerId: string;
   /**
+   * `true` when the idle-stdout watchdog fired for this attempt (its `onIdle` callback ran, so
+   * the SIGTERM the child died from was OURS). Threaded from the shared spawn scaffold because
+   * a watchdog kill and an external SIGTERM are indistinguishable from the exit shape alone.
+   * Rides onto the `ProcessCrashError` so the attempt record can say `watchdog-killed` rather
+   * than the generic `process-crash`.
+   */
+  readonly watchdogKilled?: boolean;
+  /**
    * Per-provider success block — emits token-usage, persists session-id.txt, mirrors
    * bodyFile, and returns `{ kind: 'success', output: ProviderOutput }`. Invoked on
    * `code === 0` AND on the recovery branch. When recovery fired, the helper splices
@@ -233,15 +241,21 @@ const classifyPreExit = ({ session, exit, providerName }: ClassifySpawnExitInput
  * It is also not a PATH problem, so the default hint would send an operator looking in the wrong
  * place. Non-retryable config error instead, carrying the measured size.
  *
+ * That verdict is only safe when the size really did break the platform's ceiling, which is why
+ * `platform` reaches {@link isArgvOverflow}: on darwin / linux a 40 KiB command line is legal, so a
+ * failure at that size is an ordinary `ENOENT` / `EACCES` and MUST stay a retryable
+ * `ProcessCrashError` with the PATH hint. Injectable for tests; defaults to the live platform.
+ *
  * @public
  */
 export const classifySpawnFailure = (
   providerName: ProviderName,
   cause: NodeJS.ErrnoException,
-  argvBytes?: number
+  argvBytes?: number,
+  platform: NodeJS.Platform = process.platform
 ): AttemptOutcome => {
   const errno = errnoOf(cause);
-  if (isArgvOverflow(errno, argvBytes ?? 0)) {
+  if (isArgvOverflow(errno, argvBytes ?? 0, platform)) {
     const hint = argvOverflowHint(argvBytes);
     return {
       kind: 'error',
@@ -340,14 +354,21 @@ const classifyModelUnavailable = (input: ClassifySpawnExitInput): AttemptOutcome
  * `ProcessCrash` (distinct from the non-retryable model-unavailable config error). The message
  * text keeps the historical per-adapter exit-N shape so logs / progress read the same.
  */
-const crashOutcome = (input: ClassifySpawnExitInput): AttemptOutcome => ({
-  kind: 'error',
-  error: new ProcessCrashError({
-    entity: input.providerName,
-    state: `exit-${String(input.exit.code ?? 'null')}`,
-    message: `${input.providerName}: ${exitSummary(input)}`,
-  }),
-});
+const crashOutcome = (input: ClassifySpawnExitInput): AttemptOutcome => {
+  // Prefer the POSIX signal name when Node reported one — `SIGTERM` is more legible in the
+  // attempt record than the `143` the same kill surfaces as under different timing.
+  const signalOrExitCode = input.exit.signal ?? input.exit.code ?? undefined;
+  return {
+    kind: 'error',
+    error: new ProcessCrashError({
+      entity: input.providerName,
+      state: `exit-${String(input.exit.code ?? 'null')}`,
+      message: `${input.providerName}: ${exitSummary(input)}`,
+      ...(signalOrExitCode !== null && signalOrExitCode !== undefined ? { signalOrExitCode } : {}),
+      ...(input.watchdogKilled === true ? { watchdogKilled: true } : {}),
+    }),
+  };
+};
 
 /**
  * The only branch that touches the filesystem. `signals.json` is authoritative, so a non-zero exit

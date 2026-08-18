@@ -98,11 +98,22 @@ const ROW_COUNT = 40;
 const VIEWPORT_H = 10;
 const ROW = (i: number): string => `row-${String(i).padStart(2, '0')}-sentinel`;
 
-const TallContent = (suppressArrows: boolean): React.JSX.Element => (
-  <Box height={VIEWPORT_H} flexDirection="column">
+interface TallContentOptions {
+  /** Simulates a document overlay: the whole region is hidden but stays MOUNTED (see App.tsx). */
+  readonly hidden?: boolean;
+  readonly rowCount?: number;
+  readonly viewportHeight?: number;
+}
+
+const TallContent = (suppressArrows: boolean, options: TallContentOptions = {}): React.JSX.Element => (
+  <Box
+    display={options.hidden === true ? 'none' : 'flex'}
+    height={options.viewportHeight ?? VIEWPORT_H}
+    flexDirection="column"
+  >
     <ScrollRegion suppressArrows={suppressArrows}>
       <Box flexDirection="column">
-        {Array.from({ length: ROW_COUNT }, (_, i) => (
+        {Array.from({ length: options.rowCount ?? ROW_COUNT }, (_, i) => (
           <Text key={i}>{ROW(i)}</Text>
         ))}
       </Box>
@@ -124,6 +135,28 @@ const renderTallKeys = (
   return {
     stdin: r.stdin,
     currentFrame: (): string => r.lastFrame() ?? '',
+    unmount: r.unmount,
+  };
+};
+
+/**
+ * Same as {@link renderTallKeys} but re-renderable, so a test can hide the region (the
+ * `display: "none"` a document overlay applies to the whole active view) or reshape it
+ * mid-flight and assert on what the offset did.
+ */
+const renderTallReshapeable = (): {
+  stdin: { write: (d: string) => void };
+  currentFrame: () => string;
+  reshape: (options: TallContentOptions) => void;
+  unmount: () => void;
+} => {
+  const r = itlRender(TallContent(false));
+  return {
+    stdin: r.stdin,
+    currentFrame: (): string => r.lastFrame() ?? '',
+    reshape: (options: TallContentOptions): void => {
+      r.rerender(TallContent(false, options));
+    },
     unmount: r.unmount,
   };
 };
@@ -268,6 +301,71 @@ describe('ScrollRegion suppressArrows arbitration', () => {
     r.stdin.emit('data', Buffer.from(WHEEL_DOWN));
     await tick(40);
     expect(topVisibleRow(r.currentFrame())).toBeGreaterThan(before);
+    r.unmount();
+  });
+});
+
+/**
+ * A document overlay (`g` progress / `v` evaluation) hides the whole active view with
+ * `display: "none"` while keeping it mounted — App.tsx's Layout promises that list cursors and
+ * scroll offsets survive the round trip. A hidden subtree measures 0 rows, so before the
+ * hidden-subtree guard the layout effect clamped `max` to 0 and silently reset the page to the
+ * top behind the overlay. These fence both halves: a 0-measurement cycle preserves the offset,
+ * a real reshape still clamps.
+ */
+describe('ScrollRegion hidden-subtree clamp guard', () => {
+  it('preserves the scroll offset across a hidden (display:none) measurement cycle', async () => {
+    const r = renderTallReshapeable();
+    await tick(60);
+    for (let i = 0; i < 3; i++) {
+      r.stdin.write(DOWN);
+      await tick(30);
+    }
+    const scrolled = topVisibleRow(r.currentFrame());
+    expect(scrolled).toBeGreaterThan(0);
+
+    // Overlay opens: the region is hidden but stays mounted, so it re-renders (and re-measures)
+    // at zero height …
+    r.reshape({ hidden: true });
+    await tick(40);
+    // … then the overlay closes and the same offset must still be in effect.
+    r.reshape({ hidden: false });
+    await tick(40);
+    expect(topVisibleRow(r.currentFrame())).toBe(scrolled);
+    r.unmount();
+  });
+
+  it('still clamps the offset when the content genuinely shrinks', async () => {
+    const r = renderTallReshapeable();
+    await tick(60);
+    for (let i = 0; i < 5; i++) {
+      r.stdin.write(DOWN);
+      await tick(30);
+    }
+    expect(topVisibleRow(r.currentFrame())).toBe(5);
+
+    // 12 rows of content in a 10-row viewport ⇒ max offset 2. The live offset (5) is past that
+    // and must be pulled back — the guard only ignores a ZERO measurement, never a real one.
+    r.reshape({ rowCount: 12 });
+    await tick(60);
+    expect(topVisibleRow(r.currentFrame())).toBe(2);
+    r.unmount();
+  });
+
+  it('still clamps the offset when the viewport grows past the remaining content', async () => {
+    const r = renderTallReshapeable();
+    await tick(60);
+    for (let i = 0; i < 5; i++) {
+      r.stdin.write(DOWN);
+      await tick(30);
+    }
+    expect(topVisibleRow(r.currentFrame())).toBe(5);
+
+    // A 38-row viewport over 40 rows of content ⇒ max offset 2 (the mirror case of a shrink:
+    // growing the viewport lowers the ceiling just as shrinking the content does).
+    r.reshape({ viewportHeight: 38 });
+    await tick(60);
+    expect(topVisibleRow(r.currentFrame())).toBe(2);
     r.unmount();
   });
 });

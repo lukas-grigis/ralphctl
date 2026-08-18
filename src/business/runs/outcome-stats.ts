@@ -281,6 +281,7 @@ const zeroAbortCause = (): Record<AbortCauseKey, number> => ({
   'watchdog-killed': 0,
   'rate-limit-exhausted': 0,
   'process-crash': 0,
+  'self-blocked': 0,
   unknown: 0,
 });
 

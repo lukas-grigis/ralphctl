@@ -32,6 +32,40 @@ export interface ModelAvailabilityProbe {
 }
 
 /**
+ * Why a probe fell open to the shipped catalog instead of answering from the live source.
+ *
+ *  - `probe-failed` — the source could not be consulted at all: binary absent from PATH, non-zero
+ *    exit (usually "not authenticated"), spawn error, or the wall-clock cap tripping.
+ *  - `probe-aborted` — the caller's signal fired before the source answered.
+ *  - `empty-answer` — the source answered, but nothing in it survived id-shape filtering.
+ *
+ * @public
+ */
+export type ModelProbeDegradationReason = 'probe-failed' | 'probe-aborted' | 'empty-answer';
+
+/** One fail-open event: which provider degraded, why, and the raw detail worth logging. @public */
+export interface ModelProbeDegradation {
+  readonly provider: AiProvider;
+  readonly reason: ModelProbeDegradationReason;
+  /** Human-readable cause (error message, exit description) — safe to put in a log line. */
+  readonly detail: string;
+}
+
+/**
+ * Optional observability seam for {@link ModelAvailabilityProbe} implementations that fail open to
+ * a catalog which is NOT the vendor's full list — for those, a fail-open silently shrinks the
+ * picker and the operator deserves a trace. `opencode` is the case that motivated this: its
+ * shipped catalog is only the zero-auth free tier, so a transient probe failure makes every paid
+ * model an authenticated operator can reach disappear from the picker.
+ *
+ * Implementations MUST NOT throw — the probe contract ("never rejects") holds through this
+ * callback. The composition root wires it to `Logger.warn`.
+ *
+ * @public
+ */
+export type ModelProbeDegradationSink = (degradation: ModelProbeDegradation) => void;
+
+/**
  * Registry of {@link ModelAvailabilityProbe}s keyed by {@link AiProvider}. Total over the provider
  * union — every provider supplies a probe (passthrough where no real source exists yet).
  *

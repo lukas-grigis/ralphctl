@@ -1,10 +1,22 @@
 import { isOpencodeModelIdShape } from '@src/domain/value/settings-models/opencode.ts';
-import type { ModelAvailabilityProbe } from '@src/integration/ai/providers/_engine/model-availability-probe.ts';
+import type {
+  ModelAvailabilityProbe,
+  ModelProbeDegradationReason,
+  ModelProbeDegradationSink,
+} from '@src/integration/ai/providers/_engine/model-availability-probe.ts';
 import { crossPlatformSpawn } from '@src/integration/io/cross-platform-spawn.ts';
 import { killWithEscalation } from '@src/integration/io/kill-with-escalation.ts';
 
-/** Wall-clock cap for the `opencode models` probe. Beyond this the probe fails open. */
-const PROBE_TIMEOUT_MS = 5_000;
+/**
+ * Wall-clock cap for the `opencode models` probe. Beyond this the probe fails open.
+ *
+ * Deliberately generous: for the other backends a fail-open costs nothing (their fallback IS the
+ * vendor's full list), but here it collapses the picker to the eight zero-auth free-tier ids. A
+ * cold `opencode` start that has to reach several upstream providers routinely needs more than a
+ * couple of seconds, and the probe runs once per provider per session behind a memoised promise —
+ * so waiting is far cheaper than a picker that silently differs between launches.
+ */
+const PROBE_TIMEOUT_MS = 15_000;
 
 /**
  * Run `opencode models` and return its stdout lines. Rejects on spawn failure, non-zero exit, or
@@ -71,7 +83,15 @@ export interface OpencodeModelAvailabilityProbeOptions {
   readonly command?: string;
   /** Test seam: replaces the whole `opencode models` spawn. */
   readonly listModels?: (command: string, signal?: AbortSignal) => Promise<readonly string[]>;
+  /**
+   * Notified on every fail-open, with the reason. Optional so tests can stay zero-argument; the
+   * composition root (`buildModelAvailabilityProbes`) wires it to `Logger.warn`. Must not throw.
+   */
+  readonly onDegraded?: ModelProbeDegradationSink;
 }
+
+/** Best-effort message extraction — the detail is log copy, never control flow. */
+const describeCause = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
 /**
  * Real OpenCode model-availability probe.
@@ -91,6 +111,16 @@ export interface OpencodeModelAvailabilityProbeOptions {
  * timeout, abort, or an empty list all resolve to `catalog` unchanged so the picker never blocks
  * or shows zero models.
  *
+ * Unlike its siblings, a fail-open here is LOSSY — the shipped catalog is the free tier, not the
+ * full list — so every fail-open reports itself through {@link OpencodeModelAvailabilityProbeOptions.onDegraded}
+ * with the reason. Without that, an operator whose paid models vanished from the picker had
+ * nothing to look at: the same session on the next launch could silently show a different set.
+ *
+ * Abort is reported, not re-thrown. The `ModelAvailabilityProbe` contract makes this probe
+ * best-effort OUTSIDE the chain runtime where the propagate-AbortError rule applies (the codex
+ * probe absorbs cancellation the same way), and a cancelled picker must not become a rejected
+ * promise. It is no longer silent, which is what the rule is actually protecting against.
+ *
  * @public
  */
 export const createOpencodeModelAvailabilityProbe = (
@@ -98,21 +128,27 @@ export const createOpencodeModelAvailabilityProbe = (
 ): ModelAvailabilityProbe => ({
   async availableModels(catalog: readonly string[], signal?: AbortSignal): Promise<readonly string[]> {
     const listModels = options.listModels ?? defaultListModels;
-    try {
-      const models = await listModels(options.command ?? 'opencode', signal);
-      // Keep only namespaced, whitespace-free lines so a header or trailing hint printed alongside
-      // the list cannot inject junk into the picker. Shares the adapter's own id-shape predicate on
-      // purpose: a line this probe admitted but the adapter would refuse to run is an un-runnable
-      // picker entry. Multi-segment ids pass — see the note on `isOpencodeModelIdShape`.
-      const available = models.filter((line) => isOpencodeModelIdShape(line));
-      return available.length > 0 ? available : catalog;
-    } catch {
-      // Best-effort probe running OUTSIDE the chain runtime — absorb every error including
-      // AbortError, exactly as the codex probe does, and fall open to the shipped catalog.
+    const degraded = (reason: ModelProbeDegradationReason, detail: string): readonly string[] => {
+      options.onDegraded?.({ provider: 'opencode', reason, detail });
       return catalog;
+    };
+
+    let models: readonly string[];
+    try {
+      models = await listModels(options.command ?? 'opencode', signal);
+    } catch (error) {
+      // `signal.aborted` is the only reliable discriminator here — the listing rejects with a
+      // plain Error for aborts, timeouts and non-zero exits alike, and the message carries the
+      // rest of the story into `detail`.
+      return degraded(signal?.aborted === true ? 'probe-aborted' : 'probe-failed', describeCause(error));
     }
+
+    // Keep only namespaced, whitespace-free lines so a header or trailing hint printed alongside
+    // the list cannot inject junk into the picker. Shares the adapter's own id-shape predicate on
+    // purpose: a line this probe admitted but the adapter would refuse to run is an un-runnable
+    // picker entry. Multi-segment ids pass — see the note on `isOpencodeModelIdShape`.
+    const available = models.filter((line) => isOpencodeModelIdShape(line));
+    if (available.length > 0) return available;
+    return degraded('empty-answer', `\`opencode models\` printed ${String(models.length)} line(s), none runnable`);
   },
 });
-
-/** Production probe bound to the real `opencode` binary. @public */
-export const opencodeModelAvailabilityProbe: ModelAvailabilityProbe = createOpencodeModelAvailabilityProbe();

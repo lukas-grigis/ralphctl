@@ -303,6 +303,32 @@ describe('runEvaluatorTurnUseCase', () => {
     }
   });
 
+  it('attributes an evaluator crash the same way the generator does (watchdog marker + signal)', async () => {
+    const task = verifiedTask();
+    const err = new ProcessCrashError({
+      entity: 'codex-provider',
+      state: 'exit-143',
+      message: 'codex-provider: process exited with code 143 (signal=SIGTERM): <empty stderr>',
+      signalOrExitCode: 'SIGTERM',
+      watchdogKilled: true,
+    });
+
+    const result = await runEvaluatorTurnUseCase({
+      task,
+      plateauThreshold: 2,
+      callEvaluate: async () => Result.error(err),
+      evaluationFile: EVAL_FILE,
+      logger: noopLogger,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.exit?.kind).toBe('crashed');
+    if (result.value.exit?.kind !== 'crashed') return;
+    expect(result.value.exit.abortCause).toBe('watchdog-killed');
+    expect(result.value.exit.signalOrExitCode).toBe('SIGTERM');
+  });
+
   it('propagates an AbortError (user cancel) instead of self-blocking', async () => {
     const task = verifiedTask();
     const err = new AbortError({ elementName: 'codex-provider', reason: 'aborted by caller' });

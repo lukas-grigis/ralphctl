@@ -5,7 +5,10 @@
  *
  * Measures the viewport and the inner content via `measureElement` so the offset always clamps
  * against `contentHeight - viewportHeight` — keyboard or mouse-wheel scroll never lets the
- * user fall off the end of the content into blank space. Mouse wheel is wired through xterm
+ * user fall off the end of the content into blank space. A zero-height viewport measurement is
+ * ignored rather than clamped against: that only happens while the whole view sits inside a
+ * `display: "none"` box (a document overlay is open), and treating it as real would reset the
+ * offset to the top behind the overlay. Mouse wheel is wired through xterm
  * SGR mouse-tracking (`?1000h` + `?1006h`) and only enabled when stdout is a real TTY, so the
  * test harness (a piped stream) never sees the enable sequence.
  *
@@ -102,14 +105,23 @@ export const ScrollRegion = ({
   // when offset > max, i.e. when we need to clamp down. Once clamped, offset ≤ max on the
   // next render so setOffset is not called again. Measurement reads Yoga computed heights
   // which change only when layout changes; reading them is side-effect-free and cheap.
+  //
+  // Hidden-subtree guard: a document overlay (progress `g` / evaluation `v`) hides the active
+  // view with `display: "none"` while keeping it MOUNTED, and a hidden subtree measures 0 rows.
+  // Adopting that measurement would make `max` 0 and clamp the offset to the top, so closing the
+  // overlay silently scrolled the page back to row 0 — the very state App.tsx's Layout comment
+  // promises is preserved. The viewport is `flexGrow={1}`, so a visible region always measures
+  // ≥ 1 row: a 0 reading means "not laid out", never "genuinely empty". Skip the whole update in
+  // that case and keep the last real measurement. A genuine viewport shrink (terminal resize,
+  // banner appearing) still measures > 0 and still clamps.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useLayoutEffect(() => {
-    if (viewportRef.current) {
-      sizeRef.current.viewport = measureElement(viewportRef.current).height;
-    }
-    if (contentRef.current) {
-      sizeRef.current.content = measureElement(contentRef.current).height;
-    }
+    const viewport = viewportRef.current ? measureElement(viewportRef.current).height : 0;
+    if (viewport === 0) return;
+    sizeRef.current = {
+      viewport,
+      content: contentRef.current ? measureElement(contentRef.current).height : 0,
+    };
     const max = maxOffset();
     if (offset > max) setOffset(max);
   });

@@ -199,6 +199,35 @@ describe('createClaudeStreamParser', () => {
     expect(envelope.liveUsage).toEqual({ inputTokens: 700, cacheReadTokens: 30000 });
   });
 
+  it('parses a CRLF-terminated stream — session-id, body and usage all survive the \\r', () => {
+    // Regression: the splitter used to hand `{"…"}\r` to the emitter, whose `endsWith("}")` guard
+    // rejected it — every record fell to the plain-text branch, so `--resume` lost the session,
+    // the body stayed empty and no usage was reported.
+    const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'abc', model: 'claude-opus-5' });
+    const resultEvt = JSON.stringify({
+      type: 'result',
+      subtype: 'success',
+      result: '<task-verified>crlf ok</task-verified>',
+      session_id: 'abc',
+      usage: { input_tokens: 11, output_tokens: 22 },
+    });
+    const { envelope, lines } = drive([`${init}\r\n${resultEvt}\r\n`]);
+
+    expect(envelope.sessionId).toBe('abc');
+    expect(envelope.body).toBe('<task-verified>crlf ok</task-verified>');
+    expect(envelope.usage).toEqual({ inputTokens: 11, outputTokens: 22 });
+    expect(envelope.model).toBe('claude-opus-5');
+    // Both records took the JSON branch — nothing degraded to plain text.
+    expect(lines.every((l) => l.json !== undefined)).toBe(true);
+  });
+
+  it('parses a record with trailing whitespace after the closing brace', () => {
+    const resultEvt = JSON.stringify({ type: 'result', result: 'padded', session_id: 'sess-pad' });
+    const { envelope } = drive([`${resultEvt}   \n`]);
+    expect(envelope.body).toBe('padded');
+    expect(envelope.sessionId).toBe('sess-pad');
+  });
+
   it('no assistant usage anywhere → liveUsage stays empty', () => {
     const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-none', model: 'm' });
     const delta = JSON.stringify({ type: 'assistant', message: { content: 'plain' }, session_id: 'sess-none' });

@@ -1,5 +1,6 @@
 import { Result } from '@src/domain/result.ts';
 import type { Logger } from '@src/business/observability/logger.ts';
+import type { AbortCause } from '@src/domain/entity/attempt.ts';
 import type { InProgressTask } from '@src/domain/entity/task.ts';
 import {
   recordRunningAttemptCritique,
@@ -16,6 +17,7 @@ import {
   type PlateauVerdict,
 } from '@src/business/task/plateau-detection.ts';
 import { isRecoverableTurnError } from '@src/business/task/turn-error-policy.ts';
+import { abortCauseFromError } from '@src/business/task/abort-cause-from-error.ts';
 
 /**
  * Run one evaluator turn of the gen-eval loop. Drives a single AI evaluate call, inspects the
@@ -58,7 +60,14 @@ export type EvaluatorTurnExit =
   // Transient process death (watchdog kill / spawn crash / non-zero exit with no signals.json) —
   // retried within `maxAttempts` by finalize-gen-eval, NOT a terminal block. Mirrors the generator's
   // member of the same name; both are members of `GenEvalExit`, which is what ctx carries.
-  | { readonly kind: 'crashed'; readonly reason: string }
+  // `abortCause` / `signalOrExitCode` carry the crash forensics (see `abortCauseFromError`) so a
+  // settle that ends up blocking the task can attribute the aborted attempt.
+  | {
+      readonly kind: 'crashed';
+      readonly reason: string;
+      readonly abortCause?: AbortCause;
+      readonly signalOrExitCode?: string | number;
+    }
   | { readonly kind: 'malformed'; readonly detail: string }
   // `source: 'threshold'` — this is the ONLY plateau detector this use case ever produces (the
   // loop-diversity / entropy detectors run downstream in `gen-eval-loop.ts`, outside the
@@ -195,7 +204,11 @@ const handleEvaluateFailure = (
     });
     return Result.ok({
       task,
-      exit: { kind: 'crashed', reason: `AI process was killed before producing signals.json: ${err.message}` },
+      exit: {
+        kind: 'crashed',
+        reason: `AI process was killed before producing signals.json: ${err.message}`,
+        ...abortCauseFromError(err),
+      },
     });
   }
   log.warn('evaluator did not produce a valid signals.json — blocking task', {

@@ -1,6 +1,6 @@
 ---
 name: tui-row-windowing-and-key-test-gotchas
-description: Row-count windowing invariant for the document overlays + two ink-testing-library gotchas (batched stdin writes, 100x24 stub terminal) that silently make TUI keyboard tests pass for the wrong reason
+description: Row-count windowing invariant for the document overlays + four ink-testing-library gotchas (batched stdin writes, 100x24 stub terminal, spinner-flapping frame equality, page-scroll needs a fixed-height wrapper) that silently make TUI keyboard tests pass for the wrong reason
 metadata:
   type: project
 ---
@@ -28,4 +28,17 @@ and the painted row count diverge — `maxOffset` collapses to 0, `useDocumentSc
 every key, the footer disappears and the tail is unreachable. Fix is pre-wrap (not `truncate-end`
 alone, which loses prose in a read-only prose viewer); `truncate-end` stays as the backstop.
 
-Related: [[project_view_hint_single_source]], [[project_trustworthy_firstrun_waves12_2026-08-14]].
+**4. Whole-frame equality assertions flap on the StatusBar's braille spinner.** The pinned footer
+animates `⠋ ⠙ ⠹ …` on its own timer, so `expect(lastFrame()).toBe(before)` fails for a reason that has
+nothing to do with the behaviour under test. Normalise the braille block (`/[⠀-⣿]/g`) rather than
+splitting the frame on a horizontal rule — ViewShell paints a rule under the banner too, so
+"everything before the first rule" is the banner line, and the assertion silently becomes vacuous.
+
+**5. Page-scroll behaviour is untestable without a fixed-height wrapper.** A view rendered bare in the
+harness measures its `ScrollRegion` viewport at full content height ⇒ `maxOffset === 0` ⇒ every scroll
+key early-returns, so a "keys must not scroll the page" test passes with or without the fix. Wrap the
+view in `<Box height={N}>` and prove non-vacuity by asserting something below the fold is absent.
+Always re-run such a test with the fix reverted.
+
+Related: [[project_view_hint_single_source]], [[project_trustworthy_firstrun_waves12_2026-08-14]],
+[[project_global_modal_overlay_pattern]].

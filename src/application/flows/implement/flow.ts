@@ -454,8 +454,9 @@ export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFl
   const readConfig = buildAttemptReadConfig(deps.config.harness);
 
   // The serial path is a single caller — no other branch ever contends with it — so the run's
-  // `deps.journalMutex` acts as an effective no-op for `progress-journal-<taskId>`'s critical
-  // section (which always runs inside the mutex, whether or not there is contention).
+  // `deps.journalMutex` / `deps.ledgerMutex` act as effective no-ops for the
+  // `progress-journal-<taskId>` and `append-learnings-<taskId>` critical sections (both always run
+  // inside their mutex, whether or not there is contention).
   const perTaskChains = opts.todoTasks.map((task) =>
     createPerTaskSubchain(
       deps,

@@ -81,6 +81,30 @@ describe('createCopilotStreamParser — extractBodyText', () => {
     expect(line?.bodyText).toBeUndefined();
   });
 
+  it('parses a CRLF-terminated stream — session-id, body text and usage all survive the \\r', () => {
+    // Regression: the splitter used to hand `{"…"}\r` to the emitter, whose `endsWith("}")` guard
+    // rejected it — every record fell to the plain-text branch, so `--resume` lost the session,
+    // the body stayed empty and no usage was reported.
+    const meta = JSON.stringify({ session_id: 'abc', model: 'gpt-5.5', usage: { input_tokens: 7, output_tokens: 9 } });
+    const final = JSON.stringify({
+      type: 'assistant.message',
+      data: { content: '<task-verified>crlf ok</task-verified>' },
+    });
+    const lines = drive([`${meta}\r\n${final}\r\n`]);
+
+    expect(lines.every((l) => l.json !== undefined)).toBe(true);
+    expect(lines[0]?.sessionId).toBe('abc');
+    expect(lines[0]?.model).toBe('gpt-5.5');
+    expect(lines[0]?.usage).toEqual({ inputTokens: 7, outputTokens: 9 });
+    expect(lines[1]?.bodyText).toBe('<task-verified>crlf ok</task-verified>');
+  });
+
+  it('parses a record with trailing whitespace after the closing brace', () => {
+    const evt = JSON.stringify({ type: 'assistant.message', data: { content: 'padded' } });
+    const [line] = drive([`${evt}   \n`]);
+    expect(line?.bodyText).toBe('padded');
+  });
+
   it('response.output_text.delta with non-string .delta returns undefined', () => {
     const evt = JSON.stringify({ type: 'response.output_text.delta', delta: { nested: 'no' } });
     const [line] = drive([`${evt}\n`]);

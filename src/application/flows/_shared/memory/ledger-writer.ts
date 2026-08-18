@@ -138,6 +138,11 @@ export const boundLedgerIfNeeded = async (
  * An append failure is returned as an error (the caller decides — `append-learnings` logs + continues
  * per its best-effort contract). The subsequent bound never fails the call.
  *
+ * NOT internally serialised — the bound is a read-modify-write, so a CONCURRENT caller on the same
+ * ledger path (every parallel implement branch shares one project ledger) must run this whole call
+ * inside a shared mutex or an append landing mid-rewrite is clobbered. `append-learnings-<taskId>`
+ * does exactly that via `AppendLearningsLeafDeps.ledgerMutex`; single-writer callers need nothing.
+ *
  * @public
  */
 export const appendMemoryRecords = async (

@@ -171,13 +171,25 @@ export interface ProviderAttemptInput {
 const createIdleTelemetry = (
   input: ProviderAttemptInput,
   watchdogBannerId: string
-): { readonly spawnOption: { readonly idleMs?: number }; readonly onIdle: () => void } => {
+): {
+  readonly spawnOption: { readonly idleMs?: number };
+  readonly onIdle: () => void;
+  /**
+   * `true` once {@link onIdle} has fired — i.e. the SIGTERM this child dies from is OURS.
+   * Read after the spawn settles so the classifier can attribute the crash to the watchdog
+   * instead of guessing from an exit shape an external kill produces identically.
+   */
+  readonly killedByWatchdog: () => boolean;
+} => {
   const { idleMs, providerName, providerSlug, eventBus } = input;
   const forMs = idleMs !== undefined ? ` for ${String(idleMs)}ms` : '';
   const idleSuffix = idleMs !== undefined ? ` (${String(Math.round(idleMs / 1000))}s idle)` : '';
+  let killedByWatchdog = false;
   return {
     spawnOption: idleMs !== undefined ? { idleMs } : {},
+    killedByWatchdog: () => killedByWatchdog,
     onIdle: () => {
+      killedByWatchdog = true;
       eventBus.publish({
         type: 'log',
         level: 'warn',
@@ -325,6 +337,8 @@ export const runProviderAttempt = async (input: ProviderAttemptInput): Promise<A
     providerName,
     eventBus,
     watchdogBannerId,
+    // Only meaningful on a crash branch; the classifier ignores it everywhere else.
+    ...(idle.killedByWatchdog() ? { watchdogKilled: true } : {}),
     onSuccess: createSuccessHandler(input, sessionId, code, startedAtMs),
   });
 };

@@ -214,10 +214,12 @@ const buildParallelElement = (
 
   // Serialise every append for the WHOLE parallel run — prologue, all branches, and the epilogue
   // share ONE mutex. Concurrent branches append to the same project learnings ledger (and the
-  // prologue/epilogue's `progress.md` separator lines); funnelling them through one queue keeps
-  // each line atomic (no torn NDJSON lines under fan-out). The serial path keeps the raw port — it
-  // has no concurrency. `progress.md`'s per-attempt SECTION write is a SEPARATE read-modify-write
-  // path guarded by `ImplementDeps.journalMutex` (built once per run, below), not by this append mutex.
+  // prologue/epilogue's `progress.md` separator lines, which no other mutex covers); funnelling
+  // them through one queue keeps each line atomic (no torn NDJSON lines under fan-out). The serial
+  // path keeps the raw port — it has no concurrency. The two whole-file read-modify-writes are
+  // SEPARATE paths, guarded by `ImplementDeps.journalMutex` (progress.md sections) and
+  // `ImplementDeps.ledgerMutex` (learnings.ndjson appends + size bounding) — both built once per
+  // run in `buildImplementDepsBag` and inherited by every branch, not by this append mutex.
   const parallelDeps: ImplementDeps = { ...implementDeps, appendFile: serializeAppendFile(implementDeps.appendFile) };
 
   const branchDeps: BuildWaveBranchesDeps = {
