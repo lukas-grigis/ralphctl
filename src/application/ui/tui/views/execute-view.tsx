@@ -201,6 +201,12 @@ interface DeriveTasksPanelResult {
   // this result straight onto `<ExecuteBody>` — see `ExecuteViewFrame` below.
   readonly executionState: SprintExecution | undefined;
   readonly taskState: readonly Task[] | undefined;
+  /**
+   * Handed back verbatim: the narrow layout consumes it through the pre-built `tasksPanel` node
+   * above, but the ≥140-col sidebar layout builds its own panel and needs the handler itself, so
+   * both regimes are wired from this single derivation.
+   */
+  readonly onOpenEvaluation: (taskId: string) => void;
 }
 
 /**
@@ -241,6 +247,7 @@ const deriveTasksPanel = ({
     tasksPanel,
     executionState: pinnedSprintStale ? undefined : executionState,
     taskState: pinnedSprintStale ? undefined : taskState,
+    onOpenEvaluation,
   };
 };
 

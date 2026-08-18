@@ -4,6 +4,10 @@
  * `scripts/seed-mock.ts` builds (via the shared `seedDemoWorkspace`, #228), writes a
  * `settings.json` so the welcome flow never fires, then launches the TUI pointed at the sandbox.
  *
+ * The seeded `settings.json` is provider-aware (`seedDemoSettings`): PATH is probed and a
+ * single-provider preset stamped, so the sandbox's "ready to implement" sprint needs exactly the
+ * one CLI the machine already has — never the two the shipped cross-provider defaults imply.
+ *
  * Wipe policy: the sandbox is reseeded from scratch on every run, but ONLY when the target
  * directory either doesn't exist yet or carries the `.ralphctl-demo` marker this command (or
  * `pnpm mock`) itself wrote — a directory that exists but lacks the marker is refused outright,
@@ -23,12 +27,11 @@ import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import { RALPHCTL_HOME_ENV, storagePathsFromRoot } from '@src/application/bootstrap/storage-paths.ts';
-import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
+import { RALPHCTL_HOME_ENV } from '@src/application/bootstrap/storage-paths.ts';
 import { DEMO_MARKER_FILENAME, type SeedDemoSummary, seedDemoWorkspace } from '@src/application/demo/seed.ts';
+import { seedDemoSettings, type SeededDemoSettings } from '@src/application/demo/seed-settings.ts';
 import { runCommand } from '@src/integration/io/run-command.ts';
 import { createAtomicWriteFile } from '@src/integration/io/write-file-atomic.ts';
-import { createJsonSettingsRepository } from '@src/integration/persistence/settings/json-settings-repository.ts';
 import { launchTui } from '@src/application/ui/tui/launch.ts';
 import { fail } from '@src/application/ui/cli/report-cli-error.ts';
 import { prepareScriptedDemo } from '@src/application/demo/scripted-run.ts';
@@ -68,16 +71,7 @@ const prepareSandbox = async (homeDirStr: string): Promise<string | undefined> =
   return undefined;
 };
 
-/** Skip the welcome flow entirely — the sandbox always opens straight to home / create-project. */
-const seedSandboxSettings = async (homeDir: AbsolutePath): Promise<void> => {
-  const paths = storagePathsFromRoot(homeDir);
-  if (!paths.ok) throw new Error(`storage-paths: ${paths.error.message}`);
-  const settingsRepo = createJsonSettingsRepository({ configRoot: paths.value.configRoot });
-  const saved = await settingsRepo.save(DEFAULT_SETTINGS);
-  if (!saved.ok) throw new Error(`settings: ${saved.error.message}`);
-};
-
-const printSummary = (summary: SeedDemoSummary, homeDirStr: string): void => {
+const printSummary = (summary: SeedDemoSummary, homeDirStr: string, settingsLine?: string): void => {
   const line = '─'.repeat(60);
   process.stdout.write(
     [
@@ -88,6 +82,7 @@ const printSummary = (summary: SeedDemoSummary, homeDirStr: string): void => {
       `  home    : ${homeDirStr}`,
       `  repo    : ${String(summary.repoDir)}  (git-initialised, python3 hello.py)`,
       `  project : ${summary.projectName}`,
+      ...(settingsLine === undefined ? [] : [`  ai      : ${settingsLine}`]),
       '',
       '  Sprints:',
       ...summary.sprints.map((s) => `    • "${s.name}"  ${s.state}`),
@@ -96,6 +91,12 @@ const printSummary = (summary: SeedDemoSummary, homeDirStr: string): void => {
     ].join('\n')
   );
 };
+
+/** What the summary says about the seeded AI section — names the preset and why it was chosen. */
+const describeSeededSettings = (seeded: SeededDemoSettings): string =>
+  seeded.noCliDetected
+    ? `${seeded.preset} preset (no AI CLI on PATH — placeholder; install one and run doctor)`
+    : `${seeded.preset} preset (from the AI CLIs detected on PATH)`;
 
 const demoAction = async (opts: DemoOptions): Promise<void> => {
   const homeDirStr = opts.home ?? DEFAULT_DEMO_HOME;
@@ -120,7 +121,11 @@ const demoAction = async (opts: DemoOptions): Promise<void> => {
     return;
   }
 
-  await seedSandboxSettings(homeDir.value);
+  const seededSettings = await seedDemoSettings({ homeDir: homeDir.value });
+  if (!seededSettings.ok) {
+    fail(`settings seeding failed: ${seededSettings.error.message}`);
+    return;
+  }
 
   // Scripted mode rewrites the settings this just wrote (claude-only rows, escalation rungs off)
   // and repoints the seeded verify script / acceptance criterion at portable node one-liners.
@@ -135,7 +140,13 @@ const demoAction = async (opts: DemoOptions): Promise<void> => {
     providerSpawn = scripted.value.providerSpawn;
   }
 
-  printSummary(seeded.value, homeDirStr);
+  // Scripted mode narrates its own claude-code pin below, so the detection-derived line would
+  // only contradict it.
+  printSummary(
+    seeded.value,
+    homeDirStr,
+    opts.script === true ? undefined : describeSeededSettings(seededSettings.value)
+  );
   if (opts.script === true) {
     process.stdout.write(
       '  Scripted mode: every AI row is pinned to claude-code and replays a canned two-round\n' +

@@ -75,6 +75,13 @@ export interface ImplementLayoutProps {
    * Gating prevents double-consumption when a cancel-scope overlay or other overlay is open.
    */
   readonly inputActive: boolean;
+  /**
+   * Optional `v` handler — opens the evaluation overlay for a card with a recorded verdict.
+   * Needed by the WIDE branch only: the narrow branch inherits it from the pre-built `tasksPanel`
+   * node, but the wide branch builds its own `TasksPanelHost` and would otherwise leave `v` a
+   * silent no-op while the footer still advertises the chord.
+   */
+  readonly onOpenEvaluation?: (taskId: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -92,6 +99,7 @@ interface WideLayoutProps {
   readonly now: number;
   readonly tokenUsage?: TokenUsage;
   readonly inputActive: boolean;
+  readonly onOpenEvaluation?: (taskId: string) => void;
 }
 
 const WideLayout = ({
@@ -105,6 +113,7 @@ const WideLayout = ({
   now,
   tokenUsage,
   inputActive,
+  onOpenEvaluation,
 }: WideLayoutProps): React.JSX.Element => {
   // focusedTaskId is the id reported by the main-area panel on every card-cursor change.
   // The sidebar renders this as a passive highlight — no sidebar input capture.
@@ -147,6 +156,7 @@ const WideLayout = ({
             now={now}
             taskState={taskState}
             onFocusedCardChange={onFocusedCardChange}
+            {...(onOpenEvaluation !== undefined ? { onOpenEvaluation } : {})}
           />
         </Box>
       </Box>
@@ -183,6 +193,7 @@ export const ImplementLayout = ({
   layout,
   bucketed,
   inputActive,
+  onOpenEvaluation,
 }: ImplementLayoutProps): React.JSX.Element => {
   if (layout.sidebarLayout) {
     return (
@@ -197,6 +208,7 @@ export const ImplementLayout = ({
         now={now}
         inputActive={inputActive}
         {...(tokenUsage !== undefined ? { tokenUsage } : {})}
+        {...(onOpenEvaluation !== undefined ? { onOpenEvaluation } : {})}
       />
     );
   }

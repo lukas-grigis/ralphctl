@@ -8,7 +8,19 @@ import { createFsProjectRepository } from '@src/integration/persistence/project/
 import { createFsSprintRepository } from '@src/integration/persistence/sprint/repository.ts';
 import { createJsonSettingsRepository } from '@src/integration/persistence/settings/json-settings-repository.ts';
 import { DEMO_MARKER_FILENAME } from '@src/application/demo/seed.ts';
+import { type AiSettings, primaryFlowRow } from '@src/domain/entity/settings.ts';
+import { FLOW_IDS } from '@src/domain/value/flow-id.ts';
 import { type CliHome, createCliHome, runCliCaptured } from '@tests/e2e/cli/_harness.ts';
+
+const loadSeededAi = async (homeDirStr: string): Promise<AiSettings> => {
+  const homeAbs = AbsolutePath.parse(homeDirStr);
+  if (!homeAbs.ok) throw new Error('unreachable');
+  const paths = storagePathsFromRoot(homeAbs.value);
+  if (!paths.ok) throw new Error('unreachable');
+  const loaded = await createJsonSettingsRepository({ configRoot: paths.value.configRoot }).load();
+  if (!loaded.ok) throw new Error(`settings load failed: ${loaded.error.message}`);
+  return loaded.value.ai;
+};
 
 describe('ralphctl demo', () => {
   let cli: CliHome;
@@ -67,6 +79,29 @@ describe('ralphctl demo', () => {
     const exists = await settingsRepo.exists();
     expect(exists.ok).toBe(true);
     if (exists.ok) expect(exists.value).toBe(true);
+  });
+
+  it('seeds a single-provider AI section — no cross-provider implement split', async () => {
+    // The shipped DEFAULT_SETTINGS split the implement roles across claude-code + openai-codex,
+    // which made the sandbox's "ready to implement" sprint need TWO CLIs on a command that
+    // advertises zero setup. Whatever this machine has installed, the demo must land on one
+    // provider — that invariant holds on every developer box and in CI.
+    await runCliCaptured(cli, ['demo', '--home', demoHome, '--no-launch']);
+    const ai = await loadSeededAi(demoHome);
+    expect(ai.implement.generator.provider).toBe(ai.implement.evaluator.provider);
+    const providers = new Set([
+      ...FLOW_IDS.map((flow) => primaryFlowRow(ai, flow).provider),
+      ai.implement.evaluator.provider,
+    ]);
+    expect(providers.size).toBe(1);
+  });
+
+  it('--script still pins every AI row to claude-code (scripted settings win last)', async () => {
+    await runCliCaptured(cli, ['demo', '--home', demoHome, '--no-launch', '--script']);
+    const ai = await loadSeededAi(demoHome);
+    expect(ai.implement.generator.provider).toBe('claude-code');
+    expect(ai.implement.evaluator.provider).toBe('claude-code');
+    expect(new Set(FLOW_IDS.map((flow) => primaryFlowRow(ai, flow).provider))).toEqual(new Set(['claude-code']));
   });
 
   it('writes the .ralphctl-demo marker and is idempotent (wipes + reseeds) on re-run', async () => {
