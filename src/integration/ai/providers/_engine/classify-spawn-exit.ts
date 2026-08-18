@@ -233,15 +233,21 @@ const classifyPreExit = ({ session, exit, providerName }: ClassifySpawnExitInput
  * It is also not a PATH problem, so the default hint would send an operator looking in the wrong
  * place. Non-retryable config error instead, carrying the measured size.
  *
+ * That verdict is only safe when the size really did break the platform's ceiling, which is why
+ * `platform` reaches {@link isArgvOverflow}: on darwin / linux a 40 KiB command line is legal, so a
+ * failure at that size is an ordinary `ENOENT` / `EACCES` and MUST stay a retryable
+ * `ProcessCrashError` with the PATH hint. Injectable for tests; defaults to the live platform.
+ *
  * @public
  */
 export const classifySpawnFailure = (
   providerName: ProviderName,
   cause: NodeJS.ErrnoException,
-  argvBytes?: number
+  argvBytes?: number,
+  platform: NodeJS.Platform = process.platform
 ): AttemptOutcome => {
   const errno = errnoOf(cause);
-  if (isArgvOverflow(errno, argvBytes ?? 0)) {
+  if (isArgvOverflow(errno, argvBytes ?? 0, platform)) {
     const hint = argvOverflowHint(argvBytes);
     return {
       kind: 'error',

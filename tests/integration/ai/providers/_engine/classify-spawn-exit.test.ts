@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_RATE_LIMIT_RE,
   classifySpawnExit,
+  classifySpawnFailure,
   type ProviderName,
 } from '@src/integration/ai/providers/_engine/classify-spawn-exit.ts';
 import type { AttemptOutcome } from '@src/integration/ai/providers/_engine/attempt-outcome.ts';
@@ -307,25 +308,51 @@ describe.each(PROVIDERS)('classifySpawnExit [%s]', (providerName) => {
     }
   });
 
-  it('treats any spawn failure past the Windows ceiling as an overflow, whatever the errno says', async () => {
+  it('on win32, treats any spawn failure past the ceiling as an overflow, whatever the errno says', () => {
     // Windows does not document which error code CreateProcessW sets for an oversized command
-    // line, and the same condition has been reported as ERROR_INVALID_PARAMETER — so the measured
-    // size decides, not the errno alone.
-    const session = baseSession();
+    // line, and the same condition has been reported as ERROR_INVALID_PARAMETER — so on win32 the
+    // measured size decides, not the errno alone.
     const spawnError = Object.assign(new Error('spawn UNKNOWN'), { code: 'UNKNOWN' }) as NodeJS.ErrnoException;
-    const outcome = await classifySpawnExit({
-      session,
-      exit: { code: null, signal: null, spawnError, argvBytes: 40_000 },
-      stderr: '',
-      rateLimitRe: RATE_RE,
-      providerName,
-      eventBus: createCapturingBus().bus,
-      watchdogBannerId: 'unused',
-      onSuccess: () => okSuccess(session),
-    });
+    const outcome = classifySpawnFailure(providerName, spawnError, 40_000, 'win32');
     expect(outcome.kind).toBe('error');
     if (outcome.kind === 'error') expect(outcome.error.code).toBe('invalid-state');
   });
+
+  it.each<NodeJS.Platform>(['darwin', 'linux'])(
+    'on %s, a big argv does NOT reclassify a genuine ENOENT — stays a retryable crash with the PATH hint',
+    (platform) => {
+      // ARG_MAX on darwin / linux is ~1 MiB, so a 40 KiB command line is legal. Blaming the size
+      // hid the real cause (CLI not on PATH) AND made it non-retryable, so the attempt budget
+      // stopped early on a failure that a retry could have survived.
+      const spawnError = Object.assign(new Error('spawn copilot ENOENT'), {
+        code: 'ENOENT',
+      }) as NodeJS.ErrnoException;
+      const outcome = classifySpawnFailure(providerName, spawnError, 40_000, platform);
+      expect(outcome.kind).toBe('error');
+      if (outcome.kind === 'error' && outcome.error instanceof ProcessCrashError) {
+        expect(outcome.error.code).toBe('process-crash');
+        expect(outcome.error.message).toContain('ENOENT');
+        expect(outcome.error.hint).toContain('PATH');
+      } else {
+        expect.unreachable('expected a retryable ProcessCrashError');
+      }
+    }
+  );
+
+  it.each<NodeJS.Platform>(['win32', 'darwin', 'linux'])(
+    'on %s, the ENAMETOOLONG / E2BIG errnos are an overflow regardless of platform',
+    (platform) => {
+      for (const code of ['ENAMETOOLONG', 'E2BIG']) {
+        const spawnError = Object.assign(new Error(`spawn ${code}`), { code }) as NodeJS.ErrnoException;
+        const outcome = classifySpawnFailure(providerName, spawnError, 40_000, platform);
+        expect(outcome.kind).toBe('error');
+        if (outcome.kind === 'error') {
+          expect(outcome.error).toBeInstanceOf(InvalidStateError);
+          expect(outcome.error.code).toBe('invalid-state');
+        }
+      }
+    }
+  );
 
   it('rate-limit detected in stdoutTail (not stderr) when the provider reports quota on stdout', async () => {
     // FINDING 3 — claude's `-p stream-json` mode reports quota in the stdout result envelope, not

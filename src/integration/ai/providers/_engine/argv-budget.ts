@@ -16,7 +16,8 @@
  * and a predicate that recognises an overflow even when the errno is unhelpful. Overflow does not
  * always arrive as `ENAMETOOLONG`; the same condition has been observed surfacing as
  * `ERROR_INVALID_PARAMETER` on Windows, so the byte count is checked alongside the errno rather
- * than trusting the errno alone.
+ * than trusting the errno alone — but only ON Windows, since darwin / linux allow roughly 1 MiB of
+ * arguments and a big command line there is not evidence of anything.
  */
 
 /** `CreateProcessW` `lpCommandLine` ceiling, including the terminating null. */
@@ -37,12 +38,29 @@ export const argvByteLength = (command: string, args: readonly string[]): number
   args.reduce((total, arg) => total + Buffer.byteLength(arg, 'utf8') + 1, Buffer.byteLength(command, 'utf8'));
 
 /**
- * Whether a spawn failure is an argv / command-line overflow. Matches the two errnos the kernels
- * raise, plus any failure at all once the assembled command line is already past the Windows
- * ceiling — at that size no other explanation is more likely, and the errno cannot be relied on.
+ * Whether a spawn failure is an argv / command-line overflow.
+ *
+ * Two arms, and they are gated differently on purpose:
+ *
+ *  - **the errnos** (`ENAMETOOLONG` / `E2BIG`) are unconditional — every kernel raises one of them
+ *    for a command line it refuses, so the diagnosis holds on any platform;
+ *  - **the size heuristic** ("any failure at all past the ceiling") is `win32`-ONLY. It exists
+ *    because Windows does not reliably report the overflow errno — the same condition has been
+ *    observed as `ERROR_INVALID_PARAMETER` — so past 32,767 bytes no other explanation is more
+ *    likely. That reasoning does not travel: `ARG_MAX` on darwin / linux is ~1 MiB, where a 40 KiB
+ *    command line is perfectly legal and a failure is far more likely a missing binary. Applying
+ *    the heuristic there turned a genuine `ENOENT` (CLI not on PATH) into a non-retryable
+ *    "argv overflow", stopping the retry ladder and pointing the operator at the wrong problem.
+ *
+ * `platform` defaults to the live `process.platform` and is injectable so the win32 branch is
+ * testable from any host.
  */
-export const isArgvOverflow = (errno: string | undefined, argvBytes: number): boolean =>
-  errno === 'ENAMETOOLONG' || errno === 'E2BIG' || argvBytes >= WINDOWS_COMMAND_LINE_LIMIT;
+export const isArgvOverflow = (
+  errno: string | undefined,
+  argvBytes: number,
+  platform: NodeJS.Platform = process.platform
+): boolean =>
+  errno === 'ENAMETOOLONG' || errno === 'E2BIG' || (platform === 'win32' && argvBytes >= WINDOWS_COMMAND_LINE_LIMIT);
 
 /**
  * The actionable half of an overflow message. Names the measured size against the ceiling it
