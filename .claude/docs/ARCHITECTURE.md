@@ -589,7 +589,7 @@ and the non-obvious mutators.
   Cross-sprint persistence is explicitly future work.
 - **`Settings`** — declared by `SettingsSchema` in `domain/entity/settings.ts`. Top-level fields:
   `schemaVersion` (currently `2`), `ai`,
-  `harness: { maxTurns, maxAttempts, rateLimitRetries, plateauThreshold, escalateOnPlateau, escalationMap, skipPreVerifyOnFreshSetup, bestOfNCandidates? }`,
+  `harness: { maxTurns, maxAttempts, rateLimitRetries, plateauThreshold, escalateOnPlateau, escalationMap, skipPreVerifyOnFreshSetup, entropyPlateauDetector, bestOfNCandidates? }`,
   `logging: { level }`, `concurrency: { maxParallelTasks }`, `ui: { notifications: { enabled } }`,
   `developer: { showEvaluatorFailureUI }`. `ai` is a flat per-flow record: an optional global
   `ai.effort` plus one row per flow — `ai.{refine, plan, readiness, ideate, createPr}`, each

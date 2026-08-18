@@ -291,16 +291,18 @@ const plateauSentence = (warning: JournalWarning): string => {
   const detector = warning.source !== undefined ? ` (detector: ${warning.source})` : '';
   if (warning.source === 'diversity') {
     // `loop-diversity-check` (gen-eval-loop.ts) — the generator re-emitted the same failed-
-    // dimension fingerprint for the last 3 consecutive turns without changing approach;
-    // dimensions carries that repeated failed set, same as `threshold`.
-    return `The evaluator plateaued — the generator repeated the same failed-dimension pattern across the last 3 consecutive turns without changing approach${dims}${detector}.`;
+    // dimension fingerprint across the whole plateau window (`harness.plateauThreshold` turns)
+    // without changing approach; dimensions carries that repeated failed set, same as `threshold`.
+    // Historical records written when the window was a hardcoded 3 render with this wording too —
+    // the sentence deliberately names the window rather than a fixed turn count.
+    return `The evaluator plateaued — the generator repeated the same failed-dimension pattern across the whole plateau window without changing approach${dims}${detector}.`;
   }
   if (warning.source === 'entropy') {
     // `entropy-check` (gen-eval-loop.ts) — Shannon entropy over the generator's reported signal-
-    // kind distribution for the latest turn collapsed below threshold. This detector never
-    // compares two evaluations' failure sets, so it always carries `dimensions: []` — `dims` is
-    // deliberately not interpolated into this sentence.
-    return `The evaluator plateaued — the generator's reported actions collapsed onto a narrow set of signal kinds this turn (low action-kind diversity)${detector}.`;
+    // kind distribution, pooled across the plateau window, collapsed below threshold. This
+    // detector never compares two evaluations' failure sets, so it always carries
+    // `dimensions: []` — `dims` is deliberately not interpolated into this sentence.
+    return `The evaluator plateaued — the generator's reported actions collapsed onto a narrow set of signal kinds across the plateau window (low action-kind diversity)${detector}.`;
   }
   // `threshold` (business/task/plateau-detection.ts) is the only detector that compares two
   // consecutive evaluations' failed-dimension sets — also the fallback wording for legacy records

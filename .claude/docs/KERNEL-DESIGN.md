@@ -141,9 +141,12 @@ Semantics:
 `generator-leaf → guarded evaluator-step`; the evaluator step is itself a `sequential` of
 `evaluatorLeaf → loopDiversityCheckLeaf → entropyCheckLeaf`. The two check leaves each emit a `plateau`
 exit on ctx when they detect stagnation — `loop-diversity-check` when the failed-dimension fingerprint
-repeats for `DIVERSITY_WINDOW_SIZE` (3) consecutive turns, `entropy-check` when the normalised Shannon
-entropy over the generator's per-turn signal-kind distribution collapses below a threshold (secondary,
-softer signal). The loop exits when any leaf sets `ctx.lastExit` or the `maxTurns` budget is reached.
+repeats across the whole plateau window, `entropy-check` (opt-in, `harness.entropyPlateauDetector`,
+default off) when the normalised Shannon entropy over the generator's signal-kind distribution POOLED
+across that window collapses below a threshold (secondary, softer signal). Both size their window from
+`harness.plateauThreshold` and gate on `windowIsHardStall` (`business/task/plateau-detection.ts`), so
+neither can pre-empt the operator's knob or override the calibrated predicate's progress exemptions.
+The loop exits when any leaf sets `ctx.lastExit` or the `maxTurns` budget is reached.
 An outer `loop('task-attempts-<id>')` re-runs the whole attempt segment (`start-attempt → … →
 settle-attempt → progress-journal`) until the task settles `done`/`blocked` or `task.maxAttempts` fires.
 
@@ -310,8 +313,8 @@ const perTask = sequential('task-<id>', [
             (ctx) => ctx.lastExit === undefined,
             sequential('evaluator-step-<id>', [
               evaluatorLeaf, // writes rounds/<N>/evaluator/prompt.md before spawn
-              loopDiversityCheckLeaf, // exits 'plateau' when failed-dimension fingerprint repeats
-              entropyCheckLeaf, // exits 'plateau' when signal-kind entropy collapses (secondary)
+              loopDiversityCheckLeaf, // exits 'plateau' when the fingerprint repeats across the window
+              entropyCheckLeaf, // opt-in: exits 'plateau' when pooled signal-kind entropy collapses
             ])
           ),
         ]),

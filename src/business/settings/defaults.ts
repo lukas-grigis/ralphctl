@@ -132,6 +132,9 @@ export const DEFAULT_SETTINGS: Settings = {
     escalateOnPlateau: true,
     escalationMap: {},
     skipPreVerifyOnFreshSetup: false,
+    // Off by default — the in-loop action-entropy detector is a proxy for a proxy, and the
+    // count-based `plateauThreshold` predicate already covers every window it can fire on.
+    entropyPlateauDetector: false,
     // On by default at the minimum useful N — a stuck task gets a real second remedy (sample two
     // candidates, select by verification then judging) before settling done-with-warning. The cost
     // is bounded: the rung fires at most ONCE per task, only after the model ladder and the

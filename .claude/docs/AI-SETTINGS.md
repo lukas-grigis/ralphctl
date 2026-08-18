@@ -235,6 +235,11 @@ retargeted or removed without leaving the TUI.
   the verify gate (not merely installs dependencies) — an install-only setup script would hide a pre-broken
   baseline. Default `false` keeps the strict pre/post symmetry for everyone who has not made that assertion. See
   `PERFORMANCE.md § Verify-gate cost and scoping`.
+- `entropyPlateauDetector` (default `false`) — opt-in: run the in-loop action-entropy plateau detector, which
+  exits the gen-eval loop when the generator's reported signal kinds, pooled across the plateau window,
+  collapse onto one kind. Off by default: the signal is a proxy for a proxy (the harness never sees raw
+  tool-use), and it is subordinate to the count-based `plateauThreshold` predicate, which already covers every
+  window it can fire on. See `PERFORMANCE.md § Iteration budget`.
 
 **Fail-fast PATH check.** Every AI-spawning flow probes for its row's CLI binary at launch (`claude` /
 `copilot` / `codex` / `opencode` — `PROVIDER_BINARY` in `src/integration/system/detect-cli.ts` covers all

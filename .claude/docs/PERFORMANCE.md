@@ -83,26 +83,31 @@ required. The only path that resets a task to `todo` is `task unblock`.
   `maxTurns` 1–2 was valid before the invariant, and a parse failure would brick the TUI and the
   `settings set` repair command on upgrade.
 
-Two additional plateau signals fire _inside_ each gen-eval turn via dedicated guard leaves, without
-waiting for the `plateauThreshold` count:
+Two additional plateau signals fire _inside_ each gen-eval turn via dedicated guard leaves. Both are
+strictly **subordinate to the calibrated predicate**: each sizes its window with `plateauWindowSize`
+(i.e. `settings.harness.plateauThreshold`, clamped 2–5) and may only declare a plateau on a window
+`windowIsHardStall` — the same cascade + exemptions `computePlateauVerdict` runs — also calls stalled.
+So neither can fire earlier than the operator asked for, and neither can exit a loop the calibrated
+predicate deliberately exempted for a shifted critique or a changed work product.
 
 - **`loop-diversity-check`** (`src/application/flows/implement/leaves/loop-diversity-check.ts`, wired into
-  the loop body from `gen-eval-loop.ts`) — a pure derivation over the last `DIVERSITY_WINDOW_SIZE` (3)
-  records of `ctx.plateauHistory` (sorted set of failing dimension names joined by `|`, re-read from ctx
-  on every turn rather than tracked in a rolling buffer). When the last `DIVERSITY_WINDOW_SIZE`
-  fingerprints are identical the loop exits with `plateau`, letting the escalation ladder intervene
-  earlier than the count-based predicate would. `start-attempt` clears `plateauHistory` per attempt, so
-  the window can never span an attempt boundary.
-- **`entropy-check`** — computes normalised Shannon entropy (`H = -Σ(p·log₂p)/log₂K`) over the
-  generator's per-turn signal-kind distribution (decision / change / learning / note counts stamped
-  on `ctx.lastTurnActionCounts` by the generator leaf). When `H < 0.25` (the agent concentrated
-  its actions on one kind), the loop exits with `plateau`. **Honesty:** this is a
-  _signal-kind-distribution proxy_ for action diversity — the harness never sees raw tool-use, so
-  the spread of reported signal kinds stands in for "action variety." It is a secondary, softer signal
-  to the fingerprint guard and does not fire on the first `DIVERSITY_WINDOW_SIZE` turns or when
-  another exit is already pending. Both guards respect the budget-precedence invariant: when the
-  current turn is the final budgeted turn, `finalize` synthesises the terminal state rather than an
-  early plateau pre-empting it.
+  the loop body from `gen-eval-loop.ts`) — a pure derivation over the last `plateauWindowSize` records of
+  `ctx.plateauHistory` (sorted set of failing dimension names joined by `|`, re-read from ctx on every
+  turn rather than tracked in a rolling buffer). When every fingerprint in that window is identical AND
+  the window is a hard stall, the loop exits with `plateau`. `start-attempt` clears `plateauHistory` per
+  attempt, so the window can never span an attempt boundary.
+- **`entropy-check`** (opt-in — `settings.harness.entropyPlateauDetector`, default `false`) — computes
+  normalised Shannon entropy (`H = -Σ(p·log₂p)/log₂K`) over the generator's signal-kind distribution
+  (decision / change / learning / note) POOLED across the plateau window; each turn's counts ride the
+  turn's `PlateauTurnRecord` (copied off `ctx.lastTurnActionCounts`). When `H < 0.25` on a hard-stalled
+  window, the loop exits with `plateau`. **Honesty:** this is a _signal-kind-distribution proxy_ for
+  action diversity — the harness never sees raw tool-use, so the spread of reported signal kinds stands
+  in for "action variety". It scored a SINGLE turn until 2026-08: a turn emitting only `change` signals
+  gave K=1 → H=0 → a guaranteed false-positive plateau that burned an escalation rung plus a whole
+  attempt. Pooling fixed the false positive; the knob stays default-off because the count-based
+  predicate already covers every window this detector can fire on. Both guards respect the
+  budget-precedence invariant: when the current turn is the final budgeted turn, `finalize` synthesises
+  the terminal state rather than an early plateau pre-empting it.
 
 Mirrored on `IterationConfig` (`src/application/chain/run/iteration-config.ts`); the chain `loop` predicates
 and the headless provider adapter read it.
@@ -227,6 +232,9 @@ times per task (harness pre + post + generator in-turn + evaluator in-turn). The
   `VerifyRun` shape the carry-baseline path produces, so the `PRE_VERIFY_RESULTS` block and attribution fold
   through one code path. Safe only when the setup script actually verifies the tree, not merely installs
   dependencies. See `AI-SETTINGS.md § settings.harness keys`.
+- **`settings.harness.entropyPlateauDetector`** (default `false`) — opt into the in-loop action-entropy
+  plateau detector (see the two in-turn plateau signals above). Off by default: the signal is a proxy for
+  a proxy, and the count-based `plateauThreshold` predicate already covers every window it can fire on.
 
 Wall-clock per gen-eval round: setup (once at sprint start) + pre-verify + generator turn(s) + evaluator turn(s) +
 post-verify + commit. Post-verify dominates for monorepos; `verifyGates` diff-scoping is the highest-leverage knob there.

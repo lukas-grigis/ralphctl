@@ -32,16 +32,20 @@ export interface Evaluation {
 /**
  * Which of the three gen-eval plateau detectors produced a `plateau` exit — pure instrumentation
  * for the periodic "is this detector still load-bearing or redundant scaffolding?" audit (see
- * `.claude/docs/HARNESS-PRINCIPLES.md` § 14 and the "Model-bump audit checklist"); no detection
- * behaviour hinges on this value. 1:1 with the `banner-show` `cause` strings the loop-diversity /
- * entropy guards publish in `gen-eval-loop.ts`:
+ * `.claude/docs/HARNESS-PRINCIPLES.md` § 6 for the plateau design and § 14 / the "Model-bump audit
+ * checklist" for the audit ritual); no detection behaviour hinges on this value. 1:1 with the
+ * `banner-show` `cause` strings the loop-diversity / entropy guards publish in `gen-eval-loop.ts`:
  *
  *  - `threshold` — the count-based consecutive-non-improving-turns check (`plateauThreshold`,
  *                  `computePlateauVerdict` in `business/task/plateau-detection.ts`, wired through
  *                  `runEvaluatorTurnUseCase`). No banner — this detector runs deep in the business
- *                  layer, ahead of any `EventBus` wiring.
- *  - `diversity` — the loop-diversity guard (banner cause `'loop-diversity-exhausted'`).
- *  - `entropy`   — the action-entropy guard (banner cause `'low-action-entropy'`).
+ *                  layer, ahead of any `EventBus` wiring. The CALIBRATED one: it owns the window
+ *                  size and the two progress exemptions both other detectors now defer to.
+ *  - `diversity` — the loop-diversity guard (banner cause `'loop-diversity-exhausted'`): an
+ *                  identical failed-dimension fingerprint repeated across the whole window.
+ *  - `entropy`   — the action-entropy guard (banner cause `'low-action-entropy'`): the generator's
+ *                  reported signal kinds, pooled across the window, collapsed onto one kind.
+ *                  Opt-in — `settings.harness.entropyPlateauDetector`, default off.
  *
  * OPTIONAL everywhere it appears: absent on every persisted record written before this field
  * existed — old on-disk `tasks.json` rows must keep parsing without it.

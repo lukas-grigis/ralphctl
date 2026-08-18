@@ -328,23 +328,19 @@ describe('createGenEvalLoop — crash-attribution: meta sidecars land before gen
   });
 });
 
-// ── Behavioral test: entropy-check fires on a signal-kind-distribution plateau (R2) ───────────
+// ── Behavioral tests: the two in-loop plateau detectors are subordinate to the calibration ────
 
 /**
- * The entropy-check leaf is now LIVE (no longer dormant): the generator leaf stamps each turn's
- * signal-kind distribution onto `ctx.lastTurnActionCounts`, and the entropy guard reads it as a
- * proxy for action diversity. These tests drive the real loop so the wiring is exercised
- * end-to-end, NOT a hand-fed input projection.
+ * Both bolt-on detectors (`loop-diversity-check`, `entropy-check`) run immediately after the
+ * evaluator leaf — i.e. exactly where the calibrated `computePlateauVerdict` has already spoken.
+ * They now window from `harness.plateauThreshold` and gate their verdict on `windowIsHardStall`,
+ * the same cascade + exemptions the calibrated predicate applies, so neither can pre-empt the
+ * operator's knob nor exit a loop the calibrated predicate deliberately exempted.
  *
- * To ISOLATE the entropy guard from the other two plateau sources that run first:
- *  - the R1 fingerprint guard (loop-diversity-check): the scripted evaluator fails a DIFFERENT
- *    floor dimension every turn, so the failure fingerprints stay diverse and it never fires.
- *  - the evaluator's own count-based plateau predicate: the scripted critique is genuinely
- *    dissimilar every turn, so the critique-shift exemption returns `progress` and it never fires
- *    (the same technique the e2e "exhausted budget" test relies on).
- * That leaves the entropy guard as the only possible plateau exit.
+ * These tests drive the REAL loop (not a hand-fed input projection) so the wiring is exercised
+ * end-to-end.
  */
-describe('createGenEvalLoop — entropy-check (R2) live behavior', () => {
+describe('createGenEvalLoop — in-loop plateau detectors (subordination to the calibrated predicate)', () => {
   let root: Awaited<ReturnType<typeof makeTmpRoot>>;
 
   beforeEach(async () => {
@@ -363,8 +359,7 @@ describe('createGenEvalLoop — entropy-check (R2) live behavior', () => {
   const learning = (text: string): HarnessSignal => ({ type: 'learning', text, timestamp: ts });
 
   const FLOOR = ['correctness', 'completeness', 'safety', 'consistency', 'robustness'] as const;
-  // Pairwise-dissimilar critiques (trigram-Jaccard < 0.5) so the evaluator's critique-shift
-  // exemption keeps returning `progress` and its count-based plateau never fires.
+  /** Pairwise-dissimilar critiques (trigram-Jaccard < 0.5) — the critique-shift exemption. */
   const CRITIQUES = [
     'first round complaint about a parser edge case in the tokenizer module',
     'second turn raises a completely different retry-semantics concern entirely',
@@ -372,39 +367,46 @@ describe('createGenEvalLoop — entropy-check (R2) live behavior', () => {
     'fourth review worries about timezone handling around daylight-saving boundaries',
     'fifth look questions the cache eviction policy under sustained memory pressure',
   ];
+  /** One recycled complaint, re-sent verbatim every turn — no critique shift. */
+  const RECYCLED = 'the same complaint about the same parser edge case in the same tokenizer module';
+
   /**
-   * A FAILED verdict for turn `i` (0-indexed): the single failing dimension ROTATES (diverse
-   * fingerprints → loop-diversity stays quiet) and the critique is distinct (critique-shift
-   * exemption → the count-based evaluator plateau stays quiet).
+   * A FAILED verdict for turn `i` (0-indexed). `rotate` picks whether the failing dimension moves
+   * every turn (diverse fingerprints) or stays put (identical fingerprint); `shiftCritique` picks
+   * whether the prose moves (the calibrated critique-shift exemption) or is recycled.
    */
-  const failTurn = (i: number): HarnessSignal => {
-    const failing = FLOOR[i % FLOOR.length] ?? 'correctness';
+  const failTurn = (i: number, opts: { readonly rotate: boolean; readonly shiftCritique: boolean }): HarnessSignal => {
+    const failing = opts.rotate ? (FLOOR[i % FLOOR.length] ?? 'correctness') : 'correctness';
     return {
       type: 'evaluation',
       status: 'failed',
       dimensions: FLOOR.map((d) => ({ dimension: d, passed: d !== failing, finding: d === failing ? 'nope' : 'ok' })),
-      critique: CRITIQUES[i] ?? `fallback critique number ${String(i)} mentioning unique token ${String(i * 7919)}`,
+      critique: opts.shiftCritique
+        ? (CRITIQUES[i] ?? `fallback critique number ${String(i)} mentioning unique token ${String(i * 7919)}`)
+        : RECYCLED,
       timestamp: ts,
     };
   };
 
-  const buildEntropyLoop = (opts: {
+  const buildLoop = (opts: {
     readonly generatorSignals: readonly HarnessSignal[];
     readonly maxTurns: number;
+    readonly plateauThreshold: number;
     readonly eventBus: ReturnType<typeof createInMemoryEventBus>;
+    readonly rotate: boolean;
+    readonly shiftCritique: boolean;
+    readonly entropyPlateauDetector?: boolean;
   }) => {
     const generatorProvider = createFakeAiProvider({
       responses: { implement: '' },
       signals: { implement: opts.generatorSignals },
     });
-    // Rotate the failing dimension + critique per evaluate call (keeps loop-diversity AND the
-    // evaluator's count-based plateau both quiet — see the failTurn docstring).
     let evalTurn = 0;
     const evaluatorProvider = createFakeAiProvider({
       responses: { evaluate: '' },
       signals: {
         evaluate: () => {
-          const sig = failTurn(evalTurn);
+          const sig = failTurn(evalTurn, { rotate: opts.rotate, shiftCritique: opts.shiftCritique });
           evalTurn += 1;
           return [sig];
         },
@@ -423,8 +425,11 @@ describe('createGenEvalLoop — entropy-check (R2) live behavior', () => {
         eventBus: opts.eventBus,
         readConfig: async () => ({ maxTurns: opts.maxTurns }),
         maxTurns: opts.maxTurns,
-        plateauThreshold: 2,
+        plateauThreshold: opts.plateauThreshold,
         correctiveRetries: 2,
+        ...(opts.entropyPlateauDetector !== undefined ? { entropyPlateauDetector: opts.entropyPlateauDetector } : {}),
+        // Stub git runner — a constant (empty) response means a CONSTANT work-product fingerprint
+        // across turns, i.e. the tree never changed, so the work-product exemption stays quiet.
         gitRunner: {
           async run() {
             return Result.ok({ stdout: '', stderr: '', exitCode: 0 });
@@ -450,279 +455,143 @@ describe('createGenEvalLoop — entropy-check (R2) live behavior', () => {
     taskWorkspaceRoot: root.root,
   });
 
-  it('exits with a plateau when the generator collapses to a single signal kind for >= window turns (budget remaining)', async () => {
+  const bannerCollector = (): {
+    readonly eventBus: ReturnType<typeof createInMemoryEventBus>;
+    readonly banners: AppEvent[];
+  } => {
     const eventBus = createInMemoryEventBus();
     const banners: AppEvent[] = [];
     eventBus.subscribe((e) => {
       if (e.type === 'banner-show') banners.push(e);
     });
-    // Single narrative kind every turn → H = 0 (< 0.25). maxTurns = 5 leaves budget at turn 3.
-    const { loop, task } = buildEntropyLoop({
+    return { eventBus, banners };
+  };
+
+  const bannerFor = (banners: readonly AppEvent[], id: string): AppEvent | undefined =>
+    banners.find((e) => e.type === 'banner-show' && e.id === id);
+
+  /**
+   * REGRESSION — the K=1 false positive. The entropy detector used to score a SINGLE turn's
+   * signal-kind distribution: a turn emitting only `note` signals scored H=0 and exited the loop
+   * with a plateau, burning an escalation rung plus a whole attempt while the evaluator's own
+   * calibrated predicate was still reporting progress (rotating failures, shifting critiques).
+   * Enabled or not, that turn must no longer end the loop.
+   */
+  it('does NOT exit on a single-kind generator turn while the calibrated predicate reports progress', async () => {
+    for (const entropyPlateauDetector of [false, true]) {
+      const { eventBus, banners } = bannerCollector();
+      const { loop, task } = buildLoop({
+        generatorSignals: [taskVerified('ok'), note('same kind of move')],
+        maxTurns: 5,
+        plateauThreshold: 3,
+        eventBus,
+        rotate: true,
+        shiftCritique: true,
+        entropyPlateauDetector,
+      });
+
+      const result = await loop.execute(ctxFor(task));
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      // No plateau anywhere: the loop runs its full budget and leaves the terminal state to
+      // `finalize` (which synthesises `budget-exhausted`).
+      expect(result.value.ctx.lastExit, `entropy detector ${String(entropyPlateauDetector)}`).toBeUndefined();
+      expect(result.value.ctx.genEvalTurn).toBe(5);
+      expect(bannerFor(banners, `entropy-plateau-${String(task.id)}`)).toBeUndefined();
+      expect(bannerFor(banners, `loop-diversity-${String(task.id)}`)).toBeUndefined();
+      // Threading pin: each evaluator turn record carries THAT turn's signal-kind distribution,
+      // so the entropy detector pools its window off the same history the predicate reads.
+      const history = result.value.ctx.plateauHistory ?? [];
+      expect(history).toHaveLength(5);
+      for (const record of history) expect([...(record.actionCounts ?? new Map())]).toStrictEqual([['note', 1]]);
+    }
+  });
+
+  /**
+   * The work-product/critique exemptions belong to the calibrated predicate, and the fingerprint
+   * detector now honours them: the SAME dimension fails every turn (an identical fingerprint —
+   * the classic diversity trigger) but the evaluator's prose moves every turn, so the loop must
+   * keep going rather than burning a rung on a `diversity` plateau.
+   */
+  it('does NOT exit on a repeated failure fingerprint while the critique keeps shifting', async () => {
+    const { eventBus, banners } = bannerCollector();
+    const { loop, task } = buildLoop({
+      // Diverse signal kinds keep the (disabled anyway) entropy detector doubly quiet.
+      generatorSignals: [taskVerified('ok'), decision('d'), change('c'), learning('l'), note('n')],
+      maxTurns: 5,
+      plateauThreshold: 3,
+      eventBus,
+      rotate: false,
+      shiftCritique: true,
+    });
+
+    const result = await loop.execute(ctxFor(task));
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.ctx.lastExit).toBeUndefined();
+    expect(result.value.ctx.genEvalTurn).toBe(5);
+    expect(bannerFor(banners, `loop-diversity-${String(task.id)}`)).toBeUndefined();
+  });
+
+  /**
+   * SUBORDINATION. On a genuinely stalled window (same failure every turn, recycled critique,
+   * unchanged tree) the exit is the CALIBRATED one — `source: 'threshold'`, fired by
+   * `computePlateauVerdict` inside the evaluator turn at exactly the operator's threshold. The
+   * bolt-on detectors see the same window one step later, find `lastExit` already set, and stay
+   * silent: no `diversity` / `entropy` attribution, no second banner.
+   */
+  it("attributes a genuine stall to the calibrated 'threshold' detector, not to a bolt-on", async () => {
+    const { eventBus, banners } = bannerCollector();
+    const { loop, task } = buildLoop({
       generatorSignals: [taskVerified('ok'), note('same kind of move')],
       maxTurns: 5,
+      plateauThreshold: 3,
       eventBus,
+      rotate: false,
+      shiftCritique: false,
+      // Even opted IN, the entropy detector cannot claim a window the calibration already owns.
+      entropyPlateauDetector: true,
     });
 
     const result = await loop.execute(ctxFor(task));
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    // The entropy guard reuses the plateau exit kind so the escalation ladder applies the remedy.
-    expect(result.value.ctx.lastExit?.kind).toBe('plateau');
-    // Attribution: this exit came from the entropy detector specifically — instrumentation only,
-    // no effect on the exit decision itself.
     const exit = result.value.ctx.lastExit;
-    expect(exit?.kind === 'plateau' && exit.source).toBe('entropy');
-    // Fires exactly at the window boundary (turn 3 = DIVERSITY_WINDOW_SIZE), with budget remaining.
+    expect(exit?.kind).toBe('plateau');
+    expect(exit?.kind === 'plateau' && exit.source).toBe('threshold');
+    // Fires at the operator's threshold (3), with budget remaining.
     expect(result.value.ctx.genEvalTurn).toBe(3);
-    const entropyBanner = banners.find(
-      (e) => e.type === 'banner-show' && e.id === `entropy-plateau-${String(task.id)}`
-    );
-    expect(entropyBanner).toBeDefined();
-    if (entropyBanner?.type === 'banner-show') expect(entropyBanner.cause).toBe('low-action-entropy');
+    expect(bannerFor(banners, `entropy-plateau-${String(task.id)}`)).toBeUndefined();
+    expect(bannerFor(banners, `loop-diversity-${String(task.id)}`)).toBeUndefined();
   });
 
-  it('does NOT exit when the generator emits a diverse spread of signal kinds (high entropy)', async () => {
-    const eventBus = createInMemoryEventBus();
-    const banners: AppEvent[] = [];
-    eventBus.subscribe((e) => {
-      if (e.type === 'banner-show') banners.push(e);
-    });
-    // One of each narrative kind every turn → uniform 4-kind distribution → H = 1 (no plateau).
-    const { loop, task } = buildEntropyLoop({
-      generatorSignals: [taskVerified('ok'), decision('d'), change('c'), learning('l'), note('n')],
+  /**
+   * The window follows the operator's knob rather than a hardcoded 3: a patient threshold of 5
+   * must NOT plateau on the same script that trips a threshold of 3 above — no detector may fire
+   * earlier than the operator asked for.
+   */
+  it('honours a patient plateauThreshold — no detector fires before the operator window fills', async () => {
+    const { eventBus, banners } = bannerCollector();
+    const { loop, task } = buildLoop({
+      generatorSignals: [taskVerified('ok'), note('same kind of move')],
       maxTurns: 4,
+      plateauThreshold: 5,
       eventBus,
+      rotate: false,
+      shiftCritique: false,
+      entropyPlateauDetector: true,
     });
 
     const result = await loop.execute(ctxFor(task));
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    // High entropy + diverse fingerprints → neither guard fires; the loop runs to its budget and
-    // leaves `lastExit` for finalize to synthesise (budget-exhausted) downstream.
     expect(result.value.ctx.lastExit).toBeUndefined();
     expect(result.value.ctx.genEvalTurn).toBe(4);
-    const entropyBanner = banners.find(
-      (e) => e.type === 'banner-show' && e.id === `entropy-plateau-${String(task.id)}`
-    );
-    expect(entropyBanner).toBeUndefined();
-  });
-});
-
-// ── Behavioral test: loop-diversity fires on a repeated failure fingerprint (R1) ────────────────
-
-/**
- * The loop-diversity guard is the FIRST plateau source to run inside `evaluator-guard` (it
- * precedes the entropy check). To isolate it from the other two detectors:
- *  - the evaluator's own count-based plateau predicate: the scripted critique is genuinely
- *    dissimilar every turn (reusing the entropy suite's `CRITIQUES` list), so the critique-shift
- *    exemption returns `progress` and the count-based predicate never fires — even though the
- *    SAME dimension fails every turn (which is exactly what the diversity fingerprint needs).
- *  - the entropy guard: the generator emits one of each narrative kind every turn (uniform
- *    distribution, H = 1), so it never sees low entropy.
- * That leaves the diversity guard as the only possible plateau exit.
- */
-describe('createGenEvalLoop — loop-diversity guard (R1) live behavior', () => {
-  let root: Awaited<ReturnType<typeof makeTmpRoot>>;
-
-  beforeEach(async () => {
-    root = await makeTmpRoot();
-  });
-
-  afterEach(async () => {
-    await root.cleanup();
-  });
-
-  const ts = FIXED_NOW;
-  const taskVerified = (output: string): HarnessSignal => ({ type: 'task-verified', output, timestamp: ts });
-  const note = (text: string): HarnessSignal => ({ type: 'note', text, timestamp: ts });
-  const decision = (text: string): HarnessSignal => ({ type: 'decision', text, timestamp: ts });
-  const change = (text: string): HarnessSignal => ({ type: 'change', text, timestamp: ts });
-  const learning = (text: string): HarnessSignal => ({ type: 'learning', text, timestamp: ts });
-
-  const FLOOR = ['correctness', 'completeness', 'safety', 'consistency', 'robustness'] as const;
-  const CRITIQUES = [
-    'first round complaint about a parser edge case in the tokenizer module',
-    'second turn raises a completely different retry-semantics concern entirely',
-    'third pass flags a SQL injection vector in the dynamic query builder layer',
-    'fourth review worries about timezone handling around daylight-saving boundaries',
-    'fifth look questions the cache eviction policy under sustained memory pressure',
-  ];
-  /**
-   * A FAILED verdict for turn `i` (0-indexed): the SAME dimension fails every turn (identical
-   * fingerprint → diversity guard trips), but the critique is distinct every turn (critique-shift
-   * exemption → the count-based evaluator plateau stays quiet).
-   */
-  const failSameDim = (i: number): HarnessSignal => ({
-    type: 'evaluation',
-    status: 'failed',
-    dimensions: FLOOR.map((d) => ({
-      dimension: d,
-      passed: d !== 'correctness',
-      finding: d === 'correctness' ? 'nope' : 'ok',
-    })),
-    critique: CRITIQUES[i] ?? `fallback critique number ${String(i)} mentioning unique token ${String(i * 7919)}`,
-    timestamp: ts,
-  });
-
-  it("exits with a plateau attributed to 'diversity' when the failure fingerprint repeats for >= window turns", async () => {
-    const generatorProvider = createFakeAiProvider({
-      responses: { implement: '' },
-      // Diverse spread of signal kinds every turn keeps the entropy guard quiet (H = 1).
-      signals: { implement: [taskVerified('ok'), decision('d'), change('c'), learning('l'), note('n')] },
-    });
-    let evalTurn = 0;
-    const evaluatorProvider = createFakeAiProvider({
-      responses: { evaluate: '' },
-      signals: {
-        evaluate: () => {
-          const sig = failSameDim(evalTurn);
-          evalTurn += 1;
-          return [sig];
-        },
-      },
-    });
-    const task = makeInProgressTaskWithRunningAttempt();
-    const eventBus = createInMemoryEventBus();
-    const banners: AppEvent[] = [];
-    eventBus.subscribe((e) => {
-      if (e.type === 'banner-show') banners.push(e);
-    });
-    const loop = createGenEvalLoop(
-      {
-        generatorProvider,
-        evaluatorProvider,
-        templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-        publishSignal: () => {},
-        writeFile: async () => Result.ok(undefined),
-        clock: () => FIXED_NOW,
-        logger: noopLogger,
-        eventBus,
-        readConfig: async () => ({ maxTurns: 5 }),
-        maxTurns: 5,
-        plateauThreshold: 2,
-        correctiveRetries: 2,
-        gitRunner: {
-          async run() {
-            return Result.ok({ stdout: '', stderr: '', exitCode: 0 });
-          },
-        },
-      },
-      {
-        cwd: absolutePath('/tmp/ralph/fake-cwd'),
-        sprintDir: root.root,
-        progressFile: absolutePath('/tmp/ralph/fake-sprint-dir/progress.md'),
-        generator: { providerId: 'claude-code', model: 'claude-opus-4-8' },
-        evaluator: { providerId: 'claude-code', model: 'claude-opus-4-8' },
-      },
-      task.id
-    );
-
-    const ctx: ImplementCtx = {
-      sprintId: task.id as unknown as ImplementCtx['sprintId'],
-      tasks: [task],
-      currentTask: task,
-      taskWorkspaceRoot: root.root,
-    };
-
-    const result = await loop.execute(ctx);
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.ctx.lastExit?.kind).toBe('plateau');
-    // Attribution: this exit came from the loop-diversity detector specifically.
-    const exit = result.value.ctx.lastExit;
-    expect(exit?.kind === 'plateau' && exit.source).toBe('diversity');
-    // Fires exactly at the window boundary (turn 3 = DIVERSITY_WINDOW_SIZE), with budget remaining.
-    expect(result.value.ctx.genEvalTurn).toBe(3);
-    const diversityBanner = banners.find(
-      (e) => e.type === 'banner-show' && e.id === `loop-diversity-${String(task.id)}`
-    );
-    expect(diversityBanner).toBeDefined();
-    if (diversityBanner?.type === 'banner-show') expect(diversityBanner.cause).toBe('loop-diversity-exhausted');
-  });
-
-  /**
-   * Budget-precedence pin: when `maxTurns` is set to EXACTLY `DIVERSITY_WINDOW_SIZE` (3), the
-   * diversity guard's fingerprint collapses on the very same turn the budget is exhausted. The
-   * budget-precedence check inside `loopDiversityCheckLeaf` must win — the loop must NOT
-   * pre-empt with a `plateau` exit; it must leave `ctx.lastExit` undefined so `finalize`
-   * downstream synthesises the truthful `budget-exhausted` terminal state instead. This pins the
-   * documented invariant that a run failing identically from turn 1 exits as budget-exhausted,
-   * never as a premature plateau escalation.
-   */
-  it('leaves ctx.lastExit undefined when maxTurns === DIVERSITY_WINDOW_SIZE (3) — budget precedence wins over the diversity plateau', async () => {
-    const generatorProvider = createFakeAiProvider({
-      responses: { implement: '' },
-      signals: { implement: [taskVerified('ok'), decision('d'), change('c'), learning('l'), note('n')] },
-    });
-    let evalTurn = 0;
-    const evaluatorProvider = createFakeAiProvider({
-      responses: { evaluate: '' },
-      signals: {
-        evaluate: () => {
-          const sig = failSameDim(evalTurn);
-          evalTurn += 1;
-          return [sig];
-        },
-      },
-    });
-    const task = makeInProgressTaskWithRunningAttempt();
-    const eventBus = createInMemoryEventBus();
-    const banners: AppEvent[] = [];
-    eventBus.subscribe((e) => {
-      if (e.type === 'banner-show') banners.push(e);
-    });
-    const loop = createGenEvalLoop(
-      {
-        generatorProvider,
-        evaluatorProvider,
-        templateLoader: createFsTemplateLoader(defaultTemplatesDir()),
-        publishSignal: () => {},
-        writeFile: async () => Result.ok(undefined),
-        clock: () => FIXED_NOW,
-        logger: noopLogger,
-        eventBus,
-        readConfig: async () => ({ maxTurns: 3 }),
-        maxTurns: 3,
-        plateauThreshold: 2,
-        correctiveRetries: 2,
-        gitRunner: {
-          async run() {
-            return Result.ok({ stdout: '', stderr: '', exitCode: 0 });
-          },
-        },
-      },
-      {
-        cwd: absolutePath('/tmp/ralph/fake-cwd'),
-        sprintDir: root.root,
-        progressFile: absolutePath('/tmp/ralph/fake-sprint-dir/progress.md'),
-        generator: { providerId: 'claude-code', model: 'claude-opus-4-8' },
-        evaluator: { providerId: 'claude-code', model: 'claude-opus-4-8' },
-      },
-      task.id
-    );
-
-    const ctx: ImplementCtx = {
-      sprintId: task.id as unknown as ImplementCtx['sprintId'],
-      tasks: [task],
-      currentTask: task,
-      taskWorkspaceRoot: root.root,
-    };
-
-    const result = await loop.execute(ctx);
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    // The turn budget ran out on the SAME turn the fingerprint collapsed — budget precedence
-    // wins, so no plateau exit is synthesised here. Downstream `finalize` reads the undefined
-    // exit and produces `budget-exhausted` itself.
-    expect(result.value.ctx.lastExit).toBeUndefined();
-    expect(result.value.ctx.genEvalTurn).toBe(3);
-    const diversityBanner = banners.find(
-      (e) => e.type === 'banner-show' && e.id === `loop-diversity-${String(task.id)}`
-    );
-    expect(diversityBanner).toBeUndefined();
+    expect(bannerFor(banners, `entropy-plateau-${String(task.id)}`)).toBeUndefined();
+    expect(bannerFor(banners, `loop-diversity-${String(task.id)}`)).toBeUndefined();
   });
 });

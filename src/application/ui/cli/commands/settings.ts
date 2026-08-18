@@ -148,6 +148,7 @@ const applyPresetAction = async (name: string): Promise<void> => {
  *   harness.maxTurns | maxAttempts | rateLimitRetries | idleWatchdogMs | plateauThreshold    integer (range-checked)
  *   harness.escalateOnPlateau                          boolean (escalate generator model on plateau)
  *   harness.skipPreVerifyOnFreshSetup                  boolean (skip first pre-verify when this run's setup verified the tree)
+ *   harness.entropyPlateauDetector                     boolean (opt-in action-entropy plateau detector; off by default)
  *   harness.escalationMap.<fromModel>                  upgraded model id; empty input clears the entry
  *   logging.level                                      silent | debug | info | warn | error
  *   concurrency.maxParallelTasks                       1–5 (1 = serial; >1 = parallel, one git worktree per task)

@@ -326,10 +326,11 @@ export const decideEscalation = (props: DecideEscalationProps): EscalationDecisi
 export const escalationBannerId = (taskId: string): string => `model-escalation-${taskId}`;
 
 /**
- * Normalised Shannon entropy over the distribution of action kinds seen in a single gen-eval
- * turn. Rationale: a turn that concentrates its reported actions on a single kind round after
- * round has plateaued — the agent keeps choosing the same kind of move rather than exploring —
- * so low action entropy is a useful break signal independent of the turn budget.
+ * Normalised Shannon entropy over a distribution of action kinds — in the harness, the kinds
+ * POOLED across a plateau window (`pooledActionCounts` in `business/task/plateau-detection.ts`),
+ * never a single turn's spread: one turn that emitted only `change` signals scores K=1 → H=0 even
+ * while the generator is visibly exploring across turns. Rationale for the signal: a generator
+ * that concentrates on a single kind of move for a whole window has stopped exploring.
  *
  * Formula: H = -Σ(p · log₂ p) / log₂ K, where K = number of distinct action kinds.
  *
@@ -337,7 +338,7 @@ export const escalationBannerId = (taskId: string): string => `model-escalation-
  * type). Returns 1 for a uniform distribution (maximum diversity). Returns 1 when
  * `actionCounts` is empty (no data yet → no evidence of plateau).
  */
-export const computeActionEntropy = (actionCounts: Map<string, number>): number => {
+export const computeActionEntropy = (actionCounts: ReadonlyMap<string, number>): number => {
   const K = actionCounts.size;
   if (K === 0) return 1; // no data → assume max diversity, no plateau
   if (K === 1) return 0; // single kind → zero diversity

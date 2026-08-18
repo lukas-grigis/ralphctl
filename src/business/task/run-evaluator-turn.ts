@@ -83,6 +83,14 @@ export interface RunEvaluatorTurnProps {
    */
   readonly changedFilesHash?: string;
   /**
+   * The generator's signal-kind distribution for the SAME turn (`ctx.lastTurnActionCounts`,
+   * stamped by the generator leaf). Rides onto the appended {@link PlateauTurnRecord} so the
+   * in-loop action-entropy detector can pool a whole plateau window from the one history the
+   * calibrated predicate already reads — no second, desyncable per-turn history. Never used by
+   * this use case's own decisions. Absent when the turn stamped no distribution.
+   */
+  readonly currentActionCounts?: ReadonlyMap<string, number>;
+  /**
    * Threshold from `settings.harness.plateauThreshold` (2–5). Number of consecutive turns
    * flagging the same dimension set before the plateau exit fires. Predicate clamps
    * defensively so a misconfigured caller cannot crash the loop.
@@ -206,7 +214,7 @@ const handleTerminalStatus = (
 const buildTurnRecord = (
   evaluation: EvaluationSignal,
   critique: string | undefined,
-  props: Pick<RunEvaluatorTurnProps, 'currentCommitSubject' | 'changedFilesHash'>
+  props: Pick<RunEvaluatorTurnProps, 'currentCommitSubject' | 'changedFilesHash' | 'currentActionCounts'>
 ): PlateauTurnRecord => ({
   evaluation,
   ...(critique !== undefined && critique.trim().length > 0 ? { critique } : {}),
@@ -215,6 +223,9 @@ const buildTurnRecord = (
     : {}),
   ...(props.changedFilesHash !== undefined && props.changedFilesHash.length > 0
     ? { changedFilesHash: props.changedFilesHash }
+    : {}),
+  ...(props.currentActionCounts !== undefined && props.currentActionCounts.size > 0
+    ? { actionCounts: props.currentActionCounts }
     : {}),
 });
 

@@ -64,12 +64,15 @@ reproduction context, task proceeds unaffected.
 **Per-task generator-evaluator** inside `implement` uses the `loop` primitive. Each gen-eval turn runs
 `generator-leaf` then — if the generator did not already set `ctx.lastExit` — the guarded
 `evaluator-step`, a `sequential` of `evaluatorLeaf → loop-diversity-check → entropy-check`. The two
-plateau-check leaves each emit a `plateau` exit on ctx without waiting for the full `plateauThreshold`
-count: `loop-diversity-check` fires when the failed-dimension fingerprint repeats for 3 consecutive
-turns; `entropy-check` fires when the normalised Shannon entropy over the generator's per-turn signal-kind
-distribution (decision / change / learning / note) falls below 0.25 — a heuristic proxy for approach
-stagnation, not raw tool-use entropy. Both respect the turn-budget-precedence guard so neither
-pre-empts the final budgeted turn. The loop exits when any leaf sets `ctx.lastExit` or the `maxTurns`
+plateau-check leaves each emit a `plateau` exit on ctx, both windowed by the SAME `plateauThreshold`
+knob the calibrated predicate uses and both gated on `windowIsHardStall` (so neither fires earlier than
+the operator asked for, nor overrides the critique-shift / work-product exemptions):
+`loop-diversity-check` fires when the failed-dimension fingerprint repeats across the whole window;
+`entropy-check` (opt-in — `harness.entropyPlateauDetector`, default off) fires when the normalised
+Shannon entropy over the generator's signal-kind distribution (decision / change / learning / note),
+pooled across the window, falls below 0.25 — a heuristic proxy for approach stagnation, not raw
+tool-use entropy. Both respect the turn-budget-precedence guard so neither pre-empts the final
+budgeted turn. The loop exits when any leaf sets `ctx.lastExit` or the `maxTurns`
 budget is reached. Each attempt then runs `settle-attempt` (which records the verdict) plus
 `append-learnings` and `progress-journal`; the outer attempt loop re-enters up to `maxAttempts` times
 per task and transitions the task to `blocked` once that budget is exhausted. A single launch runs the

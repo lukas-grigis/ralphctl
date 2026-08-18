@@ -134,10 +134,13 @@ const buildEvaluatorStep = (
   evaluatorLeafDeps: EvaluatorLeafDeps,
   evaluatorSpawn: { readonly providerId: string; readonly model: string; readonly effort?: string }
 ): Element<ImplementCtx> => {
+  // Same shared plateau-detector deps `gen-eval-loop.ts` builds — both detectors window from the
+  // operator's `plateauThreshold`, and the entropy one reads its opt-in knob (default off).
   const checkDeps = {
     readConfig: async () => ({ maxTurns: deps.config.harness.maxTurns }),
     eventBus: deps.eventBus,
     clock: deps.clock,
+    plateauThreshold: deps.config.harness.plateauThreshold,
   };
   return sequential<ImplementCtx>(`best-of-n-evaluator-step-${String(taskId)}`, [
     stampImplementEvaluatorSessionMetaLeaf({ writeFile: deps.writeFile, clock: deps.clock }, evaluatorSpawn, taskId),
@@ -148,7 +151,7 @@ const buildEvaluatorStep = (
     ),
     evaluatorLeaf(evaluatorLeafDeps, taskId),
     loopDiversityCheckLeaf(checkDeps, taskId),
-    entropyCheckLeaf(checkDeps, taskId),
+    entropyCheckLeaf({ ...checkDeps, enabled: deps.config.harness.entropyPlateauDetector === true }, taskId),
   ]);
 };
 

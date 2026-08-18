@@ -58,8 +58,32 @@ to [Semantic Versioning](https://semver.org/).
   `ralphctl settings set harness.bestOfNCandidates 0`); the four `*-economic` presets now pin it to
   `0` for you, so cost-sensitive setups keep the previous behaviour by applying one of them.
 
+- **The two in-loop plateau detectors now follow your `harness.plateauThreshold`.** The
+  fingerprint-repetition and action-entropy checks that run right after each evaluator turn used to
+  use a hardcoded three-turn window (entropy: a single turn) and ignored the exemptions the main
+  plateau predicate applies, so they could end a loop earlier than you asked for — and precisely
+  where the calibrated predicate had judged the run to be making progress. Both now window from
+  `harness.plateauThreshold` and only speak when the work-product fingerprint is unchanged and the
+  evaluator's critique has not shifted across that window: an AI that keeps editing the tree, or an
+  evaluator raising genuinely new complaints, is no longer cut short. The trade is deliberate — a
+  loop that is stuck in a way only these detectors can see may now run on to its turn budget instead
+  of wrongly burning an escalation rung plus a whole attempt; a genuinely stalled loop still exits at
+  your `plateauThreshold`, now attributed to the main predicate rather than to a detector. Existing
+  sprint journals and attempt records naming the old detectors keep loading and rendering unchanged.
+- **The action-entropy plateau detector is now opt-in** — `harness.entropyPlateauDetector`, default
+  off (TUI Harness settings, or `ralphctl settings set harness.entropyPlateauDetector true`).
+  Existing runs are no longer subject to entropy-driven exits at all. The signal is a proxy for a
+  proxy — the harness never sees the AI's raw tool use, only the spread of the signal kinds it
+  reports — and the count-based `plateauThreshold` predicate already covers the same ground.
+
 ### Fixed
 
+- **A single turn could no longer end a task's attempt on an entropy "plateau".** The action-entropy
+  detector scored ONE turn's signal-kind mix: a turn that reported only `change` signals scored zero
+  diversity and exited the gen-eval loop, burning an escalation rung and a whole attempt on a run
+  that was working normally. Entropy is now pooled across the whole plateau window (so a generator
+  alternating kinds across turns reads as varied, which it is), and the detector must additionally
+  agree with the calibrated plateau predicate before it can exit.
 - **OpenCode interactive sessions could silently lose access to extra repositories** (#278). The
   adapter used to grant only the prompt file's directory; a caller-supplied `additionalRoots` (every
   multi-repo `plan` / `refine` session) was mounted nowhere, so OpenCode would refuse to read the

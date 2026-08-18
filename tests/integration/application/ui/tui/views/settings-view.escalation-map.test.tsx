@@ -69,8 +69,8 @@ describe('SettingsView — escalation map editor', () => {
     expect(result.lastFrame() ?? '').toContain('Effective ladder');
     expect(result.lastFrame() ?? '').toContain('defaults apply');
 
-    // Cursor: 9 knob rows precede the map-add row.
-    for (let i = 0; i < 9; i += 1) {
+    // Cursor: 10 knob rows precede the map-add row.
+    for (let i = 0; i < 10; i += 1) {
       result.stdin.write('j');
       await tick(15);
     }
@@ -104,7 +104,7 @@ describe('SettingsView — escalation map editor', () => {
     await waitFor(() => (result.lastFrame() ?? '').includes('Presets'));
     await goToHarness(result.stdin);
     await waitFor(() => (result.lastFrame() ?? '').includes('Escalation map'));
-    for (let i = 0; i < 9; i += 1) {
+    for (let i = 0; i < 10; i += 1) {
       result.stdin.write('j');
       await tick(15);
     }

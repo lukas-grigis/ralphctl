@@ -5,28 +5,33 @@ import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { detectRepetitiveLoop } from '@src/business/task/escalation-policy.ts';
-import { failedDimensions, type PlateauTurnRecord } from '@src/business/task/plateau-detection.ts';
+import {
+  failedDimensions,
+  plateauWindowSize,
+  type PlateauTurnRecord,
+  windowIsHardStall,
+} from '@src/business/task/plateau-detection.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
-
-/**
- * Number of consecutive evaluator turns that must carry the identical failed-dimension
- * fingerprint before diversity counts as collapsed. Also the minimum turn history the entropy
- * check waits for, so neither detector speaks before there is a window's worth of evidence.
- */
-export const DIVERSITY_WINDOW_SIZE = 3;
 
 export interface LoopDiversityCheckDeps {
   /** Same per-spawn budget read the surrounding loop's `shouldContinue` uses. */
   readonly readConfig: () => Promise<{ readonly maxTurns: number }>;
   readonly eventBus: EventBus;
   readonly clock: () => IsoTimestamp;
+  /**
+   * The operator's `settings.harness.plateauThreshold` — the ONE knob that sizes every plateau
+   * window (see `plateauWindowSize`). Static per launch, threaded from `deps.config.harness` like
+   * the loop's other budgets, NOT re-read from `readConfig` (whose shape is the attempt loop's).
+   */
+  readonly plateauThreshold: number;
 }
 
 interface DiversityCheckInput {
   /**
-   * The last {@link DIVERSITY_WINDOW_SIZE} evaluator-turn records of `ctx.plateauHistory`, newest
-   * last. `start-attempt` clears that history per attempt, so the window can never span an attempt
-   * boundary — the per-attempt reset falls out of the ctx read rather than needing tracked state.
+   * The last `plateauWindowSize(plateauThreshold)` evaluator-turn records of `ctx.plateauHistory`,
+   * newest last. `start-attempt` clears that history per attempt, so the window can never span an
+   * attempt boundary — the per-attempt reset falls out of the ctx read rather than needing tracked
+   * state.
    */
   readonly recentRecords: readonly PlateauTurnRecord[];
   readonly alreadyExiting: boolean;
@@ -49,9 +54,15 @@ const fingerprintOf = (record: PlateauTurnRecord): string => [...failedDimension
  * Chain leaf — the fingerprint-repetition plateau detector, running after each evaluator turn.
  *
  * A gen-eval loop that re-emits the identical failed-dimension fingerprint round after round has
- * plateaued; detecting that repetition is a more reliable break signal than waiting out the turn
- * budget. On collapse the leaf sets a `plateau` exit so the escalation policy can climb the model
- * ladder or apply a change-of-approach nudge, and shows a warn banner.
+ * plateaued. On collapse the leaf sets a `plateau` exit so the escalation policy can climb the
+ * model ladder or apply a change-of-approach nudge, and shows a warn banner.
+ *
+ * SUBORDINATE TO THE CALIBRATED PREDICATE. The detector windows from the operator's
+ * `plateauThreshold` (never a window of its own) and only speaks on a window
+ * `windowIsHardStall` — the very cascade `computePlateauVerdict` runs — also calls stalled. It
+ * can therefore neither pre-empt the knob nor exit a loop the calibrated predicate deliberately
+ * exempted for a shifted critique or a changed work product. Repeating one fingerprint while the
+ * AI keeps editing the tree is exactly the exempted case, and used to cost a whole escalation rung.
  *
  * The verdict is a pure derivation from `ctx.plateauHistory` — the window is re-read from ctx on
  * every turn rather than tracked in a rolling buffer, so a resumed run, a re-created element, and
@@ -71,7 +82,11 @@ export const loopDiversityCheckLeaf = (deps: LoopDiversityCheckDeps, taskId: Tas
         const failed = failedDimensions(latest.evaluation);
         if (failed.size === 0) return noExit;
 
-        if (!detectRepetitiveLoop(input.recentRecords.map(fingerprintOf), DIVERSITY_WINDOW_SIZE)) return noExit;
+        const windowSize = plateauWindowSize(deps.plateauThreshold);
+        if (!detectRepetitiveLoop(input.recentRecords.map(fingerprintOf), windowSize)) return noExit;
+
+        // Calibration gate — honour the operator's threshold AND both progress exemptions.
+        if (!windowIsHardStall(input.recentRecords, { threshold: deps.plateauThreshold })) return noExit;
 
         // Budget exhaustion takes precedence. When this was the final turn the loop would run
         // anyway (turnsUsed === budget), there is no remaining budget for an early escalation
@@ -83,8 +98,8 @@ export const loopDiversityCheckLeaf = (deps: LoopDiversityCheckDeps, taskId: Tas
         const { maxTurns } = await deps.readConfig();
         if (input.turnsUsed >= Math.max(1, maxTurns)) return noExit;
 
-        // Diversity collapsed — the generator has repeated the exact same failure pattern for the
-        // last DIVERSITY_WINDOW_SIZE turns without any approach change.
+        // Diversity collapsed — the generator repeated the exact same failure pattern for the
+        // whole plateau window without any approach change.
         deps.eventBus.publish({
           type: 'banner-show',
           id: `loop-diversity-${String(taskId)}`,
@@ -98,7 +113,7 @@ export const loopDiversityCheckLeaf = (deps: LoopDiversityCheckDeps, taskId: Tas
       },
     },
     input: (ctx): DiversityCheckInput => ({
-      recentRecords: (ctx.plateauHistory ?? []).slice(-DIVERSITY_WINDOW_SIZE),
+      recentRecords: (ctx.plateauHistory ?? []).slice(-plateauWindowSize(deps.plateauThreshold)),
       alreadyExiting: ctx.lastExit !== undefined,
       turnsUsed: ctx.genEvalTurn ?? 0,
     }),
