@@ -12,6 +12,7 @@ import type { InProgressTask, Task } from '@src/domain/entity/task.ts';
 import {
   recordRunningAttemptVerification,
   recordRunningAttemptWarning,
+  setAttemptAttribution,
   startNextAttempt,
 } from '@src/domain/entity/task-attempts.ts';
 import { applyCriteriaVerdicts } from '@src/domain/entity/task-criteria.ts';
@@ -70,6 +71,60 @@ describe('OutcomeReportCard — a sprint with attempts, an escalation, and a pla
     expect(frame).toContain('1 resolved');
     expect(frame).toContain('1/3 passed (33%)');
     expect(frame).toContain('1 unknown');
+  });
+});
+
+describe('OutcomeReportCard — the regression / failure taxonomy', () => {
+  /** delta — attempt 1 broke a green baseline, attempt 2 landed clean. */
+  const regressingTasks = (): readonly Task[] => {
+    const regressed = unwrap(setAttemptAttribution(beginAttempt(makeTodoTask({ name: 'delta' })), 'regressed'));
+    const failed = unwrap(failCurrentAttempt(regressed, FIXED_LATER, 'failed'));
+    const clean = unwrap(setAttemptAttribution(beginAttempt(failed), 'clean'));
+    return [unwrap(markTaskDone(unwrap(recordRunningAttemptVerification(clean)), FIXED_LATEST))];
+  };
+
+  it('shouts the regression with its attempt-based denominator spelled out', () => {
+    const { lastFrame } = render(<OutcomeReportCard sprint={makeReviewSprint()} tasks={regressingTasks()} />);
+    const frame = lastFrame() ?? '';
+
+    expect(frame).toContain('Regressions');
+    expect(frame).toContain('1 of 2 attributed attempts');
+  });
+
+  it('breaks the warning taxonomy out by kind instead of one collapsed counter', () => {
+    const budgeted = unwrap(
+      recordRunningAttemptWarning(beginAttempt(makeTodoTask({ name: 'echo', maxAttempts: 4 })), {
+        kind: 'budget-exhausted',
+        turnsUsed: 8,
+        turnBudget: 8,
+      })
+    );
+    const failed = unwrap(failCurrentAttempt(budgeted, FIXED_LATER, 'failed'));
+    const plateaued = unwrap(recordRunningAttemptWarning(beginAttempt(failed), ENTROPY_PLATEAU));
+    const done = unwrap(markTaskDone(unwrap(recordRunningAttemptVerification(plateaued)), FIXED_LATEST));
+
+    const { lastFrame } = render(<OutcomeReportCard sprint={makeReviewSprint()} tasks={[done]} />);
+    const frame = lastFrame() ?? '';
+
+    expect(frame).toContain('Warnings');
+    expect(frame).toContain('budget-exhausted');
+    expect(frame).toContain('plateau');
+  });
+
+  it('names the abort cause only when an attempt actually aborted', () => {
+    const clean = render(<OutcomeReportCard sprint={makeReviewSprint()} tasks={buildTasks()} />).lastFrame() ?? '';
+    expect(clean).not.toContain('Aborts');
+
+    const aborted = unwrap(
+      failCurrentAttempt(beginAttempt(makeTodoTask({ name: 'foxtrot' })), FIXED_LATER, 'aborted', {
+        abortCause: 'rate-limit-exhausted',
+      })
+    );
+    const frame =
+      render(<OutcomeReportCard sprint={makeReviewSprint()} tasks={[...buildTasks(), aborted]} />).lastFrame() ?? '';
+
+    expect(frame).toContain('Aborts');
+    expect(frame).toContain('rate-limit-exhausted');
   });
 });
 

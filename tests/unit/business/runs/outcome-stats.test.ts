@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { Result } from '@src/domain/result.ts';
-import type { AttemptWarning } from '@src/domain/entity/attempt.ts';
+import type { AbortCause, AttemptWarning, Attribution } from '@src/domain/entity/attempt.ts';
 import type { DoneTask, InProgressTask, Task } from '@src/domain/entity/task.ts';
 import {
+  setAttemptAttribution,
   startNextAttempt,
   recordRunningAttemptVerification,
   recordRunningAttemptWarning,
@@ -17,7 +18,7 @@ import {
   recordTaskEscalation,
   recordTaskEvaluatorEffortEscalation,
 } from '@src/domain/entity/task-settle.ts';
-import { foldOutcomeStats, type SprintWithTasks } from '@src/business/runs/outcome-stats.ts';
+import { foldOutcomeStats, foldTaskRollup, type SprintWithTasks } from '@src/business/runs/outcome-stats.ts';
 import { FIXED_LATER, FIXED_LATEST, FIXED_NOW, makeActiveSprint, makeTodoTask } from '@tests/fixtures/domain.ts';
 
 const unwrap = <T, E>(result: Result<T, E>): T => {
@@ -35,6 +36,12 @@ const failAttempt = (task: InProgressTask, warning?: AttemptWarning): Task =>
 
 const completeDone = (task: InProgressTask, warning?: AttemptWarning): DoneTask =>
   unwrap(markTaskDone(unwrap(recordRunningAttemptVerification(withWarning(task, warning))), FIXED_LATEST));
+
+const withAttribution = (task: InProgressTask, attribution: Attribution): InProgressTask =>
+  unwrap(setAttemptAttribution(task, attribution));
+
+const abortAttempt = (task: InProgressTask, abortCause: AbortCause): Task =>
+  unwrap(failCurrentAttempt(task, FIXED_LATER, 'aborted', { abortCause }));
 
 const sprintWith = (tasks: readonly Task[]): SprintWithTasks => ({ sprint: makeActiveSprint(), tasks });
 
@@ -295,5 +302,227 @@ describe('foldOutcomeStats — legacy and partial records', () => {
     expect(stats.bySprint[0]?.sprintId).toBe('');
     expect(stats.bySprint[0]?.sprintName).toBe('');
     expect(stats.totals.taskCount).toBe(0);
+  });
+});
+
+// ───────────────────────── regression / failure taxonomy ─────────────────────────
+
+/** Records written before a given field existed, or by a future version. Cast deliberately. */
+const legacyTask = (raw: Record<string, unknown>): Task => raw as unknown as Task;
+
+/** One task whose four attempts carry one of each attribution verdict. */
+const attributionSprint = (): SprintWithTasks => {
+  const seed = makeTodoTask({ name: 'attrib', maxAttempts: 8 });
+  const afterClean = failAttempt(withAttribution(beginAttempt(seed), 'clean'));
+  const afterRegressed = failAttempt(withAttribution(beginAttempt(afterClean), 'regressed'));
+  const afterBroken = failAttempt(withAttribution(beginAttempt(afterRegressed), 'baseline-broken'));
+  return sprintWith([completeDone(withAttribution(beginAttempt(afterBroken), 'fixed-baseline'))]);
+};
+
+describe('foldOutcomeStats — attribution taxonomy', () => {
+  it('counts every verdict and reports the regression rate over ATTRIBUTED attempts', () => {
+    const { totals } = foldOutcomeStats([attributionSprint()]);
+
+    expect(totals.attemptCount).toBe(4);
+    expect(totals.attribution.byVerdict).toEqual({
+      clean: 1,
+      regressed: 1,
+      'baseline-broken': 1,
+      'fixed-baseline': 1,
+      unspecified: 0,
+    });
+    expect(totals.attribution.attributed).toBe(4);
+    expect(totals.attribution.regressionRate).toBe(0.25);
+    expect(totals.attribution.tasksWithRegression).toBe(1);
+  });
+
+  it('parks attempts with no verdict in `unspecified`, out of the denominator and never NaN', () => {
+    const { totals } = foldOutcomeStats([multiAttemptSprint()]);
+
+    expect(totals.attemptCount).toBe(5);
+    expect(totals.attribution.byVerdict.unspecified).toBe(5);
+    expect(totals.attribution.attributed).toBe(0);
+    expect(totals.attribution.regressionRate).toBe(0);
+    expect(Number.isNaN(totals.attribution.regressionRate)).toBe(false);
+    expect(totals.attribution.tasksWithRegression).toBe(0);
+  });
+
+  it('buckets an unrecognised historical verdict string as `unspecified` instead of throwing', () => {
+    const slice = sprintWith([
+      legacyTask({
+        id: 'ancient',
+        name: 'ancient',
+        status: 'blocked',
+        order: 1,
+        attempts: [{ n: 1, status: 'failed', attribution: 'flaky' }],
+      }),
+    ]);
+
+    const { totals } = foldOutcomeStats([slice]);
+
+    expect(totals.attribution.byVerdict.unspecified).toBe(1);
+    expect(totals.attribution.attributed).toBe(0);
+    expect(totals.attribution.byVerdict.regressed).toBe(0);
+  });
+
+  it('counts a task once in `tasksWithRegression` however many of its attempts regressed', () => {
+    const seed = makeTodoTask({ name: 'serial regressor', maxAttempts: 5 });
+    const first = failAttempt(withAttribution(beginAttempt(seed), 'regressed'));
+    const second = failAttempt(withAttribution(beginAttempt(first), 'regressed'));
+    const clean = sprintWith([
+      second,
+      completeDone(withAttribution(beginAttempt(makeTodoTask({ name: 'ok' })), 'clean')),
+    ]);
+
+    const { totals } = foldOutcomeStats([clean]);
+
+    expect(totals.attribution.byVerdict.regressed).toBe(2);
+    expect(totals.attribution.tasksWithRegression).toBe(1);
+    expect(totals.attribution.attributed).toBe(3);
+  });
+});
+
+describe('foldOutcomeStats — warning taxonomy', () => {
+  it('splits every warning kind instead of collapsing them into one counter', () => {
+    const seed = makeTodoTask({ name: 'warned', maxAttempts: 8 });
+    const budget = failAttempt(beginAttempt(seed), { kind: 'budget-exhausted', turnsUsed: 8, turnBudget: 8 });
+    const malformed = failAttempt(beginAttempt(budget), { kind: 'malformed', detail: 'no signal' });
+    const verifyFailed = failAttempt(beginAttempt(malformed), { kind: 'verify-failed', exitCode: 1, stderr: 'boom' });
+    const crashed = failAttempt(beginAttempt(verifyFailed), { kind: 'crashed', detail: 'ENOENT' });
+    const done = completeDone(beginAttempt(crashed), PLATEAU_THRESHOLD);
+
+    const { totals } = foldOutcomeStats([sprintWith([done])]);
+
+    expect(totals.warnings.byKind).toEqual({
+      'budget-exhausted': 1,
+      plateau: 1,
+      malformed: 1,
+      'verify-failed': 1,
+      crashed: 1,
+      unknown: 0,
+    });
+    expect(totals.warnings.attemptsWithWarning).toBe(5);
+  });
+
+  it('keeps the warning taxonomy consistent with the plateau block', () => {
+    const { totals } = foldOutcomeStats([multiAttemptSprint()]);
+
+    expect(totals.warnings.byKind.plateau).toBe(totals.plateau.attemptsWithPlateau);
+    expect(totals.warnings.byKind['budget-exhausted']).toBe(1);
+  });
+
+  it('buckets an unrecognised historical warning kind as `unknown` instead of throwing', () => {
+    const slice = sprintWith([
+      legacyTask({
+        id: 'ancient-warning',
+        name: 'ancient warning',
+        status: 'blocked',
+        order: 1,
+        attempts: [{ n: 1, status: 'failed', warning: { kind: 'ancient-kind' } }],
+      }),
+    ]);
+
+    const { totals } = foldOutcomeStats([slice]);
+
+    expect(totals.warnings.byKind.unknown).toBe(1);
+    expect(totals.warnings.attemptsWithWarning).toBe(1);
+    expect(totals.plateau.attemptsWithPlateau).toBe(0);
+  });
+});
+
+describe('foldOutcomeStats — abort causes', () => {
+  it('splits every abort cause so an operator cancel is distinguishable from rate-limit exhaustion', () => {
+    const seed = makeTodoTask({ name: 'aborted', maxAttempts: 9 });
+    const a1 = abortAttempt(beginAttempt(seed), 'user-cancel');
+    const a2 = abortAttempt(beginAttempt(a1), 'sigterm');
+    const a3 = abortAttempt(beginAttempt(a2), 'watchdog-killed');
+    const a4 = abortAttempt(beginAttempt(a3), 'rate-limit-exhausted');
+    const a5 = abortAttempt(beginAttempt(a4), 'process-crash');
+    const a6 = abortAttempt(beginAttempt(a5), 'unknown');
+
+    const { totals } = foldOutcomeStats([sprintWith([a6])]);
+
+    expect(totals.aborts.byCause).toEqual({
+      'user-cancel': 1,
+      sigterm: 1,
+      'watchdog-killed': 1,
+      'rate-limit-exhausted': 1,
+      'process-crash': 1,
+      unknown: 1,
+    });
+    expect(totals.aborts.attemptsAborted).toBe(6);
+  });
+
+  it('folds an absent or unrecognised cause into `unknown` and ignores a non-aborted attempt', () => {
+    const slice = sprintWith([
+      legacyTask({
+        id: 'legacy-aborts',
+        name: 'legacy aborts',
+        status: 'blocked',
+        order: 1,
+        attempts: [
+          { n: 1, status: 'aborted' },
+          { n: 2, status: 'aborted', abortCause: 'meteor-strike' },
+          // A terminal non-abort attempt carrying a stale cause must NOT inflate the abort total.
+          { n: 3, status: 'verified', abortCause: 'user-cancel' },
+        ],
+      }),
+    ]);
+
+    const { totals } = foldOutcomeStats([slice]);
+
+    expect(totals.aborts.attemptsAborted).toBe(2);
+    expect(totals.aborts.byCause.unknown).toBe(2);
+    expect(totals.aborts.byCause['user-cancel']).toBe(0);
+  });
+});
+
+describe('foldOutcomeStats — attempt-based denominator', () => {
+  it('counts every attempt including the one still running', () => {
+    const running = beginAttempt(failAttempt(beginAttempt(makeTodoTask({ name: 'live', maxAttempts: 4 }))));
+
+    const { totals } = foldOutcomeStats([sprintWith([running, ...multiAttemptSprint().tasks])]);
+
+    expect(totals.attemptCount).toBe(7);
+  });
+
+  it('zeroes every taxonomy key for empty input rather than omitting them', () => {
+    const { totals } = foldOutcomeStats([]);
+
+    expect(totals.attemptCount).toBe(0);
+    expect(totals.attribution).toEqual({
+      attributed: 0,
+      byVerdict: { clean: 0, regressed: 0, 'baseline-broken': 0, 'fixed-baseline': 0, unspecified: 0 },
+      regressionRate: 0,
+      tasksWithRegression: 0,
+    });
+    expect(totals.warnings).toEqual({
+      attemptsWithWarning: 0,
+      byKind: { 'budget-exhausted': 0, plateau: 0, malformed: 0, 'verify-failed': 0, crashed: 0, unknown: 0 },
+    });
+    expect(totals.aborts).toEqual({
+      attemptsAborted: 0,
+      byCause: {
+        'user-cancel': 0,
+        sigterm: 0,
+        'watchdog-killed': 0,
+        'rate-limit-exhausted': 0,
+        'process-crash': 0,
+        unknown: 0,
+      },
+    });
+  });
+});
+
+describe('foldTaskRollup — the sprint-less entry point', () => {
+  it('folds a loose task list to the same rollup foldOutcomeStats derives for one sprint', () => {
+    const slice = attributionSprint();
+
+    expect(foldTaskRollup(slice.tasks)).toEqual(foldOutcomeStats([slice]).totals);
+  });
+
+  it('tolerates a legacy task whose attempts array is missing entirely', () => {
+    expect(() => foldTaskRollup([legacyTask({ id: 'x', name: 'x', status: 'todo', order: 1 })])).not.toThrow();
+    expect(foldTaskRollup([legacyTask({ id: 'x', name: 'x', status: 'todo', order: 1 })]).attemptCount).toBe(0);
   });
 });

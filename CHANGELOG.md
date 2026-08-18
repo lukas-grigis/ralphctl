@@ -13,12 +13,18 @@ to [Semantic Versioning](https://semver.org/).
   ralphctl already persists, answering what used to be unanswerable: the done / done-with-warning /
   blocked mix, first-pass rate, attempts-to-done distribution, plateau rate by source, which
   escalation rung resolved each stall versus fell through, the failed-dimension histogram, and
-  per-criterion pass rates. Scope with `--sprint <id>`, `--project <id>`, or `--since <date>`;
-  `--json` emits the raw rollup for machine diffing, so a prompt or settings change can be measured
-  before/after on the same task population.
+  per-criterion pass rates. It also reports the **regression taxonomy**: how many attempts broke a
+  green baseline (split `clean` / `fixed-baseline` / `baseline-broken` / unattributed), the full
+  warning breakdown by kind instead of one collapsed "done with warning" counter, and abort causes,
+  so an operator Ctrl-C is distinguishable from rate-limit exhaustion. Task-based and attempt-based
+  rates sit in one report, each labelled with the denominator it is quoting. Scope with
+  `--sprint <id>`, `--project <id>`, or `--since <date>`; `--json` emits the raw rollup for machine
+  diffing, so a prompt or settings change can be measured before/after on the same task population.
 - **Sprint outcome card in the TUI.** Once a sprint reaches review or done, its detail view shows a
-  compact outcome report — task mix, first-pass rate, plateaus, escalation rungs that fired, and
-  criteria pass rate — from the same rollup.
+  compact outcome report — task mix, regressions, warnings by kind, aborts (when any), first-pass
+  rate, plateaus, escalation rungs that fired, and criteria pass rate — from the same rollup, so the
+  TUI and `runs stats` can never report different numbers. A sprint with a regression takes the
+  card's error tone.
 - **Attempts now record what they cost.** Each settled attempt persists the provider-reported
   `inputTokens` / `outputTokens` and the AI-spawn wall-clock `durationMs` (absent — not zero — when a
   provider reports no usage; older records load unchanged).

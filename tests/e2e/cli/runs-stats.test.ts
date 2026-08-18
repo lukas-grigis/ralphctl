@@ -106,6 +106,12 @@ describe('ralphctl runs stats', () => {
       expect(result.stdout).toContain('model');
       expect(result.stdout).toContain('best-of-n');
       expect(result.stdout).toContain('criteria');
+      // The attempt-based taxonomy sits beside the task-based rates, each naming its denominator.
+      expect(result.stdout).toContain('· 3 attempts');
+      expect(result.stdout).toContain('Attribution (of 3 attempts)');
+      expect(result.stdout).toContain('Warnings (of 3 attempts)');
+      expect(result.stdout).toContain('Aborts (of 3 attempts)');
+      expect(result.stdout).toContain('Outcome mix (of 5 tasks)');
       // Multi-sprint scope keeps the per-sprint breakdown.
       expect(result.stdout).toContain('By sprint');
       expect(result.stdout).toContain('alpha sprint');
@@ -145,6 +151,31 @@ describe('ralphctl runs stats', () => {
       expect(stats.bySprint[0]?.sprintName).toBe('json sprint');
     });
 
+    it('carries the attempt-based taxonomy blocks with every key present', async () => {
+      await seedActiveSprint(cli, {
+        name: 'taxonomy sprint',
+        activatedAt: '2026-05-08T10:00:00.000Z',
+        tasks: [makeDoneTask({ name: 'ok' }), makeDoneTaskWithWarning({ name: 'warned' })],
+      });
+
+      const stats = parseStats((await runCliCaptured(cli, ['runs', 'stats', '--json'])).stdout);
+
+      expect(stats.totals.attemptCount).toBe(2);
+      expect(Object.keys(stats.totals.attribution.byVerdict).sort()).toEqual([
+        'baseline-broken',
+        'clean',
+        'fixed-baseline',
+        'regressed',
+        'unspecified',
+      ]);
+      expect(stats.totals.attribution.byVerdict.unspecified).toBe(2);
+      expect(stats.totals.warnings.byKind.plateau).toBe(1);
+      expect(stats.totals.aborts.attemptsAborted).toBe(0);
+      // Same four blocks ride every per-sprint entry, not just the totals.
+      expect(stats.bySprint[0]?.rollup.attribution.byVerdict.regressed).toBe(0);
+      expect(stats.bySprint[0]?.rollup.aborts.byCause['rate-limit-exhausted']).toBe(0);
+    });
+
     it('stays machine-parseable (all-zero rollup) when nothing matches', async () => {
       const result = await runCliCaptured(cli, ['runs', 'stats', '--json']);
       expect(result.exitCode).toBe(0);
@@ -152,6 +183,8 @@ describe('ralphctl runs stats', () => {
       expect(stats.sprintCount).toBe(0);
       expect(stats.totals.taskCount).toBe(0);
       expect(stats.totals.firstPass.rate).toBe(0);
+      expect(stats.totals.attemptCount).toBe(0);
+      expect(stats.totals.attribution.regressionRate).toBe(0);
     });
   });
 
