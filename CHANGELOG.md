@@ -129,6 +129,51 @@ to [Semantic Versioning](https://semver.org/).
   watchdog marks its own kills at the spawn site, so a wedged session is no longer indistinguishable
   from an external SIGTERM. Ctrl-C and rate-limit exhaustion still tear the run down before any
   settle observes them and are unchanged (they resume as `process-crash` on the next launch).
+- **Parallel runs can no longer silently drop learning-ledger rows** (#288). Every branch appends to
+  the shared `learnings.ndjson`, but the size-bounding compaction was an unguarded read-modify-write:
+  a sibling's learning landing mid-compaction was clobbered without a trace. The append and the
+  bound now run as one critical section behind a per-run mutex, the same guard `progress.md`
+  already had.
+- **A CRLF stream no longer blinds the Claude and Copilot adapters** (#290). Their JSONL guards
+  required the raw line to end with `}`, so a single trailing `\r` made every record fall through as
+  plain text: no session id (every round cold-started instead of resuming), an empty body, no token
+  usage, and stdout rate-limit detection disarmed — all while the run still reported success. Line
+  endings are now stripped centrally and `JSON.parse` is the only judge of what is JSON.
+- **The attempt card's `v to open` hint now appears only on the attempt `v` actually opens** (#291).
+  Every attempt row used to advertise the chord while it always opened the latest recorded
+  evaluation — reading attempt 1's card and pressing `v` showed attempt 3's verdict.
+- **The Execute page no longer scroll-fights its own task cursor** (#292). Arrow keys belong to the
+  Tasks panel alone now (as on every other cursor-owning view), opening and closing an overlay no
+  longer silently jumps the page back to the top, and the settled result card is row-capped so the
+  footer stays reachable.
+- **An evaluator quoting markdown can no longer truncate its own verdict** (#294). A `## ` line
+  inside a dimension's fenced evidence ended the Dimensions section, silently dropping every
+  dimension after it from the TUI overlay and `ralphctl task evaluation`. Section splitting is now
+  fence-aware, matching the dimension splitter one level down.
+- **`roundsApplied` counts only review rounds that actually committed** (#295). A round whose
+  commit failed or found a clean tree still reported "applied", inflating the sprint's applied-round
+  count in the journal and PR copy.
+- **The help overlay fits the terminal again** (#296). Section-title margins were never charged to
+  the row budget, so on a small terminal the card's bottom border and footer were pushed off-screen
+  while the `lines X–Y of N` counter claimed rows you could not see. One help row is now exactly one
+  terminal row, and the counter matches what is visible.
+- **"Add ticket" is now a real row in the Flows view** (#298). The flow was registered but invisible
+  in every state — and had it ever surfaced, selecting it would have failed with "Unknown flow". It
+  now appears for draft sprints (the same gate as every other add-ticket entry point), and a new
+  registry fence test fails the suite if a future flow lands unroutable.
+- **A big command line on macOS/Linux is no longer misdiagnosed as a Windows argv overflow** (#299).
+  Any spawn failure with a ≥32 KiB command line was reported as the Windows limit and made
+  non-retryable — pointing the operator at the wrong problem when the real cause was a missing CLI
+  on PATH. The size heuristic now applies on Windows only.
+- **The OpenCode model picker no longer loses your paid models in silence** (#300). When the
+  `opencode models` probe failed — binary missing, not authenticated, timeout — the picker fell back
+  to the eight free-tier ids with nothing logged anywhere. Every fallback now records why at warn
+  level, and the probe budget was raised from 5 s to 15 s.
+- **The npm tagline caught up with 0.19.0** (#301): the package description and keywords now name
+  OpenCode alongside the other three backends, so the fourth backend is searchable.
+- **Two same-millisecond writers can no longer splice an atomic write** (#302). The temp-file name
+  was unique per process but not per call; a per-call counter closes the nanoscale window in the
+  no-torn-file guarantee the persistence layer leans on.
 - **A single turn could no longer end a task's attempt on an entropy "plateau".** The action-entropy
   detector scored ONE turn's signal-kind mix: a turn that reported only `change` signals scored zero
   diversity and exited the gen-eval loop, burning an escalation rung and a whole attempt on a run
