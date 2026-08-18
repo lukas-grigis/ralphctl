@@ -74,6 +74,18 @@ describe('parseSimpleYaml', () => {
   it('skips lines with no colon', () => {
     expect(parseSimpleYaml('not a kv line\na: 1')).toEqual({ a: '1' });
   });
+
+  it('unescapes \\" and \\\\ inside a double-quoted value (the renderer emits this shape)', () => {
+    expect(parseSimpleYaml('a: "say \\"hi\\": a back\\\\slash"')).toEqual({ a: 'say "hi": a back\\slash' });
+  });
+
+  it('leaves single-quoted values verbatim — no escape handling', () => {
+    expect(parseSimpleYaml("a: 'no \\\" unescaping here'")).toEqual({ a: 'no \\" unescaping here' });
+  });
+
+  it('treats a lone quote character as a plain value, not an empty quoted string', () => {
+    expect(parseSimpleYaml('a: "\nb: \'')).toEqual({ a: '"', b: "'" });
+  });
 });
 
 describe('errorCode', () => {

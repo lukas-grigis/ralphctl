@@ -36,9 +36,11 @@ export const splitFrontmatter = (raw: string): { readonly frontmatter: string; r
 };
 
 /**
- * Naive YAML key:value parser — keys are simple identifiers, values are strings or single-quoted
- * strings without escapes. Frontmatter we control is always this shape, so a full YAML parser
- * is overkill (and adds a dep). Multiline / nested YAML is rejected via schema validation.
+ * Naive YAML key:value parser — keys are simple identifiers, values are plain strings,
+ * double-quoted strings with `\"` / `\\` escapes (the shape the skills adapter's renderer
+ * emits for values a strict YAML parser would reject unquoted), or single-quoted strings
+ * without escapes. Frontmatter we control is always this shape, so a full YAML parser is
+ * overkill (and adds a dep). Multiline / nested YAML is rejected via schema validation.
  *
  * @public
  */
@@ -51,8 +53,9 @@ export const parseSimpleYaml = (input: string): Record<string, string> => {
     if (colon === -1) continue;
     const key = stripped.slice(0, colon).trim();
     let value = stripped.slice(colon + 1).trim();
-    if (value.startsWith('"') && value.endsWith('"')) value = value.slice(1, -1);
-    else if (value.startsWith("'") && value.endsWith("'")) value = value.slice(1, -1);
+    if (value.length >= 2 && value.startsWith('"') && value.endsWith('"'))
+      value = value.slice(1, -1).replace(/\\(["\\])/gu, '$1');
+    else if (value.length >= 2 && value.startsWith("'") && value.endsWith("'")) value = value.slice(1, -1);
     result[key] = value;
   }
   return result;
