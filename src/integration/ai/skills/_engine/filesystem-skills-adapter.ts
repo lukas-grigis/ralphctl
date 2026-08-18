@@ -49,14 +49,26 @@ export interface FilesystemSkillsAdapterDeps {
 }
 
 /**
+ * Downstream CLIs parse the installed frontmatter with STRICT YAML parsers — Copilot rejects an
+ * unquoted plain scalar containing `: ` outright ("mapping values are not allowed in this
+ * context"). Values that are safe plain scalars stay unquoted to keep the files human-readable;
+ * anything else is double-quoted with YAML escapes, which `parseSimpleYaml` unescapes on read.
+ */
+const yamlValue = (value: string): string =>
+  /^[A-Za-z0-9]/u.test(value) && !value.includes(': ') && !value.includes(' #') && !/[\s:]$/u.test(value)
+    ? value
+    : `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
+
+/**
  * Render the canonical Skill back into Markdown with frontmatter — Agent Skills spec
  * (`name`, `description`, plus optional `license` / `compatibility` / `allowed-tools`).
+ * `name` renders bare: it is schema-fenced to kebab-case, which is always a safe plain scalar.
  */
 const renderSkill = (skill: Skill): string => {
-  const lines = ['---', `name: ${skill.name}`, `description: ${skill.description}`];
-  if (skill.license !== undefined) lines.push(`license: ${skill.license}`);
-  if (skill.compatibility !== undefined) lines.push(`compatibility: ${skill.compatibility}`);
-  if (skill.allowedTools !== undefined) lines.push(`allowed-tools: ${skill.allowedTools}`);
+  const lines = ['---', `name: ${skill.name}`, `description: ${yamlValue(skill.description)}`];
+  if (skill.license !== undefined) lines.push(`license: ${yamlValue(skill.license)}`);
+  if (skill.compatibility !== undefined) lines.push(`compatibility: ${yamlValue(skill.compatibility)}`);
+  if (skill.allowedTools !== undefined) lines.push(`allowed-tools: ${yamlValue(skill.allowedTools)}`);
   lines.push('---');
   return `${lines.join('\n')}\n\n${skill.content.replace(/\s+$/u, '')}\n`;
 };

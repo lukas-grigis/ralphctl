@@ -167,6 +167,12 @@ to [Semantic Versioning](https://semver.org/).
   with long wrapped lines scrolls instead of overflowing the viewport; the Welcome error state's
   `esc` hint now works; and the status banner's `d` dismiss no longer fires while a prompt owns the
   keyboard.
+- **Copilot loads every installed ralphctl skill again.** The bundled `ralphctl-alignment` skill's
+  frontmatter description contained an unquoted `: `, which Copilot's strict YAML parser rejects
+  ("mapping values are not allowed in this context") — the skill failed to load in Copilot sessions.
+  The description is fixed, the installer now quotes any frontmatter value a strict YAML parser
+  would reject unquoted (round-tripping cleanly through ralphctl's own reader), and a test gate
+  checks every bundled skill against the strict rules so this class of break cannot ship again.
 - **CLI errors are one line, not a stack.** A malformed `settings.json` (or any unexpected failure)
   prints `ralphctl: <message>` with a debug-env hint instead of dumping a raw Node stack from the
   minified bundle.
