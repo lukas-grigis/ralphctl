@@ -86,11 +86,17 @@ export const createFoldQueue = (): FoldQueue => {
  * every append through one {@link FoldQueue} makes each line atomic with respect to the others —
  * cheap (a promise chain), and it also yields a deterministic FIFO append order.
  *
- * `progress-journal-<taskId>`'s per-attempt SECTION write is a SEPARATE concern — it is a
- * read-modify-write of the WHOLE file (not this append port), so it is guarded by the dedicated
- * `journalMutex` instead (see `ProgressJournalLeafDeps` / `ImplementDeps`), not by this append
- * mutex. Per-task artefacts (`prompt.md`, `signals.json`) are written to task-scoped paths and
- * never collide, so only these two shared files need serialisation.
+ * Still load-bearing AFTER the ledger mutex landed: the prologue/epilogue's `progress.md`
+ * separator appends do NOT go through `ImplementDeps.ledgerMutex`, so this wrapper is what keeps
+ * those lines from tearing.
+ *
+ * The two WHOLE-FILE read-modify-writes are SEPARATE concerns and are NOT covered by this append
+ * port: `progress-journal-<taskId>`'s per-attempt SECTION write (guarded by `journalMutex`) and
+ * `append-learnings-<taskId>`'s ledger size-bounding (guarded by `ledgerMutex`, which also spans
+ * that leaf's appends so a sibling append cannot land mid-rewrite). See `ProgressJournalLeafDeps`
+ * / `AppendLearningsLeafDeps` / `ImplementDeps`. Per-task artefacts (`prompt.md`, `signals.json`)
+ * are written to task-scoped paths and never collide, so only these shared files need
+ * serialisation.
  *
  * @public
  */
@@ -502,7 +508,7 @@ const buildOneBranch = (
 
   // Per-branch deps clone — only the signal publisher differs (keyed on this task's id so
   // concurrent branches don't cross-attribute their signals). Everything else, including the
-  // run's shared `journalMutex`, is inherited from `deps.implement`.
+  // run's shared `journalMutex` / `ledgerMutex`, is inherited from `deps.implement`.
   const branchDeps: ImplementDeps = {
     ...deps.implement,
     publishSignal: perBranchSignalPublisher(deps.eventBus, task.id),

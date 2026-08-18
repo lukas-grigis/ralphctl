@@ -135,6 +135,11 @@ export const buildImplementDepsBag = (
   // deps bag), so their `progress-journal-<taskId>` leaves serialise their read-regenerate-write
   // of the shared `progress.md` through it; the serial path is a single caller, so it is a no-op.
   journalMutex: createFoldQueue(),
+  // ONE ledger mutex per run, for the same reason: every parallel branch's
+  // `append-learnings-<taskId>` writes the SAME project `learnings.ndjson`, and its append +
+  // size-bounding rewrite must run as one critical section or a sibling's appended row is
+  // clobbered by a concurrent compaction.
+  ledgerMutex: createFoldQueue(),
 });
 
 /**

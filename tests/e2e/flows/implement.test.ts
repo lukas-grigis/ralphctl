@@ -356,6 +356,7 @@ const buildDeps = (
   writeFile: createAtomicWriteFile(),
   appendFile: createAppendFile(),
   journalMutex: createFoldQueue(),
+  ledgerMutex: createFoldQueue(),
 });
 
 const unusedInteractive: InteractivePrompt = {

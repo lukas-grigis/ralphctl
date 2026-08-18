@@ -24,6 +24,7 @@ import { dedupeLearnings } from '@src/application/flows/implement/leaves/_shared
 import { dedupeTexts } from '@src/application/flows/implement/leaves/_shared/dedupe-texts.ts';
 import type { LearningEntry } from '@src/domain/signal.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
+import type { FoldQueue } from '@src/application/flows/implement/wave-branch.ts';
 
 /**
  * WRITE side of the procedural-memory pipeline. Persists the `<learning>` AND `<decision>` signals
@@ -46,11 +47,16 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
  * SAME `deriveLearningId` id, so the READ side (`loadLearningsLeaf`) dedups them back to one
  * candidate. Append-only keeps the write path crash-safe; dedup is a read-side concern.
  *
- * ## Append-only — NO read-modify-write
+ * ## Append-only — NO read-modify-write for the RECORDS
  *
  * Each learning is `JSON.stringify(record) + '\n'` appended via the {@link AppendFile} port. The
  * leaf never reads the existing ledger to dedup — duplicate ids are collapsed on the read side.
- * This keeps the write a pure append with no race window against a concurrent reader.
+ * This keeps the record write a pure append with no race window against a concurrent reader.
+ *
+ * The always-on SIZE BOUNDING that follows the appends (`appendMemoryRecords` →
+ * `boundLedgerIfNeeded`) IS a whole-file read-modify-write, so both halves run inside
+ * {@link AppendLearningsLeafDeps.ledgerMutex} — see that field for why the mutex must span the
+ * appends too.
  *
  * ## Best-effort
  *
@@ -71,6 +77,19 @@ export interface AppendLearningsLeafDeps {
   readonly writeFile: WriteFile;
   readonly clock: () => IsoTimestamp;
   readonly logger: Logger;
+  /**
+   * Mutex guarding the ENTIRE `appendMemoryRecords` call — the per-record appends AND the
+   * size-bounding read-modify-write that follows them. On the parallel path N branches share ONE
+   * project ledger, and the bound (stat → read → compact → atomic rewrite) is only safe if no
+   * sibling append can land between this branch's read and its rename. Wrapping only the bound
+   * would leave exactly that window open; the appends must sit in the same critical section.
+   *
+   * The parallel launcher threads ONE shared instance across every branch of a run (see
+   * `ImplementDeps.ledgerMutex` / `implement-bags.ts`); the serial path gets an effectively
+   * unshared instance (a single caller never contends with itself). `stampPromotedLeaf` (distill)
+   * is the other whole-file ledger rewriter and is deliberately unlocked — see `ImplementDeps`.
+   */
+  readonly ledgerMutex: FoldQueue;
 }
 
 export interface AppendLearningsLeafOpts {
@@ -169,11 +188,18 @@ export const appendLearningsLeaf = (
         // append failure is logged and the leaf still returns ok — a ledger hiccup must never block
         // the attempt (the read side dedups by id, so an orphaned earlier line re-appears as the
         // same candidate next time). The bound never fails the call.
-        const result = await appendMemoryRecords(resolved.value, input.records, {
-          appendFile: deps.appendFile,
-          writeFile: deps.writeFile,
-          log,
-        });
+        //
+        // MUTEX-GUARDED as ONE critical section: the bound is a read-modify-write of the shared
+        // project ledger, so a sibling branch's append landing between this branch's read and its
+        // atomic rewrite would be silently dropped. Guarding only the bound leaves that window
+        // open — the appends ride inside the same lock.
+        const result = await deps.ledgerMutex.run(() =>
+          appendMemoryRecords(resolved.value, input.records, {
+            appendFile: deps.appendFile,
+            writeFile: deps.writeFile,
+            log,
+          })
+        );
         if (!result.ok) {
           log.warn(`append-learnings-${String(taskId)} append failed`, {
             path: String(resolved.value),

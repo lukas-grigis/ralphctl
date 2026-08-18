@@ -82,7 +82,13 @@ describe('appendLearningsLeaf', () => {
     const append = recordingAppendFile();
     const task = makeDoneTask({ name: 'add export feature' }); // → taskKind 'feature'
     const leaf = appendLearningsLeaf(
-      { appendFile: append.fn, writeFile: recordingWriteFile().fn, clock: () => FIXED_NOW, logger: noopLogger },
+      {
+        appendFile: append.fn,
+        writeFile: recordingWriteFile().fn,
+        clock: () => FIXED_NOW,
+        logger: noopLogger,
+        ledgerMutex: createFoldQueue(),
+      },
       {
         memoryRoot: MEMORY_ROOT,
         projectId: PROJECT_ID,
@@ -120,7 +126,13 @@ describe('appendLearningsLeaf', () => {
     const append = recordingAppendFile();
     const task = makeDoneTask({ name: 'refactor the loader' });
     const leaf = appendLearningsLeaf(
-      { appendFile: append.fn, writeFile: recordingWriteFile().fn, clock: () => FIXED_NOW, logger: noopLogger },
+      {
+        appendFile: append.fn,
+        writeFile: recordingWriteFile().fn,
+        clock: () => FIXED_NOW,
+        logger: noopLogger,
+        ledgerMutex: createFoldQueue(),
+      },
       {
         memoryRoot: MEMORY_ROOT,
         projectId: PROJECT_ID,
@@ -145,7 +157,13 @@ describe('appendLearningsLeaf', () => {
     const append = recordingAppendFile();
     const task = makeDoneTask({ name: 'add export feature' });
     const leaf = appendLearningsLeaf(
-      { appendFile: append.fn, writeFile: recordingWriteFile().fn, clock: () => FIXED_NOW, logger: noopLogger },
+      {
+        appendFile: append.fn,
+        writeFile: recordingWriteFile().fn,
+        clock: () => FIXED_NOW,
+        logger: noopLogger,
+        ledgerMutex: createFoldQueue(),
+      },
       {
         memoryRoot: MEMORY_ROOT,
         projectId: PROJECT_ID,
@@ -184,7 +202,13 @@ describe('appendLearningsLeaf', () => {
     const append = recordingAppendFile();
     const task = makeDoneTask({ name: 'refactor the loader' });
     const leaf = appendLearningsLeaf(
-      { appendFile: append.fn, writeFile: recordingWriteFile().fn, clock: () => FIXED_NOW, logger: noopLogger },
+      {
+        appendFile: append.fn,
+        writeFile: recordingWriteFile().fn,
+        clock: () => FIXED_NOW,
+        logger: noopLogger,
+        ledgerMutex: createFoldQueue(),
+      },
       {
         memoryRoot: MEMORY_ROOT,
         projectId: PROJECT_ID,
@@ -211,7 +235,13 @@ describe('appendLearningsLeaf', () => {
       Result.error(Object.assign(new Error('disk full'), { message: 'disk full' })) as never;
     const task = makeDoneTask({ name: 'fix the crash' }); // → 'bugfix'
     const leaf = appendLearningsLeaf(
-      { appendFile: failingAppend, writeFile: recordingWriteFile().fn, clock: () => FIXED_NOW, logger: noopLogger },
+      {
+        appendFile: failingAppend,
+        writeFile: recordingWriteFile().fn,
+        clock: () => FIXED_NOW,
+        logger: noopLogger,
+        ledgerMutex: createFoldQueue(),
+      },
       {
         memoryRoot: MEMORY_ROOT,
         projectId: PROJECT_ID,
@@ -233,7 +263,13 @@ describe('appendLearningsLeaf', () => {
     const append = recordingAppendFile();
     const task = makeDoneTask({ name: 'docs pass' });
     const leaf = appendLearningsLeaf(
-      { appendFile: append.fn, writeFile: recordingWriteFile().fn, clock: () => FIXED_NOW, logger: noopLogger },
+      {
+        appendFile: append.fn,
+        writeFile: recordingWriteFile().fn,
+        clock: () => FIXED_NOW,
+        logger: noopLogger,
+        ledgerMutex: createFoldQueue(),
+      },
       {
         memoryRoot: MEMORY_ROOT,
         projectId: PROJECT_ID,
@@ -254,7 +290,13 @@ describe('appendLearningsLeaf', () => {
     const append = recordingAppendFile();
     const task = makeDoneTask({ name: 'chore bump' });
     const leaf = appendLearningsLeaf(
-      { appendFile: append.fn, writeFile: recordingWriteFile().fn, clock: () => FIXED_NOW, logger: noopLogger },
+      {
+        appendFile: append.fn,
+        writeFile: recordingWriteFile().fn,
+        clock: () => FIXED_NOW,
+        logger: noopLogger,
+        ledgerMutex: createFoldQueue(),
+      },
       {
         memoryRoot: MEMORY_ROOT,
         projectId: PROJECT_ID,
@@ -282,7 +324,13 @@ describe('appendLearningsLeaf', () => {
     const task = makeDoneTask({ name: 'add caching' });
 
     const appendLeaf = appendLearningsLeaf(
-      { appendFile: append.fn, writeFile: recordingWriteFile().fn, clock: () => FIXED_NOW, logger: noopLogger },
+      {
+        appendFile: append.fn,
+        writeFile: recordingWriteFile().fn,
+        clock: () => FIXED_NOW,
+        logger: noopLogger,
+        ledgerMutex: createFoldQueue(),
+      },
       {
         memoryRoot: MEMORY_ROOT,
         projectId: PROJECT_ID,
@@ -324,7 +372,13 @@ describe('appendLearningsLeaf', () => {
     const append = recordingAppendFile();
     const task = makeDoneTask({ name: 'phantom' });
     const leaf = appendLearningsLeaf(
-      { appendFile: append.fn, writeFile: recordingWriteFile().fn, clock: () => FIXED_NOW, logger: noopLogger },
+      {
+        appendFile: append.fn,
+        writeFile: recordingWriteFile().fn,
+        clock: () => FIXED_NOW,
+        logger: noopLogger,
+        ledgerMutex: createFoldQueue(),
+      },
       {
         memoryRoot: MEMORY_ROOT,
         projectId: PROJECT_ID,
@@ -356,7 +410,13 @@ describe('appendLearningsLeaf', () => {
       const realLedgerPath = sluggedLedgerPath(memoryRoot, PROJECT_ID, PROJECT_SLUG);
 
       const leaf = appendLearningsLeaf(
-        { appendFile: realAppend, writeFile: recordingWriteFile().fn, clock: () => FIXED_NOW, logger: noopLogger },
+        {
+          appendFile: realAppend,
+          writeFile: recordingWriteFile().fn,
+          clock: () => FIXED_NOW,
+          logger: noopLogger,
+          ledgerMutex: createFoldQueue(),
+        },
         { memoryRoot, projectId: PROJECT_ID, projectSlug: PROJECT_SLUG, repoPath: REPO_PATH, repoName: REPO_NAME },
         task.id
       );
@@ -419,7 +479,13 @@ describe('appendLearningsLeaf', () => {
       const realAppend = createAppendFile();
       const task = makeDoneTask({ name: 'keep my learnings' });
       const leaf = appendLearningsLeaf(
-        { appendFile: realAppend, writeFile: recordingWriteFile().fn, clock: () => FIXED_NOW, logger: noopLogger },
+        {
+          appendFile: realAppend,
+          writeFile: recordingWriteFile().fn,
+          clock: () => FIXED_NOW,
+          logger: noopLogger,
+          ledgerMutex: createFoldQueue(),
+        },
         { memoryRoot, projectId: PROJECT_ID, projectSlug: PROJECT_SLUG, repoPath: REPO_PATH, repoName: REPO_NAME },
         task.id
       );
@@ -442,7 +508,13 @@ describe('appendLearningsLeaf', () => {
       const realAppend = createAppendFile();
       const task = makeDoneTask({ name: 'first ever learning' });
       const leaf = appendLearningsLeaf(
-        { appendFile: realAppend, writeFile: recordingWriteFile().fn, clock: () => FIXED_NOW, logger: noopLogger },
+        {
+          appendFile: realAppend,
+          writeFile: recordingWriteFile().fn,
+          clock: () => FIXED_NOW,
+          logger: noopLogger,
+          ledgerMutex: createFoldQueue(),
+        },
         { memoryRoot, projectId: PROJECT_ID, projectSlug: PROJECT_SLUG, repoPath: REPO_PATH, repoName: REPO_NAME },
         task.id
       );
@@ -454,6 +526,126 @@ describe('appendLearningsLeaf', () => {
       expect(result.ok).toBe(true);
       const entries = await fs.readdir(dir);
       expect(entries).toEqual([buildSluggedName(PROJECT_ID, String(PROJECT_SLUG))]);
+    });
+  });
+
+  describe('ledger mutex spans the WHOLE write (#288)', () => {
+    /** A `FoldQueue` that also reports whether the caller is currently inside a critical section. */
+    const trackingMutex = () => {
+      const inner = createFoldQueue();
+      let depth = 0;
+      return {
+        queue: {
+          run: <T>(fn: () => Promise<T>): Promise<T> =>
+            inner.run(async () => {
+              depth += 1;
+              try {
+                return await fn();
+              } finally {
+                depth -= 1;
+              }
+            }),
+        },
+        isInside: () => depth > 0,
+      };
+    };
+
+    it('every ledger append happens inside the mutex, not just the size-bounding rewrite', async () => {
+      // Wiring fence: serialising only `boundLedgerIfNeeded` would still let a sibling append land
+      // between this branch's read and its rewrite, so the appends must sit in the same lock.
+      const mutex = trackingMutex();
+      const insideFlags: boolean[] = [];
+      const append = recordingAppendFile();
+      const task = makeDoneTask({ name: 'add export feature' });
+
+      const leaf = appendLearningsLeaf(
+        {
+          appendFile: async (path, text) => {
+            insideFlags.push(mutex.isInside());
+            return append.fn(path, text);
+          },
+          writeFile: recordingWriteFile().fn,
+          clock: () => FIXED_NOW,
+          logger: noopLogger,
+          ledgerMutex: mutex.queue,
+        },
+        {
+          memoryRoot: MEMORY_ROOT,
+          projectId: PROJECT_ID,
+          projectSlug: PROJECT_SLUG,
+          repoPath: REPO_PATH,
+          repoName: REPO_NAME,
+        },
+        task.id
+      );
+
+      const result = await leaf.execute({
+        sprintId: SPRINT_ID,
+        tasks: [task],
+        currentAttemptLearnings: [{ text: 'first insight' }, { text: 'second insight' }],
+        currentAttemptDecisions: ['adopt hexagonal layering'],
+      });
+      expect(result.ok).toBe(true);
+      expect(insideFlags).toEqual([true, true, true]);
+      expect(mutex.isInside()).toBe(false); // released on the way out
+    });
+
+    it('two concurrent leaves sharing ONE mutex never interleave their writes', async () => {
+      // Both branches write the SAME project ledger. With one shared mutex their critical sections
+      // are strictly ordered, so no row can be lost to a sibling's compaction rewrite.
+      const ledgerMutex = createFoldQueue();
+      const append = recordingAppendFile();
+      const order: string[] = [];
+      const taskA = makeDoneTask({ name: 'branch alpha work' });
+      const taskB = makeDoneTask({ name: 'branch beta work' });
+
+      const buildLeaf = (taskId: typeof taskA.id, tag: string) =>
+        appendLearningsLeaf(
+          {
+            appendFile: async (path, text) => {
+              order.push(`${tag}:enter`);
+              await new Promise((resolve) => setTimeout(resolve, 5));
+              const res = await append.fn(path, text);
+              order.push(`${tag}:exit`);
+              return res;
+            },
+            writeFile: recordingWriteFile().fn,
+            clock: () => FIXED_NOW,
+            logger: noopLogger,
+            ledgerMutex,
+          },
+          {
+            memoryRoot: MEMORY_ROOT,
+            projectId: PROJECT_ID,
+            projectSlug: PROJECT_SLUG,
+            repoPath: REPO_PATH,
+            repoName: REPO_NAME,
+          },
+          taskId
+        );
+
+      const ctx = (task: typeof taskA, text: string): ImplementCtx => ({
+        sprintId: SPRINT_ID,
+        tasks: [task],
+        currentAttemptLearnings: [{ text }],
+      });
+
+      const [resA, resB] = await Promise.all([
+        buildLeaf(taskA.id, 'alpha').execute(ctx(taskA, 'alpha learned something')),
+        buildLeaf(taskB.id, 'beta').execute(ctx(taskB, 'beta learned something else')),
+      ]);
+      expect(resA.ok).toBe(true);
+      expect(resB.ok).toBe(true);
+
+      // No interleaving: each branch's append completed before the other's began.
+      expect(order).toHaveLength(4);
+      expect(order[1]).toBe(`${order[0]?.split(':')[0] ?? ''}:exit`);
+      // Both rows are on the shared ledger.
+      expect(parseLedger(append.read(ledgerPath)).map((r) => r.text)).toEqual([
+        ...(order[0] === 'alpha:enter'
+          ? ['alpha learned something', 'beta learned something else']
+          : ['beta learned something else', 'alpha learned something']),
+      ]);
     });
   });
 });
