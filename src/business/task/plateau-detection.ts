@@ -53,6 +53,14 @@ import type { EvaluationSignal } from '@src/domain/signal.ts';
  * The score-improvement exemption (rubric-pre-redesign) is gone — the PASS / FAIL rubric has no
  * numeric score to compare.
  *
+ * ## One calibration, three detectors
+ *
+ * The two bolt-on detectors that run in the gen-eval loop right after the evaluator
+ * (`loop-diversity-check`, `entropy-check`) do NOT carry calibration logic of their own: they
+ * size their window with {@link plateauWindowSize} and gate their verdict on
+ * {@link windowIsHardStall}, i.e. on this module's cascade and exemptions. See
+ * {@link windowIsHardStall} for the subordination contract.
+ *
  * Pure. No I/O.
  */
 
@@ -76,6 +84,12 @@ import type { EvaluationSignal } from '@src/domain/signal.ts';
  * `verdict` is the {@link PlateauVerdict} kind the predicate assigned this turn when it was
  * appended — stamped by the evaluator leaf so the warning cap is derivable purely from history
  * without threading a counter through ctx.
+ *
+ * `actionCounts` is the generator's per-turn signal-kind distribution (`decision` / `change` /
+ * `learning` / `note`, only kinds with a non-zero count) for the same turn — an IN-MEMORY-ONLY
+ * field (`plateauHistory` never persists) the evaluator leaf copies off `ctx.lastTurnActionCounts`.
+ * Riding the record rather than a second ctx history guarantees the entropy detector and the
+ * calibrated predicate read exactly the same window. Absent when the turn stamped no distribution.
  */
 export interface PlateauTurnRecord {
   readonly evaluation: EvaluationSignal;
@@ -83,6 +97,7 @@ export interface PlateauTurnRecord {
   readonly commitSubject?: string;
   readonly changedFilesHash?: string;
   readonly verdict?: PlateauVerdict['kind'];
+  readonly actionCounts?: ReadonlyMap<string, number>;
 }
 
 /**
@@ -293,6 +308,67 @@ const workProductChanged = (window: readonly PlateauTurnRecord[], current: Plate
 };
 
 /**
+ * Number of consecutive evaluator turns one plateau window spans — the operator's
+ * `settings.harness.plateauThreshold` knob, clamped to the schema's 2–5 range.
+ *
+ * Defensive clamp: the schema enforces 2–5, but the predicate is the load-bearing path — a bad
+ * config value (or a non-finite one from a hand-built config) must not be able to crash or silence
+ * the inner loop. THE single source of window size: `computePlateauVerdict` and both in-loop
+ * bolt-on detectors size their window from here, so no detector can pre-empt the knob.
+ *
+ * @public
+ */
+export const plateauWindowSize = (threshold: number): number => {
+  if (!Number.isFinite(threshold)) return 2;
+  return Math.max(2, Math.min(5, Math.trunc(threshold)));
+};
+
+/**
+ * The net-progress cascade, one window at a time — the shared core {@link computePlateauVerdict}
+ * maps onto {@link PlateauVerdict} and {@link windowIsHardStall} reuses verbatim.
+ *
+ *   - `insufficient-history` — the window has not filled to the threshold yet.
+ *   - `progressing`          — the current turn has no failures, or the failure count dropped
+ *                              somewhere across [window…current].
+ *   - `critique-shifted`     — exemption 1 (see the module docstring).
+ *   - `work-product-changed` — exemption 2 (see the module docstring). The WARNING_SOFTEN_CAP is
+ *                              deliberately NOT applied here: the cap is a property of the
+ *                              VERDICT HISTORY, not of this window's progress, and a bolt-on
+ *                              detector must never fire on a window this classifier exempted.
+ *   - `stalled`              — no net progress and no exemption.
+ */
+const WINDOW_VERDICT = {
+  insufficientHistory: 'insufficient-history',
+  progressing: 'progressing',
+  critiqueShifted: 'critique-shifted',
+  workProductChanged: 'work-product-changed',
+  stalled: 'stalled',
+} as const;
+
+type WindowVerdict = (typeof WINDOW_VERDICT)[keyof typeof WINDOW_VERDICT];
+
+const classifyPlateauWindow = (
+  priorTurns: readonly PlateauTurnRecord[],
+  current: PlateauTurnRecord,
+  options: PlateauOptions
+): WindowVerdict => {
+  const threshold = plateauWindowSize(options.threshold);
+
+  // Not enough history to plateau yet.
+  if (priorTurns.length < threshold - 1) return WINDOW_VERDICT.insufficientHistory;
+
+  // Window = last `threshold - 1` prior turns. The current turn must still have failures, and
+  // the failure count must never have decreased across [window…current] — a drop is progress.
+  const window = priorTurns.slice(-(threshold - 1));
+  if (failedDimensions(current.evaluation).size === 0) return WINDOW_VERDICT.progressing;
+  if (!countNeverDecreased([...window, current])) return WINDOW_VERDICT.progressing;
+
+  if (critiqueShiftedFromAll(window, current)) return WINDOW_VERDICT.critiqueShifted;
+  if (workProductChanged(window, current)) return WINDOW_VERDICT.workProductChanged;
+  return WINDOW_VERDICT.stalled;
+};
+
+/**
  * Compute whether the just-completed evaluator turn (`current`) plateaus relative to the
  * previous `priorTurns`. See the module docstring for the net-progress predicate and the
  * exemption rules, and {@link PlateauVerdict} for the exit-decision taxonomy.
@@ -304,32 +380,71 @@ export const computePlateauVerdict = (
   current: PlateauTurnRecord,
   options: PlateauOptions
 ): PlateauVerdict => {
-  // Defensive clamp: schema enforces 2–5, but the predicate is the load-bearing path —
-  // a bad config value shouldn't be able to crash the inner loop.
-  const threshold = Math.max(2, Math.min(5, Math.trunc(options.threshold)));
-
-  // Not enough history to plateau yet.
-  if (priorTurns.length < threshold - 1) return { kind: 'none' };
-
-  // Window = last `threshold - 1` prior turns. The current turn must still have failures, and
-  // the failure count must never have decreased across [window…current] — a drop is progress.
-  const window = priorTurns.slice(-(threshold - 1));
-  const currentFailed = failedDimensions(current.evaluation);
-  if (currentFailed.size === 0) return { kind: 'none' };
-  if (!countNeverDecreased([...window, current])) return { kind: 'none' };
-
-  const dimensions = [...currentFailed];
-
-  // Exemption 1 — the critique prose moved versus every prior turn in the window.
-  if (critiqueShiftedFromAll(window, current)) {
-    return { kind: 'progress', reason: 'critique-shifted' };
+  const verdict = classifyPlateauWindow(priorTurns, current, options);
+  if (verdict === WINDOW_VERDICT.insufficientHistory || verdict === WINDOW_VERDICT.progressing) {
+    return { kind: 'none' };
+  }
+  if (verdict === WINDOW_VERDICT.critiqueShifted) {
+    return { kind: 'progress', reason: WINDOW_VERDICT.critiqueShifted };
   }
 
-  // Exemption 2 — the work-product fingerprint changed (real code edits). Capped: after
-  // WARNING_SOFTEN_CAP consecutive softenings the loop is still stuck, so fire the plateau.
-  if (workProductChanged(window, current) && trailingWarningStreak(priorTurns) < WARNING_SOFTEN_CAP) {
-    return { kind: 'warning', dimensions, reason: 'work-product-changed' };
+  const dimensions = [...failedDimensions(current.evaluation)];
+
+  // Exemption 2 is capped: after WARNING_SOFTEN_CAP consecutive softenings the loop is still
+  // stuck, so fire the plateau anyway. The cap lives HERE (not in the classifier) because it
+  // reads the stamped verdict history, not this window's progress.
+  if (verdict === WINDOW_VERDICT.workProductChanged) {
+    return trailingWarningStreak(priorTurns) < WARNING_SOFTEN_CAP
+      ? { kind: 'warning', dimensions, reason: WINDOW_VERDICT.workProductChanged }
+      : { kind: 'plateau', dimensions };
   }
 
   return { kind: 'plateau', dimensions };
+};
+
+/**
+ * Bolt-on-facing form of the same cascade: `true` only when `window` — whose LAST element is the
+ * CURRENT turn, matching how the in-loop detectors slice `ctx.plateauHistory` — is a hard stall
+ * under the operator's threshold, with neither exemption applying.
+ *
+ * SUBORDINATION CONTRACT. The two in-loop detectors (`loop-diversity-check`, `entropy-check`) run
+ * immediately after the evaluator leaf, i.e. exactly where {@link computePlateauVerdict} has
+ * already spoken. Gating them on this predicate means a detector can never (a) pre-empt the
+ * operator's `plateauThreshold` knob with a window of its own, nor (b) exit a loop the calibrated
+ * predicate deliberately exempted for a shifted critique or a changed work product. Both are
+ * therefore strictly subordinate: they may only add evidence ON TOP of a window the calibrated
+ * predicate itself calls stalled, never override its judgement.
+ *
+ * @public
+ */
+export const windowIsHardStall = (window: readonly PlateauTurnRecord[], options: PlateauOptions): boolean => {
+  const size = plateauWindowSize(options.threshold);
+  if (window.length < size) return false;
+  const recent = window.slice(-size);
+  const current = recent[recent.length - 1];
+  if (current === undefined) return false;
+  return classifyPlateauWindow(recent.slice(0, -1), current, options) === WINDOW_VERDICT.stalled;
+};
+
+/**
+ * Sum each generator signal kind's count across the window's records — the pooled distribution the
+ * action-entropy detector scores.
+ *
+ * Pooling (rather than scoring each turn on its own) is what fixes the single-turn detector's
+ * guaranteed false positive: one turn that emitted only `change` signals collapses to K=1 → H=0,
+ * yet a generator alternating kinds across turns is visibly exploring. Pooled, that alternation
+ * scores K≥2 and stays quiet; only a generator that concentrated on ONE kind for the whole window
+ * pools to K=1. Records carrying no distribution contribute nothing.
+ *
+ * @public
+ */
+export const pooledActionCounts = (window: readonly PlateauTurnRecord[]): ReadonlyMap<string, number> => {
+  const pooled = new Map<string, number>();
+  for (const record of window) {
+    if (record.actionCounts === undefined) continue;
+    for (const [kind, count] of record.actionCounts) {
+      pooled.set(kind, (pooled.get(kind) ?? 0) + count);
+    }
+  }
+  return pooled;
 };

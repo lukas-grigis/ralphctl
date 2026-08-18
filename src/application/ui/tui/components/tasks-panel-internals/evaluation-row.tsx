@@ -32,6 +32,13 @@ export interface TaskEvaluation {
   readonly attemptN: number;
   /** ISO timestamp the attempt finished, when terminal. */
   readonly finishedAt?: string;
+  /**
+   * Workspace-relative path of the attempt's `evaluation.md`, when one was recorded. Never
+   * rendered on the card — the line stays one line — but it is what `v` hands to the evaluation
+   * overlay. Absent on a legacy `tasks.json` row, which the overlay degrades on rather than
+   * refusing to open.
+   */
+  readonly file?: string;
 }
 
 const statusColor = (status: EvaluationStatus): string =>

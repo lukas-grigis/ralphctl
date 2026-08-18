@@ -25,7 +25,6 @@ const baseRecord = {
   logging: { level: 'info' },
   concurrency: { maxParallelTasks: 1 },
   ui: { notifications: { enabled: true } },
-  developer: { showEvaluatorFailureUI: false },
 };
 
 describe('settings.harness — escalateOnPlateau + escalationMap', () => {
@@ -216,5 +215,64 @@ describe('settings.harness — skipPreVerifyOnFreshSetup (T13)', () => {
     const result = applySettingsKey(DEFAULT_SETTINGS, 'harness.skipPreVerifyOnFreshSetup', 'maybe');
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.message).toContain('not a boolean');
+  });
+});
+
+describe('settings.harness — entropyPlateauDetector', () => {
+  it('fresh-install default is false — the in-loop action-entropy detector is opt-in', () => {
+    expect(DEFAULT_SETTINGS.harness.entropyPlateauDetector).toBe(false);
+  });
+
+  it('schema defaults the key to false when the harness section omits it (legacy file self-heal)', () => {
+    const record = {
+      ...baseRecord,
+      harness: { maxTurns: 5, maxAttempts: 3, rateLimitRetries: 3, plateauThreshold: 2 },
+    };
+    const parsed = SettingsSchema.safeParse(record);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.harness.entropyPlateauDetector).toBe(false);
+  });
+
+  it('parses an explicit true value', () => {
+    const record = { ...baseRecord, harness: { ...baseRecord.harness, entropyPlateauDetector: true } };
+    const parsed = SettingsSchema.safeParse(record);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.harness.entropyPlateauDetector).toBe(true);
+  });
+
+  it('rejects a non-boolean value with a schema error naming the field', () => {
+    const record = { ...baseRecord, harness: { ...baseRecord.harness, entropyPlateauDetector: 'sure' } };
+    const parsed = SettingsSchema.safeParse(record);
+    expect(parsed.success).toBe(false);
+    if (parsed.success) return;
+    const offending = parsed.error.issues.find((issue) => issue.path.join('.') === 'harness.entropyPlateauDetector');
+    expect(offending).toBeDefined();
+  });
+
+  it('round-trips harness.entropyPlateauDetector via applySettingsKey, synonyms included', () => {
+    for (const raw of ['true', '1', 'yes', 'on'] as const) {
+      const r = applySettingsKey(DEFAULT_SETTINGS, 'harness.entropyPlateauDetector', raw);
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.value.harness.entropyPlateauDetector).toBe(true);
+    }
+    for (const raw of ['false', '0', 'no', 'off'] as const) {
+      const r = applySettingsKey(DEFAULT_SETTINGS, 'harness.entropyPlateauDetector', raw);
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.value.harness.entropyPlateauDetector).toBe(false);
+    }
+  });
+
+  it('rejects a non-boolean value for harness.entropyPlateauDetector', () => {
+    const result = applySettingsKey(DEFAULT_SETTINGS, 'harness.entropyPlateauDetector', 'maybe');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain('not a boolean');
+  });
+
+  it('names the key in the unknown-key hint so `settings set` discovers it', () => {
+    const result = applySettingsKey(DEFAULT_SETTINGS, 'harness.nope', 'true');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.hint).toContain('entropyPlateauDetector');
   });
 });

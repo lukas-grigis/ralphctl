@@ -34,6 +34,7 @@ import { useTerminalSize } from '@src/application/ui/tui/runtime/use-terminal-si
 import { MemoryPressureBanner } from '@src/application/ui/tui/components/memory-pressure-banner.tsx';
 import { ChainLogDegradedBanner } from '@src/application/ui/tui/components/chain-log-degraded-banner.tsx';
 import { ProgressOverlay } from '@src/application/ui/tui/components/progress-overlay.tsx';
+import { EvaluationOverlay } from '@src/application/ui/tui/components/evaluation-overlay.tsx';
 
 /**
  * Footer `keys` string for the quit hint. Derived the same way `footerGlobalHints` joins a
@@ -144,21 +145,25 @@ export const Layout = ({ children }: { readonly children: React.ReactNode }): Re
   // running view at the top of the screen. Memory + chain-log banners stay at the top because
   // they signal harness-level degradations that the operator should see immediately.
   //
-  // The progress overlay is a true modal — while open, the active view is hidden (`display:
-  // "none"`) so no parallel ScrollRegion / list cursor competes for keystrokes. Children
-  // remain MOUNTED (not conditionally rendered) so list cursors, expanded cards, and scroll
-  // offsets are preserved when the overlay closes. Every view-level useInput and listActive
-  // expression gates on `ui.modalOpen` (which includes progressOpen) so the hidden-but-mounted
-  // view is fully inert while the overlay is visible. The global handler closes it (esc / g);
-  // `selection.sprintId` gates the open.
+  // The document overlays (progress.md via `g`, evaluation.md via `v`) are true modals — while
+  // one is open, the active view is hidden (`display: "none"`) so no parallel ScrollRegion / list
+  // cursor competes for keystrokes. Children remain MOUNTED (not conditionally rendered) so list
+  // cursors, expanded cards, and scroll offsets are preserved when the overlay closes. Every
+  // view-level useInput and listActive expression gates on `ui.modalOpen` (which includes both)
+  // so the hidden-but-mounted view is fully inert while an overlay is visible. The global handler
+  // closes them (esc / g, esc / v); `selection.sprintId` gates the progress open, and the focused
+  // task's recorded verdict gates the evaluation open (view-local, since only a view knows which
+  // card is focused).
+  const overlayOpen = ui.progressOpen || ui.evaluationTarget !== undefined;
   return (
     <Box flexDirection="column" height={rows}>
       <MemoryPressureBanner />
       <ChainLogDegradedBanner />
-      <Box display={ui.progressOpen ? 'none' : 'flex'} flexDirection="column" flexGrow={1}>
+      <Box display={overlayOpen ? 'none' : 'flex'} flexDirection="column" flexGrow={1}>
         {children}
       </Box>
       {ui.progressOpen && <ProgressOverlay />}
+      {!ui.progressOpen && ui.evaluationTarget !== undefined && <EvaluationOverlay />}
     </Box>
   );
 };

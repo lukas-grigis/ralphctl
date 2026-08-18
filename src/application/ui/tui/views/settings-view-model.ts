@@ -182,6 +182,8 @@ export const HARNESS_HINTS: Readonly<Record<string, string>> = {
     'Gates ALL failure-driven escalation — plateau AND budget-exhausted exits climb the model ladder; disable to always stay on the configured model.',
   'harness.skipPreVerifyOnFreshSetup':
     'Asserts your setup script verifies the tree (builds + tests); enable only when setup is a full verify gate, not just a dependency install.',
+  'harness.entropyPlateauDetector':
+    'Opt-in third plateau detector — exits the loop when the generator reports only one kind of signal across the whole plateau window. Off by default; the threshold predicate already covers it.',
   'harness.bestOfNCandidates':
     'Top-of-ladder remedy: 2-4 samples that many candidates on ONE granted attempt once the model ladder and the nudge are both spent (default 2); 0 disables it, as the economic presets do. That granted attempt spawns N generator sessions — costs more.',
   'harness.escalationMap':
@@ -398,6 +400,13 @@ const buildHarnessFields = (s: Settings): readonly EditableField[] => {
       label: 'Skip pre-verify',
       options: ['true', 'false'],
       current: String(s.harness.skipPreVerifyOnFreshSetup),
+    },
+    {
+      kind: 'select',
+      key: 'harness.entropyPlateauDetector',
+      label: 'Entropy detector',
+      options: ['true', 'false'],
+      current: String(s.harness.entropyPlateauDetector),
     },
     {
       kind: 'text',

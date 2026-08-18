@@ -36,7 +36,6 @@ const renderChip = (t: TaskBucket) =>
       scopeId="scope-1"
       sliceStart={0}
       criteriaExpanded={false}
-      showEvaluatorFailureUI={false}
       isActive={true}
       firstRun={false}
       cardExpanded={true}

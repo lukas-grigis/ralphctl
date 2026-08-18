@@ -30,7 +30,7 @@ import { FLOW_IDS, type FlowId } from '@src/domain/value/flow-id.ts';
  * explicitly via `ai.implement.generator.<field>` or `ai.implement.evaluator.<field>`.
  */
 const SETTINGS_KEY_HINT =
-  'supported keys: ai.effort, ai.{flow}.{provider,model,effort} (flow in {refine,plan,readiness,ideate,createPr}), ai.implement.{generator,evaluator}.{provider,model,effort}, ai.implement.agents.{generator,evaluator}, harness.{maxTurns,maxAttempts,rateLimitRetries,idleWatchdogMs,plateauThreshold,correctiveRetries,bestOfNCandidates,escalateOnPlateau,skipPreVerifyOnFreshSetup}, harness.escalationMap.<fromModel>, logging.level, concurrency.maxParallelTasks, scm.postRefinementComment, ui.notifications.enabled';
+  'supported keys: ai.effort, ai.{flow}.{provider,model,effort} (flow in {refine,plan,readiness,ideate,createPr}), ai.implement.{generator,evaluator}.{provider,model,effort}, ai.implement.agents.{generator,evaluator}, harness.{maxTurns,maxAttempts,rateLimitRetries,idleWatchdogMs,plateauThreshold,correctiveRetries,bestOfNCandidates,escalateOnPlateau,skipPreVerifyOnFreshSetup,entropyPlateauDetector}, harness.escalationMap.<fromModel>, logging.level, concurrency.maxParallelTasks, scm.postRefinementComment, ui.notifications.enabled';
 
 /** Hint attached to a rejected `ai.<flow>.agents.<role>` key targeting an unsupported binding. */
 const AGENT_BINDING_UNSUPPORTED_HINT =
@@ -314,6 +314,11 @@ const applyFixedSettingsKey = (current: Settings, key: string, raw: string): Res
       return applyBooleanField(current, key, raw, (c, b) => ({
         ...c,
         harness: { ...c.harness, skipPreVerifyOnFreshSetup: b },
+      }));
+    case 'harness.entropyPlateauDetector':
+      return applyBooleanField(current, key, raw, (c, b) => ({
+        ...c,
+        harness: { ...c.harness, entropyPlateauDetector: b },
       }));
     case 'logging.level':
       return Result.ok({ ...current, logging: { level: raw as Settings['logging']['level'] } });

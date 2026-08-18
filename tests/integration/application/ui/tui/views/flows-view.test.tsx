@@ -131,7 +131,9 @@ describe('FlowsView', () => {
   });
 
   it('renders the sprint-loaded orientation regime with sprint name and next-action hint', async () => {
-    // Project + draft sprint with no tickets → stage is Plan (all tickets approved, none pending).
+    // Project + draft sprint with ZERO tickets. The old stage-derived wording said "plan tasks
+    // (0 approved tickets)" here — a flow that cannot run yet. The shared table says what the
+    // sprint actually needs first.
     const deps = makeProjectSprintDeps({ id: FIXED_PROJECT_ID }, { id: FIXED_SPRINT_ID, projectId: FIXED_PROJECT_ID });
     const { result } = renderView(<FlowsView />, {
       deps,
@@ -144,8 +146,10 @@ describe('FlowsView', () => {
     expect(frame).toContain('Fixture Sprint');
     // Status chip for the draft status should appear.
     expect(frame).toMatch(/DRAFT/);
-    // Next action derived from the pipeline stage should appear.
+    // Next action from the shared next-steps table should appear.
     expect(frame).toMatch(/next:/i);
+    expect(frame).toContain('add a ticket');
+    expect(frame).not.toContain('0 approved');
     result.unmount();
   });
 

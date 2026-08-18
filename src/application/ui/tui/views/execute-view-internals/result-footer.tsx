@@ -11,6 +11,7 @@ import { Box } from 'ink';
 import { ResultCard } from '@src/application/ui/tui/components/result-card.tsx';
 import { spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
+import type { NextSteps } from '@src/application/ui/shared/next-steps.ts';
 
 interface ResultFooterProps {
   readonly descriptor: SessionDescriptor;
@@ -18,6 +19,12 @@ interface ResultFooterProps {
   readonly tasksDone: number;
   readonly tasksTotal: number;
   readonly elapsed: string;
+  /**
+   * What the operator should do next, plus the post-mortem paths a failure left behind. Built
+   * once by the orchestrator (memoized there — see the `React.memo` note below) so this stays a
+   * pure render.
+   */
+  readonly nextSteps: NextSteps;
 }
 
 const ResultFooterImpl = ({
@@ -26,6 +33,7 @@ const ResultFooterImpl = ({
   tasksDone,
   tasksTotal,
   elapsed,
+  nextSteps,
 }: ResultFooterProps): React.JSX.Element | null => {
   if (isRunning) {
     // Header card already shows [RUNNING] + live spinner — no redundant footer needed.
@@ -43,6 +51,8 @@ const ResultFooterImpl = ({
           { label: 'Tasks', value: `${String(tasksDone)}/${String(tasksTotal)}` },
           { label: 'Elapsed', value: elapsed },
         ]}
+        nextSteps={nextSteps.steps}
+        forensics={nextSteps.forensics}
       />
     </Box>
   );
@@ -50,5 +60,6 @@ const ResultFooterImpl = ({
 
 // Memoized: renders null while running (the common, tick-driven case) and `elapsed` stops
 // changing the instant `descriptor.finishedAt` is set, so this component's props are stable
-// both before and after settle — memo just skips the redundant re-render on every tick.
+// both before and after settle — memo just skips the redundant re-render on every tick. That
+// only holds while `nextSteps` keeps a stable identity, hence the `useMemo` on the caller side.
 export const ResultFooter = React.memo(ResultFooterImpl);

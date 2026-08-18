@@ -62,6 +62,7 @@ export const useGlobalKeys = (opts: UseGlobalKeysOptions = {}): void => {
     if (opts.disabled) return;
     if (handleHelpOverlay(ui, input, key)) return;
     if (handleProgressOverlay(ui, selection, input, key)) return;
+    if (handleEvaluationOverlay(ui, input, key)) return;
     if (handleSessionNav(sessions, router, input, key)) return;
 
     if (key.escape && !ui.escapeClaimed) {
@@ -123,6 +124,22 @@ const handleProgressOverlay = (ui: UiStateApi, selection: SelectionApi, input: s
     return true;
   }
   return false;
+};
+
+/**
+ * Evaluation overlay — CLOSE-ONLY here. `esc` or `v` dismisses while open, and the swallow keeps
+ * the keystroke off the hidden view underneath.
+ *
+ * Opening is deliberately NOT global: the overlay needs the focused task's recorded verdict, and
+ * only the Execute Tasks panel / sprint-detail know which card the cursor is on. Home, Flows and
+ * Settings have no such notion, so a global `v` would need an open-gate they cannot satisfy — and
+ * `flows-view` already binds a view-local `v` of its own. Handling the CLOSE centrally (rather
+ * than in each view) is what lets it win over those now-inert view handlers.
+ */
+const handleEvaluationOverlay = (ui: UiStateApi, input: string, key: Key): boolean => {
+  if (ui.evaluationTarget === undefined) return false;
+  if (key.escape || input === 'v') ui.closeEvaluation();
+  return true;
 };
 
 /**

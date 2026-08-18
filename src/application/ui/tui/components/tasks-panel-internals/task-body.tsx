@@ -17,7 +17,6 @@ import { Box, Text } from 'ink';
 import type { TaskBucket } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
-import { EvaluatorFailurePanel } from '@src/application/ui/tui/components/evaluator-failure-panel.tsx';
 import {
   collapseWhitespace,
   IDLE_TICKER_THRESHOLD_MS,
@@ -87,41 +86,17 @@ const SubStepsSection = ({
 );
 
 /**
- * Eval verdict block under an expanded card. Dev-gated per-dimension panel visibility is driven
- * by the AUTHORITATIVE verdict (or a failed/blocked task status) — never by a bucketed FAILED
- * signal, which can leak from another lane onto a passed task's card. When it does render it may
- * read the most recent matching bucketed FAILED signal for dimension/critique DISPLAY detail; if
- * none exists we render the compact authoritative line instead.
+ * Eval verdict block under an expanded card: the AUTHORITATIVE one-line verdict, and only that.
+ * Per-dimension detail lives in the evaluation overlay (`v`), which reads the attempt's own
+ * `evaluation.md` — the card must never widen into a multi-line panel sourced from the bucketed
+ * signal stream, which mis-attributes evaluator signals across lanes under parallel sprints, and
+ * must never do a disk read: this subtree re-renders every second while a task runs.
  */
-const EvalVerdictSection = ({
-  taskEvaluation,
-  taskStatus,
-  evaluations,
-  showEvaluatorFailureUI,
-}: {
-  readonly taskEvaluation: TaskEvaluation;
-  readonly taskStatus: TaskBucket['status'];
-  readonly evaluations: TaskBucket['evaluations'];
-  readonly showEvaluatorFailureUI: boolean;
-}): React.JSX.Element => {
-  const authoritativeFailed = taskEvaluation.status === 'failed' || taskStatus === 'failed' || taskStatus === 'aborted';
-  if (showEvaluatorFailureUI && authoritativeFailed) {
-    const failureSignal = [...evaluations].reverse().find((e) => e.status === 'failed');
-    if (failureSignal !== undefined) {
-      // Still running ⇒ the harness will feed the critique into another round.
-      return (
-        <Box flexDirection="column" paddingLeft={spacing.indent} marginTop={spacing.section}>
-          <EvaluatorFailurePanel evaluation={failureSignal} isFinalRound={taskStatus !== 'running'} />
-        </Box>
-      );
-    }
-  }
-  return (
-    <Box flexDirection="column" paddingLeft={spacing.indent} marginTop={spacing.section}>
-      <EvaluationLine evaluation={taskEvaluation} />
-    </Box>
-  );
-};
+const EvalVerdictSection = ({ taskEvaluation }: { readonly taskEvaluation: TaskEvaluation }): React.JSX.Element => (
+  <Box flexDirection="column" paddingLeft={spacing.indent} marginTop={spacing.section}>
+    <EvaluationLine evaluation={taskEvaluation} />
+  </Box>
+);
 
 /** Signals block under an expanded card. */
 const SignalsSection = ({
@@ -267,7 +242,6 @@ export const ExpandedProgressBlock = ({
   running,
   isActive,
   taskEvaluation,
-  showEvaluatorFailureUI,
   focusedKey,
   expandedKeys,
   scopeId,
@@ -281,7 +255,6 @@ export const ExpandedProgressBlock = ({
   readonly running: boolean;
   readonly isActive: boolean;
   readonly taskEvaluation: TaskEvaluation | undefined;
-  readonly showEvaluatorFailureUI: boolean;
   readonly focusedKey: string | undefined;
   readonly expandedKeys: ReadonlySet<string>;
   readonly scopeId: string;
@@ -312,14 +285,7 @@ export const ExpandedProgressBlock = ({
           <Text dimColor>{glyphs.activityArrow} awaiting eval</Text>
         </Box>
       )}
-      {taskEvaluation !== undefined && (
-        <EvalVerdictSection
-          taskEvaluation={taskEvaluation}
-          taskStatus={task.status}
-          evaluations={task.evaluations}
-          showEvaluatorFailureUI={showEvaluatorFailureUI}
-        />
-      )}
+      {taskEvaluation !== undefined && <EvalVerdictSection taskEvaluation={taskEvaluation} />}
       {signalRows.length > 0 && (
         <SignalsSection
           taskId={task.id}

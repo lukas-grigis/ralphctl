@@ -26,8 +26,14 @@ scripted evaluator must satisfy BOTH:
 - give a genuinely DISSIMILAR critique each turn (pairwise Jaccard < 0.5 — distinct full sentences, the e2e
   "exhausted budget" test's technique) so the count-based evaluator plateau is exempted via critique-shift.
   Empty/stub gitRunner ⇒ identical `changedFilesHash` every turn ⇒ work-product exemption never helps; rely on
-  critique-shift. The R2 entropy guard then fires at turn == `DIVERSITY_WINDOW_SIZE` (3) when generator action
-  entropy is collapsed (single signal kind) and budget remains (`turnsUsed < maxTurns`). See
-  [[project_loop_diversity_budget_precedence]] for the budget-precedence guard that suppresses both diversity
-  guards on the final turn. The entropy guard reads `ctx.lastTurnActionCounts` (signal-kind distribution proxy —
-  the harness never sees raw tool-use), stamped by the generator leaf's output projection every turn.
+  critique-shift. See [[project_loop_diversity_budget_precedence]] for the budget-precedence guard that
+  suppresses both bolt-on guards on the final turn.
+
+**CHANGED 2026-08 — do NOT write a test that expects a bolt-on guard to fire through the live loop.** Both
+in-loop detectors now window from `plateauThreshold` and gate on `windowIsHardStall` (same cascade + exemptions
+as `computePlateauVerdict`), and `entropy-check` is opt-in (`settings.harness.entropyPlateauDetector`, default
+false) and pools its signal-kind distribution across the window instead of scoring one turn. Because a hard
+stall implies the calibrated predicate already exited with `source: 'threshold'` on the same window one step
+earlier, the bolt-ons are only reachable in unit tests that hand-feed `ctx.plateauHistory`; in the live loop the
+attribution is always `threshold`. Each turn's distribution rides `PlateauTurnRecord.actionCounts` (copied off
+`ctx.lastTurnActionCounts`, stamped fresh by the generator leaf every turn).

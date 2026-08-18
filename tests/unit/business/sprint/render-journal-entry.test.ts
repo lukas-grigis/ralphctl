@@ -225,8 +225,10 @@ describe('renderJournalEntry', () => {
         warning: { kind: 'plateau', dimensions: ['C1', 'C2'], source: 'diversity' },
       })
     );
+    // Wording names the plateau WINDOW (sized by `harness.plateauThreshold`), not a fixed turn
+    // count — historical records written when the window was a hardcoded 3 render the same way.
     expect(out).toContain(
-      'the generator repeated the same failed-dimension pattern across the last 3 consecutive turns without changing approach'
+      'the generator repeated the same failed-dimension pattern across the whole plateau window without changing approach'
     );
     expect(out).toContain('on the same failed dimensions: C1, C2');
     expect(out).toContain('(detector: diversity)');
@@ -240,7 +242,9 @@ describe('renderJournalEntry', () => {
         warning: { kind: 'plateau', dimensions: [], source: 'entropy' },
       })
     );
-    expect(out).toContain("the generator's reported actions collapsed onto a narrow set of signal kinds");
+    expect(out).toContain(
+      "the generator's reported actions collapsed onto a narrow set of signal kinds across the plateau window"
+    );
     expect(out).toContain('(detector: entropy)');
     expect(out).not.toContain('identical failure');
     expect(out).not.toContain('on the same failed dimension');

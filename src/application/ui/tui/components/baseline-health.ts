@@ -13,11 +13,16 @@
  *  - `amber`   — broken-baseline attempts OR every verify row is older than {@link STALE_MS}
  *  - `green`   — at least one signal has run and nothing is red / amber
  *  - `unknown` — no setup-script row, no verify-run row anywhere
+ *
+ * The attribution COUNTS come from `business/runs/outcome-stats.ts` so this surface and
+ * `ralphctl runs stats` fold the same persisted field the same way. The tier ordering above is
+ * local and deliberate — it is a presentation decision, not a metric, and stays here.
  */
 
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import type { Task } from '@src/domain/entity/task.ts';
-import type { Attribution, VerifyRun } from '@src/domain/entity/attempt.ts';
+import type { Attempt, VerifyRun } from '@src/domain/entity/attempt.ts';
+import { foldTaskRollup } from '@src/business/runs/outcome-stats.ts';
 
 /** Stale threshold for "baseline state may be out of date", in ms. */
 const STALE_MS = 30 * 60 * 1000;
@@ -37,30 +42,35 @@ export interface AttributionCounts {
   readonly baselineBroken: number;
 }
 
+/**
+ * The four attribution verdicts, in the camelCase shape the card renders. A thin projection of
+ * the business fold's `attribution.byVerdict` — the counting itself is not duplicated here, so
+ * this surface inherits its tolerant reads (a legacy task with no `attempts` array no longer
+ * throws in the render path) and can never drift from the CLI rollup.
+ */
 export const countAttributions = (tasks: readonly Task[]): AttributionCounts => {
-  let clean = 0;
-  let regressed = 0;
-  let fixedBaseline = 0;
-  let baselineBroken = 0;
-  for (const task of tasks) {
-    for (const attempt of task.attempts) {
-      const a: Attribution | undefined = attempt.attribution;
-      if (a === 'clean') clean++;
-      else if (a === 'regressed') regressed++;
-      else if (a === 'fixed-baseline') fixedBaseline++;
-      else if (a === 'baseline-broken') baselineBroken++;
-    }
-  }
-  return { clean, regressed, fixedBaseline, baselineBroken };
+  const { byVerdict } = foldTaskRollup(tasks).attribution;
+  return {
+    clean: byVerdict.clean,
+    regressed: byVerdict.regressed,
+    fixedBaseline: byVerdict['fixed-baseline'],
+    baselineBroken: byVerdict['baseline-broken'],
+  };
 };
 
 /** Newer-wins fold of two verify rows for the same phase, keyed on `ranAt`. */
 const newerVerifyRun = (current: VerifyRun | undefined, candidate: VerifyRun): VerifyRun =>
   current === undefined || candidate.ranAt > current.ranAt ? candidate : current;
 
-/** All verify rows across every attempt of a single task that match the given phase. */
+/** The attempt history, or `[]` for a persisted task written before `attempts` existed. */
+const attemptsOf = (task: Task): readonly Attempt[] => (Array.isArray(task.attempts) ? task.attempts : []);
+
+/**
+ * All verify rows across every attempt of a single task that match the given phase. Tolerant of a
+ * legacy record — the same guarantee the business fold makes.
+ */
 const verifyRunsForPhase = (task: Task, phase: 'pre' | 'post'): readonly VerifyRun[] =>
-  task.attempts.flatMap((attempt) => (attempt.verifyRuns ?? []).filter((row) => row.phase === phase));
+  attemptsOf(task).flatMap((attempt) => (attempt?.verifyRuns ?? []).filter((row) => row.phase === phase));
 
 /**
  * Walk every attempt across every task and return the most recent {@link VerifyRun} for the

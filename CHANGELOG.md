@@ -13,12 +13,18 @@ to [Semantic Versioning](https://semver.org/).
   ralphctl already persists, answering what used to be unanswerable: the done / done-with-warning /
   blocked mix, first-pass rate, attempts-to-done distribution, plateau rate by source, which
   escalation rung resolved each stall versus fell through, the failed-dimension histogram, and
-  per-criterion pass rates. Scope with `--sprint <id>`, `--project <id>`, or `--since <date>`;
-  `--json` emits the raw rollup for machine diffing, so a prompt or settings change can be measured
-  before/after on the same task population.
+  per-criterion pass rates. It also reports the **regression taxonomy**: how many attempts broke a
+  green baseline (split `clean` / `fixed-baseline` / `baseline-broken` / unattributed), the full
+  warning breakdown by kind instead of one collapsed "done with warning" counter, and abort causes,
+  so an operator Ctrl-C is distinguishable from rate-limit exhaustion. Task-based and attempt-based
+  rates sit in one report, each labelled with the denominator it is quoting. Scope with
+  `--sprint <id>`, `--project <id>`, or `--since <date>`; `--json` emits the raw rollup for machine
+  diffing, so a prompt or settings change can be measured before/after on the same task population.
 - **Sprint outcome card in the TUI.** Once a sprint reaches review or done, its detail view shows a
-  compact outcome report — task mix, first-pass rate, plateaus, escalation rungs that fired, and
-  criteria pass rate — from the same rollup.
+  compact outcome report — task mix, regressions, warnings by kind, aborts (when any), first-pass
+  rate, plateaus, escalation rungs that fired, and criteria pass rate — from the same rollup, so the
+  TUI and `runs stats` can never report different numbers. A sprint with a regression takes the
+  card's error tone.
 - **Attempts now record what they cost.** Each settled attempt persists the provider-reported
   `inputTokens` / `outputTokens` and the AI-spawn wall-clock `durationMs` (absent — not zero — when a
   provider reports no usage; older records load unchanged).
@@ -36,9 +42,34 @@ to [Semantic Versioning](https://semver.org/).
   only; `--home <dir>` relocates the sandbox; `--script` replays a canned generator → evaluator
   transcript through the real Claude adapter instead of spawning a real CLI, for a fully reproducible
   first-run recording.
+- **You can finally read the evaluator's verdict.** Every evaluator round has always written an
+  operator-readable `evaluation.md` next to the task's round artifacts — the critique, and each
+  dimension's pass / fail / n-a with its finding and any command output — and nothing in the TUI or
+  the CLI ever opened it. A failed attempt read `eval failed · attempt 2` and stopped there. Press
+  `v` on the focused task, in the Execute tasks panel or on a sprint-detail task row, and the file
+  opens in a read-only overlay you can scroll (same chords as the `g` progress overlay; `Esc` or `v`
+  closes). `ralphctl task evaluation <taskId>` prints the same file for scripts and pipes, with the
+  attempt / verdict / path header on stderr so `> verdict.md` yields exactly the artifact.
+  Older sprints stay readable: a task whose record predates the artifact, or whose workspace has been
+  pruned, degrades to the one-line verdict it shows today — never an error.
 
 ### Changed
 
+- **A finished run now tells you what to do next.** The settled outcome card ends with a `Next steps`
+  block — the recommended flow for the sprint's current state, with the key that launches it — and a
+  failed or cancelled run adds a `Post-mortem` block listing the artifacts it actually left on disk
+  (`progress.md`, the trace, verify logs, the sprint directory). Every path is existence-checked
+  before it is printed, and a run with no sprint of its own — a `create-sprint` that failed before
+  creating one — shows no paths rather than a guessed one. The settled key set grows to
+  `↵ home · r re-run · g progress`; `r` returns to Flows, which re-checks every launch trigger
+  against the sprint's status as it stands now, so a sprint that moved on during the run offers the
+  flow that follows rather than a stale repeat.
+- **Home and Flows now give the same recommendation, checked against the flow menu's own rules.** The
+  two screens derived their "next action" separately and disagreed on four of seven sprint states.
+  Home's advice at `review` pointed at `create-pr`, a flow the Flows menu hides in that state, and it
+  said nothing at all once a sprint was `done`; Flows recommended `implement` where no task was left
+  to run. Both now read one table, `review` offers the two flows that are genuinely available there,
+  and `done` points at the pull request.
 - **Provider port conformance suite.** Every headless and interactive AI adapter is now driven over a
   scripted, in-process child process and checked against the same contract table, catching port
   regressions (a dropped root, a prompt inlined into argv, a missing kill rung) at `pnpm test` instead
@@ -58,14 +89,47 @@ to [Semantic Versioning](https://semver.org/).
   `ralphctl settings set harness.bestOfNCandidates 0`); the four `*-economic` presets now pin it to
   `0` for you, so cost-sensitive setups keep the previous behaviour by applying one of them.
 
+- **The two in-loop plateau detectors now follow your `harness.plateauThreshold`.** The
+  fingerprint-repetition and action-entropy checks that run right after each evaluator turn used to
+  use a hardcoded three-turn window (entropy: a single turn) and ignored the exemptions the main
+  plateau predicate applies, so they could end a loop earlier than you asked for — and precisely
+  where the calibrated predicate had judged the run to be making progress. Both now window from
+  `harness.plateauThreshold` and only speak when the work-product fingerprint is unchanged and the
+  evaluator's critique has not shifted across that window: an AI that keeps editing the tree, or an
+  evaluator raising genuinely new complaints, is no longer cut short. The trade is deliberate — a
+  loop that is stuck in a way only these detectors can see may now run on to its turn budget instead
+  of wrongly burning an escalation rung plus a whole attempt; a genuinely stalled loop still exits at
+  your `plateauThreshold`, now attributed to the main predicate rather than to a detector. Existing
+  sprint journals and attempt records naming the old detectors keep loading and rendering unchanged.
+- **The action-entropy plateau detector is now opt-in** — `harness.entropyPlateauDetector`, default
+  off (TUI Harness settings, or `ralphctl settings set harness.entropyPlateauDetector true`).
+  Existing runs are no longer subject to entropy-driven exits at all. The signal is a proxy for a
+  proxy — the harness never sees the AI's raw tool use, only the spread of the signal kinds it
+  reports — and the count-based `plateauThreshold` predicate already covers the same ground.
+
 ### Fixed
 
+- **A single turn could no longer end a task's attempt on an entropy "plateau".** The action-entropy
+  detector scored ONE turn's signal-kind mix: a turn that reported only `change` signals scored zero
+  diversity and exited the gen-eval loop, burning an escalation rung and a whole attempt on a run
+  that was working normally. Entropy is now pooled across the whole plateau window (so a generator
+  alternating kinds across turns reads as varied, which it is), and the detector must additionally
+  agree with the calibrated plateau predicate before it can exit.
 - **OpenCode interactive sessions could silently lose access to extra repositories** (#278). The
   adapter used to grant only the prompt file's directory; a caller-supplied `additionalRoots` (every
   multi-repo `plan` / `refine` session) was mounted nowhere, so OpenCode would refuse to read the
   other repos with no error surfaced. It now grants every root the engine resolved, and a root that
   can't be expressed as a permission pattern (glob metacharacters in the path) fails the session with
   a named error instead of starting one that can't see what it was asked to.
+
+### Removed
+
+- **`settings.developer.showEvaluatorFailureUI`.** The flag gated a per-dimension evaluator panel that
+  no production code path ever rendered, and it was unreachable anyway — absent from the Settings view
+  and from `ralphctl settings set`, so hand-editing `settings.json` was the only way to set it. The
+  panel it gated now reads the attempt's own `evaluation.md` and renders inside the new evaluation
+  overlay, which removed the flag's reason to exist. Nothing changes for anyone: an existing
+  `settings.json` still loads clean and the key is dropped on the next save.
 
 ## [0.19.0] - 2026-08-10
 

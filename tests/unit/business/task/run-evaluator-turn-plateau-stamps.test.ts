@@ -219,3 +219,57 @@ describe('runEvaluatorTurnUseCase — turnRecord changedFilesHash threading (D2)
     expect(result.value.turnRecord?.changedFilesHash).toBe(HASH_B);
   });
 });
+
+/**
+ * The generator's per-turn signal-kind distribution rides the SAME record the plateau predicate
+ * reads, so the in-loop action-entropy detector can pool a whole window from one history instead
+ * of keeping a second, desyncable one. The use case never reads it — it only threads it.
+ */
+describe('runEvaluatorTurnUseCase — turnRecord actionCounts stamp', () => {
+  it('threads currentActionCounts from props onto the turnRecord', async () => {
+    const task = verifiedTask();
+    const ev = failedEval('correctness', { critique: 'needs more work' });
+    const result = await runEvaluatorTurnUseCase({
+      task,
+      priorTurns: [],
+      plateauThreshold: 2,
+      currentActionCounts: new Map([
+        ['change', 3],
+        ['note', 1],
+      ]),
+      callEvaluate: async () => Result.ok([ev] as readonly HarnessSignal[]),
+      evaluationFile: EVAL_FILE,
+      logger: noopLogger,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect([...(result.value.turnRecord?.actionCounts ?? new Map())]).toStrictEqual([
+      ['change', 3],
+      ['note', 1],
+    ]);
+  });
+
+  it('omits actionCounts when the turn stamped no distribution (or an empty one)', async () => {
+    const task = verifiedTask();
+    const ev = failedEval('correctness', { critique: 'needs more work' });
+    const empty = await runEvaluatorTurnUseCase({
+      task,
+      priorTurns: [],
+      plateauThreshold: 2,
+      currentActionCounts: new Map(),
+      callEvaluate: async () => Result.ok([ev] as readonly HarnessSignal[]),
+      evaluationFile: EVAL_FILE,
+      logger: noopLogger,
+    });
+    const absent = await runEvaluatorTurnUseCase({
+      task,
+      priorTurns: [],
+      plateauThreshold: 2,
+      callEvaluate: async () => Result.ok([ev] as readonly HarnessSignal[]),
+      evaluationFile: EVAL_FILE,
+      logger: noopLogger,
+    });
+    expect(empty.ok && empty.value.turnRecord?.actionCounts).toBeUndefined();
+    expect(absent.ok && absent.value.turnRecord?.actionCounts).toBeUndefined();
+  });
+});

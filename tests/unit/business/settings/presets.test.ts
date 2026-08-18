@@ -235,7 +235,7 @@ describe('presets', () => {
       logging: { level: 'debug' },
       concurrency: { maxParallelTasks: 3 },
       ui: { notifications: { enabled: false } },
-      developer: { showEvaluatorFailureUI: true },
+      scm: { postRefinementComment: true },
     };
 
     for (const preset of PRESET_NAMES) {
@@ -247,12 +247,12 @@ describe('presets', () => {
         expect(parsed.success, parsed.success ? '' : JSON.stringify(parsed.error.issues)).toBe(true);
       });
 
-      it(`'${preset}' preserves logging / concurrency / ui / developer / schemaVersion and the rest of harness from current`, () => {
+      it(`'${preset}' preserves logging / concurrency / ui / scm / schemaVersion and the rest of harness from current`, () => {
         const out = applyPreset(preset, sentinel);
         expect(out.logging).toEqual(sentinel.logging);
         expect(out.concurrency).toEqual(sentinel.concurrency);
         expect(out.ui).toEqual(sentinel.ui);
-        expect(out.developer).toEqual(sentinel.developer);
+        expect(out.scm).toEqual(sentinel.scm);
         expect(out.schemaVersion).toEqual(sentinel.schemaVersion);
         // Every harness key EXCEPT escalateOnPlateau is preserved verbatim.
         expect(out.harness.maxTurns).toBe(sentinel.harness.maxTurns);

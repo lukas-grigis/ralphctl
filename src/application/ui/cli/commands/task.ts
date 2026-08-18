@@ -1,3 +1,5 @@
+import { promises as fs } from 'node:fs';
+import { join } from 'node:path';
 import type { Command } from 'commander';
 import type { Task } from '@src/domain/entity/task.ts';
 import { TaskId } from '@src/domain/value/id/task-id.ts';
@@ -5,6 +7,8 @@ import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
 import { fail } from '@src/application/ui/cli/report-cli-error.ts';
 import { pinFallbackNotice, resolveSprintId } from '@src/application/ui/cli/resolve-sprint-selection.ts';
 import { unblockTaskUseCase } from '@src/business/task/unblock-task.ts';
+import { evaluationArtifactSprintPath, latestRecordedEvaluation } from '@src/business/task/evaluation-artifact.ts';
+import { resolveSprintDir } from '@src/integration/persistence/storage.ts';
 
 interface SprintOpt {
   readonly sprint?: string;
@@ -56,6 +60,68 @@ const showTaskAction = async (rawTaskId: string, opts: SprintOpt): Promise<void>
   process.stdout.write(`${JSON.stringify(result.value, null, 2)}\n`);
 };
 
+/**
+ * Print the latest `evaluation.md` for a task — the evaluator's operator-readable verdict, which
+ * before this command was written to disk every round and readable by nothing.
+ *
+ * ABSENCE IS NOT AN ERROR. A task that never reached the evaluator, a legacy `tasks.json` row that
+ * recorded a verdict but no artifact path, and a workspace someone pruned all print one line and
+ * exit 0. Only a bad sprint / task id — the operator mistyping the question — exits 1, matching
+ * `showTaskAction`. The file body goes to stdout verbatim (an inspection command must not reformat
+ * markdown someone may be piping into a pager or a diff); the provenance header goes to stderr so
+ * `ralphctl task evaluation <id> > verdict.md` yields exactly the artifact.
+ */
+const evaluationTaskAction = async (rawTaskId: string, opts: SprintOpt): Promise<void> => {
+  const { deps, storage } = await bootstrapCli();
+  const sprintId = await resolveSprintId(opts.sprint, storage.stateRoot);
+  if (!sprintId.ok) {
+    fail(sprintId.error.message);
+    return;
+  }
+  const taskId = TaskId.parse(rawTaskId);
+  if (!taskId.ok) {
+    fail(`invalid task id: ${taskId.error.message}`);
+    return;
+  }
+  if (sprintId.value.fromPin) process.stderr.write(pinFallbackNotice(sprintId.value.sprintId));
+  const loaded = await deps.taskRepo.findById(sprintId.value.sprintId, taskId.value);
+  if (!loaded.ok) {
+    fail(loaded.error.message);
+    return;
+  }
+
+  const latest = latestRecordedEvaluation(loaded.value);
+  if (latest === undefined) {
+    process.stdout.write(`no evaluation recorded for task ${String(taskId.value)}\n`);
+    return;
+  }
+  const relativePath = evaluationArtifactSprintPath(String(taskId.value), latest.file);
+  if (relativePath === undefined) {
+    process.stdout.write(`no evaluation artifact recorded for attempt ${String(latest.attemptN)} (legacy record)\n`);
+    return;
+  }
+  // Tolerant resolver so both `<id>--<slug>/` and the legacy bare `<id>/` sprint dirs are found.
+  const sprintDirPath = await resolveSprintDir(storage.dataRoot, sprintId.value.sprintId);
+  if (sprintDirPath === undefined) {
+    process.stdout.write(`evaluation artifact not found on disk: ${relativePath}\n`);
+    return;
+  }
+  try {
+    const body = await fs.readFile(join(sprintDirPath, relativePath), 'utf8');
+    process.stderr.write(`# attempt ${String(latest.attemptN)} · eval ${latest.status} · ${relativePath}\n`);
+    process.stdout.write(body.endsWith('\n') ? body : `${body}\n`);
+  } catch (cause) {
+    const code = (cause as { code?: string } | undefined)?.code;
+    if (code === 'ENOENT') {
+      process.stdout.write(`evaluation artifact not found on disk: ${relativePath}\n`);
+      return;
+    }
+    process.stdout.write(
+      `could not read evaluation artifact: ${cause instanceof Error ? cause.message : String(cause)}\n`
+    );
+  }
+};
+
 const unblockTaskAction = async (rawTaskId: string, opts: SprintOpt): Promise<void> => {
   const { deps, storage } = await bootstrapCli();
   const sprintId = await resolveSprintId(opts.sprint, storage.stateRoot);
@@ -97,6 +163,7 @@ const unblockTaskAction = async (rawTaskId: string, opts: SprintOpt): Promise<vo
  *
  *   ralphctl task list [--sprint <id>]
  *   ralphctl task show [--sprint <id>] <task-id>
+ *   ralphctl task evaluation [--sprint <id>] <task-id>
  *   ralphctl task unblock [--sprint <id>] <task-id>
  *
  * `--sprint` defaults to the pinned current sprint (`ralphctl sprint set-current <id>` or any
@@ -121,6 +188,12 @@ export const registerTaskCommand = (program: Command): void => {
     .description('print a single task as JSON')
     .option(SPRINT_OPTION_FLAGS, SPRINT_OPTION_DESC)
     .action(showTaskAction);
+
+  task
+    .command('evaluation <taskId>')
+    .description("print the latest evaluator verdict (evaluation.md) for the task's most recent evaluated attempt")
+    .option(SPRINT_OPTION_FLAGS, SPRINT_OPTION_DESC)
+    .action(evaluationTaskAction);
 
   task
     .command('unblock <taskId>')

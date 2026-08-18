@@ -24,6 +24,7 @@ import { ResultFooter } from '@src/application/ui/tui/views/execute-view-interna
 import type { ResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/use-responsive-layout.ts';
 import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { LogEvent } from '@src/business/observability/events.ts';
+import type { NextSteps } from '@src/application/ui/shared/next-steps.ts';
 
 export interface ExecuteBodyProps {
   readonly descriptor: SessionDescriptor;
@@ -57,6 +58,8 @@ export interface ExecuteBodyProps {
   readonly onDismissCancelScope: () => void;
   /** When true the run's pinned sprint is no longer available — baseline-health surfaces are dropped. */
   readonly pinnedSprintStale: boolean;
+  /** Settled-run "what next" + post-mortem paths, forwarded verbatim to the {@link ResultFooter}. */
+  readonly nextSteps: NextSteps;
 }
 
 /**
@@ -191,6 +194,7 @@ export const ExecuteBody = (props: ExecuteBodyProps): React.JSX.Element => {
     currentTaskName,
     currentSubStep,
     logEntries,
+    nextSteps,
   } = props;
   return (
     <Box flexDirection="column">
@@ -220,6 +224,7 @@ export const ExecuteBody = (props: ExecuteBodyProps): React.JSX.Element => {
         tasksDone={tasksDone}
         tasksTotal={tasksTotal}
         elapsed={elapsed}
+        nextSteps={nextSteps}
       />
 
       <CancelScopePicker {...props} />

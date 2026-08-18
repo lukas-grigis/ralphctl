@@ -85,6 +85,12 @@ interface EvaluatorInput {
   readonly priorTurns: readonly PlateauTurnRecord[];
   readonly currentCommitSubject?: string;
   /**
+   * The generator's signal-kind distribution for THIS turn (`ctx.lastTurnActionCounts`). Rides
+   * onto the appended plateau record so the in-loop entropy detector pools its window from the
+   * same history the calibrated predicate reads (see `PlateauTurnRecord.actionCounts`).
+   */
+  readonly currentActionCounts?: ReadonlyMap<string, number>;
+  /**
    * Pre-composed same-round generator observations (T5) — proposed commit subject, change /
    * learning / note accumulators from `ImplementCtx`, framed downstream as unverified environment
    * context. Composed in the `input` projection (pure ctx read) and rendered inside the
@@ -330,6 +336,7 @@ const makeEvaluatorExecute =
       priorTurns: input.priorTurns,
       plateauThreshold: deps.plateauThreshold,
       ...(input.currentCommitSubject !== undefined ? { currentCommitSubject: input.currentCommitSubject } : {}),
+      ...(input.currentActionCounts !== undefined ? { currentActionCounts: input.currentActionCounts } : {}),
       ...(changedFilesHash !== undefined ? { changedFilesHash } : {}),
       callEvaluate,
       evaluationFile: roundEvaluationRelativePath(input.roundNum),
@@ -381,6 +388,9 @@ const makeEvaluatorInput =
       roundNum,
       generatorHints: composeGeneratorHints(hintsInput),
       ...(currentCommitSubject !== undefined ? { currentCommitSubject } : {}),
+      // Same-turn generator signal-kind spread — pure ctx read, stamped onto this turn's plateau
+      // record so the entropy detector windows over `plateauHistory` like every other detector.
+      ...(ctx.lastTurnActionCounts !== undefined ? { currentActionCounts: ctx.lastTurnActionCounts } : {}),
       ...(ctx.priorEvaluatorSessionId !== undefined ? { priorEvaluatorSessionId: ctx.priorEvaluatorSessionId } : {}),
       ...(ctx.reproductionArtifact !== undefined ? { reproductionArtifact: ctx.reproductionArtifact } : {}),
     };

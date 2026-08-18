@@ -5,7 +5,12 @@ import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { computeActionEntropy, detectLowEntropy } from '@src/business/task/escalation-policy.ts';
-import { DIVERSITY_WINDOW_SIZE } from '@src/application/flows/implement/leaves/loop-diversity-check.ts';
+import {
+  plateauWindowSize,
+  pooledActionCounts,
+  type PlateauTurnRecord,
+  windowIsHardStall,
+} from '@src/business/task/plateau-detection.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 
 export interface EntropyCheckDeps {
@@ -13,12 +18,25 @@ export interface EntropyCheckDeps {
   readonly readConfig: () => Promise<{ readonly maxTurns: number }>;
   readonly eventBus: EventBus;
   readonly clock: () => IsoTimestamp;
+  /** The operator's `settings.harness.plateauThreshold` — sizes the pooled window. */
+  readonly plateauThreshold: number;
+  /**
+   * `settings.harness.entropyPlateauDetector` — OFF by default. Gated INSIDE the leaf rather than
+   * behind a `guard` element so the flow's element list (and its step-order fence tests + the
+   * documented traces) stay identical whichever way the knob is set.
+   */
+  readonly enabled: boolean;
 }
 
 interface EntropyCheckInput {
-  /** Per-kind action counts for the current turn. Undefined when the generator stamped none. */
-  readonly actionCounts: Map<string, number> | undefined;
+  /**
+   * The last `plateauWindowSize(plateauThreshold)` evaluator-turn records of `ctx.plateauHistory`,
+   * newest last — the SAME window every other plateau detector reads. Each record carries the
+   * generator signal-kind distribution for its turn (`PlateauTurnRecord.actionCounts`).
+   */
+  readonly window: readonly PlateauTurnRecord[];
   readonly alreadyExiting: boolean;
+  /** Turn just completed (`ctx.genEvalTurn`) — compared against the budget so the check never pre-empts the final turn. */
   readonly turnsUsed: number;
 }
 
@@ -30,14 +48,20 @@ interface EntropyCheckOutput {
  * Chain leaf — the action-entropy plateau detector, running after the fingerprint-repetition one.
  *
  * Computes normalised Shannon entropy over the distribution of the generator's emitted signal
- * KINDS this turn (decision / change / learning / note), read from `ctx.lastTurnActionCounts`
- * (stamped by the generator leaf). Low entropy means the generator concentrated its reported
- * actions on a single kind — a leading indicator of a plateau, so the leaf re-uses the `plateau`
- * exit kind and the escalation ladder applies the same remedy.
+ * KINDS (decision / change / learning / note) POOLED ACROSS THE PLATEAU WINDOW. Low pooled entropy
+ * means the generator concentrated its reported actions on a single kind for the whole window, so
+ * the leaf re-uses the `plateau` exit kind and the escalation ladder applies the same remedy.
+ *
+ * WHY POOLED, AND WHY OPT-IN. The detector used to score ONE turn's distribution: a turn emitting
+ * three `change` signals scored K=1 → H=0 → plateau, burning an escalation rung plus a whole
+ * attempt on a generator that was working normally. Pooling across the window is the fix (an
+ * alternating generator pools to K≥2); `settings.harness.entropyPlateauDetector` (default off) is
+ * the belt-and-braces — the signal is a proxy for a proxy, so operators opt in deliberately.
  *
  * HONESTY: this is a SIGNAL-KIND-DISTRIBUTION PROXY for action entropy — the harness never sees
  * the AI's raw tool-use, so the spread of reported signal kinds stands in for "action diversity".
- * It is a SECONDARY / softer signal to the fingerprint-repetition detector, and the
+ * It is a SECONDARY / softer signal, subordinate to {@link windowIsHardStall} (so it can never
+ * override the calibrated predicate's exemptions or pre-empt the operator's threshold), and the
  * budget-precedence guard keeps it from ever pre-empting the final budgeted turn.
  */
 export const entropyCheckLeaf = (deps: EntropyCheckDeps, taskId: TaskId): Element<ImplementCtx> =>
@@ -45,18 +69,27 @@ export const entropyCheckLeaf = (deps: EntropyCheckDeps, taskId: TaskId): Elemen
     useCase: {
       execute: async (input) => {
         const noExit = Result.ok<EntropyCheckOutput>({ shouldExit: false });
-        // No signal-kind distribution stamped this turn (round 1 before any generator turn, or a
-        // turn that emitted zero narrative signals) — no evidence of low entropy, so no-op.
-        if (input.actionCounts === undefined) return noExit;
-        // Skip when another exit is already pending or insufficient turns have elapsed.
-        if (input.alreadyExiting || input.turnsUsed < DIVERSITY_WINDOW_SIZE) return noExit;
+        // Opt-in detector (default off) and no-op when another exit is already pending.
+        if (!deps.enabled || input.alreadyExiting) return noExit;
+
+        // Wait for a full window of REAL evidence — the record count, not a turn counter: a turn
+        // whose evaluator produced no usable record contributes no evidence and must not count.
+        const windowSize = plateauWindowSize(deps.plateauThreshold);
+        if (input.window.length < windowSize) return noExit;
+        // A record with no stamped distribution (a turn that emitted zero narrative signals)
+        // leaves a hole in the window — pooling over it would silently score fewer turns.
+        if (input.window.some((record) => record.actionCounts === undefined)) return noExit;
+
+        const entropy = computeActionEntropy(pooledActionCounts(input.window));
+        if (!detectLowEntropy(entropy)) return noExit;
+
+        // Calibration gate — honour the operator's threshold AND both progress exemptions.
+        if (!windowIsHardStall(input.window, { threshold: deps.plateauThreshold })) return noExit;
+
         // Budget-precedence guard: if this was the final allowed turn, let finalize
         // synthesise the budget-exhausted exit rather than pre-empting it with a plateau.
         const { maxTurns } = await deps.readConfig();
         if (input.turnsUsed >= Math.max(1, maxTurns)) return noExit;
-
-        const entropy = computeActionEntropy(input.actionCounts);
-        if (!detectLowEntropy(entropy)) return noExit;
 
         deps.eventBus.publish({
           type: 'banner-show',
@@ -71,10 +104,9 @@ export const entropyCheckLeaf = (deps: EntropyCheckDeps, taskId: TaskId): Elemen
       },
     },
     input: (ctx): EntropyCheckInput => ({
-      // SIGNAL-KIND-DISTRIBUTION proxy for action entropy: read the generator leaf's per-turn
-      // `lastTurnActionCounts` (decision/change/learning/note spread for the turn just completed).
-      // Copy into a mutable `Map` for `computeActionEntropy`; undefined when nothing was stamped.
-      actionCounts: ctx.lastTurnActionCounts !== undefined ? new Map(ctx.lastTurnActionCounts) : undefined,
+      // SIGNAL-KIND-DISTRIBUTION proxy for action entropy, pooled over the plateau window: each
+      // record carries the per-turn spread the evaluator leaf copied off `ctx.lastTurnActionCounts`.
+      window: (ctx.plateauHistory ?? []).slice(-plateauWindowSize(deps.plateauThreshold)),
       alreadyExiting: ctx.lastExit !== undefined,
       turnsUsed: ctx.genEvalTurn ?? 0,
     }),

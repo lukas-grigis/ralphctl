@@ -1,188 +1,164 @@
 /**
- * EvaluatorFailurePanel — fixture-gated per-dimension failure render.
+ * EvaluatorFailurePanel — per-dimension verdict render, fed by the parsed `evaluation.md`.
  *
  * Pins:
- *  - Unflagged path (`showEvaluatorFailureUI=false`) preserves the canonical single-line
- *    dimension summary so production rendering does not shift while the panel is gated.
- *  - Flagged path swaps to the per-dimension panel with red/green colouring + critique excerpt.
- *  - Critique excerpt collapses to a single line and a "press d to expand" affordance appears
- *    only when the body exceeds the excerpt cap.
- *  - "↳ next round will receive this critique" annotation only renders when `isFinalRound`
- *    is false (i.e. another generator turn is coming).
+ *  - Every dimension in the file surfaces with its own verdict word and finding prose.
+ *  - An `n/a` dimension renders as NEITHER a pass nor a fail. This is a regression fence: the
+ *    panel used to key presentation off `dimension.passed`, and the renderer emits `n/a` for a
+ *    not-applicable dimension whose source signal carries `passed: false` — so every N/A dimension
+ *    was reported to the operator as a red failure.
+ *  - The critique renders in FULL with no excerpt / expand affordance, and the panel registers no
+ *    keyboard handler (the old bare `d` double-fired with StatusBanner's ungated dismiss).
+ *  - The Tasks panel card keeps its canonical one-line verdict — the per-dimension detail belongs
+ *    to the overlay, and the card must not grow a second rendering mode.
  */
 
 import { render } from 'ink-testing-library';
-import { promises as fs } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { TasksPanel } from '@src/application/ui/tui/components/tasks-panel.tsx';
-import { EvaluatorFailurePanel } from '@src/application/ui/tui/components/evaluator-failure-panel.tsx';
+import {
+  EvaluatorFailurePanel,
+  projectEvaluationLines,
+} from '@src/application/ui/tui/components/evaluator-failure-panel.tsx';
+import { parseEvaluationMarkdown, type ParsedEvaluation } from '@src/business/task/parse-evaluation-md.ts';
 import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { EvaluationSignal } from '@src/domain/signal.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
+import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
 
 const ts = (sec: number): IsoTimestamp => new Date(Date.UTC(2026, 4, 20, 0, 0, sec)).toISOString() as IsoTimestamp;
 
-const failingEvaluation = (critique = 'short critique body'): EvaluationSignal => ({
+const parsedEvaluation = (critique = 'short critique body'): ParsedEvaluation =>
+  parseEvaluationMarkdown(
+    [
+      '# Evaluation — failed',
+      '',
+      `_${String(ts(1))}_`,
+      '',
+      '## Critique',
+      '',
+      critique,
+      '',
+      '## Dimensions',
+      '',
+      '### correctness — passed',
+      '',
+      'all good',
+      '',
+      '### completeness — failed',
+      '',
+      'missing edge case',
+      '',
+      '### docs — n/a',
+      '',
+      'no documentation surface in scope',
+      '',
+    ].join('\n')
+  );
+
+const failingSignal = (): EvaluationSignal => ({
   type: 'evaluation',
   status: 'failed',
   timestamp: ts(1),
-  critique,
-  dimensions: [
-    { dimension: 'correctness', passed: true, finding: 'all good' },
-    { dimension: 'completeness', passed: false, finding: 'missing edge case' },
-    { dimension: 'style', passed: true, finding: 'tidy' },
-    { dimension: 'tests', passed: false, finding: 'no new tests added' },
-  ],
+  critique: 'short critique body',
+  dimensions: [{ dimension: 'completeness', passed: false, finding: 'missing edge case' }],
 });
 
 const bucketedWith = (evaluation: EvaluationSignal): BucketedExecution => ({
-  tasks: [
-    {
-      id: 'task-1',
-      status: 'running',
-      subSteps: [],
-      evaluations: [evaluation],
-      signals: [],
-      genEvalRound: 1,
-    },
-  ],
+  tasks: [{ id: 'task-1', status: 'running', subSteps: [], evaluations: [evaluation], signals: [], genEvalRound: 1 }],
   orphanSignals: [],
 });
 
-describe('TasksPanel — showEvaluatorFailureUI prop wiring', () => {
-  // These tests pin the gate: TasksPanel accepts the prop and threads it to its TaskBlock
-  // children. The dev-flagged panel's VISIBILITY is now driven by the AUTHORITATIVE per-task
-  // verdict (`taskEvaluationById`), never the bucketed FAILED signal — a leaked failed signal on
-  // a passed task must NOT surface the failure panel.
-  it('accepts the flag without throwing', () => {
-    const r = render(
-      <TasksPanel bucketed={bucketedWith(failingEvaluation())} running={true} showEvaluatorFailureUI={false} />
-    );
+describe('EvaluatorFailurePanel — per-dimension render', () => {
+  it('renders every dimension with its verdict word and finding', () => {
+    const r = render(<EvaluatorFailurePanel parsed={parsedEvaluation()} />);
     const frame = r.lastFrame() ?? '';
-    expect(frame).toContain('task-1');
+    expect(frame).toContain('correctness: passed');
+    expect(frame).toContain('completeness: failed');
+    expect(frame).toContain('all good');
+    expect(frame).toContain('missing edge case');
     r.unmount();
   });
 
-  it('still accepts the flag when set to true', () => {
-    const r = render(
-      <TasksPanel bucketed={bucketedWith(failingEvaluation())} running={true} showEvaluatorFailureUI={true} />
-    );
-    const frame = r.lastFrame() ?? '';
-    expect(frame).toContain('task-1');
-    r.unmount();
+  it('renders the overall verdict and the recorded timestamp', () => {
+    const frame = render(<EvaluatorFailurePanel parsed={parsedEvaluation()} />).lastFrame() ?? '';
+    expect(frame).toContain('eval');
+    expect(frame).toContain('failed');
+    expect(frame).toContain(String(ts(1)));
   });
 
-  it('renders the per-dimension failure panel when the AUTHORITATIVE verdict is failed', () => {
+  it('renders an `n/a` dimension as neither pass nor fail', () => {
+    // Regression fence — see the module docstring. The projection is asserted rather than the
+    // frame because ANSI colour is stripped in tests; the verdict word is the visible carrier.
+    const docs = projectEvaluationLines(parsedEvaluation()).find((l) => l.text.includes('docs:'));
+    expect(docs?.text).toContain('docs: n/a');
+    expect(docs?.text).not.toContain('failed');
+    expect(docs?.text).not.toContain('passed');
+    // Dim, so it carries no success/error colour at all.
+    expect(docs?.color).toBeUndefined();
+    expect(docs?.dim).toBe(true);
+  });
+
+  it('surfaces a dimension whose fenced execution evidence was recorded', () => {
+    const parsed = parseEvaluationMarkdown(
+      [
+        '# Evaluation — failed',
+        '',
+        '## Dimensions',
+        '',
+        '### tests — failed',
+        '',
+        'red',
+        '',
+        '```',
+        'FAIL foo',
+        '```',
+        '',
+      ].join('\n')
+    );
+    expect(render(<EvaluatorFailurePanel parsed={parsed} />).lastFrame() ?? '').toContain('FAIL foo');
+  });
+
+  it('projects nothing for a model with no status, critique or dimensions', () => {
+    // The empty projection is the overlay's signal to fall back to the raw file bytes.
+    expect(projectEvaluationLines(parseEvaluationMarkdown('not markdown at all'))).toEqual([]);
+  });
+});
+
+describe('EvaluatorFailurePanel — no excerpt, no keyboard', () => {
+  it('renders a long critique in full instead of an excerpt with an expand affordance', () => {
+    const longCritique = `${'a'.repeat(400)} TAIL-OF-CRITIQUE`;
+    const frame = render(<EvaluatorFailurePanel parsed={parsedEvaluation(longCritique)} />).lastFrame() ?? '';
+    expect(frame).toContain('TAIL-OF-CRITIQUE');
+    expect(frame).not.toContain('press d to');
+  });
+
+  it('registers no input handler — pressing `d` does not change the frame', async () => {
+    const r = render(<EvaluatorFailurePanel parsed={parsedEvaluation()} />);
+    const before = r.lastFrame() ?? '';
+    r.stdin.write('d');
+    await tick(30);
+    expect(r.lastFrame() ?? '').toBe(before);
+    r.unmount();
+  });
+});
+
+describe('TasksPanel — the card keeps its one-line verdict', () => {
+  it('renders the authoritative verdict line and no per-dimension detail', () => {
     const r = render(
       <TasksPanel
-        bucketed={bucketedWith(failingEvaluation())}
+        bucketed={bucketedWith(failingSignal())}
         running={true}
-        showEvaluatorFailureUI={true}
         taskEvaluationById={new Map([['task-1', { status: 'failed' as const, attemptN: 1 }]])}
       />
     );
     const frame = r.lastFrame() ?? '';
-    // Per-dimension findings only the failure panel exposes.
-    expect(frame).toContain('completeness: fail');
-    expect(frame).toContain('missing edge case');
-    r.unmount();
-  });
-
-  it('does NOT render the failure panel for an authoritatively passed task with a leaked failed signal', () => {
-    const r = render(
-      <TasksPanel
-        bucketed={bucketedWith(failingEvaluation())}
-        running={true}
-        showEvaluatorFailureUI={true}
-        taskEvaluationById={new Map([['task-1', { status: 'passed' as const, attemptN: 1 }]])}
-      />
-    );
-    const frame = r.lastFrame() ?? '';
-    // Authoritative passed — the leaked failed signal's per-dimension detail must not surface.
-    expect(frame).toContain('passed');
-    expect(frame).not.toContain('completeness: fail');
+    expect(frame).toContain('eval');
+    expect(frame).toContain('failed');
+    expect(frame).toContain('attempt 1');
+    // Dimension detail sourced from the bucketed signal stream must never reach the card.
+    expect(frame).not.toContain('completeness: failed');
     expect(frame).not.toContain('missing edge case');
     r.unmount();
-  });
-});
-
-describe('EvaluatorFailurePanel — unflagged vs flagged render contrast', () => {
-  it('flagged render exposes per-dimension findings the canonical single-line summary cannot fit', () => {
-    const evaluation = failingEvaluation();
-    const r = render(<EvaluatorFailurePanel evaluation={evaluation} isFinalRound={false} />);
-    const frame = r.lastFrame() ?? '';
-    // Per-dimension rows expose the AI-supplied finding text, which the canonical
-    // single-line summary cannot fit on the same line for all four dimensions at once.
-    expect(frame).toContain('correctness: pass');
-    expect(frame).toContain('completeness: fail');
-    expect(frame).toContain('missing edge case');
-    expect(frame).toContain('no new tests added');
-    // Annotation row is present — another round is coming.
-    expect(frame).toContain('next round will receive this critique');
-    r.unmount();
-  });
-
-  it('exposes the per-dimension fixture the failure panel renders (data-shape sanity check)', () => {
-    // The card no longer renders a signal-sourced per-dimension summary at all — the verdict is
-    // the authoritative single line, and per-dimension detail surfaces ONLY in the dev-flagged
-    // EvaluatorFailurePanel. Sanity-check the fixture we feed that panel.
-    const evaluation = failingEvaluation();
-    expect(evaluation.dimensions).toHaveLength(4);
-    expect(evaluation.dimensions.filter((d) => !d.passed)).toHaveLength(2);
-  });
-});
-
-describe('EvaluatorFailurePanel — focused render', () => {
-  it('renders the critique excerpt with the expand affordance when the body exceeds the excerpt cap', () => {
-    const longCritique = 'a'.repeat(500);
-    const r = render(<EvaluatorFailurePanel evaluation={failingEvaluation(longCritique)} isFinalRound={false} />);
-    const frame = r.lastFrame() ?? '';
-    expect(frame).toContain('critique:');
-    expect(frame).toContain('…');
-    // Ink wraps the long line through the middle of the affordance text in narrow terminals;
-    // assert on the unique parts rather than the literal "press d to expand" substring.
-    expect(frame).toContain('press d to');
-    expect(frame).toContain('expand');
-    r.unmount();
-  });
-
-  it('omits the expand affordance when the critique fits within the excerpt cap', () => {
-    const r = render(<EvaluatorFailurePanel evaluation={failingEvaluation('short')} isFinalRound={false} />);
-    const frame = r.lastFrame() ?? '';
-    expect(frame).toContain('critique: short');
-    expect(frame).not.toContain('press d to expand');
-    r.unmount();
-  });
-
-  it('omits the "next round" annotation when isFinalRound is true', () => {
-    const r = render(<EvaluatorFailurePanel evaluation={failingEvaluation()} isFinalRound={true} />);
-    const frame = r.lastFrame() ?? '';
-    expect(frame).not.toContain('next round will receive this critique');
-    r.unmount();
-  });
-});
-
-describe('EvaluatorFailurePanel — fixture chain log', () => {
-  it('reads the fixture NDJSON file and finds the evaluator-failed marker', async () => {
-    const here = dirname(fileURLToPath(import.meta.url));
-    // tests/integration/application/ui/tui/components → tests/fixtures/chain-logs
-    const fixturePath = join(
-      here,
-      '..',
-      '..',
-      '..',
-      '..',
-      '..',
-      'fixtures',
-      'chain-logs',
-      'evaluator-fail-then-pass.ndjson'
-    );
-    const content = await fs.readFile(fixturePath, 'utf8');
-    // The fixture pins the empirical 2026-05-20 evaluator-failure event shape.
-    expect(content).toContain('evaluator failed; recorded critique for next turn');
-    expect(content).toContain('evaluator plateaued on the same failed dimensions');
-    expect(content).toContain('"dimensions":["completeness"]');
   });
 });

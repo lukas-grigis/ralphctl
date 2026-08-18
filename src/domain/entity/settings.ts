@@ -493,6 +493,22 @@ export const SettingsSchema = z.object({
          */
         skipPreVerifyOnFreshSetup: z.boolean().default(false),
         /**
+         * Opt-in third plateau detector: the in-loop action-entropy guard
+         * (`entropy-check-<taskId>`), which scores normalised Shannon entropy over the generator's
+         * reported signal KINDS pooled across the plateau window and exits the gen-eval loop when
+         * the spread collapses onto one kind.
+         *
+         * Defaults `false`. The signal is a proxy for a proxy — the harness never sees the AI's
+         * raw tool-use, so a distribution of self-reported `decision`/`change`/`learning`/`note`
+         * signals stands in for "action diversity" — and it shipped scoring a SINGLE turn, where
+         * a turn that emitted only `change` signals scored K=1 → H=0 and exited the loop, burning
+         * an escalation rung plus a whole attempt on a healthy run. Pooling across the window plus
+         * the shared calibration gate (`windowIsHardStall`) removed that false positive, but the
+         * detector stays opt-in: the count-based `plateauThreshold` predicate already covers every
+         * window this one can fire on, so enabling it adds evidence, never reach.
+         */
+        entropyPlateauDetector: z.boolean().default(false),
+        /**
          * Best-of-N candidate sampling — the escalation ladder's remedy ABOVE the same-model
          * nudge, at the very top of the ladder. `2`-`4` grants ONE best-of-N attempt per task
          * (once the model ladder AND the same-model nudge are both spent — see
@@ -584,22 +600,6 @@ export const SettingsSchema = z.object({
         .default({ enabled: true }),
     })
     .default({ notifications: { enabled: true } }),
-  /**
-   * Developer-only feature toggles. These default to `false` and are not surfaced in the
-   * Settings UI — they are gates for behaviour the team is still validating against real
-   * sprint data before promoting to the default render path.
-   */
-  developer: z
-    .object({
-      /**
-       * Render the per-dimension evaluator-failure panel inside the Tasks panel when an
-       * attempt's evaluator verdict is `failed`. Defaults `false`; production still renders
-       * the canonical 4-line dimension summary. When `true` the panel shows each dimension's
-       * score colour-coded red / green plus the critique excerpt with an expand affordance.
-       */
-      showEvaluatorFailureUI: z.boolean().default(false),
-    })
-    .default({ showEvaluatorFailureUI: false }),
 });
 
 export type AiSettings = z.infer<typeof AiSettingsSchema>;

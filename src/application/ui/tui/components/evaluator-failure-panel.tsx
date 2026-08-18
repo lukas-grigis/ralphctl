@@ -1,197 +1,152 @@
 /**
- * EvaluatorFailurePanel — per-dimension verdict view rendered when an attempt's evaluator
- * verdict is `failed`. Surfaces the same data the canonical 4-line dimension summary shows,
- * but with each dimension colour-coded by pass/fail and the critique excerpt one keystroke
- * away from the full body.
+ * EvaluatorFailurePanel — per-dimension verdict view for one attempt's evaluation.
  *
- * Gating: the panel only renders when `settings.developer.showEvaluatorFailureUI === true`.
- * Until promoted, production keeps the current single-line dimension summary that already
- * lives in `tasks-panel.tsx`. The dev flag is the safety valve while the UI is validated
- * against real-world evaluator output.
+ * Source of truth is the on-disk `evaluation.md` artifact, parsed by `parseEvaluationMarkdown`.
+ * It used to read the timestamp-windowed `TaskBucket.evaluations` signal stream, which
+ * mis-attributes evaluator signals across lanes under parallel sprints — which is why the panel
+ * spent its whole life behind a developer flag instead of on screen. Reading the artifact the
+ * evaluator actually wrote for the attempt removes that ambiguity, and with it the flag.
+ *
+ * The panel is the body of {@link EvaluationOverlay}. Because an `evaluation.md` can be arbitrarily
+ * long, the panel does NOT own its own scroll: it projects to a flat list of styled lines
+ * ({@link projectEvaluationLines}) so the overlay can window that list by row count. Windowing a
+ * React subtree is not possible; windowing a line array is trivial.
  *
  * Layout:
  *
- *   eval failed   3.0/5.0
- *     correctness: 5/5 ✓
- *     completeness: 2/5 ✗
- *     style: 4/5 ✓
- *     tests: 1/5 ✗
- *   ▸ critique: lorem ipsum dolor sit amet… (press d to expand)
- *   ↳ next round will receive this critique
+ *   eval  failed
+ *   2026-08-17T09:15:00.000Z
  *
- * Press `d` while the panel is focused to expand / collapse the critique body. Expansion
- * state lives in panel-local `useState` so it persists across re-renders within the live
- * session but resets when the panel unmounts.
+ *   critique
+ *     The legacy migration path is untested.
+ *
+ *   ✓ correctness: passed
+ *       Logic matches the acceptance criteria.
+ *   ✗ tests: failed
+ *       No regression test for the legacy row.
+ *       ↳ FAIL tests/unit/foo.test.ts
+ *   · docs: n/a
+ *       No documentation surface in scope.
+ *
+ * No keyboard affordance of its own. The earlier `d`-to-expand chord double-fired with
+ * `StatusBanner`'s ungated global `d` (dismiss top banner), and in a scrollable overlay a critique
+ * excerpt is pointless — the full body is one PgDn away.
  */
 
-import React, { useState } from 'react';
-import { Box, Text, useInput } from 'ink';
-import type { EvaluationSignal } from '@src/domain/signal.ts';
-import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
-import { fmtIsoTime } from '@src/application/ui/tui/theme/duration.ts';
+import React from 'react';
+import { Box, Text } from 'ink';
+import type { ParsedEvaluation, ParsedDimensionVerdict } from '@src/business/task/parse-evaluation-md.ts';
+import { glyphs, inkColors } from '@src/application/ui/tui/theme/tokens.ts';
 
 /**
- * Maximum length of the critique excerpt rendered before the expand affordance. The figure
- * is chosen so a typical 3-sentence critique still fits on one line in an 80-col TUI, with
- * the "press d to expand" hint following on the same row.
+ * Hard cap on a single projected row. Ink wraps a `<Text>` across as many terminal rows as it
+ * needs, so one pathological 200 kB line inside a fenced evidence block would defeat the overlay's
+ * row-count windowing and paint the whole screen. Generous enough that no real critique or command
+ * output is clipped in practice.
  */
-const CRITIQUE_EXCERPT_CHARS = 200;
+const MAX_LINE_CHARS = 2000;
 
-export interface EvaluatorFailurePanelProps {
-  /**
-   * The failing evaluator signal. The panel still renders when status is `malformed` or
-   * `passed` so a misuse at the call site is visible (the colour coding shifts but no
-   * dimension is hidden) — gating on `'failed'` is the caller's job.
-   */
-  readonly evaluation: EvaluationSignal;
-  /**
-   * `true` when this is NOT the final round of the gen-eval loop — i.e. the harness will
-   * feed the critique back into the next generator turn. Drives the "↳ next round will
-   * receive this critique" annotation row.
-   */
-  readonly isFinalRound: boolean;
-  /**
-   * When `true`, the panel registers a global `useInput` handler so `d` toggles expansion.
-   * Defaults `false` so unit tests rendering the panel in isolation don't compete with any
-   * other `useInput` consumer in the same Ink tree. The Implement view sets this `true`
-   * for the panel attached to the in-flight task's most recent failed evaluation.
-   */
-  readonly interactive?: boolean;
+/** One projected row: plain text plus the styling the overlay / panel applies verbatim. */
+export interface EvaluationLineSpec {
+  readonly text: string;
+  readonly color?: string;
+  readonly dim?: boolean;
+  readonly bold?: boolean;
 }
 
-/**
- * Truncate the critique body to {@link CRITIQUE_EXCERPT_CHARS}, appending the `clipEllipsis`
- * token (audit-[03] display-clip marker) when the clip fires.
- */
-const excerpt = (text: string): string => {
-  const collapsed = text.replace(/\s+/g, ' ').trim();
-  if (collapsed.length <= CRITIQUE_EXCERPT_CHARS) return collapsed;
-  return `${collapsed.slice(0, CRITIQUE_EXCERPT_CHARS).trimEnd()}${glyphs.clipEllipsis}`;
-};
-
-/** Single-line preview of an `auto` criterion's command output. Mirrors {@link excerpt}'s clip
- * convention but with a tighter cap because each dimension row already has its own finding
- * line — the evidence row is a "what did the command actually say" glance, not a body. */
-const EVIDENCE_EXCERPT_CHARS = 120;
-const collapseEvidence = (text: string): string => {
-  const collapsed = text.replace(/\s+/g, ' ').trim();
-  if (collapsed.length <= EVIDENCE_EXCERPT_CHARS) return collapsed;
-  return `${collapsed.slice(0, EVIDENCE_EXCERPT_CHARS).trimEnd()}${glyphs.clipEllipsis}`;
-};
-
 /** Verdict-line color by evaluation status — read once instead of a nested ternary. */
-const VERDICT_COLOR: Record<EvaluationSignal['status'], string> = {
+const STATUS_COLOR: Record<ParsedEvaluation['status'], string> = {
   failed: inkColors.error,
   passed: inkColors.success,
   malformed: inkColors.warning,
+  unknown: inkColors.muted,
 };
 
-/** Glyph / color / verdict word for a single dimension row, keyed on pass/fail. */
-const DIMENSION_PRESENTATION: Record<
-  'pass' | 'fail',
-  { readonly glyph: string; readonly color: string; readonly verdict: string }
-> = {
-  pass: { glyph: glyphs.check, color: inkColors.success, verdict: 'pass' },
-  fail: { glyph: glyphs.cross, color: inkColors.error, verdict: 'fail' },
+/**
+ * Glyph + color per dimension verdict. `n/a` and `unknown` are deliberately NEITHER red nor green:
+ * the renderer emits `n/a` for a dimension the evaluator marked not-applicable (which carries
+ * `passed: false` in the source signal), so keying off a boolean painted every N/A dimension as a
+ * red failure — a real misreport this panel used to produce.
+ */
+const VERDICT_PRESENTATION: Record<ParsedDimensionVerdict, { readonly glyph: string; readonly color?: string }> = {
+  passed: { glyph: glyphs.check, color: inkColors.success },
+  failed: { glyph: glyphs.cross, color: inkColors.error },
+  'n/a': { glyph: glyphs.bullet },
+  unknown: { glyph: '?' },
 };
 
-/** One dimension's finding + optional command-evidence excerpt. */
-const DimensionRow = ({
-  dimension,
+const clip = (text: string): string =>
+  text.length <= MAX_LINE_CHARS ? text : `${text.slice(0, MAX_LINE_CHARS)}${glyphs.clipEllipsis}`;
+
+/** Split a prose block into rows at the given indent, clipping each. Empty input contributes none. */
+const proseRows = (text: string, indent: string, spec: Omit<EvaluationLineSpec, 'text'>): EvaluationLineSpec[] =>
+  text.length === 0 ? [] : text.split('\n').map((line) => ({ text: clip(`${indent}${line}`), ...spec }));
+
+const dimensionRows = (dimension: ParsedEvaluation['dimensions'][number]): EvaluationLineSpec[] => {
+  const { glyph, color } = VERDICT_PRESENTATION[dimension.verdict];
+  const heading: EvaluationLineSpec = {
+    text: clip(`${glyph} ${dimension.dimension}: ${dimension.verdict}`),
+    ...(color !== undefined ? { color } : { dim: true }),
+  };
+  return [
+    heading,
+    ...proseRows(dimension.finding, '    ', { dim: true }),
+    ...proseRows(dimension.evidence ?? '', `    ${glyphs.activityArrow} `, { dim: true }),
+  ];
+};
+
+/**
+ * Flatten a parsed evaluation into styled rows, in reading order: verdict, timestamp, critique,
+ * then one block per dimension. The overlay slices this array to its viewport; the panel renders
+ * all of it. Returns an empty array for a model with nothing in it, which is the signal the
+ * overlay uses to fall back to the raw file.
+ */
+export const projectEvaluationLines = (parsed: ParsedEvaluation): readonly EvaluationLineSpec[] => {
+  const hasContent = parsed.status !== 'unknown' || parsed.critique !== undefined || parsed.dimensions.length > 0;
+  if (!hasContent) return [];
+
+  const rows: EvaluationLineSpec[] = [
+    { text: `eval  ${parsed.status}`, color: STATUS_COLOR[parsed.status], bold: true },
+  ];
+  if (parsed.timestamp !== undefined) rows.push({ text: clip(parsed.timestamp), dim: true });
+  if (parsed.critique !== undefined) {
+    rows.push({ text: '' }, { text: 'critique', bold: true }, ...proseRows(parsed.critique, '  ', {}));
+  }
+  if (parsed.dimensions.length > 0) {
+    rows.push({ text: '' });
+    for (const dimension of parsed.dimensions) rows.push(...dimensionRows(dimension));
+  }
+  return rows;
+};
+
+/**
+ * Render a run of projected rows. Shared by the panel and the overlay's windowed body so the two
+ * cannot style the same model differently. `keyPrefix` disambiguates when the caller renders a
+ * SLICE — row indices restart at 0 on every scroll otherwise.
+ *
+ * @public
+ */
+export const EvaluationLines = ({
+  lines,
+  keyOffset = 0,
 }: {
-  readonly dimension: EvaluationSignal['dimensions'][number];
-}): React.JSX.Element => {
-  const { glyph, color, verdict } = DIMENSION_PRESENTATION[dimension.passed ? 'pass' : 'fail'];
-  return (
-    <Box flexDirection="column">
-      <Box>
-        <Text color={color}>{glyph} </Text>
-        <Text>
-          {dimension.dimension}: {verdict}
-        </Text>
-        {dimension.finding.length > 0 && (
-          <Text dimColor>
-            {' '}
-            {glyphs.emDash} {dimension.finding}
-          </Text>
-        )}
-      </Box>
-      {dimension.executionEvidence !== undefined && dimension.executionEvidence.trim().length > 0 && (
-        <Box paddingLeft={spacing.indent}>
-          <Text dimColor wrap="truncate-end">
-            {glyphs.activityArrow} {collapseEvidence(dimension.executionEvidence)}
-          </Text>
-        </Box>
-      )}
-    </Box>
-  );
-};
+  readonly lines: readonly EvaluationLineSpec[];
+  readonly keyOffset?: number;
+}): React.JSX.Element => (
+  <Box flexDirection="column">
+    {lines.map((line, idx) => (
+      <Text
+        key={`eval-line-${String(keyOffset + idx)}`}
+        {...(line.color !== undefined ? { color: line.color } : {})}
+        {...(line.dim === true ? { dimColor: true } : {})}
+        {...(line.bold === true ? { bold: true } : {})}
+      >
+        {line.text.length === 0 ? ' ' : line.text}
+      </Text>
+    ))}
+  </Box>
+);
 
-export const EvaluatorFailurePanel = ({
-  evaluation,
-  isFinalRound,
-  interactive = false,
-}: EvaluatorFailurePanelProps): React.JSX.Element => {
-  const [expanded, setExpanded] = useState(false);
-
-  // Keyboard expansion — registered only when the caller opted in. The `d` key matches the
-  // disclosure-row affordance shown next to the critique excerpt.
-  useInput(
-    (input) => {
-      if (!interactive) return;
-      if (input.toLowerCase() === 'd') setExpanded((v) => !v);
-    },
-    { isActive: interactive }
-  );
-
-  const verdictColor = VERDICT_COLOR[evaluation.status];
-
-  const critique = evaluation.critique?.trim() ?? '';
-  const hasCritique = critique.length > 0;
-  const critiqueExcerpt = hasCritique ? excerpt(critique) : '';
-  const isExpandable = hasCritique && critique.length > critiqueExcerpt.length;
-  const disclosure = expanded ? glyphs.actionCursor : glyphs.actionCursor;
-
-  return (
-    <Box flexDirection="column">
-      <Box>
-        <Text dimColor>{fmtIsoTime(String(evaluation.timestamp))}</Text>
-        <Text color={verdictColor} bold>
-          {'  '}eval{'  '}
-        </Text>
-        <Text bold>{evaluation.status}</Text>
-      </Box>
-      {evaluation.dimensions.length > 0 && (
-        <Box flexDirection="column" paddingLeft={4}>
-          {evaluation.dimensions.map((d) => (
-            <DimensionRow key={d.dimension} dimension={d} />
-          ))}
-        </Box>
-      )}
-      {hasCritique && !expanded && (
-        <Box paddingLeft={spacing.indent}>
-          <Text dimColor>{disclosure} </Text>
-          <Text>critique: {critiqueExcerpt}</Text>
-          {isExpandable && <Text dimColor> (press d to expand)</Text>}
-        </Box>
-      )}
-      {hasCritique && expanded && (
-        <Box flexDirection="column" paddingLeft={spacing.indent}>
-          <Box>
-            <Text dimColor>{disclosure} </Text>
-            <Text bold>critique</Text>
-            {isExpandable && <Text dimColor> (press d to collapse)</Text>}
-          </Box>
-          <Box paddingLeft={spacing.indent}>
-            <Text>{critique}</Text>
-          </Box>
-        </Box>
-      )}
-      {!isFinalRound && (
-        <Box paddingLeft={spacing.indent}>
-          <Text dimColor>{glyphs.activityArrow} next round will receive this critique</Text>
-        </Box>
-      )}
-    </Box>
-  );
-};
+export const EvaluatorFailurePanel = ({ parsed }: { readonly parsed: ParsedEvaluation }): React.JSX.Element => (
+  <EvaluationLines lines={projectEvaluationLines(parsed)} />
+);

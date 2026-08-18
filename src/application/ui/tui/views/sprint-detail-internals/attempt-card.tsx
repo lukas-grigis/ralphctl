@@ -62,6 +62,7 @@ export const AttemptCard = ({ attempt }: { readonly attempt: Attempt }): React.J
           <Text dimColor>
             evaluation: <Text color={evaluationColor(attempt.evaluation.status)}>{attempt.evaluation.status}</Text>{' '}
             <Text dimColor>({attempt.evaluation.file})</Text>
+            <Text dimColor> {glyphs.bullet} v to open</Text>
           </Text>
         )}
         {attempt.warning !== undefined && (

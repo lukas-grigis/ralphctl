@@ -50,6 +50,15 @@ export interface IterationConfig {
    */
   readonly skipPreVerifyOnFreshSetup: boolean;
   /**
+   * Opt-in: run the in-loop action-entropy plateau detector (`entropy-check-<taskId>`). Mirrors
+   * `settings.harness.entropyPlateauDetector`; defaults `false`. See that field's JSDoc in
+   * `domain/entity/settings.ts` for why the detector is opt-in (single-turn scoring shipped a
+   * guaranteed false positive; pooled scoring plus the shared calibration gate fixed it, but the
+   * count-based predicate already covers every window it can fire on). OPTIONAL so existing
+   * hand-built `IterationConfig` literals keep compiling — `undefined` reads as off.
+   */
+  readonly entropyPlateauDetector?: boolean | undefined;
+  /**
    * Opt-in best-of-N candidate count for the escalation ladder's top-of-ladder remedy — above the
    * same-model nudge (0 or 2-4; `undefined`/`0` disables it, the default). Mirrors
    * `settings.harness.bestOfNCandidates`; see that field's JSDoc in `domain/entity/settings.ts` for

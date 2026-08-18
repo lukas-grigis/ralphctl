@@ -25,6 +25,8 @@ interface SprintDetailShortcutArgs {
   readonly focusList: readonly FocusItem[];
   readonly cursorIdx: number;
   readonly focusedStuckTask: Task | undefined;
+  /** Focused task that recorded an evaluation verdict — the gate for `v`. */
+  readonly focusedEvaluatedTask: Task | undefined;
   // Actions ------------------------------------------------------------------
   readonly closeAllExpanded: () => void;
   readonly openAddTicket: (sprintId: Sprint['id']) => void;
@@ -35,6 +37,7 @@ interface SprintDetailShortcutArgs {
   readonly markCurrent: (sprint: Sprint) => void;
   readonly handleEdit: () => void;
   readonly handleUnblock: (task: Task) => void;
+  readonly openEvaluation: (task: Task) => void;
 }
 
 /** One keymap row — `guard` gates whether `key` fires in the current state; `action` runs on a match. */
@@ -112,6 +115,15 @@ const SHORTCUT_ROWS: readonly ShortcutRow[] = [
     key: (input) => input === 'u',
     guard: (args) => args.focusedStuckTask !== undefined,
     action: (args) => args.handleUnblock(args.focusedStuckTask!),
+  },
+  {
+    // `v` opens the focused task's evaluation verdict. Ticket rows and tasks that never reached
+    // the evaluator fall through the guard, so the key stays inert rather than opening an empty
+    // overlay. CLOSING is global (`use-global-keys`) — this hook is muted by `modalOpen` the
+    // moment the overlay opens, which is exactly what keeps the two halves from fighting.
+    key: (input) => input === 'v',
+    guard: (args) => args.focusedEvaluatedTask !== undefined,
+    action: (args) => args.openEvaluation(args.focusedEvaluatedTask!),
   },
 ];
 

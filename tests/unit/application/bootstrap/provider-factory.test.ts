@@ -13,6 +13,7 @@ const harnessConfig: Settings['harness'] = {
   escalateOnPlateau: false,
   escalationMap: {},
   skipPreVerifyOnFreshSetup: false,
+  entropyPlateauDetector: false,
 };
 
 const claudeConfig: Settings['ai'] = {

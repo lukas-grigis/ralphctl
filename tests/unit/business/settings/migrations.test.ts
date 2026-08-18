@@ -21,7 +21,6 @@ describe('v1 → v2 settings migration', () => {
       logging: { level: 'info' },
       concurrency: { maxParallelTasks: 1 },
       ui: { notifications: { enabled: true } },
-      developer: { showEvaluatorFailureUI: false },
     };
     const outcome = applyMigrations(v1);
     expect(outcome.fromVersion).toBe(1);
@@ -64,7 +63,6 @@ describe('v1 → v2 settings migration', () => {
       logging: { level: 'info' },
       concurrency: { maxParallelTasks: 1 },
       ui: { notifications: { enabled: true } },
-      developer: { showEvaluatorFailureUI: false },
     };
     const outcome = applyMigrations(v1);
     const parsed = SettingsSchema.safeParse(outcome.value);
@@ -98,7 +96,6 @@ describe('v1 → v2 settings migration', () => {
       logging: { level: 'info' },
       concurrency: { maxParallelTasks: 1 },
       ui: { notifications: { enabled: true } },
-      developer: { showEvaluatorFailureUI: false },
     };
     const outcome = applyMigrations(v2);
     expect(outcome.fromVersion).toBe(CURRENT_SCHEMA_VERSION);

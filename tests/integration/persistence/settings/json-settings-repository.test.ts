@@ -119,12 +119,12 @@ describe('JsonSettingsRepository', () => {
         escalateOnPlateau: false,
         escalationMap: {},
         skipPreVerifyOnFreshSetup: false,
+        entropyPlateauDetector: false,
       },
       logging: { level: 'info' },
       concurrency: { maxParallelTasks: 1 },
       scm: { postRefinementComment: false },
       ui: { notifications: { enabled: true } },
-      developer: { showEvaluatorFailureUI: false },
     };
     const repo = createJsonSettingsRepository({ configRoot });
     expect((await repo.save(codex)).ok).toBe(true);
@@ -158,12 +158,12 @@ describe('JsonSettingsRepository', () => {
         escalateOnPlateau: true,
         escalationMap: { 'claude-sonnet-4-6': 'claude-opus-4-8' },
         skipPreVerifyOnFreshSetup: false,
+        entropyPlateauDetector: false,
       },
       logging: { level: 'debug' },
       concurrency: { maxParallelTasks: 4 },
       scm: { postRefinementComment: true },
       ui: { notifications: { enabled: false } },
-      developer: { showEvaluatorFailureUI: true },
     };
     const repo = createJsonSettingsRepository({ configRoot });
     const saved = await repo.save(custom);
@@ -244,7 +244,6 @@ describe('JsonSettingsRepository', () => {
       logging: { level: 'info' },
       concurrency: { maxParallelTasks: 1 },
       ui: { notifications: { enabled: true } },
-      developer: { showEvaluatorFailureUI: false },
     };
     await fs.writeFile(path, `${JSON.stringify(legacyV1, null, 2)}\n`);
 
@@ -276,7 +275,6 @@ describe('JsonSettingsRepository', () => {
       logging: { level: 'info' },
       concurrency: { maxParallelTasks: 1 },
       ui: { notifications: { enabled: true } },
-      developer: { showEvaluatorFailureUI: false },
     };
     await fs.writeFile(path, `${JSON.stringify(legacyFlat, null, 2)}\n`);
 
@@ -320,7 +318,6 @@ describe('JsonSettingsRepository', () => {
       logging: { level: 'info' },
       concurrency: { maxParallelTasks: 1 },
       ui: { notifications: { enabled: true } },
-      developer: { showEvaluatorFailureUI: false },
     };
     await fs.writeFile(path, `${JSON.stringify(legacyMissingCreatePr, null, 2)}\n`);
 

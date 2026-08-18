@@ -51,8 +51,6 @@ type TaskBlockProps = {
   readonly sliceStart: number;
   /** When true the criteria block renders all bullets; otherwise the 3-line summary. */
   readonly criteriaExpanded: boolean;
-  /** Dev flag — opt into the EvaluatorFailurePanel for failed evaluations. */
-  readonly showEvaluatorFailureUI: boolean;
   /** True for the active (running) task; gates ETA rendering to the operator's focus. */
   readonly isActive: boolean;
   /**
@@ -115,7 +113,6 @@ const TaskBlockImpl = ({
   scopeId,
   sliceStart,
   criteriaExpanded,
-  showEvaluatorFailureUI,
   isActive,
   firstRun,
   cardExpanded,
@@ -157,7 +154,6 @@ const TaskBlockImpl = ({
       running={running}
       isActive={isActive}
       taskEvaluation={overlay.taskEvaluation}
-      showEvaluatorFailureUI={showEvaluatorFailureUI}
       focusedKey={focusedKey}
       expandedKeys={expandedKeys}
       scopeId={scopeId}

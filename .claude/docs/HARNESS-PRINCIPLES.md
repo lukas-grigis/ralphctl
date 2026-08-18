@@ -170,6 +170,19 @@ self into approving anyway; superficial testing."_ Plateau detection is the harn
 - `plateauThreshold` (2–5, patient default 3): `src/application/chain/run/iteration-config.ts`
 - Exemptions (score improvement, commit progress, critique-Jaccard shift prevent counting): same file
 - Loop predicate in the implement flow: `src/application/flows/implement/`
+- **One calibration, three detectors (2026-08).** The calibrated predicate
+  (`business/task/plateau-detection.ts`) now owns the window size (`plateauWindowSize`) and the
+  exemption cascade (`windowIsHardStall`) for ALL THREE detectors. The two bolt-on leaves that run
+  right after the evaluator — `loop-diversity-check` and the opt-in `entropy-check`
+  (`settings.harness.entropyPlateauDetector`, default off) — used to carry their own hardcoded
+  windows and no exemptions, so they fired precisely where the calibration had declined: the entropy
+  one scored a SINGLE turn, where a turn emitting only `change` signals gave K=1 → H=0 → a
+  guaranteed false-positive plateau costing an escalation rung plus a whole attempt. They are now
+  strictly subordinate — they may add evidence on a window the calibrated predicate itself calls a
+  hard stall, never override its judgement. **Consequence worth re-auditing under § 14:** because
+  the calibrated predicate sees the same window one step earlier, a subordinate detector is reached
+  only where the calibrated one already exited; both leaves are candidates for removal-with-
+  measurement at the next model bump.
 - **Graduated remedy ladder** (`src/business/task/escalation-policy.ts` + `escalation-map.ts`): on a
   plateau the policy spends remedies cheapest-first — climb the model ladder **one rung per plateau**
   (`escalate`, re-stampable, bounded by `maxAttempts`), then a single top-of-ladder same-model `nudge`

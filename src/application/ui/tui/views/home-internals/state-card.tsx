@@ -16,6 +16,8 @@ import { PipelineMap } from '@src/application/ui/tui/components/pipeline-map.tsx
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import type { AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
+import { buildNextSteps, nextStepsInputFromSnapshot } from '@src/application/ui/shared/next-steps.ts';
+import { NextStepList } from '@src/application/ui/tui/components/next-steps.tsx';
 
 /**
  * A short instruction line: "press <KEY> to <do thing>". Renders the key in highlight, the
@@ -45,31 +47,13 @@ const OrientationLine = (): React.JSX.Element => (
   </Box>
 );
 
-/**
- * Phase-aware "next action" hint for a loaded sprint — mirrors the one on sprint-detail so
- * the user sees the same recommendation regardless of where they look.
+/*
+ * NOTE — the three empty-state heroes below (NoProjectCard / PickProjectCard /
+ * PickOrCreateSprintCard) keep their own big CTAs rather than rendering `buildNextSteps`'
+ * pre-sprint rows. Those rows exist so the settled-run and Flows surfaces have something to say
+ * in the same states; here a full-width hero with one prominent action already does that job
+ * better. Do not "unify" these into one-line hints — that would be a regression, not a cleanup.
  */
-const sprintNextActionLabel = (snapshot: AppStateSnapshot): string | undefined => {
-  const sprint = snapshot.sprint;
-  if (sprint === undefined) return undefined;
-  const { pendingTicketCount, approvedTicketCount, resumableTaskCount } = snapshot.triggerInputs;
-  switch (sprint.status) {
-    case 'draft':
-      if (sprint.tickets.length === 0) return 'a → add tickets (open the sprint, press a)';
-      if (pendingTicketCount > 0) return `n → refine (clarify ${String(pendingTicketCount)} pending ticket(s))`;
-      if (approvedTicketCount > 0)
-        return `n → plan (break ${String(approvedTicketCount)} approved ticket(s) into tasks)`;
-      return undefined;
-    case 'planned':
-    case 'active':
-      if (resumableTaskCount > 0) return `n → implement (run ${String(resumableTaskCount)} pending task(s))`;
-      return 'review the sprint (open it for the task list)';
-    case 'review':
-      return 'n → create-pr (open a pull request)';
-    case 'done':
-      return undefined;
-  }
-};
 
 /** Regime: no project exists yet anywhere in storage. */
 const NoProjectCard = (): React.JSX.Element => (
@@ -136,7 +120,9 @@ const ActiveSprintCard = ({ state }: { readonly state: AppStateSnapshot }): Reac
   const sprint = state.sprint;
   const project = state.project;
   if (sprint === undefined || project === undefined) return <Box />;
-  const nextAction = sprintNextActionLabel(state);
+  // One shared table for Home, Flows, and the settled ResultCard — and it is checked against the
+  // flow menu's own visibility rules, so `review` no longer points at create-pr (hidden there).
+  const { steps } = buildNextSteps(nextStepsInputFromSnapshot(state));
   return (
     <Card
       title={`${glyphs.actionCursor} ${sprint.name}`}
@@ -169,14 +155,9 @@ const ActiveSprintCard = ({ state }: { readonly state: AppStateSnapshot }): Reac
         <Box marginTop={spacing.section}>
           <PipelineMap status={sprint.status} />
         </Box>
-        {nextAction !== undefined && (
-          <Box marginTop={spacing.section}>
-            <Text dimColor>{glyphs.bullet} next: </Text>
-            <Text bold color={inkColors.highlight}>
-              {nextAction}
-            </Text>
-          </Box>
-        )}
+        <Box marginTop={spacing.section}>
+          <NextStepList steps={steps} prefix={`${glyphs.bullet} next: `} />
+        </Box>
       </Box>
     </Card>
   );

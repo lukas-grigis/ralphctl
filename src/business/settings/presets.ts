@@ -533,7 +533,7 @@ const PRESETS: Readonly<
  * `harness.escalateOnPlateau` is overwritten with the preset's flag (fast family OFF, all others
  * ON), and `harness.bestOfNCandidates` is overwritten ONLY by the presets that declare one (the
  * economic family, which pins `0`). The REST of `harness` (maxTurns, escalationMap,
- * plateauThreshold, …) plus `logging`, `concurrency`, `ui`, `developer`, and `schemaVersion` are
+ * plateauThreshold, …) plus `logging`, `concurrency`, `ui`, and `schemaVersion` are
  * preserved verbatim. Pure — does not touch persistence.
  *
  * Re-applying a preset clobbers any per-row customizations. No stored preset identity is
