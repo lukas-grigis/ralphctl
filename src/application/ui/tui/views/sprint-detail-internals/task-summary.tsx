@@ -25,6 +25,7 @@ import type { Task } from '@src/domain/entity/task.ts';
 import type { Ticket } from '@src/domain/entity/ticket.ts';
 import type { Attempt } from '@src/domain/entity/attempt.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
+import { latestRecordedEvaluation } from '@src/business/task/evaluation-artifact.ts';
 import { Description, Section } from '@src/application/ui/tui/views/sprint-detail-internals/shared-prose.tsx';
 import {
   type FocusItem,
@@ -299,12 +300,19 @@ const DependsOnSection = ({ dependsOnTasks }: { readonly dependsOnTasks: readonl
 );
 
 /** One `AttemptCard` per past attempt, oldest first — the expanded task card's "Attempt history"
- * section body. */
-const AttemptHistorySection = ({ attempts }: { readonly attempts: Task['attempts'] }): React.JSX.Element => (
+ * section body. `openableAttemptN` is the single attempt the task-scoped `v` chord resolves to;
+ * it is threaded down so only that card advertises the chord. */
+const AttemptHistorySection = ({
+  attempts,
+  openableAttemptN,
+}: {
+  readonly attempts: Task['attempts'];
+  readonly openableAttemptN: number | undefined;
+}): React.JSX.Element => (
   <Section heading="Attempt history">
     <Box flexDirection="column" paddingLeft={spacing.indent}>
       {attempts.map((attempt) => (
-        <AttemptCard key={`attempt-${String(attempt.n)}`} attempt={attempt} />
+        <AttemptCard key={`attempt-${String(attempt.n)}`} attempt={attempt} openableAttemptN={openableAttemptN} />
       ))}
     </Box>
   </Section>
@@ -344,7 +352,9 @@ const TaskDetailBody = ({
       {task.steps.length > 0 && <StepsSection steps={task.steps} />}
       {task.verificationCriteria.length > 0 && <VerificationSection criteria={task.verificationCriteria} />}
       {dependsOnTasks.length > 0 && <DependsOnSection dependsOnTasks={dependsOnTasks} />}
-      {task.attempts.length > 0 && <AttemptHistorySection attempts={task.attempts} />}
+      {task.attempts.length > 0 && (
+        <AttemptHistorySection attempts={task.attempts} openableAttemptN={latestRecordedEvaluation(task)?.attemptN} />
+      )}
     </Box>
   );
 };
