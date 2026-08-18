@@ -23,9 +23,13 @@ if (!r.ok) expect(r.error.code).toBe('not-found');
 ### Branded value objects
 
 ```typescript
-const path = AbsolutePath.trustString('/code');
-const sprintId = SprintId.trustString('20260429-120000-demo');
-const taskId = TaskId.trustString('abcdef01');
+// `parse()` is the ONLY constructor — there is no `trustString` (verified 2026-08-18).
+const absPath = (p: string): AbsolutePath => {
+  const r = AbsolutePath.parse(p);
+  if (!r.ok) throw new Error(`invalid path ${p}`);
+  return r.value;
+};
+const sprintId = '01933fbb-2222-7000-8000-0000000000aa' as unknown as SprintId;
 const slug = Slug.parse('demo');
 if (!slug.ok) throw slug.error;
 ```
@@ -34,7 +38,7 @@ if (!slug.ok) throw slug.error;
 
 ```typescript
 function uniqueRoot(): AbsolutePath {
-  return AbsolutePath.trustString(
+  return absPath(
     join(
       tmpdir(),
       `ralphctl-<module>-${String(process.pid)}-${String(Date.now())}-${String(Math.random()).slice(2, 8)}`
@@ -54,7 +58,7 @@ if (process.platform === 'win32') return;
 
 - **No module-level `vi.mock`** for integration tests — they use real implementations with temp dirs (exception: mocking node builtins like `node:fs/promises` to inject specific error codes deterministically, where real filesystem cannot reproduce the exact error code reliably)
 - **`vi.mock('node:fs/promises', ...)` for named-import injection**: ESM named imports bind at link time, so `vi.spyOn` on the namespace object only intercepts namespace-qualified calls (e.g. `fs.readFile()`), not already-bound local `readFile` identifiers. `vi.mock` hoisting replaces the entire module factory before any import is evaluated — the only reliable seam for named-import interception. Put this in a SEPARATE test file so it doesn't affect co-located real-fs tests.
-- `AbsolutePath.trustString()` bypasses the VO validator for test paths (use only when you own the value)
+- **`trustString` does not exist anywhere in `src/`** (verified 2026-08-18 — the note that claimed otherwise was stale). Branded VOs expose `parse()` (and `generate()` on the id VOs). In tests either use the shared `@tests/fixtures/domain.ts` helpers (`absolutePath(...)`) or wrap locally: `const absPath = (p: string): AbsolutePath => { const r = AbsolutePath.parse(p); if (!r.ok) throw new Error(`invalid path ${p}`); return r.value; }`. Ids are commonly cast: `'…' as unknown as SprintId`.
 - Domain entity creation via static factory: `Task.create({...})` returns `Result<Task, ValidationError>`
 
 ## Gotchas
@@ -80,3 +84,5 @@ if (process.platform === 'win32') return;
 - [meta-run-flow-failure-arcs.md](meta-run-flow-failure-arcs.md) — implement-failure/review-failure arcs; RateLimitError yields 'failed' not 'aborted'
 - [progress-overlay-flake-elimination.md](progress-overlay-flake-elimination.md) — SEEDED sentinel + waitFor pattern to eliminate flaky ink-testing-library overlay/scroll tests
 - [full-stack-e2e-wiring.md](full-stack-e2e-wiring.md) — full-stack e2e wiring: implement launcher bypasses app.deps.provider, TUI mount plumbing, sprint pre-setup
+- [waitfor-loud-timeout-contract.md](waitfor-loud-timeout-contract.md) — ONE predicate waiter (`waitForPredicate`, throws on timeout) + the control-probe settle pattern for "empty is also the first frame" hooks
+- [plateau-detector-subordination.md](plateau-detector-subordination.md) — entropy/diversity leaves can never fire in the composed gen-eval loop; where the mutual-exclusion fences live

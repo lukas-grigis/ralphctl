@@ -23,7 +23,8 @@ import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repo
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
-import { ESC, tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { ESC, tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { makeApprovedTicket, makeDraftSprint } from '@tests/fixtures/domain.ts';
 
@@ -78,12 +79,12 @@ describe('SprintDetailView — per-card expand/collapse', () => {
 
     // Expand the first ticket (cursor starts at idx 0).
     result.stdin.write('o');
-    await waitFor(() => (result.lastFrame() ?? '').includes('requirements for alpha card'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('requirements for alpha card'));
     // Move to the second ticket and expand it without collapsing the first.
     result.stdin.write('j');
     await tick(40);
     result.stdin.write('o');
-    await waitFor(() => (result.lastFrame() ?? '').includes('requirements for bravo card'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('requirements for bravo card'));
 
     const frame = result.lastFrame() ?? '';
     // Both expanded views render their per-ticket Requirements heading; if either card
@@ -102,12 +103,12 @@ describe('SprintDetailView — per-card expand/collapse', () => {
 
     // Open card 0.
     result.stdin.write('o');
-    await waitFor(() => (result.lastFrame() ?? '').includes('requirements for alpha card'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('requirements for alpha card'));
     // Move to card 1 and open it.
     result.stdin.write('j');
     await tick(40);
     result.stdin.write('o');
-    await waitFor(() => (result.lastFrame() ?? '').includes('requirements for bravo card'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('requirements for bravo card'));
     // Move back to card 0 and toggle it closed.
     result.stdin.write('k');
     await tick(40);
@@ -130,11 +131,11 @@ describe('SprintDetailView — per-card expand/collapse', () => {
 
     // Expand both cards.
     result.stdin.write('o');
-    await waitFor(() => (result.lastFrame() ?? '').includes('requirements for alpha card'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('requirements for alpha card'));
     result.stdin.write('j');
     await tick(40);
     result.stdin.write('o');
-    await waitFor(() => (result.lastFrame() ?? '').includes('requirements for bravo card'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('requirements for bravo card'));
 
     // Confirm pre-condition: both cards expanded.
     let frame = result.lastFrame() ?? '';
@@ -161,7 +162,7 @@ describe('SprintDetailView — per-card expand/collapse', () => {
 
     // Expand only the first card.
     result.stdin.write('o');
-    await waitFor(() => (result.lastFrame() ?? '').includes('requirements for alpha card'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('requirements for alpha card'));
 
     // Navigate cursor up and down across all three cards.
     result.stdin.write('j');
@@ -228,14 +229,14 @@ describe('SprintDetailView — per-card expand/collapse', () => {
 
     // Open card 0 (alpha).
     result.stdin.write('o');
-    await waitFor(() => (result.lastFrame() ?? '').includes('requirements for alpha card'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('requirements for alpha card'));
     // Move down twice to card 2 (charlie) and open it.
     result.stdin.write('j');
     await tick(40);
     result.stdin.write('j');
     await tick(40);
     result.stdin.write('o');
-    await waitFor(() => (result.lastFrame() ?? '').includes('requirements for charlie card'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('requirements for charlie card'));
 
     // Pre-condition: alpha and charlie expanded; bravo collapsed.
     let frame = result.lastFrame() ?? '';
@@ -251,9 +252,9 @@ describe('SprintDetailView — per-card expand/collapse', () => {
     result.stdin.write('k');
     await tick(40);
     result.stdin.write('d');
-    await waitFor(() => (result.lastFrame() ?? '').includes('Remove ticket'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Remove ticket'));
     result.stdin.write('y');
-    await waitFor(() => {
+    await waitForPredicate(() => {
       const f = result.lastFrame() ?? '';
       return f.includes('alpha card') && f.includes('charlie card') && !f.includes('Loading');
     });

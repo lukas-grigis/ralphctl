@@ -10,7 +10,7 @@ import { Result } from '@src/domain/result.ts';
 import { DoctorView } from '@src/application/ui/tui/views/doctor-view.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { DoctorReport, ProbeResult } from '@src/application/flows/doctor/ctx.ts';
-import { waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 const reportRef = vi.hoisted(() => ({ current: undefined as DoctorReport | undefined }));
@@ -39,7 +39,7 @@ describe('DoctorView', () => {
       hasFailures: false,
     };
     const { result } = renderView(<DoctorView />, { deps, initial: { id: 'doctor' } });
-    await waitFor(() => /passed/.test(result.lastFrame() ?? ''));
+    await waitForPredicate(() => /passed/.test(result.lastFrame() ?? ''));
     const frame = result.lastFrame() ?? '';
     expect(frame).toMatch(/passed/);
     expect(frame).toContain('Storage');
@@ -50,7 +50,7 @@ describe('DoctorView', () => {
   it('publishes the r reload hint', async () => {
     reportRef.current = { probes: [], allPassed: true, hasFailures: false };
     const { result } = renderView(<DoctorView />, { deps, initial: { id: 'doctor' } });
-    await waitFor(() => (result.lastFrame() ?? '').includes('reload'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('reload'));
     expect(result.lastFrame() ?? '').toContain('reload');
   });
 
@@ -69,7 +69,7 @@ describe('DoctorView', () => {
       hasFailures: false,
     };
     const { result } = renderView(<DoctorView />, { deps, initial: { id: 'doctor' } });
-    await waitFor(() => (result.lastFrame() ?? '').includes('GitHub Copilot authenticated'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('GitHub Copilot authenticated'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('UNKNOWN');
     // The summary header tallies it as "1 unknown", not as a warning.

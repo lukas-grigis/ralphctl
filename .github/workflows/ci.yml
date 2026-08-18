@@ -70,6 +70,11 @@ jobs:
       # runBundleIntegrityCheck) and then read every bundled SKILL.md / agent .md back
       # through `resolveBundledRoot`, which is the resolver that actually broke. No AI CLI
       # and no network are involved; every write is confined to RALPHCTL_HOME.
+      # `prompts list` covers the OTHER half: prompts are 21 of the 36 bundled assets and every
+      # AI flow depends on them, but `fs-template-loader.ts` carries its own copy of the
+      # beside-the-module probe and falls back SILENTLY to the package root — a bundle with a
+      # broken `dist/prompts/` layout passes `skills list` / `agents list` / bundle-integrity and
+      # still serves no prompts. The command loads every template body, so a bad layout exits 1.
       # `out=$(cmd)` + `printf | grep`, never `cmd | grep`: the default shell is `bash -e`
       # WITHOUT pipefail, so a pipe would swallow a non-zero exit from the CLI.
       - name: Verify dist boots a real subcommand (bundle integrity)
@@ -80,6 +85,8 @@ jobs:
           printf '%s\n' "$skills" | grep -q '^ralphctl-alignment'
           agents=$(node dist/cli.mjs agents list)
           printf '%s\n' "$agents" | grep -q '^ralphctl-evaluator'
+          prompts=$(node dist/cli.mjs prompts list)
+          printf '%s\n' "$prompts" | grep -q '^implement'
 
       - name: Verify npm pack installs correctly
         env:
@@ -125,7 +132,16 @@ jobs:
       - name: Lint (cold)
         run: pnpm lint
 
+      # `FORCE_COLOR: 3` is deliberate, and this is the only job that sets it. Ink/chalk decide
+      # colour from the worker env and every TUI assertion is a plain-substring check against
+      # `lastFrame()`, so an ambient FORCE_COLOR used to turn 27 assertions red on a pristine tree
+      # for anyone whose terminal exports it (Claude Code does) while CI — which never sets it —
+      # stayed green. `vitest.config.ts` now pins `FORCE_COLOR=0` per project; running one job with
+      # the hostile value makes a future ambient-colour-sensitive assertion fail here rather than
+      # only on developer and agent machines.
       - name: Test (cold)
+        env:
+          FORCE_COLOR: 3
         run: pnpm test
 
   coverage:

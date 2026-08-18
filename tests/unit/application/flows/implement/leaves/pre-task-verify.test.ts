@@ -605,7 +605,7 @@ describe('preTaskVerifyLeaf — carry-baseline short-circuit', () => {
       currentTaskId: task.id,
       tasks: [task],
       execution,
-      priorPostVerifyOutcome: { cwd: CWD, outcome: 'success' },
+      priorPostVerifyOutcome: { cwd: CWD, outcome: 'success', coveredAllGates: true },
     };
     const repo = fakeTaskRepo();
     const execRepo = fakeExecRepo();
@@ -648,6 +648,98 @@ describe('preTaskVerifyLeaf — carry-baseline short-circuit', () => {
     ).toBe(true);
   });
 
+  it('carried success from a DIFF-SCOPED post run (coveredAllGates false) → falls through, runs every gate', async () => {
+    // Headline regression: with structured gates the previous task's post-verify only ran the
+    // gates its diff footprint touched, so its green aggregate is NOT evidence the whole tree is
+    // green. Short-circuiting on it would synthesize a green baseline nothing measured — and a
+    // gate that was already red outside that footprint would then read as `regressed` on this
+    // task, blaming the AI, burning the retry budget and bypassing the baseline-broken amnesty.
+    const shell = countingShellRunner({ passed: true, exitCode: 0, output: 'OK' });
+    const git = cleanGitRunner();
+    const task = makeInProgressTaskWithRunningAttempt();
+    const execution = createSprintExecution({ sprintId: SPRINT_ID });
+    const ctx: ImplementCtx = {
+      sprintId: SPRINT_ID,
+      currentTask: task,
+      currentTaskId: task.id,
+      tasks: [task],
+      execution,
+      priorPostVerifyOutcome: { cwd: CWD, outcome: 'success', coveredAllGates: false },
+    };
+    const repo = fakeTaskRepo();
+    const execRepo = fakeExecRepo();
+    const bus = createCapturingBus();
+    const leaf = preTaskVerifyLeaf(
+      {
+        shellScriptRunner: shell.runner,
+        taskRepo: repo,
+        sprintExecutionRepo: execRepo,
+        interactive: neverPrompt,
+        gitRunner: git.runner,
+        clock: () => FIXED_NOW,
+        eventBus: bus.bus,
+        logger: noopLogger,
+        environment: TTY_ENV,
+      },
+      {
+        cwd: CWD,
+        verifyGates: [
+          { pathPrefix: 'apps/web-ui', command: 'test-web' },
+          { pathPrefix: 'apps/api', command: 'test-api' },
+        ],
+      },
+      task.id
+    );
+
+    const out = await leaf.execute(ctx);
+    if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
+
+    // The real baseline ran — every gate (pre-verify is `all-run`, no scope), audit row appended.
+    expect(shell.callCount()).toBe(2);
+    expect(out.value.ctx.currentTask?.attempts.at(-1)?.verifyRuns?.[0]?.phase).toBe('pre');
+    expect(repo.updates).toHaveLength(1);
+    expect(out.value.ctx.lastPreVerifyOutcome).toBe('success');
+    expect(bus.events.some((e) => e.type === 'log' && e.message.includes('short-circuited'))).toBe(false);
+  });
+
+  it('carried success from a pre-flag ctx (coveredAllGates absent) → falls through rather than assuming coverage', async () => {
+    // Resume safety: a ctx written before the coverage flag existed carries no evidence of WHICH
+    // gates ran, so it demotes to running the real gate instead of silently keeping the old
+    // (unsound) short-circuit.
+    const shell = countingShellRunner({ passed: true, exitCode: 0, output: 'OK' });
+    const git = cleanGitRunner();
+    const task = makeInProgressTaskWithRunningAttempt();
+    const execution = createSprintExecution({ sprintId: SPRINT_ID });
+    const ctx: ImplementCtx = {
+      sprintId: SPRINT_ID,
+      currentTask: task,
+      currentTaskId: task.id,
+      tasks: [task],
+      execution,
+      priorPostVerifyOutcome: { cwd: CWD, outcome: 'success' },
+    };
+    const leaf = preTaskVerifyLeaf(
+      {
+        shellScriptRunner: shell.runner,
+        taskRepo: fakeTaskRepo(),
+        sprintExecutionRepo: fakeExecRepo(),
+        interactive: neverPrompt,
+        gitRunner: git.runner,
+        clock: () => FIXED_NOW,
+        eventBus: createCapturingBus().bus,
+        logger: noopLogger,
+        environment: TTY_ENV,
+      },
+      { cwd: CWD, verifyScript: 'pnpm test' },
+      task.id
+    );
+
+    const out = await leaf.execute(ctx);
+    if (!out.ok) throw new Error(`expected ok: ${out.error.error.message}`);
+    expect(shell.callCount()).toBe(1);
+    expect(out.value.ctx.lastPreVerifyOutcome).toBe('success');
+  });
+
   it('carried success + same cwd + dirty tree → falls through to real script', async () => {
     const shell = countingShellRunner({ passed: true, exitCode: 0, output: 'OK' });
     const git = dirtyGitRunner();
@@ -659,7 +751,7 @@ describe('preTaskVerifyLeaf — carry-baseline short-circuit', () => {
       currentTaskId: task.id,
       tasks: [task],
       execution,
-      priorPostVerifyOutcome: { cwd: CWD, outcome: 'success' },
+      priorPostVerifyOutcome: { cwd: CWD, outcome: 'success', coveredAllGates: true },
     };
     const repo = fakeTaskRepo();
     const execRepo = fakeExecRepo();
@@ -704,7 +796,7 @@ describe('preTaskVerifyLeaf — carry-baseline short-circuit', () => {
       currentTaskId: task.id,
       tasks: [task],
       execution,
-      priorPostVerifyOutcome: { cwd: otherCwd, outcome: 'success' },
+      priorPostVerifyOutcome: { cwd: otherCwd, outcome: 'success', coveredAllGates: true },
     };
     const repo = fakeTaskRepo();
     const execRepo = fakeExecRepo();
@@ -748,7 +840,7 @@ describe('preTaskVerifyLeaf — carry-baseline short-circuit', () => {
       currentTaskId: task.id,
       tasks: [task],
       execution,
-      priorPostVerifyOutcome: { cwd: CWD, outcome: 'failed' },
+      priorPostVerifyOutcome: { cwd: CWD, outcome: 'failed', coveredAllGates: true },
     };
     const repo = fakeTaskRepo();
     const execRepo = fakeExecRepo();
@@ -800,7 +892,7 @@ describe('preTaskVerifyLeaf — carry-baseline short-circuit', () => {
       tasks: [task],
       execution,
       // Outcome is 'skipped' — NOT 'success'. The short-circuit must not fire.
-      priorPostVerifyOutcome: { cwd: CWD, outcome: 'skipped' },
+      priorPostVerifyOutcome: { cwd: CWD, outcome: 'skipped', coveredAllGates: true },
     };
     const repo = fakeTaskRepo();
     const execRepo = fakeExecRepo();
@@ -887,7 +979,7 @@ describe('preTaskVerifyLeaf — carry-baseline short-circuit', () => {
       currentTaskId: task.id,
       tasks: [task],
       execution,
-      priorPostVerifyOutcome: { cwd: CWD, outcome: 'success' },
+      priorPostVerifyOutcome: { cwd: CWD, outcome: 'success', coveredAllGates: true },
     };
     const repo = fakeTaskRepo();
     const execRepo = fakeExecRepo();
@@ -1126,7 +1218,7 @@ describe('preTaskVerifyLeaf — fresh-setup short-circuit (T13)', () => {
     const task = makeInProgressTaskWithRunningAttempt();
     const ctx: ImplementCtx = {
       ...ctxFor(task, [FIXED_REPOSITORY_ID]),
-      priorPostVerifyOutcome: { cwd: CWD, outcome: 'success' },
+      priorPostVerifyOutcome: { cwd: CWD, outcome: 'success', coveredAllGates: true },
     };
     const leaf = buildLeaf({
       shell,

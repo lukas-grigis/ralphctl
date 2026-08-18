@@ -23,6 +23,7 @@ import { useTaskRoundTracker } from '@src/application/ui/tui/runtime/use-task-ro
 import {
   type BucketedExecution,
   bucketTaskSignals,
+  isInFlightBucket,
   type TaskBucket,
 } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
@@ -49,23 +50,21 @@ export interface BucketedDerivation {
 const isCompletedBucket = (t: TaskBucket): boolean => t.status === 'completed';
 
 /**
- * The task in flight — `running` mid-task and `pending` in the brief transition window between
- * tasks. The per-task chain runs sequentially, so the FIRST non-completed task is always the one
- * the operator is watching; failed / aborted / skipped tasks are behind the cursor.
- */
-const isCurrentBucket = (t: TaskBucket): boolean => !isCompletedBucket(t);
-
-/**
  * Counters + the "what is happening right now" trio the header card reads, derived from the merged
  * bucket. Split out so the hook body stays a chain of memos rather than a wall of optional-chained
  * lookups.
+ *
+ * `tasksDone` deliberately counts ONLY `completed` buckets: a run that ends with a dependency-
+ * blocked task shows `2/3` (not green) because the third task genuinely did not get done and needs
+ * the operator. The CURSOR, by contrast, only tracks in-flight buckets ({@link isInFlightBucket}),
+ * so a settled-but-not-completed task never holds the "current task" readout hostage.
  */
 const summariseProgress = (
   bucketed: BucketedExecution | undefined,
   taskNames: ReadonlyMap<string, string> | undefined
 ): Omit<BucketedDerivation, 'bucketed'> => {
   const tasks = bucketed?.tasks ?? [];
-  const currentTaskIdx = tasks.findIndex(isCurrentBucket);
+  const currentTaskIdx = tasks.findIndex(isInFlightBucket);
   const currentTask = currentTaskIdx >= 0 ? tasks[currentTaskIdx] : undefined;
   const currentTaskName =
     currentTask !== undefined

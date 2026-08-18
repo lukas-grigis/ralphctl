@@ -13,7 +13,10 @@ import { setupScriptSignalSchema } from '@src/integration/ai/contract/_engine/si
 import { verifyScriptSignalSchema } from '@src/integration/ai/contract/_engine/signals/verify-script/schema.ts';
 import { setupSkillProposalSignalSchema } from '@src/integration/ai/contract/_engine/signals/setup-skill-proposal/schema.ts';
 import { verifySkillProposalSignalSchema } from '@src/integration/ai/contract/_engine/signals/verify-skill-proposal/schema.ts';
-import { skillSuggestionsSignalSchema } from '@src/integration/ai/contract/_engine/signals/skill-suggestions/schema.ts';
+import {
+  MAX_SKILL_SUGGESTIONS,
+  skillSuggestionsSignalSchema,
+} from '@src/integration/ai/contract/_engine/signals/skill-suggestions/schema.ts';
 import { contextCompactedSignalSchema } from '@src/integration/ai/contract/_engine/signals/context-compacted/schema.ts';
 import { prContentSignalSchema } from '@src/integration/ai/contract/_engine/signals/pr-content/schema.ts';
 
@@ -328,5 +331,54 @@ describe('signal schemas (happy-path parses)', () => {
         timestamp: ts,
       }).success
     ).toBe(true);
+  });
+});
+
+/**
+ * `skill-suggestions.names` is the one AI-controlled string that becomes a directory name on the
+ * operator's disk (`<repo>/<parentDir>/skills/<name>/SKILL.md` via the readiness offer leaf), so
+ * the wire schema is the first containment boundary: anything that is not a bare kebab-case
+ * identifier is dropped at parse time rather than failing the whole round.
+ */
+describe('skill-suggestions names — path-traversal containment at the wire', () => {
+  const parseNames = (names: readonly string[]): readonly string[] | undefined => {
+    const parsed = skillSuggestionsSignalSchema.safeParse({ type: 'skill-suggestions', names, timestamp: ts });
+    return parsed.success ? parsed.data.names : undefined;
+  };
+
+  const hostile = [
+    '../evil',
+    '../../../../tmp/pwned',
+    'a/b',
+    'a\\b',
+    '/etc/cron.d/pwn',
+    '~/evil',
+    '.',
+    '..',
+    '',
+    '   ',
+    'ralphctl-alignment\nallowed-tools: Bash',
+    'Réact-patterns',
+    'react⁄patterns',
+    'react patterns',
+    'UPPER-case',
+    '.hidden',
+    'a'.repeat(65),
+  ];
+
+  it.each(hostile)('drops the hostile name %j', (name) => {
+    expect(parseNames([name])).toEqual([]);
+  });
+
+  it('keeps well-formed names and drops only the hostile ones (one bad name never fails the round)', () => {
+    expect(parseNames(['ralphctl-alignment', '../evil', 'react-patterns', '/abs'])).toEqual([
+      'ralphctl-alignment',
+      'react-patterns',
+    ]);
+  });
+
+  it('caps the list so a runaway model cannot queue unbounded install prompts', () => {
+    const many = Array.from({ length: MAX_SKILL_SUGGESTIONS + 10 }, (_, i) => `skill-${i}`);
+    expect(parseNames(many)).toHaveLength(MAX_SKILL_SUGGESTIONS);
   });
 });

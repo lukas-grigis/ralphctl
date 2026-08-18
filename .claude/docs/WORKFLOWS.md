@@ -32,9 +32,10 @@ short-circuit still reopens). Without this, an unblocked task on a review sprint
 Implement is gated out and only Review / Close remain.
 
 **Two-phase planning.** **Refine** (`refine` chain) is implementation-agnostic per-ticket clarification —
-no repo exploration; ticket `requirementStatus` flips `pending → approved`. **Plan** (`plan` chain) requires
-every ticket `approved`; repo selection runs inside the chain and persists on `Sprint.affectedRepositories`
-(absolute paths); AI generates `tasks.json` atomically and the sprint transitions `draft → planned`.
+no repo exploration; ticket `status` flips `pending → approved`. **Plan** (`plan` chain) requires
+every ticket `approved`; every project repository is mounted as an equal `--add-dir` root, and repo
+selection lands per task as `Task.repositoryId` (resolved against `project.repositories`) — the sprint
+itself stores no repo list; AI generates `tasks.json` atomically and the sprint transitions `draft → planned`.
 **Ideate** combines both in a single AI session for low-stakes work.
 
 **Plan's approval gate is split from the AI hand-off.** `call-planner-interactive` stops at the proposal

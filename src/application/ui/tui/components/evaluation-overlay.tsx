@@ -18,7 +18,7 @@
  * even when its prose is not.
  */
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Box, Text } from 'ink';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
@@ -36,6 +36,10 @@ import {
   overlayBodyRows,
   useDocumentScroll,
 } from '@src/application/ui/tui/components/overlay-internals/use-document-scroll.ts';
+import {
+  overlayBodyColumns,
+  wrapRow,
+} from '@src/application/ui/tui/components/overlay-internals/wrap-document-rows.ts';
 import {
   useEvaluationFile,
   type EvaluationFileState,
@@ -91,6 +95,11 @@ const buildBodyModel = (state: EvaluationFileState): EvaluationBodyModel => {
   }
 };
 
+/** Re-key one projected row onto a wrapped fragment of itself, keeping its styling verbatim. */
+const withText =
+  (line: EvaluationLineSpec) =>
+  (text: string): EvaluationLineSpec => ({ ...line, text });
+
 const formatAgo = (modifiedAtMs: number, now: number): string => `${fmtDuration(Math.max(0, now - modifiedAtMs))} ago`;
 
 const modifiedAtOf = (state: EvaluationFileState): number | undefined =>
@@ -141,7 +150,7 @@ const EvaluationBody = ({
                 {model.detail !== undefined && <Text dimColor>{model.detail}</Text>}
               </Box>
             )}
-            <EvaluationLines lines={model.lines.slice(offset, offset + bodyRows)} keyOffset={offset} />
+            <EvaluationLines lines={model.lines.slice(offset, offset + bodyRows)} keyOffset={offset} oneRowPerLine />
           </>
         )}
       </Box>
@@ -169,8 +178,14 @@ export const EvaluationOverlay = (): React.JSX.Element | null => {
 
   const target = ui.evaluationTarget;
   const state = useEvaluationFile(target, storage.dataRoot);
-  const model = buildBodyModel(state);
   const bodyRows = overlayBodyRows(term.rows);
+  // Wrap BEFORE windowing: `projectEvaluationLines` emits one entry per paragraph, and the
+  // scroll model below counts entries as terminal rows. See `wrap-document-rows.ts`.
+  const bodyColumns = overlayBodyColumns(term.columns);
+  const model = useMemo<EvaluationBodyModel>(() => {
+    const built = buildBodyModel(state);
+    return { ...built, lines: built.lines.flatMap((line) => wrapRow(line.text, bodyColumns).map(withText(line))) };
+  }, [state, bodyColumns]);
   const { offset } = useDocumentScroll(model.lines.length, bodyRows);
 
   // Every Hook above runs unconditionally; the null guard sits below them so Hook order is stable

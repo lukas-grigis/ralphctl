@@ -52,6 +52,17 @@ export default defineConfig({
         test: {
           name: 'tui',
           include: ['tests/integration/application/ui/tui/**/*.test.{ts,tsx}'],
+          // Colour is PINNED, not inherited. Ink/chalk decide colour support from the worker's
+          // env, and every TUI assertion is a plain-substring check against `lastFrame()` — with
+          // an ambient `FORCE_COLOR` (Claude Code exports `FORCE_COLOR=3`; several terminal
+          // wrappers and CI images do too) chalk splits those substrings with truecolor SGR codes
+          // and 27 assertions across 13 files fail on a pristine tree. The suite must give the
+          // same answer for every developer, agent session and runner, so the gate stays
+          // trustworthy. `NO_COLOR` is deliberately NOT set here: chalk lets FORCE_COLOR win
+          // anyway, and `useNoColor()` reads NO_COLOR to swap in the shape-glyph fallback —
+          // pinning it suite-wide would silently run every test through the fallback path and
+          // neuter `tasks-panel-no-color.test.tsx`, which sets it per-test on purpose.
+          env: { FORCE_COLOR: '0' },
           pool: 'forks',
           // One file at a time within this project; non-TUI tests still parallelise.
           fileParallelism: false,
@@ -66,6 +77,8 @@ export default defineConfig({
           name: 'default',
           include: ['tests/**/*.test.{ts,tsx}'],
           exclude: ['tests/integration/application/ui/tui/**'],
+          // Same colour pin as the `tui` project — CLI-output assertions are plain-substring too.
+          env: { FORCE_COLOR: '0' },
           pool: 'forks',
           // E2E tests under `tests/e2e/cli/` spawn real child processes (git / gh / glab /
           // provider CLIs) inside the in-process CLI run, and pay full module-import cost on

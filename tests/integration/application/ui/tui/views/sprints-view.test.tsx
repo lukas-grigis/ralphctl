@@ -16,7 +16,8 @@ import type { TaskRepository } from '@src/domain/repository/task/task-repository
 import type { Task } from '@src/domain/entity/task.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
-import { END, tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { END, tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { createPromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
 import { makeDraftSprint, makeTodoTask } from '@tests/fixtures/domain.ts';
@@ -122,7 +123,7 @@ describe('SprintsView', () => {
     const { result } = renderView(<SprintsView />, { deps: stubDeps([done]), initial: { id: 'sprints' } });
     await waitForViewReady(result, (f) => f.includes('Shipped Sprint'));
     result.stdin.write('e');
-    await waitFor(() => (result.lastFrame() ?? '').includes("done sprints can't be renamed"));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes("done sprints can't be renamed"));
     const frame = result.lastFrame() ?? '';
     // Someone who found `e` via `?` should learn why it's inert, not be left guessing.
     expect(frame).toContain("done sprints can't be renamed");
@@ -150,7 +151,7 @@ describe('SprintsView', () => {
     const { result } = renderView(<SprintsView />, { deps, initial: { id: 'sprints' }, queue });
     await waitForViewReady(result, (f) => f.includes('Mispeld Sprint'));
     result.stdin.write('e');
-    await waitFor(() => queue.head !== undefined);
+    await waitForPredicate(() => queue.head !== undefined);
     expect(queue.head?.kind).toBe('text');
     if (queue.head?.kind === 'text') {
       expect(queue.head.initial).toBe('Mispeld Sprint');
@@ -249,7 +250,7 @@ describe('SprintsView', () => {
     await waitForViewReady(result, (f) => f.includes('Recovery Sprint') && f.includes('unblock'));
     result.stdin.write('u');
     // The sequential unblock loop + feedback + task refresh complete when the toast lands.
-    await waitFor(() => /unblocked 1 task/.test(result.lastFrame() ?? ''));
+    await waitForPredicate(() => /unblocked 1 task/.test(result.lastFrame() ?? ''));
     const frame = result.lastFrame() ?? '';
     expect(updateCalls).toHaveLength(1);
     expect(updateCalls[0]?.status).toBe('todo');
@@ -297,7 +298,7 @@ describe('SprintsView', () => {
     const { result } = renderView(<SprintsView />, { deps, initial: { id: 'sprints' } });
     await waitForViewReady(result, (f) => f.includes('Crash Sprint') && f.includes('unblock'));
     result.stdin.write('u');
-    await waitFor(() => updateCalls.length === 1);
+    await waitForPredicate(() => updateCalls.length === 1);
     expect(updateCalls).toHaveLength(1);
     expect(updateCalls[0]?.status).toBe('todo');
     result.unmount();
@@ -359,7 +360,7 @@ describe('SprintsView', () => {
     expect(before).not.toContain('Sprint 01');
 
     result.stdin.write(END);
-    await waitFor(() => (result.lastFrame() ?? '').includes('Sprint 01'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Sprint 01'));
     const after = result.lastFrame() ?? '';
     // After End the window has scrolled to the bottom: the previously-hidden oldest sprint shows,
     // and the newest has scrolled off the top.

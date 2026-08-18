@@ -114,6 +114,38 @@ jobs:
           printf '%s\n' "$skills" | grep -q '^ralphctl-alignment'
           agents=$(node dist/cli.mjs agents list)
           printf '%s\n' "$agents" | grep -q '^ralphctl-evaluator'
+          prompts=$(node dist/cli.mjs prompts list)
+          printf '%s\n' "$prompts" | grep -q '^implement'
+
+      # Not redundant with the step above, and the last gate before the irreversible publish:
+      # `node dist/cli.mjs` resolves commander / react / ink / zod / cross-spawn / proper-lockfile /
+      # typescript-result from the REPO's node_modules (tsup leaves every dependency external), so a
+      # runtime dep demoted to devDependencies — or anything the `files` allowlist drops — boots fine
+      # on the runner and then fails on every real `npm i ralphctl`. Only a pack + install into a
+      # clean prefix exercises that resolution, the bin link and the packaging layer.
+      # `npm i --prefix <abs path>`, never `cd && npm i`. The stub package.json at the prefix is
+      # load-bearing — without one npm walks up and installs into the repo tree — and it is written
+      # by hand rather than by `npm init -y`, which ignores `--prefix` and would rewrite the repo's
+      # OWN package.json moments before publish. Packing to /tmp keeps the .tgz outside the workspace
+      # so it cannot be swept into the tarball `pnpm publish` builds.
+      - name: Verify npm pack installs correctly
+        env:
+          RALPHCTL_HOME: ${{ runner.temp }}/ralphctl-pack-smoke
+        run: |
+          TARBALL=$(pnpm pack --pack-destination /tmp 2>/dev/null | tail -1)
+          SMOKE=/tmp/ralphctl-release-smoke
+          mkdir -p "$SMOKE"
+          printf '{"name":"ralphctl-release-smoke","version":"0.0.0","private":true}\n' > "$SMOKE"/package.json
+          npm install --prefix "$SMOKE" "$TARBALL"
+          BIN="$SMOKE"/node_modules/.bin/ralphctl
+          version=$("$BIN" --version)
+          printf '%s\n' "$version" | grep -qF "${{ steps.version.outputs.version }}"
+          skills=$("$BIN" skills list)
+          printf '%s\n' "$skills" | grep -q '^ralphctl-alignment'
+          agents=$("$BIN" agents list)
+          printf '%s\n' "$agents" | grep -q '^ralphctl-evaluator'
+          prompts=$("$BIN" prompts list)
+          printf '%s\n' "$prompts" | grep -q '^implement'
 
       - name: Publish to npm
         run: pnpm publish --no-git-checks --provenance

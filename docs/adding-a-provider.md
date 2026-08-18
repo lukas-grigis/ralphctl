@@ -46,20 +46,34 @@ Add the provider to one union and the compiler will route you to every place tha
 Start in `src/domain/entity/settings.ts`:
 
 ```ts
-export type AiProvider = 'claude-code' | 'github-copilot' | 'openai-codex' | 'google-gemini';
+export type AiProvider = 'claude-code' | 'github-copilot' | 'openai-codex' | 'opencode' | 'google-gemini';
 ```
 
 This is additive — existing settings files still parse, so no `CURRENT_SCHEMA_VERSION` bump and
-no migration. But it breaks compilation at three **exhaustive switches with no `default`**, each
-of which you now have to extend:
+no migration. But it breaks compilation everywhere provider-keyed static data lives, because the
+tree registers that data as **total `Record<AiProvider, …>` tables** rather than switches: a
+missing key is a type error at the table, not a runtime fall-through. Regenerate the current list
+whenever you start:
 
-- `createAiProvider` in `src/application/bootstrap/provider-factory.ts` (`const exhaustive: never = row`)
-- `toolForProvider` in `src/integration/ai/readiness/_engine/tool.ts`
-- `createSkillsAdapter` in `src/integration/ai/skills/adapter-factory.ts`
+```bash
+grep -rn 'Record<AiProvider' src | grep -v Partial
+```
 
-And one **total record** that won't compile until you add a key:
+Today that is fifteen tables plus the registry in `wire.ts` (typed through
+`ModelAvailabilityProbeRegistry`), grouped by layer:
 
-- `MODEL_AVAILABILITY_PROBES: Record<AiProvider, …>` in `src/application/bootstrap/wire.ts`
+| Layer         | Table                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `domain`      | `PROVIDER_EFFORT_LEVELS` (`value/settings-models/effort.ts`)                                                                                                                                                                                                                                                                                                                                                     |
+| `business`    | `DEFAULT_MODELS_BY_PROVIDER` (`settings/defaults.ts`)                                                                                                                                                                                                                                                                                                                                                            |
+| `integration` | `PROVIDER_BINARY` + `PROVIDER_INSTALL_GUIDANCE` (`system/detect-cli.ts`), `PROVIDER_TRAITS` (`ai/providers/_engine/provider-traits.ts`), `AGENT_ADAPTERS` (`ai/agents/adapter-factory.ts`), `SKILLS_ADAPTERS` (`ai/skills/adapter-factory.ts`), `OPERATOR_PROVIDER_DIR` (`ai/skills/operator/source.ts`)                                                                                                         |
+| `application` | `HEADLESS_FACTORIES` (`bootstrap/provider-factory.ts`), `INTERACTIVE_FACTORIES` (`bootstrap/interactive-provider-factory.ts`), `MODEL_AVAILABILITY_PROBES` (`bootstrap/wire.ts`), `PROVIDER_AUTH_CHECK` (`flows/doctor/provider-auth.ts`), `PROVIDER_LABEL` (`flows/doctor/probe-helpers.ts` and `ui/shared/launch/readiness.ts` — two separate tables), `PRESET_FOR_PROVIDER` (`ui/tui/views/welcome-view.tsx`) |
+
+One **exhaustive `switch` with no `default`** also breaks: `toolForProvider` in
+`src/integration/ai/readiness/_engine/tool.ts`. If your CLI reads its own context file you will
+additionally widen the `AssistantTool` union, which forces its inverse `providerForTool` (same
+file) and `pickExistingContextPath` in
+`src/application/flows/readiness/leaves/propose.ts`.
 
 Follow the red squiggles. The sections below are those errors in dependency order.
 
@@ -94,6 +108,7 @@ const AiProviderSchema = z.enum([
   'claude-code',
   'github-copilot',
   'openai-codex',
+  'opencode',
   'google-gemini',
 ]) satisfies z.ZodType<AiProvider>;
 
@@ -242,29 +257,31 @@ silently. A truly empty stream yields `body=''`, `sessionId=undefined` — a wel
 never a throw. Keep body capture O(1) or O(N) accumulated (a single reassigned string, or
 `lines.push()` + `join`); never per-line string concatenation.
 
-## 5. The factory arm
+## 5. The factory row
 
-`src/application/bootstrap/provider-factory.ts`, in the `switch (row.provider)`:
+`src/application/bootstrap/provider-factory.ts`, in the `HEADLESS_FACTORIES` table:
 
 ```ts
-case
-'google-gemini'
-:
-return createGeminiProvider({
-  rateLimitRetries: deps.harnessConfig.rateLimitRetries,
-  idleMs: deps.harnessConfig.idleWatchdogMs,
-  eventBus: deps.eventBus,
-  ...(deps.spawn !== undefined ? { spawn: deps.spawn } : {}),
-});
+const HEADLESS_FACTORIES: Readonly<Record<AiProvider, (deps: HeadlessProviderDeps) => HeadlessAiProvider>> = {
+  'claude-code': createClaudeProvider,
+  'github-copilot': createCopilotProvider,
+  'openai-codex': createCodexProvider,
+  opencode: createOpencodeProvider,
+  'google-gemini': createGeminiProvider,
+};
 ```
 
-This carries only operational concerns (retry budget, idle watchdog, log sink, test spawn seam).
-Model tier flows per call via `AiSession`, never through the factory.
+`createAiProvider` then hands every factory the same operational deps (retry budget, idle
+watchdog, event bus, test spawn seam), so your row is a bare reference — no per-provider call
+site to keep in sync. Model tier flows per call via `AiSession`, never through the factory.
+`INTERACTIVE_FACTORIES` in `interactive-provider-factory.ts` is the same shape for the
+interactive port.
 
-## 6. The rest of the surface (the forced arms)
+## 6. The rest of the surface (the forced rows)
 
-These exist because the new union member broke an exhaustive switch or a total record. They are
-small and mostly boilerplate.
+These exist because the new union member left a total record short a key, or broke the one
+exhaustive switch. They are small and mostly boilerplate — work the compiler's list top to
+bottom.
 
 - **Availability probe** — `src/integration/ai/providers/gemini/model-availability-probe.ts`.
   Start with a passthrough (copy `copilot/model-availability-probe.ts`): it returns the catalog
@@ -276,17 +293,36 @@ small and mostly boilerplate.
   `AssistantTool` variant, a `readiness/gemini/probe.ts` + `readiness/gemini/artifacts.ts` (copy
   `readiness/codex/`), and register `geminiProbe` in `wire.ts`'s `PROBES`. `PROBES` is a
   `Partial` record, so a missing probe degrades gracefully (readiness just does nothing for that
-  provider) — but `toolForProvider` is exhaustive and **must** get its arm to compile.
+  provider) — but `toolForProvider`, its inverse `providerForTool`, and
+  `pickExistingContextPath` (`flows/readiness/leaves/propose.ts`) are exhaustive and **must** get
+  their arms to compile.
 
-- **Skills** — `createSkillsAdapter` in `skills/adapter-factory.ts` must return an adapter for
-  `google-gemini`. The on-disk shape is identical across providers (Agent Skills `SKILL.md`
-  folders); only the parent directory differs. Add `skills/gemini/adapter.ts` that delegates to
-  `createFilesystemSkillsAdapter` with your directory (e.g. `.gemini/skills/`), copying
-  `skills/codex/adapter.ts`.
+- **Skills and agents** — `SKILLS_ADAPTERS` in `skills/adapter-factory.ts` and `AGENT_ADAPTERS`
+  in `agents/adapter-factory.ts` each need a row. The on-disk shape is identical across providers
+  (Agent Skills `SKILL.md` folders); only the parent directory differs. Add
+  `skills/gemini/adapter.ts` that delegates to `createFilesystemSkillsAdapter` with your directory
+  (e.g. `.gemini/skills/`), copying `skills/codex/adapter.ts`, and name that directory again in
+  `OPERATOR_PROVIDER_DIR` (`skills/operator/source.ts`) so operator-authored skills resolve.
+
+- **Traits, effort, defaults** — `PROVIDER_TRAITS` (`providers/_engine/provider-traits.ts`) is the
+  one object literal holding per-provider static data (binary, install guidance, context-file
+  target, skills / agents parent dirs, wire tag, model catalog, effort-forwarding flag);
+  `PROVIDER_EFFORT_LEVELS` (`domain/value/settings-models/effort.ts`) declares your CLI's native
+  effort vocabulary, and `DEFAULT_MODELS_BY_PROVIDER` (`business/settings/defaults.ts`) the
+  per-flow default model rows.
+
+- **Detection and doctor** — `PROVIDER_BINARY` + `PROVIDER_INSTALL_GUIDANCE`
+  (`integration/system/detect-cli.ts`) drive the PATH pre-flight and the install hint; both are
+  one-line projections of your `PROVIDER_TRAITS` row, but each is its own total record and each
+  needs its key. `PROVIDER_AUTH_CHECK` (`flows/doctor/provider-auth.ts`) is the doctor's auth
+  probe — when your CLI exposes no non-interactive auth verb use `kind: 'none'` with a `reason`,
+  which reports as `unknown` rather than guessing. Two `PROVIDER_LABEL` tables
+  (`flows/doctor/probe-helpers.ts`, `ui/shared/launch/readiness.ts`) carry the display name.
 
 - **Settings TUI** — the picker reads the `AiProvider` union, so your provider appears once the
-  schema includes it. Check `src/application/ui/tui/views/ai-row.tsx` and `preset-bar.tsx` for any
-  hardcoded provider labels or preset rows you want to surface.
+  schema includes it. `PRESET_FOR_PROVIDER` (`ui/tui/views/welcome-view.tsx`) maps it to the
+  first-run preset; check `ai-row.tsx` and `preset-bar.tsx` for hardcoded labels or preset rows
+  you want to surface.
 
 ## 7. Tests
 
@@ -321,39 +357,49 @@ Be honest with yourself about where the real work is:
 | `_engine/gemini-provider-deps.ts`        | boilerplate — copy `claude-provider-deps.ts`                                                  |
 | `gemini/headless.ts` (`buildGeminiArgs`) | **provider-specific** — your CLI's flags, permission mapping, rate-limit/stale-resume regexes |
 | `gemini/parse-stream.ts`                 | **provider-specific** — your CLI's stdout shape                                               |
-| `provider-factory.ts` arm                | boilerplate — one `case`                                                                      |
+| `provider-factory.ts` row                | boilerplate — one `HEADLESS_FACTORIES` entry                                                  |
 | `model-availability-probe.ts`            | boilerplate to start (passthrough); provider-specific only if you build real narrowing        |
 | readiness probe + artifacts              | mostly boilerplate — copy a sibling, change the context-file name                             |
 | `skills/gemini/adapter.ts`               | boilerplate — delegate to `createFilesystemSkillsAdapter`                                     |
 | tests                                    | copy a sibling suite, adjust fixtures                                                         |
 
 The two files you actually think hard about are `headless.ts` and the stream parser. Everything
-else is following the compiler from one exhaustive switch to the next.
+else is following the compiler from one missing record key to the next.
 
 ## Files at a glance
 
-A headless provider that compiles and runs the loop: ~6 files
-(`settings-models/<p>.ts`, `settings.ts`, `_engine/<p>-provider-deps.ts`, `<p>/headless.ts`,
-`<p>/parse-stream.ts`, `provider-factory.ts`) plus the two compiler-forced one-liners
-(`model-availability-probe.ts` + its `wire.ts` registry entry, and the `toolForProvider` /
-`createSkillsAdapter` arms).
+The files you author are few — the count comes from the provider-keyed registries the compiler
+forces you through. New code is six files (`settings-models/<p>.ts`,
+`_engine/<p>-provider-deps.ts`, `<p>/headless.ts`, `<p>/parse-stream.ts`,
+`<p>/model-availability-probe.ts`, `skills/<p>/adapter.ts`) plus tests; everything else is a
+one-line row in an existing table.
 
 Full parity with the built-in four — readiness context-file support, a skills directory,
-availability filtering, and the test suites — lands around **14 files**:
+availability filtering, and the test suites — lands around **24 files**:
 
 1. `src/domain/value/settings-models/gemini.ts` — _new_
 2. `src/domain/entity/settings.ts` — _edit_ (union, enum, effort/model/row schemas, discriminated union)
-3. `src/integration/ai/providers/_engine/gemini-provider-deps.ts` — _new_
-4. `src/integration/ai/providers/gemini/headless.ts` — _new_
-5. `src/integration/ai/providers/gemini/parse-stream.ts` — _new_ (or fold inline)
-6. `src/integration/ai/providers/gemini/model-availability-probe.ts` — _new_ (passthrough)
-7. `src/application/bootstrap/provider-factory.ts` — _edit_ (factory arm)
-8. `src/application/bootstrap/wire.ts` — _edit_ (`MODEL_AVAILABILITY_PROBES` + `PROBES`)
-9. `src/integration/ai/readiness/_engine/tool.ts` — _edit_ (`AssistantTool` + `toolForProvider`)
-10. `src/integration/ai/readiness/gemini/probe.ts` — _new_
-11. `src/integration/ai/readiness/gemini/artifacts.ts` — _new_
-12. `src/integration/ai/skills/adapter-factory.ts` — _edit_ (skills arm)
-13. `src/integration/ai/skills/gemini/adapter.ts` — _new_
-14. tests under `tests/integration/ai/providers/gemini/` and `tests/unit/…` — _new_
+3. `src/domain/value/settings-models/effort.ts` — _edit_ (`PROVIDER_EFFORT_LEVELS`)
+4. `src/business/settings/defaults.ts` — _edit_ (`DEFAULT_MODELS_BY_PROVIDER`)
+5. `src/integration/ai/providers/_engine/gemini-provider-deps.ts` — _new_
+6. `src/integration/ai/providers/_engine/provider-traits.ts` — _edit_ (`PROVIDER_TRAITS`)
+7. `src/integration/ai/providers/gemini/headless.ts` — _new_
+8. `src/integration/ai/providers/gemini/parse-stream.ts` — _new_ (or fold inline)
+9. `src/integration/ai/providers/gemini/model-availability-probe.ts` — _new_ (passthrough)
+10. `src/integration/system/detect-cli.ts` — _edit_ (`PROVIDER_BINARY` + `PROVIDER_INSTALL_GUIDANCE`)
+11. `src/integration/ai/readiness/_engine/tool.ts` — _edit_ (`AssistantTool` + `toolForProvider` + `providerForTool`)
+12. `src/integration/ai/readiness/gemini/probe.ts` — _new_
+13. `src/integration/ai/readiness/gemini/artifacts.ts` — _new_
+14. `src/integration/ai/skills/adapter-factory.ts` — _edit_ (`SKILLS_ADAPTERS`)
+15. `src/integration/ai/skills/gemini/adapter.ts` — _new_
+16. `src/integration/ai/skills/operator/source.ts` — _edit_ (`OPERATOR_PROVIDER_DIR`)
+17. `src/integration/ai/agents/adapter-factory.ts` — _edit_ (`AGENT_ADAPTERS`)
+18. `src/application/bootstrap/provider-factory.ts` — _edit_ (`HEADLESS_FACTORIES`)
+19. `src/application/bootstrap/interactive-provider-factory.ts` — _edit_ (`INTERACTIVE_FACTORIES`)
+20. `src/application/bootstrap/wire.ts` — _edit_ (`MODEL_AVAILABILITY_PROBES` + `PROBES`)
+21. `src/application/flows/doctor/provider-auth.ts` + `probe-helpers.ts` — _edit_ (auth check + label)
+22. `src/application/flows/readiness/leaves/propose.ts` — _edit_ (only when you widen `AssistantTool`)
+23. `src/application/ui/shared/launch/readiness.ts` + `ui/tui/views/welcome-view.tsx` — _edit_ (label + first-run preset)
+24. tests under `tests/integration/ai/providers/gemini/` and `tests/unit/…` — _new_
 
 See also `CONTRIBUTING.md` — open an issue first, keep the PR focused, all checks pass.

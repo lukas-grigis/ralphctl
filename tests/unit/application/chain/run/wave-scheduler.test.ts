@@ -294,6 +294,63 @@ describe('runWaves — abort wins with bounded settle + cleanup', () => {
     expect(cleanups.sort()).toEqual(['b0', 'b1']);
   });
 
+  it("treats a branch's OWN AbortError as fatal: stops the schedule, folds nothing, returns it verbatim", async () => {
+    // The operator answers 'abort' at an in-branch prompt: the branch chain returns an AbortError
+    // while the OUTER signal is untouched. That must tear the whole schedule down — not be
+    // downgraded to "this one task did not settle" while later waves keep spending AI sessions.
+    const gauge = { count: 0, max: 0 };
+    const operatorAbort = new AbortError({
+      elementName: 'verify-execution',
+      reason: 'operator aborted sprint on broken baseline',
+    });
+    const cleanups: string[] = [];
+    const launched: string[] = [];
+
+    const track = (id: string, element: Element<Ctx>): WaveBranch<Ctx> => ({
+      id,
+      element: {
+        name: element.name,
+        async execute(ctx, signal, onTrace) {
+          launched.push(id);
+          return element.execute(ctx, signal, onTrace);
+        },
+      },
+    });
+
+    const waveOne: Array<WaveBranch<Ctx>> = [
+      track(
+        'aborting',
+        fakeElement({ name: 'aborting', gauge, settle: Promise.resolve(), error: () => operatorAbort })
+      ),
+      track(
+        'sibling',
+        fakeElement({
+          name: 'sibling',
+          gauge,
+          settle: new Promise<void>(() => {}),
+          onCleanup: () => cleanups.push('sibling'),
+        })
+      ),
+    ];
+    const waveTwo: Array<WaveBranch<Ctx>> = [
+      track('later', fakeElement({ name: 'later', gauge, settle: Promise.resolve() })),
+    ];
+
+    const merge = vi.fn(mergeConcat);
+    const result = await runWaves([waveOne, waveTwo], BASE, cfg({ merge }));
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    // The operator's own AbortError, verbatim — reason string intact for the TUI / chain.log.
+    expect(result.error.error).toBe(operatorAbort);
+    // In-flight siblings were killed and got to run their cleanup; the next wave never launched.
+    expect(cleanups).toEqual(['sibling']);
+    expect(launched).toEqual(['aborting', 'sibling']);
+    // Nothing folded: an abort short-circuit never reaches the reducer.
+    expect(merge).not.toHaveBeenCalled();
+    expect(gauge.count).toBe(0);
+  });
+
   it('never launches a branch when the outer signal is already aborted', async () => {
     const gauge = { count: 0, max: 0 };
     const ac = new AbortController();

@@ -185,8 +185,10 @@ export interface TokenUsageEvent {
    */
   readonly sessionId: string;
   /**
-   * The chain runner / session id this spawn ran under, read from `currentSessionId()` (the
-   * runner wraps every `element.execute()` in `runWithSession(id, …)`). This is the id the TUI
+   * The chain runner / session id this spawn ran under, read from `rootSessionId()` (the
+   * runner wraps every `element.execute()` in `runWithSession(id, …)`; the ROOT id is used
+   * because nested branch runners on the parallel implement path shadow the current one).
+   * This is the id the TUI
    * execute view looks up by, so subscribers that drive per-runner widgets (the TokenBudgetCard)
    * MUST key on `chainSessionId ?? sessionId` — the provider-uuid `sessionId` never matches a
    * runner id. Optional because one-shot spawns outside any chain scope (and legacy events) have

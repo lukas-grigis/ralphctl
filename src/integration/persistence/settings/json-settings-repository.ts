@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import type { ZodError } from 'zod';
 import { Result } from '@src/domain/result.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { ParseError } from '@src/domain/value/error/parse-error.ts';
@@ -21,6 +22,23 @@ const SCHEMA_MISMATCH = 'schema-mismatch';
  * defaults — not to re-run a mutating command.
  */
 const REPAIR_HINT = 'fix or delete settings.json and re-run; a missing file falls back to defaults';
+
+/** Field-level issues enumerated in a validation message, capped so the line stays readable. */
+const MAX_REPORTED_ISSUES = 5;
+
+/**
+ * Compact, one-line rendering of a settings validation failure: `ai.provider: expected string,
+ * received number; …`. `ZodError.message` is a pretty-printed JSON dump of the whole issue array —
+ * 40+ lines for one bad field — and this message is surfaced verbatim by `settings show` and by the
+ * CLI's terminal error reporter, both of which need a line an operator can act on.
+ */
+const formatIssues = (error: ZodError): string => {
+  const shown = error.issues
+    .slice(0, MAX_REPORTED_ISSUES)
+    .map((issue) => `${issue.path.length > 0 ? issue.path.map(String).join('.') : '(root)'}: ${issue.message}`);
+  const hidden = error.issues.length - shown.length;
+  return hidden > 0 ? `${shown.join('; ')} (+${String(hidden)} more)` : shown.join('; ');
+};
 
 export interface JsonSettingsRepositoryDeps {
   /** Directory where the JSON file lives. Production: `<appRoot>/config/`. Tests: a tmp dir. */
@@ -86,7 +104,7 @@ export const createJsonSettingsRepository = (deps: JsonSettingsRepositoryDeps): 
         return Result.error(
           new ParseError({
             subCode: SCHEMA_MISMATCH,
-            message: `settings at ${path} are invalid: ${parsed.error.message}`,
+            message: `settings at ${path} are invalid — ${formatIssues(parsed.error)}`,
             cause: parsed.error,
             hint: REPAIR_HINT,
           })
@@ -108,7 +126,7 @@ export const createJsonSettingsRepository = (deps: JsonSettingsRepositoryDeps): 
         return Result.error(
           new ParseError({
             subCode: SCHEMA_MISMATCH,
-            message: `settings validation failed before save: ${parsed.error.message}`,
+            message: `settings validation failed before save — ${formatIssues(parsed.error)}`,
             cause: parsed.error,
           })
         );

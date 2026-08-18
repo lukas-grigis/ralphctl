@@ -11,7 +11,8 @@ import { SettingsView } from '@src/application/ui/tui/views/settings-view.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { SettingsRepository } from '@src/domain/repository/settings/settings-repository.ts';
 import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
-import { ENTER, RIGHT, tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { ENTER, RIGHT, tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 // Hoisted state holder — each test mutates this before rendering so the mocked
@@ -305,7 +306,7 @@ describe('SettingsView', () => {
     ): Promise<void> => {
       await goToSection(stdin, 'refine');
       stdin.write(ENTER);
-      await waitFor(() => (lastFrame() ?? '').includes('↑/↓ navigate · ↵ submit · esc cancel'));
+      await waitForPredicate(() => (lastFrame() ?? '').includes('↑/↓ navigate · ↵ submit · esc cancel'));
     };
 
     it("labels unavailable providers as '(not installed)' in the provider picker", async () => {

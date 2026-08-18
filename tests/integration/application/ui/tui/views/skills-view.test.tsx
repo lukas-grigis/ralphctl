@@ -18,7 +18,8 @@ import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import { BUNDLED_SKILLS } from '@src/integration/ai/skills/_engine/registry.ts';
 import type { SkillCatalogEntry, SkillCatalogPort } from '@src/integration/ai/skills/_engine/skill-catalog-port.ts';
 import { SkillsView } from '@src/application/ui/tui/views/skills-view.tsx';
-import { DOWN, ENTER, tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { DOWN, ENTER, tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 const abs = (p: string): AbsolutePath => {
@@ -153,7 +154,7 @@ describe('SkillsView', () => {
     await waitForViewReady(result, (f) => f.includes(name));
 
     result.stdin.write('e');
-    await waitFor(() => (result.lastFrame() ?? '').includes('Enable'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Enable'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain(`Enable "${name}" for:`);
     // Refine is default-on: shown but disabled with an explanatory description.
@@ -171,9 +172,9 @@ describe('SkillsView', () => {
     await waitForViewReady(result, (f) => f.includes(name));
 
     result.stdin.write('e');
-    await waitFor(() => (result.lastFrame() ?? '').includes('Enable'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Enable'));
     result.stdin.write(ENTER);
-    await waitFor(() => (result.lastFrame() ?? '').includes('enabled'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('enabled'));
 
     const listed = await catalog.list();
     expect(listed.ok).toBe(true);
@@ -195,7 +196,7 @@ describe('SkillsView', () => {
     await waitForViewReady(result, (f) => f.includes('hand-authored-thing'));
 
     result.stdin.write('e');
-    await waitFor(() => (result.lastFrame() ?? '').includes('nothing to enable'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('nothing to enable'));
     expect(result.lastFrame() ?? '').not.toContain('Enable "hand-authored-thing" for:');
   });
 
@@ -208,11 +209,11 @@ describe('SkillsView', () => {
     await waitForViewReady(result, (f) => f.includes(name));
 
     result.stdin.write('d');
-    await waitFor(() => (result.lastFrame() ?? '').includes('Disable'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Disable'));
     result.stdin.write(' '); // toggle Plan on
     await tick();
     result.stdin.write(ENTER);
-    await waitFor(() => (result.lastFrame() ?? '').includes('disabled'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('disabled'));
 
     const listed = await catalog.list();
     expect(listed.ok).toBe(true);
@@ -235,17 +236,17 @@ describe('SkillsView', () => {
     await waitForViewReady(result, (f) => f.includes(name));
 
     result.stdin.write('d');
-    await waitFor(() => (result.lastFrame() ?? '').includes('Disable'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Disable'));
     result.stdin.write(' ');
     await tick();
     result.stdin.write(ENTER);
-    await waitFor(() => (result.lastFrame() ?? '').includes('permanently lost'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('permanently lost'));
     // The install must still be present — nothing happened until the confirm is answered.
     const midway = await catalog.list();
     expect(midway.ok && midway.value[0]?.installs).toEqual([{ flow: 'plan', status: 'locally-modified' }]);
 
     result.stdin.write('y');
-    await waitFor(() => (result.lastFrame() ?? '').includes('disabled'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('disabled'));
     const after = await catalog.list();
     expect(after.ok && after.value[0]?.installs).toEqual([]);
   });
@@ -275,7 +276,7 @@ describe('SkillsView', () => {
     await waitForViewReady(result, (f) => f.includes(first.name));
 
     result.stdin.write('U');
-    await waitFor(() => (result.lastFrame() ?? '').includes('updated 1 skill'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('updated 1 skill'));
 
     const listed = await catalog.list();
     expect(listed.ok).toBe(true);
@@ -293,7 +294,7 @@ describe('SkillsView', () => {
       updateAll: vi.fn(),
     } as unknown as SkillCatalogPort;
     const { result } = renderView(<SkillsView />, { deps: buildDeps(catalog), initial: { id: 'skills' } });
-    await waitFor(() => (result.lastFrame() ?? '').includes('Failed to load'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Failed to load'));
     expect(result.lastFrame() ?? '').toContain('Failed to load the skill catalog.');
   });
 
@@ -317,7 +318,10 @@ describe('SkillsView', () => {
     result.stdin.write(DOWN);
     await tick();
     result.stdin.write('r');
-    await waitFor(() => (result.lastFrame() ?? '').includes(second.name));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes(second.name), {
+      label: `the reloaded catalog rendered '${second.name}'`,
+    });
+    expect(result.lastFrame() ?? '').toContain(second.name);
   });
 
   it('update (u): declining the overwrite confirm leaves the copy untouched', async () => {
@@ -335,13 +339,13 @@ describe('SkillsView', () => {
     await waitForViewReady(result, (f) => f.includes(name));
 
     result.stdin.write('u');
-    await waitFor(() => (result.lastFrame() ?? '').includes('Overwrite?'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Overwrite?'));
     // Nothing written until the confirm is answered.
     const midway = await catalog.list();
     expect(midway.ok && midway.value[0]?.installs).toEqual([{ flow: 'plan', status: 'locally-modified' }]);
 
     result.stdin.write('n');
-    await waitFor(() => !(result.lastFrame() ?? '').includes('Overwrite?'));
+    await waitForPredicate(() => !(result.lastFrame() ?? '').includes('Overwrite?'));
     const declined = await catalog.list();
     expect(declined.ok && declined.value[0]?.installs).toEqual([{ flow: 'plan', status: 'locally-modified' }]);
   });
@@ -361,9 +365,9 @@ describe('SkillsView', () => {
     await waitForViewReady(result, (f) => f.includes(name));
 
     result.stdin.write('u');
-    await waitFor(() => (result.lastFrame() ?? '').includes('Overwrite?'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Overwrite?'));
     result.stdin.write('y');
-    await waitFor(() => (result.lastFrame() ?? '').includes('updated'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('updated'));
     const after = await catalog.list();
     expect(after.ok && after.value[0]?.installs).toEqual([{ flow: 'plan', status: 'in-sync' }]);
   });
@@ -376,7 +380,10 @@ describe('SkillsView', () => {
     const { result } = renderView(<SkillsView />, { deps: buildDeps(catalog), initial: { id: 'skills' } });
     await waitForViewReady(result, (f) => f.includes(name));
     result.stdin.write('u');
-    await waitFor(() => (result.lastFrame() ?? '').includes('already up to date'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('already up to date'), {
+      label: "the 'already up to date' notice rendered",
+    });
+    expect(result.lastFrame() ?? '').toContain('already up to date');
   });
 
   it('offers Create PR — its view / CLI compose a skill source directly, same as any mounting flow', async () => {
@@ -398,7 +405,7 @@ describe('SkillsView', () => {
     expect(frame).not.toContain('◌ pr');
 
     result.stdin.write('e');
-    await waitFor(() => (result.lastFrame() ?? '').includes('Enable'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Enable'));
     const picker = result.lastFrame() ?? '';
     // Offered but disabled — it's already default-on for createPr, same treatment as any flow.
     expect(picker).toContain('Create PR');
@@ -455,7 +462,7 @@ describe('SkillsView', () => {
     expect(result.lastFrame() ?? '').toContain('◌ imp');
 
     result.stdin.write('c');
-    await waitFor(() => (result.lastFrame() ?? '').includes('■ imp'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('■ imp'));
 
     expect(current.ai.skills?.implement?.disabled).toEqual([]);
   });

@@ -120,6 +120,13 @@ export interface ProviderAttemptInput {
   /** Returns the stdout body tail for the rate-limit haystack, or undefined to scan stderr only. */
   readonly getStdoutTail: () => string | undefined;
   /**
+   * Returns the CLI's own structured error record, for providers that report fatal errors on
+   * stdout with an EMPTY stderr (opencode). Feeds `classifySpawnExit`'s `processErrorText`, which
+   * uses it as the failure-message fallback and as a model-unavailable haystack. Omit for
+   * providers whose fatal errors land on stderr — the classifier already reads those.
+   */
+  readonly getProcessErrorText?: () => string | undefined;
+  /**
    * Returns the assistant body for `bodyFile` mirroring. Only called when `session.bodyFile`
    * is set. Forensic capture is best-effort across all providers — an unreadable body resolves to
    * an empty string rather than a failure Result, so it never discards an otherwise-recovered
@@ -304,6 +311,7 @@ export const runProviderAttempt = async (input: ProviderAttemptInput): Promise<A
 
   const sessionId = input.getSessionId();
   const stdoutTail = input.getStdoutTail();
+  const processErrorText = input.getProcessErrorText?.();
   return classifySpawnExit({
     session,
     // `spawnError` was previously dropped here, which left the classifier's spawn-error branch
@@ -312,6 +320,7 @@ export const runProviderAttempt = async (input: ProviderAttemptInput): Promise<A
     stderr: stderrTail.value(),
     rateLimitRe,
     ...(stdoutTail !== undefined && stdoutTail.length > 0 ? { stdoutTail } : {}),
+    ...(processErrorText !== undefined && processErrorText.length > 0 ? { processErrorText } : {}),
     ...(sessionId !== undefined ? { capturedSessionId: sessionId } : {}),
     providerName,
     eventBus,

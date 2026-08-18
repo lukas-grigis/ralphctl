@@ -22,7 +22,8 @@ import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
-import { ESC, tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { ESC, tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 
 const ts = (n: number): IsoTimestamp => new Date(Date.UTC(2026, 0, 1, 0, 0, n)).toISOString() as IsoTimestamp;
@@ -109,7 +110,7 @@ describe('ImplementMainArea — Esc collapse-before-pop', () => {
     const { result } = mount();
     await waitForViewReady(result, (f) => f.includes(LIVE_SIGNAL_TEXT));
     // Confirm the second route + the live claim's precondition (card expanded) both settled.
-    await waitFor(() => (result.lastFrame() ?? '').includes('ROUTE:sessions:2'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('ROUTE:sessions:2'));
 
     result.stdin.write(ESC);
     await tick(60);
@@ -126,7 +127,7 @@ describe('ImplementMainArea — Esc collapse-before-pop', () => {
   it('Esc with no expanded card pops the route as before', async () => {
     const { result } = mount();
     await waitForViewReady(result, (f) => f.includes(LIVE_SIGNAL_TEXT));
-    await waitFor(() => (result.lastFrame() ?? '').includes('ROUTE:sessions:2'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('ROUTE:sessions:2'));
 
     // First Esc collapses the auto-expanded card (releasing the claim).
     result.stdin.write(ESC);
@@ -136,7 +137,7 @@ describe('ImplementMainArea — Esc collapse-before-pop', () => {
 
     // Second Esc — no card expanded, no claim held — the global handler pops the route.
     result.stdin.write(ESC);
-    await waitFor(() => (result.lastFrame() ?? '').includes('ROUTE:execute:1'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('ROUTE:execute:1'));
     expect(result.lastFrame() ?? '').toContain('ROUTE:execute:1');
 
     result.unmount();
@@ -145,7 +146,7 @@ describe('ImplementMainArea — Esc collapse-before-pop', () => {
   it('unmounting while expanded releases the claim (no stale claim blocking Esc elsewhere)', async () => {
     const { result } = mount();
     await waitForViewReady(result, (f) => f.includes(LIVE_SIGNAL_TEXT));
-    await waitFor(() => (result.lastFrame() ?? '').includes('ROUTE:sessions:2'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('ROUTE:sessions:2'));
 
     // Unmount ImplementMainArea while its focused card is still expanded — the claim is live.
     result.stdin.write('u');
@@ -154,7 +155,7 @@ describe('ImplementMainArea — Esc collapse-before-pop', () => {
 
     // A leaked claim would swallow this Esc forever; the unmount cleanup must have released it.
     result.stdin.write(ESC);
-    await waitFor(() => (result.lastFrame() ?? '').includes('ROUTE:execute:1'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('ROUTE:execute:1'));
     expect(result.lastFrame() ?? '').toContain('ROUTE:execute:1');
 
     result.unmount();

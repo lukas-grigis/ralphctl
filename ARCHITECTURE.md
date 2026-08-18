@@ -23,8 +23,10 @@ flowchart LR
 `node:child_process`, `node:http`). Only `integration/` does I/O. Only `application/` may import from
 anywhere.
 
-This is not a convention you have to trust — it is checked. `eslint.config.ts` carries 15
-`no-restricted-imports` rule blocks that fail the build on a wrong-direction import. The same config
+This is not a convention you have to trust — it is checked. `eslint.config.ts` carries a
+`no-restricted-imports` rule block per fenced boundary, each failing the build on a wrong-direction
+import — one per layer, plus narrower fences for the chain kernel, contract files, and the
+`integration/ai/<concept>/` siblings. The same config
 bans `class` outside `domain/value/error/`, bans barrel files (`export *`), and keeps each adapter
 directory under `integration/ai/<concept>/` isolated from its siblings (shared code goes through an
 explicit `_engine/` sub-namespace). A layering violation is a red build, not a review comment.
@@ -48,7 +50,7 @@ ticket  --refine-->  approved ticket  --plan-->  tasks.json (a DAG)  --implement
   emits a `signals.json` file. A separate evaluator agent grades that work against the task's criteria
   and the verify-script result. The evaluator defaults to skepticism — an out-of-the-box LLM judge
   approves bad work, so its prompt names concrete failure modes and forces a fail on any floor-dimension
-  miss (correctness / completeness / safety / consistency).
+  miss (correctness / completeness / safety / consistency / robustness).
 
 Two nested loops drive implement (`src/application/flows/implement/`). The inner loop runs
 generator → evaluator turns until the evaluator signals a terminal exit or the `maxTurns` budget is hit.
@@ -91,14 +93,17 @@ these primitives, never as a sixth one.
 
 ## The provider boundary
 
-Claude Code, GitHub Copilot, and Codex sit behind one port: `HeadlessAiProvider.generate(session)`
+Claude Code, GitHub Copilot, Codex, and OpenCode sit behind one port:
+`HeadlessAiProvider.generate(session)`
 (`src/integration/ai/providers/_engine/headless-ai-provider.ts`). The caller hands over an `AiSession`
 (`.../ai-session.ts`) that describes **intent** — prompt, working directory, model tier, permissions,
 the path to write `signals.json`, an optional resume id — and nothing about any specific CLI. Each
-adapter under `src/integration/ai/providers/{claude,codex,copilot}/` is the only place that translates
-that intent into its CLI's concrete flags and parses its output stream. The composition root picks one
-adapter per flow in `src/application/bootstrap/provider-factory.ts`. Adding a fourth provider is a new
-adapter directory and one factory case — see [docs/adding-a-provider.md](./docs/adding-a-provider.md).
+adapter under `src/integration/ai/providers/{claude,codex,copilot,opencode}/` is the only place that
+translates that intent into its CLI's concrete flags and parses its output stream. The composition root
+picks one adapter per flow in `src/application/bootstrap/provider-factory.ts`, where `HEADLESS_FACTORIES`
+is a total `Record<AiProvider, …>` — widening the union without a row is a compile error. Adding another
+provider is a new adapter directory plus that one registry row (and the sibling registries the compiler
+names) — see [docs/adding-a-provider.md](./docs/adding-a-provider.md).
 
 ## Why it's built this way
 

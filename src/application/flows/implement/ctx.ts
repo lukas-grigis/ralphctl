@@ -108,14 +108,23 @@ export interface ImplementCtx {
    */
   readonly lastPreVerifyOutcome?: VerifyRunOutcome | undefined;
   /**
-   * Outcome + cwd of the most recent post-task-verify run. Read by the NEXT task's
-   * pre-task-verify leaf to decide whether the carried baseline can stand in for re-running
-   * the script (short-circuits when `outcome === 'success'`, the cwd matches, and the
-   * working tree is clean per `git status --porcelain`). Survives `settle-attempt` — that
-   * leaf clears per-attempt fields but this field carries across tasks. Undefined before
-   * the first post-task-verify of a sprint.
+   * Outcome + cwd + gate coverage of the most recent post-task-verify run. Read by the NEXT
+   * task's pre-task-verify leaf to decide whether the carried baseline can stand in for
+   * re-running the script (short-circuits when `outcome === 'success'`, `coveredAllGates` is
+   * `true`, the cwd matches, and the working tree is clean per `git status --porcelain`).
+   * Survives `settle-attempt` — that leaf clears per-attempt fields but this field carries
+   * across tasks. Undefined before the first post-task-verify of a sprint.
+   *
+   * `coveredAllGates` is what makes the carry sound under structured `verifyGates`: post-verify
+   * runs only the gates the attempt's diff footprint touched, so its aggregate `'success'` means
+   * "every EXECUTED gate passed", NOT "the tree is green". Carrying a diff-scoped green as a
+   * whole-tree baseline would let the next task's pre-verify synthesize a green it never
+   * measured — and a gate that was already red outside that footprint then reads as `regressed`
+   * on the next task that touches it. An absent flag (a ctx from before this field existed)
+   * counts as NOT covered: demote to running the real gate rather than assume coverage.
    */
-  readonly priorPostVerifyOutcome?: { readonly cwd: AbsolutePath; readonly outcome: VerifyRunOutcome } | undefined;
+  readonly priorPostVerifyOutcome?:
+    { readonly cwd: AbsolutePath; readonly outcome: VerifyRunOutcome; readonly coveredAllGates?: boolean } | undefined;
   /**
    * Repository ids whose setup script SUCCEEDED during THIS launch's `setup-script-runner` leaf.
    * Distinct from `SprintExecution.setupRanAt` (which persists across launches/resumes): this

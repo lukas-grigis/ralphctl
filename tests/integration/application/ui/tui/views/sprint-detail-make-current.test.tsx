@@ -19,7 +19,8 @@ import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
-import { tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 const SPRINT_ID = 'sprint-make-current-id' as unknown as SprintId;
@@ -90,7 +91,7 @@ describe('SprintDetailView — m key makes current', () => {
     await waitForViewReady(result, (f) => f.includes('Make Current Sprint'));
 
     result.stdin.write('m');
-    await waitFor(() => setSprint.mock.calls.length === 1);
+    await waitForPredicate(() => setSprint.mock.calls.length === 1);
 
     expect(setSprint).toHaveBeenCalledTimes(1);
     const [calledId, calledLabel] = setSprint.mock.calls[0] as [SprintId | undefined, string | undefined];
@@ -139,7 +140,7 @@ describe('SprintDetailView — m key makes current', () => {
     await waitForViewReady(result, (f) => f.includes('Scoped Sprint'));
 
     result.stdin.write('n');
-    await waitFor(() => setSprint.mock.calls.length === 1);
+    await waitForPredicate(() => setSprint.mock.calls.length === 1);
 
     expect(setSprint).toHaveBeenCalledTimes(1);
     const [calledId, calledLabel] = setSprint.mock.calls[0] as [SprintId | undefined, string | undefined];

@@ -5,7 +5,7 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { SkillSource } from '@src/integration/ai/skills/_engine/skill-source.ts';
 import type { SkillsAdapter } from '@src/integration/ai/skills/_engine/skills-port.ts';
-import type { Skill } from '@src/integration/ai/skills/_engine/skill.ts';
+import { SkillNameSchema, type Skill } from '@src/integration/ai/skills/_engine/skill.ts';
 import type { AssistantTool } from '@src/integration/ai/readiness/_engine/tool.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
@@ -32,7 +32,9 @@ import type { ReadinessCtx } from '@src/application/flows/readiness/ctx.ts';
  * suggested skills, so the operator is never prompted to install anything off a rejected round.
  *
  * Empty / undefined suggestions, a missing repository path, or a declined proposal make the
- * leaf a logged no-op.
+ * leaf a logged no-op. A suggestion that is not a bare kebab-case skill name is dropped with a
+ * warning before the prompt — the name becomes a directory under the operator's repo, so a
+ * traversing or newline-bearing name must never reach `askConfirm` or the adapter.
  *
  * Like {@link installReadinessSkillsLeaf}, installs go through the BARE-name adapter path: the
  * folders are deliberately project-tracked (no `ralphctl-` prefix, no `.git/info/exclude`
@@ -117,7 +119,16 @@ const offerSkillSuggestionsUseCase = async (
     return Result.ok(undefined);
   }
 
+  // Suggestions are AI-authored strings that become both a directory name under the repo and the
+  // body of the confirm prompt. The wire schema already drops out-of-shape names; re-check here so
+  // a name that reached ctx another way can neither escape the repo via `join` nor spoof the
+  // operator's confirm message with an embedded newline. Dropping is silent-but-logged: a
+  // malformed suggestion is advisory noise, not a reason to fail the readiness round.
   for (const name of input.suggestions) {
+    if (!SkillNameSchema.safeParse(name).success) {
+      log.warn(`dropping malformed skill suggestion ${JSON.stringify(name)} — not a kebab-case skill name`);
+      continue;
+    }
     const offered = await offerOne(deps, log, repoPath, name);
     if (!offered.ok) return Result.error(offered.error);
   }

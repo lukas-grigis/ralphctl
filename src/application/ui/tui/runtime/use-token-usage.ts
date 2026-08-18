@@ -72,7 +72,10 @@ const toUsage = (e: TokenUsageEvent): TokenUsage => ({
   ...(e.contextWindow !== undefined ? { contextWindow: e.contextWindow } : {}),
 });
 
-// Key by the chain runner id when present — that is the id the execute view looks up by.
+// Key by the chain runner id when present — that is the id the execute view looks up by. The
+// producer side stamps `chainSessionId` from `rootSessionId()`, so a spawn that ran inside a
+// nested per-task branch runner (parallel implement) still files under the HOST session rather
+// than a `task-<taskId>` key nothing looks up.
 // Provider adapters stamp `sessionId` with the AI CLI's own uuid (a disjoint id space), so keying
 // on it alone guarantees a miss. Legacy / one-shot events without a runner id fall back to
 // `sessionId` so they still resolve. Module-scoped so it stays referentially stable across

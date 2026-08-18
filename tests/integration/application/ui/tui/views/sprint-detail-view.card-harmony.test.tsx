@@ -29,7 +29,7 @@ import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import type { Task } from '@src/domain/entity/task.ts';
-import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
+import { renderView, stripAnsi, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 
 const sizeRef = vi.hoisted(() => ({ columns: 120, rows: 40 }));
@@ -39,10 +39,6 @@ vi.mock('@src/application/ui/tui/runtime/use-terminal-size.ts', () => ({
 }));
 
 const FIXED_SPRINT_ID = 'sprint-fixture-id' as unknown as SprintId;
-
-// eslint-disable-next-line no-control-regex
-const ANSI_ESCAPE_PATTERN = /\x1b\[[0-9;]*m/g;
-const stripAnsi = (s: string): string => s.replace(ANSI_ESCAPE_PATTERN, '');
 
 const makeSprint = (tickets: readonly unknown[]): Sprint =>
   ({

@@ -8,7 +8,7 @@
   "author": "Lukas Grigis",
   "repository": {
     "type": "git",
-    "url": "https://github.com/lukas-grigis/ralphctl.git"
+    "url": "git+https://github.com/lukas-grigis/ralphctl.git"
   },
   "bugs": {
     "url": "https://github.com/lukas-grigis/ralphctl/issues"
@@ -30,7 +30,7 @@
     "generator-evaluator"
   ],
   "bin": {
-    "ralphctl": "./dist/cli.mjs"
+    "ralphctl": "dist/cli.mjs"
   },
   "files": [
     "dist/",

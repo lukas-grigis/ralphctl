@@ -11,7 +11,8 @@
 import React from 'react';
 import { afterEach } from 'vitest';
 import { cleanup, render } from 'ink-testing-library';
-import { tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { DepsProvider } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { RouterProvider, type ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
 import { UiStateProvider } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
@@ -185,17 +186,33 @@ export const waitForViewReady = async (
   result: { lastFrame: () => string | undefined },
   extra?: (frame: string) => boolean
 ): Promise<void> => {
-  await waitFor(() => {
-    const frame = result.lastFrame() ?? '';
-    if (frame.length === 0) return false;
-    if (frame.includes('Loading…')) return false;
-    return extra ? extra(frame) : true;
-  });
+  await waitForPredicate(
+    () => {
+      const frame = result.lastFrame() ?? '';
+      if (frame.length === 0) return false;
+      if (frame.includes('Loading…')) return false;
+      return extra ? extra(frame) : true;
+    },
+    { label: 'the view became ready (non-empty frame, no "Loading…", extra predicate satisfied)' }
+  );
   // Flush one tick so any `useEffect` queued by the loading→ok commit (cursor / focus /
   // derived-state syncs) runs before the test sends its first keystroke. Without this the
   // input race described in (2) above resurfaces.
   await tick();
 };
+
+// eslint-disable-next-line no-control-regex
+const ANSI_SGR_PATTERN = /\x1b\[[0-9;]*m/g;
+
+/**
+ * Strip SGR colour codes from a rendered frame.
+ *
+ * `vitest.config.ts` pins `FORCE_COLOR=0` for both projects, so frames are already plain and
+ * raw `expect(frame).toContain(...)` works. Use this wherever an assertion should hold under
+ * EITHER colour mode — layout / box-geometry checks that measure visible width, and anything a
+ * future ambient-colour change could split with escape sequences.
+ */
+export const stripAnsi = (frame: string): string => frame.replace(ANSI_SGR_PATTERN, '');
 
 /**
  * One-shot effect to seed selection from the harness opts. Lives inside the provider so

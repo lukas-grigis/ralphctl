@@ -10,7 +10,7 @@ import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
 import { makeProject, makeRepository } from '@tests/fixtures/domain.ts';
-import { waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { createPromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
 import { ProjectId } from '@src/domain/value/id/project-id.ts';
@@ -113,7 +113,7 @@ describe('ProjectsView', () => {
     const { result, routeIds } = renderView(<ProjectsView />, { deps: stubDeps([]), initial: { id: 'projects' } });
     await waitForViewReady(result, (f) => f.includes('No projects yet'));
     result.stdin.write('c');
-    await waitFor(() => routeIds().includes('create-project'));
+    await waitForPredicate(() => routeIds().includes('create-project'));
     expect(routeIds()).toContain('create-project');
     result.unmount();
   });
@@ -139,13 +139,13 @@ describe('ProjectsView', () => {
     const { result } = renderView(<ProjectsView />, { deps, initial: { id: 'projects' }, queue });
     await waitForViewReady(result, (f) => f.includes('Old Label'));
     result.stdin.write('e');
-    await waitFor(() => queue.head !== undefined);
+    await waitForPredicate(() => queue.head !== undefined);
     expect(queue.head?.kind).toBe('text');
     if (queue.head?.kind === 'text') {
       expect(queue.head.initial).toBe('Old Label');
     }
     queue.resolveHead('New Label');
-    await waitFor(() => save.mock.calls.length > 0);
+    await waitForPredicate(() => save.mock.calls.length > 0);
     expect(save).toHaveBeenCalledTimes(1);
     expect(save.mock.calls[0]?.[0]?.displayName).toBe('New Label');
     result.unmount();

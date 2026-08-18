@@ -63,13 +63,25 @@ const askRedBaselineDecision = async (
 const isInteractive = (env: PreTaskVerifyEnvironment): boolean => env.isStdinTty && !env.isCi && !env.isNoTui;
 
 /**
- * True iff the previous task's post-task-verify ran green on this same cwd (carried from
- * `input.priorPostVerifyOutcome`). Drives {@link tryCarryBaselineShortCircuit} AND gates
- * {@link tryFreshSetupShortCircuit} — the two short-circuits never overlap; once a task has
- * post-verified green, the carry path owns the subsequent skip.
+ * True iff the previous task's post-task-verify ran green over EVERY configured gate on this same
+ * cwd (carried from `input.priorPostVerifyOutcome`). Drives {@link tryCarryBaselineShortCircuit}
+ * AND gates {@link tryFreshSetupShortCircuit} — the two short-circuits never overlap; once a task
+ * has post-verified green, the carry path owns the subsequent skip.
+ *
+ * The `coveredAllGates` requirement is what keeps the carry sound under structured `verifyGates`:
+ * post-verify runs `fail-fast` SCOPED to the attempt's diff footprint, so its aggregate
+ * `'success'` only means "every EXECUTED gate passed". Standing in for the full baseline on that
+ * evidence would synthesize a green pre nothing measured, and a gate that was already red outside
+ * the previous task's footprint would then attribute as `'regressed'` on this task — blaming the
+ * AI for a baseline it never touched, burning the bounded red-verify retry, and bypassing both the
+ * `baseline-broken` escape hatch and the operator's persisted `baselineBrokenPolicy: 'proceed'`
+ * amnesty (both keyed on a RECORDED red pre). An absent flag (ctx written before the field existed)
+ * counts as NOT covered — demote to running the real gate rather than assume coverage.
  */
 export const isCarriedGreenForThisCwd = (input: LeafInput, cwd: AbsolutePath): boolean =>
-  input.priorPostVerifyOutcome?.outcome === 'success' && String(input.priorPostVerifyOutcome.cwd) === String(cwd);
+  input.priorPostVerifyOutcome?.outcome === 'success' &&
+  input.priorPostVerifyOutcome.coveredAllGates === true &&
+  String(input.priorPostVerifyOutcome.cwd) === String(cwd);
 
 /**
  * Carry-baseline short-circuit. When the previous task on this same cwd post-verified green and

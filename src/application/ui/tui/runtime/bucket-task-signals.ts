@@ -19,7 +19,9 @@
  * per-task substep trace alone:
  *
  *  - any substep failed/aborted (terminally) → that status (last-wins for failed-vs-aborted)
- *  - last expected substep (`uninstall-skills-<id>`) recorded → `completed`
+ *  - the guarded body composite (`task-body-<id>`) recorded as `skipped` → `skipped`
+ *    (the dependency gate blocked the task upstream, so nothing inside the body ever ran)
+ *  - last expected substep (`uninstall-skills-<id>`) recorded as `completed` → `completed`
  *  - any substep recorded, but not yet `uninstall-skills` → `running`
  *  - no substeps recorded → `pending`
  *
@@ -49,6 +51,17 @@ export const isPerTaskLeaf = (name: string): boolean => TOP_LEVEL_TASK_REGEX.tes
  * terminal leaf override via {@link BucketOptions.terminalSubstepName}.
  */
 const DEFAULT_TERMINAL_SUBSTEP = 'uninstall-skills';
+
+/**
+ * Default name of the per-task subchain's GUARDED BODY composite. `guard` emits exactly one
+ * synthetic `skipped` trace entry named after its body, so `task-body-<taskId>` with status
+ * `skipped` is the single unambiguous marker that a task never ran at all (today: the dependency
+ * gate blocked it upstream). Guards nested INSIDE the body (`reproduce-guard`,
+ * `quarantine-blocked-diff-guard`) skip routinely on the happy path — only this one means the
+ * whole task was passed over. Flows whose body composite is named differently override via
+ * {@link BucketOptions.bodySubstepName}.
+ */
+const DEFAULT_BODY_SUBSTEP = 'task-body';
 
 export type TaskBucketStatus = TraceStatus | 'running' | 'pending';
 
@@ -320,16 +333,42 @@ const bucketSignals = (
  * Derive the task-level status from its substep trace. See module docstring for the algorithm.
  * `failed` / `aborted` win over later `completed` substeps (the task subchain short-circuits
  * on the first failure via `sequential`'s contract).
+ *
+ * A `skipped` BODY composite is checked next: the dependency gate blocks a task by transitioning
+ * it to `blocked upstream …` and letting the body guard skip the whole lifecycle, which leaves
+ * no failed/aborted entry and no terminal leaf. Without this branch the task read `running`
+ * forever and pinned the Execute header's active-task cursor for the rest of the run.
+ *
+ * The terminal check requires the terminal leaf to have COMPLETED — a skipped terminal entry
+ * (were `guard` ever changed to synthesise one entry per flattened leaf) must never read as a
+ * finished task.
  */
-const resolveStatusFromSubSteps = (subSteps: readonly TaskSubStep[], terminalSubstepName: string): TaskBucketStatus => {
+const resolveStatusFromSubSteps = (
+  subSteps: readonly TaskSubStep[],
+  terminalSubstepName: string,
+  bodySubstepName: string
+): TaskBucketStatus => {
   if (subSteps.length === 0) return 'pending';
   for (const sub of subSteps) {
     if (sub.status === 'aborted') return 'aborted';
     if (sub.status === 'failed') return 'failed';
   }
-  const lastSeen = subSteps.some((s) => s.leafName === terminalSubstepName);
+  if (subSteps.some((s) => s.leafName === bodySubstepName && s.status === 'skipped')) return 'skipped';
+  const lastSeen = subSteps.some((s) => s.leafName === terminalSubstepName && s.status === 'completed');
   return lastSeen ? 'completed' : 'running';
 };
+
+/**
+ * Is this bucket the one the operator is watching? `running` mid-task, `pending` in the brief
+ * transition window between tasks. Settled buckets — `completed`, but equally `failed` /
+ * `aborted` / `skipped` — sit BEHIND the cursor: the Execute header's active-task readout and
+ * the Tasks panel's active-card anchor both scan for the first in-flight bucket, and a blocked
+ * (skipped) task earlier in the list must not hold that cursor while later tasks actually run.
+ *
+ * @public
+ */
+export const isInFlightBucket = (bucket: { readonly status: TaskBucketStatus }): boolean =>
+  bucket.status === 'running' || bucket.status === 'pending';
 
 const firstFailureMessage = (subSteps: readonly TaskSubStep[]): string | undefined => {
   for (const sub of subSteps) {
@@ -364,6 +403,13 @@ export interface BucketOptions {
    */
   readonly terminalSubstepName?: string;
   /**
+   * Name of the per-task subchain's guarded BODY composite — when it appears in the trace with
+   * status `skipped` the task never ran and flips to `skipped`. Defaults to
+   * {@link DEFAULT_BODY_SUBSTEP} (`'task-body'`, the implement flow's composite). Same decoupling
+   * rationale as {@link terminalSubstepName}.
+   */
+  readonly bodySubstepName?: string;
+  /**
    * Tasks the launcher knows about up front (e.g. from `tasks.json`) — used to synthesise
    * `pending` buckets for ids that have NO trace entries yet. Without this hint, a chain that
    * fails before any per-task leaf runs (e.g. `setup-script-runner` aborts the chain) leaves
@@ -382,6 +428,7 @@ export const bucketTaskSignals = (
   opts: BucketOptions = {}
 ): BucketedExecution => {
   const terminalSubstepName = opts.terminalSubstepName ?? DEFAULT_TERMINAL_SUBSTEP;
+  const bodySubstepName = opts.bodySubstepName ?? DEFAULT_BODY_SUBSTEP;
   const { order, byId: windows } = buildTaskWindows(chainEvents);
   const subStepsByTask = collectSubSteps(trace);
   const { signalsByTask, evaluationsByTask, orphans } = bucketSignals(signals, windows);
@@ -413,7 +460,7 @@ export const bucketTaskSignals = (
 
   const tasks: TaskBucket[] = ids.map((id) => {
     const subSteps = subStepsByTask.get(id) ?? [];
-    const status = resolveStatusFromSubSteps(subSteps, terminalSubstepName);
+    const status = resolveStatusFromSubSteps(subSteps, terminalSubstepName, bodySubstepName);
     const errorMessage = firstFailureMessage(subSteps);
     const duration =
       status === 'completed' || status === 'failed' || status === 'aborted' ? totalDurationMs(subSteps) : undefined;

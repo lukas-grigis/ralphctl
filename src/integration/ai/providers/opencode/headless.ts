@@ -178,6 +178,10 @@ const runOpencodeAttempt = (
     flush: () => tracker.flush(),
     getSessionId: () => tracker.getSessionId(),
     getStdoutTail: () => tracker.getStdoutTail(),
+    // OpenCode is the one backend that reports fatal CLI errors on stdout with an EMPTY stderr, so
+    // without this the classifier's message reads `process exited with code 1: <empty stderr>` and
+    // the CLI's only explanation is parsed and then dropped on every attempt.
+    getProcessErrorText: () => tracker.getStreamError(),
     // The body comes off the stream rather than a tempfile, so it is always readable and never
     // needs the codex adapter's best-effort disk guard.
     getBody: () => Promise.resolve(Result.ok(tracker.getBody())),

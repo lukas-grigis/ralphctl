@@ -52,6 +52,10 @@ to [Semantic Versioning](https://semver.org/).
   attempt / verdict / path header on stderr so `> verdict.md` yields exactly the artifact.
   Older sprints stay readable: a task whose record predates the artifact, or whose workspace has been
   pruned, degrades to the one-line verdict it shows today — never an error.
+- **`ralphctl prompts list`** — renders every bundled prompt template through the real runtime
+  resolver and reports what loaded, so a broken bundle is visible before it breaks a run. CI now
+  runs it against the built package on every push, and the release workflow packs and installs the
+  tarball and smokes the binary before anything is published.
 
 ### Changed
 
@@ -128,6 +132,44 @@ to [Semantic Versioning](https://semver.org/).
   other repos with no error surfaced. It now grants every root the engine resolved, and a root that
   can't be expressed as a permission pattern (glob metacharacters in the path) fails the session with
   a named error instead of starting one that can't see what it was asked to.
+- **Aborting a parallel run now actually stops it.** Answering "abort" at an in-run prompt used to be
+  swallowed by the wave scheduler — in-flight sibling tasks kept running and every later wave still
+  launched fresh AI sessions. The abort now stops new launches, cancels in-flight siblings, and
+  surfaces the operator's abort reason verbatim in the rail and chain log.
+- **A turn that merely _talked about_ rate limits no longer costs you half an hour.** Rate-limit
+  detection scanned the assistant's own prose, so a non-zero exit on a task about throttling could
+  match "429" in conversation, discard a fully landed `signals.json`, and sleep the backoff (~36
+  minutes at the deepest rung). Stdout now only matches real throttle markers, and a landed signals
+  envelope counts as proof the turn worked — it is recovered instead of thrown away.
+- **An unreachable OpenCode `provider/model` id fails fast.** It used to classify as a retryable
+  crash and burn the whole attempt budget on a config typo; it now stops immediately and names the
+  id and the catalog that rejected it.
+- **Worktree runs no longer commit the bundled skills.** The `ralphctl-*` exclude line was written to
+  a per-worktree path git never reads; it now resolves the common git dir, so installed skills stay
+  out of your commits.
+- **AI-suggested skill names can no longer escape the skills directory.** `skill-suggestions` names
+  are validated to a safe slug shape at the contract boundary — separators, `..`, and absolute paths
+  are dropped before any filesystem path is built from them.
+- **An evaluator process crash retries instead of terminally blocking the task.** A watchdog kill or
+  spawn crash during the evaluator turn now consumes an attempt and retries within `maxAttempts`,
+  matching how the generator side has handled the same failures since 0.14.
+- **A diff-scoped verify pass no longer masquerades as a full-tree green baseline.** Passing gates
+  scoped to the task's diff was recorded as whole-tree evidence, so a pre-existing red gate elsewhere
+  later blocked the next task as a false `regressed`. Baseline provenance now records what the run
+  actually covered.
+- **Unblocking a task gives it a genuinely clean restart** — the transient best-of-N grant no longer
+  rides along, so the first retry attempt runs one generator session, not N.
+- **TUI truthfulness fixes.** A dependency-blocked task no longer renders as the active running task
+  for the rest of the run; parallel runs now show live token usage and context-window state (nested
+  runners had re-scoped the session id the meter was keyed on); and on a first-run session `h`/`D`
+  no longer bounce back to the Welcome screen and silently re-stamp the AI preset.
+- **Overlay and key-handling fixes.** The evaluation overlay windows by rendered row, so a critique
+  with long wrapped lines scrolls instead of overflowing the viewport; the Welcome error state's
+  `esc` hint now works; and the status banner's `d` dismiss no longer fires while a prompt owns the
+  keyboard.
+- **CLI errors are one line, not a stack.** A malformed `settings.json` (or any unexpected failure)
+  prints `ralphctl: <message>` with a debug-env hint instead of dumping a raw Node stack from the
+  minified bundle.
 
 ### Removed
 

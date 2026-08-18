@@ -23,7 +23,8 @@ import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repo
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
-import { tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 
 const sizeRef = vi.hoisted(() => ({ columns: 120, rows: 24 }));
@@ -111,7 +112,7 @@ describe('SprintDetailView — task-list windowing (M4 guard)', () => {
 
       await tick(8);
     }
-    await waitFor(() => (result.lastFrame() ?? '').includes('task-marker-19'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('task-marker-19'));
 
     const frame = result.lastFrame() ?? '';
     // The focused task (#19) must be inside the rendered window — the M4 regression would have it

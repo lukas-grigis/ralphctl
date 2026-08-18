@@ -405,6 +405,90 @@ fail with a clear provider error — not a silent hang or an empty `signals.json
 
 ---
 
+## Scenario 17 — plateau calibration honours `plateauThreshold`
+
+**Setup:** a sprint with one task carrying a verification criterion the generator cannot satisfy (e.g. "the
+verify script exits 0" against a script that always exits 1), so the gen-eval loop genuinely stalls.
+
+```bash
+ralphctl settings set harness.plateauThreshold 3
+ralphctl settings show | grep entropyPlateauDetector   # expect false — the entropy detector is opt-in
+```
+
+1. Run Implement on that sprint and watch the Execute view's step rail
+2. **Expected:** neither `loop-diversity-check` nor `entropy-check` exits the loop before turn 3 — both
+   window from `plateauThreshold`, so an earlier exit is the regression this scenario exists to catch
+3. **Expected:** when the plateau does fire, the banner names the escalation (model rung, or the effort rung
+   for both generator **and** evaluator) — not a bare "plateau"
+4. `ralphctl settings set harness.entropyPlateauDetector true`, re-run — **expected:** the entropy detector
+   now participates, and still cannot end an attempt on a single turn
+5. **Pass condition:** `ralphctl runs stats --sprint <id>` reports the plateau under the source that actually
+   fired (`threshold` / `diversity` / `entropy`), and the escalation rung shows as resolved or fell-through
+
+---
+
+## Scenario 18 — outcome rollup: `runs stats`, the sprint card, and next steps
+
+**18a — CLI rollup:**
+
+1. `ralphctl runs stats` on a data root with at least one sprint holding a mix of done / blocked tasks
+2. **Expected:** outcome mix, first-pass rate, attempts-to-done, plateau-by-source, escalation efficacy, the
+   regression taxonomy (`clean` / `fixed-baseline` / `baseline-broken` / unattributed), warnings broken out by
+   kind, and per-criterion pass rates — each rate labelled with the denominator it quotes
+3. `ralphctl runs stats --json` — **expected:** the same numbers as raw JSON, stable key order (diff two runs)
+4. `ralphctl runs stats --sprint <id> --project <id>` — **expected:** refused, the two are mutually exclusive
+5. `RALPHCTL_HOME=/tmp/ralphctl-empty-$RANDOM ralphctl runs stats` — **expected:** the one-line
+   "no sprints yet" notice, exit 0, no stack trace; the same command with `--json` still emits a well-formed
+   all-zero report
+
+**18b — sprint outcome card:**
+
+1. Open a `review` sprint's detail view — **expected:** the outcome card renders between the next-phase card
+   and the tickets section, with the same numbers `runs stats --sprint <id>` prints
+2. Open a `draft` or `active` sprint — **expected:** no card at all (nothing to report before an attempt ran)
+3. On a sprint where an attempt was attributed `baseline-broken` or `regressed` — **expected:** the card takes
+   the error tone
+
+**18c — next steps / post-mortem:**
+
+1. Let a flow run to completion — **expected:** the settled result card ends with a `Next steps` block naming
+   the recommended flow and the key that launches it; the settled hint row reads
+   `↵ home · r re-run · g progress` (plus `v evaluation` when the focused task has a verdict)
+2. Press `r` — **expected:** it returns to Flows, which re-checks triggers against the sprint's status **now**
+   (a sprint that advanced during the run offers the next flow, not a stale repeat)
+3. Cancel a run with `Ctrl+C` — **expected:** a `Post-mortem` block lists only artifacts that actually exist on
+   disk (`progress.md`, trace, verify logs, sprint dir); a `create-sprint` that failed before creating a sprint
+   shows no paths rather than a guessed one
+4. **Pass condition:** Home and Flows recommend the same next action for the same sprint, in every state —
+   including `review` (two flows offered) and `done` (points at the pull request)
+
+---
+
+## Scenario 19 — evaluation verdict surface
+
+**Setup:** a sprint with at least one task whose latest attempt has an evaluator verdict (a failed round is the
+interesting case), plus one task that has never been evaluated.
+
+**19a — TUI overlay:**
+
+1. In the Execute view's tasks panel, focus the evaluated task and press `v`
+2. **Expected:** a read-only overlay opens on that attempt's `evaluation.md` — critique plus each dimension's
+   pass / fail / n-a with its finding and any command output; the same scroll chords as the `g` progress
+   overlay; `Esc` or `v` closes it
+3. Focus the never-evaluated task — **expected:** the `v` hint is disabled, and pressing `v` does nothing
+4. Repeat from a sprint-detail task row — **expected:** identical overlay, identical keys
+5. On a task whose record predates the artifact, or whose workspace was pruned — **expected:** it degrades to
+   the one-line verdict, never an error
+
+**19b — CLI reader:**
+
+1. `ralphctl task evaluation <taskId> --sprint <id>`
+2. **Expected:** the attempt / verdict / path header goes to **stderr**, the artifact body to stdout — so
+   `ralphctl task evaluation <taskId> > verdict.md` yields exactly the file
+3. **Pass condition:** the body matches what the overlay rendered for the same task
+
+---
+
 ## Known issues (file under here, link the fix commit)
 
 - (none currently)

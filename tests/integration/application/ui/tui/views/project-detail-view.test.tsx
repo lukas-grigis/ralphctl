@@ -14,7 +14,8 @@ import type { ProjectRepository } from '@src/domain/repository/project/project-r
 import { createPromptQueue } from '@src/application/ui/tui/prompts/prompt-queue.ts';
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import { FIXED_PROJECT_ID, makeProject, makeRepository, repositoryId, slug } from '@tests/fixtures/domain.ts';
-import { DOWN, ENTER, tick, UP, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { DOWN, ENTER, tick, UP } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 const fakeProjectRepo = (project: Project): ProjectRepository =>
@@ -291,7 +292,7 @@ describe('ProjectDetailView', () => {
     });
     await waitForViewReady(result);
     result.stdin.write(ENTER);
-    await waitFor(() => queue.head !== undefined);
+    await waitForPredicate(() => queue.head !== undefined);
     expect(queue.head?.kind).toBe('text');
     expect(queue.head?.message ?? '').toContain('Rename project');
   });

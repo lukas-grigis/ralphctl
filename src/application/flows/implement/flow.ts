@@ -143,6 +143,7 @@ export interface CreateImplementFlowOpts {
  *         activate-sprint,
  *         load-sprint-execution,
  *         load-tasks,
+ *         load-learnings,                  // cross-sprint procedural memory (read side) → ctx.priorLearnings
  *         resolve-branch,                  // assigns ralphctl/<id> on first run, persists, checks out
  *         working-tree-clean-checks,       // one per repo: hard-abort if dirty (no recovery menu)
  *         progress-journal-activate,       // separator line in progress.md
@@ -222,8 +223,9 @@ export interface CreateImplementFlowOpts {
  * Build the prologue segment — everything from `load-and-assert-sprint` through `preflight-tasks`,
  * the once-per-run setup that runs BEFORE any task executes:
  *
- *   load-and-assert-sprint → activate → load-execution → load-tasks → resolve-branch →
- *   working-tree-clean-checks → progress-journal-activate → setup-script-runner → preflight-tasks
+ *   load-and-assert-sprint → activate → load-execution → load-tasks → load-learnings →
+ *   resolve-branch → working-tree-clean-checks → progress-journal-activate → setup-script-runner →
+ *   preflight-tasks
  *
  * Returned as `sequential('implement-prologue', [...])` so the parallel launcher can run it
  * once on a dedicated runner under the held lock before fanning the task waves out. The serial

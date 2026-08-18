@@ -31,7 +31,8 @@ import {
   makeReviewSprint,
   makeTodoTask,
 } from '@tests/fixtures/domain.ts';
-import { tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 const SPRINT_ID = '01933fbb-3333-7000-8000-0000000000bb' as unknown as SprintId;
@@ -171,7 +172,7 @@ describe('Execute view — settled-run next steps', () => {
     });
     await waitForViewReady(result, (f) => f.includes('Implement — Rerun'));
     result.stdin.write('r');
-    await waitFor(() => routeIds().at(-1) === 'flows');
+    await waitForPredicate(() => routeIds().at(-1) === 'flows');
     expect(routeIds().at(-1)).toBe('flows');
     // A reset (not a push): Home is never routed through, and the run is off the stack.
     expect(routeIds()).not.toContain('home');
@@ -282,7 +283,7 @@ describe('Execute view — settled-run next steps', () => {
     emit?.({ type: 'completed' });
 
     await waitForViewReady(result, (f) => f.includes('Next steps'));
-    await waitFor(() => (result.lastFrame() ?? '').includes('run implement'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('run implement'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('run implement');
     expect(frame).not.toContain('run plan');

@@ -44,7 +44,8 @@ describe('AddRepositoryView — wizard e2e', () => {
       deps,
       initial: { id: 'add-repository', props: { projectId: project.id } },
     });
-    await waitForViewReady(result, (f) => f.includes('Repository path'));
+    // Match the prompt's literal copy — the path step is titled "Repository directory".
+    await waitForViewReady(result, (f) => f.includes('Repository directory'));
 
     // Step 1: path picker — use `t` typing overlay for determinism.
     result.stdin.write('t');

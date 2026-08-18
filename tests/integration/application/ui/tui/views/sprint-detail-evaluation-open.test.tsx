@@ -27,7 +27,8 @@ import type { Task } from '@src/domain/entity/task.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import { recordRunningAttemptEvaluation, startNextAttempt } from '@src/domain/entity/task-attempts.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
-import { tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { makeTodoTask } from '@tests/fixtures/domain.ts';
 
@@ -111,7 +112,7 @@ describe('SprintDetailView — `v` opens the focused task evaluation', () => {
     result.stdin.write('j');
     await tick(40);
     result.stdin.write('v');
-    await waitFor(() => (result.lastFrame() ?? '').includes('TARGET:wire the migration'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('TARGET:wire the migration'));
 
     expect(result.lastFrame() ?? '').toContain('TARGET:wire the migration:1:failed:rounds/2/evaluator/evaluation.md');
     result.unmount();
@@ -125,7 +126,7 @@ describe('SprintDetailView — `v` opens the focused task evaluation', () => {
     result.stdin.write('j');
     await tick(40);
     result.stdin.write('v');
-    await waitFor(() => (result.lastFrame() ?? '').includes('TARGET:legacy task'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('TARGET:legacy task'));
 
     // The chord still opens — the overlay owns the degrade, not the view.
     expect(result.lastFrame() ?? '').toContain('TARGET:legacy task:1:failed:no-file');

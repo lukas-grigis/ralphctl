@@ -78,7 +78,7 @@ list does not lose the sprint plan.
 
 **`<id>--<slug>` naming.** Entity directories and files are named `<id>--<slug>` (a uuidv7 prefix followed by
 a double-hyphen and a kebab handle) — human-readable and still chronologically sortable. Resolvers are
-tolerant: `resolveProjectFile`, `resolveSprintDir`, and `resolveMemoryDir` in
+tolerant: `resolveProjectPath`, `resolveSprintDir`, and `resolveMemoryDir` in
 `src/integration/persistence/storage.ts` scan the parent directory and prefer the slugged form over a legacy
 bare `<id>` form, so old data directories continue to work without manual intervention. Write-side path builders
 always produce the canonical `<id>--<slug>` name.
@@ -557,20 +557,22 @@ and the non-obvious mutators.
   present and non-empty), `setupSkill`, `verifySkill`, and `suggestedSkills` — names persisted by
   `offerSkillSuggestionsLeaf` in the readiness flow).
 - **`Sprint`** (`sprint.ts`) — identified by `SprintId`; lifecycle `draft → planned → active → review → done`; carries
-  `projectId`, nested `Ticket[]`, `affectedRepositories` (absolute paths). Mutators: `addTicket`, `refineTicket`,
-  `removeTicket`, `planSprint(draft → planned)`, `activate`, `transitionToReview`, `transitionToDone`.
+  `projectId` and nested `Ticket[]`. It holds **no** repo list — which repo a unit of work targets rides on
+  `Task.repositoryId`, resolved against `project.repositories`. Mutators: `addTicket`, `replaceTicket`,
+  `removeTicket`, `planSprint(draft → planned)`, `activateSprint`, `transitionSprintToReview`,
+  `transitionSprintToDone`, plus `revertSprintToActive` (review → active, used by task unblock).
 - **`SprintExecution`** (`sprint-execution.ts`) — identified by the parent `SprintId`; carries `branch`,
   `pullRequestUrl`, `setupRanAt` (array of `SetupRun` — one structured entry per repo per chain run,
   outcome: `success` / `failed` / `spawn-error` / `skipped`). Separate from `Sprint` so runtime-mutating
   fields don't collide with planning writes.
-- **`Ticket`** (nested inside `Sprint`) — identified by `TicketId`; `requirementStatus: pending → approved`
-  flipped by the refine flow.
+- **`Ticket`** (nested inside `Sprint`) — identified by `TicketId`; `status: pending → approved` flipped by the
+  refine flow, which also fills the `requirements` body that `ApprovedTicket` requires.
 - **`Task`** (`task.ts`) — identified by `TaskId`; status `todo | in_progress | done | blocked`; references
   `Sprint` via `ticketId` and DAG edges via `dependsOn` (array of `TaskId`; the planner emits them as
   `blockedBy` and `parseTaskList` resolves them onto `dependsOn`). Carries an `attempts[]` history — each
   `Attempt` has `evaluation`, `verification`, `attribution` (`clean` / `regressed` / `baseline-broken` /
   `fixed-baseline` from pre/post verify-script comparison), optional `abortCause` (`AbortCause` discriminated
-  union), and optional `recoveryContext` (resume-from-aborted metadata). `BlockedTask` adds a structural
+  union), and optional `recovering` (a `RecoveryContext` — resume-from-aborted metadata). `BlockedTask` adds a structural
   `blockKind: 'upstream' | 'own'` discriminant — `'upstream'` when the `dependency-gate` parked the task
   because a prerequisite was not `done`; `'own'` for evaluator / verify / budget failures. New code reads
   `isUpstreamBlocked(task)` (checks `blockKind`) — never the `blockedReason` string prefix. Legacy
@@ -709,8 +711,8 @@ Cross-cutting TUI features:
   runner with status + age.
 - **Schema-driven settings panel** — rows iterate the `SettingsSchema`; the prompt kind is derived from value
   type. Edits save immediately.
-- **Doctor view** — runs `runDoctor()` on mount; renders per-check status rows + an aggregate result card.
-  `!` opens it from anywhere.
+- **Doctor view** — calls the shared `useSystemStatus` provider's `refreshDoctor()` on mount (and again on `r`);
+  renders per-check status rows + an aggregate result card. `!` opens it from anywhere.
 - **Execute view is responsive** — three-column (flow-steps rail / tasks-stream / context) at `xl` (≥180),
   two-column at `lg` (≥140), compact-rail at `md` (100–139), single-column below `md`. The rail is fixed
   28 cols below `xl`; at `xl`+ it grows fluidly up to 56 cols via `resolveRailWidth`. All width decisions use

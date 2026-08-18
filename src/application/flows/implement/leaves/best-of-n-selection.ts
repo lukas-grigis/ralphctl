@@ -16,7 +16,7 @@ import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import { READ_ONLY } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
-import { currentSessionId } from '@src/application/session/session.ts';
+import { rootSessionId } from '@src/application/session/session.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import { buildSelectCandidatePrompt } from '@src/integration/ai/prompts/select-candidate/definition.ts';
 import { renderContractSectionFor } from '@src/integration/ai/contract/_engine/render-contract-section.ts';
@@ -125,7 +125,7 @@ const buildJudgeSession = (opts: {
   readonly bodyFile: AbsolutePath;
   readonly abortSignal: AbortSignal | undefined;
 }): AiSession => {
-  const chainSessionId = currentSessionId();
+  const chainSessionId = rootSessionId();
   return {
     prompt: opts.prompt,
     cwd: opts.cwd,

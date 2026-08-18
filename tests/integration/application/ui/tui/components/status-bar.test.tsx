@@ -12,7 +12,7 @@ import { StatusBar } from '@src/application/ui/tui/components/status-bar.tsx';
 import { useSystemStatus } from '@src/application/ui/tui/runtime/system-status-context.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { DoctorReport } from '@src/application/flows/doctor/ctx.ts';
-import { waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 const reportRef = vi.hoisted(() => ({ current: undefined as DoctorReport | undefined }));
@@ -53,7 +53,7 @@ describe('StatusBar — doctor indicator', () => {
       hasFailures: false,
     };
     const { result } = renderView(<TriggerAndRender />, { deps, initial: { id: 'home' } });
-    await waitFor(() => (result.lastFrame() ?? '').includes('doctor ok'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('doctor ok'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('doctor ok');
     expect(frame).not.toContain('doctor warning');
@@ -67,7 +67,7 @@ describe('StatusBar — doctor indicator', () => {
       hasFailures: false,
     };
     const { result } = renderView(<TriggerAndRender />, { deps, initial: { id: 'home' } });
-    await waitFor(() => (result.lastFrame() ?? '').includes('doctor warning'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('doctor warning'));
     expect(result.lastFrame() ?? '').toContain('1 doctor warning');
   });
 });

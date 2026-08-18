@@ -2,7 +2,11 @@ import { promises as fs } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, expect, it } from 'vitest';
-import { classifySpawnExit, type ProviderName } from '@src/integration/ai/providers/_engine/classify-spawn-exit.ts';
+import {
+  DEFAULT_RATE_LIMIT_RE,
+  classifySpawnExit,
+  type ProviderName,
+} from '@src/integration/ai/providers/_engine/classify-spawn-exit.ts';
 import type { AttemptOutcome } from '@src/integration/ai/providers/_engine/attempt-outcome.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { ProviderOutput } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
@@ -326,8 +330,8 @@ describe.each(PROVIDERS)('classifySpawnExit [%s]', (providerName) => {
   it('rate-limit detected in stdoutTail (not stderr) when the provider reports quota on stdout', async () => {
     // FINDING 3 — claude's `-p stream-json` mode reports quota in the stdout result envelope, not
     // on stderr. The classifier must scan stderr + stdoutTail so the throttle trips the backoff.
+    // No signals.json here: the turn was throttled before it could land an envelope.
     const session = baseSession();
-    await writeSignalsFile(String(session.signalsFile));
     const outcome = await classifySpawnExit({
       session,
       exit: { code: 1, signal: null },
@@ -343,6 +347,61 @@ describe.each(PROVIDERS)('classifySpawnExit [%s]', (providerName) => {
     expect(outcome.kind).toBe('rate-limit');
     if (outcome.kind === 'rate-limit') {
       expect(outcome.error.sessionId).toBe('sess-stdout');
+      // The message names the stream that matched — a 36-minute backoff triggered by stdout must
+      // be diagnosable from the log alone.
+      expect(outcome.error.message).toContain('stdout');
+    }
+  });
+
+  it('benign assistant prose in stdoutTail does NOT trip the rate-limit branch (false-positive guard)', async () => {
+    // stdoutTail carries ASSISTANT-GENERATED task output. A task about throttling routinely says
+    // "rate limiter" / "429"; scanning it with the broad stderr pattern turned an ordinary
+    // watchdog SIGTERM into a ~36-minute backoff. Only the vendors' real throttle sentences are
+    // matched on stdout — the broad pattern stays scoped to stderr.
+    const session = baseSession();
+    const outcome = await classifySpawnExit({
+      session,
+      exit: { code: 1, signal: null },
+      stderr: '',
+      stdoutTail: 'Implemented the rate limiter in src/throttle.ts and modified 429 lines across 3 files',
+      rateLimitRe: DEFAULT_RATE_LIMIT_RE,
+      providerName,
+      eventBus: createCapturingBus().bus,
+      watchdogBannerId: 'unused',
+      onSuccess: () => okSuccess(session),
+    });
+    expect(outcome.kind).toBe('error');
+    if (outcome.kind === 'error') {
+      expect(outcome.error).toBeInstanceOf(ProcessCrashError);
+      expect(outcome.error.message).toContain('process exited with code 1');
+    }
+  });
+
+  it('signals-recovery beats a stdoutTail-only rate-limit match (landed envelope proves the turn worked)', async () => {
+    // A completed signals.json on disk is authoritative per the audit-[09] contract: the AI landed
+    // its work before the non-zero exit. Even a real throttle sentence quoted back in the assistant
+    // body must not discard it — stderr keeps its rate-limit-beats-recovery precedence, stdout does not.
+    const session = baseSession();
+    await writeSignalsFile(String(session.signalsFile));
+    let invoked = 0;
+    const outcome = await classifySpawnExit({
+      session,
+      exit: { code: 143, signal: null },
+      stderr: '',
+      stdoutTail: 'I hit the usage limit reached banner while reading the docs, then finished the task',
+      rateLimitRe: DEFAULT_RATE_LIMIT_RE,
+      providerName,
+      eventBus: createCapturingBus().bus,
+      watchdogBannerId: 'unused',
+      onSuccess: () => {
+        invoked += 1;
+        return okSuccess(session);
+      },
+    });
+    expect(invoked).toBe(1);
+    expect(outcome.kind).toBe('success');
+    if (outcome.kind === 'success') {
+      expect(outcome.output.recoveredFromExit).toEqual({ code: 143, signal: null });
     }
   });
 
@@ -462,6 +521,63 @@ describe.each(PROVIDERS)('classifySpawnExit [%s]', (providerName) => {
       // Generic non-zero exit → the retryable hard-fail branch, and no model hint.
       expect(outcome.error).toBeInstanceOf(ProcessCrashError);
       expect(outcome.error.message).not.toContain('pick another model in settings');
+    }
+  });
+
+  it('surfaces processErrorText in the failure message when the CLI wrote nothing to stderr', async () => {
+    // opencode reports a fatal CLI error on a stdout `{"type":"error"}` record and leaves stderr
+    // EMPTY, so the crash message used to read `process exited with code 1: <empty stderr>` — the
+    // only explanation the CLI produced was parsed and then dropped.
+    const session = baseSession();
+    const outcome = await classifySpawnExit({
+      session,
+      exit: { code: 1, signal: null },
+      stderr: '',
+      processErrorText: 'UnknownError: Unexpected server error. Please try again.',
+      rateLimitRe: DEFAULT_RATE_LIMIT_RE,
+      providerName,
+      eventBus: createCapturingBus().bus,
+      watchdogBannerId: 'unused',
+      onSuccess: () => okSuccess(session),
+    });
+    expect(outcome.kind).toBe('error');
+    if (outcome.kind === 'error') {
+      expect(outcome.error).toBeInstanceOf(ProcessCrashError);
+      expect(outcome.error.message).toContain('UnknownError: Unexpected server error');
+      expect(outcome.error.message).not.toContain('<empty stderr>');
+    }
+  });
+
+  it('model-unavailable wording in processErrorText is a NON-retryable config error', async () => {
+    // Unlike stdoutTail (assistant prose), processErrorText is the CLI's own STRUCTURED error
+    // record, so scanning it carries no false-positive risk. A provider that reports model
+    // unavailability there must reach the same non-retryable branch as the stderr-reporting CLIs
+    // instead of burning the whole attempt budget re-spawning the same misconfiguration.
+    const session = baseSession();
+    await writeSignalsFile(String(session.signalsFile));
+    let invoked = 0;
+    const outcome = await classifySpawnExit({
+      session,
+      exit: { code: 1, signal: null },
+      stderr: '',
+      processErrorText: 'ModelNotFoundError: model openrouter/nope-4 not found',
+      rateLimitRe: DEFAULT_RATE_LIMIT_RE,
+      providerName,
+      eventBus: createCapturingBus().bus,
+      watchdogBannerId: 'unused',
+      onSuccess: () => {
+        invoked += 1;
+        return okSuccess(session);
+      },
+    });
+    expect(invoked).toBe(0);
+    expect(outcome.kind).toBe('error');
+    if (outcome.kind === 'error') {
+      expect(outcome.error).toBeInstanceOf(InvalidStateError);
+      expect(outcome.error).not.toBeInstanceOf(ProcessCrashError);
+      expect(outcome.error.code).toBe('invalid-state');
+      expect(outcome.error.message).toContain('ModelNotFoundError');
+      expect(outcome.error.message).toContain('pick another model in settings');
     }
   });
 

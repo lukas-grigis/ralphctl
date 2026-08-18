@@ -124,19 +124,27 @@ export const projectEvaluationLines = (parsed: ParsedEvaluation): readonly Evalu
  * cannot style the same model differently. `keyPrefix` disambiguates when the caller renders a
  * SLICE — row indices restart at 0 on every scroll otherwise.
  *
+ * `oneRowPerLine` is for the WINDOWING caller: it clips each row with `truncate-end` so a spec
+ * can never paint across two terminal rows and desync a row-count viewport. The overlay pairs it
+ * with a pre-wrap (`wrap-document-rows.ts`) so nothing is actually lost; a caller that renders
+ * the whole projection (the panel below) leaves it off and lets Ink reflow the prose.
+ *
  * @public
  */
 export const EvaluationLines = ({
   lines,
   keyOffset = 0,
+  oneRowPerLine = false,
 }: {
   readonly lines: readonly EvaluationLineSpec[];
   readonly keyOffset?: number;
+  readonly oneRowPerLine?: boolean;
 }): React.JSX.Element => (
   <Box flexDirection="column">
     {lines.map((line, idx) => (
       <Text
         key={`eval-line-${String(keyOffset + idx)}`}
+        {...(oneRowPerLine ? ({ wrap: 'truncate-end' } as const) : {})}
         {...(line.color !== undefined ? { color: line.color } : {})}
         {...(line.dim === true ? { dimColor: true } : {})}
         {...(line.bold === true ? { bold: true } : {})}

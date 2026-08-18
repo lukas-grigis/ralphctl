@@ -13,7 +13,8 @@ import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
 import type { SettingsRepository } from '@src/domain/repository/settings/settings-repository.ts';
-import { ENTER, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { ENTER } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 import { makeProject } from '@tests/fixtures/domain.ts';
 import type { ViewEntry } from '@src/application/ui/tui/runtime/router.tsx';
@@ -155,7 +156,7 @@ describe('WelcomeView — first-run UX', () => {
     expect(routes.at(-1)?.id).toBe('welcome');
 
     result.stdin.write(ENTER);
-    await waitFor(() => routes.at(-1)?.id === 'create-project');
+    await waitForPredicate(() => routes.at(-1)?.id === 'create-project');
     expect(routes.at(-1)?.id).toBe('create-project');
     // The gate never re-triggers seeding — still exactly one save.
     expect(saved).toHaveLength(1);
@@ -194,7 +195,7 @@ describe('WelcomeView — first-run UX', () => {
       initial: { id: 'welcome' },
       onRoute: (e) => routes.push(e),
     });
-    await waitFor(() => routes.at(-1)?.id === 'home');
+    await waitForPredicate(() => routes.at(-1)?.id === 'home');
 
     expect(routes.at(-1)?.id).toBe('home');
     welcomeResult.unmount();

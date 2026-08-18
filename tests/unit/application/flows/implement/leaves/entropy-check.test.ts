@@ -3,7 +3,11 @@ import { createInMemoryEventBus } from '@src/integration/observability/in-memory
 import { FIXED_NOW, makeInProgressTaskWithRunningAttempt } from '@tests/fixtures/domain.ts';
 import { entropyCheckLeaf, type EntropyCheckDeps } from '@src/application/flows/implement/leaves/entropy-check.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
-import type { PlateauTurnRecord } from '@src/business/task/plateau-detection.ts';
+import {
+  computePlateauVerdict,
+  windowIsHardStall,
+  type PlateauTurnRecord,
+} from '@src/business/task/plateau-detection.ts';
 import type { EvaluationSignal } from '@src/domain/signal.ts';
 
 const task = makeInProgressTaskWithRunningAttempt();
@@ -49,6 +53,15 @@ const rec = (opts: {
 const collapsedWindow = (hashes: readonly string[]): readonly PlateauTurnRecord[] =>
   hashes.map((hash) => rec({ hash, actionCounts: new Map([['change', 3]]) }));
 
+/**
+ * These tests exercise the leaf's OWN predicate in isolation, on ctx states hand-fed to
+ * `leaf.execute`. Read them alongside the subordination fence below and the composed-loop tests
+ * in `tests/integration/application/flows/implement/leaves/gen-eval-loop.test.ts` — in the real
+ * `gen-eval-turn` sequential the evaluator leaf runs two elements earlier on the SAME window, so a
+ * window this leaf would fire on has already produced a `source: 'threshold'` exit and the
+ * `alreadyExiting` short-circuit wins. The isolated firing cases below are the leaf's contract,
+ * NOT a claim that a `source: 'entropy'` exit is reachable through the composed loop.
+ */
 describe('entropyCheckLeaf', () => {
   /**
    * REGRESSION — the K=1 false positive. Before windowing, a SINGLE turn that emitted only one
@@ -211,5 +224,54 @@ describe('entropyCheckLeaf', () => {
     expect(out.ok).toBe(true);
     if (!out.ok) return;
     expect(out.value.ctx.lastExit).toEqual({ kind: 'passed' });
+  });
+});
+
+/**
+ * SUBORDINATION FENCE — what the composed `gen-eval-turn` sequential actually presents to this
+ * leaf. The evaluator leaf runs two elements earlier and merges `computePlateauVerdict`'s exit
+ * onto `ctx.lastExit`; this leaf then re-reads the SAME window through `windowIsHardStall`. Both
+ * route through `classifyPlateauWindow`, so the two conditions the leaf needs — a hard-stalled
+ * window AND `lastExit === undefined` — are mutually exclusive by construction.
+ *
+ * These tests pin that mutual exclusion at the fixture level, so the day the subordination gate
+ * changes (either direction) the fixtures above stop silently describing an unreachable state.
+ * The end-to-end counterpart is the "attributes a genuine stall to the calibrated 'threshold'
+ * detector" case in `tests/integration/application/flows/implement/leaves/gen-eval-loop.test.ts`.
+ */
+describe('entropyCheckLeaf — subordination to the calibrated predicate', () => {
+  const THRESHOLD = 3;
+
+  it('the very window the leaf fires on is one the evaluator already exited as a threshold plateau', () => {
+    const window = collapsedWindow(['h1', 'h1', 'h1']);
+    const current = window[window.length - 1];
+    expect(current).toBeDefined();
+    if (current === undefined) return;
+
+    // The leaf's own calibration gate opens …
+    expect(windowIsHardStall(window, { threshold: THRESHOLD })).toBe(true);
+    // … but only on a window the calibrated predicate — running TWO ELEMENTS EARLIER on the same
+    // history — has already ruled a plateau, which the evaluator leaf merges onto ctx.lastExit.
+    const verdict = computePlateauVerdict(window.slice(0, -1), current, { threshold: THRESHOLD });
+    expect(verdict.kind).toBe('plateau');
+  });
+
+  it('is a no-op on the ctx the loop really hands it — the threshold exit survives unre-attributed', async () => {
+    const leaf = entropyCheckLeaf(buildDeps({ maxTurns: 10, plateauThreshold: THRESHOLD }), task.id);
+    // Exactly what the evaluator leaf leaves behind on a stalled window: history appended AND a
+    // calibrated `source: 'threshold'` exit already set. Opted IN, so only the subordination gate
+    // can keep the leaf quiet here.
+    const ctx: ImplementCtx = {
+      ...baseCtx(),
+      genEvalTurn: THRESHOLD,
+      plateauHistory: collapsedWindow(['h1', 'h1', 'h1']),
+      lastExit: { kind: 'plateau', dimensions: ['correctness'], source: 'threshold' },
+    };
+
+    const out = await leaf.execute(ctx);
+
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.value.ctx.lastExit).toEqual({ kind: 'plateau', dimensions: ['correctness'], source: 'threshold' });
   });
 });

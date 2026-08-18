@@ -1,4 +1,20 @@
 /**
+ * The TUI suite's two async waiters. Both live here, under DISTINCT names, because they used to
+ * be two same-named `waitFor` exports in two modules with OPPOSITE timeout contracts — the
+ * `_keys.ts` one returned silently on expiry, so a test whose wait never came true carried on and
+ * asserted against whatever the frame happened to hold (or, when the wait WAS the assertion,
+ * passed vacuously). A timeout must always fail the test loudly:
+ *
+ *  - {@link waitFor}          — assertion form. Poll a check that throws (typically an `expect`)
+ *                               until it stops throwing; rethrows the last error on expiry.
+ *  - {@link waitForPredicate} — boolean form. Poll a predicate until it returns true; throws a
+ *                               named error on expiry.
+ *
+ * Both share the same ceiling, poll interval and post-condition settle, so the choice between
+ * them is purely about which callback shape reads better at the call site.
+ */
+
+/**
  * `waitFor` — poll a predicate until it stops throwing, with a timeout. Replaces the
  * wall-clock `tick(ms)` pattern that was the dominant source of TUI test flakes: under
  * heavy CPU contention from concurrent vitest forks, a literal `await tick(40)` often
@@ -47,4 +63,32 @@ export const waitFor = async (check: () => void | Promise<void>, opts: WaitForOp
   throw lastError instanceof Error
     ? lastError
     : new Error(`waitFor: condition never satisfied within ${String(timeout)}ms`);
+};
+
+/**
+ * `waitForPredicate` — the boolean-returning sibling of {@link waitFor}. Use it in place of a
+ * fixed `tick(N)` when the test depends on an async settling step whose timing isn't bounded by a
+ * single Ink render tick — e.g. waiting for a stubbed repo `findById` to resolve before the view's
+ * `useInput` handler is responsive, or waiting for an async `openEditPrompt` to enqueue a prompt
+ * after a keystroke.
+ *
+ * Expiry THROWS. Nothing downstream of a wait that never came true is trustworthy: the frame is
+ * still in its pre-settle state, so every following assertion is either misleading (it fails on
+ * the wrong thing) or vacuous (the wait was the only check). Naming the predicate that never went
+ * true is the useful failure — pass a `label` when the arrow alone won't identify it.
+ *
+ * Cheap on the happy path (evaluated once before the first sleep), bounded on cold CI.
+ */
+export const waitForPredicate = async (
+  predicate: () => boolean,
+  opts: WaitForOptions & { readonly label?: string } = {}
+): Promise<void> => {
+  const label = opts.label;
+  await waitFor(() => {
+    if (!predicate()) {
+      throw new Error(
+        `waitForPredicate: ${label ?? 'predicate'} never became true within ${String(opts.timeout ?? 3000)}ms`
+      );
+    }
+  }, opts);
 };

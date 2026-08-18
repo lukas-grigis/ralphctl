@@ -12,6 +12,10 @@ remaining todo task. To stop one bad AI turn from taking down the entire impleme
 
 - `Aborted` / `RateLimit` codes → still `Result.error` (propagate, abort the run). Aborted = user cancel (CLAUDE.md
   transparent-propagation rule); RateLimit = adapter already exhausted 429 retries.
+- `ProcessCrash` (watchdog kill / spawn crash / non-zero exit with no signals.json) → `crashed` exit on BOTH roles
+  (evaluator parity landed 2026-08-18; it was generator-only before). `crashed` retries within `maxAttempts` and
+  deliberately leaves `lastBlockReason` unset, so the commit-task guard stays open and the retry starts from the
+  generator's committed work. `EvaluatorTurnExit` carries the member too (subset of `GenEvalExit`).
 - everything else (ParseError schema/json, InvalidStateError signals-missing / spawn-exit-N, MigrationGapError) →
   `Result.ok` with a `self-blocked` exit. The validator's message is preserved in the block reason.
 

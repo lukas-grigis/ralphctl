@@ -2,7 +2,7 @@ import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import { READ_ONLY } from '@src/integration/ai/providers/_engine/session-permissions.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import { currentSessionId } from '@src/application/session/session.ts';
+import { rootSessionId } from '@src/application/session/session.ts';
 
 export interface ReadOnlySignalsSessionOpts {
   /** Working directory the AI session opens in — the repository (or repo-derived) path. */
@@ -29,11 +29,13 @@ export interface ReadOnlySignalsSessionOpts {
  * session at call time (omitted when invoked outside one, e.g. a bare test).
  */
 export const readOnlySignalsSession = (opts: ReadOnlySignalsSessionOpts): AiSession => {
-  // `currentSessionId()` is read inside the leaf's execute scope (the runner wraps it in
+  // `rootSessionId()` is read inside the leaf's execute scope (the runner wraps it in
   // `runWithSession`) and threaded onto the session as DATA so the headless adapter can key
   // the token-usage event by the runner id without importing the application session helper
-  // across the layer boundary. Undefined out of session scope → the spread omits it.
-  const chainSessionId = currentSessionId();
+  // across the layer boundary. ROOT, not current: a nested / branch runner shadows the current
+  // id, and the TUI looks the map up by the id it mounted the session with. Undefined out of
+  // session scope → the spread omits it.
+  const chainSessionId = rootSessionId();
   return {
     prompt: opts.prompt,
     cwd: opts.cwd,

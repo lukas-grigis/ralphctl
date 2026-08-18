@@ -21,7 +21,8 @@ import { createInkInteractivePrompt } from '@src/application/ui/tui/prompts/ink-
 import { PromptHost } from '@src/application/ui/tui/prompts/prompt-host.tsx';
 import { UiStateProvider } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
 import type { Choice } from '@src/business/interactive/prompt.ts';
-import { tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 
 const Host = ({ queue }: { readonly queue: ReturnType<typeof createPromptQueue> }): React.JSX.Element => (
   <UiStateProvider>
@@ -43,7 +44,7 @@ describe('askMultiChoice initial seeding through the real queue → PromptHost p
     const { stdin, lastFrame, unmount } = render(<Host queue={queue} />);
 
     const answer = interactive.askMultiChoice<string>('Skills for this run:', OPTIONS, { initial: ['a', 'c'] });
-    await waitFor(() => (lastFrame() ?? '').includes('Alpha'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('Alpha'));
     await tick(50); // give useInput's subscription time to attach before the first keypress
 
     const frame = lastFrame() ?? '';
@@ -67,7 +68,7 @@ describe('askMultiChoice initial seeding through the real queue → PromptHost p
     const { stdin, lastFrame, unmount } = render(<Host queue={queue} />);
 
     const answer = interactive.askMultiChoice<string>('Pick:', OPTIONS, { initial: [] });
-    await waitFor(() => (lastFrame() ?? '').includes('Alpha'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('Alpha'));
     await tick(50); // give useInput's subscription time to attach before the first keypress
 
     // select-all must not pull in the disabled Delta row.
@@ -88,7 +89,7 @@ describe('askMultiChoice initial seeding through the real queue → PromptHost p
     const { stdin, lastFrame, unmount } = render(<Host queue={queue} />);
 
     const answer = interactive.askMultiChoice<string>('Pick:', OPTIONS);
-    await waitFor(() => (lastFrame() ?? '').includes('Alpha'));
+    await waitForPredicate(() => (lastFrame() ?? '').includes('Alpha'));
     await tick(50); // give useInput's subscription time to attach before the first keypress
     expect(lastFrame() ?? '').toMatch(/\[ ]\s*Alpha/);
 

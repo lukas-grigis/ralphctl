@@ -94,9 +94,11 @@ export interface AiSession {
    * application-layer construction site (which builds the session inside the runner's
    * `runWithSession` scope), then stamped onto the {@link TokenUsageEvent} the adapter
    * publishes post-spawn so subscribers (the TUI's TokenBudgetCard) can key spend by the
-   * runner id rather than the AI CLI's own per-spawn uuid. Provider-agnostic; the adapters
-   * never read `currentSessionId()` themselves — integration cannot import the application
-   * session helper. Unset → the adapter omits the field (legacy / out-of-scope callers).
+   * runner id rather than the AI CLI's own per-spawn uuid. It is the ROOT (outermost) runner
+   * id — a nested per-task branch runner must not re-key its spawns away from the session the
+   * TUI mounted. Provider-agnostic; the adapters never read the session scope themselves —
+   * integration cannot import the application session helper. Unset → the adapter omits the
+   * field (legacy / out-of-scope callers).
    */
   readonly chainSessionId?: string;
 }

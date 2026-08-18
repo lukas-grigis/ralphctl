@@ -9,8 +9,8 @@
  * Key handling:
  *   - help / prompt overlays own the keyboard — early-return when active.
  *   - while running: `c` opens the cancel-scope picker (unless already open); `D` detaches
- *     (router.reset, runner continues in background). `r` is deliberately inert here — a
- *     stray keystroke must not navigate off a live run.
+ *     to Home (router.reset, runner continues in background). `r` is deliberately inert here —
+ *     a stray keystroke must not navigate off a live run.
  *   - when settled: Enter / Esc resets to Home. ALWAYS Home — never sprint-detail or a
  *     stack pop. A finished flow (refine / plan / implement / …) drops the user back on the
  *     Home card with their own project/sprint selection intact. Browsing a run must not
@@ -90,6 +90,9 @@ export const useExecuteInput = ({
       return;
     }
     if (input === 'c' && !cancelScopeOpen) setCancelScopeOpen(true);
-    if (input === 'D') router.reset();
+    // Detach: drop the run's view and land on Home — the same destination a settled run's
+    // Enter/Esc uses. Named explicitly; `reset` never infers a destination (a bare form used to
+    // re-mount the process's launch entry, i.e. the first-run wizard on a fresh install).
+    if (input === 'D') router.reset({ id: 'home' });
   });
 };

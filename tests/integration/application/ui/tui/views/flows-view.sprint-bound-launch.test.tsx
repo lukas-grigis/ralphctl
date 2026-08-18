@@ -26,7 +26,8 @@ import { DEFAULT_SETTINGS } from '@src/business/settings/defaults.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import { createSessionManager } from '@src/application/ui/tui/runtime/session-manager.ts';
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
-import { ENTER, tick, waitFor } from '@tests/integration/application/ui/tui/_keys.ts';
+import { ENTER, tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
 
 const PROJECT_ID = 'project-fixture-id' as unknown as ProjectId;
@@ -127,7 +128,9 @@ describe('FlowsView — create-sprint launch does not pin the stale sprint', () 
     expect(focusedOnCreate()).toBe(true);
 
     result.stdin.write(ENTER);
-    await waitFor(() => sessions.list().some((s) => s.descriptor.flowId === 'create-sprint'), { timeoutMs: 3000 });
+    await waitForPredicate(() => sessions.list().some((s) => s.descriptor.flowId === 'create-sprint'), {
+      label: 'a create-sprint session was registered',
+    });
 
     const record = sessions.list().find((s) => s.descriptor.flowId === 'create-sprint');
     expect(record).toBeDefined();
@@ -137,7 +140,7 @@ describe('FlowsView — create-sprint launch does not pin the stale sprint', () 
     expect(record?.descriptor.pinnedSprintLabel).toBeUndefined();
 
     // The launch routed into the execute view.
-    await waitFor(() => routedIds.includes('execute'));
+    await waitForPredicate(() => routedIds.includes('execute'));
     expect(routedIds).toContain('execute');
   });
 });
