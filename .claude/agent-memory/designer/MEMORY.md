@@ -71,6 +71,10 @@
 
 - [project_outcome_report_card_2026-08-14.md](project_outcome_report_card_2026-08-14.md) — Sprint outcome-report card: hosted in SprintDetailView's Body (review/done gate), minimal metric set, hasAttemptData empty-fallback gotcha
 
+## Design-System Drift Fixes
+
+- [project_design_system_drift_297.md](project_design_system_drift_297.md) — #297: focusBar/barFilled/barEmpty/unknownGlyph tokens, breakpoints in use-responsive-layout, `↑/↓`-only hint strips, joinCounts separator; DESIGN-SYSTEM §2.2 table still owed (Aug 2026)
+
 ## Working Agreements
 
 - [feedback_no_git_when_told_none.md](feedback_no_git_when_told_none.md) — "NO git commands of any kind" means literally zero, including read-only log/diff/show/status — not just mutating ones
