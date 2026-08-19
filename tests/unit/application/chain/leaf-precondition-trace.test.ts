@@ -5,12 +5,17 @@
  * step broke) while the surrounding `sequential` marks the steps after it `skipped`.
  *
  * Any OTHER throw is a programmer bug and must re-propagate untouched — the runner, not the leaf,
- * is the containment boundary for those.
+ * is the containment boundary for those. Node errno errors (EACCES, ELOOP …) are the motivating
+ * non-domain case: they carry a string `code` too, and must never be laundered into the
+ * domain-error channel just because an adapter threw one instead of returning `Result.error`.
  */
 
 import { describe, expect, it } from 'vitest';
 
 import { Result } from '@src/domain/result.ts';
+import { AbortError } from '@src/domain/value/error/abort-error.ts';
+import type { DomainError } from '@src/domain/value/error/domain-error.ts';
+import type { ErrorCode } from '@src/domain/value/error/error-code.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
@@ -123,5 +128,94 @@ describe('leaf precondition throws', () => {
     });
 
     await expect(element.execute(CTX)).rejects.toThrow('merge exploded');
+  });
+
+  it('re-propagates a Node errno error from input() — a string `code` is not a domain code', async () => {
+    const emitted: TraceEntry[] = [];
+    const element = leaf<Ctx, unknown, Ctx>('errno-projector', {
+      useCase: {
+        async execute() {
+          return Result.ok(CTX);
+        },
+      },
+      input: () => {
+        throw errno('EACCES: permission denied', 'EACCES');
+      },
+      output: (c) => c,
+    });
+
+    await expect(element.execute(CTX, undefined, (e) => emitted.push(e))).rejects.toThrow('EACCES: permission denied');
+    expect(emitted).toHaveLength(0);
+  });
+
+  it('re-propagates a Node errno error thrown by the use case (the adapter-I/O shape)', async () => {
+    const emitted: TraceEntry[] = [];
+    const element = leaf<Ctx, Ctx, Ctx>('install-skills', {
+      useCase: {
+        async execute() {
+          throw errno('ELOOP: too many symbolic links', 'ELOOP');
+        },
+      },
+      input: (c) => c,
+      output: (_c, o) => o,
+    });
+
+    await expect(element.execute(CTX, undefined, (e) => emitted.push(e))).rejects.toThrow(
+      'ELOOP: too many symbolic links'
+    );
+    expect(emitted).toHaveLength(0);
+  });
+
+  it('still turns a real DomainError thrown by the use case into a failed entry', async () => {
+    const element = leaf<Ctx, Ctx, Ctx>('save-sprint', {
+      useCase: {
+        async execute() {
+          throw new InvalidStateError({ entity: 'sprint', currentState: 'draft', attemptedAction: 'save' });
+        },
+      },
+      input: (c) => c,
+      output: (_c, o) => o,
+    });
+
+    const result = await element.execute(CTX);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('unreachable');
+    expect(result.error.error).toBeInstanceOf(InvalidStateError);
+    expect(result.error.trace[0]?.status).toBe('failed');
+    expect(result.error.trace[0]?.elementName).toBe('save-sprint');
+  });
+
+  it('still turns an AbortError thrown by the use case into an aborted entry', async () => {
+    const element = leaf<Ctx, Ctx, Ctx>('long-step', {
+      useCase: {
+        async execute() {
+          throw new AbortError({ elementName: 'long-step' });
+        },
+      },
+      input: (c) => c,
+      output: (_c, o) => o,
+    });
+
+    const result = await element.execute(CTX);
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('unreachable');
+    expect(result.error.error).toBeInstanceOf(AbortError);
+    expect(result.error.trace[0]?.status).toBe('aborted');
+  });
+});
+
+/** A Node-shaped errno error: a real `Error` carrying a string `code` that is not an `ErrorCode`. */
+const errno = (message: string, code: string): Error => Object.assign(new Error(message), { code });
+
+describe('DomainError code registry', () => {
+  it('every DomainError class assigns a registered ErrorCode (compile-time fence)', () => {
+    // The exact-membership predicate in leaf.ts makes this correspondence load-bearing: a new
+    // error class with an unregistered `code` literal would compile, satisfy the union, and then
+    // silently re-throw past the leaf instead of tracing as `failed`. This line makes that a
+    // typecheck failure instead.
+    const fence: Exclude<DomainError['code'], ErrorCode> extends never ? true : never = true;
+    expect(fence).toBe(true);
   });
 });
