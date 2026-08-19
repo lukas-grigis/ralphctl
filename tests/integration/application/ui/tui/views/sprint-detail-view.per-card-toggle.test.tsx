@@ -22,8 +22,9 @@ import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
 import type { Task } from '@src/domain/entity/task.ts';
+import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
-import { ESC, tick } from '@tests/integration/application/ui/tui/_keys.ts';
+import { ESC } from '@tests/integration/application/ui/tui/_keys.ts';
 import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 import { makeApprovedTicket, makeDraftSprint } from '@tests/fixtures/domain.ts';
@@ -68,6 +69,18 @@ const stubReadOnlyDeps = (sprint: Sprint, tasks: readonly Task[]): AppDeps =>
 
 const initial: ViewEntry = { id: 'sprint-detail', props: { sprintId: FIXED_SPRINT_ID } };
 
+/**
+ * Wait until the focus cursor lands on card #N (1-based). `ListCard` prefixes the focused card's
+ * index label with `glyphs.actionCursor`, so `▸ #N` in the frame IS the cursor position. A blind
+ * `tick(40)` here was the flake: under a slow CI fork the keystroke could land after the tick, and
+ * the following `o` then toggled the WRONG card — leaving the next predicate permanently false.
+ */
+const waitForCursorOn = async (result: { lastFrame: () => string | undefined }, index: number): Promise<void> => {
+  await waitForPredicate(() => (result.lastFrame() ?? '').includes(`${glyphs.actionCursor} #${String(index)}`), {
+    label: `cursor on card #${String(index)}`,
+  });
+};
+
 describe('SprintDetailView — per-card expand/collapse', () => {
   it('opens two cards independently — both remain expanded', async () => {
     const sprint = makeSprintWithTickets([
@@ -82,7 +95,7 @@ describe('SprintDetailView — per-card expand/collapse', () => {
     await waitForPredicate(() => (result.lastFrame() ?? '').includes('requirements for alpha card'));
     // Move to the second ticket and expand it without collapsing the first.
     result.stdin.write('j');
-    await tick(40);
+    await waitForCursorOn(result, 2);
     result.stdin.write('o');
     await waitForPredicate(() => (result.lastFrame() ?? '').includes('requirements for bravo card'));
 
@@ -106,14 +119,16 @@ describe('SprintDetailView — per-card expand/collapse', () => {
     await waitForPredicate(() => (result.lastFrame() ?? '').includes('requirements for alpha card'));
     // Move to card 1 and open it.
     result.stdin.write('j');
-    await tick(40);
+    await waitForCursorOn(result, 2);
     result.stdin.write('o');
     await waitForPredicate(() => (result.lastFrame() ?? '').includes('requirements for bravo card'));
     // Move back to card 0 and toggle it closed.
     result.stdin.write('k');
-    await tick(40);
+    await waitForCursorOn(result, 1);
     result.stdin.write('o');
-    await tick(40);
+    await waitForPredicate(() => !(result.lastFrame() ?? '').includes('requirements for alpha card'), {
+      label: 'alpha card collapsed',
+    });
 
     const frame = result.lastFrame() ?? '';
     // Card 0's requirements heading should be gone; card 1's must remain.
@@ -133,7 +148,7 @@ describe('SprintDetailView — per-card expand/collapse', () => {
     result.stdin.write('o');
     await waitForPredicate(() => (result.lastFrame() ?? '').includes('requirements for alpha card'));
     result.stdin.write('j');
-    await tick(40);
+    await waitForCursorOn(result, 2);
     result.stdin.write('o');
     await waitForPredicate(() => (result.lastFrame() ?? '').includes('requirements for bravo card'));
 
@@ -144,7 +159,13 @@ describe('SprintDetailView — per-card expand/collapse', () => {
 
     // One Esc must clear the entire openIds set.
     result.stdin.write(ESC);
-    await tick(40);
+    await waitForPredicate(
+      () => {
+        const f = result.lastFrame() ?? '';
+        return !f.includes('requirements for alpha card') && !f.includes('requirements for bravo card');
+      },
+      { label: 'both cards collapsed after esc' }
+    );
 
     frame = result.lastFrame() ?? '';
     expect(frame).not.toContain('requirements for alpha card');
@@ -166,13 +187,13 @@ describe('SprintDetailView — per-card expand/collapse', () => {
 
     // Navigate cursor up and down across all three cards.
     result.stdin.write('j');
-    await tick(40);
+    await waitForCursorOn(result, 2);
     result.stdin.write('j');
-    await tick(40);
+    await waitForCursorOn(result, 3);
     result.stdin.write('k');
-    await tick(40);
+    await waitForCursorOn(result, 2);
     result.stdin.write('k');
-    await tick(40);
+    await waitForCursorOn(result, 1);
 
     const frame = result.lastFrame() ?? '';
     // The alpha card must remain expanded throughout cursor movement; the others must not
@@ -232,11 +253,13 @@ describe('SprintDetailView — per-card expand/collapse', () => {
     await waitForPredicate(() => (result.lastFrame() ?? '').includes('requirements for alpha card'));
     // Move down twice to card 2 (charlie) and open it.
     result.stdin.write('j');
-    await tick(40);
+    await waitForCursorOn(result, 2);
     result.stdin.write('j');
-    await tick(40);
+    await waitForCursorOn(result, 3);
     result.stdin.write('o');
-    await waitForPredicate(() => (result.lastFrame() ?? '').includes('requirements for charlie card'));
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('requirements for charlie card'), {
+      label: 'charlie card expanded',
+    });
 
     // Pre-condition: alpha and charlie expanded; bravo collapsed.
     let frame = result.lastFrame() ?? '';
@@ -250,14 +273,21 @@ describe('SprintDetailView — per-card expand/collapse', () => {
     // briefly flips the view to a Loading spinner while the new bundle resolves, so we poll
     // until the cards are back before asserting.
     result.stdin.write('k');
-    await tick(40);
+    await waitForCursorOn(result, 2);
     result.stdin.write('d');
-    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Remove ticket'));
-    result.stdin.write('y');
-    await waitForPredicate(() => {
-      const f = result.lastFrame() ?? '';
-      return f.includes('alpha card') && f.includes('charlie card') && !f.includes('Loading');
+    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Remove ticket'), {
+      label: 'remove-ticket confirm mounted',
     });
+    result.stdin.write('y');
+    // The remove + reload round-trips the repo stub and remounts the card list — the slowest
+    // settle in this file, so it gets headroom beyond the default ceiling for instrumented CI.
+    await waitForPredicate(
+      () => {
+        const f = result.lastFrame() ?? '';
+        return f.includes('alpha card') && f.includes('charlie card') && !f.includes('Loading');
+      },
+      { label: 'cards back after remove-ticket reload', timeout: 10_000 }
+    );
 
     frame = result.lastFrame() ?? '';
     // The two surviving cards (alpha + charlie) keep their expansion; bravo is gone from the
