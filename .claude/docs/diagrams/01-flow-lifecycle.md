@@ -12,8 +12,8 @@ sequenceDiagram
     actor User
     participant UI as TUI menu / CLI command
     participant Registry as registry.ts
-    participant Launch as launch/&lt;flow&gt;.ts
-    participant Factory as flows/&lt;flow&gt;/flow.ts
+    participant Launch as launch/<flow>.ts
+    participant Factory as flows/<flow>/flow.ts
     participant Runner as chain/run/runner.ts
     participant Bridge as observability/chain-runner-bridge.ts
     participant Bus as EventBus
@@ -25,7 +25,7 @@ sequenceDiagram
 
     UI->>Launch: launchXxx(ctx)
     Launch->>Factory: createXxxFlow(deps, opts)
-    Factory-->>Launch: Element&lt;TCtx&gt;
+    Factory-->>Launch: Element<TCtx>
 
     Launch->>Runner: createRunner({ id, element, initialCtx })
     Runner->>Runner: runWithSession(id, …)
