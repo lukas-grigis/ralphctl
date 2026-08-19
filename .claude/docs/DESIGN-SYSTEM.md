@@ -56,7 +56,7 @@ Canonical set. If a view needs a symbol not in this list, **add it to `glyphs` f
 | Group           | Tokens                                                                                                                                                      |
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Phase / status  | `phaseDone ■`, `phaseActive ◆`, `phasePending ◇`, `phaseDisabled ◌`                                                                                         |
-| Cursors         | `actionCursor ▸`, `selectMarker ›`, `focusBar ▍` (picker focus rail)                                                                                        |
+| Cursors         | `actionCursor ▸`, `selectMarker ›`, `focusBar ▍` (picker focus rail), `caretBlock █` (text-input caret — same char as `barFilled`, separate role)           |
 | Disclosure      | `disclosureCollapsed ▸`, `disclosureExpanded ▾` (collapsible rows, e.g. Tasks-panel commit messages)                                                        |
 | Section markers | `badge ▣`, `sectionRule ━`                                                                                                                                  |
 | State           | `check ✓`, `cross ✗`, `warningGlyph ⚠`, `infoGlyph i`, `modified ✎`, `unknownGlyph ?` (undetermined verdict, never tinted), `stethoscope ✚` (footer doctor) |

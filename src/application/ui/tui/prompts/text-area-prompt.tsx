@@ -379,7 +379,7 @@ const TextAreaRow = ({
         <Text>{line.slice(0, cursorCol)}</Text>
         {caretOn ? (
           <>
-            <Text color={inkColors.highlight}>█</Text>
+            <Text color={inkColors.highlight}>{glyphs.caretBlock}</Text>
             <Text>{line.slice(cursorCol + 1)}</Text>
           </>
         ) : (

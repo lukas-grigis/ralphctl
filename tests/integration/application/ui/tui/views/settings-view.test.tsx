@@ -140,12 +140,12 @@ describe('SettingsView', () => {
     result.unmount();
   });
 
-  it('exposes ←/→ section, ↑/↓ navigate, ↵/e edit hints', async () => {
+  it('exposes ←/→ section, ↑/↓ move, ↵/e edit hints', async () => {
     const { result } = renderView(<SettingsView />, { deps, initial: { id: 'settings' } });
     await waitForViewReady(result, (f) => f.includes('section'));
     const frame = result.lastFrame() ?? '';
     expect(frame).toContain('section');
-    expect(frame).toContain('navigate');
+    expect(frame).toContain('move');
     expect(frame).toContain('edit');
     result.unmount();
   });
@@ -260,10 +260,10 @@ describe('SettingsView', () => {
       result.stdin.write('j');
       await tick(20);
       result.stdin.write(ENTER);
-      await waitForViewReady(result, (f) => f.includes('↑/↓ navigate · ↵ submit · esc cancel'));
+      await waitForViewReady(result, (f) => f.includes('↑/↓ move · ↵ submit · esc cancel'));
       const frame = result.lastFrame() ?? '';
       // SelectPrompt always renders the navigation legend below its option list.
-      expect(frame).toContain('↑/↓ navigate · ↵ submit · esc cancel');
+      expect(frame).toContain('↑/↓ move · ↵ submit · esc cancel');
       // TextPrompt's hint row carries the `←/→ cursor · home/end edge` suffix; its absence
       // confirms the active editor is the SelectPrompt, not a free-text input.
       expect(frame).not.toContain('←/→ cursor · home/end edge');
@@ -306,7 +306,7 @@ describe('SettingsView', () => {
     ): Promise<void> => {
       await goToSection(stdin, 'refine');
       stdin.write(ENTER);
-      await waitForPredicate(() => (lastFrame() ?? '').includes('↑/↓ navigate · ↵ submit · esc cancel'));
+      await waitForPredicate(() => (lastFrame() ?? '').includes('↑/↓ move · ↵ submit · esc cancel'));
     };
 
     it("labels unavailable providers as '(not installed)' in the provider picker", async () => {

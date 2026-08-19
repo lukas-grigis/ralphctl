@@ -220,7 +220,7 @@ export const TextPrompt = ({
         <Text>{beforeCursor}</Text>
         {caretOn ? (
           <>
-            <Text color={inkColors.highlight}>█</Text>
+            <Text color={inkColors.highlight}>{glyphs.caretBlock}</Text>
             <Text>{afterCursor}</Text>
           </>
         ) : (

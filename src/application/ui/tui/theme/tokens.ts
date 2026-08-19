@@ -71,6 +71,9 @@ export const glyphs = {
   // Full block vs. light shade so the ratio reads by density alone, without colour.
   barFilled: '█',
   barEmpty: '░',
+  // Text-input cursor (text / text-area prompts). Same character as `barFilled` but a separate
+  // token on purpose — a caret and a meter cell are different roles, and either may diverge.
+  caretBlock: '█',
   // Loading (braille spinner frames)
   spinner: ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const,
   // Personality rail

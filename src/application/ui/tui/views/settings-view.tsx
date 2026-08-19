@@ -3,7 +3,7 @@
  * render-side render is factored into sibling files; this file's only responsibility is to
  * wire those pieces together with the EventBus + dependency-injected flow factories.
  *
- * `←/→` switch sections; `↑/↓` navigate fields inside the active section; `↵/e` mounts the
+ * `←/→` switch sections; `↑/↓` move between fields inside the active section; `↵/e` mounts the
  * prompt appropriate to the field's type (SelectPrompt for enums + model catalogs, TextPrompt
  * for numbers / free-text strings). Most routes funnel through `applySettingsKey` (validation)
  * → `settingsSet` use-case (persistence) so the TUI and `ralphctl settings set` share a
@@ -448,7 +448,7 @@ export const SettingsView = (): React.JSX.Element => {
 
   useViewHints([
     { keys: '←/→', label: 'section' },
-    { keys: '↑/↓', label: 'navigate' },
+    { keys: '↑/↓', label: 'move' },
     { keys: '↵/e', label: 'edit' },
   ]);
 
@@ -494,7 +494,7 @@ export const SettingsView = (): React.JSX.Element => {
     settings === undefined ? null : renderFieldValue(activeFields, cursor, key);
 
   return (
-    <ViewShell title="Settings" subtitle="←/→ section · ↑/↓ navigate · ↵ edit · esc cancel">
+    <ViewShell title="Settings" subtitle="←/→ section · ↑/↓ move · ↵ edit · esc cancel">
       <SettingsViewBody
         helpOpen={ui.helpOpen}
         pendingPreset={pendingPreset}

@@ -69,7 +69,7 @@ describe('ProjectDetailView', () => {
     result.unmount();
   });
 
-  it('advertises the navigate / select / edit hints the view actually responds to', async () => {
+  it('advertises the move / select / edit hints the view actually responds to', async () => {
     const project = makeTwoRepoProject();
     const { result } = renderView(<ProjectDetailView />, {
       deps: stubDeps(project),
@@ -78,7 +78,7 @@ describe('ProjectDetailView', () => {
     await waitForViewReady(result);
     const frame = result.lastFrame() ?? '';
     // Previously-omitted keys the view handles must be advertised (audit L17).
-    expect(frame).toContain('navigate');
+    expect(frame).toContain('move');
     expect(frame).toContain('confirm/select');
     expect(frame).toContain('edit field');
     // DESIGN-SYSTEM §6.4 — the j/k alias stays bound but is never advertised per-view.

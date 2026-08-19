@@ -327,7 +327,7 @@ interface ProjectDetailHintsArgs {
 const useProjectDetailHints = ({ project, selectionProjectId, focused }: ProjectDetailHintsArgs): void => {
   const focusedRepo = focused?.kind === 'repo';
   useViewHints([
-    { keys: '↑/↓', label: 'navigate' },
+    { keys: '↑/↓', label: 'move' },
     { keys: '↵', label: 'confirm/select' },
     // Surface the `m` chord only while the viewed project is not already current — once they
     // match the action is a no-op and the hint adds noise (mirrors sprint-detail).
