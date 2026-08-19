@@ -51,11 +51,14 @@ const RUNG_LABEL: Readonly<Record<EscalationRung, string>> = {
 
 const pct = (rate: number): string => `${String(Math.round(rate * 100))}%`;
 
-/** `a • b • c` — the card's one-line list idiom, built from the theme's bullet. */
+/**
+ * One-line `label count` list, separated by the theme bullet — the same separator idiom every
+ * sibling line in this card uses (`regressionLine`, `outcomeMixLine`, `rungFields`).
+ */
 const joinCounts = (entries: ReadonlyArray<readonly [string, number]>): string | undefined => {
   const nonzero = entries.filter(([, count]) => count > 0);
   if (nonzero.length === 0) return undefined;
-  return nonzero.map(([label, count]) => `${label} ${glyphs.bullet}${String(count)}`).join('  ');
+  return nonzero.map(([label, count]) => `${label} ${String(count)}`).join(` ${glyphs.bullet} `);
 };
 
 /**

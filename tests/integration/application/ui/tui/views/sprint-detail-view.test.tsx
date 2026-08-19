@@ -458,6 +458,8 @@ describe('SprintDetailView — phase workspace', () => {
     // The hint strip advertises the ticket add/remove chords only while they are wired up.
     expect(frame).toContain('add ticket');
     expect(frame).toContain('remove ticket');
+    // DESIGN-SYSTEM §6.4 — arrows only in the per-view hint strip; j/k stays bound but unadvertised.
+    expect(frame).not.toContain('j/k');
     result.unmount();
   });
 

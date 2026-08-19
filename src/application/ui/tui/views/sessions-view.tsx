@@ -163,7 +163,7 @@ export const SessionsView = (): React.JSX.Element => {
 
   useViewKeys(
     [
-      { keys: ['↑', '↓', 'j', 'k'], hint: 'move' },
+      { keys: ['↑', '↓'], hint: 'move' },
       { keys: ['↵'], hint: 'open' },
       {
         keys: ['c'],

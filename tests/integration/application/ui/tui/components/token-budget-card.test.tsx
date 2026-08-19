@@ -15,8 +15,14 @@
 import { render } from 'ink-testing-library';
 import { describe, expect, it } from 'vitest';
 import { TokenBudgetCard } from '@src/application/ui/tui/components/token-budget-card.tsx';
+import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 
 const SESSION = '019e46d1-5f16-7db9-af55-67c3c703d438';
+
+/** Any progress-bar cell — built from the tokens so the assertion follows a glyph swap. */
+const BAR_CELL = new RegExp(`[${glyphs.barFilled}${glyphs.barEmpty}]`, 'u');
+/** A completely full 10-cell bar (the card's BAR_WIDTH) — used as a negative assertion. */
+const FULL_BAR = new RegExp(`${glyphs.barFilled}{10}`, 'u');
 
 describe('TokenBudgetCard', () => {
   it('renders the empty state when no usage data is supplied', () => {
@@ -56,7 +62,7 @@ describe('TokenBudgetCard', () => {
     // Context group: live-derived occupancy = 9.1k + 50k = 59.1k against the 200k window.
     expect(frame).toContain('59.1k');
     expect(frame).toContain('200k');
-    expect(frame).toMatch(/[█░]/);
+    expect(frame).toMatch(BAR_CELL);
     // 59100 / 200000 = 29.55% ⇒ 30%.
     expect(frame).toContain('30%');
   });
@@ -124,7 +130,7 @@ describe('TokenBudgetCard', () => {
     expect(frame).toContain('cumulative');
     expect(frame).toContain('240k');
     expect(frame).not.toContain('100%');
-    expect(frame).not.toMatch(/█{10}/);
+    expect(frame).not.toMatch(FULL_BAR);
     // The Usage row still shows the raw throughput values.
     expect(frame).toContain('180k');
     expect(frame).toContain('5k');
@@ -147,7 +153,7 @@ describe('TokenBudgetCard', () => {
     // Context used = input only = 40000 ⇒ 40k, 20% (output excluded), bar renders.
     expect(frame).toContain('40k');
     expect(frame).toContain('20%');
-    expect(frame).toMatch(/[█░]/);
+    expect(frame).toMatch(BAR_CELL);
     expect(frame).not.toContain('cumulative');
     expect(frame).not.toContain('cache hit');
   });

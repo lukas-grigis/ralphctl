@@ -3,9 +3,9 @@
  * compact-two / single — into a single readonly record alongside the derived row caps and
  * column widths every regime needs.
  *
- *   ≥180 cols (xl+):  three-column — fluid-width rail + flex Tasks + fixed context column.
- *   140–179 cols   :  two-column — fixed RAIL_WIDTH rail + flex Tasks.
- *   100–139 cols   :  compact two-column — glyph-only rail.
+ *   ≥180 cols (xl) :  three-column — fluid-width rail + flex Tasks + fixed context column.
+ *   140–179 (lg)   :  two-column — fixed RAIL_WIDTH rail + flex Tasks.
+ *   100–139 (md)   :  compact two-column — glyph-only rail.
  *   <100 cols      :  single-column stack.
  *
  * Pulling the breakpoint logic out of the view keeps the orchestrator focused on hook
@@ -20,15 +20,6 @@ import {
   resolveRailWidth,
 } from '@src/application/ui/tui/theme/tokens.ts';
 
-const TWO_COL_BREAKPOINT = 140;
-const THREE_COL_BREAKPOINT = 180;
-/**
- * Below this width the Flow Steps section collapses to four rows in single-column mode AND
- * the two-column layout disappears entirely (we never render the rail on a <100 col terminal
- * — the stream column wouldn't have room left). At 100-139 cols a *compact* rail variant
- * (status glyphs only, no labels) is rendered instead of the labelled rail used at ≥140 cols.
- */
-const NARROW_FLOW_STEPS_BREAKPOINT = 100;
 const NARROW_FLOW_STEPS_ROWS = 4;
 
 export interface ResponsiveLayout {
@@ -88,9 +79,15 @@ interface UseResponsiveLayoutInput {
 }
 
 export const useResponsiveLayout = ({ columns, rows, isRunning }: UseResponsiveLayoutInput): ResponsiveLayout => {
-  const threeColumn = columns >= THREE_COL_BREAKPOINT;
-  const twoColumn = !threeColumn && columns >= TWO_COL_BREAKPOINT;
-  const compactTwoColumn = !threeColumn && !twoColumn && columns >= NARROW_FLOW_STEPS_BREAKPOINT;
+  const threeColumn = columns >= breakpoints.xl;
+  const twoColumn = !threeColumn && columns >= breakpoints.lg;
+  /*
+   * Below `md` the Flow Steps section collapses to four rows in single-column mode AND
+   * the two-column layout disappears entirely (we never render the rail on a <100 col terminal
+   * — the stream column wouldn't have room left). At 100-139 cols a *compact* rail variant
+   * (status glyphs only, no labels) is rendered instead of the labelled rail used at ≥140 cols.
+   */
+  const compactTwoColumn = !threeColumn && !twoColumn && columns >= breakpoints.md;
   const singleColumn = !threeColumn && !twoColumn && !compactTwoColumn;
 
   const baseFlowStepsRows = isRunning ? Math.max(8, rows - 22) : 16;
@@ -110,7 +107,7 @@ export const useResponsiveLayout = ({ columns, rows, isRunning }: UseResponsiveL
   // NOTE: <140 cols intentionally falls back to the legacy ExecuteLayout (three/two/compact/single
   // column grid). This is the accepted behaviour for the v0.7.0 redesign gate — do not add a
   // sidebar-only collapse mode for the 100-139 col band without a new design decision.
-  const sidebarLayout = columns >= TWO_COL_BREAKPOINT;
+  const sidebarLayout = columns >= breakpoints.lg;
   // 2/5 of terminal width — gives the sidebar room for the baseline card (which can be wide),
   // task names, and flow-step labels; the main area (flexGrow) keeps the remaining 3/5.
   // Floor at 34 so the sidebar remains legible at the 140-col entry point. No upper cap —

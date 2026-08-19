@@ -1,6 +1,7 @@
 import { Result } from '@src/domain/result.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
+import { ErrorCode } from '@src/domain/value/error/error-code.ts';
 
 import { checkAborted, type Element, type ElementResult } from '@src/application/chain/element.ts';
 import type { TraceEntry } from '@src/application/chain/trace.ts';
@@ -97,5 +98,18 @@ export const leaf = <TCtx, UInput, UOutput>(
   };
 };
 
+/**
+ * Every real error class in `domain/value/error/` assigns `readonly code = ErrorCode.*`, so exact
+ * membership in this table is the discriminator. `Set<unknown>` (not `ReadonlySet<ErrorCode>`) so
+ * `.has()` accepts the unknown-typed `code` without a cast.
+ */
+const DOMAIN_ERROR_CODES = new Set<unknown>(Object.values(ErrorCode));
+
+/**
+ * Accepting any Error with a *string* `code` matched every Node errno error (EACCES, ELOOP,
+ * ENOENT …), laundering adapter I/O failures into the domain-error channel with a bogus code.
+ * Keep this an exact-membership check — a non-domain throw is a programmer bug and must
+ * re-propagate to the runner, which is the containment boundary for those.
+ */
 const isDomainError = (cause: unknown): cause is DomainError =>
-  cause instanceof Error && typeof (cause as { code?: unknown }).code === 'string';
+  cause instanceof Error && DOMAIN_ERROR_CODES.has((cause as { code?: unknown }).code);

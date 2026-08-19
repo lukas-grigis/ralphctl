@@ -122,6 +122,8 @@ describe('SkillsView', () => {
     expect(frame).toContain('◌ ref');
     // No opt-in copies exist anywhere — the hint should point at the enable key + folder.
     expect(frame).toContain('no opt-in copies yet');
+    // DESIGN-SYSTEM §6.4 — arrows only in the per-view hint strip; j/k stays bound but unadvertised.
+    expect(frame).not.toContain('j/k');
   });
 
   it('shows the "(manual)" tag for a phase-folder entry with no matching bundled skill', async () => {

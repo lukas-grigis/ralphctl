@@ -103,6 +103,10 @@ describe('SprintsView', () => {
     expect(frame).toContain('c create');
     expect(frame).toContain('d delete');
     expect(frame).toContain('e rename');
+    // DESIGN-SYSTEM §6.4 — arrows are the advertised move keys; the j/k alias lives in the help
+    // overlay's Lists section only and must never be repeated in a per-view hint strip.
+    expect(frame).toContain('↑/↓ move');
+    expect(frame).not.toContain('j/k');
     result.unmount();
   });
 
