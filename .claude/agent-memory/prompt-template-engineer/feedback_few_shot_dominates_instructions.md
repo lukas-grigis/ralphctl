@@ -20,6 +20,6 @@ measured 4x-verify cost. A single inconsistent example line undid that optimisat
 opening line for that phase/step and fix each one to match the new rule — do not assume prose changes
 propagate. Also check any prose "Note:" or aside inside the example body that references the old
 mechanism (e.g. "the verify script passed") — those need the same fix for internal consistency. This
-generalises beyond `evaluate/template.md`: any template with `<examples>` blocks (currently `evaluate`,
-and now `evaluate-continuation` — see [[project_quality_sweep_2026_07_02]]) needs this check on every
-edit to the surrounding protocol prose.
+generalises beyond `evaluate/template.md`: any template with `<examples>` blocks (currently `evaluate`
+and `evaluate-continuation`) needs this check on every edit to the surrounding protocol prose. Related:
+[[project_gen_eval_speed_t1_t3]] holds the exact phrasing these examples must stay consistent with.

@@ -193,7 +193,7 @@ ralphctl uses a **four-module Clean Architecture** under `src/`. Watch for these
   other. Cross-sibling access goes through `_engine/` (or `_partials/` for prompts). Port-shaped types
   (`*Port`, `*Adapter`, `*Provider`, `*Sink`, `*Loader`, `*Probe`, …) MUST live in `_engine/`.
 - **Chain-shape tests** — high-complexity flows (currently `plan`, `implement`, `ideate`, `refine`,
-  `readiness`, `create-pr`) ship a `flow-shape.test.ts` fence that asserts the exact leaf topology, in order,
+  `readiness`, `create-pr`, `review`) ship a `flow-shape.test.ts` fence that asserts the exact leaf topology, in order,
   by recursively walking `Element.children` at construction time (`names(el)`), not runtime traces — the
   tests self-describe as a construction-only topology fence. Runtime step-order
   (`trace.map(s => s.elementName)`) is asserted in the chain-primitive tests (`sequential`/`loop`/`guard`)

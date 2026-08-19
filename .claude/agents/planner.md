@@ -138,52 +138,24 @@ When creating a task breakdown:
 
 ## ralphctl Codebase Context
 
-When planning work on ralphctl, respect the **four-module Clean Architecture** in `CLAUDE.md` and
-`.claude/docs/ARCHITECTURE.md`. Everything lives under `src/`:
+The layering rules, the fences (no `class` outside `domain/value/error/`, no barrels, sibling isolation),
+the chain primitives, and the flow-registry contract are all in `CLAUDE.md § Architecture invariants`, with
+detail in `.claude/docs/ARCHITECTURE.md` and `.claude/docs/KERNEL-DESIGN.md`. Read those instead of
+planning from a paraphrase. What matters for shaping a plan:
 
-- **Domain** (`src/domain/`) — entities (`entity/`), value objects (`value/`), repository interfaces
-  (`repository/<aggregate>/`), errors (`value/error/`), signal types, `result.ts`. Pure, zero IO.
-- **Business** (`src/business/`) — use cases as **function factories** organised by concern
-  (`sprint/`, `task/`, `project/`, `ticket/`, `feedback/`, `settings/`, `version/`), plus service ports
-  (`observability/`, `scm/`, `io/`, `interactive/`). Pure, zero I/O `node:*`.
-- **Integration** (`src/integration/`) — concrete adapters under `ai/{providers,prompts,contract,evaluation,
-readiness,runs,skills}/`, `persistence/<aggregate>/`, `scm/`, `observability/`, `io/`.
-- **Application** (`src/application/`) — composition root (`bootstrap/wire.ts`), CLI (`ui/cli/commands/`),
-  Ink TUI (`ui/tui/`), flows (`flows/<flow>/`), chain framework (`chain/`), runner + session
-  (`chain/run/`, `session/`), registry (`registry.ts`).
-
-Layering: `domain → business → integration → application`. ESLint `no-restricted-imports` enforces every
-direction. `domain/` and `business/` cannot import I/O-bearing `node:*` modules (`node:fs`,
-`node:child_process`, …).
-
-- **No `class` outside `src/domain/value/error/`** — entities and use cases are interfaces + factories.
-- **No barrel `index.ts` files** — every import points to the source module directly.
-- **Sibling-isolation rules** apply in `integration/ai/<concept>/`, `business/<module>/`, and
-  `application/flows/<flow>/`. Cross-sibling access goes through `_engine/` sub-namespaces.
-
-Every user-launchable workflow ("flow") declares itself once in `src/application/registry.ts` as a
-`FlowManifest`. CLI command builder, TUI menu, and launcher all consume from this one array. Adding a flow =
-append one `FlowEntry` (e.g. `{ manifest: xManifest }`) to the `flowRegistry` array in `src/application/registry.ts` and scaffold the flow folder
-by hand (there is no `gen:flow` script).
-
-CLI commands and TUI views invoke flow factories from `application/flows/<flow>/` and launch via the chain
-runner (`createRunner` from `application/chain/run/runner.ts`), never use cases directly. Enforced by an
-ESLint fence.
-
-**Chain primitives** (in `src/application/chain/`): `element` (interface), `leaf`, `sequential`, `loop`,
-`guard` — factory functions, not classes. No `retry`, no `onError` decorators.
-
-**CLI surface is deliberately smaller than the pre-TUI CLI.** Interactive flows (refine, plan, ideate, implement,
-readiness, create-sprint, add-ticket, review) are TUI-only. The CLI exposes inspection + one-shot operations
-only (`doctor`, `completion`, `export-{context,requirements}`, `create-pr`, `settings`, `project show/list/
-remove`, `sprint show/list/remove/activate/close/set-current/progress`, `ticket show/list/add/remove`,
-`task show/list/unblock`, `runs list/prune`). When planning a new flow: **TUI surface is mandatory; CLI surface is optional** and only
-justified for one-shot, scriptable, non-interactive operations.
-
-- Tests are colocated as `*.test.ts` / `*.test.tsx`.
-- Every flow has a step-order fence test asserting `trace.map(s => s.elementName)` for happy + failure paths.
-- Plans for long-running workflows should account for the EventBus (live progress streaming) and the
-  persistent `<sprintDir>/chain.log` (post-hoc trace).
+- **A new flow is a bounded, repeatable unit of work.** It is one entry appended to the `flowRegistry`
+  array in `src/application/registry.ts` plus a hand-scaffolded `src/application/flows/<flow>/` folder
+  (there is no `gen:flow` script), a slim `<Flow>Deps` subset, and a step-order fence test. Size tasks
+  around those pieces, not around "the feature".
+- **TUI surface is mandatory; CLI surface is optional.** Interactive flows (refine, plan, ideate, implement,
+  readiness, create-sprint, add-ticket, review) are TUI-only by design. A CLI surface only earns its place
+  for a one-shot, scriptable, non-interactive operation. The registered CLI surface today is whatever
+  `grep -rn "\.command(" src/application/ui/cli/commands/` prints — check it rather than trusting a list.
+- **Tests live under `tests/` mirroring `src/`** (`tests/unit/`, `tests/integration/`, `tests/e2e/`), not
+  colocated. High-complexity flows also ship a `flow-shape.test.ts` topology fence
+  (`tests/unit/application/flows/<flow>/`) — budget a task for it when the plan adds or reorders elements.
+- **Long-running workflows need an observability story** — live progress via the EventBus, post-hoc trace
+  via the persistent `<sprintDir>/chain.log`. Plan for both when the work spawns AI sessions.
 
 ## What I Don't Do
 

@@ -1,7 +1,8 @@
 ---
-name: Prompt tests must probe real content, not just placeholder resolution
+name: smoke-test-probes
 description: Placeholder-parity is necessary but not sufficient — also assert the rendered body actually contains mandatory task content
-type: feedback
+metadata:
+  type: feedback
 ---
 
 **Durable principle: probe real content.** A placeholder-parity check (no `{{FOO}}` survives, every declared

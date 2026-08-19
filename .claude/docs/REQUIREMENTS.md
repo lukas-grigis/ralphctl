@@ -177,8 +177,8 @@ Status flow: `draft → planned → active → review → done`.
       `rounds/<N>/{generator,evaluator}/prompt.md` before each spawn; `outcome.md` written to
       `rounds/<N>/outcome.md` after settlement.
 - [x] **Decision capture** — AI-emitted `<decision>` tags accumulate per-attempt on the implement ctx and
-      render as the `### Decisions` subsection of each `progress.md` journal entry (audit-[07] retired the
-      standalone `decisions.log` sink).
+      render as the `### Decisions` subsection of each `progress.md` journal entry (the standalone
+      `decisions.log` sink was retired).
 - [x] **Episodic task memory** — earlier settled siblings (done / blocked) within the same sprint populate
       `{{PRIOR_EPISODES}}` in the generator prompt via `composeTaskEpisodes` (derives in-memory from
       `tasks.json`, no new persistence) and `summariseEpisodes` (compact markdown bullet list, up to 5 most
@@ -285,7 +285,8 @@ Status flow: `draft → planned → active → review → done`.
       sets a single key (plus `settings apply-preset`).
 - [x] **Schema validation on read** — corrupt or v0.6.x-shaped `settings.json` files surface a typed
       `ParseError` (subCode `schema-mismatch`) from the persistence boundary, now carrying a repair `hint`
-      (`json-settings-repository.ts`) that the CLI renders (`settings.ts:108`).
+      (`json-settings-repository.ts`) that the CLI renders (`bootstrap.ts` appends the hint to the
+      settings-load error before `report-cli-error.ts` prints it).
 - [x] **`schemaVersion`** — written on every save; migration path runs before validation if the on-disk shape
       changes in a future version.
 
@@ -302,9 +303,8 @@ Status flow: `draft → planned → active → review → done`.
 - [x] **Each one-shot command** has a `tests/e2e/cli/<name>.test.ts` pinning the success-path stdout —
       including `create-pr` and `export-requirements` (help shape + validation/error stdout), closing the set.
 - [x] **Exit codes** — `0` success, `1` error. Set via `process.exitCode = 1` (`cli.ts`) / `process.exit(1)`
-      (`bootstrap.ts`, `launch.ts`); `0` by default. _`130`-on-interrupt is intentionally not distinguished —
-      the thin one-shot CLI commands print and return with no long-running loop where a Ctrl-C state is
-      meaningful; SIGINT handling is the TUI's concern (alt-screen restoration), not an exit code._
+      (`bootstrap.ts`, `launch.ts`); `0` by default. An `AbortError` reaching the top-level catch in
+      `cli.ts` exits `130` (`EXIT_INTERRUPTED` in `report-cli-error.ts`).
 
 ## TUI
 

@@ -8,7 +8,7 @@ metadata:
 `tests/e2e/full-stack/implement-review-close.test.ts` and
 `tests/e2e/full-stack/sprint-lifecycle.test.ts` — 7+ tests.
 
-**R1 constraint (critical)**: the implement LAUNCHER bypasses `app.deps.provider` — it builds
+**Critical wiring constraint**: the implement LAUNCHER bypasses `app.deps.provider` — it builds
 per-role providers from settings. For full-stack tests, construct `ImplementDeps` manually from
 `app.deps` sub-repos + the fake provider pair; do NOT set `app.deps.provider`.
 

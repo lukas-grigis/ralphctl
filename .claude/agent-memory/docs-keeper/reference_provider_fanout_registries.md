@@ -28,4 +28,4 @@ the build. Two separate `PROVIDER_LABEL` tables exist (`flows/doctor/probe-helpe
 
 Also drifts in pairs with provider counts: root `ARCHITECTURE.md § The provider boundary`,
 `README.md` headline/badges, `docs/adding-a-provider.md` union + `z.enum` examples. See
-[[project-high-drift-areas]].
+[[project_high_drift_areas]].

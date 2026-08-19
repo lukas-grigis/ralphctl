@@ -1,7 +1,8 @@
 ---
-name: home-view pipeline-map architecture
-description: HomeView uses pipeline-map as spine + tiered browse submenu; design decisions locked Apr 2026
-type: project
+name: home-pipeline-map
+description: HomeView uses a pipeline map as its spine plus a tiered browse submenu
+metadata:
+  type: project
 ---
 
 Home screen uses a pipeline-map based layout, not a flat menu.

@@ -252,7 +252,7 @@ implement-style run appends its full trace, bracketed by `=== chain-run <id> <fl
 with drop-newer back-pressure) so it cannot OOM under high event rate. Default factory is no-op so unset
 envs incur zero memory cost.
 
-**`progress.md` is an append-only journal** (audit-[07]), not streamed or regenerated. `init-progress-journal`
+**`progress.md` is an append-only journal**, not streamed or regenerated. `init-progress-journal`
 writes a one-time sprint header at creation; after each `settle-attempt-<taskId>` the `progress-journal` leaf
 appends one task-attempt section via `renderJournalEntry` (a pure formatter). It reads no log files — the
 canonical state lives in `tasks.json` / `execution.json`. Appends are best-effort: a write failure is logged
@@ -298,7 +298,7 @@ path (`appendMemoryRecords`, which only appends + bounds), but at the two checkp
 browse it: sprint close (`refreshMemoryMirrorLeaf`) and the distill flow's `stampPromotedLeaf` after
 compaction. The mirror is best-effort — a write failure is logged, the NDJSON append already landed, and the
 mirror self-heals on the next render. A one-syscall byte-ceiling guard (`LEDGER_HARD_CEILING_BYTES = 50 MB`,
-`ledgerExceedsCeiling` in `read-ledger.ts`) prevents loading a pathologically large ledger — an over-ceiling
+`rotateIfOverCeiling` in `read-ledger.ts`) prevents loading a pathologically large ledger — an over-ceiling
 file is rotated to `.bak` and the mirror render is skipped rather than overwriting a real `learnings.md` with
 an empty view. At sprint close — BOTH the explicit `close-sprint` flow and the `review` flow's auto-done path —
 an opt-in, human-gated **distill** step (defaults to No) promotes curated, not-yet-promoted learnings into each

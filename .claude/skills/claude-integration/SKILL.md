@@ -1,19 +1,21 @@
 ---
 name: claude-integration
-description: "Low-level AI CLI spawn mechanics used by ralphctl's provider adapters — headless / interactive spawn, the file-based contract (`signals.json` + `sessionId` files), idle-stdout watchdog, exponential rate-limit backoff, and `--resume` for in-flight recovery. Use when modifying `src/integration/ai/providers/{claude,copilot,codex}/` or `src/integration/ai/providers/_engine/`, debugging stdin hangs / slow Claude startups, or wiring a new code path that spawns an AI CLI directly."
+description: "Low-level AI CLI spawn mechanics used by ralphctl's provider adapters — headless / interactive spawn, the file-based contract (`signals.json` + `sessionId` files), idle-stdout watchdog, exponential rate-limit backoff, and session resume for in-flight recovery. Use when modifying `src/integration/ai/providers/{claude,copilot,codex,opencode}/` or `src/integration/ai/providers/_engine/`, debugging stdin hangs / slow Claude startups, or wiring a new code path that spawns an AI CLI directly."
 when_to_use: 'When touching a provider adapter, the shared `_engine/`, or a readiness probe; when diagnosing a rate-limit / resume / watchdog issue; when a new consumer needs to spawn an AI CLI outside the existing ports. Not needed for higher-level work — the flows already wrap all of this through the `HeadlessAiProvider` / `InteractiveAiProvider` ports.'
 ---
 
-# AI provider integration (Claude / Copilot / Codex)
+# AI provider integration (Claude / Copilot / Codex / OpenCode)
 
 Covers what is **not** in `CLAUDE.md` or `.claude/docs/ARCHITECTURE.md`. For harness signals, exit codes,
 sequential task execution, and check-script gating — see `CLAUDE.md`.
 
 **Source of truth:**
 
-- Provider adapters: `src/integration/ai/providers/{claude,copilot,codex}/` — one folder per tool, sibling-
-  isolated. Each owns `headless.ts` and `interactive.ts` entries (Claude and Copilot also have
-  `parse-stream.ts` for stream-format handling).
+- Provider adapters: `src/integration/ai/providers/{claude,copilot,codex,opencode}/` — one folder per tool,
+  sibling-isolated. Each owns `headless.ts`, `interactive.ts`, and `model-availability-probe.ts` (Claude,
+  Copilot, and OpenCode also have `parse-stream.ts` for stream-format handling). OpenCode is the aggregator
+  backend: its model ids are `provider/model` and its catalog is discovered at runtime via `opencode models`,
+  so its probe is the one that cannot check against a static list.
 - Shared engine: `src/integration/ai/providers/_engine/` — `spawn.ts` (the `ProviderSpawn` port + default
   `node:child_process.spawn` impl), `run-headless-spawn.ts` (the headless wrapper that wires watchdog +
   signals file + sessionId file + rate-limit backoff), `rate-limit-backoff.ts` (exponential retry policy),
@@ -75,11 +77,20 @@ The per-spawn audit / sandbox layout is:
 
 ## Permission modes (per-tool, NOT portable)
 
-| Provider         | Headless permission flag              | Why                                                   |
-| ---------------- | ------------------------------------- | ----------------------------------------------------- |
-| `claude-code`    | `--permission-mode bypassPermissions` | Piped stdin can't answer prompts; `acceptEdits` hangs |
-| `github-copilot` | `--allow-all-tools`                   | Copilot's permission model is all-or-nothing          |
-| `openai-codex`   | per-session approval flow             | Codex prompts for approval inline; sandbox handles it |
+| Provider         | Headless permission flag              | Why                                                      |
+| ---------------- | ------------------------------------- | -------------------------------------------------------- |
+| `claude-code`    | `--permission-mode bypassPermissions` | Piped stdin can't answer prompts; `acceptEdits` hangs    |
+| `github-copilot` | `--allow-all-tools`                   | Copilot's permission model is all-or-nothing             |
+| `openai-codex`   | per-session approval flow             | Codex prompts for approval inline; sandbox handles it    |
+| `opencode`       | `--auto` (or nothing)                 | No enforceable read-only mode — see the over-grant below |
+
+**OpenCode has no enforceable permission gate.** `opencode run` exposes one approval control, `--auto`, and
+omitting it does NOT make the run read-only — writes inside `--dir` land either way. The adapter forwards
+`--auto` for `permissions.autoApprove`, and also whenever roots outside `--dir` are declared, because
+`external_directory` is otherwise auto-rejected and there is no `--add-dir` equivalent. That over-grants
+relative to the `--add-dir` adapters; the topology (`--dir` plus `outputDir`) is the real envelope. The
+config-level `permission` block would scope it precisely but needs a generated per-session config file and
+is not wired.
 
 Interactive flows use lower-privilege modes where available (e.g. Claude's `acceptEdits`) because a human is
 there to answer prompts.
@@ -90,8 +101,8 @@ dirty-tree preflight — not the CLI permission gate.
 ## Idle-stdout watchdog
 
 `src/integration/ai/providers/_engine/idle-watchdog.ts` kills a headless child whose stdout has been silent
-past a configurable idle threshold. Prevents a stuck Claude / Copilot / Codex process from stranding the
-harness. The watchdog timer resets on every stdout chunk; killing the child surfaces as a `RateLimitError`-
+past a configurable idle threshold. Prevents a stuck child from stranding the harness, whichever tool it
+is. The watchdog timer resets on every stdout chunk; killing the child surfaces as a `RateLimitError`-
 adjacent failure that the chain's retry policy handles. The threshold is operator-configurable via
 `settings.harness.idleWatchdogMs` (60_000–3_600_000 ms, default 300_000 = 5 min); `provider-factory.ts`
 threads it into each adapter's `deps.idleMs`. Tests lower it via the `idleMs` dep override to exercise the
@@ -101,8 +112,10 @@ watchdog path fast.
 
 `src/integration/ai/providers/_engine/rate-limit-backoff.ts` retries on `RateLimitError` with exponential
 delay. Per-spawn cap is `settings.harness.rateLimitRetries` (range 0–10). The retry loop captures the
-provider's `sessionId` from the previous attempt and passes `--resume <id>` on the next, so the AI continues
-from where it stopped instead of restarting.
+provider's `sessionId` from the previous attempt and resumes that session on the next, so the AI continues
+from where it stopped instead of restarting. The resume spelling is per-tool — `--resume <id>` (claude),
+`--resume=<id>` (copilot), the `resume` subcommand arg (codex), `-s <id>` (opencode) — each adapter's
+`headless.ts` owns its own arg builder.
 
 ## Session resume contract
 
@@ -145,6 +158,6 @@ Business code never imports an adapter directly — it goes through `HeadlessAiP
 ports from `_engine/`. When adding a new spawn code path, prefer extending the port + the per-tool adapter;
 only drop into `runHeadlessSpawn` / `spawn` if a genuinely new spawn shape is needed.
 
-Sibling-isolation rules apply: `providers/claude/`, `providers/copilot/`, and `providers/codex/` cannot
-import each other. Shared helpers (spawn, watchdog, backoff, the file-based contract reader/writer) live in
-`providers/_engine/` and are the only legitimate cross-tool seam.
+Sibling-isolation rules apply: `providers/claude/`, `providers/copilot/`, `providers/codex/`, and
+`providers/opencode/` cannot import each other. Shared helpers (spawn, watchdog, backoff, the file-based
+contract reader/writer) live in `providers/_engine/` and are the only legitimate cross-tool seam.

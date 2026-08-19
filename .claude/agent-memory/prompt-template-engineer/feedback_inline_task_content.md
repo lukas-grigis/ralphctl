@@ -1,7 +1,8 @@
 ---
-name: Inline task content in the prompt
+name: inline-task-content
 description: Inline task fields directly into the prompt — no per-task context-file indirection; the AI must receive task name / description / steps / criteria in the prompt body itself
-type: feedback
+metadata:
+  type: feedback
 ---
 
 **Durable principle: inline, don't indirect.** A prompt builder must fill task fields (name, description,

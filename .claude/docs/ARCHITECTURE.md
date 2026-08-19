@@ -37,28 +37,21 @@ Both `domain/` and `business/` are pure: they cannot import I/O-bearing `node:*`
 `node:crypto`) are allowed. `integration/` is where I/O lives. `application/` is the only layer that may import
 from anywhere.
 
-ESLint `no-restricted-imports` (in `eslint.config.ts`) enforces every direction. The same config enforces:
+ESLint `no-restricted-imports` (in `eslint.config.ts`) enforces every direction plus the invariants CLAUDE.md
+lists — no `class` outside `src/domain/value/error/`, no barrels or `export *`, port-shaped names (`*Port`,
+`*Adapter`, `*Provider`, `*Sink`, `*Loader`, `*Probe`, `*Reader`, `*Writer`, `*Renderer`, `*Detector`) declared
+in a concept's `_engine/` sub-namespace (factory inputs named `*Deps` are exempt), and business use cases
+consuming slim sub-ports (`FindById`, `Save`, `Remove`, … under `domain/repository/_base/`) instead of composite
+`*Repository` interfaces. `*Output` types are the success-side data shape, not the envelope —
+`Result<FooOutput, ErrorUnion>`.
 
-- **No `class` outside `src/domain/value/error/`** — entities and use cases are interfaces + standalone functions.
-- **No barrel files anywhere under `src/`** — every import names what it pulls in directly. `export *` is banned.
-- **Sibling-isolation in `integration/ai/<concept>/`** — each per-tool / per-variant adapter directory is
-  independent. Cross-sibling reach goes through a shared `_engine/` sub-namespace (or `_partials/` for prompts).
-  Applies to `prompts/<flow>/`, `providers/<tool>/`, `readiness/<tool>/`, `skills/<source>/`,
-  `agents/<source>/`; per-signal Zod schemas are isolated under `contract/_engine/signals/<kind>/`.
-- **Port-shaped names live in `_engine/`** — interfaces / type aliases named `*Port`, `*Adapter`, `*Provider`,
-  `*Sink`, `*Loader`, `*Probe`, `*Reader`, `*Writer`, `*Renderer`, `*Detector` must be declared in a concept's
-  `_engine/` sub-namespace. Factory inputs named `*Deps` are exempt.
-- **Business use cases consume slim sub-ports**, not composite `*Repository` interfaces. The composition root
-  wires the composite to the use case as a slim port (`FindById`, `Save`, `Remove`, …) under
-  `domain/repository/_base/`.
-- **Sibling-isolation in `business/<module>/`** — each business sub-domain (`project`, `sprint`, `ticket`,
-  `task`, `feedback`, …) is independent; cross-module sharing goes through `_engine/` or `_shared/`. The single
-  universal cross-cutting exception is `business/observability/` — Logger and EventBus are infra-shaped ports
-  every sibling consumes.
-- **Sibling-isolation in `application/flows/<flow>/`** — flows compose port-level vocabulary only; bootstrap
-  selects the concrete provider / probe / skill adapter.
-- **`*Output` types are the success-side data shape**, not the `Result` envelope. Use
-  `Result<FooOutput, ErrorUnion>` in the function signature.
+Sibling-isolation holds in three trees, each with one escape hatch:
+
+| Tree                        | Siblings                                                                                            | Cross-sibling route                                                                                              |
+| --------------------------- | --------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `integration/ai/<concept>/` | `prompts/<flow>/`, `providers/<tool>/`, `readiness/<tool>/`, `skills/<source>/`, `agents/<source>/` | `_engine/` — `_partials/` for prompts; per-signal Zod schemas isolated under `contract/_engine/signals/<kind>/`  |
+| `business/<module>/`        | `project`, `sprint`, `ticket`, `task`, `feedback`, …                                                | `_engine/` or `_shared/`; the sole universal exception is `business/observability/` (Logger + EventBus)          |
+| `application/flows/<flow>/` | one directory per flow                                                                              | none — flows compose port-level vocabulary only; bootstrap selects the concrete provider / probe / skill adapter |
 
 ## Bounded contexts (aggregates)
 
@@ -513,7 +506,7 @@ of the stack — the leaf or use-case wrapping them catches and converts to `Res
 │           ├── ideate/                    ← sandbox for ideate AI session
 │           ├── implement/<task-id>/       ← per-task sandbox
 │           │   ├── prompt.md
-│           │   └── rounds/<N>/                   ← done-criteria.md was removed in audit-[05]; criteria live on Task.verificationCriteria and in each round prompt.md
+│           │   └── rounds/<N>/                   ← done-criteria.md was removed; criteria live on Task.verificationCriteria and in each round prompt.md
 │           │       ├── outcome.md              ← settle-attempt verdict (written after settlement)
 │           │       ├── generator/
 │           │       │   ├── prompt.md           ← rendered generator prompt (written before spawn)
@@ -626,7 +619,7 @@ signals: [...] }` envelope. The harness reads + Zod-validates post-spawn via
 | `NoteSignal`                                             | Accumulated on `ctx.currentAttemptNotes` during the attempt; `progress-journal` renders the deduped list as the `### Notes` subsection of the journal entry. Also fans out as `HarnessSignalEvent` for live TUI panels (and `events.ndjson` when `RALPHCTL_DEBUG_TRACE=1`).                                                                                                                                                                                   |
 | `LearningSignal`                                         | Same path → `ctx.currentAttemptLearnings` → `### Learnings` subsection. Each signal carries a required `text` (Insight) and optional `context` (when/why) / `appliesTo` (where); rendered as a bold Insight bullet with indented `Context:` / `Applies to:` sub-bullets (omitted when absent). The `LearningEntry` shape lives in `src/domain/signal.ts`; dedup via `dedupeLearnings` (`src/application/flows/implement/leaves/_shared/dedupe-learnings.ts`). |
 | `ChangeSignal`                                           | Same path → `ctx.currentAttemptChanges` → `### Changes` subsection.                                                                                                                                                                                                                                                                                                                                                                                           |
-| `DecisionSignal`                                         | Same path → `ctx.currentAttemptDecisions` → `### Decisions` subsection (audit-[07] replaced the old `decisions-log` sink / `decisions.log` file)                                                                                                                                                                                                                                                                                                              |
+| `DecisionSignal`                                         | Same path → `ctx.currentAttemptDecisions` → `### Decisions` subsection (replaced the old `decisions-log` sink / `decisions.log` file)                                                                                                                                                                                                                                                                                                                         |
 | `CommitMessageSignal`                                    | Used by `commit-task` leaf to author commit message                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `SetupScriptSignal`                                      | `detect-scripts` flow persists on `Repository.setupScript`                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `VerifyScriptSignal`                                     | `detect-scripts` flow persists on `Repository.verifyScript`                                                                                                                                                                                                                                                                                                                                                                                                   |
@@ -672,7 +665,8 @@ All domain errors extend `DomainError` (`src/domain/value/error/domain-error.ts`
 
 The CLI does not centralise exit codes in a constants module. Commands set `0` on success and `1` on any
 validation/execution error via `process.exitCode = 1` (`src/application/ui/cli/cli.ts`) or `process.exit(1)`
-(`src/application/ui/cli/bootstrap.ts` and per-command actions). No SIGINT-specific (130) code is emitted.
+(`src/application/ui/cli/bootstrap.ts` and per-command actions). One exception: `report-cli-error.ts` sets
+`EXIT_INTERRUPTED = 130` when the top-level catch in `cli.ts` receives an `AbortError` (Ctrl-C).
 
 ## Terminal UI Layer (`src/application/ui/`)
 
@@ -702,45 +696,31 @@ The mount path enters the **alt-screen buffer** (`CSI ? 1049 h`) and hides the c
 terminal like vim/htop/less. Restoration is guaranteed via explicit exit +
 `process.on('exit' | 'SIGINT' | 'SIGTERM' | 'SIGHUP' | 'uncaughtException')` safety nets.
 
-Cross-cutting TUI features:
+Cross-cutting TUI structure — the component inventory, hotkey tables, breakpoint values and the windowed-list
+key contract are owned by [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) (§4 Component inventory, §6 Navigation
+contract) and are not restated here:
 
-- **Persistent banner** + **help overlay** (`?`). The banner quote stabilises at module load so navigation
-  doesn't jitter. `b` toggles banner compact ↔ full.
-- **Centralised keyboard map** — all shortcuts in one table; the help overlay generates from the same source.
-- **Multi-flow nav** — Tab / Shift+Tab cycle running flows, `Ctrl+1..9` direct-jump; `SessionsView` lists every
-  runner with status + age.
-- **Schema-driven settings panel** — rows iterate the `SettingsSchema`; the prompt kind is derived from value
+- **Centralised keyboard map** — every shortcut is declared once in `runtime/keyboard-map.ts`; the help overlay
+  generates from that same table, so adding a key is one entry.
+- **Persistent banner** — the banner quote stabilises at module load so navigation doesn't jitter.
+- **Multi-flow nav** — several runners can be live at once; `SessionsView` lists each with status + age.
+- **Schema-driven settings panel** — rows iterate the `SettingsSchema` and derive the prompt kind from the value
   type. Edits save immediately.
-- **Doctor view** — calls the shared `useSystemStatus` provider's `refreshDoctor()` on mount (and again on `r`);
-  renders per-check status rows + an aggregate result card. `!` opens it from anywhere.
-- **Execute view is responsive** — three-column (flow-steps rail / tasks-stream / context) at `xl` (≥180),
-  two-column at `lg` (≥140), compact-rail at `md` (100–139), single-column below `md`. The rail is fixed
-  28 cols below `xl`; at `xl`+ it grows fluidly up to 56 cols via `resolveRailWidth`. All width decisions use
-  the named breakpoints (`sm 80 / md 100 / lg 140 / xl 180 / xxl 220`) from `theme/tokens.ts` — no
-  hardcoded column literals. `StepTrace` renders `Element.label` when present; long labels are mid-truncated
-  to fit the rail column budget. Global keys `g` (progress overlay), `y` (yank task summary), `b` (banner
-  toggle), `P` (project picker), `S` (sprint picker). Execute-local: `j`/`k` card nav, `e` done-criteria,
-  `v` evaluation overlay for the focused card, `c` cancel-scope picker (attempt vs flow). Task cards
-  are collapsed by default.
-- **`TokenBudgetCard`** and **`BaselineHealthCard`** in the context column subscribe to `TokenUsageEvent`
-  and the `SetupRun` history respectively. **`StatusBanner`** (tiered `info`/`warn`/`error`) replaces the
-  old `RateLimitBanner`. **`MultiFlowStrip`** renders concurrent session status above the tasks panel.
-  **`EvaluatorFailurePanel`** renders the per-dimension verdict parsed from the attempt's own
-  `evaluation.md`; it is the body of `EvaluationOverlay`, not a card-level render.
-- **`ProgressOverlay`** (`g`) reads `progress.md` from disk on demand — no live tail, snapshot-on-open.
-- **`EvaluationOverlay`** (`v`) does the same for `<sprintDir>/implement/<task-id>/<Attempt.evaluation.file>`,
-  opened from the Execute tasks panel or a sprint-detail task row. A stale / absent path or a pruned
-  workspace degrades to the one-line `EvaluationLine`, never an error card. Both overlays share
-  `components/overlay-internals/use-document-scroll.ts`.
-- **`CancelScopeOverlay`** (`c`) lets the operator cancel either the current AI attempt or the whole flow.
-- **`glyphFor(signalKind)`** — adds shape-redundant glyphs for every signal kind under `NO_COLOR=1`.
-- **`WindowedList` primitive** — `windowed-list.tsx` exports `computeListWindow`, `useListWindow`,
-  `WindowedList`, and `OverflowRow`. Every long, scrollable, homogeneous list in the TUI mounts through
-  this primitive; the prior `CardList` and `ListView` components are deleted. Id-based cursor (`getId`
-  prop) survives item reorder and eviction. `ScrollRegion` now accepts `suppressArrows` — views that own
-  a list cursor pass it to prevent double-handling of `↑/↓` / `PgUp`/`PgDn` at the page level.
-
-For tokens / components / state surfaces / copy rules see [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md).
+- **Doctor view** — calls the shared `useSystemStatus` provider's `refreshDoctor()`
+  (`runtime/system-status-context.tsx`) on mount and on refresh; renders per-check rows + an aggregate card.
+- **Execute view is responsive** — flow-steps rail / tasks-stream / context columns collapse from three to one as
+  the terminal narrows. Every width decision goes through the named breakpoints and `resolveRailWidth` in
+  `theme/tokens.ts` — no hardcoded column literals. `StepTrace` renders `Element.label` when present,
+  mid-truncated to the rail budget.
+- **Overlays snapshot on open** — `ProgressOverlay` reads `progress.md` and `EvaluationOverlay` reads
+  `<sprintDir>/implement/<task-id>/<Attempt.evaluation.file>` from disk when opened; there is no live tail or
+  file watcher. A stale / absent path or a pruned workspace degrades to the one-line `EvaluationLine`, never an
+  error card. Both share `components/overlay-internals/use-document-scroll.ts`.
+- **`WindowedList` primitive** (`components/windowed-list.tsx`) — every long, scrollable, homogeneous list mounts
+  through it; the prior `CardList` and `ListView` are deleted. Its id-based cursor (`getId`) survives item
+  reorder and eviction, and a view owning a list cursor passes `ViewShell suppressScrollArrows` (forwarded as
+  `ScrollRegion suppressArrows`) so the page level stops double-handling `↑/↓` / `PgUp`/`PgDn`.
+- **`glyphFor(signalKind)`** — shape-redundant glyphs keep every signal kind distinguishable under `NO_COLOR=1`.
 
 ## Build & Distribution
 

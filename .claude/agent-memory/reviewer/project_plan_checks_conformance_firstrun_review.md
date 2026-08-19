@@ -46,10 +46,6 @@ refusal-before-start-log-before-spawn ordering in `run-interactive-session.ts` i
 dedicated test, and `wire.ts`'s `providerSpawn = opts.providerSpawn ?? opts.spawn` fallback
 preserves old wiring byte-for-byte when no override is set.
 
-One stale-but-harmless doc nit: `src/application/flows/plan/ctx.ts`'s `tasks` field comment still
-says "the interactive leaf overwrites this" — true before this branch's split, now `apply-plan`
-does the overwrite (`call-planner-interactive` only sets `proposedTasks`). Low severity, easy fix.
-
-Related: [[project_provider_port_conformance_seam]] (implementer's memory on the same suite),
-[[project_trustworthy_firstrun_waves12_2026-08-14]] (implementer's memory on the doctor/welcome/demo
+Related: `seams_provider_conformance_and_demo` (implementer's memory on the same suite),
+`project_trustworthy_firstrun_waves12_2026-08-14` (implementer's memory on the doctor/welcome/demo
 waves).

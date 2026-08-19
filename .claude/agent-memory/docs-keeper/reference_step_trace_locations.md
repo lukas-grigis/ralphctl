@@ -1,7 +1,8 @@
 ---
 name: step_trace_locations
 description: The three places in the docs where every chain's step trace is documented — all three must be updated together
-type: reference
+metadata:
+  type: reference
 ---
 
 Every chain's step trace appears in **three** places in the spec docs. All three must be updated together or the audit

@@ -60,24 +60,31 @@ src/integration/ai/prompts/
 ├── implement-continuation/template.md   ← generator resume after a paused run
 ├── plan/template.md                     ← sprint plan (task generation)
 ├── readiness/template.md                ← project context file authoring
-└── refine/template.md                   ← per-ticket requirement clarification
+├── refine/template.md                   ← per-ticket requirement clarification
+├── reproduce/template.md                ← reproduction-first bug repro, before any fix
+└── select-candidate/template.md         ← best-of-N candidate selection
 ```
 
 The signal vocabulary is no longer a `_partials/signals-*.md` block — it is rendered per-leaf from the
 `AiOutputContract` via `{{OUTPUT_CONTRACT_SECTION}}` (see § Signal vocabulary discipline below).
 
-Plus the engine:
+Plus the engine — the load-bearing files (`ls` the directory for the full set; it grows):
 
 ```
 src/integration/ai/prompts/_engine/
 ├── template-loader.ts          ← dual-mode dev/bundled lookup
 ├── fs-template-loader.ts       ← filesystem impl; detects bundle mode via import.meta.url
+├── bundled-templates.ts        ← template inventory baked into the dist bundle
 ├── substitute.ts               ← `{{KEY}}` substitution contract
 ├── extract-placeholders.ts     ← lints "you used a placeholder we don't fill"
+├── validators.ts               ← shared parameter/placeholder validation helpers
+├── compress-section.ts         ← trims an oversized substituted section to budget
 ├── build-prompt.ts             ← composes partials + per-flow template
+├── renderers/                  ← shared section renderers used by per-flow definition.ts
 ├── save-prompt.ts              ← writes rendered prompt to <sprintDir>/<flow>/<unit>/prompt.md
 ├── definition.ts               ← per-flow Prompt type definitions + parameter schemas
-└── prompt-type.ts              ← branded `Prompt` type
+├── prompt-type.ts              ← branded `Prompt` type
+└── …                           ← parse-task-list.ts, task-import-schema.ts, test-utils.ts
 ```
 
 ## Substitution contract (memorise)
@@ -165,9 +172,13 @@ Per-kind schemas currently shipped (`type` discriminant on each signal object):
 - Narrative: `note`, `learning`, `decision`, `change`, `context-compacted`.
 - Lifecycle: `task-complete`, `task-verified`, `task-blocked`.
 - Implement-handover: `commit-message`, `evaluation`, `pr-content`.
+- Reproduction-first / best-of-N: `reproduction`, `candidate-selection`.
 - Planning: `task-plan`, `refined-ticket`, `ideated-tickets`.
 - Setup-time: `setup-script`, `verify-script`, `verify-gates`, `setup-skill-proposal`,
   `verify-skill-proposal`, `agents-md-proposal`, `skill-suggestions`.
+
+`ls src/integration/ai/contract/_engine/signals/` is the live list — check it before assuming a kind is
+missing.
 
 The prompt's `{{OUTPUT_CONTRACT_SECTION}}` block is rendered from the contract via
 `renderContractSectionFor(contract, outputDir)` — it tells the AI the exact file to write,

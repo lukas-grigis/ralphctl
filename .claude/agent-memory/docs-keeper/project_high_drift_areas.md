@@ -1,86 +1,30 @@
 ---
-name: project_high_drift_areas
-description: Which doc sections drift fastest after a big feature drop — where to look first
+name: project-high-drift-areas
+description: The doc hot zones that go stale fastest — check these first on any audit, before reading git log
 metadata:
   type: project
 ---
 
-Based on the P0–P4 harness overhaul audit (2026-05-21), sections that had the most stale claims:
+Repeat offenders across every audit pass. These are hot zones, not open defects — the specific
+instances found through 2026-08-18 are all fixed; the _sections_ keep re-rotting.
 
-1. **CLAUDE.md § Architecture — EventBus variant list** — new events (TaskRoundStarted, TokenUsageEvent,
-   BannerShow/Clear, MemoryPressureEvent, ChainLogDegradedEvent) accumulated without doc updates.
-2. **CLAUDE.md § Performance & Limits — trace ring buffer value** — had `20_000` but code is `5_000` in
-   `src/application/chain/run/runner.ts` (`MAX_TRACE_ENTRIES`). CLAUDE.md now reflects `5_000`.
-3. **CLAUDE.md § Security & Safety — file-based AI provider contract** — said `sessionId` files "now"
-   written but didn't describe the path (`rounds/<N>/<role>/sessionId`).
-4. **ARCHITECTURE.md § Storage layout** — missing `decisions.log`, `outcome.md`, and the flat
-   `rounds/<N>/` tree that replaced the old `{generator,evaluator}/` structure documented at the top level.
-5. **ARCHITECTURE.md § Data Models — SprintExecution** — said `setupRunAt (map)` but it's now `setupRanAt`
-   (typed array of `SetupRun` structs).
-6. **ARCHITECTURE.md § Harness Signals table** — `ContextCompactedSignal` added but table not updated.
-7. **KERNEL-DESIGN.md — implementFlow example** — `flushProgressSinkLeaf` removed, `preTaskCheckLeaf` and
-   `postTaskCheckLeaf` added, `ensureProgressFileLeaf` / `writeProgressSnapshotLeaf` semantics changed.
-8. **DESIGN-SYSTEM.md § 4.3** — entire new class of Execute-view components (TokenBudgetCard,
-   BaselineHealthCard/Chip, StatusBanner, MultiFlowStrip, EvaluatorFailurePanel, ProgressOverlay,
-   CancelScopeOverlay) not documented.
-9. **DESIGN-SYSTEM.md § 6.1** — new global keys not listed; added `b`, `g`, `y` in prior pass; `P`, `S`
-   added in 2026-05-21 session (cross-project pickers).
-10. **REQUIREMENTS.md** — many [x] items not ticked even after code shipped.
-11. **DESIGN-SYSTEM.md** — missing responsive breakpoints section entirely until 2026-05-21 session;
-    breakpoints shipped as named constants but the design doc had no vocabulary for them.
-12. **CLAUDE.md § Workflows & State — Execute view widths** — hardcoded column numbers become stale when
-    the breakpoint system evolves; always express as named breakpoints now.
-13. **KERNEL-DESIGN.md — Element interface** — any interface field additions (like `label?`) need to be
-    reflected in both the code block and the prose; `TraceEntry` too.
+| Hot zone                                                     | Regenerate it from                                                                                    |
+| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| Any doc listing the `AppEvent` union                         | grep `events.ts` — new events land in commits that don't announce themselves                          |
+| KERNEL-DESIGN.md chain examples + `Element`/`TraceEntry`     | diff against `element.ts` + `trace.ts`; interface field additions need both the code block and prose  |
+| Chain step traces (all docs)                                 | the flow's e2e test — see [[reference_step_trace_locations]] and [[feedback_chain_traces_drift_fast]] |
+| ARCHITECTURE.md § Composition Root / Storage layout          | grep the `StoragePaths` type for new fields and new top-level dirs                                    |
+| ARCHITECTURE.md § Data Models symbol names                   | grep each named symbol in `src/` — see [[reference_entity_symbol_names_drift]]                        |
+| ARCHITECTURE.md § Harness Signals table                      | signal rows lag flow changes; check which flow actually consumes each signal                          |
+| ARCHITECTURE.md § Flows-and-their-nature table               | diff `registry.ts`                                                                                    |
+| DESIGN-SYSTEM.md § component table + global keys             | deleted components linger after a TUI rename/delete sprint; new global keys go unlisted               |
+| ARCHITECTURE.md § Future Work, REQUIREMENTS § deferred       | shipped items stay listed — cross-check both against the commit log every pass                        |
+| REQUIREMENTS.md checkboxes                                   | `[x]` not ticked after the code shipped                                                               |
+| PERFORMANCE.md § Escalation on plateau                       | the plateau-signal list grows whenever a guard is added                                               |
+| Any doc stating parallelism/sequencing of the implement flow | re-read after ANY implement-flow structural change; these sentences invert silently                   |
 
-14. **CLAUDE.md § Performance & Limits — "Implement is strictly sequential"** — was false after
-    parallel execution landed; task-graph validation wiring note also stale. Always re-read this
-    section after any implement-flow structural change.
-15. **ARCHITECTURE.md § Future Work** — tends to list items that have already shipped without
-    being removed; always cross-check against git log.
-16. **REQUIREMENTS.md § Things deliberately deferred** — same pattern: deferred items stay listed
-    after they ship. Check against the commit log for each feature branch.
-17. **ARCHITECTURE.md § Data Models — Task.dependsOn field name** — field was `blockedBy` in older
-    versions; docs had not been updated. Always grep the entity source for field names before writing.
-18. **ARCHITECTURE.md § Harness Signals table — SkillSuggestionsSignal** — said "no flow consumer
-    yet" but the readiness flow now acts on it. Signal table entries often lag behind flow changes.
+**Why:** the churn clusters in three places — the observability/TUI surface, the chain framework
+primitives, and the implement flow — and every sprint touches at least one.
 
-19. **DESIGN-SYSTEM.md § 4.2 component table** — deleted components (`CardList`, `ListView`) linger
-    after a refactor. Always check after any TUI-component rename/delete sprint.
-20. **ARCHITECTURE.md § Future Work** — parallel-execution bullet survived long after it shipped in
-    0.9.0; always diff Future Work against the current git log before closing a docs pass.
-21. **CLAUDE.md § Security & Safety — blockKind / upstream-block classification** — used to describe
-    a `blockedReason.startsWith()` string match; structural discriminant `BlockedTask.blockKind` landed
-    in the ui-ux-stabilization sprint (2026-06-03). Always re-read this paragraph after task-lifecycle
-    changes.
-22. **ARCHITECTURE.md § Composition Root storage-paths** — new `StoragePaths` fields (`operatorSkillsRoot`,
-    `memoryRoot`) added without doc update. Grep `StoragePaths` type before closing architecture pass.
-23. **ARCHITECTURE.md § Storage layout** — new top-level directories (`~/.ralphctl/skills/`) need to
-    be added to the tree diagram. Check after any `StoragePaths` change.
-
-**Why:** These areas cluster around the observability/TUI surface, the chain framework primitives,
-and the implement-flow — all of which evolve in every sprint. Items 14–18 specifically from the
-`feat/parallelism-wiring-memory` drop (2026-05-30); items 19–23 from the `ui-ux-stabilization` drop
-(2026-06-03); items 24–28 from `feature/audit-research-xl` (2026-06-27).
-
-24. **KERNEL-DESIGN.md § implementFlow — gen-eval inner loop body** — each sprint that touches
-    gen-eval-loop.ts will change the evaluator-step sequential. The fence test at
-    `tests/integration/application/flows/implement/leaves/gen-eval-loop.test.ts` is authoritative;
-    always read it before updating the doc.
-25. **WORKFLOWS.md § Per-task generator-evaluator** — prose description of the loop body lags the
-    code. Re-read whenever gen-eval-loop.ts or the evaluator guard changes.
-26. **PERFORMANCE.md § Escalation on plateau** — the plateau signals list grew from 1 to 3 this
-    sprint (count-based + loop-diversity + entropy). Will grow again if new guards are added.
-27. **ARCHITECTURE.md § Flows-and-their-nature table** — `add-ticket` was marked "(no registry)"
-    until the manifest landed. Flow registry rows change when a new flow adds a manifest or an
-    existing flow's triggers change; always diff `registry.ts` before closing.
-28. **ARCHITECTURE.md § business/task layout** — new business-task modules (escalation-policy,
-    loop-diversity, episode composition) added without doc update. Grep `src/business/task/` after
-    any implement-flow or plateau feature.
-
-**How to apply:** On the next feature drop, check these sections first before reading git log. In
-particular, always grep `events.ts` for the AppEvent union (compare to every doc that lists it),
-diff `element.ts` + `trace.ts` against KERNEL-DESIGN.md, re-read CLAUDE.md § Performance &
-Limits after any implement-flow structural change, and grep `StoragePaths` type for new fields after
-any storage-paths change. Also read the step-order fence test in gen-eval-loop.test.ts before
-updating any gen-eval step-trace description.
+**How to apply:** walk this table before reading git log. Express volatile numbers as named constants
+or breakpoints in the prose rather than hardcoded values, so the doc degrades gracefully.

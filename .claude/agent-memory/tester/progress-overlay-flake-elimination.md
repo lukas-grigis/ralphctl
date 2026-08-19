@@ -18,4 +18,4 @@ For scroll clamp assertions: replace the final fixed tick after PgDn/PgUp loops 
 `waitFor(() => lastFrame().includes('HEAD-LINE'))`.
 
 Proved: 10/10 isolated runs pass, 689/689 tui suite passes (as of 2026-06-12 — see
-[[project_flaky_progress_overlay_test]] in the reviewer/project index for the fix landing).
+`project_flaky_progress_overlay_test` in the user auto-memory for the fix landing).

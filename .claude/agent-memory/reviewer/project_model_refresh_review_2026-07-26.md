@@ -7,7 +7,7 @@ metadata:
 
 Reviewed the provider model-catalog refresh (Claude Opus 5, GPT-5.6 Sol/Terra/Luna, codex effort
 `low..ultra`, Fable un-suspended) on 2026-07-26. All five gates green; one major finding
-(see [[duplicate-codex-effort-clamp]]), the rest doc/comment drift.
+(see [[project_duplicate_codex_effort_clamp]]), the rest doc/comment drift.
 
 **Why this matters for future model bumps:** the catalog-fingerprint test
 (`tests/unit/business/task/escalation-map.test.ts`) is a genuinely strong fence — it caught nothing

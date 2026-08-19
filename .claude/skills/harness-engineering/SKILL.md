@@ -158,14 +158,21 @@ frame:
 ## 8. One harness, many providers — keep shared layers provider-agnostic (ralphctl extension)
 
 Not from the articles, but a direct consequence of §1's ACI discipline and §7's stress-test rule, and
-load-bearing for ralphctl specifically: ralphctl runs **one harness across three provider backends** —
-Claude Code, GitHub Copilot, OpenAI Codex. A component that works for one provider but silently degrades
-the others is a portability bug, not a feature.
+load-bearing for ralphctl specifically: ralphctl runs **one harness across four provider backends** —
+Claude Code, GitHub Copilot, OpenAI Codex, OpenCode. A component that works for one provider but silently
+degrades the others is a portability bug, not a feature.
 
 The rule: every **shared** layer — chain primitives, flows, prompt templates, and the signal contract —
-must read the same on all three providers. Provider-specific behaviour belongs behind the **adapter /
+must read the same on all four providers. Provider-specific behaviour belongs behind the **adapter /
 `_engine` sibling-isolation seam** and **per-provider effort resolution**, never baked into shared prompt
 text or the contract.
+
+OpenCode stresses the rule on two axes. It is an **aggregator** — model ids are
+`provider/model` and the catalog is discovered at runtime via `opencode models`, so anything that assumes a
+static model list has to widen rather than special-case. And it has **no enforceable read-only mode**:
+`opencode run` writes inside `--dir` whether or not `--auto` is passed, so a shared layer must never treat
+a permission flag as the safety envelope — topology (`--dir` plus `outputDir`), branch isolation, and the
+check-script gate are what actually hold.
 
 The sharpest trap is **reasoning elicitation**. Providers expose reasoning differently: Claude has native
 extended thinking with reasoning-effort levels; OpenAI o-series / Codex have native _hidden_ reasoning

@@ -23,4 +23,4 @@ removal does not regress an `applied` row. If the removal moves a row from `appl
 
 If you are **adding** a new chain primitive — there are five and only five: `element` (interface), `leaf`,
 `sequential`, `loop`, `guard`. Push back if a proposal adds a sixth. The principle behind this constraint
-is § 14 (Minimal scaffolding) and the rationale is in `CLAUDE.md § Architecture`.
+is § 14 (Minimal scaffolding) and the rationale is in `CLAUDE.md § Architecture invariants`.

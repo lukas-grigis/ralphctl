@@ -107,17 +107,25 @@ Examples:
 ```
 
 Top-level one-shot commands (no noun prefix): `doctor`, `completion <shell>`, `export-context`,
-`export-requirements`, `create-pr`.
+`export-requirements`, `create-pr`, `demo`.
 
 ### Entity Nouns
 
-| Noun       | Purpose                               |
-| ---------- | ------------------------------------- |
-| `project`  | Multi-repo repository definitions     |
-| `sprint`   | Work container with tickets and tasks |
-| `ticket`   | Work item linked to a project         |
-| `task`     | Atomic implementation unit            |
-| `settings` | Persisted user preferences            |
+| Noun       | Purpose                                             |
+| ---------- | --------------------------------------------------- |
+| `project`  | Multi-repo repository definitions                   |
+| `sprint`   | Work container with tickets and tasks               |
+| `ticket`   | Work item linked to a project                       |
+| `task`     | Atomic implementation unit                          |
+| `settings` | Persisted user preferences (incl. `apply-preset`)   |
+| `runs`     | Per-run forensic artifacts (`list`/`prune`/`stats`) |
+| `agents`   | Portable agent definitions (`list`)                 |
+| `prompts`  | Bundled prompt templates (`list`)                   |
+| `skills`   | Bundled skill catalog (`list`)                      |
+
+The registered surface is `ls src/application/ui/cli/commands/` +
+`grep -rn "\.command(" src/application/ui/cli/commands/` — check there before assuming a noun is missing,
+and re-check this table after adding one.
 
 ### Interactive vs CLI Mode
 
@@ -199,9 +207,13 @@ application/ui/tui/
 ├── prompts/      InkInteractivePrompt + per-kind components (select, multi-select, confirm, text-area,
 │                 path-picker) + prompt-host + prompt-queue
 └── views/        Home, Sprints, SprintDetail, Projects, ProjectDetail, Settings, Doctor, Sessions,
-                  Execute, Welcome, Flows, pick-project, pick-sprint, add-ticket, add-repository,
-                  create-project, create-pr, export-context, export-requirements, …
+                  Execute, Welcome, Flows, Skills, MarkdownExport, pick-project, pick-sprint,
+                  add-ticket, add-repository, create-project, create-pr, export-context,
+                  export-requirements, …
 ```
+
+`ls src/application/ui/tui/views/` is the live inventory; `view-registry.tsx` is what the router actually
+mounts. Trust those two over this tree.
 
 Every view mounts through `<ViewShell>` (header + body + auto `<PromptHost />` + auto `<KeyboardHints />`).
 Views never render their own header, hints, or section spacing.
@@ -221,7 +233,7 @@ quit.
 - [ ] **Errors**: Are error messages actionable with hints? No stack traces in user-facing copy.
 - [ ] **Output**: Is success feedback clear but not verbose?
 - [ ] **Consistency**: Does it match existing command and view patterns?
-- [ ] **Exit codes**: 0 for success, non-zero for errors (`EXIT_SUCCESS`, `EXIT_ERROR`, `EXIT_INTERRUPTED`)?
+- [ ] **Exit codes**: 0 for success, 1 for errors, 130 on Ctrl-C (`EXIT_INTERRUPTED` in `report-cli-error.ts`)?
 - [ ] **Next step**: Does output suggest what to do next?
 - [ ] **Empty state**: Does it guide the user when no data exists?
 - [ ] **Token discipline**: Every color / glyph / spacing value imported from `tokens.ts`?
