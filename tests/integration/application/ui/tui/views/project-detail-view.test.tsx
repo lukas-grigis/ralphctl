@@ -81,6 +81,8 @@ describe('ProjectDetailView', () => {
     expect(frame).toContain('navigate');
     expect(frame).toContain('confirm/select');
     expect(frame).toContain('edit field');
+    // DESIGN-SYSTEM §6.4 — the j/k alias stays bound but is never advertised per-view.
+    expect(frame).not.toContain('j/k');
     result.unmount();
   });
 

@@ -109,6 +109,11 @@ describe('OutcomeReportCard — the regression / failure taxonomy', () => {
     expect(frame).toContain('Warnings');
     expect(frame).toContain('budget-exhausted');
     expect(frame).toContain('plateau');
+    // Count follows its label; the theme bullet SEPARATES entries rather than prefixing counts
+    // (the `label ·N  label ·N` form the docstring never described is gone).
+    expect(frame).toContain('budget-exhausted 1');
+    expect(frame).toContain('plateau 1');
+    expect(frame).not.toMatch(/·\d/u);
   });
 
   it('names the abort cause only when an attempt actually aborted', () => {

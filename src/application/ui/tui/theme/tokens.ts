@@ -34,6 +34,9 @@ export const glyphs = {
   actionCursor: '▸',
   selectMarker: '›',
   bullet: '·',
+  // Left focus rail printed beside the focused picker row (sprint picker today). A partial block
+  // (U+258D) reads as a solid gutter mark without filling the whole cell like `▉` would.
+  focusBar: '▍',
   // Disclosure carets for collapsible rows (Tasks-panel commit-message rows today).
   // Right-pointing → collapsed, down-pointing → expanded — folded in from the stray
   // `COLLAPSED_DISCLOSURE` / `EXPANDED_DISCLOSURE` pair that used to live next to
@@ -54,6 +57,9 @@ export const glyphs = {
   cross: '✗',
   warningGlyph: '⚠',
   infoGlyph: 'i',
+  // Verdict / state the parser could not determine. Deliberately shape-only (never tinted) so it
+  // reads apart from `check` / `cross` / `bullet` even under NO_COLOR.
+  unknownGlyph: '?',
   // Skill-catalog "locally edited" marker — distinct shape from `warningGlyph` (an upstream
   // update is available) and `cross` (removed/broken) so the three states read apart even
   // without colour (NO_COLOR / accessibility).
@@ -61,6 +67,10 @@ export const glyphs = {
   // Health marker — footer doctor indicator. Monochrome medical cross, tinted by probe status;
   // renders without color so it survives NO_COLOR (no emoji).
   stethoscope: '✚',
+  // Progress bar — filled / remaining cells of a fixed-width meter (TokenBudgetCard context bar).
+  // Full block vs. light shade so the ratio reads by density alone, without colour.
+  barFilled: '█',
+  barEmpty: '░',
   // Loading (braille spinner frames)
   spinner: ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const,
   // Personality rail

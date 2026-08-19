@@ -258,7 +258,7 @@ export const PickSprintView = (): React.JSX.Element => {
     usePickerRows(deps, selection);
 
   useViewHints([
-    { keys: '↑/↓/j/k', label: 'move' },
+    { keys: '↑/↓', label: 'move' },
     { keys: '↵', label: 'use sprint' },
     { keys: 't', label: 'toggle scope' },
     { keys: 'f', label: hideDone ? 'show done' : 'hide done' },

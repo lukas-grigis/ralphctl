@@ -51,6 +51,22 @@ describe('glyphs.clipMarkers (audit-[03])', () => {
   });
 });
 
+describe('glyphs — design-system tokens for former inline glyphs (#297)', () => {
+  it('exposes the picker focus rail as U+258D (left three-eighths block)', () => {
+    expect(glyphs.focusBar).toHaveLength(1);
+    expect(glyphs.focusBar.codePointAt(0)).toBe(0x258d);
+  });
+
+  it('exposes the progress-bar cells as U+2588 / U+2591 (full block / light shade)', () => {
+    expect(glyphs.barFilled.codePointAt(0)).toBe(0x2588);
+    expect(glyphs.barEmpty.codePointAt(0)).toBe(0x2591);
+  });
+
+  it('exposes the unknown-verdict glyph as a plain ASCII question mark', () => {
+    expect(glyphs.unknownGlyph).toBe('?');
+  });
+});
+
 describe('resolveRailWidth', () => {
   it('returns the fixed RAIL_WIDTH below the xl breakpoint', () => {
     // sm / md / lg all share the fixed value — the two-column layout has no context column to
