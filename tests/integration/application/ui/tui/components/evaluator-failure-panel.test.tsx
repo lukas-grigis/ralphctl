@@ -21,6 +21,7 @@ import {
   projectEvaluationLines,
 } from '@src/application/ui/tui/components/evaluator-failure-panel.tsx';
 import { parseEvaluationMarkdown, type ParsedEvaluation } from '@src/business/task/parse-evaluation-md.ts';
+import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import type { BucketedExecution } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { EvaluationSignal } from '@src/domain/signal.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
@@ -97,6 +98,20 @@ describe('EvaluatorFailurePanel — per-dimension render', () => {
     // Dim, so it carries no success/error colour at all.
     expect(docs?.color).toBeUndefined();
     expect(docs?.dim).toBe(true);
+  });
+
+  it('renders an `unknown` dimension with the themed unknown glyph and no colour', () => {
+    // A dimension heading with no ` — verdict` tail parses to `unknown`. The glyph comes from the
+    // theme (never an inline literal) and, like `n/a`, must stay uncoloured so the panel does not
+    // report an undetermined verdict as a failure.
+    const parsed = parseEvaluationMarkdown(
+      ['# Evaluation — failed', '', '## Dimensions', '', '### flakiness', '', 'could not tell', ''].join('\n')
+    );
+    const row = projectEvaluationLines(parsed).find((l) => l.text.includes('flakiness:'));
+    expect(row?.text).toContain('flakiness: unknown');
+    expect(row?.text.startsWith(glyphs.unknownGlyph)).toBe(true);
+    expect(row?.color).toBeUndefined();
+    expect(row?.dim).toBe(true);
   });
 
   it('surfaces a dimension whose fenced execution evidence was recorded', () => {

@@ -154,7 +154,7 @@ interface BuildDetailHintsArgs {
 const buildDetailHints = (args: BuildDetailHintsArgs): readonly ViewHint[] => {
   const { inDetail, ticketsEditable, canEdit, sprint, currentSprintId, focusedStuckTask, focusedEvaluatedTask } = args;
   return [
-    { keys: '↑/↓/j/k', label: 'move' },
+    { keys: '↑/↓', label: 'move' },
     { keys: 'n', label: 'flows' },
     { keys: '↵/o', label: inDetail ? 'expand/collapse' : 'expand' },
     // `esc/q` collapses all expanded cards; only shown while in detail mode so the hint

@@ -56,7 +56,7 @@ const BAR_WIDTH = 10;
 /** Render an ASCII progress bar of the configured width — filled-blocks for used, light-shade for remaining. */
 const renderBar = (filled: number): string => {
   const clamped = Math.max(0, Math.min(BAR_WIDTH, Math.round(filled)));
-  return `${'█'.repeat(clamped)}${'░'.repeat(BAR_WIDTH - clamped)}`;
+  return `${glyphs.barFilled.repeat(clamped)}${glyphs.barEmpty.repeat(BAR_WIDTH - clamped)}`;
 };
 
 /**

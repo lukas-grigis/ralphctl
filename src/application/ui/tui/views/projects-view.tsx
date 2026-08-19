@@ -248,7 +248,7 @@ const projectsKeyBindings = ({
   setFeedback,
   reload,
 }: ProjectsKeysInput): readonly ViewKeyBinding[] => [
-  { keys: ['↑', '↓', 'j', 'k'], hint: 'move' },
+  { keys: ['↑', '↓'], hint: 'move' },
   { keys: ['↵'], hint: 'open' },
   {
     keys: ['m'],
