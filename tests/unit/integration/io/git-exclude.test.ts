@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import { ErrorCode } from '@src/domain/value/error/error-code.ts';
 import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import { ensureGitExcludeWildcard } from '@src/integration/io/git-exclude.ts';
 
@@ -114,6 +115,12 @@ describe('ensureGitExcludeWildcard', () => {
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error('unreachable');
     expect(result.error).toBeInstanceOf(StorageError);
+    // The raw errno ('ELOOP') must NOT become the error code — it is a Node code, not a domain one.
+    expect(result.error.code).toBe(ErrorCode.Storage);
+    expect(result.error.subCode).toBe('io');
+    expect(result.error.path?.endsWith('/.git')).toBe(true);
+    // …but it stays reachable on `.cause` so the failure is still diagnosable from a logger.warn.
+    expect((result.error.cause as { code?: unknown } | undefined)?.code).toBe('ELOOP');
   });
 
   it('resolves the worktree pointer file (.git is a file containing gitdir:)', async () => {
