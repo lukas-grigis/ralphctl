@@ -275,9 +275,17 @@ describe('SprintDetailView — per-card expand/collapse', () => {
     result.stdin.write('k');
     await waitForCursorOn(result, 2);
     result.stdin.write('d');
-    await waitForPredicate(() => (result.lastFrame() ?? '').includes('Remove ticket'), {
-      label: 'remove-ticket confirm mounted',
-    });
+    // This wait has failed CI-only in the past with no local repro — on timeout, surface the
+    // actual frame so the failure is diagnosable from the CI log alone.
+    try {
+      await waitForPredicate(() => (result.lastFrame() ?? '').includes('Remove ticket'), {
+        label: 'remove-ticket confirm mounted',
+      });
+    } catch (err) {
+      throw new Error(`${String(err)}\n--- frame at timeout ---\n${result.lastFrame() ?? '(no frame)'}`, {
+        cause: err,
+      });
+    }
     result.stdin.write('y');
     // The remove + reload round-trips the repo stub and remounts the card list — the slowest
     // settle in this file, so it gets headroom beyond the default ceiling for instrumented CI.
