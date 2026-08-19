@@ -282,9 +282,23 @@ describe('SprintDetailView — per-card expand/collapse', () => {
         label: 'remove-ticket confirm mounted',
       });
     } catch (err) {
-      throw new Error(`${String(err)}\n--- frame at timeout ---\n${result.lastFrame() ?? '(no frame)'}`, {
-        cause: err,
-      });
+      // Frame-history forensics: `frames` holds every write since mount. Whether the confirm
+      // EVER appeared separates "d was processed, then something reset" from "d never landed",
+      // and the tail shows whether Ink kept rendering (spinner advancing) or stalled.
+      const frames = result.frames;
+      const confirmSeen = frames.findIndex((f) => f.includes('Remove ticket'));
+      const bravoLastSeen = frames.map((f) => f.includes('bravo card')).lastIndexOf(true);
+      const tail = frames
+        .slice(-4)
+        .map((f, i) => `--- frame[len-${String(4 - i)}] (${String(f.length)} chars) ---\n${f}`)
+        .join('\n');
+      throw new Error(
+        `${String(err)}\n` +
+          `frames total: ${String(frames.length)}; ` +
+          `'Remove ticket' first seen in frame: ${String(confirmSeen)}; ` +
+          `'bravo card' last seen in frame: ${String(bravoLastSeen)}\n${tail}`,
+        { cause: err }
+      );
     }
     result.stdin.write('y');
     // The remove + reload round-trips the repo stub and remounts the card list — the slowest
