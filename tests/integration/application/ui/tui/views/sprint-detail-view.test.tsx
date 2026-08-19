@@ -453,11 +453,11 @@ describe('SprintDetailView — phase workspace', () => {
       tickets: [{ id: 't1' as never, title: 'first', status: 'pending' } as never],
     });
     const { result } = renderView(<SprintDetailView />, { deps: stubDeps(sprint, []), initial });
-    await waitForViewReady(result, (f) => f.includes('add ticket'));
+    await waitForViewReady(result, (f) => f.includes('a add'));
     const frame = result.lastFrame() ?? '';
     // The hint strip advertises the ticket add/remove chords only while they are wired up.
-    expect(frame).toContain('add ticket');
-    expect(frame).toContain('remove ticket');
+    expect(frame).toContain('a add');
+    expect(frame).toContain('d remove');
     result.unmount();
   });
 
@@ -471,8 +471,8 @@ describe('SprintDetailView — phase workspace', () => {
     const frame = result.lastFrame() ?? '';
     // Ticket CRUD is draft-only; on an active sprint the chords do nothing, so the footer must
     // not advertise them — the hint shares one source of truth with the gated handler.
-    expect(frame).not.toContain('add ticket');
-    expect(frame).not.toContain('remove ticket');
+    expect(frame).not.toContain('a add');
+    expect(frame).not.toContain('d remove');
     result.unmount();
   });
 
