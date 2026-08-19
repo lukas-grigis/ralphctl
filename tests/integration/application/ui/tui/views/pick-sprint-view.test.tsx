@@ -19,6 +19,7 @@ import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import { useSelection } from '@src/application/ui/tui/runtime/selection-context.tsx';
+import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import { END, HOME, PAGE_DOWN, PAGE_UP, tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { waitFor } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView } from '@tests/integration/application/ui/tui/_harness.tsx';
@@ -219,6 +220,8 @@ describe('PickSprintView', () => {
     expect(frame).toContain('beta sprint one');
     expect(frame).toContain('3 sprints');
     expect(frame).toContain('all projects');
+    // DESIGN-SYSTEM §6.4 — arrows only in the per-view hint strip; j/k stays bound but unadvertised.
+    expect(frame).not.toContain('j/k');
     // Current project (Alpha) appears before Beta in the rendered output.
     expect(frame.indexOf('Alpha Project')).toBeLessThan(frame.indexOf('Beta Project'));
   });
@@ -341,7 +344,7 @@ describe('PickSprintView', () => {
     await tick(30);
     // Press j again — there's no further sprint, cursor stays put.
     result.stdin.write('j');
-    // The focus marker (▍) precedes whichever sprint is focused; assert beta sprint shows
+    // The focus marker (glyphs.focusBar) precedes whichever sprint is focused; assert beta sprint shows
     // the focused-line marker (focused rows print a "↳ N tickets" hint, headers do not).
     await waitFor(() => expect(result.lastFrame() ?? '').toContain('↳ 0 tickets'));
   });
@@ -404,10 +407,10 @@ describe('PickSprintView', () => {
     expect(frame).toContain('⚠');
   });
 
-  // The focus marker (▍) precedes the focused row's label on the same rendered line. Returns the
+  // The focus marker (glyphs.focusBar) precedes the focused row's label on the same rendered line. Returns the
   // trimmed line carrying the marker so a test can assert which row is currently focused without
   // depending on absolute screen coordinates.
-  const focusedLine = (frame: string): string => frame.split('\n').find((line) => line.includes('▍')) ?? '';
+  const focusedLine = (frame: string): string => frame.split('\n').find((line) => line.includes(glyphs.focusBar)) ?? '';
 
   // 30 sprints in one project, named picksprint-01..30 with id counters that sort (descending,
   // newest-first) so the rendered top→bottom order is picksprint-30 … picksprint-01. Comfortably

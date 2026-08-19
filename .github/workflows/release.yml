@@ -2,8 +2,13 @@ name: Release
 
 on:
   push:
+    # Two patterns, not one: Actions ref filters FULL-match the ref name, and the `[0-9]+` glob
+    # syntax cannot express an optional suffix — so a single stable pattern silently matches no
+    # pre-release tag at all (no run, no error). The second entry is what makes `v0.20.0-rc.1`
+    # fire, and with it the `prerelease:` expression at the bottom of this file.
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
 
 permissions:
   contents: write
@@ -43,9 +48,20 @@ jobs:
             exit 1
           fi
 
-      - name: Extract version from tag
+      # `npm_tag` keeps a pre-release OFF the `latest` dist-tag: `latest` is what a bare
+      # `npm i ralphctl` resolves to, and `compareVersions` in
+      # src/business/version/version-check.ts strips pre-release suffixes on the documented
+      # assumption that `latest` is always stable — publishing an rc there would nag every
+      # stable user to "update" to it.
+      - name: Extract version and npm dist-tag from tag
         id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          case "$VERSION" in
+            *-*) echo "npm_tag=next" >> "$GITHUB_OUTPUT" ;;
+            *) echo "npm_tag=latest" >> "$GITHUB_OUTPUT" ;;
+          esac
 
       # No git-log fallback: a commit-subject dump is not release notes, and silently
       # substituting one hid the real defect (nobody wrote the changelog section) until after
@@ -53,8 +69,12 @@ jobs:
       # because they have separate fixes.
       - name: Extract and validate changelog section
         id: changelog
+        # VERSION goes through `env`, not `${{ }}` inside `run:` — the widened `-*` tag glob
+        # admits shell metacharacters into the ref name, and template interpolation would paste
+        # them straight into the script body.
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
           if ! grep -qF "## [${VERSION}]" CHANGELOG.md; then
             echo "::error file=CHANGELOG.md::No '## [${VERSION}]' heading in CHANGELOG.md — write the release notes before tagging."
             exit 1
@@ -131,6 +151,8 @@ jobs:
       - name: Verify npm pack installs correctly
         env:
           RALPHCTL_HOME: ${{ runner.temp }}/ralphctl-pack-smoke
+          # Via `env`, not `${{ }}` in the script — see the changelog step.
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           TARBALL=$(pnpm pack --pack-destination /tmp 2>/dev/null | tail -1)
           SMOKE=/tmp/ralphctl-release-smoke
@@ -139,7 +161,7 @@ jobs:
           npm install --prefix "$SMOKE" "$TARBALL"
           BIN="$SMOKE"/node_modules/.bin/ralphctl
           version=$("$BIN" --version)
-          printf '%s\n' "$version" | grep -qF "${{ steps.version.outputs.version }}"
+          printf '%s\n' "$version" | grep -qF "$VERSION"
           skills=$("$BIN" skills list)
           printf '%s\n' "$skills" | grep -q '^ralphctl-alignment'
           agents=$("$BIN" agents list)
@@ -148,7 +170,7 @@ jobs:
           printf '%s\n' "$prompts" | grep -q '^implement'
 
       - name: Publish to npm
-        run: pnpm publish --no-git-checks --provenance
+        run: pnpm publish --no-git-checks --provenance --tag "${{ steps.version.outputs.npm_tag }}"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 

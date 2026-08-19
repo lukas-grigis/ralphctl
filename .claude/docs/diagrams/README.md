@@ -3,13 +3,13 @@
 Sequence and data-flow diagrams for the current architecture. GitHub renders Mermaid natively
 in markdown previews — no toolchain required.
 
-| #   | Diagram                                              | What it shows                                                                            |
-| --- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| 00  | [Chain framework](./00-chain-framework.md)           | One chain run end to end: runner → session → element → event bus.                        |
-| 01  | [Flow lifecycle](./01-flow-lifecycle.md)             | From a TUI click / CLI subcommand to a running chain.                                    |
-| 02  | [Sprint lifecycle](./02-sprint-lifecycle.md)         | One sprint's user-action timeline: create → plan → implement → review → close.           |
-| 03  | [Task lifecycle](./03-task-lifecycle.md)             | One task's per-attempt timeline: preflight → generator-evaluator loop → verify → commit. |
-| 04  | [AI session data flow](./04-ai-session-data-flow.md) | The audit-[09] file-based contract: prompt in, `signals.json` out, sidecars rendered.    |
+| #   | Diagram                                              | What it shows                                                                                                                                          |
+| --- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 00  | [Chain framework](./00-chain-framework.md)           | One chain run end to end: runner → session → element → event bus.                                                                                      |
+| 01  | [Flow lifecycle](./01-flow-lifecycle.md)             | From a TUI click / CLI subcommand to a running chain.                                                                                                  |
+| 02  | [Sprint lifecycle](./02-sprint-lifecycle.md)         | One sprint's user-action timeline: create → plan → implement → review → close.                                                                         |
+| 03  | [Task lifecycle](./03-task-lifecycle.md)             | One task's per-attempt timeline: preflight → generator-evaluator loop → verify → commit.                                                               |
+| 04  | [AI session data flow](./04-ai-session-data-flow.md) | The audit-[09] file-based contract: prompt in, `signals.json` out, sidecars rendered — and `evaluation.md` read back by the CLI/TUI operator surfaces. |
 
 ## Conventions
 

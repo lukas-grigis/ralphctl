@@ -53,19 +53,20 @@ Rules:
 
 Canonical set. If a view needs a symbol not in this list, **add it to `glyphs` first** (and document it here).
 
-| Group           | Tokens                                                                                               |
-| --------------- | ---------------------------------------------------------------------------------------------------- |
-| Phase / status  | `phaseDone ■`, `phaseActive ◆`, `phasePending ◇`, `phaseDisabled ◌`                                  |
-| Cursors         | `actionCursor ▸`, `selectMarker ›`                                                                   |
-| Disclosure      | `disclosureCollapsed ▸`, `disclosureExpanded ▾` (collapsible rows, e.g. Tasks-panel commit messages) |
-| Section markers | `badge ▣`, `sectionRule ━`                                                                           |
-| State           | `check ✓`, `cross ✗`, `warningGlyph ⚠`, `infoGlyph i`, `modified ✎`                                  |
-| Bullets         | `bullet ·`, `inlineDot ·`, `emDash —`, `arrowRight →`, `activityArrow ↳`, `refresh ↻`                |
-| Separators      | `pipe │`                                                                                             |
-| Motion          | `spinner` (braille frames `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`)                                                              |
-| Clip markers    | `clipEllipsis …`, `collapseExpand ▼ more`                                                            |
-| Overflow cues   | `moreAbove ▴`, `moreBelow ▾` (windowed-list `OverflowRow` "N more" rows)                             |
-| Personality     | `quoteRail ┃`                                                                                        |
+| Group           | Tokens                                                                                                                                                      |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Phase / status  | `phaseDone ■`, `phaseActive ◆`, `phasePending ◇`, `phaseDisabled ◌`                                                                                         |
+| Cursors         | `actionCursor ▸`, `selectMarker ›`, `focusBar ▍` (picker focus rail), `caretBlock █` (text-input caret — same char as `barFilled`, separate role)           |
+| Disclosure      | `disclosureCollapsed ▸`, `disclosureExpanded ▾` (collapsible rows, e.g. Tasks-panel commit messages)                                                        |
+| Section markers | `badge ▣`, `sectionRule ━`                                                                                                                                  |
+| State           | `check ✓`, `cross ✗`, `warningGlyph ⚠`, `infoGlyph i`, `modified ✎`, `unknownGlyph ?` (undetermined verdict, never tinted), `stethoscope ✚` (footer doctor) |
+| Bullets         | `bullet ·`, `inlineDot ·`, `emDash —`, `arrowRight →`, `activityArrow ↳`, `refresh ↻`                                                                       |
+| Separators      | `pipe │`                                                                                                                                                    |
+| Motion          | `spinner` (braille frames `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`), `busyDot ●` (gen-eval busy indicator)                                                                              |
+| Meters          | `barFilled █`, `barEmpty ░` (fixed-width progress meters — ratio reads by density alone)                                                                    |
+| Clip markers    | `clipEllipsis …`, `collapseExpand ▼ more`                                                                                                                   |
+| Overflow cues   | `moreAbove ▴`, `moreBelow ▾` (windowed-list `OverflowRow` "N more" rows)                                                                                    |
+| Personality     | `quoteRail ┃`                                                                                                                                               |
 
 Do not mix glyph families (no `✔` from one set and `✓` from another). No emoji in TUI surfaces.
 

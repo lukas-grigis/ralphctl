@@ -145,7 +145,9 @@ interface BuildDetailHintsArgs {
 }
 
 /**
- * Build the local footer-hint list. Every hint shares one source of truth with its handler via
+ * Build the local footer-hint list. Labels stay terse on purpose: the rendered strip must fit
+ * a 100-column terminal on ONE line — an overflowing strip makes Yoga distribute the deficit
+ * across every footer cell, mangling the whole status bar. Every hint shares one source of truth with its handler via
  * `enabledWhen`: the `a`/`d` ticket-CRUD chords are gated on `ticketsEditable` (draft only), so
  * the hints must hide on a non-draft sprint or the footer would advertise keys that do nothing.
  * `m` (mark-current) and `u` (unblock) follow the same declarative gate rather than conditional
@@ -154,15 +156,15 @@ interface BuildDetailHintsArgs {
 const buildDetailHints = (args: BuildDetailHintsArgs): readonly ViewHint[] => {
   const { inDetail, ticketsEditable, canEdit, sprint, currentSprintId, focusedStuckTask, focusedEvaluatedTask } = args;
   return [
-    { keys: '↑/↓/j/k', label: 'move' },
+    { keys: '↑/↓', label: 'move' },
     { keys: 'n', label: 'flows' },
-    { keys: '↵/o', label: inDetail ? 'expand/collapse' : 'expand' },
+    { keys: '↵/o', label: inDetail ? 'toggle' : 'expand' },
     // `esc/q` collapses all expanded cards; only shown while in detail mode so the hint
     // doesn't compete with the global `esc → back` behavior when nothing is expanded.
-    { keys: 'esc/q', label: 'collapse all', enabledWhen: inDetail },
-    { keys: 'a', label: 'add ticket', enabledWhen: ticketsEditable },
-    { keys: 'e', label: 'edit field', enabledWhen: canEdit },
-    { keys: 'd', label: 'remove ticket', enabledWhen: ticketsEditable },
+    { keys: 'esc/q', label: 'collapse', enabledWhen: inDetail },
+    { keys: 'a', label: 'add', enabledWhen: ticketsEditable },
+    { keys: 'e', label: 'edit', enabledWhen: canEdit },
+    { keys: 'd', label: 'remove', enabledWhen: ticketsEditable },
     // Surface the `m` chord only when this sprint is not already the current one — once
     // they match, the action is a no-op and the hint adds noise. Suppressed while a
     // stuck task is focused so the `u unblock` hint (a more urgent operator action)

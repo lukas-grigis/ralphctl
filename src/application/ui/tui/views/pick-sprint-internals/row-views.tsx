@@ -105,7 +105,7 @@ export const PickerRowList = ({
 const CreateRowView = ({ focused }: { readonly focused: boolean }): React.JSX.Element => (
   <Box flexDirection="column" paddingX={spacing.indent}>
     <Box>
-      <Text color={focused ? inkColors.primary : inkColors.rule}>{focused ? '▍' : ' '}</Text>
+      <Text color={focused ? inkColors.primary : inkColors.rule}>{focused ? glyphs.focusBar : ' '}</Text>
       <Text>
         {' '}
         <Text color={focused ? inkColors.primary : inkColors.highlight} bold>
@@ -151,7 +151,7 @@ const SprintRowView = ({
   return (
     <Box flexDirection="column" paddingX={spacing.indent}>
       <Box>
-        <Text color={focused ? inkColors.primary : inkColors.rule}>{focused ? '▍' : ' '}</Text>
+        <Text color={focused ? inkColors.primary : inkColors.rule}>{focused ? glyphs.focusBar : ' '}</Text>
         <Text>
           {' '}
           <Text color={focused ? inkColors.primary : inkColors.muted} bold={focused}>

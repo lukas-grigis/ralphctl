@@ -54,6 +54,8 @@ describe('ProjectsView', () => {
     expect(frame).toContain('Demo Project');
     expect(frame).toContain('demo-proj');
     expect(frame).toContain('1 project(s)');
+    // DESIGN-SYSTEM §6.4 — arrows only in the per-view hint strip; j/k stays bound but unadvertised.
+    expect(frame).not.toContain('j/k');
     result.unmount();
   });
 

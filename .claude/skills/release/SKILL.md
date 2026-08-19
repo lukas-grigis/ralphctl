@@ -51,7 +51,8 @@ Group the surviving commit subjects by conventional-commit prefix into `### Adde
 `CHANGELOG.md` (edit only — don't commit yet; the release commit in step 5 picks it up).
 
 **If the filtered `git log` is also empty,** there's nothing user-facing to release — stop and tell the user. Don't
-promote an empty section; `release.yml` would fall back to a raw `git log` dump and ship noise.
+promote an empty section; `release.yml` hard-fails on a missing or empty `## [<version>]` section (there is no
+fallback), so the workflow would die after the tag is already public.
 
 **If the original `## [Unreleased]` had content,** skip the draft — the user already wrote what they want. Proceed.
 
@@ -81,7 +82,14 @@ branch if anything looks off.
 
    Use today's UTC date in ISO format (`date -u +%Y-%m-%d`). Keep the existing entries where they are — they belong
    under the new dated heading by virtue of position. The heading format is **load-bearing**: `release.yml` extracts the
-   GitHub Release body by `awk`-ing for `## [<version>]`, and a typo there silently falls back to a `git log` blob.
+   GitHub Release body by `awk`-ing for `## [<version>]`, and a typo there fails the workflow — after the tag is
+   already public.
+
+   **Pre-release versions** (`1.0.0-rc.1`): the full suffix must appear in both `package.json#version` and the
+   changelog heading (`## [1.0.0-rc.1]`). The workflow publishes hyphenated versions under the `next` npm dist-tag
+   (never `latest`) and flags the GitHub Release `prerelease`. After the matching stable ships later, run
+   `npm dist-tag add ralphctl@X.Y.Z next` (or `npm dist-tag rm ralphctl next`) so `next` never serves a superseded
+   rc — see the release procedure in `.claude/docs/PERFORMANCE.md`.
 
 4. **Local gate.** Run the project's full check sequence (same as the `verify` skill):
 
@@ -168,7 +176,7 @@ branch if anything looks off.
 - **Tag the merge commit, not the release-branch tip:** The published artifact must match what's actually on `main`.
   Tagging the merge commit guarantees `git checkout v<version>` shows the same tree `main` had at release time.
 - **One source of truth for release notes:** The workflow extracts `## [<version>] - <YYYY-MM-DD>` from `CHANGELOG.md`.
-  Match the format exactly; otherwise the GitHub Release body silently falls back to a raw `git log` dump (still works,
-  but noisy).
+  Match the format exactly; a missing or empty section fails the workflow (the old raw-`git log` fallback was removed
+  on purpose — a commit-subject dump is not release notes).
 - **Admin bypass is loud, on purpose:** Each release surfaces the bypass via `--admin` rather than relying on auto-merge
   with weakened protections. The protections stay strict; the bypass is invoked explicitly.

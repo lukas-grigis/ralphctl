@@ -28,7 +28,7 @@ sequenceDiagram
         Harness->>Repo: read validated signals
         Harness->>Ev: spawn (prompt.md, outputDir)
         Ev-->>Harness: writes signals.json (only)
-        Note over Harness,Ev: harness renders evaluation.md sidecar post-spawn
+        Note over Harness,Ev: harness renders evaluation.md sidecar post-spawn<br/>(read back later by CLI task evaluation / TUI v overlay — see 04)
         Harness->>Task: append attempt + evaluation
         alt evaluator passed
             Harness->>Repo: post-task verify

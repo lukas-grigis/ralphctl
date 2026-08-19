@@ -134,4 +134,5 @@
   ImplementLayout's wide (>=140 col) branch entirely — thread + A/B both branches
 - [project_release_gate_seams.md](project_release_gate_seams.md) — release/CI gates: vitest FORCE_COLOR pin (never
   add NO_COLOR), `npm init -y --prefix` writes into CWD (nearly corrupted package.json pre-publish), runCli's
-  reportFatal terminal frame (AbortError handled not re-thrown), `prompts list` as the prompt-resolver dist gate
+  reportFatal terminal frame (AbortError handled not re-thrown), `prompts list` as the prompt-resolver dist gate,
+  pre-release tag glob + npm `--tag next` as one inseparable change (#305)

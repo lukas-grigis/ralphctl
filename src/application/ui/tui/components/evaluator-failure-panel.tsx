@@ -72,7 +72,7 @@ const VERDICT_PRESENTATION: Record<ParsedDimensionVerdict, { readonly glyph: str
   passed: { glyph: glyphs.check, color: inkColors.success },
   failed: { glyph: glyphs.cross, color: inkColors.error },
   'n/a': { glyph: glyphs.bullet },
-  unknown: { glyph: '?' },
+  unknown: { glyph: glyphs.unknownGlyph },
 };
 
 const clip = (text: string): string =>

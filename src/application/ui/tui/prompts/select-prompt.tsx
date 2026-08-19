@@ -130,7 +130,7 @@ export const SelectPrompt = ({
         </Text>
       )}
       {footer !== undefined && <Text dimColor>{footer}</Text>}
-      <Text dimColor>↑/↓ navigate · ↵ submit · esc cancel</Text>
+      <Text dimColor>↑/↓ move · ↵ submit · esc cancel</Text>
     </Box>
   );
 };

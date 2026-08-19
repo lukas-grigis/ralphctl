@@ -16,5 +16,7 @@
   OpenCode paragraphs mix headless (`--auto`) and interactive (`buildOpencodeEnv` config grant) — don't conflate
 - [reference_provider_fanout_registries.md](reference_provider_fanout_registries.md) — Provider fan-out is
   `Record<AiProvider,…>` tables, not switches; regenerate the list by grep, never hand-maintain
+- [reference_mermaid_validation_entities.md](reference_mermaid_validation_entities.md) — `&lt;`/`&gt;` entities
+  inside mermaid blocks are a REAL parse error (GitHub included) — use raw `<angle brackets>`; 01-flow-lifecycle.md still broken
 - [reference_entity_symbol_names_drift.md](reference_entity_symbol_names_drift.md) — ARCHITECTURE § Data Models
   entity mutator/field names rot silently; table of the 2026-08-18 renames

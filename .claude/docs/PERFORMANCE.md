@@ -356,9 +356,15 @@ For the installed binary instead of `pnpm dev`, set the same flags yourself:
 
 ## Release procedure
 
-GitHub Actions auto-publishes on tags `v[0-9]+.[0-9]+.[0-9]+`. Tag must match
-`package.json#version`; `CHANGELOG.md` needs a `## [X.Y.Z]` section (the literal-prefix extractor surfaces
-it). NPM publish uses `--provenance`. Pre-releases are tags containing `-`.
+GitHub Actions auto-publishes on tags `v[0-9]+.[0-9]+.[0-9]+` and `v[0-9]+.[0-9]+.[0-9]+-*` (ref filters
+full-match, so the pre-release glob is a separate pattern). Tag must match `package.json#version`;
+`CHANGELOG.md` needs a `## [X.Y.Z]` section (the literal-prefix extractor surfaces it). NPM publish uses
+`--provenance`. Pre-releases are tags containing `-`, e.g. `v0.20.0-rc.1` — the full suffix must appear in
+both `package.json#version` and the changelog heading (`## [0.20.0-rc.1]`); they publish under the `next`
+dist-tag, never `latest`, and are flagged `prerelease` on the GitHub Release. `next` is not moved
+automatically afterwards — once the matching stable ships, run `npm dist-tag add ralphctl@X.Y.Z next`
+(or `npm dist-tag rm ralphctl next`) so `next` never serves a superseded pre-release, and check
+`npm dist-tag ls ralphctl` still points `latest` at the last stable.
 
 ## References
 

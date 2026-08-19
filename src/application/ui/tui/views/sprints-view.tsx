@@ -366,7 +366,7 @@ const sprintsKeyBindings = ({
   const { setFeedback } = actions;
   const focusedDone = focusedSprint?.status === 'done';
   return [
-    { keys: ['↑', '↓', 'j', 'k'], hint: 'move' },
+    { keys: ['↑', '↓'], hint: 'move' },
     { keys: ['↵'], hint: 'open' },
     {
       keys: ['c'],

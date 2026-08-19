@@ -8,7 +8,7 @@
  * `skills-view-internals/skill-row.tsx`.
  *
  * Local keys:
- *   ↑/↓/j/k   move the focus cursor (windowed list)
+ *   ↑/↓       move the focus cursor (windowed list — `useListWindow` also accepts the j/k alias)
  *   e         enable the focused skill for picked flows (multi-select, recommendedFor preselected)
  *   d         disable the focused skill for picked flows (multi-select over currently-installed flows)
  *   u         update the focused skill from the bundle (confirms first if it would overwrite a
@@ -237,7 +237,7 @@ const skillsKeyBindings = ({
   canClearOptOut,
   reload,
 }: SkillsKeysInput): readonly ViewKeyBinding[] => [
-  { keys: ['↑', '↓', 'j', 'k'], hint: 'move' },
+  { keys: ['↑', '↓'], hint: 'move' },
   {
     keys: ['e'],
     hint: 'enable',

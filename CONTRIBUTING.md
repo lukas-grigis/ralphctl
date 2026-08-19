@@ -125,7 +125,9 @@ See [ARCHITECTURE.md](./.claude/docs/ARCHITECTURE.md) for the full technical ref
 ## Releasing
 
 Releases are automated by [`.github/workflows/release.yml`](.github/workflows/release.yml),
-which triggers on tags matching `v[0-9]+.[0-9]+.[0-9]+`. To cut a release:
+which triggers on tags matching `v[0-9]+.[0-9]+.[0-9]+` (stable) or `v[0-9]+.[0-9]+.[0-9]+-*`
+(pre-release, e.g. `v0.20.0-rc.1` — published under the `next` dist-tag and marked `prerelease`
+on the GitHub Release). To cut a release:
 
 1. Bump `package.json#version` to `X.Y.Z`
 2. Move `## [Unreleased]` to `## [X.Y.Z] - <date>` in `CHANGELOG.md`
