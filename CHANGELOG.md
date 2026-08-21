@@ -7,6 +7,8 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-08-21
+
 ### Added
 
 - **`ralphctl runs stats` — the harness outcome rollup.** A read-only report over the sprint data
