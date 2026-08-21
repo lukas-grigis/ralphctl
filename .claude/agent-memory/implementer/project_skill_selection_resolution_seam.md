@@ -6,7 +6,7 @@ metadata:
   type: project
 ---
 
-Opt-in/opt-out skill loading (#216 T4) resolves at exactly ONE point: `createResolvedSkillSource`
+Opt-in/opt-out skill loading (#216) resolves at exactly ONE point: `createResolvedSkillSource`
 (`src/integration/ai/skills/_engine/resolve-selection.ts`), a pure `SkillSource` decorator wired inside
 `buildComposedSkillSource` in `src/application/ui/shared/launcher.ts`. No leaf/adapter filters skills.
 

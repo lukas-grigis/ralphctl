@@ -31,4 +31,4 @@ it as an OPTIONAL field on the `PRESETS` record entry, and `applyPreset` conditi
 presets that omit it still leave the operator's value untouched. Test it by seeding a non-default value
 in `current` so "overwritten" and "preserved" are distinguishable.
 
-Related: [[provider-literal-duplication-lint-cap]].
+Related: [[seams_model_catalog_refresh]].

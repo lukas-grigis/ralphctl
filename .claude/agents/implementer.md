@@ -58,43 +58,33 @@ conventions and modern best practices.
 
 ## Architecture & Layering
 
-ralphctl is a **four-module Clean Architecture** under `src/`:
+The layering rules, the no-`class` / no-barrel fences, the sibling-isolation rule, the chain primitives, and
+the flow-registry contract all live in `CLAUDE.md § Architecture invariants`, with the full module map in
+`.claude/docs/ARCHITECTURE.md` and the primitive reference in `.claude/docs/KERNEL-DESIGN.md`. Read those
+rather than a copy here; ESLint enforces most of it, so `pnpm lint` is the fast check.
 
-```
-domain → business → integration → application
-```
-
-- **`domain/`** — entities (`src/domain/entity/`), value objects (`src/domain/value/`), repository
-  interfaces (`src/domain/repository/<aggregate>/`), errors, signal types, `result.ts`. Pure, zero IO.
-  Cannot import I/O-bearing `node:*` modules.
-- **`business/`** — use cases organised by concern (`business/sprint/`, `business/task/`,
-  `business/project/`, `business/ticket/`, `business/feedback/`, `business/settings/`, …), plus service
-  ports (`business/observability/`, `business/scm/`, `business/io/`, `business/interactive/`,
-  `business/version/`). Cannot import I/O-bearing `node:*` modules.
-- **`integration/`** — concrete adapters: AI (`integration/ai/{providers,prompts,contract,evaluation,
-readiness,runs,skills}/`), persistence (`integration/persistence/<aggregate>/`), SCM (`integration/scm/`),
-  observability (`integration/observability/`), IO helpers (`integration/io/`).
-- **`application/`** — composition root (`application/bootstrap/wire.ts`), CLI commands
-  (`application/ui/cli/commands/`), Ink TUI (`application/ui/tui/`), flows (`application/flows/<flow>/`),
-  chain framework (`application/chain/`), runner + session (`application/chain/run/`, `application/session/`).
-
-ESLint `no-restricted-imports` enforces every direction. **No `class` outside `src/domain/value/error/`.**
-**No barrel `index.ts` files anywhere.** Sibling-isolation rules apply under `integration/ai/<concept>/`,
-`business/<module>/`, and `application/flows/<flow>/`.
-
-**Use cases are function factories**, not classes. Shape:
+The two shapes worth having in your head while writing — no `class`, no `this` in either:
 
 ```ts
-const createDoFoo = (deps: DoFooDeps): UseCase<FooInput, FooOutput> => ({
-  execute: async (input, signal?) => {
-    /* … */
-  },
-});
+// business/<concern>/do-foo.ts — a plain function taking one props object, returning a Result.
+export const doFooUseCase = async (props: DoFooProps): Promise<Result<Foo, ValidationError | StorageError>> => {
+  /* … */
+};
+
+// application/flows/<flow>/leaves/do-foo.ts — the leaf adapts it to the `LeafUseCase` shape
+// (`execute(input, signal?)`) and owns the ctx → input / output → ctx projections.
+export const doFooLeaf = (deps: DoFooLeafDeps): Element<FooCtx> =>
+  leaf<FooCtx, LeafInput, DoFooOutput>('do-foo', {
+    useCase: { execute: async (input) => doFooUseCase({ ...input, logger: deps.logger }) },
+    input: (ctx) => ({/* throw a DomainError on a precondition violation */}),
+    output: (ctx, out) => ({ ...ctx, foo: out.foo }),
+  });
 ```
 
-CLI commands and TUI views invoke flow factories from `application/flows/<flow>/` and launch via the chain
-runner (`createRunner` from `application/chain/run/runner.ts`) — they cannot import use cases directly.
-ESLint blocks the shortcut.
+CLI commands and TUI views invoke flow factories from `application/flows/<flow>/` and launch them through
+`createRunner` (`application/chain/run/runner.ts`) — never a use case directly, and never a bespoke
+imperative loop where `sequential` / `loop` / `guard` would do. ESLint blocks the first shortcut; the
+step-order fence tests catch the second.
 
 ## CLI Patterns
 
@@ -105,7 +95,7 @@ ESLint blocks the shortcut.
 - Semantic colors only (`inkColors.error`, `inkColors.success`, …) from
   `src/application/ui/tui/theme/tokens.ts`.
 - Interactive flows are TUI-only by design; CLI is for inspection + one-shot operations.
-- Meaningful exit codes (`EXIT_SUCCESS = 0`, `EXIT_ERROR = 1`, `EXIT_INTERRUPTED = 130`).
+- Meaningful exit codes: `0` success, `1` error; `report-cli-error.ts` sets `EXIT_INTERRUPTED = 130` on `AbortError`.
 
 **Architecture:**
 
@@ -139,32 +129,6 @@ principles doc names which harness components are `applied` (intentional), `part
   principles doc records that this component requires ongoing prompt tuning; code changes alone do not fix
   the grading-leniency failure mode.
 
-## Chain framework
-
-When orchestrating a workflow, do NOT write a bespoke imperative loop. Use the chain primitives in
-`src/application/chain/`:
-
-```ts
-import { sequential } from '@src/application/chain/build/sequential.ts';
-import { leaf } from '@src/application/chain/build/leaf.ts';
-import { loop } from '@src/application/chain/build/loop.ts';
-import { guard } from '@src/application/chain/build/guard.ts';
-```
-
-- `Element<TCtx>` — base interface every primitive implements (in `chain/element.ts`).
-- `leaf(name, { useCase, input, output }, { label? })` — the only seam to a business use case.
-- `sequential(name, [elements])` — runs in order, threads ctx, aborts remaining on first error.
-- `loop(name, body, { shouldContinue?, shouldStop?, maxIterations? })` — generator-evaluator primitive
-  with a hard `maxIterations` cap (default 1000).
-- `guard(name, predicate, body)` — skips body when predicate returns false; emits a `skipped` trace entry.
-
-**No `retry` or `onError` primitives** — retry-on-429 is an adapter concern (`IterationConfig.rateLimitRetries`
-in the headless provider wrapper); branching belongs inside a use case or a `guard`.
-
-The runner (`createRunner({ id, element, initialCtx })` in `application/chain/run/runner.ts`) wraps one
-`element.execute()` call with a status machine + event stream + ring-buffered trace. Late subscribers get a
-synthetic replay.
-
 ## Testing Philosophy
 
 - Test behavior, not implementation.
@@ -172,7 +136,9 @@ synthetic replay.
 - Use dependency injection for testability — build fake ports inline in tests, or via the test bootstrap's
   `wire()` overrides.
 - Test error paths, not just happy paths.
-- Every flow has a step-order fence test asserting `trace.map(s => s.elementName)` for happy + failure paths.
+- Tests live under `tests/` mirroring `src/`, not colocated. High-complexity flows ship a
+  `flow-shape.test.ts` fence asserting the element topology at construction time; if you change a flow's
+  element list, update that fence.
 
 ## Git Practices
 

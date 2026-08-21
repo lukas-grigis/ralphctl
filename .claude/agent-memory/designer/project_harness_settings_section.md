@@ -1,6 +1,6 @@
 ---
 name: project_harness_settings_section
-description: T15 harness section in TUI settings — new fields + editable map-add/map-entry field kinds for escalationMap
+description: Harness section in TUI settings — plateau/pre-verify select fields plus the editable map-add/map-entry kinds for escalationMap
 metadata:
   type: project
 ---
@@ -18,6 +18,6 @@ The hint for a `map-entry` row in `harness-row.tsx` is the constant `ESCALATION_
 
 This was verified against `apply-key.ts` which handles `harness.escalationMap.<fromModel>` explicitly.
 
-**Why:** The plan mandated read-only display + CLI hint for escalationMap v1; a later change replaced that with a full inline map editor (`map-add`/`map-entry`), so escalationMap is now edited entirely in the TUI.
+**Why:** escalationMap was originally specified as read-only display + a CLI hint; a later change replaced that with a full inline map editor (`map-add`/`map-entry`), so it is now edited entirely in the TUI.
 
 **How to apply:** Any future field that should be navigable (cursor passes through it, hint is visible) but not editable in the TUI should add a new `EditableField` kind and guard it in `activateField` (`settings-view.tsx`) the same way `kind === 'preset'` is guarded today. Do not use `readonly: true` on the section — that would hide all fields; per-field readonly is the right granularity.

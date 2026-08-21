@@ -15,8 +15,4 @@ The test suite only advances the clock **once per test**, so two-interval scenar
 
 **NIT - double-seed in useCoalescedBuffer:** The `useState` lazy initializer seeds from `opts.initial` and the effect ALSO calls `setItems(seed.slice(-limit))` on mount. These produce different array references with the same values, triggering an extra render cycle on mount.
 
-**Fix options for log-forwarder:**
-
-1. Track a `forwarded` watermark cursor in the forwarder closure; in `onFlush` emit `window.slice(forwarded)` then set `forwarded = window.length`.
-2. Use a local `pendingBatch: LogEvent[]` array; push admitted events into it; in `onFlush` emit the batch then splice it empty (delta semantics, does not use CoalescedBuffer's window at all).
-3. Add a `clear()` or `discard()` to CoalescedBuffer that resets `window = []` and `dirty = false`, and call it in `onCritical` after `flushNow()`.
+**Durable rule:** a rolling-window buffer and an append-style sink are incompatible by default — decide explicitly which semantics each consumer needs, and write a test that advances the clock across at least TWO flush intervals with new events in between. One-flush-per-test is what let this ship.

@@ -180,7 +180,7 @@ Focus coverage on:
 - **Error handling** — every error path returns the right `DomainError` subclass.
 - **Edge cases** — empty inputs, boundary conditions, null/undefined.
 - **Integration points** — file I/O (the persistence adapters), external services (git, gh / glab).
-- **Flow step-order fence tests** — `tests/integration/application/flows/<flow>/<flow>.test.ts` asserts
+- **Flow step-order fence tests** — `tests/e2e/flows/<flow>.test.ts` asserts
   `trace.map(s => s.elementName)` for happy + failure paths. These lock orchestration order; update them
   when intentionally changing a flow's element list.
 - **Harness-pattern critical paths** — these behaviours encode the harness research in

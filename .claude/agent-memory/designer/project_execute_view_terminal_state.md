@@ -1,7 +1,8 @@
 ---
-name: execute-view terminal state pattern
-description: How the execute view tracks runner terminal status and renders completion CTA
-type: project
+name: execute-view-terminal-state
+description: How the execute view tracks runner terminal status and renders the completion CTA
+metadata:
+  type: project
 ---
 
 `descriptor.status` is kept live by the SessionManager: `attachRunnerLifecycle` subscribes to `runner.subscribe(...)`

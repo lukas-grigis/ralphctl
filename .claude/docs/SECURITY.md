@@ -8,7 +8,7 @@
 `additionalRoots` + `outputDir` on the `AiSession` define **topology** (which paths the AI
 can read / write). Topology is the primary defense; capabilities are the secondary filter.
 
-The `Write` tool is **always allowed** under every profile — the audit-[09] contract requires
+The `Write` tool is **always allowed** under every profile — the file-based signals contract requires
 the AI to land `signals.json` in `outputDir`. To deny writes to a tree, don't mount it.
 `outputDir` is auto-included as a writable root in every provider (see
 `providers/_engine/resolve-roots.ts`).

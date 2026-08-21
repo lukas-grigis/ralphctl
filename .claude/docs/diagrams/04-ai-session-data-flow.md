@@ -1,7 +1,7 @@
 # AI session data flow
 
 Every AI-spawning leaf (refine, plan, ideate, implement-generator/evaluator, readiness,
-detect-scripts, detect-skills, apply-feedback, create-pr) follows the same audit-[09] contract: the AI
+detect-scripts, detect-skills, apply-feedback, create-pr) follows the same file-based signals contract: the AI
 writes one file (`signals.json`), the harness validates + projects.
 
 ## What moves between the harness and the AI
@@ -87,5 +87,5 @@ verbatim; the adapter only mirrors raw body for forensic capture.
 | CLI reader surface     | `src/application/ui/cli/commands/task.ts`                                               |
 | TUI reader surface     | `src/application/ui/tui/components/evaluation-overlay-internals/use-evaluation-file.ts` |
 
-The audit-[09] contract is implemented under `src/integration/ai/contract/_engine/` (see the table above);
+This contract is implemented under `src/integration/ai/contract/_engine/` (see the table above);
 the per-leaf contracts and the read-back surfaces live outside it.

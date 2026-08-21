@@ -26,5 +26,5 @@ context is genuinely needed, ask the user/coordinator rather than reaching for g
 current-state claims (line counts, lint results, test results) via non-git means instead of diffing
 against a git-reconstructed baseline.
 
-See also [[project_execute_view_selection_convergence_reversal]] for the flake-fix work this happened
+See also [[project_navigation_and_selection]] for the flake-fix work this happened
 during.

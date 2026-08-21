@@ -1,22 +1,12 @@
 # Memory Index
 
-- [feedback_chain_traces_drift_fast.md](feedback_chain_traces_drift_fast.md) — Execute / Per-task / Feedback / Onboard
-  step traces drift most often; check tests first
-- [reference_step_trace_locations.md](reference_step_trace_locations.md) — Where step traces live in the docs (three
-  locations per chain)
-- [reference_agent_files_also_drift.md](reference_agent_files_also_drift.md) — .claude/agents/\*.md +
-  .claude/docs/README.md also list kernel primitives; grep them when primitives change
-- [project_high_drift_areas.md](project_high_drift_areas.md) — Top 10 doc sections that go stale fastest; check these
-  first after any feature drop
-- [reference_harness_principles_doc.md](reference_harness_principles_doc.md) — HARNESS-PRINCIPLES.md: 18 rows,
-  applied/partial/gap; update when chain/flow/\_engine changes close a gap
-- [project_changelog_unreleased_drafting.md](project_changelog_unreleased_drafting.md) — [Unreleased] drafting must
-  diff both `<tag>..origin/main` and `origin/main..HEAD` — squash-merged PRs can lack a changelog line
-- [reference_opencode_headless_vs_interactive.md](reference_opencode_headless_vs_interactive.md) — SECURITY.md's
-  OpenCode paragraphs mix headless (`--auto`) and interactive (`buildOpencodeEnv` config grant) — don't conflate
-- [reference_provider_fanout_registries.md](reference_provider_fanout_registries.md) — Provider fan-out is
-  `Record<AiProvider,…>` tables, not switches; regenerate the list by grep, never hand-maintain
-- [reference_mermaid_validation_entities.md](reference_mermaid_validation_entities.md) — `&lt;`/`&gt;` entities
-  inside mermaid blocks are a REAL parse error (GitHub included) — use raw `<angle brackets>`; 01-flow-lifecycle.md still broken
-- [reference_entity_symbol_names_drift.md](reference_entity_symbol_names_drift.md) — ARCHITECTURE § Data Models
-  entity mutator/field names rot silently; table of the 2026-08-18 renames
+- [feedback_chain_traces_drift_fast.md](feedback_chain_traces_drift_fast.md) — Flow step traces are the fastest-drifting docs; read the flow's e2e test before editing
+- [project_high_drift_areas.md](project_high_drift_areas.md) — The doc hot zones that re-rot every sprint, and what to regenerate each from
+- [project_changelog_unreleased_drafting.md](project_changelog_unreleased_drafting.md) — [Unreleased] drafting needs both `<tag>..origin/main` and `origin/main..HEAD` — squash-merged PRs can lack a line
+- [reference_step_trace_locations.md](reference_step_trace_locations.md) — The three doc locations per chain step trace, plus the plan-chain exception and the gen-eval fences
+- [reference_agent_files_also_drift.md](reference_agent_files_also_drift.md) — `.claude/agents/*.md` and `.claude/docs/README.md` restate kernel primitives; grep them too
+- [reference_entity_symbol_names_drift.md](reference_entity_symbol_names_drift.md) — ARCHITECTURE § Data Models entity mutator/field names rot silently; table of confirmed renames
+- [reference_harness_principles_doc.md](reference_harness_principles_doc.md) — HARNESS-PRINCIPLES.md's 18 status-tagged rows; re-evaluate on any chain/flow/_engine change
+- [reference_mermaid_validation_entities.md](reference_mermaid_validation_entities.md) — `&lt;`/`&gt;` in a mermaid block is a real parse error; use raw angle brackets and validate with `mermaid.parse()`
+- [reference_opencode_headless_vs_interactive.md](reference_opencode_headless_vs_interactive.md) — OpenCode's two directory-grant mechanisms (`--auto` headless vs `buildOpencodeEnv` interactive) must never be conflated
+- [reference_provider_fanout_registries.md](reference_provider_fanout_registries.md) — Provider fan-out is `Record<AiProvider,…>` tables, not switches; regenerate the list by grep

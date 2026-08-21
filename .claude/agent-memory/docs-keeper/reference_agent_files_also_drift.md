@@ -1,15 +1,15 @@
 ---
-name: agent_files_also_drift
-description: .claude/agents/*.md files contain kernel/chain references and drift when primitives change — check them alongside the five spec docs
-type: feedback
+name: reference-agent-files-also-drift
+description: The 7 .claude/agents/*.md files and .claude/docs/README.md repeat kernel-primitive lists and drift when a primitive changes — grep them alongside the spec docs
+metadata:
+  type: reference
 ---
 
-Agent files under `.claude/agents/` (implementer, reviewer, planner, docs-keeper) repeat kernel primitive lists
-and must be updated when a primitive is added or removed.
+`.claude/agents/*.md` (designer, docs-keeper, implementer, planner, prompt-template-engineer, reviewer,
+tester) restate kernel primitive lists, and `.claude/docs/README.md`'s description rows restate what each
+doc covers. Both rot when a primitive is added or removed — when `Parallel` was dropped, every agent file
+still listed six kernel concepts.
 
-**Why:** When `Parallel` was removed in feature/enhance, the implementer.md, reviewer.md, planner.md, and
-docs-keeper.md all still listed six kernel concepts. The `.claude/docs/README.md` description row also drifted.
-
-**How to apply:** When auditing for kernel-primitive changes, add these files to the grep: `.claude/agents/*.md`
-and `.claude/docs/README.md`. A single grep for `Element.*Leaf.*Sequential.*Parallel` or `six concepts` catches
-all instances.
+**How to apply:** on any kernel-primitive audit, add `.claude/agents/*.md` and `.claude/docs/README.md`
+to the grep set. A single grep for the primitive names together (or for a stated concept count) catches
+every instance at once.

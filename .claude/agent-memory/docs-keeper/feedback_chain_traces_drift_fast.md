@@ -1,7 +1,8 @@
 ---
 name: chain_traces_drift_fast
 description: Flow step traces drift fast; always verify against the flow's e2e test before editing docs
-type: feedback
+metadata:
+  type: feedback
 ---
 
 Flow / chain step traces in `REQUIREMENTS.md` and `ARCHITECTURE.md` are the fastest-drifting part of the docs. When new
