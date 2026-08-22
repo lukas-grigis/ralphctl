@@ -24,19 +24,23 @@ const loadSeededAi = async (homeDirStr: string): Promise<AiSettings> => {
 
 describe('ralphctl demo', () => {
   let cli: CliHome;
+  let demoParent: string;
   let demoHome: string;
 
   beforeEach(async () => {
     // `createCliHome` gives us a scratch RALPHCTL_HOME for the harness to point commander's
     // own bootstrap at (unused by `demo`, which takes an explicit `--home`), plus a fresh
-    // sibling directory for the sandbox itself.
+    // sibling directory for the sandbox itself. `demoHome` is a child of `demoParent` (`demo`
+    // refuses to seed into an existing, unmarked directory) — cleanup removes the mkdtemp'd
+    // parent, not just the child, or the parent leaks on every run.
     cli = await createCliHome();
-    demoHome = join(await fs.mkdtemp(join(tmpdir(), 'ralphctl-demo-e2e-')), 'sandbox');
+    demoParent = await fs.mkdtemp(join(tmpdir(), 'ralphctl-demo-e2e-'));
+    demoHome = join(demoParent, 'sandbox');
   });
 
   afterEach(async () => {
     await cli.cleanup();
-    await fs.rm(demoHome, { recursive: true, force: true });
+    await fs.rm(demoParent, { recursive: true, force: true });
   });
 
   it('seeds a project + three sprints readable through the fs repositories', async () => {

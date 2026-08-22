@@ -10,11 +10,9 @@
  */
 
 import { promises as fs } from 'node:fs';
-import { mkdtemp } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import React from 'react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { render } from 'ink-testing-library';
 import { Text } from 'ink';
 import { useRunForensics } from '@src/application/ui/tui/views/execute-view-internals/use-run-forensics.ts';
@@ -23,6 +21,7 @@ import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
+import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
 
 const SPRINT_ID = '01933fbb-2222-7000-8000-0000000000aa' as unknown as SprintId;
 
@@ -31,6 +30,22 @@ const absPath = (p: string): AbsolutePath => {
   if (!r.ok) throw new Error(`invalid path ${p}`);
   return r.value;
 };
+
+const cleanups: Array<() => Promise<void>> = [];
+
+/** Allocates a tmp root and registers it for teardown — every test in this file routes through here. */
+const nextTmpRoot = async (): Promise<AbsolutePath> => {
+  const { root, cleanup } = await makeTmpRoot();
+  cleanups.push(cleanup);
+  return root;
+};
+
+afterEach(async () => {
+  while (cleanups.length > 0) {
+    const cleanup = cleanups.pop();
+    if (cleanup !== undefined) await cleanup();
+  }
+});
 
 interface ProbeArgs {
   readonly enabled: boolean;
@@ -48,10 +63,10 @@ const Probe = ({ args, seen }: { readonly args: ProbeArgs; readonly seen: Forens
 };
 
 const mkSprintDir = async (): Promise<{ readonly dataRoot: AbsolutePath; readonly sprintDir: string }> => {
-  const root = await mkdtemp(join(tmpdir(), 'ralphctl-forensics-'));
-  const sprintDir = join(root, 'sprints', `${String(SPRINT_ID)}--demo-sprint`);
+  const dataRoot = await nextTmpRoot();
+  const sprintDir = join(String(dataRoot), 'sprints', `${String(SPRINT_ID)}--demo-sprint`);
   await fs.mkdir(sprintDir, { recursive: true });
-  return { dataRoot: absPath(root), sprintDir };
+  return { dataRoot, sprintDir };
 };
 
 /**
@@ -183,8 +198,8 @@ describe('useRunForensics', () => {
   it('returns nothing when the sprint directory is gone', async () => {
     // A sibling sprint exists under `sprints/` so the resolver has a real directory to scan and
     // mis-match against — "empty because the tree is empty" would prove much less.
-    const root = await mkdtemp(join(tmpdir(), 'ralphctl-forensics-empty-'));
-    const strangerDir = join(root, 'sprints', '01933fbb-9999-7000-8000-0000000000bb--other-sprint');
+    const root = await nextTmpRoot();
+    const strangerDir = join(String(root), 'sprints', '01933fbb-9999-7000-8000-0000000000bb--other-sprint');
     await fs.mkdir(strangerDir, { recursive: true });
     await fs.writeFile(join(strangerDir, 'progress.md'), '# not ours\n', 'utf8');
 
@@ -197,8 +212,8 @@ describe('useRunForensics', () => {
             enabled: true,
             pinnedSprintId: SPRINT_ID,
             flowId: 'implement',
-            dataRoot: absPath(root),
-            runsRoot: absPath(root),
+            dataRoot: root,
+            runsRoot: root,
           }}
           seen={seen}
         />
@@ -217,8 +232,8 @@ describe('useRunForensics', () => {
   it('points a one-shot flow at its runs directory, never at a fabricated run id', async () => {
     // `<runsRoot>/<flowId>/<run-id>/` — the run-id segment is generated inside the chain and
     // never reaches the descriptor, so the hook stops one level up and names `ralphctl runs list`.
-    const root = await mkdtemp(join(tmpdir(), 'ralphctl-forensics-runs-'));
-    const runsRoot = join(root, 'runs');
+    const root = await nextTmpRoot();
+    const runsRoot = join(String(root), 'runs');
     await fs.mkdir(join(runsRoot, 'readiness'), { recursive: true });
 
     const seen: ForensicPath[][] = [];
@@ -228,7 +243,7 @@ describe('useRunForensics', () => {
           enabled: true,
           pinnedSprintId: undefined,
           flowId: 'readiness',
-          dataRoot: absPath(root),
+          dataRoot: root,
           runsRoot: absPath(runsRoot),
         }}
         seen={seen}

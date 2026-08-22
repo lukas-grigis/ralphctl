@@ -368,6 +368,30 @@ describe('JsonSettingsRepository', () => {
     expect(onDisk.ai['plan']).toEqual({ provider: 'github-copilot', model: retired });
   });
 
+  it('load silently strips a legacy settings.developer section (removed in 4bd412aa)', async () => {
+    const path = join(String(configRoot), SETTINGS_FILE_NAME);
+    // Every shipped user's settings.json still carries this section from before
+    // `settings.developer` (and its one flag, `showEvaluatorFailureUI`) was removed wholesale —
+    // the schema strips unknown keys by default, so load must succeed rather than reject the file.
+    const legacyWithDeveloper = {
+      ...DEFAULT_SETTINGS,
+      developer: { showEvaluatorFailureUI: true },
+    };
+    await fs.writeFile(path, `${JSON.stringify(legacyWithDeveloper, null, 2)}\n`);
+
+    const repo = createJsonSettingsRepository({ configRoot });
+    const loaded = await repo.load();
+    expect(loaded.ok).toBe(true);
+    if (!loaded.ok) return;
+    expect(loaded.value).not.toHaveProperty('developer');
+
+    // A subsequent save() must not resurrect the stripped key on disk.
+    const saved = await repo.save(loaded.value);
+    expect(saved.ok).toBe(true);
+    const onDisk = JSON.parse(await fs.readFile(path, 'utf8')) as Record<string, unknown>;
+    expect(onDisk).not.toHaveProperty('developer');
+  });
+
   it('load rejects a settings file from a newer ralphctl version', async () => {
     const path = join(String(configRoot), SETTINGS_FILE_NAME);
     const future = { ...DEFAULT_SETTINGS, schemaVersion: CURRENT_SCHEMA_VERSION + 1 };
