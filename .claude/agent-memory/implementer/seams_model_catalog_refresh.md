@@ -38,6 +38,20 @@ NOT reachable by grepping for the changed slugs.
 catalog file → `RETIRED_MODEL_REMAPS` in `src/domain/entity/settings.ts` → fingerprint → the two remap
 test files → AI-SETTINGS.md → CHANGELOG.
 
+## The inverse case: a preset-only model migration
+
+Retiring a model from the curated presets WITHOUT touching the catalog (e.g. the Haiku 4.5 →
+Sonnet 5-at-`low` move) does **not** trip the fingerprint gate — that gate hashes catalog ids, not
+preset rows. The real fences live in `tests/unit/business/settings/presets.test.ts`: the
+`retiring cheap tier` set (add the slug there so the matrices can't regress onto it), the
+per-family readiness assertion, and the per-preset matrix blocks. `presets.ts` also carries prose
+in three docstrings (economic "cheap tier", fast-family "not haiku", the hoisted-const comment)
+that no test guards. `.claude/docs/AI-SETTINGS.md` restates the same prose and also goes stale.
+
+When a cheap-tier MODEL disappears, the cost intent has to move into the effort column: pin
+`effort: 'low'` on each migrated row, because an absent effort inherits the preset's global (`high`
+on economic / strong-gate) and silently raises spend.
+
 Touchpoints that usually need NO change: `escalation-map.ts` (rungs name only claude/gpt slugs),
 `context-window.ts` (Copilot/Codex windows are deliberately omitted — the CLIs don't surface them),
 `suspended-models.ts` (empty by design, kept as a kill-switch mechanism), `effort.ts`,
