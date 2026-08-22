@@ -229,9 +229,12 @@ describe('presets', () => {
   it('no preset row references a retiring cheap tier', () => {
     // `gpt-5.4-mini` retires 2026-08-31 and `gpt-5-mini` is the generation below it; both were
     // replaced by `gpt-5.6-luna`, which is catalogued on BOTH openai-codex and github-copilot.
+    // `claude-haiku-4-5` joins them: Anthropic has announced a retirement horizon (not before
+    // 2026-10-15) with no Haiku 5 successor, so every cheap-flow slot that used to sit on it now
+    // sits on `claude-sonnet-5` at `low` effort — Claude Code's designated cheap tier.
     // The ids stay in the catalogs (an operator may still pin one until the shutoff) — what this
     // fences is the curated matrices shipping a row that stops spawning on a known date.
-    const retiring = new Set(['gpt-5.4-mini', 'gpt-5-mini']);
+    const retiring = new Set(['gpt-5.4-mini', 'gpt-5-mini', 'claude-haiku-4-5']);
     for (const preset of PRESET_NAMES) {
       const out = applyPreset(preset, DEFAULT_SETTINGS);
       for (const flow of FLOW_IDS) {
@@ -243,14 +246,41 @@ describe('presets', () => {
     }
   });
 
-  it('claude-only routes readiness to Sonnet 5 — haiku stays in the cheaper families', () => {
-    // The standard family's story is "the best model per flow purpose"; haiku under-reads a repo
-    // during readiness inventory. The economic / strong-gate / fast families keep haiku there
-    // deliberately, so this assertion is paired with the negative below.
+  it('every claude family routes readiness to Sonnet 5 — the cheap families separate by EFFORT, not by model', () => {
+    // Haiku 4.5 is on a retirement horizon with no successor, so the cheap claude families moved
+    // their light flows onto sonnet at `low` effort rather than a weaker model. The cost intent
+    // survives in the effort column: standard reads a repo at `medium`, the cheap families at
+    // `low`. `low` is pinned EXPLICITLY on those rows — leaving effort unset would inherit the
+    // global (`high` for economic / strong-gate) and silently raise the bill.
     expect(applyPreset('claude-only', DEFAULT_SETTINGS).ai.readiness.model).toBe('claude-sonnet-5');
     expect(applyPreset('claude-only', DEFAULT_SETTINGS).ai.readiness.effort).toBe('medium');
     for (const preset of ['claude-economic', 'claude-strong-gate', 'claude-fast'] as const) {
-      expect(applyPreset(preset, DEFAULT_SETTINGS).ai.readiness.model, preset).toBe('claude-haiku-4-5');
+      const out = applyPreset(preset, DEFAULT_SETTINGS);
+      expect(out.ai.readiness.model, preset).toBe('claude-sonnet-5');
+      expect(out.ai.readiness.effort, preset).toBe('low');
+    }
+  });
+
+  it('every migrated cheap-flow row pins effort explicitly so it cannot inherit a pricier global', () => {
+    // The rows that used to be haiku: refine / readiness / createPr on claude-economic and
+    // claude-fast, readiness / createPr on claude-strong-gate, ideate on mixed-fast + claude-fast.
+    const cheapClaudeRows: ReadonlyArray<[PresetName, 'refine' | 'readiness' | 'ideate' | 'createPr']> = [
+      ['claude-economic', 'refine'],
+      ['claude-economic', 'readiness'],
+      ['claude-economic', 'createPr'],
+      ['claude-strong-gate', 'readiness'],
+      ['claude-strong-gate', 'createPr'],
+      ['mixed-fast', 'ideate'],
+      ['claude-fast', 'refine'],
+      ['claude-fast', 'readiness'],
+      ['claude-fast', 'ideate'],
+      ['claude-fast', 'createPr'],
+    ];
+    for (const [preset, flow] of cheapClaudeRows) {
+      const row = applyPreset(preset, DEFAULT_SETTINGS).ai[flow];
+      expect(row.provider, `${preset}/${flow}`).toBe('claude-code');
+      expect(row.model, `${preset}/${flow}`).toBe('claude-sonnet-5');
+      expect(row.effort, `${preset}/${flow}`).toBe('low');
     }
   });
 
@@ -437,11 +467,12 @@ describe('presets', () => {
         expect(out.ai.refine.effort).toBeUndefined();
         expect(out.ai.plan.model).toBe('claude-opus-5');
         expect(out.ai.plan.effort).toBe('xhigh');
-        expect(out.ai.readiness.model).toBe('claude-haiku-4-5');
-        expect(out.ai.readiness.effort).toBe('medium');
+        expect(out.ai.readiness.model).toBe('claude-sonnet-5');
+        expect(out.ai.readiness.effort).toBe('low');
         expect(out.ai.ideate.model).toBe('claude-sonnet-5');
         expect(out.ai.ideate.effort).toBeUndefined();
-        expect(out.ai.createPr.model).toBe('claude-haiku-4-5');
+        expect(out.ai.createPr.model).toBe('claude-sonnet-5');
+        expect(out.ai.createPr.effort).toBe('low');
       });
 
       it('splits a cheap sonnet generator against a strong opus evaluator (same provider, different model)', () => {

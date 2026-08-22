@@ -76,8 +76,8 @@ export const isPresetName = (raw: string): raw is PresetName => (PRESET_NAMES as
 
 // Provider and model identifiers referenced across the preset matrices below, hoisted so each
 // literal appears once. The dash vs dot spelling is provider-specific and load-bearing:
-// claude-code uses the dash form (`claude-opus-5`, `claude-sonnet-5` → OPUS / SONNET / HAIKU)
-// while github-copilot uses the dotted form (`claude-…-4.8` → COPILOT_OPUS / COPILOT_SONNET). Do
+// claude-code uses the dash form (`claude-opus-5`, `claude-sonnet-5` → OPUS / SONNET) while
+// github-copilot uses the dotted form (`claude-…-4.8` → COPILOT_OPUS / COPILOT_SONNET). Do
 // not normalise one into the other. Sonnet 5 is the default Sonnet for Claude Code; Copilot's
 // curated presets stay on Sonnet 4.6 (its slug collides with the Claude-Code id — see escalation-map).
 // `COPILOT_OPUS` deliberately stays `claude-opus-4.8` — `claude-opus-5` is plan-gated on Copilot
@@ -97,7 +97,10 @@ const OPENCODE_BIG = 'opencode/big-pickle';
 const OPENCODE_MINI = 'opencode/deepseek-v4-flash-free';
 const OPUS = 'claude-opus-5';
 const SONNET = 'claude-sonnet-5';
-const HAIKU = 'claude-haiku-4-5';
+// No HAIKU constant: `claude-haiku-4-5` faces an Anthropic retirement horizon (not before
+// 2026-10-15) with no Haiku 5 successor, so every cheap-flow claude row moved to SONNET pinned at
+// `low` effort — Claude Code's designated cheap tier. Haiku stays in the catalog as a manually
+// selectable model; what left is the curated preset defaults.
 const COPILOT_OPUS = 'claude-opus-4.8';
 const COPILOT_SONNET = 'claude-sonnet-4.6';
 const GPT_5_6_SOL = 'gpt-5.6-sol';
@@ -220,12 +223,15 @@ const CODEX_ONLY: AiSettings = {
  * when a task plateaus — so most tasks finish on the cheaper tier and only the genuinely hard
  * ones pay flagship token rates. Global `ai.effort` is stamped to `high` like the standard
  * presets; per-row efforts mirror the standard presets (`plan` / `implement` heavy, `readiness`
- * `medium`, `refine` / `ideate` inherit global). Implement.generator and implement.evaluator
- * share the same row — splitting roles is an explicit per-row edit, not a preset.
+ * `medium`, `refine` / `ideate` inherit global) — EXCEPT on `claude-economic`, where the cheap
+ * tier is a model already used elsewhere in the matrix, so the saving has to live in the effort
+ * column instead: its light rows pin `low` explicitly. Implement.generator and
+ * implement.evaluator share the same row — splitting roles is an explicit per-row edit, not a preset.
  *
  * `refine` / `readiness` / `createPr` drop to the cheap tier across all four; `ideate` drops a
  * tier too, in every family including `codex-economic` — the GPT-5.6 family's `terra` tier is
- * the intermediate tier the cheap-ideation row needed.
+ * the intermediate tier the cheap-ideation row needed. On `claude-economic` "cheap tier" means
+ * sonnet pinned at `low`, since Haiku 4.5 is retiring with no Haiku 5 successor (see SONNET).
  *
  * This is also the one family that pins `harness.bestOfNCandidates` to `0` (see {@link PRESETS}).
  * The shipped default is `2` — a stuck task samples two candidates at the top of the ladder — but
@@ -247,15 +253,18 @@ const MIXED_ECONOMIC: AiSettings = {
 
 const CLAUDE_ECONOMIC: AiSettings = {
   effort: 'high',
-  refine: { provider: CLAUDE, model: HAIKU },
+  // Claude's cheap tier is sonnet-at-`low`, not a smaller model — see the note on SONNET. Effort
+  // is pinned on every light row: unset would inherit this preset's global `high` and undo the
+  // saving the row exists for.
+  refine: { provider: CLAUDE, model: SONNET, effort: 'low' },
   plan: { provider: CLAUDE, model: SONNET, effort: 'high' },
   implement: {
     generator: { provider: CLAUDE, model: SONNET, effort: 'high' },
     evaluator: { provider: CLAUDE, model: SONNET, effort: 'high' },
   },
-  readiness: { provider: CLAUDE, model: HAIKU, effort: 'medium' },
+  readiness: { provider: CLAUDE, model: SONNET, effort: 'low' },
   ideate: { provider: CLAUDE, model: SONNET },
-  createPr: { provider: CLAUDE, model: HAIKU },
+  createPr: { provider: CLAUDE, model: SONNET, effort: 'low' },
 };
 
 const COPILOT_ECONOMIC: AiSettings = {
@@ -308,9 +317,10 @@ const CLAUDE_STRONG_GATE: AiSettings = {
     // Strong gate: opus from the first round, never cheapened.
     evaluator: { provider: CLAUDE, model: OPUS, effort: 'xhigh' },
   },
-  readiness: { provider: CLAUDE, model: HAIKU, effort: 'medium' },
+  // Cheap light flows: sonnet pinned at `low` (see CLAUDE_ECONOMIC) — never inheriting global `high`.
+  readiness: { provider: CLAUDE, model: SONNET, effort: 'low' },
   ideate: { provider: CLAUDE, model: SONNET },
-  createPr: { provider: CLAUDE, model: HAIKU },
+  createPr: { provider: CLAUDE, model: SONNET, effort: 'low' },
 };
 
 /**
@@ -377,11 +387,14 @@ const CODEX_STRONG_GATE: AiSettings = {
  * quality. This is the only family with `escalateOnPlateau` stamped OFF — a plateau here settles
  * (done-with-warning) rather than climbing the ladder, because the whole point is to stay cheap.
  *
- * Implement deliberately uses sonnet / gpt-mini, NOT haiku: haiku (and the codex nano tier) is
- * too weak to author code reliably, so the cheapest model that can still complete a task gates
- * the implement rows even in the fast family. Light flows (refine / readiness / ideate / createPr)
- * drop further — `codex-fast`'s light flows leave `effort` unset so they inherit the family's
- * global `low`; Codex no longer has a below-`low` rung (`minimal` was retired).
+ * Implement deliberately uses a code-capable tier (sonnet / the cheapest 5.6 tier), NOT a
+ * sub-coding model: haiku and the codex nano tier are too weak to author code reliably, so the
+ * cheapest model that can still complete a task gates the implement rows even in the fast family.
+ * The gpt-side light flows (refine / readiness / ideate / createPr) drop a model tier further;
+ * the claude-side ones cannot — Haiku 4.5 is retiring with no successor (see SONNET), so
+ * `claude-fast` is uniformly sonnet and buys its speed entirely from `low` effort, which the
+ * family stamps globally AND pins per row. `codex-fast`'s light flows leave `effort` unset so
+ * they inherit the family's global `low`; Codex no longer has a below-`low` rung (`minimal` was retired).
  */
 const MIXED_FAST: AiSettings = {
   effort: 'low',
@@ -392,21 +405,21 @@ const MIXED_FAST: AiSettings = {
     evaluator: { provider: CLAUDE, model: SONNET, effort: 'low' },
   },
   readiness: { provider: COPILOT, model: GPT_5_6_LUNA, effort: 'low' },
-  ideate: { provider: CLAUDE, model: HAIKU },
+  ideate: { provider: CLAUDE, model: SONNET, effort: 'low' },
   createPr: { provider: CODEX, model: GPT_5_6_LUNA },
 };
 
 const CLAUDE_FAST: AiSettings = {
   effort: 'low',
-  refine: { provider: CLAUDE, model: HAIKU },
+  refine: { provider: CLAUDE, model: SONNET, effort: 'low' },
   plan: { provider: CLAUDE, model: SONNET, effort: 'low' },
   implement: {
     generator: { provider: CLAUDE, model: SONNET, effort: 'low' },
     evaluator: { provider: CLAUDE, model: SONNET, effort: 'low' },
   },
-  readiness: { provider: CLAUDE, model: HAIKU, effort: 'low' },
-  ideate: { provider: CLAUDE, model: HAIKU },
-  createPr: { provider: CLAUDE, model: HAIKU },
+  readiness: { provider: CLAUDE, model: SONNET, effort: 'low' },
+  ideate: { provider: CLAUDE, model: SONNET, effort: 'low' },
+  createPr: { provider: CLAUDE, model: SONNET, effort: 'low' },
 };
 
 const COPILOT_FAST: AiSettings = {
