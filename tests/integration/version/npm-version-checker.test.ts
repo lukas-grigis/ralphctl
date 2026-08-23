@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -30,8 +30,8 @@ describe('createNpmVersionChecker', () => {
   beforeEach(async () => {
     stateRoot = await makeStateRoot();
   });
-  afterEach(() => {
-    // tmpdir cleanup is best-effort across the suite; leave it to the OS.
+  afterEach(async () => {
+    await rm(String(stateRoot), { recursive: true, force: true });
   });
 
   it('reports an update when registry latest > current', async () => {

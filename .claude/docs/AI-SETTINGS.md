@@ -110,8 +110,12 @@ additionally carries `opencode-only`. The families:
   climbs to the flagship on plateau via the escalation ladder (`escalateOnPlateau` stamped `true`). The
   Codex variant (`gpt-5.6-terra` gen → `gpt-5.6-sol` gate) has the narrowest gap of the family.
 - **fast** (`mixed-fast`, `claude-fast`, `copilot-fast`, `codex-fast`) — cheapest viable tier at `low`
-  effort across the board. Implement uses sonnet/mini (not haiku — too weak to author code reliably); light
-  flows drop further. This is the only family with `escalateOnPlateau` stamped **`false`** — a plateau
+  effort across the board; the family differentiates by EFFORT rather than by model. Implement stays on a
+  code-capable tier (sonnet / the cheapest 5.6 tier), never a sub-coding model — too weak to author code
+  reliably. `claude-fast` is uniformly sonnet across every row (Haiku 4.5 is retiring with no Haiku 5
+  successor, so it left every preset default — see the Claude Code catalog note below) and buys its speed
+  entirely from `low` effort; the gpt-side light flows (refine/readiness/ideate/createPr) additionally drop
+  a model tier further. This is the only family with `escalateOnPlateau` stamped **`false`** — a plateau
   settles (done-with-warning) rather than climbing the ladder, which is what keeps the family genuinely
   cheap and predictable.
 - **frontier** (`mixed-frontier`, `claude-frontier`, `copilot-frontier`, `codex-frontier`) — flagship
@@ -125,7 +129,9 @@ strong-gate / frontier all stamp it `true`; fast stamps it `false`. The rest of 
 `escalationMap`, `plateauThreshold`, …) plus all other top-level settings keys are preserved verbatim.
 
 **Model-tier ordering.** The ladders each family relies on are grounded in SWE-bench rankings (June
-2026 data): Claude haiku < sonnet < opus < fable; GPT mini < 5.4 < 5.5 < 5.6 (luna < terra < sol). These
+2026 data): Claude sonnet < opus < fable (Haiku 4.5 sits below sonnet but is no longer part of any preset
+ladder — it faces an Anthropic retirement horizon with no Haiku 5 successor, see the **fast** family note
+above); GPT mini < 5.4 < 5.5 < 5.6 (luna < terra < sol). These
 orderings explain why the cheap-to-strong tier progressions are wired the way they are — not as
 guaranteed scores (OpenAI stopped publishing SWE-bench Verified after contamination concerns, and
 results swing significantly with scaffolding). Treat this as relative-ordering rationale, not a
@@ -139,6 +145,8 @@ every `ai` row plus `harness.escalateOnPlateau` in one transaction; subsequent p
 
 - Claude Code — `claude-haiku-4-5` / `claude-sonnet-4-6` / `claude-sonnet-5` / `claude-opus-4-8` /
   `claude-opus-5` (verified against Claude Code v2.1.197; `claude-sonnet-5` requires v2.1.197+;
+  `claude-haiku-4-5` stays in the catalog for manual selection only — it left every preset default
+  ahead of its Anthropic retirement horizon, which has no Haiku 5 successor;
   `claude-opus-5` ships at the same price as Opus 4.8 — vendor-stated drop-in). `claude-opus-5` is the
   Opus 4.8 successor and the **default Opus** across presets, the new-install defaults, and the
   escalation ladder; `claude-opus-4-8` is kept alongside it (both Active at Anthropic) so pinned 4.8

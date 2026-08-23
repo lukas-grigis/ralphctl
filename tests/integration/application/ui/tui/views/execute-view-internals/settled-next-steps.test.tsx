@@ -10,10 +10,8 @@
  */
 
 import { promises as fs } from 'node:fs';
-import { mkdtemp } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ExecuteView } from '@src/application/ui/tui/views/execute-view.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
@@ -34,6 +32,7 @@ import {
 import { tick } from '@tests/integration/application/ui/tui/_keys.ts';
 import { waitForPredicate } from '@tests/integration/application/ui/tui/_wait.ts';
 import { renderView, waitForViewReady } from '@tests/integration/application/ui/tui/_harness.tsx';
+import { makeTmpRoot } from '@tests/fixtures/tmp-root.ts';
 
 const SPRINT_ID = '01933fbb-3333-7000-8000-0000000000bb' as unknown as SprintId;
 const PROJECT_ID = 'project-settled-next' as unknown as ProjectId;
@@ -83,6 +82,15 @@ const depsWithSprint = (sprint: unknown): AppDeps =>
       findBySprintId: vi.fn().mockResolvedValue({ ok: true, value: [] }),
     },
   }) as unknown as AppDeps;
+
+const cleanups: Array<() => Promise<void>> = [];
+
+afterEach(async () => {
+  while (cleanups.length > 0) {
+    const cleanup = cleanups.pop();
+    if (cleanup !== undefined) await cleanup();
+  }
+});
 
 describe('Execute view — settled-run next steps', () => {
   it('offers BOTH flows visible at review, not the create-pr the old Home card advised', async () => {
@@ -202,8 +210,9 @@ describe('Execute view — settled-run next steps', () => {
   });
 
   it('renders the post-mortem block with the paths a failed run actually left behind', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'ralphctl-settled-'));
-    const sprintDir = join(root, 'sprints', `${String(SPRINT_ID)}--demo-sprint`);
+    const { root, cleanup } = await makeTmpRoot();
+    cleanups.push(cleanup);
+    const sprintDir = join(String(root), 'sprints', `${String(SPRINT_ID)}--demo-sprint`);
     await fs.mkdir(sprintDir, { recursive: true });
     await fs.writeFile(join(sprintDir, 'progress.md'), '# progress\n', 'utf8');
 
@@ -221,7 +230,7 @@ describe('Execute view — settled-run next steps', () => {
       deps: depsWithSprint(makeReviewSprint()),
       initial: { id: 'execute', props: { sessionId: 'r-settled-forensics' } },
       sessions,
-      storage: storageAt(root),
+      storage: storageAt(String(root)),
     });
     await waitForViewReady(result, (f) => f.includes('Post-mortem'));
     const frame = result.lastFrame() ?? '';
