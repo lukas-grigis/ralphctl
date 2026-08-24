@@ -7,6 +7,18 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-08-24
+
+### Changed
+
+- **Curated Claude presets no longer default to Haiku 4.5.** Haiku 4.5 faces an Anthropic retirement
+  horizon with no Haiku 5 successor, so every cheap-flow row that pinned it — `refine`, `readiness`,
+  `createPr` (and `ideate` where it applied) across `claude-economic`, `claude-strong-gate`,
+  `claude-fast`, and `mixed-fast` — now runs Sonnet 5 pinned at `low` effort, Claude Code's designated
+  cheap tier. The effort is pinned explicitly rather than inherited, so the light rows keep the saving
+  they exist for. Haiku stays fully selectable as a model; what changed is the curated preset defaults.
+  Existing `settings.ai` files are untouched — only newly applied presets pick up the new rows.
+
 ## [0.20.0] - 2026-08-21
 
 ### Added
