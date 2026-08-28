@@ -202,6 +202,7 @@ const proposeReadinessUseCase = async (
  *  - copilot     → `copilotInstructions`.
  *  - codex       → `agentsMd`.
  *  - opencode    → `agentsMd`.
+ *  - grok        → `agentsMd`.
  *
  * Dispatched as an exhaustive `switch` on `tool` — this is the one per-tool branch in the
  * readiness flow the compiler would not otherwise police, and an `if` chain with a bare
@@ -221,6 +222,8 @@ const pickExistingContextPath = (tool: AssistantTool, state: ReadinessState): st
       return a.tool === 'codex' ? pathOf(a.agentsMd) : undefined;
     case 'opencode':
       return a.tool === 'opencode' ? pathOf(a.agentsMd) : undefined;
+    case 'grok':
+      return a.tool === 'grok' ? pathOf(a.agentsMd) : undefined;
     default: {
       const exhaustive: never = tool;
       return exhaustive;

@@ -1,4 +1,5 @@
 import type { Result } from '@src/domain/result.ts';
+import type { AiProvider } from '@src/domain/entity/settings.ts';
 import type { HeadlessAiProvider, ProviderUsage } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import { STDERR_TAIL_CAP, createBoundedTail } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
@@ -26,7 +27,7 @@ export type { ProviderName };
  * `TokenUsageEvent` shape; each provider fills only the subset it captures from its CLI stream.
  */
 export interface TokenUsagePayload {
-  readonly provider: 'claude-code' | 'openai-codex' | 'github-copilot' | 'opencode';
+  readonly provider: AiProvider;
   readonly model?: string;
   readonly inputTokens?: number;
   readonly outputTokens?: number;
@@ -142,7 +143,7 @@ export interface ProviderAttemptInput {
    */
   readonly emitProviderTokenUsage: (sessionId: string) => TokenUsagePayload;
   readonly providerName: ProviderName;
-  readonly providerSlug: 'claude' | 'codex' | 'copilot' | 'opencode';
+  readonly providerSlug: 'claude' | 'codex' | 'copilot' | 'opencode' | 'xai-grok';
   readonly eventBus: EventBus;
   readonly idleMs?: number;
 }
@@ -356,7 +357,7 @@ export interface GenerateContext {
 }
 
 export interface CreateHeadlessProviderInput {
-  readonly providerSlug: 'claude' | 'codex' | 'copilot' | 'opencode';
+  readonly providerSlug: 'claude' | 'codex' | 'copilot' | 'opencode' | 'xai-grok';
   readonly providerName: ProviderName;
   readonly resumeStaleRe: RegExp;
   readonly rateLimitRetries: number;

@@ -6,6 +6,7 @@ import { createClaudeProvider } from '@src/integration/ai/providers/claude/headl
 import { createCodexProvider } from '@src/integration/ai/providers/codex/headless.ts';
 import { createOpencodeProvider } from '@src/integration/ai/providers/opencode/headless.ts';
 import { createCopilotProvider } from '@src/integration/ai/providers/copilot/headless.ts';
+import { createGrokProvider } from '@src/integration/ai/providers/grok/headless.ts';
 import type { ProviderSpawn } from '@src/integration/ai/providers/_engine/spawn.ts';
 import type { HeadlessProviderDeps } from '@src/integration/ai/providers/_engine/headless-provider-deps.ts';
 
@@ -73,6 +74,7 @@ const HEADLESS_FACTORIES: Readonly<Record<AiProvider, (deps: HeadlessProviderDep
   'github-copilot': createCopilotProvider,
   'openai-codex': createCodexProvider,
   opencode: createOpencodeProvider,
+  'xai-grok': createGrokProvider,
 };
 
 export const createAiProvider = (deps: CreateAiProviderDeps): HeadlessAiProvider => {

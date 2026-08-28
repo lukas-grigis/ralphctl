@@ -493,6 +493,46 @@ interesting case), plus one task that has never been evaluated.
 
 ---
 
+## Scenario 20 — Grok backend (`grok-only`)
+
+**Setup:** `grok` CLI installed and authenticated (`npm i -g @xai-official/grok` then `grok login`, or
+`curl -fsSL https://x.ai/cli/install.sh | bash`). Stamp the whole `ai` section onto Grok first:
+
+```bash
+ralphctl settings apply-preset grok-only
+```
+
+**20a — interactive flow (refine):**
+
+1. Register a project with at least one draft-sprint ticket in `pending`
+2. From Home pipeline-map, select the **Refine** flow
+3. Accept the per-ticket confirm prompt
+4. **Expected:** `grok` takes over the full terminal (alt-screen exits, Grok's own UI appears);
+   converse briefly, then exit. The spawn must NOT have passed `--prompt-file` (that forces
+   headless) — a positional prompt pointer plus `--permission-mode acceptEdits` is the interactive
+   shape
+5. **Pass condition:** ralphctl re-appears with the parsed refined requirements shown inline — this only
+   happens if Grok actually wrote a `refined-ticket` signal into `signals.json` under
+   `<sprintDir>/refinement/<ticket-slug>/`. Confirm the file exists and is non-empty
+6. Approve the requirements; ticket transitions to `approved`
+
+**20b — headless flow (readiness):**
+
+1. From the same project, run the **Run readiness** flow (Projects → repository detail → "Run readiness")
+2. Confirm the project/repo selection prompt
+3. **Expected:** the flow runs headless (no Grok UI takeover) and returns to the `agents-md` confirmation
+   prompt with the AI's suggested content shown as the default
+4. **Pass condition:** a `signals.json` file exists under the run's output directory
+   (`ralphctl runs list --flow readiness` to find it) and the readiness result card shows
+   `✓ Readiness — <project-name> — completed`
+5. Submit the confirm prompt; verify `AGENTS.md` is written at the repo root
+
+**Negative test:** if `grok` is on PATH but not authenticated, the run should fail with a clear provider
+error — not a silent hang or an empty `signals.json`. `ralphctl doctor` reports Grok auth as `unknown`
+(no non-interactive auth-status verb) rather than guessing.
+
+---
+
 ## Known issues (file under here, link the fix commit)
 
 - (none currently)
@@ -504,8 +544,9 @@ interesting case), plus one task that has never been evaluated.
 The playbook covers TUI ergonomics and child-process handover — exactly the surface that automated tests
 can't reach. Things still NOT covered:
 
-- Real provider integration: every Claude / Copilot / Codex / OpenCode provider test uses a fake `spawn`.
-  JSON-shape drift will surface here first — Scenario 15 is the one place OpenCode runs against the real CLI.
+- Real provider integration: every Claude / Copilot / Codex / OpenCode / Grok provider test uses a fake `spawn`.
+  JSON-shape drift will surface here first — Scenario 15 is the one place OpenCode runs against the real CLI;
+  Scenario 20 is the Grok equivalent.
 - File-system corner cases (NFS / SMB mounts, case-insensitive FS).
 - Concurrency under load — the implement flow runs strictly sequential (or parallel when
   `maxParallelTasks > 1`), but cross-process lock contention (the `<stateRoot>/locks/repo-<hash>.lock/`

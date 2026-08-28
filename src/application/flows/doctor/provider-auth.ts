@@ -87,6 +87,10 @@ export const PROVIDER_AUTH_CHECK: Readonly<Record<AiProvider, ProviderAuthCheck>
     kind: 'none',
     reason: 'the copilot CLI exposes no non-interactive auth-status verb — sign in with `/login` inside `copilot`',
   },
+  'xai-grok': {
+    kind: 'none',
+    reason: 'the grok CLI exposes no non-interactive auth-status verb — sign in with grok login',
+  },
 };
 
 // Strips the ANSI CSI escape prefix opencode decorates its CLI output with, before parsing.

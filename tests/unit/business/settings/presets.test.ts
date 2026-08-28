@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AiProvider, Settings } from '@src/domain/entity/settings.ts';
-import { SettingsSchema } from '@src/domain/entity/settings.ts';
+import { AI_PROVIDERS, type AiProvider, SettingsSchema, type Settings } from '@src/domain/entity/settings.ts';
 import { DEFAULT_SETTINGS, defaultAiSettingsForProvider } from '@src/business/settings/defaults.ts';
 import { FLOW_IDS } from '@src/domain/value/flow-id.ts';
 import { applyPreset, isPresetName, PRESET_NAMES, type PresetName } from '@src/business/settings/presets.ts';
@@ -8,15 +7,17 @@ import { isClaudeModel } from '@src/domain/value/settings-models/claude.ts';
 import { isCodexModel } from '@src/domain/value/settings-models/codex.ts';
 import { isOpencodeModel } from '@src/domain/value/settings-models/opencode.ts';
 import { isCopilotModel } from '@src/domain/value/settings-models/copilot.ts';
+import { isGrokModel } from '@src/domain/value/settings-models/grok.ts';
 import { mergeEscalationMap } from '@src/business/task/escalation-map.ts';
 
-/** The exact 21-preset order — 5 families × 4, plus OpenCode in the standard family (mixed-first within each family). */
+/** The exact 22-preset order — 5 families × 4, plus OpenCode and Grok in the standard family (mixed-first within each family). */
 const EXPECTED_PRESET_ORDER: readonly PresetName[] = [
   'mixed',
   'claude-only',
   'copilot-only',
   'codex-only',
   'opencode-only',
+  'grok-only',
   'mixed-economic',
   'claude-economic',
   'copilot-economic',
@@ -95,13 +96,15 @@ const modelGuardFor = (provider: AiProvider): ((s: string) => boolean) => {
     // boundary, where authenticated upstream ids outside our catalog must still pass.
     case 'opencode':
       return isOpencodeModel;
+    case 'xai-grok':
+      return isGrokModel;
   }
 };
 
 describe('presets', () => {
-  it('exposes all twenty-one preset names in the canonical five-family order', () => {
+  it('exposes all twenty-two preset names in the canonical five-family order', () => {
     expect([...PRESET_NAMES]).toEqual([...EXPECTED_PRESET_ORDER]);
-    expect(PRESET_NAMES).toHaveLength(21);
+    expect(PRESET_NAMES).toHaveLength(22);
   });
 
   it('includes each economic preset in PRESET_NAMES', () => {
@@ -132,7 +135,7 @@ describe('presets', () => {
   // returning 401 (as `opencode/north-mini-code-free` did) still passes. Liveness cannot be
   // unit-tested; health-probe free-tier ids by hand before shipping one as a default.
   it('every model in the per-provider defaults is a member of its provider catalog', () => {
-    const providers: readonly AiProvider[] = ['claude-code', 'github-copilot', 'openai-codex', 'opencode'];
+    const providers: readonly AiProvider[] = AI_PROVIDERS;
     for (const provider of providers) {
       const ai = defaultAiSettingsForProvider(provider);
       for (const flow of FLOW_IDS) {
@@ -284,7 +287,7 @@ describe('presets', () => {
     }
   });
 
-  it('isPresetName accepts all twenty-one preset names and rejects garbage', () => {
+  it('isPresetName accepts all twenty-two preset names and rejects garbage', () => {
     for (const preset of EXPECTED_PRESET_ORDER) {
       expect(isPresetName(preset), preset).toBe(true);
     }
@@ -357,12 +360,14 @@ describe('presets', () => {
           expect(out.ai[flow]).toBeDefined();
           if (flow === 'implement') {
             for (const role of ['generator', 'evaluator'] as const) {
-              expect(out.ai.implement[role].provider).toMatch(/^(claude-code|github-copilot|openai-codex|opencode)$/);
+              expect(out.ai.implement[role].provider).toMatch(
+                /^(claude-code|github-copilot|openai-codex|opencode|xai-grok)$/
+              );
               expect(out.ai.implement[role].model.length).toBeGreaterThan(0);
             }
             continue;
           }
-          expect(out.ai[flow].provider).toMatch(/^(claude-code|github-copilot|openai-codex|opencode)$/);
+          expect(out.ai[flow].provider).toMatch(/^(claude-code|github-copilot|openai-codex|opencode|xai-grok)$/);
           expect(out.ai[flow].model.length).toBeGreaterThan(0);
         }
       });

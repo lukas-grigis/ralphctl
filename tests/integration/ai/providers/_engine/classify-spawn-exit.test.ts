@@ -67,6 +67,7 @@ const PROVIDERS: readonly ProviderName[] = [
   'codex-provider',
   'copilot-provider',
   'opencode-provider',
+  'grok-provider',
 ];
 
 describe.each(PROVIDERS)('classifySpawnExit [%s]', (providerName) => {

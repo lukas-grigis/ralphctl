@@ -145,9 +145,10 @@ Claude's own tiers (`…→ xhigh → max`) rather than stamping a fixed `high` 
 downgrade of the implicit default; an explicit `low|medium|high` climbs to `xhigh`, and `unset` (the CLI
 default) or `xhigh` climbs to `max`, capping there. A non-xhigh-capable Claude model (Sonnet 4.6, CLI
 default `high`) climbs straight to `max`. Copilot keeps the fixed target `EFFORT_ESCALATION_TARGET`
-(`high`); Codex keeps its own fixed target `CODEX_EFFORT_ESCALATION_TARGET` (`xhigh`) — `xhigh` is accepted
-by every codex catalog model, unlike the old shared `high` target, which every codex preset already
-stamped on implement and so left the rung permanently spent for them. It stamps
+(`high`); Codex and Grok keep the same fixed target `CODEX_EFFORT_ESCALATION_TARGET` (`xhigh`) —
+`xhigh` is accepted by every codex catalog model and by both Grok catalog ids, unlike the old shared
+`high` target, which every codex preset already stamped on implement and so left the rung permanently
+spent for them. It stamps
 `Task.escalatedToEffort` (no model change), the generator leaf prefers that over the configured `effort` at
 spawn, and the next plateau sees the raised effort. Fires once for the shipped default (unset `→ max` in a
 single step) and is strictly bounded generally — the stamped effort climbs monotonically to the terminal
@@ -156,7 +157,8 @@ nudge — when the provider/model has no effort knob (e.g. Claude Haiku) or the 
 ceiling. `opencode` is excluded from both rungs by design (`EFFORT_CAPABLE_PROVIDERS` in
 `escalation-map.ts`) — it aggregates upstream providers, so there is no `--variant` level this ladder
 could stamp that is known valid for the row's model; an OpenCode generator on a plateau falls straight to
-the change-of-approach nudge. The EVALUATOR gets the same effort rung in lockstep, computed independently: whenever the
+the change-of-approach nudge. Grok is included in that set (`xai-grok`); its model ladder is
+`grok-4.5` → `grok-4.6`. The EVALUATOR gets the same effort rung in lockstep, computed independently: whenever the
 generator's `escalate-effort` fires, `decideEscalation` also calls `nextEffortRung` against the
 evaluator's OWN provider/model/effort triple (never copied from the generator's target) and, when it
 returns a target, stamps `Task.escalatedToEvaluatorEffort` alongside `escalatedToEffort` in the same

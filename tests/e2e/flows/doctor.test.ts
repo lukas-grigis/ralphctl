@@ -135,6 +135,7 @@ describe('doctor use-case', () => {
       'ai-github-copilot',
       'ai-openai-codex',
       'ai-opencode',
+      'ai-xai-grok',
       // DEFAULT_SETTINGS configures claude-code (most flows) and openai-codex (evaluator), so
       // both get an auth row whenever their binary is on PATH.
       'ai-auth-claude-code',

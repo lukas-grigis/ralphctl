@@ -35,12 +35,15 @@ the interactive TUI path (`opencode <cwd> --model …`) forwards no effort at al
 asymmetry is declared per provider as `ProviderTraits.effortForwarding.{headless,interactive}`
 (`providers/_engine/provider-traits.ts`) — OpenCode is the only row where the two differ — and the port
 conformance suites assert each adapter's argv against that declaration in both directions, so an adapter
-that starts or stops forwarding effort without updating its row fails at `pnpm test`. The implement generator's
+that starts or stops forwarding effort without updating its row fails at `pnpm test`. Grok accepts
+`none | minimal | low | medium | high | xhigh | max` and forwards `--effort` on **both** surfaces
+(identity in `clampEffortToProvider` — the native vocabulary includes the global superset plus
+`none` / `minimal`). Grok is in `EFFORT_CAPABLE_PROVIDERS`. The implement generator's
 resolved effort also feeds the escalation policy's same-model effort rung,
 whose target is provider- and model-aware: a Claude generator at the top of the model ladder climbs its own
 effort tiers (Claude Code's default is `xhigh` on xhigh-capable models, so the shipped default
 `claude-opus-5` with effort unset escalates to `max`, not `high`), while Copilot escalates to a fixed
-`high` and Codex to a fixed `xhigh` — see `PERFORMANCE.md § plateau escalation`).
+`high` and Codex and Grok to a fixed `xhigh` — see `PERFORMANCE.md § plateau escalation`).
 
 **Single-provider configurations are first-class.** Every row may point at the same provider, or every row
 at a different one; the launcher rebuilds the provider / interactive-AI / skills-adapter trio per launch
@@ -88,18 +91,22 @@ when set, else the role's own per-flow row `model` (always present); `effort` fo
 falls through to the existing per-flow-row → global-default resolution (**Effort resolution** above) when
 neither the definition nor the row set one explicitly.
 
-**Twenty-one presets across five families** stamp the entire `ai` section plus `harness.escalateOnPlateau`
+**Twenty-two presets across five families** stamp the entire `ai` section plus `harness.escalateOnPlateau`
 in one shot — all equally first-class (none is marked default). Four families carry four variants each:
 `mixed` (best-fit provider per flow), `claude-only`, `copilot-only`, `codex-only`; the standard family
-additionally carries `opencode-only`. The families:
+additionally carries `opencode-only` and `grok-only`. The families:
 
-- **standard** (`mixed`, `claude-only`, `copilot-only`, `codex-only`, `opencode-only`) — flagship model
-  per flow at `xhigh` effort for `implement`/`plan`; `readiness` at `medium`; `refine`/`ideate` inherit
-  global `high`. `opencode-only` is a single-member family by design: every OpenCode free-tier model sits
-  at the same (zero) price point, so economic / fast / frontier variants would differ in name only.
-  Operators who authenticate an upstream provider through `opencode providers` should pin rows directly
-  rather than reach for a preset (see the `OPENCODE_ONLY` note in `src/business/settings/presets.ts`).
-  Its rows leave `effort` unset for the reason given under **Effort resolution** above.
+- **standard** (`mixed`, `claude-only`, `copilot-only`, `codex-only`, `opencode-only`, `grok-only`) —
+  flagship model per flow at `xhigh` effort for `implement`/`plan`; `readiness` at `medium`;
+  `refine`/`ideate` inherit global `high`. `opencode-only` is a single-member extra by design: every
+  OpenCode free-tier model sits at the same (zero) price point, so economic / fast / frontier variants
+  would differ in name only. Operators who authenticate an upstream provider through `opencode providers`
+  should pin rows directly rather than reach for a preset (see the `OPENCODE_ONLY` note in
+  `src/business/settings/presets.ts`). Its rows leave `effort` unset for the reason given under
+  **Effort resolution** above. `grok-only` is the other single-member extra in this family — it stamps
+  the same effort matrix as the other standard `*-only` presets (global `high`, `implement`/`plan` at
+  `xhigh`, `readiness` at `medium`) onto `grok-4.6` / `grok-4.5`. No grok-economic / grok-fast /
+  grok-frontier / grok-strong-gate variants ship, and mixed presets were not rerouted onto Grok.
 - **economic** (`mixed-economic`, `claude-economic`, `copilot-economic`, `codex-economic`) — same routing
   as standard but `implement` starts one tier below the flagship at `high` effort; the escalation ladder
   climbs to the flagship only when a task plateaus — cheaper tokens on easy tasks, same quality gate on
@@ -198,7 +205,7 @@ every `ai` row plus `harness.escalateOnPlateau` in one transaction; subsequent p
   catalog; persisted rows silently remap to `gpt-5.5` at parse time (`gpt-5.3-codex` stays in the
   **Copilot** catalog — GitHub still lists it — so the remap is codex-provider-guarded). Effort
   vocabulary is now `low..ultra`; `minimal` was retired and persisted rows migrate to `low`.
-- OpenCode — structurally unlike the other three: `OPENCODE_MODELS`
+- OpenCode — structurally unlike the other four: `OPENCODE_MODELS`
   (`src/domain/value/settings-models/opencode.ts`, verified against `opencode models`, opencode-ai
   v1.18.15) is the **zero-auth free-tier floor**, not a vendor catalog. Ids are namespaced
   `<provider>/<model>` (an aggregator upstream may add further segments), and the adapter validates only
@@ -208,8 +215,13 @@ every `ai` row plus `harness.escalateOnPlateau` in one transaction; subsequent p
   providers actually serve, so the picker grows without a ralphctl release. The free tier rotates
   upstream; a stale entry degrades to a picker row the CLI rejects, never a crash. When that probe
   cannot answer (binary absent, not authenticated, 15 s cap, abort) the picker falls back to the
-  free-tier floor — a lossy fallback, unlike the other three backends — so every fail-open is logged
+  free-tier floor — a lossy fallback, unlike the other four backends — so every fail-open is logged
   at warn (`model-probe: opencode fell back to the shipped free-tier catalog`) with a reason.
+- Grok — verified against Grok Build CLI v1.0.5 (`grok models`). Catalog is `grok-4.6` (flagship /
+  default) and `grok-4.5` (previous generation); both publish a 500k context window. The availability
+  probe is passthrough — the CLI exposes `grok models` but no cheap non-interactive per-account
+  filter, so the static catalog is the picker source. Off-catalog strings still round-trip via
+  `CustomModelStringSchema` and are the CLI's problem at spawn.
 
 **Default escalation posture (effort rung, no model ladder).** `DEFAULT_SETTINGS.ai.implement.generator` is
 `claude-opus-5`, which has no key in `DEFAULT_ESCALATION_MAP` — so the shipped default never
@@ -260,8 +272,8 @@ retargeted or removed without leaving the TUI.
   window it can fire on. See `PERFORMANCE.md § Iteration budget`.
 
 **Fail-fast PATH check.** Every AI-spawning flow probes for its row's CLI binary at launch (`claude` /
-`copilot` / `codex` / `opencode` — `PROVIDER_BINARY` in `src/integration/system/detect-cli.ts` covers all
-four) and exits with `LaunchResult.fail` naming the
+`copilot` / `codex` / `opencode` / `grok` — `PROVIDER_BINARY` in `src/integration/system/detect-cli.ts`
+covers all five) and exits with `LaunchResult.fail` naming the
 binary, the flow, and the offending `settings.ai.<flow>.provider` key when the binary is absent.
 `apply-preset` emits non-fatal warnings for any preset row whose CLI is missing at apply time, and the
 welcome view silently auto-seeds a preset on fresh install based on what it detects on PATH.

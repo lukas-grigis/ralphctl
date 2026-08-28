@@ -5,7 +5,7 @@ import type { AiProvider } from '@src/domain/entity/settings.ts';
  * `ai/readiness/<tool>/` has one implementation per variant; the compiler keeps
  * every consumer exhaustive when a new tool is added.
  */
-export type AssistantTool = 'claude-code' | 'copilot' | 'codex' | 'opencode';
+export type AssistantTool = 'claude-code' | 'copilot' | 'codex' | 'opencode' | 'grok';
 
 /** The `claude-code` id — shared literal between both directions of the provider/tool mapping below. */
 const CLAUDE_CODE_ID = 'claude-code' as const;
@@ -26,6 +26,8 @@ export const toolForProvider = (provider: AiProvider): AssistantTool => {
       return 'codex';
     case 'opencode':
       return 'opencode';
+    case 'xai-grok':
+      return 'grok';
   }
 };
 
@@ -44,5 +46,7 @@ export const providerForTool = (tool: AssistantTool): AiProvider => {
       return 'openai-codex';
     case 'opencode':
       return 'opencode';
+    case 'grok':
+      return 'xai-grok';
   }
 };

@@ -75,6 +75,7 @@ export const DEFAULT_ESCALATION_MAP: Readonly<Record<string, string>> = {
   'gpt-5.5': 'gpt-5.6-sol',
   'gpt-5.6-luna': 'gpt-5.6-terra',
   'gpt-5.6-terra': 'gpt-5.6-sol',
+  'grok-4.5': 'grok-4.6',
 };
 
 /**
@@ -181,6 +182,7 @@ const EFFORT_CAPABLE_PROVIDERS: ReadonlySet<AiProvider> = new Set<AiProvider>([
   'claude-code',
   'github-copilot',
   'openai-codex',
+  'xai-grok',
 ]);
 
 /**
@@ -280,7 +282,10 @@ export const nextEffortRung = (
     if (currentEffort !== undefined && EFFORT_AT_OR_ABOVE_TARGET.has(currentEffort)) return undefined;
     return EFFORT_ESCALATION_TARGET;
   }
-  // openai-codex: xhigh is universal across the codex catalog; max/ultra are already above it.
-  if (currentEffort !== undefined && CODEX_EFFORT_AT_OR_ABOVE_TARGET.has(currentEffort)) return undefined;
-  return CODEX_EFFORT_ESCALATION_TARGET;
+  // openai-codex and xai-grok: xhigh is universal; max/ultra are already above it.
+  if (provider === 'openai-codex' || provider === 'xai-grok') {
+    if (currentEffort !== undefined && CODEX_EFFORT_AT_OR_ABOVE_TARGET.has(currentEffort)) return undefined;
+    return CODEX_EFFORT_ESCALATION_TARGET;
+  }
+  return undefined;
 };

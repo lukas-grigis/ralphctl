@@ -65,7 +65,7 @@ export interface RunWithRateLimitRetryOptions {
    * `'opencode'`). Keeps
    * the banner id keyspace per-provider so concurrent adapters don't collide.
    */
-  readonly providerSlug: 'claude' | 'codex' | 'copilot' | 'opencode';
+  readonly providerSlug: 'claude' | 'codex' | 'copilot' | 'opencode' | 'xai-grok';
   /**
    * Element name stamped onto the {@link AbortError} surfaced when a user cancel lands during a
    * backoff sleep — mirrors `classifySpawnExit`'s abort shape so the chain runner propagates it.

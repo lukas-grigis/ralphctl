@@ -28,7 +28,7 @@ describe('ralphctl settings set ai.createPr.provider — routes through settings
 
   beforeEach(async () => {
     cli = await createCliHome();
-    detectRef.installed = new Set(['claude-code', 'github-copilot', 'openai-codex']);
+    detectRef.installed = new Set(['claude-code', 'github-copilot', 'openai-codex', 'opencode', 'xai-grok']);
   });
 
   afterEach(async () => cli.cleanup());

@@ -41,11 +41,13 @@ import { claudeProbe } from '@src/integration/ai/readiness/claude/probe.ts';
 import { codexProbe } from '@src/integration/ai/readiness/codex/probe.ts';
 import { opencodeProbe } from '@src/integration/ai/readiness/opencode/probe.ts';
 import { copilotProbe } from '@src/integration/ai/readiness/copilot/probe.ts';
+import { grokProbe } from '@src/integration/ai/readiness/grok/probe.ts';
 import type { ModelAvailabilityProbeRegistry } from '@src/integration/ai/providers/_engine/model-availability-probe.ts';
 import { claudeModelAvailabilityProbe } from '@src/integration/ai/providers/claude/model-availability-probe.ts';
 import { codexModelAvailabilityProbe } from '@src/integration/ai/providers/codex/model-availability-probe.ts';
 import { createOpencodeModelAvailabilityProbe } from '@src/integration/ai/providers/opencode/model-availability-probe.ts';
 import { copilotModelAvailabilityProbe } from '@src/integration/ai/providers/copilot/model-availability-probe.ts';
+import { grokModelAvailabilityProbe } from '@src/integration/ai/providers/grok/model-availability-probe.ts';
 import { PROVIDER_TRAITS } from '@src/integration/ai/providers/_engine/provider-traits.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
@@ -375,6 +377,7 @@ const PROBES: ReadinessProbeRegistry = {
   copilot: copilotProbe,
   codex: codexProbe,
   opencode: opencodeProbe,
+  grok: grokProbe,
 };
 
 /**
@@ -385,7 +388,7 @@ const PROBES: ReadinessProbeRegistry = {
  * Built per `wire()` call rather than as a module singleton because the opencode probe takes an
  * observability seam: it is the one backend whose fallback catalog is NOT the vendor's full list
  * (only the zero-auth free tier), so a fail-open there silently shrinks the picker and has to
- * leave a trace. The other three are stateless singletons.
+ * leave a trace. The other four are stateless singletons.
  */
 const buildModelAvailabilityProbes = (logger: Logger): ModelAvailabilityProbeRegistry => ({
   'claude-code': claudeModelAvailabilityProbe,
@@ -396,6 +399,7 @@ const buildModelAvailabilityProbes = (logger: Logger): ModelAvailabilityProbeReg
       logger.warn('model-probe: opencode fell back to the shipped free-tier catalog', { reason, detail });
     },
   }),
+  'xai-grok': grokModelAvailabilityProbe,
 });
 
 /** Silent default dispatcher — used when no production override is passed (i.e. by tests). */

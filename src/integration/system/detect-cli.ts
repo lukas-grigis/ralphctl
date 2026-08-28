@@ -10,8 +10,8 @@ import type {
 
 /**
  * Map provider id → the binary the user must have on PATH for that provider to function.
- * All three are standalone CLIs: `claude`, `codex`, and `copilot` (the GitHub Copilot CLI,
- * `copilot` v1.0.12+ — `npm install -g @github/copilot`). This MUST match the binary each
+ * All five are standalone CLIs: `claude`, `codex`, `copilot` (the GitHub Copilot CLI,
+ * `copilot` v1.0.12+ — `npm install -g @github/copilot`), `opencode`, and `grok`. This MUST match the binary each
  * provider adapter actually spawns (`providers/<tool>/{headless,interactive}.ts`); probing
  * `gh` here while the adapter spawns `copilot` would let the launch fail-fast pass and then
  * the real spawn fail (`gh` is a separate SCM dependency for create-pr / issue sync, not the
@@ -25,6 +25,7 @@ export const PROVIDER_BINARY: Readonly<Record<AiProvider, string>> = {
   'github-copilot': PROVIDER_TRAITS['github-copilot'].binary,
   'openai-codex': PROVIDER_TRAITS['openai-codex'].binary,
   opencode: PROVIDER_TRAITS.opencode.binary,
+  'xai-grok': PROVIDER_TRAITS['xai-grok'].binary,
 };
 
 /**
@@ -38,6 +39,7 @@ export const PROVIDER_INSTALL_GUIDANCE: Readonly<Record<AiProvider, ProviderInst
   'github-copilot': PROVIDER_TRAITS['github-copilot'].installGuidance,
   'openai-codex': PROVIDER_TRAITS['openai-codex'].installGuidance,
   opencode: PROVIDER_TRAITS.opencode.installGuidance,
+  'xai-grok': PROVIDER_TRAITS['xai-grok'].installGuidance,
 };
 
 /**

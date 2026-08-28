@@ -7,6 +7,31 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Grok Build CLI (`xai-grok`) as a fifth backend**, joining Claude Code, GitHub Copilot, OpenAI Codex,
+  and OpenCode. The adapter spawns the `grok` binary (Grok Build CLI v1.0.5); catalog models are
+  `grok-4.6` (flagship / default) and `grok-4.5`, each with a 500k context window. Effort
+  (`none | minimal | low | medium | high | xhigh | max`) is forwarded as `--effort` on both the
+  headless and interactive surfaces, and Grok is in `EFFORT_CAPABLE_PROVIDERS` — plateau escalation
+  climbs to `xhigh` on the same model, then `grok-4.5` → `grok-4.6` on the model ladder. Stamp every
+  flow at once with the new `grok-only` preset (standard family, next to `opencode-only`; no
+  grok-economic / fast / frontier / strong-gate variants, and mixed presets were not rerouted onto
+  Grok). Headless runs `--no-auto-update --output-format streaming-json --prompt-file grok-prompt.md
+--cwd --always-approve` (a failed prompt-file write fails the spawn — there is no `-p` fallback);
+  read-only additionally denies `search_replace` and `run_terminal_command`
+  while the `write` tool stays allowed so `signals.json` can land. There is no `--sandbox` and no
+  `--add-dir` — extra roots are a named over-grant (sandbox off). Interactive never passes
+  `--prompt-file` (that forces headless) and uses `--permission-mode acceptEdits` plus a positional
+  prompt pointer. Headless resume is `-r` (interactive session id is `-s`); a stale session
+  ("session not found" / 404 restore) falls back to a cold spawn. Doctor's auth probe is
+  `kind: 'none'` — the grok CLI has no non-interactive auth-status verb; sign in with
+  `grok login`. Context file is the shared `AGENTS.md` (third writer
+  alongside Codex and OpenCode); skills and agents live under `.grok/`; operator skills under
+  `~/.ralphctl/skills/grok/`. Availability probe is passthrough. Install via
+  `curl -fsSL https://x.ai/cli/install.sh | bash`, `irm https://x.ai/cli/install.ps1 | iex`, or
+  `npm i -g @xai-official/grok`.
+
 ## [0.21.0] - 2026-08-24
 
 ### Changed

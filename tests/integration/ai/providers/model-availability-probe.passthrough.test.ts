@@ -7,8 +7,10 @@
 import { describe, expect, it } from 'vitest';
 import { claudeModelAvailabilityProbe } from '@src/integration/ai/providers/claude/model-availability-probe.ts';
 import { copilotModelAvailabilityProbe } from '@src/integration/ai/providers/copilot/model-availability-probe.ts';
+import { grokModelAvailabilityProbe } from '@src/integration/ai/providers/grok/model-availability-probe.ts';
 import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
 import { COPILOT_MODELS } from '@src/domain/value/settings-models/copilot.ts';
+import { GROK_MODELS } from '@src/domain/value/settings-models/grok.ts';
 
 describe('claudeModelAvailabilityProbe (passthrough)', () => {
   it('returns the same catalog reference', async () => {
@@ -21,5 +23,12 @@ describe('copilotModelAvailabilityProbe (passthrough)', () => {
   it('returns the same catalog reference', async () => {
     const available = await copilotModelAvailabilityProbe.availableModels(COPILOT_MODELS);
     expect(available).toBe(COPILOT_MODELS);
+  });
+});
+
+describe('grokModelAvailabilityProbe (passthrough)', () => {
+  it('returns the same catalog reference', async () => {
+    const available = await grokModelAvailabilityProbe.availableModels(GROK_MODELS);
+    expect(available).toBe(GROK_MODELS);
   });
 });

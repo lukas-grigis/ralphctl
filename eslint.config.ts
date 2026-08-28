@@ -294,9 +294,9 @@ const BUSINESS_SIBLINGS = [
 
 const REPOSITORY_SIBLINGS = ['project', 'settings', 'sprint', 'task'] as const;
 
-const PROVIDERS = ['claude', 'codex', 'copilot', 'opencode'] as const;
+const PROVIDERS = ['claude', 'codex', 'copilot', 'grok', 'opencode'] as const;
 
-const READINESS_PROVIDERS = ['claude', 'codex', 'copilot', 'opencode'] as const;
+const READINESS_PROVIDERS = ['claude', 'codex', 'copilot', 'grok', 'opencode'] as const;
 
 /**
  * Sibling concretes under integration/ai/skills/. Mixes two roles intentionally:
@@ -306,7 +306,7 @@ const READINESS_PROVIDERS = ['claude', 'codex', 'copilot', 'opencode'] as const;
  * Cross-sibling reach goes through `skills/_engine/`; the composition switch over the per-tool
  * adapters lives at `skills/adapter-factory.ts`, which is not itself a sibling.
  */
-const SKILLS = ['bundled', 'claude', 'codex', 'copilot', 'opencode', 'operator', 'phase', 'project'] as const;
+const SKILLS = ['bundled', 'claude', 'codex', 'copilot', 'grok', 'opencode', 'operator', 'phase', 'project'] as const;
 
 /**
  * Sibling concretes under integration/ai/agents/ — the portable agent-definitions subsystem.
@@ -314,7 +314,7 @@ const SKILLS = ['bundled', 'claude', 'codex', 'copilot', 'opencode', 'operator',
  * `AgentDefinitionAdapter`; `bundled` and `operator` are definition-source directories. Cross-
  * sibling reach goes through `agents/_engine/`.
  */
-const AGENTS = ['bundled', 'claude', 'codex', 'copilot', 'opencode', 'operator'] as const;
+const AGENTS = ['bundled', 'claude', 'codex', 'copilot', 'grok', 'opencode', 'operator'] as const;
 
 /**
  * Concept namespaces under src/integration/ai/. A concept exposes itself to the rest of the tree

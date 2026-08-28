@@ -184,10 +184,13 @@ const collectCopilotArtefactPaths = (a: Extract<ToolArtifacts, { tool: 'copilot'
   a.copilotInstructions !== undefined ? [String(a.copilotInstructions.path)] : [];
 
 /**
- * Walk the shared `AGENTS.md` + skills catalog shape — codex (`.agents/skills/`) and opencode
- * (`.opencode/skills/`) carry identical fields, so one walker serves both.
+ * Walk the shared `AGENTS.md` + skills catalog shape — codex (`.agents/skills/`), opencode
+ * (`.opencode/skills/`), and grok (`.grok/skills/`) carry identical fields, so one walker
+ * serves all three.
  */
-const collectAgentsMdArtefactPaths = (a: Extract<ToolArtifacts, { tool: 'codex' | 'opencode' }>): readonly string[] => {
+const collectAgentsMdArtefactPaths = (
+  a: Extract<ToolArtifacts, { tool: 'codex' | 'opencode' | 'grok' }>
+): readonly string[] => {
   const paths: string[] = [];
   if (a.agentsMd !== undefined) paths.push(String(a.agentsMd.path));
   for (const ref of a.skills) paths.push(String(ref.path));
@@ -204,7 +207,7 @@ export const collectArtefactPaths = (state: ReadinessState): readonly string[] =
   const a = state.artifacts;
   if (a.tool === CLAUDE_CODE) return collectClaudeCodeArtefactPaths(a);
   if (a.tool === 'copilot') return collectCopilotArtefactPaths(a);
-  if (a.tool === 'codex' || a.tool === 'opencode') return collectAgentsMdArtefactPaths(a);
+  if (a.tool === 'codex' || a.tool === 'opencode' || a.tool === 'grok') return collectAgentsMdArtefactPaths(a);
   const _exhaustive: never = a;
   return _exhaustive;
 };

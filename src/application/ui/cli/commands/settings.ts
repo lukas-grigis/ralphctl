@@ -136,7 +136,7 @@ const applyPresetAction = async (name: string): Promise<void> => {
  *
  * Supported keys:
  *   ai.effort                                          low | medium | high | xhigh | max (global default)
- *   ai.{flow}.provider                                 claude-code | github-copilot | openai-codex
+ *   ai.{flow}.provider                                 see AI_PROVIDERS_HINT (claude-code | github-copilot | openai-codex | opencode | xai-grok)
  *   ai.{flow}.model                                    provider-native enum, or any non-empty custom string
  *   ai.{flow}.effort                                   provider-native effort level
  *      flow in {refine, plan, readiness, ideate}

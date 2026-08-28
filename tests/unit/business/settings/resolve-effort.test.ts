@@ -171,6 +171,12 @@ describe('clampEffortToProvider', () => {
     expect(clampEffortToProvider('max', 'github-copilot')).toBe('max');
   });
 
+  it('passes effort through unchanged for xai-grok — including max, which Codex floors', () => {
+    expect(clampEffortToProvider('xhigh', 'xai-grok')).toBe('xhigh');
+    expect(clampEffortToProvider('max', 'xai-grok')).toBe('max');
+    expect(clampEffortToProvider('none', 'xai-grok')).toBe('none');
+  });
+
   it('passes an unknown effort string through unchanged for every provider', () => {
     expect(clampEffortToProvider('ultra-mega', 'openai-codex')).toBe('ultra-mega');
     expect(clampEffortToProvider('ultra-mega', 'claude-code')).toBe('ultra-mega');

@@ -5,9 +5,10 @@ import type { AiSettings, Settings } from '@src/domain/entity/settings.ts';
  * applying it stamps `ai.effort` plus all five per-flow rows. Preset identity is NOT
  * persisted; the next per-row edit sticks and nothing remembers which preset was applied.
  *
- * Twenty-one shipped presets across five families (four each, plus `opencode-only` in the standard
- * family), all equally first-class — no preset is marked "recommended" or "default". Each family
- * carries a `mixed` variant plus one per single provider, in that order. The families:
+ * Twenty-two shipped presets across five families (four each, plus `opencode-only` and `grok-only`
+ * in the standard family), all equally first-class — no preset is marked "recommended" or
+ * "default". Each family carries a `mixed` variant plus one per single provider, in that order.
+ * The families:
  *   standard      — `mixed` routes each flow to the best provider for that flow's purpose;
  *                   `<provider>-only` routes every flow to that one provider.
  *   economic      — mirror the standard routings but start `implement` one tier below the
@@ -31,6 +32,7 @@ export type PresetName =
   | 'copilot-only'
   | 'codex-only'
   | 'opencode-only'
+  | 'grok-only'
   | 'mixed-economic'
   | 'claude-economic'
   | 'copilot-economic'
@@ -54,6 +56,7 @@ export const PRESET_NAMES: readonly PresetName[] = [
   'copilot-only',
   'codex-only',
   'opencode-only',
+  'grok-only',
   'mixed-economic',
   'claude-economic',
   'copilot-economic',
@@ -89,6 +92,9 @@ const CLAUDE = 'claude-code';
 const COPILOT = 'github-copilot';
 const CODEX = 'openai-codex';
 const OPENCODE = 'opencode';
+const GROK = 'xai-grok';
+const GROK_FLAGSHIP = 'grok-4.6';
+const GROK_PREV = 'grok-4.5';
 /** OpenCode free-tier picks — see the note on OPENCODE_ONLY. */
 const OPENCODE_BIG = 'opencode/big-pickle';
 // The free tier rotates and individual ids go dark upstream (a 401 on one model while its
@@ -199,6 +205,19 @@ const OPENCODE_ONLY: AiSettings = {
   readiness: { provider: OPENCODE, model: OPENCODE_MINI },
   ideate: { provider: OPENCODE, model: OPENCODE_BIG },
   createPr: { provider: OPENCODE, model: OPENCODE_MINI },
+};
+
+const GROK_ONLY: AiSettings = {
+  effort: 'high',
+  refine: { provider: GROK, model: GROK_PREV },
+  plan: { provider: GROK, model: GROK_FLAGSHIP, effort: 'xhigh' },
+  implement: {
+    generator: { provider: GROK, model: GROK_FLAGSHIP, effort: 'xhigh' },
+    evaluator: { provider: GROK, model: GROK_FLAGSHIP, effort: 'xhigh' },
+  },
+  readiness: { provider: GROK, model: GROK_PREV, effort: 'medium' },
+  ideate: { provider: GROK, model: GROK_FLAGSHIP },
+  createPr: { provider: GROK, model: GROK_PREV },
 };
 
 const CODEX_ONLY: AiSettings = {
@@ -534,6 +553,7 @@ const PRESETS: Readonly<
   'copilot-only': { ai: COPILOT_ONLY, escalateOnPlateau: true },
   'codex-only': { ai: CODEX_ONLY, escalateOnPlateau: true },
   'opencode-only': { ai: OPENCODE_ONLY, escalateOnPlateau: true },
+  'grok-only': { ai: GROK_ONLY, escalateOnPlateau: true },
   'mixed-economic': { ai: MIXED_ECONOMIC, escalateOnPlateau: true, bestOfNCandidates: 0 },
   'claude-economic': { ai: CLAUDE_ECONOMIC, escalateOnPlateau: true, bestOfNCandidates: 0 },
   'copilot-economic': { ai: COPILOT_ECONOMIC, escalateOnPlateau: true, bestOfNCandidates: 0 },

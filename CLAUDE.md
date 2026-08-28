@@ -1,8 +1,9 @@
 # RalphCTL — Agent Harness for AI Coding Tasks
 
-Node.js 24 + TypeScript + Ink TUI. Four AI provider backends (Claude Code / GitHub Copilot / OpenAI Codex /
-OpenCode). OpenCode is an aggregator — its model ids are `provider/model` and its catalog is discovered at
-runtime via `opencode models`, so it is the one backend whose reachable models are not a static list.
+Node.js 24 + TypeScript + Ink TUI. Five AI provider backends (Claude Code / GitHub Copilot / OpenAI Codex /
+OpenCode / Grok). Grok is `xai-grok`, binary `grok`. OpenCode is an aggregator — its model ids are
+`provider/model` and its catalog is discovered at runtime via `opencode models`, so it is the one backend
+whose reachable models are not a static list.
 The TUI is the primary surface; the CLI exposes inspection + one-shot operations only.
 
 Version is read from `package.json` via JSON import attribute in `src/business/version/cli-metadata.ts`.

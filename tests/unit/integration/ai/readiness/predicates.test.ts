@@ -3,6 +3,7 @@ import {
   hasAnyClaudeArtifact,
   hasAnyCodexArtifact,
   hasAnyCopilotArtifact,
+  hasAnyGrokArtifact,
   isAbsent,
   isPresent,
   isUnknown,
@@ -10,6 +11,7 @@ import {
 import type { ClaudeArtifacts } from '@src/integration/ai/readiness/claude/artifacts.ts';
 import type { CopilotArtifacts } from '@src/integration/ai/readiness/copilot/artifacts.ts';
 import type { CodexArtifacts } from '@src/integration/ai/readiness/codex/artifacts.ts';
+import type { GrokArtifacts } from '@src/integration/ai/readiness/grok/artifacts.ts';
 import { absentState, presentState, unknownState } from '@src/integration/ai/readiness/_engine/state.ts';
 import { absolutePath, FIXED_NOW } from '@tests/fixtures/domain.ts';
 
@@ -84,5 +86,25 @@ describe('hasAnyCodexArtifact', () => {
       skills: [{ name: 'my-skill' as never, path: absolutePath('/repo/.agents/skills/my-skill/SKILL.md') }],
     };
     expect(hasAnyCodexArtifact(a)).toBe(true);
+  });
+});
+
+describe('hasAnyGrokArtifact', () => {
+  it('false when agentsMd is missing and skills are empty', () => {
+    const a: GrokArtifacts = { tool: 'grok', skills: [] };
+    expect(hasAnyGrokArtifact(a)).toBe(false);
+  });
+
+  it('true when AGENTS.md exists', () => {
+    const a: GrokArtifacts = { tool: 'grok', agentsMd: { path: absolutePath('/repo/AGENTS.md') }, skills: [] };
+    expect(hasAnyGrokArtifact(a)).toBe(true);
+  });
+
+  it('true when at least one skill exists', () => {
+    const a: GrokArtifacts = {
+      tool: 'grok',
+      skills: [{ name: 'my-skill' as never, path: absolutePath('/repo/.grok/skills/my-skill/SKILL.md') }],
+    };
+    expect(hasAnyGrokArtifact(a)).toBe(true);
   });
 });

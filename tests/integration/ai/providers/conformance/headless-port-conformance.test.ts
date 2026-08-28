@@ -18,6 +18,7 @@ import { createClaudeProvider } from '@src/integration/ai/providers/claude/headl
 import { createCodexProvider } from '@src/integration/ai/providers/codex/headless.ts';
 import { createCopilotProvider } from '@src/integration/ai/providers/copilot/headless.ts';
 import { createOpencodeProvider } from '@src/integration/ai/providers/opencode/headless.ts';
+import { createGrokProvider } from '@src/integration/ai/providers/grok/headless.ts';
 
 /**
  * Port conformance for `HeadlessAiProvider`, one row per backend — the headless twin of
@@ -66,7 +67,12 @@ type RootGrant =
    * so the headless side has no seam to inject one through. Documented behaviour, tracked
    * separately from this suite.
    */
-  | { readonly kind: 'blanket-auto' };
+  | { readonly kind: 'blanket-auto' }
+  /**
+   * Grok has no `--add-dir` and no `--auto`. Sandbox stays off, so extra roots are a named
+   * unrestricted over-grant — assert no `--add-dir` and no `--sandbox`.
+   */
+  | { readonly kind: 'unrestricted' };
 
 interface HeadlessRow {
   readonly provider: AiProvider;
@@ -78,6 +84,8 @@ interface HeadlessRow {
   readonly model: string;
   /** How the prompt reaches the CLI. Either way it must never appear in argv. */
   readonly promptDelivery: 'stdin' | 'pointer';
+  /** Filename the pointer-delivery adapter writes next to signals.json. */
+  readonly promptFileName?: string;
   readonly rootGrant: RootGrant;
   /**
    * Whether the adapter mounts a root of its OWN, on top of what the session declared. Only the
@@ -112,6 +120,7 @@ const ROWS: readonly HeadlessRow[] = [
     // signals.json and puts a pointer in argv. The documented inline-body fallback is reachable
     // ONLY when that write fails, which is why the success path can still assert argv is clean.
     promptDelivery: 'pointer',
+    promptFileName: 'copilot-prompt.md',
     rootGrant: { kind: 'per-root', read: equalsSeparatedRoots },
     mountsPromptFileDir: true,
   },
@@ -122,6 +131,15 @@ const ROWS: readonly HeadlessRow[] = [
     promptDelivery: 'stdin',
     rootGrant: { kind: 'blanket-auto' },
     mountsPromptFileDir: false,
+  },
+  {
+    provider: 'xai-grok',
+    create: createGrokProvider,
+    model: PROVIDER_TRAITS['xai-grok'].modelCatalog[0]!,
+    promptDelivery: 'pointer',
+    promptFileName: 'grok-prompt.md',
+    rootGrant: { kind: 'unrestricted' },
+    mountsPromptFileDir: true,
   },
 ];
 
@@ -191,7 +209,8 @@ describe.each(ROWS)('HeadlessAiProvider conformance — $provider', (row) => {
     }
     // Pointer delivery: argv names the file the adapter wrote, and the body is on disk not in argv.
     expect(call.stdin).not.toContain(PROMPT_MARKER);
-    expect(call.args.join(' ')).toContain('copilot-prompt.md');
+    expect(row.promptFileName).toBeDefined();
+    expect(call.args.join(' ')).toContain(row.promptFileName);
   });
 
   it('mounts every writable root the session declared, or names its over-grant', async () => {
@@ -201,6 +220,11 @@ describe.each(ROWS)('HeadlessAiProvider conformance — $provider', (row) => {
     const call = fake.calls[0]!;
     if (row.rootGrant.kind === 'blanket-auto') {
       expect(call.args).toContain('--auto');
+      return;
+    }
+    if (row.rootGrant.kind === 'unrestricted') {
+      expect(call.args).not.toContain('--add-dir');
+      expect(call.args).not.toContain('--sandbox');
       return;
     }
     // cwd is implicitly mounted by every CLI, so `resolveWritableRoots` deliberately leaves it out.
@@ -217,6 +241,11 @@ describe.each(ROWS)('HeadlessAiProvider conformance — $provider', (row) => {
     const call = fake.calls[0]!;
     if (row.rootGrant.kind === 'blanket-auto') {
       expect(call.args).not.toContain('--auto');
+      return;
+    }
+    if (row.rootGrant.kind === 'unrestricted') {
+      expect(call.args).not.toContain('--add-dir');
+      expect(call.args).not.toContain('--sandbox');
       return;
     }
     // The prompt-file directory is the one root an adapter may add on its own behalf — it wrote

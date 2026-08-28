@@ -28,6 +28,7 @@ describe('AI_PROVIDERS is the single runtime source', () => {
     // Guards against someone re-hardcoding the old trio while the union has grown.
     expect(AI_PROVIDERS.length).toBeGreaterThanOrEqual(4);
     expect(AI_PROVIDERS).toContain('opencode');
+    expect(AI_PROVIDERS).toContain('xai-grok');
   });
 
   it('renders a hint naming every provider', () => {

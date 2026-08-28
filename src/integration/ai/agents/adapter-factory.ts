@@ -19,6 +19,7 @@ import { createClaudeAgentDefinitionAdapter } from '@src/integration/ai/agents/c
 import { createCodexAgentDefinitionAdapter } from '@src/integration/ai/agents/codex/adapter.ts';
 import { createOpencodeAgentDefinitionAdapter } from '@src/integration/ai/agents/opencode/adapter.ts';
 import { createCopilotAgentDefinitionAdapter } from '@src/integration/ai/agents/copilot/adapter.ts';
+import { createGrokAgentDefinitionAdapter } from '@src/integration/ai/agents/grok/adapter.ts';
 
 export interface AgentDefinitionAdapterFactoryDeps {
   readonly provider: AiProvider;
@@ -36,6 +37,7 @@ const AGENT_ADAPTERS: Readonly<Record<AiProvider, (deps?: { readonly logger?: Lo
   'github-copilot': createCopilotAgentDefinitionAdapter,
   'openai-codex': createCodexAgentDefinitionAdapter,
   opencode: createOpencodeAgentDefinitionAdapter,
+  'xai-grok': createGrokAgentDefinitionAdapter,
 };
 
 export const createAgentDefinitionAdapter = (deps: AgentDefinitionAdapterFactoryDeps): AgentDefinitionAdapter => {

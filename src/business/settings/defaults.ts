@@ -74,6 +74,14 @@ const DEFAULT_MODELS_BY_PROVIDER: Readonly<Record<AiProvider, Readonly<Record<Fl
     ideate: OPENCODE_BIG,
     createPr: OPENCODE_MINI,
   },
+  'xai-grok': {
+    refine: 'grok-4.5',
+    plan: 'grok-4.6',
+    implement: 'grok-4.6',
+    readiness: 'grok-4.5',
+    ideate: 'grok-4.6',
+    createPr: 'grok-4.5',
+  },
 };
 
 /**

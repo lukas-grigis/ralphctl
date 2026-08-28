@@ -4,12 +4,13 @@ import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
 import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
 import { COPILOT_MODELS } from '@src/domain/value/settings-models/copilot.ts';
 import { OPENCODE_MODELS } from '@src/domain/value/settings-models/opencode.ts';
+import { GROK_MODELS } from '@src/domain/value/settings-models/grok.ts';
 
 /**
  * Every static per-provider fact ralphctl needs, in one row. PATH binary, install guidance,
  * readiness target file, skills parent directory, and the model catalog all vary by
- * {@link AiProvider} but never change at runtime — bundling them here means a fourth backend's
- * static data lands in ONE object literal instead of four scattered `Record<AiProvider, …>`
+ * {@link AiProvider} but never change at runtime — bundling them here means a new backend's
+ * static data lands in ONE object literal instead of scattered `Record<AiProvider, …>`
  * maps spread across `integration/system`, `integration/ai/readiness`, `integration/ai/skills`,
  * and `application/bootstrap`. `Record<AiProvider, ProviderTraits>` gives TypeScript
  * exhaustiveness over the `AiProvider` union, so adding a member to that union without filling
@@ -77,16 +78,23 @@ export interface ProviderTraits {
   };
 }
 
-/** Forwarded on both surfaces — the shape three of the four backends have. */
+/** Forwarded on both surfaces — every backend except OpenCode's interactive command. */
 const EFFORT_ON_BOTH_SURFACES = { headless: true, interactive: true } as const;
 
 const NPM_INSTALL_CLAUDE = 'npm install -g @anthropic-ai/claude-code';
 const NPM_INSTALL_COPILOT = 'npm install -g @github/copilot';
 const NPM_INSTALL_CODEX = 'npm install -g @openai/codex';
 const NPM_INSTALL_OPENCODE = 'npm install -g opencode-ai';
+const NPM_INSTALL_GROK = 'npm install -g @xai-official/grok';
 /** OpenCode keeps skills, agents and config under one project directory. */
 const OPENCODE_PARENT_DIR = '.opencode';
 const OPENCODE_INSTALL_SH = 'curl -fsSL https://opencode.ai/install | bash';
+const GROK_PARENT_DIR = '.grok';
+const GROK_INSTALL_SH = 'curl -fsSL https://x.ai/cli/install.sh | bash';
+/** Shared by Codex, OpenCode, and Grok — the cross-tool AGENTS.md convention. */
+const AGENTS_MD = 'AGENTS.md';
+const AGENTS_MD_WIRE_TAG = 'agents-md';
+const AGENTS_MD_CONVENTIONS = 'conventions-agents-md';
 
 /**
  * Install-guidance sources (verified against vendor docs at the time of writing):
@@ -155,11 +163,11 @@ export const PROVIDER_TRAITS: Readonly<Record<AiProvider, ProviderTraits>> = {
         ],
       },
     },
-    contextFileTargetPath: 'AGENTS.md',
+    contextFileTargetPath: AGENTS_MD,
     skillsParentDir: '.agents',
     agentsParentDir: '.codex',
-    wireTag: 'agents-md',
-    conventionsPartial: 'conventions-agents-md',
+    wireTag: AGENTS_MD_WIRE_TAG,
+    conventionsPartial: AGENTS_MD_CONVENTIONS,
     modelCatalog: CODEX_MODELS,
     // `-c model_reasoning_effort=<level>` on both surfaces.
     effortForwarding: EFFORT_ON_BOTH_SURFACES,
@@ -176,11 +184,11 @@ export const PROVIDER_TRAITS: Readonly<Record<AiProvider, ProviderTraits>> = {
     },
     // OpenCode reads the same `AGENTS.md` convention codex does, so both share the context-file
     // target and its prompt partial rather than duplicating a near-identical one.
-    contextFileTargetPath: 'AGENTS.md',
+    contextFileTargetPath: AGENTS_MD,
     skillsParentDir: OPENCODE_PARENT_DIR,
     agentsParentDir: OPENCODE_PARENT_DIR,
-    wireTag: 'agents-md',
-    conventionsPartial: 'conventions-agents-md',
+    wireTag: AGENTS_MD_WIRE_TAG,
+    conventionsPartial: AGENTS_MD_CONVENTIONS,
     // Only the zero-auth free tier — OpenCode aggregates upstream providers, so the picker's real
     // list comes from `createOpencodeModelAvailabilityProbe` shelling out to `opencode models`. See
     // `domain/value/settings-models/opencode.ts`.
@@ -190,5 +198,23 @@ export const PROVIDER_TRAITS: Readonly<Record<AiProvider, ProviderTraits>> = {
     // flag — so forwarding an operator's configured effort interactively would turn a working
     // session into a hard spawn failure. The interactive adapter drops it deliberately.
     effortForwarding: { headless: true, interactive: false },
+  },
+  'xai-grok': {
+    binary: 'grok',
+    installGuidance: {
+      docsUrl: 'https://docs.x.ai/build/overview',
+      commandsByPlatform: {
+        darwin: [GROK_INSTALL_SH, NPM_INSTALL_GROK],
+        linux: [GROK_INSTALL_SH, NPM_INSTALL_GROK],
+        win32: ['irm https://x.ai/cli/install.ps1 | iex', NPM_INSTALL_GROK],
+      },
+    },
+    contextFileTargetPath: AGENTS_MD,
+    skillsParentDir: GROK_PARENT_DIR,
+    agentsParentDir: GROK_PARENT_DIR,
+    wireTag: AGENTS_MD_WIRE_TAG,
+    conventionsPartial: AGENTS_MD_CONVENTIONS,
+    modelCatalog: GROK_MODELS,
+    effortForwarding: EFFORT_ON_BOTH_SURFACES,
   },
 };

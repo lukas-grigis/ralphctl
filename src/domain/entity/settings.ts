@@ -15,6 +15,7 @@ import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
 import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
 import { COPILOT_MODELS } from '@src/domain/value/settings-models/copilot.ts';
 import { OPENCODE_MODELS } from '@src/domain/value/settings-models/opencode.ts';
+import { GROK_MODELS } from '@src/domain/value/settings-models/grok.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import { FLOW_IDS } from '@src/domain/value/flow-id.ts';
 
@@ -33,19 +34,21 @@ const LogLevelSchema = z.enum(['silent', 'debug', 'info', 'warn', 'error']) sati
  * Zod literal) because the flat AiSettings shape no longer has a `provider` field at the root
  * for `z.infer` to project. Used by every per-flow row and by composition-root factories.
  */
-export type AiProvider = 'claude-code' | 'github-copilot' | 'openai-codex' | 'opencode';
+export type AiProvider = 'claude-code' | 'github-copilot' | 'openai-codex' | 'opencode' | 'xai-grok';
 
 /** Provider ids — reused by the schema enum/literals and the legacy-row migration checks below. */
 const PROVIDER_CLAUDE_CODE = 'claude-code';
 const PROVIDER_GITHUB_COPILOT = 'github-copilot';
 const PROVIDER_OPENAI_CODEX = 'openai-codex';
 const PROVIDER_OPENCODE = 'opencode';
+const PROVIDER_XAI_GROK = 'xai-grok';
 
 const AiProviderSchema = z.enum([
   PROVIDER_CLAUDE_CODE,
   PROVIDER_GITHUB_COPILOT,
   PROVIDER_OPENAI_CODEX,
   PROVIDER_OPENCODE,
+  PROVIDER_XAI_GROK,
 ]) satisfies z.ZodType<AiProvider>;
 
 /**
@@ -69,6 +72,7 @@ const CodexEffortSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultr
  * per-model effort narrowing.
  */
 const OpencodeEffortSchema = z.enum(['minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+const GrokEffortSchema = z.enum(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
 
 /** Superset across providers. The global `ai.effort` accepts any of these; `resolveEffort` floors. */
 const GlobalEffortSchema = z.enum(['low', 'medium', 'high', 'xhigh', 'max']);
@@ -93,6 +97,7 @@ const OpencodeModelSchema = z.union([
   z.enum(OPENCODE_MODELS as readonly [string, ...string[]]),
   CustomModelStringSchema,
 ]);
+const GrokModelSchema = z.union([z.enum(GROK_MODELS as readonly [string, ...string[]]), CustomModelStringSchema]);
 
 const ClaudeFlowRowSchema = z.object({
   provider: z.literal(PROVIDER_CLAUDE_CODE),
@@ -118,11 +123,18 @@ const OpencodeFlowRowSchema = z.object({
   effort: OpencodeEffortSchema.optional(),
 });
 
+const GrokFlowRowSchema = z.object({
+  provider: z.literal(PROVIDER_XAI_GROK),
+  model: GrokModelSchema,
+  effort: GrokEffortSchema.optional(),
+});
+
 const FlowRowSchema = z.discriminatedUnion('provider', [
   ClaudeFlowRowSchema,
   CopilotFlowRowSchema,
   CodexFlowRowSchema,
   OpencodeFlowRowSchema,
+  GrokFlowRowSchema,
 ]);
 
 /**
