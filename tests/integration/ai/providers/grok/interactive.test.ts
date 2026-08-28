@@ -51,6 +51,8 @@ describe('createInteractiveGrokProvider', () => {
     expect(args).toContain('--permission-mode');
     expect(args).toContain('acceptEdits');
     expect(args).not.toContain('--prompt-file');
+    expect(args).not.toContain('-r');
+    expect(args).not.toContain('-p');
     expect(args.at(-1)).toContain(String(PROMPT_FILE));
     expect(args).not.toContain(STUB_PROMPT);
     expect(calls[0]!.cwd).toBe(String(CWD));

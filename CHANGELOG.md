@@ -19,8 +19,9 @@ to [Semantic Versioning](https://semver.org/).
   grok-economic / fast / frontier / strong-gate variants, and mixed presets were not rerouted onto
   Grok). Headless runs `--no-auto-update --output-format streaming-json --prompt-file grok-prompt.md
 --cwd --always-approve` (a failed prompt-file write fails the spawn — there is no `-p` fallback);
-  read-only additionally denies `search_replace` and `run_terminal_command`
-  while the `write` tool stays allowed so `signals.json` can land. There is no `--sandbox` and no
+  read-only additionally denies `search_replace` and both shell ids (`run_terminal_command` /
+  `run_terminal_cmd`), plus `--no-subagents`, while the `write` tool stays allowed so `signals.json`
+  can land. There is no `--sandbox` and no
   `--add-dir` — extra roots are a named over-grant (sandbox off). Interactive never passes
   `--prompt-file` (that forces headless) and uses `--permission-mode acceptEdits` plus a positional
   prompt pointer. Headless resume is `-r` (interactive session id is `-s`); a stale session

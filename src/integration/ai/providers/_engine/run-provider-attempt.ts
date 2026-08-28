@@ -143,13 +143,13 @@ export interface ProviderAttemptInput {
    */
   readonly emitProviderTokenUsage: (sessionId: string) => TokenUsagePayload;
   readonly providerName: ProviderName;
-  readonly providerSlug: 'claude' | 'codex' | 'copilot' | 'opencode' | 'xai-grok';
+  readonly providerSlug: 'claude' | 'codex' | 'copilot' | 'opencode' | 'grok';
   readonly eventBus: EventBus;
   readonly idleMs?: number;
 }
 
 /**
- * Shared spawnAttempt scaffold for the three headless AI provider adapters. Owns:
+ * Shared spawnAttempt scaffold for the five headless AI provider adapters. Owns:
  *
  * - Child spawn with cwd (context-file autoload depends on the child's `process.cwd()`).
  * - Bounded stderr tail (`STDERR_TAIL_CAP`).
@@ -357,7 +357,7 @@ export interface GenerateContext {
 }
 
 export interface CreateHeadlessProviderInput {
-  readonly providerSlug: 'claude' | 'codex' | 'copilot' | 'opencode' | 'xai-grok';
+  readonly providerSlug: 'claude' | 'codex' | 'copilot' | 'opencode' | 'grok';
   readonly providerName: ProviderName;
   readonly resumeStaleRe: RegExp;
   readonly rateLimitRetries: number;

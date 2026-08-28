@@ -44,7 +44,10 @@ const makeFakeChild = (script: FakeChildScript): ChildProcessWithoutNullStreams 
     stdin,
     kill(): boolean {
       child._killed = true;
-      setTimeout(() => child.emit('exit', null, 'SIGTERM'), 0);
+      setTimeout(() => {
+        child.emit('exit', null, 'SIGTERM');
+        setTimeout(() => child.emit('close', null, 'SIGTERM'), 0);
+      }, 0);
       return true;
     },
     _killed: false,
@@ -53,7 +56,12 @@ const makeFakeChild = (script: FakeChildScript): ChildProcessWithoutNullStreams 
     for (const chunk of script.stdoutChunks ?? []) stdout.emit('data', chunk);
     for (const chunk of script.stderrChunks ?? []) stderr.emit('data', chunk);
     if (script.hang === true) return;
-    setTimeout(() => child.emit('exit', script.exitCode ?? 0, script.exitSignal ?? null), 0);
+    setTimeout(() => {
+      const code = script.exitCode ?? 0;
+      const signal = script.exitSignal ?? null;
+      child.emit('exit', code, signal);
+      setTimeout(() => child.emit('close', code, signal), 0);
+    }, 0);
   }, 0);
   return child;
 };
@@ -142,6 +150,7 @@ describe('createGrokProvider', () => {
     expect(args).toContain(String(CWD));
     expect(args).not.toContain(PROMPT as unknown as string);
     expect(args).not.toContain('--sandbox');
+    expect(args).not.toContain('-p');
     expect(calls[0]!.command).toBe('grok');
   });
 
@@ -209,14 +218,15 @@ describe('buildGrokArgs — AiSession → CLI flag translation', () => {
     expect(args).toContain('--always-approve');
     const idx = args.indexOf('--disallowed-tools');
     expect(idx).toBeGreaterThanOrEqual(0);
-    expect(args[idx + 1]).toContain('search_replace');
-    expect(args[idx + 1]).toContain('run_terminal_command');
+    expect(args[idx + 1]).toBe('search_replace,run_terminal_command,run_terminal_cmd');
+    expect(args).toContain('--no-subagents');
   });
 
   it('FULL_AUTO does not include --disallowed-tools', () => {
     const args = unwrapArgs(session({ permissions: FULL_AUTO }));
     expect(args).toContain('--always-approve');
     expect(args).not.toContain('--disallowed-tools');
+    expect(args).not.toContain('--no-subagents');
   });
 
   it('never emits --sandbox or --permission-mode (plan would block signals.json)', () => {
@@ -324,5 +334,40 @@ describe('createGrokProvider — retry and stream errors', () => {
     expect(out.error.message).toContain('Session not found locally');
     expect(out.error.message).not.toContain('<empty stderr>');
     expect(cap.logs.some((l) => l.level === 'warn' && l.message.includes('Session not found locally'))).toBe(true);
+  });
+
+  it('falls back to a cold spawn when the resume id is stale', async () => {
+    const cap = createCapturingBus();
+    const { spawn, calls } = makeSpawn([
+      {
+        stdoutChunks: ['{"type":"error","message":"Session \\"gone-id\\" not found locally"}\n'],
+        exitCode: 1,
+      },
+      { stdoutChunks: [`${END_LINE}\n`], exitCode: 0 },
+    ]);
+    const provider = createGrokProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(session({ resume: 'gone-id' as unknown as SessionId }));
+    expect(out.ok).toBe(true);
+    expect(calls).toHaveLength(2);
+    const firstResume = calls[0]!.args.indexOf('-r');
+    expect(firstResume).toBeGreaterThanOrEqual(0);
+    expect(calls[0]!.args[firstResume + 1]).toBe('gone-id');
+    expect(calls[1]!.args).not.toContain('-r');
+    expect(cap.logs.some((l) => l.level === 'warn' && /resume thread not found/i.test(l.message))).toBe(true);
+  });
+
+  it('does not cold-retry a session-not-found crash when resume is unset', async () => {
+    const cap = createCapturingBus();
+    const { spawn, calls } = makeSpawn([
+      {
+        stdoutChunks: ['{"type":"error","message":"Session not found locally"}\n'],
+        exitCode: 1,
+      },
+    ]);
+    const provider = createGrokProvider({ rateLimitRetries: 0, eventBus: cap.bus, spawn });
+    const out = await provider.generate(session());
+    expect(out.ok).toBe(false);
+    expect(calls).toHaveLength(1);
+    expect(cap.logs.some((l) => l.level === 'warn' && /resume thread not found/i.test(l.message))).toBe(false);
   });
 });

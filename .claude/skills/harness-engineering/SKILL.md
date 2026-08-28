@@ -158,12 +158,12 @@ frame:
 ## 8. One harness, many providers — keep shared layers provider-agnostic (ralphctl extension)
 
 Not from the articles, but a direct consequence of §1's ACI discipline and §7's stress-test rule, and
-load-bearing for ralphctl specifically: ralphctl runs **one harness across four provider backends** —
-Claude Code, GitHub Copilot, OpenAI Codex, OpenCode. A component that works for one provider but silently
+load-bearing for ralphctl specifically: ralphctl runs **one harness across five provider backends** —
+Claude Code, GitHub Copilot, OpenAI Codex, OpenCode, Grok. A component that works for one provider but silently
 degrades the others is a portability bug, not a feature.
 
 The rule: every **shared** layer — chain primitives, flows, prompt templates, and the signal contract —
-must read the same on all four providers. Provider-specific behaviour belongs behind the **adapter /
+must read the same on all five providers. Provider-specific behaviour belongs behind the **adapter /
 `_engine` sibling-isolation seam** and **per-provider effort resolution**, never baked into shared prompt
 text or the contract.
 

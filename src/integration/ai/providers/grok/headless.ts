@@ -32,7 +32,7 @@ import { createGrokAttemptTracker } from '@src/integration/ai/providers/grok/par
  *   | resume: <SessionId>                          | `-r <id>`                                              |
  *   | effort: <level>                              | `--effort <level>`                                     |
  *   | permissions FULL_AUTO                        | `--always-approve`                                     |
- *   | permissions READ_ONLY                        | `--always-approve --disallowed-tools search_replace,run_terminal_command` |
+ *   | permissions READ_ONLY                        | `--always-approve --disallowed-tools search_replace,run_terminal_command,run_terminal_cmd --no-subagents` |
  *   | prompt                                       | `--prompt-file <grok-prompt.md>`                         |
  *
  * `--prompt-file` is what triggers headless. Grok does not read piped stdin as the prompt, and
@@ -41,9 +41,10 @@ import { createGrokAttemptTracker } from '@src/integration/ai/providers/grok/par
  * the TUI.
  *
  * The write tool is `write` and MUST stay allowed — audit-[09] lands `signals.json` through it.
- * Edit is `search_replace`; shell is `run_terminal_command` (not the docs' `run_terminal_cmd`).
- * Never `--permission-mode plan` (blocks signals.json). Never `--sandbox` — default-off is
- * unrestricted FS, and a workspace sandbox would block `outputDir`.
+ * Edit is `search_replace`; shell is dual-spelled (`run_terminal_command` is the live 1.0.5 id,
+ * `run_terminal_cmd` is the docs' id). `--no-subagents` keeps a child agent from recovering
+ * shell/edit under `--always-approve`. Never `--permission-mode plan` (blocks signals.json).
+ * Never `--sandbox` — default-off is unrestricted FS, and a workspace sandbox would block `outputDir`.
  *
  * ## additionalRoots — named over-grant
  *
@@ -61,7 +62,7 @@ const GROK_PROMPT_FILENAME = 'grok-prompt.md';
  * "Session "…" not found locally, restoring conversation from remote..." then
  * "Failed to restore session from remote: fetching session record: session get failed: 404".
  */
-const RESUME_STALE_RE = /session .+ not found|failed to restore session|session get failed: 404/i;
+const RESUME_STALE_RE = /session(?: .+)? not found|failed to restore session|session get failed: 404/i;
 
 const isFullAuto = (p: SessionPermissions): boolean => p.autoApprove && p.canModifyRepoFiles && p.canRunShell;
 
@@ -99,10 +100,11 @@ export const buildGrokArgs = (session: AiSession, promptFile: string): Result<re
   }
   args.push('--always-approve');
   if (!isFullAuto(session.permissions)) {
-    // Write stays allowed so signals.json can land. search_replace (edit) and
-    // run_terminal_command (shell) are the READ_ONLY denylist — live tool ids from
-    // `available_commands.tools`, not the docs' `run_terminal_cmd`.
-    args.push('--disallowed-tools', 'search_replace,run_terminal_command');
+    // Write stays allowed so signals.json can land. search_replace (edit) plus both
+    // shell ids (live `run_terminal_command` and the docs' `run_terminal_cmd`) are the
+    // READ_ONLY denylist. `--no-subagents` blocks a child from recovering shell/edit.
+    args.push('--disallowed-tools', 'search_replace,run_terminal_command,run_terminal_cmd');
+    args.push('--no-subagents');
   }
   return Result.ok(args);
 };
@@ -129,7 +131,9 @@ const runGrokAttempt = async (
     command,
     args: built.value,
     session: attemptSession,
-    resolveOn: 'exit',
+    // `end` is last and is the only record that carries `sessionId`. Node can fire `exit`
+    // before that chunk is delivered; `close` waits for the stdout pipe to drain.
+    resolveOn: 'close',
     rateLimitRe: DEFAULT_RATE_LIMIT_RE,
     onStdoutChunk: (chunk) => tracker.consumeChunk(chunk),
     flush: () => tracker.flush(),
@@ -152,7 +156,7 @@ const runGrokAttempt = async (
       });
     },
     providerName: PROVIDER_NAME,
-    providerSlug: 'xai-grok',
+    providerSlug: 'grok',
     eventBus: deps.eventBus,
     ...(deps.idleMs !== undefined ? { idleMs: deps.idleMs } : {}),
   });
@@ -163,7 +167,7 @@ export const createGrokProvider = (deps: HeadlessProviderDeps): HeadlessAiProvid
   const command = deps.command ?? 'grok';
 
   return createHeadlessProvider({
-    providerSlug: 'xai-grok',
+    providerSlug: 'grok',
     providerName: PROVIDER_NAME,
     resumeStaleRe: RESUME_STALE_RE,
     rateLimitRetries: deps.rateLimitRetries,

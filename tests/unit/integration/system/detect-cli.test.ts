@@ -15,7 +15,7 @@ const whichFor =
     present.has(binary);
 
 describe('detectInstalledProviders', () => {
-  it('maps providers to claude / copilot / codex binaries', () => {
+  it('maps providers to claude / copilot / codex / opencode / grok binaries', () => {
     expect(PROVIDER_BINARY).toEqual({
       'claude-code': 'claude',
       'github-copilot': 'copilot',

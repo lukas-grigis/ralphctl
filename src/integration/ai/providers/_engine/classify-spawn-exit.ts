@@ -39,8 +39,8 @@ const STDOUT_RATE_LIMIT_RE =
   /usage limit reached|rate.?limit exceeded|rate_limit_error|overloaded_error|\b5-hour limit\b|"status"\s*:\s*429/i;
 
 /**
- * Shared post-spawn classifier for the four headless AI provider adapters
- * (claude / codex / copilot / opencode). Inspects the child's exit, the abort signal, stderr, and the
+ * Shared post-spawn classifier for the five headless AI provider adapters
+ * (claude / codex / copilot / opencode / grok). Inspects the child's exit, the abort signal, stderr, and the
  * presence of `signals.json`, and decides whether the attempt is a success, a rate-limit
  * retry, an aborted operation, or a hard failure.
  *

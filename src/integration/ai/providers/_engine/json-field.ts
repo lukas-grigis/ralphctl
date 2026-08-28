@@ -1,5 +1,5 @@
 /**
- * Tiny JSON-narrowing helpers shared by the provider stream parsers (claude / copilot / codex).
+ * Tiny JSON-narrowing helpers shared by the provider stream parsers (claude / copilot / codex / opencode / grok).
  *
  * Each adapter reads loosely-typed `Record<string, unknown>` envelopes off the CLI stream and
  * needs the same three primitives: pull the first string/number field by any of several candidate

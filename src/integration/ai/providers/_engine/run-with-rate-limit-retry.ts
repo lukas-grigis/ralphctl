@@ -62,10 +62,10 @@ export interface RunWithRateLimitRetryOptions {
   readonly eventBus: EventBus;
   /**
    * Short provider tag for log lines / banner ids (`'claude'` / `'codex'` / `'copilot'` /
-   * `'opencode'`). Keeps
+   * `'opencode'` / `'grok'`). Keeps
    * the banner id keyspace per-provider so concurrent adapters don't collide.
    */
-  readonly providerSlug: 'claude' | 'codex' | 'copilot' | 'opencode' | 'xai-grok';
+  readonly providerSlug: 'claude' | 'codex' | 'copilot' | 'opencode' | 'grok';
   /**
    * Element name stamped onto the {@link AbortError} surfaced when a user cancel lands during a
    * backoff sleep — mirrors `classifySpawnExit`'s abort shape so the chain runner propagates it.

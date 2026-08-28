@@ -414,9 +414,9 @@ See [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) for tokens, components, view patterns
   case is deferred.
 - **Cross-provider escalation** — escalation today stays within a provider (e.g. Sonnet → Opus); switching
   providers mid-task carries auth/context/tool hazards and is deferred.
-- **Real-provider e2e tests** — every Claude / Copilot / Codex / OpenCode provider test uses a fake `spawn`;
-  `MANUAL-TEST-PLAYBOOK.md` Scenario 15 is the one place OpenCode runs against the real CLI, and it is
-  manual, not automated.
+- **Real-provider e2e tests** — every Claude / Copilot / Codex / OpenCode / Grok provider test uses a fake `spawn`;
+  `MANUAL-TEST-PLAYBOOK.md` Scenario 15 is the one place OpenCode runs against the real CLI, and Scenario 20
+  is the Grok live-CLI counterpart; both are manual, not automated.
 - **Onboarding-status doctor probe** — no per-(project, repo) "onboarding state" is modeled in the domain
   (`Project` / `Repository` carry no onboarding field), so doctor reports none. Per-(project, repo) health is
   instead covered by the `integrity` probes (repo-path resolution, default-branch resolution, sprint/execution

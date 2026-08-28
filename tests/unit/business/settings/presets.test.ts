@@ -404,6 +404,7 @@ describe('presets', () => {
         'claude-only',
         'copilot-only',
         'codex-only',
+        'grok-only',
         ...ECONOMIC_PRESETS,
         ...STRONG_GATE_PRESETS,
       ];
@@ -569,6 +570,7 @@ describe('presets', () => {
       ['claude-only', 'claude-code'],
       ['copilot-only', 'github-copilot'],
       ['codex-only', 'openai-codex'],
+      ['grok-only', 'xai-grok'],
     ];
 
     for (const [preset, provider] of providerOnlyPresets) {
@@ -586,7 +588,7 @@ describe('presets', () => {
           }
         });
 
-        it('matches the effort matrix (implement+plan xhigh across all three providers, readiness medium, refine+ideate unset)', () => {
+        it('matches the effort matrix (implement+plan xhigh, readiness medium, refine+ideate unset)', () => {
           expect(out.ai.implement.generator.effort).toBe('xhigh');
           expect(out.ai.implement.evaluator.effort).toBe('xhigh');
           expect(out.ai.plan.effort).toBe('xhigh');
@@ -596,6 +598,18 @@ describe('presets', () => {
         });
       });
     }
+
+    it('grok-only stamps grok-4.6 on implement/plan/ideate and grok-4.5 on refine/readiness/createPr', () => {
+      const out = applyPreset('grok-only', DEFAULT_SETTINGS);
+      expect(out.ai.effort).toBe('high');
+      expect(out.ai.implement.generator.model).toBe('grok-4.6');
+      expect(out.ai.implement.evaluator.model).toBe('grok-4.6');
+      expect(out.ai.plan.model).toBe('grok-4.6');
+      expect(out.ai.ideate.model).toBe('grok-4.6');
+      expect(out.ai.refine.model).toBe('grok-4.5');
+      expect(out.ai.readiness.model).toBe('grok-4.5');
+      expect(out.ai.createPr.model).toBe('grok-4.5');
+    });
 
     it('leaves no preset identity behind — a subsequent manual edit sticks', () => {
       const applied = applyPreset('claude-only', DEFAULT_SETTINGS);

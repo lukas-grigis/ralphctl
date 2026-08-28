@@ -184,7 +184,7 @@ export const createGrokAttemptTracker = (eventBus: EventBus): GrokAttemptTracker
     publishGrokStreamLineEvents(eventBus, obj, toolNames);
     const errorText = streamErrorText(obj);
     if (errorText !== undefined) streamError = errorText;
-    const text = assistantText(obj) ?? errorText;
+    const text = assistantText(obj);
     if (text === undefined) return;
     body = `${body}${text}`.slice(-FORENSIC_BODY_TAIL_CAP);
     assistantTail = `${assistantTail}${text}`.slice(-RATE_LIMIT_SCAN_TAIL_CAP);

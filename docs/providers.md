@@ -23,19 +23,19 @@ provider-agnostic — it works with whichever provider each implement role is co
 Each CLI exposes a different vocabulary for "let the agent work without asking". ralphctl maps its own
 permission model onto whatever the backend offers:
 
-| Provider           | Headless mapping (full-auto)           | Read-only mapping                                                         | Fine-grained gate?                                 |
-| ------------------ | -------------------------------------- | ------------------------------------------------------------------------- | -------------------------------------------------- |
-| **Claude Code**    | `--permission-mode bypassPermissions`  | `--disallowedTools` on edit / shell / network                             | Yes — per-tool deny list                           |
-| **GitHub Copilot** | `--autopilot` + `--allow-all`          | `--allow-all-tools --deny-tool=shell`                                     | Partial — shell deny only                          |
-| **OpenAI Codex**   | `-s workspace-write` (topology-scoped) | same — two sandbox modes only                                             | No — two sandbox modes only                        |
-| **OpenCode**       | `--auto` (topology-scoped)             | same — no read-only mode                                                  | No — permission is all-or-nothing                  |
-| **Grok Build CLI** | `--always-approve`                     | `--always-approve --disallowed-tools search_replace,run_terminal_command` | Partial — edit + shell deny; `write` stays allowed |
+| Provider           | Headless mapping (full-auto)           | Read-only mapping                                                                                         | Fine-grained gate?                                 |
+| ------------------ | -------------------------------------- | --------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| **Claude Code**    | `--permission-mode bypassPermissions`  | `--disallowedTools` on edit / shell / network                                                             | Yes — per-tool deny list                           |
+| **GitHub Copilot** | `--autopilot` + `--allow-all`          | `--allow-all-tools --deny-tool=shell`                                                                     | Partial — shell deny only                          |
+| **OpenAI Codex**   | `-s workspace-write` (topology-scoped) | same — two sandbox modes only                                                                             | No — two sandbox modes only                        |
+| **OpenCode**       | `--auto` (topology-scoped)             | same — no read-only mode                                                                                  | No — permission is all-or-nothing                  |
+| **Grok Build CLI** | `--always-approve`                     | `--always-approve --disallowed-tools search_replace,run_terminal_command,run_terminal_cmd --no-subagents` | Partial — edit + shell deny; `write` stays allowed |
 
 **The `Write` tool is never denied, on any backend.** The harness's contract envelope (`signals.json`) lands
 through it, so path scope — cwd plus the mounted roots (`--add-dir` and equivalents) — is always part of the
 safety envelope, not an alternative to the deny list. Claude Code denies the tools that modify _existing_
 files (`Edit` / `MultiEdit` / `NotebookEdit`) plus shell and network; Copilot denies only `shell`; Grok
-denies `search_replace` (edit) and `run_terminal_command` (shell) while `write` stays allowed; Codex and
+denies `search_replace` (edit) and both shell ids (`run_terminal_command` / `run_terminal_cmd`) plus `--no-subagents` while `write` stays allowed; Codex and
 OpenCode have no per-tool gate at all.
 
 For Codex and OpenCode, **path topology is the whole safety envelope**. Codex's sandbox has only two modes
@@ -203,8 +203,8 @@ prompt pointer.
 Headless resume is `-r` (interactive session id is `-s`); a stale session ("session not found" /
 404 restore) falls back to a cold spawn.
 
-Read-only flows deny `search_replace` (edit) and `run_terminal_command` (shell — the live tool id, not
-the docs' `run_terminal_cmd`). The `write` tool stays allowed so `signals.json` can land. There is no
+Read-only flows deny `search_replace` (edit) and both shell ids (`run_terminal_command` live,
+`run_terminal_cmd` docs), plus `--no-subagents`. The `write` tool stays allowed so `signals.json` can land. There is no
 `--sandbox` and no `--add-dir` — extra roots are a named over-grant (sandbox off). Never
 `--permission-mode plan` (blocks `signals.json`).
 

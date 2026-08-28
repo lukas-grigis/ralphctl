@@ -97,13 +97,14 @@ describe('createGrokAttemptTracker', () => {
     expect(tracker.getBody()).toBe('ok');
   });
 
-  it('captures error.message as stream error, appends it to the body, and publishes a warn', () => {
+  it('captures error.message as stream error without folding it into the body, and publishes a warn', () => {
     const { tracker, cap } = drive([
       '{"type":"text","data":"before"}\n',
       '{"type":"error","message":"Session not found locally"}\n',
     ]);
     expect(tracker.getStreamError()).toBe('Session not found locally');
-    expect(tracker.getBody()).toBe('beforeSession not found locally');
+    expect(tracker.getBody()).toBe('before');
+    expect(tracker.getStdoutTail()).toBe('before');
     expect(
       cap.logs.some(
         (e) => e.level === 'warn' && e.message.includes('CLI reported an error — Session not found locally')
@@ -145,5 +146,14 @@ describe('createGrokAttemptTracker', () => {
     const messages = cap.logs.map((e) => e.message);
     expect(messages).toContain('grok-provider: tool_use');
     expect(messages).toContain('grok-provider: tool_result');
+  });
+
+  it('maps a non-completed tool_call_update to a tool_result error', () => {
+    const { cap } = drive([
+      '{"type":"tool_call","toolCallId":"t2","toolName":"write","status":"running"}\n',
+      '{"type":"tool_call_update","toolCallId":"t2","status":"failed","rawOutput":{"ok":false}}\n',
+    ]);
+    const result = cap.logs.find((e) => e.message === 'grok-provider: tool_result');
+    expect(result?.meta).toMatchObject({ tool: 'write', status: 'error' });
   });
 });

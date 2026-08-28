@@ -64,4 +64,18 @@ describe('createGrokSkillsAdapter — .git/info/exclude wildcard', () => {
     const content = await readFile(join(String(session), '.git/info/exclude'), 'utf-8');
     expect(content).toContain('.grok/skills/ralphctl-*');
   });
+
+  it('does not duplicate the wildcard on repeated installs', async () => {
+    const session = await makeSession();
+    await mkdir(join(String(session), '.git/info'), { recursive: true });
+    await writeFile(join(String(session), '.git/info/exclude'), '', 'utf-8');
+
+    const adapter = createGrokSkillsAdapter();
+    await adapter.install(session, [skill('ralphctl-alignment', '# A')]);
+    await adapter.install(session, [skill('ralphctl-iterative-review', '# B')]);
+
+    const content = await readFile(join(String(session), '.git/info/exclude'), 'utf-8');
+    const matches = content.split('\n').filter((l) => l.trim() === '.grok/skills/ralphctl-*');
+    expect(matches).toHaveLength(1);
+  });
 });
