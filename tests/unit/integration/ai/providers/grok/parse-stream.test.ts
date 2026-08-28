@@ -156,4 +156,20 @@ describe('createGrokAttemptTracker', () => {
     const result = cap.logs.find((e) => e.message === 'grok-provider: tool_result');
     expect(result?.meta).toMatchObject({ tool: 'write', status: 'error' });
   });
+
+  it('ignores in_progress tool_call_update so the debug rail does not flash an error', () => {
+    const { cap } = drive([
+      '{"type":"tool_call","toolCallId":"t3","toolName":"write","status":"running"}\n',
+      '{"type":"tool_call_update","toolCallId":"t3","status":"in_progress"}\n',
+      '{"type":"tool_call_update","toolCallId":"t3","status":"completed","rawOutput":{"ok":true}}\n',
+    ]);
+    const results = cap.logs.filter((e) => e.message === 'grok-provider: tool_result');
+    expect(results).toHaveLength(1);
+    expect(results[0]?.meta).toMatchObject({ tool: 'write', status: 'ok' });
+  });
+
+  it('flushes an unterminated end line so sessionId is not dropped', () => {
+    const { tracker } = drive(['{"type":"end","sessionId":"sid-flush","usage":{"input_tokens":1,"output_tokens":1}}']);
+    expect(tracker.getSessionId()).toBe('sid-flush');
+  });
 });

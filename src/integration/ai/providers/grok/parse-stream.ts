@@ -129,9 +129,12 @@ export const publishGrokStreamLineEvents = (
     return;
   }
   if (type !== 'tool_call_update') return;
+  const status = stringField(obj, 'status');
+  // Intermediate progress is not a result — mapping it to error painted a false tool failure
+  // on the debug rail before the terminal `completed` / `failed` update arrived.
+  if (status === 'in_progress' || status === 'running') return;
   const id = stringField(obj, 'toolCallId');
   const tool = (id !== undefined ? toolNames.get(id) : undefined) ?? id ?? '';
-  const status = stringField(obj, 'status');
   publishToolResultEvent(
     eventBus,
     PROVIDER_NAME,

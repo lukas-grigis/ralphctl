@@ -50,6 +50,10 @@ describe('createInteractiveGrokProvider', () => {
     expect(args).toContain(GROK_MODELS[0]!);
     expect(args).toContain('--permission-mode');
     expect(args).toContain('acceptEdits');
+    const sandboxIdx = args.indexOf('--sandbox');
+    expect(sandboxIdx).toBeGreaterThanOrEqual(0);
+    expect(args[sandboxIdx + 1]).toBe('off');
+    expect(args).not.toContain('--always-approve');
     expect(args).not.toContain('--prompt-file');
     expect(args).not.toContain('-r');
     expect(args).not.toContain('-p');

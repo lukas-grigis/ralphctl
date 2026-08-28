@@ -236,6 +236,9 @@ per-row settings.
 | **OpenCode** (`opencode`)                 | `opencode` | `npm i -g opencode-ai`               | your own key, or none      | `AGENTS.md`                       |
 | **Grok Build CLI** (`xai-grok`)           | `grok`     | `npm i -g @xai-official/grok`        | xAI account (`grok login`) | `AGENTS.md`                       |
 
+Codex, OpenCode, and Grok share one repo-root `AGENTS.md`. Readiness for more than one of them writes
+that file in sequence; each later pass keeps the previous body at `AGENTS.md.bak.<timestamp>`.
+
 **Which one?**
 
 - **Claude Code** — read-only flows deny the edit, shell and network tools at the CLI level, the finest-grained
@@ -248,7 +251,7 @@ per-row settings.
   you can run a specific model, a local model, or no account at all.
 - **Grok Build CLI** — xAI's coding CLI (`grok-4.6` / `grok-4.5`). Read-only flows deny edit and shell; the
   `write` tool stays open so `signals.json` can land. Extra roots are a named over-grant — Grok has no
-  `--add-dir` and sandbox is off.
+  `--add-dir` and `--sandbox off` is forced.
 
 On every backend the `Write` tool stays open by design — the harness's `signals.json` lands through it — so
 path scope (cwd + mounted roots) is always part of the safety envelope. See the

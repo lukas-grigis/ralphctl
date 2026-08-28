@@ -214,9 +214,9 @@ For every prompt context (an editor, a select, an input):
 
 1. Press the doctor hotkey from anywhere
 2. **Expected:** doctor view runs all checks: Node version, git, configured AI provider binary + auth
-   (per-provider — Claude/Codex show pass/warn, OpenCode shows credential count, Copilot always shows
-   `unknown` since its CLI has no auth-status verb), data directory writability, project repos, current
-   sprint health
+   (per-provider — Claude/Codex show pass/warn, OpenCode shows credential count, Copilot and Grok
+   always show `unknown` since neither CLI has an auth-status verb; Grok: sign in with `grok login`),
+   data directory writability, project repos, current sprint health
 3. **Expected:** failing rows include a short summary line and (where useful) per-item bullets indented below
 4. Press Enter to pop back
 
@@ -499,8 +499,12 @@ interesting case), plus one task that has never been evaluated.
 `curl -fsSL https://x.ai/cli/install.sh | bash`). Stamp the whole `ai` section onto Grok first:
 
 ```bash
+ralphctl doctor
 ralphctl settings apply-preset grok-only
 ```
+
+`ralphctl doctor` should show `Grok (configured)` PATH pass + auth `unknown` after the preset is
+applied. If Grok is not yet configured, apply the preset first, then re-run doctor.
 
 **20a — interactive flow (refine):**
 
@@ -508,9 +512,7 @@ ralphctl settings apply-preset grok-only
 2. From Home pipeline-map, select the **Refine** flow
 3. Accept the per-ticket confirm prompt
 4. **Expected:** `grok` takes over the full terminal (alt-screen exits, Grok's own UI appears);
-   converse briefly, then exit. The spawn must NOT have passed `--prompt-file` (that forces
-   headless) — a positional prompt pointer plus `--permission-mode acceptEdits` is the interactive
-   shape
+   converse briefly, then exit. ralphctl restores its TUI afterwards.
 5. **Pass condition:** ralphctl re-appears with the parsed refined requirements shown inline — this only
    happens if Grok actually wrote a `refined-ticket` signal into `signals.json` under
    `<sprintDir>/refinement/<ticket-slug>/`. Confirm the file exists and is non-empty

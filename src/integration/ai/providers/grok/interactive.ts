@@ -13,8 +13,9 @@ import { isGrokModel } from '@src/domain/value/settings-models/grok.ts';
  * `--prompt-file` is deliberately omitted — it forces headless. The prompt slot is a positional
  * pointer from `buildPromptPointer`, never the body.
  *
- * Grok has no `--add-dir`. With sandbox off, extra roots are a named over-grant rather than an
- * InvalidStateError (same posture as the headless adapter).
+ * Grok has no `--add-dir`. `--sandbox off` is forced so extra roots (and `outputFile` outside
+ * cwd) stay reachable — a named over-grant rather than an InvalidStateError (same posture as
+ * the headless adapter).
  *
  * Docs: https://docs.x.ai/build/overview
  */
@@ -30,6 +31,8 @@ export const createInteractiveGrokProvider = (deps: InteractiveProviderDeps): In
         '--no-auto-update',
         '--cwd',
         String(input.cwd),
+        '--sandbox',
+        'off',
         '-m',
         input.model,
         '--permission-mode',

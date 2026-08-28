@@ -81,13 +81,13 @@ The per-spawn audit / sandbox layout is:
 
 ## Permission modes (per-tool, NOT portable)
 
-| Provider         | Headless permission flag              | Why                                                                                                                                                                                                        |
-| ---------------- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `claude-code`    | `--permission-mode bypassPermissions` | Piped stdin can't answer prompts; `acceptEdits` hangs                                                                                                                                                      |
-| `github-copilot` | `--allow-all-tools`                   | Copilot's permission model is all-or-nothing                                                                                                                                                               |
-| `openai-codex`   | per-session approval flow             | Codex prompts for approval inline; sandbox handles it                                                                                                                                                      |
-| `opencode`       | `--auto` (or nothing)                 | No enforceable read-only mode — see the over-grant below                                                                                                                                                   |
-| `xai-grok`       | `--always-approve`                    | Read-only adds `--disallowed-tools search_replace,run_terminal_command,run_terminal_cmd` plus `--no-subagents`; `write` stays allowed. No `--sandbox`, no `--add-dir` — extra roots are a named over-grant |
+| Provider         | Headless permission flag              | Why                                                                                                                                                                                          |
+| ---------------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `claude-code`    | `--permission-mode bypassPermissions` | Piped stdin can't answer prompts; `acceptEdits` hangs                                                                                                                                        |
+| `github-copilot` | `--allow-all-tools`                   | Copilot's permission model is all-or-nothing                                                                                                                                                 |
+| `openai-codex`   | per-session approval flow             | Codex prompts for approval inline; sandbox handles it                                                                                                                                        |
+| `opencode`       | `--auto` (or nothing)                 | No enforceable read-only mode — see the over-grant below                                                                                                                                     |
+| `xai-grok`       | `--always-approve --sandbox off`      | Per-gate `--disallowed-tools` (`search_replace` / both shell ids / `web_search,web_fetch`) plus `--no-subagents`; `write` stays allowed. No `--add-dir` — extra roots are a named over-grant |
 
 **OpenCode has no enforceable permission gate.** `opencode run` exposes one approval control, `--auto`, and
 omitting it does NOT make the run read-only — writes inside `--dir` land either way. The adapter forwards

@@ -42,7 +42,7 @@ const confirmReadinessUseCase = async (
   if (input.proposedVerifyScript !== undefined) {
     sections.push('', `Verify script (post-task gate): ${input.proposedVerifyScript}`);
   }
-  sections.push('', 'Apply this proposal?');
+  sections.push('', 'If this file already exists, a .bak.<timestamp> copy is kept. Apply this proposal?');
   return deps.interactive.askConfirm({ message: sections.join('\n') });
 };
 

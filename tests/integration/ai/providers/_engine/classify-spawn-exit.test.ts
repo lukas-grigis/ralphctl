@@ -594,6 +594,34 @@ describe.each(PROVIDERS)('classifySpawnExit [%s]', (providerName) => {
     }
   });
 
+  it('rate-limit in processErrorText (empty stderr) is stderr-class and beats signals-recovery', async () => {
+    const session = baseSession();
+    await writeSignalsFile(String(session.signalsFile));
+    let invoked = 0;
+    const outcome = await classifySpawnExit({
+      session,
+      exit: { code: 1, signal: null },
+      stderr: '',
+      processErrorText: 'rate limit exceeded',
+      rateLimitRe: DEFAULT_RATE_LIMIT_RE,
+      capturedSessionId: 'sid-rl',
+      providerName,
+      eventBus: createCapturingBus().bus,
+      watchdogBannerId: 'unused',
+      onSuccess: () => {
+        invoked += 1;
+        return okSuccess(session);
+      },
+    });
+    expect(invoked).toBe(0);
+    expect(outcome.kind).toBe('rate-limit');
+    if (outcome.kind === 'rate-limit') {
+      expect(outcome.error).toBeInstanceOf(RateLimitError);
+      expect(outcome.error.sessionId).toBe('sid-rl');
+      expect(outcome.error.message).toContain('stderr');
+    }
+  });
+
   it('surfaces processErrorText in the failure message when the CLI wrote nothing to stderr', async () => {
     // opencode reports a fatal CLI error on a stdout `{"type":"error"}` record and leaves stderr
     // EMPTY, so the crash message used to read `process exited with code 1: <empty stderr>` — the

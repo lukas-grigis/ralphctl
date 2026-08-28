@@ -74,12 +74,14 @@ const STDOUT_RATE_LIMIT_RE =
  * handle the bad-content cases uniformly with the case where the AI just never wrote
  * signals.json at all.
  *
- * **Rate-limit on STDERR wins over recovery; on STDOUT it does not.** A throttle reported on
- * stderr surfaces `rate-limit` even if a partial `signals.json` from a previous attempt happens to
- * be on disk (per-round outputDir means it shouldn't be, but the precedence keeps the semantics
- * safe under reuse). A match found only in `stdoutTail` is weaker evidence — that haystack is
- * assistant prose — so a landed `signals.json` beats it: the envelope is proof the turn did its
- * work, and discarding it to sleep through the backoff schedule is the worse error.
+ * **Rate-limit on STDERR (and `processErrorText`) wins over recovery; on STDOUT it does not.** A
+ * throttle reported on stderr — or on the CLI's structured stdout `error` record, which grok /
+ * opencode emit with empty stderr — surfaces `rate-limit` even if a partial `signals.json` from a
+ * previous attempt happens to be on disk (per-round outputDir means it shouldn't be, but the
+ * precedence keeps the semantics safe under reuse). A match found only in `stdoutTail` is weaker
+ * evidence — that haystack is assistant prose — so a landed `signals.json` beats it: the envelope
+ * is proof the turn did its work, and discarding it to sleep through the backoff schedule is the
+ * worse error.
  *
  * **Retryable crash vs. non-retryable config error.** Two failure branches surface a
  * `ProcessCrashError` (a TRANSIENT process death worth retrying within the attempt budget):
@@ -289,15 +291,25 @@ type RateLimitSource = 'stderr' | 'stdout';
 /**
  * Rate-limit detection, two-tiered by haystack trustworthiness:
  *
- *  - **stderr** gets the adapter's own broad pattern — it is the CLI's diagnostic channel, so
- *    "quota" / a bare `429` there really is a throttle.
+ *  - **stderr** and **processErrorText** get the adapter's own broad pattern — both are the CLI's
+ *    diagnostic channel (stderr for claude / codex / copilot; a structured stdout `error` record
+ *    for grok / opencode). "quota" / a bare `429` there really is a throttle. A `processErrorText`
+ *    hit is stderr-class so it still beats signals-recovery.
  *  - **stdoutTail** gets the shared, narrow {@link STDOUT_RATE_LIMIT_RE} — it is assistant prose,
  *    where those same tokens appear in ordinary answers about throttling code.
  *
  * Returns the matching source, or `undefined` when neither tier matches.
  */
-const detectRateLimit = ({ stderr, rateLimitRe, stdoutTail }: ClassifySpawnExitInput): RateLimitSource | undefined => {
+const detectRateLimit = ({
+  stderr,
+  rateLimitRe,
+  stdoutTail,
+  processErrorText,
+}: ClassifySpawnExitInput): RateLimitSource | undefined => {
   if (rateLimitRe.test(stderr)) return 'stderr';
+  if (processErrorText !== undefined && processErrorText.length > 0 && rateLimitRe.test(processErrorText)) {
+    return 'stderr';
+  }
   if (stdoutTail !== undefined && STDOUT_RATE_LIMIT_RE.test(stdoutTail)) return 'stdout';
   return undefined;
 };
@@ -420,7 +432,8 @@ const recoverIfSignalsLanded = async ({
  *
  *  1. the two pre-exit branches (abort, spawn error) beat everything;
  *  2. a clean exit hands straight to the adapter's success block;
- *  3. a rate-limit found on **stderr** beats signals-recovery (the CLI itself said "throttled");
+ *  3. a rate-limit found on **stderr** or **processErrorText** beats signals-recovery (the CLI
+ *     itself said "throttled");
  *  4. model-unavailable beats signals-recovery (a config error must not be masked by a stale
  *     envelope);
  *  5. signals-recovery beats a rate-limit found only in **stdoutTail** — a landed envelope is

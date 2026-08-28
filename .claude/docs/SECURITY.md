@@ -13,13 +13,13 @@ the AI to land `signals.json` in `outputDir`. To deny writes to a tree, don't mo
 `outputDir` is auto-included as a writable root in every provider (see
 `providers/_engine/resolve-roots.ts`).
 
-| Provider         | Always passes                                       | Read-only profile maps to                                                                                 | Native context file               |
-| ---------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | --------------------------------- |
-| `claude-code`    | `--permission-mode bypassPermissions`               | `--disallowedTools Edit,MultiEdit,NotebookEdit,Bash`                                                      | `CLAUDE.md` at repo root          |
-| `github-copilot` | `--no-ask-user --autopilot --silent`                | `--allow-all-tools --deny-tool=shell`                                                                     | `.github/copilot-instructions.md` |
-| `openai-codex`   | `-s workspace-write` (no `-a` flag)                 | `-s workspace-write` (topology-scoped)                                                                    | `AGENTS.md`                       |
-| `opencode`       | `run --format json --dir <cwd> -m <provider/model>` | **nothing — no argv spelling exists**                                                                     | `AGENTS.md`                       |
-| `xai-grok`       | `--always-approve`                                  | `--always-approve --disallowed-tools search_replace,run_terminal_command,run_terminal_cmd --no-subagents` | `AGENTS.md`                       |
+| Provider         | Always passes                                       | Read-only profile maps to                                                                                                                                                              | Native context file               |
+| ---------------- | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| `claude-code`    | `--permission-mode bypassPermissions`               | `--disallowedTools Edit,MultiEdit,NotebookEdit,Bash`                                                                                                                                   | `CLAUDE.md` at repo root          |
+| `github-copilot` | `--no-ask-user --autopilot --silent`                | `--allow-all-tools --deny-tool=shell`                                                                                                                                                  | `.github/copilot-instructions.md` |
+| `openai-codex`   | `-s workspace-write` (no `-a` flag)                 | `-s workspace-write` (topology-scoped)                                                                                                                                                 | `AGENTS.md`                       |
+| `opencode`       | `run --format json --dir <cwd> -m <provider/model>` | **nothing — no argv spelling exists**                                                                                                                                                  | `AGENTS.md`                       |
+| `xai-grok`       | `--always-approve --sandbox off`                    | `--always-approve --sandbox off --disallowed-tools search_replace,run_terminal_command,run_terminal_cmd --no-subagents` (plus `web_search,web_fetch` when `canAccessNetwork` is false) | `AGENTS.md`                       |
 
 Codex caveat: `codex exec` has only two sandbox modes (`read-only` / `workspace-write`), and
 `read-only` blocks every write (incl. signals.json). Every profile maps to `workspace-write`;
@@ -57,12 +57,14 @@ spawned and nothing claims a session started. This replaced an earlier, narrower
 only the prompt file's directory: a caller's `additionalRoots` (every multi-repo `plan` / `refine`
 session) were mounted nowhere and OpenCode refused them with no error surfaced (#278).
 
-Grok caveat: the Grok Build CLI (`grok`) has no `--add-dir` and no `--sandbox` — default-off is
-unrestricted FS. Extra roots are a named over-grant (same posture as OpenCode `--auto`) rather than
-an `InvalidStateError`. Full-auto and read-only both pass `--always-approve`; read-only additionally
-denies `search_replace` (edit) and both shell ids (`run_terminal_command` live, `run_terminal_cmd`
-docs), plus `--no-subagents` so a child cannot recover shell/edit. The `write` tool stays allowed so
-`signals.json` can land. Never `--permission-mode plan` (blocks signals.json).
+Grok caveat: the Grok Build CLI (`grok`) has no `--add-dir`. The adapter forces `--sandbox off` so
+an operator's `~/.grok/config.toml` cannot re-enable workspace/strict and block `grok-prompt.md` /
+`signals.json` outside cwd. Extra roots are a named over-grant (same posture as OpenCode `--auto`)
+rather than an `InvalidStateError`. Full-auto and read-only both pass `--always-approve`; the
+denylist is per-gate (`search_replace` when `!canModifyRepoFiles`, both shell ids when
+`!canRunShell`, `web_search,web_fetch` when `!canAccessNetwork`) plus `--no-subagents` so a child
+cannot recover a denied class. The `write` tool stays allowed so `signals.json` can land. Never
+`--permission-mode plan` (blocks signals.json).
 
 The `readiness` flow fans out across every uniquely referenced provider in `settings.ai` — one native
 context file per provider (claude-code → `CLAUDE.md`, github-copilot → `.github/copilot-instructions.md`,

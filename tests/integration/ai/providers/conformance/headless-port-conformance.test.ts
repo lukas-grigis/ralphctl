@@ -69,8 +69,9 @@ type RootGrant =
    */
   | { readonly kind: 'blanket-auto' }
   /**
-   * Grok has no `--add-dir` and no `--auto`. Sandbox stays off, so extra roots are a named
-   * unrestricted over-grant — assert no `--add-dir` and no `--sandbox`.
+   * Grok has no `--add-dir` and no `--auto`. `--sandbox off` is forced so operator config
+   * cannot re-enable workspace/strict; extra roots are a named unrestricted over-grant —
+   * assert no `--add-dir` and `--sandbox off`.
    */
   | { readonly kind: 'unrestricted' };
 
@@ -224,7 +225,9 @@ describe.each(ROWS)('HeadlessAiProvider conformance — $provider', (row) => {
     }
     if (row.rootGrant.kind === 'unrestricted') {
       expect(call.args).not.toContain('--add-dir');
-      expect(call.args).not.toContain('--sandbox');
+      const sandboxIdx = call.args.indexOf('--sandbox');
+      expect(sandboxIdx).toBeGreaterThanOrEqual(0);
+      expect(call.args[sandboxIdx + 1]).toBe('off');
       return;
     }
     // cwd is implicitly mounted by every CLI, so `resolveWritableRoots` deliberately leaves it out.
@@ -245,7 +248,9 @@ describe.each(ROWS)('HeadlessAiProvider conformance — $provider', (row) => {
     }
     if (row.rootGrant.kind === 'unrestricted') {
       expect(call.args).not.toContain('--add-dir');
-      expect(call.args).not.toContain('--sandbox');
+      const sandboxIdx = call.args.indexOf('--sandbox');
+      expect(sandboxIdx).toBeGreaterThanOrEqual(0);
+      expect(call.args[sandboxIdx + 1]).toBe('off');
       return;
     }
     // The prompt-file directory is the one root an adapter may add on its own behalf — it wrote

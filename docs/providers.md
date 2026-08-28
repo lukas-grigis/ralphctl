@@ -46,10 +46,11 @@ scoped to the directory holding the prompt file and layered onto your own config
 `--auto` — without it the agent would sit blocked waiting for an approval that never arrives. In both cases
 the session directory is the real boundary.
 
-Grok has no `--add-dir` and no `--sandbox` — default-off is unrestricted FS. Extra roots are a **named
-over-grant** (same posture as OpenCode `--auto`) rather than an error: writes outside cwd already work, so
-the adapter does not pretend it can mount a subset. Path topology is therefore not a Grok CLI envelope
-either; the deny list is the only gate, and only on read-only flows.
+Grok has no `--add-dir`. The adapter forces `--sandbox off` so an operator's `~/.grok/config.toml`
+cannot re-enable workspace/strict and block `grok-prompt.md` / `signals.json` outside cwd. Extra
+roots are a **named over-grant** (same posture as OpenCode `--auto`) rather than an error: writes
+outside cwd already work, so the adapter does not pretend it can mount a subset. Path topology is
+therefore not a Grok CLI envelope either; the deny list is the only gate.
 
 ## Claude Code
 
@@ -195,27 +196,26 @@ grok login
 ralphctl settings apply-preset grok-only
 ```
 
-Headless argv is `--no-auto-update --output-format streaming-json --prompt-file grok-prompt.md --cwd
---always-approve`. The prompt never rides stdin — `--prompt-file` is what triggers headless, and a
-failed prompt-file write fails the spawn rather than inlining `-p`. Interactive never passes
-`--prompt-file` (that forces headless); it uses `--permission-mode acceptEdits` plus a positional
-prompt pointer.
-Headless resume is `-r` (interactive session id is `-s`); a stale session ("session not found" /
-404 restore) falls back to a cold spawn.
+Headless delivers the prompt via `--prompt-file grok-prompt.md` (never stdin, never an inline `-p`
+fallback — a failed write fails the spawn). Interactive never passes `--prompt-file` (that forces
+headless); it uses `--permission-mode acceptEdits` plus a positional prompt pointer. Headless
+resume is `-r` (interactive session id is `-s`); a stale session ("session not found" / 404 restore)
+falls back to a cold spawn.
 
 Read-only flows deny `search_replace` (edit) and both shell ids (`run_terminal_command` live,
-`run_terminal_cmd` docs), plus `--no-subagents`. The `write` tool stays allowed so `signals.json` can land. There is no
-`--sandbox` and no `--add-dir` — extra roots are a named over-grant (sandbox off). Never
-`--permission-mode plan` (blocks `signals.json`).
+`run_terminal_cmd` docs), plus `--no-subagents`. A no-network session also denies `web_search` /
+`web_fetch`. The `write` tool stays allowed so `signals.json` can land. `--sandbox off` is forced
+and there is no `--add-dir` — extra roots are a named over-grant. Never `--permission-mode plan`
+(blocks `signals.json`).
 
-Effort (`none | minimal | low | medium | high | xhigh | max`) is forwarded as `--effort` on both
-surfaces, and Grok is in `EFFORT_CAPABLE_PROVIDERS` — plateau escalation climbs to `xhigh` on the same
-model, then `grok-4.5` → `grok-4.6`. The availability probe is passthrough (not `grok models`) — the
-CLI exposes that verb but no cheap non-interactive per-account filter. Doctor's auth probe is
-`kind: 'none'` — no non-interactive auth-status verb; sign in with `grok login`.
+Effort is forwarded as `--effort` on both surfaces, so plateau escalation can raise effort on the
+same model, then climb `grok-4.5` → `grok-4.6`. Doctor cannot check whether you are signed in —
+sign in with `grok login`. The availability probe is passthrough (not `grok models`).
 
-Reads `AGENTS.md` (shared with Codex and OpenCode). Skills and agent definitions live under `.grok/`;
-operator skills under `~/.ralphctl/skills/grok/`. Docs: https://docs.x.ai/build/overview.
+Reads `AGENTS.md` (shared with Codex and OpenCode). Codex, OpenCode, and Grok share one repo-root
+`AGENTS.md`. Readiness for more than one of them writes that file in sequence; each later pass
+keeps the previous body at `AGENTS.md.bak.<timestamp>`. Skills and agent definitions live under
+`.grok/`; operator skills under `~/.ralphctl/skills/grok/`. Docs: https://docs.x.ai/build/overview.
 
 ## Choosing between them
 

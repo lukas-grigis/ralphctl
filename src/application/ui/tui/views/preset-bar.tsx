@@ -15,6 +15,7 @@ import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { FieldList } from '@src/application/ui/tui/components/field-list.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { PRESET_NAMES } from '@src/business/settings/presets.ts';
+import { PROVIDER_BINARY } from '@src/integration/system/detect-cli.ts';
 import type { PresetWarning } from '@src/application/flows/settings-apply-preset/ctx.ts';
 import {
   PRESET_FAMILY,
@@ -58,7 +59,8 @@ export const PresetBar = ({ title, valueFor, warnings }: PresetBarProps): React.
       <Box flexDirection="column" paddingX={spacing.indent} marginTop={spacing.section}>
         {warnings.map((w) => (
           <Text key={w.provider} dimColor>
-            {glyphs.warningGlyph} {w.provider} CLI not found on PATH; affects flows: {w.flows.join(', ')}
+            {glyphs.warningGlyph} {PROVIDER_BINARY[w.provider]} CLI not found on PATH; affects flows:{' '}
+            {w.flows.join(', ')}
           </Text>
         ))}
       </Box>

@@ -91,7 +91,7 @@ export const PROVIDER_AUTH_CHECK: Readonly<Record<AiProvider, ProviderAuthCheck>
   },
   'xai-grok': {
     kind: 'none',
-    reason: 'the grok CLI exposes no non-interactive auth-status verb — sign in with grok login',
+    reason: 'the grok CLI exposes no non-interactive auth-status verb — sign in with `grok login`',
   },
 };
 
