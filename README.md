@@ -9,6 +9,7 @@
 [![GitHub Copilot CLI](https://img.shields.io/badge/GitHub_Copilot_CLI-supported-000?style=flat&logo=githubcopilot&logoColor=white)](https://docs.github.com/en/copilot/github-copilot-in-the-cli)
 [![OpenAI Codex CLI](https://img.shields.io/badge/OpenAI_Codex_CLI-supported-412991?style=flat&logo=openai&logoColor=white)](https://github.com/openai/codex)
 [![OpenCode](https://img.shields.io/badge/OpenCode-supported-f59e0b?style=flat&logo=opencollective&logoColor=white)](https://opencode.ai/)
+[![Grok Build CLI](https://img.shields.io/badge/Grok_Build_CLI-supported-000?style=flat)](https://docs.x.ai/build/overview)
 [![Built with Donuts](https://img.shields.io/badge/%F0%9F%8D%A9-Built_with_Donuts-ff6f00?style=flat)](https://github.com/lukas-grigis/ralphctl)
 
 <p align="center">
@@ -20,7 +21,8 @@
 **A ralph harness for long-running AI coding tasks — a hardened ralph loop that drives your coding agent of choice
 ([Claude Code](https://docs.anthropic.com/en/docs/claude-code),
 [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli),
-[OpenAI Codex CLI](https://github.com/openai/codex), or [OpenCode](https://opencode.ai/)) across one or more
+[OpenAI Codex CLI](https://github.com/openai/codex), [OpenCode](https://opencode.ai/), or
+[Grok Build CLI](https://docs.x.ai/build/overview)) across one or more
 repositories.**
 
 > _"I'm helping!"_ — Ralph Wiggum
@@ -48,7 +50,7 @@ plan → generate → evaluate → verify loop turns one-shot prompting into a r
 
 AI coding agents are powerful but lose context on long tasks, need babysitting when things break, and have no way to
 coordinate changes across multiple repositories. ralphctl wraps your chosen AI CLI — Claude Code, GitHub Copilot CLI,
-OpenAI Codex CLI, or OpenCode — in a
+OpenAI Codex CLI, OpenCode, or Grok Build CLI — in a
 structured harness that decomposes your work into dependency-ordered tasks, drives each one through
 a [generator-evaluator loop](https://www.anthropic.com/engineering/harness-design-long-running-apps) that catches issues
 before moving on, and persists context across sessions so nothing gets lost.
@@ -74,12 +76,13 @@ ralphctl demo
 
 Otherwise, install one of the supported CLIs and authenticate it:
 
-| CLI                                                                                | Install                              | Auth                  |
-| ---------------------------------------------------------------------------------- | ------------------------------------ | --------------------- |
-| [Claude Code](https://docs.anthropic.com/en/docs/claude-code)                      | `npm i -g @anthropic-ai/claude-code` | Anthropic account     |
-| [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) | `npm i -g @github/copilot`           | GitHub Copilot seat   |
-| [OpenAI Codex CLI](https://github.com/openai/codex)                                | `npm i -g @openai/codex`             | ChatGPT / OpenAI      |
-| [OpenCode](https://opencode.ai/)                                                   | `npm i -g opencode-ai`               | your own key, or none |
+| CLI                                                                                | Install                              | Auth                       |
+| ---------------------------------------------------------------------------------- | ------------------------------------ | -------------------------- |
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code)                      | `npm i -g @anthropic-ai/claude-code` | Anthropic account          |
+| [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) | `npm i -g @github/copilot`           | GitHub Copilot seat        |
+| [OpenAI Codex CLI](https://github.com/openai/codex)                                | `npm i -g @openai/codex`             | ChatGPT / OpenAI           |
+| [OpenCode](https://opencode.ai/)                                                   | `npm i -g opencode-ai`               | your own key, or none      |
+| [Grok Build CLI](https://docs.x.ai/build/overview)                                 | `npm i -g @xai-official/grok`        | xAI account (`grok login`) |
 
 Then confirm ralphctl can see it:
 
@@ -89,7 +92,8 @@ ralphctl doctor    # checks your provider CLI is on PATH — and reports auth fo
 
 `doctor`'s auth check is only as honest as each CLI lets it be: Claude Code and OpenAI Codex answer locally via their own
 `auth status` / `login status` verbs, OpenCode reports whether it has a saved credential (its free tier works with zero),
-and GitHub Copilot has no non-interactive auth-status command at all — that row always reports `unknown`, not a guess.
+and GitHub Copilot and Grok expose no non-interactive auth-status command at all — those rows always report `unknown`,
+not a guess. Sign in to Grok with `grok login`.
 
 When `doctor` is green, launch:
 
@@ -136,7 +140,7 @@ ralphctl export-context --sprint <id> --project <id> --output <path>
 
 # Settings
 ralphctl settings show
-ralphctl settings apply-preset claude-only     # or mixed / copilot-only / codex-only / opencode-only / *-economic / *-strong-gate / *-fast / *-frontier
+ralphctl settings apply-preset claude-only     # or mixed / copilot-only / codex-only / opencode-only / grok-only / *-economic / *-strong-gate / *-fast / *-frontier
 ralphctl settings set ai.implement.generator.provider claude-code
 ralphctl settings set ai.implement.generator.model    <model-id>
 ralphctl settings set ai.implement.generator.effort   high
@@ -220,34 +224,41 @@ For the full architectural picture see [`.claude/docs/ARCHITECTURE.md`](./.claud
 
 ## Providers
 
-ralphctl drives four AI coding CLIs. All four run every flow and are supported first-class. Pick one per
+ralphctl drives five AI coding CLIs. All five run every flow and are supported first-class. Pick one per
 flow — or mix them, say plan with one and implement with another — through a [preset](#configuration) or
 per-row settings.
 
-| Provider                                  | CLI        | Install                              | Auth                  | Context file                      |
-| ----------------------------------------- | ---------- | ------------------------------------ | --------------------- | --------------------------------- |
-| **Claude Code** (`claude-code`)           | `claude`   | `npm i -g @anthropic-ai/claude-code` | Anthropic account     | `CLAUDE.md`                       |
-| **GitHub Copilot CLI** (`github-copilot`) | `copilot`  | `npm i -g @github/copilot`           | GitHub Copilot seat   | `.github/copilot-instructions.md` |
-| **OpenAI Codex CLI** (`openai-codex`)     | `codex`    | `npm i -g @openai/codex`             | ChatGPT / OpenAI      | `AGENTS.md`                       |
-| **OpenCode** (`opencode`)                 | `opencode` | `npm i -g opencode-ai`               | your own key, or none | `AGENTS.md`                       |
+| Provider                                  | CLI        | Install                              | Auth                       | Context file                      |
+| ----------------------------------------- | ---------- | ------------------------------------ | -------------------------- | --------------------------------- |
+| **Claude Code** (`claude-code`)           | `claude`   | `npm i -g @anthropic-ai/claude-code` | Anthropic account          | `CLAUDE.md`                       |
+| **GitHub Copilot CLI** (`github-copilot`) | `copilot`  | `npm i -g @github/copilot`           | GitHub Copilot seat        | `.github/copilot-instructions.md` |
+| **OpenAI Codex CLI** (`openai-codex`)     | `codex`    | `npm i -g @openai/codex`             | ChatGPT / OpenAI           | `AGENTS.md`                       |
+| **OpenCode** (`opencode`)                 | `opencode` | `npm i -g opencode-ai`               | your own key, or none      | `AGENTS.md`                       |
+| **Grok Build CLI** (`xai-grok`)           | `grok`     | `npm i -g @xai-official/grok`        | xAI account (`grok login`) | `AGENTS.md`                       |
+
+Codex, OpenCode, and Grok share one repo-root `AGENTS.md`. Readiness for more than one of them writes
+that file in sequence; each later pass keeps the previous body at `AGENTS.md.bak.<timestamp>`.
 
 **Which one?**
 
 - **Claude Code** — read-only flows deny the edit, shell and network tools at the CLI level, the finest-grained
-  gate of the four.
+  gate of the five.
 - **GitHub Copilot CLI** — no extra billing relationship if you already have a seat. Read-only flows deny the
   shell tool; file writes stay open, bounded by path scope.
 - **OpenAI Codex CLI** — a natural fit inside the ChatGPT/OpenAI ecosystem. Its sandbox has two modes only,
   so path scope is the fine-grained safety envelope.
 - **OpenCode** — vendor-neutral: it fronts 75+ providers and local runtimes on a bring-your-own-key model, so
   you can run a specific model, a local model, or no account at all.
+- **Grok Build CLI** — xAI's coding CLI (`grok-4.6` / `grok-4.5`). Read-only flows deny edit and shell; the
+  `write` tool stays open so `signals.json` can land. Extra roots are a named over-grant — Grok has no
+  `--add-dir` and `--sandbox off` is forced.
 
 On every backend the `Write` tool stays open by design — the harness's `signals.json` lands through it — so
 path scope (cwd + mounted roots) is always part of the safety envelope. See the
 [provider reference](./docs/providers.md#permission-model-per-backend) for the exact mapping.
 
-Bundled skill injection and forensic capture work on all four; only the on-disk skills directory differs
-(`.claude/` / `.github/` / `.agents/` / `.opencode/`). Parallel execution is provider-agnostic. Claude Code
+Bundled skill injection and forensic capture work on all five; only the on-disk skills directory differs
+(`.claude/` / `.github/` / `.agents/` / `.opencode/` / `.grok/`). Parallel execution is provider-agnostic. Claude Code
 has the most real-world mileage simply because it came first — the others are equally supported, with
 correspondingly less of it.
 
@@ -256,9 +267,9 @@ model ids, mixing backends, and known limitations.
 
 Hit a rough edge with any provider? Please [open an issue](https://github.com/lukas-grigis/ralphctl/issues).
 
-One-shot configuration: `ralphctl settings apply-preset <name>` where `<name>` is one of 21 presets —
+One-shot configuration: `ralphctl settings apply-preset <name>` where `<name>` is one of 22 presets —
 `standard`, `economic`, `strong-gate`, `fast`, and `frontier` families, each in `mixed` / `claude-only` /
-`copilot-only` / `codex-only` variants, plus `opencode-only`.
+`copilot-only` / `codex-only` variants, plus `opencode-only` and `grok-only`.
 
 ---
 
@@ -280,7 +291,7 @@ One-shot configuration: `ralphctl settings apply-preset <name>` where `<name>` i
   first — the crashed attempt is settled as aborted (kept in history) and a fresh attempt opens automatically
 - **Pair or let it run** — work alongside your AI agent interactively, or let it execute unattended
 - **Zero-memorization start** — run `ralphctl` with no args for a guided menu
-- **Bring your own model** — four backends to choose from, one of which (OpenCode) is vendor-neutral, so the
+- **Bring your own model** — five backends to choose from, one of which (OpenCode) is vendor-neutral, so the
   harness reaches hosted, aggregated, and local models alike
 
 ---
@@ -293,7 +304,7 @@ Configure via the TUI `Settings` view or one-shot CLI commands.
 `apply-preset`.
 
 <details>
-<summary>All 21 presets</summary>
+<summary>All 22 presets</summary>
 
 ```bash
 # Standard — flagship model per flow
@@ -302,6 +313,7 @@ ralphctl settings apply-preset claude-only         # every flow on Claude Code
 ralphctl settings apply-preset copilot-only        # every flow on GitHub Copilot CLI
 ralphctl settings apply-preset codex-only          # every flow on OpenAI Codex CLI
 ralphctl settings apply-preset opencode-only       # every flow on OpenCode's free tier (no auth)
+ralphctl settings apply-preset grok-only           # every flow on Grok Build CLI
 
 # Economic — implement starts one tier below flagship; escalation ladder climbs only on plateau
 ralphctl settings apply-preset mixed-economic
@@ -328,9 +340,11 @@ ralphctl settings apply-preset copilot-frontier
 ralphctl settings apply-preset codex-frontier
 ```
 
-Twenty-one presets ship, all equally first-class — none is marked default. `opencode-only` sits outside the
-five-family grid on purpose: every free-tier model is at the same (zero) price point, so `economic` / `frontier`
-variants of it would differ in name only. Applying a
+Twenty-two presets ship, all equally first-class — none is marked default. `opencode-only` and `grok-only`
+sit in the standard family as single-member extras: `opencode-only` because every free-tier model is at the
+same (zero) price point, so `economic` / `frontier` variants of it would differ in name only; `grok-only`
+because mixed presets were not rerouted onto Grok and no grok-economic / fast / frontier / strong-gate
+variants ship. Applying a
 preset stamps the entire `ai` section plus `harness.escalateOnPlateau` in one transaction (`fast` stamps it
 `false` so a plateau settles; all others stamp it `true`). On a fresh install the welcome view silently
 auto-seeds a preset based on which provider CLIs it detects on `PATH`.
@@ -431,17 +445,17 @@ readiness / create sprint) stay TUI-only by design. The CLI exposes inspection +
 
 ### Getting Started
 
-| Command                                 | Description                                                                                                                                                                   |
-| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ralphctl`                              | Interactive TUI (primary surface)                                                                                                                                             |
-| `ralphctl demo`                         | Seed a throwaway sandbox project and launch straight into it — zero setup, no provider CLI required to look around (`--no-launch` to seed only, `--home <dir>` to relocate)   |
-| `ralphctl doctor`                       | Check environment health                                                                                                                                                      |
-| `ralphctl settings show`                | Print current settings                                                                                                                                                        |
-| `ralphctl settings set <key> <value>`   | Set a single settings key                                                                                                                                                     |
-| `ralphctl settings apply-preset <name>` | Stamp the entire `ai` section — 21 presets: `standard` / `economic` / `strong-gate` / `fast` / `frontier` families, each in `mixed` / `*-only` variants, plus `opencode-only` |
-| `ralphctl completion <shell>`           | Print shell tab-completion script                                                                                                                                             |
-| `ralphctl agents list`                  | List bundled + operator agent definitions and the implement role each is bound to                                                                                             |
-| `ralphctl skills list`                  | List bundled + manually-dropped skills — tier, enabled flows, provenance                                                                                                      |
+| Command                                 | Description                                                                                                                                                                                   |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ralphctl`                              | Interactive TUI (primary surface)                                                                                                                                                             |
+| `ralphctl demo`                         | Seed a throwaway sandbox project and launch straight into it — zero setup, no provider CLI required to look around (`--no-launch` to seed only, `--home <dir>` to relocate)                   |
+| `ralphctl doctor`                       | Check environment health                                                                                                                                                                      |
+| `ralphctl settings show`                | Print current settings                                                                                                                                                                        |
+| `ralphctl settings set <key> <value>`   | Set a single settings key                                                                                                                                                                     |
+| `ralphctl settings apply-preset <name>` | Stamp the entire `ai` section — 22 presets: `standard` / `economic` / `strong-gate` / `fast` / `frontier` families, each in `mixed` / `*-only` variants, plus `opencode-only` and `grok-only` |
+| `ralphctl completion <shell>`           | Print shell tab-completion script                                                                                                                                                             |
+| `ralphctl agents list`                  | List bundled + operator agent definitions and the implement role each is bound to                                                                                                             |
+| `ralphctl skills list`                  | List bundled + manually-dropped skills — tier, enabled flows, provenance                                                                                                                      |
 
 ### Project & Sprint Inspection
 

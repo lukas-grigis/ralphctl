@@ -7,6 +7,20 @@ to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Grok Build CLI (`xai-grok`) as a fifth backend**, joining Claude Code, GitHub Copilot,
+  OpenAI Codex, and OpenCode. Install the `grok` binary, sign in with `grok login`, then
+  `ralphctl settings apply-preset grok-only` (or pick `xai-grok` per flow). Catalog models
+  are `grok-4.6` (flagship) and `grok-4.5`. Doctor cannot check Grok login (no auth-status
+  command). Readiness writes the shared `AGENTS.md` (same file as Codex and OpenCode; later
+  writes keep a `.bak.<timestamp>` copy). Skills/agents live under `.grok/`. Grok has no
+  `--add-dir` — extra roots are a named over-grant (`--sandbox off` is forced so operator
+  config cannot re-enable a workspace sandbox). Read-only flows deny edit and shell; a
+  no-network session also denies `web_search` / `web_fetch`; `write` stays open so
+  `signals.json` can land. No grok-economic / fast / frontier / strong-gate presets; mixed
+  was not rerouted onto Grok.
+
 ## [0.21.0] - 2026-08-24
 
 ### Changed

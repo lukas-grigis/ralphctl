@@ -3,6 +3,7 @@ import type { ClaudeArtifacts } from '@src/integration/ai/readiness/claude/artif
 import type { CopilotArtifacts } from '@src/integration/ai/readiness/copilot/artifacts.ts';
 import type { CodexArtifacts } from '@src/integration/ai/readiness/codex/artifacts.ts';
 import type { OpencodeArtifacts } from '@src/integration/ai/readiness/opencode/artifacts.ts';
+import type { GrokArtifacts } from '@src/integration/ai/readiness/grok/artifacts.ts';
 
 /** Narrow {@link ReadinessState} to its `present` variant. */
 export const isPresent = (state: ReadinessState): state is Extract<ReadinessState, { kind: 'present' }> =>
@@ -35,3 +36,5 @@ export const hasAnyCodexArtifact = (a: CodexArtifacts): boolean => a.agentsMd !=
 
 export const hasAnyOpencodeArtifact = (a: OpencodeArtifacts): boolean =>
   a.agentsMd !== undefined || a.skills.length > 0;
+
+export const hasAnyGrokArtifact = (a: GrokArtifacts): boolean => a.agentsMd !== undefined || a.skills.length > 0;

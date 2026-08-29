@@ -13,6 +13,7 @@ export const PROVIDER_LABEL: Readonly<Record<AiProvider, string>> = {
   'github-copilot': 'GitHub Copilot',
   'openai-codex': 'OpenAI Codex',
   opencode: 'OpenCode',
+  'xai-grok': 'Grok',
 };
 
 /** Build a {@link ProbeResult} — `hint` is included only when supplied. */

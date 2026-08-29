@@ -15,12 +15,13 @@ const whichFor =
     present.has(binary);
 
 describe('detectInstalledProviders', () => {
-  it('maps providers to claude / copilot / codex binaries', () => {
+  it('maps providers to claude / copilot / codex / opencode / grok binaries', () => {
     expect(PROVIDER_BINARY).toEqual({
       'claude-code': 'claude',
       'github-copilot': 'copilot',
       'openai-codex': 'codex',
       opencode: 'opencode',
+      'xai-grok': 'grok',
     });
   });
 
@@ -36,9 +37,9 @@ describe('detectInstalledProviders', () => {
 
   it('returns every provider when every binary is on PATH', async () => {
     const installed = await detectInstalledProviders({
-      which: whichFor(new Set(['claude', 'copilot', 'codex'])),
+      which: whichFor(new Set(['claude', 'copilot', 'codex', 'opencode', 'grok'])),
     });
-    expect([...installed].sort()).toEqual(['claude-code', 'github-copilot', 'openai-codex']);
+    expect([...installed].sort()).toEqual(['claude-code', 'github-copilot', 'openai-codex', 'opencode', 'xai-grok']);
   });
 
   it('probes each binary exactly once per call', async () => {
@@ -48,13 +49,13 @@ describe('detectInstalledProviders', () => {
       return false;
     };
     await detectInstalledProviders({ which });
-    expect(calls.sort()).toEqual(['claude', 'codex', 'copilot', 'opencode']);
+    expect(calls.sort()).toEqual(['claude', 'codex', 'copilot', 'grok', 'opencode']);
   });
 });
 
 describe('PROVIDER_INSTALL_GUIDANCE', () => {
   it('publishes a docs URL and per-OS command list for every provider', () => {
-    for (const provider of ['claude-code', 'github-copilot', 'openai-codex'] as const) {
+    for (const provider of Object.keys(PROVIDER_BINARY) as Array<keyof typeof PROVIDER_BINARY>) {
       const g = PROVIDER_INSTALL_GUIDANCE[provider];
       expect(g.docsUrl).toMatch(/^https:\/\//);
       expect(g.commandsByPlatform.darwin.length).toBeGreaterThan(0);

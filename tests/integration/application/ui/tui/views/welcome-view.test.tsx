@@ -32,6 +32,7 @@ vi.mock('@src/integration/system/detect-cli.ts', () => ({
     'github-copilot': 'copilot',
     'openai-codex': 'codex',
     opencode: 'opencode',
+    'xai-grok': 'grok',
   },
 }));
 
@@ -88,7 +89,7 @@ describe('WelcomeView — first-run UX', () => {
     expect(routes.at(-1)?.id).toBe('create-project');
   });
 
-  // Every provider must map to its own single-provider preset. The table covers all four so a
+  // Every provider must map to its own single-provider preset. The table covers all five so a
   // newly added backend cannot land with a missing (or copy-pasted) `PRESET_FOR_PROVIDER` row —
   // the failure mode is a silent first run seeded onto the wrong CLI.
   it.each([
@@ -96,6 +97,7 @@ describe('WelcomeView — first-run UX', () => {
     ['github-copilot', 'copilot-only'],
     ['openai-codex', 'codex-only'],
     ['opencode', 'opencode-only'],
+    ['xai-grok', 'grok-only'],
   ] as const)('seeds the %s single-provider preset when only that CLI is on PATH', async (provider, preset) => {
     detectRef.installed = new Set([provider]);
     const saved: Settings[] = [];

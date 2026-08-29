@@ -15,7 +15,7 @@
 import React, { useState } from 'react';
 import { SelectPrompt } from '@src/application/ui/tui/prompts/select-prompt.tsx';
 import { TextPrompt } from '@src/application/ui/tui/prompts/text-prompt.tsx';
-import { primaryInstallCommand } from '@src/integration/system/detect-cli.ts';
+import { primaryInstallCommand, PROVIDER_BINARY } from '@src/integration/system/detect-cli.ts';
 import { glyphs } from '@src/application/ui/tui/theme/tokens.ts';
 import type { AiProvider } from '@src/domain/entity/settings.ts';
 import {
@@ -79,7 +79,10 @@ const buildProviderOptions = (
   const missing = options.filter((v) => installed !== undefined && !installed.has(v as AiProvider));
   const footerParts: string[] = [];
   if (!anyEnabled) footerParts.push('No AI provider CLI is installed.');
-  for (const m of missing) footerParts.push(`install ${m}: ${primaryInstallCommand(m as AiProvider)}`);
+  for (const m of missing) {
+    const provider = m as AiProvider;
+    footerParts.push(`install ${PROVIDER_BINARY[provider]}: ${primaryInstallCommand(provider)}`);
+  }
   if (footerParts.length === 0) return { choices };
   return { choices, footer: footerParts.join(' · ') };
 };

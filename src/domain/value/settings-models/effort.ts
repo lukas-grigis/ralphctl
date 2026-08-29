@@ -25,4 +25,5 @@ export const PROVIDER_EFFORT_LEVELS: Readonly<Record<AiProvider, readonly string
   // provider behind the selected `provider/model` id — so this is a permissive superset and the
   // CLI narrows per model at spawn, same posture as the codex row above.
   opencode: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+  'xai-grok': ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
 };

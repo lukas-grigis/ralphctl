@@ -1,7 +1,7 @@
 import type { Project } from '@src/domain/entity/project.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintExecutionRepository } from '@src/domain/repository/sprint/sprint-execution-repository.ts';
-import type { AiProvider } from '@src/domain/entity/settings.ts';
+import { type AiProvider, uniqueProvidersFromAi } from '@src/domain/entity/settings.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { RunCommand } from '@src/integration/io/run-command.ts';
 import { PROVIDER_BINARY } from '@src/integration/system/detect-cli.ts';
@@ -268,18 +268,7 @@ export const probeAiProvidersGroup = async (deps: DoctorDeps): Promise<readonly 
   // Per-flow rows can each pick a provider; surface every provider that appears on any row
   // as "configured" so the doctor flags binaries the user actually relies on.
   const ai = settings.ok ? settings.value.ai : undefined;
-  const configuredProviders: ReadonlySet<AiProvider> = new Set<AiProvider>(
-    ai === undefined
-      ? []
-      : [
-          ai.refine.provider,
-          ai.plan.provider,
-          ai.implement.generator.provider,
-          ai.implement.evaluator.provider,
-          ai.readiness.provider,
-          ai.ideate.provider,
-        ]
-  );
+  const configuredProviders: ReadonlySet<AiProvider> = new Set(ai === undefined ? [] : uniqueProvidersFromAi(ai));
 
   // Binary rows first (so a provider's PATH check always precedes its auth check), then one
   // auth row per provider that is both configured and confirmed installed — every provider

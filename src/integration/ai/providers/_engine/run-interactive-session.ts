@@ -36,7 +36,7 @@ import { uuidv7 } from '@src/domain/value/uuid7.ts';
  *
  * Each `<tool>/interactive.ts` now supplies only the parts that genuinely differ — its CLI name,
  * its model catalog, whether the CLI accepts a harness-supplied session id, and how it spells its
- * flags — via {@link InteractiveProviderSpec}. The three adapters previously drifted apart in
+ * flags — via {@link InteractiveProviderSpec}. The adapters previously drifted apart in
  * small ways (one skipped the suspension check, one hardcoded its own name in an error) precisely
  * because the skeleton was copied rather than shared.
  *

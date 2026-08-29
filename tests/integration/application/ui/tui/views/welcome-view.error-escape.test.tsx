@@ -31,6 +31,7 @@ vi.mock('@src/integration/system/detect-cli.ts', () => ({
     'github-copilot': 'copilot',
     'openai-codex': 'codex',
     opencode: 'opencode',
+    'xai-grok': 'grok',
   },
 }));
 

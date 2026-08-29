@@ -6,9 +6,9 @@ import type { LaunchExtras } from '@src/application/ui/shared/launcher.ts';
  * Validate and shape the four bare-`ralphctl` flags that override the persisted
  * `settings.ai.implement` pair for one launch:
  *
- *   --implement-generator-provider <claude-code|github-copilot|openai-codex|opencode>
+ *   --implement-generator-provider <AI_PROVIDERS_HINT>
  *   --implement-generator-model    <id>
- *   --implement-evaluator-provider <claude-code|github-copilot|openai-codex|opencode>
+ *   --implement-evaluator-provider <AI_PROVIDERS_HINT>
  *   --implement-evaluator-model    <id>
  *
  * Each role is `{ provider, model }` together. Supplying only one half of a pair is rejected

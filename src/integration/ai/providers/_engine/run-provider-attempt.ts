@@ -1,4 +1,5 @@
 import type { Result } from '@src/domain/result.ts';
+import type { AiProvider } from '@src/domain/entity/settings.ts';
 import type { HeadlessAiProvider, ProviderUsage } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import { STDERR_TAIL_CAP, createBoundedTail } from '@src/integration/ai/providers/_engine/bounded-tail.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
@@ -26,7 +27,7 @@ export type { ProviderName };
  * `TokenUsageEvent` shape; each provider fills only the subset it captures from its CLI stream.
  */
 export interface TokenUsagePayload {
-  readonly provider: 'claude-code' | 'openai-codex' | 'github-copilot' | 'opencode';
+  readonly provider: AiProvider;
   readonly model?: string;
   readonly inputTokens?: number;
   readonly outputTokens?: number;
@@ -38,7 +39,7 @@ export interface TokenUsagePayload {
 }
 
 /**
- * Emit the per-spawn "session id captured" debug log. All three adapters publish the same
+ * Emit the per-spawn "session id captured" debug log. All five adapters publish the same
  * event shape; only the provider-name prefix and the captured id differ.
  */
 export const emitSessionIdCaptured = (eventBus: EventBus, providerName: string, sessionId: string): void => {
@@ -142,13 +143,13 @@ export interface ProviderAttemptInput {
    */
   readonly emitProviderTokenUsage: (sessionId: string) => TokenUsagePayload;
   readonly providerName: ProviderName;
-  readonly providerSlug: 'claude' | 'codex' | 'copilot' | 'opencode';
+  readonly providerSlug: 'claude' | 'codex' | 'copilot' | 'opencode' | 'grok';
   readonly eventBus: EventBus;
   readonly idleMs?: number;
 }
 
 /**
- * Shared spawnAttempt scaffold for the three headless AI provider adapters. Owns:
+ * Shared spawnAttempt scaffold for the five headless AI provider adapters. Owns:
  *
  * - Child spawn with cwd (context-file autoload depends on the child's `process.cwd()`).
  * - Bounded stderr tail (`STDERR_TAIL_CAP`).
@@ -356,7 +357,7 @@ export interface GenerateContext {
 }
 
 export interface CreateHeadlessProviderInput {
-  readonly providerSlug: 'claude' | 'codex' | 'copilot' | 'opencode';
+  readonly providerSlug: 'claude' | 'codex' | 'copilot' | 'opencode' | 'grok';
   readonly providerName: ProviderName;
   readonly resumeStaleRe: RegExp;
   readonly rateLimitRetries: number;
@@ -371,7 +372,7 @@ export interface CreateHeadlessProviderInput {
 }
 
 /**
- * Factory for the identical generate()->runWithRateLimitRetry boilerplate shared by all three
+ * Factory for the identical generate()->runWithRateLimitRetry boilerplate shared by all five
  * headless provider adapters. Each adapter passes a `createGenerateContext` thunk that closes
  * over its own resolved deps (spawnFn, command, etc.) so the factory stays dependency-free
  * on provider-specific types.

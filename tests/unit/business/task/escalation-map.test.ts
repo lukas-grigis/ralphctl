@@ -15,6 +15,7 @@ import type { Logger } from '@src/business/observability/logger.ts';
 import { CLAUDE_MODELS } from '@src/domain/value/settings-models/claude.ts';
 import { CODEX_MODELS } from '@src/domain/value/settings-models/codex.ts';
 import { COPILOT_MODELS } from '@src/domain/value/settings-models/copilot.ts';
+import { GROK_MODELS } from '@src/domain/value/settings-models/grok.ts';
 import type { AiProvider } from '@src/domain/entity/settings.ts';
 import {
   CODEX_EFFORT_ESCALATION_TARGET,
@@ -71,6 +72,10 @@ describe('DEFAULT_ESCALATION_MAP', () => {
     expect(DEFAULT_ESCALATION_MAP['gpt-5.5']).toBe('gpt-5.6-sol');
     expect(DEFAULT_ESCALATION_MAP['gpt-5.6-luna']).toBe('gpt-5.6-terra');
     expect(DEFAULT_ESCALATION_MAP['gpt-5.6-terra']).toBe('gpt-5.6-sol');
+  });
+
+  it('climbs grok-4.5 to the grok-4.6 flagship', () => {
+    expect(DEFAULT_ESCALATION_MAP['grok-4.5']).toBe('grok-4.6');
   });
 
   it('does not steer the dot-form Copilot ladder into the plan-gated claude-opus-5', () => {
@@ -170,7 +175,7 @@ describe('DEFAULT_ESCALATION_MAP — catalog lockstep (mechanizes the section 14
   // The union of every per-provider catalog id. A ladder rung that names an id outside this set
   // would be stamped onto a task as `escalatedToModel`, then rejected by the adapter at spawn time
   // with InvalidStateError — so every key AND value must be a member.
-  const catalogIds = new Set<string>([...CLAUDE_MODELS, ...CODEX_MODELS, ...COPILOT_MODELS]);
+  const catalogIds = new Set<string>([...CLAUDE_MODELS, ...CODEX_MODELS, ...COPILOT_MODELS, ...GROK_MODELS]);
 
   it('every ladder key is a member of some provider catalog', () => {
     for (const from of Object.keys(DEFAULT_ESCALATION_MAP)) {
@@ -200,6 +205,7 @@ describe('DEFAULT_ESCALATION_MAP — catalog lockstep (mechanizes the section 14
     expect(fingerprint(CLAUDE_MODELS)).toBe('7aa37ba5efb83173');
     expect(fingerprint(CODEX_MODELS)).toBe('dce39d8df173e3d8');
     expect(fingerprint(COPILOT_MODELS)).toBe('f9831a6a08104710');
+    expect(fingerprint(GROK_MODELS)).toBe('a9a78a4e6bd79286');
   });
 });
 
@@ -270,6 +276,19 @@ describe('nextEffortRung', () => {
     expect(nextEffortRung('openai-codex', 'gpt-5.5', 'xhigh')).toBeUndefined();
     expect(nextEffortRung('openai-codex', 'gpt-5.5', 'max')).toBeUndefined();
     expect(nextEffortRung('openai-codex', 'gpt-5.5', 'ultra')).toBeUndefined();
+  });
+
+  // ── Grok shares Codex's fixed `xhigh` target — universal across the grok catalog. ──
+
+  it('grok escalates a fresh, below-target, or `minimal` row to the fixed target `xhigh`', () => {
+    expect(nextEffortRung('xai-grok', 'grok-4.6', undefined)).toBe(CODEX_EFFORT_ESCALATION_TARGET);
+    expect(nextEffortRung('xai-grok', 'grok-4.6', 'high')).toBe(CODEX_EFFORT_ESCALATION_TARGET);
+    expect(nextEffortRung('xai-grok', 'grok-4.5', 'minimal')).toBe(CODEX_EFFORT_ESCALATION_TARGET);
+  });
+
+  it('grok returns undefined when already at/above the fixed target (no headroom)', () => {
+    expect(nextEffortRung('xai-grok', 'grok-4.6', 'xhigh')).toBeUndefined();
+    expect(nextEffortRung('xai-grok', 'grok-4.6', 'max')).toBeUndefined();
   });
 
   it('returns undefined when no provider is resolvable (skips the rung gracefully)', () => {

@@ -1,17 +1,17 @@
 # Adding a provider
 
-ralphctl drives a CLI coding agent (Claude Code, Codex, Copilot, OpenCode) in a generator–evaluator
+ralphctl drives a CLI coding agent (Claude Code, Codex, Copilot, OpenCode, Grok) in a generator–evaluator
 loop: it spawns the agent headless, the agent does the work and writes its results to a file,
 the harness reads that file back and decides whether to continue. A **provider** is the adapter
 that translates ralphctl's intent into one specific CLI's flags and parses that CLI's output
 stream.
 
 This guide walks through adding another one. The running example is a hypothetical `gemini`
-provider (slug `google-gemini`, binary `gemini`) — substitute your own. The existing four live
-side by side under `src/integration/ai/providers/{claude,codex,copilot,opencode}/`; copy the
-closest match and edit, rather than writing from scratch. `opencode/` is the most recent and the
-smallest, so it is usually the best starting point — and the only one whose CLI runs without
-credentials, which makes it the easiest to study against a live binary.
+provider (slug `google-gemini`, binary `gemini`) — substitute your own. The existing five live
+side by side under `src/integration/ai/providers/{claude,codex,copilot,opencode,grok}/`; copy the
+closest match and edit, rather than writing from scratch. `grok/` is the most recent; `opencode/`
+is the smallest and the only one whose CLI runs without credentials, which makes it the easiest
+to study against a live binary.
 
 ## The port you implement
 
@@ -46,7 +46,7 @@ Add the provider to one union and the compiler will route you to every place tha
 Start in `src/domain/entity/settings.ts`:
 
 ```ts
-export type AiProvider = 'claude-code' | 'github-copilot' | 'openai-codex' | 'opencode' | 'google-gemini';
+export type AiProvider = 'claude-code' | 'github-copilot' | 'openai-codex' | 'opencode' | 'xai-grok' | 'google-gemini';
 ```
 
 This is additive — existing settings files still parse, so no `CURRENT_SCHEMA_VERSION` bump and
@@ -100,7 +100,7 @@ as a spawn-time gate.
 
 ## 2. Settings schema arm (domain)
 
-In `src/domain/entity/settings.ts`, alongside the existing Claude/Codex/Copilot/OpenCode rows, add four
+In `src/domain/entity/settings.ts`, alongside the existing Claude/Codex/Copilot/OpenCode/Grok rows, add four
 pieces:
 
 ```ts
@@ -109,6 +109,7 @@ const AiProviderSchema = z.enum([
   'github-copilot',
   'openai-codex',
   'opencode',
+  'xai-grok',
   'google-gemini',
 ]) satisfies z.ZodType<AiProvider>;
 
@@ -161,7 +162,7 @@ The factory delegates the hard parts to shared `_engine` helpers — you write a
 flow:
 
 ```ts
-export const createGeminiProvider = (deps: GeminiProviderDeps): HeadlessAiProvider => {
+export const createGeminiProvider = (deps: HeadlessProviderDeps): HeadlessAiProvider => {
   const spawnFn = deps.spawn ?? defaultSpawn;
   const command = deps.command ?? 'gemini';
   return {
@@ -213,25 +214,29 @@ So: pipe the prompt through stdin when your CLI accepts it. When it does not —
 port cannot, since piping stdin flips most CLIs out of interactive mode — write the prompt to a
 file and pass a pointer at it with `buildPromptPointer(path)` from
 `_engine/prompt-pointer.ts`, and make sure the file's directory is among the roots you mount.
+Copilot uses `-p <pointer>` (no stdin prompt path). Grok uses `--prompt-file` on headless only —
+Grok does not read piped stdin as the prompt, and `--prompt-file` on the interactive command
+forces headless, so interactive Grok takes a positional pointer instead.
 
-Companion file `src/integration/ai/providers/_engine/gemini-provider-deps.ts` declares the
-composition-root inputs (`rateLimitRetries`, `eventBus`, and the test seams `spawn?` / `command?`
-/ `idleMs?` / `backoffSchedule?`). Copy `claude-provider-deps.ts` and rename. It lives in
-`_engine/` so the factory and tests can both depend on it without piercing the `gemini/`
-sibling-isolation boundary.
+Composition-root inputs (`rateLimitRetries`, `eventBus`, and the test seams `spawn?` / `command?`
+/ `idleMs?` / `backoffSchedule?`) live on the **shared** `HeadlessProviderDeps` type in
+`_engine/headless-provider-deps.ts`. Do not add a per-tool `*-provider-deps.ts` — every headless
+adapter (claude / copilot / opencode / grok) takes that shared type; Codex is the one exception,
+extending it as `CodexProviderDeps` for tempfile seams the others do not need. The factory and
+tests both depend on `_engine/` without piercing the `gemini/` sibling-isolation boundary.
 
 ### The InvalidStateError rule
 
 `AiSession` carries optional intents your CLI may not support. The contract
 (`ai-session.ts` doc comments) is specific about which way each one fails — match it exactly:
 
-| Field                                 | If your CLI can't express it                                               |
-| ------------------------------------- | -------------------------------------------------------------------------- |
-| `model` (unknown)                     | `InvalidStateError` — fail fast, before any spawn                          |
-| `permissions` (a combo you can't map) | `InvalidStateError` (Codex does this — only two locked profiles)           |
-| `additionalRoots`                     | `InvalidStateError` — never silently run with only `cwd`                   |
-| `effort`                              | **silently ignore** — an unset/unsupported optional knob is not an error   |
-| `bodyFile`                            | **silently ignore** — optional diagnostic mirror (Copilot no-ops it today) |
+| Field                                 | If your CLI can't express it                                                                                                                                                                                                                                                              |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `model` (unknown)                     | `InvalidStateError` — fail fast, before any spawn                                                                                                                                                                                                                                         |
+| `permissions` (a combo you can't map) | `InvalidStateError` (Codex does this — only two locked profiles)                                                                                                                                                                                                                          |
+| `additionalRoots`                     | `InvalidStateError` — never silently run with only `cwd`. Named over-grant is the documented exception when the CLI has no `--add-dir` **and** sandbox is forced off (OpenCode `--auto`, Grok `--sandbox off`) — extra roots then work unrestricted, so claiming a subset would be a lie. |
+| `effort`                              | **silently ignore** — an unset/unsupported optional knob is not an error                                                                                                                                                                                                                  |
+| `bodyFile`                            | **silently ignore** — optional diagnostic mirror (Copilot no-ops it today)                                                                                                                                                                                                                |
 
 The principle: an intent that changes correctness or safety (model, permissions, mounted roots)
 must fail loud; an optional knob (effort, diagnostic mirror) is ignored quietly. "Silently using
@@ -245,7 +250,7 @@ forensic re-attach), the **model + token usage** (for the `token-usage` event), 
 
 Two patterns exist in the tree; pick by your CLI's output shape:
 
-- **Sibling parser** (`claude/parse-stream.ts`, `copilot/parse-stream.ts`) — when stdout is a
+- **Sibling parser** (`claude/parse-stream.ts`, `copilot/parse-stream.ts`, `grok/parse-stream.ts`) — when stdout is a
   clean JSONL stream worth a reusable factory. Returns a port-shaped parser; the port types live
   in `_engine/<provider>-stream.ts`. Use this if you want unit tests over the parser in
   isolation.
@@ -267,6 +272,7 @@ const HEADLESS_FACTORIES: Readonly<Record<AiProvider, (deps: HeadlessProviderDep
   'github-copilot': createCopilotProvider,
   'openai-codex': createCodexProvider,
   opencode: createOpencodeProvider,
+  'xai-grok': createGrokProvider,
   'google-gemini': createGeminiProvider,
 };
 ```
@@ -354,7 +360,7 @@ Be honest with yourself about where the real work is:
 | ---------------------------------------- | --------------------------------------------------------------------------------------------- |
 | `settings-models/gemini.ts`              | boilerplate — copy `codex.ts`, swap the model ids                                             |
 | `settings.ts` arm                        | boilerplate — four parallel schema lines                                                      |
-| `_engine/gemini-provider-deps.ts`        | boilerplate — copy `claude-provider-deps.ts`                                                  |
+| `_engine/headless-provider-deps.ts`      | shared — take `HeadlessProviderDeps`; do not add a per-tool deps file                         |
 | `gemini/headless.ts` (`buildGeminiArgs`) | **provider-specific** — your CLI's flags, permission mapping, rate-limit/stale-resume regexes |
 | `gemini/parse-stream.ts`                 | **provider-specific** — your CLI's stdout shape                                               |
 | `provider-factory.ts` row                | boilerplate — one `HEADLESS_FACTORIES` entry                                                  |
@@ -369,37 +375,36 @@ else is following the compiler from one missing record key to the next.
 ## Files at a glance
 
 The files you author are few — the count comes from the provider-keyed registries the compiler
-forces you through. New code is six files (`settings-models/<p>.ts`,
-`_engine/<p>-provider-deps.ts`, `<p>/headless.ts`, `<p>/parse-stream.ts`,
-`<p>/model-availability-probe.ts`, `skills/<p>/adapter.ts`) plus tests; everything else is a
-one-line row in an existing table.
+forces you through. New code is five files (`settings-models/<p>.ts`, `<p>/headless.ts`,
+`<p>/parse-stream.ts`, `<p>/model-availability-probe.ts`, `skills/<p>/adapter.ts`) plus tests;
+everything else is a one-line row in an existing table. Deps come from the shared
+`HeadlessProviderDeps` — do not add `_engine/<p>-provider-deps.ts`.
 
-Full parity with the built-in four — readiness context-file support, a skills directory,
-availability filtering, and the test suites — lands around **24 files**:
+Full parity with the built-in five — readiness context-file support, a skills directory,
+availability filtering, and the test suites — lands around **23 files**:
 
 1. `src/domain/value/settings-models/gemini.ts` — _new_
 2. `src/domain/entity/settings.ts` — _edit_ (union, enum, effort/model/row schemas, discriminated union)
 3. `src/domain/value/settings-models/effort.ts` — _edit_ (`PROVIDER_EFFORT_LEVELS`)
 4. `src/business/settings/defaults.ts` — _edit_ (`DEFAULT_MODELS_BY_PROVIDER`)
-5. `src/integration/ai/providers/_engine/gemini-provider-deps.ts` — _new_
-6. `src/integration/ai/providers/_engine/provider-traits.ts` — _edit_ (`PROVIDER_TRAITS`)
-7. `src/integration/ai/providers/gemini/headless.ts` — _new_
-8. `src/integration/ai/providers/gemini/parse-stream.ts` — _new_ (or fold inline)
-9. `src/integration/ai/providers/gemini/model-availability-probe.ts` — _new_ (passthrough)
-10. `src/integration/system/detect-cli.ts` — _edit_ (`PROVIDER_BINARY` + `PROVIDER_INSTALL_GUIDANCE`)
-11. `src/integration/ai/readiness/_engine/tool.ts` — _edit_ (`AssistantTool` + `toolForProvider` + `providerForTool`)
-12. `src/integration/ai/readiness/gemini/probe.ts` — _new_
-13. `src/integration/ai/readiness/gemini/artifacts.ts` — _new_
-14. `src/integration/ai/skills/adapter-factory.ts` — _edit_ (`SKILLS_ADAPTERS`)
-15. `src/integration/ai/skills/gemini/adapter.ts` — _new_
-16. `src/integration/ai/skills/operator/source.ts` — _edit_ (`OPERATOR_PROVIDER_DIR`)
-17. `src/integration/ai/agents/adapter-factory.ts` — _edit_ (`AGENT_ADAPTERS`)
-18. `src/application/bootstrap/provider-factory.ts` — _edit_ (`HEADLESS_FACTORIES`)
-19. `src/application/bootstrap/interactive-provider-factory.ts` — _edit_ (`INTERACTIVE_FACTORIES`)
-20. `src/application/bootstrap/wire.ts` — _edit_ (`MODEL_AVAILABILITY_PROBES` + `PROBES`)
-21. `src/application/flows/doctor/provider-auth.ts` + `probe-helpers.ts` — _edit_ (auth check + label)
-22. `src/application/flows/readiness/leaves/propose.ts` — _edit_ (only when you widen `AssistantTool`)
-23. `src/application/ui/shared/launch/readiness.ts` + `ui/tui/views/welcome-view.tsx` — _edit_ (label + first-run preset)
-24. tests under `tests/integration/ai/providers/gemini/` and `tests/unit/…` — _new_
+5. `src/integration/ai/providers/_engine/provider-traits.ts` — _edit_ (`PROVIDER_TRAITS`)
+6. `src/integration/ai/providers/gemini/headless.ts` — _new_
+7. `src/integration/ai/providers/gemini/parse-stream.ts` — _new_ (or fold inline)
+8. `src/integration/ai/providers/gemini/model-availability-probe.ts` — _new_ (passthrough)
+9. `src/integration/system/detect-cli.ts` — _edit_ (`PROVIDER_BINARY` + `PROVIDER_INSTALL_GUIDANCE`)
+10. `src/integration/ai/readiness/_engine/tool.ts` — _edit_ (`AssistantTool` + `toolForProvider` + `providerForTool`)
+11. `src/integration/ai/readiness/gemini/probe.ts` — _new_
+12. `src/integration/ai/readiness/gemini/artifacts.ts` — _new_
+13. `src/integration/ai/skills/adapter-factory.ts` — _edit_ (`SKILLS_ADAPTERS`)
+14. `src/integration/ai/skills/gemini/adapter.ts` — _new_
+15. `src/integration/ai/skills/operator/source.ts` — _edit_ (`OPERATOR_PROVIDER_DIR`)
+16. `src/integration/ai/agents/adapter-factory.ts` — _edit_ (`AGENT_ADAPTERS`)
+17. `src/application/bootstrap/provider-factory.ts` — _edit_ (`HEADLESS_FACTORIES`)
+18. `src/application/bootstrap/interactive-provider-factory.ts` — _edit_ (`INTERACTIVE_FACTORIES`)
+19. `src/application/bootstrap/wire.ts` — _edit_ (`MODEL_AVAILABILITY_PROBES` + `PROBES`)
+20. `src/application/flows/doctor/provider-auth.ts` + `probe-helpers.ts` — _edit_ (auth check + label)
+21. `src/application/flows/readiness/leaves/propose.ts` — _edit_ (only when you widen `AssistantTool`)
+22. `src/application/ui/shared/launch/readiness.ts` + `ui/tui/views/welcome-view.tsx` — _edit_ (label + first-run preset)
+23. tests under `tests/integration/ai/providers/gemini/` and `tests/unit/…` — _new_
 
 See also `CONTRIBUTING.md` — open an issue first, keep the PR focused, all checks pass.

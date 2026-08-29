@@ -13,12 +13,13 @@ the AI to land `signals.json` in `outputDir`. To deny writes to a tree, don't mo
 `outputDir` is auto-included as a writable root in every provider (see
 `providers/_engine/resolve-roots.ts`).
 
-| Provider         | Always passes                                       | Read-only profile maps to                            | Native context file               |
-| ---------------- | --------------------------------------------------- | ---------------------------------------------------- | --------------------------------- |
-| `claude-code`    | `--permission-mode bypassPermissions`               | `--disallowedTools Edit,MultiEdit,NotebookEdit,Bash` | `CLAUDE.md` at repo root          |
-| `github-copilot` | `--no-ask-user --autopilot --silent`                | `--allow-all-tools --deny-tool=shell`                | `.github/copilot-instructions.md` |
-| `openai-codex`   | `-s workspace-write` (no `-a` flag)                 | `-s workspace-write` (topology-scoped)               | `AGENTS.md`                       |
-| `opencode`       | `run --format json --dir <cwd> -m <provider/model>` | **nothing — no argv spelling exists**                | `AGENTS.md`                       |
+| Provider         | Always passes                                       | Read-only profile maps to                                                                                                                                                              | Native context file               |
+| ---------------- | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| `claude-code`    | `--permission-mode bypassPermissions`               | `--disallowedTools Edit,MultiEdit,NotebookEdit,Bash`                                                                                                                                   | `CLAUDE.md` at repo root          |
+| `github-copilot` | `--no-ask-user --autopilot --silent`                | `--allow-all-tools --deny-tool=shell`                                                                                                                                                  | `.github/copilot-instructions.md` |
+| `openai-codex`   | `-s workspace-write` (no `-a` flag)                 | `-s workspace-write` (topology-scoped)                                                                                                                                                 | `AGENTS.md`                       |
+| `opencode`       | `run --format json --dir <cwd> -m <provider/model>` | **nothing — no argv spelling exists**                                                                                                                                                  | `AGENTS.md`                       |
+| `xai-grok`       | `--always-approve --sandbox off`                    | `--always-approve --sandbox off --disallowed-tools search_replace,run_terminal_command,run_terminal_cmd --no-subagents` (plus `web_search,web_fetch` when `canAccessNetwork` is false) | `AGENTS.md`                       |
 
 Codex caveat: `codex exec` has only two sandbox modes (`read-only` / `workspace-write`), and
 `read-only` blocks every write (incl. signals.json). Every profile maps to `workspace-write`;
@@ -56,13 +57,30 @@ spawned and nothing claims a session started. This replaced an earlier, narrower
 only the prompt file's directory: a caller's `additionalRoots` (every multi-repo `plan` / `refine`
 session) were mounted nowhere and OpenCode refused them with no error surfaced (#278).
 
+Grok caveat: the Grok Build CLI (`grok`) has no `--add-dir`. The adapter forces `--sandbox off` so
+an operator's `~/.grok/config.toml` cannot re-enable workspace/strict and block `grok-prompt.md` /
+`signals.json` outside cwd. Extra roots are a named over-grant (same posture as OpenCode `--auto`)
+rather than an `InvalidStateError`. Full-auto and read-only both pass `--always-approve`; the
+denylist is per-gate (`search_replace` when `!canModifyRepoFiles`, both shell ids when
+`!canRunShell`, `web_search,web_fetch` when `!canAccessNetwork`) plus `--no-subagents` so a child
+cannot recover a denied class. The `write` tool stays allowed so `signals.json` can land. Never
+`--permission-mode plan` (blocks signals.json).
+
+This denylist is deny-by-name against a CLI that has already renamed a tool once
+(`run_terminal_command` live vs `run_terminal_cmd` in the docs) and pairs it with `--sandbox off`,
+so a renamed or newly spelled tool silently escapes its gate — there is no sandbox behind the
+list. **Maintenance contract:** on every grok version bump, re-verify the tool ids in
+`disallowedToolsFor` (`providers/grok/headless.ts`) against the shipped CLI (e.g. `grok models`
+docs / a read-only smoke run) before trusting the read-only profile.
+
 The `readiness` flow fans out across every uniquely referenced provider in `settings.ai` — one native
 context file per provider (claude-code → `CLAUDE.md`, github-copilot → `.github/copilot-instructions.md`,
-openai-codex → `AGENTS.md`, opencode → `AGENTS.md`). Single-provider configurations produce exactly one
-file; mixed configurations produce one file per distinct native context file — `openai-codex` and
-`opencode` share the repo-root `AGENTS.md`, so a config naming both runs two readiness passes over that
-same file (the second overwrites it, preserving the first pass's output verbatim in a
-`<path>.bak.<timestamp>` copy). No symlinks, no pointer schemes. Don't introduce either.
+openai-codex → `AGENTS.md`, opencode → `AGENTS.md`, xai-grok → `AGENTS.md`). Single-provider
+configurations produce exactly one file; mixed configurations produce one file per distinct native
+context file — `openai-codex`, `opencode`, and `xai-grok` share the repo-root `AGENTS.md`, so a config
+naming more than one of those three runs sequential readiness passes over that same file (each later
+write overwrites it, preserving the previous pass's output verbatim in a `<path>.bak.<timestamp>`
+copy). No symlinks, no pointer schemes. Don't introduce either.
 
 **Cross-process advisory lock** at `<stateRoot>/locks/repo-<hash>.lock` (sha1 of the repository worktree
 path, first 16 hex) serializes whole-flow runs against one working tree so two ralphctl processes can't race
@@ -97,13 +115,16 @@ enforced at lint time, not by convention.
 
 **A prompt body never travels in argv.** Every adapter writes the rendered prompt to a file and passes the
 CLI a POINTER at that file (`providers/_engine/prompt-pointer.ts`) — headless claude / codex / opencode pipe
-it through stdin instead, which is equivalent for this purpose. Argv is capped at 32,767 bytes on Windows
+it through stdin instead, which is equivalent for this purpose; headless grok uses `--prompt-file`
+`grok-prompt.md` (like copilot's file pointer, not stdin — Grok does not read piped stdin as the prompt)
+and never `--prompt-file` on the interactive command (that forces headless). Argv is capped at 32,767 bytes on Windows
 (and 8,191 once a `.cmd` shim routes through `cmd.exe`, where the excess is silently TRUNCATED rather than
 reported), well under what a rendered harness prompt reaches — a plan session on Windows died with
 `spawn ENAMETOOLONG` before the CLI started. Each interactive adapter grants its CLI read access to every
 mounted root — `--add-dir` for claude / copilot / codex, and for OpenCode (which has no such flag) an
 `external_directory` grant per root injected as `OPENCODE_CONFIG_CONTENT` (see `buildOpencodeEnv`), which
-MERGES into the operator's own config rather than replacing it. There is no inline-body fallback: a CLI that can be granted
+MERGES into the operator's own config rather than replacing it. Grok has no `--add-dir` either; extra
+roots are the named over-grant above (sandbox off). There is no inline-body fallback: a CLI that can be granted
 no access at all does not belong on this port, since inlining the body for it would just relocate the same
 overflow. Reject such an adapter where it is declared. Two
 earlier answers to this are on the rejected list and must not return: a `bash -lc "… $(cat promptFile)"`
@@ -125,10 +146,11 @@ pick `repositories[0]`); the per-flow sandbox under `<sprintDir>/<flow>/<unit-sl
 `--add-dir` so `prompt.md` and `signals.json` round-trip through harness-controlled
 paths — except on OpenCode, which has no `--add-dir` equivalent and instead grants the same roots
 via `--auto` (implement, headless) or the `buildOpencodeEnv` config grant (ideate, interactive) —
-see the OpenCode caveats above. Cwd is the repo because
-Claude / Copilot / Codex only auto-discover their context file
+see the OpenCode caveats above — and on Grok, which also has no `--add-dir` and treats extra roots
+as a named over-grant (sandbox off). Cwd is the repo because
+Claude / Copilot / Codex / OpenCode / Grok only auto-discover their context file
 (`CLAUDE.md` / `.github/copilot-instructions.md` / `AGENTS.md`), skills (`.claude/skills/` /
-`.github/skills/` / `.agents/skills/`), agents, and `.mcp.json` from cwd — not from `--add-dir` roots.
+`.github/skills/` / `.agents/skills/` / `.opencode/skills/` / `.grok/skills/`), agents, and `.mcp.json` from cwd — not from `--add-dir` roots.
 Harness-authored skills land in `<repo>/<parentDir>/skills/ralphctl-*/` and the skills adapter appends one
 wildcard line to `.git/info/exclude` on first install so they never appear in `git status` or `git add -A`.
 The line goes to the **common** git dir (`$GIT_COMMON_DIR`, resolved through the worktree gitdir's `commondir`
@@ -159,7 +181,7 @@ those entries. Every bundled `SKILL.md` is validated by `skill-contract-checker.
 rules (signal contract, git ownership, one-PR, package-manager agnosticism, subagent control, verify gate);
 the contract test hard-fails on any violation, keeping bundled skills safe to auto-install.
 
-**Operator drop-in skills.** Global, provider-specific skills under `~/.ralphctl/skills/{claude,copilot,codex,opencode}/<name>/SKILL.md`
+**Operator drop-in skills.** Global, provider-specific skills under `~/.ralphctl/skills/{claude,copilot,codex,opencode,grok}/<name>/SKILL.md`
 are discovered by `createOperatorSkillSource` and installed through the same `ralphctl-` namespace and
 `.git/info/exclude` wildcard as bundled skills. `StoragePaths.operatorSkillsRoot` = `<appRoot>/skills`.
 The compat checker runs as a warning for operator skills — a violation logs and skips, never aborts the

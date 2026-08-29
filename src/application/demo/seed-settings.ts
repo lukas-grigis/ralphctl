@@ -48,13 +48,20 @@ const PRESET_FOR_PROVIDER: Readonly<Record<AiProvider, PresetName>> = {
   'github-copilot': 'copilot-only',
   'openai-codex': 'codex-only',
   opencode: 'opencode-only',
+  'xai-grok': 'grok-only',
 };
 
 /**
  * Tie-break order when PATH carries more than one supported CLI, and the fallback when it carries
  * none. First hit wins, so the seeded sandbox is reproducible on a given machine.
  */
-const DEMO_PROVIDER_PREFERENCE: readonly AiProvider[] = ['claude-code', 'openai-codex', 'github-copilot', 'opencode'];
+const DEMO_PROVIDER_PREFERENCE: readonly AiProvider[] = [
+  'claude-code',
+  'openai-codex',
+  'github-copilot',
+  'opencode',
+  'xai-grok',
+];
 
 /** Pick the single-provider preset the demo sandbox runs under. */
 const pickDemoPreset = (installed: ReadonlySet<AiProvider>): PresetName => {

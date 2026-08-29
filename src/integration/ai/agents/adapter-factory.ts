@@ -2,11 +2,13 @@
  * `createAgentDefinitionAdapter` — composition-root factory that picks the
  * {@link AgentDefinitionAdapter} implementation matching the configured AI provider.
  *
- * All three providers share the same on-disk shape — one native file per definition under
+ * All five providers share the same on-disk shape — one native file per definition under
  * `<parentDir>/agents/` — only the parent directory and render format vary:
- *  - claude  → `.claude/agents/*.md`   (Markdown + YAML frontmatter)
- *  - copilot → `.github/agents/*.agent.md` (Markdown + YAML frontmatter)
- *  - codex   → `.codex/agents/*.toml`  (TOML)
+ *  - claude    → `.claude/agents/*.md`   (Markdown + YAML frontmatter)
+ *  - copilot   → `.github/agents/*.agent.md` (Markdown + YAML frontmatter)
+ *  - codex     → `.codex/agents/*.toml`  (TOML)
+ *  - opencode  → `.opencode/agents/*.md` (Markdown + YAML frontmatter)
+ *  - grok      → `.grok/agents/*.md`     (Markdown + YAML frontmatter)
  *
  * Adding a new provider is one row in {@link AGENT_ADAPTERS} plus a sibling
  * `agents/<provider>/adapter.ts` that delegates to {@link createFilesystemAgentDefinitionAdapter}.
@@ -19,6 +21,7 @@ import { createClaudeAgentDefinitionAdapter } from '@src/integration/ai/agents/c
 import { createCodexAgentDefinitionAdapter } from '@src/integration/ai/agents/codex/adapter.ts';
 import { createOpencodeAgentDefinitionAdapter } from '@src/integration/ai/agents/opencode/adapter.ts';
 import { createCopilotAgentDefinitionAdapter } from '@src/integration/ai/agents/copilot/adapter.ts';
+import { createGrokAgentDefinitionAdapter } from '@src/integration/ai/agents/grok/adapter.ts';
 
 export interface AgentDefinitionAdapterFactoryDeps {
   readonly provider: AiProvider;
@@ -36,6 +39,7 @@ const AGENT_ADAPTERS: Readonly<Record<AiProvider, (deps?: { readonly logger?: Lo
   'github-copilot': createCopilotAgentDefinitionAdapter,
   'openai-codex': createCodexAgentDefinitionAdapter,
   opencode: createOpencodeAgentDefinitionAdapter,
+  'xai-grok': createGrokAgentDefinitionAdapter,
 };
 
 export const createAgentDefinitionAdapter = (deps: AgentDefinitionAdapterFactoryDeps): AgentDefinitionAdapter => {

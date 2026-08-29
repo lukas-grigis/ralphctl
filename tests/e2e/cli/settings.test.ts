@@ -27,7 +27,7 @@ describe('ralphctl settings', () => {
     cli = await createCliHome();
     // Default to "every provider installed" — individual tests narrow this for gate
     // assertions. Re-seeding here avoids cross-test contamination.
-    detectRef.installed = new Set(['claude-code', 'github-copilot', 'openai-codex']);
+    detectRef.installed = new Set(['claude-code', 'github-copilot', 'openai-codex', 'opencode', 'xai-grok']);
   });
 
   afterEach(async () => cli.cleanup());

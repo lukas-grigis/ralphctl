@@ -67,6 +67,7 @@ const PROVIDERS: readonly ProviderName[] = [
   'codex-provider',
   'copilot-provider',
   'opencode-provider',
+  'grok-provider',
 ];
 
 describe.each(PROVIDERS)('classifySpawnExit [%s]', (providerName) => {
@@ -590,6 +591,34 @@ describe.each(PROVIDERS)('classifySpawnExit [%s]', (providerName) => {
     if (outcome.kind === 'error' && outcome.error instanceof ProcessCrashError) {
       expect(outcome.error.signalOrExitCode).toBe(2);
       expect(outcome.error.watchdogKilled).toBeUndefined();
+    }
+  });
+
+  it('rate-limit in processErrorText (empty stderr) is stderr-class and beats signals-recovery', async () => {
+    const session = baseSession();
+    await writeSignalsFile(String(session.signalsFile));
+    let invoked = 0;
+    const outcome = await classifySpawnExit({
+      session,
+      exit: { code: 1, signal: null },
+      stderr: '',
+      processErrorText: 'rate limit exceeded',
+      rateLimitRe: DEFAULT_RATE_LIMIT_RE,
+      capturedSessionId: 'sid-rl',
+      providerName,
+      eventBus: createCapturingBus().bus,
+      watchdogBannerId: 'unused',
+      onSuccess: () => {
+        invoked += 1;
+        return okSuccess(session);
+      },
+    });
+    expect(invoked).toBe(0);
+    expect(outcome.kind).toBe('rate-limit');
+    if (outcome.kind === 'rate-limit') {
+      expect(outcome.error).toBeInstanceOf(RateLimitError);
+      expect(outcome.error.sessionId).toBe('sid-rl');
+      expect(outcome.error.message).toContain('stderr');
     }
   });
 

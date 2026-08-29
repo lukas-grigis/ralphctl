@@ -1,6 +1,6 @@
 /**
- * Preset bar — twenty-one preset buttons across five families (Standard / Economic / Strong-gate /
- * Fast / Frontier). Each family renders under a dim bold sub-header so 21 rows stay scannable.
+ * Preset bar — twenty-two preset buttons across five families (Standard / Economic / Strong-gate /
+ * Fast / Frontier). Each family renders under a dim bold sub-header so 22 rows stay scannable.
  * Activating a row opens a confirmation prompt in the parent view; this component is purely
  * the read-side render of the preset section card. Warnings from the most recent apply-preset
  * fan out as dimmed rows underneath so the operator sees missing-CLI guidance in-line.
@@ -15,6 +15,7 @@ import { Card } from '@src/application/ui/tui/components/card.tsx';
 import { FieldList } from '@src/application/ui/tui/components/field-list.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { PRESET_NAMES } from '@src/business/settings/presets.ts';
+import { PROVIDER_BINARY } from '@src/integration/system/detect-cli.ts';
 import type { PresetWarning } from '@src/application/flows/settings-apply-preset/ctx.ts';
 import {
   PRESET_FAMILY,
@@ -58,7 +59,8 @@ export const PresetBar = ({ title, valueFor, warnings }: PresetBarProps): React.
       <Box flexDirection="column" paddingX={spacing.indent} marginTop={spacing.section}>
         {warnings.map((w) => (
           <Text key={w.provider} dimColor>
-            {glyphs.warningGlyph} {w.provider} CLI not found on PATH; affects flows: {w.flows.join(', ')}
+            {glyphs.warningGlyph} {PROVIDER_BINARY[w.provider]} CLI not found on PATH; affects flows:{' '}
+            {w.flows.join(', ')}
           </Text>
         ))}
       </Box>

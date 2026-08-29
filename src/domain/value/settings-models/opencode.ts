@@ -7,7 +7,7 @@
  * OpenCode is an **aggregator**, not a single-vendor backend: model ids are `provider/model`
  * and the reachable set depends on which upstream providers the operator has authenticated via
  * `opencode providers`. That makes a static catalog structurally different here than for the
- * other three backends, whose catalogs are the vendor's own fixed list.
+ * other four backends, whose catalogs are the vendor's own fixed list.
  *
  * This catalog is therefore the **zero-auth baseline** — the `opencode/*` models served on the
  * bundled free tier, which every install can reach with no credentials at all. It is a floor,

@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { AiProvider } from '@src/domain/entity/settings.ts';
+import { AI_PROVIDERS } from '@src/domain/entity/settings.ts';
 import type { RunCommand, RunCommandResult } from '@src/integration/io/run-command.ts';
 import { probeProviderAuth } from '@src/application/flows/doctor/provider-auth.ts';
 
@@ -122,14 +122,24 @@ describe('probeProviderAuth', () => {
     });
   });
 
+  describe('xai-grok — none', () => {
+    it('reports unknown without spawning anything', async () => {
+      let called = false;
+      const runCommand = stubRunCommand(() => {
+        called = true;
+        return result({});
+      });
+      const probe = await probeProviderAuth('xai-grok', runCommand);
+      expect(probe.status).toBe('unknown');
+      expect(called).toBe(false);
+      expect(probe.detail).toContain('no non-interactive auth-status verb');
+      expect(probe.id).toBe('ai-auth-xai-grok');
+    });
+  });
+
   it('never returns fail for any provider', async () => {
     const runCommand = stubRunCommand(() => result({ ok: false, code: 1, stdout: '', stderr: 'boom' }));
-    for (const provider of [
-      'claude-code',
-      'openai-codex',
-      'opencode',
-      'github-copilot',
-    ] as const satisfies readonly AiProvider[]) {
+    for (const provider of AI_PROVIDERS) {
       const probe = await probeProviderAuth(provider, runCommand);
       expect(probe.status).not.toBe('fail');
     }

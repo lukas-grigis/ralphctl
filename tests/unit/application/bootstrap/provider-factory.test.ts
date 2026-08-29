@@ -64,6 +64,18 @@ const opencodeConfig: Settings['ai'] = {
   createPr: { provider: 'opencode', model: 'opencode/north-mini-code-free' },
 };
 
+const grokConfig: Settings['ai'] = {
+  refine: { provider: 'xai-grok', model: 'grok-4.5' },
+  plan: { provider: 'xai-grok', model: 'grok-4.6' },
+  implement: {
+    generator: { provider: 'xai-grok', model: 'grok-4.6' },
+    evaluator: { provider: 'xai-grok', model: 'grok-4.6' },
+  },
+  readiness: { provider: 'xai-grok', model: 'grok-4.5' },
+  ideate: { provider: 'xai-grok', model: 'grok-4.6' },
+  createPr: { provider: 'xai-grok', model: 'grok-4.5' },
+};
+
 describe('createAiProvider', () => {
   it('dispatches to the Claude adapter when the flow row uses `claude-code`', () => {
     const eventBus = createInMemoryEventBus();
@@ -86,6 +98,12 @@ describe('createAiProvider', () => {
   it('dispatches to the OpenCode adapter when the flow row uses `opencode`', () => {
     const eventBus = createInMemoryEventBus();
     const provider = createAiProvider({ flow: 'implement', ai: opencodeConfig, harnessConfig, eventBus });
+    expect(typeof provider.generate).toBe('function');
+  });
+
+  it('dispatches to the Grok adapter when the flow row uses `xai-grok`', () => {
+    const eventBus = createInMemoryEventBus();
+    const provider = createAiProvider({ flow: 'implement', ai: grokConfig, harnessConfig, eventBus });
     expect(typeof provider.generate).toBe('function');
   });
 

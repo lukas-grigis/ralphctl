@@ -16,12 +16,12 @@ import {
 } from '@src/integration/ai/providers/_engine/rate-limit-backoff.ts';
 
 /**
- * Shared rate-limit retry loop for the three headless AI provider adapters
- * (claude / codex / copilot). Each adapter was carrying a near-identical ~70-line loop that
+ * Shared rate-limit retry loop for the five headless AI provider adapters
+ * (claude / codex / copilot / opencode / grok). Each adapter was carrying a near-identical ~70-line loop that
  * built argv ONCE before the loop and reused it verbatim every attempt — so the `sessionId`
  * `classifySpawnExit` captured onto a {@link RateLimitError} was never consumed: a 429 retry
  * re-spawned a COLD session instead of resuming the interrupted one. Centralising the loop here
- * fixes that for all three at once and removes the triplication.
+ * fixes that everywhere at once and removes the duplication.
  *
  * The seam: the adapter supplies an `attempt(session)` function that takes the CURRENT session
  * and builds its own argv from it, then runs one spawn and returns an {@link AttemptOutcome}.
@@ -62,10 +62,10 @@ export interface RunWithRateLimitRetryOptions {
   readonly eventBus: EventBus;
   /**
    * Short provider tag for log lines / banner ids (`'claude'` / `'codex'` / `'copilot'` /
-   * `'opencode'`). Keeps
+   * `'opencode'` / `'grok'`). Keeps
    * the banner id keyspace per-provider so concurrent adapters don't collide.
    */
-  readonly providerSlug: 'claude' | 'codex' | 'copilot' | 'opencode';
+  readonly providerSlug: 'claude' | 'codex' | 'copilot' | 'opencode' | 'grok';
   /**
    * Element name stamped onto the {@link AbortError} surfaced when a user cancel lands during a
    * backoff sleep — mirrors `classifySpawnExit`'s abort shape so the chain runner propagates it.

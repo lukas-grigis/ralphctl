@@ -1,21 +1,22 @@
 ---
 name: claude-integration
-description: "Low-level AI CLI spawn mechanics used by ralphctl's provider adapters — headless / interactive spawn, the file-based contract (`signals.json` + `sessionId` files), idle-stdout watchdog, exponential rate-limit backoff, and session resume for in-flight recovery. Use when modifying `src/integration/ai/providers/{claude,copilot,codex,opencode}/` or `src/integration/ai/providers/_engine/`, debugging stdin hangs / slow Claude startups, or wiring a new code path that spawns an AI CLI directly."
+description: "Low-level AI CLI spawn mechanics used by ralphctl's provider adapters — headless / interactive spawn, the file-based contract (`signals.json` + `sessionId` files), idle-stdout watchdog, exponential rate-limit backoff, and session resume for in-flight recovery. Use when modifying `src/integration/ai/providers/{claude,copilot,codex,opencode,grok}/` or `src/integration/ai/providers/_engine/`, debugging stdin hangs / slow Claude startups, or wiring a new code path that spawns an AI CLI directly."
 when_to_use: 'When touching a provider adapter, the shared `_engine/`, or a readiness probe; when diagnosing a rate-limit / resume / watchdog issue; when a new consumer needs to spawn an AI CLI outside the existing ports. Not needed for higher-level work — the flows already wrap all of this through the `HeadlessAiProvider` / `InteractiveAiProvider` ports.'
 ---
 
-# AI provider integration (Claude / Copilot / Codex / OpenCode)
+# AI provider integration (Claude / Copilot / Codex / OpenCode / Grok)
 
 Covers what is **not** in `CLAUDE.md` or `.claude/docs/ARCHITECTURE.md`. For harness signals, exit codes,
 sequential task execution, and check-script gating — see `CLAUDE.md`.
 
 **Source of truth:**
 
-- Provider adapters: `src/integration/ai/providers/{claude,copilot,codex,opencode}/` — one folder per tool,
+- Provider adapters: `src/integration/ai/providers/{claude,copilot,codex,opencode,grok}/` — one folder per tool,
   sibling-isolated. Each owns `headless.ts`, `interactive.ts`, and `model-availability-probe.ts` (Claude,
-  Copilot, and OpenCode also have `parse-stream.ts` for stream-format handling). OpenCode is the aggregator
+  Copilot, OpenCode, and Grok also have `parse-stream.ts` for stream-format handling). OpenCode is the aggregator
   backend: its model ids are `provider/model` and its catalog is discovered at runtime via `opencode models`,
-  so its probe is the one that cannot check against a static list.
+  so its probe is the one that cannot check against a static list. Grok's probe is passthrough (not
+  `grok models`).
 - Shared engine: `src/integration/ai/providers/_engine/` — `spawn.ts` (the `ProviderSpawn` port + default
   `node:child_process.spawn` impl), `run-headless-spawn.ts` (the headless wrapper that wires watchdog +
   signals file + sessionId file + rate-limit backoff), `rate-limit-backoff.ts` (exponential retry policy),
@@ -47,10 +48,12 @@ import type { InteractiveAiProvider } from '@src/integration/ai/providers/_engin
 
 **Prompt delivery — never the body in argv.** Headless claude / codex / opencode pipe the prompt through
 stdin. Interactive cannot (stdin piping flips these CLIs out of interactive mode) and neither can copilot
-headless (that CLI has no stdin prompt path), so those write the prompt to a file and pass a POINTER at it —
-`_engine/prompt-pointer.ts`. Argv caps at 32,767 bytes on Windows and a rendered plan prompt clears that on
-its own; inlining it produced `spawn ENAMETOOLONG` before the CLI ever started. `_engine/argv-budget.ts`
-names an overflow in the error rather than leaving a bare errno.
+or grok headless (neither CLI has a stdin prompt path), so those write the prompt to a file and pass a
+POINTER at it — `_engine/prompt-pointer.ts` for copilot (`-p <pointer>`), `--prompt-file grok-prompt.md`
+for grok (Grok does not read piped stdin as the prompt). Interactive grok never passes `--prompt-file`
+(that forces headless) and takes a positional pointer instead. Argv caps at 32,767 bytes on Windows and a
+rendered plan prompt clears that on its own; inlining it produced `spawn ENAMETOOLONG` before the CLI ever
+started. `_engine/argv-budget.ts` names an overflow in the error rather than leaving a bare errno.
 
 ## File-based provider contract
 
@@ -70,6 +73,7 @@ The per-spawn audit / sandbox layout is:
 <sprintDir>/<flow>/<unit>/rounds/<N>/{generator,evaluator}/
 ├── prompt.md           ← rendered prompt (input); the CLI is pointed at this file, not handed its text
 ├── copilot-prompt.md   ← copilot headless only: the exact prompt that spawn was given
+├── grok-prompt.md      ← grok headless only: `--prompt-file` body (Grok has no stdin prompt path)
 ├── signals.json        ← parsed structured signals (output, provider-written)
 ├── session-id.txt      ← provider's session id (output)
 └── evaluation.md       ← rendered evaluator verdict (evaluator role only)
@@ -77,12 +81,13 @@ The per-spawn audit / sandbox layout is:
 
 ## Permission modes (per-tool, NOT portable)
 
-| Provider         | Headless permission flag              | Why                                                      |
-| ---------------- | ------------------------------------- | -------------------------------------------------------- |
-| `claude-code`    | `--permission-mode bypassPermissions` | Piped stdin can't answer prompts; `acceptEdits` hangs    |
-| `github-copilot` | `--allow-all-tools`                   | Copilot's permission model is all-or-nothing             |
-| `openai-codex`   | per-session approval flow             | Codex prompts for approval inline; sandbox handles it    |
-| `opencode`       | `--auto` (or nothing)                 | No enforceable read-only mode — see the over-grant below |
+| Provider         | Headless permission flag              | Why                                                                                                                                                                                          |
+| ---------------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `claude-code`    | `--permission-mode bypassPermissions` | Piped stdin can't answer prompts; `acceptEdits` hangs                                                                                                                                        |
+| `github-copilot` | `--allow-all-tools`                   | Copilot's permission model is all-or-nothing                                                                                                                                                 |
+| `openai-codex`   | per-session approval flow             | Codex prompts for approval inline; sandbox handles it                                                                                                                                        |
+| `opencode`       | `--auto` (or nothing)                 | No enforceable read-only mode — see the over-grant below                                                                                                                                     |
+| `xai-grok`       | `--always-approve --sandbox off`      | Per-gate `--disallowed-tools` (`search_replace` / both shell ids / `web_search,web_fetch`) plus `--no-subagents`; `write` stays allowed. No `--add-dir` — extra roots are a named over-grant |
 
 **OpenCode has no enforceable permission gate.** `opencode run` exposes one approval control, `--auto`, and
 omitting it does NOT make the run read-only — writes inside `--dir` land either way. The adapter forwards
@@ -114,8 +119,9 @@ watchdog path fast.
 delay. Per-spawn cap is `settings.harness.rateLimitRetries` (range 0–10). The retry loop captures the
 provider's `sessionId` from the previous attempt and resumes that session on the next, so the AI continues
 from where it stopped instead of restarting. The resume spelling is per-tool — `--resume <id>` (claude),
-`--resume=<id>` (copilot), the `resume` subcommand arg (codex), `-s <id>` (opencode) — each adapter's
-`headless.ts` owns its own arg builder.
+`--resume=<id>` (copilot), the `resume` subcommand arg (codex), `-s <id>` (opencode), `-r <id>` (grok) —
+each adapter's `headless.ts` owns its own arg builder. Grok's stale-resume wording is "session not found"
+/ 404 restore.
 
 ## Session resume contract
 
@@ -158,6 +164,7 @@ Business code never imports an adapter directly — it goes through `HeadlessAiP
 ports from `_engine/`. When adding a new spawn code path, prefer extending the port + the per-tool adapter;
 only drop into `runHeadlessSpawn` / `spawn` if a genuinely new spawn shape is needed.
 
-Sibling-isolation rules apply: `providers/claude/`, `providers/copilot/`, `providers/codex/`, and
-`providers/opencode/` cannot import each other. Shared helpers (spawn, watchdog, backoff, the file-based
-contract reader/writer) live in `providers/_engine/` and are the only legitimate cross-tool seam.
+Sibling-isolation rules apply: `providers/claude/`, `providers/copilot/`, `providers/codex/`,
+`providers/opencode/`, and `providers/grok/` cannot import each other. Shared helpers (spawn, watchdog,
+backoff, the file-based contract reader/writer) live in `providers/_engine/` and are the only legitimate
+cross-tool seam.

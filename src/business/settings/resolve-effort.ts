@@ -93,6 +93,7 @@ export const clampEffortToProvider = (effort: string, provider: AiProvider): str
  *   surfaced as a per-flow opt-out and never selected globally).
  * - openai-codex: `max` clamps to `xhigh`; everything else identity.
  * - opencode: identity; the CLI arbitrates, and the shipped flow default is not stamped at all.
+ * - xai-grok: identity (native vocabulary includes the global superset plus `none` / `minimal`).
  */
 const _floorForProvider = (effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max', provider: AiProvider): string =>
   clampEffortToProvider(effort, provider);

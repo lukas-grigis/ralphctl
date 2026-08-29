@@ -12,6 +12,7 @@ import { createInteractiveClaudeProvider } from '@src/integration/ai/providers/c
 import { createInteractiveCodexProvider } from '@src/integration/ai/providers/codex/interactive.ts';
 import { createInteractiveCopilotProvider } from '@src/integration/ai/providers/copilot/interactive.ts';
 import { createInteractiveOpencodeProvider } from '@src/integration/ai/providers/opencode/interactive.ts';
+import { createInteractiveGrokProvider } from '@src/integration/ai/providers/grok/interactive.ts';
 
 /**
  * Port conformance for `InteractiveAiProvider`, one row per backend.
@@ -92,6 +93,11 @@ interface InteractiveRow {
    * config-grant adapter can be in that position — a flag-based one passes any string through.
    */
   readonly refusesUnexpressibleRoots: boolean;
+  /**
+   * Grok has no `--add-dir`; extra roots are a named over-grant (sandbox off). Spawn succeeding
+   * with no `--add-dir` is the conformant answer.
+   */
+  readonly grantsUnrestricted?: boolean;
 }
 
 const ROWS: readonly InteractiveRow[] = [
@@ -122,6 +128,14 @@ const ROWS: readonly InteractiveRow[] = [
     model: PROVIDER_TRAITS.opencode.modelCatalog[0]!,
     grantedRoots: configGrantedRoots,
     refusesUnexpressibleRoots: true,
+  },
+  {
+    provider: 'xai-grok',
+    create: createInteractiveGrokProvider,
+    model: PROVIDER_TRAITS['xai-grok'].modelCatalog[0]!,
+    grantedRoots: () => new Set<string>(),
+    refusesUnexpressibleRoots: false,
+    grantsUnrestricted: true,
   },
 ];
 
@@ -163,8 +177,13 @@ describe.each(ROWS)('InteractiveAiProvider conformance — $provider', (row) => 
   it('grants every root the engine folded — cwd, additionalRoots, and the prompt / output dir', async () => {
     const { fake, runPromise } = await runSession();
     fake.emitExit(0);
-    await runPromise;
+    const result = await runPromise;
+    expect(result.ok).toBe(true);
 
+    if (row.grantsUnrestricted === true) {
+      expect(fake.calls[0]!.args).not.toContain('--add-dir');
+      return;
+    }
     expect(row.grantedRoots(fake.calls[0]!)).toEqual(EXPECTED_ROOTS);
   });
 
@@ -185,6 +204,10 @@ describe.each(ROWS)('InteractiveAiProvider conformance — $provider', (row) => 
       return;
     }
     expect(result.ok).toBe(true);
+    if (row.grantsUnrestricted === true) {
+      expect(fake.calls[0]!.args).not.toContain('--add-dir');
+      return;
+    }
     expect(row.grantedRoots(fake.calls[0]!)).toContain(String(UNEXPRESSIBLE_ROOT));
   });
 

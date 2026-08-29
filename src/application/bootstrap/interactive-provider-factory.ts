@@ -6,6 +6,7 @@ import { createInteractiveClaudeProvider } from '@src/integration/ai/providers/c
 import { createInteractiveCodexProvider } from '@src/integration/ai/providers/codex/interactive.ts';
 import { createInteractiveCopilotProvider } from '@src/integration/ai/providers/copilot/interactive.ts';
 import { createInteractiveOpencodeProvider } from '@src/integration/ai/providers/opencode/interactive.ts';
+import { createInteractiveGrokProvider } from '@src/integration/ai/providers/grok/interactive.ts';
 import type { InteractiveProviderDeps } from '@src/integration/ai/providers/_engine/interactive-provider-deps.ts';
 
 /**
@@ -19,6 +20,7 @@ const INTERACTIVE_FACTORIES: Readonly<Record<AiProvider, (deps: InteractiveProvi
   'github-copilot': createInteractiveCopilotProvider,
   'openai-codex': createInteractiveCodexProvider,
   opencode: createInteractiveOpencodeProvider,
+  'xai-grok': createInteractiveGrokProvider,
 };
 
 /**

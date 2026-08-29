@@ -2,6 +2,7 @@ import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { AiSignal } from '@src/domain/signal.ts';
 import type { PlateauSource } from '@src/domain/entity/attempt.ts';
+import type { AiProvider } from '@src/domain/entity/settings.ts';
 
 /**
  * Application-wide structured events. Producers (chain runner, use cases,
@@ -195,7 +196,7 @@ export interface TokenUsageEvent {
    * no runner id; those still resolve by the provider-uuid `sessionId`.
    */
   readonly chainSessionId?: string;
-  readonly provider: 'claude-code' | 'github-copilot' | 'openai-codex' | 'opencode';
+  readonly provider: AiProvider;
   readonly model?: string;
   /**
    * CUMULATIVE token counts for the whole spawn — these are throughput / billing figures. For

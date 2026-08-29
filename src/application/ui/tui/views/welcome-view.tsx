@@ -1,6 +1,6 @@
 /**
  * First-run welcome view. Shown once when no `settings.json` exists yet. On mount, probes PATH
- * for the supported CLIs (claude / gh / codex) and silently seeds a preset:
+ * for the supported CLIs (claude / copilot / codex / opencode / grok) and silently seeds a preset:
  *
  *   - exactly one CLI detected → `<provider>-only` preset
  *   - zero or 2+ CLIs detected → `mixed` preset (best-of-breed across providers)
@@ -50,7 +50,10 @@ const PRESET_FOR_PROVIDER: Readonly<Record<AiProvider, PresetName>> = {
   'github-copilot': 'copilot-only',
   'openai-codex': 'codex-only',
   opencode: 'opencode-only',
+  'xai-grok': 'grok-only',
 };
+
+const ZERO_CLI_HINT = `${glyphs.warningGlyph} No AI CLIs detected — install one (claude / copilot / codex / opencode / grok) and run doctor.`;
 
 const pickPresetForDetected = (installed: ReadonlySet<AiProvider>): PresetName => {
   if (installed.size === 1) {
@@ -197,9 +200,7 @@ export const WelcomeView = (): React.JSX.Element => {
               chosenPreset !== undefined &&
               (noCliDetected ? (
                 <Box flexDirection="column">
-                  <Text color={inkColors.warning}>
-                    {glyphs.warningGlyph} No AI CLIs detected — install one (claude / copilot / codex) and run doctor.
-                  </Text>
+                  <Text color={inkColors.warning}>{ZERO_CLI_HINT}</Text>
                   <Text dimColor>Seeded the {chosenPreset} preset as a placeholder.</Text>
                   <Text dimColor italic>
                     Press ↵ to continue.

@@ -383,7 +383,7 @@ const createCodexAttemptTracker = (eventBus: EventBus): CodexAttemptTracker => {
   // STDOUT_LINE_PARSE_CAP (drop-oldest, one-shot warn). Codex can stream a single record embedding
   // a huge file-read / bash tool result, and a child that never terminates the line would
   // otherwise grow this buffer without bound (OOM class). Same helper, same cap semantics as the
-  // claude / copilot / opencode parsers, so all four behave identically on the same input.
+  // claude / copilot / opencode / grok parsers, so all five behave identically on the same input.
   const lineFeed = createCappedLineFeed<Record<string, unknown>>('codex-stream', emitCodexLine);
 
   const onMeta = (update: CodexMetaUpdate): void => {

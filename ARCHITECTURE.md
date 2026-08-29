@@ -93,12 +93,12 @@ these primitives, never as a sixth one.
 
 ## The provider boundary
 
-Claude Code, GitHub Copilot, Codex, and OpenCode sit behind one port:
+Claude Code, GitHub Copilot, Codex, OpenCode, and Grok sit behind one port:
 `HeadlessAiProvider.generate(session)`
 (`src/integration/ai/providers/_engine/headless-ai-provider.ts`). The caller hands over an `AiSession`
 (`.../ai-session.ts`) that describes **intent** — prompt, working directory, model tier, permissions,
 the path to write `signals.json`, an optional resume id — and nothing about any specific CLI. Each
-adapter under `src/integration/ai/providers/{claude,codex,copilot,opencode}/` is the only place that
+adapter under `src/integration/ai/providers/{claude,codex,copilot,opencode,grok}/` is the only place that
 translates that intent into its CLI's concrete flags and parses its output stream. The composition root
 picks one adapter per flow in `src/application/bootstrap/provider-factory.ts`, where `HEADLESS_FACTORIES`
 is a total `Record<AiProvider, …>` — widening the union without a row is a compile error. Adding another

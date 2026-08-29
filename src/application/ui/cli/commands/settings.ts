@@ -9,6 +9,7 @@ import { bootstrapCli } from '@src/application/ui/cli/bootstrap.ts';
 import { fail } from '@src/application/ui/cli/report-cli-error.ts';
 import type { AiImplementRole, AiProvider } from '@src/domain/entity/settings.ts';
 import { AI_PROVIDERS } from '@src/domain/entity/settings.ts';
+import { PROVIDER_BINARY } from '@src/integration/system/detect-cli.ts';
 import type { FlowId } from '@src/domain/value/flow-id.ts';
 import type { SettingsRepository } from '@src/domain/repository/settings/settings-repository.ts';
 
@@ -119,7 +120,9 @@ const applyPresetAction = async (name: string): Promise<void> => {
   // still iterate (install the missing CLI, then re-run their flow) without re-applying
   // the preset.
   for (const w of output.warnings) {
-    process.stderr.write(`warning: ${w.provider} CLI not found on PATH; affects flows: ${w.flows.join(', ')}\n`);
+    process.stderr.write(
+      `warning: ${PROVIDER_BINARY[w.provider]} CLI not found on PATH; affects flows: ${w.flows.join(', ')}\n`
+    );
   }
   process.stdout.write(`applied preset ${name}\n`);
 };
@@ -136,7 +139,7 @@ const applyPresetAction = async (name: string): Promise<void> => {
  *
  * Supported keys:
  *   ai.effort                                          low | medium | high | xhigh | max (global default)
- *   ai.{flow}.provider                                 claude-code | github-copilot | openai-codex
+ *   ai.{flow}.provider                                 see AI_PROVIDERS_HINT (claude-code | github-copilot | openai-codex | opencode | xai-grok)
  *   ai.{flow}.model                                    provider-native enum, or any non-empty custom string
  *   ai.{flow}.effort                                   provider-native effort level
  *      flow in {refine, plan, readiness, ideate}

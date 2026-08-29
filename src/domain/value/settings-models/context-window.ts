@@ -23,6 +23,7 @@
  *    at their native 1 000 000 window in Claude Code — so the 1M figure is keyed on the bare id
  *    rather than a `[1m]` selector for both.
  *  - **Copilot / Codex** — omitted; the CLIs do not surface per-model window sizes.
+ *  - **Grok (xAI)** — 500 000 for both `grok-4.6` and `grok-4.5` (docs.x.ai).
  *
  * Pure domain — no `node:*` I/O.
  */
@@ -40,6 +41,9 @@ const CONTEXT_WINDOW: Readonly<Record<string, number>> = {
   // `[1m]` is Claude Code's 1M-token long-context selector — the window IS the id suffix.
   'claude-opus-4-8[1m]': 1_000_000,
   'claude-fable-5[1m]': 1_000_000,
+  // Grok (xai-grok adapter — docs.x.ai published window for both catalog ids)
+  'grok-4.6': 500_000,
+  'grok-4.5': 500_000,
 };
 
 /**

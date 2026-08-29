@@ -171,8 +171,9 @@ Status flow: `draft → planned → active → review → done`.
       learning / note counts), pooled across the window, falls below 0.25 — a signal-kind-distribution
       proxy for approach stagnation, not raw tool-use entropy. Both guards respect the turn-budget-precedence
       invariant and only fire when no other exit is already pending.
-- [x] **Token-usage event** — `TokenUsageEvent` emitted once per spawn (model, context window,
-      input/output, cache tokens). TUI `TokenBudgetCard` subscribes.
+- [x] **Token-usage event** — `TokenUsageEvent` emitted once per spawn (`provider` is `AiProvider`,
+      including `xai-grok`; model, context window, input/output, cache tokens). TUI `TokenBudgetCard`
+      subscribes.
 - [x] **Per-round artifacts** — generator and evaluator prompts written to
       `rounds/<N>/{generator,evaluator}/prompt.md` before each spawn; `outcome.md` written to
       `rounds/<N>/outcome.md` after settlement.
@@ -198,11 +199,12 @@ Status flow: `draft → planned → active → review → done`.
 
 ## AI provider integration
 
-- [x] **Four providers** — `claude-code`, `github-copilot`, `openai-codex`, `opencode`, each with its own
-      adapter under `integration/ai/providers/<tool>/`. Sibling-isolated; cross-tool sharing through
+- [x] **Five providers** — `claude-code`, `github-copilot`, `openai-codex`, `opencode`, `xai-grok`, each with
+      its own adapter under `integration/ai/providers/<tool>/`. Sibling-isolated; cross-tool sharing through
       `providers/_engine/`. OpenCode is the aggregator: model ids are `<provider>/<model>`, its catalog is
       discovered at runtime via `opencode models` rather than a static list, and it is the only backend with
-      a zero-auth free tier.
+      a zero-auth free tier. Grok is the Grok Build CLI (`grok`); catalog `grok-4.6` / `grok-4.5`; effort
+      forwarded as `--effort` on both surfaces.
 - [x] **File-based contract** — providers write `signals.json` and `session-id.txt` files per spawn (both under
       `rounds/<N>/<role>/`); the harness reads them post-spawn. No stdout parsing for signals or session IDs.
 - [x] **Idle-stdout watchdog** — wedged children get reaped.
@@ -219,7 +221,7 @@ Status flow: `draft → planned → active → review → done`.
       `ralphctl-karpathy-guidelines`, `ralphctl-cherny-workflow`, `ralphctl-idea-refinement`,
       `ralphctl-domain-driven-design` — per-skill default/recommended phases in `_engine/registry.ts`'s
       `BUNDLED_SKILLS`). Each is validated by `skill-contract-checker.ts` (hard-fail on contract violation)
-      before it can ship. Operator drop-in skills (`~/.ralphctl/skills/{claude,copilot,codex,opencode}/…`) install
+      before it can ship. Operator drop-in skills (`~/.ralphctl/skills/{claude,copilot,codex,opencode,grok}/…`) install
       through the same path; violations are warnings only.
 - [x] **Opt-in phase-folder skills (#216)** — a provider-agnostic, per-flow opt-in source under
       `<appRoot>/skills/<flow>/<name>/SKILL.md` (`createPhaseSkillSource`), composed with the bundled /
@@ -233,16 +235,18 @@ Status flow: `draft → planned → active → review → done`.
       and `AI-SETTINGS.md` § skill opt-out for the full contract.
 - [x] **Provider-native context file** — the `readiness` flow fans out across every uniquely referenced
       provider in `settings.ai`, writing one native context file per distinct provider: `CLAUDE.md`
-      (claude-code), `.github/copilot-instructions.md` (github-copilot), `AGENTS.md` (openai-codex and
-      opencode alike — both follow the cross-tool `AGENTS.md` convention, but each runs its own
-      probe/propose/write leaf, so a mixed Codex + OpenCode config writes `AGENTS.md` twice in sequence, the
-      second write backing up the first). A single-provider config produces exactly one file.
+      (claude-code), `.github/copilot-instructions.md` (github-copilot), `AGENTS.md` (openai-codex,
+      opencode, and xai-grok alike — the three follow the cross-tool `AGENTS.md` convention, but each
+      runs its own probe/propose/write leaf, so a mixed Codex + OpenCode + Grok config writes
+      `AGENTS.md` in sequence, each later write backing up the previous). A single-provider config
+      produces exactly one file. Readiness `AssistantTool` for Grok is `'grok'`.
 - [x] **Portable, provider-native agent definitions** — a bundled + operator-authored `AgentDefinition`
       catalog (Markdown + YAML frontmatter: `name`, `description`, optional `model`/`effort`) renders to
       each provider's native sub-agent format at launch — `.claude/agents/*.md` (Claude),
       `.github/agents/*.agent.md` (Copilot, `COPILOT_AGENT_MAX_BODY_CHARS` 30000-char body cap enforced by
-      the renderer), `.codex/agents/*.toml` (Codex) — via `createFilesystemAgentDefinitionAdapter`, shared
-      across the four per-provider adapters (`integration/ai/agents/{claude,copilot,codex,opencode}/`). Bundled
+      the renderer), `.codex/agents/*.toml` (Codex), `.opencode/agents/*.md` (OpenCode),
+      `.grok/agents/*.md` (Grok) — via `createFilesystemAgentDefinitionAdapter`, shared
+      across the five per-provider adapters (`integration/ai/agents/{claude,copilot,codex,opencode,grok}/`). Bundled
       definitions (`ralphctl-generator`, `ralphctl-evaluator`) ship in `_engine/registry.ts`'s
       `BUNDLED_AGENT_DEFINITIONS`; operator drop-ins under `<appRoot>/agents/*.md` win a name collision
       (`composeAgentDefinitionSources`); a project-authored file already at the destination path always
@@ -410,9 +414,9 @@ See [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) for tokens, components, view patterns
   case is deferred.
 - **Cross-provider escalation** — escalation today stays within a provider (e.g. Sonnet → Opus); switching
   providers mid-task carries auth/context/tool hazards and is deferred.
-- **Real-provider e2e tests** — every Claude / Copilot / Codex / OpenCode provider test uses a fake `spawn`;
-  `MANUAL-TEST-PLAYBOOK.md` Scenario 15 is the one place OpenCode runs against the real CLI, and it is
-  manual, not automated.
+- **Real-provider e2e tests** — every Claude / Copilot / Codex / OpenCode / Grok provider test uses a fake `spawn`;
+  `MANUAL-TEST-PLAYBOOK.md` Scenario 15 is the one place OpenCode runs against the real CLI, and Scenario 20
+  is the Grok live-CLI counterpart; both are manual, not automated.
 - **Onboarding-status doctor probe** — no per-(project, repo) "onboarding state" is modeled in the domain
   (`Project` / `Repository` carry no onboarding field), so doctor reports none. Per-(project, repo) health is
   instead covered by the `integrity` probes (repo-path resolution, default-branch resolution, sprint/execution

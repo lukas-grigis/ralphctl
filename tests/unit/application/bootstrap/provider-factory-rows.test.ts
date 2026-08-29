@@ -4,6 +4,7 @@ import { createAiProvider } from '@src/application/bootstrap/provider-factory.ts
 import { createClaudeProvider } from '@src/integration/ai/providers/claude/headless.ts';
 import { createCopilotProvider } from '@src/integration/ai/providers/copilot/headless.ts';
 import { createCodexProvider } from '@src/integration/ai/providers/codex/headless.ts';
+import { createGrokProvider } from '@src/integration/ai/providers/grok/headless.ts';
 import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 
 /**
@@ -23,6 +24,9 @@ vi.mock('@src/integration/ai/providers/copilot/headless.ts', () => ({
 vi.mock('@src/integration/ai/providers/codex/headless.ts', () => ({
   createCodexProvider: vi.fn(() => ({ generate: vi.fn(), name: 'codex' })),
 }));
+vi.mock('@src/integration/ai/providers/grok/headless.ts', () => ({
+  createGrokProvider: vi.fn(() => ({ generate: vi.fn(), name: 'grok' })),
+}));
 
 const harnessConfig: Settings['harness'] = {
   maxTurns: 5,
@@ -40,6 +44,7 @@ const harnessConfig: Settings['harness'] = {
 const claudeRow: AiFlowSettings = { provider: 'claude-code', model: 'claude-opus-4-8' };
 const codexRow: AiFlowSettings = { provider: 'openai-codex', model: 'gpt-5.5' };
 const copilotRow: AiFlowSettings = { provider: 'github-copilot', model: 'gpt-5.4' };
+const grokRow: AiFlowSettings = { provider: 'xai-grok', model: 'grok-4.6' };
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -67,6 +72,15 @@ describe('createAiProvider — explicit row', () => {
     createAiProvider({ row: copilotRow, harnessConfig, eventBus });
     expect(createCopilotProvider).toHaveBeenCalledTimes(1);
     expect(createClaudeProvider).not.toHaveBeenCalled();
+    expect(createCodexProvider).not.toHaveBeenCalled();
+  });
+
+  it('dispatches to the Grok adapter when row.provider is xai-grok', () => {
+    const eventBus = createInMemoryEventBus();
+    createAiProvider({ row: grokRow, harnessConfig, eventBus });
+    expect(createGrokProvider).toHaveBeenCalledTimes(1);
+    expect(createClaudeProvider).not.toHaveBeenCalled();
+    expect(createCopilotProvider).not.toHaveBeenCalled();
     expect(createCodexProvider).not.toHaveBeenCalled();
   });
 

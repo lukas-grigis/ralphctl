@@ -55,6 +55,7 @@ export const OPERATOR_PROVIDER_DIR: Record<AiProvider, string> = {
   'github-copilot': 'copilot',
   'openai-codex': 'codex',
   opencode: 'opencode',
+  'xai-grok': 'grok',
 };
 
 /**

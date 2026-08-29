@@ -2,7 +2,7 @@
  * `createSkillsAdapter` — composition-root factory that picks the {@link SkillsAdapter}
  * implementation matching the configured AI provider.
  *
- * All three providers now have a real filesystem adapter (the on-disk shape is identical —
+ * All five providers now have a real filesystem adapter (the on-disk shape is identical —
  * Agent Skills SKILL.md folders — only the parent directory varies, per provider, via
  * `skillsParentDir` in `providers/_engine/provider-traits.ts`).
  *
@@ -19,6 +19,7 @@ import { createClaudeSkillsAdapter } from '@src/integration/ai/skills/claude/ada
 import { createCodexSkillsAdapter } from '@src/integration/ai/skills/codex/adapter.ts';
 import { createCopilotSkillsAdapter } from '@src/integration/ai/skills/copilot/adapter.ts';
 import { createOpencodeSkillsAdapter } from '@src/integration/ai/skills/opencode/adapter.ts';
+import { createGrokSkillsAdapter } from '@src/integration/ai/skills/grok/adapter.ts';
 
 /**
  * One concrete skills-adapter factory per {@link AiProvider}. `Record<AiProvider, …>` is
@@ -30,6 +31,7 @@ const SKILLS_ADAPTERS: Readonly<Record<AiProvider, (deps?: SkillsAdapterDeps) =>
   'github-copilot': createCopilotSkillsAdapter,
   'openai-codex': createCodexSkillsAdapter,
   opencode: createOpencodeSkillsAdapter,
+  'xai-grok': createGrokSkillsAdapter,
 };
 
 export const createSkillsAdapter = (deps: SkillsAdapterFactoryDeps): SkillsAdapter => {

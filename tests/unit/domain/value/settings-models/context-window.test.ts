@@ -25,6 +25,11 @@ describe('contextWindowFor', () => {
     expect(contextWindowFor('claude-sonnet-5')).toBe(1_000_000);
   });
 
+  it('returns 500_000 for both Grok catalog ids', () => {
+    expect(contextWindowFor('grok-4.6')).toBe(500_000);
+    expect(contextWindowFor('grok-4.5')).toBe(500_000);
+  });
+
   it('returns undefined for models whose window size is not published', () => {
     // Copilot / Codex ids — omitted by scope discipline.
     expect(contextWindowFor('gpt-5.5')).toBeUndefined();
@@ -52,6 +57,11 @@ describe('contextWindowLabel', () => {
     expect(contextWindowLabel('claude-opus-4-8[1m]')).toBe('1M');
     expect(contextWindowLabel('claude-fable-5[1m]')).toBe('1M');
     expect(contextWindowLabel('claude-sonnet-5')).toBe('1M');
+  });
+
+  it('formats Grok 500K models as "500K"', () => {
+    expect(contextWindowLabel('grok-4.6')).toBe('500K');
+    expect(contextWindowLabel('grok-4.5')).toBe('500K');
   });
 
   it('returns undefined for models with no published window size', () => {

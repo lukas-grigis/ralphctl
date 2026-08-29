@@ -4,14 +4,14 @@ import type { ProviderName } from '@src/integration/ai/providers/_engine/classif
 import { truncateField } from '@src/integration/ai/providers/_engine/truncate-debug-field.ts';
 
 /**
- * Shared per-line debug-event emitters for the three headless provider adapters.
+ * Shared per-line debug-event emitters for the five headless provider adapters.
  *
  * Every adapter fans its provider stream out as `{ type: 'log', level: 'debug' }` AppEvents in
  * one of three shapes — `assistant`, `tool_use`, `tool_result` — and the TUI plus the persistent
  * `events.ndjson` sink key off the exact `'<provider>: <kind>'` message text and the `meta` field
  * names. Owning the envelope here keeps that contract in one place: each adapter only extracts
  * its own wire format (Claude's `message.content[]` blocks, Codex's `item.completed` records,
- * Copilot's parsed `bodyText`) and hands the extracted strings over.
+ * Copilot's parsed `bodyText`, Grok's NDJSON `type`-switch records) and hands the extracted strings over.
  *
  * All three emitters funnel free-form stream text through {@link truncateField}, so a multi-KB
  * assistant turn or tool input never bloats a single log record.

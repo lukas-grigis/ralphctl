@@ -21,6 +21,8 @@
  *  - copilot → the CLI exposes no non-interactive auth-status subcommand at all
  *    (`completion/help/init/login/mcp/plugin/plugins/skill/update/version`). The probe reports
  *    `unknown` WITHOUT spawning anything.
+ *  - grok    → same as copilot: no non-interactive auth-status verb. The probe reports
+ *    `unknown` WITHOUT spawning anything; sign in with `grok login`.
  *
  * Rules, enforced uniformly here rather than per-branch:
  *  - This probe never returns `'fail'` — worst case is `'warn'` (a CLI that answered "not
@@ -86,6 +88,10 @@ export const PROVIDER_AUTH_CHECK: Readonly<Record<AiProvider, ProviderAuthCheck>
   'github-copilot': {
     kind: 'none',
     reason: 'the copilot CLI exposes no non-interactive auth-status verb — sign in with `/login` inside `copilot`',
+  },
+  'xai-grok': {
+    kind: 'none',
+    reason: 'the grok CLI exposes no non-interactive auth-status verb — sign in with `grok login`',
   },
 };
 

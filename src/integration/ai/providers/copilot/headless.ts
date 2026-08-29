@@ -48,9 +48,9 @@ import {
  * The adapter forwards {@link AiSession.resume} when present so headless runs can re-attach
  * to a prior session id.
  *
- * Copilot is the one CLI of the four with no stdin prompt path — the sibling adapters pipe the
- * body in, and `--prompt-file` is an open, unimplemented request upstream (copilot-cli#3398). So
- * the adapter writes the prompt to `copilot-prompt.md` next to `signals.json`, mounts that
+ * Copilot and grok are the two CLIs of the five with no stdin prompt path — the other sibling
+ * adapters pipe the body in, and `--prompt-file` is an open, unimplemented request upstream
+ * (copilot-cli#3398). So the adapter writes the prompt to `copilot-prompt.md` next to `signals.json`, mounts that
  * directory, and passes a POINTER at the file in `-p`. Passing the body itself capped every
  * headless run at the platform command line — 32,767 bytes on Windows, which a harness prompt
  * clears easily, and the failure arrives as an opaque `spawn ENAMETOOLONG`. If the file cannot be

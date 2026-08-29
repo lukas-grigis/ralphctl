@@ -6,7 +6,7 @@ import type { InteractiveSpawn } from '@src/integration/ai/providers/_engine/int
  * copilot). Lives in `_engine/` so each concrete `<tool>/interactive.ts` factory and its tests
  * depend on one port-shaped contract without piercing the sibling-isolation rule.
  *
- * The three per-tool copies were byte-identical apart from the default binary name (which is
+ * The per-tool copies were byte-identical apart from the default binary name (which is
  * spec data, not a dep) and `newSessionId` (which Codex never reads — its interactive command
  * has no launch-time session-id override, so the field is simply unused there).
  */
