@@ -63,7 +63,7 @@ const DEFAULT_MODELS_BY_PROVIDER: Readonly<Record<AiProvider, Readonly<Record<Fl
   },
   // OpenCode aggregates upstream providers, so there is no vendor flagship to default to. These
   // are the zero-auth free-tier picks — they make a fresh install runnable with no credentials
-  // at all, which none of the other three backends offer. An operator who authenticates a real
+  // at all, which none of the other four backends offer. An operator who authenticates a real
   // provider via `opencode providers` will want to re-point these at that provider's models;
   // the picker surfaces whatever `opencode models` reports.
   opencode: {

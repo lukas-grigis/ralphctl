@@ -25,7 +25,7 @@ const GLOB_METACHARS = /[*?[\]{}]/;
  * conflicting `external_directory` rule is overridden.
  *
  * Every root the engine folded is granted and nothing else: `*` stays denied, which keeps this the
- * closest analogue to the `--add-dir` scoping the other three CLIs get. The narrower
+ * closest analogue to the `--add-dir` scoping the other four CLIs get. The narrower
  * prompt-directory-only grant this replaced was a spawn-safety fix that left the port contract
  * broken — a caller's `additionalRoots` were dropped without a word (#278), which the port says
  * MUST be an `InvalidStateError` instead.

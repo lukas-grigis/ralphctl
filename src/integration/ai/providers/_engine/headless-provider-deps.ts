@@ -38,7 +38,7 @@ export interface HeadlessProviderDeps {
 }
 
 /**
- * Codex adds three seams the other two adapters have no use for: its `-o <tempfile>` forensic
+ * Codex adds three seams the other four adapters have no use for: its `-o <tempfile>` forensic
  * body capture is read back and deleted after the spawn, and the path itself is mintable so tests
  * can exercise that round-trip without disk I/O.
  */

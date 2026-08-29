@@ -2,7 +2,7 @@
  * `createSkillsAdapter` — composition-root factory that picks the {@link SkillsAdapter}
  * implementation matching the configured AI provider.
  *
- * All three providers now have a real filesystem adapter (the on-disk shape is identical —
+ * All five providers now have a real filesystem adapter (the on-disk shape is identical —
  * Agent Skills SKILL.md folders — only the parent directory varies, per provider, via
  * `skillsParentDir` in `providers/_engine/provider-traits.ts`).
  *

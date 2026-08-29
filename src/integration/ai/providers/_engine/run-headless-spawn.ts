@@ -2,9 +2,9 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { DEFAULT_IDLE_MS, installIdleWatchdog } from '@src/integration/ai/providers/_engine/idle-watchdog.ts';
 
 /**
- * Shared lifecycle scaffold for headless AI provider spawns. Three adapters (claude / codex /
- * copilot) were stamping the same try/finally + named-listener + idle-watchdog choreography;
- * every bug in one had to be fixed in the other two. Centralising the scaffold means a
+ * Shared lifecycle scaffold for headless AI provider spawns. The adapters (claude / codex /
+ * copilot / opencode / grok) were stamping the same try/finally + named-listener + idle-watchdog choreography;
+ * every bug in one had to be fixed in all of them. Centralising the scaffold means a
  * resource-cleanup change is a one-file edit and the per-provider call sites only carry the
  * bits that genuinely differ:
  *

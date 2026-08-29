@@ -39,7 +39,7 @@ export interface TokenUsagePayload {
 }
 
 /**
- * Emit the per-spawn "session id captured" debug log. All three adapters publish the same
+ * Emit the per-spawn "session id captured" debug log. All five adapters publish the same
  * event shape; only the provider-name prefix and the captured id differ.
  */
 export const emitSessionIdCaptured = (eventBus: EventBus, providerName: string, sessionId: string): void => {
@@ -372,7 +372,7 @@ export interface CreateHeadlessProviderInput {
 }
 
 /**
- * Factory for the identical generate()->runWithRateLimitRetry boilerplate shared by all three
+ * Factory for the identical generate()->runWithRateLimitRetry boilerplate shared by all five
  * headless provider adapters. Each adapter passes a `createGenerateContext` thunk that closes
  * over its own resolved deps (spawnFn, command, etc.) so the factory stays dependency-free
  * on provider-specific types.

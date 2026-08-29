@@ -2,11 +2,13 @@
  * `createAgentDefinitionAdapter` — composition-root factory that picks the
  * {@link AgentDefinitionAdapter} implementation matching the configured AI provider.
  *
- * All three providers share the same on-disk shape — one native file per definition under
+ * All five providers share the same on-disk shape — one native file per definition under
  * `<parentDir>/agents/` — only the parent directory and render format vary:
- *  - claude  → `.claude/agents/*.md`   (Markdown + YAML frontmatter)
- *  - copilot → `.github/agents/*.agent.md` (Markdown + YAML frontmatter)
- *  - codex   → `.codex/agents/*.toml`  (TOML)
+ *  - claude    → `.claude/agents/*.md`   (Markdown + YAML frontmatter)
+ *  - copilot   → `.github/agents/*.agent.md` (Markdown + YAML frontmatter)
+ *  - codex     → `.codex/agents/*.toml`  (TOML)
+ *  - opencode  → `.opencode/agents/*.md` (Markdown + YAML frontmatter)
+ *  - grok      → `.grok/agents/*.md`     (Markdown + YAML frontmatter)
  *
  * Adding a new provider is one row in {@link AGENT_ADAPTERS} plus a sibling
  * `agents/<provider>/adapter.ts` that delegates to {@link createFilesystemAgentDefinitionAdapter}.

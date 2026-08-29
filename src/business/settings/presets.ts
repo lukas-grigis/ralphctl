@@ -118,7 +118,7 @@ const GPT_5_6_TERRA = 'gpt-5.6-terra';
 const GPT_5_6_LUNA = 'gpt-5.6-luna';
 
 /**
- * The `mixed` preset matrix — best-of-breed across the three providers. Effort pattern:
+ * The `mixed` preset matrix — best-of-breed across the five providers. Effort pattern:
  * `implement` and `plan` at `xhigh` for the deeper-reasoning autonomous flows; `readiness`
  * at `medium` (read-only inventory, no deep reasoning needed); `refine` and `ideate` leave
  * effort unset so they inherit the global `high`. Global `ai.effort` is stamped to `high`.
@@ -184,7 +184,7 @@ const COPILOT_ONLY: AiSettings = {
 };
 
 /**
- * OpenCode's zero-auth free tier. Unlike the other three providers this family has exactly ONE
+ * OpenCode's zero-auth free tier. Unlike the other four providers this family has exactly ONE
  * member rather than the usual economic / strong-gate / fast / frontier spread: every free-tier
  * model sits at the same (zero) price point, so a "save money" or "spend for frontier quality"
  * variant would differ in name only. An operator who authenticates an upstream provider through
