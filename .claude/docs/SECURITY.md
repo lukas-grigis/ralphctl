@@ -66,6 +66,13 @@ denylist is per-gate (`search_replace` when `!canModifyRepoFiles`, both shell id
 cannot recover a denied class. The `write` tool stays allowed so `signals.json` can land. Never
 `--permission-mode plan` (blocks signals.json).
 
+This denylist is deny-by-name against a CLI that has already renamed a tool once
+(`run_terminal_command` live vs `run_terminal_cmd` in the docs) and pairs it with `--sandbox off`,
+so a renamed or newly spelled tool silently escapes its gate — there is no sandbox behind the
+list. **Maintenance contract:** on every grok version bump, re-verify the tool ids in
+`disallowedToolsFor` (`providers/grok/headless.ts`) against the shipped CLI (e.g. `grok models`
+docs / a read-only smoke run) before trusting the read-only profile.
+
 The `readiness` flow fans out across every uniquely referenced provider in `settings.ai` — one native
 context file per provider (claude-code → `CLAUDE.md`, github-copilot → `.github/copilot-instructions.md`,
 openai-codex → `AGENTS.md`, opencode → `AGENTS.md`, xai-grok → `AGENTS.md`). Single-provider

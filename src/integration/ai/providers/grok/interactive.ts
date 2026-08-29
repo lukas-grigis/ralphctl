@@ -10,6 +10,10 @@ import { isGrokModel } from '@src/domain/value/settings-models/grok.ts';
  *   grok --no-auto-update --cwd <cwd> -m <model> --permission-mode acceptEdits
  *        [--effort <level>] [-s <uuid>] <pointer at promptFile>
  *
+ * `-s` (grok 1.0.5) sets the id of the session about to start — Claude's `--session-id`, not the
+ * resume flag. The harness pre-generates it so it can mirror `sessionId.txt` for later re-attach;
+ * resume of an existing session is the headless adapter's `-r <id>`.
+ *
  * `--prompt-file` is deliberately omitted — it forces headless. The prompt slot is a positional
  * pointer from `buildPromptPointer`, never the body.
  *

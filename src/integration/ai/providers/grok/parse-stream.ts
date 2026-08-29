@@ -122,7 +122,7 @@ export const publishGrokStreamLineEvents = (
     return;
   }
   if (type === 'tool_call') {
-    const tool = stringField(obj, 'toolName') ?? stringField(obj, 'toolCallId') ?? '';
+    const tool = stringField(obj, 'toolName') ?? 'unknown';
     const id = stringField(obj, 'toolCallId');
     if (id !== undefined) toolNames.set(id, tool);
     publishToolUseEvent(eventBus, PROVIDER_NAME, tool, safeJson(obj['rawInput']));
@@ -133,8 +133,11 @@ export const publishGrokStreamLineEvents = (
   // Intermediate progress is not a result — mapping it to error painted a false tool failure
   // on the debug rail before the terminal `completed` / `failed` update arrived.
   if (status === 'in_progress' || status === 'running') return;
+  // Fail-visible like the opencode sibling: `completed` is the only success status; anything
+  // else (a known `failed`/`error`, or an absent status on a truncated record) surfaces as an
+  // error so a failed tool call is never invisible in the trace.
   const id = stringField(obj, 'toolCallId');
-  const tool = (id !== undefined ? toolNames.get(id) : undefined) ?? id ?? '';
+  const tool = (id !== undefined ? toolNames.get(id) : undefined) ?? 'unknown';
   publishToolResultEvent(
     eventBus,
     PROVIDER_NAME,
