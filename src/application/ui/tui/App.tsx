@@ -27,6 +27,7 @@ import { HintsProvider, useSuppressGlobalHints } from '@src/application/ui/tui/r
 import { SelectionProvider, type SelectionSeed } from '@src/application/ui/tui/runtime/selection-context.tsx';
 import { SystemStatusProvider } from '@src/application/ui/tui/runtime/system-status-context.tsx';
 import { LogLevelProvider } from '@src/application/ui/tui/runtime/log-level-context.tsx';
+import { TerminalHandoff } from '@src/application/ui/tui/runtime/terminal-handoff.tsx';
 import { renderView } from '@src/application/ui/tui/views/view-registry.tsx';
 import { globalKeys } from '@src/application/ui/tui/runtime/keyboard-map.ts';
 import { useGlobalKeys } from '@src/application/ui/tui/runtime/use-global-keys.ts';
@@ -83,6 +84,7 @@ export const App = ({
   onSelectionChange,
 }: AppProps): React.JSX.Element => (
   <DepsProvider value={deps}>
+    <TerminalHandoff />
     <StorageProvider value={storage}>
       <BusesProvider value={buses}>
         <SessionsProvider value={sessions}>
