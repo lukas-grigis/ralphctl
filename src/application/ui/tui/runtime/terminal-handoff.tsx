@@ -15,11 +15,12 @@ import { setRunInTerminal } from '@src/application/ui/tui/runtime/run-in-termina
 export const TerminalHandoff = (): null => {
   const { suspendTerminal } = useApp();
   useLayoutEffect(() => {
-    const previous = setRunInTerminal(<T,>(fn: () => Promise<T>): Promise<T> => {
+    const previous = setRunInTerminal(async <T,>(fn: () => Promise<T>): Promise<T> => {
       const box: { value?: T } = {};
-      return suspendTerminal(async () => {
+      await suspendTerminal(async () => {
         box.value = await fn();
-      }).then(() => box.value as T);
+      });
+      return box.value as T;
     });
     return () => {
       setRunInTerminal(previous);

@@ -80,6 +80,13 @@ export interface InkHostDeps {
    * starting ralphctl gives the operator a clean screen and exiting restores their scrollback.
    */
   readonly alternateScreen?: boolean;
+  /**
+   * Invoked after `runInTerminal` exists and BEFORE the first `render()`. Launch installs the
+   * unmount fallback here so {@link TerminalHandoff} can replace it on mount. Calling
+   * `setRunInTerminal` *after* `createInkHost` clobbers suspend and sends every interactive
+   * CLI (Claude, Copilot, Codex, OpenCode, Grok) down the unmount path Grok cannot survive.
+   */
+  readonly beforeMount?: (runInTerminal: RunInTerminal) => void;
 }
 
 export interface InkHost {
@@ -101,7 +108,7 @@ export const createInkHost = (deps: InkHostDeps): InkHost => {
     return render(deps.renderElement(), { alternateScreen });
   };
 
-  let instance: InkInstance = renderOnce();
+  let instance!: InkInstance;
   let pausing: Promise<void> | undefined;
 
   const runInTerminal: RunInTerminal = async (fn) => {
@@ -124,6 +131,9 @@ export const createInkHost = (deps: InkHostDeps): InkHost => {
       release?.();
     }
   };
+
+  deps.beforeMount?.(runInTerminal);
+  instance = renderOnce();
 
   const waitForShutdown = async (): Promise<void> => {
     try {

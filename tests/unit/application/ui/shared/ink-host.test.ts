@@ -104,4 +104,21 @@ describe('createInkHost rebuilds the element on resume', () => {
     // Resume remounted a freshly built element rather than reusing the first.
     expect(renderElement).toHaveBeenCalledTimes(2);
   });
+
+  it('calls beforeMount with runInTerminal before the first render so TerminalHandoff can replace it', () => {
+    const order: string[] = [];
+    const beforeMount = vi.fn((runInTerminal: (fn: () => Promise<string>) => Promise<string>) => {
+      order.push('beforeMount');
+      expect(typeof runInTerminal).toBe('function');
+    });
+    createInkHost({
+      renderElement: () => {
+        order.push('render');
+        return React.createElement(React.Fragment);
+      },
+      beforeMount,
+    });
+    expect(beforeMount).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(['beforeMount', 'render']);
+  });
 });

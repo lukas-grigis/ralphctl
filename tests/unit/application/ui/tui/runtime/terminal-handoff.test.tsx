@@ -63,4 +63,69 @@ describe('TerminalHandoff', () => {
     await getRunInTerminal()(async () => 'x');
     expect(via).toBe('previous');
   });
+
+  it('replaces a fallback installed before mount so every interactive CLI uses suspend, not unmount', async () => {
+    let via = '';
+    const fallback = async <T,>(fn: () => Promise<T>): Promise<T> => {
+      via = 'fallback';
+      return fn();
+    };
+    setRunInTerminal(fallback);
+
+    const r = render(
+      <>
+        <TerminalHandoff />
+        <Text>handoff-alive</Text>
+      </>
+    );
+    await flush();
+
+    const result = await getRunInTerminal()(async () => {
+      via = 'suspend';
+      return 'from-child';
+    });
+    expect(via).toBe('suspend');
+    expect(result).toBe('from-child');
+    expect(r.lastFrame()).toContain('handoff-alive');
+    r.unmount();
+  });
+
+  it('propagates a child error and still leaves the Ink tree mounted for the next CLI', async () => {
+    const r = render(
+      <>
+        <TerminalHandoff />
+        <Text>handoff-alive</Text>
+      </>
+    );
+    await flush();
+
+    await expect(
+      getRunInTerminal()(async () => {
+        throw new Error('interactive-claude: session exited with code 1');
+      })
+    ).rejects.toThrow('interactive-claude: session exited with code 1');
+    expect(r.lastFrame()).toContain('handoff-alive');
+
+    const again = await getRunInTerminal()(async () => 'second-session');
+    expect(again).toBe('second-session');
+    expect(r.lastFrame()).toContain('handoff-alive');
+    r.unmount();
+  });
+
+  it('runs sequential handoffs (refine ticket A then B, or plan after refine)', async () => {
+    const r = render(
+      <>
+        <TerminalHandoff />
+        <Text>handoff-alive</Text>
+      </>
+    );
+    await flush();
+
+    const first = await getRunInTerminal()(async () => 'ticket-a');
+    const second = await getRunInTerminal()(async () => 'ticket-b');
+    expect(first).toBe('ticket-a');
+    expect(second).toBe('ticket-b');
+    expect(r.lastFrame()).toContain('handoff-alive');
+    r.unmount();
+  });
 });
