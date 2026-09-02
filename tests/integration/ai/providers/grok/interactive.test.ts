@@ -69,6 +69,30 @@ describe('createInteractiveGrokProvider', () => {
     expect(calls[0]!.cwd).toBe(String(CWD));
   });
 
+  it('writes a per-session debug log beside outputFile, so a hung session leaves an account', async () => {
+    // `stdio: 'inherit'` means the harness can observe nothing about the child. When an interactive
+    // session hangs, Grok's own debug log is the only record of which startup phase it stopped in.
+    const cap = createCapturingBus();
+    const { spawn, calls, emitExit } = makeInteractiveSpawn();
+    const provider = createInteractiveGrokProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
+
+    const runPromise = provider.run({
+      cwd: CWD,
+      promptFile: PROMPT_FILE,
+      outputFile: OUTPUT_FILE,
+      model: GROK_MODELS[0]!,
+    });
+    emitExit(0);
+    await runPromise;
+
+    const args = calls[0]!.args;
+    const idx = args.indexOf('--debug-file');
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(args[idx + 1]).toBe('/tmp/grok-debug.log');
+    // `--debug` is deliberately NOT passed — it also changes what Grok puts on screen.
+    expect(args).not.toContain('--debug');
+  });
+
   it('gives each session its own --leader-socket so it never shares ~/.grok/leader.sock', async () => {
     // Grok kills discovered leaders at startup; a shared socket lets a harness session and the
     // user's own long-lived Grok tear each other down.
