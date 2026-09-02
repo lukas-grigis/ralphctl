@@ -7,7 +7,7 @@
  *     fresh buffer; on unmount Ink automatically restores the user's original screen.
  *   - `runInTerminal(fn)` is the fallback handoff used before the React tree mounts
  *     (`TerminalHandoff` swaps in Ink's `suspendTerminal` once `App` is up). The fallback
- *     unmounts, restores TTY modes a nested TUI expects, runs `fn`, then remounts a freshly
+ *     unmounts, runs {@link releaseTerminalForChild}, runs `fn`, then remounts a freshly
  *     built App element.
  *   - `waitForShutdown()` keeps the launcher alive across these pause/resume cycles. Each
  *     pause unmounts the current Ink instance, which would normally resolve
@@ -22,30 +22,8 @@
 import type { ReactElement } from 'react';
 import { type Instance as InkInstance, render } from 'ink';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
+import { releaseTerminalForChild } from '@src/application/ui/shared/release-terminal-for-child.ts';
 import type { RunInTerminal } from '@src/integration/io/run-in-terminal.ts';
-
-/** Restore cooked TTY + leave alt-screen / kitty / bracketed-paste so a nested TUI can attach. */
-const restoreTerminalForChild = (): void => {
-  if (process.stdin.isTTY) {
-    try {
-      process.stdin.setRawMode(false);
-    } catch {
-      // Best-effort: a non-TTY or already-cooked stdin must not fail the handoff.
-    }
-    try {
-      process.stdin.ref();
-    } catch {
-      // `ref` is missing on some test fakes.
-    }
-  }
-  if (!process.stdout.isTTY) return;
-  try {
-    // kitty keyboard off, leave alt-screen, show cursor, bracketed paste off.
-    process.stdout.write('\x1b[<u\x1b[?1049l\x1b[?25h\x1b[?2004l');
-  } catch {
-    // Best-effort: a closed stdout must not crash the host.
-  }
-};
 
 /**
  * DEC private mode 2004 — bracketed paste. With it on, the terminal wraps pasted content in
@@ -119,10 +97,10 @@ export const createInkHost = (deps: InkHostDeps): InkHost => {
     const current = instance;
     current.unmount();
     await current.waitUntilExit();
-    // The user owns the terminal while `fn` runs — turn bracketed paste off so a paste into the
-    // AI session isn't wrapped in markers. `renderOnce()` re-enables it when the TUI remounts.
-    setBracketedPaste(false);
-    restoreTerminalForChild();
+    // The user owns the terminal while `fn` runs. `releaseTerminalForChild` turns bracketed paste
+    // off as part of the same sequence, so a paste into the AI session isn't wrapped in markers;
+    // `renderOnce()` re-enables it when the TUI remounts.
+    releaseTerminalForChild();
     try {
       return await fn();
     } finally {

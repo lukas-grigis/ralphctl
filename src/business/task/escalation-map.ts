@@ -261,10 +261,12 @@ const claudeEffortRung = (model: string, currentEffort: string | undefined): str
  *   - **github-copilot** — fixed target {@link EFFORT_ESCALATION_TARGET} (`high`); `unset` counts as
  *     escalatable (its CLI default sits ~medium), and `high | xhigh | max` are spent. Non-OpenAI
  *     models' effort semantics are opaque, so Copilot stays conservative rather than climbing further.
- *   - **openai-codex** — fixed target {@link CODEX_EFFORT_ESCALATION_TARGET} (`xhigh`, universal
- *     across the codex catalog since the vocabulary change); `unset` and a legacy `minimal` (retired,
- *     pre-migration) count as escalatable, and `xhigh | max | ultra` are spent. `model` plays no role
- *     on either the Copilot or Codex path.
+ *   - **openai-codex** and **xai-grok** — fixed target {@link CODEX_EFFORT_ESCALATION_TARGET}
+ *     (`xhigh`, universal across the codex catalog since the vocabulary change, and the top rung
+ *     Grok's `--reasoning-effort` accepts); `unset` and a legacy `minimal` (retired, pre-migration)
+ *     count as escalatable, and `xhigh | max | ultra` are spent. `model` plays no role on the
+ *     Copilot, Codex, or Grok path — they are the fallthrough once the two model-aware providers
+ *     above have been handled.
  *
  * `currentEffort` is the resolved per-flow effort (`resolveEffort`/`resolveEffortForRow`), or
  * `undefined` for the CLI default. Pure; no I/O.
@@ -283,9 +285,6 @@ export const nextEffortRung = (
     return EFFORT_ESCALATION_TARGET;
   }
   // openai-codex and xai-grok: xhigh is universal; max/ultra are already above it.
-  if (provider === 'openai-codex' || provider === 'xai-grok') {
-    if (currentEffort !== undefined && CODEX_EFFORT_AT_OR_ABOVE_TARGET.has(currentEffort)) return undefined;
-    return CODEX_EFFORT_ESCALATION_TARGET;
-  }
-  return undefined;
+  if (currentEffort !== undefined && CODEX_EFFORT_AT_OR_ABOVE_TARGET.has(currentEffort)) return undefined;
+  return CODEX_EFFORT_ESCALATION_TARGET;
 };
