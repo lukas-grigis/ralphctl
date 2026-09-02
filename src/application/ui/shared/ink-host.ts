@@ -5,25 +5,47 @@
  * Lifecycle:
  *   - `render()` is called with `alternateScreen: true` so the wordmark + chrome appear on a
  *     fresh buffer; on unmount Ink automatically restores the user's original screen.
- *   - `runInTerminal(fn)` performs a *real* unmount before invoking `fn`: the React tree is
- *     torn down, the alternate screen is exited, and `fn` runs against the user's primary
- *     terminal. When `fn` resolves we `render()` a *freshly built* App element — `renderElement()`
- *     is called again so the new tree mounts with the latest seed (e.g. the in-session sprint
- *     selection), not a frozen launch-time element.
+ *   - `runInTerminal(fn)` is the fallback handoff used before the React tree mounts
+ *     (`TerminalHandoff` swaps in Ink's `suspendTerminal` once `App` is up). The fallback
+ *     unmounts, restores TTY modes a nested TUI expects, runs `fn`, then remounts a freshly
+ *     built App element.
  *   - `waitForShutdown()` keeps the launcher alive across these pause/resume cycles. Each
  *     pause unmounts the current Ink instance, which would normally resolve
  *     `waitUntilExit()` and let the process drop the TUI; the host loop instead checks
  *     whether a pause is in flight and re-awaits the next instance.
  *
- * Why a full unmount rather than `instance.clear()`: while `fn` runs the user owns the
- * terminal. If we left the React tree mounted, any bus/state update would cause Ink to
- * write to stdout and clobber the AI session's UI. Tearing the tree down severs every
- * subscription cleanly.
+ * Production interactive sessions go through Ink's `suspendTerminal` (see `TerminalHandoff`)
+ * rather than this unmount path: Grok's pager cannot attach after a full unmount (no
+ * `pager started` in its log; stderr `Device not configured`). The fallback remains for
+ * the window before App mounts and for tests that drive the host directly.
  */
 import type { ReactElement } from 'react';
 import { type Instance as InkInstance, render } from 'ink';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import type { RunInTerminal } from '@src/integration/io/run-in-terminal.ts';
+
+/** Restore cooked TTY + leave alt-screen / kitty / bracketed-paste so a nested TUI can attach. */
+const restoreTerminalForChild = (): void => {
+  if (process.stdin.isTTY) {
+    try {
+      process.stdin.setRawMode(false);
+    } catch {
+      // Best-effort: a non-TTY or already-cooked stdin must not fail the handoff.
+    }
+    try {
+      process.stdin.ref();
+    } catch {
+      // `ref` is missing on some test fakes.
+    }
+  }
+  if (!process.stdout.isTTY) return;
+  try {
+    // kitty keyboard off, leave alt-screen, show cursor, bracketed paste off.
+    process.stdout.write('\x1b[<u\x1b[?1049l\x1b[?25h\x1b[?2004l');
+  } catch {
+    // Best-effort: a closed stdout must not crash the host.
+  }
+};
 
 /**
  * DEC private mode 2004 — bracketed paste. With it on, the terminal wraps pasted content in
@@ -58,6 +80,13 @@ export interface InkHostDeps {
    * starting ralphctl gives the operator a clean screen and exiting restores their scrollback.
    */
   readonly alternateScreen?: boolean;
+  /**
+   * Invoked after `runInTerminal` exists and BEFORE the first `render()`. Launch installs the
+   * unmount fallback here so {@link TerminalHandoff} can replace it on mount. Calling
+   * `setRunInTerminal` *after* `createInkHost` clobbers suspend and sends every interactive
+   * CLI (Claude, Copilot, Codex, OpenCode, Grok) down the unmount path Grok cannot survive.
+   */
+  readonly beforeMount?: (runInTerminal: RunInTerminal) => void;
 }
 
 export interface InkHost {
@@ -79,7 +108,7 @@ export const createInkHost = (deps: InkHostDeps): InkHost => {
     return render(deps.renderElement(), { alternateScreen });
   };
 
-  let instance: InkInstance = renderOnce();
+  let instance!: InkInstance;
   let pausing: Promise<void> | undefined;
 
   const runInTerminal: RunInTerminal = async (fn) => {
@@ -93,6 +122,7 @@ export const createInkHost = (deps: InkHostDeps): InkHost => {
     // The user owns the terminal while `fn` runs — turn bracketed paste off so a paste into the
     // AI session isn't wrapped in markers. `renderOnce()` re-enables it when the TUI remounts.
     setBracketedPaste(false);
+    restoreTerminalForChild();
     try {
       return await fn();
     } finally {
@@ -101,6 +131,9 @@ export const createInkHost = (deps: InkHostDeps): InkHost => {
       release?.();
     }
   };
+
+  deps.beforeMount?.(runInTerminal);
+  instance = renderOnce();
 
   const waitForShutdown = async (): Promise<void> => {
     try {
