@@ -21,6 +21,14 @@ to [Semantic Versioning](https://semver.org/).
   `signals.json` can land. No grok-economic / fast / frontier / strong-gate presets; mixed
   was not rerouted onto Grok.
 
+  Two things an interactive Grok session leaves on disk are worth knowing about. It writes
+  `grok-debug.log` beside the session's other artifacts — a `stdio: 'inherit'` child hands
+  the terminal over and the harness can observe nothing about it, so when a session
+  misbehaves that log is the only account of what happened, and it is pruned with the rest
+  of the unit. It also gets its own `--leader-socket` under the temp directory rather than
+  sharing `~/.grok/leader.sock`: Grok kills every leader process it discovers at startup, so
+  a shared socket lets a harness run and a Grok you already have open tear each other down.
+
 ## [0.21.0] - 2026-08-24
 
 ### Changed
