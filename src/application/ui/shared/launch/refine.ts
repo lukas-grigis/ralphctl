@@ -11,8 +11,8 @@ import type { LaunchResult } from '@src/application/ui/shared/launcher.ts';
 import { checkCli } from '@src/application/ui/shared/launch/check-cli.ts';
 
 // HITL approval — runs AFTER the AI proposes refined requirements and BEFORE the ticket
-// transitions. `runInTerminal` resolves before we get here: Ink's `suspendTerminal` has
-// resumed (tree stayed mounted, PromptHost still subscribed). Cancel = reject.
+// transitions. `runInTerminal` resolves before we get here, so Ink has remounted and
+// `<PromptHost>` is subscribed by the time we enqueue the choice. Cancel = reject.
 //
 // The reviewer picks from up to four options. Two terminate the loop, two iterate:
 //   - Approve         → terminal; persist the current body locally.
