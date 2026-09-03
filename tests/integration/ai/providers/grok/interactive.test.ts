@@ -12,12 +12,6 @@ const PROMPT_FILE = absolutePath('/tmp/grok-prompt.md');
 const OUTPUT_FILE = absolutePath('/tmp/grok-output.md');
 const CWD = absolutePath('/tmp/grok-interactive-cwd');
 
-const leaderSocketOf = (args: readonly string[]): string => {
-  const idx = args.indexOf('--leader-socket');
-  expect(idx).toBeGreaterThanOrEqual(0);
-  return args[idx + 1]!;
-};
-
 describe('createInteractiveGrokProvider', () => {
   it('rejects a model outside the Grok catalog with InvalidStateError', async () => {
     const cap = createCapturingBus();
@@ -59,6 +53,10 @@ describe('createInteractiveGrokProvider', () => {
     expect(sandboxIdx).toBeGreaterThanOrEqual(0);
     expect(args[sandboxIdx + 1]).toBe('off');
     expect(args).not.toContain('--always-approve');
+    // No `--leader-socket`: Grok's default `~/.grok/leader.sock` is the configuration that
+    // demonstrably starts. Forcing a per-session socket makes Grok stand up a fresh leader and
+    // was the one flag present in every hung session and absent from every healthy one.
+    expect(args).not.toContain('--leader-socket');
     expect(args).not.toContain('--prompt-file');
     expect(args).not.toContain('-r');
     expect(args).not.toContain('-p');
@@ -90,32 +88,6 @@ describe('createInteractiveGrokProvider', () => {
     expect(args[idx + 1]).toBe('/tmp/grok-debug.log');
     // `--debug` is deliberately NOT passed — it also changes what Grok puts on screen.
     expect(args).not.toContain('--debug');
-  });
-
-  it('gives each session its own --leader-socket so it never shares ~/.grok/leader.sock', async () => {
-    // Grok kills discovered leaders at startup; a shared socket lets a harness session and the
-    // user's own long-lived Grok tear each other down.
-    const cap = createCapturingBus();
-    const { spawn, calls, emitExit } = makeInteractiveSpawn();
-    const provider = createInteractiveGrokProvider({ eventBus: cap.bus, spawn, readFile: stubReadFile });
-    const input = { cwd: CWD, promptFile: PROMPT_FILE, outputFile: OUTPUT_FILE, model: GROK_MODELS[0]! };
-
-    const first = provider.run(input);
-    emitExit(0);
-    await first;
-    const second = provider.run(input);
-    emitExit(0);
-    await second;
-
-    const socketA = leaderSocketOf(calls[0]!.args);
-    const socketB = leaderSocketOf(calls[1]!.args);
-    expect(socketA).not.toBe(socketB);
-    expect(socketA).not.toContain('.grok/leader.sock');
-    for (const socket of [socketA, socketB]) {
-      expect(socket).toMatch(/ralphctl-grok-.*\.sock$/);
-      // macOS caps a unix socket path (`sun_path`) at 104 bytes — a longer one fails to bind.
-      expect(Buffer.byteLength(socket)).toBeLessThan(104);
-    }
   });
 
   it('forwards the resolved effort as --effort <level>, and omits it when unset', async () => {
