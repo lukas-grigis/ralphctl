@@ -548,13 +548,8 @@ export const launchTui = async (options: LaunchTuiOptions = {}): Promise<void> =
     }
     return React.createElement(App, appProps());
   };
-  const host = createInkHost({
-    renderElement,
-    // Fallback first, then App's TerminalHandoff swaps in suspendTerminal. Installing
-    // *after* render used to clobber that swap and send Claude/Copilot/Codex/OpenCode/Grok
-    // down the full-unmount path.
-    beforeMount: setRunInTerminal,
-  });
+  const host = createInkHost({ renderElement });
+  setRunInTerminal(host.runInTerminal);
   try {
     await host.waitForShutdown();
   } finally {

@@ -55,7 +55,6 @@ describe('createInteractiveGrokProvider', () => {
     expect(args).toContain(GROK_MODELS[0]!);
     expect(args).toContain('--permission-mode');
     expect(args).toContain('acceptEdits');
-    expect(args).toContain('--no-alt-screen');
     const sandboxIdx = args.indexOf('--sandbox');
     expect(sandboxIdx).toBeGreaterThanOrEqual(0);
     expect(args[sandboxIdx + 1]).toBe('off');

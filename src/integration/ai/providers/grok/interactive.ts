@@ -9,9 +9,10 @@ import { isGrokModel } from '@src/domain/value/settings-models/grok.ts';
  * Interactive `grok` adapter. Spawns the Grok Build CLI with `stdio: 'inherit'` so the user sees
  * Grok's TUI directly.
  *
- *   grok --no-auto-update --cwd <cwd> --sandbox off --no-alt-screen
+ *   grok --no-auto-update --cwd <cwd> --sandbox off
  *        --leader-socket <tmp>/ralphctl-grok-<id>.sock -m <model>
- *        --permission-mode acceptEdits [--effort <level>] [-s <uuid>] <pointer at promptFile>
+ *        --permission-mode acceptEdits --debug-file <unitDir>/grok-debug.log
+ *        [--effort <level>] [-s <uuid>] <pointer at promptFile>
  *
  * `-s` (grok 1.0.13) sets the id of the session about to start — Claude's `--session-id`, not the
  * resume flag. The harness pre-generates it so it can mirror `sessionId.txt` for later re-attach;
@@ -28,9 +29,6 @@ import { isGrokModel } from '@src/domain/value/settings-models/grok.ts';
  * from a staged temp directory: the path is the only thing needed, Grok binds the socket itself,
  * and the short `<id>` suffix keeps the name clear of the 104-byte macOS `sun_path` limit even
  * under a long `TMPDIR`.
- *
- * `--no-alt-screen` keeps Grok inline after Ink's `suspendTerminal` has already left the
- * alternate screen.
  *
  * Grok has no `--add-dir`. `--sandbox off` is forced so extra roots (and `outputFile` outside
  * cwd) stay reachable — a named over-grant rather than an InvalidStateError (same posture as
@@ -81,7 +79,6 @@ export const createInteractiveGrokProvider = (deps: InteractiveProviderDeps): In
         String(input.cwd),
         '--sandbox',
         'off',
-        '--no-alt-screen',
         '--leader-socket',
         leaderSocketFor(sessionId),
         '-m',
