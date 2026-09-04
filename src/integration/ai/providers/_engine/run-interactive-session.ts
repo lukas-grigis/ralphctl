@@ -20,6 +20,7 @@ import {
 import { buildPromptPointer } from '@src/integration/ai/providers/_engine/prompt-pointer.ts';
 import { persistSessionIdFile } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
 import { attachAbortKill } from '@src/integration/ai/providers/_engine/abort-kill.ts';
+import { recordSpawnContext } from '@src/integration/ai/providers/_engine/spawn-context-probe.ts';
 import { validateModel } from '@src/integration/ai/providers/_engine/validate-model.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
@@ -338,6 +339,17 @@ export const createInteractiveProvider = (
           ...(sessionId !== undefined ? { sessionId } : {}),
         },
         at: IsoTimestamp.now(),
+      });
+
+      // Last observable moment: `stdio: 'inherit'` hands the terminal to the child, after which
+      // the harness sees nothing. Synchronous, so a child that freezes instantly cannot outrun it.
+      recordSpawnContext({
+        providerName: spec.providerName,
+        command,
+        args,
+        cwd: String(input.cwd),
+        outputFile: String(input.outputFile),
+        envOverrides: env.value,
       });
 
       const spawned = spawnSession(spawnFn, command, args, String(input.cwd), env.value);
