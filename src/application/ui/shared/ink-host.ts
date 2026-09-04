@@ -90,6 +90,12 @@ export const createInkHost = (deps: InkHostDeps): InkHost => {
     const current = instance;
     current.unmount();
     await current.waitUntilExit();
+    // KNOWN BUG, not yet fixed — see `.claude/docs/INTERACTIVE-HANDOFF-HANG.md`. Nothing here
+    // releases `process.stdin` before the child is spawned. A parent still holding it wins the
+    // race for the terminal's reply to the child's capability queries, and the child then waits
+    // for an answer that went somewhere else: a black screen, ~1 launch in 3. Measured at
+    // 4 hangs / 8 runs with stdin held, 0 / 8 once released. The fix is release-then-restore;
+    // read the doc before reaching for `removeAllListeners`, which is what broke ScrollRegion.
     // The user owns the terminal while `fn` runs — turn bracketed paste off so a paste into the
     // AI session isn't wrapped in markers. `renderOnce()` re-enables it when the TUI remounts.
     setBracketedPaste(false);

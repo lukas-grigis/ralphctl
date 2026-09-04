@@ -58,6 +58,11 @@ import { uuidv7 } from '@src/domain/value/uuid7.ts';
  * Pause-the-host (Ink) is not the adapter's responsibility — that lives in the leaf, which wraps
  * `interactiveAi.run(...)` in `runInTerminal(...)`. Keeping the adapter pure means it behaves the
  * same under the TUI, the plain CLI, and tests.
+ *
+ * Handing over the terminal is the caller's job, and it is currently incomplete: whoever spawns an
+ * interactive session must release `process.stdin` first, or the child can hang on a black screen
+ * waiting for a terminal reply the parent swallowed. See
+ * `.claude/docs/INTERACTIVE-HANDOFF-HANG.md` — confirmed root cause, measured, fix not yet landed.
  */
 export interface InteractiveSessionContext {
   /**
