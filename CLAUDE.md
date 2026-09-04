@@ -41,6 +41,7 @@ Not auto-imported — open with the `Read` tool when the work touches the area.
 - `.claude/docs/WORKFLOWS.md` — sprint lifecycle + state table, two-phase planning, gen-eval loop, TUI navigation, setup/verify, branch management
 - `.claude/docs/AI-SETTINGS.md` — `settings.ai` shape, effort resolution, presets, fail-fast PATH check
 - `.claude/docs/SECURITY.md` — permission model, cross-process lock, spawning, AbortError rule, skills, refine write-back, file-based provider contract
+- `.claude/docs/INTERACTIVE-HANDOFF-HANG.md` — the black-screen hang when handing the terminal to an interactive AI CLI: confirmed root cause (a parent holding `process.stdin` eats the terminal's reply to the child's capability queries), the release-then-restore fix, six refuted theories, and how to reproduce it. **Read before changing the interactive handoff or re-investigating the hang.**
 - `.claude/docs/PERFORMANCE.md` — scheduler / parallel waves, rate-limit retry, iteration budget, plateau escalation, progress journal, learning ledger, env vars, release procedure
 - `.claude/docs/REQUIREMENTS.md` — acceptance-criteria checklist
 - `.claude/docs/DESIGN-SYSTEM.md` — TUI tokens, components, copy rules
