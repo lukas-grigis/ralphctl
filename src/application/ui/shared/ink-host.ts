@@ -6,10 +6,11 @@
  *   - `render()` is called with `alternateScreen: true` so the wordmark + chrome appear on a
  *     fresh buffer; on unmount Ink automatically restores the user's original screen.
  *   - `runInTerminal(fn)` performs a *real* unmount before invoking `fn`: the React tree is
- *     torn down, the alternate screen is exited, and `fn` runs against the user's primary
- *     terminal. When `fn` resolves we `render()` a *freshly built* App element — `renderElement()`
- *     is called again so the new tree mounts with the latest seed (e.g. the in-session sprint
- *     selection), not a frozen launch-time element.
+ *     torn down, the alternate screen is exited, `process.stdin` is released (see
+ *     `stdin-handoff.ts`), and `fn` runs against the user's primary terminal. When `fn` settles we
+ *     restore stdin and `render()` a *freshly built* App element — `renderElement()` is called
+ *     again so the new tree mounts with the latest seed (e.g. the in-session sprint selection),
+ *     not a frozen launch-time element.
  *   - `waitForShutdown()` keeps the launcher alive across these pause/resume cycles. Each
  *     pause unmounts the current Ink instance, which would normally resolve
  *     `waitUntilExit()` and let the process drop the TUI; the host loop instead checks
@@ -23,6 +24,7 @@
 import type { ReactElement } from 'react';
 import { type Instance as InkInstance, render } from 'ink';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
+import { releaseStdinForChild } from '@src/application/ui/shared/stdin-handoff.ts';
 import type { RunInTerminal } from '@src/integration/io/run-in-terminal.ts';
 
 /**
@@ -90,18 +92,25 @@ export const createInkHost = (deps: InkHostDeps): InkHost => {
     const current = instance;
     current.unmount();
     await current.waitUntilExit();
-    // KNOWN BUG, not yet fixed — see `.claude/docs/INTERACTIVE-HANDOFF-HANG.md`. Nothing here
-    // releases `process.stdin` before the child is spawned. A parent still holding it wins the
-    // race for the terminal's reply to the child's capability queries, and the child then waits
-    // for an answer that went somewhere else: a black screen, ~1 launch in 3. Measured at
-    // 4 hangs / 8 runs with stdin held, 0 / 8 once released. The fix is release-then-restore;
-    // read the doc before reaching for `removeAllListeners`, which is what broke ScrollRegion.
+    // Hand `process.stdin` over before the child is spawned. Unmounting Ink is not enough: the tty
+    // handle is left reading, so the terminal's reply to the child's capability queries lands in
+    // this process's buffer and the child hangs waiting for an answer that went somewhere else —
+    // measured through this very host in a real iTerm window at 0 / 8 launches reaching Grok's
+    // pager without the release, 8 / 8 with it. The release is awaited because Node stops reading
+    // the fd a tick after `pause()`, and the child must not be spawned before that. Ordering is
+    // load-bearing on both sides: release only after `waitUntilExit()` so Ink's own teardown has
+    // already run, and restore in the `finally` BEFORE `renderOnce()` so the remounting tree finds
+    // the stream exactly as it left it. See `.claude/docs/INTERACTIVE-HANDOFF-HANG.md` and
+    // `stdin-handoff.ts` — in particular before reaching for `removeAllListeners`, which is what
+    // broke ScrollRegion.
+    const restoreStdin = await releaseStdinForChild();
     // The user owns the terminal while `fn` runs — turn bracketed paste off so a paste into the
     // AI session isn't wrapped in markers. `renderOnce()` re-enables it when the TUI remounts.
     setBracketedPaste(false);
     try {
       return await fn();
     } finally {
+      restoreStdin();
       instance = renderOnce();
       pausing = undefined;
       release?.();
