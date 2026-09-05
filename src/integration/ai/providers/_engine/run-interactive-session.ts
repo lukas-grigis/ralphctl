@@ -20,6 +20,7 @@ import {
 import { buildPromptPointer } from '@src/integration/ai/providers/_engine/prompt-pointer.ts';
 import { persistSessionIdFile } from '@src/integration/ai/providers/_engine/persist-session-id.ts';
 import { attachAbortKill } from '@src/integration/ai/providers/_engine/abort-kill.ts';
+import { recordSpawnContext } from '@src/integration/ai/providers/_engine/spawn-context-probe.ts';
 import { validateModel } from '@src/integration/ai/providers/_engine/validate-model.ts';
 import { AbortError } from '@src/domain/value/error/abort-error.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
@@ -59,10 +60,13 @@ import { uuidv7 } from '@src/domain/value/uuid7.ts';
  * `interactiveAi.run(...)` in `runInTerminal(...)`. Keeping the adapter pure means it behaves the
  * same under the TUI, the plain CLI, and tests.
  *
- * Handing over the terminal is the caller's job, and it is currently incomplete: whoever spawns an
- * interactive session must release `process.stdin` first, or the child can hang on a black screen
- * waiting for a terminal reply the parent swallowed. See
- * `.claude/docs/INTERACTIVE-HANDOFF-HANG.md` — confirmed root cause, measured, fix not yet landed.
+ * Handing over the terminal is the caller's job. The TUI host does it: `runInTerminal` in
+ * `src/application/ui/shared/ink-host.ts` releases `process.stdin` (detach the `data` / `readable`
+ * consumers, drain what is buffered, `pause()`) before `fn` runs and restores it afterwards. Any
+ * NEW caller that spawns an interactive child from a process that has touched stdin must do the
+ * same — reuse `releaseStdinForChild` from `src/application/ui/shared/stdin-handoff.ts`. Skip it
+ * and the parent wins the race for the terminal's reply to the child's capability queries, and the
+ * child hangs on a black screen. See `.claude/docs/INTERACTIVE-HANDOFF-HANG.md`.
  */
 export interface InteractiveSessionContext {
   /**
@@ -338,6 +342,17 @@ export const createInteractiveProvider = (
           ...(sessionId !== undefined ? { sessionId } : {}),
         },
         at: IsoTimestamp.now(),
+      });
+
+      // Last observable moment: `stdio: 'inherit'` hands the terminal to the child, after which
+      // the harness sees nothing. Synchronous, so a child that freezes instantly cannot outrun it.
+      recordSpawnContext({
+        providerName: spec.providerName,
+        command,
+        args,
+        cwd: String(input.cwd),
+        outputFile: String(input.outputFile),
+        envOverrides: env.value,
       });
 
       const spawned = spawnSession(spawnFn, command, args, String(input.cwd), env.value);
