@@ -29,6 +29,18 @@ to [Semantic Versioning](https://semver.org/).
   sharing `~/.grok/leader.sock`: Grok kills every leader process it discovers at startup, so
   a shared socket lets a harness run and a Grok you already have open tear each other down.
 
+### Fixed
+
+- **Interactive sessions no longer hang on a black screen after the TUI hands over the terminal.**
+  Seen with Grok but provider-agnostic: an interactive CLI queries the terminal for its capabilities
+  on startup and blocks until the reply arrives, and ralphctl — whose stdin handle was still reading
+  after Ink unmounted — swallowed that reply about half the time (every time through the production
+  host). The TUI now releases `process.stdin` before spawning the child and restores it afterwards.
+  Measured in a real iTerm window through the real host: 0 of 8 launches reached Grok's pager before,
+  8 of 8 after. Every interactive spawn also drops a `spawn-context.json` beside the session's other
+  artifacts recording the stdin state it was handed, so a future hang can be diagnosed from disk.
+  Full writeup in `.claude/docs/INTERACTIVE-HANDOFF-HANG.md`.
+
 ## [0.21.0] - 2026-08-24
 
 ### Changed

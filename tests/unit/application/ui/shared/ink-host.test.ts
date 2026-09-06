@@ -17,8 +17,31 @@ const mockInstance = {
   cleanup: vi.fn(),
 };
 
+/**
+ * Ordering log shared by the `ink` and `stdin-handoff` mocks. `vi.hoisted` so it exists by the
+ * time the hoisted mock factories close over it.
+ */
+const { order, releaseStdinForChild, restoreStdin } = vi.hoisted(() => {
+  const log: string[] = [];
+  const restore = vi.fn(() => {
+    log.push('restore');
+  });
+  const release = vi.fn(async () => {
+    log.push('release');
+    return restore;
+  });
+  return { order: log, releaseStdinForChild: release, restoreStdin: restore };
+});
+
+vi.mock('@src/application/ui/shared/stdin-handoff.ts', () => ({
+  releaseStdinForChild,
+}));
+
 vi.mock('ink', () => ({
-  render: vi.fn(() => mockInstance),
+  render: vi.fn(() => {
+    order.push('render');
+    return mockInstance;
+  }),
 }));
 
 const { createInkHost } = await import('@src/application/ui/shared/ink-host.ts');
@@ -103,5 +126,61 @@ describe('createInkHost rebuilds the element on resume', () => {
 
     // Resume remounted a freshly built element rather than reusing the first.
     expect(renderElement).toHaveBeenCalledTimes(2);
+  });
+});
+
+/**
+ * The stdin handoff only works in one order: release AFTER Ink's teardown has finished (so we do
+ * not fight its own listener removal), before the child runs, and restore BEFORE the remount so
+ * the fresh tree finds the stream as it left it. See `.claude/docs/INTERACTIVE-HANDOFF-HANG.md`.
+ */
+describe('createInkHost stdin handoff ordering', () => {
+  beforeEach(() => {
+    order.length = 0;
+    releaseStdinForChild.mockClear();
+    restoreStdin.mockClear();
+    mockInstance.unmount.mockReset();
+    mockInstance.unmount.mockImplementation(() => {
+      order.push('unmount');
+    });
+    mockInstance.waitUntilExit.mockReset();
+    mockInstance.waitUntilExit.mockImplementation(async () => {
+      order.push('wait-exit');
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const makeHost = () => {
+    const host = createInkHost({ renderElement: () => React.createElement(React.Fragment) });
+    order.length = 0; // Drop the initial mount's `render`.
+    return host;
+  };
+
+  it('releases stdin after the unmount completes and restores it before the remount', async () => {
+    const host = makeHost();
+
+    await host.runInTerminal(async () => {
+      order.push('fn');
+      return 'done';
+    });
+
+    expect(order).toEqual(['unmount', 'wait-exit', 'release', 'fn', 'restore', 'render']);
+    expect(releaseStdinForChild).toHaveBeenCalledTimes(1);
+  });
+
+  it('restores stdin before remounting even when fn throws', async () => {
+    const host = makeHost();
+
+    await expect(
+      host.runInTerminal(async () => {
+        order.push('fn');
+        throw new Error('session failed');
+      })
+    ).rejects.toThrow('session failed');
+
+    expect(order).toEqual(['unmount', 'wait-exit', 'release', 'fn', 'restore', 'render']);
   });
 });
