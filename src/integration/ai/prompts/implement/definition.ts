@@ -164,14 +164,22 @@ export interface ImplementPromptParams {
 
 /*
  * Maintainer documentation for the rules encoded in the template's constraints section (the
- * 200-line cap, 7-H2 structure cap, and the exclusion list for editing the project's AI context
- * file). Not rendered to the agent — moved out of the template body so the per-task prompt does
- * not ship citation text on every invocation.
+ * size/structure guidance and the exclusion list for editing the project's AI context file). Not
+ * rendered to the agent — moved out of the template body so the per-task prompt does not ship
+ * citation text on every invocation.
  *
- * - Anthropic — Claude Code memory documentation (code.claude.com/docs/en/memory) — source of the
- *   200-line target and the adherence-degradation guidance.
- * - Chatlatanagulchai et al., AGENTS.md context-file studies (arXiv 2511.12884, 2509.14744) —
- *   descriptive medians (~5-7 H2 sections, shallow hierarchies) behind the 7-H2 structure cap.
+ * - The size/structure bullet deliberately does NOT hardcode a line-count or heading-count cap.
+ *   This harness runs five different AI provider CLIs, each with its own native context-file
+ *   format (CLAUDE.md, AGENTS.md, .github/copilot-instructions.md, …) and each format's own
+ *   convention on size — a single numeric cap sourced from one provider's own guidance would be
+ *   silently wrong for the other four. The template instead points the agent at a comparable
+ *   sibling file already in the project (or the active provider's own convention) as the sizing
+ *   reference. See `_partials/conventions-claude-md.md`, `conventions-agents-md.md`, and
+ *   `conventions-copilot-instructions.md` for the per-provider numbers this harness DOES commit
+ *   to — `readiness/definition.ts` already loads the matching one per provider via
+ *   `conventionsPartialName`; wiring that same per-provider load into the implement flow needs
+ *   `currentTool` (`AssistantTool`) threaded through `ctx.ts` → `run-role-turn.ts` →
+ *   `generator.ts`, which sit outside this prompt module.
  * - Anthropic — Claude Code best practices (code.claude.com/docs/en/best-practices) — context
  *   files hold only broadly-applicable rules; slash commands, hooks, MCP servers, and editor
  *   settings have dedicated configuration homes. The exact exclusion list in the template's
@@ -314,6 +322,9 @@ export const implementPromptDef: PromptDefinition<ImplementPromptParams> = {
   },
   partials: {
     HARNESS_CONTEXT: 'harness-context',
+    AUTONOMOUS_OPERATION: 'autonomous-operation',
+    PARALLEL_TOOL_CALLS: 'parallel-tool-calls',
+    EVIDENCE_BOUND: 'evidence-bound',
     DECISIONS_GUIDANCE: 'decisions',
   },
   // Documents the harness signals the implement response is expected to carry. Validation is

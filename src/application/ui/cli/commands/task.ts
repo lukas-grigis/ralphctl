@@ -202,7 +202,26 @@ export const registerTaskCommand = (program: Command): void => {
     .action(unblockTaskAction);
 };
 
+/**
+ * `task list`'s one line per task. A `blocked` entry gets extra indented lines: the first line of
+ * `blockedReason` (the quarantine stash handle, when one was recorded, rides in that text — see
+ * `record-quarantine.ts`); when the block came from a generator `task-blocked` signal that supplied
+ * its own structured triage (`BlockedTask.blockerClass` / `.question` / `.whatUnblocksMe` — see
+ * `domain/entity/task.ts`), the model's classification, the concrete question, and what would
+ * unblock it; and a `recover with:` footer naming the exact unblock command — previously the
+ * recovery hatch was discoverable only by reading `--help`. The three triage fields are all
+ * optional (absent for non-self-block paths, and for a self-block whose signal omitted them), so
+ * `ralphctl task list` degrades to the reason-only line whenever they weren't recorded.
+ */
 const formatTaskLine = (t: Task): string => {
   const orderStr = String(t.order).padStart(3, ' ');
-  return `${orderStr}.  ${String(t.id)}  [${t.status.padEnd(8)}]  ${t.name}`;
+  const head = `${orderStr}.  ${String(t.id)}  [${t.status.padEnd(8)}]  ${t.name}`;
+  if (t.status !== 'blocked') return head;
+  const reasonFirstLine = t.blockedReason.split('\n')[0] ?? t.blockedReason;
+  const lines = [head, `       ${reasonFirstLine}`];
+  if (t.blockerClass !== undefined) lines.push(`       blocker: ${t.blockerClass}`);
+  if (t.question !== undefined) lines.push(`       question: ${t.question}`);
+  if (t.whatUnblocksMe !== undefined) lines.push(`       unblocks with: ${t.whatUnblocksMe}`);
+  lines.push(`       recover with: ralphctl task unblock ${String(t.id)}`);
+  return lines.join('\n');
 };

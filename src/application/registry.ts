@@ -49,6 +49,23 @@ export interface FlowTriggers {
    * path re-launch on a sprint whose only remaining work is a half-finished attempt.
    */
   readonly minResumableTasks?: number;
+  /**
+   * Declarative threshold for the sprint's `blocked` task count, paired with
+   * {@link maxBlockedTasksHint}. Unlike every other field on this interface, this is NOT an
+   * enablement gate — `evaluateTriggers` does not consume it, and the flow stays enabled
+   * regardless of how many tasks are blocked (closing a sprint with unfinished work is a
+   * confirm, never a refusal — an operator descoping the remainder is a legitimate call). It
+   * exists so a flow can declare the constraint it enforces once, declaratively, instead of
+   * every launcher re-deriving the number inline; `close-sprint`'s own launcher reads it off
+   * this manifest to decide when to name blocked tasks explicitly in its pre-flight confirm.
+   */
+  readonly maxBlockedTasks?: number;
+  /**
+   * Sentence describing what happens when the blocked count exceeds {@link maxBlockedTasks}.
+   * Owned by the flow, mirroring {@link currentSprintStatusHint} — shown by the flow's own
+   * launcher, not by the registry's enablement gate (there isn't one for this field).
+   */
+  readonly maxBlockedTasksHint?: string;
 }
 
 /**

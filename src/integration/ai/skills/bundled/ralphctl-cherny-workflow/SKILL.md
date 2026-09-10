@@ -31,7 +31,7 @@ demonstrated or rolled back while it is still small.
 - Before each step, know its check: the test that should pass, the command that should exit cleanly, the behaviour that should be observable. A step without a check is not ready to execute.
 - Run the check immediately after the step — never accumulate several unverified steps, because a late failure then points at all of them at once.
 - Prefer the narrowest check that can falsify the step (one test file, one build target, one focused run) over broad suites; breadth comes at the end, and the harness owns the final post-task verify gate.
-- When no automated check exists for a step, create the smallest one that would fail if the step were wrong — or state explicitly in a `<note>` signal that the step is unverified and why.
+- When no automated check exists for a step, create the smallest one that would fail if the step were wrong — or state explicitly in a `note` signal in `signals.json` that the step is unverified and why.
 
 ## Small verified increments
 
@@ -41,7 +41,7 @@ demonstrated or rolled back while it is still small.
 
 ## Compounding corrections
 
-- When you discover a project-specific gotcha — a convention that contradicted your instinct, a command that behaves unexpectedly, a fix for a recurring failure — record it as a `<learning>` signal so it persists beyond this session.
+- When you discover a project-specific gotcha — a convention that contradicted your instinct, a command that behaves unexpectedly, a fix for a recurring failure — record it as a `learning` signal in `signals.json` so it persists beyond this session.
 - The habit mirrors how Cherny's team maintains their agent-facing project docs: every observed mistake becomes a written correction, so the same steering is never needed twice.
 - Record the correction at the moment you learn it — deferred notes don't get written; the exception is mid-verification, where finishing the check comes first.
 
@@ -58,4 +58,4 @@ demonstrated or rolled back while it is still small.
 - [ ] The executed steps match the settled plan — or the plan was explicitly revised along the way.
 - [ ] Every step's check ran and passed at the time the step was made.
 - [ ] The final diff reads as a sequence of intentional increments, with nothing unexplained.
-- [ ] Any durable gotcha discovered this session was recorded as a `<learning>` signal.
+- [ ] Any durable gotcha discovered this session was recorded as a `learning` signal in `signals.json`.

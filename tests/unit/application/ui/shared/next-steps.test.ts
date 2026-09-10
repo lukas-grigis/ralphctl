@@ -14,8 +14,16 @@ import type { NextStepsInput } from '@src/application/ui/shared/next-steps.ts';
 import { visibleFlowsFor } from '@src/application/ui/tui/views/flows-visibility.ts';
 import type { AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
 import type { SprintStatus } from '@src/domain/entity/sprint.ts';
-import { makeActiveSprint, makeDraftSprint, makePendingTicket, makeProject } from '@tests/fixtures/domain.ts';
+import {
+  makeActiveSprint,
+  makeDraftSprint,
+  makePendingTicket,
+  makeProject,
+  makeTodoTask,
+} from '@tests/fixtures/domain.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
+import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
+import type { BlockedTask } from '@src/domain/entity/task.ts';
 
 const base: NextStepsInput = {
   hasProject: true,
@@ -25,6 +33,8 @@ const base: NextStepsInput = {
   pendingTicketCount: 0,
   approvedTicketCount: 0,
   resumableTaskCount: 0,
+  blockedTaskCount: 0,
+  upstreamBlockedTaskCount: 0,
 };
 
 const withSprint = (status: SprintStatus, over: Partial<NextStepsInput> = {}): NextStepsInput => ({
@@ -37,6 +47,13 @@ const withSprint = (status: SprintStatus, over: Partial<NextStepsInput> = {}): N
 const flowNameOf = (label: string): string | undefined => {
   const m = /^run ([a-z-]+)$/.exec(label);
   return m?.[1];
+};
+
+/** A fresh `blocked` task of the given kind, for exercising the real task-status wiring. */
+const blockedTask = (blockKind: 'own' | 'upstream'): BlockedTask => {
+  const r = markTaskBlocked(makeTodoTask(), 'stuck', blockKind);
+  if (!r.ok) throw new Error(`fixture setup failed: ${r.error.message}`);
+  return r.value;
 };
 
 describe('buildNextSteps — sprint-state rows', () => {
@@ -71,7 +88,7 @@ describe('buildNextSteps — sprint-state rows', () => {
   });
 
   it.each<SprintStatus>(['planned', 'active'])(
-    '%s with nothing runnable points at the sprint, not at a no-op implement launch',
+    '%s with nothing runnable AND nothing blocked points at the sprint, not at a no-op implement launch',
     (status) => {
       const { steps } = buildNextSteps(withSprint(status));
       expect(steps).toHaveLength(1);
@@ -82,6 +99,59 @@ describe('buildNextSteps — sprint-state rows', () => {
     }
   );
 
+  it.each<SprintStatus>(['planned', 'active'])(
+    '%s with EVERY remaining task blocked names the count instead of "0 tasks pending"',
+    (status) => {
+      // The bug this fixes: resumableTaskCount === 0 used to read as "nothing pending" even
+      // when the sprint had 3 tasks stuck — this is that exact shape.
+      const { steps } = buildNextSteps(withSprint(status, { blockedTaskCount: 3, upstreamBlockedTaskCount: 0 }));
+      expect(steps).toHaveLength(1);
+      expect(steps[0]?.key).toBeUndefined();
+      expect(steps[0]?.label).toBe('unblock 3 blocked tasks');
+      expect(steps[0]?.detail).toBe('open the sprint and press u');
+    }
+  );
+
+  it.each<SprintStatus>(['planned', 'active'])(
+    '%s with SOME resumable AND some blocked shows both, blocked first',
+    (status) => {
+      const { steps } = buildNextSteps(
+        withSprint(status, { resumableTaskCount: 2, blockedTaskCount: 1, upstreamBlockedTaskCount: 0 })
+      );
+      expect(steps).toHaveLength(2);
+      expect(steps[0]).toMatchObject({ label: 'unblock 1 blocked task' });
+      expect(steps[0]?.key).toBeUndefined();
+      expect(steps[1]).toMatchObject({ key: 'n', label: 'run implement' });
+    }
+  );
+
+  it.each<SprintStatus>(['planned', 'active'])(
+    '%s blocked-task detail distinguishes upstream-blocked (auto-clears) from own-blocked (needs a fix)',
+    (status) => {
+      // Entirely upstream-blocked: informational, no operator action implied.
+      const allUpstream = buildNextSteps(withSprint(status, { blockedTaskCount: 2, upstreamBlockedTaskCount: 2 }))
+        .steps[0];
+      expect(allUpstream?.detail).toBe('2 tasks waiting on a prerequisite');
+
+      // Mixed: names both subsets rather than collapsing them into one count.
+      const mixed = buildNextSteps(withSprint(status, { blockedTaskCount: 3, upstreamBlockedTaskCount: 1 })).steps[0];
+      expect(mixed?.detail).toBe('2 tasks to fix, 1 more upstream');
+
+      // Singular edge: grammar must not slip ("1 task need..." would be wrong subject-verb
+      // agreement) — the wording avoids a conjugated verb entirely so the count never breaks it.
+      const singularMixed = buildNextSteps(withSprint(status, { blockedTaskCount: 2, upstreamBlockedTaskCount: 1 }))
+        .steps[0];
+      expect(singularMixed?.detail).toBe('1 task to fix, 1 more upstream');
+
+      // Regression fence: `more` is an adverb, not a noun — running the upstream count through
+      // the naive `plural` helper used to render "2 mores upstream" for any count !== 1.
+      const pluralUpstream = buildNextSteps(withSprint(status, { blockedTaskCount: 5, upstreamBlockedTaskCount: 2 }))
+        .steps[0];
+      expect(pluralUpstream?.detail).toBe('3 tasks to fix, 2 more upstream');
+      expect(pluralUpstream?.detail).not.toContain('mores');
+    }
+  );
+
   it('review offers BOTH visible flows — the single-string design could not express this', () => {
     const { steps } = buildNextSteps(withSprint('review'));
     expect(steps.map((s) => s.label)).toEqual(['run review', 'run close-sprint']);
@@ -89,9 +159,25 @@ describe('buildNextSteps — sprint-state rows', () => {
     expect(steps.map((s) => s.label)).not.toContain('run create-pr');
   });
 
+  it('review with blocked tasks leads with the unblock callout, then both flow rows', () => {
+    const { steps } = buildNextSteps(withSprint('review', { blockedTaskCount: 2, upstreamBlockedTaskCount: 0 }));
+    expect(steps.map((s) => s.label)).toEqual(['unblock 2 blocked tasks', 'run review', 'run close-sprint']);
+    expect(steps[0]?.key).toBeUndefined();
+  });
+
   it('done recommends create-pr — Home used to say nothing at all here', () => {
     const { steps } = buildNextSteps(withSprint('done'));
     expect(steps[0]).toMatchObject({ key: 'n', label: 'run create-pr' });
+  });
+
+  it('done with blocked tasks leads with the unblock callout naming the reopen path, then create-pr', () => {
+    // The regression this fixes: closing a sprint with blocked tasks (confirm-and-proceed) used
+    // to leave this table — the source every orientation surface reads from — silent about them,
+    // even though unblocking one reopens the sprint rather than leaving it stuck forever.
+    const { steps } = buildNextSteps(withSprint('done', { blockedTaskCount: 3, upstreamBlockedTaskCount: 0 }));
+    expect(steps.map((s) => s.label)).toEqual(['unblock 3 blocked tasks', 'run create-pr']);
+    expect(steps[0]?.key).toBeUndefined();
+    expect(steps[0]?.detail).toBe('open the sprint and press u — u reopens the sprint');
   });
 
   it.each<SprintStatus>(['draft', 'planned', 'active', 'review', 'done'])(
@@ -103,6 +189,8 @@ describe('buildNextSteps — sprint-state rows', () => {
         withSprint(status, { ticketCount: 2, pendingTicketCount: 2 }),
         withSprint(status, { ticketCount: 2, approvedTicketCount: 2 }),
         withSprint(status, { resumableTaskCount: 3 }),
+        withSprint(status, { blockedTaskCount: 2, upstreamBlockedTaskCount: 1 }),
+        withSprint(status, { resumableTaskCount: 3, blockedTaskCount: 2, upstreamBlockedTaskCount: 1 }),
       ];
       for (const input of inputs) {
         for (const step of buildNextSteps(input).steps) {
@@ -205,6 +293,8 @@ describe('nextStepsInputFromSnapshot', () => {
       pendingTicketCount: 1,
       approvedTicketCount: 0,
       resumableTaskCount: 0,
+      blockedTaskCount: 0,
+      upstreamBlockedTaskCount: 0,
     });
   });
 
@@ -248,5 +338,32 @@ describe('nextStepsInputFromSnapshot', () => {
       key: 'n',
       label: 'run implement',
     });
+  });
+
+  it('derives blocked / upstream-blocked counts from real tasks on the snapshot, not just triggerInputs', () => {
+    const snapshot = {
+      project: makeProject({ displayName: 'Demo' }),
+      sprint: makeActiveSprint(),
+      tasks: [blockedTask('own'), blockedTask('own'), blockedTask('upstream'), makeTodoTask()],
+      triggerInputs: {
+        hasProject: true,
+        currentSprintStatus: 'active',
+        pendingTicketCount: 0,
+        approvedTicketCount: 1,
+        resumableTaskCount: 1,
+      },
+      projectCount: 1,
+      sprintCount: 1,
+      recentSprints: [],
+    } as unknown as AppStateSnapshot;
+
+    const input = nextStepsInputFromSnapshot(snapshot);
+    expect(input.blockedTaskCount).toBe(3);
+    expect(input.upstreamBlockedTaskCount).toBe(1);
+
+    // And it reaches the rendered step: resumable AND blocked both show, blocked first.
+    const { steps } = buildNextSteps(input);
+    expect(steps[0]).toMatchObject({ label: 'unblock 3 blocked tasks' });
+    expect(steps[1]).toMatchObject({ key: 'n', label: 'run implement' });
   });
 });

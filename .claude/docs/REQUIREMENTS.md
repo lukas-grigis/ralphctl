@@ -53,8 +53,10 @@ it done; when a behaviour regresses, untick it.
       `ChainStarted`, `ChainStepStarted`, `ChainStepCompleted`, `ChainStepFailed`, `ChainCompleted`,
       `ChainFailed`, `ChainAborted`, `TaskAttemptStarted`, `TaskAttemptEvaluated`, `TaskRoundStarted`,
       `FeedbackRoundApplied`, `TokenUsageEvent`, `BannerShowEvent`, `BannerClearEvent`,
-      `MemoryPressureEvent`, `ChainLogDegradedEvent`, `HarnessSignalEvent`, `AiSignalEvent`,
-      `ModelEscalatedEvent`, `LogEvent`.
+      `MemoryPressureEvent`, `ChainLogDegradedEvent`, `AiSignalEvent`, `ModelEscalatedEvent`,
+      `TaskBlockedEvent`, `LogEvent`. `TaskBlockedEvent` is published once by `settleAttemptUseCase`
+      the moment a task settles `blocked`; `notification-subscriber.ts` classifies it `attention`,
+      raising the operator banner / OS notification.
 - [x] **Logger** — `createEventBusLogger({ eventBus, clock })` is the only `Logger` factory; every
       `logger.info(...)` publishes a `LogEvent`. The log floor is `settings.logging.level` (default `info`),
       applied by the bus → logger consumer via `createLogLevelGate` / `passesLogLevel` — not an env var.
@@ -79,11 +81,19 @@ it done; when a behaviour regresses, untick it.
       same array.
 - [x] **Trigger predicates** — each `FlowManifest.triggers` declares pre-launch readiness conditions
       (`requiresProject`, `currentSprintStatus`, `minPendingTickets`, `minApprovedTickets`,
-      `minResumableTasks`). TUI menu disables and explains unmet triggers.
+      `minResumableTasks`). TUI menu disables and explains unmet triggers. `maxBlockedTasks` /
+      `maxBlockedTasksHint` are the one field pair on `FlowTriggers` that is NOT an enablement gate —
+      closing a sprint with blocked work is a confirm, never a refusal, so `evaluateTriggers` never
+      consumes them; `close-sprint`'s own launcher reads the threshold off its manifest to decide when
+      to name blocked tasks explicitly. The `minResumableTasks` failure sentence also branches on an
+      optional `blockedTaskCount` input — "every remaining task is blocked, unblock one" instead of the
+      generic "run Plan first" when that is why the count is zero.
 
 ## Sprint lifecycle
 
-Status flow: `draft → planned → active → review → done`.
+Status flow: `draft → planned → active → review → done`, plus two recovery edges — `review → active`
+and `done → review` — that keep `done` from being a genuine dead end for the operator. See
+`WORKFLOWS.md` for the full recovery-path walk-through.
 
 - [x] **`draft → planned`** — the `plan` flow generates `tasks.json` and transitions the sprint to `planned`.
 - [x] **`planned → active`** — `implement` activates a `planned` sprint on first launch; an already-`active`
@@ -91,8 +101,22 @@ Status flow: `draft → planned → active → review → done`.
 - [x] **`active → review`** — `implement` transitions the sprint to `review` once every task has settled
       (`done` or `blocked`) AND at least one task settled `done`. An all-blocked run stays `active`
       (`shouldTransitionToReview` in `implement/flow.ts`).
-- [x] **`review → done`** — `sprint close <id>` (CLI) and the close-sprint flow (TUI) accept only
-      `review`-status sprints.
+- [x] **`review → done`** — reached from two doors: `sprint close <id>` (CLI) / the close-sprint flow
+      (TUI), and the review flow's own auto-done path (empty / repeat feedback round) — both accept
+      only `review`-status sprints. Both now load the sprint's tasks first and, if any are `blocked`,
+      confirm before transitioning, naming them (`confirmBlockedTasksLeaf`) — confirm-and-proceed,
+      never a refusal. The CLI close command has no `InteractivePrompt` to drive that in-chain gate,
+      so it runs an equivalent confirm of its own (`-y`/`--yes` to skip).
+- [x] **`review → active`** (recovery) — unblocking a `blocked` task on a `review` sprint reopens it
+      to `active` (`revertSprintToActive`), re-arming the implement gate so the revived task is
+      picked up on the next launch.
+- [x] **`done → review`** (recovery) — `reopenDoneSprint` (`domain/entity/sprint.ts`) is the one
+      deliberate exit from an otherwise-terminal `done`. Reached automatically as the first hop of
+      `unblockTaskUseCase`'s own reopen when the unblocked task's sprint is `done` (chaining straight
+      into the `review → active` step above), or explicitly via `ralphctl sprint reopen <id>`
+      (idempotent — an already-`review` sprint reports "nothing to reopen" rather than erroring). Only
+      the explicit CLI path enforces the single-active-per-project invariant (`assertNoActivePeer`);
+      the automatic hop is best-effort and skips that check.
 - [x] **No `task add / edit / remove`** — bulk task mutation outside the planner is intentional. The CLI
       task surface is read-only plus the single recovery action `task unblock` (blocked → todo); there is no
       `task add` / `task edit` / `task remove`.
@@ -122,7 +146,27 @@ Status flow: `draft → planned → active → review → done`.
       `maxParallelTasks > 1` (1–5), `runWaves` runs each wave's tasks concurrently up to that cap;
       waves stay strictly sequential. Each task runs in its own isolated git worktree
       (`<sprintDir>/worktrees/wt-<taskId>`); commits are folded onto one sprint branch (one PR). A fold
-      conflict transitions the second task to `blocked`; relaunching re-forks from the advanced tip.
+      conflict transitions the second task to `blocked`; relaunching re-forks from the advanced tip. On
+      a resumed run, `scheduleIntoWaves` takes the settled tasks outside the resumable subset as
+      `satisfiedDependencyIds`, so a dependent whose prerequisite already settled `done` (or `blocked`)
+      doesn't misreport as a dangling edge; a genuinely unschedulable graph (cycle / self-edge / a
+      truly unknown dependency) is a reported launch failure, never a silently empty (zero-wave)
+      parallel plan.
+- [x] **Blocked-task recovery is never silent** — settling a task `blocked` publishes a
+      `TaskBlockedEvent` that raises the operator banner / OS notification; a generator self-block's
+      own structured triage (`blockerClass` / `question` / `whatUnblocksMe`, from an optional
+      extension to the `task-blocked` signal) is persisted onto the task and surfaced in the TUI and
+      `ralphctl task list`. The rejected diff is captured — a deterministic `git stash` keyed on
+      sprint + task, on both the serial (in-chain) and parallel (`wave-branch.ts` worktree-teardown)
+      implement paths — and restored on the task's next attempt by that same message key, never a raw
+      stash index; a blocked worktree's branch ref is kept rather than deleted.
+      `ralphctl task unblock <id>` (or the TUI's `u` / `B` chords) archives the prior attempts, per-criterion
+      verdicts, and escalation stamps onto `Task.retiredAttempts` (folded back into
+      `foldOutcomeStats`) instead of discarding them, resets the attempt budget, cascades to every
+      upstream-blocked dependent, and reopens the sprint when needed. Blocked work is counted on
+      every orientation surface (Home card, Sprints list, sprint picker, sprint-detail, settled-run
+      summary, next-steps) and cannot be windowed off-screen in the Tasks panel. See `WORKFLOWS.md`
+      for the end-to-end walk-through.
 - [x] **Per-task generator-evaluator loop** — the attempt body is
       `start-attempt → pre-task-verify → gen-eval inner loop (generator/evaluator per turn) → finalize → post-task-verify → commit (guarded) → settle-attempt → append-learnings → progress-journal`,
       wrapped in an outer `loop` over attempts.
@@ -196,6 +240,10 @@ Status flow: `draft → planned → active → review → done`.
 - [x] **EventBus emits `FeedbackRoundApplied`** per applied review round — `review-round.ts` publishes
       `{ type: 'feedback-round-applied', sprintId, round, at }` for each round the use case marks `applied`
       (timestamp from the injected clock); asserted on the in-memory bus in `tests/e2e/flows/review.test.ts`.
+- [x] **Auto-done confirms blocked tasks** — the empty/repeat-feedback auto-done path loads the
+      sprint's tasks and, if any are `blocked`, confirms before the `review → done` transition,
+      naming them (`confirmBlockedTasksLeaf` — the same gate `close-sprint` composes). Confirm-and-
+      proceed, never a refusal; a decline raises an `AbortError` and the sprint stays `review`.
 
 ## AI provider integration
 
@@ -300,12 +348,18 @@ Status flow: `draft → planned → active → review → done`.
       implement / readiness / create-sprint) stay TUI-only. The CLI exposes only inspection commands +
       one-shot operations: `doctor`, `demo`, `completion <shell>`, `export-context`, `export-requirements`,
       `create-pr`, `agents {list}`, `skills {list}`, `settings {show,set,apply-preset}`,
-      `project {list,show,remove}`, `sprint {list,show,set-current,activate,close,remove,progress}`,
+      `project {list,show,remove}`, `sprint {list,show,set-current,activate,close,reopen,remove,progress}`,
       `ticket {list,show,add,remove}`, `task {list,show,unblock}`, `runs {list,prune}`. `demo` is the one
       exception that DOES mount the TUI by default (`--no-launch` to skip it) — it seeds a throwaway
-      sandbox rather than operating on the user's own data root.
+      sandbox rather than operating on the user's own data root. `sprint reopen <id>` is the CLI-only
+      door back from `done` to `review`; the TUI has no direct equivalent — it reaches the same
+      transition only as a side effect of unblocking a task on a closed sprint.
 - [x] **Each one-shot command** has a `tests/e2e/cli/<name>.test.ts` pinning the success-path stdout —
-      including `create-pr` and `export-requirements` (help shape + validation/error stdout), closing the set.
+      including `create-pr` and `export-requirements` (help shape + validation/error stdout), closing
+      the set. `sprint reopen`'s idempotent-vs-real-transition output and `sprint close`'s blocked-task
+      confirm are pinned by sibling files under `tests/unit/application/ui/cli/commands/` that drive
+      the same CLI harness (`runCliCaptured`) rather than living at that canonical `tests/e2e/cli/` path
+      — the coverage exists, just not filed at the convention this bullet otherwise describes.
 - [x] **Exit codes** — `0` success, `1` error. Set via `process.exitCode = 1` (`cli.ts`) / `process.exit(1)`
       (`bootstrap.ts`, `launch.ts`); `0` by default. An `AbortError` reaching the top-level catch in
       `cli.ts` exits `130` (`EXIT_INTERRUPTED` in `report-cli-error.ts`).
@@ -344,8 +398,8 @@ See [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) for tokens, components, view patterns
 - [x] **TUI hotkeys** — `b` banner compact ↔ full toggle; `g` progress overlay (reads `progress.md` on
       demand); `y` yank active-task summary to clipboard; `P` cross-project project picker; `S`
       cross-project sprint picker (with `t` toggle-scope and `f` hide-done inside the picker); `j`/`k`
-      task-card navigation; `e` expand done-criteria for active card; `c` cancel-scope picker (attempt vs
-      whole flow).
+      task-card navigation; `e` expand done-criteria for the focused card (falls back to the active
+      task while nothing is focused yet); `c` cancel-scope picker (attempt vs whole flow).
 - [x] **Baseline-health card + chip** — `BaselineHealthCard` and `BaselineHealthChip` surface
       `SprintExecution.setupRanAt` history in the context column.
 - [x] **Token-budget card** — `TokenBudgetCard` subscribes to `TokenUsageEvent`; renders
@@ -361,6 +415,15 @@ See [DESIGN-SYSTEM.md](./DESIGN-SYSTEM.md) for tokens, components, view patterns
 - [x] **Idle-state ticker** — tasks panel shows last-note signals when no task is `in_progress`.
 - [x] **ETA estimate** — attempt header shows a median-round-duration ETA derived from past settled
       attempts for the same task.
+- [x] **Blocked-task visibility** — a `blocked` task is counted on every orientation surface: the Home
+      active-sprint card and the settled-run summary add a `· N blocked` count beside the pending
+      count, the Sprints list and cross-project sprint picker carry a `N blocked` badge per sprint
+      (`loadTaskHealthBySprintId`), and sprint-detail's header / `NextPhaseCard` name the blocked tasks
+      in a warning presentation even once the sprint is `done`. The Tasks panel anchors its post-run
+      card cursor and auto-expanded card on the first `blocked` task (never the last) so a blocked card
+      cannot be windowed off-screen behind an overflow cue. `u` unblocks the focused card (Tasks panel,
+      sprint-detail) or bulk-unblocks every stuck task in the focused sprint (Sprints list);
+      sprint-detail's `B` jumps the cursor to the next blocked task, wrapping.
 - [x] **Skills catalog view (#216)** — `SkillsView` (Home menu, hotkey `K`) lists every bundled skill
       with its per-flow install status; `e`/`d`/`u`/`U`/`r` enable / disable / update / update-all /
       reload. A destructive `update` on a `locally-modified` install confirms first via `ConfirmCard`;

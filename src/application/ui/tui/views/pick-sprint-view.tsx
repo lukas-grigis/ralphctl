@@ -38,6 +38,7 @@ import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts
 import { useLaunchCreateSprint } from '@src/application/ui/tui/runtime/use-launch-create-sprint.ts';
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
+import { loadTaskHealthBySprintId, type TaskHealthCounts } from '@src/application/ui/shared/state-snapshot.ts';
 import type { Project } from '@src/domain/entity/project.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
@@ -93,15 +94,21 @@ const usePickerRows = (deps: AppDeps, selection: Selection): UsePickerRowsResult
       if (!projectsR.ok) throw new Error(projectsR.error.message);
       const projectsById = new Map<ProjectId, Project>();
       for (const p of projectsR.value) projectsById.set(p.id, p);
-      return { sprints: sprintsR.value, projectsById };
+      // Task-blocked health folded into THIS loader via the shared batch helper — one
+      // `Promise.all` alongside the sprint fetch, not a fetch per rendered row (see its doc
+      // comment for why).
+      const taskHealthBySprintId = await loadTaskHealthBySprintId(deps.taskRepo, sprintsR.value);
+      signal.throwIfAborted();
+      return { sprints: sprintsR.value, projectsById, taskHealthBySprintId };
     },
-    [deps.sprintRepo, deps.projectRepo]
+    [deps.sprintRepo, deps.projectRepo, deps.taskRepo]
   );
 
   // Stabilise the loading-state placeholder so `useMemo(buildGroups, [data, …])` keeps its
   // identity across renders while the fetch is pending.
   const data: PickerData = useMemo(
-    () => (state.kind === 'ok' ? state.value : { sprints: [], projectsById: new Map() }),
+    () =>
+      state.kind === 'ok' ? state.value : { sprints: [], projectsById: new Map(), taskHealthBySprintId: new Map() },
     [state]
   );
 
@@ -165,6 +172,7 @@ interface PickerBodyProps {
   readonly currentSprintLabel: string | undefined;
   readonly feedback: string | undefined;
   readonly onRowSubmit: (row: SprintRow | CreateActionRow) => void;
+  readonly taskHealthBySprintId: ReadonlyMap<SprintId, TaskHealthCounts>;
 }
 
 /** Loading / error / empty / list-of-rows presentation — pure props in, no state of its own. */
@@ -184,6 +192,7 @@ const PickerBody = ({
   currentSprintLabel,
   feedback,
   onRowSubmit,
+  taskHealthBySprintId,
 }: PickerBodyProps): React.JSX.Element => (
   <AsyncListFrame
     overlay={helpOpen ? <HelpOverlay /> : undefined}
@@ -231,6 +240,7 @@ const PickerBody = ({
         initialCursorId={initialCursorId}
         currentSprintId={currentSprintId}
         onSubmit={onRowSubmit}
+        taskHealthBySprintId={taskHealthBySprintId}
       />
       <Box marginTop={spacing.section} paddingX={spacing.indent}>
         <Text dimColor>
@@ -350,6 +360,7 @@ export const PickSprintView = (): React.JSX.Element => {
         currentSprintLabel={selection.sprintLabel}
         feedback={feedback}
         onRowSubmit={onRowSubmit}
+        taskHealthBySprintId={data.taskHealthBySprintId}
       />
     </ViewShell>
   );

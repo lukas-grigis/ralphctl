@@ -6,10 +6,18 @@ import type { Compatible } from '@src/integration/persistence/shared/codec-inter
 /**
  * Zod schema for the `task-blocked` AI signal — generator-emitted self-block reason. Drives
  * the task transition to `blocked` status; the reason becomes the audit row's body.
+ *
+ * `blockerClass` / `question` / `whatUnblocksMe` are OPTIONAL structured triage fields — a legacy
+ * reason-only signal (every signal emitted before this shape existed) still validates unchanged.
  */
 export const taskBlockedSignalSchema = z.object({
   type: z.literal('task-blocked'),
   reason: z.string(),
+  blockerClass: z
+    .union([z.literal('missing-information'), z.literal('ambiguous-request'), z.literal('contradictory-information')])
+    .optional(),
+  question: z.string().optional(),
+  whatUnblocksMe: z.string().optional(),
   timestamp: IsoTimestampSchema,
 });
 

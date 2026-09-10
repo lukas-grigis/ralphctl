@@ -231,11 +231,49 @@ const computeEvaluatorEffortCarry = (
 };
 
 /**
+ * Whether a stronger model rung exists above `generatorModel` in the merged escalation map. False
+ * for an unmapped model, a self-loop, or a model on an operator-authored cycle (`{ a: b, b: a }`,
+ * which the self-loop check alone misses) — any of those falls through to the top-of-ladder path
+ * instead of climbing. A type predicate so the caller gets `next` narrowed to `string` for free.
+ */
+const hasStrongerModelRung = (
+  merged: Readonly<Record<string, string>>,
+  generatorModel: string,
+  next: string | undefined
+): next is string =>
+  next !== undefined && next !== generatorModel && !escalationLadderCyclicFrom(merged, generatorModel);
+
+/**
+ * Whether `task` was already nudged at the top of the model ladder (stamped
+ * `escalatedFromModel === escalatedToModel === generatorModel`) and has now plateaued again —
+ * the trigger for the best-of-N-or-top-out fork in {@link resolveTopOfLadderRemedy}.
+ */
+const isNudgedAtTop = (task: InProgressTask, generatorModel: string): boolean =>
+  task.escalatedFromModel !== undefined &&
+  task.escalatedFromModel === task.escalatedToModel &&
+  task.escalatedToModel === generatorModel;
+
+/**
+ * Remedy once the generator is at the top of the model ladder AND already nudged there once —
+ * decomposed out of {@link decideEscalation} so the once-per-task best-of-N gate reads as a named
+ * fork rather than another branch in the main walk. Grants the opt-in best-of-N remedy (operator
+ * set `bestOfNCandidates >= 2` AND the task has not already been granted one — the durable
+ * `task.bestOfNGranted` stamp, never cleared once set, guarantees once-per-task) or falls back to
+ * `topped-out` (preserve the work).
+ */
+const resolveTopOfLadderRemedy = (props: DecideEscalationProps): EscalationDecision => {
+  const bestOfN = props.bestOfNCandidates ?? 0;
+  return bestOfN >= 2 && props.task.bestOfNGranted !== true
+    ? { kind: 'best-of-n', n: bestOfN, model: props.generatorModel }
+    : { kind: 'topped-out', model: props.generatorModel };
+};
+
+/**
  * Pure decision function. Walks the conditions in priority order: flag → budget → model mapping →
- * top-of-ladder (already-nudged → best-of-N → effort rung → nudge). Budget is checked before
- * mapping so the operator sees a precise reason when both conditions fail simultaneously (the docs
- * explicitly call this out — "On budget edge: emit warn naming budget exhaustion, not missing
- * mapping").
+ * top-of-ladder (already-nudged → best-of-N → effort rung → nudge). Budget is
+ * checked before mapping so the operator sees a precise reason when both conditions fail
+ * simultaneously (the docs explicitly call this out — "On budget edge: emit warn naming budget
+ * exhaustion, not missing mapping").
  *
  * Multi-rung climb: `generatorModel` is the model the just-finished attempt ran on. Because the
  * generator leaf re-reads `escalatedToModel` each attempt, `generatorModel` advances one rung per
@@ -246,54 +284,40 @@ const computeEvaluatorEffortCarry = (
  * effort and there is headroom), then `nudge` (same-model retry with a change-of-approach
  * directive). A further plateau after the nudge returns `best-of-n` when the operator opted in and
  * the task has not already been granted one, else `topped-out` (keep the work).
+ *
+ * The walk itself stays a flat sequence of named checks ({@link hasStrongerModelRung},
+ * {@link isNudgedAtTop}) rather than one long branch chain — each predicate carries its own "why"
+ * so the priority order above reads straight off the `if`s.
  */
 export const decideEscalation = (props: DecideEscalationProps): EscalationDecision => {
-  if (!props.flagOn) return { kind: 'flag-off' };
   // `task.maxAttempts` is the per-task cap stamped at plan time; legacy tasks lack it, so fall
   // back to the configured `settings.harness.maxAttempts` rather than letting the budget check
   // go silent (which would let a legacy task climb the ladder unbounded). Domain entity untouched.
   const effectiveMaxAttempts = props.task.maxAttempts ?? props.fallbackMaxAttempts;
-  if (props.task.attempts.length >= effectiveMaxAttempts) {
-    return {
-      kind: 'budget-exhausted',
-      attemptsUsed: props.task.attempts.length,
-      maxAttempts: effectiveMaxAttempts,
-    };
-  }
+  const budgetExhausted = props.task.attempts.length >= effectiveMaxAttempts;
+  const budgetExhaustedDecision: EscalationDecision = {
+    kind: 'budget-exhausted',
+    attemptsUsed: props.task.attempts.length,
+    maxAttempts: effectiveMaxAttempts,
+  };
+
+  if (!props.flagOn) return { kind: 'flag-off' };
+  if (budgetExhausted) return budgetExhaustedDecision;
   const merged = mergeEscalationMap(props.userMap);
   const next = merged[props.generatorModel];
-  if (
-    next !== undefined &&
-    next !== props.generatorModel &&
-    !escalationLadderCyclicFrom(merged, props.generatorModel)
-  ) {
+  if (hasStrongerModelRung(merged, props.generatorModel, next)) {
     // A stronger rung exists above the model the just-finished attempt ran on. Climb to it. This
-    // fires on every plateau as the generator advances up the ladder one rung at a time. The
-    // cyclic-chain guard keeps an operator-authored `escalationMap` cycle (`{ a: b, b: a }`, which
-    // the self-loop warning misses) from driving an unbounded climb — a model on a cycle falls
-    // through to the same-model nudge / topped-out path below instead of escalating forever.
-    // Every model-rung climb also carries the evaluator's lockstep effort bump when headroom
-    // exists (Verification Horizon, arXiv 2606.26300) — computed by the SAME helper the
+    // fires on every plateau as the generator advances up the ladder one rung at a time. Every
+    // model-rung climb also carries the evaluator's lockstep effort bump when headroom exists
+    // (Verification Horizon, arXiv 2606.26300) — computed by the SAME helper the
     // `escalate-effort` branch below uses, never copied from the generator's own target.
     return { kind: 'escalate', from: props.generatorModel, to: next, ...computeEvaluatorEffortCarry(props) };
   }
   // Top of the model ladder (no stronger rung above `generatorModel`). If the task was already
-  // nudged at the top (stamped from === to === generatorModel) and plateaued again, either grant
-  // the opt-in best-of-N remedy (once per task) or top out and keep the work.
-  const nudgedAtTop =
-    props.task.escalatedFromModel !== undefined &&
-    props.task.escalatedFromModel === props.task.escalatedToModel &&
-    props.task.escalatedToModel === props.generatorModel;
-  if (nudgedAtTop) {
-    // Opt-in top-of-ladder remedy ABOVE the nudge: fires only when the operator set
-    // `bestOfNCandidates >= 2` AND the task has not already been granted one — the durable
-    // `task.bestOfNGranted` stamp (never cleared once set) guarantees once-per-task, so a granted
-    // attempt that still fails routes straight back to `topped-out` on the next walk.
-    const bestOfN = props.bestOfNCandidates ?? 0;
-    if (bestOfN >= 2 && props.task.bestOfNGranted !== true) {
-      return { kind: 'best-of-n', n: bestOfN, model: props.generatorModel };
-    }
-    return { kind: 'topped-out', model: props.generatorModel };
+  // nudged at the top and plateaued again, either grant the opt-in best-of-N remedy (once per
+  // task) or top out and keep the work.
+  if (isNudgedAtTop(props.task, props.generatorModel)) {
+    return resolveTopOfLadderRemedy(props);
   }
   // Cheapest remedy before the change-of-approach nudge: raise reasoning effort on the SAME model
   // when the provider/model exposes an effort dimension and there is headroom. The target is

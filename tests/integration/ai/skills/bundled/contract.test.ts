@@ -73,6 +73,122 @@ describe('checkSkillContract — synthetic rule detection', () => {
     // Incremental narrow checks after each change is the allowed posture → no S6.
     expect(ruleIds('- Run narrow checks after each change to catch regressions at the seam.')).not.toContain('S6');
   });
+
+  it('S7 — flags angle-bracket signal tag syntax the harness never parses', () => {
+    expect(ruleIds('- Emit `<task-complete>` once the acceptance criteria are met.')).toContain('S7');
+    expect(ruleIds('1. Surface it as a `<note>` signal.')).toContain('S7');
+    expect(ruleIds('- Record it as a `<learning>` signal so it persists.')).toContain('S7');
+    expect(ruleIds('- Write a `<decision>` signal when the approach changes.')).toContain('S7');
+    expect(ruleIds('- Surface the blocker via `<task-blocked>` rather than retrying.')).toContain('S7');
+    expect(ruleIds('- Confirm with a `<task-verified>` signal before completing.')).toContain('S7');
+    // The real contract — a `note` signal written into signals.json, no angle brackets — must
+    // not itself trip the rule that exists to ban the angle-bracket syntax.
+    expect(ruleIds('- Surface the conflict as a `note` signal in `signals.json` rather than guessing.')).not.toContain(
+      'S7'
+    );
+  });
+
+  it('S7 — a fenced JSON example of the real signals.json shape does not false-positive', () => {
+    // Bundled skills legitimately show the real contract inside a fenced example; the
+    // discriminant is a quoted string ("type": "note"), never an angle-bracket tag, so it must
+    // stay clean under S7 even though fenced lines are otherwise scanned as instructions.
+    const content = [
+      'Here is the shape:',
+      '```json',
+      '{ "schemaVersion": 1, "signals": [{ "type": "note", "text": "hi" }] }',
+      '```',
+    ].join('\n');
+    expect(ruleIds(content)).not.toContain('S7');
+  });
+
+  it('S7 — a fenced TS/JSX example with unrelated angle-bracket syntax does not false-positive', () => {
+    // Real bundled skills show generics and JSX inside fenced examples — `Promise<Task>`,
+    // `<EmptyState message="..." />`, `<input type="date">` — none of which name a real signal
+    // kind. S7 must key on the specific signal-kind identifiers, not "any angle bracket".
+    const content = [
+      '```typescript',
+      'export async function createTask(input: { title: string }): Promise<Task> {',
+      '  return <EmptyState message="No data available for this period" />;',
+      '}',
+      '```',
+      '- Native platform feature covers it? `<input type="date">` over a picker lib.',
+    ].join('\n');
+    expect(ruleIds(content)).not.toContain('S7');
+  });
+
+  it('S7 — catches the continuation line of a hard-wrapped bullet (not just the opening line)', () => {
+    // The bundled skills are hand-wrapped at ~110 chars, so the tag frequently lands on the
+    // second physical line of a bullet — a line classifyLine sees as free prose, not a list item.
+    const content = ['- Surface it to the operator', '  as a `<note>` signal.'].join('\n');
+    expect(ruleIds(content)).toContain('S7');
+  });
+
+  it('S7 — catches a free-prose sentence naming a tag (not a list item or fenced code)', () => {
+    expect(ruleIds('Before emitting `<task-complete>`, confirm the acceptance criteria are met.')).toContain('S7');
+  });
+
+  it('S7 — catches the self-closing tag form', () => {
+    expect(ruleIds('- Emit `<task-complete/>` when done.')).toContain('S7');
+  });
+
+  it('S7 — catches a tag carrying an attribute', () => {
+    expect(ruleIds('- Surface it as `<note severity="minor">` in the output.')).toContain('S7');
+  });
+
+  it('S7 — catches real signal kinds beyond the original six', () => {
+    // `change`, `evaluation`, `commit-message` and `task-plan` are real discriminants under
+    // src/integration/ai/contract/_engine/signals/ — an author mistyping any of them as a tag
+    // teaches the same false contract as `<note>` does.
+    expect(ruleIds('- Record it as a `<change>` signal.')).toContain('S7');
+    expect(ruleIds('- Encode the verdict as an `<evaluation>` signal.')).toContain('S7');
+    expect(ruleIds('- Write a `<commit-message>` signal for the PR body.')).toContain('S7');
+    expect(ruleIds('- Draft the steps as a `<task-plan>` signal.')).toContain('S7');
+  });
+
+  it('S7 — negation still demotes an angle-bracket tag in anti-pattern prose', () => {
+    expect(
+      checkSkillContract('synthetic', '- Never write `<task-complete>` yourself; write a plain signal.').pass
+    ).toBe(true);
+  });
+});
+
+describe('checkSkillContract — S7 regression fixtures (pre-fix bundled skill wording)', () => {
+  // These lines are the literal offending text each bundled skill carried before the tag-syntax
+  // fix (see `git diff origin/main` on src/integration/ai/skills/bundled/*/SKILL.md at the time
+  // of that change). checkSkillContract's S7 rule previously ran only on list-marker lines, so
+  // four of these — the ones on a free-prose or bullet-continuation line — tripped nothing at
+  // all, and the contract test green-lit the exact text the fix was written to remove. Each case
+  // here must independently trip S7 so the guard cannot regress to that state undetected.
+  const preFixLines: Record<string, string> = {
+    'ralphctl-alignment (continuation line — previously ZERO violations)':
+      "  arbiter; if your read of it differs from what's written, surface the conflict in a `<note>` rather than\n  guessing.",
+    'ralphctl-cherny-workflow (free-prose + checklist line)':
+      '- When no automated check exists for a step, create the smallest one that would fail if the step were wrong — or state explicitly in a `<note>` signal that the step is unverified and why.',
+    'ralphctl-code-review-and-quality (bulleted instruction)':
+      '- Use `<decision>` when a Critical or Major finding changes the approach — record what was found and why\n  the current direction was adjusted.',
+    'ralphctl-debugging-and-error-recovery (checklist line)':
+      '- [ ] Root cause is identified and documented (in a `<note>` or `<decision>` signal if non-obvious).',
+    'ralphctl-iterative-review (continuation line — previously ZERO violations)':
+      'after the whole diff. Re-read your own diff once before signalling `<task-complete>`. You are the cheapest\nreviewer the change ever gets.',
+    'ralphctl-karpathy-guidelines (free-prose line)':
+      '- When the task is ambiguous, name the ambiguity before acting. With an interactive channel, ask; without one, state the interpretation you chose and why in a `<decision>` or `<note>` signal, then proceed with the least-surprising reading.',
+    'ralphctl-ponytail (bulleted instruction)':
+      '- Complex request? Ship the lazy version and question the rest in a `<note>` signal: "Did X; Y covers it. Need full X? Say so." Never stall on an answer you can default.',
+    'ralphctl-surgical-simplicity (continuation line — previously ZERO violations)':
+      "   comment — surface it as a `<note>` signal and leave it untouched.** The harness captures the note in the\n   sprint's progress journal",
+    'ralphctl-test-driven-development (free-prose line — previously ZERO violations)':
+      'Before emitting `<task-complete>`, confirm:',
+  };
+
+  for (const [label, content] of Object.entries(preFixLines)) {
+    it(`catches ${label}`, () => {
+      const report = checkSkillContract('synthetic', content);
+      expect(
+        report.violations.some((v) => v.rule === 'S7'),
+        `expected S7 for:\n${content}`
+      ).toBe(true);
+    });
+  }
 });
 
 describe('checkSkillContract — negation demotion', () => {

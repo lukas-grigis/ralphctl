@@ -17,6 +17,10 @@
  *  - `log` warn message containing `'baseline already red'` → `attention` ("Pre-verify red").
  *      (The pre-task-verify leaf publishes this when the working tree is broken before the AI
  *      gets to touch it.)
+ *  - `task-blocked`                                  → `attention` ("Task blocked").
+ *      (`settleAttemptUseCase` publishes this the moment a task settles into `blocked` — the
+ *      harness's principal unattended-failure mode, otherwise announced only passively via the
+ *      Tasks panel / progress.md.)
  *
  * Notes for future maintainers:
  *
@@ -100,6 +104,12 @@ const classify = (event: AppEvent): NotificationDecision | undefined => {
         level: 'failure',
         title: 'ralphctl aborted',
         ...(event.reason !== undefined ? { body: event.reason } : {}),
+      };
+    case 'task-blocked':
+      return {
+        level: 'attention',
+        title: 'Task blocked',
+        body: `${event.taskName}: ${event.reason}`,
       };
     case 'log':
       return classifyLog(event);

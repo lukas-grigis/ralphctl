@@ -152,6 +152,9 @@ const repoWithSetup: RepoExecConfig = {
   name: 'main-repo',
   setupScript: 'pnpm install',
 };
+// `progressFile` is a threaded PARAMETER of `buildWorktreeBranch` (not a ctx field) — see that
+// function's docstring. `baseCtx` below deliberately does NOT carry it, matching production.
+const PROGRESS = absolutePath('/data/sprints/s1/progress.md');
 
 /** A fake subchain that settles the given task into the supplied final copy on ctx.tasks. */
 const settlingSubchain = (taskId: TaskId, settled: Task): ((worktreeRepo: RepoExecConfig) => Element<ImplementCtx>) => {
@@ -188,7 +191,15 @@ describe('buildWorktreeBranch — happy path', () => {
     const deps = makeBranchDeps(runner, stubBus([]));
     const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
 
-    const branch = buildWorktreeBranch(deps, repo, task, wt, 'ralphctl/s1/wt-x', settlingSubchain(task.id, done));
+    const branch = buildWorktreeBranch(
+      deps,
+      repo,
+      task,
+      wt,
+      'ralphctl/s1/wt-x',
+      PROGRESS,
+      settlingSubchain(task.id, done)
+    );
     const { status, ctx } = await runBranch(branch, baseCtx([task]));
 
     expect(status).toBe('completed');
@@ -210,6 +221,7 @@ describe('buildWorktreeBranch — happy path', () => {
       task,
       wt,
       'ref',
+      PROGRESS,
       settlingSubchain(task.id, { ...makeDoneTask(), id: task.id })
     );
     await runBranch(branch, baseCtx([task]));
@@ -225,7 +237,7 @@ describe('buildWorktreeBranch — fold conflict → blocked', () => {
     const deps = makeBranchDeps(runner, stubBus([]));
     const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
 
-    const branch = buildWorktreeBranch(deps, repo, task, wt, 'ref', settlingSubchain(task.id, done));
+    const branch = buildWorktreeBranch(deps, repo, task, wt, 'ref', PROGRESS, settlingSubchain(task.id, done));
     const { status, ctx } = await runBranch(branch, baseCtx([task]));
 
     // The branch COMPLETES (a conflict is a domain block, not an infra failure) and its ctx carries
@@ -252,7 +264,7 @@ describe('buildWorktreeBranch — does not fold a non-done task', () => {
       },
     });
 
-    const branch = buildWorktreeBranch(deps, repo, task, wt, 'ref', passthroughSubchain);
+    const branch = buildWorktreeBranch(deps, repo, task, wt, 'ref', PROGRESS, passthroughSubchain);
     const { status } = await runBranch(branch, baseCtx([task]));
 
     expect(status).toBe('completed');
@@ -328,7 +340,7 @@ describe('buildWorktreeBranch — abort runs cleanup', () => {
       },
     });
 
-    const branch = buildWorktreeBranch(deps, repo, task, wt, 'ref', hangingSubchain);
+    const branch = buildWorktreeBranch(deps, repo, task, wt, 'ref', PROGRESS, hangingSubchain);
     const r = createRunner<ImplementCtx>({ id: 'b', element: branch, initialCtx: baseCtx([task]) });
     const started = r.start();
     await Promise.resolve();
@@ -355,7 +367,7 @@ describe('buildWorktreeBranch — per-worktree setup script', () => {
     const deps = makeBranchDeps(runner, stubBus([]), shell.runner);
     const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
 
-    const branch = buildWorktreeBranch(deps, repoWithSetup, task, wt, 'ref', settlingSubchain(task.id, done));
+    const branch = buildWorktreeBranch(deps, repoWithSetup, task, wt, 'ref', PROGRESS, settlingSubchain(task.id, done));
     const { status, ctx } = await runBranch(branch, baseCtx([task]));
 
     expect(status).toBe('completed');
@@ -378,7 +390,7 @@ describe('buildWorktreeBranch — per-worktree setup script', () => {
     const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
     const controller = new AbortController();
 
-    const branch = buildWorktreeBranch(deps, repoWithSetup, task, wt, 'ref', settlingSubchain(task.id, done));
+    const branch = buildWorktreeBranch(deps, repoWithSetup, task, wt, 'ref', PROGRESS, settlingSubchain(task.id, done));
     const out = await branch.execute(baseCtx([task]), controller.signal);
 
     expect(out.ok).toBe(true);
@@ -403,7 +415,7 @@ describe('buildWorktreeBranch — per-worktree setup script', () => {
     const deps = makeBranchDeps(runner, stubBus([]), shell.runner);
     const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
 
-    const branch = buildWorktreeBranch(deps, repoWithSetup, task, wt, 'ref', trackingSubchain);
+    const branch = buildWorktreeBranch(deps, repoWithSetup, task, wt, 'ref', PROGRESS, trackingSubchain);
     const { status, ctx } = await runBranch(branch, baseCtx([task]));
 
     // The branch COMPLETES (a setup failure is a per-task domain block, not an infra abort) and its
@@ -423,7 +435,7 @@ describe('buildWorktreeBranch — per-worktree setup script', () => {
     const deps = makeBranchDeps(runner, stubBus([]), shell.runner);
     const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
 
-    const branch = buildWorktreeBranch(deps, repoWithSetup, task, wt, 'ref', () => ({
+    const branch = buildWorktreeBranch(deps, repoWithSetup, task, wt, 'ref', PROGRESS, () => ({
       name: 'unreached',
       async execute(ctx): Promise<ElementResult<ImplementCtx>> {
         return Result.ok({ ctx, trace: [] });
@@ -443,7 +455,7 @@ describe('buildWorktreeBranch — per-worktree setup script', () => {
     const deps = makeBranchDeps(runner, stubBus([]), shell.runner);
     const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
 
-    const branch = buildWorktreeBranch(deps, repo, task, wt, 'ref', settlingSubchain(task.id, done));
+    const branch = buildWorktreeBranch(deps, repo, task, wt, 'ref', PROGRESS, settlingSubchain(task.id, done));
     const { status } = await runBranch(branch, baseCtx([task]));
 
     expect(status).toBe('completed');
@@ -461,7 +473,15 @@ describe('setupWorktree — defensive leaked-ref delete before add', () => {
     const deps = makeBranchDeps(runner, stubBus([]));
     const wt = worktreePathFor(absolutePath('/data/sprints/s1'), task.id);
 
-    const branch = buildWorktreeBranch(deps, repo, task, wt, 'ralphctl/s1/wt-x', settlingSubchain(task.id, done));
+    const branch = buildWorktreeBranch(
+      deps,
+      repo,
+      task,
+      wt,
+      'ralphctl/s1/wt-x',
+      PROGRESS,
+      settlingSubchain(task.id, done)
+    );
     await runBranch(branch, baseCtx([task]));
 
     const firstDeleteIdx = calls.findIndex((c) => c[0] === 'branch' && c[1] === '-D' && c[2] === 'ralphctl/s1/wt-x');

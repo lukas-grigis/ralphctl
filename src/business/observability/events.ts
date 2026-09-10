@@ -3,6 +3,7 @@ import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { AiSignal } from '@src/domain/signal.ts';
 import type { PlateauSource } from '@src/domain/entity/attempt.ts';
 import type { AiProvider } from '@src/domain/entity/settings.ts';
+import type { BlockedTask } from '@src/domain/entity/task.ts';
 
 /**
  * Application-wide structured events. Producers (chain runner, use cases,
@@ -327,6 +328,37 @@ export interface ModelEscalatedEvent {
   readonly at: IsoTimestamp;
 }
 
+/**
+ * Fired once when `settleAttemptUseCase` (`business/task/settle-attempt.ts`) settles a task into
+ * `blocked` — whichever of its two internal paths produced the transition: an explicit block
+ * (generator self-block / signals-contract failure / red post-verify) or the attempt budget
+ * running out. This is the one durable moment a block becomes real (the task was already
+ * persisted with this status when the event fires), so it is published exactly once per block —
+ * never once per cascade-blocked dependent. A dependent that self-skips via the upstream
+ * dependency gate publishes nothing here; without that restraint a single root-cause block could
+ * fan out into a banner storm across every downstream task.
+ *
+ *  - `taskId` / `taskName` — identify the blocked task for the banner / notification body.
+ *  - `blockKind` — mirrors {@link BlockedTask.blockKind}. `settleAttemptUseCase` only ever
+ *    produces `'own'` (the task failed on its own merits); `'upstream'` is kept in the type for
+ *    symmetry with the entity, not because this publisher emits it.
+ *  - `reason` — the FIRST LINE only of the persisted `blockedReason`, sized for a banner / OS
+ *    notification body. The full text (which can carry a multi-line quarantine-stash pointer)
+ *    still lives on the task; this is a summary, not the audit trail.
+ *
+ * The payload is deliberately flat and additive: a future typed block-cause classification
+ * layered on top of `blockedReason` slots in as one more optional field here without reshaping
+ * the fields above.
+ */
+export interface TaskBlockedEvent {
+  readonly type: 'task-blocked';
+  readonly taskId: string;
+  readonly taskName: string;
+  readonly blockKind: BlockedTask['blockKind'];
+  readonly reason: string;
+  readonly at: IsoTimestamp;
+}
+
 export type AppEvent =
   | ChainStartedEvent
   | ChainStepStartedEvent
@@ -346,4 +378,5 @@ export type AppEvent =
   | BannerShowEvent
   | BannerClearEvent
   | AiSignalEvent
-  | ModelEscalatedEvent;
+  | ModelEscalatedEvent
+  | TaskBlockedEvent;

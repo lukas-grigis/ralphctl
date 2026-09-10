@@ -1,14 +1,15 @@
 import { z } from 'zod';
 import { Result } from '@src/domain/result.ts';
-import type { Task } from '@src/domain/entity/task.ts';
-import { BLOCKED_UPSTREAM_REASON_PREFIX } from '@src/domain/entity/task-lifecycle.ts';
+import type { BlockCause, FaultSide, Task } from '@src/domain/entity/task.ts';
+import type { TaskBlockerClass } from '@src/domain/signal.ts';
+import { BLOCKED_UPSTREAM_REASON_PREFIX, classifyBlock } from '@src/domain/entity/task-lifecycle.ts';
 import type { MigrationGapError } from '@src/domain/value/error/migration-gap-error.ts';
 import type { ParseError } from '@src/domain/value/error/parse-error.ts';
 import { RepositoryIdSchema, TaskIdSchema, TicketIdSchema } from '@src/integration/persistence/shared/value-schemas.ts';
 import { AttemptSchema } from '@src/integration/persistence/task/attempt.schema.ts';
 import { TASKS_FILE_SCHEMA_VERSION, tasksFileMigrations } from '@src/integration/persistence/task/migrations.ts';
 import { runMigrations } from '@src/integration/persistence/_engine/run-migrations.ts';
-import { safeParseToResult } from '@src/integration/persistence/shared/codec-internal.ts';
+import { type Compatible, safeParseToResult } from '@src/integration/persistence/shared/codec-internal.ts';
 
 /**
  * Structured verification-criterion shape. Mirrors {@link VerificationCriterion} in the
@@ -72,6 +73,21 @@ const CriteriaVerdictsSchema = z
   .record(z.string(), z.union([z.literal('passed'), z.literal('failed'), z.literal('unknown')]))
   .optional();
 
+/**
+ * One archived block → unblock cycle. Mirrors {@link RetiredRun} in the domain — the attempts,
+ * per-criterion verdicts and escalation stamps `unblockTask` clears off the live task fields for a
+ * clean restart, kept here instead of deleted. Every field beyond `attempts` reuses the same
+ * schema (and the same tolerant-read rationale) as its live counterpart below.
+ */
+const RetiredRunSchema = z.object({
+  attempts: z.array(AttemptSchema).readonly(),
+  criteriaVerdicts: CriteriaVerdictsSchema,
+  escalatedFromModel: z.string().optional(),
+  escalatedToModel: z.string().optional(),
+  escalatedToEffort: z.string().optional(),
+  escalatedToEvaluatorEffort: z.string().optional(),
+});
+
 const TaskBaseShape = {
   id: TaskIdSchema,
   name: z.string(),
@@ -101,25 +117,84 @@ const TaskBaseShape = {
   // written before the fields existed still load.
   bestOfNGranted: z.literal(true).optional(),
   bestOfNGrantedCandidates: z.number().optional(),
+  // Archive of retired (unblock-cleared) runs — see `RetiredRunSchema`. Optional on read so
+  // `tasks.json` files written before `unblockTask` archived instead of deleted still load
+  // unchanged (a missing value heals to `undefined`); no migration pass required.
+  retiredAttempts: z.array(RetiredRunSchema).readonly().optional(),
 };
 
 const TodoTaskSchema = z.object({ ...TaskBaseShape, status: z.literal('todo') });
 const InProgressTaskSchema = z.object({ ...TaskBaseShape, status: z.literal('in_progress') });
 
 /**
+ * Mirrors the domain {@link BlockCause} closed enum exactly — the `Compatible` check below the
+ * schema declaration keeps them from drifting apart silently.
+ */
+const BlockCauseSchema = z.union([
+  z.literal('upstream-dependency'),
+  z.literal('generator-self-block'),
+  z.literal('pre-verify-red'),
+  z.literal('post-verify-regression'),
+  z.literal('fold-conflict'),
+  z.literal('worktree-setup-failure'),
+  z.literal('operator-cancelled'),
+  z.literal('budget-exhausted'),
+  z.literal('unknown'),
+]);
+
+/** Mirrors the domain {@link FaultSide} closed enum exactly — same drift guard as {@link BlockCauseSchema}. */
+const FaultSideSchema = z.union([
+  z.literal('model'),
+  z.literal('harness'),
+  z.literal('environment'),
+  z.literal('grader'),
+  z.literal('unknown'),
+]);
+
+/**
+ * Mirrors the domain {@link TaskBlockerClass} closed enum exactly — same drift guard as
+ * {@link BlockCauseSchema}. Unlike `blockCause` / `faultSide`, there is no read-time inference for
+ * a missing value: this is the GENERATOR's own classification, which the harness has no basis to
+ * guess when the producing signal omitted it.
+ */
+const TaskBlockerClassSchema = z.union([
+  z.literal('missing-information'),
+  z.literal('ambiguous-request'),
+  z.literal('contradictory-information'),
+]);
+
+const _blockCauseCheck: Compatible<z.infer<typeof BlockCauseSchema>, BlockCause> = true;
+void _blockCauseCheck;
+const _faultSideCheck: Compatible<z.infer<typeof FaultSideSchema>, FaultSide> = true;
+void _faultSideCheck;
+const _blockerClassCheck: Compatible<z.infer<typeof TaskBlockerClassSchema>, TaskBlockerClass> = true;
+void _blockerClassCheck;
+
+/**
  * `blockKind` is the structural discriminant between an upstream-cascade block (auto-clearable)
- * and an own-failure block (operator must fix). It is OPTIONAL on read so `tasks.json` files
- * written before the field existed still load; a missing value is inferred post-parse from the
- * legacy reason prefix (see {@link inferBlockKind}). The schema member stays a plain object — a
- * `.transform()` here would make it ineligible for `z.discriminatedUnion`, so the inference runs
- * on the parsed union instead. The inferred value materialises into the loaded entity, so the
- * canonical shape lands on the next save.
+ * and an own-failure block (operator must fix). `blockCause` / `faultSide` refine it further (see
+ * `domain/entity/task.ts`). All three are OPTIONAL on read so `tasks.json` files written before the
+ * fields existed still load; missing values are inferred post-parse (see {@link inferBlockKind},
+ * which now classifies all three together via the domain's own `classifyBlock`). The schema member
+ * stays a plain object — a `.transform()` here would make it ineligible for `z.discriminatedUnion`,
+ * so the inference runs on the parsed union instead. The inferred values materialise into the
+ * loaded entity, so the canonical shape lands on the next save.
  */
 const BlockedTaskSchema = z.object({
   ...TaskBaseShape,
   status: z.literal('blocked'),
   blockedReason: z.string(),
   blockKind: z.union([z.literal('upstream'), z.literal('own')]).optional(),
+  blockCause: BlockCauseSchema.optional(),
+  faultSide: FaultSideSchema.optional(),
+  // The generator's own structured triage (domain/entity/task.ts's `BlockedTask.blockerClass` /
+  // `question` / `whatUnblocksMe`) — all three optional with NO inference on a missing value
+  // (unlike `blockCause` / `faultSide` above): a row written before these fields existed, or a
+  // self-block signal that omitted them, simply carries none of the three. Tolerant on read by
+  // construction — `.optional()`, never a required field a legacy row could fail to parse against.
+  blockerClass: TaskBlockerClassSchema.optional(),
+  question: z.string().optional(),
+  whatUnblocksMe: z.string().optional(),
 });
 
 /**
@@ -165,28 +240,51 @@ type RawParsedTask = z.infer<typeof TaskBaseUnionSchema>;
 
 /**
  * The transform's output type. Identical to {@link RawParsedTask} except the `blocked` member's
- * `blockKind` is REQUIRED `'upstream' | 'own'` — `inferBlockKind` always materialises it. Narrowing
- * the branch here (rather than leaving the inferred optional) means `TaskSchema`'s output already
- * matches the domain `BlockedTask`, so `fromJsonTask` no longer needs to cast over an optional→required
- * gap on `blockKind`. (The remaining cast is purely about the `DoneTask` attempts tuple — see below.)
+ * `blockKind` / `blockCause` / `faultSide` are REQUIRED — `inferBlockKind` always materialises all
+ * three. Narrowing the branch here (rather than leaving the inferred fields optional) means
+ * `TaskSchema`'s output already matches the domain `BlockedTask`, so `fromJsonTask` no longer needs
+ * to cast over an optional→required gap on them. (The remaining cast is purely about the `DoneTask`
+ * attempts tuple — see below.)
  */
 type ParsedTask =
   | Exclude<RawParsedTask, { status: 'blocked' }>
-  | (Extract<RawParsedTask, { status: 'blocked' }> & { blockKind: 'upstream' | 'own' });
+  | (Extract<RawParsedTask, { status: 'blocked' }> & {
+      blockKind: 'upstream' | 'own';
+      blockCause: BlockCause;
+      faultSide: FaultSide;
+    });
 
 /**
- * Read-time inference for a `blocked` task that predates {@link BlockedTask.blockKind}: a reason
- * starting with the (deprecated) `blocked upstream` prefix is an upstream-cascade block, everything
- * else is an own-failure block. Runs post-union so the discriminated-union members stay plain
- * objects (a transform on the member would break discrimination). Returns {@link ParsedTask}, whose
- * `blocked` branch declares `blockKind` as required — every code path through here sets it.
+ * Read-time inference for a `blocked` task that predates {@link BlockedTask.blockKind} /
+ * `blockCause` / `faultSide`: `blockKind` still falls back to the legacy reason-prefix heuristic
+ * (a reason starting with the deprecated `blocked upstream` prefix is an upstream-cascade block,
+ * everything else own-failure); `blockCause` / `faultSide` are then classified together via the
+ * domain's own `classifyBlock` (`task-lifecycle.ts`), which honours any values already on disk and
+ * only infers what's missing — never overwrites an explicit classification a producer already
+ * stamped.
+ *
+ * The block's own reason text can't always tell a crash-driven attempt-budget exhaustion from a
+ * genuine quality plateau — a caller outside this module's ownership (`start-attempt.ts`'s resume
+ * recovery) settles the LAST attempt as `aborted` with real crash forensics but blocks the task via
+ * a plain "attempt budget exhausted" literal with no text hint at all. The last attempt's own
+ * `abortCause` (persisted on every attempt regardless of who wrote the block) is read here as a
+ * fallback signal so that crash still overrides the text-based `model` default — the same
+ * definitive-forensics-over-guess priority `classifyBlock`'s `abortCause` hint already encodes.
+ *
+ * Runs post-union so the discriminated-union members stay plain objects (a transform on the member
+ * would break discrimination). Returns {@link ParsedTask}, whose `blocked` branch declares all
+ * three fields as required — every code path through here sets them.
  */
 const inferBlockKind = (task: RawParsedTask): ParsedTask => {
   if (task.status !== 'blocked') return task;
-  return {
-    ...task,
-    blockKind: task.blockKind ?? (task.blockedReason.startsWith(BLOCKED_UPSTREAM_REASON_PREFIX) ? 'upstream' : 'own'),
-  };
+  const blockKind =
+    task.blockKind ?? (task.blockedReason.startsWith(BLOCKED_UPSTREAM_REASON_PREFIX) ? 'upstream' : 'own');
+  const { blockCause, faultSide } = classifyBlock(task.blockedReason, blockKind, {
+    blockCause: task.blockCause,
+    faultSide: task.faultSide,
+    abortCause: task.attempts[task.attempts.length - 1]?.abortCause,
+  });
+  return { ...task, blockKind, blockCause, faultSide };
 };
 
 export const TaskSchema = TaskBaseUnionSchema.transform(inferBlockKind);

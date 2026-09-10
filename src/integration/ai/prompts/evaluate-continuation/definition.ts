@@ -130,6 +130,10 @@ export const evaluateContinuationPromptDef: PromptDefinition<EvaluateContinuatio
   },
   partials: {
     HARNESS_CONTEXT: 'harness-context',
+    AUTONOMOUS_OPERATION: 'autonomous-operation',
+    EVIDENCE_BOUND: 'evidence-bound',
+    EVALUATOR_FAILURE_MODES: 'evaluator-failure-modes',
+    EVALUATION_CHECKPOINT: 'evaluation-checkpoint',
   },
   // Same single-signal contract as the full evaluate prompt — a continuation turn still emits
   // exactly one `evaluation` verdict.

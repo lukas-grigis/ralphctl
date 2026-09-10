@@ -15,7 +15,7 @@
 import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
 import { resolveAttemptCoords, type TaskBucket } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
-import type { TaskProjection } from '@src/application/ui/tui/components/tasks-projection.ts';
+import type { BlockedTriage, TaskProjection } from '@src/application/ui/tui/components/tasks-projection.ts';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { fmtDuration } from '@src/application/ui/tui/theme/duration.ts';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
@@ -206,46 +206,83 @@ export const IndentedNotice = ({
 };
 
 /**
+ * One conditional {@link IndentedNotice} — renders nothing for an empty/whitespace-only value.
+ * Pulled out of {@link HeaderNotices} so that component's body is a flat list of these instead of
+ * four repeated `length > 0 && (...)` branches (keeps it under the file's complexity budget).
+ */
+const OptionalNotice = ({
+  tone,
+  icon,
+  text,
+}: {
+  readonly tone: 'warning' | 'dim';
+  readonly icon: string;
+  readonly text: string;
+}): React.JSX.Element | null =>
+  text.length > 0 ? <IndentedNotice tone={tone} icon={icon} text={collapseWhitespace(text)} truncate /> : null;
+
+/**
+ * Resolve the (possibly empty) text for each notice line {@link HeaderNotices} can show. Guards
+ * an empty / whitespace-only `blockedReason` (both `BlockedTask.blockedReason` and the
+ * task-blocked signal permit ''): without this an AI that self-blocks with a blank reason renders
+ * a lone warning glyph. `warningSummary` only applies to a `completed` card (mutually exclusive
+ * with a blocked one by status). `question` / `whatUnblocksMe` only apply while EXPANDED — see
+ * {@link HeaderNotices}'s doc for why.
+ */
+const resolveNoticeTexts = (
+  task: TaskBucket,
+  cardExpanded: boolean,
+  blockedReason: string | undefined,
+  blockedTriage: BlockedTriage | undefined,
+  warningSummary: string | undefined
+): {
+  readonly blockedReasonText: string;
+  readonly questionText: string;
+  readonly whatUnblocksMeText: string;
+  readonly warningSummaryText: string;
+} => ({
+  blockedReasonText: blockedReason?.trim() ?? '',
+  questionText: cardExpanded ? (blockedTriage?.question?.trim() ?? '') : '',
+  whatUnblocksMeText: cardExpanded ? (blockedTriage?.whatUnblocksMe?.trim() ?? '') : '',
+  warningSummaryText: task.status === 'completed' ? (warningSummary?.trim() ?? '') : '',
+});
+
+/**
  * Blocked-reason / flagged-completion notice lines under the header. Rendered collapsed OR
  * expanded — a blocked card's reason, or a done card's final-attempt warning, is its most
  * important line regardless of expand state. Self-gates: renders nothing when both are empty.
+ *
+ * `blockedTriage`'s question / what-unblocks-it lines render EXPANDED ONLY (unlike the reason
+ * line above them): they're the generator's own elaboration on the reason, genuinely supplementary
+ * rather than the headline fact, so the collapsed one-liner stays exactly as compact as before a
+ * task ever carried this structure.
  */
 export const HeaderNotices = ({
   task,
+  cardExpanded,
   blockedReason,
+  blockedTriage,
   warningSummary,
 }: {
   readonly task: TaskBucket;
+  readonly cardExpanded: boolean;
   readonly blockedReason: string | undefined;
+  readonly blockedTriage: BlockedTriage | undefined;
   readonly warningSummary: string | undefined;
 }): React.JSX.Element => {
-  // Guard an empty / whitespace-only blockedReason (both `BlockedTask.blockedReason` and the
-  // task-blocked signal permit ''): without this an AI that self-blocks with a blank reason
-  // renders a lone warning glyph. trim() first — `collapseWhitespace('')` is '' but a
-  // whitespace-only string collapses to a single space, which `!== undefined` alone wouldn't catch.
-  const blockedReasonText = blockedReason?.trim() ?? '';
-  // Warning summary for a flagged completion — rendered only for a done (`completed`) card so it
-  // never competes with the blocked-reason line (mutually exclusive by status). Empty / absent →
-  // no line, keeping a clean pass visually identical to its pre-change rendering.
-  const warningSummaryText = task.status === 'completed' ? (warningSummary?.trim() ?? '') : '';
+  const { blockedReasonText, questionText, whatUnblocksMeText, warningSummaryText } = resolveNoticeTexts(
+    task,
+    cardExpanded,
+    blockedReason,
+    blockedTriage,
+    warningSummary
+  );
   return (
     <>
-      {blockedReasonText.length > 0 && (
-        <IndentedNotice
-          tone="warning"
-          icon={glyphs.warningGlyph}
-          text={collapseWhitespace(blockedReasonText)}
-          truncate
-        />
-      )}
-      {warningSummaryText.length > 0 && (
-        <IndentedNotice
-          tone="warning"
-          icon={glyphs.warningGlyph}
-          text={collapseWhitespace(warningSummaryText)}
-          truncate
-        />
-      )}
+      <OptionalNotice tone="warning" icon={glyphs.warningGlyph} text={blockedReasonText} />
+      <OptionalNotice tone="dim" icon={glyphs.unknownGlyph} text={questionText} />
+      <OptionalNotice tone="dim" icon={glyphs.arrowRight} text={whatUnblocksMeText} />
+      <OptionalNotice tone="warning" icon={glyphs.warningGlyph} text={warningSummaryText} />
     </>
   );
 };

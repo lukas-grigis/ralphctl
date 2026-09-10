@@ -289,9 +289,47 @@ export const revertSprintToActive = (sprint: Sprint, now: IsoTimestamp): Result<
 };
 
 /**
+ * Transition `done → review` — the recovery counterpart to {@link transitionSprintToDone}, and the
+ * one deliberate exit from the otherwise-terminal `done` state.
+ *
+ * Closing a sprint is a confirm-and-proceed action, not a refusal: an operator may close with
+ * blocked tasks still on it, accepting the remainder as descoped. But "descoped" is not always
+ * final — unblocking one of those tasks later means there is runnable work again, and without an
+ * exit from `done` that work would be permanently unreachable (the implement gate only opens for
+ * `planned` / `active`). This reopens to `review` rather than jumping straight to `active`: it
+ * mirrors {@link revertSprintToActive}'s own precondition instead of duplicating its transition, so
+ * the SAME review → active step the operator already knows re-arms on top of it. `plannedAt` and
+ * `activatedAt` carry through unchanged; `reviewAt` is re-stamped (the sprint re-enters review
+ * now); `doneAt` clears back to `null`.
+ *
+ * Rejects from any non-`done` state — callers reopen only a sprint that had actually closed.
+ */
+export const reopenDoneSprint = (sprint: Sprint, now: IsoTimestamp): Result<ReviewSprint, InvalidStateError> => {
+  const guard = requireStatus(
+    'sprint',
+    sprint,
+    ['done'] as const,
+    'reopen-done',
+    'Only done sprints can be reopened to review.'
+  );
+  if (!guard.ok) return Result.error(guard.error);
+  const done = guard.value;
+  return Result.ok({
+    ...sprintBaseFrom(done),
+    status: 'review',
+    plannedAt: done.plannedAt,
+    activatedAt: done.activatedAt,
+    reviewAt: now,
+    doneAt: null,
+  });
+};
+
+/**
  * Transition `review → done`. Called by the review chain's `transition-sprint-to-done` leaf
  * after the user signals "done" via the empty / repeat termination round in `feedback.md`.
- * Terminal state — no further transitions, no further mutations.
+ * Terminal to every AUTOMATED flow — no chain leaf mutates a `done` sprint further. It is not a
+ * dead end for the operator, though: {@link reopenDoneSprint} is the one deliberate exit, taken
+ * when unblocking a task on a closed sprint means there is runnable work again.
  */
 export const transitionSprintToDone = (sprint: Sprint, now: IsoTimestamp): Result<DoneSprint, InvalidStateError> => {
   const guard = requireStatus(

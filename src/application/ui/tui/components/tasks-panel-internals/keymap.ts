@@ -1,7 +1,8 @@
 /**
  * Keyboard model for the Tasks panel. Bundles the j/k/↑/↓ row+card cursor logic, the
- * Enter/Space toggle (card expand or commit-message body expand), `e` to toggle the active
- * task's criteria block, and Esc to collapse a focused expanded card.
+ * Enter/Space toggle (card expand or commit-message body expand), `e` to toggle the focused
+ * card's criteria block, `v` to open the focused card's evaluation verdict, `u` to unblock the
+ * focused card's stuck task, and Esc to collapse a focused expanded card.
  *
  * Extracted from the panel orchestrator so the input layer can be reasoned about in isolation
  * from the render tree.
@@ -32,6 +33,10 @@ export interface UseTasksPanelInputArgs {
   readonly evaluationTaskIds: ReadonlySet<string>;
   /** Absent when the host doesn't wire the evaluation overlay; `v` is then a no-op. */
   readonly onOpenEvaluation?: (taskId: string) => void;
+  /** Task ids the host considers stuck (entity `status === 'blocked'`) — the gate for the `u` chord. */
+  readonly blockedTaskIds: ReadonlySet<string>;
+  /** Absent when the host doesn't wire the unblock affordance; `u` is then a no-op. */
+  readonly onUnblock?: (taskId: string) => void;
 }
 
 /** Toggles membership of `id` in `set`, returning a fresh `Set` (never mutates the input). */
@@ -44,13 +49,17 @@ const toggleSetMembership = <T>(set: ReadonlySet<T>, id: T): Set<T> => {
 
 const handleCriteriaToggle = (
   input: string,
+  focusedCardId: string | undefined,
   activeTaskId: string | undefined,
   setCriteriaExpandedIds: (updater: (prev: ReadonlySet<string>) => ReadonlySet<string>) => void
 ): boolean => {
-  // Done-criteria toggle for the active task. Independent of the card / row cursors: the
-  // operator is virtually always reading the running task when this hotkey is reached.
-  if (input !== 'e' || activeTaskId === undefined) return false;
-  setCriteriaExpandedIds((prev) => toggleSetMembership(prev, activeTaskId));
+  // Done-criteria toggle, anchored on the FOCUSED card with the active (running) task as a
+  // fallback — matching how `handleOpenEvaluation` resolves its target below. Anchoring on
+  // `activeTaskId` alone went dead the moment a run settled (every post-run state has no active
+  // task), which is exactly when reading a blocked card's criteria matters most.
+  const target = focusedCardId ?? activeTaskId;
+  if (input !== 'e' || target === undefined) return false;
+  setCriteriaExpandedIds((prev) => toggleSetMembership(prev, target));
   return true;
 };
 
@@ -73,6 +82,28 @@ const handleOpenEvaluation = (
   if (input !== 'v' || onOpenEvaluation === undefined) return false;
   if (focusedCardId === undefined || !evaluationTaskIds.has(focusedCardId)) return false;
   onOpenEvaluation(focusedCardId);
+  return true;
+};
+
+/**
+ * `u` revives the FOCUSED card's stuck task — same target-resolution shape as
+ * {@link handleOpenEvaluation} (the focused card, not the active one: an operator unblocks
+ * whatever card they've moved the cursor onto, which is frequently a settled one earlier in the
+ * list, not whatever happens to still be running).
+ *
+ * Inert — returns `false`, so the keystroke keeps travelling — when the target isn't in
+ * `blockedTaskIds` or the host wired no handler. Swallowing it there would silently eat `u` on
+ * every non-blocked card.
+ */
+const handleUnblock = (
+  input: string,
+  focusedCardId: string | undefined,
+  blockedTaskIds: ReadonlySet<string>,
+  onUnblock: ((taskId: string) => void) | undefined
+): boolean => {
+  if (input !== 'u' || onUnblock === undefined) return false;
+  if (focusedCardId === undefined || !blockedTaskIds.has(focusedCardId)) return false;
+  onUnblock(focusedCardId);
   return true;
 };
 
@@ -218,11 +249,14 @@ export const useTasksPanelInput = ({
   setCriteriaExpandedIds,
   evaluationTaskIds,
   onOpenEvaluation,
+  blockedTaskIds,
+  onUnblock,
 }: UseTasksPanelInputArgs): void => {
   useInput(
     (input, key) => {
-      if (handleCriteriaToggle(input, activeTaskId, setCriteriaExpandedIds)) return;
+      if (handleCriteriaToggle(input, focusedCardId, activeTaskId, setCriteriaExpandedIds)) return;
       if (handleOpenEvaluation(input, focusedCardId, evaluationTaskIds, onOpenEvaluation)) return;
+      if (handleUnblock(input, focusedCardId, blockedTaskIds, onUnblock)) return;
       if (handleEscapeCollapse(key, focusedCardId, expandedTaskIds, setExpandedTaskIds)) return;
       const verticalMoveArgs: VerticalMoveArgs = {
         focusedCardExpanded,

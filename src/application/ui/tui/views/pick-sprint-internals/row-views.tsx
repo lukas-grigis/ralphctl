@@ -9,6 +9,7 @@ import { Box, Text } from 'ink';
 import { sprintStatusKind, StatusChip } from '@src/application/ui/tui/components/status-chip.tsx';
 import { computeListWindow, OverflowRow, useListWindow } from '@src/application/ui/tui/components/windowed-list.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import type { TaskHealthCounts } from '@src/application/ui/shared/state-snapshot.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import {
@@ -26,6 +27,8 @@ interface PickerRowListProps {
   readonly initialCursorId: string;
   readonly currentSprintId: SprintId | undefined;
   readonly onSubmit: (row: SprintRow | CreateActionRow) => void;
+  /** Task-blocked health per sprint id — see `PickerData.taskHealthBySprintId`'s doc comment. */
+  readonly taskHealthBySprintId: ReadonlyMap<SprintId, TaskHealthCounts>;
 }
 
 /**
@@ -50,6 +53,7 @@ export const PickerRowList = ({
   initialCursorId,
   currentSprintId,
   onSubmit,
+  taskHealthBySprintId,
 }: PickerRowListProps): React.JSX.Element => {
   const items = useMemo(() => cursorableRows(rows), [rows]);
 
@@ -94,6 +98,7 @@ export const PickerRowList = ({
             sprint={row.sprint}
             focused={focusedId === row.sprint.id}
             isCurrent={currentSprintId === row.sprint.id}
+            health={taskHealthBySprintId.get(row.sprint.id)}
           />
         );
       })}
@@ -143,11 +148,15 @@ const SprintRowView = ({
   sprint,
   focused,
   isCurrent,
+  health,
 }: {
   readonly sprint: Sprint;
   readonly focused: boolean;
   readonly isCurrent: boolean;
+  /** Undefined only while the sprint's own fetch is still in flight — reads as zero counts. */
+  readonly health: TaskHealthCounts | undefined;
 }): React.JSX.Element => {
+  const blockedTaskCount = health?.blockedTaskCount ?? 0;
   return (
     <Box flexDirection="column" paddingX={spacing.indent}>
       <Box>
@@ -171,6 +180,12 @@ const SprintRowView = ({
           <Text dimColor>
             {glyphs.activityArrow} {String(sprint.tickets.length)} ticket
             {sprint.tickets.length === 1 ? '' : 's'}
+            {blockedTaskCount > 0 && (
+              <Text color={inkColors.error}>
+                {' '}
+                {glyphs.warningGlyph} {String(blockedTaskCount)} blocked
+              </Text>
+            )}
           </Text>
         </Box>
       )}

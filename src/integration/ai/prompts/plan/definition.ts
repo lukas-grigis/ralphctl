@@ -12,8 +12,9 @@ import { requireNonEmpty } from '@src/integration/ai/prompts/_engine/validators.
 
 /**
  * Pre-rendered string parameters for the plan template. Plan is **always interactive**:
- * the AI runs in the user's terminal, asks clarifying questions, then writes a JSON task
- * array to {@link PlanPromptParams.outputFilePath}. The harness reads that file back.
+ * the AI runs in the user's terminal, asks clarifying questions, then writes a `task-plan`
+ * signal to `signals.json` in its output directory. The harness reads and validates that
+ * file, not a free-form output path.
  */
 export interface PlanPromptParams {
   /** Sprint metadata (id, name, project) for the prompt's introduction. */
@@ -27,14 +28,14 @@ export interface PlanPromptParams {
   /** JSON Schema string substituted as `{{SCHEMA}}` for the planner to anchor on. */
   readonly schema: string;
   /**
-   * Audit-[09] output contract section — rendered from the plan `AiOutputContract` by
+   * Output contract section — rendered from the plan `AiOutputContract` by
    * `renderContractSectionFor(planOutputContract)`. Tells the AI to write `signals.json`
    * directly with one `task-plan` signal whose `tasksJson` carries the planner output.
    */
   readonly outputContractSection: string;
   /**
    * Current body of `progress.md` substituted into the `## Prior progress on this sprint`
-   * section (audit-[07]). Empty when the journal has no entries yet.
+   * section. Empty when the journal has no entries yet.
    */
   readonly priorProgress: string;
   /**
@@ -53,7 +54,7 @@ const nonEmpty = (field: string) => requireNonEmpty(field, `${field} must not be
 export const planPromptDef: PromptDefinition<PlanPromptParams> = {
   templateName: 'plan',
   description:
-    'Interactive task planner. AI explores the repos, asks the user clarifying questions, and writes a JSON task array to OUTPUT_FILE.',
+    'Interactive task planner. AI explores the repos, asks the user clarifying questions, and writes a `task-plan` signal to `signals.json`.',
   parameters: {
     sprintContext: {
       placeholder: 'SPRINT_CONTEXT',
@@ -83,7 +84,7 @@ export const planPromptDef: PromptDefinition<PlanPromptParams> = {
     outputContractSection: {
       placeholder: 'OUTPUT_CONTRACT_SECTION',
       description:
-        'Audit-[09] output contract block rendered from the plan contract — instructs the AI to write `signals.json` directly with one `task-plan` signal.',
+        'Output contract block rendered from the plan contract — instructs the AI to write `signals.json` directly with one `task-plan` signal.',
       validate: nonEmpty('outputContractSection'),
     },
     priorProgress: {
@@ -99,6 +100,8 @@ export const planPromptDef: PromptDefinition<PlanPromptParams> = {
   partials: {
     HARNESS_CONTEXT: 'harness-context',
     VALIDATION_CHECKLIST: 'validation-checklist',
+    TASK_FIELDS: 'task-fields',
+    TASK_SIZING: 'task-sizing',
   },
   expectedSignals: ['task-plan'],
 };

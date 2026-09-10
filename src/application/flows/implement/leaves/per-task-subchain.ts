@@ -365,19 +365,27 @@ export const createPerTaskSubchain = (
             shouldStop: (ctx) => terminalTaskStatus(ctx, taskId),
           }
         ),
-        // SERIAL-PATH ONLY. A task that settled `blocked` (self-block / budget-exhausted) leaves its
-        // rejected diff in the SHARED worktree — `settle-attempt`'s dirty-tree guardrail exempts the
-        // block path so the operator can inspect it. On the serial path that contaminates the next
-        // task (its `git add -A` sweeps the leftovers into its commit; the dirt flips its pre-verify
-        // red and the red post-verify is mis-attributed `baseline-broken`, landing a corrupt commit).
-        // This guarded leaf stashes the rejected diff so the tree is clean again before the next task
-        // runs, restoring the invariant the prologue's one-shot preflight assumes. The guard is
-        // synchronous (status === 'blocked' read from the settled `ctx.tasks` copy — `settle-attempt`
-        // cleared `ctx.currentTask`); the splice itself is gated on the serial-path proxy
-        // `includeBranchPreflight` so the parallel launcher (per-task worktrees, already isolated)
-        // never includes it. Stays INSIDE the body guard + AFTER the loop so it runs once per task,
-        // and BEFORE `uninstall-skills` so that leaf remains the subchain's terminal element (the
-        // TUI's task-completion detector keys on it).
+        // SERIAL-PATH ONLY (in-chain form). A task that settled `blocked` (self-block /
+        // budget-exhausted) leaves its rejected diff in the SHARED tree — `settle-attempt`'s
+        // dirty-tree guardrail exempts the block path so the operator can inspect it. On the serial
+        // path that contaminates the next task (its `git add -A` sweeps the leftovers into its
+        // commit; the dirt flips its pre-verify red and the red post-verify is mis-attributed
+        // `baseline-broken`, landing a corrupt commit). This guarded leaf stashes the rejected diff
+        // so the tree is clean again before the next task runs, restoring the invariant the
+        // prologue's one-shot preflight assumes. The guard is synchronous (status === 'blocked' read
+        // from the settled `ctx.tasks` copy — `settle-attempt` cleared `ctx.currentTask`); the splice
+        // itself is gated on the serial-path proxy `includeBranchPreflight`.
+        //
+        // The parallel launcher does NOT need this in-chain leaf, but it is NOT "already isolated"
+        // from the same data loss either — a worktree that ends up `blocked` still carries a rejected
+        // diff, and `wave-branch.ts`'s `cleanupWorktree` used to force-remove that worktree with
+        // nothing quarantined first. `wave-branch.ts`'s `withWorktree` now calls the SAME underlying
+        // operation (`runQuarantineBlockedDiff`, factored out of this leaf in `quarantine-blocked-
+        // diff.ts`) directly from its `finally`, ahead of `git worktree remove --force`, with `cwd`
+        // pointed at the worktree instead of the shared tree — see that file for why a stash pushed
+        // there survives the worktree's removal. Stays INSIDE the body guard + AFTER the loop so it
+        // runs once per task, and BEFORE `uninstall-skills` so that leaf remains the subchain's
+        // terminal element (the TUI's task-completion detector keys on it).
         ...(includeBranchPreflight
           ? [
               guard<ImplementCtx>(

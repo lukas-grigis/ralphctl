@@ -33,8 +33,11 @@ import { useUnblockTask } from '@src/application/ui/tui/runtime/use-unblock-task
 import { useSprintDetailShortcuts } from '@src/application/ui/tui/views/sprint-detail-internals/shortcuts.ts';
 import {
   buildFocusList,
+  clampFocusIndex,
+  nextBlockedIndex,
   sectionWindowCards,
   type FocusItem,
+  type JumpControls,
 } from '@src/application/ui/tui/views/sprint-detail-internals/focus-list.ts';
 import { useListWindow } from '@src/application/ui/tui/components/windowed-list.tsx';
 import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
@@ -107,6 +110,9 @@ interface UseFocusModelArgs {
 
 export interface FocusModel extends FocusedSelection {
   readonly cursorIdx: number;
+  /** Count of `kind === 'task' && status === 'blocked'` entries anywhere in `focusList`. */
+  readonly blockedCount: number;
+  readonly jump: JumpControls;
 }
 
 /**
@@ -114,6 +120,12 @@ export interface FocusModel extends FocusedSelection {
  * "what's under the cursor" selection. `visibleRows` reuses the same per-pane budget the child
  * panes use individually, doubled to cover both sections since the cursor walks them as one
  * flat list even though they render as two panes.
+ *
+ * **Jump-to-blocked (`B`).** See `focus-list.ts`'s `JumpControls` doc comment for why this needs
+ * a takeover rather than reaching into `useListWindow`'s cursor. `jumpOverrideIdx` is `undefined`
+ * until the first `B` press; from then on it — not `useListWindow`'s own id-tracked index — drives
+ * `cursorIdx` for the rest of this mount, and `useListWindow` is paused (`active` goes `false`,
+ * not unmounted) so it never double-handles a keypress once the override engages.
  */
 const useFocusModel = (args: UseFocusModelArgs): FocusModel => {
   const { focusList, ticketsEditable, modalOpen, loaded } = args;
@@ -123,15 +135,38 @@ const useFocusModel = (args: UseFocusModelArgs): FocusModel => {
   // matching the entity's stable domain id, so a task-list refresh or reorder keeps focus on
   // the same logical item instead of teleporting to whatever sits at the old index.
   const getFocusItemId = useMemo(() => focusItemId, []);
-  const { focusedIndex: cursorIdx } = useListWindow<FocusItem>({
+
+  const [jumpOverrideIdx, setJumpOverrideIdx] = useState<number | undefined>(undefined);
+
+  const { focusedIndex: listCursorIdx } = useListWindow<FocusItem>({
     items: focusList,
     getId: getFocusItemId,
     visibleRows: focusVisibleRows,
-    // Navigation keys (↑↓ j/k PgUp/PgDn Home/End) are owned by the hook.
-    // The shortcuts hook provides additional view-local keys (a/e/m/d/u/↵/q).
-    active: modalOpen === false && loaded,
+    // Navigation keys (↑↓ j/k PgUp/PgDn Home/End) are owned by the hook — except once a jump
+    // override is active, when `shortcuts.ts`'s `jump.moveBy` / `moveToEdge` take over instead.
+    // The shortcuts hook also provides the other view-local keys (a/e/m/d/u/B/↵/q).
+    active: modalOpen === false && loaded && jumpOverrideIdx === undefined,
   });
-  return { cursorIdx, ...deriveFocusedSelection(focusList, cursorIdx, ticketsEditable) };
+
+  const cursorIdx = jumpOverrideIdx !== undefined ? clampFocusIndex(jumpOverrideIdx, focusList.length) : listCursorIdx;
+  const blockedCount = useMemo(
+    () => focusList.filter((item) => item.kind === 'task' && item.task.status === 'blocked').length,
+    [focusList]
+  );
+
+  const jump: JumpControls = {
+    active: jumpOverrideIdx !== undefined,
+    pageSize: focusVisibleRows,
+    available: blockedCount > 0,
+    jumpToNextBlocked: () => {
+      const target = nextBlockedIndex(focusList, cursorIdx);
+      if (target !== undefined) setJumpOverrideIdx(target);
+    },
+    moveBy: (delta) => setJumpOverrideIdx((prev) => clampFocusIndex((prev ?? cursorIdx) + delta, focusList.length)),
+    moveToEdge: (edge) => setJumpOverrideIdx(edge === 'start' ? 0 : Math.max(0, focusList.length - 1)),
+  };
+
+  return { cursorIdx, blockedCount, jump, ...deriveFocusedSelection(focusList, cursorIdx, ticketsEditable) };
 };
 
 interface BuildDetailHintsArgs {
@@ -142,6 +177,8 @@ interface BuildDetailHintsArgs {
   readonly currentSprintId: SprintId | undefined;
   readonly focusedStuckTask: Task | undefined;
   readonly focusedEvaluatedTask: Task | undefined;
+  /** Gates the `B` next-blocked hint — see `buildDetailHints`'s doc comment. */
+  readonly blockedCount: number;
 }
 
 /**
@@ -151,10 +188,21 @@ interface BuildDetailHintsArgs {
  * `enabledWhen`: the `a`/`d` ticket-CRUD chords are gated on `ticketsEditable` (draft only), so
  * the hints must hide on a non-draft sprint or the footer would advertise keys that do nothing.
  * `m` (mark-current) and `u` (unblock) follow the same declarative gate rather than conditional
- * spreads. Pure — lives outside the component so `useViewHints` keeps a plain call site.
+ * spreads; `B` (jump to next blocked) does too, gated on `blockedCount > 0` regardless of where
+ * the cursor currently sits — unlike `u`, which needs the cursor already parked on the stuck row.
+ * Pure — lives outside the component so `useViewHints` keeps a plain call site.
  */
 const buildDetailHints = (args: BuildDetailHintsArgs): readonly ViewHint[] => {
-  const { inDetail, ticketsEditable, canEdit, sprint, currentSprintId, focusedStuckTask, focusedEvaluatedTask } = args;
+  const {
+    inDetail,
+    ticketsEditable,
+    canEdit,
+    sprint,
+    currentSprintId,
+    focusedStuckTask,
+    focusedEvaluatedTask,
+    blockedCount,
+  } = args;
   return [
     { keys: '↑/↓', label: 'move' },
     { keys: 'n', label: 'flows' },
@@ -175,6 +223,7 @@ const buildDetailHints = (args: BuildDetailHintsArgs): readonly ViewHint[] => {
       enabledWhen: sprint !== undefined && currentSprintId !== sprint.id && focusedStuckTask === undefined,
     },
     { keys: 'u', label: 'unblock', enabledWhen: focusedStuckTask !== undefined },
+    { keys: 'B', label: 'next blocked', enabledWhen: blockedCount > 0 },
     { keys: 'v', label: 'evaluation', enabledWhen: focusedEvaluatedTask !== undefined },
   ];
 };
@@ -391,6 +440,7 @@ export const useSprintDetailBody = (): UseSprintDetailBodyResult => {
       currentSprintId: selection.sprintId,
       focusedStuckTask: focus.focusedStuckTask,
       focusedEvaluatedTask: focus.focusedEvaluatedTask,
+      blockedCount: focus.blockedCount,
     })
   );
 
@@ -420,6 +470,7 @@ export const useSprintDetailBody = (): UseSprintDetailBodyResult => {
     cursorIdx: focus.cursorIdx,
     focusedStuckTask: focus.focusedStuckTask,
     focusedEvaluatedTask: focus.focusedEvaluatedTask,
+    jump: focus.jump,
     ...buildShortcutsActions({
       selection,
       router,

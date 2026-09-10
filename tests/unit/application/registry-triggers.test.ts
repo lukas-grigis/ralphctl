@@ -171,6 +171,37 @@ describe('evaluateTriggers', () => {
       const triggers: FlowTriggers = { minResumableTasks: 1 };
       expect(evaluateTriggers(triggers, { ...baseInputs, resumableTaskCount: 1 })).toEqual({ enabled: true });
     });
+
+    it('names the real blocker — "unblock one" — when every remaining task is blocked, not "run Plan first"', () => {
+      // A sprint that reached this state already HAS a task list (Plan already ran); the
+      // generic "run Plan first" sentence sends the operator to a flow that is both hidden and
+      // disabled at this sprint status. `blockedTaskCount` distinguishes this from the
+      // no-task-list-yet case the test above covers.
+      const triggers: FlowTriggers = { minResumableTasks: 1 };
+      const result = evaluateTriggers(triggers, { ...baseInputs, resumableTaskCount: 0, blockedTaskCount: 3 });
+      expect(result.enabled).toBe(false);
+      if (!result.enabled) {
+        expect(result.reason).toMatch(/blocked/i);
+        expect(result.reason).toMatch(/unblock/i);
+        expect(result.reason).not.toMatch(/plan/i);
+      }
+    });
+
+    it('keeps the "run Plan first" sentence when there is no task list at all (blockedTaskCount absent)', () => {
+      const triggers: FlowTriggers = { minResumableTasks: 1 };
+      const result = evaluateTriggers(triggers, { ...baseInputs, resumableTaskCount: 0 });
+      expect(result.enabled).toBe(false);
+      if (!result.enabled) expect(result.reason).toMatch(/plan|task list/i);
+    });
+
+    it('keeps the "run Plan first" sentence when resumable is zero and blockedTaskCount is explicitly zero too', () => {
+      // Degenerate sprint: no todo/in_progress AND no blocked tasks either (e.g. everything
+      // somehow settled done without transitioning status yet). Still the generic sentence.
+      const triggers: FlowTriggers = { minResumableTasks: 1 };
+      const result = evaluateTriggers(triggers, { ...baseInputs, resumableTaskCount: 0, blockedTaskCount: 0 });
+      expect(result.enabled).toBe(false);
+      if (!result.enabled) expect(result.reason).toMatch(/plan|task list/i);
+    });
   });
 
   describe('combinations', () => {

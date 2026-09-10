@@ -9,7 +9,8 @@ install, or otherwise mutating commands. The harness owns execution.
 Inspect the repository at `{{REPOSITORY_PATH}}` and emit an `agents-md-proposal` signal whose `content`
 field is the project context file body the harness will write for the `{{CURRENT_TOOL}}` provider. Emit
 optional `setup-skill-proposal`, `verify-skill-proposal`, `skill-suggestions`, and `note` signals where
-warranted. Write all signals to the `signals.json` path described in `<output_contract>`.
+warranted. Write all signals to the `signals.json` path described in the Output contract section at the
+bottom of this prompt.
 </goal>
 
 <success_criteria>
@@ -55,11 +56,8 @@ with this repo would get it wrong without being told. Anything an agent can deri
 existing docs does not belong in the context file — redundant context measurably reduces agent success.
 Lean is better than comprehensive.
 
-**Output length.** Follow the length guidance in `<target_file_conventions>` below — the target and
+**Output length.** Follow the length guidance in `<target_file_conventions>` above — the target and
 any ceiling are provider-specific. Brevity is a feature — the file is read fresh on every AI session.
-
-**Structure caps.** Exactly one H1; at most 7 H2 sections; no H4 or deeper headings. Prefer bullets and
-short sentences.
 
 **Specificity rule.** Every rule must be specific and verifiable. Replace vague guidance ("write clean code")
 with concrete checks ("run `make test` before committing"). Reserve emphasis tokens (`IMPORTANT`, `YOU MUST`)
@@ -93,10 +91,6 @@ You can read files anywhere in `{{REPOSITORY_PATH}}` — limit yourself to the i
 search the repository for file names or content patterns, and run read-only inspection commands. Write
 nothing except `signals.json`; never run build, install, or otherwise mutating commands.
 </capabilities>
-
-<output_contract>
-{{OUTPUT_CONTRACT_SECTION}}
-</output_contract>
 
 ## Recommended context-file sections
 
@@ -143,26 +137,31 @@ comes first, byte-for-byte. Your additions go as new H2 sections at the bottom �
 
 ### Phase 4 — Output
 
-Write `signals.json` to the path described in `<output_contract>` with the signals listed there. Do not
-emit prose commentary outside the signal file.
+Write `signals.json` to the path named in the Output contract section below, with the signals described
+there. Do not emit prose commentary outside the signal file.
 
 If you cannot characterise the repository (e.g. the repo is empty, no manifest files are readable, the
 inspection scope yields no evidence), emit a single `note` signal whose `text` starts with `missing-input`,
 followed by a short explanation, and stop.
 Do not invent stack claims without evidence.
 
-## Signal summary
+<output_contract>
+{{OUTPUT_CONTRACT_SECTION}}
 
-1. `agents-md-proposal` — REQUIRED. `tag` MUST equal `"{{WIRE_TAG}}"`. `content` is the project context
-   file body.
-2. `setup-skill-proposal` — optional. Multi-paragraph markdown body describing the project's setup
-   convention. The harness lands it as `setup/SKILL.md`. Omit entirely when no setup skill is warranted.
-3. `verify-skill-proposal` — optional. Same shape as the setup skill but for verification (typecheck /
-   lint / test). Omit entirely when the project has no canonical verify command.
-4. `skill-suggestions` — optional. `names` is a list of kebab-case bundled skill names to link (e.g.
-   `["typescript-strict"]`). Each name becomes a directory name, so it must be lowercase alphanumeric
-   with single hyphens — no paths, no separators, no spaces. The harness silently drops any other name.
-5. `note` — optional. One short observation. MUST be the only signal emitted when the repo cannot be
-   characterised.
-6. `learning` — optional. A durable insight worth recording beyond this session (e.g. a
-   non-obvious convention the inspection uncovered), in its `text` field.
+### Signal semantics
+
+- `agents-md-proposal` — REQUIRED. `tag` MUST equal `"{{WIRE_TAG}}"`. `content` is the project context
+  file body.
+- `setup-skill-proposal` — optional. Multi-paragraph markdown body describing the project's setup
+  convention. The harness lands it as `setup/SKILL.md`. Omit entirely when no setup skill is warranted.
+- `verify-skill-proposal` — optional. Same shape as the setup skill but for verification (typecheck /
+  lint / test). Omit entirely when the project has no canonical verify command.
+- `skill-suggestions` — optional. `names` is a list of kebab-case bundled skill names to link (e.g.
+  `["typescript-strict"]`). Each name becomes a directory name, so it must be lowercase alphanumeric
+  with single hyphens — no paths, no separators, no spaces. The harness silently drops any other name.
+- `note` — optional. One short observation. MUST be the only signal emitted when the repo cannot be
+  characterised.
+- `learning` — optional. A durable insight worth recording beyond this session (e.g. a
+  non-obvious convention the inspection uncovered), in its `text` field.
+
+</output_contract>

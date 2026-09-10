@@ -134,7 +134,13 @@ const TaskBlockImpl = ({
       <EtaChip cardExpanded={cardExpanded} isActive={isActive} taskProjection={overlay.taskProjection} task={task} />
     </Box>
     <ActiveBusyIndicator cardExpanded={cardExpanded} isActive={isActive} task={task} />
-    <HeaderNotices task={task} blockedReason={overlay.blockedReason} warningSummary={overlay.warningSummary} />
+    <HeaderNotices
+      task={task}
+      cardExpanded={cardExpanded}
+      blockedReason={overlay.blockedReason}
+      blockedTriage={overlay.blockedTriage}
+      warningSummary={overlay.warningSummary}
+    />
     <ExpandedNotices
       cardExpanded={cardExpanded}
       task={task}

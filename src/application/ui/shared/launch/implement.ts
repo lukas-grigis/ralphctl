@@ -20,7 +20,7 @@ import { buildAttemptReadConfig } from '@src/application/flows/implement/leaves/
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import { Result } from '@src/domain/result.ts';
 import type { Task } from '@src/domain/entity/task.ts';
-import { validateTaskGraph } from '@src/domain/entity/task-graph.ts';
+import { renderTaskGraphIssue, type TaskGraphIssue, validateTaskGraph } from '@src/domain/entity/task-graph.ts';
 import { renderSprintConsistencyIssue, validateSprintConsistency } from '@src/business/sprint/sprint-consistency.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
@@ -205,7 +205,7 @@ const buildParallelElement = (
   implementOpts: CreateImplementFlowOpts,
   maxParallel: number,
   sessionId: () => string
-): Element<ImplementCtx> => {
+): Result<Element<ImplementCtx>, TaskGraphIssue> => {
   // Built via the shared `buildAttemptReadConfig` (see `attempt-body.ts`) — the same builder
   // `flow.ts`'s serial launcher uses, so a field added to `AttemptReadConfig`'s return shape
   // (e.g. the opt-in best-of-N knob) reaches both launchers by construction instead of requiring
@@ -227,17 +227,21 @@ const buildParallelElement = (
     eventBus: parallelDeps.eventBus,
     foldQueue: createFoldQueue(),
   };
-  const plan = planImplementWaves(parallelDeps, implementOpts);
+  const planned = planImplementWaves(parallelDeps, implementOpts);
+  if (!planned.ok) return Result.error(planned.error);
+  const plan = planned.value;
 
-  return createParallelImplementElement(plan, {
-    fileLocker: implementDeps.fileLocker,
-    locksRoot: implementDeps.locksRoot,
-    eventBus: implementDeps.eventBus,
-    maxConcurrency: maxParallel,
-    flowId: 'implement',
-    sessionId,
-    buildWaves: () => buildWaveBranches(branchDeps, implementOpts, plan.waves, readConfig),
-  });
+  return Result.ok(
+    createParallelImplementElement(plan, {
+      fileLocker: implementDeps.fileLocker,
+      locksRoot: implementDeps.locksRoot,
+      eventBus: implementDeps.eventBus,
+      maxConcurrency: maxParallel,
+      flowId: 'implement',
+      sessionId,
+      buildWaves: () => buildWaveBranches(branchDeps, implementOpts, plan.waves, readConfig),
+    })
+  );
 };
 
 /**
@@ -349,10 +353,16 @@ const buildImplementElement = (
     readonly sprint: Sprint;
     readonly project: Project;
     readonly todoTasks: readonly Task[];
+    /**
+     * EVERY task on the sprint, not just the resumable queue. Tasks outside `todoTasks` are the
+     * already-settled prerequisites a dependent may still point at; naming them keeps a narrowed
+     * resumed run's graph valid — see `CreateImplementFlowOpts.satisfiedDependencyIds`.
+     */
+    readonly allTasks: readonly Task[];
     readonly progressPath: AbsolutePath;
     readonly sprintDirPath: AbsolutePath;
   }
-): Element<ImplementCtx> => {
+): Result<Element<ImplementCtx>, TaskGraphIssue> => {
   const { deps, skillsAdapter, skillSource, sessionId } = ctx;
   const implementDeps = buildImplementDepsBag(
     deps,
@@ -363,19 +373,30 @@ const buildImplementElement = (
     skillSource,
     { generator: args.agentBindings.generatorAdapter, evaluator: args.agentBindings.evaluatorAdapter }
   );
-  const implementOpts = buildImplementOptsBag(
-    args.sprint,
-    args.project,
-    args.todoTasks,
-    { progressPath: args.progressPath, sprintDirPath: args.sprintDirPath },
-    args.implementPair,
-    args.providers,
-    deps.storage.memoryRoot,
-    { generator: args.agentBindings.generator, evaluator: args.agentBindings.evaluator }
-  );
+  // Every task the sprint holds that is NOT in the resumable queue is, by construction, already
+  // settled — `done`, or `blocked` (which the per-task `dependency-gate` leaf parks a dependent
+  // behind at run time, not the scheduler). Naming them keeps a dependency on such a prerequisite
+  // from reading as a dangling edge once the graph is narrowed to the queue alone, which is what
+  // used to fail a resumed parallel run's whole schedule closed. A dependency on an id that exists
+  // on NO task still fails, as it should.
+  const queuedIds = new Set<TaskId>(args.todoTasks.map((t) => t.id));
+  const satisfiedDependencyIds = new Set<TaskId>(args.allTasks.filter((t) => !queuedIds.has(t.id)).map((t) => t.id));
+  const implementOpts: CreateImplementFlowOpts = {
+    ...buildImplementOptsBag(
+      args.sprint,
+      args.project,
+      args.todoTasks,
+      { progressPath: args.progressPath, sprintDirPath: args.sprintDirPath },
+      args.implementPair,
+      args.providers,
+      deps.storage.memoryRoot,
+      { generator: args.agentBindings.generator, evaluator: args.agentBindings.evaluator }
+    ),
+    ...(satisfiedDependencyIds.size > 0 ? { satisfiedDependencyIds } : {}),
+  };
   const maxParallel = clampParallel(args.effectiveSettings.concurrency.maxParallelTasks);
   return maxParallel === 1
-    ? createImplementFlow(implementDeps, implementOpts)
+    ? Result.ok(createImplementFlow(implementDeps, implementOpts))
     : buildParallelElement(implementDeps, implementOpts, maxParallel, sessionId);
 };
 
@@ -443,6 +464,52 @@ const preflightCli = async (ctx: LaunchContext, effectiveSettings: Settings): Pr
     ? undefined
     : checkCli('implement', effectiveSettings, { implementRoleOverrides: ctx.extras.implementRoleOverrides });
 
+/**
+ * Build the implement element for this launch and unwrap `buildImplementElement`'s `Result` into
+ * a launch failure. Split out of `launchImplement` because the wave-plan's error channel
+ * (`planImplementWaves` → `buildParallelElement` → `buildImplementElement`) needs its own
+ * translation step at the call site: a schedule that cannot be built is reported here as
+ * `{ ok: false }` rather than launching a run with no waves — an empty parallel plan used to read
+ * to the operator as "nothing to do" instead of "the task graph is broken".
+ */
+const buildImplementElementOrFailure = (
+  ctx: LaunchContext,
+  args: Parameters<typeof buildImplementElement>[1]
+): Result<Element<ImplementCtx>, LaunchResult> => {
+  const built = buildImplementElement(ctx, args);
+  return built.ok ? Result.ok(built.value) : Result.error({ ok: false, reason: renderTaskGraphIssue(built.error) });
+};
+
+/**
+ * Resolve each role's opt-in agent-definition binding, then build the two per-role providers on
+ * top of it. Kept as one step because of the ordering dependency between them: AC2 (an unknown
+ * bound name is reported and the role runs unaided) must resolve BEFORE `buildImplementProviders`
+ * runs, since AC5 has a bound definition's model/effort override the persisted row. The roles may
+ * target distinct providers — see `buildImplementProviders`'s doc comment for why `ctx.provider`
+ * is unused here.
+ */
+const resolveImplementAgentBindingsAndProviders = async (
+  ctx: LaunchContext,
+  deps: LaunchContext['deps'],
+  implementPair: AiImplementSettings,
+  effectiveSettings: Settings
+): Promise<{
+  readonly agentBindings: Awaited<ReturnType<typeof resolveImplementAgentBindings>>;
+  readonly providers: ReturnType<typeof buildImplementProviders>;
+}> => {
+  const agentBindings = await resolveImplementAgentBindings(deps, implementPair);
+  const providers = withProviderSpawnOverride(
+    buildImplementProviders(implementPair, effectiveSettings, deps, {
+      ...(agentBindings.generator.definition !== undefined ? { generator: agentBindings.generator.definition } : {}),
+      ...(agentBindings.evaluator.definition !== undefined ? { evaluator: agentBindings.evaluator.definition } : {}),
+    }),
+    ctx,
+    implementPair,
+    effectiveSettings
+  );
+  return { agentBindings, providers };
+};
+
 export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult> => {
   const { deps, snapshot, extras, settings, bridge, sessionId } = ctx;
   // Apply per-role overrides (from CLI flags via `LaunchExtras.implementRoleOverrides`) onto
@@ -481,23 +548,14 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
   // rebuilds its own per-branch publisher in `wave-branch.ts` (keyed on each task's `taskId`), so
   // this instance is never reused there.
   const publishSignal = createPublishSignal(deps.app.eventBus, 'implement');
-  // Resolve each role's opt-in agent-definition binding (AC2: an unknown bound name is reported
-  // and the role runs unaided) BEFORE building the providers — a bound definition's model/effort
-  // overrides the row (AC5).
-  const agentBindings = await resolveImplementAgentBindings(deps, implementPair);
-  // Two independent per-role adapters — the roles may target distinct providers (see
-  // `buildImplementProviders`'s doc comment for why `ctx.provider` is unused here).
-  const providers = withProviderSpawnOverride(
-    buildImplementProviders(implementPair, effectiveSettings, deps, {
-      ...(agentBindings.generator.definition !== undefined ? { generator: agentBindings.generator.definition } : {}),
-      ...(agentBindings.evaluator.definition !== undefined ? { evaluator: agentBindings.evaluator.definition } : {}),
-    }),
+  const { agentBindings, providers } = await resolveImplementAgentBindingsAndProviders(
     ctx,
+    deps,
     implementPair,
     effectiveSettings
   );
   const { generatorModel, evaluatorModel, generatorEffort, evaluatorEffort } = providers;
-  const element = buildImplementElement(ctx, {
+  const elementResult = buildImplementElementOrFailure(ctx, {
     effectiveSettings,
     implementPair,
     publishSignal,
@@ -506,9 +564,12 @@ export const launchImplement = async (ctx: LaunchContext): Promise<LaunchResult>
     sprint: snapshot.sprint,
     project: snapshot.project,
     todoTasks,
+    allTasks: snapshot.tasks,
     progressPath,
     sprintDirPath,
   });
+  if (!elementResult.ok) return elementResult.error;
+  const element = elementResult.value;
 
   const runner = createRunner<ImplementCtx>({
     id: sessionId(),

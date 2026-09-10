@@ -11,6 +11,8 @@ lifecycle and context compaction.
 
 {{HARNESS_CONTEXT}}
 
+{{AUTONOMOUS_OPERATION}}
+
 Summaries of earlier tasks' outcomes in this sprint, when present below, are for continuity — read
 them and do not redo work they already cover.
 
@@ -61,6 +63,10 @@ under its declared check type.
 {{REPRODUCTION_SECTION}}
 
 <plateau_directive>{{PLATEAU_DIRECTIVE_SECTION}}</plateau_directive>
+
+When the block above is empty, no plateau escalation applies this round — proceed normally; it
+carries a "change your approach" directive only when the gen-eval loop has stalled and the
+escalation policy granted a same-model retry.
 
 <prior_critique>{{PRIOR_CRITIQUE_SECTION}}</prior_critique>
 
@@ -138,7 +144,11 @@ repository now, trust the repository and record the conflict as a `learning` sig
   - Include only what an unfamiliar engineer would get wrong without being told. Redundant context
     measurably raises cost without improving agent success.
   - Be specific and verifiable. "Use 2-space indentation" beats "format properly".
-  - Stay under 200 lines, max 7 H2 sections, no H4+. Adherence degrades past these limits.
+  - Match the length and structure of a comparable context file already in this ecosystem (this
+    project's own file if it has one, or the convention for the format the active provider reads)
+    rather than a fixed line or heading count — the right size is provider- and project-dependent.
+    Absent a comparable example, keep it short and skimmable: a handful of top-level sections, no
+    deep nesting.
   - Never embed secrets or credentials — those belong in `.env` files or a secret manager, never a
     committed context file, with no exception.
   - Never embed slash commands, hooks, MCP server config, or IDE settings — except when a declared
@@ -150,8 +160,8 @@ repository now, trust the repository and record the conflict as a `learning` sig
 <capabilities>
 You can read any file in the project and in the mounted sprint directory. You can run shell commands
 (subject to the harness's sandbox). You can search the repository for patterns. You can modify and
-create files under the project path. Write `signals.json` to the output directory specified in
-`<output_contract>`.
+create files under the project path. Write `signals.json` to the output directory named in the
+Output contract section at the bottom of this prompt.
 </capabilities>
 
 ## Protocol
@@ -165,6 +175,8 @@ work. Proceed directly for routine file edits and command runs.
 
 Then perform these checks before writing any code. The goal is to steer the implementation correctly
 on the first attempt, not to discover problems after the fact.
+
+{{PARALLEL_TOOL_CALLS}}
 
 1. **Confirm your working directory** — verify you are in the expected project path (`{{PROJECT_PATH}}`).
 2. **Prior critique first (rounds 2+)** — if `<prior_critique>` above is non-empty, work through
@@ -204,11 +216,11 @@ on the first attempt, not to discover problems after the fact.
    changing any code. A fix you cannot first reproduce is a guess; re-run the same repro in Phase 3
    to confirm it now passes.
 
-Before writing any code, restate in your working notes — three to five lines, not part of any
-signal — the task goal, the acceptance criteria, and the specific facts from the prior progress or
-learnings above that you will rely on. From here on, after roughly every five tool actions, restate
-in one line which phase you are in and which acceptance criteria remain — a long session drifts
-without this anchor.
+Before writing any code, confirm against the contract at `{{CONTRACT_PATH}}` — not against your
+memory of it — which declared steps and acceptance criteria remain unmet, using `<prior_critique>`
+and `<prior_criteria_verdicts>` above as your starting point. From here on, re-confirm against that
+same contract, rather than your own recollection, whenever you are about to report progress or are
+unsure how much of the task remains — a long session drifts without this anchor.
 
 Proceed to Phase 2 once Phase 1 passes.
 
@@ -269,10 +281,10 @@ In order:
 
 4. **Record verification results** — emit `task-verified` with the commands from step 2 and their
    combined stdout/stderr, plus the end-to-end observation from step 3 when it ran, all in the
-   `output` field. Include each command, its exit code, every failing
-   test/check name, and roughly the last 50 lines of output per command; when a command's output
-   exceeds that, write the full log to a file in your session working directory — never inside
-   the repository — and cite its path instead of pasting the rest.
+   `output` field. Include each command, its exit code, and every failing test/check name.
+
+   {{EVIDENCE_BOUND}}
+
 5. **Propose the commit message** — emit `commit-message` with a real subject and a body explaining
    WHY the change exists, what alternatives you weighed, any remaining uncertainty, and — when the
    change is risky — how to roll it back. Include any follow-ups a reviewer should know. The harness
@@ -287,6 +299,15 @@ In order:
 
 ## Failure modes
 
+When you emit `task-blocked`, prefer something an operator can act on in seconds over a paragraph
+of prose. `reason` is always required. When — and only when — the block is an information gap
+rather than a broken environment, also set: `question` (the single concrete question that, answered,
+unblocks you) and `whatUnblocksMe` (what someone needs to supply or decide). When that gap is
+specifically missing information, an ambiguous request, or contradictory instructions, also set
+`blockerClass` to `missing-information`, `ambiguous-request`, or `contradictory-information`
+respectively — leave it unset for an environment or verification failure, where none of the three
+fit.
+
 **A step fails.** Read the error carefully. Determine whether it is pre-existing or caused by your
 changes. Fix and re-verify. If unfixable after a reasonable attempt, emit `task-blocked` with the
 concrete failure as the `reason`.
@@ -296,14 +317,18 @@ test-weakening rule in `<constraints>`). If pre-existing: emit `task-blocked` wi
 `reason: "Pre-existing test failure: [details]"`.
 
 **Blocked by another task.** Emit `task-blocked` with
-`reason: "Missing dependency: [what is missing and which task should produce it]"`. Do NOT stub or
-mock the missing piece.
+`reason: "Missing dependency: [what is missing and which task should produce it]"`,
+`blockerClass: "missing-information"`, a `question` naming exactly what is missing, and
+`whatUnblocksMe` naming which task or artifact must land first. Do NOT stub or mock the missing piece.
 
-**Scope seems wrong.** See the scope rule in Phase 2 step 3 above — emit `task-blocked` rather than
-expanding scope.
+**Scope seems wrong.** See the scope rule in Phase 2 step 3 above — emit `task-blocked` with
+`blockerClass: "ambiguous-request"`, a `question` asking which scope was intended, and
+`whatUnblocksMe` naming the decision that would resolve it, rather than expanding scope.
 
 **Cannot complete** — environment failure, contradictory input, or unresolvable ambiguity: emit
-`task-blocked` with a concrete reason and stop. Do not invent plausible-looking output.
+`task-blocked` with a concrete reason and stop. For contradictory input specifically, also set
+`blockerClass: "contradictory-information"` and use `question` / `whatUnblocksMe` to name the
+conflicting instructions and what would resolve them. Do not invent plausible-looking output.
 
 **Round ends without `task-complete`, or with criteria still failing.** Emit one `note` signal
 distilling the approaches you attempted, the dead ends you ruled out and why, and the most

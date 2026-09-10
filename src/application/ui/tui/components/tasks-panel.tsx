@@ -26,7 +26,7 @@ import {
   isInFlightBucket,
   type TaskBucket,
 } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
-import type { SprintState, TaskOverlay } from '@src/application/ui/tui/components/tasks-projection.ts';
+import type { BlockedTriage, SprintState, TaskOverlay } from '@src/application/ui/tui/components/tasks-projection.ts';
 import type { TaskEvaluation } from '@src/application/ui/tui/components/tasks-panel-internals/evaluation-row.tsx';
 import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
 import { glyphs, spacing } from '@src/application/ui/tui/theme/tokens.ts';
@@ -66,6 +66,12 @@ interface TaskOverlaySources {
    * `blocked upstream — …`) rather than a bare `blocked` status. Absent for runs with no blocks.
    */
   readonly blockedReasonById?: ReadonlyMap<string, string>;
+  /**
+   * Optional `taskId → structured block triage` map sourced from the polled task entities (the
+   * generator's own question / what-would-unblock-it, when its self-block signal supplied them —
+   * see {@link BlockedTriage}). Absent for a plain-reason block or a run with no blocks.
+   */
+  readonly blockedTriageById?: ReadonlyMap<string, BlockedTriage>;
   /**
    * Optional `taskId → warning summary` map sourced from the polled task entities. When a task
    * settled `done` but its FINAL attempt carries an `AttemptWarning`, its one-line summary renders
@@ -174,6 +180,25 @@ export interface TasksPanelProps extends TaskOverlaySources {
    * route. Absent ⇒ the panel is fully self-contained (existing callers are unaffected).
    */
   readonly onExpandedCardChange?: (expanded: boolean) => void;
+  /**
+   * Ids of tasks the host considers stuck (entity `status === 'blocked'` — own-failure block or
+   * dependency-gate block alike). Gates the `u` chord: {@link onUnblock} only fires for a
+   * FOCUSED card whose id is in this set, mirroring how `evaluationTaskIds` gates `v`. Sourced
+   * from the polled entities directly (the same source as `blockedReasonById`), independent of
+   * whatever correction a caller has or hasn't applied to `bucketed.status` — this is the
+   * unblockability signal, `bucketed.status` is the presentation signal, and they're allowed to
+   * travel separately. `TasksPanelHost` additionally empties this set WHILE A RUN IS LIVE (see its
+   * own docstring for why). Absent ⇒ treated as empty (no task is unblockable), so isolated unit
+   * renders that don't wire this are unaffected.
+   */
+  readonly blockedTaskIds?: ReadonlySet<string>;
+  /**
+   * Optional `u` handler — revives the FOCUSED card's stuck task (see {@link blockedTaskIds}).
+   * Fires only when the focused card's id is in `blockedTaskIds`; otherwise the keystroke keeps
+   * travelling so it never eats `u` on a card with nothing to unblock. Absent ⇒ `u` is a no-op
+   * (isolated unit renders and any host that doesn't wire the affordance).
+   */
+  readonly onUnblock?: (taskId: string) => void;
 }
 
 interface TaskCardState {
@@ -202,21 +227,35 @@ const useTaskCardState = (
 ): TaskCardState => {
   // The active (first in-flight) task — anchor for the `e` criteria hotkey AND the default
   // card-cursor position. Recomputed each render so the `useInput` callback always sees the
-  // latest active id. Settled-but-not-completed buckets (failed / aborted / dependency-skipped)
+  // latest active id. Settled-but-not-completed buckets (failed / aborted / dependency-blocked)
   // are BEHIND the cursor: a task blocked upstream sits early in the list and would otherwise
   // hold the anchor for the whole run while later tasks actually execute.
   const activeTaskIdx = bucketed.tasks.findIndex(isInFlightBucket);
   const activeTaskId = activeTaskIdx >= 0 ? bucketed.tasks[activeTaskIdx]?.id : undefined;
+
+  // First `blocked` bucket — the settled-run anchor of last resort. A run that ends with a task
+  // stuck on EITHER kind of block — a dependency gate, or its own failure (budget exhausted, red
+  // verify, generator self-block) — must not let that card fall behind an overflow cue just
+  // because it sits early in the list: without this, the settled fallback below would anchor on
+  // the LAST task and `computeListWindow` would window the blocked card off-screen behind a dim
+  // "N more above" cue the instant the run finished (see the `TaskCards` windowing docstring).
+  // Catching the own-failure case here relies on the caller having already run `bucketed` through
+  // `overlayEntityBlockedStatus` (the one production construction site, `TasksPanelHost`, does) —
+  // this component stays a pure renderer over whatever `TaskBucket.status` it's handed.
+  const firstBlockedIdx = bucketed.tasks.findIndex((t) => t.status === 'blocked');
+  const firstBlockedId = firstBlockedIdx >= 0 ? bucketed.tasks[firstBlockedIdx]?.id : undefined;
 
   // Per-task card expansion. The active (running) task auto-expands when it becomes active so
   // the operator's eye anchors on the live stream — but the user can collapse it with Esc or
   // Enter just like any other card. Other cards default collapsed to a one-line summary.
   // Initial state seeds the active task on mount so the very first paint already shows the
   // live stream (no `useEffect`-induced flicker).
-  // REQ-3 edge case: when ALL tasks are completed, activeTaskId is undefined — seed with the
-  // last task so the operator sees a non-empty expanded card on first render.
+  // REQ-3 edge case: when ALL tasks are settled, activeTaskId is undefined — seed with the first
+  // blocked task (if any need the operator's attention) else the last task, so the operator sees
+  // a non-empty expanded card on first render and a blocked card is never the one left collapsed.
   const lastTaskId = bucketed.tasks.length > 0 ? bucketed.tasks[bucketed.tasks.length - 1]?.id : undefined;
-  const seedId = activeTaskId ?? lastTaskId;
+  const settledFallbackId = firstBlockedId ?? lastTaskId;
+  const seedId = activeTaskId ?? settledFallbackId;
   const [expandedTaskIds, setExpandedTaskIds] = useState<ReadonlySet<string>>(
     () => new Set(seedId !== undefined ? [seedId] : [])
   );
@@ -228,8 +267,9 @@ const useTaskCardState = (
   // transitions only — mount itself is handled by the lazy initial state). This gives the
   // auto-expand-on-activation UX without making the expansion permanent: once the active id is
   // in the set, Esc / Enter on it works the same as on any manually-expanded card.
-  // REQ-3: when the run transitions to all-completed (activeTaskId becomes undefined), ensure
-  // the last task card remains expanded so the operator sees a completion summary.
+  // REQ-3: when the run settles (activeTaskId becomes undefined), ensure the first blocked task
+  // (or, absent one, the last task) card remains expanded so the operator sees either the thing
+  // that needs attention or a completion summary.
   const prevActiveTaskIdRef = useRef<string | undefined>(activeTaskId);
   useEffect(() => {
     const prevId = prevActiveTaskIdRef.current;
@@ -241,28 +281,33 @@ const useTaskCardState = (
         next.add(activeTaskId);
         return next;
       });
-    } else if (activeTaskId === undefined && prevId !== undefined && lastTaskId !== undefined) {
-      // Transitioned to all-completed — expand the last task as the completion summary.
+    } else if (activeTaskId === undefined && prevId !== undefined && settledFallbackId !== undefined) {
+      // Transitioned to settled — expand the first blocked task (or the last task) as the
+      // post-run summary.
       setExpandedTaskIds((prev) => {
-        if (prev.has(lastTaskId)) return prev;
+        if (prev.has(settledFallbackId)) return prev;
         const next = new Set(prev);
-        next.add(lastTaskId);
+        next.add(settledFallbackId);
         return next;
       });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- lastTaskId is derived from bucketed.tasks; re-running on every task append would fight the guard (prevId check ensures we only act on activeTaskId transitions, not task additions).
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- settledFallbackId is derived from bucketed.tasks; re-running on every task append would fight the guard (prevId check ensures we only act on activeTaskId transitions, not task additions).
   }, [activeTaskId]);
 
   const isCardExpanded = (taskId: string): boolean => expandedTaskIds.has(taskId);
 
-  // The card cursor — defaults to the active task on first render, falls back to the last
-  // card when the active task no longer exists (e.g. the run has finished). Stays put across
-  // re-renders so a moving cursor doesn't jump.
+  // The card cursor — defaults to the active task on first render. Once the run has settled
+  // (no active task), it falls back to the first BLOCKED task rather than unconditionally the
+  // last card: a blocked task earlier in the list is exactly what the operator needs to see and
+  // act on, and anchoring on the LAST card would window it off-screen behind an overflow cue the
+  // instant the run finishes (see `firstBlockedIdx` above). Only when nothing is blocked does it
+  // fall through to the last card. Stays put across re-renders so a moving cursor doesn't jump.
   const effectiveCardCursor = useMemo(() => {
     if (cardCursor !== undefined && cardCursor >= 0 && cardCursor < bucketed.tasks.length) return cardCursor;
     if (activeTaskIdx >= 0) return activeTaskIdx;
+    if (firstBlockedIdx >= 0) return firstBlockedIdx;
     return bucketed.tasks.length - 1;
-  }, [cardCursor, activeTaskIdx, bucketed.tasks.length]);
+  }, [cardCursor, activeTaskIdx, firstBlockedIdx, bucketed.tasks.length]);
   const focusedCardId = effectiveCardCursor >= 0 ? bucketed.tasks[effectiveCardCursor]?.id : undefined;
   const focusedCardExpanded = focusedCardId !== undefined ? isCardExpanded(focusedCardId) : false;
 
@@ -343,6 +388,7 @@ const buildOverlayByTaskId = (sources: TaskOverlaySources): ReadonlyMap<string, 
   mergeOverlaySource(overlays, sources.recoveringByTaskId, (recovering) => ({ recovering }));
   mergeOverlaySource(overlays, sources.taskCriteriaById, (b) => (b.length > 0 ? { taskCriteria: b } : undefined));
   mergeOverlaySource(overlays, sources.blockedReasonById, (blockedReason) => ({ blockedReason }));
+  mergeOverlaySource(overlays, sources.blockedTriageById, (blockedTriage) => ({ blockedTriage }));
   mergeOverlaySource(overlays, sources.warningSummaryById, (warningSummary) => ({ warningSummary }));
   mergeOverlaySource(overlays, sources.taskEvaluationById, (taskEvaluation) => ({ taskEvaluation }));
   mergeOverlaySource(overlays, sources.pendingSubStepsByTaskId, (l) =>
@@ -459,12 +505,39 @@ const useTaskOverlays = (sources: TaskOverlaySources): ReadonlyMap<string, TaskO
       sources.recoveringByTaskId,
       sources.taskCriteriaById,
       sources.blockedReasonById,
+      sources.blockedTriageById,
       sources.warningSummaryById,
       sources.taskEvaluationById,
       sources.pendingSubStepsByTaskId,
       sources.sprintState,
     ]
   );
+
+/** Stable empty-set reference for the `blockedTaskIds` default — never recreated per render. */
+const NO_BLOCKED_TASK_IDS: ReadonlySet<string> = new Set();
+
+/**
+ * Bundles the "is anything settled yet" flag, the orphan-signal windowing offset, and the
+ * `TaskRowDerived` record every task card reads from. Pulled out of `TasksPanel`'s render body
+ * (mirrors the `useTaskCardState` / `useTasksPanelInput` splits already next door) purely to
+ * keep the component under the file's function-length budget — it owns no hooks and no state
+ * of its own, just the same arithmetic that used to sit inline right before the `return`.
+ */
+const buildRenderDerived = (
+  bucketed: BucketedExecution,
+  maxOrphanSignals: number,
+  cardState: TaskCardState,
+  rowSettings: Omit<TaskRowDerived, keyof TaskCardState | 'noSignalsYet'>
+): { readonly orphanSliceStart: number; readonly derived: TaskRowDerived } => {
+  // First-run state — tasks exist but no harness signal has fired yet across the whole run.
+  // The kinds bar is suppressed (it's already empty when no signals are present) and the
+  // active-task block shows a `waiting for first attempt…` line below the spinner.
+  const noSignalsYet =
+    bucketed.orphanSignals.length === 0 &&
+    bucketed.tasks.every((t) => t.signals.length === 0 && t.evaluations.length === 0);
+  const orphanSliceStart = bucketed.orphanSignals.length - Math.min(bucketed.orphanSignals.length, maxOrphanSignals);
+  return { orphanSliceStart, derived: { ...cardState, ...rowSettings, noSignalsYet } };
+};
 
 export const TasksPanel = ({
   bucketed,
@@ -479,6 +552,8 @@ export const TasksPanel = ({
   onFocusedCardChange,
   onExpandedCardChange,
   onOpenEvaluation,
+  blockedTaskIds = NO_BLOCKED_TASK_IDS,
+  onUnblock,
   ...overlaySources
 }: TasksPanelProps): React.JSX.Element => {
   // Render-time fallback for the idle-ticker clock. The execute view passes a polled `now` so
@@ -534,23 +609,16 @@ export const TasksPanel = ({
     setExpandedKeys,
     setCriteriaExpandedIds,
     evaluationTaskIds,
+    blockedTaskIds,
     ...(onOpenEvaluation !== undefined ? { onOpenEvaluation } : {}),
+    ...(onUnblock !== undefined ? { onUnblock } : {}),
     ...cardState,
   });
 
   if (bucketed.tasks.length === 0 && bucketed.orphanSignals.length === 0) {
     return <EmptyTasksPanel />;
   }
-  // First-run state — tasks exist but no harness signal has fired yet across the whole run.
-  // The kinds bar is suppressed (it's already empty when no signals are present) and the
-  // active-task block shows a `waiting for first attempt…` line below the spinner. Computed
-  // here so `TaskBlock` can pick it up via a single prop.
-  const noSignalsYet =
-    bucketed.orphanSignals.length === 0 &&
-    bucketed.tasks.every((t) => t.signals.length === 0 && t.evaluations.length === 0);
-  const orphanSliceStart = bucketed.orphanSignals.length - Math.min(bucketed.orphanSignals.length, maxOrphanSignals);
-  const derived: TaskRowDerived = {
-    ...cardState,
+  const { orphanSliceStart, derived } = buildRenderDerived(bucketed, maxOrphanSignals, cardState, {
     running,
     nameById,
     maxSubSteps: maxSubStepsPerTask,
@@ -558,10 +626,9 @@ export const TasksPanel = ({
     effectiveFocusedKey,
     expandedKeys,
     criteriaExpandedIds,
-    noSignalsYet,
     effectiveNowMs,
     maxSignalsPerTask,
-  };
+  });
   return (
     <Box flexDirection="column" paddingX={spacing.indent}>
       <InlineKindsBar kinds={collectKinds(bucketed)} />

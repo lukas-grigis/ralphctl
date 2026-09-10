@@ -16,12 +16,18 @@ import type { DistillStepOpts } from '@src/application/flows/_shared/memory/dist
 
 export interface ReviewDeps {
   readonly sprintRepo: SprintRepository;
+  /**
+   * Feeds `load-tasks` in `review-settle`, immediately before the blocked-task confirm gate —
+   * review's auto-done path transitions the sprint the same way close-sprint's explicit close
+   * does, so it needs the same task visibility.
+   */
   readonly taskRepo: TaskRepository;
   readonly provider: HeadlessAiProvider;
   readonly templateLoader: TemplateLoader;
   readonly eventBus: EventBus;
   readonly logger: Logger;
   readonly clock: () => IsoTimestamp;
+  /** Also drives the blocked-task confirm gate in `review-settle` (see `taskRepo` above). */
   readonly interactive: InteractivePrompt;
   readonly gitRunner: GitRunner;
   readonly shellScriptRunner: ShellScriptRunner;

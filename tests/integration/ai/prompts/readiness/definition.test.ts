@@ -318,4 +318,26 @@ describe('buildReadinessPrompt — per-tool conventions partial selection', () =
     // Distinctive text from conventions-agents-md.md
     expect(body).toContain('cross-tool agent context file');
   });
+
+  it('does not assert a CLAUDE.md-only heading cap alongside the AGENTS.md conventions it injects', async () => {
+    // Regression for the self-contradiction: the template used to hardcode "Exactly one H1; at
+    // most 7 H2 sections; no H4 or deeper" for every provider while also injecting
+    // conventions-agents-md.md, which tells codex/opencode/grok the opposite ("no formal H1
+    // required", "No depth limit on headings"). The template must defer entirely to whichever
+    // conventions partial it loads instead of asserting its own competing cap.
+    const result = await buildReadinessPrompt(deps, {
+      repositoryPath: '/repo/main',
+      currentTool: 'codex',
+      probedState: absentState(FIXED_NOW),
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+    });
+    if (!result.ok) throw new Error(`expected ok, got ${result.error.message}`);
+    const body = result.value as unknown as string;
+    expect(body).not.toContain('Exactly one H1');
+    expect(body).not.toContain('at most 7 H2');
+    expect(body).not.toContain('no H4 or deeper');
+    // The AGENTS.md partial's own, contradicting guidance still comes through unopposed.
+    expect(body).toContain('no formal H1 required');
+    expect(body).toContain('No depth limit on headings');
+  });
 });

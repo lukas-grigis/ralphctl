@@ -15,7 +15,7 @@ import { sprintStatusKind, StatusChip } from '@src/application/ui/tui/components
 import { PipelineMap } from '@src/application/ui/tui/components/pipeline-map.tsx';
 import { Spinner } from '@src/application/ui/tui/components/spinner.tsx';
 import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
-import type { AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
+import { computeTaskHealthCounts, type AppStateSnapshot } from '@src/application/ui/shared/state-snapshot.ts';
 import { buildNextSteps, nextStepsInputFromSnapshot } from '@src/application/ui/shared/next-steps.ts';
 import { NextStepList } from '@src/application/ui/tui/components/next-steps.tsx';
 
@@ -123,6 +123,10 @@ const ActiveSprintCard = ({ state }: { readonly state: AppStateSnapshot }): Reac
   // One shared table for Home, Flows, and the settled ResultCard — and it is checked against the
   // flow menu's own visibility rules, so `review` no longer points at create-pr (hidden there).
   const { steps } = buildNextSteps(nextStepsInputFromSnapshot(state));
+  // Independent of `resumableTaskCount` below (which excludes `blocked` entirely) — a sprint
+  // whose entire remainder is blocked used to read "0 tasks pending" with nothing else on the
+  // card to say otherwise.
+  const { blockedTaskCount } = computeTaskHealthCounts(state.tasks);
   return (
     <Card
       title={`${glyphs.actionCursor} ${sprint.name}`}
@@ -150,6 +154,15 @@ const ActiveSprintCard = ({ state }: { readonly state: AppStateSnapshot }): Reac
             <Text dimColor> approved {glyphs.bullet} </Text>
             <Text bold>{String(state.triggerInputs.resumableTaskCount)}</Text>
             <Text dimColor> tasks pending</Text>
+            {blockedTaskCount > 0 && (
+              <Text>
+                <Text dimColor> {glyphs.bullet} </Text>
+                <Text bold color={inkColors.error}>
+                  {String(blockedTaskCount)}
+                </Text>
+                <Text dimColor> blocked</Text>
+              </Text>
+            )}
           </Text>
         </Box>
         <Box marginTop={spacing.section}>

@@ -29,7 +29,98 @@ to [Semantic Versioning](https://semver.org/).
   sharing `~/.grok/leader.sock`: Grok kills every leader process it discovers at startup, so
   a shared socket lets a harness run and a Grok you already have open tear each other down.
 
+- **`ralphctl sprint reopen <id>`** — the deliberate exit from an otherwise-terminal `done`
+  sprint. Lands it back in `review` (idempotent — an already-`review` sprint passes through
+  unchanged) and enforces the same single-active-per-project invariant as `sprint activate`, so
+  a reopen can't collide with a sprint already live on the project. `sprint close` also gained
+  `-y/--yes` to skip its new confirmation (see Changed) non-interactively.
+
+- **Blocked work is now visible everywhere an operator looks, not just the task it happened to.**
+  Home's status card, the sprints list, the cross-project sprint picker, sprint-detail's header,
+  the settled-run summary, and the `Next steps` block all now show a blocked count — including
+  once a sprint is `done`, since unblocking there reopens it (see Changed) rather than leaving the
+  count meaningless. Sprint-detail gets a `B` chord that cycles the cursor to the next blocked
+  item; `u` (unblock) is now reachable from the Execute view's own tasks panel, not only
+  sprint-detail and the sprints list; and a blocked card can no longer be windowed off-screen. On
+  the CLI, `sprint progress` groups blocked tasks by root cause instead of listing a whole cascade
+  as equal-weight rows — an upstream-blocked chain collapses under the task that's actually
+  broken, each with its reason and a `ralphctl task unblock <id>` hint — and `task list` prints a
+  blocked task's reason plus a recovery hint the same way.
+
+- **The generator can say what, specifically, it's stuck on.** The `task-blocked` signal gains
+  optional `blockerClass` (`missing-information` / `ambiguous-request` /
+  `contradictory-information`), `question` (the one thing that, answered, unblocks it), and
+  `whatUnblocksMe`. When the generator supplies them they're persisted on the task and shown
+  alongside the reason in both `ralphctl task list` and the TUI, instead of free-form reason
+  prose being the only clue. All three are optional — a plain reason-only block still works.
+
+- **A settled block now raises a banner and an OS notification**, the moment
+  `settleAttemptUseCase` transitions a task to `blocked` — previously the only signs were the
+  Tasks panel and `progress.md`, which meant an unattended run's most common failure mode was
+  also its quietest.
+
+### Changed
+
+- **Both doors to `done` now confirm before closing over blocked work, naming the tasks.**
+  Closing a sprint has always been able to proceed with blocked tasks left in it — that's still
+  true, this is a confirm, not a refusal — but neither path used to say so. `sprint close` (the
+  TUI launcher and the CLI command) and the review flow's auto-done transition (an empty or
+  repeated feedback round) both now load the sprint's tasks and, if any are blocked, ask first. In
+  the TUI the pre-flight confirm folds in a blocked/todo count and the in-chain gate names each
+  one; on the CLI, `sprint close` prompts with the same names (`-y`/`--yes` skips it) and, once
+  the close proceeds either way, prints which tasks stayed blocked and how to recover them.
+
+- **Unblocking a task now archives its history instead of erasing it.** A clean restart still
+  resets the attempt budget and drops the block classification and escalation stamps, exactly as
+  before, but the cleared attempts, per-criterion verdicts, and escalation stamps are now packaged
+  into one entry on the task's new `retiredAttempts` list rather than discarded — so
+  `ralphctl runs stats` and the TUI's outcome card keep counting a task's full attempt history
+  after an operator intervenes, not just what happened since the last unblock. Existing
+  `tasks.json` files load unchanged; nothing needs migrating.
+
+- **Unblocking a task on a `done` sprint reopens it** (`done` → `review` → `active`) instead of
+  reviving a task with nowhere to run — closing a sprint with blocked work is a legitimate
+  descoping call, but it shouldn't make that work permanently unreachable if someone later
+  supplies what it needed.
+
+- **Prompt templates reworked against Anthropic's prompt-engineering guidance.** New shared
+  partials — instructing autonomous operation (decide and proceed instead of asking a question
+  nobody is there to answer; a turn that ends on a plan instead of the tool calls that execute it
+  is indistinguishable from a turn that did nothing), batching independent tool calls in one turn,
+  bounding how much command output gets quoted versus written to a file, an evaluator
+  failure-modes checklist (resist being talked out of a finding, rubber-stamping a green verify
+  script, and inventing a defect with no evidence), and a mid-run evaluation-checkpoint shape —
+  now back `implement`, `implement-continuation`, `evaluate`, `evaluate-continuation`, and
+  `reproduce`; task-field and task-sizing guidance is likewise shared between `plan` and `ideate`
+  instead of duplicated. A generator or evaluator session should read as noticeably less prone to
+  stalling on a question, and more exacting about evidence.
+
+- **The nine bundled skills that documented signals via `<note>` / `<decision>` angle-bracket
+  tags now teach the actual contract: typed objects in `signals.json`.** The tags were never
+  parsed by the harness — a skill following that guidance produced a tag nothing read. The
+  skill-contract checker gained a rule (S7) that flags the old tag syntax in any SKILL.md, bundled
+  or operator-authored, so the mistake can't ship silently again.
+
 ### Fixed
+
+- **A blocked task's rejected diff is no longer destroyed on the parallel implement path.** The
+  serial path already quarantined a self-block's rejected diff to `git stash` so the shared
+  worktree stayed clean for the next task; the parallel path's per-task worktree had no such
+  step, so a worktree that ended up blocked was force-removed with its uncommitted diff still in
+  it — verified, committed-then-unlandable work included, since a fold conflict re-blocks an
+  already-`done` task after its commits landed. Both paths now stash the rejected diff before the
+  tree is touched again, keyed on sprint + task and restored by matching the stash's own message
+  (never a positional index, which a concurrent stash on the same repo would invalidate). The
+  parallel path also keeps the task's worktree branch ref alive instead of deleting it when the
+  task ends blocked, so a fold-conflicted commit stays reachable rather than reflog-only.
+
+- **Resuming a parallel implement run no longer silently does nothing.** A dependent task whose
+  prerequisite had already settled `done` in an earlier session read as a dangling dependency once
+  the resumed run narrowed its graph to just the remaining tasks — the schedule failed closed, and
+  that failure was swallowed into an empty wave list, so the run reported `completed` having run
+  nothing. Resuming now tells the scheduler which ids outside the queue are already satisfied, and
+  a task graph that's genuinely unschedulable (a real cycle or dangling id) is reported to the
+  operator as a launch failure instead of a quiet no-op.
 
 - **Interactive sessions no longer hang on a black screen after the TUI hands over the terminal.**
   Seen with Grok but provider-agnostic: an interactive CLI queries the terminal for its capabilities

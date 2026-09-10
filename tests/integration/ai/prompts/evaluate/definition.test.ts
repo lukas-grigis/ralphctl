@@ -88,9 +88,14 @@ describe('evaluatePromptDef — completeness', () => {
     expect(evaluatePromptDef.expectedSignals).toEqual(['evaluation']);
   });
 
-  it('wires only the harness-context partial — output contract is a parameter, not a partial', () => {
+  it('output contract rides as a parameter, not a partial', () => {
     expect(evaluatePromptDef.partials).toEqual({
       HARNESS_CONTEXT: 'harness-context',
+      AUTONOMOUS_OPERATION: 'autonomous-operation',
+      PARALLEL_TOOL_CALLS: 'parallel-tool-calls',
+      EVIDENCE_BOUND: 'evidence-bound',
+      EVALUATOR_FAILURE_MODES: 'evaluator-failure-modes',
+      EVALUATION_CHECKPOINT: 'evaluation-checkpoint',
     });
   });
 
@@ -119,6 +124,17 @@ describe('evaluatePromptDef — completeness', () => {
     // directly contradicted the "Otherwise cite the specific path:line" PASS route above for the same case.)
     expect(template).toContain('blocked from executing it here');
     expect(template).toContain('not runnable by nature is never UNVERIFIED');
+  });
+
+  it('anchors Phase 1 orientation to the task specification rather than a prose restatement', async () => {
+    // Fable 5's scaffolding guidance: instructions telling the model to echo its reasoning as
+    // response text can trigger the `reasoning_extraction` refusal category. The old wording
+    // asked for a two-to-three-line prose restatement before running checks; the fix points at
+    // an artefact the harness already reads (`<task_specification>`) instead of narration.
+    const path = `${String(defaultTemplatesDir())}/evaluate/template.md`;
+    const template = (await fs.readFile(path, 'utf8')).replace(/\s+/g, ' ');
+    expect(template).toContain('confirm against `<task_specification>` above');
+    expect(template).not.toContain('restate in two or three lines');
   });
 });
 
@@ -368,6 +384,66 @@ describe('buildEvaluatePrompt — end-to-end against the real template', () => {
     const extrasIdx = result.value.indexOf('Task-specific dimensions');
     expect(floorIdx).toBeGreaterThan(-1);
     expect(extrasIdx).toBeGreaterThan(floorIdx);
+  });
+
+  it('tells the model the user is not watching', async () => {
+    const task = makeTaskWith({ name: 'export CSV' });
+    const result = await buildEvaluatePrompt(deps, {
+      task,
+      projectPath: '/tmp/ralph/main-repo',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toContain('operating autonomously');
+    expect(result.value).toContain('not watching in real time');
+  });
+
+  it('nudges Phase 1 reconnaissance toward batched, parallel tool calls', async () => {
+    const task = makeTaskWith({ name: 'export CSV' });
+    const result = await buildEvaluatePrompt(deps, {
+      task,
+      projectPath: '/tmp/ralph/main-repo',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const flattened = result.value.replace(/\s+/g, ' ');
+    expect(flattened).toContain('request all of them in this turn rather than one at a time');
+  });
+
+  it('states the evaluator-failure-modes list and the bounded-evidence rule exactly once each', async () => {
+    const task = makeTaskWith({ name: 'export CSV' });
+    const result = await buildEvaluatePrompt(deps, {
+      task,
+      projectPath: '/tmp/ralph/main-repo',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const failureModeOccurrences = result.value.split('worth naming, it is worth FAILing').length - 1;
+    expect(failureModeOccurrences).toBe(1);
+    const flattened = result.value.replace(/\s+/g, ' ');
+    const evidenceBoundOccurrences = flattened.split('rather than the full log').length - 1;
+    expect(evidenceBoundOccurrences).toBe(1);
+  });
+
+  it('writes the Phase 0 checkpoint via the shared evaluation-checkpoint partial', async () => {
+    const task = makeTaskWith({ name: 'export CSV' });
+    const result = await buildEvaluatePrompt(deps, {
+      task,
+      projectPath: '/tmp/ralph/main-repo',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toContain('"dimension": "correctness", "passed": false, "finding": "assessment in progress"');
+    expect(result.value).toContain('Robustness carries the optional `applicable` field');
+    expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
 });
 

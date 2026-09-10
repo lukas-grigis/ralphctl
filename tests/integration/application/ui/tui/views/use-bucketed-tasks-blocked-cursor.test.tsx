@@ -59,7 +59,9 @@ describe('useBucketedTasks — dependency-blocked cursor', () => {
     let last: BucketedDerivation | undefined;
     const r = render(<Probe bus={bus} onState={(d) => (last = d)} />);
 
-    expect(last?.bucketed?.tasks[0]?.status).toBe('skipped');
+    // Dependency-blocked tasks now resolve to the dedicated `blocked` bucket status, distinct
+    // from the muted `skipped` rendering they used to share with a merely-pending task.
+    expect(last?.bucketed?.tasks[0]?.status).toBe('blocked');
     expect(last?.currentTask?.id).toBe(RUNNING);
     expect(last?.currentTaskName).toBe('The task actually running');
     expect(last?.currentSubStep).toBe('generator');

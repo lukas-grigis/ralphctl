@@ -1,6 +1,6 @@
 ---
 name: ralphctl-alignment
-description: Cross-phase skill — establish a shared understanding of what will and will not be done before producing output. Restate the input back to the user, surface assumptions, name non-goals, and agree before you write. For an input that is still a raw, unshaped idea needing multiple candidate directions before one is chosen, run the ralphctl-idea-refinement skill first when it is installed in this session; alignment then confirms whichever direction comes out of it.
+description: Cross-phase skill — establish a shared understanding of what will and will not be done before producing output. Restates the input back to the user, surfaces assumptions, names non-goals, and reaches agreement before drafting output. Use before writing criteria, tasks, or code whenever the input's scope has not yet been confirmed. For an input that is still a raw, unshaped idea needing multiple candidate directions before one is chosen, run the ralphctl-idea-refinement skill first when it is installed in this session; alignment then confirms whichever direction comes out of it.
 ---
 
 # Alignment
@@ -21,8 +21,8 @@ the whole change.
 - **Plan** — confirm the planner's read of the requirements before generating tasks. Repo selection, scope
   boundaries, and dependency assumptions all need to land before task decomposition starts.
 - **Execute** — re-read the task spec's verification criteria before writing code. The contract is the
-  arbiter; if your read of it differs from what's written, surface the conflict in a `<note>` rather than
-  guessing.
+  arbiter; if your read of it differs from what's written, surface the conflict as a `note` signal in
+  `signals.json` rather than guessing.
 
 ## What to do
 

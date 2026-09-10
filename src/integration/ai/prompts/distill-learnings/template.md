@@ -37,7 +37,8 @@ hand-authored or owned by another tool — preserve it byte-for-byte.
 - When `{{TARGET_FILENAME}}` does not exist yet, create it (and any missing parent directory) containing
   only the owned section.
 - Never create a second `## {{LEARNINGS_SECTION_HEADING}}` section — there must be exactly one.
-  </owned_section>
+
+</owned_section>
 
 <idempotency_rule>
 The folding MUST be idempotent — running this call twice on the same inputs leaves the file identical the
@@ -49,7 +50,8 @@ second time:
   second one.
 - Genuinely new candidates are appended as new bullets.
 - Existing bullets that no candidate touches stay exactly as they are.
-  </idempotency_rule>
+
+</idempotency_rule>
 
 <curation_rules>
 

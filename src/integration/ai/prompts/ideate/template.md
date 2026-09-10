@@ -169,44 +169,11 @@ Read the mounted repositories to ground the plan:
 
 Create dependency-ordered tasks. Each task is a self-contained mini-spec an AI agent can pick up cold.
 
-For each task, provide:
+{{TASK_FIELDS}}
 
-- **`id`** — short stable string used in `blockedBy` references (e.g. `"1"`, `"api-shape"`).
-- **`name`** — imperative verb phrase, short (e.g. `"Wire CSV export endpoint"`).
-- **`description`** — optional longer-form context; include only when `name` leaves important ambiguity.
-- **`projectPath`** — absolute path matching exactly one of the entries in `<repositories>`.
-- **`steps`** — concrete, ordered implementation steps. Do NOT end steps with "run the
-  verification commands" or "run all the checks" — verification belongs in `verificationCriteria`;
-  the harness and the evaluator execute it. A final step that re-runs the full suite only duplicates
-  the post-task gate and inflates generator cost. Exception: a step MAY run a specific check when a
-  later step depends on its output (e.g. "run the migration dry-run and confirm the schema diff
-  before writing the rollback script").
-- **`verificationCriteria`** — array of structured criteria the evaluator grades PASS / FAIL:
-  - `id` — stable within the task (e.g. `"C1"`); the evaluator cites it verbatim.
-  - `assertion` — human-readable check.
-  - `check` — `"auto"` (evaluator runs `command`) or `"manual"` (evaluator inspects code or behaviour
-    and cites a specific location).
-  - `command` — REQUIRED when `check === "auto"`; MUST be omitted when `check === "manual"`.
-  - Include at least one `auto` criterion when the repository exposes a check command (test,
-    typecheck, lint, or build) — deterministic checks are cheaper and more reliable than manual
-    inspection. Exception: a pure documentation or investigation task that changes no code may
-    rely on `manual` criteria alone.
-- **`blockedBy`** — array of `id` strings that must complete before this task starts.
-- **`extraDimensions`** — optional kebab-case evaluator dimensions beyond the five floor dimensions
-  (correctness, completeness, safety, consistency, robustness). Attach an extra dimension ONLY when an
-  acceptance criterion explicitly demands a measurable property that no floor dimension covers AND no
-  manual criterion already encodes it. When in doubt, omit — the floor dimensions are almost always
-  sufficient. Example of a justified attachment: `migration-safety` when the requirement demands a
-  zero-downtime schema change that the five floor dimensions cannot score on their own. Cap: 2–3 per
-  task; hard max 6.
+**Task sizing:**
 
-**Task sizing (brief):** size each task as one coherent feature — a vertical slice a single AI session
-can implement and verify end-to-end. Do not split a utility from its first caller, or a feature from its
-tests — those stay one task. Split when two chunks touch different repositories, or when a natural,
-independently verifiable boundary exists partway through (e.g. schema lands before consumer wiring).
-Avoid `blockedBy` chains for trivial reasons, one task per file, or micro-refactor tasks — fold those
-into the task that needs them. Soft ceiling, not a target: if a task would touch more than ~10 files or
-~500 lines of meaningful change AND a natural split point exists, split it; otherwise keep it whole.
+{{TASK_SIZING}}
 
 For genuinely contested implementation decisions (library choice, architecture), ask the user a
 structured multiple-choice question before finalising those tasks. Do not ask about routine questions
@@ -229,37 +196,52 @@ Options:
 Iterate until approved. If rejected, revise and re-present from Step 2.2 — Phase 1 approval stands
 and does not need to be repeated.
 
-### Step 2.4 — Validate before output
+**Step 2.4 — Validate before output.**
 
 {{VALIDATION_CHECKLIST}}
 
 ---
 
 <output_contract>
-After both phases are approved, write `<outputDir>/signals.json` with this structure:
+After both phases are approved, write `<outputDir>/signals.json` with exactly one
+`ideated-tickets` signal. Its `outputJson` field is a JSON-encoded string; when decoded it has
+exactly two keys:
+
+- `requirements` — the approved markdown body from Phase 1, verbatim.
+- `tasks` — the approved task array from Phase 2, conforming to `<task_schema>`.
+
+Decoded, `outputJson` looks like this (the two keys above; the `## Output contract` section below
+renders the full `signals.json` wrapper it is embedded in):
 
 ```json
 {
-  "schemaVersion": 1,
-  "signals": [
+  "requirements": "## Problem\n...\n\n## Acceptance Criteria\n...",
+  "tasks": [
     {
-      "type": "ideated-tickets",
-      "outputJson": "{\"requirements\":\"## Problem\\n...\\n\\n## Acceptance Criteria\\n...\",\"tasks\":[{\"id\":\"1\",\"name\":\"...\",\"projectPath\":\"/abs/repo\",\"steps\":[\"...\"],\"verificationCriteria\":[{\"id\":\"C1\",\"assertion\":\"TypeScript compiles with no errors\",\"check\":\"auto\",\"command\":\"<project typecheck command>\"},{\"id\":\"C2\",\"assertion\":\"API returns 400 on invalid input\",\"check\":\"manual\"}],\"blockedBy\":[]}]}",
-      "timestamp": "<ISO 8601 timestamp>"
+      "id": "1",
+      "name": "...",
+      "projectPath": "/abs/repo",
+      "steps": ["..."],
+      "verificationCriteria": [
+        {
+          "id": "C1",
+          "assertion": "TypeScript compiles with no errors",
+          "check": "auto",
+          "command": "<project typecheck command>"
+        },
+        { "id": "C2", "assertion": "API returns 400 on invalid input", "check": "manual" }
+      ],
+      "blockedBy": []
     }
   ]
 }
 ```
 
-The `outputJson` field is a JSON-encoded string. When decoded it has exactly two keys:
-
-- `requirements` — the approved markdown body from Phase 1, verbatim.
-- `tasks` — the approved task array from Phase 2, conforming to `<task_schema>`.
-
-**Required signals:** exactly one `ideated-tickets`.
+The `## Output contract` section below names the exact output directory and `signals.json` path
+for this session.
 
 **Optional signals** (emit when relevant). Each carries its prose in a `text` field — never
-`body`; the output contract below shows the exact shape:
+`body`:
 
 - `note` — for status updates or observations worth surfacing.
 - `learning` — for non-obvious repo facts discovered during exploration.

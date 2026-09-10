@@ -1,6 +1,6 @@
 ---
 name: ralphctl-code-review-and-quality
-description: Multi-phase code-quality skill — primary frame for the evaluator role in Execute, the architecture axis in Plan, and correctness/readability in Refine. Multi-axis code review with severity vocabulary. Use when you are the evaluator assessing a generator's output, and when reviewing any change before signalling completion. AI-written code needs MORE scrutiny, not less.
+description: Multi-phase code-quality skill — primary frame for the evaluator role in Execute, the architecture axis in Plan, and correctness/readability in Refine. Multi-axis code review with severity vocabulary. Use when acting as the evaluator assessing a generator's output, and when reviewing any change before signalling completion. AI-written code needs MORE scrutiny, not less.
 license: MIT
 ---
 
@@ -136,16 +136,19 @@ Walk through the code with the five axes in mind. For each file changed:
 
 ### Step 4: Surface Findings via Signals
 
-The harness — not the AI — owns the final post-task verification verdict. Surface your findings through
-the harness signal mechanism:
+The harness — not the AI — owns the final post-task verification verdict. Surface your findings as typed
+JSON signal objects in the run's `signals.json` (each has a `type` discriminant; the prompt's output-contract
+section names the exact file and shape):
 
-- Use `<note>` for informational observations, Minor/Nit findings, and anything that does not change the
-  verdict but is worth recording.
-- Use `<decision>` when a Critical or Major finding changes the approach — record what was found and why
-  the current direction was adjusted.
+- Write a `note` signal for informational observations, Minor/Nit findings, and anything that does not
+  change the verdict but is worth recording.
+- When acting as the **generator**, write a `decision` signal when a Critical or Major finding changes the
+  approach — record what was found and why the current direction was adjusted. This signal is
+  generator-only: the evaluator's contract has no `decision` schema, so emitting one there fails the whole
+  payload.
 - When acting as the **evaluator**, encode the overall verdict (pass / fail, which dimensions failed, and
   the severity of each finding) in the evaluator's output as directed by the task prompt — not in a
-  separate file or report.
+  separate file or report, and not as a `decision` signal.
 
 Do not write a standalone review report to a file. The harness's signal pipeline and the evaluator's
 structured output are the authoritative record.
@@ -183,7 +186,7 @@ two changes. Small cleanups (variable renaming) can be included at reviewer disc
 After any refactoring or implementation change, check for orphaned code:
 
 - Identify code that is now unreachable or unused.
-- List it explicitly in a `<note>` signal.
+- List it explicitly in a `note` signal.
 - Confirm before deleting — do not silently remove things you are not certain about.
 
 Dead code confuses future readers. But silent deletion of uncertain artefacts is worse than leaving them in
@@ -238,7 +241,7 @@ Before signalling completion or a passing evaluator verdict, run through:
 - [ ] Follows existing architectural patterns.
 - [ ] No secrets in code; input validated at boundaries.
 - [ ] No N+1 patterns or unbounded operations.
-- [ ] Findings surfaced via `<note>` / `<decision>` signals with severity labels.
+- [ ] Findings surfaced as `note` signals in `signals.json` (generator role: `decision` too), with severity labels.
 
 ## Red Flags
 

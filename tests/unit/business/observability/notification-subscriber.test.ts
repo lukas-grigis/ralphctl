@@ -153,6 +153,23 @@ describe('classifyEventForNotification', () => {
     ).toBeUndefined();
   });
 
+  it("emits 'attention' for task-blocked, naming the task and the reason in the body", () => {
+    expect(
+      classifyEventForNotification({
+        type: 'task-blocked',
+        taskId: 'task-1',
+        taskName: 'wire the thing',
+        blockKind: 'own',
+        reason: 'generator emitted <task-blocked>',
+        at: NOW,
+      })
+    ).toEqual({
+      level: 'attention',
+      title: 'Task blocked',
+      body: 'wire the thing: generator emitted <task-blocked>',
+    });
+  });
+
   it('ignores unrelated event types (chain-started, chain-completed, memory-pressure, etc.)', () => {
     expect(
       classifyEventForNotification({ type: 'chain-started', chainId: 'c-1', flowId: 'implement', at: NOW })
@@ -183,6 +200,23 @@ describe('startNotificationSubscriber', () => {
     // Dispatch is fire-and-forget; flush microtasks before asserting.
     await Promise.resolve();
     expect(h.calls).toEqual([{ level: 'failure', title: 'ralphctl aborted', body: 'SIGTERM' }]);
+    h.unsub();
+  });
+
+  it('routes a task-blocked event through the dispatcher as an attention notification', async () => {
+    const h = buildHarness();
+    h.bus.publish({
+      type: 'task-blocked',
+      taskId: 'task-1',
+      taskName: 'wire the thing',
+      blockKind: 'own',
+      reason: 'baseline already red',
+      at: NOW,
+    });
+    await Promise.resolve();
+    expect(h.calls).toEqual([
+      { level: 'attention', title: 'Task blocked', body: 'wire the thing: baseline already red' },
+    ]);
     h.unsub();
   });
 

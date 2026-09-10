@@ -14,6 +14,7 @@ import type { ProjectId } from '@src/domain/value/id/project-id.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { Task } from '@src/domain/entity/task.ts';
+import { isUpstreamBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import type { ProjectRepository } from '@src/domain/repository/project/project-repository.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
@@ -40,6 +41,74 @@ export interface AppStateSnapshot {
 }
 
 const RECENT_SPRINTS_LIMIT = 5;
+
+/**
+ * Blocked-task health derived from a task list — independent of `TriggerInputs.resumableTaskCount`,
+ * which counts `todo` + `in_progress` and excludes `blocked` entirely. A sprint whose entire
+ * remainder is blocked has `resumableTaskCount === 0`, which used to read as "nothing pending"
+ * everywhere this shows up; these two numbers are how every orientation surface (Home, the
+ * settled ResultCard, the Sprints list, the sprint picker) counts the stuck work instead of
+ * silently dropping it.
+ *
+ * NOT folded into {@link TriggerInputs} — that type is owned by the flow-gating registry
+ * (`registry-triggers.ts`) and no flow trigger gates on it today. Kept as a standalone helper so
+ * every consumer (this module, `next-steps.ts`, the Execute view's settled-run projection) derives
+ * it the same way from whatever task list it already has, rather than each re-deriving its own
+ * `todo`/`in_progress`-shaped filter.
+ */
+export interface TaskHealthCounts {
+  /** Every task currently `blocked`, upstream + own combined. */
+  readonly blockedTaskCount: number;
+  /**
+   * Subset of `blockedTaskCount` blocked solely on an unfinished prerequisite
+   * ({@link isUpstreamBlocked}) — mechanically clearable once the root task unblocks / completes.
+   * `blockedTaskCount - upstreamBlockedTaskCount` is blocked on its OWN merits (eval / verify /
+   * budget / operator cancel) and needs a real fix, never an automatic cascade.
+   */
+  readonly upstreamBlockedTaskCount: number;
+}
+
+export const computeTaskHealthCounts = (tasks: readonly Task[]): TaskHealthCounts => {
+  let blockedTaskCount = 0;
+  let upstreamBlockedTaskCount = 0;
+  for (const task of tasks) {
+    if (task.status !== 'blocked') continue;
+    blockedTaskCount += 1;
+    if (isUpstreamBlocked(task)) upstreamBlockedTaskCount += 1;
+  }
+  return { blockedTaskCount, upstreamBlockedTaskCount };
+};
+
+/**
+ * Batch-loads {@link computeTaskHealthCounts} for a set of sprints — one `findBySprintId` per
+ * sprint, run in parallel via a single `Promise.all`, never a fetch per rendered row (which would
+ * re-run on every scroll / re-render and could stall a list with many sprints). One sprint's
+ * fetch throwing degrades ONLY that sprint to zero counts rather than failing the whole batch;
+ * `AbortError` is the one exception — it propagates so a cancelled load surfaces as a cancel, not
+ * a silently-degraded result.
+ *
+ * The Sprints list and the cross-project sprint picker both need this — extracted here (instead
+ * of each view re-deriving its own fetch-and-guard loop) so a future change to the fetch (e.g.
+ * batching by project) has exactly one call site to edit.
+ */
+export const loadTaskHealthBySprintId = async (
+  taskRepo: TaskRepository,
+  sprints: readonly Sprint[]
+): Promise<ReadonlyMap<SprintId, TaskHealthCounts>> => {
+  const bySprintId = new Map<SprintId, TaskHealthCounts>();
+  await Promise.all(
+    sprints.map(async (sprint) => {
+      try {
+        const taskR = await taskRepo.findBySprintId(sprint.id);
+        bySprintId.set(sprint.id, computeTaskHealthCounts(taskR.ok ? taskR.value : []));
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') throw err;
+        bySprintId.set(sprint.id, { blockedTaskCount: 0, upstreamBlockedTaskCount: 0 });
+      }
+    })
+  );
+  return bySprintId;
+};
 
 export interface LoadSnapshotDeps {
   readonly projectRepo: ProjectRepository;

@@ -19,11 +19,22 @@
  * per-task substep trace alone:
  *
  *  - any substep failed/aborted (terminally) → that status (last-wins for failed-vs-aborted)
- *  - the guarded body composite (`task-body-<id>`) recorded as `skipped` → `skipped`
- *    (the dependency gate blocked the task upstream, so nothing inside the body ever ran)
+ *  - the guarded body composite (`task-body-<id>`) recorded as `skipped` → `blocked`
+ *    (the dependency gate blocked the task upstream, so nothing inside the body ever ran —
+ *    this is a DISTINCT bucket status from the per-substep `skipped`, which just means one
+ *    inner guard skipped routinely while the rest of the body still ran)
  *  - last expected substep (`uninstall-skills-<id>`) recorded as `completed` → `completed`
  *  - any substep recorded, but not yet `uninstall-skills` → `running`
  *  - no substeps recorded → `pending`
+ *
+ * KNOWN BLIND SPOT — a task blocked on its OWN merits (budget exhausted, a red post-task-verify,
+ * a generator self-block) runs its ENTIRE subchain to the terminal `uninstall-skills` leaf with no
+ * failed/aborted/skipped substep anywhere: `settleAttemptUseCase` records the block on the task
+ * ENTITY and returns `Result.ok` so the chain can continue to the next task. The trace alone
+ * cannot distinguish that from a genuine `done` — both look identical here. `bucketTaskSignals`
+ * stays trace-only and pure (it has no entity access), so this blind spot is corrected by callers
+ * via {@link overlayEntityBlockedStatus}, applied wherever a `BucketedExecution` is about to drive
+ * a status-sensitive surface (a card glyph, a done/total count, the sidebar minimap).
  *
  * The function is pure and total — empty inputs yield `{ tasks: [], orphanSignals: [] }`.
  * The execute view re-runs it on every render; that's fine because the cost is linear and the
@@ -33,6 +44,7 @@
 import type { Trace, TraceStatus } from '@src/application/chain/trace.ts';
 import type { AppEvent } from '@src/business/observability/events.ts';
 import type { EvaluationSignal, HarnessSignal } from '@src/domain/signal.ts';
+import type { Task } from '@src/domain/entity/task.ts';
 import type { SignalBusEntry } from '@src/application/ui/tui/runtime/sinks-context.tsx';
 
 /**
@@ -63,7 +75,15 @@ const DEFAULT_TERMINAL_SUBSTEP = 'uninstall-skills';
  */
 const DEFAULT_BODY_SUBSTEP = 'task-body';
 
-export type TaskBucketStatus = TraceStatus | 'running' | 'pending';
+/**
+ * `blocked` is a WHOLE-TASK bucket status, distinct from the per-substep `skipped` carried by
+ * {@link TraceStatus} (a task can have several routinely-skipped inner sub-steps — e.g. the
+ * `reproduce` / `quarantine-blocked-diff` guards on the happy path — and still complete
+ * normally). It is emitted ONLY when the guarded body composite itself was skipped, meaning the
+ * dependency gate blocked the task before any of its work ran. See
+ * {@link resolveStatusFromSubSteps}.
+ */
+export type TaskBucketStatus = TraceStatus | 'running' | 'pending' | 'blocked';
 
 export interface TaskSubStep {
   /** Leaf name with the task-id suffix stripped (e.g. `generator`, `commit-task`). */
@@ -337,7 +357,10 @@ const bucketSignals = (
  * A `skipped` BODY composite is checked next: the dependency gate blocks a task by transitioning
  * it to `blocked upstream …` and letting the body guard skip the whole lifecycle, which leaves
  * no failed/aborted entry and no terminal leaf. Without this branch the task read `running`
- * forever and pinned the Execute header's active-task cursor for the rest of the run.
+ * forever and pinned the Execute header's active-task cursor for the rest of the run. This
+ * resolves to the dedicated `blocked` bucket status (NOT `skipped`) so the operator-visible
+ * surfaces (task card, sidebar minimap) render it with the same error-level treatment as the
+ * entity's real `blocked` status, instead of the same muted grey as a merely-pending task.
  *
  * The terminal check requires the terminal leaf to have COMPLETED — a skipped terminal entry
  * (were `guard` ever changed to synthesise one entry per flattened leaf) must never read as a
@@ -353,7 +376,7 @@ const resolveStatusFromSubSteps = (
     if (sub.status === 'aborted') return 'aborted';
     if (sub.status === 'failed') return 'failed';
   }
-  if (subSteps.some((s) => s.leafName === bodySubstepName && s.status === 'skipped')) return 'skipped';
+  if (subSteps.some((s) => s.leafName === bodySubstepName && s.status === 'skipped')) return 'blocked';
   const lastSeen = subSteps.some((s) => s.leafName === terminalSubstepName && s.status === 'completed');
   return lastSeen ? 'completed' : 'running';
 };
@@ -361,14 +384,56 @@ const resolveStatusFromSubSteps = (
 /**
  * Is this bucket the one the operator is watching? `running` mid-task, `pending` in the brief
  * transition window between tasks. Settled buckets — `completed`, but equally `failed` /
- * `aborted` / `skipped` — sit BEHIND the cursor: the Execute header's active-task readout and
- * the Tasks panel's active-card anchor both scan for the first in-flight bucket, and a blocked
- * (skipped) task earlier in the list must not hold that cursor while later tasks actually run.
+ * `aborted` / `skipped` / `blocked` — sit BEHIND the cursor: the Execute header's active-task
+ * readout and the Tasks panel's active-card anchor both scan for the first in-flight bucket, and
+ * a task blocked earlier in the list must not hold that cursor while later tasks actually run.
  *
  * @public
  */
 export const isInFlightBucket = (bucket: { readonly status: TaskBucketStatus }): boolean =>
   bucket.status === 'running' || bucket.status === 'pending';
+
+/**
+ * Correct the trace-only blind spot the module docstring names: a task blocked on its own merits
+ * (budget exhausted, red post-task-verify, generator self-block) leaves an all-`completed` trace
+ * indistinguishable from a genuine pass, because `settleAttemptUseCase` records the block on the
+ * task ENTITY, not on the chain. This overlays that entity truth back onto the bucket — any bucket
+ * whose id names a polled `blocked` task entity is stamped `blocked` here, UNLESS the trace already
+ * recorded something that must win: a chain-level `failed`/`aborted` (an abort landing mid-subchain
+ * outranks a settle that happened to complete after it), or the trace's own dependency-gate
+ * `blocked` (already correct, nothing to overlay).
+ *
+ * Callers apply this at every boundary where a trace-derived `BucketedExecution` meets the polled
+ * task list, right before the result drives a status-sensitive surface — a card's glyph/status
+ * word, a done/total count, the sidebar minimap. `bucketTaskSignals` itself stays pure and
+ * trace-only (see the module docstring); it has no entity access to do this correction itself.
+ *
+ * Pure and reference-stable: returns the SAME `BucketedExecution` when no task needed correcting
+ * (no `taskState`, no task in it reads `blocked`, or every blocked entity's bucket already agrees),
+ * so a memoized consumer downstream doesn't re-render on every 3s baseline-health poll tick.
+ *
+ * @public
+ */
+export const overlayEntityBlockedStatus = (
+  bucketed: BucketedExecution,
+  taskState: readonly Task[] | undefined
+): BucketedExecution => {
+  if (taskState === undefined || taskState.length === 0) return bucketed;
+  const blockedIds = new Set<string>();
+  for (const t of taskState) {
+    if (t.status === 'blocked') blockedIds.add(String(t.id));
+  }
+  if (blockedIds.size === 0) return bucketed;
+
+  let changed = false;
+  const tasks = bucketed.tasks.map((task) => {
+    if (task.status === 'blocked' || task.status === 'failed' || task.status === 'aborted') return task;
+    if (!blockedIds.has(task.id)) return task;
+    changed = true;
+    return { ...task, status: 'blocked' as const };
+  });
+  return changed ? { ...bucketed, tasks } : bucketed;
+};
 
 const firstFailureMessage = (subSteps: readonly TaskSubStep[]): string | undefined => {
   for (const sub of subSteps) {

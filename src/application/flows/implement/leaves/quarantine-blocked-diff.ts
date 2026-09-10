@@ -24,9 +24,10 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
  * ## The bug this closes
  *
  * `settle-attempt`'s dirty-tree guardrail DELIBERATELY exempts the block path: a self-blocked task
- * leaves its rejected diff in place so the operator (or a future attempt) can inspect it. That is
- * safe in a per-task git WORKTREE (the parallel path — each task is isolated), but the serial path
- * runs every task in ONE shared tree. Nothing cleaned the tree between tasks, so:
+ * leaves its rejected diff in place so the operator (or a future attempt) can inspect it. A per-task
+ * git WORKTREE (the parallel path) is safe from CROSS-TASK contamination that way — each task has its
+ * own tree — but the serial path runs every task in ONE shared tree. Nothing cleaned the tree between
+ * tasks, so:
  *
  *  1. the next task's `git add -A` commit swept task A's rejected diff into task B's commit;
  *  2. A's leftovers flipped B's pre-verify red, B's red post-verify was attributed `baseline-broken`
@@ -35,6 +36,12 @@ import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
  *
  * Stashing A's diff (untracked included, via `-u`) restores the invariant the prologue's one-shot
  * preflight assumes: between tasks the tree is clean.
+ *
+ * Worktree isolation does NOT mean the parallel path needs no quarantine of its own, though: a
+ * worktree that ends up `blocked` still gets force-removed by `wave-branch.ts`'s `cleanupWorktree`,
+ * which destroys that same rejected diff unless it too was quarantined first. `wave-branch.ts`
+ * calls {@link runQuarantineBlockedDiff} directly (outside the chain) from its `withWorktree`
+ * teardown, ahead of the removal, for exactly this reason — see that file.
  *
  * ## Placement & guard
  *
@@ -78,7 +85,7 @@ export interface QuarantineBlockedDiffLeafOpts {
   readonly progressFile: AbsolutePath;
 }
 
-interface QuarantineInput {
+export interface QuarantineInput {
   readonly task: BlockedTask;
   readonly sprintId: SprintId;
 }
@@ -93,6 +100,84 @@ interface QuarantineInput {
 export const quarantineStashMessage = (sprintId: SprintId, taskId: TaskId): string =>
   `ralphctl/${String(sprintId)}/${String(taskId)}/blocked-diff`;
 
+/**
+ * Core quarantine operation — stash the rejected diff (`git stash push -u` under the deterministic
+ * message), record the durable `blockedReason` pointer, and append the journal breadcrumb. Shared
+ * by the in-chain leaf below (the serial path, via `useCase.execute`) AND by the parallel path's
+ * `wave-branch.ts`, which calls this directly — outside the chain — from the worktree-teardown
+ * sequence, BEFORE `git worktree remove --force` destroys the worktree's working tree. `opts.cwd`
+ * must be the worktree path in that case: worktrees share `.git` with the main repo, so a stash
+ * pushed there is stored in the shared object database and survives the worktree's removal (see
+ * `wave-branch.ts` for the verification this relies on).
+ *
+ * Never returns `Result.error` — every failure (stash push, record, journal append) is logged at
+ * `warn` and swallowed as `Result.ok(undefined)`; see the module docstring above for the best-effort
+ * rationale. `AbortError` is a non-concern here: this function performs no signal-aware waiting of
+ * its own, and callers that need abort-awareness check `signal?.aborted` before calling it.
+ *
+ * @public
+ */
+export const runQuarantineBlockedDiff = async (
+  deps: QuarantineBlockedDiffLeafDeps,
+  opts: QuarantineBlockedDiffLeafOpts,
+  input: QuarantineInput,
+  taskId: TaskId
+): Promise<Result<RecordQuarantineOutput | undefined, DomainError>> => {
+  const log = deps.logger.named('task.quarantine-blocked-diff');
+  const message = quarantineStashMessage(input.sprintId, taskId);
+
+  const stashed = await gitStashPush(deps.gitRunner, opts.cwd, message);
+  if (!stashed.ok) {
+    // Best-effort: the block already settled + persisted. A failed stash must not abort the
+    // run (that would strand every later task); log and proceed leaving the tree as-is. The
+    // next task's preflight clean-check / commit still surfaces a genuinely-dirty tree.
+    log.warn('quarantine stash failed — proceeding without cleaning the tree', {
+      taskId: String(taskId),
+      cwd: String(opts.cwd),
+      error: stashed.error.message,
+    });
+    return Result.ok(undefined);
+  }
+  // Clean tree → nothing to quarantine. The leaf is a no-op (no repo write); the next task
+  // inherits a clean tree exactly as the prologue's one-shot preflight assumes.
+  if (!stashed.value.stashed) return Result.ok(undefined);
+
+  const recorded = await recordQuarantineUseCase({
+    task: input.task,
+    sprintId: input.sprintId,
+    stashMessage: message,
+    taskRepo: deps.taskRepo,
+    logger: deps.logger,
+  });
+  if (!recorded.ok) {
+    // The diff IS safely stashed; only the pointer-write failed. Still best-effort — log the
+    // recovery message so the stash isn't lost to the operator even without the persisted line.
+    log.warn('quarantine stash succeeded but recording the pointer failed', {
+      taskId: String(taskId),
+      stashMessage: message,
+      error: recorded.error.message,
+    });
+    return Result.ok(undefined);
+  }
+  // Elevated to `warn` (not `debug`/`info`): a rejected diff was just quarantined — on the parallel
+  // path this is the fix for the highest-severity finding (verified, committed-then-rejected work
+  // used to be destroyed silently on worktree teardown with nothing logged at all). An operator
+  // watching logs should see every capture on either path, not just the persisted pointer.
+  log.warn('blocked task rejected diff quarantined to git stash', { taskId: String(taskId), stashMessage: message });
+  // Durable pointer: blockedReason is stripped by an operator unblock (clean restart), so
+  // the journal carries the recovery handle too. Shared renderer keeps the breadcrumb in the
+  // exact shape the inline cap recognises and pins. Best-effort like everything here.
+  const journalLine = renderQuarantineBreadcrumb(recorded.value.name, message);
+  const appended = await deps.appendFile(opts.progressFile, journalLine);
+  if (!appended.ok) {
+    log.warn('quarantine pointer journal append failed', {
+      taskId: String(taskId),
+      error: appended.error.message,
+    });
+  }
+  return Result.ok(recorded.value);
+};
+
 export const quarantineBlockedDiffLeaf = (
   deps: QuarantineBlockedDiffLeafDeps,
   opts: QuarantineBlockedDiffLeafOpts,
@@ -100,56 +185,8 @@ export const quarantineBlockedDiffLeaf = (
 ): Element<ImplementCtx> =>
   leaf<ImplementCtx, QuarantineInput, RecordQuarantineOutput | undefined>(`quarantine-blocked-diff-${String(taskId)}`, {
     useCase: {
-      execute: async (input): Promise<Result<RecordQuarantineOutput | undefined, DomainError>> => {
-        const log = deps.logger.named('task.quarantine-blocked-diff');
-        const message = quarantineStashMessage(input.sprintId, taskId);
-
-        const stashed = await gitStashPush(deps.gitRunner, opts.cwd, message);
-        if (!stashed.ok) {
-          // Best-effort: the block already settled + persisted. A failed stash must not abort the
-          // run (that would strand every later task); log and proceed leaving the tree as-is. The
-          // next task's preflight clean-check / commit still surfaces a genuinely-dirty tree.
-          log.warn('quarantine stash failed — proceeding without cleaning the tree', {
-            taskId: String(taskId),
-            cwd: String(opts.cwd),
-            error: stashed.error.message,
-          });
-          return Result.ok(undefined);
-        }
-        // Clean tree → nothing to quarantine. The leaf is a no-op (no repo write); the next task
-        // inherits a clean tree exactly as the prologue's one-shot preflight assumes.
-        if (!stashed.value.stashed) return Result.ok(undefined);
-
-        const recorded = await recordQuarantineUseCase({
-          task: input.task,
-          sprintId: input.sprintId,
-          stashMessage: message,
-          taskRepo: deps.taskRepo,
-          logger: deps.logger,
-        });
-        if (!recorded.ok) {
-          // The diff IS safely stashed; only the pointer-write failed. Still best-effort — log the
-          // recovery message so the stash isn't lost to the operator even without the persisted line.
-          log.warn('quarantine stash succeeded but recording the pointer failed', {
-            taskId: String(taskId),
-            stashMessage: message,
-            error: recorded.error.message,
-          });
-          return Result.ok(undefined);
-        }
-        // Durable pointer: blockedReason is stripped by an operator unblock (clean restart), so
-        // the journal carries the recovery handle too. Shared renderer keeps the breadcrumb in the
-        // exact shape the inline cap recognises and pins. Best-effort like everything here.
-        const journalLine = renderQuarantineBreadcrumb(recorded.value.name, message);
-        const appended = await deps.appendFile(opts.progressFile, journalLine);
-        if (!appended.ok) {
-          log.warn('quarantine pointer journal append failed', {
-            taskId: String(taskId),
-            error: appended.error.message,
-          });
-        }
-        return Result.ok(recorded.value);
-      },
+      execute: (input): Promise<Result<RecordQuarantineOutput | undefined, DomainError>> =>
+        runQuarantineBlockedDiff(deps, opts, input, taskId),
     },
     input: (ctx): QuarantineInput => {
       const task = ctx.tasks?.find((t) => t.id === taskId);

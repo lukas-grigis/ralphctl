@@ -8,10 +8,11 @@ import { requireNonEmpty } from '@src/integration/ai/prompts/_engine/validators.
 
 /**
  * Pre-rendered string parameters for the refine template. `ticket` and `issueContext` are
- * markdown blocks; `outputFilePath` is the absolute path the AI is told to write its final
- * answer to. The interactive Claude session reads `prompt.md` (rendered from this template)
- * and writes the body to `outputFilePath`. The harness reads that file back after the
- * session exits.
+ * markdown blocks the AI reads to orient the interview. The interactive session reads
+ * `prompt.md` (rendered from this template), interviews the operator, then writes a single
+ * `refined-ticket` signal — carrying the approved requirements markdown in its `body` field —
+ * to `signals.json` in its output directory. The harness reads and validates that file, not
+ * a free-form output path.
  */
 export interface RefinePromptParams {
   /** Markdown block describing the ticket (title, id, link, description). */
@@ -19,14 +20,14 @@ export interface RefinePromptParams {
   /** Optional `<context>...</context>` block with the upstream issue body or bare link. */
   readonly issueContext?: string;
   /**
-   * Audit-[09] output contract section — rendered from the refine `AiOutputContract` by
+   * Output contract section — rendered from the refine `AiOutputContract` by
    * `renderContractSectionFor(refineOutputContract)`. Tells the AI to write `signals.json`
    * directly with one `refined-ticket` signal whose `body` carries the requirements markdown.
    */
   readonly outputContractSection: string;
   /**
    * Current body of `progress.md` substituted into the `## Prior progress on this sprint`
-   * section (audit-[07]). Empty when the journal has no entries yet.
+   * section. Empty when the journal has no entries yet.
    */
   readonly priorProgress: string;
 }
@@ -34,7 +35,7 @@ export interface RefinePromptParams {
 export const refinePromptDef: PromptDefinition<RefinePromptParams> = {
   templateName: 'refine',
   description:
-    'Interactive requirements refinement for one pending ticket. The AI interviews the user; output is a markdown requirements document the AI writes to a file path the harness reads back.',
+    'Interactive requirements refinement for one pending ticket. The AI interviews the user, then writes the approved markdown requirements as a `refined-ticket` signal in `signals.json`.',
   parameters: {
     ticket: {
       placeholder: 'TICKET',
@@ -50,7 +51,7 @@ export const refinePromptDef: PromptDefinition<RefinePromptParams> = {
     outputContractSection: {
       placeholder: 'OUTPUT_CONTRACT_SECTION',
       description:
-        'Audit-[09] output contract block rendered from the refine contract — instructs the AI to write `signals.json` directly with one `refined-ticket` signal.',
+        'Output contract block rendered from the refine contract — instructs the AI to write `signals.json` directly with one `refined-ticket` signal.',
       validate: requireNonEmpty('outputContractSection', 'output-contract section must not be empty'),
     },
     priorProgress: {

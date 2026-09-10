@@ -7,7 +7,9 @@ import type { FlowManifest } from '@src/application/registry.ts';
  * before closing picks `review` (which auto-closes on empty submission); a user who's
  * already happy picks this flow.
  *
- * Surfaced in the Flows menu only when the current sprint is `review`.
+ * Surfaced in the Flows menu only when the current sprint is `review`. Closing with blocked
+ * tasks is a confirm, not a refusal — `maxBlockedTasks` below documents that threshold without
+ * gating the menu entry on it; the launcher names the blocked tasks instead.
  */
 export const closeSprintManifest: FlowManifest = {
   id: 'close-sprint',
@@ -17,5 +19,7 @@ export const closeSprintManifest: FlowManifest = {
   triggers: {
     currentSprintStatus: ['review'],
     currentSprintStatusHint: 'Run Implement to completion first — this flow needs a review-status sprint.',
+    maxBlockedTasks: 0,
+    maxBlockedTasksHint: 'Blocked tasks are named in the close confirmation instead of blocking the close.',
   },
 };

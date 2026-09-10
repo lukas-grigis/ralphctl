@@ -10,6 +10,8 @@
 import type { Project } from '@src/domain/entity/project.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { ProjectId } from '@src/domain/value/id/project-id.ts';
+import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
+import type { TaskHealthCounts } from '@src/application/ui/shared/state-snapshot.ts';
 
 export const UNKNOWN_PROJECT_KEY = '__unknown__';
 export const UNKNOWN_PROJECT_LABEL = 'Unknown project';
@@ -17,6 +19,13 @@ export const UNKNOWN_PROJECT_LABEL = 'Unknown project';
 export interface PickerData {
   readonly sprints: readonly Sprint[];
   readonly projectsById: ReadonlyMap<ProjectId, Project>;
+  /**
+   * Task-blocked health per sprint, loaded once alongside `sprints` (a single batched fetch in
+   * the picker's own loader) — never per rendered row, which would re-fetch on every scroll and
+   * could stall the picker on a project with many sprints. Absent entry (a sprint id with no map
+   * key) reads as zero counts, never as "unknown."
+   */
+  readonly taskHealthBySprintId: ReadonlyMap<SprintId, TaskHealthCounts>;
 }
 
 export interface HeaderRow {

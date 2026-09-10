@@ -37,10 +37,17 @@ export const BUNDLED_PROMPT_TEMPLATES: readonly string[] = [
 
 /** Cross-cutting partials — `<dir>/_partials/<name>.md`. */
 export const BUNDLED_PROMPT_PARTIALS: readonly string[] = [
+  'autonomous-operation',
   'conventions-agents-md',
   'conventions-claude-md',
   'conventions-copilot-instructions',
   'decisions',
+  'evaluation-checkpoint',
+  'evaluator-failure-modes',
+  'evidence-bound',
   'harness-context',
+  'parallel-tool-calls',
+  'task-fields',
+  'task-sizing',
   'validation-checklist',
 ];

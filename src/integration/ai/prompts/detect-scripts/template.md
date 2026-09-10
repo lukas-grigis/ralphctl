@@ -46,10 +46,10 @@ lift it verbatim. Prefer this over any inference from manifest scripts.
 entries). **Monorepos**: inspect the root manifest and one or two representative sub-modules to
 confirm the stack, then propose root-level commands that build/verify the whole tree.
 
-**Non-interactive flags for JVM stacks.** The harness captures the script's combined stdout/stderr
-to a plain-text log file. Maven, Gradle, and sbt emit ANSI colour codes by default that render
-poorly there. When proposing a command for one of these tools, append the standard non-interactive
-flag — `mvn -B …`, `gradle --console=plain …`, `sbt -no-colors …` — unless the project's own docs
+**Non-interactive flags for tools that colourise by default.** The harness captures the script's
+combined stdout/stderr to a plain-text log file. When the ecosystem's own build or test tool emits
+ANSI colour codes or interactive prompts by default, append that tool's own non-interactive /
+plain-console flag (check its own docs or `--help` for the exact name) unless the project's own docs
 prescribe a different invocation. Modern Node / Python / Rust tooling respects `NO_COLOR` which the
 harness sets automatically, so no per-tool flag is needed there.
 
@@ -138,7 +138,7 @@ test`" and the manifest declares those scripts:
     },
     {
       "type": "note",
-      "text": "Commands lifted verbatim from CLAUDE.md.",
+      "text": "Commands lifted verbatim from the project's coding-agent context file.",
       "timestamp": "..."
     }
   ]
@@ -170,8 +170,8 @@ When only a manifest exists with install + test scripts and no context file:
 }
 ```
 
-When a JVM build descriptor (e.g. `pom.xml`) drives the project and `CLAUDE.md` names install +
-verify steps:
+When the ecosystem's build tool colourises by default and the project's coding-agent context file
+names install + verify steps:
 
 ```json
 {
@@ -179,17 +179,17 @@ verify steps:
   "signals": [
     {
       "type": "setup-script",
-      "command": "mvn -B -DskipTests install",
+      "command": "<tool> install <tool's non-interactive flag>",
       "timestamp": "..."
     },
     {
       "type": "verify-script",
-      "command": "mvn -B verify",
+      "command": "<tool> verify <tool's non-interactive flag>",
       "timestamp": "..."
     },
     {
       "type": "note",
-      "text": "Commands lifted from CLAUDE.md; -B disables interactive prompts and ANSI colour for clean persisted logs.",
+      "text": "Commands lifted from the project's coding-agent context file; <tool's non-interactive flag> disables interactive prompts and ANSI colour for clean persisted logs.",
       "timestamp": "..."
     }
   ]

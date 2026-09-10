@@ -455,14 +455,22 @@ describe('createReviewFlow', () => {
     await runner.start();
 
     expect(runner.status).toBe('completed');
-    // Step-order fence for the auto-done path (empty round 1 → transition). The distill step
-    // (its `distill-gate` guard's skipped body name, `distill-learnings`) MUST sit immediately
-    // before `transition-sprint-to-done` — the sprint cannot flip to done before distill runs.
+    // Step-order fence for the auto-done path (empty round 1 → transition). Two orderings matter
+    // here and both are asserted by this literal:
+    //  - `load-tasks` → `confirm-blocked-tasks` sit BEFORE the transition, so this path cannot
+    //    close a sprint over unfinished work without the operator being told. It is the same gate
+    //    `close-sprint` runs; the review flow's auto-done used to be an ungated second door to
+    //    `done`.
+    //  - the distill step (its `distill-gate` guard's skipped body name, `distill-learnings`) MUST
+    //    sit immediately before `transition-sprint-to-done` — the sprint cannot flip to done before
+    //    distill runs.
     expect(runner.trace.map((t) => t.elementName)).toEqual([
       'load-sprint',
       'assert-sprint-status',
       'ensure-feedback-file',
       'review-round',
+      'load-tasks',
+      'confirm-blocked-tasks',
       'distill-learnings',
       'transition-sprint-to-done',
     ]);

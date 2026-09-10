@@ -1,14 +1,16 @@
 import { Result } from '@src/domain/result.ts';
+import type { EventBus } from '@src/business/observability/event-bus.ts';
+import type { TaskBlockedEvent } from '@src/business/observability/events.ts';
 import type { Logger, LogMeta } from '@src/business/observability/logger.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { AbortCause, AbortMetadata, AttemptUsage, AttemptWarning } from '@src/domain/entity/attempt.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
-import type { BlockedTask, DoneTask, InProgressTask } from '@src/domain/entity/task.ts';
+import type { BlockedTask, DoneTask, FaultSide, InProgressTask } from '@src/domain/entity/task.ts';
 import { recordRunningAttemptUsage, recordRunningAttemptWarning } from '@src/domain/entity/task-attempts.ts';
 import { failCurrentAttempt, markTaskDone } from '@src/domain/entity/task-settle.ts';
 import { applyCriteriaVerdicts } from '@src/domain/entity/task-criteria.ts';
-import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
-import type { CriterionVerdict } from '@src/domain/signal.ts';
+import { classifyBlock, markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
+import type { CriterionVerdict, TaskBlockerClass } from '@src/domain/signal.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { NotFoundError } from '@src/domain/value/error/not-found-error.ts';
@@ -74,6 +76,19 @@ export interface SettleAttemptProps {
   /** POSIX signal name / numeric exit code for {@link abortCause}, when the crash reported one. */
   readonly signalOrExitCode?: string | number;
   /**
+   * The generator's own structured triage for a `task-blocked` signal — see
+   * {@link TaskBlockerClass} in `domain/signal.ts`, threaded here from
+   * `GeneratorTurnExit.blockerClass` (`run-generator-turn.ts`). Persisted onto the resulting
+   * `BlockedTask` (`domain/entity/task.ts`) alongside {@link question} / {@link whatUnblocksMe}.
+   * Ignored on every non-block path (same posture as {@link abortCause}) and absent for a
+   * self-block whose signal omitted it — all three are optional at the source.
+   */
+  readonly blockerClass?: TaskBlockerClass;
+  /** The single concrete question the generator said would unblock it. Same posture as {@link blockerClass}. */
+  readonly question?: string;
+  /** What the generator said the operator needs to supply/decide. Same posture as {@link blockerClass}. */
+  readonly whatUnblocksMe?: string;
+  /**
    * Raw cost telemetry accumulated across this attempt's AI spawns — provider-reported token
    * counts plus harness-measured AI wall-clock. Stamped onto the running attempt before the
    * terminal transition so the figures ride into the persisted record; the settle point is the
@@ -84,6 +99,13 @@ export interface SettleAttemptProps {
   readonly taskRepo: UpdateTask;
   readonly clock: () => IsoTimestamp;
   readonly logger: Logger;
+  /**
+   * Publishes {@link TaskBlockedEvent} the moment this use case persists a task as `blocked` —
+   * see {@link publishTaskBlocked}. Optional so existing callers (and every test that doesn't
+   * care about notifications) keep working unchanged; omitted → the settle still happens, it
+   * just stays as silent as it was before this event existed.
+   */
+  readonly eventBus?: EventBus;
   /**
    * Worktree-clean guardrail. Settle refuses to mark a task `done` when this returns `true` —
    * a dirty tree at settle time means commit-task either silently skipped or the AI created
@@ -116,6 +138,30 @@ const abortMetaFor = (props: Pick<SettleAttemptProps, 'abortCause' | 'signalOrEx
   ...(props.signalOrExitCode !== undefined ? { signalOrExitCode: props.signalOrExitCode } : {}),
 });
 
+/** The first newline-delimited line of `text` — a banner/notification-sized summary, never the
+ * full multi-line `blockedReason` (which can carry a quarantine-stash pointer on later lines). */
+const firstLine = (text: string): string => text.split('\n', 1)[0] ?? text;
+
+/**
+ * Publish {@link TaskBlockedEvent} for a task that just settled into `blocked`, so
+ * `notification-subscriber`'s `classify()` can raise the operator-attention banner / OS
+ * notification. A no-op when no `eventBus` was wired (legacy / test callers) or when the settled
+ * task isn't actually blocked — kept as a single guarded call so the use case's happy path below
+ * reads as one line, not a branch.
+ */
+const publishTaskBlocked = (eventBus: EventBus | undefined, task: SettleAttemptOutput, at: IsoTimestamp): void => {
+  if (eventBus === undefined || task.status !== 'blocked') return;
+  const event: TaskBlockedEvent = {
+    type: 'task-blocked',
+    taskId: String(task.id),
+    taskName: task.name,
+    blockKind: task.blockKind,
+    reason: firstLine(task.blockedReason),
+    at,
+  };
+  eventBus.publish(event);
+};
+
 /** Structured detail for the entry-point log line; kept out of the use case's own branch budget. */
 const settleLogMeta = (props: SettleAttemptProps): LogMeta => ({
   taskId: props.task.id,
@@ -125,10 +171,94 @@ const settleLogMeta = (props: SettleAttemptProps): LogMeta => ({
   ...(props.abortCause !== undefined ? { abortCause: props.abortCause } : {}),
 });
 
+/**
+ * Backfill `{ blockCause, faultSide }` onto a just-settled `BlockedTask` when the domain
+ * transition that produced it didn't classify it — `failCurrentAttempt`'s own attempt-budget-cap
+ * literal (`task-settle.ts`) constructs a `BlockedTask` with no knowledge of either field. A no-op
+ * for a non-blocked result, or one that already carries a classification (the `markTaskBlocked` /
+ * direct-literal paths a few lines down classify explicitly, so this never double-processes them).
+ *
+ * `hints.abortCause` carries this attempt's crash forensics when there are any (see
+ * {@link abortMetaFor}) so a budget exhaustion driven by repeated watchdog kills / process crashes
+ * classifies as a harness/environment fault rather than the text-based default of `model`.
+ * `hints.faultSide: 'grader'` is set by the caller when `verdict === 'malformed'` — the evaluator's
+ * own repeated contract failures, not the generator's, drove the exhaustion.
+ */
+const classifyIfBlocked = (
+  result: Result<DoneTask | InProgressTask | BlockedTask, InvalidStateError>,
+  hints: { readonly abortCause?: AbortCause | undefined; readonly faultSide?: FaultSide | undefined }
+): Result<DoneTask | InProgressTask | BlockedTask, InvalidStateError> => {
+  if (!result.ok) return result;
+  const task = result.value;
+  if (task.status !== 'blocked' || task.blockCause !== undefined) return result;
+  const classified = classifyBlock(task.blockedReason, task.blockKind, hints);
+  return Result.ok({ ...task, ...classified });
+};
+
+/**
+ * The generator's structured triage fields (see {@link SettleAttemptProps.blockerClass}), ready to
+ * spread onto a `BlockedTask` literal — each present only when the caller supplied it. Split out
+ * so both branches of {@link settleAsBlocked} stamp them identically rather than drifting.
+ */
+const triageCarry = (
+  hints: Pick<SettleAttemptProps, 'blockerClass' | 'question' | 'whatUnblocksMe'>
+): Pick<BlockedTask, 'blockerClass' | 'question' | 'whatUnblocksMe'> => ({
+  ...(hints.blockerClass !== undefined ? { blockerClass: hints.blockerClass } : {}),
+  ...(hints.question !== undefined ? { question: hints.question } : {}),
+  ...(hints.whatUnblocksMe !== undefined ? { whatUnblocksMe: hints.whatUnblocksMe } : {}),
+});
+
+/**
+ * Settle the running attempt into the terminal `blocked` state for the block path — the one
+ * in-process settle that closes an attempt as `aborted`, then classifies WHY from the real block
+ * reason text. Extracted out of {@link settleTask}: this path's own abort/classify/status-shape
+ * branching was tipping that function's cognitive complexity past its budget, and the block path
+ * is self-contained — given an in-progress task and its blocked reason, it always ends in a
+ * `blocked` task or an early abort error, never in `done` or a retry.
+ */
+const settleAsBlocked = (
+  task: InProgressTask,
+  blockedReason: string,
+  now: IsoTimestamp,
+  hints: Pick<SettleAttemptProps, 'abortCause' | 'signalOrExitCode' | 'blockerClass' | 'question' | 'whatUnblocksMe'>
+): Result<DoneTask | InProgressTask | BlockedTask, InvalidStateError> => {
+  // The one in-process settle that closes an attempt as `aborted` — so it is also the one place
+  // that can attribute WHY. A crash-driven block carries the provider's cause + exit shape; a
+  // plain task block is `self-blocked` (nothing was killed), never `unknown`.
+  const aborted = failCurrentAttempt(task, now, 'aborted', abortMetaFor(hints));
+  if (!aborted.ok) return Result.error(aborted.error);
+  // Classify once, from THIS block's real reason text — never fall back to the generic
+  // 'unknown' persistence-layer default, since we know structurally this path is generator
+  // self-block / pre-verify-red / post-verify-regression / crash-driven-exhaustion, never
+  // fold-conflict, worktree-setup, upstream, or operator-cancel (those settle elsewhere).
+  const classification = classifyBlock(blockedReason, 'own', {
+    abortCause: hints.abortCause,
+    ownDefault: 'generator-self-block',
+  });
+  // A self-block (the generator emitted `<task-blocked>`) is an own-failure block — the operator
+  // must address the blocker; it never cascade-clears via the upstream-unblock path.
+  if (aborted.value.status === 'blocked') {
+    return Result.ok({ ...aborted.value, blockedReason, blockKind: 'own', ...classification, ...triageCarry(hints) });
+  }
+  const marked = markTaskBlocked(aborted.value, blockedReason, 'own', classification);
+  if (!marked.ok) return marked;
+  return Result.ok({ ...marked.value, ...triageCarry(hints) });
+};
+
 const settleTask = (
   props: Pick<
     SettleAttemptProps,
-    'task' | 'warning' | 'blockedReason' | 'shouldFailAttempt' | 'verdict' | 'usage' | 'abortCause' | 'signalOrExitCode'
+    | 'task'
+    | 'warning'
+    | 'blockedReason'
+    | 'shouldFailAttempt'
+    | 'verdict'
+    | 'usage'
+    | 'abortCause'
+    | 'signalOrExitCode'
+    | 'blockerClass'
+    | 'question'
+    | 'whatUnblocksMe'
   >,
   now: IsoTimestamp
 ): Result<DoneTask | InProgressTask | BlockedTask, InvalidStateError> => {
@@ -158,20 +288,19 @@ const settleTask = (
     // retry (the attempt history must report the real failure mode), `failed` otherwise. Keeps
     // the task `in_progress` (or `blocked` if the running attempt count just hit the cap); the
     // next chain invocation re-attempts with the escalated (or same, for malformed) model.
-    return failCurrentAttempt(task, now, props.verdict === 'malformed' ? 'malformed' : 'failed');
+    const malformed = props.verdict === 'malformed';
+    const result = failCurrentAttempt(task, now, malformed ? 'malformed' : 'failed');
+    // A block reached THIS way is always attempt-budget exhaustion (no other transition in
+    // `failCurrentAttempt` produces one) — classify the fault side from what actually exhausted
+    // it: a repeatedly malformed EVALUATOR is a `grader` fault, a crash-driven exhaustion is
+    // `abortCause`'s harness/environment attribution, otherwise the text-based default applies.
+    return classifyIfBlocked(result, {
+      abortCause: props.abortCause,
+      ...(malformed ? { faultSide: 'grader' } : {}),
+    });
   }
   if (props.blockedReason !== undefined) {
-    // The one in-process settle that closes an attempt as `aborted` — so it is also the one place
-    // that can attribute WHY. A crash-driven block carries the provider's cause + exit shape; a
-    // plain task block is `self-blocked` (nothing was killed), never `unknown`.
-    const aborted = failCurrentAttempt(task, now, 'aborted', abortMetaFor(props));
-    if (!aborted.ok) return Result.error(aborted.error);
-    // A self-block (the generator emitted `<task-blocked>`) is an own-failure block — the operator
-    // must address the blocker; it never cascade-clears via the upstream-unblock path.
-    if (aborted.value.status === 'blocked') {
-      return Result.ok({ ...aborted.value, blockedReason: props.blockedReason, blockKind: 'own' });
-    }
-    return markTaskBlocked(aborted.value, props.blockedReason, 'own');
+    return settleAsBlocked(task, props.blockedReason, now, props);
   }
   return markTaskDone(task, now);
 };
@@ -217,7 +346,8 @@ export const settleAttemptUseCase = async (
     }
   }
 
-  const settled = settleTask(props, props.clock());
+  const now = props.clock();
+  const settled = settleTask(props, now);
   if (!settled.ok) {
     log.warn('settle failed', { taskId: props.task.id, error: settled.error.message });
     return Result.error(settled.error);
@@ -239,6 +369,10 @@ export const settleAttemptUseCase = async (
     verdict: props.verdict,
     finalStatus: folded.status,
     ...(props.blockedReason !== undefined ? { blockedReason: props.blockedReason } : {}),
+    ...(folded.status === 'blocked' ? { blockCause: folded.blockCause, faultSide: folded.faultSide } : {}),
   });
+  // Only once the block is durable (persisted above) does the operator-facing notification fire —
+  // see `publishTaskBlocked`. No-ops for every non-blocked outcome and for callers with no bus.
+  publishTaskBlocked(props.eventBus, folded, now);
   return Result.ok(folded);
 };

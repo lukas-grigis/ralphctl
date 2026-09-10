@@ -22,8 +22,10 @@ import {
   makePendingTicket,
   makeProject,
   makeReviewSprint,
+  makeTodoTask,
 } from '@tests/fixtures/domain.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
+import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 
 const snapshot = (sprint: Sprint, triggers: Partial<AppStateSnapshot['triggerInputs']> = {}): AppStateSnapshot =>
   ({
@@ -91,6 +93,25 @@ describe('StateCard — next-action hint names the flow', () => {
     const frame = lastFrame() ?? '';
     expect(frame).toContain('n → run create-pr');
     expect(frame).toContain('pull request');
+    unmount();
+  });
+
+  it('done WITH blocked tasks leads with the unblock callout naming the reopen path, ahead of create-pr', () => {
+    // The regression this fixes: closing a sprint with blocked work (confirm-and-proceed) used to
+    // leave Home saying only "run create-pr" — silent about tasks that are now stuck in a closed
+    // sprint, even though the counts line above already flags them and unblocking one reopens it.
+    const done = makeDoneSprint();
+    const blockedTask = (() => {
+      const r = markTaskBlocked(makeTodoTask(), 'stuck', 'own');
+      if (!r.ok) throw new Error(`fixture setup failed: ${r.error.message}`);
+      return r.value;
+    })();
+    const state: AppStateSnapshot = { ...snapshot(done), tasks: [blockedTask] };
+    const { lastFrame, unmount } = render(<StateCard state={state} loading={false} />);
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('unblock 1 blocked task');
+    expect(frame).toContain('reopens the sprint');
+    expect(frame).toContain('n → run create-pr');
     unmount();
   });
 });

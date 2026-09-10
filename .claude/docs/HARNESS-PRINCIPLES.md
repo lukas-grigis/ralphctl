@@ -66,6 +66,18 @@ read and respond. Keeps work faithful to spec without over-specification."_
   `src/integration/ai/contract/_engine/`
 - Session-id file: `src/integration/ai/providers/_engine/persist-session-id.ts`
 - Per-spawn layout: `<sprintDir>/<flow>/<unit>/rounds/<N>/{generator,evaluator}/signals.json`
+- **Structured `task-blocked` triage (2026-09).** `TaskBlockedSignal` (`src/domain/signal.ts`) gained three
+  optional fields — `blockerClass` (`TaskBlockerClass`: `missing-information` / `ambiguous-request` /
+  `contradictory-information`, taxonomy from HiL-Bench, arXiv 2604.09408), `question`, and `whatUnblocksMe` —
+  so a generator self-block carries the same structure as a signal, not free-form `reason` prose alone. All
+  three are optional so a legacy or minimal emission still validates. Persisted onto `BlockedTask`
+  (`src/domain/entity/task.ts`) and surfaced in the TUI tasks panel (`task-header.tsx`) and
+  `ralphctl task show` (`ui/cli/commands/task.ts`).
+- **Contract-checker rule S7 (2026-09).** `skills/_engine/skill-contract-checker.ts` gained a seventh rule
+  flagging a bundled skill that instructs emitting an angle-bracket signal tag (e.g. `<task-complete>`) —
+  the shipped contract is a typed `signals.json` object, never an XML/HTML-style tag. The nine bundled
+  skills that taught the tag form (a stale shorthand predating the typed contract) were rewritten to
+  describe the real one; S7 is what stops that drift from being reintroduced.
 
 ---
 
@@ -150,8 +162,53 @@ preserves the work product and surfaces the outcome honestly (sprint journal ver
 `pass-with-warning`, the PR body's "Completed with warnings" section, the TUI tasks panel glyph) so
 the operator can review and decide. The paths that DO transition to `blocked` are the own-failure
 exits: a generator self-block (`<task-blocked>`), a pre-task-verify hard block, a red post-task
-verify attributed to the AI's own work, and a parallel-path fold conflict — on the serial path a
-blocked task's rejected diff is quarantined to a stash so siblings start clean.
+verify attributed to the AI's own work, and a parallel-path fold conflict.
+
+**A blocked task's own rejected work must also survive (2026-09).** Quarantine used to be a
+serial-path-only concern; it now runs on BOTH implement paths, because leaving a blocked task's
+rejected diff in place is only safe where nothing else destroys it, and the parallel path's
+worktree teardown does:
+
+- Serial path: `quarantine-blocked-diff.ts`'s chain leaf, spliced after the attempt loop.
+- Parallel path: `wave-branch.ts`'s `withWorktree` calls the leaf's now-exported core
+  (`runQuarantineBlockedDiff`) directly — outside the chain — from its teardown sequence, BEFORE
+  `git worktree remove --force` would otherwise destroy the same rejected diff. Both call sites
+  stash under the identical deterministic message (`quarantineStashMessage`) and record the same
+  durable `blockedReason` pointer.
+- The parallel path additionally KEEPS the blocked task's worktree branch ref (`cleanupWorktree`
+  skips `git branch -D`) rather than deleting it — a fold-conflict block re-projects an already-
+  `done` task whose commits landed ONLY on that ref, so deleting it would strand verified work in
+  the reflog until GC. `setupWorktree`'s defensive `gitDeleteBranch` already tolerates a leftover
+  ref on relaunch, so keeping it uniformly (own-failure blocks too) is cheap.
+- Restoring a quarantined diff (`restore-blocked-diff.ts`) matches the stash by its message key
+  (`stashEntryMatchesMessage`), never a numeric stash index. On the parallel path this alone was
+  not enough: several worktrees can push/list/pop against the ONE shared `refs/stash` ref
+  concurrently, and a sibling's push between one call's list and its own pop shifts every later
+  index — so `git-operations.ts` now serialises every stash push/list/pop behind an in-process
+  FIFO mutex (`withStashMutex`), making each call's list-then-act sequence atomic against the others.
+- `unblockTask` (`domain/entity/task-lifecycle.ts`) archives, rather than deletes, the attempts,
+  criteria verdicts, and escalation stamps a clean restart clears off the live task — appended to
+  `Task.retiredAttempts` (oldest first) so the forensic record of what happened before the operator
+  intervened survives even though the live attempt budget resets. `foldOutcomeStats` folds a
+  retired run's attempts into the outcome report the same as live ones.
+- A settle into `blocked` publishes `TaskBlockedEvent` (`business/observability/events.ts`) exactly
+  once per block, never once per cascade-blocked dependent — `notification-subscriber.ts` routes it
+  to an `attention`-level OS notification / operator banner, so the outcome in the rule above is
+  surfaced actively, not only passively via the Tasks panel or `progress.md`.
+- Blocked work is also no longer a dead end at the SPRINT level: closing a sprint with tasks still
+  blocked is confirm-and-proceed, never a refusal (`sprint close` / the review flow's auto-done both
+  load tasks and name the blocked ones before proceeding) — and unblocking one of those tasks later
+  reopens the sprint automatically (`done → review` via the domain's `reopenDoneSprint`,
+  `sprint.ts`), or on demand via `ralphctl sprint reopen <id>`, so a closed sprint's blocked work
+  stays reachable rather than permanently stranded.
+- Every `BlockedTask` also carries a closed-set `blockCause` (WHAT happened — `upstream-dependency`
+  / `generator-self-block` / `pre-verify-red` / `post-verify-regression` / `fold-conflict` /
+  `worktree-setup-failure` / `operator-cancelled` / `budget-exhausted` / `unknown`) and `faultSide`
+  (WHO owns the repair — `model` / `harness` / `environment` / `grader` / `unknown`), inferred by
+  `classifyBlock` when a call site doesn't supply it explicitly (`task-lifecycle.ts`). This is
+  classification metadata only as of this writing — persisted and schema-validated
+  (`integration/persistence/task/task.schema.ts`), but not yet read by `escalation-policy.ts` or any
+  other decision path; a future remedy-skipping use is the motivating design, not a shipped behaviour.
 
 ---
 
@@ -395,6 +452,13 @@ over-praising."_
   with "Skepticism is your default", pins the five-dimension floor rubric above, and carries an explicit
   "Evaluator failure modes to resist actively" block naming talking-self-into-approval, superficial testing,
   crediting incomplete work, and rubber-stamping on a green verify script. Status moved `gap` → `applied`.
+- **Shared partials (2026-09).** The failure-modes block is no longer template-embedded prose — it is the
+  shared `_partials/evaluator-failure-modes.md`, injected via `{{EVALUATOR_FAILURE_MODES}}` so any other
+  template gains the same discipline by wiring the one placeholder. A second shared partial,
+  `_partials/evaluation-checkpoint.md` (`{{EVALUATION_CHECKPOINT}}`), is unrelated to over-praising: Phase 0
+  has the evaluator write a placeholder all-`failed` `signals.json` BEFORE it verifies anything, purely so a
+  session that exhausts its token budget mid-analysis leaves a valid signal file on disk (recoverable via a
+  corrective retry) instead of none at all — the template is explicit that this write is not the verdict.
 
 ---
 

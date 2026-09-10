@@ -86,15 +86,22 @@ export type TaskGraphIssue =
   | { readonly kind: 'cycle'; readonly cycle: readonly TaskId[] };
 
 /**
- * First malformed edge in the set, or `undefined` when every `dependsOn` entry points at a
- * different task that exists here. Runs before cycle detection so a dangling id is reported as
- * exactly that rather than swallowed by the traversal.
+ * First malformed edge in the set, or `undefined` when every `dependsOn` entry either points at a
+ * different task that exists here, or names an id in `satisfiedDependencyIds` — a task known to
+ * exist OUTSIDE this set whose dependency is already resolved (the caller vouches for it, e.g. a
+ * prerequisite that settled `done` before this — narrower — set was drawn). Runs before cycle
+ * detection so a dangling id is reported as exactly that rather than swallowed by the traversal.
  */
-const findInvalidEdge = (tasks: readonly Task[], byId: ReadonlyMap<TaskId, Task>): TaskGraphIssue | undefined => {
+const findInvalidEdge = (
+  tasks: readonly Task[],
+  byId: ReadonlyMap<TaskId, Task>,
+  satisfiedDependencyIds: ReadonlySet<TaskId>
+): TaskGraphIssue | undefined => {
   for (const t of tasks) {
     for (const dep of t.dependsOn) {
       if (dep === t.id) return { kind: 'self-edge', task: t.id };
-      if (!byId.has(dep)) return { kind: 'unknown-dependency', task: t.id, missing: dep };
+      if (byId.has(dep) || satisfiedDependencyIds.has(dep)) continue;
+      return { kind: 'unknown-dependency', task: t.id, missing: dep };
     }
   }
   return undefined;
@@ -138,9 +145,17 @@ const findCycle = (tasks: readonly Task[], byId: ReadonlyMap<TaskId, Task>): rea
 
 /**
  * Validate the dependency graph for a sprint's task set:
- *  - every `dependsOn` id resolves to a task in this set
+ *  - every `dependsOn` id resolves to a task in this set, OR is listed in `satisfiedDependencyIds`
  *  - no self-edges
  *  - no cycles (A → B → ... → A)
+ *
+ * `satisfiedDependencyIds` lets a caller validate a NARROWED subset (e.g. the resumable
+ * `todo`/`in_progress` tasks of a sprint) without a dependency on an already-`done` (or
+ * `blocked`) task outside that subset misreporting as `unknown-dependency` — the subset is sound,
+ * the prerequisite is just satisfied elsewhere. It intentionally does NOT tolerate every id absent
+ * from `tasks`: only ids the caller explicitly vouches for as resolving to a real task are
+ * accepted, so a genuinely dangling id (a typo in a planned task) still fails here. Defaults to
+ * empty, which reproduces the original whole-set behaviour exactly.
  *
  * Returns `Result.ok(undefined)` when sound, otherwise the first issue found.
  *
@@ -153,11 +168,14 @@ const findCycle = (tasks: readonly Task[], byId: ReadonlyMap<TaskId, Task>): rea
  * structure — so the structured union stays the contract and each caller maps it onto its own error
  * envelope. This is not an oversight.
  */
-export const validateTaskGraph = (tasks: readonly Task[]): Result<undefined, TaskGraphIssue> => {
+export const validateTaskGraph = (
+  tasks: readonly Task[],
+  satisfiedDependencyIds: ReadonlySet<TaskId> = new Set()
+): Result<undefined, TaskGraphIssue> => {
   const byId = new Map<TaskId, Task>();
   for (const t of tasks) byId.set(t.id, t);
 
-  const badEdge = findInvalidEdge(tasks, byId);
+  const badEdge = findInvalidEdge(tasks, byId, satisfiedDependencyIds);
   if (badEdge !== undefined) return Result.error(badEdge);
 
   const cycle = findCycle(tasks, byId);
@@ -186,9 +204,12 @@ export const renderTaskGraphIssue = (issue: TaskGraphIssue): string => {
 };
 
 /**
- * Build the in-degree counts + successor adjacency for Kahn's algorithm. In-degree is the
- * count of a task's dependencies that resolve to a task in this set; `validateTaskGraph`
- * already guarantees every `dependsOn` id resolves, so the `byId.has` filter is belt-and-braces.
+ * Build the in-degree counts + successor adjacency for Kahn's algorithm. In-degree counts only a
+ * task's dependencies that resolve to a task IN THIS SET — `validateTaskGraph` guarantees every
+ * `dependsOn` id either resolves here or was named in `satisfiedDependencyIds`, and a dependency
+ * satisfied outside this set must NOT gate scheduling (it is already resolved), so the `byId.has`
+ * filter here is load-bearing, not belt-and-braces: it is what keeps an externally-satisfied
+ * dependency from holding its dependent's in-degree above zero forever.
  */
 const buildGraph = (
   tasks: readonly Task[],
@@ -225,12 +246,25 @@ const buildGraph = (
  * same wave — so the launcher can run a wave's tasks concurrently. Waves are strictly ordered:
  * every dependency of a task in wave `k` was scheduled in some wave `< k`.
  *
- * Empty input yields an empty schedule. Pure — no mutation of inputs, no I/O.
+ * `satisfiedDependencyIds` — see {@link validateTaskGraph} — lets `tasks` be a NARROWED subset
+ * (e.g. a resumed run's resumable `todo`/`in_progress` tasks) without a dependency on an
+ * already-`done` task outside the subset misreporting as `unknown-dependency` and failing the
+ * whole schedule closed. Such a dependency is treated as pre-resolved: it does not appear as a
+ * node here and does not hold its dependent's in-degree above zero, so the dependent can land in
+ * wave 0 rather than never being scheduled at all.
+ *
+ * Empty input yields an empty schedule — that is a legitimately empty schedule for a
+ * legitimately empty task list, distinct from the `Result.error` this returns for an
+ * unschedulable NON-empty set (cycle / self-edge / a truly unknown dependency); callers must not
+ * conflate the two. Pure — no mutation of inputs, no I/O.
  *
  * @public
  */
-export const scheduleIntoWaves = (tasks: readonly Task[]): Result<ReadonlyArray<readonly Task[]>, TaskGraphIssue> => {
-  const validation = validateTaskGraph(tasks);
+export const scheduleIntoWaves = (
+  tasks: readonly Task[],
+  satisfiedDependencyIds: ReadonlySet<TaskId> = new Set()
+): Result<ReadonlyArray<readonly Task[]>, TaskGraphIssue> => {
+  const validation = validateTaskGraph(tasks, satisfiedDependencyIds);
   if (!validation.ok) return Result.error(validation.error);
 
   const byId = new Map<TaskId, Task>();

@@ -5,6 +5,7 @@ import {
   type RunGeneratorTurnProps,
   runGeneratorTurnUseCase,
 } from '@src/business/task/run-generator-turn.ts';
+import { projectBlockCarry } from '@src/application/flows/implement/leaves/_shared/block-carry.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { GenEvalExit } from '@src/business/task/gen-eval-exit.ts';
 import type { InProgressTask } from '@src/domain/entity/task.ts';
@@ -306,7 +307,11 @@ const buildGeneratorPrompt = async (
   };
 
   if (input.priorGeneratorSessionId !== undefined) {
-    return buildImplementContinuationPrompt(deps.templateLoader, { ...sharedValues, roundNumber: input.roundNum });
+    return buildImplementContinuationPrompt(deps.templateLoader, {
+      ...sharedValues,
+      roundNumber: input.roundNum,
+      task: args.task,
+    });
   }
   return buildImplementPrompt(deps.templateLoader, {
     ...sharedValues,
@@ -692,7 +697,7 @@ const generatorOutput = (ctx: ImplementCtx, out: GeneratorOutput): ImplementCtx 
   //    a retry within maxAttempts, then blocks at the cap). Because `finalizeGenEvalLeaf` only
   //    ADDS a block reason (conditional spread) and never CLEARS a stale one, a block reason
   //    stamped here would leak past finalize into settle and wrongly terminal-block the task.
-  const blockReasonCarry = out.exit.kind === 'self-blocked' ? { lastBlockReason: out.exit.reason } : {};
+  const blockReasonCarry = projectBlockCarry(out.exit);
   // A `crashed` exit carries the crash forensics (`abortCause` / `signalOrExitCode`) so the settle
   // that blocks the task once the crash budget is gone can attribute the aborted attempt. Nothing
   // was killed on a `self-blocked` exit, so that variant carries no forensics at all.

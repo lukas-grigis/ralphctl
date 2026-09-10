@@ -21,7 +21,7 @@ export interface IdeatePromptParams {
   readonly repositories: string;
   readonly schema: string;
   /**
-   * Audit-[09] output contract section — rendered from the ideate `AiOutputContract` by
+   * Output contract section — rendered from the ideate `AiOutputContract` by
    * `renderContractSectionFor(ideateOutputContract)`. Tells the AI to write `signals.json`
    * directly with one `ideated-tickets` signal whose `outputJson` carries the combined
    * refine + plan envelope.
@@ -29,7 +29,7 @@ export interface IdeatePromptParams {
   readonly outputContractSection: string;
   /**
    * Current body of `progress.md` substituted into the `## Prior progress on this sprint`
-   * section (audit-[07]). Empty when the journal has no entries yet.
+   * section. Empty when the journal has no entries yet.
    */
   readonly priorProgress: string;
   /**
@@ -74,7 +74,7 @@ export const ideatePromptDef: PromptDefinition<IdeatePromptParams> = {
     outputContractSection: {
       placeholder: 'OUTPUT_CONTRACT_SECTION',
       description:
-        'Audit-[09] output contract block rendered from the ideate contract — instructs the AI to write `signals.json` directly with one `ideated-tickets` signal.',
+        'Output contract block rendered from the ideate contract — instructs the AI to write `signals.json` directly with one `ideated-tickets` signal.',
       validate: nonEmpty('outputContractSection'),
     },
     priorProgress: {
@@ -90,6 +90,8 @@ export const ideatePromptDef: PromptDefinition<IdeatePromptParams> = {
   partials: {
     HARNESS_CONTEXT: 'harness-context',
     VALIDATION_CHECKLIST: 'validation-checklist',
+    TASK_FIELDS: 'task-fields',
+    TASK_SIZING: 'task-sizing',
   },
   expectedSignals: ['ideated-tickets', 'note', 'learning', 'decision'],
 };

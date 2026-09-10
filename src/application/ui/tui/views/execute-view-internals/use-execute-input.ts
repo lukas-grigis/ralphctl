@@ -4,7 +4,13 @@
  * Hints adapt to three states:
  *   - running + cancel-scope picker open: `1 / 2 / esc` set
  *   - running, picker closed              : `c / D` set
- *   - not running                         : `↵ home · r re-run · g progress`
+ *   - not running                         : `↵ home · r re-run · g progress · u unblock`
+ *
+ * `u` (unblock) is advertised ONLY in the settled set: the Tasks panel's own `u` chord is a
+ * no-op while a run is live (`TasksPanelHost` empties `blockedTaskIds` mid-run — see its
+ * docstring for the TOCTOU precondition that forces this), so hinting it during a run would
+ * advertise a key whose handler rejects every press, which is the exact thing DESIGN-SYSTEM's
+ * hint-strip invariant forbids.
  *
  * Key handling:
  *   - help / prompt overlays own the keyboard — early-return when active.
@@ -44,6 +50,14 @@ interface UseExecuteInputDeps {
   readonly hasPinnedSprint: boolean;
   /** Gates the `v evaluation` hint — the chord no-ops until some task has recorded a verdict. */
   readonly hasEvaluation: boolean;
+  /**
+   * Gates the settled-only `u unblock` hint — the Tasks panel's `u` chord only fires for a task
+   * the polled entities report `status === 'blocked'`. Meaningless while running: the panel
+   * forces the chord inert on a live run regardless of this flag, so the hint is never shown then.
+   * Defaults to `false` (no hint) so a caller that hasn't wired an entity-blocked signal yet
+   * degrades to the pre-existing settled hint set rather than failing to compile.
+   */
+  readonly hasBlockedTask?: boolean;
 }
 
 export const useExecuteInput = ({
@@ -54,6 +68,7 @@ export const useExecuteInput = ({
   router,
   hasPinnedSprint,
   hasEvaluation,
+  hasBlockedTask = false,
 }: UseExecuteInputDeps): void => {
   useViewHints(
     isRunning
@@ -75,6 +90,8 @@ export const useExecuteInput = ({
           { keys: 'r', label: 're-run' },
           { keys: 'g', label: 'progress', enabledWhen: hasPinnedSprint },
           { keys: 'v', label: 'evaluation', enabledWhen: hasEvaluation },
+          // Settled only — see `hasBlockedTask`'s doc for why running never shows this.
+          { keys: 'u', label: 'unblock', enabledWhen: hasBlockedTask },
         ]
   );
 

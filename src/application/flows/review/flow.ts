@@ -8,11 +8,14 @@ import { sequential } from '@src/application/chain/build/sequential.ts';
 import { createPublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import { withRepoLock } from '@src/application/flows/_shared/with-repo-lock.ts';
 import { loadAndAssertSprintSubChain } from '@src/application/flows/_shared/sprint/load-and-assert-sprint.ts';
+import { loadTasksLeaf } from '@src/application/flows/_shared/task/load.ts';
+import { confirmBlockedTasksLeaf } from '@src/application/flows/_shared/task/confirm-blocked-tasks.ts';
 import type { ReviewCtx } from '@src/application/flows/review/ctx.ts';
 import type { ReviewDeps } from '@src/application/flows/review/deps.ts';
 import { ensureFeedbackFileLeaf } from '@src/application/flows/review/leaves/ensure-feedback-file.ts';
 import { reviewRoundLeaf } from '@src/application/flows/review/leaves/review-round.ts';
 import { transitionSprintToDoneLeaf } from '@src/application/flows/_shared/sprint/transition-to-done.ts';
+import { appendJournalSeparatorLeaf } from '@src/application/flows/_shared/progress/append-journal-separator.ts';
 import { createDistillStep } from '@src/application/flows/_shared/memory/distill-step.ts';
 
 const DEFAULT_MAX_ROUNDS = 50;
@@ -59,8 +62,11 @@ export interface CreateReviewFlowOpts {
  *     ensure-feedback-file,
  *     loop('review-loop', review-round, { shouldStop: ctx.lastReviewExit !== undefined }),
  *     guard('review-settled', ctx.lastReviewExit !== undefined, sequential('review-settle', [
- *       distill-learnings-step,                // opt-in; runs on the auto-done path
+ *       load-tasks,                             // feeds the blocked-task gate below
+ *       guard('confirm-blocked-tasks-gate', has-blocked-task, confirm-blocked-tasks),
+ *       distill-learnings-step,                 // opt-in; runs on the auto-done path
  *       transition-sprint-to-done,
+ *       append-journal-separator,               // records the close in progress.md
  *     ])),
  *   ])
  *
@@ -68,15 +74,26 @@ export interface CreateReviewFlowOpts {
  * `loadAndAssertSprintSubChain` whitelist enforces that — running review on a `planned`
  * sprint fails fast.
  *
+ * Review's auto-done path (empty / repeat feedback round → `lastReviewExit` set) is the OTHER
+ * door to `done`, alongside the explicit close-sprint flow — a sprint's blocked tasks must not
+ * close in silence through either one. `load-tasks` + the `confirm-blocked-tasks-gate` guard are
+ * the SAME composition close-sprint uses (`confirmBlockedTasksLeaf` from
+ * `_shared/task/confirm-blocked-tasks.ts`, generic over any ctx carrying `tasks`): the guard only
+ * fires when `ctx.tasks` contains a `blocked` entry, and the gate is confirm-and-proceed, never a
+ * refusal — confirming falls through to close as normal, declining raises an `AbortError` that
+ * stops the chain before the transition leaf runs (sprint stays `review`, re-runnable). The
+ * `append-journal-separator` leaf at the end records the closing transition in `progress.md`,
+ * mirroring close-sprint's own closing record — omitted when `opts.progressFile` is absent.
+ *
  * The distill step sits BEFORE the transition so it runs while the sprint is still `review`
  * (re-runnable on a mid-distill abort) and on the SAME auto-done path the empty-round termination
  * takes. When the user opted out (`distillRequested === false`) the inner `distill-gate` guard
  * skips the body; when `deps.distill` is absent the step is omitted entirely.
  *
- * Both settle steps are wrapped in a `review-settled` guard on `ctx.lastReviewExit !== undefined`.
+ * Every settle step is wrapped in a `review-settled` guard on `ctx.lastReviewExit !== undefined`.
  * The loop can also exit via its `shouldContinue` round cap (`i <= maxRounds`) — a fail-safe for a
  * UI bug that would otherwise re-enter the round forever. On THAT exit `lastReviewExit` is still
- * undefined (no human terminal decision was reached), so the guard skips both settle steps and the
+ * undefined (no human terminal decision was reached), so the guard skips all settle steps and the
  * sprint stays in `review` with a visible `skipped` trace entry. The cap exit also publishes a warn
  * banner from inside `shouldContinue` (off-trace, so the happy path stays clean) explaining WHY the
  * sprint stayed in `review`. The human end-of-sprint decision stays the only path to `done`, and
@@ -134,15 +151,36 @@ export const createReviewFlow = (deps: ReviewDeps, opts: CreateReviewFlowOpts): 
       shouldStop: (ctx) => ctx.lastReviewExit !== undefined,
     }),
     // Only settle the sprint to `done` when the review loop reached a human terminal decision
-    // (`lastReviewExit` set). A round-cap exit leaves it undefined → guard skips both settle steps
+    // (`lastReviewExit` set). A round-cap exit leaves it undefined → guard skips every settle step
     // (a visible `skipped` trace entry) so a UI-bug-driven cap exhaustion never silently closes the
     // sprint. The human end-of-sprint decision stays the only path to `done`.
     guard<ReviewCtx>(
       'review-settled',
       (ctx) => ctx.lastReviewExit !== undefined,
       sequential<ReviewCtx>('review-settle', [
+        // Same blocked-task gate close-sprint runs before its own transition — review's auto-done
+        // path is the other door to `done` and must not close a sprint's blocked work in silence.
+        // `loadTasksLeaf` / `confirmBlockedTasksLeaf` are the generic shared leaves close-sprint
+        // also composes; only the confirm fires, and only when a `blocked` task exists.
+        loadTasksLeaf<ReviewCtx>({ taskRepo: deps.taskRepo }),
+        guard<ReviewCtx>(
+          'confirm-blocked-tasks-gate',
+          (ctx) => (ctx.tasks ?? []).some((t) => t.status === 'blocked'),
+          confirmBlockedTasksLeaf<ReviewCtx>({ interactive: deps.interactive })
+        ),
         ...(deps.distill !== undefined ? [createDistillStep<ReviewCtx>(deps.distill.deps, deps.distill.opts)] : []),
         transitionSprintToDoneLeaf<ReviewCtx>({ sprintRepo: deps.sprintRepo, clock: deps.clock, logger: deps.logger }),
+        // Records the closing transition in progress.md — mirrors close-sprint's own closing
+        // journal entry. Omitted when the launcher didn't resolve a progress file (defensive;
+        // every real caller supplies one).
+        ...(opts.progressFile !== undefined
+          ? [
+              appendJournalSeparatorLeaf<ReviewCtx>(
+                { appendFile: deps.appendFile, clock: deps.clock, logger: deps.logger },
+                { progressFile: opts.progressFile, status: 'closed', name: 'progress-journal-close' }
+              ),
+            ]
+          : []),
       ])
     ),
   ]);
