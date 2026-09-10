@@ -43,6 +43,54 @@ describe('runGeneratorTurnUseCase', () => {
     }
   });
 
+  it("carries the generator's structured blocker triage (blockerClass / question / whatUnblocksMe) onto the exit", async () => {
+    // Regression: `findTaskBlocked` used to project only `.reason` off the signal, so these three
+    // validated-but-unread fields never left this use case. They must ride the exit verbatim so
+    // the settle path can persist them onto the blocked task.
+    const task = makeInProgressTaskWithRunningAttempt();
+    const signals: readonly HarnessSignal[] = [
+      {
+        type: 'task-blocked',
+        reason: 'Scope unclear.',
+        blockerClass: 'ambiguous-request',
+        question: 'Should this cover the admin routes too?',
+        whatUnblocksMe: 'A decision on admin-route scope',
+        timestamp: FIXED_NOW,
+      },
+    ];
+    const result = await runGeneratorTurnUseCase({
+      task,
+      callImplement: async () => Result.ok(signals),
+      logger: noopLogger,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.exit).toEqual({
+      kind: 'self-blocked',
+      reason: 'Scope unclear.',
+      blockerClass: 'ambiguous-request',
+      question: 'Should this cover the admin routes too?',
+      whatUnblocksMe: 'A decision on admin-route scope',
+    });
+  });
+
+  it('omits the triage fields from the exit when the signal supplies only `reason` (legacy / minimal emission)', async () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    const signals: readonly HarnessSignal[] = [
+      { type: 'task-blocked', reason: 'missing API key', timestamp: FIXED_NOW },
+    ];
+    const result = await runGeneratorTurnUseCase({
+      task,
+      callImplement: async () => Result.ok(signals),
+      logger: noopLogger,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.exit).not.toHaveProperty('blockerClass');
+    expect(result.value.exit).not.toHaveProperty('question');
+    expect(result.value.exit).not.toHaveProperty('whatUnblocksMe');
+  });
+
   it('blocks the task (self-blocked exit) on a recoverable signals-contract failure — does NOT propagate', async () => {
     // A non-Claude provider that wrote a malformed signals.json surfaces a ParseError. The
     // turn must self-block THIS task (so it surfaces + re-runs) rather than abort the whole run.

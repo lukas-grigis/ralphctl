@@ -176,17 +176,23 @@ export const executeKeys = {
  * OPENING is view-local because only a view knows which card the cursor is on; CLOSING is global
  * (`use-global-keys`) so `esc` / `v` beat the hidden view's handler.
  *
- * `criteria` anchors on the ACTIVE task while `evaluation` anchors on the FOCUSED card: expanding
- * criteria is something an operator does about the task currently running, whereas reading a
- * verdict is something they do about a card they deliberately moved the cursor onto.
+ * `criteria` and `evaluation` both anchor on the FOCUSED card — expanding criteria or reading a
+ * verdict are both things an operator does about a card they've deliberately moved the cursor
+ * onto (falling back to the active task while nothing is focused yet).
+ *
+ * `unblock` reuses {@link contextualKeys.unblockTask}'s label rather than restating it — same `u`
+ * chord as sprint-detail / sprints-view, same "stuck task" concept, just reachable without
+ * leaving the live Execute view. It is gated per-card (only fires on a card the host reports as
+ * blocked) so it never contends with sprint-detail's `u`: the two views are never mounted at once.
  */
 export const tasksPanelKeys = {
   navUp: { keys: ['k', '↑'], label: 'prev card / row' },
   navDown: { keys: ['j', '↓'], label: 'next card / row' },
   toggleCard: { keys: ['↵', 'space'], label: 'expand / collapse card or commit row' },
   collapseCard: { keys: ['esc'], label: 'collapse expanded card' },
-  criteria: { keys: ['e'], label: 'expand done criteria for active card' },
+  criteria: { keys: ['e'], label: 'expand done criteria for focused card' },
   evaluation: { keys: ['v'], label: 'open evaluation verdict for the focused card' },
+  unblock: { keys: ['u'], label: contextualKeys.unblockTask.label },
 } as const satisfies Record<string, KeyBinding>;
 
 /**

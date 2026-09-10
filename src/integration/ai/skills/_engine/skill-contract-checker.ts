@@ -8,14 +8,15 @@
  * signal contract (signals.json at outputDir), harness-owned git, one-PR-per-sprint, the
  * attribution-aware verify gate, ecosystem-agnosticism, controlled delegation.
  *
- * This module is the single source of truth for those six rules (S1–S6). It is deliberately
+ * This module is the single source of truth for those seven rules (S1–S7). It is deliberately
  * I/O-free and free of outer-layer imports so two callers can share it: the contract test
  * (asserts every bundled skill passes) and {@link warnIfContractViolated} (an operator-skill
  * warn path). The {@link Logger} type is a business-layer port — integration may import inward.
  *
  * ## Scanning model
  *
- * Each line is classified before any rule runs:
+ * This classification governs S1–S6, the imperative-command rules. Each line is classified
+ * before any of those rules runs:
  *   - A fenced code block is tracked with an `inCodeFence` flag toggled by ``` fences. Lines
  *     inside a fence are always treated as imperative (a code block is literal instruction).
  *   - Outside a fence, a line counts as an imperative instruction only when it begins with a
@@ -26,13 +27,18 @@
  *   - A negation keyword (`do not` / `don't` / `never` / `avoid` / `must not`) appearing before a
  *     forbidden pattern on the same line DEMOTES that pattern: "never open a separate PR" is
  *     good advice, not a violation. Anti-pattern prose is the whole point of a posture skill.
+ *
+ * S7 (angle-bracket signal tag syntax) is deliberately NOT gated by this classification: a tag
+ * literal is a syntax mistake with no legitimate line shape, so `checkSkillContract` runs it
+ * against every line (prose, list continuation lines, blockquotes, fenced content) except the
+ * fence delimiter itself. Negation demotion still applies. See the S7 pattern comment below.
  */
 
 import type { Logger } from '@src/business/observability/logger.ts';
 
 /** One failed contract rule, with enough context for a human to locate and judge it. */
 export interface SkillViolation {
-  /** Rule id (`S1`…`S6`) — names the harness mechanism the rule protects. */
+  /** Rule id (`S1`…`S7`) — names the harness mechanism the rule protects. */
   readonly rule: string;
   /** Human-readable explanation of what the line directs and why it is forbidden. */
   readonly description: string;
@@ -190,6 +196,55 @@ const S6_SELF_GATE_PATTERNS = [
   'ensure the entire suite passes before signaling',
 ] as const;
 
+// S7 — angle-bracket signal tag syntax. The shipped output contract is a single typed
+// `signals.json` (a `{type: 'note', ...}` object per entry — see
+// `contract/_engine/render-contract-section.ts`); it has no XML/HTML-style tag syntax. A skill
+// that tells the AI to "emit `<task-complete>`" or "surface it as a `<note>`" teaches a contract
+// the harness never parses — the session would produce a tag nothing reads instead of a signal
+// the harness validates.
+//
+// Unlike S1–S6 (imperative commands, meaningfully gated to instruction lines — free prose about
+// `git commit` is merely descriptive), a literal signal tag has no legitimate use on ANY line
+// shape: a hard-wrapped bullet's continuation line, a free-prose sentence, or a self-closing
+// `<task-complete/>` form all teach the same false contract as a single-line bullet does. So S7
+// is NOT gated by `classifyLine`'s instruction test — it is applied to every line by
+// `checkSkillContract` directly (see the dedicated loop below) rather than through
+// `findViolationsInLine`. The pattern is a word-bounded regex, not exact-literal strings, so it
+// catches the opening tag, the closing tag, and the self-closing form, and is anchored on real
+// signal-kind names (`src/integration/ai/contract/_engine/signals/*`) rather than only the six
+// kinds a past mistake happened to use — `change`, `evaluation`, `commit-message`, and
+// `task-plan` are equally real kinds an author could mistype as a tag.
+const S7_SIGNAL_TAG_NAMES = [
+  'task-complete',
+  'task-verified',
+  'task-blocked',
+  'task-plan',
+  'note',
+  'decision',
+  'learning',
+  'change',
+  'evaluation',
+  'commit-message',
+] as const;
+
+// Matches `<name`, `</name`, or the self-closing `<name/` form, with the tag name terminated by
+// whitespace, `/`, `>`, or end-of-line — so `<note>`, `</note>`, `<note/>`, and `<note severity="minor">`
+// all match, while a longer identifier that merely starts with a listed name (`<decision-tree>`)
+// does not, since the character after `decision` there is `-`, not a boundary.
+const S7_SIGNAL_TAG_REGEX = new RegExp(`<\\/?(?:${S7_SIGNAL_TAG_NAMES.join('|')})(?=[\\s/>]|$)`, 'u');
+
+/** S7's matcher: the index of the first angle-bracket signal tag in `lowerLine`, else -1. */
+const matchSignalTag = (lowerLine: string): number => S7_SIGNAL_TAG_REGEX.exec(lowerLine)?.index ?? -1;
+
+const S7_RULE: Rule = {
+  id: 'S7',
+  description:
+    'instructs emitting an angle-bracket signal tag (e.g. `<task-complete>`) — the real contract is a typed signals.json object, not an XML/HTML-style tag',
+  match: matchSignalTag,
+};
+
+// S1–S6: imperative-command rules, gated to instruction lines (fenced code or a list item) by
+// `classifyLine` — see the module doc for why that gate is right for these six but wrong for S7.
 const RULES: readonly Rule[] = [
   {
     id: 'S1',
@@ -252,11 +307,11 @@ const classifyLine = (line: string, inCodeFence: boolean): LineClassification =>
   return { inCodeFence, isInstruction: inCodeFence || LIST_MARKER.test(line) };
 };
 
-/** Run every rule against one instruction line, returning the violations it trips (if any). */
-const findViolationsInLine = (line: string, lineNumber: number): readonly SkillViolation[] => {
+/** Run `rules` against one line, returning the violations it trips (if any). */
+const findViolationsInLine = (line: string, lineNumber: number, rules: readonly Rule[]): readonly SkillViolation[] => {
   const lowerLine = line.toLowerCase();
   const violations: SkillViolation[] = [];
-  for (const rule of RULES) {
+  for (const rule of rules) {
     const matchIndex = rule.match(lowerLine);
     if (matchIndex === -1) continue;
     if (isNegated(lowerLine, matchIndex)) continue; // anti-pattern prose — demoted.
@@ -266,7 +321,7 @@ const findViolationsInLine = (line: string, lineNumber: number): readonly SkillV
 };
 
 /**
- * Scan SKILL.md `content` against the six harness-compatibility rules.
+ * Scan SKILL.md `content` against the seven harness-compatibility rules.
  *
  * @param skillName folder / frontmatter name, echoed back for caller correlation.
  * @param content   raw SKILL.md body (frontmatter or not — frontmatter lines are harmless prose).
@@ -282,9 +337,18 @@ export const checkSkillContract = (skillName: string, content: string): SkillCon
     const line = lines[i] ?? '';
     const classified = classifyLine(line, inCodeFence);
     inCodeFence = classified.inCodeFence;
+    const lineNumber = i + 1;
+
+    // S7 is a syntax rule, not an imperative-command rule: it runs on every line except a fence
+    // delimiter itself (never on the ``` line, but yes on the prose/continuation/fenced-content
+    // lines classifyLine would otherwise skip for S1–S6). See the S7 comment above for why.
+    if (!CODE_FENCE.test(line)) {
+      violations.push(...findViolationsInLine(line, lineNumber, [S7_RULE]));
+    }
+
     if (!classified.isInstruction) continue;
 
-    violations.push(...findViolationsInLine(line, i + 1));
+    violations.push(...findViolationsInLine(line, lineNumber, RULES));
   }
 
   return { skillName, violations, pass: violations.length === 0 };

@@ -96,6 +96,7 @@ export const reproducePromptDef: PromptDefinition<ReproducePromptParams> = {
   },
   partials: {
     HARNESS_CONTEXT: 'harness-context',
+    EVIDENCE_BOUND: 'evidence-bound',
   },
   expectedSignals: ['reproduction', 'note'],
 };

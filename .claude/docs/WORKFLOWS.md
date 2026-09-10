@@ -3,8 +3,11 @@
 > On-demand reference (split out of `CLAUDE.md`). Read when working on sprint lifecycle, planning,
 > the implement gen-eval loop, or TUI navigation.
 
-Sprint lifecycle: `draft → planned → active → review → done`, plus one recovery edge
-`review → active` (unblocking a task on a review sprint — see below).
+Sprint lifecycle: `draft → planned → active → review → done`, plus two recovery edges:
+`review → active` (unblocking a task on a review sprint) and `done → review` (reopening a closed
+sprint — automatically when unblocking a task on it, or explicitly via `ralphctl sprint reopen
+<id>`). `done` is terminal only for the automated chains — no chain leaf mutates a `done` sprint
+further — never for the operator: see "Unblock" below.
 
 | Operation               | Draft | Planned | Active | Review | Done |
 | ----------------------- | :---: | :-----: | :----: | :----: | :--: |
@@ -12,24 +15,100 @@ Sprint lifecycle: `draft → planned → active → review → done`, plus one r
 | Plan tasks              |   ✓   |    ✗    |   ✗    |   ✗    |  ✗   |
 | Implement               |   ✗   |   ✓\*   |   ✓    |   ✗    |  ✗   |
 | Review (apply feedback) |   ✗   |    ✗    |   ✗    |   ✓    |  ✗   |
-| Close (review → done)   |   ✗   |    ✗    |   ✗    |   ✓    |  ✗   |
+| Close (review → done)   |   ✗   |    ✗    |   ✗    |   ✓†   |  ✗   |
+| Reopen (done → review)  |   ✗   |    ✗    |   ✗    |   ✗    |  ✓‡  |
 
 \*`plan` moves a draft sprint to `planned`; `implement` then activates it (`planned → active`) on first
 launch, passing an already-`active` sprint through idempotently — a draft sprint must be planned first.
 Implement transitions the sprint to `review` once every task has settled (`done` or `blocked`) AND at least
 one task settled `done` — an all-blocked run stays `active` so the operator can fix the blocker and
-re-run without backing the sprint out of review. The `sprint close` CLI command and the close-sprint flow
-accept only `review`-status.
+re-run without backing the sprint out of review.
 
-**Unblock reopens a review sprint (`review → active`).** A _mixed_ run (some tasks `done`, some `blocked`)
-settles to `review`. Unblocking one of those blocked tasks (TUI `u` single / bulk, or `ralphctl task
-unblock`) revives `todo` work — so `unblockTaskUseCase` reopens a `review` sprint back to `active`
-(`revertSprintToActive` clears `reviewAt`, re-stamps `activatedAt`), re-arming the implement gate
-(`planned` / `active` only) so the unblocked tasks get picked up on the next Implement run. The reopen is
-best-effort and idempotent: a non-`review` sprint passes through untouched, and a reopen that fails to
-persist is logged without failing the unblock (re-running unblock retries it — the already-`todo`
-short-circuit still reopens). Without this, an unblocked task on a review sprint would be stranded:
-Implement is gated out and only Review / Close remain.
+†`review → done` has two doors — the explicit `close-sprint` flow (`sprint close` CLI, or the TUI's
+`n → close-sprint`) and the review flow's own auto-done path (empty / repeat feedback round settles
+the loop) — and both now confirm before crossing it rather than closing in silence. Each loads the
+sprint's tasks and, if any are `blocked`, asks the operator to confirm, naming them
+(`confirmBlockedTasksLeaf` — a shared leaf at `application/flows/_shared/task/confirm-blocked-
+tasks.ts` that `review`'s chain composes, and an equivalent one local to `close-sprint/leaves/` for
+that flow). This is confirm-and-proceed, never a refusal: closing with blocked work left behind is a
+legitimate call — informally "descoping" the remainder — and declining raises an `AbortError` that
+stops the chain before the transition leaf runs, leaving the sprint `review` and re-runnable.
+`launchCloseSprint`'s own pre-flow "close this sprint?" prompt folds the same count in too, so a
+blocked task is named before AND during the close. The CLI has no `InteractivePrompt` to drive the
+in-chain gate, so `sprint close <id>` runs an equivalent confirm of its own (`-y`/`--yes` to skip
+it) and, once the close lands, prints which tasks stayed blocked regardless of whether `--yes`
+skipped the prompt.
+
+‡`done` is not a dead end: unblocking a task on a closed sprint means there is runnable work again,
+and the implement gate only re-arms for `planned` / `active`. `reopenDoneSprint`
+(`domain/entity/sprint.ts`) is the one deliberate exit from `done`, landing in `review` — not
+`active` — so the existing `review → active` step (`revertSprintToActive`, see "Unblock" below)
+carries it the rest of the way instead of the sprint gaining a second, parallel `done → active`
+transition to keep in sync with.
+Reached two ways: automatically, as the first hop of `unblockTaskUseCase`'s own reopen when the
+unblocked task's sprint is `done`; or explicitly via `ralphctl sprint reopen <id>` (idempotent — an
+already-`review` sprint prints "nothing to reopen" rather than erroring). Only the explicit CLI path
+enforces the single-active-per-project invariant (`assertNoActivePeer` — refuses when a different
+sprint on the same project already holds `active` or `review`); the automatic hop inside unblock
+skips that check and is best-effort — a failed persist is logged, not surfaced as an unblock
+failure, and re-running unblock retries it.
+
+**Unblock — the operator's recovery path.** A task blocks when its own attempt budget or verify
+gate exhausts (`blocked`, `blockKind: 'own'`) or when a prerequisite it depends on never finished
+(`blocked`, `blockKind: 'upstream'` — see `upstreamBlockedDependents`); the same `u` recovery hatch
+also resets a task left `in_progress` by a prior crash (`resetTaskToTodo`, which — unlike a real
+unblock — preserves its attempts because it resumes mid-work rather than restarting). The moment
+`settleAttemptUseCase` persists a task as `blocked` it publishes a `TaskBlockedEvent`
+(`business/observability/events.ts`); `notification-subscriber.ts` classifies it `attention`,
+raising the operator banner and (when `settings.ui.notifications.enabled`) the OS notification — a
+block is never a silent event.
+
+Blocked work is then visible everywhere an operator orients: the Home active-sprint card and the
+settled-run summary both add a `· N blocked` count beside the pending count (a sprint whose entire
+remainder was blocked used to read as "0 tasks pending" — nothing left to do); the Sprints list and
+the cross-project sprint picker each carry a `N blocked` badge per sprint (batch-loaded via
+`loadTaskHealthBySprintId`, `application/ui/shared/state-snapshot.ts`); sprint-detail's header and
+its `NextPhaseCard` name the blocked tasks and switch to a warning presentation instead of the dim
+all-clear checkmark, even once the sprint is `done`; and the Execute view's Tasks panel anchors its
+post-run card cursor and auto-expansion on the first `blocked` task rather than the last one, so a
+blocked card is never left windowed off-screen behind an overflow cue the instant a run settles.
+
+Acting on it: the Tasks panel and sprint-detail both bind `u` to unblock the FOCUSED card's stuck
+task (`tasksPanelKeys.unblock` / `contextualKeys.unblockTask`); the Sprints list binds `u` to
+bulk-unblock every stuck task in the focused sprint; sprint-detail additionally binds `B` to jump
+the cursor straight to the next blocked task (wrapping), so a long ticket + task list never needs
+arrowing past blind. On the CLI, `ralphctl task list` prints a blocked entry's reason, the
+generator's own triage when its signal supplied one (`blocker:` / `question:` / `unblocks with:`),
+and a `recover with: ralphctl task unblock <id>` footer; `ralphctl sprint progress` groups blocked
+tasks by root cause (an upstream cascade collapses under the task that actually failed, instead of
+N equal-weight rows); and `ralphctl task unblock <id>` is the recovery command itself.
+
+Every path funnels through `unblockTaskUseCase` (`business/task/unblock-task.ts`): a clean restart
+that strips the block fields and resets the attempt budget to empty. Not a silent reset, though —
+the cleared attempts, per-criterion verdicts, and escalation stamps are ARCHIVED onto
+`Task.retiredAttempts` (oldest first — `domain/entity/task-lifecycle.ts`'s `unblockTask`) rather
+than discarded, so the fresh run gets a full attempt budget back while the forensic record survives
+(`foldOutcomeStats` folds a retired run's attempts back into the outcome report same as the live
+ones). Unblocking one task also cascades: every task the dependency gate parked upstream of it
+(`upstreamBlockedDependents`) re-arms to `todo` in the same transaction — an own-failure block in
+that subtree is left untouched, since that one needs a real fix, not a cascade. And unblocking
+re-arms the SPRINT, not only the task: a `review` sprint reopens to `active` (`revertSprintToActive`
+clears `reviewAt`, re-stamps `activatedAt`) and a `done` sprint reopens through `review` first (see
+the reopen footnotes above) before that same `review → active` hop runs on top of it — both hops
+best-effort and idempotent, so a failed persist is logged and simply retried on the next unblock call.
+
+The rejected diff survives the block too. When a task settles `blocked` after at least one gen-eval
+turn ran, its uncommitted diff is stashed under a deterministic message keyed on sprint + task
+(`quarantineStashMessage` → `ralphctl/<sprintId>/<taskId>/blocked-diff`) before the tree is handed
+onward — see "Blocked-diff quarantine & restore" below for the git-level mechanics on both the
+serial and parallel implement paths, including why a blocked worktree's branch ref is kept rather
+than deleted, and how a later attempt restores it by that same message key.
+
+The generator's own structured triage for a self-block — `blockerClass` (`missing-information` /
+`ambiguous-request` / `contradictory-information`), the concrete `question` it needs answered, and
+`whatUnblocksMe` — rides from its `task-blocked` signal onto the persisted `BlockedTask` whenever
+the signal supplied it (all three are optional; a legacy or minimal signal still blocks the task
+via `reason` alone) and surfaces in both the Tasks panel overlay and `ralphctl task list`.
 
 **Two-phase planning.** **Refine** (`refine` chain) is implementation-agnostic per-ticket clarification —
 no repo exploration; ticket `status` flips `pending → approved`. **Plan** (`plan` chain) requires
@@ -127,10 +206,39 @@ fix, before giving up. Only after every nudge still fails does the turn stamp a 
 These nudges are in-round and consume no `maxTurns`/`maxAttempts` budget; a self-blocked exit still
 never retries at the task level. See `contract/_engine/corrective-retry.ts`.
 
-**Serial-path blocked-diff quarantine.** On the serial path, when a task is blocked (own-failure),
-its rejected diff is stashed to `ralphctl/<sprintId>/<taskId>/blocked-diff` and recorded on
-`blockedReason` before sibling tasks run — preserving the rejected work for post-mortem inspection
-without contaminating subsequent tasks' working trees. Intermediate commits from earlier green-verify attempts of a later-blocked task remain on the sprint branch by design — each passed its own verify; only the final blocked attempt’s uncommitted diff moves to the stash.
+**Blocked-diff quarantine & restore.** When a task settles `blocked` after at least one gen-eval turn
+ran, its rejected uncommitted diff is stashed under the deterministic message
+`quarantineStashMessage(sprintId, taskId)` (`ralphctl/<sprintId>/<taskId>/blocked-diff`) via
+`runQuarantineBlockedDiff` (`implement/leaves/quarantine-blocked-diff.ts`), and the stash message is
+recorded onto the persisted `blockedReason` plus appended to `progress.md` (an operator unblock is a
+clean restart that strips `blockedReason`, so the journal line — not the task field — is the durable
+recovery pointer). Both implement paths call the same function: the serial path splices it in-chain,
+guarded on the settled task actually being `blocked` with a real AI turn behind it (so a dependency-
+gate skip, or a pre-task-verify hard-block with no AI diff, never triggers a spurious stash), so the
+SHARED serial worktree is clean before the next task's subchain runs — without it, a later task's
+`git add -A` would sweep the earlier rejected diff into its own commit, flip its pre-verify red, and
+land a corrupt commit mis-attributed `baseline-broken`. The parallel path calls it directly from
+`wave-branch.ts`'s per-worktree teardown, `cwd` pointed at the worktree (which shares `.git` with the
+main repo, so the stash survives the worktree's removal), BEFORE `git worktree remove --force` —
+previously that removal silently destroyed a rejected diff with nothing quarantined first. A blocked
+worktree's branch ref is also kept rather than deleted on cleanup: a fold-conflict block means the
+worktree's commits are real and landed on that ref and nowhere else, so removing it would strand
+verified work in the reflog until GC; an own-failure block's ref may hold nothing of value, but
+keeping it uniformly is cheap (`setupWorktree` already tolerates and drops a leftover ref on
+relaunch). Intermediate commits from earlier green-verify attempts of a later-blocked task remain on
+the sprint branch by design — each passed its own verify; only the final blocked attempt's
+uncommitted diff moves to the stash.
+
+On the task's next attempt — a relaunch, or a same-run retry within budget — `restore-blocked-
+diff.ts` looks the stash up by that SAME message key (never a raw stash index) and pops it back
+before the generator runs, so the retry builds on the prior diff plus the evaluator's critique
+instead of starting from zero. Matching by message, not position, matters because the parallel path
+can push/list/pop several worktrees' stashes concurrently against the ONE `refs/stash` ref every
+worktree shares with the main repo; `gitStashPush` / `gitStashList` / `gitStashPop`
+(`integration/io/git-operations.ts`) are funnelled through an in-process FIFO mutex so a sibling's
+concurrent push can never shift the index a pop is about to act on out from under it. A missing or
+unpoppable stash is a silent no-op — restoration is a convenience, not a correctness requirement; the
+diff, if it was ever stashed, stays recoverable by hand via `git stash list`.
 
 **Legacy `implement` promotion.** Settings files written by ralphctl ≤ 0.7.0 stored `ai.implement`
 as a flat `{ provider, model, effort? }` row. Such files are silently promoted at load time into the

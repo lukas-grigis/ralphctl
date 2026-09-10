@@ -262,6 +262,59 @@ describe('SprintsView', () => {
     result.unmount();
   });
 
+  it("pressing u refreshes the row's own '· N blocked' badge, not just the footer hint", async () => {
+    // Regression: the row's blocked sub-count is a SEPARATE snapshot (`SprintListEntry.health`,
+    // owned by this view's list loader) from the footer hint's stuck count (owned by
+    // `useStuckSprintTasks`'s private task list). Refreshing only the latter left the card
+    // underneath claiming stale blocked work after a successful bulk unblock.
+    const sprint = makeDraftSprint({ name: 'Badge Sprint' });
+    const blocked: Task = {
+      id: 'task-badge1' as never,
+      name: 'stuck-badge',
+      status: 'blocked',
+      blockedReason: 'verify timed out',
+      dependsOn: [],
+      attempts: [],
+      ticketId: 'tkt-badge' as never,
+      repositoryId: 'r1' as never,
+      order: 1,
+      steps: [],
+      verificationCriteria: [],
+    } as never;
+
+    let stored: readonly Task[] = [blocked];
+
+    const deps = {
+      sprintRepo: fakeSprintRepo([sprint]),
+      taskRepo: {
+        async findBySprintId() {
+          return Result.ok(stored);
+        },
+        async update() {
+          stored = [{ ...(blocked as object), status: 'todo' } as unknown as Task];
+          return Result.ok(undefined);
+        },
+      } as unknown as TaskRepository,
+      projectRepo: {} as never,
+      sprintExecutionRepo: {} as never,
+      settingsRepo: {} as never,
+      logger: noopLogger,
+    } as unknown as AppDeps;
+
+    const { result } = renderView(<SprintsView />, { deps, initial: { id: 'sprints' } });
+    await waitForViewReady(result, (f) => f.includes('Badge Sprint') && f.includes('1 blocked'));
+    expect(result.lastFrame() ?? '').toContain('1 blocked');
+
+    result.stdin.write('u');
+    await waitForPredicate(() => /unblocked 1 task/.test(result.lastFrame() ?? ''));
+    // Without the reload() fix, the row's health snapshot never re-fetches and the "1 blocked"
+    // sub-count survives the toast indefinitely. (Not a plain `.not.toContain('blocked')` check —
+    // the toast text itself is "unblocked 1 task", which contains the substring "blocked".)
+    await waitForPredicate(() => !(result.lastFrame() ?? '').includes('1 blocked'));
+    expect(result.lastFrame() ?? '').not.toContain('1 blocked');
+    result.unmount();
+  });
+
   it('pressing u builds a settled in_progress task back to todo (crash-recovery path)', async () => {
     const sprint = makeDraftSprint({ name: 'Crash Sprint' });
     // Build an in_progress task with an aborted (settled) attempt.

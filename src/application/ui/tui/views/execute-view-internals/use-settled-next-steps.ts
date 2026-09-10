@@ -14,6 +14,7 @@
 
 import React from 'react';
 import { buildNextSteps, type NextSteps } from '@src/application/ui/shared/next-steps.ts';
+import { computeTaskHealthCounts } from '@src/application/ui/shared/state-snapshot.ts';
 import { useRunForensics } from '@src/application/ui/tui/views/execute-view-internals/use-run-forensics.ts';
 import { useStorage } from '@src/application/ui/tui/runtime/storage-context.tsx';
 import type { AppDeps } from '@src/application/bootstrap/wire.ts';
@@ -141,6 +142,7 @@ export const useSettledNextSteps = ({
   const approvedTicketCount = sprint?.tickets.filter((t) => t.status === 'approved').length ?? 0;
   const ticketCount = sprint?.tickets.length ?? 0;
   const resumableTaskCount = resumableCount(taskState);
+  const { blockedTaskCount, upstreamBlockedTaskCount } = computeTaskHealthCounts(taskState ?? []);
   const sprintStatus = sprint?.status;
   const hasProject = descriptor?.pinnedProjectId !== undefined;
 
@@ -159,6 +161,8 @@ export const useSettledNextSteps = ({
         pendingTicketCount,
         approvedTicketCount,
         resumableTaskCount,
+        blockedTaskCount,
+        upstreamBlockedTaskCount,
         forensics,
       }),
     [
@@ -170,6 +174,8 @@ export const useSettledNextSteps = ({
       pendingTicketCount,
       approvedTicketCount,
       resumableTaskCount,
+      blockedTaskCount,
+      upstreamBlockedTaskCount,
       forensics,
     ]
   );

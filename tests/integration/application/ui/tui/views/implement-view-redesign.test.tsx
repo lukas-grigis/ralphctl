@@ -21,11 +21,22 @@ import { describe, expect, it, vi } from 'vitest';
 import { ImplementSidebar } from '@src/application/ui/tui/views/execute-view-internals/implement-sidebar.tsx';
 import { ExecuteBody } from '@src/application/ui/tui/views/execute-view-internals/body.tsx';
 import { UiStateProvider } from '@src/application/ui/tui/runtime/ui-state-context.tsx';
+import { DepsProvider } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useResponsiveLayout } from '@src/application/ui/tui/views/execute-view-internals/use-responsive-layout.ts';
 import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-manager.ts';
 import type { BucketedExecution, TaskBucket } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { TokenUsage } from '@src/application/ui/tui/runtime/use-token-usage.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
+import type { AppDeps } from '@src/application/bootstrap/wire.ts';
+
+/**
+ * Render-only stub — `TasksPanelHost` (mounted by the wide `ImplementLayout` path) reads
+ * `useDeps()` to build the `u`-chord unblock handler. Nothing in these fixtures presses `u`,
+ * so the handler is built but never invoked; the stub only needs to exist so `useDeps()`
+ * doesn't throw "must be used inside <DepsProvider>" the way the real App root always
+ * supplies one (`src/application/ui/tui/App.tsx`).
+ */
+const stubDeps = (): AppDeps => ({}) as unknown as AppDeps;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -237,43 +248,50 @@ describe('ExecuteBody — wide layout redesign at 180×50', () => {
     vi.useFakeTimers({ now: BASE_MS + 180_000 });
     // ImplementMainArea (mounted by ExecuteBody's wide-layout path) reads `useUiState()` to
     // claim `esc` while an expanded card is focused — needs a UiStateProvider ancestor.
+    // TasksPanelHost (also mounted by the wide path) reads `useDeps()` to build the `u`-chord
+    // unblock handler — needs a DepsProvider ancestor too (see `stubDeps` above).
     const { lastFrame, unmount } = render(
-      React.createElement(
-        UiStateProvider,
-        null,
-        React.createElement(ExecuteBody, {
-          descriptor,
-          sessionList: [],
-          sessionId: 'sess-visual-test-001',
-          isRunning: true,
-          now: BASE_MS + 180_000,
-          elapsed: '3m00s',
-          layout,
-          termColumns: cols,
-          termRows: rows,
-          bucketed,
-          executionState: undefined,
-          taskState: undefined,
-          tokenUsage: makeCumulativeTokenUsage(),
-          tasksDone: 0,
-          tasksTotal: 2,
-          currentTask: task,
-          currentTaskIdx: 0,
-          currentTaskName: 'Implement auth middleware',
-          currentSubStep: 'generator',
-          tasksPanel: null,
-          onOpenEvaluation: vi.fn(),
-          logEntries: [],
-          cancelScopeOpen: false,
-          attemptElapsedMs: 8500,
-          remainingTaskCount: 1,
-          onCancelAttempt: vi.fn(),
-          onCancelFlow: vi.fn(),
-          onDismissCancelScope: vi.fn(),
-          pinnedSprintStale: false,
-          nextSteps: { steps: [], forensics: [] },
-        })
-      )
+      React.createElement(DepsProvider, {
+        value: stubDeps(),
+        // `DepsProviderProps.children` is a required prop (not a JSX-children special case), so
+        // `React.createElement` needs it supplied here rather than as trailing rest args.
+        children: React.createElement(
+          UiStateProvider,
+          null,
+          React.createElement(ExecuteBody, {
+            descriptor,
+            sessionList: [],
+            sessionId: 'sess-visual-test-001',
+            isRunning: true,
+            now: BASE_MS + 180_000,
+            elapsed: '3m00s',
+            layout,
+            termColumns: cols,
+            termRows: rows,
+            bucketed,
+            executionState: undefined,
+            taskState: undefined,
+            tokenUsage: makeCumulativeTokenUsage(),
+            tasksDone: 0,
+            tasksTotal: 2,
+            currentTask: task,
+            currentTaskIdx: 0,
+            currentTaskName: 'Implement auth middleware',
+            currentSubStep: 'generator',
+            tasksPanel: null,
+            onOpenEvaluation: vi.fn(),
+            logEntries: [],
+            cancelScopeOpen: false,
+            attemptElapsedMs: 8500,
+            remainingTaskCount: 1,
+            onCancelAttempt: vi.fn(),
+            onCancelFlow: vi.fn(),
+            onDismissCancelScope: vi.fn(),
+            pinnedSprintStale: false,
+            nextSteps: { steps: [], forensics: [] },
+          })
+        ),
+      })
     );
     const frame = lastFrame() ?? '';
     vi.useRealTimers();
@@ -327,44 +345,50 @@ describe('ExecuteBody — wide layout redesign at 220×60', () => {
     // See the 180×50 describe block above — HeaderCard's elapsed text ticks via its own
     // internal `useLiveClock`, so the system clock is frozen for the render + frame capture.
     vi.useFakeTimers({ now: BASE_MS + 180_000 });
-    // See the 180×50 describe block above — ImplementMainArea needs a UiStateProvider ancestor.
+    // See the 180×50 describe block above — ImplementMainArea needs a UiStateProvider ancestor,
+    // and TasksPanelHost needs a DepsProvider ancestor for its `u`-chord unblock handler.
     const { lastFrame, unmount } = render(
-      React.createElement(
-        UiStateProvider,
-        null,
-        React.createElement(ExecuteBody, {
-          descriptor,
-          sessionList: [],
-          sessionId: 'sess-visual-test-001',
-          isRunning: true,
-          now: BASE_MS + 180_000,
-          elapsed: '3m00s',
-          layout,
-          termColumns: cols,
-          termRows: rows,
-          bucketed,
-          executionState: undefined,
-          taskState: undefined,
-          tokenUsage: makeCumulativeTokenUsage(),
-          tasksDone: 0,
-          tasksTotal: 2,
-          currentTask: task,
-          currentTaskIdx: 0,
-          currentTaskName: 'Implement auth middleware',
-          currentSubStep: 'generator',
-          tasksPanel: null,
-          onOpenEvaluation: vi.fn(),
-          logEntries: [],
-          cancelScopeOpen: false,
-          attemptElapsedMs: 8500,
-          remainingTaskCount: 1,
-          onCancelAttempt: vi.fn(),
-          onCancelFlow: vi.fn(),
-          onDismissCancelScope: vi.fn(),
-          pinnedSprintStale: false,
-          nextSteps: { steps: [], forensics: [] },
-        })
-      )
+      React.createElement(DepsProvider, {
+        value: stubDeps(),
+        // `DepsProviderProps.children` is a required prop (not a JSX-children special case), so
+        // `React.createElement` needs it supplied here rather than as trailing rest args.
+        children: React.createElement(
+          UiStateProvider,
+          null,
+          React.createElement(ExecuteBody, {
+            descriptor,
+            sessionList: [],
+            sessionId: 'sess-visual-test-001',
+            isRunning: true,
+            now: BASE_MS + 180_000,
+            elapsed: '3m00s',
+            layout,
+            termColumns: cols,
+            termRows: rows,
+            bucketed,
+            executionState: undefined,
+            taskState: undefined,
+            tokenUsage: makeCumulativeTokenUsage(),
+            tasksDone: 0,
+            tasksTotal: 2,
+            currentTask: task,
+            currentTaskIdx: 0,
+            currentTaskName: 'Implement auth middleware',
+            currentSubStep: 'generator',
+            tasksPanel: null,
+            onOpenEvaluation: vi.fn(),
+            logEntries: [],
+            cancelScopeOpen: false,
+            attemptElapsedMs: 8500,
+            remainingTaskCount: 1,
+            onCancelAttempt: vi.fn(),
+            onCancelFlow: vi.fn(),
+            onDismissCancelScope: vi.fn(),
+            pinnedSprintStale: false,
+            nextSteps: { steps: [], forensics: [] },
+          })
+        ),
+      })
     );
     const frame = lastFrame() ?? '';
     vi.useRealTimers();

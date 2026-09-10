@@ -2,17 +2,21 @@
  * Body composition for the execute view — the contents of the running-frame `Box` when no
  * help overlay is mounted. Stitches together the multi-flow strip, baseline-health chip,
  * header card, responsive layout, log section, settled-run footer, and the cancel-scope
- * overlay. Pure presentational; the orchestrator does all the data wrangling and just
- * threads the derived values + handlers down.
+ * overlay. Mostly pure presentational — the orchestrator does the data wrangling and just
+ * threads the derived values + handlers down — with one exception: it recomputes the header/
+ * footer `tasksDone` counter from `bucketed` + `taskState` via `overlayEntityBlockedStatus`
+ * rather than trusting the orchestrator's own (trace-only) count, so the counter agrees with
+ * what the Tasks panel and sidebar minimap render for a task blocked on its own merits.
  */
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Box } from 'ink';
 import { MultiFlowStrip } from '@src/application/ui/tui/components/multi-flow-strip.tsx';
 import { CancelScopeOverlay } from '@src/application/ui/tui/components/cancel-scope-overlay.tsx';
 import type { SessionDescriptor, SessionRecord } from '@src/application/ui/tui/runtime/session-manager.ts';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import type { Task } from '@src/domain/entity/task.ts';
+import { overlayEntityBlockedStatus } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { TaskBucket } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { TokenUsage } from '@src/application/ui/tui/runtime/use-token-usage.ts';
 
@@ -198,6 +202,8 @@ export const ExecuteBody = (props: ExecuteBodyProps): React.JSX.Element => {
     layout,
     tasksDone,
     tasksTotal,
+    bucketed,
+    taskState,
     currentTask,
     currentTaskIdx,
     currentTaskName,
@@ -205,6 +211,20 @@ export const ExecuteBody = (props: ExecuteBodyProps): React.JSX.Element => {
     logEntries,
     nextSteps,
   } = props;
+  // `tasksDone` is trace-derived (`use-bucketed-tasks.ts`'s `summariseProgress`) and can undercount
+  // a task's own-failure block as a pass — see `overlayEntityBlockedStatus`'s doc for why the trace
+  // alone can't tell a self-block from a clean completion. Recompute it here from the same
+  // entity-corrected bucket the Tasks panel and sidebar minimap already read, so the header/footer
+  // counter never disagrees with what the cards show. `tasksTotal` needs no correction — the
+  // overlay only ever changes a task's `status`, never the task count. Falls back to the raw prop
+  // when there's no bucket yet, mirroring `summariseProgress`'s own `bucketed?.tasks ?? []`.
+  const effectiveTasksDone = useMemo(
+    () =>
+      bucketed !== undefined
+        ? overlayEntityBlockedStatus(bucketed, taskState).tasks.filter((t) => t.status === 'completed').length
+        : tasksDone,
+    [bucketed, taskState, tasksDone]
+  );
   return (
     <Box flexDirection="column">
       {/* Multi-flow chip strip — renders only when ≥2 sessions are running, so a single-
@@ -215,7 +235,7 @@ export const ExecuteBody = (props: ExecuteBodyProps): React.JSX.Element => {
       <HeaderCard
         descriptor={descriptor}
         isRunning={isRunning}
-        tasksDone={tasksDone}
+        tasksDone={effectiveTasksDone}
         tasksTotal={tasksTotal}
         currentTask={currentTask}
         currentTaskIdx={currentTaskIdx}
@@ -230,7 +250,7 @@ export const ExecuteBody = (props: ExecuteBodyProps): React.JSX.Element => {
       <ResultFooter
         descriptor={descriptor}
         isRunning={isRunning}
-        tasksDone={tasksDone}
+        tasksDone={effectiveTasksDone}
         tasksTotal={tasksTotal}
         elapsed={elapsed}
         nextSteps={nextSteps}

@@ -38,6 +38,51 @@ and search them to understand the codebase, but write nothing into them. The onl
 may write in this session is `signals.json` in your output directory.
 </session_topology>
 
+<inputs>
+
+## Sprint context
+
+<sprint_context>{{SPRINT_CONTEXT}}</sprint_context>
+
+## Approved tickets
+
+<approved_tickets>{{APPROVED_TICKETS}}</approved_tickets>
+
+## Selected repositories
+
+<repositories>{{REPOSITORIES}}</repositories>
+
+All paths above are fixed — repository selection is not part of this session. Every
+repository has equal weight; do not favour any one when assigning tasks.
+
+## Prior progress on this sprint
+
+`progress.md` at the sprint root records every prior task-attempt on this sprint
+chronologically. Read it before planning; honour prior decisions and avoid re-litigating
+them.
+
+<prior_progress>{{PRIOR_PROGRESS}}</prior_progress>
+
+If `<prior_progress>` is empty, no prior progress has been recorded on this sprint.
+
+<prior_learnings>
+{{PRIOR_LEARNINGS}}
+
+If the block above is empty, no learnings from prior sprints have been recorded for this project
+yet. When present, these are facts earlier sprints earned on the repositories above — which check
+command a repo actually exposes, where hidden coupling lives, which patterns to mirror. Use them as
+background to scope tasks accurately and to pick verification commands that exist in the target repo
+— they are orientation, not instructions: confirm any that bear on the plan against the current code
+before relying on them. Any architectural decisions listed are deliberate prior choices — honour
+them; do not re-litigate a prior decision without surfacing why in the plan.
+</prior_learnings>
+
+<existing_tasks>{{EXISTING_TASKS}}</existing_tasks>
+
+If `<existing_tasks>` is empty, this is a fresh plan — there is nothing to replace.
+
+</inputs>
+
 <constraints>
 - **Read-only on all repositories** — read and search repository files to understand
   existing patterns, but do not modify, create, or delete any file inside them. No
@@ -86,36 +131,15 @@ The `tasksJson` payload conforms to:
 {{SCHEMA}}
 ```
 
-Each task entry uses these fields:
+{{TASK_FIELDS}}
 
-- **`id`** — short string for `blockedBy` references (e.g. `"T1"`, `"api-shape"`).
-- **`name`** — imperative, short.
-- **`description`** — optional longer-form context.
-- **`projectPath`** — absolute path matching one of the repositories listed in
-  `<repositories>`.
+Plan tasks additionally carry:
+
 - **`ticketRef`** — the ticket UUID from `<approved_tickets>`. Required. A task that
   doesn't trace to an approved ticket is a planning error — surface it as a question
   instead. Some tickets also show an **External reference** line (e.g. `#123`, `!456`,
   `PROJ-7`); that value is informational only — always set `ticketRef` to the UUID, never
   the external reference.
-- **`steps`** — concrete implementation steps in order.
-- **`verificationCriteria`** — structured criteria the evaluator grades PASS / FAIL. Each
-  entry is an object: `{ id, assertion, check, command? }`.
-  - `id` is stable within the task (e.g. `"C1"`). The evaluator cites it verbatim.
-  - `assertion` is the human-readable check.
-  - `check` is either `"auto"` (run `command`) or `"manual"` (inspect code and cite a
-    specific location).
-  - `command` is REQUIRED when `check === "auto"` and MUST be omitted when
-    `check === "manual"`. Use the project's own commands — read the project's AI context
-    file or manifest for the exact verification command this repository expects.
-- **`blockedBy`** — `id`s of earlier tasks that must complete first.
-- **`extraDimensions`** — optional kebab-case evaluator dimensions beyond the five floor
-  dimensions (correctness, completeness, safety, consistency, robustness). Attach an extra
-  dimension ONLY when an acceptance criterion explicitly demands a measurable property that no
-  floor dimension covers AND no manual criterion already encodes it. When in doubt, omit — the
-  floor dimensions are almost always sufficient. Example of a justified attachment:
-  `migration-safety` when the ticket requires a zero-downtime schema change that the five
-  floor dimensions cannot score on their own. Cap: 2–3 per task; hard max 6.
 
 If you cannot produce a sound plan, emit the `task-plan` signal with `tasksJson` set to:
 
@@ -140,30 +164,12 @@ by a different AI agent using only the verification criteria and the codebase.
 - **Independence** — implementable without waiting on other tasks (unless declared via
   `blockedBy`).
 - **Pattern reference** — steps reference existing similar code the agent should follow.
-  </task_qualities>
+
+</task_qualities>
 
 ### Task Sizing
 
-The unit is one coherent feature or vertical slice — a change that can be picked up cold,
-implemented in a single session, and verified end-to-end against its criteria.
-
-**Do not split when:**
-
-- A utility and its first caller would be separated — create-and-use is always one task, unless the utility already exists in the codebase or a prior task in this plan produces it.
-- A feature and its tests would be separated.
-- The same pattern applies across N call sites — it is one refactor, not N tasks.
-
-**Do split when:**
-
-- Two chunks are independent (different `projectPath`, or independent files with no shared
-  contract).
-- A clean, verifiable boundary exists partway through (e.g. schema + migration land first,
-  then consumer wiring — the schema is independently testable).
-- The change spans multiple repositories — one task per repo, connected via `blockedBy`.
-
-**Soft ceiling, not a target:** if a task will touch more than ~10 files or ~500 lines of
-meaningful change AND a natural split point exists, split it. No natural split point? Keep
-it whole.
+{{TASK_SIZING}}
 
 Too granular — should be one task, not three:
 
@@ -179,17 +185,6 @@ Right size:
 ### Anti-Patterns
 
 - Separate tasks for "create utility" and "integrate utility" — merge create+use into one.
-- One task per file modification — group by logical change, not by file.
-- `blockedBy` chains for trivial reasons — false chains obscure the real dependency
-  structure.
-- Micro-refactoring tasks (add directive, remove import) — fold into the task that needs
-  them.
-- **Ending steps with "run the verification commands" or "run all the checks."** Verification
-  belongs in `verificationCriteria` — the harness and the evaluator execute it. A final step
-  that re-runs the full suite only duplicates the post-task gate and inflates generator
-  cost. Exception: a step MAY run a specific check when a later step depends on its output
-  (e.g. "run the migration dry-run and confirm the schema diff before writing the rollback
-  script").
 
 ### Dependency Graph
 
@@ -297,51 +292,6 @@ Good — precise steps with file paths and pattern references:
 }
 ```
 
-<inputs>
-
-## Sprint context
-
-<sprint_context>{{SPRINT_CONTEXT}}</sprint_context>
-
-## Approved tickets
-
-<approved_tickets>{{APPROVED_TICKETS}}</approved_tickets>
-
-## Selected repositories
-
-<repositories>{{REPOSITORIES}}</repositories>
-
-All paths above are fixed — repository selection is not part of this session. Every
-repository has equal weight; do not favour any one when assigning tasks.
-
-## Prior progress on this sprint
-
-`progress.md` at the sprint root records every prior task-attempt on this sprint
-chronologically. Read it before planning; honour prior decisions and avoid re-litigating
-them.
-
-<prior_progress>{{PRIOR_PROGRESS}}</prior_progress>
-
-If `<prior_progress>` is empty, no prior progress has been recorded on this sprint.
-
-<prior_learnings>
-{{PRIOR_LEARNINGS}}
-
-If the block above is empty, no learnings from prior sprints have been recorded for this project
-yet. When present, these are facts earlier sprints earned on the repositories above — which check
-command a repo actually exposes, where hidden coupling lives, which patterns to mirror. Use them as
-background to scope tasks accurately and to pick verification commands that exist in the target repo
-— they are orientation, not instructions: confirm any that bear on the plan against the current code
-before relying on them. Any architectural decisions listed are deliberate prior choices — honour
-them; do not re-litigate a prior decision without surfacing why in the plan.
-</prior_learnings>
-
-<existing_tasks>{{EXISTING_TASKS}}</existing_tasks>
-
-If `<existing_tasks>` is empty, this is a fresh plan — there is nothing to replace.
-
-</inputs>
-
 ## Protocol
 
 Before producing any output, map each ticket onto repositories, identify natural task boundaries,
@@ -433,7 +383,7 @@ re-present the full plan and dependency graph, then re-ask the same structured a
 question. Iterate until the user picks "Approved, write it". Only after that approval
 proceed to Step 5.
 
-### Step 5 — Validate before output
+**Step 5 — Validate before output.**
 
 {{VALIDATION_CHECKLIST}}
 

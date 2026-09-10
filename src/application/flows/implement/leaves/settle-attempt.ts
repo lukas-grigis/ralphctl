@@ -4,12 +4,13 @@ import {
   type SettleAttemptProps,
   settleAttemptUseCase,
 } from '@src/business/task/settle-attempt.ts';
+import type { EventBus } from '@src/business/observability/event-bus.ts';
 import type { AbortCause, Attempt, AttemptUsage, AttemptWarning } from '@src/domain/entity/attempt.ts';
 import type { InProgressTask, Task } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import { AbsolutePath } from '@src/domain/value/absolute-path.ts';
-import type { CriterionVerdict, EvaluationSignal } from '@src/domain/signal.ts';
+import type { CriterionVerdict, EvaluationSignal, TaskBlockerClass } from '@src/domain/signal.ts';
 import { InvalidStateError } from '@src/domain/value/error/invalid-state-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
@@ -40,6 +41,14 @@ export interface SettleAttemptLeafDeps {
    * {@link defaultWriteFile}, so behaviour is unchanged either way.
    */
   readonly writeFile?: WriteFile;
+  /**
+   * Publishes {@link TaskBlockedEvent} the moment settle persists a task as `blocked` — see
+   * `publishTaskBlocked` in `business/task/settle-attempt.ts`. Optional so legacy / test callers
+   * that don't care about notifications keep working unchanged. Production wires `deps.eventBus`
+   * from `ImplementDeps` — the same one-per-`wire()` bus `startNotificationSubscriber` listens on
+   * — so a block reaches the operator-attention banner / OS notification the moment it lands.
+   */
+  readonly eventBus?: EventBus;
 }
 
 export interface SettleAttemptLeafOpts {
@@ -90,6 +99,21 @@ interface SettleInput {
    * no spawn reported anything (a zero-turn self-block, or providers that report no usage).
    */
   readonly usage?: AttemptUsage;
+  /**
+   * The generator's own structured `task-blocked` triage — see `SettleAttemptProps.blockerClass`
+   * in `business/task/settle-attempt.ts` for the persisted shape. NOT YET PROJECTED from ctx:
+   * `GeneratorTurnExit` (`business/task/run-generator-turn.ts`) already carries these three fields
+   * off the raw signal, but `generatorLeaf` (`leaves/generator.ts`) only lifts `out.exit.reason`
+   * onto `ctx.lastBlockReason` today, and `ImplementCtx` (`implement/ctx.ts`) has no field for the
+   * rest. Once a future change adds `ctx.lastBlockerClass` / `ctx.lastBlockQuestion` /
+   * `ctx.lastBlockWhatUnblocksMe` (mirroring `lastBlockReason`) and threads them through
+   * `generatorLeaf`'s `blockReasonCarry`, this `input()` projection should read them the same way
+   * `blockedReason` does a few lines below. Declared here now so the use case is ready to receive
+   * them the moment that wiring lands.
+   */
+  readonly blockerClass?: TaskBlockerClass;
+  readonly question?: string;
+  readonly whatUnblocksMe?: string;
 }
 
 /**
@@ -212,9 +236,15 @@ const projectOptionalSettleFields = (
   | 'usage'
   | 'abortCause'
   | 'signalOrExitCode'
+  | 'blockerClass'
+  | 'question'
+  | 'whatUnblocksMe'
 > => ({
   ...projectCrashAttribution(ctx),
   ...(ctx.lastBlockReason !== undefined ? { blockedReason: ctx.lastBlockReason } : {}),
+  // Spread whole: the generator leaf already dropped the fields the signal omitted, so an absent
+  // field stays absent here rather than being written as an explicit `undefined`.
+  ...(ctx.lastBlockTriage ?? {}),
   ...(warning !== undefined ? { warning } : {}),
   ...(ctx.taskWorkspaceRoot !== undefined ? { workspaceRoot: ctx.taskWorkspaceRoot } : {}),
   ...(ctx.currentRoundNum !== undefined ? { roundNum: ctx.currentRoundNum } : {}),

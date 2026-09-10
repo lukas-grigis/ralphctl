@@ -272,6 +272,26 @@ const attemptWorkLeaves = (
 ];
 
 /**
+ * Build the `settle-attempt-<id>` leaf with its full dep set, including `eventBus` so a block
+ * publishes {@link TaskBlockedEvent} for `startNotificationSubscriber` to raise the operator
+ * banner / OS notification — see `SettleAttemptLeafDeps.eventBus`'s doc comment. Split out of
+ * {@link attemptSettleLeaves} purely so that function's own line count stays under the project's
+ * per-function ceiling.
+ */
+const buildSettleAttemptLeaf = (deps: ImplementDeps, repo: RepoExecConfig, taskId: TaskId): Element<ImplementCtx> =>
+  settleAttemptLeaf(
+    {
+      taskRepo: deps.taskRepo,
+      clock: deps.clock,
+      logger: deps.logger,
+      gitRunner: deps.gitRunner,
+      eventBus: deps.eventBus,
+    },
+    { cwd: repo.path },
+    taskId
+  );
+
+/**
  * The settling half of one attempt: gate the work on a green verify, commit it, quarantine a
  * rejected diff, settle the attempt, then persist what it learned.
  */
@@ -334,11 +354,7 @@ const attemptSettleLeaves = (
     isRedVerifyRetry,
     quarantineRetryDiffLeaf({ gitRunner: deps.gitRunner, logger: deps.logger }, { cwd: repo.path }, taskId)
   ),
-  settleAttemptLeaf(
-    { taskRepo: deps.taskRepo, clock: deps.clock, logger: deps.logger, gitRunner: deps.gitRunner },
-    { cwd: repo.path },
-    taskId
-  ),
+  buildSettleAttemptLeaf(deps, repo, taskId),
   // WRITE side of Theme 6 (audit-[B5]). Reads the STILL-POPULATED `currentAttemptLearnings`
   // accumulator and appends one NDJSON line per learning to the project's ledger. MUST run
   // BEFORE `progress-journal` — the journal clears that accumulator after it renders. Append

@@ -1,6 +1,8 @@
+import { Result } from '@src/domain/result.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { Task } from '@src/domain/entity/task.ts';
-import { scheduleIntoWaves } from '@src/domain/entity/task-graph.ts';
+import { scheduleIntoWaves, type TaskGraphIssue } from '@src/domain/entity/task-graph.ts';
+import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import type { Slug } from '@src/domain/value/slug.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
@@ -58,6 +60,21 @@ export interface CreateImplementFlowOpts {
    * per-task sub-chains at construction time so the trace names every task.
    */
   readonly todoTasks: readonly Task[];
+  /**
+   * Ids of tasks OUTSIDE `todoTasks` that already satisfy a dependency — in practice, the sprint's
+   * `done` (and `blocked`, since the per-task `dependency-gate` leaf — not the scheduler — is what
+   * parks a dependent behind a blocked prerequisite at run time) tasks. `planImplementWaves`
+   * threads this straight through to `scheduleIntoWaves`'s own `satisfiedDependencyIds` — see that
+   * function for the full contract.
+   *
+   * Without it, a resumed run's `todoTasks` (the `todo`/`in_progress` subset only) makes any
+   * dependency on an already-settled prerequisite look like a dangling reference once the graph is
+   * narrowed to that subset alone — the prerequisite genuinely exists, just not in `todoTasks` —
+   * and `scheduleIntoWaves` fails the whole schedule closed instead of scheduling the dependent.
+   * Defaults to empty when omitted, which keeps that closed-failure behaviour (loud, not silent —
+   * see `planImplementWaves`) rather than silently tolerating every absent id.
+   */
+  readonly satisfiedDependencyIds?: ReadonlySet<TaskId>;
   /**
    * Project repositories keyed by id. Every `Task.repositoryId` must resolve through this map;
    * the per-task sub-chain pulls the cwd / verify-script / setup-script from the entry for the
@@ -417,28 +434,41 @@ export interface ImplementWavePlan {
  * Decompose an implement run into its reusable segments for the parallel launcher.
  *
  * Returns the extracted {@link buildImplementPrologue} / {@link buildImplementEpilogue} segments,
- * the dependency-scheduled task waves (`scheduleIntoWaves(opts.todoTasks)`), and the sprint-wide
- * lock key. Lands NO parallel behaviour itself — it only computes the plan; the parallel launcher
- * is the consumer that runs the prologue, fans the waves out via `runWaves`, and runs the epilogue under one held
- * lock.
+ * the dependency-scheduled task waves (`scheduleIntoWaves(opts.todoTasks, opts.satisfiedDependencyIds)`),
+ * and the sprint-wide lock key — wrapped in a `Result` so an unschedulable task set is a loud,
+ * distinguishable failure rather than a silent empty plan. Lands NO parallel behaviour itself — it
+ * only computes the plan; the parallel launcher is the consumer that runs the prologue, fans the
+ * waves out via `runWaves`, and runs the epilogue under one held lock.
  *
- * On an unschedulable task set (cycle / self-edge / dangling dependency) the wave schedule fails.
- * `launchImplement` already validates + schedules the full task set upfront (see
- * `resolveImplementQueue`), so by the time the launcher builds a plan from the resumable queue the
- * graph is known sound; the `Result.ok` branch is therefore the expected path. A `TaskGraphIssue`
- * is propagated as an empty wave list so a mis-sequenced caller fails closed (no tasks scheduled)
- * rather than throwing at construction time.
+ * `opts.todoTasks` is the RESUMABLE subset of a sprint's tasks (`todo` + `in_progress` —
+ * see `CreateImplementFlowOpts.todoTasks`), not the full set. A dependent whose prerequisite
+ * already settled `done` (or `blocked`) has a `dependsOn` id that does not resolve inside that
+ * subset even though the graph as a whole is perfectly sound — `opts.satisfiedDependencyIds` is
+ * the caller's declaration of exactly which outside ids are like that, so `scheduleIntoWaves`
+ * can tell "satisfied elsewhere" apart from "genuinely dangling" instead of collapsing both to
+ * `unknown-dependency`.
+ *
+ * On an unschedulable task set (cycle / self-edge / a dependency id that resolves to nothing —
+ * neither `todoTasks` nor `satisfiedDependencyIds`) this returns `Result.error(issue)` and builds
+ * NEITHER the prologue nor the epilogue: a caller that gets an error here must stop the launch and
+ * surface the issue (mirroring how `resolveImplementQueue` already stops a launch on the same
+ * class of issue over the full task set) rather than proceeding with an empty wave list that would
+ * run prologue → nothing → epilogue and report `completed` having done no work.
  *
  * @public
  */
-export const planImplementWaves = (deps: ImplementDeps, opts: CreateImplementFlowOpts): ImplementWavePlan => {
-  const schedule = scheduleIntoWaves(opts.todoTasks);
-  return {
+export const planImplementWaves = (
+  deps: ImplementDeps,
+  opts: CreateImplementFlowOpts
+): Result<ImplementWavePlan, TaskGraphIssue> => {
+  const schedule = scheduleIntoWaves(opts.todoTasks, opts.satisfiedDependencyIds ?? new Set());
+  if (!schedule.ok) return Result.error(schedule.error);
+  return Result.ok({
     prologue: buildImplementPrologue(deps, opts),
-    waves: schedule.ok ? schedule.value : [],
+    waves: schedule.value,
     epilogue: buildImplementEpilogue(deps, opts),
     lockKey: opts.sprintDir,
-  };
+  });
 };
 
 export const createImplementFlow = (deps: ImplementDeps, opts: CreateImplementFlowOpts): Element<ImplementCtx> => {

@@ -1,4 +1,5 @@
 import { type Result } from '@src/domain/result.ts';
+import type { Task } from '@src/domain/entity/task.ts';
 import { requireNonEmpty } from '@src/integration/ai/prompts/_engine/validators.ts';
 import type { Prompt } from '@src/integration/ai/prompts/_engine/prompt-type.ts';
 import { buildPrompt, type BuildPromptError } from '@src/integration/ai/prompts/_engine/build-prompt.ts';
@@ -8,6 +9,7 @@ import {
   renderPreVerifyResultsSection,
   renderPriorCritiqueSection,
   renderRetryFeedbackSection,
+  renderVerificationCriteriaSection,
 } from '@src/integration/ai/prompts/_engine/renderers/task.ts';
 import type { TemplateLoader } from '@src/integration/ai/prompts/_engine/template-loader.ts';
 
@@ -55,6 +57,17 @@ export interface ImplementContinuationPromptParams {
    * the shared `renderPriorCritiqueSection`.
    */
   readonly priorCritiqueSection: string;
+  /**
+   * "## Done criteria" block for `<task_criteria>` — rendered by the shared
+   * {@link renderVerificationCriteriaSection}. Unlike the rest of this template's delta-only
+   * design, this rides EVERY continuation round unconditionally rather than relying on the
+   * resumed conversation to still hold it: a compacted or cold-resumed session cannot notice
+   * that its own context is missing the done-criteria, so the harness re-injects them rather
+   * than gating on a "re-read if missing" instruction the model has no way to evaluate. Absent
+   * or empty → `{{VERIFICATION_CRITERIA_SECTION}}` collapses cleanly (the surrounding
+   * `<task_criteria>` prose explains the empty case instead of leaving an orphan heading).
+   */
+  readonly verificationCriteriaSection?: string;
   /**
    * Summaries of the most instructive prior attempts on THIS task (a curated select-K slice, not
    * the full attempt history) with their verification outcomes — what passed and what regressed.
@@ -123,6 +136,14 @@ export const implementContinuationPromptDef: PromptDefinition<ImplementContinuat
       description:
         '"## Prior Critique" markdown block (+ optional "## Dimension trajectory" feed-forward) — the prior round\'s failed evaluator critique and the multi-round dimension trajectory.',
     },
+    verificationCriteriaSection: {
+      placeholder: 'VERIFICATION_CRITERIA_SECTION',
+      optional: true,
+      description:
+        '"## Done criteria" bullet list re-injected unconditionally every continuation round (not gated on ' +
+        'the conversation losing context). Empty → `{{VERIFICATION_CRITERIA_SECTION}}` collapses to the ' +
+        "`<task_criteria>` block's explicit empty-case sentence.",
+    },
     priorAttemptsSection: {
       placeholder: 'PRIOR_ATTEMPTS_SECTION',
       optional: true,
@@ -164,6 +185,8 @@ export const implementContinuationPromptDef: PromptDefinition<ImplementContinuat
   },
   partials: {
     HARNESS_CONTEXT: 'harness-context',
+    AUTONOMOUS_OPERATION: 'autonomous-operation',
+    EVIDENCE_BOUND: 'evidence-bound',
     DECISIONS_GUIDANCE: 'decisions',
   },
   // Same accepted signal union as the full implement prompt — a continuation turn is still a
@@ -190,6 +213,15 @@ export interface BuildImplementContinuationPromptInput {
   readonly priorProgress: string;
   /** Prior evaluator critique to feed back into the generator. */
   readonly priorCritique?: string;
+  /**
+   * The task being continued — used ONLY to unconditionally re-render the "## Done criteria"
+   * list every round via the shared {@link renderVerificationCriteriaSection}, so a compacted or
+   * cold-resumed session always has the authoritative criteria in context rather than relying on
+   * conversation memory. Optional so a caller that has not yet threaded it through keeps working
+   * unchanged — absent → `<task_criteria>` renders its explicit empty-case sentence instead of an
+   * orphan heading.
+   */
+  readonly task?: Task;
   /**
    * Pre-composed summary of the most instructive prior attempts on this task (a curated
    * select-K slice, not the full history) with their verification outcomes. Absent or empty →
@@ -271,6 +303,7 @@ export const buildImplementContinuationPrompt = async (
     progressFile: input.progressFile,
     priorProgress: input.priorProgress,
     priorCritiqueSection: renderPriorCritiqueSection(input.priorCritique, input.dimensionTrajectory),
+    verificationCriteriaSection: input.task !== undefined ? renderVerificationCriteriaSection(input.task) : '',
     priorAttemptsSection: renderPriorAttemptsSection(input.priorAttempts),
     reproductionSection: renderReproductionSection(input.reproduction),
     plateauDirectiveSection: renderPlateauDirectiveSection(input.plateauBreak ?? false),

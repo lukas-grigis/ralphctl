@@ -283,6 +283,48 @@ Pick the right surface for the state. Don't mix raw `<Text color={inkColors.erro
 | Success / terminal done | `<Card tone="success" />` (or the Execute footer's `<ResultCard kind="success" />`) | fields + next steps.                                  |
 | Idle (waiting on input) | the prompt itself                                                                   | Don't render a spinner while a prompt is up.          |
 
+### 5.1 Blocked tasks
+
+A `blocked` task is error-level, never the muted grey a `pending` / `skipped` task gets — a dependency
+gate or a self-block still needs the operator's attention, so it must never read as "just hasn't run
+yet". Every surface that renders a task's own status agrees on `inkColors.error`:
+`STATUS_PRESENTATION.blocked` (the Tasks-panel card header — `task-card-parts.tsx`),
+`TASK_STATUS_COLOR.blocked` (the Execute-view sidebar's passive task-nav minimap —
+`implement-sidebar.tsx`), and `taskStatusKind('blocked')` (`status-chip.tsx`, the generic
+`StatusChip` used wherever a task status renders as a bracketed tag). The glyph is
+`glyphFor('blocked')` (△, U+25B3) — the same triangle already reserved for the harness `blocked`
+signal kind, reused verbatim on the status card and the sidebar minimap so a blocked row never
+reads as an ordinary skip (`phaseDisabled ◌`) or pending (`phasePending ◇`) row.
+
+Rollup counts (Home's hero card, the Sprints-list row) render as a trailing `N blocked` — a bold
+`inkColors.error` count + a dim label, appended after the existing `pending` / `approved` sub-counts
+with the same bullet-separated, iconless shape those already use. Don't prefix it with
+`glyphs.warningGlyph` or any other icon — the count + color carries the state on its own, matching how
+`pending` / `approved` render right next to it. Sprint-detail's own `Tasks` field is the one exception:
+it's a plain `FieldList` value (`N  (M done · K blocked)`, default weight, no color) rather than a
+rollup badge.
+
+The card's `blockedReason` (first line, `⚠` icon, warning tone) renders whether the card is collapsed
+or expanded — it's the headline fact. When the block came from a generator `task-blocked` signal that
+supplied its own structured triage (`BlockedTask.blockerClass` / `.question` / `.whatUnblocksMe`), the
+EXPANDED card additionally shows the concrete question (`?` icon, dim tone) and what would unblock it
+(`→` icon, dim tone) — supplementary elaboration, not the headline, so they don't clutter the collapsed
+one-liner.
+
+**Chords.** `u` unblocks the focused card's stuck task, on both the Execute-view Tasks panel (settled
+runs only — see [§6.2](#62-execute-view-keys--active-when-execute-view-owns-the-focus)) and the
+sprint-detail task list (no such gate — it's a browse view, never a live run). Sprint-detail also binds
+`B` (jump to the next blocked task, wrapping) so an operator doesn't have to arrow-key past a long task
+list to reach a row the header already flagged; its footer hint reads `u unblock` / `B next blocked`,
+both gated on a blocked task actually existing.
+
+**Anchoring.** Once a run settles (no task left in flight), the Tasks panel's card cursor — and with
+it the windowed list's visible slice — anchors on the FIRST `blocked` task instead of unconditionally
+the last one. Without this, a task blocked early in a long list would fall behind a dim "N more above"
+cue the instant the run finished, exactly the failure mode a blocked task's added attention-color exists
+to prevent. The same fallback seeds which card auto-expands as the settled summary. Only when nothing
+is blocked does the cursor fall through to the last card (unchanged pre-existing behaviour).
+
 ## 6. Navigation contract
 
 ### 6.1 Global hotkeys — owned by the router
@@ -313,21 +355,28 @@ only and are suspended while a prompt or overlay is mounted.
 
 ### 6.2 Execute-view keys — active when Execute view owns the focus
 
-| Key               | Action                                                                    |
-| ----------------- | ------------------------------------------------------------------------- |
-| `j` / `↓`         | Next task card / row                                                      |
-| `k` / `↑`         | Previous task card / row                                                  |
-| `Enter` / `Space` | Expand / collapse card or commit row                                      |
-| `Esc`             | Collapse expanded card                                                    |
-| `e`               | Expand done-criteria for the active card                                  |
-| `v`               | Open the focused card's evaluation verdict (`evaluation.md`)              |
-| `c`               | Open cancel-scope picker (attempt vs flow)                                |
-| `D`               | Detach (background the flow)                                              |
-| `r`               | Settled run only — reset to Flows so the launch triggers are re-evaluated |
+| Key               | Action                                                                                 |
+| ----------------- | -------------------------------------------------------------------------------------- |
+| `j` / `↓`         | Next task card / row                                                                   |
+| `k` / `↑`         | Previous task card / row                                                               |
+| `Enter` / `Space` | Expand / collapse card or commit row                                                   |
+| `Esc`             | Collapse expanded card                                                                 |
+| `e`               | Expand done-criteria for the active card                                               |
+| `v`               | Open the focused card's evaluation verdict (`evaluation.md`)                           |
+| `c`               | Open cancel-scope picker (attempt vs flow)                                             |
+| `D`               | Detach (background the flow)                                                           |
+| `r`               | Settled run only — reset to Flows so the launch triggers are re-evaluated              |
+| `u`               | Settled run only, with a blocked task focused — unblock it ([§5.1](#51-blocked-tasks)) |
 
 `c` / `D` are live only while the chain runs; `r` only once it has settled, so the two sets never
 contend. A settled run's hint strip reads `↵ home · r re-run · g progress · v evaluation` (`g` is the
-global progress-overlay chord — hinted here, handled globally, never bound twice).
+global progress-overlay chord — hinted here, handled globally, never bound twice), plus a trailing
+`u unblock` once the run left a task blocked. `u` is advertised ONLY in the settled set: the Tasks
+panel's own `u` chord is a no-op while a run is live (blocked-task ids are forced empty mid-run — a
+polled entity can flip `blocked` while the in-memory run still thinks it owns the task, and honouring
+`u` there would race the run's own write), so hinting it during a run would advertise a key whose
+handler rejects every press — the thing the hint-strip invariant in
+[§6.3](#63-view-local-keys--declared-once-via-useviewkeys) forbids.
 
 `v` is hinted on both halves (a failed round mid-run is exactly when the critique is wanted) and gated
 on some task having recorded a verdict. OPENING is view-local — only a view knows which card the cursor

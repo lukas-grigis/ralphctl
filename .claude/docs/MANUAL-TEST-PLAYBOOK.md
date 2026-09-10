@@ -535,6 +535,115 @@ error — not a silent hang or an empty `signals.json`. `ralphctl doctor` report
 
 ---
 
+## Scenario 21 — blocked-task visibility
+
+**Setup:** a project with a sprint carrying two independent, unrelated tasks (Task A, Task B — neither
+`dependsOn` the other), planned via refine + plan (Scenarios 2–3). Phrase Task A's ticket so the
+generator has no real work to do and is instructed to self-block on its first turn, e.g. end the ticket
+body with:
+
+```
+This task cannot be completed with the information given. On your first turn, without touching any
+files, emit a task-blocked signal with reason "manual QA probe — intentionally blocked",
+blockerClass "missing-information", question "what info is needed to proceed?", and whatUnblocksMe
+"tester confirms this scenario passed".
+```
+
+Task B's ticket should be an ordinary, easily-satisfiable task so the run has something to finish.
+Confirm OS notifications are on (default): `ralphctl settings show | grep -A1 notifications` should show
+`enabled: true`.
+
+**21a — a task blocks mid-run, the banner fires, the card stays put:**
+
+1. From Home, start the **Implement** flow on the sprint
+2. Watch Task A's card in the Tasks panel
+3. **Expected:** once the generator turn ends, Task A's card header switches to the △ triangle glyph in
+   red and the status word reads `blocked` — never the grey `pending` uses
+4. **Expected:** a `⚠ manual QA probe — intentionally blocked` line renders under the header. Press
+   `Enter` to expand the card — **Expected:** a `? what info is needed to proceed?` line and a
+   `→ tester confirms this scenario passed` line also render
+5. **Expected:** around the same moment, an OS notification titled "Task blocked" with body "Task A:
+   manual QA probe — intentionally blocked" appears (macOS Notification Center / Linux libnotify) — at
+   minimum, the terminal bell fires if your platform has no notification daemon configured
+6. **Expected:** Task B starts next and runs to completion (`DONE`) — Task A's block does not cascade to
+   it
+7. **Expected:** once Task B settles and nothing is left `todo` / `in_progress`, the whole run settles.
+   Task A's card is STILL visible on screen (not hidden behind a dim "N more above" cue) even though it
+   sits earlier in the list than Task B
+8. **Expected:** the settled hint strip reads `↵ home · r re-run · g progress · v evaluation · u unblock`
+
+**21b — finding it again from a cold TUI launch:**
+
+1. Force-quit ralphctl (`Ctrl+C`)
+2. Re-launch `pnpm dev` — **Expected:** lands on Home
+3. **Expected:** the sprint's hero card's ticket/task line ends with `· 1 blocked` in red, right after the
+   `tasks pending` count
+4. Press `r` to open the Sprints list — **Expected:** the sprint's card shows `· 1 blocked` in red, after
+   its ticket / pending / approved counts
+5. Press `Esc`, then `S` to open the cross-project sprint picker; move the cursor onto the sprint —
+   **Expected:** its expanded detail line shows `1 blocked` in red
+6. Press `Esc` to close the picker (back to Home), press `r`, then `Enter` on the sprint's row to open
+   its detail view —
+   **Expected:** the `Tasks` field reads `2  (1 done · 1 blocked)`; below it, a "Next phase" panel reads
+   `1 task(s) blocked` with hint `Press B to jump to one, u to retry it, or n → close-sprint to accept
+as-is …`
+7. Press `B` — **Expected:** the cursor jumps straight to Task A's row without arrow-keying past Task B
+
+**21c — closing a sprint with a blocked task:**
+
+1. The mixed done/blocked run in 21a auto-transitioned the sprint to `review` — confirm with
+   `ralphctl sprint list`
+2. From the sprint-detail view, press `n` to open Flows and select **Close sprint** (only offered on a
+   `review` sprint)
+3. **Expected:** routed to Execute view; a confirm prompt reads `1 task(s) are blocked and will stay
+unreachable once this sprint is done:` followed by `Task A`, then `Close anyway?`
+4. Press `y` — **Expected:** the chain completes, the sprint transitions to `done`
+5. Back in sprint-detail, **Expected:** the all-clear checkmark line under the header is gone; in its
+   place, a warning-glyph (⚠) line in amber reads `Press B to jump to one, then u to reopen this sprint
+and retry it.`
+
+**Negative / CLI equivalent:** `ralphctl sprint close <id>` on a still-`review` sprint with a blocked
+task prints the same "task(s) are blocked" wording as a `[y/N]` prompt; answering `N` (or piping no input)
+leaves the sprint in `review`. Answering `y` (or passing `-y`) prints `closed sprint '<slug>' (<id>)`
+followed by `note: 1 task(s) stayed blocked: Task A` and `recover with: ralphctl task unblock <id>
+(reopens this sprint automatically)`.
+
+**21d — reopening a closed sprint:**
+
+1. `ralphctl sprint reopen <id>` on the sprint closed in 21c
+2. **Expected:** stdout prints `reopened sprint '<slug>' (<id>) done → review` plus a line naming
+   `ralphctl task unblock <id>` as the next step
+3. `ralphctl sprint list` — **Expected:** the sprint's status is `review`, not `active` — reopening alone
+   does not resume runnable work, only makes the blocked task reachable again
+4. Re-run `ralphctl sprint reopen <id>` — **Expected:** idempotent: prints "already in review — nothing
+   to reopen" rather than erroring
+
+**21e — unblocking and confirming the next run picks it up:**
+
+1. Open the sprint's detail view, focus Task A's row, and press `u` — or equivalently run
+   `ralphctl task unblock <task-A-id> --sprint <id>`
+2. **Expected:** Task A flips back to `todo`. `ralphctl sprint list` — **Expected:** the sprint (still
+   `review` since 21d) is now `active` again — the unblock reopened it, no separate `sprint activate`
+   call needed. (Had you skipped 21d and unblocked straight from `done`, the same unblock would have
+   hopped it done → review → active in one step — that auto-hop is the other reachability path for
+   closed-sprint blocked work, alongside the manual `sprint reopen` from 21d.)
+3. `ralphctl task list --sprint <id>` — **Expected:** Task A shows `[todo    ]` with no indented
+   blocked-reason lines under it; Task B still shows `[done    ]`
+4. From Home, start **Implement** again on the sprint
+5. **Expected:** Task A (the only `todo` task; Task B is `done` and is skipped) is the one that runs —
+   the harness actually picks the unblocked task up rather than leaving it stranded. No "resumed from
+   aborted" banner renders under its header — this is a fresh attempt, not a resume
+6. Since Task A's ticket still carries the self-block instruction, **expect it to block again** with the
+   same reason — that's fine here: the point of this scenario is confirming the harness re-attempts an
+   unblocked task, not that one probe ticket produces a different outcome on retry. `ralphctl task show
+<task-A-id>` — **Expected:** `retiredAttempts` now holds one archived entry from the FIRST block, kept
+   rather than discarded, separate from the fresh `attempts` this second block just settled
+7. **Expected:** the blocked count is still `1` (not `2`, not `0`) on every surface exercised in 21b (Home
+   card, Sprints list, sprint-detail's `Tasks` field) — one task, blocked twice, still reads as one
+   blocked task
+
+---
+
 ## Known issues (file under here, link the fix commit)
 
 - (none currently)

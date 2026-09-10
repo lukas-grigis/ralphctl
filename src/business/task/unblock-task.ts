@@ -7,7 +7,7 @@ import type { SaveAllTasks } from '@src/domain/repository/task/save-all-tasks.ts
 import type { Task, TodoTask } from '@src/domain/entity/task.ts';
 import { resetTaskToTodo, unblockTask } from '@src/domain/entity/task-lifecycle.ts';
 import { upstreamBlockedDependents } from '@src/domain/entity/task-graph.ts';
-import { type Sprint, revertSprintToActive } from '@src/domain/entity/sprint.ts';
+import { reopenDoneSprint, type Sprint, revertSprintToActive } from '@src/domain/entity/sprint.ts';
 import type { FindById } from '@src/domain/repository/_base/find-by-id.ts';
 import type { Save } from '@src/domain/repository/_base/save.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
@@ -39,9 +39,13 @@ const PERSIST_FAILED_MSG = 'persist failed';
  * `review`. Reviving a `todo` task there means the sprint is no longer review-complete and the
  * implement gate (`planned` / `active` only) would otherwise leave the revived work stranded. So
  * after a successful unblock this reopens a `review` sprint to `active` (see
- * {@link revertSprintToActive}). Best-effort and idempotent: a non-`review` sprint passes through
- * untouched, and a reopen that fails to persist is logged but does not fail the unblock — the task
- * is already revived, and re-running unblock retries the reopen (the already-`todo` short-circuit
+ * {@link revertSprintToActive}). A `done` sprint — the operator closed it with this task still
+ * blocked — gets the same treatment one hop earlier: {@link reopenDoneSprint} first carries it to
+ * `review`, then the same review → active step runs on the result, so a closed sprint's blocked
+ * work is never permanently unreachable. Both hops are best-effort and idempotent: a
+ * sprint that is already open (`draft` / `planned` / `active`) passes through untouched, and a
+ * reopen that fails to persist at either hop is logged but does not fail the unblock — the task is
+ * already revived, and re-running unblock retries the reopen (the already-`todo` short-circuit
  * still reopens).
  *
  * **TOCTOU precondition.** The cascade path does an UNLOCKED `findBySprintId` read whose result
@@ -70,10 +74,34 @@ export interface UnblockTaskProps {
 
 export type UnblockTaskOutput = TodoTask;
 
+/** Persist one reopen hop. Best-effort: a failure is logged and swallowed — see below. */
+const persistReopen = async (
+  props: UnblockTaskProps,
+  next: Sprint,
+  hop: string,
+  log: Logger
+): Promise<Sprint | undefined> => {
+  const saved = await props.sprintRepo.save(next);
+  if (!saved.ok) {
+    log.warn('could not persist reopened sprint after unblock', {
+      sprintId: props.sprintId,
+      hop,
+      error: saved.error.message,
+    });
+    return undefined;
+  }
+  log.info(`sprint '${next.slug}' reopened ${hop} to resume unblocked work`, { sprintId: props.sprintId });
+  return next;
+};
+
 /**
- * Reopen a `review` sprint to `active` so the implement gate re-arms now there's `todo` work.
- * Best-effort: the unblock has already persisted by the time this runs, so a failed reopen is
- * logged and swallowed rather than failing the operation — re-running unblock retries it.
+ * Reopen a `done` or `review` sprint to `active` so the implement gate re-arms now there's `todo`
+ * work. A `done` sprint hops through `review` first via the domain's {@link reopenDoneSprint} — so
+ * the review → active step below carries it the rest of the way, rather than a sprint gaining a
+ * second, parallel done → active transition to keep in sync with it. Best-effort at each hop: the
+ * unblock has already persisted by the time this runs, so a failed reopen is logged and swallowed
+ * rather than failing the operation — re-running unblock retries it from wherever the sprint ended
+ * up.
  */
 const reopenSprintIfReview = async (props: UnblockTaskProps, log: Logger): Promise<void> => {
   const loaded = await props.sprintRepo.findById(props.sprintId);
@@ -84,26 +112,32 @@ const reopenSprintIfReview = async (props: UnblockTaskProps, log: Logger): Promi
     });
     return;
   }
-  if (loaded.value.status !== 'review') return;
-  const reopened = revertSprintToActive(loaded.value, props.clock());
-  if (!reopened.ok) {
+
+  let sprint: Sprint = loaded.value;
+  if (sprint.status === 'done') {
+    const toReview = reopenDoneSprint(sprint, props.clock());
+    if (!toReview.ok) {
+      log.warn('could not reopen closed sprint after unblock', {
+        sprintId: props.sprintId,
+        error: toReview.error.message,
+      });
+      return;
+    }
+    const persisted = await persistReopen(props, toReview.value, 'done → review', log);
+    if (persisted === undefined) return;
+    sprint = persisted;
+  }
+
+  if (sprint.status !== 'review') return;
+  const toActive = revertSprintToActive(sprint, props.clock());
+  if (!toActive.ok) {
     log.warn('could not reopen sprint after unblock', {
       sprintId: props.sprintId,
-      error: reopened.error.message,
+      error: toActive.error.message,
     });
     return;
   }
-  const saved = await props.sprintRepo.save(reopened.value);
-  if (!saved.ok) {
-    log.warn('could not persist reopened sprint after unblock', {
-      sprintId: props.sprintId,
-      error: saved.error.message,
-    });
-    return;
-  }
-  log.info(`sprint '${reopened.value.slug}' reopened review → active to resume unblocked work`, {
-    sprintId: props.sprintId,
-  });
+  await persistReopen(props, toActive.value, 'review → active', log);
 };
 
 /** Persist only the revived task via the single-task `update` — no whole-list rewrite needed. */

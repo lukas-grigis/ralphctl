@@ -81,6 +81,23 @@ describe('planPromptDef — completeness', () => {
     expect(template).toContain('the interface signatures the change must expose');
     expect(template).toContain('given/when/then scenarios');
   });
+
+  it('places the approved-tickets input block before the Task Design Rules and calibration examples', async () => {
+    // Regression: <inputs> (approved tickets, repositories, prior progress/learnings, existing
+    // tasks) used to sit at line ~300 of 453 — below every rule and every calibration example.
+    // Long-context guidance says longform data belongs near the top, above the instructions and
+    // examples that operate on it, especially for a multi-document prompt like this one.
+    const path = `${String(defaultTemplatesDir())}/plan/template.md`;
+    const template = await fs.readFile(path, 'utf8');
+    const inputsIdx = template.indexOf('<inputs>');
+    const taskDesignRulesIdx = template.indexOf('## Task Design Rules');
+    const calibrationExamplesIdx = template.indexOf('### Examples (calibration, not templates)');
+    expect(inputsIdx).toBeGreaterThan(-1);
+    expect(taskDesignRulesIdx).toBeGreaterThan(-1);
+    expect(calibrationExamplesIdx).toBeGreaterThan(-1);
+    expect(inputsIdx).toBeLessThan(taskDesignRulesIdx);
+    expect(inputsIdx).toBeLessThan(calibrationExamplesIdx);
+  });
 });
 
 describe('renderSprintContext', () => {
@@ -132,6 +149,28 @@ describe('renderExistingTasks', () => {
 const SAMPLE_CONTRACT_SECTION = '## Output contract\n\nWrite signals.json. (test fixture body.)';
 
 describe('buildPlanPrompt — end-to-end against the real template', () => {
+  it('renders the shared task-fields and task-sizing partials, not an inlined copy', async () => {
+    // Regression: plan used to hand-write the same per-field task schema and sizing rules that
+    // ideate also hand-wrote — a schema change needed two edits and a reviewer who noticed both.
+    // Both templates now render the same _partials/task-fields.md / task-sizing.md bodies.
+    const sprint = draftWithApproved(1);
+    const result = await buildPlanPrompt(deps, {
+      sprint,
+      project: makeProject(),
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      priorProgress: '',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const normalized = (result.value as unknown as string).replace(/\s+/g, ' ');
+    expect(normalized).toContain('Do NOT end steps with "run the verification commands"');
+    expect(normalized).toContain('Fold trivial cases into the task that needs them');
+    // Regression: the shared partial dropped the worked example for `extraDimensions` — the one
+    // field whose rule is "attach ONLY when …, when in doubt omit" lost its only demonstration
+    // of the allowed case.
+    expect(normalized).toContain('Example of a justified attachment: `migration-safety`');
+  });
+
   it('produces a fully-substituted prompt for a fresh-plan input', async () => {
     const sprint = draftWithApproved(2);
     const result = await buildPlanPrompt(deps, {

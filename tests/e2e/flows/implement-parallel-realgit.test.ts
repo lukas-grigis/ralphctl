@@ -37,15 +37,17 @@ import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
 import type { SprintExecutionRepository } from '@src/domain/repository/sprint/sprint-execution-repository.ts';
 import type { TaskRepository } from '@src/domain/repository/task/task-repository.ts';
-import type { Task } from '@src/domain/entity/task.ts';
+import type { BlockedTask, Task } from '@src/domain/entity/task.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { HarnessSignal } from '@src/domain/signal.ts';
+import { unblockTask } from '@src/domain/entity/task-lifecycle.ts';
 
 import { createSprintExecution, setExecutionBranch } from '@src/domain/entity/sprint-execution.ts';
 import type { HeadlessAiProvider, ProviderOutput } from '@src/integration/ai/providers/_engine/headless-ai-provider.ts';
 import type { AiSession } from '@src/integration/ai/providers/_engine/ai-session.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { writeJsonAtomic } from '@src/integration/io/fs.ts';
+import { gitWorktreeRef } from '@src/integration/io/git-operations.ts';
 import { createGitRunner } from '@src/integration/io/git-runner.ts';
 import type { ShellScriptRunner } from '@src/integration/io/shell-script-runner.ts';
 import { createFileLocker } from '@src/integration/io/file-locker.ts';
@@ -56,11 +58,23 @@ import { createInMemoryEventBus } from '@src/integration/observability/in-memory
 
 import { createRunner } from '@src/application/chain/run/runner.ts';
 import { createParallelImplementElement } from '@src/application/flows/implement/parallel-element.ts';
-import { planImplementWaves } from '@src/application/flows/implement/flow.ts';
+import { type ImplementWavePlan, planImplementWaves } from '@src/application/flows/implement/flow.ts';
+import { renderTaskGraphIssue } from '@src/domain/entity/task-graph.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
+
+/**
+ * Unwrap a wave plan in a test that asserts the happy path. A scheduling failure here means the
+ * fixture's own task graph is malformed — not the behaviour under test — so it surfaces as a thrown
+ * error naming the issue rather than as an opaque `undefined` three assertions later.
+ */
+const expectPlan = (planned: ReturnType<typeof planImplementWaves>): ImplementWavePlan => {
+  if (!planned.ok) throw new Error(`planImplementWaves failed: ${renderTaskGraphIssue(planned.error)}`);
+  return planned.value;
+};
 import type { ImplementDeps } from '@src/application/flows/implement/deps.ts';
 import type { RepoExecConfig } from '@src/application/flows/implement/flow.ts';
 import { buildWaveBranches, createFoldQueue } from '@src/application/flows/implement/wave-branch.ts';
+import { quarantineStashMessage } from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
 
 import {
   absolutePath,
@@ -559,7 +573,7 @@ function runTests(): void {
       };
 
       // Build the plan (prologue / waves / epilogue)
-      const plan = planImplementWaves(implementDeps, implementOpts);
+      const plan = expectPlan(planImplementWaves(implementDeps, implementOpts));
 
       // Verify the wave structure: wave 0 = {A, B}, wave 1 = {C}
       expect(plan.waves).toHaveLength(2);
@@ -802,7 +816,7 @@ function runTests(): void {
         dirtyTreePolicy: 'cancel' as const,
       };
 
-      const plan = planImplementWaves(implementDeps, implementOpts);
+      const plan = expectPlan(planImplementWaves(implementDeps, implementOpts));
       const foldQueue = createFoldQueue();
       const branchDeps = {
         implement: implementDeps,
@@ -983,7 +997,7 @@ function runTests(): void {
         dirtyTreePolicy: 'cancel' as const,
       };
 
-      const plan = planImplementWaves(implementDeps, implementOpts);
+      const plan = expectPlan(planImplementWaves(implementDeps, implementOpts));
 
       // Confirm both tasks landed in wave 0 (no dependency edge — same wave).
       expect(plan.waves).toHaveLength(1);
@@ -1096,13 +1110,294 @@ function runTests(): void {
       expect(worktrees).toHaveLength(1);
       expect(worktrees[0]).toBe(repoPath);
 
-      // No stale wt-* branch refs.
+      // The landed task's throwaway branch ref is gone — its commit already lives on the sprint
+      // branch, so the ref is disposable scratch.
+      //
+      // The BLOCKED task's ref is deliberately RETAINED: a fold conflict re-projects an already-
+      // `done` task back to `blocked` AFTER its commits landed on this exact ref (the
+      // `blockedReason` names it), and cleanup only force-removes the WORKTREE directory — it keeps
+      // the ref so that verified, committed work stays reachable for manual recovery instead of
+      // going straight to reflog-only until GC.
       const branchListRaw = execSync(`git -C "${repoPath}" branch -a`, { encoding: 'utf8' });
-      expect(branchListRaw).not.toContain(`wt-${String(taskA.id)}`);
-      expect(branchListRaw).not.toContain(`wt-${String(taskB.id)}`);
+      expect(branchListRaw).not.toContain(`wt-${String(doneTask?.id)}`);
+      expect(branchListRaw).toContain(`wt-${String(blockedTask?.id)}`);
+
+      // The retained ref must be a real, resolvable ref carrying the blocked task's own (unlanded)
+      // commit — not a dangling name left over from a partial cleanup.
+      const blockedFullRef = gitWorktreeRef(String(sprint.id), String(blockedTask?.id));
+      const blockedRefRevParse = execSync(`git -C "${repoPath}" rev-parse --verify "${blockedFullRef}"`, {
+        encoding: 'utf8',
+      }).trim();
+      expect(blockedRefRevParse).toMatch(/^[0-9a-f]{40}$/);
+      const blockedTaskContent = blockedTask?.id === taskA.id ? taskAContent : taskBContent;
+      const blockedRefContent = execSync(`git -C "${repoPath}" show "${blockedFullRef}:shared.txt"`, {
+        encoding: 'utf8',
+      }).trim();
+      expect(blockedRefContent).toBe(blockedTaskContent);
 
       // Sprint transitions to review: wave completed (A done, B blocked — both tasks settled).
       expect(sprintStore.current().status).toBe('review');
+    }, 120_000);
+
+    it("quarantine + restore round trip: two tasks self-block with dirty worktrees in ONE wave, are force-removed, and a relaunch resurrects each task's OWN diff — never the sibling's", async () => {
+      //
+      // Proves the full round trip against REAL git, not a double:
+      //  - Round 1 runs the REAL production construction site (`buildWaveBranches`, reached via
+      //    `createParallelImplementElement`) with the top-level runner seeded EXACTLY the way the
+      //    real launcher seeds it — `initialCtx: { sprintId }` and nothing else (see
+      //    `src/application/ui/shared/launch/implement.ts`). `ImplementCtx.progressFile` is never
+      //    populated anywhere in the real chain, so if the parallel-path quarantine were still
+      //    gated on reading it off ctx, no stash would ever be taken here.
+      //  - Both tasks in the wave self-block (`<task-blocked>`) with a distinct dirty, untracked
+      //    file still sitting in their own worktree — exactly the shape a rejected AI diff takes.
+      //  - After the wave, both worktrees are force-removed (`git worktree remove --force`) and
+      //    both tasks are `blocked`; a real `git stash list` must show BOTH quarantined diffs.
+      //  - The tasks are unblocked and the SAME wave is rebuilt through the SAME production
+      //    `buildWaveBranches` call. The relaunch's fake AI writes NOTHING itself — it only signals
+      //    success — so if the sprint branch ends up with each task's marker file, it can ONLY have
+      //    come from `restore-blocked-diff` popping the right stash into the right (fresh) worktree.
+      //  - The central fence: task A's landed content must be task A's own marker, NEVER task B's,
+      //    proving the stash lookup resolved by the deterministic message key rather than by a
+      //    positional index that a sibling's concurrent push could have shifted.
+      const fixture = await buildParallelFixture();
+      cleanupFns.push(() => fixture.cleanup());
+
+      const repoPath = fixture.repo.path;
+      const sprintDirPath = ap(fixture.sprintDir);
+      const progressPath = ap(fixture.progressFile);
+
+      const ticket = makeApprovedTicket({ title: 'quarantine-round-trip-ticket' });
+      const sprint = makePlannedSprint({ tickets: [ticket] });
+      const execution = setExecutionBranch(createSprintExecution({ sprintId: sprint.id }), SPRINT_BRANCH);
+
+      const taskA = makeTodoTask({
+        name: 'quarantine-task-a',
+        order: 1,
+        ticketId: ticket.id,
+        repositoryId: FIXED_REPOSITORY_ID,
+      });
+      const taskB = makeTodoTask({
+        name: 'quarantine-task-b',
+        order: 2,
+        ticketId: ticket.id,
+        repositoryId: FIXED_REPOSITORY_ID,
+      });
+      const tasks = [taskA, taskB];
+
+      const sprintStore = inMemorySprintRepo(sprint);
+      const execStore = inMemoryExecutionRepo(execution);
+      const taskStore = inMemoryTaskRepo(tasks);
+
+      const markerFile = (taskId: TaskId): string => `${String(taskId)}-rejected.txt`;
+      const markerContent = (taskId: TaskId): string => `rejected diff belonging to ${String(taskId)}\n`;
+
+      // Round 1: both tasks write a distinct dirty, untracked file and self-block — the evaluator
+      // is guarded off entirely once the generator self-blocks (`attempt-body.ts`), so a call
+      // reaching it here would mean this test's own premise is wrong.
+      const selfBlockingProvider: HeadlessAiProvider = {
+        async generate(session: AiSession): Promise<Result<ProviderOutput, DomainError>> {
+          const cwd = String(session.cwd);
+          if (session.prompt.includes(MARKERS.evaluate)) {
+            throw new Error('evaluator must not run once the generator self-blocked this turn');
+          }
+          const taskId = cwd.includes(`wt-${String(taskA.id)}`) ? taskA.id : taskB.id;
+          await fs.writeFile(join(cwd, markerFile(taskId)), markerContent(taskId), 'utf8');
+          const signals: HarnessSignal[] = [
+            { type: 'task-blocked', reason: `task ${String(taskId)} cannot proceed`, timestamp: FIXED_NOW },
+          ];
+          const wrote = await writeJsonAtomic(String(session.signalsFile), signals);
+          if (!wrote.ok) return Result.error(wrote.error) as Result<ProviderOutput, DomainError>;
+          return Result.ok({ signalsFile: session.signalsFile, exitCode: 0 }) as Result<ProviderOutput, DomainError>;
+        },
+      };
+
+      const locksRoot = join(fixture.ralphctlRoot, 'locks');
+      await fs.mkdir(locksRoot, { recursive: true });
+
+      const implementDeps = buildRealGitDeps(
+        sprintStore.repo,
+        execStore.repo,
+        taskStore.repo,
+        selfBlockingProvider,
+        locksRoot
+      );
+      const repoMap = new Map([[FIXED_REPOSITORY_ID, { path: ap(repoPath), name: 'test-repo' } as RepoExecConfig]]);
+
+      const implementOpts = {
+        sprintId: sprint.id,
+        todoTasks: tasks,
+        repositories: repoMap,
+        progressFile: progressPath,
+        sprintDir: sprintDirPath,
+        generatorProviderId: 'claude-code',
+        generatorModel: 'claude-opus-4-8',
+        evaluatorProviderId: 'claude-code',
+        evaluatorModel: 'claude-opus-4-8',
+        memoryRoot: ap(fixture.memoryRoot),
+        projectId: FAKE_PROJECT_ID,
+        projectSlug: FAKE_PROJECT_SLUG,
+        dirtyTreePolicy: 'cancel' as const,
+      };
+
+      const plan = expectPlan(planImplementWaves(implementDeps, implementOpts));
+      expect(plan.waves).toHaveLength(1);
+      expect(plan.waves[0]).toHaveLength(2);
+
+      const foldQueue = createFoldQueue();
+      const branchDeps = {
+        implement: implementDeps,
+        eventBus: createInMemoryEventBus(),
+        foldQueue,
+      };
+
+      const readConfig = () =>
+        Promise.resolve({
+          maxTurns: 5,
+          escalateOnPlateau: false,
+          escalationMap: {} as Record<string, string>,
+          skipPreVerifyOnFreshSetup: false,
+          maxAttempts: 3,
+        });
+
+      const parallelElement = createParallelImplementElement(plan, {
+        fileLocker: implementDeps.fileLocker,
+        locksRoot: implementDeps.locksRoot,
+        eventBus: implementDeps.eventBus,
+        maxConcurrency: 3,
+        flowId: 'implement',
+        sessionId: () => `session-${String(Date.now())}-${String(Math.random()).slice(2, 8)}`,
+        buildWaves: () => buildWaveBranches(branchDeps, implementOpts, plan.waves, readConfig),
+      });
+
+      const runner = createRunner<ImplementCtx>({
+        id: 'r-parallel-realgit-quarantine',
+        element: parallelElement,
+        // Production-shaped seed, nothing else — matches the real launcher exactly. If the
+        // quarantine gate were still reading `progressFile` off ctx (dead in production), this
+        // ctx shape would never satisfy it.
+        initialCtx: { sprintId: sprint.id },
+      });
+
+      await runner.start();
+      if (runner.status !== 'completed') {
+        const trace = runner.trace.map((e) => `${e.elementName}:${e.status}`).join('\n');
+        throw new Error(`Runner status is '${runner.status}' — expected 'completed'.\nTrace:\n${trace}`);
+      }
+
+      // ── Both tasks ended blocked ──────────────────────────────────────
+      const afterRound1 = taskStore.tasks();
+      expect(afterRound1).toHaveLength(2);
+      for (const t of afterRound1) expect(t.status).toBe('blocked');
+
+      // ── Worktrees force-removed — only the main worktree remains ──────
+      const worktreesAfterRound1 = await listWorktrees(repoPath);
+      expect(worktreesAfterRound1).toHaveLength(1);
+      expect(worktreesAfterRound1[0]).toBe(repoPath);
+
+      // ── The quarantine actually fired for BOTH tasks — a real stash entry exists for
+      // each, in real git's actual `On <branch>: <message>` subject shape (never the bare message).
+      const { execSync } = await import('node:child_process');
+      const stashLines = execSync(`git -C "${repoPath}" stash list --format=%s`, { encoding: 'utf8' })
+        .trim()
+        .split('\n')
+        .filter((l) => l.length > 0);
+      expect(stashLines).toHaveLength(2);
+      const messageA = quarantineStashMessage(sprint.id, taskA.id);
+      const messageB = quarantineStashMessage(sprint.id, taskB.id);
+      const lineForA = stashLines.find((l) => l.includes(messageA));
+      const lineForB = stashLines.find((l) => l.includes(messageB));
+      expect(lineForA).toBeDefined();
+      expect(lineForB).toBeDefined();
+      expect(lineForA).toMatch(/^On \S+: /);
+      expect(lineForB).toMatch(/^On \S+: /);
+
+      // ── The recovery pointer was persisted on each blocked task ───────
+      const blockedA = afterRound1.find((t) => t.id === taskA.id) as BlockedTask;
+      const blockedB = afterRound1.find((t) => t.id === taskB.id) as BlockedTask;
+      expect(blockedA.blockedReason).toContain(messageA);
+      expect(blockedB.blockedReason).toContain(messageB);
+
+      // ── Relaunch: unblock both tasks and rebuild the SAME wave through the SAME production
+      // `buildWaveBranches` call. The relaunch provider writes NOTHING — it only signals success —
+      // so any marker file that lands on the sprint branch can only have come from the restore.
+      const unblockedA = unblockTask(blockedA);
+      const unblockedB = unblockTask(blockedB);
+      if (!unblockedA.ok) throw unblockedA.error;
+      if (!unblockedB.ok) throw unblockedB.error;
+      await taskStore.repo.update(sprint.id, unblockedA.value);
+      await taskStore.repo.update(sprint.id, unblockedB.value);
+
+      const verifyOnlyProvider: HeadlessAiProvider = {
+        async generate(session: AiSession): Promise<Result<ProviderOutput, DomainError>> {
+          const isEvaluate = session.prompt.includes(MARKERS.evaluate);
+          const signals: HarnessSignal[] = isEvaluate ? [evaluationPassed()] : [taskVerified('relaunch done')];
+          const wrote = await writeJsonAtomic(String(session.signalsFile), signals);
+          if (!wrote.ok) return Result.error(wrote.error) as Result<ProviderOutput, DomainError>;
+          return Result.ok({ signalsFile: session.signalsFile, exitCode: 0 }) as Result<ProviderOutput, DomainError>;
+        },
+      };
+      const implementDeps2 = buildRealGitDeps(
+        sprintStore.repo,
+        execStore.repo,
+        taskStore.repo,
+        verifyOnlyProvider,
+        locksRoot
+      );
+      const branchDeps2 = {
+        implement: implementDeps2,
+        eventBus: createInMemoryEventBus(),
+        foldQueue: createFoldQueue(),
+      };
+      const relaunchedTasks = [unblockedA.value, unblockedB.value];
+      const relaunchedBranches = buildWaveBranches(branchDeps2, implementOpts, [relaunchedTasks], readConfig)[0]!;
+      expect(relaunchedBranches).toHaveLength(2);
+
+      const relaunchRunners = relaunchedBranches.map((b) =>
+        createRunner<ImplementCtx>({
+          id: `r-relaunch-${b.id}`,
+          element: b.element,
+          // Same production ctx shape the wave scheduler hands a branch: sprint-scoped state
+          // carried from the prologue, still with NO `progressFile` on ctx.
+          initialCtx: { sprintId: sprint.id, sprint, execution, tasks: relaunchedTasks },
+        })
+      );
+      await Promise.all(relaunchRunners.map((r) => r.start()));
+      for (const r of relaunchRunners) {
+        if (r.status !== 'completed') {
+          const trace = r.trace.map((e) => `${e.elementName}:${e.status}`).join('\n');
+          throw new Error(
+            `Relaunch runner '${r.id}' status is '${r.status}' — expected 'completed'.\nTrace:\n${trace}`
+          );
+        }
+      }
+
+      // ── Both tasks landed done ─────────────────────────────────────────
+      const afterRound2 = taskStore.tasks();
+      expect(afterRound2).toHaveLength(2);
+      for (const t of afterRound2) expect(t.status).toBe('done');
+
+      // ── The stash is fully consumed — both entries were popped, not merely inspected ──
+      const stashListAfterRound2 = execSync(`git -C "${repoPath}" stash list`, { encoding: 'utf8' }).trim();
+      expect(stashListAfterRound2).toBe('');
+
+      // ── THE central cross-contamination fence: each task's OWN marker file landed on the
+      // sprint branch with its OWN content — and NEVER the sibling's. A positional stash-pop race
+      // would apply the wrong diff into the wrong worktree; this proves it did not happen.
+      const committedLog = execSync(`git -C "${repoPath}" log --name-only --format="%H" "${SPRINT_BRANCH}"`, {
+        encoding: 'utf8',
+      });
+      expect(committedLog).toContain(markerFile(taskA.id));
+      expect(committedLog).toContain(markerFile(taskB.id));
+
+      const contentOnBranch = (fileName: string): string =>
+        execSync(`git -C "${repoPath}" show "${SPRINT_BRANCH}:${fileName}"`, { encoding: 'utf8' });
+      expect(contentOnBranch(markerFile(taskA.id))).toBe(markerContent(taskA.id));
+      expect(contentOnBranch(markerFile(taskB.id))).toBe(markerContent(taskB.id));
+
+      // Worktrees cleaned up again after the relaunch.
+      const worktreesAfterRound2 = await listWorktrees(repoPath);
+      expect(worktreesAfterRound2).toHaveLength(1);
+      expect(worktreesAfterRound2[0]).toBe(repoPath);
     }, 120_000);
   });
 }

@@ -28,6 +28,18 @@ export interface SprintState {
 }
 
 /**
+ * Structured "why is it stuck" detail beyond the free-form {@link TaskOverlay.blockedReason} —
+ * the generator's own question and what it said would unblock it, verbatim from
+ * `BlockedTask.question` / `.whatUnblocksMe` (see `domain/entity/task.ts`). Both optional: a
+ * self-block signal can omit either, and every non-self-block (upstream cascade, verify-gate red,
+ * fold conflict, operator cancel) has neither.
+ */
+export interface BlockedTriage {
+  readonly question?: string;
+  readonly whatUnblocksMe?: string;
+}
+
+/**
  * Everything the Tasks panel knows about ONE task beyond its live `TaskBucket` — the entity- and
  * projection-sourced extras the bucketed trace cannot carry (a resume banner, verification
  * criteria, a blocked reason, a flagged-completion warning, the authoritative evaluation verdict,
@@ -43,6 +55,8 @@ export interface TaskOverlay {
   readonly taskCriteria?: readonly string[];
   /** Why the task is blocked — its own failure, or `blocked upstream — …`. */
   readonly blockedReason?: string;
+  /** The generator's own structured triage for the block, when its signal supplied it. */
+  readonly blockedTriage?: BlockedTriage;
   /** One-line summary when a task settled done but its FINAL attempt carries a warning. */
   readonly warningSummary?: string;
   /** Authoritative verdict — the last attempt's `evaluation.status`, never a bucketed signal. */

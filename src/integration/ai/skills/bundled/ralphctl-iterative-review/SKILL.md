@@ -1,6 +1,6 @@
 ---
 name: ralphctl-iterative-review
-description: Cross-phase skill — treat AI output as a controlled feedback loop, not a one-shot generation. Run the cheap check after each meaningful change; re-read your own output before signalling completion. For the fuller session workflow — plan-first sequencing plus durable learning capture — see the opt-in ralphctl-cherny-workflow skill.
+description: Cross-phase skill — treat AI output as a controlled feedback loop, not a one-shot generation. Run the cheap check after each meaningful change, then re-read the output once more before signalling completion. For the fuller session workflow — plan-first sequencing plus durable learning capture — see the opt-in ralphctl-cherny-workflow skill.
 ---
 
 # Iterative Review
@@ -24,8 +24,8 @@ deployed form — but the same posture also belongs **inside** each phase's work
 - **Plan** — re-read the generated task list against the requirements. Are the tasks independently
   shippable? Do dependencies match the actual data flow? Reorder, merge, or drop before importing.
 - **Execute** — run the project's check gate (lint, typecheck, tests) after each meaningful change, not
-  after the whole diff. Re-read your own diff once before signalling `<task-complete>`. You are the cheapest
-  reviewer the change ever gets.
+  after the whole diff. Re-read your own diff once before you write a `task-complete` signal. You are the
+  cheapest reviewer the change ever gets.
 
 ## What to do
 
@@ -36,8 +36,8 @@ deployed form — but the same posture also belongs **inside** each phase's work
 3. **Treat the check gate as a loop, not a finish line.** A failing gate is feedback, not a verdict. Apply
    the fix and re-run; do not signal completion against a red gate.
 4. **When a fix attempt repeats the same failure, escalate rather than retry.** Two iterations of the same
-   error is a plateau — the next fix is a guess. Surface the blocker via `<task-blocked>` or `<note>` rather
-   than burning the budget.
+   error is a plateau — the next fix is a guess. Surface the blocker as a `task-blocked` or `note` signal in
+   `signals.json` rather than burning the budget.
 
 ## Anti-patterns
 

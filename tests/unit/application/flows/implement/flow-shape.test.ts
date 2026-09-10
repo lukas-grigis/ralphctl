@@ -1,11 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
+import { Result } from '@src/domain/result.ts';
 import type { Task } from '@src/domain/entity/task.ts';
+import type { TaskId } from '@src/domain/value/id/task-id.ts';
 import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
+import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
+import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import type { AgentDefinition } from '@src/integration/ai/agents/_engine/agent-definition.ts';
+import type { AppEvent } from '@src/business/observability/events.ts';
+import { createInMemoryEventBus } from '@src/integration/observability/in-memory-event-bus.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { guard } from '@src/application/chain/build/guard.ts';
 import { sequential } from '@src/application/chain/build/sequential.ts';
+import { buildAttemptBody } from '@src/application/flows/implement/leaves/attempt-body.ts';
 import { loadSprintExecutionLeaf } from '@src/application/flows/_shared/sprint/load-execution.ts';
 import { loadTasksLeaf } from '@src/application/flows/_shared/task/load.ts';
 import { loadLearningsLeaf } from '@src/application/flows/_shared/memory/load-learnings.ts';
@@ -39,7 +46,16 @@ import {
   type RepoExecConfig,
 } from '@src/application/flows/implement/flow.ts';
 
-import { absolutePath, FIXED_REPOSITORY_ID, makeTodoTask, slug } from '@tests/fixtures/domain.ts';
+import {
+  absolutePath,
+  FIXED_LATER,
+  FIXED_REPOSITORY_ID,
+  makeDoneTask,
+  makeInProgressTaskWithRunningAttempt,
+  makeTodoTask,
+  slug,
+} from '@tests/fixtures/domain.ts';
+import { noopLogger } from '@tests/fixtures/noop-logger.ts';
 
 /**
  * A serialisable snapshot of an element tree: name + optional label + recursively-snapshotted
@@ -94,13 +110,17 @@ const stubDeps = (): ImplementDeps =>
     },
   }) as unknown as ImplementDeps;
 
-const makeOpts = (todoTasks: readonly Task[]): CreateImplementFlowOpts => {
+const makeOpts = (
+  todoTasks: readonly Task[],
+  satisfiedDependencyIds?: ReadonlySet<TaskId>
+): CreateImplementFlowOpts => {
   const repositories = new Map<RepositoryId, RepoExecConfig>([
     [FIXED_REPOSITORY_ID, { path: absolutePath('/repos/main'), name: 'main-repo', verifyScript: 'verify' }],
   ]);
   return {
     sprintId: makeTodoTask().ticketId as never, // unused at construction; placeholder shape only
     todoTasks,
+    ...(satisfiedDependencyIds !== undefined ? { satisfiedDependencyIds } : {}),
     repositories,
     progressFile: absolutePath('/sprints/s1/progress.md'),
     sprintDir: absolutePath('/sprints/s1'),
@@ -695,24 +715,28 @@ describe('createPerTaskSubchain — best-of-N gen-eval segment (construction-tim
 });
 
 describe('planImplementWaves', () => {
-  it('returns the prologue, epilogue, lockKey, and dependency-scheduled waves', () => {
+  it('returns Result.ok with the prologue, epilogue, lockKey, and dependency-scheduled waves', () => {
     const task = makeTodoTask({ name: 'do-work' });
     const opts = makeOpts([task]);
 
     const plan = planImplementWaves(stubDeps(), opts);
 
-    expect(plan.prologue.name).toBe('implement-prologue');
-    expect(plan.epilogue.name).toBe('implement-epilogue');
-    expect(plan.lockKey).toBe(opts.sprintDir);
-    expect(plan.waves.map((w) => w.map((t) => String(t.id)))).toStrictEqual([[String(task.id)]]);
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    expect(plan.value.prologue.name).toBe('implement-prologue');
+    expect(plan.value.epilogue.name).toBe('implement-epilogue');
+    expect(plan.value.lockKey).toBe(opts.sprintDir);
+    expect(plan.value.waves.map((w) => w.map((t) => String(t.id)))).toStrictEqual([[String(task.id)]]);
   });
 
   it('its prologue/epilogue segments equal the standalone segment builders', () => {
     const opts = makeOpts([makeTodoTask({ name: 'do-work' })]);
     const plan = planImplementWaves(stubDeps(), opts);
 
-    expect(snapshot(plan.prologue)).toStrictEqual(snapshot(buildImplementPrologue(stubDeps(), opts)));
-    expect(snapshot(plan.epilogue)).toStrictEqual(snapshot(buildImplementEpilogue(stubDeps(), opts)));
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    expect(snapshot(plan.value.prologue)).toStrictEqual(snapshot(buildImplementPrologue(stubDeps(), opts)));
+    expect(snapshot(plan.value.epilogue)).toStrictEqual(snapshot(buildImplementEpilogue(stubDeps(), opts)));
   });
 
   it('schedules tasks into dependency layers (diamond → 3 waves)', () => {
@@ -723,22 +747,145 @@ describe('planImplementWaves', () => {
 
     const plan = planImplementWaves(stubDeps(), makeOpts([a, b, c, d]));
 
-    expect(plan.waves.map((w) => w.map((t) => String(t.id)))).toStrictEqual([
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    expect(plan.value.waves.map((w) => w.map((t) => String(t.id)))).toStrictEqual([
       [String(a.id)],
       [String(b.id), String(c.id)],
       [String(d.id)],
     ]);
   });
 
-  it('fails closed with an empty wave list when the task graph is unschedulable (no throw)', () => {
+  it('returns a Result.error — never a silent empty wave list — when the task graph is unschedulable', () => {
     const x = makeTodoTask({ name: 'x', order: 1 });
     const selfEdged: Task = { ...x, dependsOn: [x.id] }; // self-edge → scheduleIntoWaves errors
     const plan = planImplementWaves(stubDeps(), makeOpts([selfEdged]));
 
-    expect(plan.waves).toStrictEqual([]);
-    // The segments + lock key are still produced — only the schedule is empty.
-    expect(plan.prologue.name).toBe('implement-prologue');
-    expect(plan.epilogue.name).toBe('implement-epilogue');
-    expect(plan.lockKey).toBe(makeOpts([selfEdged]).sprintDir);
+    expect(plan.ok).toBe(false);
+    if (plan.ok) return;
+    expect(plan.error).toStrictEqual({ kind: 'self-edge', task: x.id });
+  });
+
+  // ── Resumed parallel run: a dependency already satisfied outside `todoTasks` ──────────────
+  //
+  // A resumed sprint's `todoTasks` is the RESUMABLE subset (`todo` + `in_progress`) of the full
+  // task set — see `CreateImplementFlowOpts.todoTasks`. A task whose prerequisite already settled
+  // `done` has a `dependsOn` id that resolves to nothing once the graph is narrowed to that
+  // subset alone, even though the full sprint graph is perfectly sound. Before this fix,
+  // `scheduleIntoWaves(opts.todoTasks)` reported that as `unknown-dependency` and
+  // `planImplementWaves` swallowed the error into an empty `waves: []` — a resumed parallel run
+  // (`maxParallelTasks > 1`) would then run its prologue, schedule NOTHING, run its epilogue, and
+  // report `completed` having done no work.
+
+  it('reports the missing-elsewhere dependency LOUDLY (Result.error), not as a silent empty wave list, when the caller has not declared it satisfied', () => {
+    const done = makeDoneTask({ name: 'already-done' }); // NOT included in todoTasks — simulates the resumable subset
+    const dependent = makeTodoTask({ name: 'depends-on-done', dependsOn: [done.id] });
+
+    // The caller (today's real launcher call site, pre-fix) passes only the resumable subset and
+    // no `satisfiedDependencyIds` — this is exactly the shape that used to produce `waves: []`.
+    const plan = planImplementWaves(stubDeps(), makeOpts([dependent]));
+
+    expect(plan.ok).toBe(false);
+    if (plan.ok) return;
+    expect(plan.error).toStrictEqual({ kind: 'unknown-dependency', task: dependent.id, missing: done.id });
+  });
+
+  it('schedules the dependent into a non-empty wave when the caller declares the done prerequisite satisfied', () => {
+    const done = makeDoneTask({ name: 'already-done' });
+    const dependent = makeTodoTask({ name: 'depends-on-done', dependsOn: [done.id] });
+
+    const plan = planImplementWaves(stubDeps(), makeOpts([dependent], new Set([done.id])));
+
+    expect(plan.ok).toBe(true);
+    if (!plan.ok) return;
+    expect(plan.value.waves.map((w) => w.map((t) => String(t.id)))).toStrictEqual([[String(dependent.id)]]);
+  });
+
+  it('still reports a genuinely unknown dependency (a typo) even with an unrelated satisfied id declared', () => {
+    const done = makeDoneTask({ name: 'already-done' });
+    const typoTarget = done.id; // stand-in for "some id that resolves to nothing anywhere"
+    const dependent = makeTodoTask({ name: 'depends-on-typo' });
+    const withTypo: Task = { ...dependent, dependsOn: [typoTarget] };
+    const otherTask = makeTodoTask({ name: 'unrelated' });
+
+    // `satisfiedDependencyIds` names a DIFFERENT id (`otherTask.id`, itself already inside
+    // `todoTasks` and therefore irrelevant) — it must not blanket-tolerate every absent id, or a
+    // real dangling reference would silently stop erroring too.
+    const plan = planImplementWaves(stubDeps(), makeOpts([withTypo], new Set([otherTask.id])));
+
+    expect(plan.ok).toBe(false);
+    if (plan.ok) return;
+    expect(plan.error).toStrictEqual({ kind: 'unknown-dependency', task: withTypo.id, missing: typoTarget });
+  });
+});
+
+describe('buildAttemptBody — settle-attempt wiring (eventBus reaches the real construction site)', () => {
+  // Walks the REAL element tree (never a `snapshot()`), so this finds the actual `leaf()` closure
+  // the production code built — unlike the shape fences above, which only compare names/labels and
+  // would stay green even if a leaf's deps silently dropped a field. Locating and directly
+  // `.execute()`-ing the `settle-attempt-<id>` node proves the dependency the construction site
+  // handed it, not merely that the use case behaves correctly when some test hands it one.
+  const findElement = <TCtx>(el: Element<TCtx>, target: string): Element<TCtx> | undefined => {
+    if (el.name === target) return el;
+    for (const child of el.children ?? []) {
+      const hit = findElement(child, target);
+      if (hit !== undefined) return hit;
+    }
+    return undefined;
+  };
+
+  it('publishes TaskBlockedEvent on the bus when a task settles blocked — the leaf threads deps.eventBus through', async () => {
+    const task = makeInProgressTaskWithRunningAttempt();
+    const bus = createInMemoryEventBus();
+    const publishedEvents: AppEvent[] = [];
+    bus.subscribe((event) => publishedEvents.push(event));
+
+    const taskRepo: UpdateTask = {
+      update: async () => Result.ok(undefined),
+    };
+
+    const deps = {
+      config: {
+        harness: { maxTurns: 5, maxAttempts: 3, plateauThreshold: 2, escalateOnPlateau: false, escalationMap: {} },
+      },
+      taskRepo,
+      clock: () => FIXED_LATER,
+      logger: noopLogger,
+      eventBus: bus,
+    } as unknown as ImplementDeps;
+
+    const opts = {
+      sprintDir: absolutePath('/sprints/s1'),
+      progressFile: absolutePath('/sprints/s1/progress.md'),
+      terminalLeafName: IMPLEMENT_TASK_TERMINAL_LEAF,
+      generator: { providerId: 'claude-code', model: 'claude-opus-4-8' },
+      evaluator: { providerId: 'openai-codex', model: 'gpt-5.5' },
+      memoryRoot: absolutePath('/data/memory'),
+      projectId: 'proj-1',
+      projectSlug: slug('proj-1'),
+    } as const;
+    const repo = { path: absolutePath('/repos/main'), name: 'main-repo', verifyScript: 'verify' };
+    const readConfig = () =>
+      Promise.resolve({ maxTurns: 5, escalateOnPlateau: false, escalationMap: {}, maxAttempts: 3 });
+
+    const attemptBody = buildAttemptBody(deps, opts, task, repo, readConfig, 3);
+    const settleNode = findElement(attemptBody, `settle-attempt-${String(task.id)}`);
+    expect(settleNode).toBeDefined();
+    if (settleNode === undefined) return;
+
+    const ctx: ImplementCtx = {
+      sprintId: 'sprint-x' as SprintId,
+      tasks: [task],
+      currentTaskId: task.id,
+      currentTask: task,
+      lastBlockReason: 'Scope unclear.',
+    };
+
+    const result = await settleNode.execute(ctx);
+    expect(result.ok).toBe(true);
+
+    const blockedEvents = publishedEvents.filter((e) => e.type === 'task-blocked');
+    expect(blockedEvents).toHaveLength(1);
+    expect(blockedEvents[0]).toMatchObject({ type: 'task-blocked', taskId: String(task.id) });
   });
 });

@@ -222,37 +222,44 @@ export const gitCommitWithMessage = async (
 };
 
 /**
- * Stash all uncommitted + untracked changes with a recoverable message. Returns
- * `{ stashed: false }` on a clean tree (callers treat it as a no-op).
+ * In-process FIFO mutex serialising every git-STASH operation (push / list / pop) that flows
+ * through this module. `refs/stash` is ONE ref shared by a repo and every one of its linked
+ * worktrees (only `HEAD` / bisect / per-worktree refs are private) — on the parallel implement
+ * path several worktree branches push / list / pop concurrently against that SAME shared ref,
+ * from within this ONE Node process. `gitStashPop` resolves its target by first LISTING the stack
+ * and then acting on the matched POSITION in a SEPARATE git invocation; a sibling's concurrent
+ * push in between those two calls shifts every later index by one, so an index resolved against a
+ * now-stale listing can name a DIFFERENT (sibling's) entry — applying the wrong diff into the
+ * wrong worktree, then dropping the sibling's still-unapplied one. Funnelling every stash call
+ * through one queue makes each push/list/pop atomic with respect to the others: nothing else in
+ * this process can touch the stack between one call's list and its own pop. Cross-PROCESS races
+ * (an operator running `git stash` by hand mid-run) stay out of scope — only callers inside this
+ * process are serialised, which is the concurrency the parallel implement path actually creates.
  */
-export const gitStashPush = async (
-  runner: GitRunner,
-  cwd: AbsolutePath,
-  message: string
-): Promise<Result<StashOutcome, StorageError>> => {
-  const dirty = await gitHasUncommittedChanges(runner, cwd);
-  if (!dirty.ok) return Result.error(dirty.error);
-  if (!dirty.value) return Result.ok({ stashed: false });
-
-  const stash = await runner.run(cwd, ['stash', 'push', '-u', '-m', message]);
-  if (!stash.ok) return Result.error(stash.error);
-  if (stash.value.exitCode !== 0) {
-    return Result.error(
-      new StorageError({
-        subCode: 'io',
-        message: `git stash push failed: ${(stash.value.stderr || stash.value.stdout).trim()}`,
-      })
-    );
-  }
-  return Result.ok({ stashed: true });
+const settled = (): undefined => undefined; // advances the mutex tail on settle, ok OR error
+let stashMutexTail: Promise<unknown> = Promise.resolve();
+const withStashMutex = <T>(fn: () => Promise<T>): Promise<T> => {
+  const result = stashMutexTail.then(fn, fn);
+  stashMutexTail = result.then(settled, settled);
+  return result;
 };
 
 /**
- * List stash entry subjects in the same order as `git stash list`. An empty stash yields
- * `Result.ok([])`. Bubbles a non-zero exit (e.g. not a git repo) as StorageError so callers
- * don't mistake a transport failure for an empty stash.
+ * True when a `git stash list --format=%s` subject names the given deterministic stash message.
+ * Real git renders the subject as `On <branch>: <message>` (or `On (no branch): <message>` on a
+ * detached HEAD) — never the bare message — so this matches `": <message>"` as a subject suffix,
+ * with bare equality kept for runners that surface the raw message verbatim (fakes, mainly).
+ * Shared by {@link gitStashPop} and `restore-blocked-diff`'s existence pre-check so both callers
+ * agree on what "this stash exists" means.
+ * @public
  */
-export const gitStashList = async (runner: GitRunner, cwd: AbsolutePath): Promise<Result<string[], StorageError>> => {
+export const stashEntryMatchesMessage = (entry: string, message: string): boolean =>
+  entry === message || entry.endsWith(`: ${message}`);
+
+/** Un-mutexed core of {@link gitStashList} — used internally by {@link gitStashPop} so its own
+ * list-then-pop sequence runs as ONE critical section instead of two separately-queued calls
+ * (which would re-open the exact race the mutex exists to close). */
+const listStashSubjects = async (runner: GitRunner, cwd: AbsolutePath): Promise<Result<string[], StorageError>> => {
   const result = await runner.run(cwd, ['stash', 'list', '--format=%s']);
   if (!result.ok) return Result.error(result.error);
   if (result.value.exitCode !== 0) {
@@ -267,36 +274,77 @@ export const gitStashList = async (runner: GitRunner, cwd: AbsolutePath): Promis
 };
 
 /**
- * Pop the first stash entry created by `git stash push -m <message>`. Real git never stores the
- * message verbatim as the entry subject — `--format=%s` renders it `On <branch>: <message>` (or
- * `On (no branch): <message>` on a detached HEAD) — so the lookup matches `": <message>"` as a
- * subject suffix, with bare equality kept for runners that surface the raw message. Returns
- * `{ popped: false }` (a no-op) when no entry matches — callers treat a missing stash as
- * "nothing to restore", not an error.
+ * Stash all uncommitted + untracked changes with a recoverable message. Returns
+ * `{ stashed: false }` on a clean tree (callers treat it as a no-op).
  */
-export const gitStashPop = async (
+export const gitStashPush = (
   runner: GitRunner,
   cwd: AbsolutePath,
   message: string
-): Promise<Result<{ readonly popped: boolean }, StorageError>> => {
-  const list = await gitStashList(runner, cwd);
-  if (!list.ok) return Result.error(list.error);
+): Promise<Result<StashOutcome, StorageError>> =>
+  withStashMutex(async () => {
+    const dirty = await gitHasUncommittedChanges(runner, cwd);
+    if (!dirty.ok) return Result.error(dirty.error);
+    if (!dirty.value) return Result.ok({ stashed: false });
 
-  const index = list.value.findIndex((entry) => entry === message || entry.endsWith(`: ${message}`));
-  if (index === -1) return Result.ok({ popped: false });
+    const stash = await runner.run(cwd, ['stash', 'push', '-u', '-m', message]);
+    if (!stash.ok) return Result.error(stash.error);
+    if (stash.value.exitCode !== 0) {
+      return Result.error(
+        new StorageError({
+          subCode: 'io',
+          message: `git stash push failed: ${(stash.value.stderr || stash.value.stdout).trim()}`,
+        })
+      );
+    }
+    return Result.ok({ stashed: true });
+  });
 
-  const pop = await runner.run(cwd, ['stash', 'pop', `stash@{${String(index)}}`]);
-  if (!pop.ok) return Result.error(pop.error);
-  if (pop.value.exitCode !== 0) {
-    return Result.error(
-      new StorageError({
-        subCode: 'io',
-        message: `git stash pop failed: ${(pop.value.stderr || pop.value.stdout).trim()}`,
-      })
-    );
-  }
-  return Result.ok({ popped: true });
-};
+/**
+ * List stash entry subjects in the same order as `git stash list`. An empty stash yields
+ * `Result.ok([])`. Bubbles a non-zero exit (e.g. not a git repo) as StorageError so callers
+ * don't mistake a transport failure for an empty stash.
+ */
+export const gitStashList = (runner: GitRunner, cwd: AbsolutePath): Promise<Result<string[], StorageError>> =>
+  withStashMutex(() => listStashSubjects(runner, cwd));
+
+/**
+ * Pop the first stash entry created by `git stash push -m <message>`, matched via
+ * {@link stashEntryMatchesMessage} (real git never stores the message verbatim as the entry
+ * subject — see that function). Returns `{ popped: false }` (a no-op) when no entry matches —
+ * callers treat a missing stash as "nothing to restore", not an error.
+ *
+ * The list-then-pop sequence runs inside ONE `withStashMutex` critical section (via the internal
+ * {@link listStashSubjects}, not the mutexed {@link gitStashList} — re-entering the same queue
+ * from inside a queued call would deadlock it), so the index resolved here can never go stale:
+ * nothing else in this process can push/pop between this call's list and its own pop. Without that,
+ * a sibling branch's concurrent push shifts every later index by one, and popping a now-stale
+ * position can apply a DIFFERENT task's diff into THIS worktree — silent cross-task contamination.
+ */
+export const gitStashPop = (
+  runner: GitRunner,
+  cwd: AbsolutePath,
+  message: string
+): Promise<Result<{ readonly popped: boolean }, StorageError>> =>
+  withStashMutex(async () => {
+    const list = await listStashSubjects(runner, cwd);
+    if (!list.ok) return Result.error(list.error);
+
+    const index = list.value.findIndex((entry) => stashEntryMatchesMessage(entry, message));
+    if (index === -1) return Result.ok({ popped: false });
+
+    const pop = await runner.run(cwd, ['stash', 'pop', `stash@{${String(index)}}`]);
+    if (!pop.ok) return Result.error(pop.error);
+    if (pop.value.exitCode !== 0) {
+      return Result.error(
+        new StorageError({
+          subCode: 'io',
+          message: `git stash pop failed: ${(pop.value.stderr || pop.value.stdout).trim()}`,
+        })
+      );
+    }
+    return Result.ok({ popped: true });
+  });
 
 /** `git reset --hard HEAD` followed by `git clean -fd`. Wipes uncommitted + untracked. */
 export const gitResetHard = async (runner: GitRunner, cwd: AbsolutePath): Promise<Result<void, StorageError>> => {

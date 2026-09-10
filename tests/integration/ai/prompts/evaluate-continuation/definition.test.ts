@@ -67,6 +67,24 @@ describe('evaluateContinuationPromptDef — completeness', () => {
     expect(template).toContain('blocked from executing it here');
     expect(template).toContain('not runnable by nature is never UNVERIFIED');
   });
+
+  it('wires the autonomous-operation, evidence-bound, evaluator-failure-modes, and evaluation-checkpoint partials', () => {
+    expect(evaluateContinuationPromptDef.partials).toEqual({
+      HARNESS_CONTEXT: 'harness-context',
+      AUTONOMOUS_OPERATION: 'autonomous-operation',
+      EVIDENCE_BOUND: 'evidence-bound',
+      EVALUATOR_FAILURE_MODES: 'evaluator-failure-modes',
+      EVALUATION_CHECKPOINT: 'evaluation-checkpoint',
+    });
+  });
+
+  it('has a cleanly-closed </role> — not swallowed into the preceding bullet list', async () => {
+    // Regression guard for the indented-closer finding: `</role>` must sit at column 0, not
+    // indented into (and so absorbed by) a markdown bullet list above it.
+    const template = await fs.readFile(TEMPLATE_PATH, 'utf8');
+    expect(template).toMatch(/^<\/role>$/m);
+    expect(template).not.toContain('  </role>');
+  });
 });
 
 describe('buildEvaluateContinuationPrompt — end-to-end against the real template', () => {
@@ -154,6 +172,64 @@ describe('buildEvaluateContinuationPrompt — end-to-end against the real templa
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value).not.toContain('<generator_hints>');
+    expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
+  });
+
+  it('tells the model the user is not watching', async () => {
+    const result = await buildEvaluateContinuationPrompt(deps, {
+      roundNumber: 3,
+      contractPath: CONTRACT_PATH,
+      progressFile: PROGRESS_FILE,
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toContain('operating autonomously');
+    expect(result.value).toContain('not watching in real time');
+  });
+
+  it('states the evaluator-failure-modes list exactly once via the shared partial', async () => {
+    const result = await buildEvaluateContinuationPrompt(deps, {
+      roundNumber: 3,
+      contractPath: CONTRACT_PATH,
+      progressFile: PROGRESS_FILE,
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const occurrences = result.value.split('worth naming, it is worth FAILing').length - 1;
+    expect(occurrences).toBe(1);
+  });
+
+  it('states the bounded-evidence rule exactly once via the shared partial', async () => {
+    const result = await buildEvaluateContinuationPrompt(deps, {
+      roundNumber: 3,
+      contractPath: CONTRACT_PATH,
+      progressFile: PROGRESS_FILE,
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const flattened = result.value.replace(/\s+/g, ' ');
+    const occurrences = flattened.split('rather than the full log').length - 1;
+    expect(occurrences).toBe(1);
+  });
+
+  it('writes the checkpoint via the shared evaluation-checkpoint partial', async () => {
+    const result = await buildEvaluateContinuationPrompt(deps, {
+      roundNumber: 3,
+      contractPath: CONTRACT_PATH,
+      progressFile: PROGRESS_FILE,
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toContain('"dimension": "correctness", "passed": false, "finding": "assessment in progress"');
+    expect(result.value).toContain('Robustness carries the optional `applicable` field');
     expect(result.value).not.toMatch(/\{\{[A-Z_]+\}\}/);
   });
 });

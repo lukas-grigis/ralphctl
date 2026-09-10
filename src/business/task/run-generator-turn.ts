@@ -5,7 +5,7 @@ import type { InProgressTask } from '@src/domain/entity/task.ts';
 import { recordRunningAttemptVerification } from '@src/domain/entity/task-attempts.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import { ErrorCode } from '@src/domain/value/error/error-code.ts';
-import type { HarnessSignal } from '@src/domain/signal.ts';
+import type { HarnessSignal, TaskBlockedSignal, TaskBlockerClass } from '@src/domain/signal.ts';
 import { isRecoverableTurnError } from '@src/business/task/turn-error-policy.ts';
 import { abortCauseFromError } from '@src/business/task/abort-cause-from-error.ts';
 
@@ -36,6 +36,17 @@ export type GeneratorTurnExit = {
    */
   readonly abortCause?: AbortCause;
   readonly signalOrExitCode?: string | number;
+  /**
+   * The generator's own structured triage from a `task-blocked` signal — see
+   * {@link TaskBlockedSignal.blockerClass} / `.question` / `.whatUnblocksMe` in `domain/signal.ts`.
+   * Set only on a `self-blocked` exit produced from a REAL signal that supplied them (never on the
+   * synthetic self-block this use case constructs for a signals-contract failure, and never on
+   * `crashed` — nothing was killed there to triage). Carried verbatim so the settle path that
+   * blocks the task can persist them onto `BlockedTask` instead of collapsing to `reason` alone.
+   */
+  readonly blockerClass?: TaskBlockerClass;
+  readonly question?: string;
+  readonly whatUnblocksMe?: string;
 };
 
 export interface RunGeneratorTurnProps {
@@ -66,8 +77,35 @@ export interface RunGeneratorTurnOutput {
   readonly proposedCommitMessage?: ProposedCommitMessage;
 }
 
-const findTaskBlocked = (signals: readonly HarnessSignal[]): string | undefined =>
-  signals.find((s): s is HarnessSignal & { type: 'task-blocked' } => s.type === 'task-blocked')?.reason;
+/**
+ * Find the `task-blocked` signal, if any — returning the WHOLE signal (never only `.reason`) so
+ * the caller can carry the generator's structured triage (`blockerClass` / `question` /
+ * `whatUnblocksMe`) onto the {@link GeneratorTurnExit} instead of discarding it. All three are
+ * optional on the signal; a legacy or minimal emission still blocks the task via `reason` alone.
+ */
+const findTaskBlocked = (signals: readonly HarnessSignal[]): TaskBlockedSignal | undefined =>
+  signals.find((s): s is TaskBlockedSignal => s.type === 'task-blocked');
+
+/**
+ * The generator's structured triage off a `task-blocked` signal — what KIND of blocker it hit, the
+ * question it needs answered, and what would unblock it. Named so the carry can be threaded whole
+ * (chain ctx → settle → persisted task → operator surfaces) instead of three fields being spread by
+ * hand at each hop, which is how the triage came to be collected and then dropped once already.
+ *
+ * @public
+ */
+export type BlockTriageCarry = Pick<GeneratorTurnExit, 'blockerClass' | 'question' | 'whatUnblocksMe'>;
+
+/**
+ * Project the triage off a signal, ready to spread onto a `self-blocked` {@link GeneratorTurnExit}
+ * (or a log line) — each field present only when the signal supplied it. Split out so the caller's
+ * own branching doesn't grow with every field.
+ */
+const blockedTriageCarry = (signal: TaskBlockedSignal): BlockTriageCarry => ({
+  ...(signal.blockerClass !== undefined ? { blockerClass: signal.blockerClass } : {}),
+  ...(signal.question !== undefined ? { question: signal.question } : {}),
+  ...(signal.whatUnblocksMe !== undefined ? { whatUnblocksMe: signal.whatUnblocksMe } : {}),
+});
 
 const findLatestCommitMessage = (signals: readonly HarnessSignal[]): ProposedCommitMessage | undefined => {
   const matches = signals.filter((s): s is HarnessSignal & { type: 'commit-message' } => s.type === 'commit-message');
@@ -125,14 +163,21 @@ export const runGeneratorTurnUseCase = async (
 
   const proposedCommitMessage = findLatestCommitMessage(signals);
 
-  const blockedReason = findTaskBlocked(signals);
-  if (blockedReason !== undefined) {
-    log.info(`generator self-blocked: ${blockedReason}`, { taskId: props.task.id, reason: blockedReason });
+  const blockedSignal = findTaskBlocked(signals);
+  if (blockedSignal !== undefined) {
+    log.info(`generator self-blocked: ${blockedSignal.reason}`, {
+      taskId: props.task.id,
+      reason: blockedSignal.reason,
+      ...blockedTriageCarry(blockedSignal),
+    });
     // A blocked turn doesn't commit — propagate the message anyway so a future non-blocked
     // turn doesn't lose context, but the harness's commit-task leaf will no-op on a clean tree.
+    // The structured triage fields (blockerClass / question / whatUnblocksMe) ride the exit
+    // verbatim so the settle path can persist them onto the task instead of collapsing to
+    // `reason` alone — see `GeneratorTurnExit`'s doc comment.
     return Result.ok({
       task: props.task,
-      exit: { kind: 'self-blocked', reason: blockedReason },
+      exit: { kind: 'self-blocked', reason: blockedSignal.reason, ...blockedTriageCarry(blockedSignal) },
       ...(proposedCommitMessage !== undefined ? { proposedCommitMessage } : {}),
     });
   }

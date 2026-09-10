@@ -1,6 +1,6 @@
 ---
 name: ralphctl-karpathy-guidelines
-description: Behavioural guardrails against four empirical LLM coding failure modes — silent assumptions, over-complication, orthogonal damage to code you don't fully understand, and declaring done without verification. Use when writing, reviewing, or refactoring code to surface assumptions early, keep changes proportionate to the task, and loop until explicit success criteria pass; broader than the implementation-choice ladder in ralphctl-ponytail or the scope checklist in ralphctl-surgical-simplicity (when those are installed), which it complements rather than duplicates.
+description: Behavioural guardrails against four empirical LLM coding failure modes — silent assumptions, over-complication, orthogonal damage to unfamiliar code, and declaring done without verification. Use when writing, reviewing, or refactoring code to surface assumptions early, keep changes proportionate to the task, and loop until explicit success criteria pass; broader than the implementation-choice ladder in ralphctl-ponytail or the scope checklist in ralphctl-surgical-simplicity (when those are installed), which it complements rather than duplicates.
 ---
 
 # Karpathy Guidelines
@@ -27,7 +27,7 @@ trade-offs, not pushing back when the request conflicts with what the code shows
 
 The counter-habit:
 
-- When the task is ambiguous, name the ambiguity before acting. With an interactive channel, ask; without one, state the interpretation you chose and why in a `<decision>` or `<note>` signal, then proceed with the least-surprising reading.
+- When the task is ambiguous, name the ambiguity before acting. With an interactive channel, ask; without one, state the interpretation you chose and why as a `note` signal in `signals.json` (generator role: a `decision` signal instead — the evaluator's contract has no `decision` schema), then proceed with the least-surprising reading.
 - When the task's description contradicts what you find in the code, surface the contradiction — do not quietly pick a side.
 - When two implementations satisfy the words of the task but differ in consequence, present the trade-off rather than silently committing to one.
 - Push back when the request is likely a mistake. Deference that ships a wrong change is not helpfulness.

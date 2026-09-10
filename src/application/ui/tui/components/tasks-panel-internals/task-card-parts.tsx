@@ -13,7 +13,7 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import type { TaskBucketStatus, TaskSubStep } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type { RecoveryContext } from '@src/domain/entity/attempt.ts';
-import { glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphFor, glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { fmtDuration, fmtIsoHHMM } from '@src/application/ui/tui/theme/duration.ts';
 import {
   abortCauseLabel,
@@ -32,6 +32,11 @@ export const STATUS_PRESENTATION: Readonly<
   failed: { color: inkColors.error, glyph: glyphs.cross },
   aborted: { color: inkColors.warning, glyph: glyphs.warningGlyph },
   skipped: { color: inkColors.muted, glyph: glyphs.phaseDisabled },
+  // Error-level, NOT muted: a dependency-blocked task needs the operator's attention — it must
+  // never read as the same grey as a merely-`pending` task. `glyphFor('blocked')` is the same
+  // triangle already reserved for the `blocked` harness-signal kind, distinct from `cross`
+  // (failed) / `warningGlyph` (aborted) / `phaseDisabled` (skipped).
+  blocked: { color: inkColors.error, glyph: glyphFor('blocked') },
 };
 
 const SUB_STEP_PRESENTATION: Readonly<Record<TraceLikeStatus, { readonly color: string; readonly glyph: string }>> = {

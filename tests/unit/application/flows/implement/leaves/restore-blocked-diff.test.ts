@@ -15,7 +15,9 @@ const TASK_ID = 'task-1' as TaskId;
 
 /**
  * Records git argv calls; scripts `stash list --format=%s` to contain `stashed` and lets
- * `stash pop` either succeed or fail per `popFails`.
+ * `stash pop` either succeed or fail per `popFails`. `stashed` entries are given in the shape a
+ * caller wants to test — real git never renders the bare message (see the `On <branch>: ` tests
+ * below), so callers proving the production shape must supply that prefix themselves.
  */
 const fakeGit = (opts?: {
   stashed?: string[];
@@ -43,7 +45,26 @@ const fakeGit = (opts?: {
 const ctx: ImplementCtx = { sprintId: SPRINT_ID };
 
 describe('restoreBlockedDiffLeaf', () => {
-  it('pops the deterministic stash when a prior blocked diff is present', async () => {
+  it('pops the deterministic stash when a prior blocked diff is present, in REAL git\'s "On <branch>: <message>" subject shape', async () => {
+    const message = quarantineStashMessage(SPRINT_ID, TASK_ID);
+    // `git stash list --format=%s` never renders the bare message it was pushed with — it always
+    // prefixes `On <branch>: ` (or `On (no branch): ` detached). A pre-check doing exact equality
+    // against the bare message would NEVER match this real shape and always short-circuit —
+    // see `stashEntryMatchesMessage` in `git-operations.ts`.
+    const { runner, calls } = fakeGit({ stashed: [`On main: ${message}`] });
+    const el = restoreBlockedDiffLeaf(
+      { gitRunner: runner, logger: noopLogger },
+      { cwd: absolutePath('/repos/main') },
+      TASK_ID
+    );
+
+    const out = await el.execute(ctx);
+
+    expect(out.ok).toBe(true);
+    expect(calls.some((c) => c[0] === 'stash' && c[1] === 'pop')).toBe(true);
+  });
+
+  it('also pops on a bare-message entry (defensive — some runners could surface it verbatim)', async () => {
     const message = quarantineStashMessage(SPRINT_ID, TASK_ID);
     const { runner, calls } = fakeGit({ stashed: [message] });
     const el = restoreBlockedDiffLeaf(
@@ -59,7 +80,7 @@ describe('restoreBlockedDiffLeaf', () => {
   });
 
   it('does not pop when no matching stash exists (clean-tree retry)', async () => {
-    const { runner, calls } = fakeGit({ stashed: ['ralphctl/sprint-x/task-other/blocked-diff'] });
+    const { runner, calls } = fakeGit({ stashed: ['On main: ralphctl/sprint-x/task-other/blocked-diff'] });
     const el = restoreBlockedDiffLeaf(
       { gitRunner: runner, logger: noopLogger },
       { cwd: absolutePath('/repos/main') },
@@ -74,7 +95,7 @@ describe('restoreBlockedDiffLeaf', () => {
 
   it('is best-effort — a failed pop still returns ok', async () => {
     const message = quarantineStashMessage(SPRINT_ID, TASK_ID);
-    const { runner } = fakeGit({ stashed: [message], popFails: true });
+    const { runner } = fakeGit({ stashed: [`On main: ${message}`], popFails: true });
     const el = restoreBlockedDiffLeaf(
       { gitRunner: runner, logger: noopLogger },
       { cwd: absolutePath('/repos/main') },

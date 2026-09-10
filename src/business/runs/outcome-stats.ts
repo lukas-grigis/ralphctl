@@ -1,6 +1,13 @@
 import type { AbortCause, Attempt, AttemptWarning, Attribution, PlateauSource } from '@src/domain/entity/attempt.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
-import type { CriteriaVerdicts, DoneTask, Task, TaskStatus, VerificationCriterion } from '@src/domain/entity/task.ts';
+import type {
+  CriteriaVerdicts,
+  DoneTask,
+  RetiredRun,
+  Task,
+  TaskStatus,
+  VerificationCriterion,
+} from '@src/domain/entity/task.ts';
 
 /**
  * Harness outcome rollup — a pure, read-only fold over data the harness ALREADY persists per
@@ -27,7 +34,8 @@ import type { CriteriaVerdicts, DoneTask, Task, TaskStatus, VerificationCriterio
  *
  * Every read is defensive. The type signatures describe the CURRENT entity shape, but the input
  * is rehydrated from on-disk records that may predate any given field (`Attempt.warning.source`,
- * `Task.criteriaVerdicts`, `DoneTask.finalAttemptN`, the escalation stamps …). A legacy or
+ * `Task.criteriaVerdicts`, `Task.retiredAttempts`, `DoneTask.finalAttemptN`, the escalation
+ * stamps …). A legacy or
  * partial record contributes to the metrics it CAN and is skipped for the rest — it never throws
  * and never poisons a count with `NaN`. Throws are reserved for programmer errors; this fold is
  * total, so it has none and needs no `Result` envelope.
@@ -243,6 +251,20 @@ const readString = (value: string | undefined): string | undefined => {
 /** The array, or `[]` when a legacy record omitted it (or stored something that is not one). */
 const readArray = <T>(value: readonly T[] | undefined): readonly T[] => (Array.isArray(value) ? value : []);
 
+/**
+ * Every attempt this task has ever produced: the live `attempts` ledger plus every retired run's
+ * archived batch, oldest run first. `unblockTask` clears `attempts` back to `[]` on a clean restart
+ * and moves the cleared batch into `retiredAttempts` instead of deleting it — folding both here is
+ * what keeps a cleared attempt's warning / abort-cause / plateau / attribution signal counted after
+ * the reset, instead of the outcome report silently losing it the moment an operator intervenes.
+ */
+const allAttempts = (task: Task): readonly Attempt[] => [
+  ...readArray<Attempt>(task.attempts),
+  ...readArray<RetiredRun>(task.retiredAttempts).flatMap((run) =>
+    isRecord(run) ? readArray<Attempt>(run.attempts) : []
+  ),
+];
+
 /** The verdict map, or `{}` when absent — a task graded no criteria yet. */
 const readVerdicts = (value: CriteriaVerdicts | undefined): CriteriaVerdicts => (isRecord(value) ? (value ?? {}) : {});
 
@@ -420,11 +442,14 @@ const absorbPlateau = (acc: Accumulator, warning: AttemptWarning & { kind: 'plat
  *
  * `regressed` is counted per attempt AND per task: a task that regressed twice is one broken
  * baseline for incidence purposes but two bad attempts for rate purposes.
+ *
+ * Folds {@link allAttempts}, not the bare live `attempts` array, so a task's retired (unblock-
+ * cleared) history keeps contributing to every one of these counts after the reset.
  */
 const absorbAttempts = (acc: Accumulator, task: Task): void => {
   let plateaued = false;
   let regressed = false;
-  for (const attempt of readArray<Attempt>(task.attempts)) {
+  for (const attempt of allAttempts(task)) {
     if (!isRecord(attempt)) continue;
     acc.attemptCount += 1;
 

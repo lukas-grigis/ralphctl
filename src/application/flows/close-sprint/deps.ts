@@ -1,9 +1,11 @@
 import type { Logger } from '@src/business/observability/logger.ts';
 import type { SprintRepository } from '@src/domain/repository/sprint/sprint-repository.ts';
+import type { FindTasksBySprintId } from '@src/domain/repository/task/find-tasks-by-sprint-id.ts';
 import type { IsoTimestamp } from '@src/domain/value/iso-timestamp.ts';
 import type { AppendFile } from '@src/business/io/append-file.ts';
 import type { WriteFile } from '@src/business/io/write-file.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
+import type { InteractivePrompt } from '@src/business/interactive/prompt.ts';
 import type { DistillLearningsDeps } from '@src/application/flows/_shared/memory/distill-learnings.ts';
 import type { DistillStepOpts } from '@src/application/flows/_shared/memory/distill-step.ts';
 
@@ -40,4 +42,15 @@ export interface CloseSprintDeps {
   };
   /** Pre-transition distill composition (deps + static opts). Absent → distill step is skipped. */
   readonly distill?: { readonly deps: DistillLearningsDeps; readonly opts: DistillStepOpts };
+  /**
+   * Optional in-chain HITL gate: when present, the chain loads the sprint's tasks and — if any
+   * are `blocked` — asks the operator to confirm before transitioning, naming the blocked tasks
+   * through `interactive`. Absent omits BOTH the load-tasks leaf and the guard entirely (same
+   * optional-composition pattern as `distill` / `memoryMirror` above) — the one caller that
+   * omits it today is the CLI `sprint close` command, which has no `InteractivePrompt`
+   * implementation (`createInkInteractivePrompt` is the only one, and it is TUI-only). Every
+   * TUI launcher should wire this; the underlying decision is confirm-and-proceed, never a hard
+   * refusal — an operator descoping the remainder is a legitimate call.
+   */
+  readonly blockedTasksGate?: { readonly taskRepo: FindTasksBySprintId; readonly interactive: InteractivePrompt };
 }

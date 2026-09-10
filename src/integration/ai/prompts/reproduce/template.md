@@ -100,9 +100,9 @@ test file following the project's own conventions.
 
 Run the new test in isolation using the project's own test runner. Confirm it fails, and confirm the
 failure is the reported defect — not a setup, import, or fixture error in the test itself. If it passes,
-or fails for the wrong reason, revise the test until it fails for the right one. Record the exact command
-and a bounded excerpt of the failing output — roughly the last 50 lines is enough to show the decisive
-failure.
+or fails for the wrong reason, revise the test until it fails for the right one. Record the exact command.
+
+{{EVIDENCE_BOUND}}
 
 ### Phase 4 — Report
 

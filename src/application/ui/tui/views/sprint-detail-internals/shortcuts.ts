@@ -1,7 +1,8 @@
 /**
  * Keymap hook for the sprint-detail view. Encapsulates every `useInput` chord — focus
- * navigation, expand/collapse, ticket add/remove, edit field, mark-current, unblock — into one
- * place so the orchestrator only has to wire state and handler callbacks.
+ * navigation, expand/collapse, ticket add/remove, edit field, mark-current, unblock,
+ * jump-to-next-blocked — into one place so the orchestrator only has to wire state and handler
+ * callbacks.
  *
  * Mute conditions (help overlay open, a queued prompt is active, the remove-confirm sub-view is
  * mounted, the sprint hasn't loaded yet) are checked once at the top and short-circuit every
@@ -12,7 +13,7 @@ import { useInput, type Key } from 'ink';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { Task } from '@src/domain/entity/task.ts';
 import type { Ticket } from '@src/domain/entity/ticket.ts';
-import type { FocusItem } from '@src/application/ui/tui/views/sprint-detail-internals/focus-list.ts';
+import type { FocusItem, JumpControls } from '@src/application/ui/tui/views/sprint-detail-internals/focus-list.ts';
 
 interface SprintDetailShortcutArgs {
   readonly modalOpen: boolean;
@@ -27,12 +28,16 @@ interface SprintDetailShortcutArgs {
   readonly focusedStuckTask: Task | undefined;
   /** Focused task that recorded an evaluation verdict — the gate for `v`. */
   readonly focusedEvaluatedTask: Task | undefined;
+  /** Jump-to-next-blocked (`B`) controls — see `focus-list.ts`'s `JumpControls` doc comment. */
+  readonly jump: JumpControls;
   // Actions ------------------------------------------------------------------
   readonly closeAllExpanded: () => void;
   readonly openAddTicket: (sprintId: Sprint['id']) => void;
   readonly toggleExpand: (id: string) => void;
-  // Note: moveCursor removed — cursor navigation (↑/↓ / j/k / PgUp/PgDn / Home/End) is now
-  // owned by `useListWindow` in the orchestrator. This hook handles only view-local keys.
+  // Note: moveCursor removed — cursor navigation (↑/↓ / j/k / PgUp/PgDn / Home/End) is normally
+  // owned by `useListWindow` in the orchestrator; this hook's own movement rows (bottom of
+  // `SHORTCUT_ROWS`) only take over once a `B` jump has engaged `jump.active`. Otherwise this
+  // hook handles only view-local keys.
   readonly beginRemove: (ticket: Ticket) => void;
   readonly markCurrent: (sprint: Sprint) => void;
   readonly handleEdit: () => void;
@@ -117,6 +122,15 @@ const SHORTCUT_ROWS: readonly ShortcutRow[] = [
     action: (args) => args.handleUnblock(args.focusedStuckTask!),
   },
   {
+    // Uppercase `B` — lowercase `b` is the GLOBAL banner toggle (`use-global-keys.ts`), so the
+    // shifted variant is deliberate, not a typo. Jumps the flat cursor straight to the next
+    // blocked task (wrapping), so the operator never has to arrow-key blind past a long ticket +
+    // task list to reach a row the header already told them is blocked.
+    key: (input) => input === 'B',
+    guard: (args) => args.jump.available,
+    action: (args) => args.jump.jumpToNextBlocked(),
+  },
+  {
     // `v` opens the focused task's evaluation verdict. Ticket rows and tasks that never reached
     // the evaluator fall through the guard, so the key stays inert rather than opening an empty
     // overlay. CLOSING is global (`use-global-keys`) — this hook is muted by `modalOpen` the
@@ -124,6 +138,40 @@ const SHORTCUT_ROWS: readonly ShortcutRow[] = [
     key: (input) => input === 'v',
     guard: (args) => args.focusedEvaluatedTask !== undefined,
     action: (args) => args.openEvaluation(args.focusedEvaluatedTask!),
+  },
+  // The six rows below only ever fire once a `B` jump has engaged `jump.active` — until then
+  // ↑/↓/j/k/PgUp/PgDn/Home/End stay owned entirely by `useListWindow` in the orchestrator, same
+  // as always. `useListWindow`'s cursor is paused (not unmounted) the moment a jump engages (see
+  // `detail-body.tsx`'s `useFocusModel`), so these never double-handle a keypress against it.
+  {
+    key: (input, keyEvent) => keyEvent.upArrow || input === 'k',
+    guard: (args) => args.jump.active,
+    action: (args) => args.jump.moveBy(-1),
+  },
+  {
+    key: (input, keyEvent) => keyEvent.downArrow || input === 'j',
+    guard: (args) => args.jump.active,
+    action: (args) => args.jump.moveBy(1),
+  },
+  {
+    key: (_input, keyEvent) => keyEvent.pageUp,
+    guard: (args) => args.jump.active,
+    action: (args) => args.jump.moveBy(-args.jump.pageSize),
+  },
+  {
+    key: (_input, keyEvent) => keyEvent.pageDown,
+    guard: (args) => args.jump.active,
+    action: (args) => args.jump.moveBy(args.jump.pageSize),
+  },
+  {
+    key: (_input, keyEvent) => keyEvent.home,
+    guard: (args) => args.jump.active,
+    action: (args) => args.jump.moveToEdge('start'),
+  },
+  {
+    key: (_input, keyEvent) => keyEvent.end,
+    guard: (args) => args.jump.active,
+    action: (args) => args.jump.moveToEdge('end'),
   },
 ];
 

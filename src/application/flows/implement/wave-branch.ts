@@ -1,6 +1,4 @@
 import { Result } from '@src/domain/result.ts';
-import { AbortError } from '@src/domain/value/error/abort-error.ts';
-import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { BlockedTask, Task } from '@src/domain/entity/task.ts';
 import { markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
 import type { TaskId } from '@src/domain/value/id/task-id.ts';
@@ -9,14 +7,12 @@ import { join } from 'node:path';
 
 import type { Element, ElementResult } from '@src/application/chain/element.ts';
 import type { OnTrace, TraceEntry } from '@src/application/chain/trace.ts';
-import { sequential } from '@src/application/chain/build/sequential.ts';
 import type { WaveBranch } from '@src/application/chain/run/wave-scheduler.ts';
 import type { EventBus } from '@src/business/observability/event-bus.ts';
 import { createPublishSignal, type PublishSignal } from '@src/application/flows/_shared/publish-signal.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import {
   gitDeleteBranch,
-  gitFoldBranch,
   gitWorktreeAdd,
   gitWorktreePrune,
   gitWorktreeRef,
@@ -33,6 +29,11 @@ import {
   createPerTaskSubchain,
   type PerTaskSubchainOpts,
 } from '@src/application/flows/implement/leaves/per-task-subchain.ts';
+import {
+  isSettledBlocked,
+  runQuarantineBlockedDiff,
+} from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
+import { abortedStep, foldStep } from '@src/application/flows/implement/worktree-fold.ts';
 
 /**
  * Async mutex serialising worktree folds onto the shared sprint branch. Folds MUST be
@@ -106,38 +107,6 @@ export const serializeAppendFile = (inner: AppendFile): AppendFile => {
 };
 
 /**
- * Project a fold-conflicted `done` task to `blocked`. A cherry-pick conflict means the worktree's
- * committed work is sound but cannot land on the shared sprint branch without manual resolution —
- * the task must surface as `blocked` so the operator sees it and a relaunch re-attempts it.
- *
- * The domain `markTaskBlocked` guards against re-blocking a `done` task (it only accepts
- * `todo`/`in_progress`), and there is no `done → blocked` lifecycle transition — re-blocking a
- * verified task is a parallel-fold concern the domain pre-dates. This is an application-layer ctx
- * projection (the merge/fork reducers already manipulate ctx task shapes directly): strip the
- * `DoneTask`-only `finalAttemptN`, stamp `status: 'blocked'` + the conflict reason.
- */
-const blockTaskForFoldConflict = (task: Task, reason: string): BlockedTask => {
-  // Drop the `DoneTask`-only `finalAttemptN` (absent on `BlockedTask`) and any existing
-  // `blockedReason`; re-stamp `status` + the conflict reason. The rest of the `TaskBase` fields
-  // (id, name, attempts, dependsOn, …) carry across unchanged.
-  const {
-    status: _status,
-    finalAttemptN: _finalAttemptN,
-    blockedReason: _blockedReason,
-    ...rest
-  } = task as Task & {
-    readonly finalAttemptN?: number;
-    readonly blockedReason?: string;
-  };
-  void _status;
-  void _finalAttemptN;
-  void _blockedReason;
-  // A fold conflict is an own-failure block — the worktree's work is sound but can't land without
-  // manual resolution, so it never cascade-clears via the upstream-unblock path.
-  return { ...rest, status: 'blocked', blockedReason: reason, blockKind: 'own' };
-};
-
-/**
  * Per-branch signal publisher keyed on the branch's `taskId`. Replaces the launcher's old
  * single-slot `currentTaskId` tracker — which keyed off the dead `task-attempt-started` event
  * (zero production publishers) and so always attributed signals to `undefined`. With concurrent
@@ -166,11 +135,11 @@ export interface BuildWaveBranchesDeps {
 
 /**
  * One git worktree per task: setup → per-worktree setup script → forked per-task subchain → fold →
- * cleanup. The element is a hand-written {@link Element} (NOT a chain primitive — §14) rather than a
- * plain `sequential`, because worktree-cleanup MUST run on EVERY exit path including abort: a plain
- * `sequential` skips downstream children once a child aborts, which would strand the worktree. This
- * adapter runs cleanup in a `finally`-style guarantee and forwards the inner result (AbortError
- * verbatim).
+ * quarantine-if-blocked → cleanup. The element is a hand-written {@link Element} (NOT a chain
+ * primitive — §14) rather than a plain `sequential`, because worktree-cleanup MUST run on EVERY exit
+ * path including abort: a plain `sequential` skips downstream children once a child aborts, which
+ * would strand the worktree. This adapter runs cleanup in a `finally`-style guarantee and forwards
+ * the inner result (AbortError verbatim).
  *
  *  - setup: prune stale bookkeeping + drop any leaked ref (both defensive), then
  *    `git worktree add -b <ref> <path>` forked from the sprint branch tip.
@@ -178,9 +147,33 @@ export interface BuildWaveBranchesDeps {
  *    deps). Failure blocks ONLY this task; it never hard-aborts the wave. Skipped when the repo
  *    configures no setup script.
  *  - body: the forked per-task subchain (rooted on the worktree via `forkCtx`, branch-preflight
- *    omitted) followed by the serialised fold.
- *  - cleanup: `git worktree remove --force` + `branch -D <ref>` — best-effort (the commits are
- *    already folded; a left-over worktree is scratch). A cleanup failure is logged, never fails the branch.
+ *    omitted) followed by the serialised fold. `buildBody` (see `buildWorktreeBranch`) is a
+ *    FACTORY, not a built element: it receives an `onSettled` callback that its subchain invokes
+ *    with its OWN settled ctx right after the subchain returns — BEFORE the fold step runs. That
+ *    side channel is what lets the quarantine step below still see a task that settled `blocked`
+ *    even when the branch's OVERALL result ends up `Result.error` (`ElementResult`'s error arm
+ *    carries no ctx at all) — e.g. a real user abort (or a fatal-sibling kill) landing in the short
+ *    tail between the subchain settling the block and the fold step's own abort check.
+ *  - quarantine (before cleanup — the fix for the parallel path's data-loss bug): whenever the
+ *    settled ctx (the body's own result on success, or the `onSettled` side-channel ctx when the
+ *    body itself errored) shows the task ended `blocked` with a rejected AI diff (`isSettledBlocked`
+ *    — same gate the serial path's guard uses), stash it under the deterministic message BEFORE the
+ *    worktree is destroyed. Runs regardless of `signal.aborted`: it is pure local git work with no
+ *    signal-aware waiting of its own (see `runQuarantineBlockedDiff`'s docstring), so skipping it on
+ *    an abort would destroy an already-settled, already-persisted block's diff for no reason — and
+ *    `result` itself is untouched by this step, so an in-flight `AbortError` keeps propagating
+ *    verbatim once this best-effort side effect returns.
+ *    Run with `cwd` = the WORKTREE (that's where the uncommitted diff physically sits) — worktrees
+ *    share `.git` with the main repo, so the resulting stash survives `git worktree remove --force`
+ *    (verified with a throwaway repo: create a worktree, dirty it, `git stash push` from inside it,
+ *    `git worktree remove --force`, then `git stash list` / `git stash pop` from the main repo — the
+ *    entry and its content both survive). Best-effort: a quarantine failure is logged at `warn` and
+ *    never fails the branch — see `quarantine-blocked-diff.ts`'s `runQuarantineBlockedDiff`.
+ *  - cleanup: `git worktree remove --force` always; `git branch -D <ref>` UNLESS the task ended
+ *    `blocked` — a fold conflict blocks a task whose commits are already verified and landed on
+ *    THIS ref and nowhere else, so deleting it here would strand that work in the reflog until GC.
+ *    `setupWorktree`'s defensive `gitDeleteBranch` already tolerates (and drops) a leftover ref on
+ *    relaunch, so keeping it is cheap.
  */
 const withWorktree = (
   deps: BuildWaveBranchesDeps,
@@ -189,35 +182,110 @@ const withWorktree = (
   branchRef: string,
   taskId: TaskId,
   setupScript: string | undefined,
-  body: Element<ImplementCtx>
-): Element<ImplementCtx> => ({
-  name: `worktree(${String(taskId)})`,
-  children: [body],
-  async execute(ctx, signal, onTrace): Promise<ElementResult<ImplementCtx>> {
-    const gitRunner = deps.implement.gitRunner;
-    const setupError = await setupWorktree(gitRunner, repoRoot, worktreePath, branchRef, taskId, onTrace);
-    if (setupError !== undefined) {
-      // A worktree that never got created has nothing to clean up — return the setup failure as-is
-      // (non-fatal → the wave reducer leaves this task untouched so it resets/re-runs).
-      return setupError;
-    }
+  progressFile: AbsolutePath,
+  buildBody: (onSettled: (ctx: ImplementCtx) => void) => Element<ImplementCtx>
+): Element<ImplementCtx> => {
+  // Built once, with a no-op callback, purely to expose the body's shape for the TUI's upfront
+  // plan (`children` — see `Element`'s docstring: it lets a caller walk the tree without executing
+  // it). The real run below builds its OWN body per execution so each call gets an independent
+  // `settledCtx` side-channel — `buildBody` is deterministic given the same closed-over params, so
+  // the two builds share the same `name` / `children` shape.
+  const bodyShape = buildBody(() => {});
+  return {
+    name: `worktree(${String(taskId)})`,
+    children: [bodyShape],
+    async execute(ctx, signal, onTrace): Promise<ElementResult<ImplementCtx>> {
+      const gitRunner = deps.implement.gitRunner;
+      const setupError = await setupWorktree(gitRunner, repoRoot, worktreePath, branchRef, taskId, onTrace);
+      if (setupError !== undefined) {
+        // A worktree that never got created has nothing to clean up — return the setup failure as-is
+        // (non-fatal → the wave reducer leaves this task untouched so it resets/re-runs).
+        return setupError;
+      }
 
-    let result: ElementResult<ImplementCtx>;
-    try {
-      // Per-worktree setup runs INSIDE the freshly-created worktree, before the task's subchain.
-      // A git worktree is an empty checkout with no build artefacts, so the per-task verifyScript
-      // would fail spuriously without it. `undefined` (block this task) short-circuits the body;
-      // cleanup below still runs.
-      const setupBlocked = await runWorktreeSetupScript(deps, worktreePath, setupScript, taskId, ctx, signal, onTrace);
-      result = setupBlocked ?? (await body.execute(ctx, signal, onTrace));
-    } finally {
-      // Cleanup ALWAYS runs — success, non-fatal failure, or abort. The worktree's commits are
-      // already folded by the body's fold step, so a forced remove only drops scratch state.
-      await cleanupWorktree(gitRunner, repoRoot, worktreePath, branchRef, taskId, onTrace, deps.implement);
-    }
-    return result;
-  },
-});
+      // See the docstring above: the body's subchain stamps this right after it settles, before
+      // the fold step runs, so it survives even when the branch's overall result later errors.
+      let settledCtx: ImplementCtx | undefined;
+      const body = buildBody((bodyCtx) => {
+        settledCtx = bodyCtx;
+      });
+
+      // Definite-assignment: every path through the `try` below assigns `result` before falling out
+      // of it — a throw instead propagates past the whole function (never reaching `return result`).
+      let result!: ElementResult<ImplementCtx>;
+      try {
+        // Per-worktree setup runs INSIDE the freshly-created worktree, before the task's subchain.
+        // A git worktree is an empty checkout with no build artefacts, so the per-task verifyScript
+        // would fail spuriously without it. `undefined` (block this task) short-circuits the body;
+        // cleanup below still runs.
+        const setupBlocked = await runWorktreeSetupScript(
+          deps,
+          worktreePath,
+          setupScript,
+          taskId,
+          ctx,
+          signal,
+          onTrace
+        );
+        result = setupBlocked ?? (await body.execute(ctx, signal, onTrace));
+      } finally {
+        // Prefer the body's own returned ctx when the branch completed; fall back to the
+        // side-channel ctx (captured BEFORE the fold step ran) when the overall result is an error
+        // — a fold conflict resolves to `Result.ok` on its own, so the only errors reaching here
+        // with a genuinely-settled block are aborts, whose `Result.error` arm carries no ctx.
+        const effectiveCtx = result.ok ? result.value.ctx : settledCtx;
+        const blockedTask = effectiveCtx !== undefined ? findBlockedTask(effectiveCtx, taskId) : undefined;
+        if (blockedTask !== undefined && effectiveCtx !== undefined && isSettledBlocked(effectiveCtx, taskId)) {
+          const name = `quarantine-blocked-diff-${String(taskId)}`;
+          const start = performance.now();
+          const outcome = await runQuarantineBlockedDiff(
+            {
+              gitRunner: deps.implement.gitRunner,
+              taskRepo: deps.implement.taskRepo,
+              appendFile: deps.implement.appendFile,
+              logger: deps.implement.logger,
+            },
+            { cwd: worktreePath, progressFile },
+            { task: blockedTask, sprintId: effectiveCtx.sprintId },
+            taskId
+          );
+          onTrace?.({ elementName: name, status: 'completed', durationMs: performance.now() - start });
+          // Fold the updated `blockedReason` (the recovery pointer, on a real capture — `runQuarantine-
+          // BlockedDiff` never errors, see its docstring) back into the returned ctx so the wave merge
+          // / epilogue save persists the SAME pointer `recordQuarantineUseCase` already wrote to disk —
+          // otherwise the epilogue's later `tasks.json` write would clobber it. Only meaningful when
+          // `result.ok`: an errored/aborted result has no ctx slot to fold into, and
+          // `recordQuarantineUseCase` already persisted the pointer straight to `taskRepo` regardless
+          // — the abort path loses nothing by skipping this fold-back.
+          if (result.ok && outcome.ok && outcome.value !== undefined) {
+            const tasks = (result.value.ctx.tasks ?? []).map((t) => (t.id === outcome.value?.id ? outcome.value : t));
+            result = Result.ok({ ctx: { ...result.value.ctx, tasks }, trace: result.value.trace });
+          }
+        }
+        // Cleanup ALWAYS runs — success, non-fatal failure, or abort. The worktree's commits are
+        // already folded by the body's fold step (or this ref is the only place they live, if the
+        // fold itself is what blocked the task), so a forced remove only ever drops scratch state.
+        await cleanupWorktree(
+          gitRunner,
+          repoRoot,
+          worktreePath,
+          branchRef,
+          taskId,
+          onTrace,
+          deps.implement,
+          blockedTask !== undefined
+        );
+      }
+      return result;
+    },
+  };
+};
+
+/** `taskId`'s copy off a ctx, if it's there AND ended `blocked`. */
+const findBlockedTask = (ctx: ImplementCtx, taskId: TaskId): BlockedTask | undefined => {
+  const task = ctx.tasks?.find((t) => t.id === taskId);
+  return task?.status === 'blocked' ? task : undefined;
+};
 
 /**
  * Run the repo's `setupScript` inside the freshly-created worktree, before the per-task subchain.
@@ -274,8 +342,9 @@ const runWorktreeSetupScript = async (
 /**
  * Block THIS task after a per-worktree setup failure and narrow the ctx to it. Setup runs before
  * the subchain, so the task is still `todo`/`in_progress` — `markTaskBlocked` (which accepts only
- * those states) is the clean domain transition (no hand-projection like `blockTaskForFoldConflict`,
- * which exists only because a fold conflict re-blocks an already-`done` task). Returns `Result.ok`
+ * those states) is the clean domain transition (no hand-projection like `worktree-fold.ts`'s
+ * `blockTaskForFoldConflict`, which exists only because a fold conflict re-blocks an already-`done`
+ * task). Returns `Result.ok`
  * so the branch runner COMPLETES with the block in its ctx — `mergeImplementWave` overlays it and
  * `captureDurableFold` records it, so the block survives even an abort of a sibling wave.
  */
@@ -296,8 +365,12 @@ const blockTaskInWorktree = (
   // blockable state: carry ctx through so the reducer leaves base untouched and it resets/re-runs.
   if (task === undefined) return Result.ok({ ctx, trace: [entry] });
   // Per-worktree setup failure is an own-failure block — the task couldn't be prepared, which a
-  // relaunch / operator fix must address; it never cascade-clears via upstream unblock.
-  const blocked = markTaskBlocked(task, reason, 'own');
+  // relaunch / operator fix must address; it never cascade-clears via upstream unblock. Classified
+  // explicitly: the repo/runtime state in the fresh worktree is what needs fixing, not the model.
+  const blocked = markTaskBlocked(task, reason, 'own', {
+    blockCause: 'worktree-setup-failure',
+    faultSide: 'environment',
+  });
   if (!blocked.ok) return Result.ok({ ctx, trace: [entry] });
   // Narrow to THIS task only — the merge overlay is by-id; emitting siblings risks clobbering a
   // concurrently-merged copy (the same narrowing contract the branch body applies after its subchain).
@@ -348,7 +421,8 @@ const cleanupWorktree = async (
   branchRef: string,
   taskId: TaskId,
   onTrace: ((entry: TraceEntry) => void) | undefined,
-  deps: ImplementDeps
+  deps: ImplementDeps,
+  taskEndedBlocked: boolean
 ): Promise<void> => {
   const name = `worktree-cleanup-${String(taskId)}`;
   const start = performance.now();
@@ -363,6 +437,18 @@ const cleanupWorktree = async (
       error: removed.error.message,
     });
     onTrace?.({ elementName: name, status: 'failed', durationMs, error: removed.error });
+    return;
+  }
+  if (taskEndedBlocked) {
+    // Keep the branch ref alive when the task ended blocked: a fold-conflict block re-projects an
+    // already-`done` task back to `blocked` AFTER its commits landed on THIS ref — deleting it here
+    // would leave that verified, committed work reachable only via reflog until GC (the
+    // blockedReason literally names this ref). An own-failure block (setup script / attempt-loop
+    // self-block) may have nothing of value on the ref, but keeping it uniformly is cheap:
+    // `setupWorktree`'s defensive `gitDeleteBranch` already tolerates and drops a leftover ref on
+    // relaunch, so the only cost is a greppable ref surviving until then.
+    deps.logger.warn('worktree branch kept — task ended blocked', { taskId: String(taskId), branchRef });
+    onTrace?.({ elementName: name, status: 'completed', durationMs });
     return;
   }
   // `worktree remove` leaves the throwaway `wt-<task>` branch ref behind; drop it so a relaunch
@@ -380,96 +466,10 @@ const cleanupWorktree = async (
 };
 
 /**
- * The serialised fold step. Folds the worktree branch onto the shared sprint branch through the
- * shared {@link FoldQueue} (one fold at a time across all branches), in `base.tasks` order.
- *
- *  - Only `done` tasks fold — a `blocked` task's worktree carries no landable commit (the commit
- *    guard skipped), so there is nothing to fold and folding would be a no-op fast-forward.
- *  - A cherry-pick CONFLICT (`gitFoldBranch` returns a `StorageError`) transitions THIS task to
- *    `blocked` in the branch ctx and returns `Result.ok` carrying the blocked task — so the branch
- *    runner COMPLETES (its `runner.ctx` holds the block) and `mergeImplementWave` overlays it. The
- *    already-folded siblings stay landed (`gitFoldBranch` already ran `cherry-pick --abort`, so the
- *    sprint branch is left clean). A conflict is a domain decision (the work can't land), not an
- *    infrastructure abort — mirrors how the subchain settles a self-block without failing the chain.
- *  - AbortError is exempt: a mid-fold abort returns `Result.error(AbortError)` verbatim, never a block.
- */
-/** Build an `aborted` step result (AbortError propagated verbatim) — shared by the fold + setup steps. */
-const abortedStep = (name: string, durationMs: number, onTrace: OnTrace | undefined): ElementResult<ImplementCtx> => {
-  const error = new AbortError({ elementName: name });
-  const entry: TraceEntry = { elementName: name, status: 'aborted', durationMs, error };
-  onTrace?.(entry);
-  return Result.error({ error, trace: [entry] });
-};
-
-const foldStep = (
-  deps: BuildWaveBranchesDeps,
-  repoRoot: AbsolutePath,
-  branchRef: string,
-  taskId: TaskId
-): Element<ImplementCtx> => ({
-  name: `fold-${String(taskId)}`,
-  async execute(ctx, signal, onTrace): Promise<ElementResult<ImplementCtx>> {
-    const name = `fold-${String(taskId)}`;
-    if (signal?.aborted) return abortedStep(name, 0, onTrace);
-
-    const task = ctx.tasks?.find((t) => t.id === taskId);
-    // Only a task the subchain settled `done` has a commit worth folding. Anything else (blocked,
-    // or never settled) skips the fold and carries ctx through unchanged.
-    if (task === undefined || task.status !== 'done') {
-      const entry: TraceEntry = { elementName: name, status: 'completed', durationMs: 0 };
-      onTrace?.(entry);
-      return Result.ok({ ctx, trace: [entry] });
-    }
-
-    const start = performance.now();
-    const folded = await deps.foldQueue.run(() => gitFoldBranch(deps.implement.gitRunner, repoRoot, branchRef));
-    const durationMs = performance.now() - start;
-
-    if (folded.ok) {
-      const entry: TraceEntry = { elementName: name, status: 'completed', durationMs };
-      onTrace?.(entry);
-      return Result.ok({ ctx, trace: [entry] });
-    }
-    // A user abort that raced the fold propagates verbatim, never becomes a per-task block.
-    // `gitFoldBranch` only ever returns a `StorageError`, so the only abort source is the outer signal.
-    if (signal?.aborted) return abortedStep(name, durationMs, onTrace);
-
-    return conflictFold(deps, ctx, task, branchRef, taskId, name, durationMs, folded.error, onTrace);
-  },
-});
-
-/**
- * Handle a non-abort fold failure (a cherry-pick conflict). Blocks THIS task, leaves siblings
- * folded. Returns `Result.ok` with the blocked task so the branch runner COMPLETES and its
- * `runner.ctx` carries the block — `mergeImplementWave` overlays a `completed` branch's task copy.
- * (A `Result.error` here would leave `runner.ctx` at its pre-fold value, re-surfacing the task as
- * `done` in the merge, which would orphan the unmerged commit.)
- */
-const conflictFold = (
-  deps: BuildWaveBranchesDeps,
-  ctx: ImplementCtx,
-  task: Task,
-  branchRef: string,
-  taskId: TaskId,
-  name: string,
-  durationMs: number,
-  error: DomainError,
-  onTrace: OnTrace | undefined
-): ElementResult<ImplementCtx> => {
-  const reason = `fold conflict — worktree branch '${branchRef}' could not land on the sprint branch: ${error.message}`;
-  const blocked = blockTaskForFoldConflict(task, reason);
-  const tasks = ctx.tasks?.map((t) => (t.id === taskId ? blocked : t)) ?? [blocked];
-  deps.implement.logger.warn('fold conflict — task blocked', { taskId: String(taskId), branchRef });
-  const entry: TraceEntry = { elementName: name, status: 'failed', durationMs, error };
-  onTrace?.(entry);
-  return Result.ok({ ctx: { ...ctx, tasks }, trace: [entry] });
-};
-
-/**
  * Build the per-wave `WaveBranch[]` arrays for the parallel implement path.
  *
- * One {@link WaveBranch} per task: its element is the worktree adapter wrapping a `sequential` of
- * the forked per-task subchain + the serialised fold. `forkCtx` clears per-task ctx and points the
+ * One {@link WaveBranch} per task: its element is the worktree adapter wrapping the forked
+ * per-task subchain followed by the serialised fold. `forkCtx` clears per-task ctx and points the
  * `RepoExecConfig` at the task's worktree; the subchain is built with `branch-preflight` OMITTED
  * (each worktree is checked out on its own ref). A per-branch {@link PublishSignal} (see
  * {@link perBranchSignalPublisher}) keyed on the branch's `taskId` is injected so concurrent
@@ -549,7 +549,7 @@ const buildOneBranch = (
 
   return {
     id: `task-${String(task.id)}`,
-    element: buildWorktreeBranch(deps, repo, task, worktreePath, branchRef, buildSubchain),
+    element: buildWorktreeBranch(deps, repo, task, worktreePath, branchRef, opts.progressFile, buildSubchain),
   };
 };
 
@@ -558,6 +558,14 @@ const buildOneBranch = (
  * worktree-pointed {@link RepoExecConfig} and returns the per-task body element to run inside the
  * worktree. Exposed (not inlined) so tests can substitute a fake subchain — the worktree
  * setup/fold/cleanup + ctx-fork wiring is exercised independently of the real per-task chain.
+ *
+ * `progressFile` is threaded as an explicit PARAMETER (not read off ctx) because it must be
+ * available to the worktree teardown's quarantine step even when the branch's overall result is an
+ * error (a fold conflict's own abort check, or a real abort) — `ImplementCtx.progressFile` is
+ * sprint-scoped and always populated by the caller here, but `ElementResult`'s error arm carries no
+ * ctx at all, so reading it off a possibly-errored result would make quarantine silently inert on
+ * every path that needs it most. `opts.progressFile` is already in scope at the call site
+ * (`buildOneBranch`) — see that function.
  *
  * `forkCtx` produces the worktree-pointed ctx + repo at EXECUTE time (so a re-merged wave ctx flows
  * in); the worktree adapter runs setup, then the body (`subchain → fold`), then cleanup-on-every-
@@ -571,9 +579,14 @@ export const buildWorktreeBranch = (
   task: Task,
   worktreePath: AbsolutePath,
   branchRef: string,
+  progressFile: AbsolutePath,
   buildSubchain: (worktreeRepo: RepoExecConfig) => Element<ImplementCtx>
 ): Element<ImplementCtx> => {
-  const body: Element<ImplementCtx> = {
+  // A FACTORY, not a built element: `withWorktree` calls this once per execution so each run gets
+  // its own `onSettled` side-channel. `onSettled` fires with the subchain's OWN settled ctx right
+  // AFTER the subchain returns but BEFORE the fold step runs — see `withWorktree`'s docstring for
+  // why the teardown needs this rather than reading the branch's overall (possibly-errored) result.
+  const buildBody = (onSettled: (ctx: ImplementCtx) => void): Element<ImplementCtx> => ({
     name: `task-${String(task.id)}-branch-body`,
     children: [],
     async execute(ctx, signal, onTrace): Promise<ElementResult<ImplementCtx>> {
@@ -582,22 +595,27 @@ export const buildWorktreeBranch = (
       // verify-baseline; the returned repo points at the worktree.
       const { ctx: forkedCtx, repo: worktreeRepo } = forkCtx(ctx, repo, worktreePath);
       const subchain = buildSubchain(worktreeRepo);
+      const subchainResult = await subchain.execute(forkedCtx, signal, onTrace);
+      if (!subchainResult.ok) return subchainResult;
+      onSettled(subchainResult.value.ctx);
       const fold = foldStep(deps, repo.path, branchRef, task.id);
-      const inner = sequential<ImplementCtx>(`task-${String(task.id)}-fold-and-settle`, [subchain, fold]);
-      const result = await inner.execute(forkedCtx, signal, onTrace);
-      if (!result.ok) return result;
+      const foldResult = await fold.execute(subchainResult.value.ctx, signal, onTrace);
+      if (!foldResult.ok) return foldResult;
       // Narrow this branch's outcome ctx to carry ONLY its OWN task. `forkCtx` seeds `tasks` with the
       // full base list (so the subchain leaves can look up sibling deps), but the subchain only
       // settles THIS task; the others remain at their pre-wave status. `mergeImplementWave` overlays
       // EVERY task in each branch's outcome ctx onto `base.tasks` by id — so leaving the siblings in
       // would let a later-processed branch overwrite an earlier branch's settled task with a stale
       // copy. Emitting only the owned task makes the overlay disjoint + commutative (the wave-merge contract).
-      const own = result.value.ctx.tasks?.find((t) => t.id === task.id);
-      const narrowed: ImplementCtx = { ...result.value.ctx, ...(own !== undefined ? { tasks: [own] } : {}) };
-      return Result.ok({ ctx: narrowed, trace: result.value.trace });
+      const own = foldResult.value.ctx.tasks?.find((t) => t.id === task.id);
+      const narrowed: ImplementCtx = { ...foldResult.value.ctx, ...(own !== undefined ? { tasks: [own] } : {}) };
+      return Result.ok({
+        ctx: narrowed,
+        trace: [...subchainResult.value.trace, ...foldResult.value.trace],
+      });
     },
-  };
-  return withWorktree(deps, repo.path, worktreePath, branchRef, task.id, repo.setupScript, body);
+  });
+  return withWorktree(deps, repo.path, worktreePath, branchRef, task.id, repo.setupScript, progressFile, buildBody);
 };
 
 /**

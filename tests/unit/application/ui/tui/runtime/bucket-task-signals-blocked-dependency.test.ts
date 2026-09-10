@@ -1,12 +1,16 @@
 /**
- * A dependency-blocked task must NOT read as `running` for the rest of the implement run.
+ * A dependency-blocked task must NOT read as `running` for the rest of the implement run, and
+ * must resolve to the dedicated `blocked` bucket status — not `running`, and not the generic
+ * per-substep `skipped`.
  *
  * The per-task subchain is `sequential('task-<id>', [dependency-gate-<id>, guard('task-runnable-<id>',
  * isTaskRunnable, sequential('task-body-<id>', […]))])`. `guard` emits exactly ONE synthetic trace
  * entry, named after its BODY — so a gate-blocked task's only trace entries are
  * `dependency-gate-<id>` (completed) and `task-body-<id>` (skipped). Neither is failed/aborted and
  * neither is the terminal `uninstall-skills` leaf, so the bucket used to resolve `running` forever:
- * the Execute header pinned its "active task" readout on a task that was `blocked` on disk.
+ * the Execute header pinned its "active task" readout on a task that was `blocked` on disk. It
+ * then resolved to the generic `skipped` status, which rendered identically to a merely-`pending`
+ * task — `blocked` is the fix for both.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -23,12 +27,12 @@ const gateBlockedTrace = (taskId: string): Trace => [
 ];
 
 describe('bucketTaskSignals — dependency-blocked task', () => {
-  it('resolves a gate-blocked task to `skipped`, not `running`', () => {
+  it('resolves a gate-blocked task to `blocked`, not `running` or `skipped`', () => {
     const result = bucketTaskSignals(gateBlockedTrace(BLOCKED), [], []);
 
     expect(result.tasks).toHaveLength(1);
     expect(result.tasks[0]?.id).toBe(BLOCKED);
-    expect(result.tasks[0]?.status).toBe('skipped');
+    expect(result.tasks[0]?.status).toBe('blocked');
   });
 
   it('keeps the blocked task behind the in-flight cursor while a sibling still runs', () => {
@@ -44,7 +48,7 @@ describe('bucketTaskSignals — dependency-blocked task', () => {
     expect(result.tasks[inFlight]?.status).toBe('running');
   });
 
-  it('does not treat a skipped sub-guard (reproduce / quarantine) as a skipped task', () => {
+  it('does not treat a skipped sub-guard (reproduce / quarantine) as a blocked task', () => {
     // Both guards live INSIDE the body and skip routinely on the happy path — only the
     // `task-body` composite being skipped means the whole task never ran.
     const trace: Trace = [
@@ -72,6 +76,7 @@ describe('bucketTaskSignals — dependency-blocked task', () => {
     expect(isInFlightBucket({ status: 'running' })).toBe(true);
     expect(isInFlightBucket({ status: 'pending' })).toBe(true);
     expect(isInFlightBucket({ status: 'skipped' })).toBe(false);
+    expect(isInFlightBucket({ status: 'blocked' })).toBe(false);
     expect(isInFlightBucket({ status: 'failed' })).toBe(false);
     expect(isInFlightBucket({ status: 'aborted' })).toBe(false);
     expect(isInFlightBucket({ status: 'completed' })).toBe(false);

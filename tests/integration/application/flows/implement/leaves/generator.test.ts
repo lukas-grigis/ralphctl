@@ -606,6 +606,31 @@ describe('generatorLeaf', () => {
       expect(round2).not.toContain('# Task Execution Protocol');
     });
 
+    // The done-criteria re-injection (`{{VERIFICATION_CRITERIA_SECTION}}`) exists precisely so a
+    // compacted or cold-resumed session is never left without the definition of done — that
+    // guarantee only holds if the real call site threads `task` into the continuation branch.
+    it('re-injects the done-criteria into the CONTINUATION prompt (round 2+)', async () => {
+      const provider = createFakeAiProvider({
+        responses: { implement: '', 'implement-continuation': '' },
+        sessionIds: { implement: 'gen-1' },
+      });
+      const task = makeInProgressTaskWithRunningAttempt();
+      const leaf = generatorLeaf({ ...buildDeps(), provider }, task.id);
+
+      const first = await leaf.execute(baseCtx(task));
+      expect(first.ok).toBe(true);
+      if (!first.ok) return;
+
+      await fs.mkdir(join(String(root.root), 'rounds', '2', 'generator'), { recursive: true });
+      const second = await leaf.execute({ ...first.value.ctx, currentRoundNum: 2 });
+      expect(second.ok).toBe(true);
+
+      const round2 = await readPrompt(2);
+      expect(round2).toContain('# Continue — Round 2');
+      expect(round2).toContain('## Done criteria');
+      expect(round2).toContain('runs to completion');
+    });
+
     it('always sends the FULL prompt when the provider never reports a session id', async () => {
       // No `sessionIds` configured → `priorGeneratorSessionId` is never set, so every round sends
       // the full prompt. This is the non-Claude-resume path (a provider that can't resume threads).

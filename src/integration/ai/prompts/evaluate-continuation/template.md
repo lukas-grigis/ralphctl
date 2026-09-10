@@ -30,22 +30,12 @@ the verdict is `failed` with a critique, never `malformed`. A false `passed` shi
 rather than a demonstrable defect, prefix that critique bullet with `[spec-ambiguity]` and state the
 interpretation you graded against.
 
-**Evaluator failure modes to resist actively:**
-
-- Identifying issues then talking yourself into approving — if a finding is worth naming, it is worth FAILing.
-- Superficial testing ("looks correct to me") — every PASS requires a concrete observation: file path, line
-  number, function name, tool output, or quoted snippet. "Looks good" is not evidence.
-- Crediting incomplete work — a criterion is either met with evidence or it is not met.
-- Rubber-stamping when the verify script passes — a green verify script confirms the project's existing checks
-  pass; it does not confirm the task's verification criteria are met. FAIL the round if criteria lack evidence
-  even when the script exits 0.
-- Inventing a defect — a FAIL also requires a concrete observation: a reproduced failing command, or cited
-  code that demonstrably violates the criterion. Never FAIL on speculation about a code path you did not read
-  or run; this disciplines the evidence a FAIL needs, it does not soften the bias above toward failing when a
-  finding is genuinely there.
-  </role>
+{{EVALUATOR_FAILURE_MODES}}
+</role>
 
 {{HARNESS_CONTEXT}}
+
+{{AUTONOMOUS_OPERATION}}
 
 <session_context>
 This is a continuation turn — the task specification, the contract, and your prior grading are
@@ -92,40 +82,19 @@ harness validates — it ensures a recoverable file exists on disk if this sessi
 token budget before you reach your final verdict. You will overwrite it after completing all steps
 below.
 
-```json
-{
-  "schemaVersion": 1,
-  "signals": [
-    {
-      "type": "evaluation",
-      "status": "failed",
-      "dimensions": [
-        { "dimension": "correctness", "passed": false, "finding": "assessment in progress" },
-        { "dimension": "completeness", "passed": false, "finding": "assessment in progress" },
-        { "dimension": "safety", "passed": false, "finding": "assessment in progress" },
-        { "dimension": "consistency", "passed": false, "finding": "assessment in progress" },
-        { "dimension": "robustness", "passed": false, "applicable": false, "finding": "assessment in progress" }
-      ],
-      "timestamp": "<ISO-8601 timestamp>"
-    }
-  ]
-}
-```
-
-Robustness carries the optional `applicable` field shown above — set it to `false` only if
-re-grading determines the change touches no error/failure path (with the real reason in
-`finding`), or omit it (default `true`) once you record an actual pass/fail.
+{{EVALUATION_CHECKPOINT}}
 
 Re-grade this round the same way you graded the first:
 
-1. Re-run each `auto` criterion's command directly and record the decisive output lines (roughly the
-   last 50 per command) — when the full log matters, write it to a file in your session working
-   directory, never the repository, and cite the path. Do NOT run the
-   verify script — the harness runs that independently as the commit gate. Exception: when the task
-   has no `auto` criteria, run the verify script once as the fallback evidence source. The prior
-   round's runs are stale; the generator changed the tree. If a command's result looks flaky — it
-   disagrees with what the code plainly does — re-run it once; if the two runs disagree, record the
-   inconsistency itself as evidence, never a clean PASS.
+1. Re-run each `auto` criterion's command directly. Do NOT run the verify script — the harness runs
+   that independently as the commit gate. Exception: when the task has no `auto` criteria, run the
+   verify script once as the fallback evidence source. The prior round's runs are stale; the
+   generator changed the tree. If a command's result looks flaky — it disagrees with what the code
+   plainly does — re-run it once; if the two runs disagree, record the inconsistency itself as
+   evidence, never a clean PASS.
+
+   {{EVIDENCE_BOUND}}
+
 2. Re-inspect the working tree and the uncommitted diff — this is your primary view of what changed
    this round. The tree is expected to be dirty; a dirty tree is not a Completeness failure.
 3. Audit the diff for verification tampering — check whether this round's changes touch test files,

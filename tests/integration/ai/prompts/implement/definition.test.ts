@@ -134,11 +134,57 @@ describe('implementPromptDef — completeness', () => {
     expect(template).toContain('reproduce the reported failure now');
   });
 
-  it('reinforces the recitation clause with a periodic phase/criteria restatement', async () => {
+  it('anchors phase/criteria tracking to the contract artefact rather than narration', async () => {
+    // Fable 5's scaffolding guidance: instructions telling the model to echo its reasoning as
+    // response text can trigger the `reasoning_extraction` refusal category. The old wording
+    // asked for a periodic prose restatement ("after roughly every five tool actions, restate
+    // in one line..."); the fix points at an artefact the harness already reads (the contract)
+    // instead of asking for narration, while keeping the same anchoring intent.
     const path = `${String(defaultTemplatesDir())}/implement/template.md`;
     const template = (await fs.readFile(path, 'utf8')).replace(/\s+/g, ' ');
-    expect(template).toContain('after roughly every five tool actions');
-    expect(template).toContain('which phase you are in and which acceptance criteria remain');
+    expect(template).toContain('confirm against the contract at `{{CONTRACT_PATH}}`');
+    expect(template).toContain('which declared steps and acceptance criteria remain unmet');
+    expect(template).not.toContain('after roughly every five tool actions');
+    expect(template).not.toContain('restate in your working notes');
+  });
+
+  it('never points the model at an `<output_contract>` tag the template does not have', async () => {
+    // Regression: `<capabilities>` used to tell the model to write signals.json to "the output
+    // directory specified in `<output_contract>`" — a tag this template has never opened (the
+    // output contract lands as a bare `## Output contract` markdown heading rendered from
+    // {{OUTPUT_CONTRACT_SECTION}}). The other two pointers in this file ("the Output contract
+    // section at the bottom of this prompt") name the real heading; this one must match them.
+    const path = `${String(defaultTemplatesDir())}/implement/template.md`;
+    const template = await fs.readFile(path, 'utf8');
+    expect(template).not.toContain('<output_contract>');
+    expect(template).not.toContain('</output_contract>');
+    expect(template).toContain('Output contract section');
+  });
+
+  it('wires the autonomous-operation and parallel-tool-calls partials', () => {
+    expect(implementPromptDef.partials).toMatchObject({
+      AUTONOMOUS_OPERATION: 'autonomous-operation',
+      PARALLEL_TOOL_CALLS: 'parallel-tool-calls',
+      EVIDENCE_BOUND: 'evidence-bound',
+    });
+  });
+
+  it("never hardcodes a single provider's context-file line/heading cap", async () => {
+    // implement runs under five different provider CLIs, each with its own native context-file
+    // format and its own size convention (see conventions-claude-md.md / conventions-agents-md.md
+    // / conventions-copilot-instructions.md). A cap sourced from one provider's own guidance is
+    // wrong for the other four.
+    const path = `${String(defaultTemplatesDir())}/implement/template.md`;
+    const template = await fs.readFile(path, 'utf8');
+    expect(template).not.toContain('200 lines');
+    expect(template).not.toContain('7 H2');
+    expect(template).toContain('comparable context file already in this ecosystem');
+  });
+
+  it('gives the empty plateau_directive block an explicit empty-case sentence', async () => {
+    const path = `${String(defaultTemplatesDir())}/implement/template.md`;
+    const template = (await fs.readFile(path, 'utf8')).replace(/\s+/g, ' ');
+    expect(template).toContain('no plateau escalation applies this round');
   });
 
   it('asks for a contrasting learning when an attempt succeeds where an earlier one failed', async () => {
@@ -610,6 +656,57 @@ describe('buildImplementPrompt — end-to-end against the real template', () => 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value).not.toContain('You have plateaued');
+  });
+
+  it('tells the model the user is not watching and to act on its last paragraph', async () => {
+    const task = makeTaskWith({ name: 'export CSV' });
+    const result = await buildImplementPrompt(deps, {
+      task,
+      projectPath: '/tmp/ralph/main-repo',
+      progressFile: '/tmp/ralph/sprint-1/progress.md',
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value).toContain('operating autonomously');
+    expect(result.value).toContain('not watching in real time');
+    expect(result.value).toContain('audit the claim against a tool result from this session');
+  });
+
+  it('nudges Phase 1 reconnaissance toward batched, parallel tool calls', async () => {
+    const task = makeTaskWith({ name: 'export CSV' });
+    const result = await buildImplementPrompt(deps, {
+      task,
+      projectPath: '/tmp/ralph/main-repo',
+      progressFile: '/tmp/ralph/sprint-1/progress.md',
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const flattened = result.value.replace(/\s+/g, ' ');
+    expect(flattened).toContain('request all of them in this turn rather than one at a time');
+  });
+
+  it('states the bounded-evidence rule exactly once via the shared partial', async () => {
+    const task = makeTaskWith({ name: 'export CSV' });
+    const result = await buildImplementPrompt(deps, {
+      task,
+      projectPath: '/tmp/ralph/main-repo',
+      progressFile: '/tmp/ralph/sprint-1/progress.md',
+      priorProgress: '',
+      outputContractSection: SAMPLE_CONTRACT_SECTION,
+      contractPath: CONTRACT_PATH,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const flattened = result.value.replace(/\s+/g, ' ');
+    expect(flattened).toContain('rather than the full log');
+    const occurrences = flattened.split('rather than the full log').length - 1;
+    expect(occurrences).toBe(1);
   });
 });
 

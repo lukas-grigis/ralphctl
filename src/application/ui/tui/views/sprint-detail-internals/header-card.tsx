@@ -150,6 +150,7 @@ export const phaseAction = (sprint: Sprint, tasks: readonly Task[]): PhaseAction
   const approved = sprint.tickets.filter((t) => t.status === 'approved').length;
   const todo = tasks.filter((t) => t.status === 'todo').length;
   const inProgress = tasks.filter((t) => t.status === 'in_progress').length;
+  const blocked = tasks.filter((t) => t.status === 'blocked').length;
   // Both `todo` and `in_progress` tasks are resumable on the next implement launch — an
   // `in_progress` task is one left mid-run by a prior crash and is reset to `todo` on relaunch.
   // Counting only `todo` here contradicted Home (which counts both) for crash-resumed sprints.
@@ -182,11 +183,27 @@ export const phaseAction = (sprint: Sprint, tasks: readonly Task[]): PhaseAction
       }
       return { label: 'Review pending tasks', hint: 'No pending tasks — check the list below for blocked / done.' };
     case 'review':
+      // Blocked-aware on purpose: this is the guidance surface that used to walk an operator
+      // straight into closing a sprint with unfinished work without ever mentioning it.
+      if (blocked > 0) {
+        return {
+          label: `${String(blocked)} task(s) blocked`,
+          hint: `Press B to jump to one, u to retry it, or n → close-sprint to accept as-is — close does not refuse, but it will ask you to confirm with ${String(blocked)} still blocked.`,
+        };
+      }
       return {
         label: 'Open a pull request, then close',
         hint: 'Press n → create-pr to surface for human approval, then n → close-sprint when you are done.',
       };
     case 'done':
+      // A closed sprint is not a dead end when it still has blocked work: unblocking a task here
+      // reopens the sprint (done → review → active) so the fix is actually reachable again.
+      if (blocked > 0) {
+        return {
+          label: `Sprint closed — ${String(blocked)} task(s) still blocked`,
+          hint: 'Press B to jump to one, then u to reopen this sprint and retry it.',
+        };
+      }
       return {
         label: 'Sprint closed',
         hint: 'No further work happens here. Press S to switch to another sprint.',
@@ -204,10 +221,14 @@ export const NextPhaseCard = ({
   const action = phaseAction(sprint, tasks);
   if (action === undefined) return null;
   if (sprint.status === 'done') {
+    // Blocked work in a closed sprint is no longer a dead end (unblocking reopens the sprint),
+    // so this line switches from a dim all-clear checkmark to the same warning presentation the
+    // task cards themselves use — the operator should not mistake "closed" for "nothing left".
+    const stillBlocked = tasks.some((t) => t.status === 'blocked');
     return (
       <Box paddingX={spacing.indent} marginTop={spacing.section}>
-        <Text dimColor>
-          {glyphs.check} {action.hint}
+        <Text color={stillBlocked ? inkColors.warning : inkColors.muted}>
+          {stillBlocked ? glyphs.warningGlyph : glyphs.check} {action.hint}
         </Text>
       </Box>
     );

@@ -115,6 +115,16 @@ whole sub-chains above the primitives — deliberately not a sixth primitive. Th
 (`element` / `leaf` / `sequential` / `loop` / `guard`) is unchanged; `runWaves` never implements `Element`
 and must never be composed into a `sequential` / `loop` / `guard`.
 
+The wave PLAN feeding `runWaves` is itself fallible: `planImplementWaves` (`flows/implement/flow.ts`) wraps
+`scheduleIntoWaves`'s dependency-graph scheduling in a `Result` and returns `Result.error(TaskGraphIssue)` on
+an unschedulable task set (a cycle, a self-edge, or a dependency id that resolves to nothing) instead of
+degrading to an empty wave list. This matters most on a RESUMED run, whose `todoTasks` is only the
+`todo`/`in_progress` subset of the sprint — a dependency on an already-`done` prerequisite outside that
+subset is legitimate, not dangling, so the caller passes the settled ids as `satisfiedDependencyIds` and
+`scheduleIntoWaves` treats them as pre-resolved rather than failing the schedule closed. The launcher
+(`ui/shared/launch/implement.ts`) unwraps the `Result` into a launch failure before ever starting the
+prologue, so a broken graph is a reported failure, never a run that completes having scheduled nothing.
+
 ## loop — generator-evaluator primitive
 
 ```ts

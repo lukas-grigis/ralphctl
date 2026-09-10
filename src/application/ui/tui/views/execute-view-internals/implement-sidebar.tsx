@@ -27,7 +27,7 @@
 
 import React, { useMemo } from 'react';
 import { Box, Text } from 'ink';
-import { CONTEXT_WIDTH, glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { CONTEXT_WIDTH, glyphFor, glyphs, inkColors, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { OverflowRow } from '@src/application/ui/tui/components/windowed-list.tsx';
 import { TokenBudgetCard } from '@src/application/ui/tui/components/token-budget-card.tsx';
 import { BaselineHealthCard } from '@src/application/ui/tui/components/baseline-health-card.tsx';
@@ -37,6 +37,7 @@ import type { SessionDescriptor } from '@src/application/ui/tui/runtime/session-
 import type { TokenUsage } from '@src/application/ui/tui/runtime/use-token-usage.ts';
 import type { SprintExecution } from '@src/domain/entity/sprint-execution.ts';
 import type { Task } from '@src/domain/entity/task.ts';
+import { overlayEntityBlockedStatus } from '@src/application/ui/tui/runtime/bucket-task-signals.ts';
 import type {
   BucketedExecution,
   TaskBucket,
@@ -47,22 +48,30 @@ import type {
 // Status glyph + colour for the task-nav list rows
 // ---------------------------------------------------------------------------
 
-const TASK_STATUS_GLYPH: Readonly<Record<TaskBucketStatus, string>> = {
+// Exported (not just module-private) so the blocked-status mapping is unit-testable in
+// isolation from a full Ink render — mirrors `STATUS_PRESENTATION` in `task-card-parts.tsx`.
+export const TASK_STATUS_GLYPH: Readonly<Record<TaskBucketStatus, string>> = {
   pending: glyphs.phasePending,
   running: glyphs.phaseActive,
   completed: glyphs.phaseDone,
   failed: glyphs.cross,
   aborted: glyphs.warningGlyph,
   skipped: glyphs.phaseDisabled,
+  // Same triangle as the `blocked` harness-signal glyph — distinct from every other status
+  // glyph in this table so a blocked row never reads as an ordinary skip/pending row.
+  blocked: glyphFor('blocked'),
 };
 
-const TASK_STATUS_COLOR: Readonly<Record<TaskBucketStatus, string>> = {
+export const TASK_STATUS_COLOR: Readonly<Record<TaskBucketStatus, string>> = {
   pending: inkColors.muted,
   running: inkColors.info,
   completed: inkColors.success,
   failed: inkColors.error,
   aborted: inkColors.warning,
   skipped: inkColors.muted,
+  // Error-level, matching `STATUS_PRESENTATION.blocked` in the main-area card and
+  // `taskStatusKind('blocked')` in status-chip.tsx — never the muted grey of `skipped`/`pending`.
+  blocked: inkColors.error,
 };
 
 // ---------------------------------------------------------------------------
@@ -309,9 +318,16 @@ export const ImplementSidebar = ({
   now,
 }: ImplementSidebarProps): React.JSX.Element => {
   // Stabilize the array reference: a fresh `[]` (or even the same tasks behind a new `bucketed`) each
-  // render would defeat TaskNavList's memoization. Keyed on `bucketed` so it only churns when the
-  // bucketed snapshot actually changes.
-  const tasks = useMemo(() => bucketed?.tasks ?? [], [bucketed]);
+  // render would defeat TaskNavList's memoization. Keyed on `bucketed` + `taskState`.
+  //
+  // Runs the trace-derived bucket through `overlayEntityBlockedStatus` first: a task blocked on
+  // its own merits (budget exhausted, red verify, generator self-block) traces as a clean
+  // `completed` (see `bucket-task-signals.ts`'s module docstring), so without this the minimap
+  // would paint it the same green `phaseDone` glyph as a task that actually finished.
+  const tasks = useMemo(
+    () => (bucketed !== undefined ? overlayEntityBlockedStatus(bucketed, taskState).tasks : []),
+    [bucketed, taskState]
+  );
 
   return (
     <Box flexDirection="column" width={sidebarWidth} flexShrink={0}>

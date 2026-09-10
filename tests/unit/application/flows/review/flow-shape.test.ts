@@ -24,7 +24,7 @@ const stubDeps = (opts: { readonly withDistill?: boolean } = {}): ReviewDeps =>
     ...(opts.withDistill === true ? { distill: { deps: {}, opts: {} } } : {}),
   }) as unknown as ReviewDeps;
 
-const makeOpts = (): CreateReviewFlowOpts => ({
+const makeOpts = (opts: { readonly withProgressFile?: boolean } = {}): CreateReviewFlowOpts => ({
   sprintId: SprintId.generate(),
   sprintDir: absolutePath('/sprints/s1'),
   reviewRoot: absolutePath('/sprints/s1/review'),
@@ -32,6 +32,7 @@ const makeOpts = (): CreateReviewFlowOpts => ({
   additionalRoots: [absolutePath('/repos/main')],
   repositoriesBlock: '- main-repo',
   feedbackFile: absolutePath('/sprints/s1/feedback.md'),
+  ...(opts.withProgressFile === true ? { progressFile: absolutePath('/sprints/s1/progress.md') } : {}),
 });
 
 describe('createReviewFlow — chain-topology fence', () => {
@@ -47,6 +48,9 @@ describe('createReviewFlow — chain-topology fence', () => {
       'review-round',
       'review-settled',
       'review-settle',
+      'load-tasks',
+      'confirm-blocked-tasks-gate',
+      'confirm-blocked-tasks',
       'transition-sprint-to-done',
     ]);
   });
@@ -63,8 +67,31 @@ describe('createReviewFlow — chain-topology fence', () => {
       'review-round',
       'review-settled',
       'review-settle',
+      'load-tasks',
+      'confirm-blocked-tasks-gate',
+      'confirm-blocked-tasks',
       'distill-learnings-step',
       'transition-sprint-to-done',
+    ]);
+  });
+
+  it('splices append-journal-separator onto the end of review-settle when opts.progressFile is resolved', () => {
+    expect(names(createReviewFlow(stubDeps(), makeOpts({ withProgressFile: true })))).toStrictEqual([
+      'with-repo-lock(review)',
+      'review',
+      'load-and-assert-sprint',
+      'load-sprint',
+      'assert-sprint-status',
+      'ensure-feedback-file',
+      'review-loop',
+      'review-round',
+      'review-settled',
+      'review-settle',
+      'load-tasks',
+      'confirm-blocked-tasks-gate',
+      'confirm-blocked-tasks',
+      'transition-sprint-to-done',
+      'progress-journal-close',
     ]);
   });
 
@@ -88,15 +115,31 @@ describe('createReviewFlow — chain-topology fence', () => {
     expect(loopNode?.children?.[0]?.name).toBe('review-round');
   });
 
-  it('gates BOTH the transition and the optional distill step behind the SAME review-settled guard', () => {
+  it('gates the blocked-task confirm, the optional distill step, and the transition behind the SAME review-settled guard', () => {
     const chain = createReviewFlow(stubDeps({ withDistill: true }), makeOpts()).children?.[0];
     const guardNode = chain?.children?.find((c) => c.name === 'review-settled');
     const settleBody = guardNode?.children?.[0];
 
     expect(settleBody?.name).toBe('review-settle');
     expect(settleBody?.children?.map((c) => c.name)).toStrictEqual([
+      'load-tasks',
+      'confirm-blocked-tasks-gate',
       'distill-learnings-step',
       'transition-sprint-to-done',
+    ]);
+  });
+
+  it('runs the blocked-task gate BEFORE the distill step and the transition, mirroring close-sprint', () => {
+    const chain = createReviewFlow(stubDeps({ withDistill: true }), makeOpts({ withProgressFile: true })).children?.[0];
+    const guardNode = chain?.children?.find((c) => c.name === 'review-settled');
+    const settleBody = guardNode?.children?.[0];
+
+    expect(settleBody?.children?.map((c) => c.name)).toStrictEqual([
+      'load-tasks',
+      'confirm-blocked-tasks-gate',
+      'distill-learnings-step',
+      'transition-sprint-to-done',
+      'progress-journal-close',
     ]);
   });
 });

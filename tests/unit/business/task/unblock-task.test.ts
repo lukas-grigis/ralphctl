@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { Result } from '@src/domain/result.ts';
 import { unblockTaskUseCase } from '@src/business/task/unblock-task.ts';
+import { foldTaskRollup } from '@src/business/runs/outcome-stats.ts';
 import type { BlockedTask, Task } from '@src/domain/entity/task.ts';
 import { BLOCKED_UPSTREAM_REASON_PREFIX, markTaskBlocked } from '@src/domain/entity/task-lifecycle.ts';
+import { recordTaskEscalation } from '@src/domain/entity/task-settle.ts';
+import { recordRunningAttemptWarning } from '@src/domain/entity/task-attempts.ts';
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { UpdateTask } from '@src/domain/repository/task/update-task.ts';
 import type { FindTasksBySprintId } from '@src/domain/repository/task/find-tasks-by-sprint-id.ts';
@@ -15,6 +18,7 @@ import { StorageError } from '@src/domain/value/error/storage-error.ts';
 import {
   FIXED_LATEST,
   makeActiveSprint,
+  makeDoneSprint,
   makeDoneTask,
   makeInProgressTaskWithRunningAttempt,
   makeReviewSprint,
@@ -29,24 +33,26 @@ const FIXED_CLOCK = (): IsoTimestamp => FIXED_LATEST;
 type SprintRepo = FindById<Sprint, SprintId> & Save<Sprint>;
 interface SprintRepoDouble {
   readonly repo: SprintRepo;
-  /** The sprint handed to `save()`, or undefined if reopen never persisted. */
+  /** The sprint handed to the most recent `save()` call, or undefined if reopen never persisted. */
   readonly saved: () => Sprint | undefined;
+  /** Every sprint handed to `save()`, in call order — lets a test assert a two-hop reopen. */
+  readonly savedHistory: () => readonly Sprint[];
 }
 
 // Sprint repo double: `findById` returns the seeded sprint, `save` records it. Default seed is an
 // ACTIVE sprint, so the reopen-on-unblock path is a no-op unless a test seeds a `review` sprint.
 const sprintRepoWith = (sprint: Sprint = makeActiveSprint()): SprintRepoDouble => {
-  let saved: Sprint | undefined;
+  const history: Sprint[] = [];
   const repo: SprintRepo = {
     async findById() {
       return Result.ok(sprint);
     },
     async save(s) {
-      saved = s;
+      history.push(s);
       return Result.ok(undefined);
     },
   };
-  return { repo, saved: () => saved };
+  return { repo, saved: () => history.at(-1), savedHistory: () => history };
 };
 
 const makeBlockedTask = (reason = 'flaky pre-task verify'): BlockedTask => {
@@ -114,6 +120,67 @@ describe('unblockTaskUseCase', () => {
     expect((result.value as unknown as { blockedReason?: string }).blockedReason).toBeUndefined();
     expect(repo.saved()).toHaveLength(1);
     expect(repo.saved()[0]?.status).toBe('todo');
+  });
+
+  it('archives the retired attempts + escalation stamp instead of deleting them', async () => {
+    const inProgress = makeInProgressTaskWithRunningAttempt();
+    const escalated = recordTaskEscalation(inProgress, 'claude-sonnet-4-6', 'claude-opus-4-8');
+    if (!escalated.ok) throw escalated.error;
+    const blocked = markTaskBlocked(escalated.value, 'attempt budget exhausted', 'own');
+    if (!blocked.ok) throw blocked.error;
+    const repo = repoOk([blocked.value]);
+
+    const result = await unblockTaskUseCase({
+      task: blocked.value,
+      sprintId: SPRINT_ID,
+      taskRepo: repo.repo,
+      sprintRepo: sprintRepoWith().repo,
+      clock: FIXED_CLOCK,
+      logger: noopLogger,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    // Live budget resets...
+    expect(result.value.attempts).toHaveLength(0);
+    // ...but the persisted result — what actually lands in tasks.json — still carries the forensic
+    // record instead of the operator's intervention silently erasing it.
+    const persisted = repo.saved()[0];
+    const archive = (persisted as unknown as { retiredAttempts?: readonly unknown[] }).retiredAttempts;
+    expect(archive).toHaveLength(1);
+    expect((archive?.[0] as { attempts: readonly unknown[] }).attempts).toHaveLength(1);
+    expect((archive?.[0] as { escalatedToModel?: string }).escalatedToModel).toBe('claude-opus-4-8');
+  });
+
+  it('an archived attempt still counts in foldTaskRollup after unblock — no signal is lost', async () => {
+    // The exact bug this workstream fixes: before archiving, `unblockTask` wiped `attempts` back to
+    // `[]`, so a plateau warning that justified the block would silently vanish from the outcome
+    // report the moment the operator intervened.
+    const inProgress = makeInProgressTaskWithRunningAttempt();
+    const warned = recordRunningAttemptWarning(inProgress, { kind: 'plateau', dimensions: ['C1'] });
+    if (!warned.ok) throw warned.error;
+    const blocked = markTaskBlocked(warned.value, 'plateaued repeatedly', 'own');
+    if (!blocked.ok) throw blocked.error;
+    const repo = repoOk([blocked.value]);
+
+    const result = await unblockTaskUseCase({
+      task: blocked.value,
+      sprintId: SPRINT_ID,
+      taskRepo: repo.repo,
+      sprintRepo: sprintRepoWith().repo,
+      clock: FIXED_CLOCK,
+      logger: noopLogger,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.attempts).toHaveLength(0); // live ledger really is reset
+
+    const persisted = repo.saved()[0];
+    if (persisted === undefined) throw new Error('expected a persisted task');
+    const rollup = foldTaskRollup([persisted]);
+    expect(rollup.attemptCount).toBe(1);
+    expect(rollup.plateau.attemptsWithPlateau).toBe(1);
+    expect(rollup.warnings.byKind.plateau).toBe(1);
   });
 
   it('idempotent — already-todo passes through without re-saving', async () => {
@@ -320,6 +387,60 @@ describe('unblockTaskUseCase', () => {
 
     expect(result.ok).toBe(true);
     expect(sprintRepo.saved()?.status).toBe('active');
+  });
+
+  it('reopens a done sprint all the way to active — closed-and-blocked work becomes runnable again', async () => {
+    const blocked = makeBlockedTask();
+    const taskRepo = repoOk([blocked]);
+    const sprintRepo = sprintRepoWith(makeDoneSprint());
+
+    const result = await unblockTaskUseCase({
+      task: blocked,
+      sprintId: SPRINT_ID,
+      taskRepo: taskRepo.repo,
+      sprintRepo: sprintRepo.repo,
+      clock: FIXED_CLOCK,
+      logger: noopLogger,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.status).toBe('todo'); // the task itself is revived either way
+    // The sprint hops done → review → active in the same unblock call, re-using the existing
+    // review → active step rather than a parallel done → active transition — both saves land.
+    const history = sprintRepo.savedHistory();
+    expect(history.map((s) => s.status)).toEqual(['review', 'active']);
+    expect(sprintRepo.saved()?.status).toBe('active');
+    expect(sprintRepo.saved()?.doneAt).toBeNull();
+  });
+
+  it('best-effort — unblock still succeeds when a done sprint fails to reopen to review', async () => {
+    const blocked = makeBlockedTask();
+    const taskRepo = repoOk([blocked]);
+    const doneSprint = makeDoneSprint();
+    const sprintRepo: SprintRepo = {
+      async findById() {
+        return Result.ok(doneSprint);
+      },
+      async save() {
+        return Result.error(new StorageError({ subCode: 'io', message: 'disk full', path: 'sprint' }));
+      },
+    };
+
+    const result = await unblockTaskUseCase({
+      task: blocked,
+      sprintId: SPRINT_ID,
+      taskRepo: taskRepo.repo,
+      sprintRepo,
+      clock: FIXED_CLOCK,
+      logger: noopLogger,
+    });
+
+    // The task is already revived — a failed done → review hop must not roll that back, and the
+    // review → active hop never even attempts against a sprint still stuck at 'done'.
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.status).toBe('todo');
   });
 
   it('best-effort reopen — unblock still succeeds when the sprint save fails', async () => {

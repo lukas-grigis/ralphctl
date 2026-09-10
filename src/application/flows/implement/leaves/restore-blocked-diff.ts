@@ -6,7 +6,7 @@ import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { DomainError } from '@src/domain/value/error/domain-error.ts';
 import type { Element } from '@src/application/chain/element.ts';
 import { leaf } from '@src/application/chain/build/leaf.ts';
-import { gitStashList, gitStashPop } from '@src/integration/io/git-operations.ts';
+import { gitStashList, gitStashPop, stashEntryMatchesMessage } from '@src/integration/io/git-operations.ts';
 import type { GitRunner } from '@src/integration/io/git-runner.ts';
 import type { ImplementCtx } from '@src/application/flows/implement/ctx.ts';
 import { quarantineStashMessage } from '@src/application/flows/implement/leaves/quarantine-blocked-diff.ts';
@@ -68,8 +68,11 @@ export const restoreBlockedDiffLeaf = (
           });
           return Result.ok(undefined);
         }
-        // No prior quarantined block for this task — the common case (most attempts never blocked).
-        if (!stashes.value.includes(message)) return Result.ok(undefined);
+        // No prior quarantined block for this task — the common case (most attempts never
+        // blocked). Matched via `stashEntryMatchesMessage` — real git renders the subject
+        // `On <branch>: <message>`, never the bare message, so an exact-equality check here
+        // would never match a real stash and this pre-check would always (wrongly) short-circuit.
+        if (!stashes.value.some((entry) => stashEntryMatchesMessage(entry, message))) return Result.ok(undefined);
 
         const popped = await gitStashPop(deps.gitRunner, opts.cwd, message);
         if (!popped.ok) {

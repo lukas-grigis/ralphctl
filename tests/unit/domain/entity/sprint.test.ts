@@ -5,6 +5,7 @@ import {
   createSprintWithExecution,
   planSprint,
   renameSprint,
+  reopenDoneSprint,
   revertSprintToActive,
   setSprintSlug,
   type Sprint,
@@ -128,6 +129,37 @@ describe('revertSprintToActive', () => {
   });
 });
 
+describe('reopenDoneSprint', () => {
+  it('reopens done → review, clears doneAt, and re-stamps reviewAt', () => {
+    const r = reopenDoneSprint(makeDoneSprint(), FIXED_LATEST);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.status).toBe('review');
+    expect(r.value.doneAt).toBeNull();
+    expect(r.value.reviewAt).toBe(FIXED_LATEST);
+    expect(r.value.activatedAt).not.toBeNull();
+    expect(r.value.plannedAt).not.toBeNull();
+  });
+
+  it('re-arms the existing review → active step: chaining both lands the sprint back at active', () => {
+    const reopened = reopenDoneSprint(makeDoneSprint(), FIXED_LATEST);
+    expect(reopened.ok).toBe(true);
+    if (!reopened.ok) return;
+    const reactivated = revertSprintToActive(reopened.value, FIXED_LATEST);
+    expect(reactivated.ok).toBe(true);
+    if (!reactivated.ok) return;
+    expect(reactivated.value.status).toBe('active');
+    expect(reactivated.value.reviewAt).toBeNull();
+  });
+
+  it('rejects from any non-done state', () => {
+    expect(reopenDoneSprint(makeDraftSprint(), FIXED_LATEST).ok).toBe(false);
+    expect(reopenDoneSprint(makePlannedSprint(), FIXED_LATEST).ok).toBe(false);
+    expect(reopenDoneSprint(makeActiveSprint(), FIXED_LATEST).ok).toBe(false);
+    expect(reopenDoneSprint(makeReviewSprint(), FIXED_LATEST).ok).toBe(false);
+  });
+});
+
 describe('transitionSprintToDone', () => {
   it('transitions review → done and stamps doneAt', () => {
     const r = transitionSprintToDone(makeReviewSprint(), FIXED_LATEST);
@@ -169,7 +201,7 @@ describe('Sprint state-machine matrix', () => {
     { from: 'planned', sprint: () => makePlannedSprint(), allowed: ['activate', 'rename'] },
     { from: 'active', sprint: () => makeActiveSprint(), allowed: ['transition-to-review', 'rename'] },
     { from: 'review', sprint: () => makeReviewSprint(), allowed: ['transition-to-done', 'revert-to-active', 'rename'] },
-    { from: 'done', sprint: () => makeDoneSprint(), allowed: [] },
+    { from: 'done', sprint: () => makeDoneSprint(), allowed: ['reopen-done'] },
   ];
 
   for (const c of cases) {
@@ -192,6 +224,10 @@ describe('Sprint state-machine matrix', () => {
     it(`from ${c.from}: revert-to-active ${c.allowed.includes('revert-to-active') ? '✓' : '✗'}`, () => {
       const r = revertSprintToActive(c.sprint(), FIXED_LATEST);
       expect(r.ok).toBe(c.allowed.includes('revert-to-active'));
+    });
+    it(`from ${c.from}: reopen-done ${c.allowed.includes('reopen-done') ? '✓' : '✗'}`, () => {
+      const r = reopenDoneSprint(c.sprint(), FIXED_LATEST);
+      expect(r.ok).toBe(c.allowed.includes('reopen-done'));
     });
     it(`from ${c.from}: rename ${c.allowed.includes('rename') ? '✓' : '✗'}`, () => {
       const r = renameSprint(c.sprint(), 'new-name');

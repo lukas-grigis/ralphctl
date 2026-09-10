@@ -1,5 +1,6 @@
 import type { Sprint } from '@src/domain/entity/sprint.ts';
 import type { SprintId } from '@src/domain/value/id/sprint-id.ts';
+import type { Task } from '@src/domain/entity/task.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { FeedbackRound } from '@src/business/feedback/md-parser.ts';
 import type { ReviewRoundExit } from '@src/business/feedback/run-review-round.ts';
@@ -29,4 +30,10 @@ export interface ReviewCtx {
    * the distill composition adds — the self-contained sub-chain carries its own ctx internally.
    */
   readonly distillRequested: boolean;
+  /**
+   * The sprint's full task set, filled by `load-tasks` immediately before the blocked-task
+   * confirm gate in `review-settle` — `confirmBlockedTasksLeaf` reads it to find any `blocked`
+   * entries before the auto-done transition runs. Mirrors close-sprint's own `ctx.tasks` field.
+   */
+  readonly tasks?: readonly Task[] | undefined;
 }

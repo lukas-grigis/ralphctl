@@ -96,9 +96,32 @@ export interface TaskVerifiedSignal {
   readonly timestamp: IsoTimestamp;
 }
 
+/**
+ * HiL-Bench's (arXiv 2604.09408) three human-validated blocker classes — the GENERATOR's own
+ * classification of why it can't proceed. Orthogonal to the harness's structural `BlockCause`
+ * (`domain/entity/task.ts`): this describes the shape of the information gap from the model's
+ * side; `BlockCause` describes WHERE in the harness pipeline a block happened (and applies to every
+ * block, not only a generator self-block). Set only when the block genuinely is one of these three
+ * — an environment / verification failure fits none of them and should leave this unset.
+ * @public
+ */
+export type TaskBlockerClass = 'missing-information' | 'ambiguous-request' | 'contradictory-information';
+
 export interface TaskBlockedSignal {
   readonly type: 'task-blocked';
   readonly reason: string;
+  /**
+   * Structured triage fields, ALL optional so a legacy reason-only signal (or a generator that
+   * skips the extra structure) still validates. HiL-Bench's own finding is that broad, imprecise
+   * escalation without a specific ask is the failure pattern — `question` + `whatUnblocksMe` turn
+   * free-form `reason` prose into something an operator can act on in seconds. See
+   * `implement/template.md`'s `<task-blocked>` guidance for when to set each field.
+   */
+  readonly blockerClass?: TaskBlockerClass;
+  /** The single concrete question that, answered, unblocks the task. */
+  readonly question?: string;
+  /** What the operator (or a future session) needs to supply or decide to unblock. */
+  readonly whatUnblocksMe?: string;
   readonly timestamp: IsoTimestamp;
 }
 

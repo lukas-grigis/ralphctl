@@ -8,7 +8,7 @@ import type { RepositoryId } from '@src/domain/value/id/repository-id.ts';
 import type { AbsolutePath } from '@src/domain/value/absolute-path.ts';
 import type { EvaluationSignal, LearningEntry } from '@src/domain/signal.ts';
 import type { GenEvalExit, RunTaskVerdict } from '@src/business/task/gen-eval-exit.ts';
-import type { ProposedCommitMessage } from '@src/business/task/run-generator-turn.ts';
+import type { BlockTriageCarry, ProposedCommitMessage } from '@src/business/task/run-generator-turn.ts';
 import type { PlateauTurnRecord } from '@src/business/task/plateau-detection.ts';
 import type { LearningRecord } from '@src/application/flows/_shared/memory/learning-record.ts';
 import type { SessionId } from '@src/integration/ai/providers/_engine/session-id.ts';
@@ -34,6 +34,10 @@ export type { GenEvalExit, RunTaskVerdict };
  *  - `lastWarning` — derived from gen-eval exit / `lastVerifyResult`; consumed by `settle-attempt`.
  *  - `lastVerdict` — passed/failed/malformed; set by `finalize-gen-eval`.
  *  - `lastBlockReason` — set by `generator` on `self-blocked`; drives `markTaskBlocked`.
+ *  - `lastBlockTriage` — the generator's own structured triage for that same `self-blocked` exit
+ *    (what KIND of blocker, the question it needs answered, what would unblock it); carried
+ *    alongside `lastBlockReason` and persisted onto the blocked task so an operator can triage
+ *    without reading the session transcript.
  *  - `lastVerifyResult` — set by `post-task-verify`.
  *  - `lastCommitSha` — set by `commit-task` if the tree was dirty and the commit landed.
  *  - `proposedCommitMessage` — generator-emitted `<commit-message>` signal from the latest
@@ -87,6 +91,14 @@ export interface ImplementCtx {
   readonly lastExit?: GenEvalExit | undefined;
   readonly lastVerdict?: RunTaskVerdict | undefined;
   readonly lastBlockReason?: string | undefined;
+  /**
+   * Structured companion to {@link lastBlockReason}. Set by the `generator` leaf on a `self-blocked`
+   * exit from the generator's own `task-blocked` signal, and only then — a crash-induced block
+   * carries no triage because the model never reported one. Every field is independently optional:
+   * a generator that signals a block without classifying it still blocks the task, it just leaves
+   * the operator less to go on.
+   */
+  readonly lastBlockTriage?: BlockTriageCarry | undefined;
   readonly lastWarning?: AttemptWarning | undefined;
   /**
    * Set true by `finalize-gen-eval-<taskId>` when the model-escalation policy stamped the

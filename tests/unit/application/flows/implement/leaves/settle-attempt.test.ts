@@ -217,6 +217,72 @@ describe('settleAttemptLeaf', () => {
     }
   });
 
+  // The generator's structured triage used to be parsed off its signal, validated, and then dropped
+  // before it reached the task — so an operator saw a bare reason string and had to open the session
+  // transcript to learn what the model was actually stuck on. This asserts the WHOLE hop: ctx carries
+  // the triage, the leaf projects it, and the PERSISTED task holds it.
+  it('carries the generator block triage from ctx onto the persisted blocked task', async () => {
+    const ip = inProgressWithVerification();
+    const { repo, calls } = fakeUpdateTask();
+    const leafEl = settleAttemptLeaf(
+      { taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger },
+      { cwd: absolutePath('/tmp/settle-attempt-test') },
+      ip.id
+    );
+
+    const result = await leafEl.execute({
+      sprintId: 'sprint-x' as SprintId,
+      tasks: [ip],
+      currentTaskId: ip.id,
+      currentTask: ip,
+      lastVerdict: 'failed',
+      lastBlockReason: 'the staging credentials are not in this environment',
+      lastBlockTriage: {
+        blockerClass: 'missing-information',
+        question: 'which account should the integration test authenticate against?',
+        whatUnblocksMe: 'a staging service-account token in the environment',
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const settled = calls[0]?.task;
+    expect(settled?.status).toBe('blocked');
+    if (settled?.status !== 'blocked') return;
+    expect(settled.blockerClass).toBe('missing-information');
+    expect(settled.question).toBe('which account should the integration test authenticate against?');
+    expect(settled.whatUnblocksMe).toBe('a staging service-account token in the environment');
+  });
+
+  // A generator may signal a block without classifying it. That still blocks the task; the triage
+  // fields simply stay absent rather than being persisted as explicit `undefined`.
+  it('persists a block with no triage when the generator classified nothing', async () => {
+    const ip = inProgressWithVerification();
+    const { repo, calls } = fakeUpdateTask();
+    const leafEl = settleAttemptLeaf(
+      { taskRepo: repo, clock: () => FIXED_LATER, logger: noopLogger },
+      { cwd: absolutePath('/tmp/settle-attempt-test') },
+      ip.id
+    );
+
+    const result = await leafEl.execute({
+      sprintId: 'sprint-x' as SprintId,
+      tasks: [ip],
+      currentTaskId: ip.id,
+      currentTask: ip,
+      lastVerdict: 'failed',
+      lastBlockReason: 'gave up',
+    });
+
+    expect(result.ok).toBe(true);
+    const settled = calls[0]?.task;
+    expect(settled?.status).toBe('blocked');
+    if (settled?.status !== 'blocked') return;
+    expect('blockerClass' in settled).toBe(false);
+    expect('question' in settled).toBe(false);
+    expect('whatUnblocksMe' in settled).toBe(false);
+  });
+
   it('a crash-driven block stamps the crash cause + exit shape from ctx.lastExit, not `self-blocked`', async () => {
     const ip = inProgressWithVerification();
     const { repo, calls } = fakeUpdateTask();

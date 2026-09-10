@@ -214,6 +214,11 @@ export const evaluatePromptDef: PromptDefinition<EvaluatePromptParams> = {
   },
   partials: {
     HARNESS_CONTEXT: 'harness-context',
+    AUTONOMOUS_OPERATION: 'autonomous-operation',
+    PARALLEL_TOOL_CALLS: 'parallel-tool-calls',
+    EVIDENCE_BOUND: 'evidence-bound',
+    EVALUATOR_FAILURE_MODES: 'evaluator-failure-modes',
+    EVALUATION_CHECKPOINT: 'evaluation-checkpoint',
   },
   // The single `evaluation` signal type covers both PASS and FAIL verdicts. The verdict +
   // per-dimension findings + optional critique are encoded as fields on the signal object;

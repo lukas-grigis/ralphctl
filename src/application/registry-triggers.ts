@@ -19,6 +19,15 @@ export interface TriggerInputs {
    * out the menu and blocks the user from resuming.
    */
   readonly resumableTaskCount: number;
+  /**
+   * Count of tasks currently `blocked` (`computeTaskHealthCounts(tasks).blockedTaskCount` in
+   * `state-snapshot.ts`) — optional, and NOT itself a gate (no trigger field compares against
+   * it). Its only consumer is the `minResumableTasks` gate's failure sentence: when the sprint
+   * has zero resumable tasks BECAUSE every remaining one is blocked, "run Plan first" is wrong
+   * advice (a task list already exists) — the sentence branches on this count instead. Omit
+   * (or leave `undefined`) to keep the original generic sentence.
+   */
+  readonly blockedTaskCount?: number;
 }
 
 /** Discriminated result of {@link evaluateTriggers}. */
@@ -84,7 +93,13 @@ export const evaluateTriggers = (triggers: FlowTriggers, inputs: TriggerInputs):
     },
     {
       failed: triggers.minResumableTasks !== undefined && inputs.resumableTaskCount < triggers.minResumableTasks,
-      reason: () => 'No tasks to implement — run Plan first to generate a task list for this sprint.',
+      // Zero resumable tasks has two very different causes: no task list exists yet (send the
+      // operator to Plan), or one exists and every task on it is `blocked` (Plan is already done
+      // and is, in fact, hidden at this sprint status — the real next step is unblocking one).
+      reason: () =>
+        inputs.resumableTaskCount === 0 && (inputs.blockedTaskCount ?? 0) > 0
+          ? 'Every remaining task is blocked — unblock one to make it runnable again.'
+          : 'No tasks to implement — run Plan first to generate a task list for this sprint.',
     },
   ];
 

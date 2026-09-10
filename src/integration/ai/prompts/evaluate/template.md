@@ -14,19 +14,7 @@ Additional dimensions appended by the planner (when present) are evaluated with 
 logic. The rubric from `<task_specification>` is the authority — grade against it, not against your own
 quality judgment.
 
-**Evaluator failure modes to resist actively:**
-
-- Identifying issues then talking yourself into approving — if a finding is worth naming, it is worth FAILing.
-- Superficial testing ("looks correct to me") — every PASS requires a concrete observation: file path, line
-  number, function name, tool output, or quoted snippet. "Looks good" is not evidence.
-- Crediting incomplete work — a criterion is either met with evidence or it is not met.
-- Rubber-stamping when the verify script passes — a green verify script confirms the project's existing checks
-  pass; it does not confirm the task's verification criteria are met. FAIL the round if criteria lack evidence
-  even when the script exits 0.
-- Inventing a defect — a FAIL also requires a concrete observation: a reproduced failing command, or cited
-  code that demonstrably violates the criterion. Never FAIL on speculation about a code path you did not read
-  or run; this disciplines the evidence a FAIL needs, it does not soften the bias above toward failing when a
-  finding is genuinely there.
+{{EVALUATOR_FAILURE_MODES}}
 
 **Verdict values — `passed`, `failed`, `malformed`:**
 
@@ -58,6 +46,8 @@ that coverage requirement.
 </role>
 
 {{HARNESS_CONTEXT}}
+
+{{AUTONOMOUS_OPERATION}}
 
 <goal>
 Produce one `evaluation` signal in `signals.json` under the harness output directory — `status: "passed"`
@@ -165,38 +155,19 @@ exhausts its token budget mid-analysis — a session that runs out during Phases
 `signals.json` on disk rather than a missing one, allowing the harness to prompt a cheaper follow-up
 rather than restarting from scratch.
 
-```json
-{
-  "schemaVersion": 1,
-  "signals": [
-    {
-      "type": "evaluation",
-      "status": "failed",
-      "dimensions": [
-        { "dimension": "correctness", "passed": false, "finding": "assessment in progress" },
-        { "dimension": "completeness", "passed": false, "finding": "assessment in progress" },
-        { "dimension": "safety", "passed": false, "finding": "assessment in progress" },
-        { "dimension": "consistency", "passed": false, "finding": "assessment in progress" },
-        { "dimension": "robustness", "passed": false, "applicable": false, "finding": "assessment in progress" }
-      ],
-      "timestamp": "<ISO-8601 timestamp>"
-    }
-  ]
-}
-```
-
-Robustness carries the optional `applicable` field shown above — leave it as a placeholder here and
-set it to `false` only if Phase 4 determines the change touches no error/failure path (with the real
-reason in `finding`), or omit it (default `true`) once you grade an actual pass/fail.
+{{EVALUATION_CHECKPOINT}}
 
 Write this file, then proceed to Phase 1.
 
 ### Phase 1 — Computational verification
 
-Before running any checks, restate in two or three lines what this task must achieve and which criteria
-you will verify, then list any red flags from the task description.
+Before running any checks, confirm against `<task_specification>` above what this task must achieve
+and which criteria you will verify — note internally any red flags from the task description as you
+go, without treating them as a verdict yet.
 
 Run deterministic checks first — they are authoritative and cheap.
+
+{{PARALLEL_TOOL_CALLS}}
 
 1. **Run each `auto` criterion's command** from `<task_specification>` directly and record the decisive
    output lines for each (bounded per Phase 2). Do NOT run the verify script from `<verify_script>` — the harness runs that
@@ -222,15 +193,15 @@ Run deterministic checks first — they are authoritative and cheap.
 
 For every criterion in the contract:
 
-- **`auto` criteria** — run the specified command; quote the decisive lines in `executionEvidence` (roughly
-  the last 50 per command), not the entire log — if the full output matters, write it to a file in your
-  session working directory (never the repository) and cite the path. PASS only when the command exits 0 AND
-  the assertion holds; FAIL otherwise. Cite the command's exit code.
+- **`auto` criteria** — run the specified command and cite its exit code and the decisive output lines
+  in `executionEvidence`. PASS only when the command exits 0 AND the assertion holds; FAIL otherwise.
 - **`manual` criteria** — when the changed behaviour is runnable (a command, a script, a service
   endpoint, or a test), execute the changed path yourself and cite the observed output as evidence;
   reading the diff or a green verify script alone does not substitute for that observation. Otherwise
   cite the specific `path:line` or equivalent behavioural evidence. PASS only when the cited evidence
   demonstrably satisfies the assertion. "Looks good" / "appears correct" are not evidence.
+
+{{EVIDENCE_BOUND}}
 
 Grade each criterion PASS or FAIL — no middle ground. Any single criterion FAIL forces `status: "failed"`.
 Exception — a criterion whose behaviour IS runnable but you were blocked from executing it here (missing
@@ -533,9 +504,9 @@ Verdict: `status: "failed"`, critique:
   environment variable read, (c) read the TTL from an environment variable (e.g.
   `SESSION_TTL_SECONDS`) with a fallback default, (d) `src/middleware/session.ts:18`."
 - "[Completeness · C3] (a) completeness, (b) step 3 "expose TTL via env var" has no implementation — no
-  `process.env` reference in `src/middleware/session.ts` or its imports, (c) implement step 3 before
-  marking the task complete, (d) `src/middleware/session.ts` and its import graph."
-  </example>
+`process.env` reference in `src/middleware/session.ts` or its imports, (c) implement step 3 before
+marking the task complete, (d) `src/middleware/session.ts` and its import graph."
+</example>
 
 <example id="4" label="FAIL — clean tree means no work was done this round; grade failed, not malformed">
 
@@ -555,10 +526,10 @@ were executed this round.
 Verdict: `status: "failed"`, critique:
 
 - "[Completeness] (a) completeness, (b) working tree is clean — no uncommitted changes visible, suggesting
-  the generator produced no output this round, (c) execute the declared task steps and leave the resulting
-  changes uncommitted in the working tree so the next evaluator round has a diff to review, (d) declared
-  steps in the task specification above — start there."
-  </example>
+the generator produced no output this round, (c) execute the declared task steps and leave the resulting
+changes uncommitted in the working tree so the next evaluator round has a diff to review, (d) declared
+steps in the task specification above — start there."
+</example>
 
 </examples>
 

@@ -22,14 +22,14 @@ import {
 import { AsyncListFrame } from '@src/application/ui/tui/components/async-list-frame.tsx';
 import { EmptyState } from '@src/application/ui/tui/components/empty-state.tsx';
 import { FeedbackLine } from '@src/application/ui/tui/components/feedback-line.tsx';
-import { sprintStatusKind, StatusChip } from '@src/application/ui/tui/components/status-chip.tsx';
 import { ConfirmCard } from '@src/application/ui/tui/components/confirm-card.tsx';
 import { renameSprint, type Sprint } from '@src/domain/entity/sprint.ts';
+import { loadTaskHealthBySprintId, type TaskHealthCounts } from '@src/application/ui/shared/state-snapshot.ts';
 import { useEditField } from '@src/application/ui/tui/runtime/use-edit-field.ts';
 import type { UseEditFieldState } from '@src/application/ui/tui/runtime/use-edit-field.ts';
 import { useIsMounted } from '@src/application/ui/tui/runtime/use-is-mounted.ts';
 import { Result } from '@src/domain/result.ts';
-import { glyphs, inkColors, listCapacity, spacing } from '@src/application/ui/tui/theme/tokens.ts';
+import { glyphs, listCapacity, spacing } from '@src/application/ui/tui/theme/tokens.ts';
 import { useDeps } from '@src/application/ui/tui/runtime/deps-context.tsx';
 import { useAsyncLoad, type AsyncLoadState } from '@src/application/ui/tui/runtime/use-async-load.ts';
 import { useRouter } from '@src/application/ui/tui/runtime/router.tsx';
@@ -41,12 +41,7 @@ import { useLaunchCreateSprint } from '@src/application/ui/tui/runtime/use-launc
 import { HelpOverlay } from '@src/application/ui/tui/components/help-overlay.tsx';
 import { useBreakpoint } from '@src/application/ui/tui/runtime/use-breakpoint.ts';
 import type { Task } from '@src/domain/entity/task.ts';
-
-/**
- * Rendered height (rows) of one {@link SprintRow} card: border top, name, slug, ticket counts,
- * border bottom — plus the section margin below the card.
- */
-const ROW_HEIGHT = 5;
+import { ROW_HEIGHT, SprintRow } from '@src/application/ui/tui/views/sprints-view-internals/row-views.tsx';
 
 /** Pure `succeeded`/`total`/`lastError` → toast-message formatter for a bulk-unblock run. */
 const formatUnblockFeedback = (
@@ -61,7 +56,11 @@ const formatUnblockFeedback = (
 
 interface UseStuckSprintTasksResult {
   readonly stuckCount: number;
-  readonly unblockAll: (sprint: Sprint | undefined, setFeedback: (text: string | undefined) => void) => Promise<void>;
+  readonly unblockAll: (
+    sprint: Sprint | undefined,
+    setFeedback: (text: string | undefined) => void,
+    reload: () => void
+  ) => Promise<void>;
 }
 
 /**
@@ -70,6 +69,11 @@ interface UseStuckSprintTasksResult {
  * inline handler's mounted-ref-gated ordering: the unblock loop runs unconditionally, a mount
  * check gates the feedback write, and a second mount check (after the further awaited refresh)
  * gates the task-list write — mount state can change between the two awaits.
+ *
+ * `reload` is the outer list loader's own reload (same one `e` / `d` already call on success) —
+ * this hook's `tasks` state only feeds the footer hint's stuck count; the card's `· N blocked`
+ * sub-count and status chip come from the separate `SprintListEntry` snapshot that loader owns,
+ * so without this call a successful bulk unblock left that badge stale until `r` or a remount.
  */
 const useStuckSprintTasks = (sprintId: Sprint['id'] | undefined): UseStuckSprintTasksResult => {
   const deps = useDeps();
@@ -98,7 +102,8 @@ const useStuckSprintTasks = (sprintId: Sprint['id'] | undefined): UseStuckSprint
 
   const unblockAll = async (
     sprint: Sprint | undefined,
-    setFeedback: (text: string | undefined) => void
+    setFeedback: (text: string | undefined) => void,
+    reload: () => void
   ): Promise<void> => {
     if (sprint === undefined || stuckTasks.length === 0) return;
     setFeedback(undefined);
@@ -115,7 +120,10 @@ const useStuckSprintTasks = (sprintId: Sprint['id'] | undefined): UseStuckSprint
     const total = stuckTasks.length;
     if (!mountedRef.current) return;
     setFeedback(formatUnblockFeedback(succeeded, total, lastError, sprint.name));
-    // Refresh task list so the hint and count update immediately.
+    // At least one task actually cleared: re-run the list loader so `SprintListEntry.health`
+    // (the row's `· N blocked` badge and status chip) stops reporting the pre-unblock state.
+    if (succeeded > 0) reload();
+    // Refresh this hook's own task list so the hint and count update immediately.
     const refreshed = await deps.taskRepo.findBySprintId(sprint.id);
     if (mountedRef.current && refreshed.ok) setTasks(refreshed.value);
   };
@@ -123,60 +131,16 @@ const useStuckSprintTasks = (sprintId: Sprint['id'] | undefined): UseStuckSprint
   return { stuckCount: stuckTasks.length, unblockAll };
 };
 
-interface SprintRowProps {
+/**
+ * One row's worth of loading — the sprint plus its task-blocked health. Loaded once per list
+ * fetch (a single batched `Promise.all` over every sprint in scope), never per rendered row: a
+ * per-row fetch would re-run on every scroll / re-render and could stall the list on a project
+ * with many sprints.
+ */
+interface SprintListEntry {
   readonly sprint: Sprint;
-  readonly focused: boolean;
+  readonly health: TaskHealthCounts;
 }
-
-/** `· N pending` / `· N approved` tail on the ticket count. Renders nothing at zero. */
-const TicketSubCount = ({
-  count,
-  label,
-  color,
-}: {
-  readonly count: number;
-  readonly label: string;
-  readonly color: string;
-}): React.JSX.Element | null =>
-  count === 0 ? null : (
-    <Text>
-      <Text dimColor> {glyphs.bullet} </Text>
-      <Text bold color={color}>
-        {String(count)}
-      </Text>
-      <Text dimColor> {label}</Text>
-    </Text>
-  );
-
-/** One sprint card: name + status chip, slug, ticket count with pending/approved sub-counts. */
-const SprintRow = ({ sprint, focused }: SprintRowProps): React.JSX.Element => {
-  const countBy = (status: string): number => sprint.tickets.filter((t) => t.status === status).length;
-  return (
-    <Box flexDirection="column" marginBottom={spacing.section}>
-      <Box
-        flexDirection="column"
-        borderStyle="round"
-        borderColor={focused ? inkColors.primary : inkColors.rule}
-        borderDimColor={!focused}
-        paddingX={spacing.cardPadX}
-      >
-        <Box justifyContent="space-between">
-          <Text bold {...(focused ? { color: inkColors.primary } : {})}>
-            {sprint.name}
-          </Text>
-          <StatusChip label={sprint.status} kind={sprintStatusKind(sprint.status)} />
-        </Box>
-        <Text dimColor>{sprint.slug}</Text>
-        <Text>
-          <Text bold>{String(sprint.tickets.length)}</Text>
-          <Text dimColor> tickets</Text>
-          <TicketSubCount count={countBy('pending')} label="pending" color={inkColors.warning} />
-          <TicketSubCount count={countBy('approved')} label="approved" color={inkColors.success} />
-        </Text>
-      </Box>
-    </Box>
-  );
-};
 
 interface UseSprintRowActionsResult {
   readonly confirmDelete: Sprint | undefined;
@@ -274,9 +238,9 @@ interface SprintsBodyProps {
   readonly confirmDelete: Sprint | undefined;
   readonly onDeleteSubmit: (confirmed: boolean) => void;
   readonly onDeleteCancel: () => void;
-  readonly state: AsyncLoadState<readonly Sprint[], unknown>;
+  readonly state: AsyncLoadState<readonly SprintListEntry[], unknown>;
   readonly hasProject: boolean;
-  readonly list: UseListWindowResult<Sprint>;
+  readonly list: UseListWindowResult<SprintListEntry>;
   readonly feedback: string | undefined;
 }
 
@@ -322,8 +286,13 @@ const SprintsBody = ({
       <Box flexDirection="column">
         <Box flexDirection="column">
           <OverflowRow direction="above" count={list.window.hiddenAbove} />
-          {list.visibleItems.map((s, localIdx) => (
-            <SprintRow key={s.id} sprint={s} focused={list.window.start + localIdx === list.focusedIndex} />
+          {list.visibleItems.map((entry, localIdx) => (
+            <SprintRow
+              key={entry.sprint.id}
+              sprint={entry.sprint}
+              health={entry.health}
+              focused={list.window.start + localIdx === list.focusedIndex}
+            />
           ))}
           <OverflowRow direction="below" count={list.window.hiddenBelow} />
         </Box>
@@ -408,7 +377,7 @@ const sprintsKeyBindings = ({
       hint: `unblock (${String(stuck.stuckCount)})`,
       enabled: stuck.stuckCount > 0,
       run: () => {
-        void stuck.unblockAll(focusedSprint, setFeedback);
+        void stuck.unblockAll(focusedSprint, setFeedback, reload);
       },
     },
   ];
@@ -422,7 +391,7 @@ export const SprintsView = (): React.JSX.Element => {
   const { rows } = useBreakpoint();
   const edit = useEditField();
 
-  const { state, reload } = useAsyncLoad<readonly Sprint[]>(async () => {
+  const { state, reload } = useAsyncLoad<readonly SprintListEntry[]>(async () => {
     const r = await deps.sprintRepo.list();
     if (!r.ok) throw new Error(r.error.message);
     const scoped =
@@ -430,7 +399,14 @@ export const SprintsView = (): React.JSX.Element => {
     // sprintRepo.list() returns ids ascending (UUIDv7 ≈ creation order); reverse to newest-first
     // so this list matches the home view and the cross-project picker. Copy before sorting —
     // r.value may alias the repository's own array.
-    return [...scoped].sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+    const sorted = [...scoped].sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+    // Task-blocked health folded into THIS loader via the shared batch helper — one
+    // `Promise.all` per list load, not a fetch per rendered row (see its doc comment for why).
+    const healthBySprintId = await loadTaskHealthBySprintId(deps.taskRepo, sorted);
+    return sorted.map((sprint) => ({
+      sprint,
+      health: healthBySprintId.get(sprint.id) ?? { blockedTaskCount: 0, upstreamBlockedTaskCount: 0 },
+    }));
   }, [selection.projectId]);
 
   const items = state.kind === 'ok' ? state.value : [];
@@ -441,18 +417,18 @@ export const SprintsView = (): React.JSX.Element => {
   // so a reload/reorder keeps focus on the same sprint. Enter selects (sets current + drills in).
   // Disabled while a prompt/help/confirm is up so its keys don't fight the modal.
   const listActive = !ui.modalOpen && confirmDelete === undefined;
-  const list = useListWindow<Sprint>({
+  const list = useListWindow<SprintListEntry>({
     items,
-    getId: (s) => s.id,
+    getId: (entry) => entry.sprint.id,
     visibleRows: listCapacity(rows, { rowHeight: ROW_HEIGHT, min: 4, max: 12 }),
     active: listActive,
-    onSubmit: (s) => {
-      selection.setSprint(s.id, s.name, s.status);
-      router.push({ id: 'sprint-detail', props: { sprintId: s.id } });
+    onSubmit: (entry) => {
+      selection.setSprint(entry.sprint.id, entry.sprint.name, entry.sprint.status);
+      router.push({ id: 'sprint-detail', props: { sprintId: entry.sprint.id } });
     },
   });
 
-  const focusedSprint = list.focusedItem ?? items[0];
+  const focusedSprint = (list.focusedItem ?? items[0])?.sprint;
   // Keyed by sprint id (not the full object) so a reload with semantically-identical data doesn't
   // re-trigger the fetch.
   const stuck = useStuckSprintTasks(focusedSprint?.id);

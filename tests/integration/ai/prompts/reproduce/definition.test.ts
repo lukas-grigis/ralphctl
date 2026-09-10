@@ -163,4 +163,16 @@ describe('reproduce template — reproduction-only guidance', () => {
     const body = await renderedBody();
     expect(body).toMatch(/do not commit/i);
   });
+
+  it('renders the shared evidence-bound partial rather than a hand-duplicated copy', async () => {
+    // Regression: this template used to hand-write its own near-verbatim restatement of
+    // `_partials/evidence-bound.md` instead of wiring the partial the other four AI-spawning
+    // templates already share — a future edit to the shared bound would drift silently here.
+    // The partial wraps its body in `<evidence-bound>` tags, so their presence proves the real
+    // partial rendered rather than inline prose that merely resembles it.
+    expect(reproducePromptDef.partials).toMatchObject({ EVIDENCE_BOUND: 'evidence-bound' });
+    const body = await renderedBody();
+    expect(body).toContain('<evidence-bound>');
+    expect(body).toContain('</evidence-bound>');
+  });
 });

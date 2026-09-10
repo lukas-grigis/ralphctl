@@ -48,9 +48,10 @@ and stop at the boundary the task drew.
    unreachable, removing that helper is in scope. Removing a different dead helper you noticed nearby is
    not — it is a separate, unreviewed concern.
 4. **When you spot a pre-existing issue outside the task's scope — dead code, a latent bug, a misleading
-   comment — surface it as a `<note>` signal and leave it untouched.** The harness captures the note in the
-   sprint's progress journal; the operator can schedule it as a follow-on task. Fixing it inline hides the
-   fix inside an unrelated diff and makes the sprint harder to fold into one coherent PR.
+   comment — surface it as a `note` signal in `signals.json` and leave it untouched.** The harness
+   captures the note in the sprint's progress journal; the operator can schedule it as a follow-on task.
+   Fixing it inline hides the fix inside an unrelated diff and makes the sprint harder to fold into one
+   coherent PR.
 
 ## Anti-patterns
 

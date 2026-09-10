@@ -282,6 +282,40 @@ describe('signal schemas (happy-path parses)', () => {
       taskBlockedSignalSchema.safeParse({ type: 'task-blocked', reason: 'needs spec', timestamp: ts }).success
     ).toBe(true);
   });
+  it('task-blocked — legacy reason-only signal still validates (no structured triage fields)', () => {
+    // A signal emitted before this shape existed carries no blockerClass/question/whatUnblocksMe —
+    // must keep validating unchanged, no migration pass.
+    const parsed = taskBlockedSignalSchema.safeParse({ type: 'task-blocked', reason: 'needs spec', timestamp: ts });
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.blockerClass).toBeUndefined();
+    expect(parsed.data.question).toBeUndefined();
+    expect(parsed.data.whatUnblocksMe).toBeUndefined();
+  });
+  it('task-blocked — accepts the full structured triage shape for each blockerClass', () => {
+    for (const blockerClass of ['missing-information', 'ambiguous-request', 'contradictory-information'] as const) {
+      const parsed = taskBlockedSignalSchema.safeParse({
+        type: 'task-blocked',
+        reason: 'needs a decision before proceeding',
+        blockerClass,
+        question: 'Which of the two approaches should this follow?',
+        whatUnblocksMe: 'An operator decision naming the intended approach.',
+        timestamp: ts,
+      });
+      expect(parsed.success, `expected ${blockerClass} to validate`).toBe(true);
+      if (!parsed.success) continue;
+      expect(parsed.data.blockerClass).toBe(blockerClass);
+    }
+  });
+  it('task-blocked — rejects a blockerClass outside the closed HiL-Bench three-value enum', () => {
+    const parsed = taskBlockedSignalSchema.safeParse({
+      type: 'task-blocked',
+      reason: 'x',
+      blockerClass: 'other',
+      timestamp: ts,
+    });
+    expect(parsed.success).toBe(false);
+  });
   it('agents-md-proposal', () => {
     expect(
       agentsMdProposalSignalSchema.safeParse({

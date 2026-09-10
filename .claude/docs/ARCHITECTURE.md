@@ -119,8 +119,20 @@ dependency waves (Kahn-by-level over `Task.dependsOn`), each wave's tasks run co
 (`flows/implement/parallel-element.ts`), and waves stay strictly sequential. Each task runs in its own git
 worktree (`<sprintDir>/worktrees/wt-<taskId>`, `flows/implement/wave-branch.ts`) with a fresh `setupScript`;
 commits fold back onto the single shared sprint branch through one serialised in-process queue
-(`flows/implement/merge-wave.ts`), so a parallel sprint still lands as one PR. `maxParallelTasks === 1`
-(the default) flattens the waves into the serial queue — byte-for-byte the prior behaviour.
+(`flows/implement/merge-wave.ts`), so a parallel sprint still lands as one PR. A branch whose fold conflicts
+re-projects the task to `blocked` and KEEPS its worktree branch ref instead of deleting it — the commits
+already landed there and nowhere else. A worktree branch that settles `blocked` for any reason also
+quarantines the rejected working-tree diff, via the same deterministic `git stash` entry (keyed on
+`sprintId` + `taskId`) the serial path quarantines a blocked task's diff with between tasks sharing one tree
+(`flows/implement/leaves/quarantine-blocked-diff.ts` — `wave-branch.ts`'s teardown calls its
+`runQuarantineBlockedDiff` directly, ahead of `git worktree remove --force`, so a worktree's stash survives
+the worktree's own removal). `restore-blocked-diff.ts` pops that same-keyed stash back in at the start of a
+later attempt on either path — matched by the message key, never by stash index, so a sibling branch's
+concurrent push can't shift the wrong entry into the wrong worktree. `planImplementWaves`
+(`flows/implement/flow.ts`) returns `Result.error` on an unschedulable task graph (cycle, self-edge, a
+genuinely dangling dependency) rather than an empty wave list, so a bad graph is a reported launch failure,
+not a run that silently does nothing. `maxParallelTasks === 1` (the default) flattens the waves into the
+serial queue — byte-for-byte the prior behaviour.
 
 See [KERNEL-DESIGN.md](./KERNEL-DESIGN.md) for the full contract.
 
@@ -184,7 +196,7 @@ in `domain/repository/<aggregate>/`.
 | `PublishSignal` (fn type)                             | `application/flows/_shared/`        | `createPublishSignal(eventBus, source, taskId?)` — the ONE harness-signal channel (`ai-signal` AppEvent)                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `TemplateLoader`                                      | `integration/ai/prompts/_engine/`   | `FsTemplateLoader` — dev: src tree, bundled: `dist/`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `ReadinessProbe`                                      | `integration/ai/readiness/_engine/` | per-tool probes under `readiness/<tool>/`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `SkillsAdapter` + `SkillSource`                       | `integration/ai/skills/_engine/`    | per-tool adapter + bundled / project / operator / phase-folder source, composed and resolved by `createResolvedSkillSource`; `parseSkill` extracts a `Skill` from a `SKILL.md`; `checkSkillContract` validates against six harness rules (S1–S6) — see § Skills subsystem                                                                                                                                                                                                                                                                                                    |
+| `SkillsAdapter` + `SkillSource`                       | `integration/ai/skills/_engine/`    | per-tool adapter + bundled / project / operator / phase-folder source, composed and resolved by `createResolvedSkillSource`; `parseSkill` extracts a `Skill` from a `SKILL.md`; `checkSkillContract` validates against seven harness rules (S1–S7) — see § Skills subsystem                                                                                                                                                                                                                                                                                                  |
 | `SkillCatalogPort`                                    | `integration/ai/skills/_engine/`    | `createSkillCatalog` (`skills/phase/catalog.ts`) — list / enable / disable / update / updateAll over the phase folders, provenance-stamped                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `AgentDefinitionAdapter` + `AgentDefinitionSource`    | `integration/ai/agents/_engine/`    | per-provider adapter (`claude` / `copilot` / `codex` / `opencode` / `grok` under `agents/<tool>/`, all backed by `createFilesystemAgentDefinitionAdapter`) + bundled / operator sources composed by `composeAgentDefinitionSources`; `parseAgentDefinition` extracts an `AgentDefinition` from frontmatter Markdown; `checkAgentDefinitionQuality` flags vague bodies — see § Agent definitions subsystem                                                                                                                                                                    |
 | `GitRunner` / `ShellScriptRunner`                     | `integration/io/`                   | `createGitRunner` / `createShellScriptRunner`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
@@ -375,6 +387,7 @@ ChainStarted |
   HarnessSignalEvent |
   AiSignalEvent |
   ModelEscalatedEvent |
+  TaskBlockedEvent |
   LogEvent;
 ```
 
@@ -416,26 +429,27 @@ are imported by the launcher (`application/ui/shared/launch/<flow>.ts`) or the C
 
 ### Flows and their nature
 
-| Flow id               | Shape    | CLI command                   | Notes                                                                                             |
-| --------------------- | -------- | ----------------------------- | ------------------------------------------------------------------------------------------------- |
-| `create-sprint`       | chain    | no                            | Interactive prompts; TUI only                                                                     |
-| `refine`              | chain    | no                            | Hands the terminal to the AI CLI; TUI only                                                        |
-| `plan`                | chain    | no                            | Interactive AI handoff; TUI only                                                                  |
-| `ideate`              | chain    | no                            | Interactive AI handoff; TUI only                                                                  |
-| `readiness`           | chain    | no                            | Multi-step with confirm gates; TUI only                                                           |
-| `detect-scripts`      | chain    | no                            | Setup/verify script discovery; TUI only                                                           |
-| `detect-skills`       | chain    | no                            | Skill discovery; TUI only                                                                         |
-| `implement`           | chain    | no                            | Genuinely needs the chain (gen-eval + retry)                                                      |
-| `review`              | chain    | no                            | Apply-feedback loop; TUI only                                                                     |
-| `close-sprint`        | use-case | yes (`sprint close`)          | review → done transition                                                                          |
-| `export-context`      | use-case | yes                           | Render harness-context markdown                                                                   |
-| `export-requirements` | use-case | yes                           | Render approved-ticket requirements markdown                                                      |
-| `create-pr`           | use-case | yes                           | Open PR via `gh` / `glab`, persist URL on execution                                               |
-| `doctor`              | use-case | yes                           | Environment health check                                                                          |
-| `settings`            | use-case | yes (`settings show` / `set`) | Per-key read/write                                                                                |
-| `remove-ticket`       | use-case | yes (`ticket remove`)         | Routes via `sprint-detail` view when launched from Flows                                          |
-| `add-ticket`          | use-case | yes (`ticket add`)            | TUI Flows menu (draft sprints) + `a` shortcut (Home / sprint detail); backs `ralphctl ticket add` |
-| —                     | CLI-only | `runs list` / `runs prune`    | Inspect and prune per-run forensic artifacts                                                      |
+| Flow id               | Shape    | CLI command                   | Notes                                                                                                    |
+| --------------------- | -------- | ----------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `create-sprint`       | chain    | no                            | Interactive prompts; TUI only                                                                            |
+| `refine`              | chain    | no                            | Hands the terminal to the AI CLI; TUI only                                                               |
+| `plan`                | chain    | no                            | Interactive AI handoff; TUI only                                                                         |
+| `ideate`              | chain    | no                            | Interactive AI handoff; TUI only                                                                         |
+| `readiness`           | chain    | no                            | Multi-step with confirm gates; TUI only                                                                  |
+| `detect-scripts`      | chain    | no                            | Setup/verify script discovery; TUI only                                                                  |
+| `detect-skills`       | chain    | no                            | Skill discovery; TUI only                                                                                |
+| `implement`           | chain    | no                            | Genuinely needs the chain (gen-eval + retry)                                                             |
+| `review`              | chain    | no                            | Apply-feedback loop; TUI only                                                                            |
+| `close-sprint`        | use-case | yes (`sprint close`)          | review → done transition; confirms first (never refuses) when a task is still `blocked`                  |
+| `export-context`      | use-case | yes                           | Render harness-context markdown                                                                          |
+| `export-requirements` | use-case | yes                           | Render approved-ticket requirements markdown                                                             |
+| `create-pr`           | use-case | yes                           | Open PR via `gh` / `glab`, persist URL on execution                                                      |
+| `doctor`              | use-case | yes                           | Environment health check                                                                                 |
+| `settings`            | use-case | yes (`settings show` / `set`) | Per-key read/write                                                                                       |
+| `remove-ticket`       | use-case | yes (`ticket remove`)         | Routes via `sprint-detail` view when launched from Flows                                                 |
+| `add-ticket`          | use-case | yes (`ticket add`)            | TUI Flows menu (draft sprints) + `a` shortcut (Home / sprint detail); backs `ralphctl ticket add`        |
+| —                     | CLI-only | `runs list` / `runs prune`    | Inspect and prune per-run forensic artifacts                                                             |
+| —                     | CLI-only | `sprint reopen`               | The one exit from `done`: reopens to `review` (idempotent) so a task blocked at close is reachable again |
 
 CLI surface is deliberately smaller than v0.6.x — the interactive chains stay TUI-only by design. Run
 `ralphctl <command> --help` for flag-level detail on the CLI commands.
@@ -550,11 +564,18 @@ and the non-obvious mutators.
   `{ pathPrefix, command, timeoutMs? }` gates proposed by `detect-scripts`; wins over `verifyScript` when
   present and non-empty), `setupSkill`, `verifySkill`, and `suggestedSkills` — names persisted by
   `offerSkillSuggestionsLeaf` in the readiness flow).
-- **`Sprint`** (`sprint.ts`) — identified by `SprintId`; lifecycle `draft → planned → active → review → done`; carries
+- **`Sprint`** (`sprint.ts`) — identified by `SprintId`; lifecycle `draft → planned → active → review → done`,
+  plus one deliberate reopen out of the otherwise-terminal `done` state, `done → review`. Carries
   `projectId` and nested `Ticket[]`. It holds **no** repo list — which repo a unit of work targets rides on
   `Task.repositoryId`, resolved against `project.repositories`. Mutators: `addTicket`, `replaceTicket`,
   `removeTicket`, `planSprint(draft → planned)`, `activateSprint`, `transitionSprintToReview`,
-  `transitionSprintToDone`, plus `revertSprintToActive` (review → active, used by task unblock).
+  `transitionSprintToDone`, `revertSprintToActive` (review → active, used by task unblock), and
+  `reopenDoneSprint` (done → review — used by `reopenDoneSprintUseCase`, the CLI's `sprint reopen <id>`,
+  and by `unblockTaskUseCase` itself when unblocking a task on a closed sprint, which then chains straight
+  into `revertSprintToActive` so there is only ever one review → active step to keep in sync). Both reopen
+  hops enforce the same single-active-per-project invariant `activateSprint` already enforced — only one
+  sprint per project may sit in `active` or `review` at a time, since both hold the sprint branch checked
+  out — via the shared `assertNoActivePeer` (`business/sprint/assert-no-active-peer.ts`).
 - **`SprintExecution`** (`sprint-execution.ts`) — identified by the parent `SprintId`; carries `branch`,
   `pullRequestUrl`, `setupRanAt` (array of `SetupRun` — one structured entry per repo per chain run,
   outcome: `success` / `failed` / `spawn-error` / `skipped`). Separate from `Sprint` so runtime-mutating
@@ -570,12 +591,29 @@ and the non-obvious mutators.
   `blockKind: 'upstream' | 'own'` discriminant — `'upstream'` when the `dependency-gate` parked the task
   because a prerequisite was not `done`; `'own'` for evaluator / verify / budget failures. New code reads
   `isUpstreamBlocked(task)` (checks `blockKind`) — never the `blockedReason` string prefix. Legacy
-  `tasks.json` entries without `blockKind` are migrated at read time. Optional `extraDimensions` is the
+  `tasks.json` entries without `blockKind` are migrated at read time. `BlockedTask` also carries optional
+  `blockCause` (a closed enum — `upstream-dependency` / `generator-self-block` / `pre-verify-red` /
+  `post-verify-regression` / `fold-conflict` / `worktree-setup-failure` / `operator-cancelled` /
+  `budget-exhausted` / `unknown`), refining `blockKind` with WHAT specifically happened, and `faultSide`
+  (`model` / `harness` / `environment` / `grader` / `unknown`), saying WHO owns the repair. Both are
+  optional and, when a producer doesn't stamp them explicitly, inferred at read time — `classifyBlock`
+  (`task-lifecycle.ts`) pattern-matches the reason text, preferring definitive crash forensics
+  (`Attempt.abortCause`) over a text guess where available. A generator self-block additionally carries its
+  own structured triage lifted verbatim off the `task-blocked` signal: `blockerClass` (`TaskBlockerClass` —
+  `missing-information` / `ambiguous-request` / `contradictory-information`, `domain/signal.ts`), `question`,
+  and `whatUnblocksMe` — all three absent for every non-self-block path and for a self-block whose signal
+  omitted them. Optional `extraDimensions` is the
   planner's per-task grading rubric beyond the five floor dimensions (Correctness / Completeness / Safety /
   Consistency / Robustness — single-sourced from `src/integration/ai/evaluation/_engine/floor-dimensions.ts`). Optional `maxAttempts` overrides the global cap. Optional `escalatedFromModel` /
   `escalatedToModel` are stamped on first plateau-escalation; optional `escalatedToEffort` stamps a
   same-model effort-rung bump (generator), and `escalatedToEvaluatorEffort` stamps the evaluator's
   own lockstep effort bump — both independent of `escalatedToModel` since neither changes the model.
+  Optional `retiredAttempts` (`RetiredRun[]`) archives every prior block → unblock cycle: `unblockTask`
+  (a clean-restart reset, distinct from `resetTaskToTodo`'s crash-recovery resume) moves the `attempts`,
+  `criteriaVerdicts`, and escalation stamps it clears off the live fields into one archived entry here
+  instead of discarding them, so `foldOutcomeStats` (`business/runs/outcome-stats.ts`) keeps counting a
+  retired run's attempts after the reset. A cascade-cleared dependent with nothing of its own archives
+  nothing.
 - **`TaskEpisode`** (`src/domain/entity/task-episode.ts`) — an in-memory value type (no
   on-disk persistence in this release) capturing the outcome of one settled task: `taskId`, `sprintId`,
   `goal`, `outcome` (`success | partial | blocked | abandoned`), `keyLearnings`, `timestamp`. Derived
@@ -616,7 +654,7 @@ signals: [...] }` envelope. The harness reads + Zod-validates post-spawn via
 | `EvaluationSignal`                                       | Per-round critique persisted on the `Task.attempts[]` history                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `TaskCompleteSignal`                                     | Per-task subchain transitions the task to `done` (after `verifyScript` passes)                                                                                                                                                                                                                                                                                                                                                                                |
 | `TaskVerifiedSignal`                                     | Use case sets `verified` on the task entity                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `TaskBlockedSignal`                                      | Use case transitions task to `blocked`                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `TaskBlockedSignal`                                      | Use case transitions task to `blocked`; optional `blockerClass`/`question`/`whatUnblocksMe` triage persists onto the task (`Task` § Data Models) and settling publishes a `TaskBlockedEvent`                                                                                                                                                                                                                                                                  |
 | `NoteSignal`                                             | Accumulated on `ctx.currentAttemptNotes` during the attempt; `progress-journal` renders the deduped list as the `### Notes` subsection of the journal entry. Also fans out as `HarnessSignalEvent` for live TUI panels (and `events.ndjson` when `RALPHCTL_DEBUG_TRACE=1`).                                                                                                                                                                                   |
 | `LearningSignal`                                         | Same path → `ctx.currentAttemptLearnings` → `### Learnings` subsection. Each signal carries a required `text` (Insight) and optional `context` (when/why) / `appliesTo` (where); rendered as a bold Insight bullet with indented `Context:` / `Applies to:` sub-bullets (omitted when absent). The `LearningEntry` shape lives in `src/domain/signal.ts`; dedup via `dedupeLearnings` (`src/application/flows/implement/leaves/_shared/dedupe-learnings.ts`). |
 | `ChangeSignal`                                           | Same path → `ctx.currentAttemptChanges` → `### Changes` subsection.                                                                                                                                                                                                                                                                                                                                                                                           |
@@ -641,7 +679,7 @@ EventBus events emitted by the chain runner / adapters (not parsed from AI outpu
 `ChainAborted`, `TaskAttemptStarted`, `TaskAttemptEvaluated`, `TaskRoundStarted`,
 `FeedbackRoundApplied`, `TokenUsageEvent`, `BannerShowEvent`, `BannerClearEvent`,
 `MemoryPressureEvent`, `ChainLogDegradedEvent`, `HarnessSignalEvent`, `AiSignalEvent`,
-`ModelEscalatedEvent`, `LogEvent`.
+`ModelEscalatedEvent`, `TaskBlockedEvent`, `LogEvent`.
 
 ## Error Classes
 
