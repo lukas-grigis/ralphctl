@@ -29,7 +29,7 @@ pnpm skills:update     # re-vendor upstream SKILL.md into scripts/vendor/skills/
 Before every commit, run `/verify` (wraps `pnpm typecheck && pnpm lint && pnpm test`). All three must pass.
 Pre-commit hook runs `lint-staged` (ESLint + Prettier on staged files); `pnpm lint:fix` / `pnpm format` patch.
 
-Requirements: Node.js 24+ (managed via `mise.toml`), pnpm 10+, one of the supported AI CLIs in PATH and
+Requirements: Node.js 24+ (managed via `mise.toml`), pnpm 12+, one of the supported AI CLIs in PATH and
 authenticated.
 
 ## Read on demand
